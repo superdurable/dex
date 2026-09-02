@@ -89,6 +89,30 @@ public interface InvokeWorkerRPCResponseOrBuilder extends
       int index);
 
   /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 5;</code>
+   */
+  java.util.List<io.superdurable.gen.ChannelMessageDeletion> 
+      getDeleteFromChannelList();
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 5;</code>
+   */
+  io.superdurable.gen.ChannelMessageDeletion getDeleteFromChannel(int index);
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 5;</code>
+   */
+  int getDeleteFromChannelCount();
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 5;</code>
+   */
+  java.util.List<? extends io.superdurable.gen.ChannelMessageDeletionOrBuilder> 
+      getDeleteFromChannelOrBuilderList();
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 5;</code>
+   */
+  io.superdurable.gen.ChannelMessageDeletionOrBuilder getDeleteFromChannelOrBuilder(
+      int index);
+
+  /**
    * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
    */
   java.util.List<io.superdurable.gen.ChannelMessage> 

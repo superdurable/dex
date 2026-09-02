@@ -26,6 +26,7 @@ import (
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
+	"github.com/superdurable/dex/service/common/channelmessage"
 	"github.com/superdurable/dex/service/common/event"
 	"github.com/superdurable/dex/service/common/grpctarget"
 	"github.com/superdurable/dex/service/common/index"
@@ -1018,6 +1019,9 @@ func (a *Activities) offloadWorkerSideEffects(
 	flowId string,
 	invocationId string,
 ) error {
+	if err := channelmessage.AssignIDs(channelMessages); err != nil {
+		return err
+	}
 	threshold := a.cfg.BlobStore.EffectiveThresholdInBytes()
 	if err := blobstore.OffloadLargeKVs(
 		ctx, stepLocals, flowId, invocationId, threshold, a.blobStore, a.cfg.BlobStore.EffectiveEnabled(),
@@ -1189,7 +1193,10 @@ func validateWorkerWaitForResponse(resp *dexpb.InvokeWaitForMethodResponse) erro
 	if err := workerclient.RejectWorkerKVBlobIDs(resp.GetUpsertStepExeLocals()); err != nil {
 		return err
 	}
-	return workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents())
+	if err := workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents()); err != nil {
+		return err
+	}
+	return validateWorkerChannelMessages(resp.GetPublishToChannel())
 }
 
 func validateExecuteResponse(
@@ -1214,6 +1221,21 @@ func validateWorkerExecuteResponse(resp *dexpb.InvokeExecuteMethodResponse) erro
 	}
 	if err := workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents()); err != nil {
 		return err
+	}
+	return validateWorkerChannelMessages(resp.GetPublishToChannel())
+}
+
+func validateWorkerChannelMessages(messages []*dexpb.ChannelMessage) error {
+	for index, message := range messages {
+		if message == nil || message.GetChannelName() == "" {
+			return fmt.Errorf("Channel publication at index %d is invalid", index)
+		}
+		if message.GetValue() == nil {
+			message.Value = &dexpb.Value{}
+		}
+		if err := workerclient.RejectWorkerBlobIDs(message.GetValue()); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -838,6 +838,20 @@ func (m *MockWorkflowProvider) SetInvokeRPCUpdateHandler(ctx UnifiedContext, val
 	return ret0
 }
 
+// SetDeleteChannelMessageUpdateHandler mocks base method.
+func (m *MockWorkflowProvider) SetDeleteChannelMessageUpdateHandler(ctx UnifiedContext, validator DeleteChannelMessageUpdateValidator, handler DeleteChannelMessageUpdateHandler) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetDeleteChannelMessageUpdateHandler", ctx, validator, handler)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetDeleteChannelMessageUpdateHandler indicates an expected call of SetDeleteChannelMessageUpdateHandler.
+func (mr *MockWorkflowProviderMockRecorder) SetDeleteChannelMessageUpdateHandler(ctx, validator, handler interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDeleteChannelMessageUpdateHandler", reflect.TypeOf((*MockWorkflowProvider)(nil).SetDeleteChannelMessageUpdateHandler), ctx, validator, handler)
+}
+
 // SetInvokeRPCUpdateHandler indicates an expected call of SetInvokeRPCUpdateHandler.
 func (mr *MockWorkflowProviderMockRecorder) SetInvokeRPCUpdateHandler(ctx, validator, handler interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()

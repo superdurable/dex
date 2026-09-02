@@ -304,6 +304,7 @@ func (sr *SignalReceiver) processExecuteRPC(
 	); err != nil {
 		return err
 	}
+	sr.channelStore.DeleteAll(request.GetDeleteFromChannel())
 	sr.channelStore.ProcessPublishing(request.GetPublishToChannel())
 	decision := request.GetStepDecision()
 	if decision == nil {

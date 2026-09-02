@@ -323,6 +323,14 @@ func (w *workflowProvider) SetInvokeRPCUpdateHandler(
 	return nil
 }
 
+func (w *workflowProvider) SetDeleteChannelMessageUpdateHandler(
+	interfaces.UnifiedContext,
+	interfaces.DeleteChannelMessageUpdateValidator,
+	interfaces.DeleteChannelMessageUpdateHandler,
+) error {
+	return nil
+}
+
 func (w *workflowProvider) SetWaitForStepCompletionUpdateHandler(
 	interfaces.UnifiedContext,
 	interfaces.WaitForStepCompletionUpdateValidator,

@@ -830,6 +830,7 @@ impl Client {
             timeout_seconds: optional_seconds(rpc.timeout)?,
             lock_attribute_keys: rpc.locks.iter().map(|lock| lock.physical_name()).collect(),
             request_id: Uuid::new_v4().to_string(),
+            is_transactional: false,
         };
         let mut service = self.service.clone();
         let output = self.runtime.block_on(async {
@@ -925,6 +926,7 @@ impl Client {
                 Ok(dex_protocol::dex::ChannelMessage {
                     channel_name: channel_name.to_string(),
                     value: Some(value_mapper::encode(&value)?),
+                    message_id: String::new(),
                 })
             })
             .collect::<SdkResult<Vec<_>>>()?;

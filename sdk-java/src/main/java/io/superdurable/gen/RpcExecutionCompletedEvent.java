@@ -37,6 +37,7 @@ private static final long serialVersionUID = 0L;
     upsertAttributes_ = java.util.Collections.emptyList();
     recordEvents_ = java.util.Collections.emptyList();
     publishToChannel_ = java.util.Collections.emptyList();
+    deleteFromChannel_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -309,6 +310,47 @@ private static final long serialVersionUID = 0L;
     return isSetAttributeApi_;
   }
 
+  public static final int DELETE_FROM_CHANNEL_FIELD_NUMBER = 9;
+  @SuppressWarnings("serial")
+  private java.util.List<io.superdurable.gen.ChannelMessageDeletion> deleteFromChannel_;
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.superdurable.gen.ChannelMessageDeletion> getDeleteFromChannelList() {
+    return deleteFromChannel_;
+  }
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+   */
+  @java.lang.Override
+  public java.util.List<? extends io.superdurable.gen.ChannelMessageDeletionOrBuilder> 
+      getDeleteFromChannelOrBuilderList() {
+    return deleteFromChannel_;
+  }
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+   */
+  @java.lang.Override
+  public int getDeleteFromChannelCount() {
+    return deleteFromChannel_.size();
+  }
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.ChannelMessageDeletion getDeleteFromChannel(int index) {
+    return deleteFromChannel_.get(index);
+  }
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.ChannelMessageDeletionOrBuilder getDeleteFromChannelOrBuilder(
+      int index) {
+    return deleteFromChannel_.get(index);
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -346,6 +388,9 @@ private static final long serialVersionUID = 0L;
     }
     if (isSetAttributeApi_ != false) {
       output.writeBool(8, isSetAttributeApi_);
+    }
+    for (int i = 0; i < deleteFromChannel_.size(); i++) {
+      output.writeMessage(9, deleteFromChannel_.get(i));
     }
     getUnknownFields().writeTo(output);
   }
@@ -397,6 +442,15 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeBoolSize(8, isSetAttributeApi_);
     }
+
+        {
+          final int count = deleteFromChannel_.size();
+          for (int i = 0; i < count; i++) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeMessageSizeNoTag(deleteFromChannel_.get(i));
+          }
+          size += 1 * count;
+        }
     return size;
   }
   @java.lang.Override
@@ -446,6 +500,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getPublishToChannelList())) return false;
     if (getIsSetAttributeApi()
         != other.getIsSetAttributeApi()) return false;
+    if (!getDeleteFromChannelList()
+        .equals(other.getDeleteFromChannelList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -486,6 +542,10 @@ private static final long serialVersionUID = 0L;
     hash = (37 * hash) + IS_SET_ATTRIBUTE_API_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
         getIsSetAttributeApi());
+    if (getDeleteFromChannelCount() > 0) {
+      hash = (37 * hash) + DELETE_FROM_CHANNEL_FIELD_NUMBER;
+      hash = (53 * hash) + getDeleteFromChannelList().hashCode();
+    }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -627,6 +687,7 @@ private static final long serialVersionUID = 0L;
         internalGetUpsertAttributesFieldBuilder();
         internalGetRecordEventsFieldBuilder();
         internalGetPublishToChannelFieldBuilder();
+        internalGetDeleteFromChannelFieldBuilder();
       }
     }
     @java.lang.Override
@@ -671,6 +732,13 @@ private static final long serialVersionUID = 0L;
       }
       bitField0_ = (bitField0_ & ~0x00000040);
       isSetAttributeApi_ = false;
+      if (deleteFromChannelBuilder_ == null) {
+        deleteFromChannel_ = java.util.Collections.emptyList();
+      } else {
+        deleteFromChannel_ = null;
+        deleteFromChannelBuilder_.clear();
+      }
+      bitField0_ = (bitField0_ & ~0x00000100);
       return this;
     }
 
@@ -730,6 +798,15 @@ private static final long serialVersionUID = 0L;
         result.publishToChannel_ = publishToChannel_;
       } else {
         result.publishToChannel_ = publishToChannelBuilder_.build();
+      }
+      if (deleteFromChannelBuilder_ == null) {
+        if (((bitField0_ & 0x00000100) != 0)) {
+          deleteFromChannel_ = java.util.Collections.unmodifiableList(deleteFromChannel_);
+          bitField0_ = (bitField0_ & ~0x00000100);
+        }
+        result.deleteFromChannel_ = deleteFromChannel_;
+      } else {
+        result.deleteFromChannel_ = deleteFromChannelBuilder_.build();
       }
     }
 
@@ -870,6 +947,32 @@ private static final long serialVersionUID = 0L;
       if (other.getIsSetAttributeApi() != false) {
         setIsSetAttributeApi(other.getIsSetAttributeApi());
       }
+      if (deleteFromChannelBuilder_ == null) {
+        if (!other.deleteFromChannel_.isEmpty()) {
+          if (deleteFromChannel_.isEmpty()) {
+            deleteFromChannel_ = other.deleteFromChannel_;
+            bitField0_ = (bitField0_ & ~0x00000100);
+          } else {
+            ensureDeleteFromChannelIsMutable();
+            deleteFromChannel_.addAll(other.deleteFromChannel_);
+          }
+          onChanged();
+        }
+      } else {
+        if (!other.deleteFromChannel_.isEmpty()) {
+          if (deleteFromChannelBuilder_.isEmpty()) {
+            deleteFromChannelBuilder_.dispose();
+            deleteFromChannelBuilder_ = null;
+            deleteFromChannel_ = other.deleteFromChannel_;
+            bitField0_ = (bitField0_ & ~0x00000100);
+            deleteFromChannelBuilder_ = 
+              com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                 internalGetDeleteFromChannelFieldBuilder() : null;
+          } else {
+            deleteFromChannelBuilder_.addAllMessages(other.deleteFromChannel_);
+          }
+        }
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -966,6 +1069,19 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000080;
               break;
             } // case 64
+            case 74: {
+              io.superdurable.gen.ChannelMessageDeletion m =
+                  input.readMessage(
+                      io.superdurable.gen.ChannelMessageDeletion.parser(),
+                      extensionRegistry);
+              if (deleteFromChannelBuilder_ == null) {
+                ensureDeleteFromChannelIsMutable();
+                deleteFromChannel_.add(m);
+              } else {
+                deleteFromChannelBuilder_.addMessage(m);
+              }
+              break;
+            } // case 74
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2168,6 +2284,246 @@ private static final long serialVersionUID = 0L;
       isSetAttributeApi_ = false;
       onChanged();
       return this;
+    }
+
+    private java.util.List<io.superdurable.gen.ChannelMessageDeletion> deleteFromChannel_ =
+      java.util.Collections.emptyList();
+    private void ensureDeleteFromChannelIsMutable() {
+      if (!((bitField0_ & 0x00000100) != 0)) {
+        deleteFromChannel_ = new java.util.ArrayList<io.superdurable.gen.ChannelMessageDeletion>(deleteFromChannel_);
+        bitField0_ |= 0x00000100;
+       }
+    }
+
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.ChannelMessageDeletion, io.superdurable.gen.ChannelMessageDeletion.Builder, io.superdurable.gen.ChannelMessageDeletionOrBuilder> deleteFromChannelBuilder_;
+
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public java.util.List<io.superdurable.gen.ChannelMessageDeletion> getDeleteFromChannelList() {
+      if (deleteFromChannelBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(deleteFromChannel_);
+      } else {
+        return deleteFromChannelBuilder_.getMessageList();
+      }
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public int getDeleteFromChannelCount() {
+      if (deleteFromChannelBuilder_ == null) {
+        return deleteFromChannel_.size();
+      } else {
+        return deleteFromChannelBuilder_.getCount();
+      }
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public io.superdurable.gen.ChannelMessageDeletion getDeleteFromChannel(int index) {
+      if (deleteFromChannelBuilder_ == null) {
+        return deleteFromChannel_.get(index);
+      } else {
+        return deleteFromChannelBuilder_.getMessage(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public Builder setDeleteFromChannel(
+        int index, io.superdurable.gen.ChannelMessageDeletion value) {
+      if (deleteFromChannelBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureDeleteFromChannelIsMutable();
+        deleteFromChannel_.set(index, value);
+        onChanged();
+      } else {
+        deleteFromChannelBuilder_.setMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public Builder setDeleteFromChannel(
+        int index, io.superdurable.gen.ChannelMessageDeletion.Builder builderForValue) {
+      if (deleteFromChannelBuilder_ == null) {
+        ensureDeleteFromChannelIsMutable();
+        deleteFromChannel_.set(index, builderForValue.build());
+        onChanged();
+      } else {
+        deleteFromChannelBuilder_.setMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public Builder addDeleteFromChannel(io.superdurable.gen.ChannelMessageDeletion value) {
+      if (deleteFromChannelBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureDeleteFromChannelIsMutable();
+        deleteFromChannel_.add(value);
+        onChanged();
+      } else {
+        deleteFromChannelBuilder_.addMessage(value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public Builder addDeleteFromChannel(
+        int index, io.superdurable.gen.ChannelMessageDeletion value) {
+      if (deleteFromChannelBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureDeleteFromChannelIsMutable();
+        deleteFromChannel_.add(index, value);
+        onChanged();
+      } else {
+        deleteFromChannelBuilder_.addMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public Builder addDeleteFromChannel(
+        io.superdurable.gen.ChannelMessageDeletion.Builder builderForValue) {
+      if (deleteFromChannelBuilder_ == null) {
+        ensureDeleteFromChannelIsMutable();
+        deleteFromChannel_.add(builderForValue.build());
+        onChanged();
+      } else {
+        deleteFromChannelBuilder_.addMessage(builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public Builder addDeleteFromChannel(
+        int index, io.superdurable.gen.ChannelMessageDeletion.Builder builderForValue) {
+      if (deleteFromChannelBuilder_ == null) {
+        ensureDeleteFromChannelIsMutable();
+        deleteFromChannel_.add(index, builderForValue.build());
+        onChanged();
+      } else {
+        deleteFromChannelBuilder_.addMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public Builder addAllDeleteFromChannel(
+        java.lang.Iterable<? extends io.superdurable.gen.ChannelMessageDeletion> values) {
+      if (deleteFromChannelBuilder_ == null) {
+        ensureDeleteFromChannelIsMutable();
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, deleteFromChannel_);
+        onChanged();
+      } else {
+        deleteFromChannelBuilder_.addAllMessages(values);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public Builder clearDeleteFromChannel() {
+      if (deleteFromChannelBuilder_ == null) {
+        deleteFromChannel_ = java.util.Collections.emptyList();
+        bitField0_ = (bitField0_ & ~0x00000100);
+        onChanged();
+      } else {
+        deleteFromChannelBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public Builder removeDeleteFromChannel(int index) {
+      if (deleteFromChannelBuilder_ == null) {
+        ensureDeleteFromChannelIsMutable();
+        deleteFromChannel_.remove(index);
+        onChanged();
+      } else {
+        deleteFromChannelBuilder_.remove(index);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public io.superdurable.gen.ChannelMessageDeletion.Builder getDeleteFromChannelBuilder(
+        int index) {
+      return internalGetDeleteFromChannelFieldBuilder().getBuilder(index);
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public io.superdurable.gen.ChannelMessageDeletionOrBuilder getDeleteFromChannelOrBuilder(
+        int index) {
+      if (deleteFromChannelBuilder_ == null) {
+        return deleteFromChannel_.get(index);  } else {
+        return deleteFromChannelBuilder_.getMessageOrBuilder(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public java.util.List<? extends io.superdurable.gen.ChannelMessageDeletionOrBuilder> 
+         getDeleteFromChannelOrBuilderList() {
+      if (deleteFromChannelBuilder_ != null) {
+        return deleteFromChannelBuilder_.getMessageOrBuilderList();
+      } else {
+        return java.util.Collections.unmodifiableList(deleteFromChannel_);
+      }
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public io.superdurable.gen.ChannelMessageDeletion.Builder addDeleteFromChannelBuilder() {
+      return internalGetDeleteFromChannelFieldBuilder().addBuilder(
+          io.superdurable.gen.ChannelMessageDeletion.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public io.superdurable.gen.ChannelMessageDeletion.Builder addDeleteFromChannelBuilder(
+        int index) {
+      return internalGetDeleteFromChannelFieldBuilder().addBuilder(
+          index, io.superdurable.gen.ChannelMessageDeletion.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 9;</code>
+     */
+    public java.util.List<io.superdurable.gen.ChannelMessageDeletion.Builder> 
+         getDeleteFromChannelBuilderList() {
+      return internalGetDeleteFromChannelFieldBuilder().getBuilderList();
+    }
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.ChannelMessageDeletion, io.superdurable.gen.ChannelMessageDeletion.Builder, io.superdurable.gen.ChannelMessageDeletionOrBuilder> 
+        internalGetDeleteFromChannelFieldBuilder() {
+      if (deleteFromChannelBuilder_ == null) {
+        deleteFromChannelBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            io.superdurable.gen.ChannelMessageDeletion, io.superdurable.gen.ChannelMessageDeletion.Builder, io.superdurable.gen.ChannelMessageDeletionOrBuilder>(
+                deleteFromChannel_,
+                ((bitField0_ & 0x00000100) != 0),
+                getParentForChildren(),
+                isClean());
+        deleteFromChannel_ = null;
+      }
+      return deleteFromChannelBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.RpcExecutionCompletedEvent)

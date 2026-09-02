@@ -445,6 +445,10 @@ func (b *Builder) RecordSignal(
 	eventTime time.Time,
 	request *dexpb.ExecuteRpcSignalRequest,
 ) {
+	if request.GetIsDeleteChannelMessageApi() {
+		b.RecordExternalDelete(eventID, eventTime, request.GetDeleteFromChannel())
+		return
+	}
 	if isExternalPublish(request) {
 		b.events = append(b.events, newEvent(
 			eventID,
@@ -458,7 +462,8 @@ func (b *Builder) RecordSignal(
 		return
 	}
 	rpcName := rpcNameFromDecision(request.GetStepDecision())
-	if !request.GetIsSetAttributeApi() && rpcName == "" && request.GetRpcInput() == nil && request.GetRpcOutput() == nil {
+	if !request.GetIsSetAttributeApi() && rpcName == "" && request.GetRpcInput() == nil &&
+		request.GetRpcOutput() == nil && len(request.GetDeleteFromChannel()) == 0 {
 		return
 	}
 	b.events = append(b.events, newEvent(
@@ -474,6 +479,7 @@ func (b *Builder) RecordSignal(
 				RecordEvents:      request.GetRecordEvents(),
 				PublishToChannel:  request.GetPublishToChannel(),
 				IsSetAttributeApi: request.GetIsSetAttributeApi(),
+				DeleteFromChannel: request.GetDeleteFromChannel(),
 			},
 		},
 	))
@@ -491,14 +497,29 @@ func (b *Builder) RecordInvokeRpcUpdate(
 		eventTime,
 		&dexpb.FlowHistoryEvent_RpcExecutionCompleted{
 			RpcExecutionCompleted: &dexpb.RpcExecutionCompletedEvent{
-				RpcName:          request.GetRpcName(),
-				Input:            request.GetInput(),
-				Output:           result.GetResponse().GetOutput(),
-				StepDecision:     workerResponse.GetStepDecision(),
-				UpsertAttributes: workerResponse.GetUpsertAttributes(),
-				RecordEvents:     workerResponse.GetRecordEvents(),
-				PublishToChannel: workerResponse.GetPublishToChannel(),
+				RpcName:           request.GetRpcName(),
+				Input:             request.GetInput(),
+				Output:            result.GetResponse().GetOutput(),
+				StepDecision:      workerResponse.GetStepDecision(),
+				UpsertAttributes:  workerResponse.GetUpsertAttributes(),
+				RecordEvents:      workerResponse.GetRecordEvents(),
+				PublishToChannel:  workerResponse.GetPublishToChannel(),
+				DeleteFromChannel: workerResponse.GetDeleteFromChannel(),
 			},
+		},
+	))
+}
+
+func (b *Builder) RecordExternalDelete(
+	eventID int64,
+	eventTime time.Time,
+	deletions []*dexpb.ChannelMessageDeletion,
+) {
+	b.events = append(b.events, newEvent(
+		eventID,
+		eventTime,
+		&dexpb.FlowHistoryEvent_ChannelExternalDelete{
+			ChannelExternalDelete: &dexpb.ChannelExternalDeleteEvent{Messages: deletions},
 		},
 	))
 }
@@ -781,6 +802,8 @@ func newEvent(
 		event.Payload = payload
 	case *dexpb.FlowHistoryEvent_ChannelExternalPublish:
 		event.Payload = payload
+	case *dexpb.FlowHistoryEvent_ChannelExternalDelete:
+		event.Payload = payload
 	case *dexpb.FlowHistoryEvent_TimeTravelFork:
 		event.Payload = payload
 	default:
@@ -877,6 +900,7 @@ func stepTypeFromExecutionID(stepExecutionID string) string {
 
 func isExternalPublish(request *dexpb.ExecuteRpcSignalRequest) bool {
 	return len(request.GetPublishToChannel()) > 0 &&
+		len(request.GetDeleteFromChannel()) == 0 &&
 		request.GetStepDecision() == nil &&
 		len(request.GetUpsertAttributes()) == 0 &&
 		len(request.GetRecordEvents()) == 0 &&

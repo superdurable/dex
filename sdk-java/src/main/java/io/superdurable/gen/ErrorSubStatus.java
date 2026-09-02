@@ -35,6 +35,10 @@ public enum ErrorSubStatus
    * <code>ERROR_SUB_STATUS_LONG_POLL_TIME_OUT = 5;</code>
    */
   ERROR_SUB_STATUS_LONG_POLL_TIME_OUT(5),
+  /**
+   * <code>ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND = 6;</code>
+   */
+  ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND(6),
   UNRECOGNIZED(-1),
   ;
 
@@ -71,6 +75,10 @@ public enum ErrorSubStatus
    * <code>ERROR_SUB_STATUS_LONG_POLL_TIME_OUT = 5;</code>
    */
   public static final int ERROR_SUB_STATUS_LONG_POLL_TIME_OUT_VALUE = 5;
+  /**
+   * <code>ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND = 6;</code>
+   */
+  public static final int ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND_VALUE = 6;
 
 
   public final int getNumber() {
@@ -103,6 +111,7 @@ public enum ErrorSubStatus
       case 3: return ERROR_SUB_STATUS_FLOW_NOT_EXISTS;
       case 4: return ERROR_SUB_STATUS_WORKER_API_ERROR;
       case 5: return ERROR_SUB_STATUS_LONG_POLL_TIME_OUT;
+      case 6: return ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND;
       default: return null;
     }
   }

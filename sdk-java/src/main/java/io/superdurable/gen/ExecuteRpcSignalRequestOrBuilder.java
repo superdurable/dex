@@ -132,4 +132,34 @@ public interface ExecuteRpcSignalRequestOrBuilder extends
    * @return The isSetAttributeApi.
    */
   boolean getIsSetAttributeApi();
+
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   */
+  java.util.List<io.superdurable.gen.ChannelMessageDeletion> 
+      getDeleteFromChannelList();
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   */
+  io.superdurable.gen.ChannelMessageDeletion getDeleteFromChannel(int index);
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   */
+  int getDeleteFromChannelCount();
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   */
+  java.util.List<? extends io.superdurable.gen.ChannelMessageDeletionOrBuilder> 
+      getDeleteFromChannelOrBuilderList();
+  /**
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   */
+  io.superdurable.gen.ChannelMessageDeletionOrBuilder getDeleteFromChannelOrBuilder(
+      int index);
+
+  /**
+   * <code>bool is_delete_channel_message_api = 9;</code>
+   * @return The isDeleteChannelMessageApi.
+   */
+  boolean getIsDeleteChannelMessageApi();
 }

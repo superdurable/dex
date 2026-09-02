@@ -66,6 +66,7 @@ private static final long serialVersionUID = 0L;
     STEP_WAIT_FOR_PENDING(28),
     STEP_EXECUTE_PENDING(29),
     TIME_TRAVEL_FORK(30),
+    CHANNEL_EXTERNAL_DELETE(31),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -94,6 +95,7 @@ private static final long serialVersionUID = 0L;
         case 28: return STEP_WAIT_FOR_PENDING;
         case 29: return STEP_EXECUTE_PENDING;
         case 30: return TIME_TRAVEL_FORK;
+        case 31: return CHANNEL_EXTERNAL_DELETE;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -487,6 +489,37 @@ private static final long serialVersionUID = 0L;
     return io.superdurable.gen.TimeTravelForkHistoryEvent.getDefaultInstance();
   }
 
+  public static final int CHANNEL_EXTERNAL_DELETE_FIELD_NUMBER = 31;
+  /**
+   * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+   * @return Whether the channelExternalDelete field is set.
+   */
+  @java.lang.Override
+  public boolean hasChannelExternalDelete() {
+    return payloadCase_ == 31;
+  }
+  /**
+   * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+   * @return The channelExternalDelete.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.ChannelExternalDeleteEvent getChannelExternalDelete() {
+    if (payloadCase_ == 31) {
+       return (io.superdurable.gen.ChannelExternalDeleteEvent) payload_;
+    }
+    return io.superdurable.gen.ChannelExternalDeleteEvent.getDefaultInstance();
+  }
+  /**
+   * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.ChannelExternalDeleteEventOrBuilder getChannelExternalDeleteOrBuilder() {
+    if (payloadCase_ == 31) {
+       return (io.superdurable.gen.ChannelExternalDeleteEvent) payload_;
+    }
+    return io.superdurable.gen.ChannelExternalDeleteEvent.getDefaultInstance();
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -539,6 +572,9 @@ private static final long serialVersionUID = 0L;
     }
     if (payloadCase_ == 30) {
       output.writeMessage(30, (io.superdurable.gen.TimeTravelForkHistoryEvent) payload_);
+    }
+    if (payloadCase_ == 31) {
+      output.writeMessage(31, (io.superdurable.gen.ChannelExternalDeleteEvent) payload_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -595,6 +631,10 @@ private static final long serialVersionUID = 0L;
     if (payloadCase_ == 30) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(30, (io.superdurable.gen.TimeTravelForkHistoryEvent) payload_);
+    }
+    if (payloadCase_ == 31) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(31, (io.superdurable.gen.ChannelExternalDeleteEvent) payload_);
     }
     return size;
   }
@@ -673,6 +713,10 @@ private static final long serialVersionUID = 0L;
         if (!getTimeTravelFork()
             .equals(other.getTimeTravelFork())) return false;
         break;
+      case 31:
+        if (!getChannelExternalDelete()
+            .equals(other.getChannelExternalDelete())) return false;
+        break;
       case 0:
       default:
     }
@@ -738,6 +782,10 @@ private static final long serialVersionUID = 0L;
       case 30:
         hash = (37 * hash) + TIME_TRAVEL_FORK_FIELD_NUMBER;
         hash = (53 * hash) + getTimeTravelFork().hashCode();
+        break;
+      case 31:
+        hash = (37 * hash) + CHANNEL_EXTERNAL_DELETE_FIELD_NUMBER;
+        hash = (53 * hash) + getChannelExternalDelete().hashCode();
         break;
       case 0:
       default:
@@ -918,6 +966,9 @@ private static final long serialVersionUID = 0L;
       if (timeTravelForkBuilder_ != null) {
         timeTravelForkBuilder_.clear();
       }
+      if (channelExternalDeleteBuilder_ != null) {
+        channelExternalDeleteBuilder_.clear();
+      }
       payloadCase_ = 0;
       payload_ = null;
       return this;
@@ -1014,6 +1065,10 @@ private static final long serialVersionUID = 0L;
           timeTravelForkBuilder_ != null) {
         result.payload_ = timeTravelForkBuilder_.build();
       }
+      if (payloadCase_ == 31 &&
+          channelExternalDeleteBuilder_ != null) {
+        result.payload_ = channelExternalDeleteBuilder_.build();
+      }
     }
 
     @java.lang.Override
@@ -1077,6 +1132,10 @@ private static final long serialVersionUID = 0L;
         }
         case TIME_TRAVEL_FORK: {
           mergeTimeTravelFork(other.getTimeTravelFork());
+          break;
+        }
+        case CHANNEL_EXTERNAL_DELETE: {
+          mergeChannelExternalDelete(other.getChannelExternalDelete());
           break;
         }
         case PAYLOAD_NOT_SET: {
@@ -1198,6 +1257,13 @@ private static final long serialVersionUID = 0L;
               payloadCase_ = 30;
               break;
             } // case 242
+            case 250: {
+              input.readMessage(
+                  internalGetChannelExternalDeleteFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              payloadCase_ = 31;
+              break;
+            } // case 250
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2943,6 +3009,148 @@ private static final long serialVersionUID = 0L;
       payloadCase_ = 30;
       onChanged();
       return timeTravelForkBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.ChannelExternalDeleteEvent, io.superdurable.gen.ChannelExternalDeleteEvent.Builder, io.superdurable.gen.ChannelExternalDeleteEventOrBuilder> channelExternalDeleteBuilder_;
+    /**
+     * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+     * @return Whether the channelExternalDelete field is set.
+     */
+    @java.lang.Override
+    public boolean hasChannelExternalDelete() {
+      return payloadCase_ == 31;
+    }
+    /**
+     * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+     * @return The channelExternalDelete.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.ChannelExternalDeleteEvent getChannelExternalDelete() {
+      if (channelExternalDeleteBuilder_ == null) {
+        if (payloadCase_ == 31) {
+          return (io.superdurable.gen.ChannelExternalDeleteEvent) payload_;
+        }
+        return io.superdurable.gen.ChannelExternalDeleteEvent.getDefaultInstance();
+      } else {
+        if (payloadCase_ == 31) {
+          return channelExternalDeleteBuilder_.getMessage();
+        }
+        return io.superdurable.gen.ChannelExternalDeleteEvent.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+     */
+    public Builder setChannelExternalDelete(io.superdurable.gen.ChannelExternalDeleteEvent value) {
+      if (channelExternalDeleteBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        payload_ = value;
+        onChanged();
+      } else {
+        channelExternalDeleteBuilder_.setMessage(value);
+      }
+      payloadCase_ = 31;
+      return this;
+    }
+    /**
+     * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+     */
+    public Builder setChannelExternalDelete(
+        io.superdurable.gen.ChannelExternalDeleteEvent.Builder builderForValue) {
+      if (channelExternalDeleteBuilder_ == null) {
+        payload_ = builderForValue.build();
+        onChanged();
+      } else {
+        channelExternalDeleteBuilder_.setMessage(builderForValue.build());
+      }
+      payloadCase_ = 31;
+      return this;
+    }
+    /**
+     * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+     */
+    public Builder mergeChannelExternalDelete(io.superdurable.gen.ChannelExternalDeleteEvent value) {
+      if (channelExternalDeleteBuilder_ == null) {
+        if (payloadCase_ == 31 &&
+            payload_ != io.superdurable.gen.ChannelExternalDeleteEvent.getDefaultInstance()) {
+          payload_ = io.superdurable.gen.ChannelExternalDeleteEvent.newBuilder((io.superdurable.gen.ChannelExternalDeleteEvent) payload_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          payload_ = value;
+        }
+        onChanged();
+      } else {
+        if (payloadCase_ == 31) {
+          channelExternalDeleteBuilder_.mergeFrom(value);
+        } else {
+          channelExternalDeleteBuilder_.setMessage(value);
+        }
+      }
+      payloadCase_ = 31;
+      return this;
+    }
+    /**
+     * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+     */
+    public Builder clearChannelExternalDelete() {
+      if (channelExternalDeleteBuilder_ == null) {
+        if (payloadCase_ == 31) {
+          payloadCase_ = 0;
+          payload_ = null;
+          onChanged();
+        }
+      } else {
+        if (payloadCase_ == 31) {
+          payloadCase_ = 0;
+          payload_ = null;
+        }
+        channelExternalDeleteBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+     */
+    public io.superdurable.gen.ChannelExternalDeleteEvent.Builder getChannelExternalDeleteBuilder() {
+      return internalGetChannelExternalDeleteFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+     */
+    @java.lang.Override
+    public io.superdurable.gen.ChannelExternalDeleteEventOrBuilder getChannelExternalDeleteOrBuilder() {
+      if ((payloadCase_ == 31) && (channelExternalDeleteBuilder_ != null)) {
+        return channelExternalDeleteBuilder_.getMessageOrBuilder();
+      } else {
+        if (payloadCase_ == 31) {
+          return (io.superdurable.gen.ChannelExternalDeleteEvent) payload_;
+        }
+        return io.superdurable.gen.ChannelExternalDeleteEvent.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.ChannelExternalDeleteEvent, io.superdurable.gen.ChannelExternalDeleteEvent.Builder, io.superdurable.gen.ChannelExternalDeleteEventOrBuilder> 
+        internalGetChannelExternalDeleteFieldBuilder() {
+      if (channelExternalDeleteBuilder_ == null) {
+        if (!(payloadCase_ == 31)) {
+          payload_ = io.superdurable.gen.ChannelExternalDeleteEvent.getDefaultInstance();
+        }
+        channelExternalDeleteBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.ChannelExternalDeleteEvent, io.superdurable.gen.ChannelExternalDeleteEvent.Builder, io.superdurable.gen.ChannelExternalDeleteEventOrBuilder>(
+                (io.superdurable.gen.ChannelExternalDeleteEvent) payload_,
+                getParentForChildren(),
+                isClean());
+        payload_ = null;
+      }
+      payloadCase_ = 31;
+      onChanged();
+      return channelExternalDeleteBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.FlowHistoryEvent)

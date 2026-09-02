@@ -19,23 +19,23 @@ import (
 
 // ChannelStore holds FIFO messages by channel.
 type ChannelStore struct {
-	channelMessages           map[string][]*dexpb.Value
+	channelMessages           map[string][]*dexpb.ChannelMessage
 	inFlightConsumptionCounts condition.ChannelAvailability
 }
 
 func NewChannelStore() *ChannelStore {
 	return &ChannelStore{
-		channelMessages:           map[string][]*dexpb.Value{},
+		channelMessages:           map[string][]*dexpb.ChannelMessage{},
 		inFlightConsumptionCounts: condition.ChannelAvailability{},
 	}
 }
 
 // RebuildChannelStore restores a snapshot.
 func RebuildChannelStore(refill map[string]*dexpb.ChannelValues) *ChannelStore {
-	chMsgs := make(map[string][]*dexpb.Value, len(refill))
+	chMsgs := make(map[string][]*dexpb.ChannelMessage, len(refill))
 	for name, channelValues := range refill {
-		if len(channelValues.GetValues()) > 0 {
-			chMsgs[name] = channelValues.GetValues()
+		if len(channelValues.GetMessages()) > 0 {
+			chMsgs[name] = channelValues.GetMessages()
 		}
 	}
 	return &ChannelStore{
@@ -47,7 +47,43 @@ func RebuildChannelStore(refill map[string]*dexpb.ChannelValues) *ChannelStore {
 // ProcessPublishing appends messages.
 func (i *ChannelStore) ProcessPublishing(messages []*dexpb.ChannelMessage) {
 	for _, message := range messages {
-		i.receive(message.GetChannelName(), message.GetValue())
+		if message.GetChannelName() == "" || message.GetMessageId() == "" {
+			panic("published Channel message requires a channel name and message ID")
+		}
+		i.receive(message)
+	}
+}
+
+// GetMessages returns pending messages for one channel.
+func (i *ChannelStore) GetMessages(channelName string) []*dexpb.ChannelMessage {
+	return i.channelMessages[channelName]
+}
+
+// CanDeleteAll reports the first missing deletion without changing state.
+func (i *ChannelStore) CanDeleteAll(deletions []*dexpb.ChannelMessageDeletion) *dexpb.ChannelMessageDeletion {
+	available := make(map[channelMessageIdentity]int)
+	for channelName, messages := range i.channelMessages {
+		for _, message := range messages {
+			available[channelMessageIdentity{channelName: channelName, messageID: message.GetMessageId()}]++
+		}
+	}
+	for _, deletion := range deletions {
+		identity := channelMessageIdentity{
+			channelName: deletion.GetChannelName(),
+			messageID:   deletion.GetMessageId(),
+		}
+		if available[identity] == 0 {
+			return deletion
+		}
+		available[identity]--
+	}
+	return nil
+}
+
+// DeleteAll removes the first FIFO match for each deletion.
+func (i *ChannelStore) DeleteAll(deletions []*dexpb.ChannelMessageDeletion) {
+	for _, deletion := range deletions {
+		i.deleteFirst(deletion.GetChannelName(), deletion.GetMessageId())
 	}
 }
 
@@ -78,8 +114,8 @@ func (i *ChannelStore) GetInfos() map[string]*dexpb.ChannelInfo {
 // GetAllReceived returns the current messages.
 func (i *ChannelStore) GetAllReceived() map[string]*dexpb.ChannelValues {
 	snapshot := make(map[string]*dexpb.ChannelValues, len(i.channelMessages))
-	for name, values := range i.channelMessages {
-		snapshot[name] = &dexpb.ChannelValues{Values: values}
+	for name, messages := range i.channelMessages {
+		snapshot[name] = &dexpb.ChannelValues{Messages: messages}
 	}
 	return snapshot
 }
@@ -88,26 +124,30 @@ func (i *ChannelStore) GetAllReceived() map[string]*dexpb.ChannelValues {
 func (i *ChannelStore) CommitMatch(plan *condition.MatchPlan) map[int][]*dexpb.Value {
 	consumed := make(map[int][]*dexpb.Value, len(plan.Consumes))
 	for _, consumption := range plan.Consumes {
-		values := i.channelMessages[consumption.ChannelName]
-		if int32(len(values)) < consumption.Count {
+		messages := i.channelMessages[consumption.ChannelName]
+		if int32(len(messages)) < consumption.Count {
 			panic(fmt.Sprintf(
 				"channel %q holds %d messages but the match plan consumes %d; no yield may occur between plan and commit",
 				consumption.ChannelName,
-				len(values),
+				len(messages),
 				consumption.Count,
 			))
 		}
 		if consumption.Count > 0 {
-			consumed[consumption.ChannelConditionIndex] = values[:consumption.Count:consumption.Count]
-			values = values[consumption.Count:]
+			values := make([]*dexpb.Value, consumption.Count)
+			for index, message := range messages[:consumption.Count] {
+				values[index] = message.GetValue()
+			}
+			consumed[consumption.ChannelConditionIndex] = values
+			messages = messages[consumption.Count:]
 			i.inFlightConsumptionCounts[consumption.ChannelName] += consumption.Count
 		} else {
 			consumed[consumption.ChannelConditionIndex] = nil
 		}
-		if len(values) == 0 {
+		if len(messages) == 0 {
 			delete(i.channelMessages, consumption.ChannelName)
 		} else {
-			i.channelMessages[consumption.ChannelName] = values
+			i.channelMessages[consumption.ChannelName] = messages
 		}
 	}
 	return consumed
@@ -137,8 +177,31 @@ func (i *ChannelStore) CompleteMatch(plan *condition.MatchPlan) {
 	}
 }
 
-func (i *ChannelStore) receive(channelName string, data *dexpb.Value) {
-	values := i.channelMessages[channelName]
-	values = append(values, data)
-	i.channelMessages[channelName] = values
+type channelMessageIdentity struct {
+	channelName string
+	messageID   string
+}
+
+func (i *ChannelStore) receive(message *dexpb.ChannelMessage) {
+	channelName := message.GetChannelName()
+	messages := i.channelMessages[channelName]
+	messages = append(messages, message)
+	i.channelMessages[channelName] = messages
+}
+
+func (i *ChannelStore) deleteFirst(channelName string, messageID string) bool {
+	messages := i.channelMessages[channelName]
+	for index, message := range messages {
+		if message.GetMessageId() != messageID {
+			continue
+		}
+		messages = append(messages[:index], messages[index+1:]...)
+		if len(messages) == 0 {
+			delete(i.channelMessages, channelName)
+		} else {
+			i.channelMessages[channelName] = messages
+		}
+		return true
+	}
+	return false
 }

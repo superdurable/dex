@@ -296,7 +296,11 @@ export class InvocationContext implements AsyncContext {
   public publish<T>(channel: Channel<T> | ChannelMap<T>, value: T, instance?: string): void {
     this.requireRegistered(channel);
     const name = definitionName(channel, instance);
-    this.publications.push({ channelName: name, value: encodeValue(channel.codec, value) });
+    this.publications.push({
+      channelName: name,
+      value: encodeValue(channel.codec, value),
+      messageId: "",
+    });
     if (this.method === "rpc") {
       this.channelInfos.set(name, { size: (this.channelInfos.get(name)?.size ?? 0) + 1 });
     }

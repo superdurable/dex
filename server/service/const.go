@@ -23,14 +23,16 @@ const (
 
 	TaskQueue = "DEFAULT"
 
-	GetAttributesWorkflowQueryType    = "GetAttributes"
-	GetCurrentTimerInfosQueryType     = "GetCurrentTimerInfos"
-	ContinueAsNewDumpByPageQueryType  = "ContinueAsNewDumpByPage"
-	DebugDumpQueryType                = "DebugNewDump"
-	IsStepExecutionCompletedQueryType = "IsStepExecutionCompleted"
-	PrepareRpcQueryType               = "PrepareRpcQueryType"
+	GetAttributesWorkflowQueryType      = "GetAttributes"
+	GetChannelMessagesWorkflowQueryType = "GetChannelMessages"
+	GetCurrentTimerInfosQueryType       = "GetCurrentTimerInfos"
+	ContinueAsNewDumpByPageQueryType    = "ContinueAsNewDumpByPage"
+	DebugDumpQueryType                  = "DebugNewDump"
+	IsStepExecutionCompletedQueryType   = "IsStepExecutionCompleted"
+	PrepareRpcQueryType                 = "PrepareRpcQueryType"
 
 	InvokeRpcUpdateType             = "InvokeRpc"
+	DeleteChannelMessageUpdateType  = "DeleteChannelMessage"
 	WaitForStepCompletionUpdateType = "WaitForStepCompletion"
 	WaitForAttributeUpdateType      = "WaitForAttribute"
 

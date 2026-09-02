@@ -39,6 +39,10 @@ public enum UpdateErrorType
    * <code>UPDATE_ERROR_TYPE_SERVER_INTERNAL = 6;</code>
    */
   UPDATE_ERROR_TYPE_SERVER_INTERNAL(6),
+  /**
+   * <code>UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND = 7;</code>
+   */
+  UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND(7),
   UNRECOGNIZED(-1),
   ;
 
@@ -79,6 +83,10 @@ public enum UpdateErrorType
    * <code>UPDATE_ERROR_TYPE_SERVER_INTERNAL = 6;</code>
    */
   public static final int UPDATE_ERROR_TYPE_SERVER_INTERNAL_VALUE = 6;
+  /**
+   * <code>UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND = 7;</code>
+   */
+  public static final int UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND_VALUE = 7;
 
 
   public final int getNumber() {
@@ -112,6 +120,7 @@ public enum UpdateErrorType
       case 4: return UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED;
       case 5: return UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE;
       case 6: return UPDATE_ERROR_TYPE_SERVER_INTERNAL;
+      case 7: return UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND;
       default: return null;
     }
   }

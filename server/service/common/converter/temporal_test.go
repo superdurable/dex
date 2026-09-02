@@ -119,8 +119,8 @@ func TestTemporalJSONEscapeHatchForNonProto(t *testing.T) {
 func TestMarshalDeterministicStableForMaps(t *testing.T) {
 	msg := &dexpb.ContinueAsNewDump{
 		ChannelReceived: map[string]*dexpb.ChannelValues{
-			"b": {Values: []*dexpb.Value{{Kind: &dexpb.Value_StringValue{StringValue: "2"}}}},
-			"a": {Values: []*dexpb.Value{{Kind: &dexpb.Value_StringValue{StringValue: "1"}}}},
+			"b": {Messages: []*dexpb.ChannelMessage{{ChannelName: "b", MessageId: "2", Value: &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "2"}}}}},
+			"a": {Messages: []*dexpb.ChannelMessage{{ChannelName: "a", MessageId: "1", Value: &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "1"}}}}},
 		},
 	}
 	first, err := MarshalDeterministic(msg)

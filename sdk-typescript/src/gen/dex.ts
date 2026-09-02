@@ -160,6 +160,7 @@ export enum ErrorSubStatus {
   ERROR_SUB_STATUS_FLOW_NOT_EXISTS = 3,
   ERROR_SUB_STATUS_WORKER_API_ERROR = 4,
   ERROR_SUB_STATUS_LONG_POLL_TIME_OUT = 5,
+  ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND = 6,
   UNRECOGNIZED = -1,
 }
 
@@ -212,6 +213,7 @@ export enum UpdateErrorType {
   UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED = 4,
   UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE = 5,
   UPDATE_ERROR_TYPE_SERVER_INTERNAL = 6,
+  UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND = 7,
   UNRECOGNIZED = -1,
 }
 
@@ -387,6 +389,30 @@ export interface PublishToChannelRequest {
 export interface ChannelMessage {
   channelName: string;
   value: Value | undefined;
+  messageId: string;
+}
+
+export interface GetChannelMessagesRequest {
+  flowId: string;
+  runId: string;
+  channelName: string;
+}
+
+export interface GetChannelMessagesResponse {
+  messages: ChannelMessage[];
+}
+
+export interface DeleteChannelMessageRequest {
+  flowId: string;
+  runId: string;
+  channelName: string;
+  messageId: string;
+  requestId: string;
+}
+
+export interface ChannelMessageDeletion {
+  channelName: string;
+  messageId: string;
 }
 
 export interface WriteStreamRequest {
@@ -578,6 +604,7 @@ export interface FlowHistoryEvent {
     | { $case: "stepWaitForPending"; value: StepMethodPendingEvent }
     | { $case: "stepExecutePending"; value: StepMethodPendingEvent }
     | { $case: "timeTravelFork"; value: TimeTravelForkHistoryEvent }
+    | { $case: "channelExternalDelete"; value: ChannelExternalDeleteEvent }
     | undefined;
 }
 
@@ -724,10 +751,15 @@ export interface RpcExecutionCompletedEvent {
   recordEvents: KV[];
   publishToChannel: ChannelMessage[];
   isSetAttributeApi: boolean;
+  deleteFromChannel: ChannelMessageDeletion[];
 }
 
 export interface ChannelExternalPublishEvent {
   messages: ChannelMessage[];
+}
+
+export interface ChannelExternalDeleteEvent {
+  messages: ChannelMessageDeletion[];
 }
 
 export interface WaitForHistoryEventRequest {
@@ -805,6 +837,11 @@ export interface InvokeRPCRequest {
   lockAttributeKeys: string[];
   /** Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal Update paths use it as the run-scoped Update ID; Continue-as-New resets scope. */
   requestId: string;
+  /**
+   * Requests transactional reads and writes. Attribute locking enables it
+   * automatically. Channel deletion alone does not; callers must opt in.
+   */
+  isTransactional: boolean;
 }
 
 export interface InvokeRPCResponse {
@@ -990,6 +1027,7 @@ export interface InvokeWorkerRPCResponse {
   stepDecision: StepDecision | undefined;
   upsertAttributes: AttributeWrite[];
   recordEvents: KV[];
+  deleteFromChannel: ChannelMessageDeletion[];
   publishToChannel: ChannelMessage[];
 }
 
@@ -1117,7 +1155,7 @@ export interface ContinueAsNewDumpResponse {
 }
 
 export interface ChannelValues {
-  values: Value[];
+  messages: ChannelMessage[];
 }
 
 export interface StepExecutionCompletedConditions {
@@ -1327,6 +1365,8 @@ export interface ExecuteRpcSignalRequest {
   recordEvents: KV[];
   publishToChannel: ChannelMessage[];
   isSetAttributeApi: boolean;
+  deleteFromChannel: ChannelMessageDeletion[];
+  isDeleteChannelMessageApi: boolean;
 }
 
 export interface SkipTimerSignalRequest {
@@ -3196,7 +3236,7 @@ export const PublishToChannelRequest: MessageFns<PublishToChannelRequest> = {
 };
 
 function createBaseChannelMessage(): ChannelMessage {
-  return { channelName: "", value: undefined };
+  return { channelName: "", value: undefined, messageId: "" };
 }
 
 export const ChannelMessage: MessageFns<ChannelMessage> = {
@@ -3206,6 +3246,9 @@ export const ChannelMessage: MessageFns<ChannelMessage> = {
     }
     if (message.value !== undefined) {
       Value.encode(message.value, writer.uint32(18).fork()).join();
+    }
+    if (message.messageId !== "") {
+      writer.uint32(26).string(message.messageId);
     }
     return writer;
   },
@@ -3233,6 +3276,14 @@ export const ChannelMessage: MessageFns<ChannelMessage> = {
           message.value = Value.decode(reader, reader.uint32());
           continue;
         }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.messageId = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3249,6 +3300,275 @@ export const ChannelMessage: MessageFns<ChannelMessage> = {
     const message = createBaseChannelMessage();
     message.channelName = object.channelName ?? "";
     message.value = (object.value !== undefined && object.value !== null) ? Value.fromPartial(object.value) : undefined;
+    message.messageId = object.messageId ?? "";
+    return message;
+  },
+};
+
+function createBaseGetChannelMessagesRequest(): GetChannelMessagesRequest {
+  return { flowId: "", runId: "", channelName: "" };
+}
+
+export const GetChannelMessagesRequest: MessageFns<GetChannelMessagesRequest> = {
+  encode(message: GetChannelMessagesRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.flowId !== "") {
+      writer.uint32(10).string(message.flowId);
+    }
+    if (message.runId !== "") {
+      writer.uint32(18).string(message.runId);
+    }
+    if (message.channelName !== "") {
+      writer.uint32(26).string(message.channelName);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetChannelMessagesRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetChannelMessagesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.runId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.channelName = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<GetChannelMessagesRequest>, I>>(base?: I): GetChannelMessagesRequest {
+    return GetChannelMessagesRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetChannelMessagesRequest>, I>>(object: I): GetChannelMessagesRequest {
+    const message = createBaseGetChannelMessagesRequest();
+    message.flowId = object.flowId ?? "";
+    message.runId = object.runId ?? "";
+    message.channelName = object.channelName ?? "";
+    return message;
+  },
+};
+
+function createBaseGetChannelMessagesResponse(): GetChannelMessagesResponse {
+  return { messages: [] };
+}
+
+export const GetChannelMessagesResponse: MessageFns<GetChannelMessagesResponse> = {
+  encode(message: GetChannelMessagesResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.messages) {
+      ChannelMessage.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetChannelMessagesResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetChannelMessagesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.messages.push(ChannelMessage.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<GetChannelMessagesResponse>, I>>(base?: I): GetChannelMessagesResponse {
+    return GetChannelMessagesResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetChannelMessagesResponse>, I>>(object: I): GetChannelMessagesResponse {
+    const message = createBaseGetChannelMessagesResponse();
+    message.messages = object.messages?.map((e) => ChannelMessage.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseDeleteChannelMessageRequest(): DeleteChannelMessageRequest {
+  return { flowId: "", runId: "", channelName: "", messageId: "", requestId: "" };
+}
+
+export const DeleteChannelMessageRequest: MessageFns<DeleteChannelMessageRequest> = {
+  encode(message: DeleteChannelMessageRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.flowId !== "") {
+      writer.uint32(10).string(message.flowId);
+    }
+    if (message.runId !== "") {
+      writer.uint32(18).string(message.runId);
+    }
+    if (message.channelName !== "") {
+      writer.uint32(26).string(message.channelName);
+    }
+    if (message.messageId !== "") {
+      writer.uint32(34).string(message.messageId);
+    }
+    if (message.requestId !== "") {
+      writer.uint32(42).string(message.requestId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DeleteChannelMessageRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDeleteChannelMessageRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.runId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.channelName = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.messageId = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.requestId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<DeleteChannelMessageRequest>, I>>(base?: I): DeleteChannelMessageRequest {
+    return DeleteChannelMessageRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<DeleteChannelMessageRequest>, I>>(object: I): DeleteChannelMessageRequest {
+    const message = createBaseDeleteChannelMessageRequest();
+    message.flowId = object.flowId ?? "";
+    message.runId = object.runId ?? "";
+    message.channelName = object.channelName ?? "";
+    message.messageId = object.messageId ?? "";
+    message.requestId = object.requestId ?? "";
+    return message;
+  },
+};
+
+function createBaseChannelMessageDeletion(): ChannelMessageDeletion {
+  return { channelName: "", messageId: "" };
+}
+
+export const ChannelMessageDeletion: MessageFns<ChannelMessageDeletion> = {
+  encode(message: ChannelMessageDeletion, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.channelName !== "") {
+      writer.uint32(10).string(message.channelName);
+    }
+    if (message.messageId !== "") {
+      writer.uint32(18).string(message.messageId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ChannelMessageDeletion {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseChannelMessageDeletion();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.channelName = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.messageId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ChannelMessageDeletion>, I>>(base?: I): ChannelMessageDeletion {
+    return ChannelMessageDeletion.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ChannelMessageDeletion>, I>>(object: I): ChannelMessageDeletion {
+    const message = createBaseChannelMessageDeletion();
+    message.channelName = object.channelName ?? "";
+    message.messageId = object.messageId ?? "";
     return message;
   },
 };
@@ -5325,6 +5645,9 @@ export const FlowHistoryEvent: MessageFns<FlowHistoryEvent> = {
       case "timeTravelFork":
         TimeTravelForkHistoryEvent.encode(message.payload.value, writer.uint32(242).fork()).join();
         break;
+      case "channelExternalDelete":
+        ChannelExternalDeleteEvent.encode(message.payload.value, writer.uint32(250).fork()).join();
+        break;
     }
     return writer;
   },
@@ -5470,6 +5793,17 @@ export const FlowHistoryEvent: MessageFns<FlowHistoryEvent> = {
           };
           continue;
         }
+        case 31: {
+          if (tag !== 250) {
+            break;
+          }
+
+          message.payload = {
+            $case: "channelExternalDelete",
+            value: ChannelExternalDeleteEvent.decode(reader, reader.uint32()),
+          };
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -5579,6 +5913,15 @@ export const FlowHistoryEvent: MessageFns<FlowHistoryEvent> = {
           message.payload = {
             $case: "timeTravelFork",
             value: TimeTravelForkHistoryEvent.fromPartial(object.payload.value),
+          };
+        }
+        break;
+      }
+      case "channelExternalDelete": {
+        if (object.payload?.value !== undefined && object.payload?.value !== null) {
+          message.payload = {
+            $case: "channelExternalDelete",
+            value: ChannelExternalDeleteEvent.fromPartial(object.payload.value),
           };
         }
         break;
@@ -7213,6 +7556,7 @@ function createBaseRpcExecutionCompletedEvent(): RpcExecutionCompletedEvent {
     recordEvents: [],
     publishToChannel: [],
     isSetAttributeApi: false,
+    deleteFromChannel: [],
   };
 }
 
@@ -7241,6 +7585,9 @@ export const RpcExecutionCompletedEvent: MessageFns<RpcExecutionCompletedEvent> 
     }
     if (message.isSetAttributeApi !== false) {
       writer.uint32(64).bool(message.isSetAttributeApi);
+    }
+    for (const v of message.deleteFromChannel) {
+      ChannelMessageDeletion.encode(v!, writer.uint32(74).fork()).join();
     }
     return writer;
   },
@@ -7316,6 +7663,14 @@ export const RpcExecutionCompletedEvent: MessageFns<RpcExecutionCompletedEvent> 
           message.isSetAttributeApi = reader.bool();
           continue;
         }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -7342,6 +7697,7 @@ export const RpcExecutionCompletedEvent: MessageFns<RpcExecutionCompletedEvent> 
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
     message.isSetAttributeApi = object.isSetAttributeApi ?? false;
+    message.deleteFromChannel = object.deleteFromChannel?.map((e) => ChannelMessageDeletion.fromPartial(e)) || [];
     return message;
   },
 };
@@ -7388,6 +7744,52 @@ export const ChannelExternalPublishEvent: MessageFns<ChannelExternalPublishEvent
   fromPartial<I extends Exact<DeepPartial<ChannelExternalPublishEvent>, I>>(object: I): ChannelExternalPublishEvent {
     const message = createBaseChannelExternalPublishEvent();
     message.messages = object.messages?.map((e) => ChannelMessage.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseChannelExternalDeleteEvent(): ChannelExternalDeleteEvent {
+  return { messages: [] };
+}
+
+export const ChannelExternalDeleteEvent: MessageFns<ChannelExternalDeleteEvent> = {
+  encode(message: ChannelExternalDeleteEvent, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.messages) {
+      ChannelMessageDeletion.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ChannelExternalDeleteEvent {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseChannelExternalDeleteEvent();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.messages.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ChannelExternalDeleteEvent>, I>>(base?: I): ChannelExternalDeleteEvent {
+    return ChannelExternalDeleteEvent.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ChannelExternalDeleteEvent>, I>>(object: I): ChannelExternalDeleteEvent {
+    const message = createBaseChannelExternalDeleteEvent();
+    message.messages = object.messages?.map((e) => ChannelMessageDeletion.fromPartial(e)) || [];
     return message;
   },
 };
@@ -8179,6 +8581,7 @@ function createBaseInvokeRPCRequest(): InvokeRPCRequest {
     timeoutSeconds: 0,
     lockAttributeKeys: [],
     requestId: "",
+    isTransactional: false,
   };
 }
 
@@ -8204,6 +8607,9 @@ export const InvokeRPCRequest: MessageFns<InvokeRPCRequest> = {
     }
     if (message.requestId !== "") {
       writer.uint32(58).string(message.requestId);
+    }
+    if (message.isTransactional !== false) {
+      writer.uint32(64).bool(message.isTransactional);
     }
     return writer;
   },
@@ -8271,6 +8677,14 @@ export const InvokeRPCRequest: MessageFns<InvokeRPCRequest> = {
           message.requestId = reader.string();
           continue;
         }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.isTransactional = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8292,6 +8706,7 @@ export const InvokeRPCRequest: MessageFns<InvokeRPCRequest> = {
     message.timeoutSeconds = object.timeoutSeconds ?? 0;
     message.lockAttributeKeys = object.lockAttributeKeys?.map((e) => e) || [];
     message.requestId = object.requestId ?? "";
+    message.isTransactional = object.isTransactional ?? false;
     return message;
   },
 };
@@ -10379,7 +10794,14 @@ export const InvokeWorkerRPCRequest_ChannelInfosEntry: MessageFns<InvokeWorkerRP
 };
 
 function createBaseInvokeWorkerRPCResponse(): InvokeWorkerRPCResponse {
-  return { output: undefined, stepDecision: undefined, upsertAttributes: [], recordEvents: [], publishToChannel: [] };
+  return {
+    output: undefined,
+    stepDecision: undefined,
+    upsertAttributes: [],
+    recordEvents: [],
+    deleteFromChannel: [],
+    publishToChannel: [],
+  };
 }
 
 export const InvokeWorkerRPCResponse: MessageFns<InvokeWorkerRPCResponse> = {
@@ -10395,6 +10817,9 @@ export const InvokeWorkerRPCResponse: MessageFns<InvokeWorkerRPCResponse> = {
     }
     for (const v of message.recordEvents) {
       KV.encode(v!, writer.uint32(34).fork()).join();
+    }
+    for (const v of message.deleteFromChannel) {
+      ChannelMessageDeletion.encode(v!, writer.uint32(42).fork()).join();
     }
     for (const v of message.publishToChannel) {
       ChannelMessage.encode(v!, writer.uint32(50).fork()).join();
@@ -10441,6 +10866,14 @@ export const InvokeWorkerRPCResponse: MessageFns<InvokeWorkerRPCResponse> = {
           message.recordEvents.push(KV.decode(reader, reader.uint32()));
           continue;
         }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
+          continue;
+        }
         case 6: {
           if (tag !== 50) {
             break;
@@ -10471,6 +10904,7 @@ export const InvokeWorkerRPCResponse: MessageFns<InvokeWorkerRPCResponse> = {
       : undefined;
     message.upsertAttributes = object.upsertAttributes?.map((e) => AttributeWrite.fromPartial(e)) || [];
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
+    message.deleteFromChannel = object.deleteFromChannel?.map((e) => ChannelMessageDeletion.fromPartial(e)) || [];
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
     return message;
   },
@@ -11845,13 +12279,13 @@ export const ContinueAsNewDumpResponse: MessageFns<ContinueAsNewDumpResponse> = 
 };
 
 function createBaseChannelValues(): ChannelValues {
-  return { values: [] };
+  return { messages: [] };
 }
 
 export const ChannelValues: MessageFns<ChannelValues> = {
   encode(message: ChannelValues, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    for (const v of message.values) {
-      Value.encode(v!, writer.uint32(10).fork()).join();
+    for (const v of message.messages) {
+      ChannelMessage.encode(v!, writer.uint32(10).fork()).join();
     }
     return writer;
   },
@@ -11868,7 +12302,7 @@ export const ChannelValues: MessageFns<ChannelValues> = {
             break;
           }
 
-          message.values.push(Value.decode(reader, reader.uint32()));
+          message.messages.push(ChannelMessage.decode(reader, reader.uint32()));
           continue;
         }
       }
@@ -11885,7 +12319,7 @@ export const ChannelValues: MessageFns<ChannelValues> = {
   },
   fromPartial<I extends Exact<DeepPartial<ChannelValues>, I>>(object: I): ChannelValues {
     const message = createBaseChannelValues();
-    message.values = object.values?.map((e) => Value.fromPartial(e)) || [];
+    message.messages = object.messages?.map((e) => ChannelMessage.fromPartial(e)) || [];
     return message;
   },
 };
@@ -14398,6 +14832,8 @@ function createBaseExecuteRpcSignalRequest(): ExecuteRpcSignalRequest {
     recordEvents: [],
     publishToChannel: [],
     isSetAttributeApi: false,
+    deleteFromChannel: [],
+    isDeleteChannelMessageApi: false,
   };
 }
 
@@ -14423,6 +14859,12 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
     }
     if (message.isSetAttributeApi !== false) {
       writer.uint32(56).bool(message.isSetAttributeApi);
+    }
+    for (const v of message.deleteFromChannel) {
+      ChannelMessageDeletion.encode(v!, writer.uint32(66).fork()).join();
+    }
+    if (message.isDeleteChannelMessageApi !== false) {
+      writer.uint32(72).bool(message.isDeleteChannelMessageApi);
     }
     return writer;
   },
@@ -14490,6 +14932,22 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
           message.isSetAttributeApi = reader.bool();
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.isDeleteChannelMessageApi = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -14517,6 +14975,8 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
     message.isSetAttributeApi = object.isSetAttributeApi ?? false;
+    message.deleteFromChannel = object.deleteFromChannel?.map((e) => ChannelMessageDeletion.fromPartial(e)) || [];
+    message.isDeleteChannelMessageApi = object.isDeleteChannelMessageApi ?? false;
     return message;
   },
 };
@@ -15542,6 +16002,27 @@ export const FlowServiceService = {
     responseSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
     responseDeserialize: (value: Buffer): Empty => Empty.decode(value),
   },
+  getChannelMessages: {
+    path: "/dex.FlowService/GetChannelMessages" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: GetChannelMessagesRequest): Buffer =>
+      Buffer.from(GetChannelMessagesRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): GetChannelMessagesRequest => GetChannelMessagesRequest.decode(value),
+    responseSerialize: (value: GetChannelMessagesResponse): Buffer =>
+      Buffer.from(GetChannelMessagesResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): GetChannelMessagesResponse => GetChannelMessagesResponse.decode(value),
+  },
+  deleteChannelMessage: {
+    path: "/dex.FlowService/DeleteChannelMessage" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: DeleteChannelMessageRequest): Buffer =>
+      Buffer.from(DeleteChannelMessageRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): DeleteChannelMessageRequest => DeleteChannelMessageRequest.decode(value),
+    responseSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Empty => Empty.decode(value),
+  },
   writeStream: {
     path: "/dex.FlowService/WriteStream" as const,
     requestStream: false as const,
@@ -15751,6 +16232,8 @@ export const FlowServiceService = {
 export interface FlowServiceServer extends UntypedServiceImplementation {
   startFlow: handleUnaryCall<StartFlowRequest, StartFlowResponse>;
   publishToChannel: handleUnaryCall<PublishToChannelRequest, Empty>;
+  getChannelMessages: handleUnaryCall<GetChannelMessagesRequest, GetChannelMessagesResponse>;
+  deleteChannelMessage: handleUnaryCall<DeleteChannelMessageRequest, Empty>;
   writeStream: handleUnaryCall<WriteStreamRequest, Empty>;
   readStream: handleUnaryCall<ReadStreamRequest, ReadStreamResponse>;
   stopFlow: handleUnaryCall<StopFlowRequest, Empty>;
@@ -15801,6 +16284,36 @@ export interface FlowServiceClient extends Client {
   ): ClientUnaryCall;
   publishToChannel(
     request: PublishToChannelRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: Empty) => void,
+  ): ClientUnaryCall;
+  getChannelMessages(
+    request: GetChannelMessagesRequest,
+    callback: (error: ServiceError | null, response: GetChannelMessagesResponse) => void,
+  ): ClientUnaryCall;
+  getChannelMessages(
+    request: GetChannelMessagesRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: GetChannelMessagesResponse) => void,
+  ): ClientUnaryCall;
+  getChannelMessages(
+    request: GetChannelMessagesRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: GetChannelMessagesResponse) => void,
+  ): ClientUnaryCall;
+  deleteChannelMessage(
+    request: DeleteChannelMessageRequest,
+    callback: (error: ServiceError | null, response: Empty) => void,
+  ): ClientUnaryCall;
+  deleteChannelMessage(
+    request: DeleteChannelMessageRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: Empty) => void,
+  ): ClientUnaryCall;
+  deleteChannelMessage(
+    request: DeleteChannelMessageRequest,
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: Empty) => void,

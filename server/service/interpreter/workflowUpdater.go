@@ -92,6 +92,13 @@ func NewWorkflowUpdater(
 	); err != nil {
 		return err
 	}
+	if err := provider.SetDeleteChannelMessageUpdateHandler(
+		ctx,
+		updater.validateDeleteChannelMessage,
+		updater.handleDeleteChannelMessage,
+	); err != nil {
+		return err
+	}
 	if err := provider.SetWaitForStepCompletionUpdateHandler(
 		ctx,
 		updater.validateWaitForStepCompletion,
@@ -197,6 +204,9 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 	}
 	response := activityOutput.GetResponse()
 	decision := response.GetStepDecision()
+	if missing := u.channelStore.CanDeleteAll(response.GetDeleteFromChannel()); missing != nil {
+		return nil, u.channelMessageNotFoundError(missing)
+	}
 	err = u.persistenceManager.ApplyAttributeWrites(
 		ctx,
 		response.GetUpsertAttributes(),
@@ -204,6 +214,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 	if err != nil {
 		return nil, err
 	}
+	u.channelStore.DeleteAll(response.GetDeleteFromChannel())
 	u.channelStore.ProcessPublishing(response.GetPublishToChannel())
 	if err := u.stepExecutionRegistry.CancelByStepTypes(ctx, decision.GetCancelStepTypes()); err != nil {
 		return nil, err
@@ -213,6 +224,52 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 	return &dexpb.InvokeRpcUpdateResult{
 		Response: &dexpb.InvokeRPCResponse{Output: response.GetOutput()},
 	}, nil
+}
+
+func (u *WorkflowUpdater) handleDeleteChannelMessage(
+	ctx interfaces.UnifiedContext,
+	request *dexpb.DeleteChannelMessageRequest,
+) (*emptypb.Empty, error) {
+	u.continueAsNewer.IncreaseInflightOperation()
+	defer u.continueAsNewer.DecreaseInflightOperation()
+	u.signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
+	deletion := &dexpb.ChannelMessageDeletion{
+		ChannelName: request.GetChannelName(),
+		MessageId:   request.GetMessageId(),
+	}
+	if missing := u.channelStore.CanDeleteAll([]*dexpb.ChannelMessageDeletion{deletion}); missing != nil {
+		return nil, u.channelMessageNotFoundError(missing)
+	}
+	u.channelStore.DeleteAll([]*dexpb.ChannelMessageDeletion{deletion})
+	u.continueAsNewCounter.IncSyncUpdateReceived()
+	return &emptypb.Empty{}, nil
+}
+
+func (u *WorkflowUpdater) validateDeleteChannelMessage(
+	_ interfaces.UnifiedContext,
+	request *dexpb.DeleteChannelMessageRequest,
+) error {
+	if err := u.rejectTerminalUpdate(); err != nil {
+		return err
+	}
+	if request == nil || request.GetChannelName() == "" || request.GetMessageId() == "" {
+		return u.provider.NewUpdateError(
+			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
+			"channel name and message ID are required",
+		)
+	}
+	return nil
+}
+
+func (u *WorkflowUpdater) channelMessageNotFoundError(deletion *dexpb.ChannelMessageDeletion) error {
+	return u.provider.NewUpdateError(
+		dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND,
+		fmt.Sprintf(
+			"Channel message %q was not found in channel %q",
+			deletion.GetMessageId(),
+			deletion.GetChannelName(),
+		),
+	)
 }
 
 func (u *WorkflowUpdater) validateWorkerRpc(

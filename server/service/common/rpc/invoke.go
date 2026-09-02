@@ -19,6 +19,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/blobstore"
+	"github.com/superdurable/dex/service/common/channelmessage"
 	"github.com/superdurable/dex/service/common/utils"
 	"github.com/superdurable/dex/service/common/workerclient"
 )
@@ -111,6 +112,9 @@ func InvokeWorkerRpc(
 		resp.GetStepDecision(),
 		service.GetFromStepExecutionIdForRPC(req.GetRpcName()),
 	)
+	if err := channelmessage.AssignIDs(resp.GetPublishToChannel()); err != nil {
+		return nil, err
+	}
 
 	if err := blobstore.OffloadLargeAttributeWrites(
 		ctx, resp.GetUpsertAttributes(), req.GetFlowId(), invocationId,
@@ -189,6 +193,22 @@ func validateWorkerRpcResponse(
 	}
 	if err := workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents()); err != nil {
 		return err
+	}
+	for index, message := range resp.GetPublishToChannel() {
+		if message == nil || message.GetChannelName() == "" {
+			return fmt.Errorf("Channel publication at index %d is invalid", index)
+		}
+		if message.GetValue() == nil {
+			message.Value = &dexpb.Value{}
+		}
+		if err := workerclient.RejectWorkerBlobIDs(message.GetValue()); err != nil {
+			return err
+		}
+	}
+	for index, deletion := range resp.GetDeleteFromChannel() {
+		if deletion == nil || deletion.GetChannelName() == "" || deletion.GetMessageId() == "" {
+			return fmt.Errorf("Channel deletion at index %d is invalid", index)
+		}
 	}
 	decision := resp.GetStepDecision()
 	if decision == nil {

@@ -55,9 +55,9 @@ option java_outer_classname = "DexProto";
 //
 // Notable per-RPC behavior:
 //   InvokeRPC — empty LockAttributeKeys uses query + WorkerService + optional
-//     signal by default. Temporal can opt into synchronous Updates for all RPCs.
-//     Non-empty LockAttributeKeys requires a Temporal synchronous Update;
-//     Cadence returns Unimplemented.
+//     signal by default. IsTransactional requests transactional reads and writes.
+//     Non-empty LockAttributeKeys enables transactional execution automatically;
+//     Cadence returns Unimplemented for attribute locking.
 //     WorkerService errors (app or transport-to-worker) → FailedPrecondition +
 //     WORKER_API_ERROR + OriginalWorker* when present.
 //   WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
@@ -75,6 +75,8 @@ option java_outer_classname = "DexProto";
 service FlowService {
   rpc StartFlow(StartFlowRequest) returns (StartFlowResponse);
   rpc PublishToChannel(PublishToChannelRequest) returns (google.protobuf.Empty);
+  rpc GetChannelMessages(GetChannelMessagesRequest) returns (GetChannelMessagesResponse);
+  rpc DeleteChannelMessage(DeleteChannelMessageRequest) returns (google.protobuf.Empty);
   rpc WriteStream(WriteStreamRequest) returns (google.protobuf.Empty);
   rpc ReadStream(ReadStreamRequest) returns (ReadStreamResponse);
   rpc StopFlow(StopFlowRequest) returns (google.protobuf.Empty);
@@ -322,6 +324,30 @@ message PublishToChannelRequest {
 message ChannelMessage {
   string channel_name = 1;
   Value value = 2;
+  string message_id = 3;
+}
+
+message GetChannelMessagesRequest {
+  string flow_id = 1;
+  string run_id = 2;
+  string channel_name = 3;
+}
+
+message GetChannelMessagesResponse {
+  repeated ChannelMessage messages = 1;
+}
+
+message DeleteChannelMessageRequest {
+  string flow_id = 1;
+  string run_id = 2;
+  string channel_name = 3;
+  string message_id = 4;
+  string request_id = 5;
+}
+
+message ChannelMessageDeletion {
+  string channel_name = 1;
+  string message_id = 2;
 }
 
 message WriteStreamRequest {
@@ -533,6 +559,7 @@ message FlowHistoryEvent {
     StepMethodPendingEvent step_wait_for_pending = 28;
     StepMethodPendingEvent step_execute_pending = 29;
     TimeTravelForkHistoryEvent time_travel_fork = 30;
+    ChannelExternalDeleteEvent channel_external_delete = 31;
   }
 }
 
@@ -680,10 +707,15 @@ message RpcExecutionCompletedEvent {
   repeated KV record_events = 6;
   repeated ChannelMessage publish_to_channel = 7;
   bool is_set_attribute_api = 8;
+  repeated ChannelMessageDeletion delete_from_channel = 9;
 }
 
 message ChannelExternalPublishEvent {
   repeated ChannelMessage messages = 1;
+}
+
+message ChannelExternalDeleteEvent {
+  repeated ChannelMessageDeletion messages = 1;
 }
 
 message WaitForHistoryEventRequest {
@@ -774,6 +806,9 @@ message InvokeRPCRequest {
   repeated string lock_attribute_keys = 6;
   // Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal Update paths use it as the run-scoped Update ID; Continue-as-New resets scope.
   string request_id = 7;
+  // Requests transactional reads and writes. Attribute locking enables it
+  // automatically. Channel deletion alone does not; callers must opt in.
+  bool is_transactional = 8;
 }
 
 message InvokeRPCResponse {
@@ -854,6 +889,7 @@ enum ErrorSubStatus {
   ERROR_SUB_STATUS_FLOW_NOT_EXISTS = 3;
   ERROR_SUB_STATUS_WORKER_API_ERROR = 4;
   ERROR_SUB_STATUS_LONG_POLL_TIME_OUT = 5;
+  ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND = 6;
 }
 
 message WorkerErrorResponse {
@@ -964,6 +1000,7 @@ message InvokeWorkerRPCResponse {
   StepDecision step_decision = 2;
   repeated AttributeWrite upsert_attributes = 3;
   repeated KV record_events = 4;
+  repeated ChannelMessageDeletion delete_from_channel = 5;
   repeated ChannelMessage publish_to_channel = 6;
 }
 
@@ -1120,7 +1157,7 @@ message ContinueAsNewDumpResponse {
 }
 
 message ChannelValues {
-  repeated Value values = 1;
+  repeated ChannelMessage messages = 1;
 }
 
 message StepExecutionCompletedConditions {
@@ -1179,6 +1216,7 @@ enum UpdateErrorType {
   UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED = 4;
   UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE = 5;
   UPDATE_ERROR_TYPE_SERVER_INTERNAL = 6;
+  UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND = 7;
 }
 
 message ContinueAsNewInput {
@@ -1320,6 +1358,8 @@ message ExecuteRpcSignalRequest {
   repeated KV record_events = 5;
   repeated ChannelMessage publish_to_channel = 6;
   bool is_set_attribute_api = 7;
+  repeated ChannelMessageDeletion delete_from_channel = 8;
+  bool is_delete_channel_message_api = 9;
 }
 
 message SkipTimerSignalRequest {

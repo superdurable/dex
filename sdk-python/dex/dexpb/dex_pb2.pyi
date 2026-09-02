@@ -126,6 +126,7 @@ class ErrorSubStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ERROR_SUB_STATUS_FLOW_NOT_EXISTS: _ClassVar[ErrorSubStatus]
     ERROR_SUB_STATUS_WORKER_API_ERROR: _ClassVar[ErrorSubStatus]
     ERROR_SUB_STATUS_LONG_POLL_TIME_OUT: _ClassVar[ErrorSubStatus]
+    ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND: _ClassVar[ErrorSubStatus]
 
 class CloseDecisionType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -172,6 +173,7 @@ class UpdateErrorType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED: _ClassVar[UpdateErrorType]
     UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE: _ClassVar[UpdateErrorType]
     UPDATE_ERROR_TYPE_SERVER_INTERNAL: _ClassVar[UpdateErrorType]
+    UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND: _ClassVar[UpdateErrorType]
 
 class SubFlowCompletionDeliveryStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -247,6 +249,7 @@ ERROR_SUB_STATUS_FLOW_ALREADY_STARTED: ErrorSubStatus
 ERROR_SUB_STATUS_FLOW_NOT_EXISTS: ErrorSubStatus
 ERROR_SUB_STATUS_WORKER_API_ERROR: ErrorSubStatus
 ERROR_SUB_STATUS_LONG_POLL_TIME_OUT: ErrorSubStatus
+ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND: ErrorSubStatus
 CLOSE_DECISION_TYPE_UNSPECIFIED: CloseDecisionType
 CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY: CloseDecisionType
 CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE: CloseDecisionType
@@ -275,6 +278,7 @@ UPDATE_ERROR_TYPE_FAILED_PRECONDITION: UpdateErrorType
 UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED: UpdateErrorType
 UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE: UpdateErrorType
 UPDATE_ERROR_TYPE_SERVER_INTERNAL: UpdateErrorType
+UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND: UpdateErrorType
 SUB_FLOW_COMPLETION_DELIVERY_STATUS_UNSPECIFIED: SubFlowCompletionDeliveryStatus
 SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED: SubFlowCompletionDeliveryStatus
 SUB_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_CLOSED_OR_NOT_FOUND: SubFlowCompletionDeliveryStatus
@@ -522,12 +526,52 @@ class PublishToChannelRequest(_message.Message):
     def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., messages: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
 
 class ChannelMessage(_message.Message):
-    __slots__ = ("channel_name", "value")
+    __slots__ = ("channel_name", "value", "message_id")
     CHANNEL_NAME_FIELD_NUMBER: _ClassVar[int]
     VALUE_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
     channel_name: str
     value: Value
-    def __init__(self, channel_name: _Optional[str] = ..., value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
+    message_id: str
+    def __init__(self, channel_name: _Optional[str] = ..., value: _Optional[_Union[Value, _Mapping]] = ..., message_id: _Optional[str] = ...) -> None: ...
+
+class GetChannelMessagesRequest(_message.Message):
+    __slots__ = ("flow_id", "run_id", "channel_name")
+    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_NAME_FIELD_NUMBER: _ClassVar[int]
+    flow_id: str
+    run_id: str
+    channel_name: str
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., channel_name: _Optional[str] = ...) -> None: ...
+
+class GetChannelMessagesResponse(_message.Message):
+    __slots__ = ("messages",)
+    MESSAGES_FIELD_NUMBER: _ClassVar[int]
+    messages: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
+    def __init__(self, messages: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
+
+class DeleteChannelMessageRequest(_message.Message):
+    __slots__ = ("flow_id", "run_id", "channel_name", "message_id", "request_id")
+    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_NAME_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    flow_id: str
+    run_id: str
+    channel_name: str
+    message_id: str
+    request_id: str
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., channel_name: _Optional[str] = ..., message_id: _Optional[str] = ..., request_id: _Optional[str] = ...) -> None: ...
+
+class ChannelMessageDeletion(_message.Message):
+    __slots__ = ("channel_name", "message_id")
+    CHANNEL_NAME_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    channel_name: str
+    message_id: str
+    def __init__(self, channel_name: _Optional[str] = ..., message_id: _Optional[str] = ...) -> None: ...
 
 class WriteStreamRequest(_message.Message):
     __slots__ = ("flow_id", "flow_type", "stream_name", "stream_capacity_bytes", "value", "source")
@@ -802,7 +846,7 @@ class GetHistoryEventsResponse(_message.Message):
     def __init__(self, events: _Optional[_Iterable[_Union[FlowHistoryEvent, _Mapping]]] = ..., next_page_token: _Optional[bytes] = ..., next_internal_event_id: _Optional[int] = ...) -> None: ...
 
 class FlowHistoryEvent(_message.Message):
-    __slots__ = ("event_id", "event_time", "flow_started_or_continued", "flow_closed", "step_wait_for_completed", "step_wait_for_failed", "step_execute_completed", "step_execute_failed", "rpc_execution_completed", "channel_external_publish", "step_wait_for_pending", "step_execute_pending", "time_travel_fork")
+    __slots__ = ("event_id", "event_time", "flow_started_or_continued", "flow_closed", "step_wait_for_completed", "step_wait_for_failed", "step_execute_completed", "step_execute_failed", "rpc_execution_completed", "channel_external_publish", "step_wait_for_pending", "step_execute_pending", "time_travel_fork", "channel_external_delete")
     EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     EVENT_TIME_FIELD_NUMBER: _ClassVar[int]
     FLOW_STARTED_OR_CONTINUED_FIELD_NUMBER: _ClassVar[int]
@@ -816,6 +860,7 @@ class FlowHistoryEvent(_message.Message):
     STEP_WAIT_FOR_PENDING_FIELD_NUMBER: _ClassVar[int]
     STEP_EXECUTE_PENDING_FIELD_NUMBER: _ClassVar[int]
     TIME_TRAVEL_FORK_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_EXTERNAL_DELETE_FIELD_NUMBER: _ClassVar[int]
     event_id: int
     event_time: _timestamp_pb2.Timestamp
     flow_started_or_continued: FlowStartedOrContinuedHistoryEvent
@@ -829,7 +874,8 @@ class FlowHistoryEvent(_message.Message):
     step_wait_for_pending: StepMethodPendingEvent
     step_execute_pending: StepMethodPendingEvent
     time_travel_fork: TimeTravelForkHistoryEvent
-    def __init__(self, event_id: _Optional[int] = ..., event_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., flow_started_or_continued: _Optional[_Union[FlowStartedOrContinuedHistoryEvent, _Mapping]] = ..., flow_closed: _Optional[_Union[FlowClosedHistoryEvent, _Mapping]] = ..., step_wait_for_completed: _Optional[_Union[StepWaitForCompletedEvent, _Mapping]] = ..., step_wait_for_failed: _Optional[_Union[StepWaitForFailedEvent, _Mapping]] = ..., step_execute_completed: _Optional[_Union[StepExecuteCompletedEvent, _Mapping]] = ..., step_execute_failed: _Optional[_Union[StepExecuteFailedEvent, _Mapping]] = ..., rpc_execution_completed: _Optional[_Union[RpcExecutionCompletedEvent, _Mapping]] = ..., channel_external_publish: _Optional[_Union[ChannelExternalPublishEvent, _Mapping]] = ..., step_wait_for_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ..., step_execute_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ..., time_travel_fork: _Optional[_Union[TimeTravelForkHistoryEvent, _Mapping]] = ...) -> None: ...
+    channel_external_delete: ChannelExternalDeleteEvent
+    def __init__(self, event_id: _Optional[int] = ..., event_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., flow_started_or_continued: _Optional[_Union[FlowStartedOrContinuedHistoryEvent, _Mapping]] = ..., flow_closed: _Optional[_Union[FlowClosedHistoryEvent, _Mapping]] = ..., step_wait_for_completed: _Optional[_Union[StepWaitForCompletedEvent, _Mapping]] = ..., step_wait_for_failed: _Optional[_Union[StepWaitForFailedEvent, _Mapping]] = ..., step_execute_completed: _Optional[_Union[StepExecuteCompletedEvent, _Mapping]] = ..., step_execute_failed: _Optional[_Union[StepExecuteFailedEvent, _Mapping]] = ..., rpc_execution_completed: _Optional[_Union[RpcExecutionCompletedEvent, _Mapping]] = ..., channel_external_publish: _Optional[_Union[ChannelExternalPublishEvent, _Mapping]] = ..., step_wait_for_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ..., step_execute_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ..., time_travel_fork: _Optional[_Union[TimeTravelForkHistoryEvent, _Mapping]] = ..., channel_external_delete: _Optional[_Union[ChannelExternalDeleteEvent, _Mapping]] = ...) -> None: ...
 
 class TimeTravelForkHistoryEvent(_message.Message):
     __slots__ = ("previous_run_id",)
@@ -1045,7 +1091,7 @@ class StepExecuteFailedEvent(_message.Message):
     def __init__(self, input: _Optional[_Union[StepMethodEventInput, _Mapping]] = ..., output: _Optional[_Union[StepMethodFailedOutput, _Mapping]] = ..., context: _Optional[_Union[StepMethodEventContext, _Mapping]] = ...) -> None: ...
 
 class RpcExecutionCompletedEvent(_message.Message):
-    __slots__ = ("rpc_name", "input", "output", "step_decision", "upsert_attributes", "record_events", "publish_to_channel", "is_set_attribute_api")
+    __slots__ = ("rpc_name", "input", "output", "step_decision", "upsert_attributes", "record_events", "publish_to_channel", "is_set_attribute_api", "delete_from_channel")
     RPC_NAME_FIELD_NUMBER: _ClassVar[int]
     INPUT_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_FIELD_NUMBER: _ClassVar[int]
@@ -1054,6 +1100,7 @@ class RpcExecutionCompletedEvent(_message.Message):
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     IS_SET_ATTRIBUTE_API_FIELD_NUMBER: _ClassVar[int]
+    DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     rpc_name: str
     input: Value
     output: Value
@@ -1062,13 +1109,20 @@ class RpcExecutionCompletedEvent(_message.Message):
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
     is_set_attribute_api: bool
-    def __init__(self, rpc_name: _Optional[str] = ..., input: _Optional[_Union[Value, _Mapping]] = ..., output: _Optional[_Union[Value, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., is_set_attribute_api: _Optional[bool] = ...) -> None: ...
+    delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
+    def __init__(self, rpc_name: _Optional[str] = ..., input: _Optional[_Union[Value, _Mapping]] = ..., output: _Optional[_Union[Value, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., is_set_attribute_api: _Optional[bool] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ...) -> None: ...
 
 class ChannelExternalPublishEvent(_message.Message):
     __slots__ = ("messages",)
     MESSAGES_FIELD_NUMBER: _ClassVar[int]
     messages: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
     def __init__(self, messages: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
+
+class ChannelExternalDeleteEvent(_message.Message):
+    __slots__ = ("messages",)
+    MESSAGES_FIELD_NUMBER: _ClassVar[int]
+    messages: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
+    def __init__(self, messages: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ...) -> None: ...
 
 class WaitForHistoryEventRequest(_message.Message):
     __slots__ = ("flow_id", "run_id", "next_internal_event_id")
@@ -1174,7 +1228,7 @@ class ResetFlowResponse(_message.Message):
     def __init__(self, run_id: _Optional[str] = ...) -> None: ...
 
 class InvokeRPCRequest(_message.Message):
-    __slots__ = ("flow_id", "run_id", "rpc_name", "input", "timeout_seconds", "lock_attribute_keys", "request_id")
+    __slots__ = ("flow_id", "run_id", "rpc_name", "input", "timeout_seconds", "lock_attribute_keys", "request_id", "is_transactional")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     RPC_NAME_FIELD_NUMBER: _ClassVar[int]
@@ -1182,6 +1236,7 @@ class InvokeRPCRequest(_message.Message):
     TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     LOCK_ATTRIBUTE_KEYS_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    IS_TRANSACTIONAL_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     run_id: str
     rpc_name: str
@@ -1189,7 +1244,8 @@ class InvokeRPCRequest(_message.Message):
     timeout_seconds: int
     lock_attribute_keys: _containers.RepeatedScalarFieldContainer[str]
     request_id: str
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., rpc_name: _Optional[str] = ..., input: _Optional[_Union[Value, _Mapping]] = ..., timeout_seconds: _Optional[int] = ..., lock_attribute_keys: _Optional[_Iterable[str]] = ..., request_id: _Optional[str] = ...) -> None: ...
+    is_transactional: bool
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., rpc_name: _Optional[str] = ..., input: _Optional[_Union[Value, _Mapping]] = ..., timeout_seconds: _Optional[int] = ..., lock_attribute_keys: _Optional[_Iterable[str]] = ..., request_id: _Optional[str] = ..., is_transactional: _Optional[bool] = ...) -> None: ...
 
 class InvokeRPCResponse(_message.Message):
     __slots__ = ("output",)
@@ -1471,18 +1527,20 @@ class InvokeWorkerRPCRequest(_message.Message):
     def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., rpc_name: _Optional[str] = ..., input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ...) -> None: ...
 
 class InvokeWorkerRPCResponse(_message.Message):
-    __slots__ = ("output", "step_decision", "upsert_attributes", "record_events", "publish_to_channel")
+    __slots__ = ("output", "step_decision", "upsert_attributes", "record_events", "delete_from_channel", "publish_to_channel")
     OUTPUT_FIELD_NUMBER: _ClassVar[int]
     STEP_DECISION_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
+    DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     output: Value
     step_decision: StepDecision
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
+    delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
-    def __init__(self, output: _Optional[_Union[Value, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
+    def __init__(self, output: _Optional[_Union[Value, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
 
 class StepDecision(_message.Message):
     __slots__ = ("next_steps", "close_decision", "cancel_step_types", "cancel_sibling_step_types")
@@ -1675,10 +1733,10 @@ class ContinueAsNewDumpResponse(_message.Message):
     def __init__(self, page_content: _Optional[bytes] = ..., page_num: _Optional[int] = ..., total_pages: _Optional[int] = ..., checksum: _Optional[str] = ...) -> None: ...
 
 class ChannelValues(_message.Message):
-    __slots__ = ("values",)
-    VALUES_FIELD_NUMBER: _ClassVar[int]
-    values: _containers.RepeatedCompositeFieldContainer[Value]
-    def __init__(self, values: _Optional[_Iterable[_Union[Value, _Mapping]]] = ...) -> None: ...
+    __slots__ = ("messages",)
+    MESSAGES_FIELD_NUMBER: _ClassVar[int]
+    messages: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
+    def __init__(self, messages: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
 
 class StepExecutionCompletedConditions(_message.Message):
     __slots__ = ("completed_timer_conditions", "completed_sub_flow_results")
@@ -1983,7 +2041,7 @@ class ReportSubFlowCompletionActivityOutput(_message.Message):
     def __init__(self, status: _Optional[_Union[SubFlowCompletionDeliveryStatus, str]] = ...) -> None: ...
 
 class ExecuteRpcSignalRequest(_message.Message):
-    __slots__ = ("rpc_input", "rpc_output", "upsert_attributes", "step_decision", "record_events", "publish_to_channel", "is_set_attribute_api")
+    __slots__ = ("rpc_input", "rpc_output", "upsert_attributes", "step_decision", "record_events", "publish_to_channel", "is_set_attribute_api", "delete_from_channel", "is_delete_channel_message_api")
     RPC_INPUT_FIELD_NUMBER: _ClassVar[int]
     RPC_OUTPUT_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
@@ -1991,6 +2049,8 @@ class ExecuteRpcSignalRequest(_message.Message):
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     IS_SET_ATTRIBUTE_API_FIELD_NUMBER: _ClassVar[int]
+    DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
+    IS_DELETE_CHANNEL_MESSAGE_API_FIELD_NUMBER: _ClassVar[int]
     rpc_input: Value
     rpc_output: Value
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
@@ -1998,7 +2058,9 @@ class ExecuteRpcSignalRequest(_message.Message):
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
     is_set_attribute_api: bool
-    def __init__(self, rpc_input: _Optional[_Union[Value, _Mapping]] = ..., rpc_output: _Optional[_Union[Value, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., is_set_attribute_api: _Optional[bool] = ...) -> None: ...
+    delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
+    is_delete_channel_message_api: bool
+    def __init__(self, rpc_input: _Optional[_Union[Value, _Mapping]] = ..., rpc_output: _Optional[_Union[Value, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., is_set_attribute_api: _Optional[bool] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., is_delete_channel_message_api: _Optional[bool] = ...) -> None: ...
 
 class SkipTimerSignalRequest(_message.Message):
     __slots__ = ("step_execution_id", "timer_condition_id", "timer_condition_index")

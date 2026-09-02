@@ -278,7 +278,7 @@ func doTestChannelMultivalueCanBuffered(t *testing.T, backendType service.Backen
 	require.Eventually(t, func() bool {
 		dump := queryChannelDump(t, runtime, flowId)
 		received := dump.GetSnapshot().GetChannelReceived()[channel_multivalue.ChannelName]
-		return received != nil && len(received.GetValues()) >= 2
+		return received != nil && len(received.GetMessages()) >= 2
 	}, 15*time.Second, 100*time.Millisecond)
 
 	publishChannelStrings(t, ctx, runtime.FlowClient, flowId, channel_multivalue.ChannelName, "b2")
@@ -441,7 +441,11 @@ func channelReceivedFromDump(
 	if received == nil {
 		return nil
 	}
-	return received.GetValues()
+	values := make([]*dexpb.Value, 0, len(received.GetMessages()))
+	for _, message := range received.GetMessages() {
+		values = append(values, message.GetValue())
+	}
+	return values
 }
 
 func queryChannelDump(
