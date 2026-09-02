@@ -14,24 +14,35 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/superdurable/dex/cli/internal/flowviz"
+	"github.com/superdurable/dex/web"
+	"github.com/superdurable/dex/web/assets"
 )
 
 type visualizeOptions struct {
-	language   string
-	output     string
-	pythonPath string
+	language    string
+	json        bool
+	openBrowser bool
+	output      string
+	pythonPath  string
 }
 
 func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	flags := newFlagSet("dexcli visualize", a.stderr)
-	options := visualizeOptions{}
+	options := visualizeOptions{openBrowser: true}
 	flags.StringVar(&options.language, "language", "auto", "auto, go, or python")
-	flags.StringVar(&options.output, "out", "", "output path prefix, or - for stdout")
+	flags.BoolVar(&options.json, "json", false, "write Flow Definition Graph JSON instead of opening Flow Rendering")
+	flags.BoolVar(&options.openBrowser, "open", true, "open Flow Rendering in the default browser")
+	flags.StringVar(&options.output, "out", "", "JSON output prefix, or - for stdout (requires --json)")
 	flags.StringVar(&options.pythonPath, "python", "", "Python 3.11+ interpreter path")
 	source, parseErr := parseVisualizeArgs(flags, args)
 	if parseErr != nil {
@@ -55,19 +66,20 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	if err != nil {
 		return newOperationError("visualize", err)
 	}
-	outputPath, err := writeVisualizationOutput(a.stdout, source, options, jsonData)
-	if err != nil {
-		return newOperationError("visualize", err)
-	}
-	if options.output != "-" {
-		if err := writeOutput(a.stdout, "json", map[string]any{"valid": graph.Valid, "output": outputPath}); err != nil {
-			return err
+	if options.json {
+		outputPath, outputErr := writeVisualizationOutput(a.stdout, options, jsonData)
+		if outputErr != nil {
+			return newOperationError("visualize", outputErr)
 		}
+		if outputPath != "-" {
+			fmt.Fprintf(a.stdout, "Flow definition JSON: %s\n", outputPath)
+		}
+		if !graph.Valid {
+			return newOperationError("visualize", fmt.Errorf("source has blocking diagnostics; partial JSON was written"))
+		}
+		return nil
 	}
-	if !graph.Valid {
-		return newOperationError("visualize", fmt.Errorf("source has blocking diagnostics; partial JSON was written"))
-	}
-	return nil
+	return a.renderVisualization(ctx, graph.Valid, jsonData, options)
 }
 
 func parseVisualizeArgs(flags *flag.FlagSet, args []string) (string, error) {
@@ -100,26 +112,95 @@ func validateVisualizeOptions(options visualizeOptions) error {
 	default:
 		return fmt.Errorf("language must be auto, go, or python")
 	}
+	if !options.json && options.output != "" {
+		return fmt.Errorf("--out requires --json")
+	}
 	return nil
 }
 
-func writeVisualizationOutput(stdout io.Writer, source string, options visualizeOptions, jsonData []byte) (string, error) {
-	if options.output == "-" {
+func (a *App) renderVisualization(ctx context.Context, isValid bool, graph []byte, options visualizeOptions) error {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return newOperationError("visualize", fmt.Errorf("listen for Flow Rendering: %w", err))
+	}
+	server, err := web.NewFlowRenderingServer(&web.Config{BindAddress: "127.0.0.1"}, graph, assets.Files)
+	if err != nil {
+		closeErr := listener.Close()
+		return newOperationError("visualize", errors.Join(fmt.Errorf("start Flow Rendering: %w", err), closeErr))
+	}
+	serverErrors := make(chan error, 1)
+	go func() {
+		err := server.Serve(listener)
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+		serverErrors <- err
+	}()
+	url := "http://" + listener.Addr().String() + "/rendering"
+	if options.openBrowser {
+		if err := a.openBrowser(url); err != nil {
+			shutdownErr := shutdownVisualizationServer(server, serverErrors)
+			return newOperationError("visualize", errors.Join(fmt.Errorf("open Flow Rendering: %w", err), shutdownErr))
+		}
+	}
+	fmt.Fprintf(a.stdout, "Flow Rendering: %s\n", url)
+	fmt.Fprintln(a.stdout, "Press Ctrl+C to stop Flow Rendering.")
+	select {
+	case serverErr := <-serverErrors:
+		if serverErr != nil {
+			return newOperationError("visualize", fmt.Errorf("serve Flow Rendering: %w", serverErr))
+		}
+	case <-ctx.Done():
+		if err := shutdownVisualizationServer(server, serverErrors); err != nil {
+			return newOperationError("visualize", err)
+		}
+	}
+	if !isValid {
+		return newOperationError("visualize", fmt.Errorf("source has blocking diagnostics; Flow Rendering showed the partial graph"))
+	}
+	return nil
+}
+
+func shutdownVisualizationServer(server *web.Server, serverErrors <-chan error) error {
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelShutdown()
+	shutdownErr := server.Shutdown(shutdownCtx)
+	serverErr := <-serverErrors
+	return errors.Join(shutdownErr, serverErr)
+}
+
+func writeVisualizationOutput(stdout io.Writer, options visualizeOptions, jsonData []byte) (string, error) {
+	if options.output == "" || options.output == "-" {
 		if _, err := stdout.Write(jsonData); err != nil {
 			return "", fmt.Errorf("write stdout: %w", err)
 		}
 		return "-", nil
 	}
 	prefix := options.output
-	if prefix == "" {
-		extension := filepath.Ext(source)
-		prefix = strings.TrimSuffix(source, extension) + ".flow"
-	}
 	path := prefix + ".json"
 	if err := writeVisualizationFile(path, jsonData); err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+func openVisualizationBrowser(url string) error {
+	var command *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		command = exec.Command("open", url)
+	case "linux":
+		command = exec.Command("xdg-open", url)
+	default:
+		return fmt.Errorf("opening a browser is not supported on %s", runtime.GOOS)
+	}
+	if err := command.Start(); err != nil {
+		return err
+	}
+	if err := command.Process.Release(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func writeVisualizationFile(path string, data []byte) error {
@@ -138,6 +219,8 @@ func printVisualizeUsage(output io.Writer) {
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Flags:")
 	fmt.Fprintln(output, "  --language auto|go|python           source language (default auto)")
-	fmt.Fprintln(output, "  --out path-prefix|-                 JSON output prefix, or - for stdout")
+	fmt.Fprintln(output, "  --json                              write Flow Definition Graph JSON instead of rendering")
+	fmt.Fprintln(output, "  --open                              open Flow Rendering in the default browser (default true)")
+	fmt.Fprintln(output, "  --out path-prefix|-                 JSON output prefix, or - for stdout (requires --json)")
 	fmt.Fprintln(output, "  --python path                       Python 3.11+ interpreter")
 }

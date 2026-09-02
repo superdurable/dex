@@ -49,16 +49,37 @@ func NewServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS) (*Serv
 	if assets == nil {
 		panic("Web assets must not be nil")
 	}
-	assetRoot, err := fs.Sub(assets, "dist")
-	if err != nil {
-		panic(fmt.Sprintf("open embedded Web assets: %v", err))
-	}
 	flowDefinitions, err := loadFlowDefinitions(cfg.FlowRenderingDirectory)
 	if err != nil {
 		return nil, err
 	}
+	return newServer(cfg, client, assets, flowDefinitions)
+}
+
+// NewFlowRenderingServer serves one in-memory Flow Definition Graph without a Dex FlowService connection.
+func NewFlowRenderingServer(cfg *Config, graph []byte, assets fs.FS) (*Server, error) {
+	if cfg == nil {
+		panic("Web config must not be nil")
+	}
+	if assets == nil {
+		panic("Web assets must not be nil")
+	}
+	flowDefinitions, err := newFlowDefinitionHandler(graph)
+	if err != nil {
+		return nil, err
+	}
+	return newServer(cfg, nil, assets, flowDefinitions)
+}
+
+func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDefinitions *flowDefinitionHandler) (*Server, error) {
+	assetRoot, err := fs.Sub(assets, "dist")
+	if err != nil {
+		panic(fmt.Sprintf("open embedded Web assets: %v", err))
+	}
 	mux := http.NewServeMux()
-	api.RegisterHandlers(mux, client)
+	if client != nil {
+		api.RegisterHandlers(mux, client)
+	}
 	mux.Handle("GET /api/flow-definitions", flowDefinitions)
 	mux.Handle("/", spaHandler(assetRoot))
 	return &Server{

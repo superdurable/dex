@@ -52,6 +52,29 @@ When a status Attribute means “waiting for X,” write it in the target Step's
 
 Read [modeling.md](references/modeling.md) for design rules and [primitives.md](references/primitives.md) when choosing or combining primitives.
 
+## Visualize a Flow model
+
+When modeling or changing a Go or Python Flow, run `dexcli visualize SOURCE`
+after the Flow shape is explicit. It opens a local Flow Rendering page that
+shows every statically known path. Use `dexcli visualize SOURCE --json --out
+PATH` only when another tool needs a checked-in or shareable Flow Definition
+Graph JSON artifact.
+
+The visualizer currently supports only Go and Python. To make a Flow
+visualizable, keep one Flow per source file and define its static Step
+registration, Step handlers, WaitFor definitions, transitions, RPC next Steps,
+resource definitions and access, and execute-failure recovery targets directly
+in that file. Business helpers are allowed, but they must not hide Dex control
+flow, WaitFor, resource, or recovery semantics. Keep Flow, Step, and resource
+names static; do not use reflection, dynamic imports or classes, wildcard Dex
+imports, getattr targets, monkeypatching, or movement collections that escape a
+handler. Unsupported dynamic semantics become Unknown nodes and blocking
+diagnostics rather than an incomplete graph.
+
+Go input must type-check in its module. Python requires Python 3.11+; analysis
+uses an isolated AST parser and never imports or executes the application
+module.
+
 Read [large-attributes-and-locality.md](references/large-attributes-and-locality.md) when a Flow keeps large documents, conversation history, or API/MCP results in Attributes; when choosing AttributeMap instances or external projections for a growing collection; or when deploying replicated Workers. Do not add an application-managed blob store, cache, or dual-write path solely because an Attribute is large; first evaluate Dex blob hydration, the SDK BlobCache, headless Worker locality, and Attribute Store synchronization.
 
 Read [ai-agents.md](references/ai-agents.md) when an Agent owns model context, calls MCP or other tools, waits for approval, compacts conversation history, or exposes a durable wait tool.
