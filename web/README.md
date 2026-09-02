@@ -84,9 +84,10 @@ saved queries, configurable columns, Indexed Attributes, and timezone
 preferences.
 
 The Flow Rendering page displays source definition JSON loaded at startup. Its
-legend independently filters control flow, waits, handlers, resources, SubFlows,
-and diagnostics. Control flow, WaitFor, handlers, Channels, Attributes,
-SubFlows, and diagnostics start visible. Streams start hidden.
+legend independently filters control flow, WaitFor, RPCs, resources, SubFlows,
+and diagnostics. Control flow, WaitFor, RPCs, Channels, Attributes, SubFlows,
+and diagnostics start visible. Streams start hidden. Flow timeout handlers are
+always visible as part of the Flow rather than a legend layer.
 
 The Flow Definition renderer uses a compound layout separate from the runtime
 Execution graph. The lavender Flow frame contains blue Step frames. Each Step

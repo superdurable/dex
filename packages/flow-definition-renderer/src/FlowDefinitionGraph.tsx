@@ -38,7 +38,7 @@ import {
 const layerLabels: Array<[DefinitionLayer | 'diagnostics', string]> = [
   ['control', 'Control flow'],
   ['waits', 'WaitFor'],
-  ['handlers', 'RPC / timeout'],
+  ['rpcs', 'RPC'],
   ['channels', 'Channels'],
   ['attributes', 'Attributes'],
   ['streams', 'Streams'],
@@ -49,7 +49,7 @@ const layerLabels: Array<[DefinitionLayer | 'diagnostics', string]> = [
 const defaultVisibility: DefinitionVisibility & { diagnostics: boolean } = {
   control: true,
   waits: true,
-  handlers: true,
+  rpcs: true,
   attributes: true,
   channels: true,
   streams: false,

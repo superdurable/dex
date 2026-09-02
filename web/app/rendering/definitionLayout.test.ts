@@ -17,7 +17,7 @@ import {
 const visible: DefinitionVisibility = {
   control: true,
   waits: true,
-  handlers: true,
+  rpcs: true,
   attributes: true,
   channels: true,
   streams: false,
@@ -52,6 +52,13 @@ describe('Flow Definition Graph layout', () => {
     expect(overlaps(rpc, attributes)).toBe(false);
     expect(firstChannel.position.x - (rpc.position.x + Number(rpc.style?.width))).toBeGreaterThanOrEqual(40);
     expect(subflow.parentId).toBe(flow.id);
+  });
+
+  it('keeps timeout handlers visible when RPCs are hidden', () => {
+    const scene = buildDefinitionScene(graph, { ...visible, rpcs: false });
+
+    expect(scene.nodes.find((node) => node.id === 'rpc:approve')).toBeUndefined();
+    expect(requiredNode(scene, 'timeout_handler:ExampleFlow').type).toBe('definitionTimeout');
   });
 
   it('uses solid recovery and dashed resource and SubFlow relations', () => {

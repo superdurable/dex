@@ -18,7 +18,7 @@ import type {
 export type DefinitionLayer =
   | 'control'
   | 'waits'
-  | 'handlers'
+  | 'rpcs'
   | 'attributes'
   | 'channels'
   | 'streams'
@@ -85,7 +85,7 @@ export function buildDefinitionScene(
   const stepPositions = layoutStepTopology(graph, steps, stepLayouts, definitionsByID);
   const topologyBounds = boundsForSteps(steps, stepLayouts, stepPositions);
   const resourceNodes = layoutResources(graph, visibility);
-  const handlerNodes = layoutHandlers(graph, visibility);
+  const handlerNodes = layoutRPCsAndTimeoutHandlers(graph, visibility);
   const sideRailHeight = Math.max(
     flowHeaderHeight + 50,
     ...resourceNodes.map((node) => node.position.y + numericStyle(node, 'height')),
@@ -516,15 +516,14 @@ function layoutResources(
   return nodes;
 }
 
-function layoutHandlers(
+function layoutRPCsAndTimeoutHandlers(
   graph: FlowDefinitionGraph,
   visibility: DefinitionVisibility,
 ): Array<Node<DefinitionNodeData>> {
-  if (!visibility.handlers) return [];
   const nameByID = Object.fromEntries(graph.nodes.map((node) => [node.id, node.name]));
   let top = flowHeaderHeight + 36;
   return graph.nodes
-    .filter((node) => node.kind === 'rpc' || node.kind === 'timeout_handler')
+    .filter((node) => node.kind === 'timeout_handler' || (visibility.rpcs && node.kind === 'rpc'))
     .sort(byNameThenID)
     .map((handler) => {
       const decisions = graph.nodes.filter((node) => node.kind === 'decision' && node.parentId === handler.id);

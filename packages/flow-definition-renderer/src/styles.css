@@ -132,7 +132,7 @@
 }
 
 .definition-legend-swatch--waits { background: #d39732; }
-.definition-legend-swatch--handlers { background: #7c3aed; }
+.definition-legend-swatch--rpcs { background: #7c3aed; }
 .definition-legend-swatch--attributes,
 .definition-legend-swatch--channels { background: #2e8b57; }
 .definition-legend-swatch--streams { background: #16899a; }
