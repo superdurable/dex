@@ -228,6 +228,25 @@ func TestVisualizePythonInjectedFailureRecoveryOptions(t *testing.T) {
 	}
 }
 
+func TestVisualizePythonBufferedStreamWriterCallbacks(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	source := filepath.Join(repositoryRoot, "examples/python/dex_examples/products/ai-agent/ai_agent_flow.py")
+	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, graph.Diagnostics)
+
+	for _, diagnostic := range graph.Diagnostics {
+		require.NotContains(t, diagnostic.Message, "stream AssistantText has no direct access")
+		require.NotContains(t, diagnostic.Message, "stream ReasoningSummary has no direct access")
+	}
+	for _, resourceID := range []string{
+		"resource:stream:AIAgentFlow.assistant_text",
+		"resource:stream:AIAgentFlow.reasoning_summary",
+	} {
+		require.True(t, hasEdge(graph.Edges, "resource_write", "step:CallModel", resourceID), resourceID)
+	}
+}
+
 func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
 	sources := exampleFlowSources(t, repositoryRoot)

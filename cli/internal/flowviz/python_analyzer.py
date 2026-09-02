@@ -791,6 +791,34 @@ class Analyzer:
             source = resource_id if edge_kind == "resource_read" else owner_id
             target = owner_id if edge_kind == "resource_read" else resource_id
             self.add_edge(edge_kind, source, target, label=call.func.attr, span=self.span(call), metadata=metadata)
+        for reference in [node for node in ast.walk(method) if isinstance(node, ast.Attribute)]:
+            if reference.attr != "write" or not isinstance(reference.value, ast.Name):
+                continue
+            resource_id = local_resources.get(reference.value.id)
+            key = ("resource_write", resource_id, reference.attr)
+            if not resource_id or not resource_id.startswith("resource:stream:") or key in seen:
+                continue
+            seen.add(key)
+            metadata = {
+                "phase": phase,
+                "bestEffort": True,
+                "repeatable": True,
+                "role": "progress",
+            }
+            if phase in {"rpc", "timeout"}:
+                self.error(
+                    "step_progress_outside_step",
+                    "Stream.write is only available in wait_for and execute",
+                    self.span(reference),
+                )
+            self.add_edge(
+                "resource_write",
+                owner_id,
+                resource_id,
+                label=reference.attr,
+                span=self.span(reference),
+                metadata=metadata,
+            )
 
     def local_resource_aliases(self, owner_id, method):
         aliases = {}
