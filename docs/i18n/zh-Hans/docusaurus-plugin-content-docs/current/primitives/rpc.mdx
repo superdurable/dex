@@ -164,9 +164,9 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 
 ## Transactional read 与 write {#transactional-reads-and-writes}
 
-持有 Attribute lock 的 RPC 已经会使用 Temporal synchronous Update execution。它的 read、Channel deletion check 与 write 会使用同一个 transactional Flow-state snapshot。
+Transactional RPC 会把 RPC 的 read 和 write 作为一个 atomic operation 执行。
 
-只有 Channel deletion 时不会自动选择这条路径。RPC 必须检查 pending message ID，并把删除与 Attribute write、Channel publication、event 或 Step decision 一起 commit 时，需要显式标记为 transactional。任何目标 message 不存在时，Dex 会拒绝 RPC，而且不会 commit 其中任何 write。
+持有 Attribute lock 的 RPC 已经隐式具备 transactional 语义。也可以设置 **is_transactional=true**，显式启用 transactional RPC。这对 Channel message deletion 尤其有用，因为 Dex 会在 commit 任何 write 前验证 message 是否仍处于 pending 状态。
 
 Controller 先读取 pending message，再把 ID 和 Value 传给 transactional RPC。如果 concurrent consumer 已取走该消息，删除会失败，因此 Dex 不会发布 stale copy：
 
@@ -237,7 +237,7 @@ fn rpcs(&self) -> RpcList<Self> {
 </SdkSnippet>
 </SdkTabs>
 
-Non-transactional signal RPC 遇到 missing deletion 时会把它当作 no-op，仍然 commit 其他成功的 effect。Cadence 不提供 Temporal synchronous Update；Dex 会降级为 query 加 signal，因此 deletion check 与 write 不具有相同的 atomic guarantee。Cadence caller 必须能容忍这项竞态。
+Non-transactional RPC 遇到 missing deletion 时会把它当作 no-op，仍然 commit 其他成功的 effect。Cadence 的 Channel deletion validation 和 write 不具备相同的 atomic guarantee。Cadence caller 必须能容忍这项竞态。
 
 ## RPC timeout
 

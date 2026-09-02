@@ -163,9 +163,9 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 
 ## Transactional reads and writes {#transactional-reads-and-writes}
 
-An RPC that holds an Attribute lock already uses Temporal synchronous Update execution. Its reads, Channel deletion checks, and writes use one transactional Flow-state snapshot.
+A transactional RPC performs its reads and writes as one atomic operation.
 
-Channel deletion alone does not select that path. Explicitly mark the RPC as transactional when it must verify a pending message ID and commit its deletion together with Attribute writes, Channel publications, events, or Step decisions. If any requested message is missing, Dex rejects the RPC and commits none of its writes.
+An RPC that holds an Attribute lock is already transactional implicitly. You can also make an RPC explicitly transactional by setting **is_transactional=true**. This is especially useful for Channel message deletion because Dex validates that the message is still pending before committing any writes.
 
 The controller reads the pending message first, then passes its ID and Value to the transactional RPC. A concurrent consumer makes the deletion fail, so Dex does not publish a stale copy:
 
@@ -236,7 +236,7 @@ fn rpcs(&self) -> RpcList<Self> {
 </SdkSnippet>
 </SdkTabs>
 
-A non-transactional signal RPC treats a missing deletion as a no-op and still commits its other successful effects. Cadence does not provide Temporal synchronous Updates: Dex falls back to query plus signal, so the deletion check and write do not have the same atomic guarantee. Design Cadence callers to tolerate that race.
+A non-transactional RPC treats a missing deletion as a no-op and still commits its other successful effects. Cadence does not provide the same atomic guarantee for Channel deletion validation and writes. Design Cadence callers to tolerate that race.
 
 ## RPC timeout
 
