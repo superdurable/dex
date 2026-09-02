@@ -63,6 +63,9 @@ impl Wait {
     }
 
     /// Waits until at least one condition is satisfied.
+    ///
+    /// Channel consumption is not greedy across alternatives. Only the selected Channel condition
+    /// consumes messages; other ready Channel conditions consume nothing.
     pub fn any_of(conditions: impl IntoIterator<Item = Condition>) -> Self {
         Self {
             kind: WaitKind::AnyOf(conditions.into_iter().collect()),
@@ -70,6 +73,9 @@ impl Wait {
     }
 
     /// Waits for every Condition in any combination.
+    ///
+    /// Channel consumption is limited to Channel conditions in the selected combination.
+    /// Conditions belonging only to other ready combinations consume nothing.
     ///
     /// Every Condition needs a non-empty user ID. Clones of the same Condition
     /// may be reused across combinations; distinct Conditions need unique IDs.

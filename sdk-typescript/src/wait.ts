@@ -402,6 +402,8 @@ export const Wait = Object.freeze({
   },
   /**
    * Creates a Wait that continues when any condition is ready.
+   * Channel consumption is not greedy across alternatives: only the selected condition consumes.
+   * Other ready Channel conditions consume nothing.
    * @param conditions - Alternative readiness conditions.
    * @returns An any-of Wait.
    */
@@ -410,6 +412,8 @@ export const Wait = Object.freeze({
   },
   /**
    * Creates a Wait accepting any complete condition combination.
+   * Channel consumption is limited to conditions in the selected combination.
+   * Conditions belonging only to other ready combinations consume nothing.
    * Every Condition requires a non-empty user ID; the same instance may be reused.
    * @param combinations - Alternative all-of condition groups.
    * @returns An any-combination Wait.

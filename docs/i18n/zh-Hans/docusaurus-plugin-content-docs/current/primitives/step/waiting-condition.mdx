@@ -13,6 +13,8 @@ slug: /primitives/step/waiting-condition
 
 WaitFor 完成后，Execute 可读取满足 Wait 的内容。对 [Channel](/primitives/channel)，用 GetConditionResults / results / condition_results 读取已发布消息。对 [SubFlow](/primitives/subflow)，用 SubFlowResult / getConditionResults / condition_result 解码子 Flow 输出。
 
+**AnyOf** 的各备选条件之间不会 greedy 地消费 Channel。Dex 只消费被选中用来满足 Wait 的 Channel condition。即使其他 Channel condition 也已满足，它们也不会消费消息，消息会继续留在队列中。
+
 ### Channel 结果
 
 <SdkTabs
@@ -249,6 +251,8 @@ fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<S
 ## anyCombinationOf {#anycombinationof}
 
 anyCombinationOf 表示 AND 组的 OR。每组内用 all_of 组合构建。
+
+各组合之间不会 greedy 地消费 Channel。Dex 只消费被选中组合里的 Channel condition。即使其他组合也已满足，只属于其他组合的 Channel condition 也不会消费消息，消息会继续留在队列中。
 
 注意：
 组合中的**每个** Condition 都需要唯一的 **condition ID**。

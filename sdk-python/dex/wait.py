@@ -83,6 +83,10 @@ class Wait:
     def any_of(*conditions: Condition) -> Wait:
         """Create a Wait that continues when any Condition is ready.
 
+        Channel consumption is not greedy across alternatives. Dex consumes
+        messages only from the selected Channel Condition; other ready Channel
+        Conditions consume nothing.
+
         Args:
             *conditions: Alternative readiness Conditions.
 
@@ -94,6 +98,10 @@ class Wait:
     @staticmethod
     def any_combination_of(*combinations: ConditionCombination) -> Wait:
         """Create a Wait that accepts any complete Condition combination.
+
+        Channel consumption is not greedy across combinations. Dex consumes
+        messages only from Channel Conditions in the selected combination;
+        Conditions belonging only to other ready combinations consume nothing.
 
         Args:
             *combinations: Alternative all-of groups created with
