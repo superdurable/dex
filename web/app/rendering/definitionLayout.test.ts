@@ -13,6 +13,7 @@ import {
   type DefinitionVisibility,
   type FlowDefinitionGraph,
 } from '@superdurable/flow-definition-renderer';
+import aiAgentGraph from '../../../docs/src/data/flow-definitions/ai-agent.json';
 
 const visible: DefinitionVisibility = {
   control: true,
@@ -109,6 +110,16 @@ describe('Flow Definition Graph layout', () => {
     const start = requiredNode(first, 'step:start');
     const next = requiredNode(first, 'step:next');
     expect(next.position.y - (start.position.y + Number(start.style?.height))).toBeGreaterThanOrEqual(140);
+  });
+
+  it('keeps the configured start Step above cyclic control flow', () => {
+    const scene = buildDefinitionScene(aiAgentGraph as FlowDefinitionGraph, visible);
+    const start = requiredNode(scene, 'step:Init');
+    const stepPositions = scene.nodes
+      .filter((node) => node.data.kind === 'step')
+      .map((node) => node.position.y);
+
+    expect(start.position.y).toBe(Math.min(...stepPositions));
   });
 
   it('routes self transitions through a selectable outer lane and keeps full branch text', () => {

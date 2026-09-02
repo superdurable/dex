@@ -69,6 +69,7 @@ const stepGap = 32;
 const branchGap = 42;
 const cardWidth = 288;
 const dispatchSize = 58;
+const stepTopologyRankSeparation = 168;
 
 export function buildDefinitionScene(
   graph: FlowDefinitionGraph,
@@ -412,7 +413,13 @@ function layoutStepTopology(
   if (steps.length === 0) return new Map();
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
-  dagreGraph.setGraph({ rankdir: 'TB', ranksep: 168, nodesep: 104, marginx: 0, marginy: 0 });
+  dagreGraph.setGraph({
+    rankdir: 'TB',
+    ranksep: stepTopologyRankSeparation,
+    nodesep: 104,
+    marginx: 0,
+    marginy: 0,
+  });
   const stepIDs = new Set(steps.map((step) => step.id));
   for (const step of steps) {
     const dimensions = stepLayouts.get(step.id)!.dimensions;
@@ -436,10 +443,34 @@ function layoutStepTopology(
   });
   const minimumX = Math.min(...raw.map((position) => position.x));
   const minimumY = Math.min(...raw.map((position) => position.y));
-  return new Map(raw.map((position) => [position.id, {
+  const positions = new Map(raw.map((position) => [position.id, {
     x: position.x - minimumX,
     y: position.y - minimumY,
   }]));
+  return placeStartStepFirst(graph.flow.startStepId, steps, stepLayouts, positions);
+}
+
+function placeStartStepFirst(
+  startStepID: string | undefined,
+  steps: FlowDefinitionNode[],
+  stepLayouts: Map<string, StepLayout>,
+  positions: Map<string, { x: number; y: number }>,
+): Map<string, { x: number; y: number }> {
+  if (!startStepID) return positions;
+  const startPosition = positions.get(startStepID);
+  if (!startPosition) return positions;
+  const minimumY = Math.min(...[...positions.values()].map((position) => position.y));
+  if (startPosition.y === minimumY) return positions;
+  const startDimensions = stepLayouts.get(startStepID)!.dimensions;
+  const topologyWidth = Math.max(...steps.map((step) => {
+    const position = positions.get(step.id)!;
+    return position.x + stepLayouts.get(step.id)!.dimensions.width;
+  }));
+  const verticalOffset = startDimensions.height + stepTopologyRankSeparation;
+  const reordered = new Map([...positions].map(([stepID, position]) => [stepID, stepID === startStepID
+    ? { x: Math.max(0, (topologyWidth - startDimensions.width) / 2), y: 0 }
+    : { x: position.x, y: position.y + verticalOffset }]));
+  return reordered;
 }
 
 function boundsForSteps(
