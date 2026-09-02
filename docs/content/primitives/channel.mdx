@@ -287,8 +287,10 @@ Returning a Channel condition from **WaitFor** waits for the Channel. When the c
 | **ForOne** | At least one message is queued. | Exactly one message. |
 | **ForN** | At least the requested number is queued. | Exactly that number of messages. |
 | **AtLeast** | At least the requested number is queued. | Every message currently available. |
-| **AtMost** | The queue has no more than the requested number. An empty queue matches. | Up to the requested number of messages. |
-| **AtLeastAtMost** | The queue has a number of messages in the inclusive range. | From the lower bound up to the upper bound. |
+| **AtMost** | Immediately, including when the queue is empty. | Up to the requested number of currently queued messages. |
+| **AtLeastAtMost** | At least the lower bound is queued. | From the lower bound up to the upper bound of currently queued messages. |
+
+**AtMost** does not wait on its own for messages to accumulate. When the surrounding Wait completes, it consumes up to the limit from the queue at that time. To wait for at least one message and consume up to a limit, use **AtLeastAtMost** with a lower bound of 1.
 
 ## Publish messages {#publish-messages}
 

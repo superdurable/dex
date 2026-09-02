@@ -14,6 +14,8 @@ This page covers more advanced features for **WaitFor** than the basic features.
 
 After WaitFor completes, Execute can read what satisfied the Wait. For a [Channel](/primitives/channel), use GetConditionResults / results / condition_results to read published messages. For a [SubFlow](/primitives/subflow), use SubFlowResult / getConditionResults / condition_result to decode the child Flow output.
 
+Channel consumption is not greedy across **AnyOf** alternatives. Dex consumes messages only from the Channel condition selected to satisfy the Wait. Other Channel conditions consume nothing even if they are also ready, so their messages remain queued.
+
 ### Channel results
 
 <SdkTabs
@@ -250,6 +252,8 @@ fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<S
 ## anyCombinationOf {#anycombinationof}
 
 anyCombinationOf expresses an OR of AND groups. Build each inner group as an all_of combination.
+
+Channel consumption is not greedy across combinations. Dex consumes messages only from Channel conditions in the selected combination. Conditions belonging only to other ready combinations consume nothing, so their messages remain queued.
 
 Note:
 **Every** Condition in the combination requires a unique **condition ID**.

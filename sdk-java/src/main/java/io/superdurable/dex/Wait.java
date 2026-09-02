@@ -90,6 +90,9 @@ public final class Wait {
     /**
      * Waits until any supplied condition is satisfied.
      *
+     * <p>Channel consumption is not greedy across alternatives. Dex consumes messages only from
+     * the selected Channel condition; other ready Channel conditions consume nothing.
+     *
      * @param conditions the alternative conditions
      * @return an any-of wait definition
      */
@@ -99,6 +102,10 @@ public final class Wait {
 
     /**
      * Waits until every condition in any one supplied combination is satisfied.
+     *
+     * <p>Channel consumption is not greedy across combinations. Dex consumes messages only from
+     * Channel conditions in the selected combination. Conditions belonging only to other ready
+     * combinations consume nothing.
      *
      * <p>Every Condition must have a non-empty user-provided ID. Reusing the same Condition object
      * across combinations is supported; distinct Conditions must not share an ID.

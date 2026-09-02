@@ -84,12 +84,12 @@ func (c Channel[T]) AtLeast(count int, options ...ConditionOption) Condition {
 	return newChannelCondition(c.name, "", false, &count, nil, options)
 }
 
-// AtMost returns a Condition satisfied when no more than count messages are queued.
+// AtMost returns a non-blocking Condition consuming up to count messages when its Wait completes.
 func (c Channel[T]) AtMost(count int, options ...ConditionOption) Condition {
 	return newChannelCondition(c.name, "", false, nil, &count, options)
 }
 
-// AtLeastAtMost returns a Condition with inclusive lower and upper queue-size bounds.
+// AtLeastAtMost waits for atLeast messages, then consumes up to atMost currently queued messages.
 func (c Channel[T]) AtLeastAtMost(
 	atLeast int,
 	atMost int,
@@ -207,7 +207,7 @@ func (c ChannelMap[T]) AtLeast(
 	return newChannelCondition(c.name, instance, true, &count, nil, options)
 }
 
-// AtMost returns an instance Condition with an inclusive upper queue-size bound.
+// AtMost returns a non-blocking instance Condition consuming up to count messages when its Wait completes.
 func (c ChannelMap[T]) AtMost(
 	instance string,
 	count int,
@@ -216,7 +216,7 @@ func (c ChannelMap[T]) AtMost(
 	return newChannelCondition(c.name, instance, true, nil, &count, options)
 }
 
-// AtLeastAtMost returns an instance Condition with inclusive lower and upper bounds.
+// AtLeastAtMost waits for atLeast instance messages, then consumes up to atMost currently queued messages.
 func (c ChannelMap[T]) AtLeastAtMost(
 	instance string,
 	atLeast int,

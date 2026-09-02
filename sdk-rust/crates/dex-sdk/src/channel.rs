@@ -96,12 +96,18 @@ impl<T> Channel<T> {
         self.range(Some(count), None)
     }
 
-    /// Creates a condition satisfied when no more than `count` messages are queued.
+    /// Creates a non-blocking condition consuming up to `count` queued messages.
+    ///
+    /// When its surrounding Wait completes, it consumes messages queued then. An empty queue yields
+    /// no messages.
     pub fn at_most(&self, count: usize) -> Condition {
         self.range(None, Some(count))
     }
 
-    /// Creates a condition with optional inclusive lower and upper queue-size bounds.
+    /// Creates a condition that waits for the lower bound, then consumes up to the upper bound.
+    ///
+    /// Omitting the lower bound makes the condition complete immediately. Consumption uses only
+    /// messages queued when the condition completes.
     pub fn range(&self, at_least: Option<usize>, at_most: Option<usize>) -> Condition {
         Condition::channel(self.name.clone(), None, at_least, at_most)
     }
@@ -210,12 +216,18 @@ impl<T> ChannelMap<T> {
         self.range(instance, Some(count), None)
     }
 
-    /// Creates an `instance` condition with an inclusive upper queue-size bound.
+    /// Creates a non-blocking `instance` condition consuming up to `count` queued messages.
+    ///
+    /// When its surrounding Wait completes, it consumes messages queued then. An empty queue yields
+    /// no messages.
     pub fn at_most(&self, instance: &str, count: usize) -> Condition {
         self.range(instance, None, Some(count))
     }
 
-    /// Creates an `instance` condition with optional inclusive lower and upper bounds.
+    /// Creates an `instance` condition that waits for the lower bound, then consumes to its upper.
+    ///
+    /// Omitting the lower bound makes the condition complete immediately. Consumption uses only
+    /// messages queued when the condition completes.
     pub fn range(
         &self,
         instance: &str,

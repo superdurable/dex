@@ -168,7 +168,8 @@ public final class Channel<T> extends PersistenceDefinition {
     }
 
     /**
-     * Creates a condition accepting at most {@code count} messages.
+     * Creates a non-blocking condition consuming up to {@code count} queued messages. When its
+     * surrounding Wait completes, it consumes messages queued then. An empty queue yields none.
      *
      * @param count the maximum message count
      * @return the Channel condition
@@ -178,7 +179,8 @@ public final class Channel<T> extends PersistenceDefinition {
     }
 
     /**
-     * Creates a named condition accepting at most {@code count} messages.
+     * Creates a named, non-blocking condition consuming up to {@code count} queued messages. When
+     * its surrounding Wait completes, it consumes messages queued then. An empty queue yields none.
      *
      * @param count the maximum message count
      * @param conditionId the condition ID used to identify its results
@@ -189,7 +191,9 @@ public final class Channel<T> extends PersistenceDefinition {
     }
 
     /**
-     * Creates a condition with optional minimum and maximum message counts.
+     * Creates a condition with optional minimum and maximum message counts. Dex waits only for the
+     * minimum, then consumes currently queued messages up to the maximum. A {@code null} minimum
+     * makes the condition complete immediately.
      *
      * @param atLeast the minimum count, or {@code null} for no minimum
      * @param atMost the maximum count, or {@code null} for no maximum
@@ -201,7 +205,9 @@ public final class Channel<T> extends PersistenceDefinition {
     }
 
     /**
-     * Creates a named condition with optional minimum and maximum message counts.
+     * Creates a named condition with optional minimum and maximum message counts. Dex waits only
+     * for the minimum, then consumes currently queued messages up to the maximum. A {@code null}
+     * minimum makes the condition complete immediately.
      *
      * @param atLeast the minimum count, or {@code null} for no minimum
      * @param atMost the maximum count, or {@code null} for no maximum

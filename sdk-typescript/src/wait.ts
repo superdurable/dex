@@ -174,7 +174,8 @@ export class Channel<T> {
   }
 
   /**
-   * Creates a condition consuming at most `count` available values.
+   * Creates a non-blocking condition consuming up to `count` queued values.
+   * When its surrounding Wait completes, it consumes values queued then; an empty queue yields none.
    * @param count - Inclusive non-negative upper bound.
    * @param conditionId - Optional stable condition identifier.
    * @returns A condition without a positive lower bound.
@@ -185,6 +186,8 @@ export class Channel<T> {
 
   /**
    * Creates a bounded condition for queued Channel values.
+   * Dex waits only for `atLeast`, then consumes currently queued values up to `atMost`.
+   * Omitting `atLeast` makes the condition complete immediately.
    * @param atLeast - Optional inclusive lower bound.
    * @param atMost - Optional inclusive upper bound.
    * @param conditionId - Optional stable condition identifier.
@@ -311,7 +314,8 @@ export class ChannelMap<T> {
   }
 
   /**
-   * Creates an instance condition consuming at most `count` values.
+   * Creates a non-blocking instance condition consuming up to `count` queued values.
+   * When its surrounding Wait completes, it consumes values queued then; an empty queue yields none.
    * @param instance - Non-empty logical map key.
    * @param count - Inclusive non-negative upper bound.
    * @param conditionId - Optional stable condition identifier.
@@ -323,6 +327,8 @@ export class ChannelMap<T> {
 
   /**
    * Creates a bounded condition for one ChannelMap instance.
+   * Dex waits only for `atLeast`, then consumes currently queued values up to `atMost`.
+   * Omitting `atLeast` makes the condition complete immediately.
    * @param instance - Non-empty logical map key.
    * @param atLeast - Optional inclusive lower bound.
    * @param atMost - Optional inclusive upper bound.
@@ -396,6 +402,8 @@ export const Wait = Object.freeze({
   },
   /**
    * Creates a Wait that continues when any condition is ready.
+   * Channel consumption is not greedy across alternatives: only the selected condition consumes.
+   * Other ready Channel conditions consume nothing.
    * @param conditions - Alternative readiness conditions.
    * @returns An any-of Wait.
    */
@@ -404,6 +412,8 @@ export const Wait = Object.freeze({
   },
   /**
    * Creates a Wait accepting any complete condition combination.
+   * Channel consumption is limited to conditions in the selected combination.
+   * Conditions belonging only to other ready combinations consume nothing.
    * Every Condition requires a non-empty user ID; the same instance may be reused.
    * @param combinations - Alternative all-of condition groups.
    * @returns An any-combination Wait.

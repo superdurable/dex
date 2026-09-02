@@ -48,11 +48,13 @@ func AllOf(conditions ...Condition) *Wait {
 }
 
 // AnyOf waits until at least one condition is satisfied.
+// It consumes messages only from the selected Channel condition, not other ready alternatives.
 func AnyOf(conditions ...Condition) *Wait {
 	return &Wait{kind: waitAnyOf, conditions: conditions}
 }
 
 // AnyComboOf waits until every Condition in at least one combination is satisfied.
+// It consumes messages only from Channel conditions in the selected combination.
 // Every Condition requires a non-empty user-provided ID.
 func AnyComboOf(combinations ...ConditionCombination) *Wait {
 	return &Wait{kind: waitAnyComboOf, combinations: combinations}
