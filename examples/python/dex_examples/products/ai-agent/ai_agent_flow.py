@@ -354,7 +354,11 @@ class RouteTool(Step[None]):
                     True,
                 ),
             )
-            return self.flow.advance_tool(context)
+            if self.flow.has_next_tool_call(context):
+                self.flow.advance_tool(context)
+                return go_to(RouteTool, None)
+            self.flow.clear_pending_tool_calls(context)
+            return go_to(CompactContext, None)
         if call.name == "write_todos":
             if sum(
                 pending.name == "write_todos"
@@ -368,7 +372,11 @@ class RouteTool(Step[None]):
                         True,
                     ),
                 )
-                return self.flow.advance_tool(context)
+                if self.flow.has_next_tool_call(context):
+                    self.flow.advance_tool(context)
+                    return go_to(RouteTool, None)
+                self.flow.clear_pending_tool_calls(context)
+                return go_to(CompactContext, None)
             try:
                 tasks = _plan_tasks(call)
             except ValueError as error:
@@ -387,7 +395,11 @@ class RouteTool(Step[None]):
                         True,
                     ),
                 )
-                return self.flow.advance_tool(context)
+                if self.flow.has_next_tool_call(context):
+                    self.flow.advance_tool(context)
+                    return go_to(RouteTool, None)
+                self.flow.clear_pending_tool_calls(context)
+                return go_to(CompactContext, None)
             revision = self.flow.replace_plan(context, tasks)
             self.flow.append_tool_result(
                 context,
@@ -403,7 +415,11 @@ class RouteTool(Step[None]):
                     False,
                 ),
             )
-            return self.flow.advance_tool(context)
+            if self.flow.has_next_tool_call(context):
+                self.flow.advance_tool(context)
+                return go_to(RouteTool, None)
+            self.flow.clear_pending_tool_calls(context)
+            return go_to(CompactContext, None)
         if call.name == "durable_wait":
             arguments = _tool_arguments(call)
             duration_seconds = int(arguments.get("duration_seconds", 0))
@@ -417,7 +433,11 @@ class RouteTool(Step[None]):
                         True,
                     ),
                 )
-                return self.flow.advance_tool(context)
+                if self.flow.has_next_tool_call(context):
+                    self.flow.advance_tool(context)
+                    return go_to(RouteTool, None)
+                self.flow.clear_pending_tool_calls(context)
+                return go_to(CompactContext, None)
             self.flow.pending_timer.set(
                 context,
                 PendingTimer(call.id, duration_seconds, reason),
@@ -445,7 +465,11 @@ class RouteTool(Step[None]):
                         True,
                     ),
                 )
-                return self.flow.advance_tool(context)
+                if self.flow.has_next_tool_call(context):
+                    self.flow.advance_tool(context)
+                    return go_to(RouteTool, None)
+                self.flow.clear_pending_tool_calls(context)
+                return go_to(CompactContext, None)
             self.flow.pending_user_input.set(
                 context,
                 PendingUserInput(call.id, prompt, choices),
@@ -622,7 +646,11 @@ class DurableWait(Step[None]):
                 False,
             ),
         )
-        return self.flow.advance_tool(context)
+        if self.flow.has_next_tool_call(context):
+            self.flow.advance_tool(context)
+            return go_to(RouteTool, None)
+        self.flow.clear_pending_tool_calls(context)
+        return go_to(CompactContext, None)
 
 
 class AIAgentFlow(Flow[AgentConfig]):

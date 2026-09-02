@@ -9,9 +9,9 @@
     "name": "AIAgentFlow",
     "startStepId": "step:Init",
     "span": {
-      "startLine": 628,
+      "startLine": 656,
       "startColumn": 1,
-      "endLine": 1218,
+      "endLine": 1246,
       "endColumn": 10
     }
   },
@@ -23,9 +23,9 @@
       "parentId": "rpc:approve_tool",
       "phase": "rpc",
       "span": {
-        "startLine": 1072,
+        "startLine": 1100,
         "startColumn": 5,
-        "endLine": 1088,
+        "endLine": 1116,
         "endColumn": 31
       }
     },
@@ -36,9 +36,9 @@
       "parentId": "rpc:describe",
       "phase": "rpc",
       "span": {
-        "startLine": 1143,
+        "startLine": 1171,
         "startColumn": 5,
-        "endLine": 1218,
+        "endLine": 1246,
         "endColumn": 10
       }
     },
@@ -49,9 +49,9 @@
       "parentId": "rpc:execute_plan",
       "phase": "rpc",
       "span": {
-        "startLine": 1091,
+        "startLine": 1119,
         "startColumn": 5,
-        "endLine": 1119,
+        "endLine": 1147,
         "endColumn": 31
       }
     },
@@ -62,9 +62,9 @@
       "parentId": "rpc:history",
       "phase": "rpc",
       "span": {
-        "startLine": 1122,
+        "startLine": 1150,
         "startColumn": 5,
-        "endLine": 1140,
+        "endLine": 1168,
         "endColumn": 61
       }
     },
@@ -75,9 +75,9 @@
       "parentId": "rpc:send_message",
       "phase": "rpc",
       "span": {
-        "startLine": 1055,
+        "startLine": 1083,
         "startColumn": 5,
-        "endLine": 1069,
+        "endLine": 1097,
         "endColumn": 31
       }
     },
@@ -88,9 +88,9 @@
       "parentId": "step:AwaitToolApproval",
       "phase": "execute",
       "span": {
-        "startLine": 493,
+        "startLine": 517,
         "startColumn": 5,
-        "endLine": 510,
+        "endLine": 534,
         "endColumn": 43
       }
     },
@@ -134,15 +134,28 @@
       }
     },
     {
+      "id": "decision-dispatch:step:DurableWait",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:DurableWait",
+      "phase": "execute",
+      "span": {
+        "startLine": 614,
+        "startColumn": 5,
+        "endLine": 653,
+        "endColumn": 43
+      }
+    },
+    {
       "id": "decision-dispatch:step:ExecuteTool",
       "kind": "decision_dispatch",
       "name": "Decision",
       "parentId": "step:ExecuteTool",
       "phase": "execute",
       "span": {
-        "startLine": 520,
+        "startLine": 544,
         "startColumn": 5,
-        "endLine": 572,
+        "endLine": 596,
         "endColumn": 43
       }
     },
@@ -155,21 +168,21 @@
       "span": {
         "startLine": 334,
         "startColumn": 5,
-        "endLine": 481,
+        "endLine": 505,
         "endColumn": 40
       }
     },
     {
-      "id": "decision:rpc:approve_tool:1080:20",
+      "id": "decision:rpc:approve_tool:1108:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:approve_tool",
       "condition": "exception",
       "phase": "rpc",
       "span": {
-        "startLine": 1080,
+        "startLine": 1108,
         "startColumn": 20,
-        "endLine": 1080,
+        "endLine": 1108,
         "endColumn": 36
       },
       "decision": {
@@ -177,16 +190,16 @@
       }
     },
     {
-      "id": "decision:rpc:approve_tool:1082:20",
+      "id": "decision:rpc:approve_tool:1110:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:approve_tool",
       "condition": "pending.call_id != input.call_id",
       "phase": "rpc",
       "span": {
-        "startLine": 1082,
+        "startLine": 1110,
         "startColumn": 20,
-        "endLine": 1082,
+        "endLine": 1110,
         "endColumn": 36
       },
       "decision": {
@@ -194,16 +207,16 @@
       }
     },
     {
-      "id": "decision:rpc:approve_tool:1088:16",
+      "id": "decision:rpc:approve_tool:1116:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:approve_tool",
       "condition": "not (pending.call_id != input.call_id)",
       "phase": "rpc",
       "span": {
-        "startLine": 1088,
+        "startLine": 1116,
         "startColumn": 16,
-        "endLine": 1088,
+        "endLine": 1116,
         "endColumn": 31
       },
       "decision": {
@@ -211,16 +224,16 @@
       }
     },
     {
-      "id": "decision:rpc:describe:1147:20",
+      "id": "decision:rpc:describe:1175:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:describe",
       "condition": "state is None or config is None",
       "phase": "rpc",
       "span": {
-        "startLine": 1147,
+        "startLine": 1175,
         "startColumn": 20,
-        "endLine": 1173,
+        "endLine": 1201,
         "endColumn": 14
       },
       "decision": {
@@ -228,16 +241,16 @@
       }
     },
     {
-      "id": "decision:rpc:describe:1178:16",
+      "id": "decision:rpc:describe:1206:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:describe",
       "condition": "not (state is None or config is None)",
       "phase": "rpc",
       "span": {
-        "startLine": 1178,
+        "startLine": 1206,
         "startColumn": 16,
-        "endLine": 1218,
+        "endLine": 1246,
         "endColumn": 10
       },
       "decision": {
@@ -245,16 +258,16 @@
       }
     },
     {
-      "id": "decision:rpc:execute_plan:1109:20",
+      "id": "decision:rpc:execute_plan:1137:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:execute_plan",
       "condition": "state is None or plan is None or state.status != STATUS_WAITING or (state.pending_plan_execution_revision is not None) or (state.pending_user_message_count \u003e 0) or (_optional_attribute(self.pending_user_input, context) is not None) or (self.user_messages.size(context) \u003e 0) or (plan.revision != input.revision) or (plan.status not in {PLAN_DRAFT, PLAN_ACTIVE})",
       "phase": "rpc",
       "span": {
-        "startLine": 1109,
+        "startLine": 1137,
         "startColumn": 20,
-        "endLine": 1109,
+        "endLine": 1137,
         "endColumn": 36
       },
       "decision": {
@@ -262,16 +275,16 @@
       }
     },
     {
-      "id": "decision:rpc:execute_plan:1119:16",
+      "id": "decision:rpc:execute_plan:1147:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:execute_plan",
       "condition": "not (state is None or plan is None or state.status != STATUS_WAITING or (state.pending_plan_execution_revision is not None) or (state.pending_user_message_count \u003e 0) or (_optional_attribute(self.pending_user_input, context) is not None) or (self.user_messages.size(context) \u003e 0) or (plan.revision != input.revision) or (plan.status not in {PLAN_DRAFT, PLAN_ACTIVE}))",
       "phase": "rpc",
       "span": {
-        "startLine": 1119,
+        "startLine": 1147,
         "startColumn": 16,
-        "endLine": 1119,
+        "endLine": 1147,
         "endColumn": 31
       },
       "decision": {
@@ -279,16 +292,16 @@
       }
     },
     {
-      "id": "decision:rpc:history:1125:20",
+      "id": "decision:rpc:history:1153:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:history",
       "condition": "state is None",
       "phase": "rpc",
       "span": {
-        "startLine": 1125,
+        "startLine": 1153,
         "startColumn": 20,
-        "endLine": 1125,
+        "endLine": 1153,
         "endColumn": 52
       },
       "decision": {
@@ -296,16 +309,16 @@
       }
     },
     {
-      "id": "decision:rpc:history:1140:16",
+      "id": "decision:rpc:history:1168:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:history",
       "condition": "not (state is None)",
       "phase": "rpc",
       "span": {
-        "startLine": 1140,
+        "startLine": 1168,
         "startColumn": 16,
-        "endLine": 1140,
+        "endLine": 1168,
         "endColumn": 61
       },
       "decision": {
@@ -313,16 +326,16 @@
       }
     },
     {
-      "id": "decision:rpc:send_message:1057:20",
+      "id": "decision:rpc:send_message:1085:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:send_message",
       "condition": "not input.content.strip()",
       "phase": "rpc",
       "span": {
-        "startLine": 1057,
+        "startLine": 1085,
         "startColumn": 20,
-        "endLine": 1057,
+        "endLine": 1085,
         "endColumn": 36
       },
       "decision": {
@@ -330,16 +343,16 @@
       }
     },
     {
-      "id": "decision:rpc:send_message:1069:16",
+      "id": "decision:rpc:send_message:1097:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:send_message",
       "condition": "not (not input.content.strip())",
       "phase": "rpc",
       "span": {
-        "startLine": 1069,
+        "startLine": 1097,
         "startColumn": 16,
-        "endLine": 1069,
+        "endLine": 1097,
         "endColumn": 31
       },
       "decision": {
@@ -347,16 +360,16 @@
       }
     },
     {
-      "id": "decision:step:AwaitToolApproval:500:20",
+      "id": "decision:step:AwaitToolApproval:524:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitToolApproval",
       "condition": "approvals[0].approved",
       "phase": "execute",
       "span": {
-        "startLine": 500,
+        "startLine": 524,
         "startColumn": 20,
-        "endLine": 500,
+        "endLine": 524,
         "endColumn": 44
       },
       "decision": {
@@ -364,16 +377,16 @@
       }
     },
     {
-      "id": "decision:step:AwaitToolApproval:508:20",
+      "id": "decision:step:AwaitToolApproval:532:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitToolApproval",
       "condition": "not (approvals[0].approved) and self.flow.has_next_tool_call(context)",
       "phase": "execute",
       "span": {
-        "startLine": 508,
+        "startLine": 532,
         "startColumn": 20,
-        "endLine": 508,
+        "endLine": 532,
         "endColumn": 42
       },
       "decision": {
@@ -381,16 +394,16 @@
       }
     },
     {
-      "id": "decision:step:AwaitToolApproval:510:16",
+      "id": "decision:step:AwaitToolApproval:534:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitToolApproval",
       "condition": "not (approvals[0].approved) and not (self.flow.has_next_tool_call(context))",
       "phase": "execute",
       "span": {
-        "startLine": 510,
+        "startLine": 534,
         "startColumn": 16,
-        "endLine": 510,
+        "endLine": 534,
         "endColumn": 43
       },
       "decision": {
@@ -534,16 +547,16 @@
       }
     },
     {
-      "id": "decision:step:DurableWait:609:20",
+      "id": "decision:step:DurableWait:633:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:DurableWait",
       "condition": "user_messages",
       "phase": "execute",
       "span": {
-        "startLine": 609,
+        "startLine": 633,
         "startColumn": 20,
-        "endLine": 609,
+        "endLine": 633,
         "endColumn": 47
       },
       "decision": {
@@ -551,16 +564,16 @@
       }
     },
     {
-      "id": "decision:step:ExecuteTool:570:20",
+      "id": "decision:step:DurableWait:651:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:ExecuteTool",
-      "condition": "self.flow.has_next_tool_call(context)",
+      "parentId": "step:DurableWait",
+      "condition": "not (user_messages) and self.flow.has_next_tool_call(context)",
       "phase": "execute",
       "span": {
-        "startLine": 570,
+        "startLine": 651,
         "startColumn": 20,
-        "endLine": 570,
+        "endLine": 651,
         "endColumn": 42
       },
       "decision": {
@@ -568,16 +581,50 @@
       }
     },
     {
-      "id": "decision:step:ExecuteTool:572:16",
+      "id": "decision:step:DurableWait:653:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:DurableWait",
+      "condition": "not (user_messages) and not (self.flow.has_next_tool_call(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 653,
+        "startColumn": 16,
+        "endLine": 653,
+        "endColumn": 43
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ExecuteTool:594:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ExecuteTool",
+      "condition": "self.flow.has_next_tool_call(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 594,
+        "startColumn": 20,
+        "endLine": 594,
+        "endColumn": 42
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ExecuteTool:596:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:ExecuteTool",
       "condition": "not (self.flow.has_next_tool_call(context))",
       "phase": "execute",
       "span": {
-        "startLine": 572,
+        "startLine": 596,
         "startColumn": 16,
-        "endLine": 572,
+        "endLine": 596,
         "endColumn": 43
       },
       "decision": {
@@ -601,50 +648,50 @@
       }
     },
     {
-      "id": "decision:step:RouteTool:425:20",
+      "id": "decision:step:RouteTool:359:24",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:RouteTool",
-      "condition": "call.name == 'durable_wait'",
+      "condition": "exception and self.flow.has_next_tool_call(context)",
       "phase": "execute",
       "span": {
-        "startLine": 425,
-        "startColumn": 20,
-        "endLine": 425,
-        "endColumn": 44
+        "startLine": 359,
+        "startColumn": 24,
+        "endLine": 359,
+        "endColumn": 46
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:RouteTool:473:20",
+      "id": "decision:step:RouteTool:361:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:RouteTool",
-      "condition": "not (call.name == 'durable_wait') and call.name == 'request_user_input'",
+      "condition": "exception and not (self.flow.has_next_tool_call(context))",
       "phase": "execute",
       "span": {
-        "startLine": 473,
+        "startLine": 361,
         "startColumn": 20,
-        "endLine": 473,
-        "endColumn": 42
+        "endLine": 361,
+        "endColumn": 47
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:RouteTool:480:20",
+      "id": "decision:step:RouteTool:377:28",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:RouteTool",
-      "condition": "not (call.name == 'durable_wait') and not (call.name == 'request_user_input') and definition.requires_approval",
+      "condition": "call.name == 'write_todos' and sum((pending.name == 'write_todos' for pending in state.pending_tool_calls)) \u003e 1 and self.flow.has_next_tool_call(context)",
       "phase": "execute",
       "span": {
-        "startLine": 480,
-        "startColumn": 20,
-        "endLine": 480,
+        "startLine": 377,
+        "startColumn": 28,
+        "endLine": 377,
         "endColumn": 50
       },
       "decision": {
@@ -652,16 +699,220 @@
       }
     },
     {
-      "id": "decision:step:RouteTool:481:16",
+      "id": "decision:step:RouteTool:379:24",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:RouteTool",
-      "condition": "not (call.name == 'durable_wait') and not (call.name == 'request_user_input') and not (definition.requires_approval)",
+      "condition": "call.name == 'write_todos' and sum((pending.name == 'write_todos' for pending in state.pending_tool_calls)) \u003e 1 and not (self.flow.has_next_tool_call(context))",
       "phase": "execute",
       "span": {
-        "startLine": 481,
+        "startLine": 379,
+        "startColumn": 24,
+        "endLine": 379,
+        "endColumn": 51
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:400:28",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "call.name == 'write_todos' and not (sum((pending.name == 'write_todos' for pending in state.pending_tool_calls)) \u003e 1) and exception and self.flow.has_next_tool_call(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 400,
+        "startColumn": 28,
+        "endLine": 400,
+        "endColumn": 50
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:402:24",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "call.name == 'write_todos' and not (sum((pending.name == 'write_todos' for pending in state.pending_tool_calls)) \u003e 1) and exception and not (self.flow.has_next_tool_call(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 402,
+        "startColumn": 24,
+        "endLine": 402,
+        "endColumn": 51
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:420:24",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "call.name == 'write_todos' and not (sum((pending.name == 'write_todos' for pending in state.pending_tool_calls)) \u003e 1) and self.flow.has_next_tool_call(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 420,
+        "startColumn": 24,
+        "endLine": 420,
+        "endColumn": 46
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:422:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "call.name == 'write_todos' and not (sum((pending.name == 'write_todos' for pending in state.pending_tool_calls)) \u003e 1) and not (self.flow.has_next_tool_call(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 422,
+        "startColumn": 20,
+        "endLine": 422,
+        "endColumn": 47
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:438:28",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "not (call.name == 'write_todos') and call.name == 'durable_wait' and duration_seconds \u003c= 0 and self.flow.has_next_tool_call(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 438,
+        "startColumn": 28,
+        "endLine": 438,
+        "endColumn": 50
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:440:24",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "not (call.name == 'write_todos') and call.name == 'durable_wait' and duration_seconds \u003c= 0 and not (self.flow.has_next_tool_call(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 440,
+        "startColumn": 24,
+        "endLine": 440,
+        "endColumn": 51
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:445:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "not (call.name == 'write_todos') and call.name == 'durable_wait' and not (duration_seconds \u003c= 0)",
+      "phase": "execute",
+      "span": {
+        "startLine": 445,
+        "startColumn": 20,
+        "endLine": 445,
+        "endColumn": 44
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:470:28",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "not (call.name == 'write_todos') and not (call.name == 'durable_wait') and call.name == 'request_user_input' and validation_error is not None and self.flow.has_next_tool_call(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 470,
+        "startColumn": 28,
+        "endLine": 470,
+        "endColumn": 50
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:472:24",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "not (call.name == 'write_todos') and not (call.name == 'durable_wait') and call.name == 'request_user_input' and validation_error is not None and not (self.flow.has_next_tool_call(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 472,
+        "startColumn": 24,
+        "endLine": 472,
+        "endColumn": 51
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:497:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "not (call.name == 'write_todos') and not (call.name == 'durable_wait') and call.name == 'request_user_input' and not (validation_error is not None)",
+      "phase": "execute",
+      "span": {
+        "startLine": 497,
+        "startColumn": 20,
+        "endLine": 497,
+        "endColumn": 42
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:504:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "not (call.name == 'write_todos') and not (call.name == 'durable_wait') and not (call.name == 'request_user_input') and definition.requires_approval",
+      "phase": "execute",
+      "span": {
+        "startLine": 504,
+        "startColumn": 20,
+        "endLine": 504,
+        "endColumn": 50
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:505:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "not (call.name == 'write_todos') and not (call.name == 'durable_wait') and not (call.name == 'request_user_input') and not (definition.requires_approval)",
+      "phase": "execute",
+      "span": {
+        "startLine": 505,
         "startColumn": 16,
-        "endLine": 481,
+        "endLine": 505,
         "endColumn": 40
       },
       "decision": {
@@ -673,9 +924,9 @@
       "kind": "attribute",
       "name": "AgentConfig",
       "span": {
-        "startLine": 629,
+        "startLine": 657,
         "startColumn": 5,
-        "endLine": 629,
+        "endLine": 657,
         "endColumn": 51
       },
       "resource": {
@@ -687,9 +938,9 @@
       "kind": "attribute",
       "name": "AgentMessages",
       "span": {
-        "startLine": 632,
+        "startLine": 660,
         "startColumn": 5,
-        "endLine": 632,
+        "endLine": 660,
         "endColumn": 59
       },
       "resource": {
@@ -702,9 +953,9 @@
       "kind": "attribute",
       "name": "PendingApproval",
       "span": {
-        "startLine": 634,
+        "startLine": 662,
         "startColumn": 5,
-        "endLine": 634,
+        "endLine": 662,
         "endColumn": 69
       },
       "resource": {
@@ -716,9 +967,9 @@
       "kind": "attribute",
       "name": "PendingTimer",
       "span": {
-        "startLine": 635,
+        "startLine": 663,
         "startColumn": 5,
-        "endLine": 635,
+        "endLine": 663,
         "endColumn": 60
       },
       "resource": {
@@ -730,9 +981,9 @@
       "kind": "attribute",
       "name": "PendingUserInput",
       "span": {
-        "startLine": 636,
+        "startLine": 664,
         "startColumn": 5,
-        "endLine": 636,
+        "endLine": 664,
         "endColumn": 73
       },
       "resource": {
@@ -744,9 +995,9 @@
       "kind": "attribute",
       "name": "AgentPlan",
       "span": {
-        "startLine": 633,
+        "startLine": 661,
         "startColumn": 5,
-        "endLine": 633,
+        "endLine": 661,
         "endColumn": 45
       },
       "resource": {
@@ -758,9 +1009,9 @@
       "kind": "attribute",
       "name": "AgentState",
       "span": {
-        "startLine": 630,
+        "startLine": 658,
         "startColumn": 5,
-        "endLine": 630,
+        "endLine": 658,
         "endColumn": 48
       },
       "resource": {
@@ -772,9 +1023,9 @@
       "kind": "attribute",
       "name": "ContextSummary",
       "span": {
-        "startLine": 631,
+        "startLine": 659,
         "startColumn": 5,
-        "endLine": 631,
+        "endLine": 659,
         "endColumn": 58
       },
       "resource": {
@@ -786,9 +1037,9 @@
       "kind": "channel",
       "name": "PlanExecutions",
       "span": {
-        "startLine": 639,
+        "startLine": 667,
         "startColumn": 5,
-        "endLine": 639,
+        "endLine": 667,
         "endColumn": 73
       },
       "resource": {
@@ -801,9 +1052,9 @@
       "kind": "channel",
       "name": "ToolApprovals",
       "span": {
-        "startLine": 638,
+        "startLine": 666,
         "startColumn": 5,
-        "endLine": 638,
+        "endLine": 666,
         "endColumn": 63
       },
       "resource": {
@@ -816,9 +1067,9 @@
       "kind": "channel",
       "name": "UserMessages",
       "span": {
-        "startLine": 637,
+        "startLine": 665,
         "startColumn": 5,
-        "endLine": 637,
+        "endLine": 665,
         "endColumn": 57
       },
       "resource": {
@@ -830,9 +1081,9 @@
       "kind": "stream",
       "name": "AgentActivity",
       "span": {
-        "startLine": 642,
+        "startLine": 670,
         "startColumn": 5,
-        "endLine": 642,
+        "endLine": 670,
         "endColumn": 75
       },
       "resource": {
@@ -844,9 +1095,9 @@
       "kind": "stream",
       "name": "AssistantText",
       "span": {
-        "startLine": 641,
+        "startLine": 669,
         "startColumn": 5,
-        "endLine": 641,
+        "endLine": 669,
         "endColumn": 68
       },
       "resource": {
@@ -858,9 +1109,9 @@
       "kind": "stream",
       "name": "ReasoningSummary",
       "span": {
-        "startLine": 640,
+        "startLine": 668,
         "startColumn": 5,
-        "endLine": 640,
+        "endLine": 668,
         "endColumn": 74
       },
       "resource": {
@@ -872,9 +1123,9 @@
       "kind": "rpc",
       "name": "approve_tool",
       "span": {
-        "startLine": 1072,
+        "startLine": 1100,
         "startColumn": 5,
-        "endLine": 1088,
+        "endLine": 1116,
         "endColumn": 31
       }
     },
@@ -883,9 +1134,9 @@
       "kind": "rpc",
       "name": "describe",
       "span": {
-        "startLine": 1143,
+        "startLine": 1171,
         "startColumn": 5,
-        "endLine": 1218,
+        "endLine": 1246,
         "endColumn": 10
       }
     },
@@ -894,9 +1145,9 @@
       "kind": "rpc",
       "name": "execute_plan",
       "span": {
-        "startLine": 1091,
+        "startLine": 1119,
         "startColumn": 5,
-        "endLine": 1119,
+        "endLine": 1147,
         "endColumn": 31
       }
     },
@@ -905,9 +1156,9 @@
       "kind": "rpc",
       "name": "history",
       "span": {
-        "startLine": 1122,
+        "startLine": 1150,
         "startColumn": 5,
-        "endLine": 1140,
+        "endLine": 1168,
         "endColumn": 61
       }
     },
@@ -916,9 +1167,9 @@
       "kind": "rpc",
       "name": "send_message",
       "span": {
-        "startLine": 1055,
+        "startLine": 1083,
         "startColumn": 5,
-        "endLine": 1069,
+        "endLine": 1097,
         "endColumn": 31
       }
     },
@@ -928,9 +1179,9 @@
       "name": "AwaitToolApproval",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 666,
+        "startLine": 694,
         "startColumn": 13,
-        "endLine": 666,
+        "endLine": 694,
         "endColumn": 37
       }
     },
@@ -940,9 +1191,9 @@
       "name": "AwaitUser",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 662,
+        "startLine": 690,
         "startColumn": 13,
-        "endLine": 662,
+        "endLine": 690,
         "endColumn": 28
       }
     },
@@ -952,9 +1203,9 @@
       "name": "CallModel",
       "phase": "execute",
       "span": {
-        "startLine": 664,
+        "startLine": 692,
         "startColumn": 13,
-        "endLine": 664,
+        "endLine": 692,
         "endColumn": 28
       }
     },
@@ -964,9 +1215,9 @@
       "name": "CompactContext",
       "phase": "execute",
       "span": {
-        "startLine": 663,
+        "startLine": 691,
         "startColumn": 13,
-        "endLine": 663,
+        "endLine": 691,
         "endColumn": 33
       }
     },
@@ -976,9 +1227,9 @@
       "name": "DurableWait",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 668,
+        "startLine": 696,
         "startColumn": 13,
-        "endLine": 668,
+        "endLine": 696,
         "endColumn": 30
       }
     },
@@ -988,9 +1239,9 @@
       "name": "ExecuteTool",
       "phase": "execute",
       "span": {
-        "startLine": 667,
+        "startLine": 695,
         "startColumn": 13,
-        "endLine": 667,
+        "endLine": 695,
         "endColumn": 30
       }
     },
@@ -1001,9 +1252,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 661,
+        "startLine": 689,
         "startColumn": 36,
-        "endLine": 661,
+        "endLine": 689,
         "endColumn": 45
       }
     },
@@ -1013,9 +1264,9 @@
       "name": "RouteTool",
       "phase": "execute",
       "span": {
-        "startLine": 665,
+        "startLine": 693,
         "startColumn": 13,
-        "endLine": 665,
+        "endLine": 693,
         "endColumn": 28
       }
     },
@@ -1033,15 +1284,15 @@
       }
     },
     {
-      "id": "wait:AwaitToolApproval:491:16:0",
+      "id": "wait:AwaitToolApproval:515:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:AwaitToolApproval",
       "phase": "wait_for",
       "span": {
-        "startLine": 491,
+        "startLine": 515,
         "startColumn": 16,
-        "endLine": 491,
+        "endLine": 515,
         "endColumn": 69
       },
       "wait": {
@@ -1053,9 +1304,9 @@
             "resourceId": "resource:channel:AIAgentFlow.tool_approvals",
             "expression": "call.id",
             "span": {
-              "startLine": 491,
+              "startLine": 515,
               "startColumn": 27,
-              "endLine": 491,
+              "endLine": 515,
               "endColumn": 68
             }
           }
@@ -1136,15 +1387,15 @@
       }
     },
     {
-      "id": "wait:DurableWait:582:16:0",
+      "id": "wait:DurableWait:606:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:DurableWait",
       "phase": "wait_for",
       "span": {
-        "startLine": 582,
+        "startLine": 606,
         "startColumn": 16,
-        "endLine": 588,
+        "endLine": 612,
         "endColumn": 10
       },
       "wait": {
@@ -1155,9 +1406,9 @@
             "label": "timedelta(seconds=timer.duration_seconds) timer",
             "expression": "timedelta(seconds=timer.duration_seconds)",
             "span": {
-              "startLine": 583,
+              "startLine": 607,
               "startColumn": 13,
-              "endLine": 586,
+              "endLine": 610,
               "endColumn": 14
             }
           },
@@ -1167,9 +1418,9 @@
             "resourceId": "resource:channel:AIAgentFlow.user_messages",
             "expression": "condition_id='durable-wait-user'",
             "span": {
-              "startLine": 587,
+              "startLine": 611,
               "startColumn": 13,
-              "endLine": 587,
+              "endLine": 611,
               "endColumn": 78
             }
           }
@@ -1181,39 +1432,39 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:AwaitToolApproval:500:20",
+      "from": "decision:step:AwaitToolApproval:524:20",
       "to": "step:ExecuteTool",
       "label": "go_to",
       "span": {
-        "startLine": 500,
+        "startLine": 524,
         "startColumn": 20,
-        "endLine": 500,
+        "endLine": 524,
         "endColumn": 44
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:AwaitToolApproval:508:20",
+      "from": "decision:step:AwaitToolApproval:532:20",
       "to": "step:RouteTool",
       "label": "go_to",
       "span": {
-        "startLine": 508,
+        "startLine": 532,
         "startColumn": 20,
-        "endLine": 508,
+        "endLine": 532,
         "endColumn": 42
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:AwaitToolApproval:510:16",
+      "from": "decision:step:AwaitToolApproval:534:16",
       "to": "step:CompactContext",
       "label": "go_to",
       "span": {
-        "startLine": 510,
+        "startLine": 534,
         "startColumn": 16,
-        "endLine": 510,
+        "endLine": 534,
         "endColumn": 43
       }
     },
@@ -1324,44 +1575,70 @@
     {
       "id": "edge:0012",
       "kind": "transition",
-      "from": "decision:step:DurableWait:609:20",
+      "from": "decision:step:DurableWait:633:20",
       "to": "step:CompactContext",
       "label": "go_to",
       "span": {
-        "startLine": 609,
+        "startLine": 633,
         "startColumn": 20,
-        "endLine": 609,
+        "endLine": 633,
         "endColumn": 47
       }
     },
     {
       "id": "edge:0013",
       "kind": "transition",
-      "from": "decision:step:ExecuteTool:570:20",
+      "from": "decision:step:DurableWait:651:20",
       "to": "step:RouteTool",
       "label": "go_to",
       "span": {
-        "startLine": 570,
+        "startLine": 651,
         "startColumn": 20,
-        "endLine": 570,
+        "endLine": 651,
         "endColumn": 42
       }
     },
     {
       "id": "edge:0014",
       "kind": "transition",
-      "from": "decision:step:ExecuteTool:572:16",
+      "from": "decision:step:DurableWait:653:16",
       "to": "step:CompactContext",
       "label": "go_to",
       "span": {
-        "startLine": 572,
+        "startLine": 653,
         "startColumn": 16,
-        "endLine": 572,
+        "endLine": 653,
         "endColumn": 43
       }
     },
     {
       "id": "edge:0015",
+      "kind": "transition",
+      "from": "decision:step:ExecuteTool:594:20",
+      "to": "step:RouteTool",
+      "label": "go_to",
+      "span": {
+        "startLine": 594,
+        "startColumn": 20,
+        "endLine": 594,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "transition",
+      "from": "decision:step:ExecuteTool:596:16",
+      "to": "step:CompactContext",
+      "label": "go_to",
+      "span": {
+        "startLine": 596,
+        "startColumn": 16,
+        "endLine": 596,
+        "endColumn": 43
+      }
+    },
+    {
+      "id": "edge:0017",
       "kind": "transition",
       "from": "decision:step:Init:117:16",
       "to": "step:AwaitUser",
@@ -1374,67 +1651,223 @@
       }
     },
     {
-      "id": "edge:0016",
-      "kind": "transition",
-      "from": "decision:step:RouteTool:425:20",
-      "to": "step:DurableWait",
-      "label": "go_to",
-      "span": {
-        "startLine": 425,
-        "startColumn": 20,
-        "endLine": 425,
-        "endColumn": 44
-      }
-    },
-    {
-      "id": "edge:0017",
-      "kind": "transition",
-      "from": "decision:step:RouteTool:473:20",
-      "to": "step:AwaitUser",
-      "label": "go_to",
-      "span": {
-        "startLine": 473,
-        "startColumn": 20,
-        "endLine": 473,
-        "endColumn": 42
-      }
-    },
-    {
       "id": "edge:0018",
       "kind": "transition",
-      "from": "decision:step:RouteTool:480:20",
-      "to": "step:AwaitToolApproval",
+      "from": "decision:step:RouteTool:359:24",
+      "to": "step:RouteTool",
       "label": "go_to",
       "span": {
-        "startLine": 480,
-        "startColumn": 20,
-        "endLine": 480,
-        "endColumn": 50
+        "startLine": 359,
+        "startColumn": 24,
+        "endLine": 359,
+        "endColumn": 46
       }
     },
     {
       "id": "edge:0019",
       "kind": "transition",
-      "from": "decision:step:RouteTool:481:16",
-      "to": "step:ExecuteTool",
+      "from": "decision:step:RouteTool:361:20",
+      "to": "step:CompactContext",
       "label": "go_to",
       "span": {
-        "startLine": 481,
-        "startColumn": 16,
-        "endLine": 481,
-        "endColumn": 40
+        "startLine": 361,
+        "startColumn": 20,
+        "endLine": 361,
+        "endColumn": 47
       }
     },
     {
       "id": "edge:0020",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:377:28",
+      "to": "step:RouteTool",
+      "label": "go_to",
+      "span": {
+        "startLine": 377,
+        "startColumn": 28,
+        "endLine": 377,
+        "endColumn": 50
+      }
+    },
+    {
+      "id": "edge:0021",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:379:24",
+      "to": "step:CompactContext",
+      "label": "go_to",
+      "span": {
+        "startLine": 379,
+        "startColumn": 24,
+        "endLine": 379,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "edge:0022",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:400:28",
+      "to": "step:RouteTool",
+      "label": "go_to",
+      "span": {
+        "startLine": 400,
+        "startColumn": 28,
+        "endLine": 400,
+        "endColumn": 50
+      }
+    },
+    {
+      "id": "edge:0023",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:402:24",
+      "to": "step:CompactContext",
+      "label": "go_to",
+      "span": {
+        "startLine": 402,
+        "startColumn": 24,
+        "endLine": 402,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "edge:0024",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:420:24",
+      "to": "step:RouteTool",
+      "label": "go_to",
+      "span": {
+        "startLine": 420,
+        "startColumn": 24,
+        "endLine": 420,
+        "endColumn": 46
+      }
+    },
+    {
+      "id": "edge:0025",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:422:20",
+      "to": "step:CompactContext",
+      "label": "go_to",
+      "span": {
+        "startLine": 422,
+        "startColumn": 20,
+        "endLine": 422,
+        "endColumn": 47
+      }
+    },
+    {
+      "id": "edge:0026",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:438:28",
+      "to": "step:RouteTool",
+      "label": "go_to",
+      "span": {
+        "startLine": 438,
+        "startColumn": 28,
+        "endLine": 438,
+        "endColumn": 50
+      }
+    },
+    {
+      "id": "edge:0027",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:440:24",
+      "to": "step:CompactContext",
+      "label": "go_to",
+      "span": {
+        "startLine": 440,
+        "startColumn": 24,
+        "endLine": 440,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "edge:0028",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:445:20",
+      "to": "step:DurableWait",
+      "label": "go_to",
+      "span": {
+        "startLine": 445,
+        "startColumn": 20,
+        "endLine": 445,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "edge:0029",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:470:28",
+      "to": "step:RouteTool",
+      "label": "go_to",
+      "span": {
+        "startLine": 470,
+        "startColumn": 28,
+        "endLine": 470,
+        "endColumn": 50
+      }
+    },
+    {
+      "id": "edge:0030",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:472:24",
+      "to": "step:CompactContext",
+      "label": "go_to",
+      "span": {
+        "startLine": 472,
+        "startColumn": 24,
+        "endLine": 472,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "edge:0031",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:497:20",
+      "to": "step:AwaitUser",
+      "label": "go_to",
+      "span": {
+        "startLine": 497,
+        "startColumn": 20,
+        "endLine": 497,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0032",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:504:20",
+      "to": "step:AwaitToolApproval",
+      "label": "go_to",
+      "span": {
+        "startLine": 504,
+        "startColumn": 20,
+        "endLine": 504,
+        "endColumn": 50
+      }
+    },
+    {
+      "id": "edge:0033",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:505:16",
+      "to": "step:ExecuteTool",
+      "label": "go_to",
+      "span": {
+        "startLine": 505,
+        "startColumn": 16,
+        "endLine": 505,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "edge:0034",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.config",
       "to": "rpc:describe",
       "label": "get",
       "span": {
-        "startLine": 1145,
+        "startLine": 1173,
         "startColumn": 18,
-        "endLine": 1145,
+        "endLine": 1173,
         "endColumn": 42
       },
       "metadata": {
@@ -1442,7 +1875,7 @@
       }
     },
     {
-      "id": "edge:0021",
+      "id": "edge:0035",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.config",
       "to": "step:CallModel",
@@ -1458,7 +1891,7 @@
       }
     },
     {
-      "id": "edge:0022",
+      "id": "edge:0036",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.config",
       "to": "step:CompactContext",
@@ -1474,15 +1907,15 @@
       }
     },
     {
-      "id": "edge:0023",
+      "id": "edge:0037",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.config",
       "to": "step:ExecuteTool",
       "label": "get",
       "span": {
-        "startLine": 527,
+        "startLine": 551,
         "startColumn": 18,
-        "endLine": 527,
+        "endLine": 551,
         "endColumn": 47
       },
       "metadata": {
@@ -1490,7 +1923,7 @@
       }
     },
     {
-      "id": "edge:0024",
+      "id": "edge:0038",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.config",
       "to": "step:RouteTool",
@@ -1506,15 +1939,15 @@
       }
     },
     {
-      "id": "edge:0025",
+      "id": "edge:0039",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.messages",
       "to": "rpc:history",
       "label": "get",
       "span": {
-        "startLine": 1135,
+        "startLine": 1163,
         "startColumn": 17,
-        "endLine": 1135,
+        "endLine": 1163,
         "endColumn": 68
       },
       "metadata": {
@@ -1522,15 +1955,15 @@
       }
     },
     {
-      "id": "edge:0026",
+      "id": "edge:0040",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.pending_approval",
       "to": "rpc:approve_tool",
       "label": "get",
       "span": {
-        "startLine": 1078,
+        "startLine": 1106,
         "startColumn": 23,
-        "endLine": 1078,
+        "endLine": 1106,
         "endColumn": 57
       },
       "metadata": {
@@ -1538,15 +1971,15 @@
       }
     },
     {
-      "id": "edge:0027",
+      "id": "edge:0041",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.pending_timer",
       "to": "step:DurableWait",
       "label": "get",
       "span": {
-        "startLine": 592,
+        "startLine": 616,
         "startColumn": 17,
-        "endLine": 592,
+        "endLine": 616,
         "endColumn": 53
       },
       "metadata": {
@@ -1554,15 +1987,15 @@
       }
     },
     {
-      "id": "edge:0028",
+      "id": "edge:0042",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.pending_timer",
       "to": "step:DurableWait",
       "label": "get",
       "span": {
-        "startLine": 580,
+        "startLine": 604,
         "startColumn": 17,
-        "endLine": 580,
+        "endLine": 604,
         "endColumn": 53
       },
       "metadata": {
@@ -1570,15 +2003,15 @@
       }
     },
     {
-      "id": "edge:0029",
+      "id": "edge:0043",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.state",
       "to": "rpc:describe",
       "label": "get",
       "span": {
-        "startLine": 1144,
+        "startLine": 1172,
         "startColumn": 17,
-        "endLine": 1144,
+        "endLine": 1172,
         "endColumn": 40
       },
       "metadata": {
@@ -1586,15 +2019,15 @@
       }
     },
     {
-      "id": "edge:0030",
+      "id": "edge:0044",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.state",
       "to": "rpc:execute_plan",
       "label": "get",
       "span": {
-        "startLine": 1096,
+        "startLine": 1124,
         "startColumn": 17,
-        "endLine": 1096,
+        "endLine": 1124,
         "endColumn": 40
       },
       "metadata": {
@@ -1602,15 +2035,15 @@
       }
     },
     {
-      "id": "edge:0031",
+      "id": "edge:0045",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.state",
       "to": "rpc:history",
       "label": "get",
       "span": {
-        "startLine": 1123,
+        "startLine": 1151,
         "startColumn": 17,
-        "endLine": 1123,
+        "endLine": 1151,
         "endColumn": 40
       },
       "metadata": {
@@ -1618,15 +2051,15 @@
       }
     },
     {
-      "id": "edge:0032",
+      "id": "edge:0046",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.state",
       "to": "rpc:send_message",
       "label": "get",
       "span": {
-        "startLine": 1058,
+        "startLine": 1086,
         "startColumn": 17,
-        "endLine": 1058,
+        "endLine": 1086,
         "endColumn": 40
       },
       "metadata": {
@@ -1634,7 +2067,7 @@
       }
     },
     {
-      "id": "edge:0033",
+      "id": "edge:0047",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.state",
       "to": "step:AwaitUser",
@@ -1650,7 +2083,7 @@
       }
     },
     {
-      "id": "edge:0034",
+      "id": "edge:0048",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.state",
       "to": "step:CallModel",
@@ -1666,7 +2099,7 @@
       }
     },
     {
-      "id": "edge:0035",
+      "id": "edge:0049",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.state",
       "to": "step:CompactContext",
@@ -1682,7 +2115,7 @@
       }
     },
     {
-      "id": "edge:0036",
+      "id": "edge:0050",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.state",
       "to": "step:RouteTool",
@@ -1698,7 +2131,7 @@
       }
     },
     {
-      "id": "edge:0037",
+      "id": "edge:0051",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.plan_executions",
       "to": "step:AwaitUser",
@@ -1714,7 +2147,7 @@
       }
     },
     {
-      "id": "edge:0038",
+      "id": "edge:0052",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.plan_executions",
       "to": "wait:AwaitUser:129:16:1",
@@ -1727,15 +2160,15 @@
       }
     },
     {
-      "id": "edge:0039",
+      "id": "edge:0053",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.tool_approvals",
       "to": "step:AwaitToolApproval",
       "label": "results",
       "span": {
-        "startLine": 495,
+        "startLine": 519,
         "startColumn": 21,
-        "endLine": 495,
+        "endLine": 519,
         "endColumn": 71
       },
       "metadata": {
@@ -1743,28 +2176,28 @@
       }
     },
     {
-      "id": "edge:0040",
+      "id": "edge:0054",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.tool_approvals",
-      "to": "wait:AwaitToolApproval:491:16:0",
+      "to": "wait:AwaitToolApproval:515:16:0",
       "label": "ToolApprovals[call.id].for 1",
       "span": {
-        "startLine": 491,
+        "startLine": 515,
         "startColumn": 27,
-        "endLine": 491,
+        "endLine": 515,
         "endColumn": 68
       }
     },
     {
-      "id": "edge:0041",
+      "id": "edge:0055",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.user_messages",
       "to": "rpc:execute_plan",
       "label": "size",
       "span": {
-        "startLine": 1105,
+        "startLine": 1133,
         "startColumn": 16,
-        "endLine": 1105,
+        "endLine": 1133,
         "endColumn": 48
       },
       "metadata": {
@@ -1772,7 +2205,7 @@
       }
     },
     {
-      "id": "edge:0042",
+      "id": "edge:0056",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.user_messages",
       "to": "step:AwaitUser",
@@ -1788,15 +2221,15 @@
       }
     },
     {
-      "id": "edge:0043",
+      "id": "edge:0057",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.user_messages",
       "to": "step:DurableWait",
       "label": "results",
       "span": {
-        "startLine": 593,
+        "startLine": 617,
         "startColumn": 25,
-        "endLine": 593,
+        "endLine": 617,
         "endColumn": 65
       },
       "metadata": {
@@ -1804,7 +2237,7 @@
       }
     },
     {
-      "id": "edge:0044",
+      "id": "edge:0058",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.user_messages",
       "to": "wait:AwaitUser:128:20:0",
@@ -1817,7 +2250,7 @@
       }
     },
     {
-      "id": "edge:0045",
+      "id": "edge:0059",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.user_messages",
       "to": "wait:AwaitUser:129:16:1",
@@ -1830,28 +2263,28 @@
       }
     },
     {
-      "id": "edge:0046",
+      "id": "edge:0060",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.user_messages",
-      "to": "wait:DurableWait:582:16:0",
+      "to": "wait:DurableWait:606:16:0",
       "label": "UserMessages.for 1",
       "span": {
-        "startLine": 587,
+        "startLine": 611,
         "startColumn": 13,
-        "endLine": 587,
+        "endLine": 611,
         "endColumn": 78
       }
     },
     {
-      "id": "edge:0047",
+      "id": "edge:0061",
       "kind": "resource_publish",
       "from": "rpc:approve_tool",
       "to": "resource:channel:AIAgentFlow.tool_approvals",
       "label": "publish",
       "span": {
-        "startLine": 1083,
+        "startLine": 1111,
         "startColumn": 9,
-        "endLine": 1087,
+        "endLine": 1115,
         "endColumn": 10
       },
       "metadata": {
@@ -1859,15 +2292,15 @@
       }
     },
     {
-      "id": "edge:0048",
+      "id": "edge:0062",
       "kind": "resource_write",
       "from": "rpc:execute_plan",
       "to": "resource:attribute:AIAgentFlow.state",
       "label": "set",
       "span": {
-        "startLine": 1110,
+        "startLine": 1138,
         "startColumn": 9,
-        "endLine": 1113,
+        "endLine": 1141,
         "endColumn": 10
       },
       "metadata": {
@@ -1875,15 +2308,15 @@
       }
     },
     {
-      "id": "edge:0049",
+      "id": "edge:0063",
       "kind": "resource_publish",
       "from": "rpc:execute_plan",
       "to": "resource:channel:AIAgentFlow.plan_executions",
       "label": "publish",
       "span": {
-        "startLine": 1114,
+        "startLine": 1142,
         "startColumn": 9,
-        "endLine": 1118,
+        "endLine": 1146,
         "endColumn": 10
       },
       "metadata": {
@@ -1891,15 +2324,15 @@
       }
     },
     {
-      "id": "edge:0050",
+      "id": "edge:0064",
       "kind": "resource_write",
       "from": "rpc:send_message",
       "to": "resource:attribute:AIAgentFlow.state",
       "label": "set",
       "span": {
-        "startLine": 1060,
+        "startLine": 1088,
         "startColumn": 13,
-        "endLine": 1067,
+        "endLine": 1095,
         "endColumn": 14
       },
       "metadata": {
@@ -1907,15 +2340,15 @@
       }
     },
     {
-      "id": "edge:0051",
+      "id": "edge:0065",
       "kind": "resource_publish",
       "from": "rpc:send_message",
       "to": "resource:channel:AIAgentFlow.user_messages",
       "label": "publish",
       "span": {
-        "startLine": 1068,
+        "startLine": 1096,
         "startColumn": 9,
-        "endLine": 1068,
+        "endLine": 1096,
         "endColumn": 51
       },
       "metadata": {
@@ -1923,15 +2356,15 @@
       }
     },
     {
-      "id": "edge:0052",
+      "id": "edge:0066",
       "kind": "resource_write",
       "from": "step:AwaitToolApproval",
       "to": "resource:attribute:AIAgentFlow.pending_approval",
       "label": "delete",
       "span": {
-        "startLine": 498,
+        "startLine": 522,
         "startColumn": 9,
-        "endLine": 498,
+        "endLine": 522,
         "endColumn": 51
       },
       "metadata": {
@@ -1939,7 +2372,7 @@
       }
     },
     {
-      "id": "edge:0053",
+      "id": "edge:0067",
       "kind": "resource_write",
       "from": "step:AwaitUser",
       "to": "resource:attribute:AIAgentFlow.plan",
@@ -1955,7 +2388,7 @@
       }
     },
     {
-      "id": "edge:0054",
+      "id": "edge:0068",
       "kind": "resource_write",
       "from": "step:AwaitUser",
       "to": "resource:attribute:AIAgentFlow.state",
@@ -1971,7 +2404,7 @@
       }
     },
     {
-      "id": "edge:0055",
+      "id": "edge:0069",
       "kind": "resource_write",
       "from": "step:AwaitUser",
       "to": "resource:stream:AIAgentFlow.agent_activity",
@@ -1990,7 +2423,7 @@
       }
     },
     {
-      "id": "edge:0056",
+      "id": "edge:0070",
       "kind": "resource_write",
       "from": "step:CallModel",
       "to": "resource:attribute:AIAgentFlow.state",
@@ -2006,7 +2439,7 @@
       }
     },
     {
-      "id": "edge:0057",
+      "id": "edge:0071",
       "kind": "resource_write",
       "from": "step:CallModel",
       "to": "resource:stream:AIAgentFlow.agent_activity",
@@ -2025,7 +2458,7 @@
       }
     },
     {
-      "id": "edge:0058",
+      "id": "edge:0072",
       "kind": "resource_write",
       "from": "step:CompactContext",
       "to": "resource:attribute:AIAgentFlow.state",
@@ -2041,7 +2474,7 @@
       }
     },
     {
-      "id": "edge:0059",
+      "id": "edge:0073",
       "kind": "resource_write",
       "from": "step:CompactContext",
       "to": "resource:attribute:AIAgentFlow.summary",
@@ -2057,7 +2490,7 @@
       }
     },
     {
-      "id": "edge:0060",
+      "id": "edge:0074",
       "kind": "resource_write",
       "from": "step:CompactContext",
       "to": "resource:stream:AIAgentFlow.agent_activity",
@@ -2076,15 +2509,15 @@
       }
     },
     {
-      "id": "edge:0061",
+      "id": "edge:0075",
       "kind": "resource_write",
       "from": "step:DurableWait",
       "to": "resource:attribute:AIAgentFlow.pending_timer",
       "label": "delete",
       "span": {
-        "startLine": 594,
+        "startLine": 618,
         "startColumn": 9,
-        "endLine": 594,
+        "endLine": 618,
         "endColumn": 48
       },
       "metadata": {
@@ -2092,15 +2525,15 @@
       }
     },
     {
-      "id": "edge:0062",
+      "id": "edge:0076",
       "kind": "resource_write",
       "from": "step:ExecuteTool",
       "to": "resource:stream:AIAgentFlow.agent_activity",
       "label": "write",
       "span": {
-        "startLine": 564,
+        "startLine": 588,
         "startColumn": 9,
-        "endLine": 567,
+        "endLine": 591,
         "endColumn": 10
       },
       "metadata": {
@@ -2111,7 +2544,7 @@
       }
     },
     {
-      "id": "edge:0063",
+      "id": "edge:0077",
       "kind": "resource_write",
       "from": "step:Init",
       "to": "resource:attribute:AIAgentFlow.config",
@@ -2127,7 +2560,7 @@
       }
     },
     {
-      "id": "edge:0064",
+      "id": "edge:0078",
       "kind": "resource_write",
       "from": "step:Init",
       "to": "resource:attribute:AIAgentFlow.state",
@@ -2143,15 +2576,15 @@
       }
     },
     {
-      "id": "edge:0065",
+      "id": "edge:0079",
       "kind": "resource_write",
       "from": "step:RouteTool",
       "to": "resource:attribute:AIAgentFlow.pending_approval",
       "label": "set",
       "span": {
-        "startLine": 476,
+        "startLine": 500,
         "startColumn": 13,
-        "endLine": 479,
+        "endLine": 503,
         "endColumn": 14
       },
       "metadata": {
@@ -2159,15 +2592,15 @@
       }
     },
     {
-      "id": "edge:0066",
+      "id": "edge:0080",
       "kind": "resource_write",
       "from": "step:RouteTool",
       "to": "resource:attribute:AIAgentFlow.pending_timer",
       "label": "set",
       "span": {
-        "startLine": 421,
+        "startLine": 441,
         "startColumn": 13,
-        "endLine": 424,
+        "endLine": 444,
         "endColumn": 14
       },
       "metadata": {
@@ -2175,15 +2608,15 @@
       }
     },
     {
-      "id": "edge:0067",
+      "id": "edge:0081",
       "kind": "resource_write",
       "from": "step:RouteTool",
       "to": "resource:attribute:AIAgentFlow.pending_user_input",
       "label": "set",
       "span": {
-        "startLine": 449,
+        "startLine": 473,
         "startColumn": 13,
-        "endLine": 452,
+        "endLine": 476,
         "endColumn": 14
       },
       "metadata": {
@@ -2191,15 +2624,15 @@
       }
     },
     {
-      "id": "edge:0068",
+      "id": "edge:0082",
       "kind": "resource_write",
       "from": "step:RouteTool",
       "to": "resource:stream:AIAgentFlow.agent_activity",
       "label": "write",
       "span": {
-        "startLine": 469,
+        "startLine": 493,
         "startColumn": 13,
-        "endLine": 472,
+        "endLine": 496,
         "endColumn": 14
       },
       "metadata": {
@@ -2216,9 +2649,9 @@
       "code": "unused_resource",
       "message": "stream AssistantText has no direct access in the source file",
       "span": {
-        "startLine": 641,
+        "startLine": 669,
         "startColumn": 5,
-        "endLine": 641,
+        "endLine": 669,
         "endColumn": 68
       }
     },
@@ -2227,9 +2660,9 @@
       "code": "unused_resource",
       "message": "stream ReasoningSummary has no direct access in the source file",
       "span": {
-        "startLine": 640,
+        "startLine": 668,
         "startColumn": 5,
-        "endLine": 640,
+        "endLine": 668,
         "endColumn": 74
       }
     }
