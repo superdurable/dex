@@ -101,6 +101,13 @@ interface AgentEvent {
   tool_name: string | null;
 }
 
+interface AgentFlowStatus {
+  status: string;
+  run_id: string;
+  error_type: string | null;
+  error_message: string | null;
+}
+
 interface PortalProvider {
   id: string;
   label: string;
@@ -147,6 +154,7 @@ const App: React.FC = () => {
   const [messages, setMessages] = useState<SequencedMessage[]>([]);
   const [messageQueue, setMessageQueue] = useState<MessageQueue>({ regular: [], immediate: [] });
   const [description, setDescription] = useState<AgentDescription | null>(null);
+  const [flowStatus, setFlowStatus] = useState<AgentFlowStatus | null>(null);
   const [input, setInput] = useState('');
   const [planMode, setPlanMode] = useState(false);
   const [userInputAnswer, setUserInputAnswer] = useState('');
@@ -200,11 +208,16 @@ const App: React.FC = () => {
     if (!workflowId) return;
     const fetchSequence = ++stateFetchSequenceRef.current;
     const query = new URLSearchParams({ workflowId, limit: '200' });
-    const [historyResponse, describeResponse, queueResponse] = await Promise.all([
+    const [historyResponse, describeResponse, queueResponse, statusResponse] = await Promise.all([
       fetch(`${API_BASE}/history?${query}`),
       fetch(`${API_BASE}/describe?workflowId=${encodeURIComponent(workflowId)}`),
       fetch(`${API_BASE}/message-queue?workflowId=${encodeURIComponent(workflowId)}`),
+      fetch(`${API_BASE}/status?workflowId=${encodeURIComponent(workflowId)}`),
     ]);
+    if (!statusResponse.ok) throw new Error(await statusResponse.text());
+    const nextFlowStatus = await statusResponse.json() as AgentFlowStatus;
+    if (fetchSequence !== stateFetchSequenceRef.current) return;
+    setFlowStatus(nextFlowStatus);
     if (!historyResponse.ok) throw new Error(await historyResponse.text());
     if (!describeResponse.ok) throw new Error(await describeResponse.text());
     if (!queueResponse.ok) throw new Error(await queueResponse.text());
@@ -836,6 +849,15 @@ const App: React.FC = () => {
         <button style={styles.headerButton} onClick={returnToPortal}>New Agent</button>
       </header>
 
+      {flowStatus && ['failed', 'canceled', 'terminated', 'server_side_timeout_internal_only'].includes(flowStatus.status) && (
+        <section style={styles.flowFailureCard}>
+          <strong>Flow {flowStatus.status.split('_').join(' ')}</strong>
+          <p style={styles.flowFailureText}>
+            {flowStatus.error_message || 'The Agent run ended before it could complete.'}
+          </p>
+        </section>
+      )}
+
       <section style={styles.chatCard}>
         <div style={styles.messages}>
           {messages.length === 0 && <p style={styles.empty}>Send a message to begin.</p>}
@@ -1243,6 +1265,8 @@ const styles: Record<string, React.CSSProperties> = {
   launchButton: { width: '100%', minHeight: 54, border: '1px solid rgba(255,255,255,.16)', borderRadius: 12, padding: '15px 24px', background: '#7668ff', color: '#fff', boxShadow: '0 10px 24px rgba(80,70,229,.35)', fontWeight: 850, cursor: 'pointer', fontSize: 16, letterSpacing: '.01em' },
   header: { maxWidth: 960, margin: '0 auto 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   headerButton: { border: '1px solid #cfd6e4', borderRadius: 10, padding: '9px 13px', background: '#fff', color: '#27334a', fontWeight: 700, cursor: 'pointer' },
+  flowFailureCard: { maxWidth: 960, boxSizing: 'border-box', margin: '0 auto 18px', padding: '16px 18px', borderRadius: 14, border: '1px solid #ef9a9a', background: '#fff0f0', color: '#8f1d2c' },
+  flowFailureText: { margin: '7px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.5 },
   title: { margin: '4px 0 10px', fontSize: 44 },
   eyebrow: { margin: 0, color: '#5c6ac4', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 12 },
   subtitle: { color: '#596579', lineHeight: 1.6 },

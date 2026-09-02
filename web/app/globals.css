@@ -2930,16 +2930,6 @@ pre {
   font-size: 11px;
 }
 
-.load-more {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 12px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
 .modal-backdrop {
   position: fixed;
   z-index: 80;
@@ -3145,8 +3135,4 @@ pre {
     min-height: 520px;
   }
 
-  .load-more {
-    align-items: flex-start;
-    flex-direction: column;
-  }
 }

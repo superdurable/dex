@@ -231,11 +231,19 @@ class CompactContext(Step[None]):
             config,
         )
         previous_summary = self.flow.get_summary(context).content
-        summary = await self.flow.model_client.summarize(
-            config,
-            previous_summary,
-            messages,
-        )
+        try:
+            summary = await self.flow.model_client.summarize(
+                config,
+                previous_summary,
+                messages,
+                flow_id=context.flow_id,
+            )
+        except Exception:
+            self.flow.agent_activity.write(
+                context,
+                AgentEvent("compaction_failed", "Context compaction failed."),
+            )
+            raise
         generation = state.compaction_generation + 1
         self.flow.summary.set(
             context,
@@ -288,16 +296,23 @@ class CallModel(Step[None]):
             AgentEvent("model_started", f"Calling {config.model}."),
         )
 
-        reply = await self.flow.model_client.complete(
-            config,
-            self.flow.context_messages(context, config, state),
-            tools,
-            assistant_text.write,
-            reasoning_summary.write,
-            lambda event: self.flow.agent_activity.write(context, event),
-            forced_tool_name=forced_tool_name,
-            flow_id=context.flow_id,
-        )
+        try:
+            reply = await self.flow.model_client.complete(
+                config,
+                self.flow.context_messages(context, config, state),
+                tools,
+                assistant_text.write,
+                reasoning_summary.write,
+                lambda event: self.flow.agent_activity.write(context, event),
+                forced_tool_name=forced_tool_name,
+                flow_id=context.flow_id,
+            )
+        except Exception:
+            self.flow.agent_activity.write(
+                context,
+                AgentEvent("model_failed", "Model request failed."),
+            )
+            raise
         if not reply.content.strip() and not reply.tool_calls:
             raise RuntimeError("the model returned no content or tool calls")
         self.flow.append_message(

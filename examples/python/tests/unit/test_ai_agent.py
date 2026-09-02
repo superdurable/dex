@@ -305,6 +305,34 @@ async def test_non_openai_provider_does_not_infer_reasoning_summary(
     assert reasoning_summary == []
 
 
+async def test_compaction_uses_the_flow_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import litellm
+
+    request: dict[str, object] = {}
+
+    async def fake_acompletion(**kwargs: object):
+        request.update(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Summary"))]
+        )
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    credentials = AgentCredentialStore()
+    credentials.set_api_key("flow-1", "session-api-key")
+
+    summary = await LiteLLMModelClient(credentials).summarize(
+        AgentConfig(model="openai/gpt-5-mini"),
+        "Earlier summary",
+        [AgentMessage("user", "New context")],
+        flow_id="flow-1",
+    )
+
+    assert summary == "Summary"
+    assert request["api_key"] == "session-api-key"
+
+
 def test_plan_tasks_reject_invalid_status() -> None:
     call = ToolCall(
         "call-plan",

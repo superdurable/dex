@@ -114,8 +114,9 @@ export DEX_AGENT_MODEL="openai/gpt-5-mini"
 
 Other LiteLLM providers work the same way. The Portal may override the model and
 system prompt per conversation. A key entered in the Portal is held only in the
-Worker process for that Flow ID. It is cleared from the browser after startup and
-is never stored in a Dex Attribute, message, or Flow history. Environment variables
+Worker process for that Flow ID and is used for normal and context-compaction model
+calls. It is cleared from the browser after startup and is never stored in a Dex
+Attribute, message, or Flow history. Environment variables
 remain the better choice for a deployed Worker or a session that must survive a
 Worker process restart.
 

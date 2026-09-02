@@ -54,6 +54,7 @@ class ModelClient(Protocol):
         config: AgentConfig,
         previous_summary: str,
         messages: Sequence[AgentMessage],
+        flow_id: str | None = None,
     ) -> str: ...
 
     def count_tokens(self, model: str, messages: Sequence[AgentMessage]) -> int: ...
@@ -182,6 +183,7 @@ class LiteLLMModelClient:
         config: AgentConfig,
         previous_summary: str,
         messages: Sequence[AgentMessage],
+        flow_id: str | None = None,
     ) -> str:
         if config.model == "mock/dex":
             return _local_summary(previous_summary, messages)
@@ -192,9 +194,9 @@ class LiteLLMModelClient:
             [_message_as_json(message) for message in messages],
             ensure_ascii=False,
         )
-        response = await litellm.acompletion(
-            model=config.compaction_model or config.model,
-            messages=[
+        request: dict[str, Any] = {
+            "model": config.compaction_model or config.model,
+            "messages": [
                 {
                     "role": "system",
                     "content": (
@@ -208,7 +210,11 @@ class LiteLLMModelClient:
                     "content": f"Previous summary:\n{previous_summary}\n\nMessages:\n{transcript}",
                 },
             ],
-        )
+        }
+        api_key = self._credentials.get_api_key(flow_id)
+        if api_key is not None:
+            request["api_key"] = api_key
+        response = await litellm.acompletion(**request)
         content = response.choices[0].message.content
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError("the compaction model returned an empty summary")

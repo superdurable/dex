@@ -15,13 +15,13 @@ import type {
 } from 'react';
 import { formatDate, formatDuration } from '@/lib/format';
 import { hydrateBlobs } from '@/lib/blobs';
+import { loadCompleteHistory } from '@/lib/history';
 import { readResponseJSON } from '@/lib/http';
 import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
 import type {
   FlowHistoryEvent,
   FlowState,
   FlowSummary,
-  HistoryPage,
 } from '@/lib/types';
 import { StatusBadge } from '../components/StatusBadge';
 import { usePreferences } from '../providers';
@@ -44,6 +44,8 @@ interface SelectedEventConnector {
 
 const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
 const sidebarWidthStorageKey = 'dex.run.selected-event-width';
+const runTabStorageKey = 'dex.run.selected-tab';
+const runTabs = new Set<RunTab>(['overview', 'steps', 'timeline', 'stream']);
 const defaultSidebarWidth = 340;
 const minimumSidebarWidth = 280;
 const maximumSidebarWidth = 720;
@@ -71,6 +73,25 @@ function persistSidebarWidth(width: number) {
   }
 }
 
+function storedRunTab(): RunTab {
+  if (typeof window === 'undefined') return 'steps';
+  try {
+    const tab = window.localStorage.getItem(runTabStorageKey);
+    return tab && runTabs.has(tab as RunTab) ? tab as RunTab : 'steps';
+  } catch (storageError) {
+    console.warn('Unable to read the selected run tab preference.', storageError);
+    return 'steps';
+  }
+}
+
+function persistRunTab(tab: RunTab) {
+  try {
+    window.localStorage.setItem(runTabStorageKey, tab);
+  } catch (storageError) {
+    console.warn('Unable to save the selected run tab preference.', storageError);
+  }
+}
+
 function selectedEventConnectorTone(event: FlowHistoryEvent): SelectedEventConnector['tone'] {
   if (event.type.startsWith('StepWaitFor')) return 'wait-for';
   if (event.type.startsWith('StepExecute')) return 'execute';
@@ -82,12 +103,10 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   const [summary, setSummary] = useState<FlowSummary | null>(null);
   const [history, setHistory] = useState<FlowHistoryEvent[]>([]);
   const [state, setState] = useState<FlowState | null>(null);
-  const [nextPageToken, setNextPageToken] = useState('');
   const [nextInternalEventId, setNextInternalEventId] = useState(0);
-  const [tab, setTab] = useState<RunTab>('steps');
+  const [tab, setTab] = useState<RunTab>(storedRunTab);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [deletingChannelMessage, setDeletingChannelMessage] = useState('');
   const [error, setError] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -215,29 +234,30 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     return value;
   }, [summaryURL]);
 
-  const loadHistoryPage = useCallback(async (
-    token: string,
-    cursor: number,
+  const loadHistory = useCallback(async (
+    initialPageToken: string,
+    initialInternalEventId: number,
     append: boolean,
   ) => {
-    const params = new URLSearchParams({
-      flowId,
-      runId,
-      startInternalEventId: String(cursor),
-      estimatePageSize: '200',
-    });
-    if (token) params.set('nextPageToken', token);
-    const page = await readResponseJSON<HistoryPage>(
-      await fetch(`/api/flows/history?${params}`, { cache: 'no-store' }),
-    );
+    const complete = await loadCompleteHistory(async (nextPageToken, startInternalEventId) => {
+      const params = new URLSearchParams({
+        flowId,
+        runId,
+        startInternalEventId: String(startInternalEventId),
+        estimatePageSize: '200',
+      });
+      if (nextPageToken) params.set('nextPageToken', nextPageToken);
+      return readResponseJSON(
+        await fetch(`/api/flows/history?${params}`, { cache: 'no-store' }),
+      );
+    }, initialPageToken, initialInternalEventId);
     setHistory((current) => {
-      const combined = append ? [...current, ...page.events] : page.events;
+      const combined = append ? [...current, ...complete.events] : complete.events;
       return [...new Map(combined.map((event) => [event.eventId, event])).values()]
         .sort((left, right) => left.eventId - right.eventId);
     });
-    setNextPageToken(page.nextPageToken);
-    setNextInternalEventId(page.nextInternalEventId);
-    return page;
+    setNextInternalEventId(complete.nextInternalEventId);
+    return complete;
   }, [flowId, runId]);
 
   const refresh = useCallback(async () => {
@@ -245,20 +265,19 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     try {
       const latestSummary = await loadSummary();
       await Promise.all([
-        loadHistoryPage('', 0, false),
+        loadHistory('', 0, false),
         loadState(latestSummary.flowStatusCode),
       ]);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : 'Run refresh failed');
     }
-  }, [loadHistoryPage, loadState, loadSummary]);
+  }, [loadHistory, loadState, loadSummary]);
 
   useEffect(() => {
     let active = true;
     setSummary(null);
     setHistory([]);
     setState(null);
-    setNextPageToken('');
     setNextInternalEventId(0);
     setSelectedEvent(null);
     setHydratedEvents({});
@@ -282,7 +301,6 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       !autoRefresh
       || !summary
       || terminalStatuses.has(summary.flowStatusCode)
-      || nextPageToken
       || nextInternalEventId <= 0
     ) return;
 
@@ -303,7 +321,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
         await readResponseJSON(response);
         const latestSummary = await loadSummary();
         await Promise.all([
-          loadHistoryPage('', nextInternalEventId, true),
+          loadHistory('', nextInternalEventId, true),
           loadState(latestSummary.flowStatusCode),
         ]);
       })
@@ -316,11 +334,10 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   }, [
     autoRefresh,
     flowId,
-    loadHistoryPage,
+    loadHistory,
     loadState,
     loadSummary,
     nextInternalEventId,
-    nextPageToken,
     runId,
     summary,
     waitCycle,
@@ -407,6 +424,11 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     if (!summary) return [];
     return [...new Set([summary.firstRunId, summary.runId].filter(Boolean))];
   }, [summary]);
+  const continuedToRunId = useMemo(() => {
+    const closed = [...history].reverse().find((event) => event.type === 'FlowClosed');
+    const nextRunId = closed?.payload.continuedToRunId;
+    return typeof nextRunId === 'string' ? nextRunId : '';
+  }, [history]);
 
   const openTimeTravel = useCallback((event: FlowHistoryEvent | null) => {
     setTimeTravelEvent(event);
@@ -434,6 +456,14 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
             <h1>{flowId}</h1>
           </div>
           <div className="run-actions">
+            {continuedToRunId && (
+              <Link
+                className="button primary"
+                to={`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(continuedToRunId)}`}
+              >
+                Next run
+              </Link>
+            )}
             <label className="toggle-label">
               <input
                 type="checkbox"
@@ -480,7 +510,14 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
 
       <div className="run-tabs" role="tablist">
         {tabs.map(([id, label]) => (
-          <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>
+          <button
+            key={id}
+            className={tab === id ? 'active' : ''}
+            onClick={() => {
+              setTab(id);
+              persistRunTab(id);
+            }}
+          >
             {label}
           </button>
         ))}
@@ -536,23 +573,6 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
           )}
           {tab === 'stream' && summary && (
             <StreamPanel flowId={flowId} flowType={summary.flowType} />
-          )}
-          {tab !== 'stream' && nextPageToken && (
-            <div className="load-more">
-              <button
-                className="button ghost"
-                disabled={loadingMore}
-                onClick={() => {
-                  setLoadingMore(true);
-                  void loadHistoryPage(nextPageToken, nextInternalEventId, true)
-                    .catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'History load failed'))
-                    .finally(() => setLoadingMore(false));
-                }}
-              >
-                {loadingMore ? 'Loading…' : 'Load more history'}
-              </button>
-              <span>Graphs currently show the loaded semantic history.</span>
-            </div>
           )}
         </section>
         {(tab === 'steps' || tab === 'timeline') && (
