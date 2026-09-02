@@ -104,6 +104,8 @@ outer routing lanes. Select an edge to emphasize it and show its complete
 condition beside the path; its endpoints and source location remain below the
 canvas. The Mini Map starts collapsed. Flow timeout handlers use a compact
 Step-like card with their timeout decision, rather than the RPC hexagon.
+Viewport controls use visible Zoom In, Zoom Out, and Fit View labels. The
+collapsed Mini Map uses a visible Show Mini Map button.
 Each graph fits the complete definition into the viewport when it first loads
 and after its visible layers change.
 

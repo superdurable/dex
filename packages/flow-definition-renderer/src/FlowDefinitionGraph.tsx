@@ -178,7 +178,12 @@ export function FlowDefinitionGraphView({
           proOptions={{ hideAttribution: true }}
         >
           <Background gap={24} size={1} color="#ddd8ea" />
-          <Controls position="top-right" />
+          <Controls
+            aria-label="Graph viewport controls"
+            fitViewOptions={{ maxZoom: 1, minZoom: 0.12, padding: 0.1 }}
+            position="top-right"
+            showInteractive={false}
+          />
           <div className={`graph-minimap-shell${isMiniMapExpanded ? ' expanded' : ''}`}>
             {isMiniMapExpanded && (
               <MiniMap
@@ -194,13 +199,13 @@ export function FlowDefinitionGraphView({
             )}
             <button
               aria-expanded={isMiniMapExpanded}
-              aria-label={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
+              aria-label={isMiniMapExpanded ? 'Hide Mini Map' : 'Show Mini Map'}
               className="graph-minimap-toggle nodrag nopan"
               onClick={() => setIsMiniMapExpanded((expanded) => !expanded)}
-              title={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
+              title={isMiniMapExpanded ? 'Hide Mini Map' : 'Show Mini Map'}
               type="button"
             >
-              {isMiniMapExpanded ? 'Close ×' : 'Mini Map'}
+              {isMiniMapExpanded ? 'Hide Mini Map' : 'Show Mini Map'}
             </button>
           </div>
         </ReactFlow>

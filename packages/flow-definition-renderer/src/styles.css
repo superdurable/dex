@@ -9,7 +9,7 @@
  */
 
 .flow-definition-view {
-  --flow-definition-ink: var(--ink, #1d2a20);
+  --flow-definition-ink: var(--text, var(--ink, #1d2a20));
   --flow-definition-muted: var(--muted, #687466);
   --flow-definition-line: var(--line, #dce6d7);
   --flow-definition-paper: var(--paper, #ffffff);
@@ -162,6 +162,49 @@
 
 .flow-definition-canvas .react-flow__edge-interaction {
   cursor: pointer;
+}
+
+.flow-definition-canvas .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid #b8c6c2;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgba(28, 51, 45, 0.18);
+}
+
+.flow-definition-canvas .react-flow__controls-button {
+  width: 94px;
+  height: 34px;
+  padding: 6px 9px;
+  justify-content: flex-start;
+  gap: 7px;
+  border-color: #d4ddda;
+  color: #284437;
+  background: #ffffff;
+  font: inherit;
+}
+
+.flow-definition-canvas .react-flow__controls-button::after {
+  color: inherit;
+  content: attr(aria-label);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.flow-definition-canvas .react-flow__controls-button:hover {
+  color: #234f2d;
+  background: #eef7e8;
+}
+
+.flow-definition-canvas .react-flow__controls-button svg {
+  width: 14px;
+  max-width: 14px;
+  height: 14px;
+  max-height: 14px;
+  flex: 0 0 14px;
+  fill: currentColor;
 }
 
 .definition-flow-frame,
@@ -624,8 +667,8 @@
   padding: 7px 11px;
   border: 1px solid #b8c6c2;
   border-radius: 7px;
-  color: var(--flow-definition-ink);
-  background: rgba(255, 255, 255, 0.96);
+  color: #284437;
+  background: #ffffff;
   box-shadow: 0 3px 10px rgba(28, 51, 45, 0.14);
   font: inherit;
   font-size: 11px;
@@ -649,7 +692,7 @@
   z-index: 6;
   top: 7px;
   right: 7px;
-  min-width: 66px;
+  min-width: 104px;
   min-height: 30px;
   padding: 0 9px;
   border-color: #244b2a;

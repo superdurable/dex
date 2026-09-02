@@ -33,8 +33,10 @@ describe('Flow Definition Graph renderer', () => {
     expect(markup).toContain('handleTimeout');
     expect(markup).toContain('definition-subflow-frame');
     expect(markup).toContain('Needs attention');
-    expect(markup).toContain('aria-label="Expand Mini Map"');
+    expect(markup).toContain('aria-label="Show Mini Map"');
     expect(markup).not.toContain('aria-label="Flow rendering Mini Map"');
+    expect(markup).toContain('aria-label="Graph viewport controls"');
+    expect(markup).not.toContain('aria-label="Toggle Interactivity"');
     expect(markup).not.toContain('definition-edge-label');
     expect(markup).not.toContain('title="lines ');
   });
