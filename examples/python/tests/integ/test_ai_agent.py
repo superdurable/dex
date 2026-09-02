@@ -634,7 +634,7 @@ async def test_ai_agent_rejects_tools_disabled_for_the_session(
     assert description.pending_approval_call_id is None
 
 
-async def test_ai_agent_queues_regular_messages_and_steers_at_a_safe_boundary(
+async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
@@ -656,14 +656,14 @@ async def test_ai_agent_queues_regular_messages_and_steers_at_a_safe_boundary(
     await _send(client, app, flow_id, "replace the current objective")
     pending = await client.get_channel_messages(
         flow_id,
-        app.ai_agent.user_messages,
+        app.ai_agent.queued_user_messages,
     )
     assert [message.value.content for message in pending] == [
         "replace the current objective"
     ]
     description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
     assert description.status == "waiting_for_timer"
-    assert description.pending_user_message_count == 1
+    assert description.pending_queued_message_count == 1
 
     message = pending[0]
     assert await client.invoke_rpc(
@@ -686,7 +686,7 @@ async def test_ai_agent_queues_regular_messages_and_steers_at_a_safe_boundary(
     )
     assert not await client.get_channel_messages(
         flow_id,
-        app.ai_agent.user_messages,
+        app.ai_agent.queued_user_messages,
     )
     history = await client.invoke_rpc(
         app.ai_agent.history,

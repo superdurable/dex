@@ -211,8 +211,8 @@ class AgentDescription:
     pending_user_input_choices: list[str]
     plan: dict[str, Any] | None
     plan_execution_requested: bool
-    pending_user_message_count: int
-    pending_immediate_message_count: int
+    pending_queued_message_count: int
+    pending_steered_message_count: int
     available_mcp_servers: list[str]
     available_tools: list[str]
 

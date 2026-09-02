@@ -33,8 +33,8 @@ When the model context reaches 85 percent of its configured window, a Step summa
     plan = Attribute("AgentPlan", AgentPlan)
     pending_approval = Attribute("PendingApproval", PendingApproval)
     pending_timer = Attribute("PendingTimer", PendingTimer)
-    user_messages = Channel("UserMessages", UserMessage)
-    immediate_user_messages = Channel("ImmediateUserMessages", UserMessage)
+    queued_user_messages = Channel("QueuedUserMessages", UserMessage)
+    steered_user_messages = Channel("SteeredUserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
     plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
     reasoning_summary = Stream("ReasoningSummary", str, 10 * 1024 * 1024)
@@ -49,9 +49,9 @@ Each map instance can be loaded and updated independently. This avoids rewriting
 
 ## Queued messages and Steer
 
-Regular user messages enter the durable **UserMessages** FIFO queue. While the Agent loop is running, they remain pending instead of interrupting the current model or tool call. The UI shows them immediately and lets the user edit, delete, or Steer a message while it is still pending. Editing removes the pending message first; resubmitting appends a new message with a new ID at the tail.
+User messages enter the durable **QueuedUserMessages** FIFO queue. While the Agent loop is running, they remain pending instead of interrupting the current model or tool call. The UI shows them as soon as they are accepted and lets the user edit, delete, or Steer a message while it is still pending. Editing removes the pending message first; resubmitting appends a new message with a new ID at the tail.
 
-Steer transactionally deletes one selected regular message and republishes its value to **ImmediateUserMessages**. The Agent checks that queue before its next model call, tool, approval wait, or Timer continuation. It does not cancel an LLM or MCP request already running. At the next safe boundary, the Agent clears unexecuted tool calls and stale approval or Timer state, records structured cancellation results, and replans from the Steer message.
+Steer transactionally deletes one selected queued message and republishes its value to **SteeredUserMessages**. The Agent checks that queue before its next model call, tool, approval wait, or Timer continuation. It does not cancel an LLM or MCP request already running. At the next safe boundary, the Agent clears unexecuted tool calls and stale approval or Timer state, records structured cancellation results, and replans from the Steer message.
 
 The message queue is not chat history. Pending Channel messages can be changed because the Agent has not consumed them. Once consumed, the user message becomes durable conversation history and its message ID is no longer valid.
 
@@ -73,7 +73,7 @@ The example supports tools, resources, resource templates, prompts, progress, an
 
 ## Durable waits
 
-The built-in **durable_wait** tool moves the Flow to a Step that waits on both a [Timer](/primitives/timer) and **ImmediateUserMessages**. The Timer can survive Worker restarts. A regular message remains queued; choosing Steer interrupts the wait and lets the Agent replan.
+The built-in **durable_wait** tool moves the Flow to a Step that waits on both a [Timer](/primitives/timer) and **SteeredUserMessages**. The Timer can survive Worker restarts. A queued message remains queued; choosing Steer interrupts the wait and lets the Agent replan.
 
 ## Live events
 

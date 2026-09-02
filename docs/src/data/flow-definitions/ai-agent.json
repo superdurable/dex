@@ -104,7 +104,7 @@
         "startLine": 582,
         "startColumn": 5,
         "endLine": 603,
-        "endColumn": 63
+        "endColumn": 61
       }
     },
     {
@@ -130,14 +130,14 @@
         "startLine": 276,
         "startColumn": 5,
         "endLine": 358,
-        "endColumn": 58
+        "endColumn": 56
       }
     },
     {
-      "id": "decision-dispatch:step:CheckImmediate",
+      "id": "decision-dispatch:step:CheckSteered",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "step:CheckImmediate",
+      "parentId": "step:CheckSteered",
       "phase": "execute",
       "span": {
         "startLine": 370,
@@ -156,7 +156,7 @@
         "startLine": 201,
         "startColumn": 5,
         "endLine": 266,
-        "endColumn": 58
+        "endColumn": 56
       }
     },
     {
@@ -169,7 +169,7 @@
         "startLine": 680,
         "startColumn": 5,
         "endLine": 719,
-        "endColumn": 63
+        "endColumn": 61
       }
     },
     {
@@ -182,7 +182,7 @@
         "startLine": 613,
         "startColumn": 5,
         "endLine": 665,
-        "endColumn": 63
+        "endColumn": 61
       }
     },
     {
@@ -195,7 +195,7 @@
         "startLine": 396,
         "startColumn": 5,
         "endLine": 567,
-        "endColumn": 60
+        "endColumn": 58
       }
     },
     {
@@ -288,7 +288,7 @@
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:execute_plan",
-      "condition": "state is None or plan is None or state.status != STATUS_WAITING or (state.pending_plan_execution_revision is not None) or (_optional_attribute(self.pending_user_input, context) is not None) or (self.user_messages.size(context) \u003e 0) or (self.immediate_user_messages.size(context) \u003e 0) or (plan.revision != input.revision) or (plan.status not in {PLAN_DRAFT, PLAN_ACTIVE})",
+      "condition": "state is None or plan is None or state.status != STATUS_WAITING or (state.pending_plan_execution_revision is not None) or (_optional_attribute(self.pending_user_input, context) is not None) or (self.queued_user_messages.size(context) \u003e 0) or (self.steered_user_messages.size(context) \u003e 0) or (plan.revision != input.revision) or (plan.status not in {PLAN_DRAFT, PLAN_ACTIVE})",
       "phase": "rpc",
       "span": {
         "startLine": 1252,
@@ -305,7 +305,7 @@
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:execute_plan",
-      "condition": "not (state is None or plan is None or state.status != STATUS_WAITING or (state.pending_plan_execution_revision is not None) or (_optional_attribute(self.pending_user_input, context) is not None) or (self.user_messages.size(context) \u003e 0) or (self.immediate_user_messages.size(context) \u003e 0) or (plan.revision != input.revision) or (plan.status not in {PLAN_DRAFT, PLAN_ACTIVE}))",
+      "condition": "not (state is None or plan is None or state.status != STATUS_WAITING or (state.pending_plan_execution_revision is not None) or (_optional_attribute(self.pending_user_input, context) is not None) or (self.queued_user_messages.size(context) \u003e 0) or (self.steered_user_messages.size(context) \u003e 0) or (plan.revision != input.revision) or (plan.status not in {PLAN_DRAFT, PLAN_ACTIVE}))",
       "phase": "rpc",
       "span": {
         "startLine": 1262,
@@ -424,7 +424,7 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitToolApproval",
-      "condition": "immediate_messages",
+      "condition": "steered_messages",
       "phase": "execute",
       "span": {
         "startLine": 586,
@@ -441,13 +441,13 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitToolApproval",
-      "condition": "not (immediate_messages) and approvals[0].approved",
+      "condition": "not (steered_messages) and approvals[0].approved",
       "phase": "execute",
       "span": {
         "startLine": 593,
         "startColumn": 20,
         "endLine": 593,
-        "endColumn": 64
+        "endColumn": 62
       },
       "decision": {
         "type": "goTo"
@@ -458,13 +458,13 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitToolApproval",
-      "condition": "not (immediate_messages) and not (approvals[0].approved) and self.flow.has_next_tool_call(context)",
+      "condition": "not (steered_messages) and not (approvals[0].approved) and self.flow.has_next_tool_call(context)",
       "phase": "execute",
       "span": {
         "startLine": 601,
         "startColumn": 20,
         "endLine": 601,
-        "endColumn": 62
+        "endColumn": 60
       },
       "decision": {
         "type": "goTo"
@@ -475,13 +475,13 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitToolApproval",
-      "condition": "not (immediate_messages) and not (approvals[0].approved) and not (self.flow.has_next_tool_call(context))",
+      "condition": "not (steered_messages) and not (approvals[0].approved) and not (self.flow.has_next_tool_call(context))",
       "phase": "execute",
       "span": {
         "startLine": 603,
         "startColumn": 16,
         "endLine": 603,
-        "endColumn": 63
+        "endColumn": 61
       },
       "decision": {
         "type": "goTo"
@@ -492,7 +492,7 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitUser",
-      "condition": "immediate_messages",
+      "condition": "steered_messages",
       "phase": "execute",
       "span": {
         "startLine": 153,
@@ -509,7 +509,7 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitUser",
-      "condition": "not (immediate_messages) and messages",
+      "condition": "not (steered_messages) and messages",
       "phase": "execute",
       "span": {
         "startLine": 157,
@@ -526,7 +526,7 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitUser",
-      "condition": "not (immediate_messages) and not (messages) and not executions or executions[0].revision != plan.revision or state.pending_plan_execution_revision != plan.revision",
+      "condition": "not (steered_messages) and not (messages) and not executions or executions[0].revision != plan.revision or state.pending_plan_execution_revision != plan.revision",
       "phase": "execute",
       "span": {
         "startLine": 173,
@@ -543,7 +543,7 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitUser",
-      "condition": "not (immediate_messages) and not (messages) and not (not executions or executions[0].revision != plan.revision or state.pending_plan_execution_revision != plan.revision)",
+      "condition": "not (steered_messages) and not (messages) and not (not executions or executions[0].revision != plan.revision or state.pending_plan_execution_revision != plan.revision)",
       "phase": "execute",
       "span": {
         "startLine": 191,
@@ -566,7 +566,7 @@
         "startLine": 348,
         "startColumn": 20,
         "endLine": 348,
-        "endColumn": 62
+        "endColumn": 60
       },
       "decision": {
         "type": "goTo"
@@ -583,17 +583,17 @@
         "startLine": 358,
         "startColumn": 16,
         "endLine": 358,
-        "endColumn": 58
+        "endColumn": 56
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:CheckImmediate:374:20",
+      "id": "decision:step:CheckSteered:374:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:CheckImmediate",
+      "parentId": "step:CheckSteered",
       "condition": "messages",
       "phase": "execute",
       "span": {
@@ -607,10 +607,10 @@
       }
     },
     {
-      "id": "decision:step:CheckImmediate:376:20",
+      "id": "decision:step:CheckSteered:376:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:CheckImmediate",
+      "parentId": "step:CheckSteered",
       "condition": "not (messages) and input == CONTINUE_AWAIT_USER",
       "phase": "execute",
       "span": {
@@ -624,10 +624,10 @@
       }
     },
     {
-      "id": "decision:step:CheckImmediate:378:20",
+      "id": "decision:step:CheckSteered:378:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:CheckImmediate",
+      "parentId": "step:CheckSteered",
       "condition": "not (messages) and not (input == CONTINUE_AWAIT_USER) and input == CONTINUE_CALL_MODEL",
       "phase": "execute",
       "span": {
@@ -641,10 +641,10 @@
       }
     },
     {
-      "id": "decision:step:CheckImmediate:380:20",
+      "id": "decision:step:CheckSteered:380:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:CheckImmediate",
+      "parentId": "step:CheckSteered",
       "condition": "not (messages) and not (input == CONTINUE_AWAIT_USER) and not (input == CONTINUE_CALL_MODEL) and input == CONTINUE_COMPACT_CONTEXT",
       "phase": "execute",
       "span": {
@@ -658,10 +658,10 @@
       }
     },
     {
-      "id": "decision:step:CheckImmediate:382:20",
+      "id": "decision:step:CheckSteered:382:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:CheckImmediate",
+      "parentId": "step:CheckSteered",
       "condition": "not (messages) and not (input == CONTINUE_AWAIT_USER) and not (input == CONTINUE_CALL_MODEL) and not (input == CONTINUE_COMPACT_CONTEXT) and input == CONTINUE_ROUTE_TOOL",
       "phase": "execute",
       "span": {
@@ -675,10 +675,10 @@
       }
     },
     {
-      "id": "decision:step:CheckImmediate:384:20",
+      "id": "decision:step:CheckSteered:384:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:CheckImmediate",
+      "parentId": "step:CheckSteered",
       "condition": "not (messages) and not (input == CONTINUE_AWAIT_USER) and not (input == CONTINUE_CALL_MODEL) and not (input == CONTINUE_COMPACT_CONTEXT) and not (input == CONTINUE_ROUTE_TOOL) and input == CONTINUE_AWAIT_TOOL_APPROVAL",
       "phase": "execute",
       "span": {
@@ -692,10 +692,10 @@
       }
     },
     {
-      "id": "decision:step:CheckImmediate:386:20",
+      "id": "decision:step:CheckSteered:386:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:CheckImmediate",
+      "parentId": "step:CheckSteered",
       "condition": "not (messages) and not (input == CONTINUE_AWAIT_USER) and not (input == CONTINUE_CALL_MODEL) and not (input == CONTINUE_COMPACT_CONTEXT) and not (input == CONTINUE_ROUTE_TOOL) and not (input == CONTINUE_AWAIT_TOOL_APPROVAL) and input == CONTINUE_EXECUTE_TOOL",
       "phase": "execute",
       "span": {
@@ -709,10 +709,10 @@
       }
     },
     {
-      "id": "decision:step:CheckImmediate:388:20",
+      "id": "decision:step:CheckSteered:388:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:CheckImmediate",
+      "parentId": "step:CheckSteered",
       "condition": "not (messages) and not (input == CONTINUE_AWAIT_USER) and not (input == CONTINUE_CALL_MODEL) and not (input == CONTINUE_COMPACT_CONTEXT) and not (input == CONTINUE_ROUTE_TOOL) and not (input == CONTINUE_AWAIT_TOOL_APPROVAL) and not (input == CONTINUE_EXECUTE_TOOL) and input == CONTINUE_DURABLE_WAIT",
       "phase": "execute",
       "span": {
@@ -736,7 +736,7 @@
         "startLine": 222,
         "startColumn": 20,
         "endLine": 222,
-        "endColumn": 62
+        "endColumn": 60
       },
       "decision": {
         "type": "goTo"
@@ -753,7 +753,7 @@
         "startLine": 226,
         "startColumn": 20,
         "endLine": 226,
-        "endColumn": 62
+        "endColumn": 60
       },
       "decision": {
         "type": "goTo"
@@ -770,7 +770,7 @@
         "startLine": 266,
         "startColumn": 16,
         "endLine": 266,
-        "endColumn": 58
+        "endColumn": 56
       },
       "decision": {
         "type": "goTo"
@@ -781,7 +781,7 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:DurableWait",
-      "condition": "user_messages",
+      "condition": "steered_messages",
       "phase": "execute",
       "span": {
         "startLine": 699,
@@ -798,13 +798,13 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:DurableWait",
-      "condition": "not (user_messages) and self.flow.has_next_tool_call(context)",
+      "condition": "not (steered_messages) and self.flow.has_next_tool_call(context)",
       "phase": "execute",
       "span": {
         "startLine": 717,
         "startColumn": 20,
         "endLine": 717,
-        "endColumn": 62
+        "endColumn": 60
       },
       "decision": {
         "type": "goTo"
@@ -815,13 +815,13 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:DurableWait",
-      "condition": "not (user_messages) and not (self.flow.has_next_tool_call(context))",
+      "condition": "not (steered_messages) and not (self.flow.has_next_tool_call(context))",
       "phase": "execute",
       "span": {
         "startLine": 719,
         "startColumn": 16,
         "endLine": 719,
-        "endColumn": 63
+        "endColumn": 61
       },
       "decision": {
         "type": "goTo"
@@ -838,7 +838,7 @@
         "startLine": 663,
         "startColumn": 20,
         "endLine": 663,
-        "endColumn": 62
+        "endColumn": 60
       },
       "decision": {
         "type": "goTo"
@@ -855,7 +855,7 @@
         "startLine": 665,
         "startColumn": 16,
         "endLine": 665,
-        "endColumn": 63
+        "endColumn": 61
       },
       "decision": {
         "type": "goTo"
@@ -888,7 +888,7 @@
         "startLine": 421,
         "startColumn": 24,
         "endLine": 421,
-        "endColumn": 66
+        "endColumn": 64
       },
       "decision": {
         "type": "goTo"
@@ -905,7 +905,7 @@
         "startLine": 423,
         "startColumn": 20,
         "endLine": 423,
-        "endColumn": 67
+        "endColumn": 65
       },
       "decision": {
         "type": "goTo"
@@ -922,7 +922,7 @@
         "startLine": 439,
         "startColumn": 28,
         "endLine": 439,
-        "endColumn": 70
+        "endColumn": 68
       },
       "decision": {
         "type": "goTo"
@@ -939,7 +939,7 @@
         "startLine": 441,
         "startColumn": 24,
         "endLine": 441,
-        "endColumn": 71
+        "endColumn": 69
       },
       "decision": {
         "type": "goTo"
@@ -956,7 +956,7 @@
         "startLine": 462,
         "startColumn": 28,
         "endLine": 462,
-        "endColumn": 70
+        "endColumn": 68
       },
       "decision": {
         "type": "goTo"
@@ -973,7 +973,7 @@
         "startLine": 464,
         "startColumn": 24,
         "endLine": 464,
-        "endColumn": 71
+        "endColumn": 69
       },
       "decision": {
         "type": "goTo"
@@ -990,7 +990,7 @@
         "startLine": 482,
         "startColumn": 24,
         "endLine": 482,
-        "endColumn": 66
+        "endColumn": 64
       },
       "decision": {
         "type": "goTo"
@@ -1007,7 +1007,7 @@
         "startLine": 484,
         "startColumn": 20,
         "endLine": 484,
-        "endColumn": 67
+        "endColumn": 65
       },
       "decision": {
         "type": "goTo"
@@ -1024,7 +1024,7 @@
         "startLine": 500,
         "startColumn": 28,
         "endLine": 500,
-        "endColumn": 70
+        "endColumn": 68
       },
       "decision": {
         "type": "goTo"
@@ -1041,7 +1041,7 @@
         "startLine": 502,
         "startColumn": 24,
         "endLine": 502,
-        "endColumn": 71
+        "endColumn": 69
       },
       "decision": {
         "type": "goTo"
@@ -1058,7 +1058,7 @@
         "startLine": 507,
         "startColumn": 20,
         "endLine": 507,
-        "endColumn": 64
+        "endColumn": 62
       },
       "decision": {
         "type": "goTo"
@@ -1075,7 +1075,7 @@
         "startLine": 532,
         "startColumn": 28,
         "endLine": 532,
-        "endColumn": 70
+        "endColumn": 68
       },
       "decision": {
         "type": "goTo"
@@ -1092,7 +1092,7 @@
         "startLine": 534,
         "startColumn": 24,
         "endLine": 534,
-        "endColumn": 71
+        "endColumn": 69
       },
       "decision": {
         "type": "goTo"
@@ -1126,7 +1126,7 @@
         "startLine": 566,
         "startColumn": 20,
         "endLine": 566,
-        "endColumn": 71
+        "endColumn": 69
       },
       "decision": {
         "type": "goTo"
@@ -1143,7 +1143,7 @@
         "startLine": 567,
         "startColumn": 16,
         "endLine": 567,
-        "endColumn": 60
+        "endColumn": 58
       },
       "decision": {
         "type": "goTo"
@@ -1263,20 +1263,6 @@
       }
     },
     {
-      "id": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "kind": "channel",
-      "name": "ImmediateUserMessages",
-      "span": {
-        "startLine": 732,
-        "startColumn": 5,
-        "endLine": 732,
-        "endColumn": 76
-      },
-      "resource": {
-        "valueType": "UserMessage"
-      }
-    },
-    {
       "id": "resource:channel:AIAgentFlow.plan_executions",
       "kind": "channel",
       "name": "PlanExecutions",
@@ -1292,6 +1278,34 @@
       }
     },
     {
+      "id": "resource:channel:AIAgentFlow.queued_user_messages",
+      "kind": "channel",
+      "name": "QueuedUserMessages",
+      "span": {
+        "startLine": 731,
+        "startColumn": 5,
+        "endLine": 731,
+        "endColumn": 70
+      },
+      "resource": {
+        "valueType": "UserMessage"
+      }
+    },
+    {
+      "id": "resource:channel:AIAgentFlow.steered_user_messages",
+      "kind": "channel",
+      "name": "SteeredUserMessages",
+      "span": {
+        "startLine": 732,
+        "startColumn": 5,
+        "endLine": 732,
+        "endColumn": 72
+      },
+      "resource": {
+        "valueType": "UserMessage"
+      }
+    },
+    {
       "id": "resource:channel:AIAgentFlow.tool_approvals",
       "kind": "channel",
       "name": "ToolApprovals",
@@ -1304,20 +1318,6 @@
       "resource": {
         "valueType": "ToolApproval",
         "map": true
-      }
-    },
-    {
-      "id": "resource:channel:AIAgentFlow.user_messages",
-      "kind": "channel",
-      "name": "UserMessages",
-      "span": {
-        "startLine": 731,
-        "startColumn": 5,
-        "endLine": 731,
-        "endColumn": 57
-      },
-      "resource": {
-        "valueType": "UserMessage"
       }
     },
     {
@@ -1465,15 +1465,15 @@
       }
     },
     {
-      "id": "step:CheckImmediate",
+      "id": "step:CheckSteered",
       "kind": "step",
-      "name": "CheckImmediate",
+      "name": "CheckSteered",
       "phase": "wait_for+execute",
       "span": {
         "startLine": 761,
         "startColumn": 13,
         "endLine": 761,
-        "endColumn": 33
+        "endColumn": 31
       }
     },
     {
@@ -1567,13 +1567,13 @@
         "conditions": [
           {
             "kind": "channel",
-            "label": "ImmediateUserMessages.for 1",
-            "resourceId": "resource:channel:AIAgentFlow.immediate_user_messages",
+            "label": "SteeredUserMessages.for 1",
+            "resourceId": "resource:channel:AIAgentFlow.steered_user_messages",
             "span": {
               "startLine": 578,
               "startColumn": 13,
               "endLine": 578,
-              "endColumn": 56
+              "endColumn": 54
             }
           },
           {
@@ -1609,24 +1609,24 @@
         "conditions": [
           {
             "kind": "channel",
-            "label": "ImmediateUserMessages.for 1",
-            "resourceId": "resource:channel:AIAgentFlow.immediate_user_messages",
+            "label": "SteeredUserMessages.for 1",
+            "resourceId": "resource:channel:AIAgentFlow.steered_user_messages",
             "span": {
               "startLine": 140,
               "startColumn": 17,
               "endLine": 140,
-              "endColumn": 60
+              "endColumn": 58
             }
           },
           {
             "kind": "channel",
-            "label": "UserMessages.for 1",
-            "resourceId": "resource:channel:AIAgentFlow.user_messages",
+            "label": "QueuedUserMessages.for 1",
+            "resourceId": "resource:channel:AIAgentFlow.queued_user_messages",
             "span": {
               "startLine": 141,
               "startColumn": 17,
               "endLine": 141,
-              "endColumn": 50
+              "endColumn": 57
             }
           }
         ]
@@ -1650,24 +1650,24 @@
         "conditions": [
           {
             "kind": "channel",
-            "label": "ImmediateUserMessages.for 1",
-            "resourceId": "resource:channel:AIAgentFlow.immediate_user_messages",
+            "label": "SteeredUserMessages.for 1",
+            "resourceId": "resource:channel:AIAgentFlow.steered_user_messages",
             "span": {
               "startLine": 144,
               "startColumn": 13,
               "endLine": 144,
-              "endColumn": 56
+              "endColumn": 54
             }
           },
           {
             "kind": "channel",
-            "label": "UserMessages.for 1",
-            "resourceId": "resource:channel:AIAgentFlow.user_messages",
+            "label": "QueuedUserMessages.for 1",
+            "resourceId": "resource:channel:AIAgentFlow.queued_user_messages",
             "span": {
               "startLine": 145,
               "startColumn": 13,
               "endLine": 145,
-              "endColumn": 46
+              "endColumn": 53
             }
           },
           {
@@ -1686,10 +1686,10 @@
       }
     },
     {
-      "id": "wait:CheckImmediate:366:16:0",
+      "id": "wait:CheckSteered:366:16:0",
       "kind": "wait",
       "name": "until",
-      "parentId": "step:CheckImmediate",
+      "parentId": "step:CheckSteered",
       "phase": "wait_for",
       "span": {
         "startLine": 366,
@@ -1702,14 +1702,14 @@
         "conditions": [
           {
             "kind": "channel",
-            "label": "ImmediateUserMessages.at most MAX_STEERING_MESSAGES",
-            "resourceId": "resource:channel:AIAgentFlow.immediate_user_messages",
+            "label": "SteeredUserMessages.at most MAX_STEERING_MESSAGES",
+            "resourceId": "resource:channel:AIAgentFlow.steered_user_messages",
             "expression": "MAX_STEERING_MESSAGES",
             "span": {
               "startLine": 367,
               "startColumn": 13,
               "endLine": 367,
-              "endColumn": 77
+              "endColumn": 75
             }
           }
         ]
@@ -1743,13 +1743,13 @@
           },
           {
             "kind": "channel",
-            "label": "ImmediateUserMessages.for 1",
-            "resourceId": "resource:channel:AIAgentFlow.immediate_user_messages",
+            "label": "SteeredUserMessages.for 1",
+            "resourceId": "resource:channel:AIAgentFlow.steered_user_messages",
             "span": {
               "startLine": 677,
               "startColumn": 13,
               "endLine": 677,
-              "endColumn": 56
+              "endColumn": 54
             }
           }
         ]
@@ -1774,39 +1774,39 @@
       "id": "edge:0002",
       "kind": "transition",
       "from": "decision:step:AwaitToolApproval:593:20",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 593,
         "startColumn": 20,
         "endLine": 593,
-        "endColumn": 64
+        "endColumn": 62
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
       "from": "decision:step:AwaitToolApproval:601:20",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 601,
         "startColumn": 20,
         "endLine": 601,
-        "endColumn": 62
+        "endColumn": 60
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
       "from": "decision:step:AwaitToolApproval:603:16",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 603,
         "startColumn": 16,
         "endLine": 603,
-        "endColumn": 63
+        "endColumn": 61
       }
     },
     {
@@ -1865,32 +1865,32 @@
       "id": "edge:0009",
       "kind": "transition",
       "from": "decision:step:CallModel:348:20",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 348,
         "startColumn": 20,
         "endLine": 348,
-        "endColumn": 62
+        "endColumn": 60
       }
     },
     {
       "id": "edge:0010",
       "kind": "transition",
       "from": "decision:step:CallModel:358:16",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 358,
         "startColumn": 16,
         "endLine": 358,
-        "endColumn": 58
+        "endColumn": 56
       }
     },
     {
       "id": "edge:0011",
       "kind": "transition",
-      "from": "decision:step:CheckImmediate:374:20",
+      "from": "decision:step:CheckSteered:374:20",
       "to": "step:CompactContext",
       "label": "go_to",
       "span": {
@@ -1903,7 +1903,7 @@
     {
       "id": "edge:0012",
       "kind": "transition",
-      "from": "decision:step:CheckImmediate:376:20",
+      "from": "decision:step:CheckSteered:376:20",
       "to": "step:AwaitUser",
       "label": "go_to",
       "span": {
@@ -1916,7 +1916,7 @@
     {
       "id": "edge:0013",
       "kind": "transition",
-      "from": "decision:step:CheckImmediate:378:20",
+      "from": "decision:step:CheckSteered:378:20",
       "to": "step:CallModel",
       "label": "go_to",
       "span": {
@@ -1929,7 +1929,7 @@
     {
       "id": "edge:0014",
       "kind": "transition",
-      "from": "decision:step:CheckImmediate:380:20",
+      "from": "decision:step:CheckSteered:380:20",
       "to": "step:CompactContext",
       "label": "go_to",
       "span": {
@@ -1942,7 +1942,7 @@
     {
       "id": "edge:0015",
       "kind": "transition",
-      "from": "decision:step:CheckImmediate:382:20",
+      "from": "decision:step:CheckSteered:382:20",
       "to": "step:RouteTool",
       "label": "go_to",
       "span": {
@@ -1955,7 +1955,7 @@
     {
       "id": "edge:0016",
       "kind": "transition",
-      "from": "decision:step:CheckImmediate:384:20",
+      "from": "decision:step:CheckSteered:384:20",
       "to": "step:AwaitToolApproval",
       "label": "go_to",
       "span": {
@@ -1968,7 +1968,7 @@
     {
       "id": "edge:0017",
       "kind": "transition",
-      "from": "decision:step:CheckImmediate:386:20",
+      "from": "decision:step:CheckSteered:386:20",
       "to": "step:ExecuteTool",
       "label": "go_to",
       "span": {
@@ -1981,7 +1981,7 @@
     {
       "id": "edge:0018",
       "kind": "transition",
-      "from": "decision:step:CheckImmediate:388:20",
+      "from": "decision:step:CheckSteered:388:20",
       "to": "step:DurableWait",
       "label": "go_to",
       "span": {
@@ -1995,39 +1995,39 @@
       "id": "edge:0019",
       "kind": "transition",
       "from": "decision:step:CompactContext:222:20",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 222,
         "startColumn": 20,
         "endLine": 222,
-        "endColumn": 62
+        "endColumn": 60
       }
     },
     {
       "id": "edge:0020",
       "kind": "transition",
       "from": "decision:step:CompactContext:226:20",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 226,
         "startColumn": 20,
         "endLine": 226,
-        "endColumn": 62
+        "endColumn": 60
       }
     },
     {
       "id": "edge:0021",
       "kind": "transition",
       "from": "decision:step:CompactContext:266:16",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 266,
         "startColumn": 16,
         "endLine": 266,
-        "endColumn": 58
+        "endColumn": 56
       }
     },
     {
@@ -2047,52 +2047,52 @@
       "id": "edge:0023",
       "kind": "transition",
       "from": "decision:step:DurableWait:717:20",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 717,
         "startColumn": 20,
         "endLine": 717,
-        "endColumn": 62
+        "endColumn": 60
       }
     },
     {
       "id": "edge:0024",
       "kind": "transition",
       "from": "decision:step:DurableWait:719:16",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 719,
         "startColumn": 16,
         "endLine": 719,
-        "endColumn": 63
+        "endColumn": 61
       }
     },
     {
       "id": "edge:0025",
       "kind": "transition",
       "from": "decision:step:ExecuteTool:663:20",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 663,
         "startColumn": 20,
         "endLine": 663,
-        "endColumn": 62
+        "endColumn": 60
       }
     },
     {
       "id": "edge:0026",
       "kind": "transition",
       "from": "decision:step:ExecuteTool:665:16",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 665,
         "startColumn": 16,
         "endLine": 665,
-        "endColumn": 63
+        "endColumn": 61
       }
     },
     {
@@ -2112,169 +2112,169 @@
       "id": "edge:0028",
       "kind": "transition",
       "from": "decision:step:RouteTool:421:24",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 421,
         "startColumn": 24,
         "endLine": 421,
-        "endColumn": 66
+        "endColumn": 64
       }
     },
     {
       "id": "edge:0029",
       "kind": "transition",
       "from": "decision:step:RouteTool:423:20",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 423,
         "startColumn": 20,
         "endLine": 423,
-        "endColumn": 67
+        "endColumn": 65
       }
     },
     {
       "id": "edge:0030",
       "kind": "transition",
       "from": "decision:step:RouteTool:439:28",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 439,
         "startColumn": 28,
         "endLine": 439,
-        "endColumn": 70
+        "endColumn": 68
       }
     },
     {
       "id": "edge:0031",
       "kind": "transition",
       "from": "decision:step:RouteTool:441:24",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 441,
         "startColumn": 24,
         "endLine": 441,
-        "endColumn": 71
+        "endColumn": 69
       }
     },
     {
       "id": "edge:0032",
       "kind": "transition",
       "from": "decision:step:RouteTool:462:28",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 462,
         "startColumn": 28,
         "endLine": 462,
-        "endColumn": 70
+        "endColumn": 68
       }
     },
     {
       "id": "edge:0033",
       "kind": "transition",
       "from": "decision:step:RouteTool:464:24",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 464,
         "startColumn": 24,
         "endLine": 464,
-        "endColumn": 71
+        "endColumn": 69
       }
     },
     {
       "id": "edge:0034",
       "kind": "transition",
       "from": "decision:step:RouteTool:482:24",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 482,
         "startColumn": 24,
         "endLine": 482,
-        "endColumn": 66
+        "endColumn": 64
       }
     },
     {
       "id": "edge:0035",
       "kind": "transition",
       "from": "decision:step:RouteTool:484:20",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 484,
         "startColumn": 20,
         "endLine": 484,
-        "endColumn": 67
+        "endColumn": 65
       }
     },
     {
       "id": "edge:0036",
       "kind": "transition",
       "from": "decision:step:RouteTool:500:28",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 500,
         "startColumn": 28,
         "endLine": 500,
-        "endColumn": 70
+        "endColumn": 68
       }
     },
     {
       "id": "edge:0037",
       "kind": "transition",
       "from": "decision:step:RouteTool:502:24",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 502,
         "startColumn": 24,
         "endLine": 502,
-        "endColumn": 71
+        "endColumn": 69
       }
     },
     {
       "id": "edge:0038",
       "kind": "transition",
       "from": "decision:step:RouteTool:507:20",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 507,
         "startColumn": 20,
         "endLine": 507,
-        "endColumn": 64
+        "endColumn": 62
       }
     },
     {
       "id": "edge:0039",
       "kind": "transition",
       "from": "decision:step:RouteTool:532:28",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 532,
         "startColumn": 28,
         "endLine": 532,
-        "endColumn": 70
+        "endColumn": 68
       }
     },
     {
       "id": "edge:0040",
       "kind": "transition",
       "from": "decision:step:RouteTool:534:24",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 534,
         "startColumn": 24,
         "endLine": 534,
-        "endColumn": 71
+        "endColumn": 69
       }
     },
     {
@@ -2294,26 +2294,26 @@
       "id": "edge:0042",
       "kind": "transition",
       "from": "decision:step:RouteTool:566:20",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 566,
         "startColumn": 20,
         "endLine": 566,
-        "endColumn": 71
+        "endColumn": 69
       }
     },
     {
       "id": "edge:0043",
       "kind": "transition",
       "from": "decision:step:RouteTool:567:16",
-      "to": "step:CheckImmediate",
+      "to": "step:CheckSteered",
       "label": "go_to",
       "span": {
         "startLine": 567,
         "startColumn": 16,
         "endLine": 567,
-        "endColumn": 60
+        "endColumn": 58
       }
     },
     {
@@ -2575,167 +2575,6 @@
     {
       "id": "edge:0060",
       "kind": "resource_read",
-      "from": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "to": "rpc:describe",
-      "label": "size",
-      "span": {
-        "startLine": 1356,
-        "startColumn": 21,
-        "endLine": 1356,
-        "endColumn": 63
-      },
-      "metadata": {
-        "phase": "rpc"
-      }
-    },
-    {
-      "id": "edge:0061",
-      "kind": "resource_read",
-      "from": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "to": "rpc:execute_plan",
-      "label": "size",
-      "span": {
-        "startLine": 1248,
-        "startColumn": 16,
-        "endLine": 1248,
-        "endColumn": 58
-      },
-      "metadata": {
-        "phase": "rpc"
-      }
-    },
-    {
-      "id": "edge:0062",
-      "kind": "resource_read",
-      "from": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "to": "step:AwaitToolApproval",
-      "label": "results",
-      "span": {
-        "startLine": 583,
-        "startColumn": 30,
-        "endLine": 583,
-        "endColumn": 80
-      },
-      "metadata": {
-        "phase": "execute"
-      }
-    },
-    {
-      "id": "edge:0063",
-      "kind": "resource_read",
-      "from": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "to": "step:AwaitUser",
-      "label": "results",
-      "span": {
-        "startLine": 150,
-        "startColumn": 30,
-        "endLine": 150,
-        "endColumn": 80
-      },
-      "metadata": {
-        "phase": "execute"
-      }
-    },
-    {
-      "id": "edge:0064",
-      "kind": "resource_read",
-      "from": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "to": "step:CheckImmediate",
-      "label": "results",
-      "span": {
-        "startLine": 371,
-        "startColumn": 20,
-        "endLine": 371,
-        "endColumn": 70
-      },
-      "metadata": {
-        "phase": "execute"
-      }
-    },
-    {
-      "id": "edge:0065",
-      "kind": "resource_read",
-      "from": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "to": "step:DurableWait",
-      "label": "results",
-      "span": {
-        "startLine": 683,
-        "startColumn": 25,
-        "endLine": 683,
-        "endColumn": 75
-      },
-      "metadata": {
-        "phase": "execute"
-      }
-    },
-    {
-      "id": "edge:0066",
-      "kind": "wait_condition",
-      "from": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "to": "wait:AwaitToolApproval:577:16:0",
-      "label": "ImmediateUserMessages.for 1",
-      "span": {
-        "startLine": 578,
-        "startColumn": 13,
-        "endLine": 578,
-        "endColumn": 56
-      }
-    },
-    {
-      "id": "edge:0067",
-      "kind": "wait_condition",
-      "from": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "to": "wait:AwaitUser:139:20:0",
-      "label": "ImmediateUserMessages.for 1",
-      "span": {
-        "startLine": 140,
-        "startColumn": 17,
-        "endLine": 140,
-        "endColumn": 60
-      }
-    },
-    {
-      "id": "edge:0068",
-      "kind": "wait_condition",
-      "from": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "to": "wait:AwaitUser:143:16:1",
-      "label": "ImmediateUserMessages.for 1",
-      "span": {
-        "startLine": 144,
-        "startColumn": 13,
-        "endLine": 144,
-        "endColumn": 56
-      }
-    },
-    {
-      "id": "edge:0069",
-      "kind": "wait_condition",
-      "from": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "to": "wait:CheckImmediate:366:16:0",
-      "label": "ImmediateUserMessages.at most MAX_STEERING_MESSAGES",
-      "span": {
-        "startLine": 367,
-        "startColumn": 13,
-        "endLine": 367,
-        "endColumn": 77
-      }
-    },
-    {
-      "id": "edge:0070",
-      "kind": "wait_condition",
-      "from": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "to": "wait:DurableWait:675:16:0",
-      "label": "ImmediateUserMessages.for 1",
-      "span": {
-        "startLine": 677,
-        "startColumn": 13,
-        "endLine": 677,
-        "endColumn": 56
-      }
-    },
-    {
-      "id": "edge:0071",
-      "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.plan_executions",
       "to": "step:AwaitUser",
       "label": "results",
@@ -2750,7 +2589,7 @@
       }
     },
     {
-      "id": "edge:0072",
+      "id": "edge:0061",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.plan_executions",
       "to": "wait:AwaitUser:143:16:1",
@@ -2763,7 +2602,242 @@
       }
     },
     {
+      "id": "edge:0062",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.queued_user_messages",
+      "to": "rpc:describe",
+      "label": "size",
+      "span": {
+        "startLine": 1354,
+        "startColumn": 46,
+        "endLine": 1354,
+        "endColumn": 85
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0063",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.queued_user_messages",
+      "to": "rpc:execute_plan",
+      "label": "size",
+      "span": {
+        "startLine": 1247,
+        "startColumn": 16,
+        "endLine": 1247,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0064",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.queued_user_messages",
+      "to": "step:AwaitUser",
+      "label": "results",
+      "span": {
+        "startLine": 154,
+        "startColumn": 20,
+        "endLine": 154,
+        "endColumn": 67
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0065",
+      "kind": "wait_condition",
+      "from": "resource:channel:AIAgentFlow.queued_user_messages",
+      "to": "wait:AwaitUser:139:20:0",
+      "label": "QueuedUserMessages.for 1",
+      "span": {
+        "startLine": 141,
+        "startColumn": 17,
+        "endLine": 141,
+        "endColumn": 57
+      }
+    },
+    {
+      "id": "edge:0066",
+      "kind": "wait_condition",
+      "from": "resource:channel:AIAgentFlow.queued_user_messages",
+      "to": "wait:AwaitUser:143:16:1",
+      "label": "QueuedUserMessages.for 1",
+      "span": {
+        "startLine": 145,
+        "startColumn": 13,
+        "endLine": 145,
+        "endColumn": 53
+      }
+    },
+    {
+      "id": "edge:0067",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.steered_user_messages",
+      "to": "rpc:describe",
+      "label": "size",
+      "span": {
+        "startLine": 1356,
+        "startColumn": 21,
+        "endLine": 1356,
+        "endColumn": 61
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0068",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.steered_user_messages",
+      "to": "rpc:execute_plan",
+      "label": "size",
+      "span": {
+        "startLine": 1248,
+        "startColumn": 16,
+        "endLine": 1248,
+        "endColumn": 56
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0069",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.steered_user_messages",
+      "to": "step:AwaitToolApproval",
+      "label": "results",
+      "span": {
+        "startLine": 583,
+        "startColumn": 28,
+        "endLine": 583,
+        "endColumn": 76
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0070",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.steered_user_messages",
+      "to": "step:AwaitUser",
+      "label": "results",
+      "span": {
+        "startLine": 150,
+        "startColumn": 28,
+        "endLine": 150,
+        "endColumn": 76
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0071",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.steered_user_messages",
+      "to": "step:CheckSteered",
+      "label": "results",
+      "span": {
+        "startLine": 371,
+        "startColumn": 20,
+        "endLine": 371,
+        "endColumn": 68
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0072",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.steered_user_messages",
+      "to": "step:DurableWait",
+      "label": "results",
+      "span": {
+        "startLine": 683,
+        "startColumn": 28,
+        "endLine": 683,
+        "endColumn": 76
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
       "id": "edge:0073",
+      "kind": "wait_condition",
+      "from": "resource:channel:AIAgentFlow.steered_user_messages",
+      "to": "wait:AwaitToolApproval:577:16:0",
+      "label": "SteeredUserMessages.for 1",
+      "span": {
+        "startLine": 578,
+        "startColumn": 13,
+        "endLine": 578,
+        "endColumn": 54
+      }
+    },
+    {
+      "id": "edge:0074",
+      "kind": "wait_condition",
+      "from": "resource:channel:AIAgentFlow.steered_user_messages",
+      "to": "wait:AwaitUser:139:20:0",
+      "label": "SteeredUserMessages.for 1",
+      "span": {
+        "startLine": 140,
+        "startColumn": 17,
+        "endLine": 140,
+        "endColumn": 58
+      }
+    },
+    {
+      "id": "edge:0075",
+      "kind": "wait_condition",
+      "from": "resource:channel:AIAgentFlow.steered_user_messages",
+      "to": "wait:AwaitUser:143:16:1",
+      "label": "SteeredUserMessages.for 1",
+      "span": {
+        "startLine": 144,
+        "startColumn": 13,
+        "endLine": 144,
+        "endColumn": 54
+      }
+    },
+    {
+      "id": "edge:0076",
+      "kind": "wait_condition",
+      "from": "resource:channel:AIAgentFlow.steered_user_messages",
+      "to": "wait:CheckSteered:366:16:0",
+      "label": "SteeredUserMessages.at most MAX_STEERING_MESSAGES",
+      "span": {
+        "startLine": 367,
+        "startColumn": 13,
+        "endLine": 367,
+        "endColumn": 75
+      }
+    },
+    {
+      "id": "edge:0077",
+      "kind": "wait_condition",
+      "from": "resource:channel:AIAgentFlow.steered_user_messages",
+      "to": "wait:DurableWait:675:16:0",
+      "label": "SteeredUserMessages.for 1",
+      "span": {
+        "startLine": 677,
+        "startColumn": 13,
+        "endLine": 677,
+        "endColumn": 54
+      }
+    },
+    {
+      "id": "edge:0078",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.tool_approvals",
       "to": "step:AwaitToolApproval",
@@ -2779,7 +2853,7 @@
       }
     },
     {
-      "id": "edge:0074",
+      "id": "edge:0079",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.tool_approvals",
       "to": "wait:AwaitToolApproval:577:16:0",
@@ -2789,80 +2863,6 @@
         "startColumn": 13,
         "endLine": 579,
         "endColumn": 54
-      }
-    },
-    {
-      "id": "edge:0075",
-      "kind": "resource_read",
-      "from": "resource:channel:AIAgentFlow.user_messages",
-      "to": "rpc:describe",
-      "label": "size",
-      "span": {
-        "startLine": 1354,
-        "startColumn": 44,
-        "endLine": 1354,
-        "endColumn": 76
-      },
-      "metadata": {
-        "phase": "rpc"
-      }
-    },
-    {
-      "id": "edge:0076",
-      "kind": "resource_read",
-      "from": "resource:channel:AIAgentFlow.user_messages",
-      "to": "rpc:execute_plan",
-      "label": "size",
-      "span": {
-        "startLine": 1247,
-        "startColumn": 16,
-        "endLine": 1247,
-        "endColumn": 48
-      },
-      "metadata": {
-        "phase": "rpc"
-      }
-    },
-    {
-      "id": "edge:0077",
-      "kind": "resource_read",
-      "from": "resource:channel:AIAgentFlow.user_messages",
-      "to": "step:AwaitUser",
-      "label": "results",
-      "span": {
-        "startLine": 154,
-        "startColumn": 20,
-        "endLine": 154,
-        "endColumn": 60
-      },
-      "metadata": {
-        "phase": "execute"
-      }
-    },
-    {
-      "id": "edge:0078",
-      "kind": "wait_condition",
-      "from": "resource:channel:AIAgentFlow.user_messages",
-      "to": "wait:AwaitUser:139:20:0",
-      "label": "UserMessages.for 1",
-      "span": {
-        "startLine": 141,
-        "startColumn": 17,
-        "endLine": 141,
-        "endColumn": 50
-      }
-    },
-    {
-      "id": "edge:0079",
-      "kind": "wait_condition",
-      "from": "resource:channel:AIAgentFlow.user_messages",
-      "to": "wait:AwaitUser:143:16:1",
-      "label": "UserMessages.for 1",
-      "span": {
-        "startLine": 145,
-        "startColumn": 13,
-        "endLine": 145,
-        "endColumn": 46
       }
     },
     {
@@ -2917,13 +2917,13 @@
       "id": "edge:0083",
       "kind": "resource_publish",
       "from": "rpc:send_message",
-      "to": "resource:channel:AIAgentFlow.user_messages",
+      "to": "resource:channel:AIAgentFlow.queued_user_messages",
       "label": "publish",
       "span": {
         "startLine": 1199,
         "startColumn": 9,
         "endLine": 1199,
-        "endColumn": 51
+        "endColumn": 58
       },
       "metadata": {
         "phase": "rpc"
@@ -2931,15 +2931,15 @@
     },
     {
       "id": "edge:0084",
-      "kind": "resource_publish",
+      "kind": "resource_write",
       "from": "rpc:steer_message",
-      "to": "resource:channel:AIAgentFlow.immediate_user_messages",
-      "label": "publish",
+      "to": "resource:channel:AIAgentFlow.queued_user_messages",
+      "label": "delete",
       "span": {
-        "startLine": 1211,
+        "startLine": 1210,
         "startColumn": 9,
-        "endLine": 1211,
-        "endColumn": 69
+        "endLine": 1210,
+        "endColumn": 68
       },
       "metadata": {
         "phase": "rpc"
@@ -2947,15 +2947,15 @@
     },
     {
       "id": "edge:0085",
-      "kind": "resource_write",
+      "kind": "resource_publish",
       "from": "rpc:steer_message",
-      "to": "resource:channel:AIAgentFlow.user_messages",
-      "label": "delete",
+      "to": "resource:channel:AIAgentFlow.steered_user_messages",
+      "label": "publish",
       "span": {
-        "startLine": 1210,
+        "startLine": 1211,
         "startColumn": 9,
-        "endLine": 1210,
-        "endColumn": 61
+        "endLine": 1211,
+        "endColumn": 67
       },
       "metadata": {
         "phase": "rpc"

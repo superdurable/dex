@@ -483,7 +483,7 @@ async def test_ai_agent_http_queue_can_delete_and_steer(
         "/products/ai-agent/message-queue",
         {"workflowId": flow_id},
     )
-    queued = json.loads(queue_body)["regular"]
+    queued = json.loads(queue_body)["queued"]
     assert [message["value"]["content"] for message in queued] == ["delete this"]
     await flow_smoke_http.post(
         "/products/ai-agent/message-queue/delete",
@@ -498,7 +498,7 @@ async def test_ai_agent_http_queue_can_delete_and_steer(
         "/products/ai-agent/message-queue",
         {"workflowId": flow_id},
     )
-    queued = json.loads(queue_body)["regular"]
+    queued = json.loads(queue_body)["queued"]
     await flow_smoke_http.post(
         "/products/ai-agent/message-queue/steer",
         {"workflowId": flow_id, "messageId": queued[0]["message_id"]},

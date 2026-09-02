@@ -195,30 +195,30 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/message-queue")
     async def message_queue() -> Response:
         flow_id = required_query("workflowId")
-        regular, immediate = await asyncio.gather(
+        queued, steered = await asyncio.gather(
             app_state.client.get_channel_messages(
                 flow_id,
-                app_state.ai_agent.user_messages,
+                app_state.ai_agent.queued_user_messages,
             ),
             app_state.client.get_channel_messages(
                 flow_id,
-                app_state.ai_agent.immediate_user_messages,
+                app_state.ai_agent.steered_user_messages,
             ),
         )
         return jsonify(
-            regular=[
+            queued=[
                 {
                     "message_id": message.message_id,
                     "value": asdict(message.value),
                 }
-                for message in regular
+                for message in queued
             ],
-            immediate=[
+            steered=[
                 {
                     "message_id": message.message_id,
                     "value": asdict(message.value),
                 }
-                for message in immediate
+                for message in steered
             ],
         )
 
@@ -228,7 +228,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         try:
             await app_state.client.delete_channel_message(
                 _required_string(payload, "workflowId"),
-                app_state.ai_agent.user_messages,
+                app_state.ai_agent.queued_user_messages,
                 _required_string(payload, "messageId"),
             )
         except ChannelMessageNotFoundError as error:
@@ -242,7 +242,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         message_id = _required_string(payload, "messageId")
         pending = await app_state.client.get_channel_messages(
             flow_id,
-            app_state.ai_agent.user_messages,
+            app_state.ai_agent.queued_user_messages,
         )
         message = next(
             (item.value for item in pending if item.message_id == message_id),

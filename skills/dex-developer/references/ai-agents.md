@@ -57,19 +57,19 @@ When the model needs a user reply, route the question through a durable input to
 
 ## Separate queued messages from steering
 
-Use one Channel for regular user messages and another for immediate steering messages. While the Agent loop is active, leave regular messages pending so the user can inspect, edit, delete, or explicitly steer them. Consume regular messages in FIFO order after the Agent reaches its user-input wait.
+Use one Channel for queued user messages and another for steered messages. While the Agent loop is active, leave queued messages pending so the user can inspect, edit, delete, or explicitly steer them. Consume queued messages in FIFO order after the Agent reaches its user-input wait.
 
-Implement Steer with a transactional RPC that deletes the selected regular message ID and publishes its value to the immediate Channel. Treat a missing ID as stale UI state and refresh the queue. Do not copy queued messages into conversation history until the Agent consumes them.
+Implement Steer with a transactional RPC that deletes the selected queued message ID and publishes its value to the steered Channel. Treat a missing ID as stale UI state and refresh the queue. Do not copy queued messages into conversation history until the Agent consumes them.
 
-Apply immediate messages at safe Step boundaries. Do not cancel an in-flight model or tool invocation. Before the next model call, tool call, approval continuation, or timer continuation, drain immediate messages, persist structured cancellation results for abandoned calls, clear stale approval or timer state, and let the model replan.
+Apply steered messages at safe Step boundaries. Do not cancel an in-flight model or tool invocation. Before the next model call, tool call, approval continuation, or timer continuation, drain steered messages, persist structured cancellation results for abandoned calls, clear stale approval or timer state, and let the model replan.
 
-Only immediate messages should interrupt a pending approval or durable Timer. A regular queued message remains editable and does not alter active work until the Agent becomes idle or the user chooses Steer.
+Only steered messages should interrupt a pending approval or durable Timer. A queued message remains editable and does not alter active work until the Agent becomes idle or the user chooses Steer.
 
 ## Model long waits as Timer tools
 
 A durable wait tool should transition to a Step whose **WaitFor** returns a Timer condition. Do not keep a model call, MCP call, coroutine, or worker process blocked for the delay.
 
-To support explicit interruption, race the Timer against the immediate-message Channel. If that message wins, persist an interrupted tool result, consume the message, clear stale pending calls, and ask the model to replan. Leave regular queued messages pending until the Agent reaches its input wait.
+To support explicit interruption, race the Timer against the steered-message Channel. If that message wins, persist an interrupted tool result, consume the message, clear stale pending calls, and ask the model to replan. Leave queued messages pending until the Agent reaches its input wait.
 
 ## Verification
 

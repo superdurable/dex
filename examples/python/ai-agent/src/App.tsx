@@ -47,8 +47,8 @@ interface QueuedMessage {
 }
 
 interface MessageQueue {
-  regular: QueuedMessage[];
-  immediate: QueuedMessage[];
+  queued: QueuedMessage[];
+  steered: QueuedMessage[];
 }
 
 interface ThinkingEntry {
@@ -88,8 +88,8 @@ interface AgentDescription {
   pending_user_input_choices: string[];
   plan: AgentPlan | null;
   plan_execution_requested: boolean;
-  pending_user_message_count: number;
-  pending_immediate_message_count: number;
+  pending_queued_message_count: number;
+  pending_steered_message_count: number;
   available_mcp_servers: string[];
   available_tools: string[];
 }
@@ -152,7 +152,7 @@ const App: React.FC = () => {
   const [selectedMcpServers, setSelectedMcpServers] = useState<string[]>([]);
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [messages, setMessages] = useState<SequencedMessage[]>([]);
-  const [messageQueue, setMessageQueue] = useState<MessageQueue>({ regular: [], immediate: [] });
+  const [messageQueue, setMessageQueue] = useState<MessageQueue>({ queued: [], steered: [] });
   const [description, setDescription] = useState<AgentDescription | null>(null);
   const [flowStatus, setFlowStatus] = useState<AgentFlowStatus | null>(null);
   const [input, setInput] = useState('');
@@ -229,13 +229,13 @@ const App: React.FC = () => {
     setDescription(nextDescription);
     descriptionStatusRef.current = nextDescription.status;
     setMessageQueue((current) => ({
-      regular: [
-        ...nextQueue.regular,
-        ...current.regular.filter((message) => message.optimistic),
+      queued: [
+        ...nextQueue.queued,
+        ...current.queued.filter((message) => message.optimistic),
       ],
-      immediate: [
-        ...nextQueue.immediate,
-        ...current.immediate.filter((message) => message.optimistic),
+      steered: [
+        ...nextQueue.steered,
+        ...current.steered.filter((message) => message.optimistic),
       ],
     }));
     if (
@@ -446,7 +446,7 @@ const App: React.FC = () => {
     setWorkflowId('');
     setDescription(null);
     setMessages([]);
-    setMessageQueue({ regular: [], immediate: [] });
+    setMessageQueue({ queued: [], steered: [] });
     setThinkingEntries([]);
     completedThinkingSourcesRef.current.clear();
     setLiveResponseText('');
@@ -465,8 +465,8 @@ const App: React.FC = () => {
     const optimisticId = `optimistic-${crypto.randomUUID()}`;
     setMessageQueue((current) => ({
       ...current,
-      regular: [
-        ...current.regular,
+      queued: [
+        ...current.queued,
         {
           message_id: optimisticId,
           value: { content, plan_mode: requestedPlanMode },
@@ -485,7 +485,7 @@ const App: React.FC = () => {
     } catch (reason) {
       setMessageQueue((current) => ({
         ...current,
-        regular: current.regular.filter((message) => message.message_id !== optimisticId),
+        queued: current.queued.filter((message) => message.message_id !== optimisticId),
       }));
       setError(String(reason));
       setInput(content);
@@ -495,7 +495,7 @@ const App: React.FC = () => {
     }
     setMessageQueue((current) => ({
       ...current,
-      regular: current.regular.filter((message) => message.message_id !== optimisticId),
+      queued: current.queued.filter((message) => message.message_id !== optimisticId),
     }));
     await fetchState().catch((reason) => {
       setError(`Message accepted; queue refresh failed: ${String(reason)}`);
@@ -530,7 +530,7 @@ const App: React.FC = () => {
     if (action !== 'steer') {
       setMessageQueue((current) => ({
         ...current,
-        regular: current.regular.filter(
+        queued: current.queued.filter(
           (queuedMessage) => queuedMessage.message_id !== message.message_id,
         ),
       }));
@@ -1039,7 +1039,7 @@ const App: React.FC = () => {
           </details>
         )}
 
-        {(messageQueue.regular.length > 0 || messageQueue.immediate.length > 0) && (
+        {(messageQueue.queued.length > 0 || messageQueue.steered.length > 0) && (
           <section style={styles.queueArea} aria-label="Pending user messages">
             <div style={styles.queueHeader}>
               <div>
@@ -1048,25 +1048,25 @@ const App: React.FC = () => {
                   Queued messages wait for the current Agent loop. Steer applies one at the next safe boundary.
                 </small>
               </div>
-              <span>{messageQueue.regular.length + messageQueue.immediate.length} pending</span>
+              <span>{messageQueue.queued.length + messageQueue.steered.length} pending</span>
             </div>
-            {[...messageQueue.immediate, ...messageQueue.regular].map((message) => {
-              const isImmediate = messageQueue.immediate.some(
+            {[...messageQueue.steered, ...messageQueue.queued].map((message) => {
+              const isSteered = messageQueue.steered.some(
                 (item) => item.message_id === message.message_id,
               );
               return (
                 <div
                   key={message.message_id}
-                  style={{ ...styles.queueItem, ...(isImmediate ? styles.steeringItem : {}) }}
+                  style={{ ...styles.queueItem, ...(isSteered ? styles.steeringItem : {}) }}
                 >
                   <div style={styles.queueContent}>
-                    <span style={isImmediate ? styles.steeringBadge : styles.queuedBadge}>
-                      {isImmediate ? 'Steering' : message.optimistic ? 'Submitting' : 'Queued'}
+                    <span style={isSteered ? styles.steeringBadge : styles.queuedBadge}>
+                      {isSteered ? 'Steering' : message.optimistic ? 'Submitting' : 'Queued'}
                     </span>
                     <p style={styles.queueMessage}>{message.value.content}</p>
                     {message.value.plan_mode && <small>Plan mode</small>}
                   </div>
-                  {!isImmediate && (
+                  {!isSteered && (
                     <div style={styles.queueActions}>
                       {(['edit', 'delete', 'steer'] as const).map((action) => {
                         const actionKey = `${action}:${message.message_id}`;

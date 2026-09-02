@@ -14,8 +14,8 @@ model. Its local model echoes normal messages and understands `/wait <seconds>
 - `AgentMessages` is an AttributeMap. Each message is an independent value.
 - `AgentPlan` atomically stores the current revision and ordered task list.
 - `ContextSummary` keeps the cumulative compaction summary.
-- `UserMessages` keeps regular user messages in a durable FIFO queue.
-- `ImmediateUserMessages` carries explicit Steer messages to safe boundaries.
+- `QueuedUserMessages` keeps user messages in a durable FIFO queue.
+- `SteeredUserMessages` carries explicit Steer messages to safe boundaries.
 - Other Channels carry plan execution requests and tool approvals.
 - `ReasoningSummary` uses a buffered text writer for OpenAI reasoning summaries.
 - `AssistantText` uses a separate buffered writer for visible response text.
@@ -58,8 +58,8 @@ the UI can edit it, delete it, or choose **Steer**. Editing first deletes the
 pending message and puts its content back in the composer; submitting it again
 creates a new message at the queue tail.
 
-Steer uses a transactional RPC to delete the selected regular message and publish
-the same value to **ImmediateUserMessages**. Dex applies it before the next model
+Steer uses a transactional RPC to delete the selected queued message and publish
+the same value to **SteeredUserMessages**. Dex applies it before the next model
 call, tool, approval wait, or Timer continuation. It does not cancel an LLM or MCP
 request already running. A Steer clears unexecuted tool calls and records durable
 cancellation results. Only Steer interrupts a tool approval or durable wait.

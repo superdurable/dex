@@ -34,8 +34,8 @@ Application 会把每条 user、assistant 与 tool message 分别保存在 [Attr
     plan = Attribute("AgentPlan", AgentPlan)
     pending_approval = Attribute("PendingApproval", PendingApproval)
     pending_timer = Attribute("PendingTimer", PendingTimer)
-    user_messages = Channel("UserMessages", UserMessage)
-    immediate_user_messages = Channel("ImmediateUserMessages", UserMessage)
+    queued_user_messages = Channel("QueuedUserMessages", UserMessage)
+    steered_user_messages = Channel("SteeredUserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
     plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
     reasoning_summary = Stream("ReasoningSummary", str, 10 * 1024 * 1024)
@@ -50,9 +50,9 @@ Application 会把每条 user、assistant 与 tool message 分别保存在 [Attr
 
 ## 排队消息与 Steer
 
-普通 user message 会进入 durable **UserMessages** FIFO queue。Agent loop 运行期间，这些 message 会保持 pending，不会中断当前 model 或 tool call。UI 会立即显示它们。只要 message 尚未被消费，用户就能 Edit、Delete 或选择 Steer。Edit 会先删除 pending message；重新提交时，它会带着新的 ID 加到 queue 尾部。
+User message 会进入 durable **QueuedUserMessages** FIFO queue。Agent loop 运行期间，这些 message 会保持 pending，不会中断当前 model 或 tool call。Server 接受后，UI 会立即显示它们。只要 message 尚未被消费，用户就能 Edit、Delete 或选择 Steer。Edit 会先删除 pending message；重新提交时，它会带着新的 ID 加到 queue 尾部。
 
-Steer 会在一个 transaction 中删除选中的 regular message，并把相同 value 发布到 **ImmediateUserMessages**。Agent 会在下一次 model call、tool、approval wait 或 Timer continuation 前检查这条 queue。它不会取消已经开始的 LLM 或 MCP request。到达下一个 safe boundary 后，Agent 会清除尚未执行的 tool call 与过期 approval 或 Timer state，记录结构化 cancellation result，再根据 Steer message 重新规划。
+Steer 会在一个 transaction 中删除选中的 queued message，并把相同 value 发布到 **SteeredUserMessages**。Agent 会在下一次 model call、tool、approval wait 或 Timer continuation 前检查这条 queue。它不会取消已经开始的 LLM 或 MCP request。到达下一个 safe boundary 后，Agent 会清除尚未执行的 tool call 与过期 approval 或 Timer state，记录结构化 cancellation result，再根据 Steer message 重新规划。
 
 Message queue 不是 chat history。Pending Channel message 尚未被 Agent 消费，因此可以修改。Message 被消费后会成为 durable conversation history，原 message ID 也随即失效。
 
@@ -74,7 +74,7 @@ Example 支持 tool、resource、resource template、prompt、progress 与 loggi
 
 ## Durable wait
 
-内置 **durable_wait** tool 会把 Flow 移动到同时等待 [Timer](/primitives/timer) 与 **ImmediateUserMessages** 的 Step。Timer 可以跨 Worker restart 继续等待。普通 message 会继续排队；选择 Steer 才会中断等待并让 Agent 重新规划。
+内置 **durable_wait** tool 会把 Flow 移动到同时等待 [Timer](/primitives/timer) 与 **SteeredUserMessages** 的 Step。Timer 可以跨 Worker restart 继续等待。Queued message 会继续排队；选择 Steer 才会中断等待并让 Agent 重新规划。
 
 ## 实时 event
 

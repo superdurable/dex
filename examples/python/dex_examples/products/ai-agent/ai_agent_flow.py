@@ -137,21 +137,21 @@ class AwaitUser(Step[None]):
         plan = self.flow.get_plan(context)
         if plan is None or plan.status == PLAN_COMPLETED:
             return Wait.any_of(
-                self.flow.immediate_user_messages.for_one(),
-                self.flow.user_messages.for_one(),
+                self.flow.steered_user_messages.for_one(),
+                self.flow.queued_user_messages.for_one(),
             )
         return Wait.any_of(
-            self.flow.immediate_user_messages.for_one(),
-            self.flow.user_messages.for_one(),
+            self.flow.steered_user_messages.for_one(),
+            self.flow.queued_user_messages.for_one(),
             self.flow.plan_executions.for_one(str(plan.revision)),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        immediate_messages = self.flow.immediate_user_messages.results(context)
-        if immediate_messages:
-            self.flow.begin_steered_turn(context, immediate_messages)
+        steered_messages = self.flow.steered_user_messages.results(context)
+        if steered_messages:
+            self.flow.begin_steered_turn(context, steered_messages)
             return go_to(CompactContext, None)
-        messages = self.flow.user_messages.results(context)
+        messages = self.flow.queued_user_messages.results(context)
         if messages:
             self.flow.begin_user_turn(context, messages[0])
             return go_to(CompactContext, None)
@@ -219,11 +219,11 @@ class CompactContext(Step[None]):
             < int(config.max_context_tokens * config.compaction_trigger_fraction)
             and not has_retention_pressure
         ):
-            return go_to(CheckImmediate, CONTINUE_CALL_MODEL)
+            return go_to(CheckSteered, CONTINUE_CALL_MODEL)
 
         cutoff = self.flow.compaction_cutoff(context, config, state)
         if cutoff <= state.summarized_through_sequence:
-            return go_to(CheckImmediate, CONTINUE_CALL_MODEL)
+            return go_to(CheckSteered, CONTINUE_CALL_MODEL)
         messages = self.flow.load_messages(
             context,
             state.summarized_through_sequence + 1,
@@ -263,7 +263,7 @@ class CompactContext(Step[None]):
                 f"Compacted conversation through message {cutoff}.",
             ),
         )
-        return go_to(CheckImmediate, CONTINUE_CALL_MODEL)
+        return go_to(CheckSteered, CONTINUE_CALL_MODEL)
 
 
 class CallModel(Step[None]):
@@ -345,7 +345,7 @@ class CallModel(Step[None]):
                     planning_requires_write=False,
                 )
                 self.flow.state.set(context, state)
-            return go_to(CheckImmediate, CONTINUE_AWAIT_USER)
+            return go_to(CheckSteered, CONTINUE_AWAIT_USER)
         self.flow.state.set(
             context,
             replace(
@@ -355,20 +355,20 @@ class CallModel(Step[None]):
                 pending_tool_index=0,
             ),
         )
-        return go_to(CheckImmediate, CONTINUE_ROUTE_TOOL)
+        return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
 
 
-class CheckImmediate(Step[str]):
+class CheckSteered(Step[str]):
     def __init__(self, flow: AIAgentFlow) -> None:
         self.flow = flow
 
     def wait_for(self, context: Context, input: str) -> Wait:
         return Wait.until(
-            self.flow.immediate_user_messages.at_most(MAX_STEERING_MESSAGES)
+            self.flow.steered_user_messages.at_most(MAX_STEERING_MESSAGES)
         )
 
     def execute(self, context: Context, input: str) -> StepDecision:
-        messages = self.flow.immediate_user_messages.results(context)
+        messages = self.flow.steered_user_messages.results(context)
         if messages:
             self.flow.begin_steered_turn(context, messages)
             return go_to(CompactContext, None)
@@ -418,9 +418,9 @@ class RouteTool(Step[None]):
             )
             if self.flow.has_next_tool_call(context):
                 self.flow.advance_tool(context)
-                return go_to(CheckImmediate, CONTINUE_ROUTE_TOOL)
+                return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
             self.flow.clear_pending_tool_calls(context)
-            return go_to(CheckImmediate, CONTINUE_COMPACT_CONTEXT)
+            return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
         if call.name == "write_todos":
             if sum(
                 pending.name == "write_todos"
@@ -436,9 +436,9 @@ class RouteTool(Step[None]):
                 )
                 if self.flow.has_next_tool_call(context):
                     self.flow.advance_tool(context)
-                    return go_to(CheckImmediate, CONTINUE_ROUTE_TOOL)
+                    return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
                 self.flow.clear_pending_tool_calls(context)
-                return go_to(CheckImmediate, CONTINUE_COMPACT_CONTEXT)
+                return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
             try:
                 tasks = _plan_tasks(call)
             except ValueError as error:
@@ -459,9 +459,9 @@ class RouteTool(Step[None]):
                 )
                 if self.flow.has_next_tool_call(context):
                     self.flow.advance_tool(context)
-                    return go_to(CheckImmediate, CONTINUE_ROUTE_TOOL)
+                    return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
                 self.flow.clear_pending_tool_calls(context)
-                return go_to(CheckImmediate, CONTINUE_COMPACT_CONTEXT)
+                return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
             revision = self.flow.replace_plan(context, tasks)
             self.flow.append_tool_result(
                 context,
@@ -479,9 +479,9 @@ class RouteTool(Step[None]):
             )
             if self.flow.has_next_tool_call(context):
                 self.flow.advance_tool(context)
-                return go_to(CheckImmediate, CONTINUE_ROUTE_TOOL)
+                return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
             self.flow.clear_pending_tool_calls(context)
-            return go_to(CheckImmediate, CONTINUE_COMPACT_CONTEXT)
+            return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
         if call.name == "durable_wait":
             arguments = _tool_arguments(call)
             duration_seconds = int(arguments.get("duration_seconds", 0))
@@ -497,14 +497,14 @@ class RouteTool(Step[None]):
                 )
                 if self.flow.has_next_tool_call(context):
                     self.flow.advance_tool(context)
-                    return go_to(CheckImmediate, CONTINUE_ROUTE_TOOL)
+                    return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
                 self.flow.clear_pending_tool_calls(context)
-                return go_to(CheckImmediate, CONTINUE_COMPACT_CONTEXT)
+                return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
             self.flow.pending_timer.set(
                 context,
                 PendingTimer(call.id, duration_seconds, reason),
             )
-            return go_to(CheckImmediate, CONTINUE_DURABLE_WAIT)
+            return go_to(CheckSteered, CONTINUE_DURABLE_WAIT)
         if call.name == "request_user_input":
             arguments = _tool_arguments(call)
             prompt = str(arguments.get("prompt", "")).strip()
@@ -529,9 +529,9 @@ class RouteTool(Step[None]):
                 )
                 if self.flow.has_next_tool_call(context):
                     self.flow.advance_tool(context)
-                    return go_to(CheckImmediate, CONTINUE_ROUTE_TOOL)
+                    return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
                 self.flow.clear_pending_tool_calls(context)
-                return go_to(CheckImmediate, CONTINUE_COMPACT_CONTEXT)
+                return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
             self.flow.pending_user_input.set(
                 context,
                 PendingUserInput(call.id, prompt, choices),
@@ -563,8 +563,8 @@ class RouteTool(Step[None]):
                 context,
                 PendingApproval(call.id, call.name, call.arguments_json),
             )
-            return go_to(CheckImmediate, CONTINUE_AWAIT_TOOL_APPROVAL)
-        return go_to(CheckImmediate, CONTINUE_EXECUTE_TOOL)
+            return go_to(CheckSteered, CONTINUE_AWAIT_TOOL_APPROVAL)
+        return go_to(CheckSteered, CONTINUE_EXECUTE_TOOL)
 
 
 class AwaitToolApproval(Step[None]):
@@ -575,14 +575,14 @@ class AwaitToolApproval(Step[None]):
         call = self.flow.current_tool_call(context)
         self.flow.update_status(context, STATUS_WAITING_APPROVAL)
         return Wait.any_of(
-            self.flow.immediate_user_messages.for_one(),
+            self.flow.steered_user_messages.for_one(),
             self.flow.tool_approvals.for_one(call.id),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        immediate_messages = self.flow.immediate_user_messages.results(context)
-        if immediate_messages:
-            self.flow.begin_steered_turn(context, immediate_messages)
+        steered_messages = self.flow.steered_user_messages.results(context)
+        if steered_messages:
+            self.flow.begin_steered_turn(context, steered_messages)
             return go_to(CompactContext, None)
         call = self.flow.current_tool_call(context)
         approvals = self.flow.tool_approvals.results(context, call.id)
@@ -590,7 +590,7 @@ class AwaitToolApproval(Step[None]):
             raise RuntimeError("the approval wait completed without a decision")
         self.flow.pending_approval.delete(context)
         if approvals[0].approved:
-            return go_to(CheckImmediate, CONTINUE_EXECUTE_TOOL)
+            return go_to(CheckSteered, CONTINUE_EXECUTE_TOOL)
         self.flow.append_tool_result(
             context,
             call,
@@ -598,9 +598,9 @@ class AwaitToolApproval(Step[None]):
         )
         if self.flow.has_next_tool_call(context):
             self.flow.advance_tool(context)
-            return go_to(CheckImmediate, CONTINUE_ROUTE_TOOL)
+            return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
         self.flow.clear_pending_tool_calls(context)
-        return go_to(CheckImmediate, CONTINUE_COMPACT_CONTEXT)
+        return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
 
 
 class ExecuteTool(Step[None]):
@@ -660,9 +660,9 @@ class ExecuteTool(Step[None]):
         )
         if self.flow.has_next_tool_call(context):
             self.flow.advance_tool(context)
-            return go_to(CheckImmediate, CONTINUE_ROUTE_TOOL)
+            return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
         self.flow.clear_pending_tool_calls(context)
-        return go_to(CheckImmediate, CONTINUE_COMPACT_CONTEXT)
+        return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
 
 
 class DurableWait(Step[None]):
@@ -674,15 +674,15 @@ class DurableWait(Step[None]):
         self.flow.update_status(context, STATUS_WAITING_TIMER)
         return Wait.any_of(
             Timer.by_duration(timedelta(seconds=timer.duration_seconds)),
-            self.flow.immediate_user_messages.for_one(),
+            self.flow.steered_user_messages.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
         call = self.flow.current_tool_call(context)
         timer = self.flow.pending_timer.get(context)
-        user_messages = self.flow.immediate_user_messages.results(context)
+        steered_messages = self.flow.steered_user_messages.results(context)
         self.flow.pending_timer.delete(context)
-        if user_messages:
+        if steered_messages:
             self.flow.append_tool_result_and_cancel_remaining(
                 context,
                 call,
@@ -693,9 +693,9 @@ class DurableWait(Step[None]):
                     ),
                     True,
                 ),
-                "superseded_by_immediate_user_message",
+                "superseded_by_steered_user_message",
             )
-            self.flow.begin_steered_turn(context, user_messages)
+            self.flow.begin_steered_turn(context, steered_messages)
             return go_to(CompactContext, None)
         self.flow.append_tool_result(
             context,
@@ -714,9 +714,9 @@ class DurableWait(Step[None]):
         )
         if self.flow.has_next_tool_call(context):
             self.flow.advance_tool(context)
-            return go_to(CheckImmediate, CONTINUE_ROUTE_TOOL)
+            return go_to(CheckSteered, CONTINUE_ROUTE_TOOL)
         self.flow.clear_pending_tool_calls(context)
-        return go_to(CheckImmediate, CONTINUE_COMPACT_CONTEXT)
+        return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
 
 
 class AIAgentFlow(Flow[AgentConfig]):
@@ -728,8 +728,8 @@ class AIAgentFlow(Flow[AgentConfig]):
     pending_approval = Attribute("PendingApproval", PendingApproval)
     pending_timer = Attribute("PendingTimer", PendingTimer)
     pending_user_input = Attribute("PendingUserInput", PendingUserInput)
-    user_messages = Channel("UserMessages", UserMessage)
-    immediate_user_messages = Channel("ImmediateUserMessages", UserMessage)
+    queued_user_messages = Channel("QueuedUserMessages", UserMessage)
+    steered_user_messages = Channel("SteeredUserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
     plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
     reasoning_summary = Stream("ReasoningSummary", str, 10 * 1024 * 1024)
@@ -747,7 +747,7 @@ class AIAgentFlow(Flow[AgentConfig]):
         self.await_user = AwaitUser(self)
         self.compact_context = CompactContext(self)
         self.call_model = CallModel(self)
-        self.check_immediate = CheckImmediate(self)
+        self.check_steered = CheckSteered(self)
         self.route_tool = RouteTool(self)
         self.await_tool_approval = AwaitToolApproval(self)
         self.execute_tool = ExecuteTool(self)
@@ -758,7 +758,7 @@ class AIAgentFlow(Flow[AgentConfig]):
             self.await_user,
             self.compact_context,
             self.call_model,
-            self.check_immediate,
+            self.check_steered,
             self.route_tool,
             self.await_tool_approval,
             self.execute_tool,
@@ -775,8 +775,8 @@ class AIAgentFlow(Flow[AgentConfig]):
             self.pending_approval,
             self.pending_timer,
             self.pending_user_input,
-            self.user_messages,
-            self.immediate_user_messages,
+            self.queued_user_messages,
+            self.steered_user_messages,
             self.tool_approvals,
             self.plan_executions,
             self.reasoning_summary,
@@ -908,7 +908,7 @@ class AIAgentFlow(Flow[AgentConfig]):
                     json.dumps(
                         {
                             "status": "cancelled",
-                            "reason": "superseded_by_immediate_user_message",
+                            "reason": "superseded_by_steered_user_message",
                         }
                     ),
                     True,
@@ -920,7 +920,7 @@ class AIAgentFlow(Flow[AgentConfig]):
             context,
             AgentEvent(
                 "steered",
-                f"Applied {len(messages)} immediate user message(s).",
+                f"Applied {len(messages)} steered user message(s).",
             ),
         )
 
@@ -1196,7 +1196,7 @@ class AIAgentFlow(Flow[AgentConfig]):
     def send_message(self, context: Context, input: UserMessage) -> RPCResult[bool]:
         if not input.content.strip():
             return RPCResult(False)
-        self.user_messages.publish(context, input)
+        self.queued_user_messages.publish(context, input)
         return RPCResult(True)
 
     @rpc(is_transactional=True)
@@ -1207,8 +1207,8 @@ class AIAgentFlow(Flow[AgentConfig]):
     ) -> RPCResult[bool]:
         if not input.message_id.strip() or not input.message.content.strip():
             return RPCResult(False)
-        self.user_messages.delete(context, input.message_id)
-        self.immediate_user_messages.publish(context, input.message)
+        self.queued_user_messages.delete(context, input.message_id)
+        self.steered_user_messages.publish(context, input.message)
         return RPCResult(True)
 
     @rpc
@@ -1244,8 +1244,8 @@ class AIAgentFlow(Flow[AgentConfig]):
             or state.status != STATUS_WAITING
             or state.pending_plan_execution_revision is not None
             or _optional_attribute(self.pending_user_input, context) is not None
-            or self.user_messages.size(context) > 0
-            or self.immediate_user_messages.size(context) > 0
+            or self.queued_user_messages.size(context) > 0
+            or self.steered_user_messages.size(context) > 0
             or plan.revision != input.revision
             or plan.status not in {PLAN_DRAFT, PLAN_ACTIVE}
         ):
@@ -1306,8 +1306,8 @@ class AIAgentFlow(Flow[AgentConfig]):
                     pending_user_input_choices=[],
                     plan=None,
                     plan_execution_requested=False,
-                    pending_user_message_count=0,
-                    pending_immediate_message_count=0,
+                    pending_queued_message_count=0,
+                    pending_steered_message_count=0,
                     available_mcp_servers=self.mcp_registry.server_names,
                     available_tools=[
                         "write_todos",
@@ -1351,9 +1351,9 @@ class AIAgentFlow(Flow[AgentConfig]):
                 plan_execution_requested=(
                     state.pending_plan_execution_revision is not None
                 ),
-                pending_user_message_count=self.user_messages.size(context),
-                pending_immediate_message_count=(
-                    self.immediate_user_messages.size(context)
+                pending_queued_message_count=self.queued_user_messages.size(context),
+                pending_steered_message_count=(
+                    self.steered_user_messages.size(context)
                 ),
                 available_mcp_servers=self.mcp_registry.server_names,
                 available_tools=[
