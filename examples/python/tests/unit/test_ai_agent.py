@@ -61,6 +61,16 @@ def test_agent_credentials_remain_outside_durable_config() -> None:
     assert credentials.get_api_key("flow-1") is None
 
 
+@pytest.mark.parametrize("api_key", ["密钥", "secret\nkey"])
+def test_agent_credentials_reject_invalid_http_header_values(api_key: str) -> None:
+    credentials = AgentCredentialStore()
+
+    with pytest.raises(ValueError, match="printable ASCII characters"):
+        credentials.set_api_key("flow-1", api_key)
+
+    assert credentials.get_api_key("flow-1") is None
+
+
 def test_provider_model_adds_and_validates_litellm_prefix() -> None:
     assert _provider_model("openai", "gpt-example") == "openai/gpt-example"
     assert _provider_model("mock", "ignored") == "mock/dex"

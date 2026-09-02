@@ -250,6 +250,10 @@ const App: React.FC = () => {
     setIsBusy(true);
     setError('');
     try {
+      const normalizedApiKey = apiKey.trim();
+      if (normalizedApiKey && !/^[\x20-\x7E]+$/.test(normalizedApiKey)) {
+        throw new Error('API key must contain only printable ASCII characters. Paste only the raw key value.');
+      }
       const newWorkflowId = generateWorkflowId();
       const response = await fetch(`${API_BASE}/start`, {
         method: 'POST',
@@ -257,7 +261,7 @@ const App: React.FC = () => {
         body: JSON.stringify({
           workflowId: newWorkflowId,
           provider,
-          apiKey: apiKey.trim() || null,
+          apiKey: normalizedApiKey || null,
           model,
           systemPrompt,
           maxContextTokens,

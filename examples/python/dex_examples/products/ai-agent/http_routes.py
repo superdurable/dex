@@ -160,7 +160,10 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         )
         config.validate()
         api_key = _optional_nullable_string(payload, "apiKey")
-        app_state.ai_agent_credentials.set_api_key(flow_id, api_key)
+        try:
+            app_state.ai_agent_credentials.set_api_key(flow_id, api_key)
+        except ValueError as error:
+            raise BadRequest(str(error)) from error
         try:
             await app_state.client.start_flow(
                 app_state.ai_agent,

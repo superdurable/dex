@@ -429,6 +429,27 @@ async def test_ai_agent_portal_configures_credentials_and_capabilities(
     example_app.ai_agent_credentials.set_api_key(flow_id, None)
 
 
+async def test_ai_agent_portal_rejects_non_ascii_api_key(
+    example_app: ExampleApp,
+) -> None:
+    client = create_app(example_app).test_client()
+    flow_id = f"ai-agent-invalid-key-{uuid4().hex}"
+
+    response = await client.post(
+        "/products/ai-agent/start",
+        json={
+            "workflowId": flow_id,
+            "provider": "openai",
+            "model": "gpt-example",
+            "apiKey": "密钥",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "printable ASCII characters" in await response.get_data(as_text=True)
+    assert example_app.ai_agent_credentials.get_api_key(flow_id) is None
+
+
 async def _reminders_trigger(client: FlowSmokeHttpClient) -> tuple[str, str]:
     _, _, body = await client.get("/patterns/reminders/start", {})
     return parse_flow_trigger_response(body, "")

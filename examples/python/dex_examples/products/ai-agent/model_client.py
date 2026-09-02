@@ -65,6 +65,11 @@ class AgentCredentialStore:
 
     def set_api_key(self, flow_id: str, api_key: str | None) -> None:
         if api_key:
+            if not api_key.isascii() or not api_key.isprintable():
+                raise ValueError(
+                    "apiKey must contain only printable ASCII characters; "
+                    "paste only the raw key value"
+                )
             self._api_keys[flow_id] = api_key
         else:
             self._api_keys.pop(flow_id, None)
