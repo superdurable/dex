@@ -247,6 +247,20 @@ func TestVisualizePythonBufferedStreamWriterCallbacks(t *testing.T) {
 	}
 }
 
+func TestVisualizePythonFanOutExtendGenerator(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	source := filepath.Join(repositoryRoot, "examples/python/dex_examples/patterns/parallel/await_parallel_steps_flow.py")
+	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, graph.Diagnostics)
+
+	for _, diagnostic := range graph.Diagnostics {
+		require.NotContains(t, diagnostic.Message, "Step DoWorkStep is not reachable")
+	}
+	require.True(t, hasEdge(graph.Edges, "transition", "decision:step:InitStep:65:16", "step:AwaitStep"))
+	require.True(t, hasEdge(graph.Edges, "transition", "decision:step:InitStep:65:16", "step:DoWorkStep"))
+}
+
 func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
 	sources := exampleFlowSources(t, repositoryRoot)

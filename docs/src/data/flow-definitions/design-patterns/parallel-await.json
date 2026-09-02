@@ -163,6 +163,20 @@
     },
     {
       "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:InitStep:65:16",
+      "to": "step:DoWorkStep",
+      "label": "fan-out",
+      "multiplicity": "×N",
+      "span": {
+        "startLine": 63,
+        "startColumn": 13,
+        "endLine": 63,
+        "endColumn": 47
+      }
+    },
+    {
+      "id": "edge:0003",
       "kind": "wait_condition",
       "from": "resource:channel:AwaitParallelStepsFlow.complete_ch",
       "to": "wait:AwaitStep:53:16:0",
@@ -175,7 +189,7 @@
       }
     },
     {
-      "id": "edge:0003",
+      "id": "edge:0004",
       "kind": "resource_publish",
       "from": "step:DoWorkStep",
       "to": "resource:channel:AwaitParallelStepsFlow.complete_ch",
@@ -191,17 +205,5 @@
       }
     }
   ],
-  "diagnostics": [
-    {
-      "severity": "warning",
-      "code": "unreachable_step",
-      "message": "Step DoWorkStep is not reachable from the start Step or an RPC",
-      "span": {
-        "startLine": 77,
-        "startColumn": 59,
-        "endLine": 77,
-        "endColumn": 68
-      }
-    }
-  ]
+  "diagnostics": []
 }

@@ -924,11 +924,20 @@ class Analyzer:
                     if movement:
                         movement["multiplicity"] = "×N"
                         result[name] = [movement]
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "append" and isinstance(node.func.value, ast.Name) and node.args:
-                movement = self.parse_movement(node.args[0], "")
-                if movement:
-                    movement["multiplicity"] = "×N"
-                    result.setdefault(node.func.value.id, []).append(movement)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and node.args:
+                if node.func.attr == "append":
+                    movement = self.parse_movement(node.args[0], "")
+                    if movement:
+                        movement["multiplicity"] = "×N"
+                        result.setdefault(node.func.value.id, []).append(movement)
+                elif node.func.attr == "extend":
+                    extension = node.args[0]
+                    elements = extension.elts if isinstance(extension, (ast.List, ast.Tuple)) else [getattr(extension, "elt", None)]
+                    for element in elements:
+                        movement = self.parse_movement(element, "")
+                        if movement:
+                            movement["multiplicity"] = "×N"
+                            result.setdefault(node.func.value.id, []).append(movement)
         return result
 
     def walk_statements(self, statements, condition, visit):
