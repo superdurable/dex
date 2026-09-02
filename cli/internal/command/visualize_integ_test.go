@@ -181,6 +181,38 @@ func TestVisualizeRepresentativeGoAndPythonFlows(t *testing.T) {
 	}
 }
 
+func TestVisualizePythonFlowResourceAliasesAndRPCLocks(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	source := filepath.Join(repositoryRoot, "examples/python/dex_examples/products/job-post/job_post_flow.py")
+	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, graph.Diagnostics)
+
+	for _, diagnostic := range graph.Diagnostics {
+		require.NotContains(t, diagnostic.Message, "UpdateVersion has no direct access")
+		require.NotContains(t, diagnostic.Message, "UpdatePostingLock has no direct access")
+	}
+
+	versionResourceID := "resource:attribute:UPDATE_VERSION"
+	require.True(t, hasEdge(graph.Edges, "resource_read", versionResourceID, "rpc:update"))
+	require.True(t, hasEdge(graph.Edges, "resource_write", "rpc:update", versionResourceID))
+	require.True(t, hasEdge(graph.Edges, "resource_lock", "rpc:update", "resource:attribute:UPDATE_POSTING_LOCK"))
+	lockEdges := edgesOfKind(graph.Edges, "resource_lock")
+	require.Equal(t, "lock", lockEdges[0].Label)
+	require.Equal(t, "rpc", lockEdges[0].Metadata["phase"])
+
+	stepLockSource := filepath.Join(repositoryRoot, "examples/python/dex_examples/primitives/attribute/attribute_flow.py")
+	stepLockGraph, err := flowviz.Analyze(context.Background(), stepLockSource, flowviz.AnalyzeOptions{})
+	require.NoError(t, err)
+	lockPhases := make([]any, 0)
+	for _, edge := range edgesOfKind(stepLockGraph.Edges, "resource_lock") {
+		lockPhases = append(lockPhases, edge.Metadata["phase"])
+	}
+	require.Contains(t, lockPhases, "wait_for")
+	require.Contains(t, lockPhases, "execute")
+	require.Contains(t, lockPhases, "rpc")
+}
+
 func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
 	sources := exampleFlowSources(t, repositoryRoot)
@@ -645,6 +677,15 @@ func edgesFrom(edges []flowviz.Edge, source string, kind string) []flowviz.Edge 
 		}
 	}
 	return matched
+}
+
+func hasEdge(edges []flowviz.Edge, kind string, source string, target string) bool {
+	for _, edge := range edges {
+		if edge.Kind == kind && edge.From == source && edge.To == target {
+			return true
+		}
+	}
+	return false
 }
 
 func nodesOfKind(nodes []flowviz.Node, kind string) []flowviz.Node {

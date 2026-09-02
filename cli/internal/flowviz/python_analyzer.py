@@ -151,6 +151,13 @@ class Analyzer:
                 target, value = statement.targets[0], statement.value
             elif isinstance(statement, ast.AnnAssign):
                 target, value = statement.target, statement.value
+            if isinstance(target, ast.Name):
+                resource_id = self.flow_resource_for(value, flow_class.name, local_resources)
+                if resource_id:
+                    self.resources[f"{flow_class.name}.{target.id}"] = resource_id
+                    self.resources[target.id] = resource_id
+                    local_resources[target.id] = resource_id
+                    continue
             if not isinstance(target, ast.Name) or not isinstance(value, ast.Call):
                 continue
             class_name = self.symbol(value.func)
@@ -324,6 +331,10 @@ class Analyzer:
         options = self.method(step_class, "get_step_options")
         if options is not None:
             self.analyze_failure(node_id, options)
+            self.analyze_locks(node_id, ast.walk(options), {
+                "wait_for_lock_attributes": "wait_for",
+                "execute_lock_attributes": "execute",
+            })
 
     def analyze_flow_handlers(self, flow_class):
         ignored = {"__init__", "get_steps", "get_persistence_schema", "get_flow_type", "get_flow_options", "get_flow_config"}
@@ -338,8 +349,36 @@ class Analyzer:
             elif any(self.is_dex_reference(decorator.func if isinstance(decorator, ast.Call) else decorator, "rpc") for decorator in statement.decorator_list):
                 node_id = f"rpc:{statement.name}"
                 self.add_node({"id": node_id, "kind": "rpc", "name": statement.name, "span": self.span(statement)})
+                self.analyze_locks(node_id, statement.decorator_list, {"lock_attributes": "rpc"})
                 self.analyze_decisions(node_id, statement, rpc=True)
                 self.analyze_resources(node_id, statement, "rpc")
+
+    def analyze_locks(self, owner_id, expressions, phases):
+        seen = set()
+        for expression in expressions:
+            if not isinstance(expression, ast.Call):
+                continue
+            for keyword in expression.keywords:
+                phase = phases.get(keyword.arg)
+                if not phase:
+                    continue
+                locks = keyword.value.elts if isinstance(keyword.value, (ast.List, ast.Set, ast.Tuple)) else [keyword.value]
+                for lock in locks:
+                    if not isinstance(lock, ast.Call) or not isinstance(lock.func, ast.Attribute) or lock.func.attr != "lock":
+                        continue
+                    resource_id = self.resource_for(lock.func.value, owner_id)
+                    key = (resource_id, phase)
+                    if not resource_id or key in seen:
+                        continue
+                    seen.add(key)
+                    self.add_edge(
+                        "resource_lock",
+                        owner_id,
+                        resource_id,
+                        label="lock",
+                        span=self.span(lock),
+                        metadata={"phase": phase},
+                    )
 
     def analyze_decisions(self, owner_id, method, rpc):
         locals_map = self.local_movements(method)

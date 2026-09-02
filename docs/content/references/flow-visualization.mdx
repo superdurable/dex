@@ -65,6 +65,8 @@ Resource and SubFlow relations are dashed, so they remain visually weaker than s
 
 The renderer fits the complete Flow into the viewport by default. Channel and Attribute arrows stay hidden until you select that resource or a related Step, WaitFor, Execute decision, RPC, or timeout handler. This keeps the default graph focused on control flow while preserving resource access on demand.
 
+Attribute relations include reads, writes, and locks. The Python analyzer follows static resource aliases on the Flow class, and records Attribute locks declared by RPC or Step options.
+
 Stream relations describe observable application output, not control flow. They are hidden by default in Flow Rendering and can be enabled from the legend. The JSON marks Step Stream writes as repeatable and best effort. Heartbeat calls and checkpoint reads are runtime reliability details, so they are not included in the definition graph.
 
 ## Supported source profile
