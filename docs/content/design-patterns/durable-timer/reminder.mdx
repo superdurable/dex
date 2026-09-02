@@ -2,11 +2,13 @@
 title: Reminder
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/reminder.json';
+
 # Reminder
 
 **ReminderFlow** sends a reminder every interval until the recipient opts out. **ReminderStep** waits for either the interval Timer or the **OptOut** Channel. When the timer fires, it sends a reminder and moves to itself. When **OptOut** arrives first, the Step completes the Flow.
 
-![ReminderFlow](/img/design-patterns/reminder-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Core Step
 

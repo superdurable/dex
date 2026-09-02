@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/polling/simple_polling_flow.py"
+  },
+  "flow": {
+    "name": "PollingWithTimerFlow",
+    "startStepId": "step:PollingStep",
+    "span": {
+      "startLine": 51,
+      "startColumn": 1,
+      "endLine": 59,
+      "endColumn": 38
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:PollingStep",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:PollingStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 40,
+        "startColumn": 5,
+        "endLine": 43,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "decision:step:PollingStep:42:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:PollingStep",
+      "condition": "self._is_system_ready()",
+      "phase": "execute",
+      "span": {
+        "startLine": 42,
+        "startColumn": 20,
+        "endLine": 42,
+        "endColumn": 39
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:PollingStep:43:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:PollingStep",
+      "condition": "not (self._is_system_ready())",
+      "phase": "execute",
+      "span": {
+        "startLine": 43,
+        "startColumn": 16,
+        "endLine": 43,
+        "endColumn": 40
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "step:PollingStep",
+      "kind": "step",
+      "name": "PollingStep",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 56,
+        "startColumn": 36,
+        "endLine": 56,
+        "endColumn": 53
+      }
+    },
+    {
+      "id": "wait:PollingStep:38:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:PollingStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 38,
+        "startColumn": 16,
+        "endLine": 38,
+        "endColumn": 63
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "POLLING_INTERVAL timer",
+            "expression": "POLLING_INTERVAL",
+            "span": {
+              "startLine": 38,
+              "startColumn": 27,
+              "endLine": 38,
+              "endColumn": 62
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:PollingStep:43:16",
+      "to": "step:PollingStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 43,
+        "startColumn": 16,
+        "endLine": 43,
+        "endColumn": 40
+      }
+    }
+  ],
+  "diagnostics": []
+}

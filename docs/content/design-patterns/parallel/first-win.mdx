@@ -2,11 +2,13 @@
 title: First-Win Parallel Steps
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-first-win.json';
+
 # First-Win Parallel Steps
 
 Use the first completed concurrent Step and cancel the remaining siblings.
 
-![FirstWinParallelStepsFlow](/img/design-patterns/parallel-first-win-steps-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **InitStep** starts multiple **DoWorkStep** executions. Each worker sleeps for a random short duration, creating a real race. The first execution to return a decision selects its sibling **DoWorkStep** executions for cancellation. The Flow keeps the first result and stops work that can no longer affect the outcome.
 

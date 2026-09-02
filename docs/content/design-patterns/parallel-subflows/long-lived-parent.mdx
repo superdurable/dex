@@ -2,11 +2,13 @@
 title: "Advanced: Long-lived Parent"
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-subflows-long-lived.json';
+
 # Advanced: Long-lived Parent
 
 Keep a bounded pool of parent Steps alive while the Flow accepts more requests.
 
-![Long-lived parent](/img/design-patterns/parallel-subflows-long-lived-parent.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **InitStep** publishes the initial requests to **RequestChannel**, sets **Stopped** to false, and starts N **HandleRequestStep** executions. Each worker takes one FIFO message and moves to **HandleSubFlowStep**. That Step starts and waits for **ExampleSubFlow**. When the child completes, it either loops to **HandleRequestStep** or gracefully completes after **Stop** has set **Stopped** to true.
 

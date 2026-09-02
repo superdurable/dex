@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/parallel/first_win_parallel_steps_flow.py"
+  },
+  "flow": {
+    "name": "FirstWinParallelStepsFlow",
+    "startStepId": "step:InitStep",
+    "span": {
+      "startLine": 47,
+      "startColumn": 1,
+      "endLine": 56,
+      "endColumn": 38
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:step:DoWorkStep:37:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:DoWorkStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 37,
+        "startColumn": 16,
+        "endLine": 37,
+        "endColumn": 81
+      },
+      "decision": {
+        "type": "gracefulComplete",
+        "cancellations": [
+          {
+            "stepId": "step:DoWorkStep",
+            "scope": "siblings"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:step:InitStep:42:16",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:InitStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 42,
+        "startColumn": 16,
+        "endLine": 44,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "step:DoWorkStep",
+      "kind": "step",
+      "name": "DoWorkStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 53,
+        "startColumn": 59,
+        "endLine": 53,
+        "endColumn": 68
+      }
+    },
+    {
+      "id": "step:InitStep",
+      "kind": "step",
+      "name": "InitStep",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 53,
+        "startColumn": 36,
+        "endLine": 53,
+        "endColumn": 45
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "cancel",
+      "from": "decision:step:DoWorkStep:37:16",
+      "to": "step:DoWorkStep",
+      "label": "with_canceling_sibling_steps",
+      "span": {
+        "startLine": 37,
+        "startColumn": 70,
+        "endLine": 37,
+        "endColumn": 80
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:InitStep:42:16",
+      "to": "step:DoWorkStep",
+      "label": "fan-out",
+      "multiplicity": "×N",
+      "span": {
+        "startLine": 43,
+        "startColumn": 15,
+        "endLine": 43,
+        "endColumn": 49
+      }
+    }
+  ],
+  "diagnostics": []
+}

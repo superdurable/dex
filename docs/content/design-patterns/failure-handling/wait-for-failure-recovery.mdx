@@ -2,11 +2,13 @@
 title: WaitFor Failure Recovery
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/wait-for-failure-recovery.json';
+
 # WaitFor Failure Recovery
 
 Recover after **WaitFor** exhausts its retry policy.
 
-![WaitForFailureRecoveryFlow](/img/design-patterns/wait-for-failure-recovery-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **WaitForFailureRecoveryFlow** starts **FailingStep**. Its **WaitFor** method returns the interval to wait on, but the sample deliberately fails that method. After **WaitForRetry** is exhausted, its **WaitForFailure** policy proceeds to **FailingStep.Execute**. Execute reads the wait failure from its context, then moves to **RecoveryStep**, which completes the Flow.
 

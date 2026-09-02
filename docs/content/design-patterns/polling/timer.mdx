@@ -2,11 +2,13 @@
 title: Polling with Timer
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/polling-timer.json';
+
 # Polling with Timer
 
 **PollingWithTimerFlow** makes the wait explicit. **PollingStep** waits for a Timer, checks the external condition, then either completes or moves to itself for another interval. It uses more code than retry-based polling, but the not-ready outcome is a normal Step decision rather than a failed attempt.
 
-![PollingWithTimerFlow](/img/design-patterns/polling-with-timer-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Core implementation
 

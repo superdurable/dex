@@ -12,7 +12,7 @@
     "serve": "docusaurus serve",
     "write-translations": "docusaurus write-translations",
     "write-heading-ids": "docusaurus write-heading-ids",
-    "generate:flow-definitions": "./scripts/generate-product-flow-definitions.sh",
+    "generate:flow-definitions": "./scripts/generate-flow-definitions.sh",
     "typecheck": "tsc",
     "test:site": "node tests/site-smoke.mjs",
     "check": "npm run typecheck && npm run build && npm run test:site"

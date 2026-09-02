@@ -5,7 +5,7 @@ sidebar_label: Why Dex?
 ---
 
 import DexSystemDiagram from '@site/src/components/intro/DexSystemDiagram';
-import OrderProcessingDiagram from '@site/src/components/intro/OrderProcessingDiagram';
+import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-processing.json';
 
 # 为什么是 Dex？
 
@@ -25,7 +25,7 @@ Dex 是结构化编程，只有少数几个概念作为 [primitives](/primitives
 
 这条 Flow 会先给买家扣款，再等卖家批准（带提醒），然后发货；发货 API 的 retry 用尽就退款。
 
-<OrderProcessingDiagram />
+<DocsFlowDefinitionGraph graph={orderProcessingFlow} />
 
 - **ChargeStep** 调支付 API，Step 级 retry。成功后原子进入 ShipStep。
 - **ShipStep** 等待卖家 **Channel** 或 **Timer**。Timer 先到：发提醒，继续等。批准到了：发货。发货 retry 用尽：进 **RefundStep**。

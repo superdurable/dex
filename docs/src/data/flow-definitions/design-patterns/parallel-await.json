@@ -1,0 +1,207 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/parallel/await_parallel_steps_flow.py"
+  },
+  "flow": {
+    "name": "AwaitParallelStepsFlow",
+    "startStepId": "step:InitStep",
+    "span": {
+      "startLine": 68,
+      "startColumn": 1,
+      "endLine": 80,
+      "endColumn": 54
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:step:AwaitStep:56:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:AwaitStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 56,
+        "startColumn": 16,
+        "endLine": 56,
+        "endColumn": 40
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:DoWorkStep:45:16",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:DoWorkStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 45,
+        "startColumn": 16,
+        "endLine": 45,
+        "endColumn": 26
+      },
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "decision:step:InitStep:65:16",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:InitStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 65,
+        "startColumn": 16,
+        "endLine": 65,
+        "endColumn": 38
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "resource:channel:AwaitParallelStepsFlow.complete_ch",
+      "kind": "channel",
+      "name": "parallel-complete",
+      "span": {
+        "startLine": 69,
+        "startColumn": 5,
+        "endLine": 69,
+        "endColumn": 65
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "step:AwaitStep",
+      "kind": "step",
+      "name": "AwaitStep",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 77,
+        "startColumn": 70,
+        "endLine": 77,
+        "endColumn": 85
+      }
+    },
+    {
+      "id": "step:DoWorkStep",
+      "kind": "step",
+      "name": "DoWorkStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 77,
+        "startColumn": 59,
+        "endLine": 77,
+        "endColumn": 68
+      }
+    },
+    {
+      "id": "step:InitStep",
+      "kind": "step",
+      "name": "InitStep",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 77,
+        "startColumn": 36,
+        "endLine": 77,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "wait:AwaitStep:53:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:AwaitStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 53,
+        "startColumn": 16,
+        "endLine": 53,
+        "endColumn": 57
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "parallel-complete.for input",
+            "resourceId": "resource:channel:AwaitParallelStepsFlow.complete_ch",
+            "expression": "input",
+            "span": {
+              "startLine": 53,
+              "startColumn": 27,
+              "endLine": 53,
+              "endColumn": 56
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:InitStep:65:16",
+      "to": "step:AwaitStep",
+      "label": "fan-out",
+      "multiplicity": "×N",
+      "span": {
+        "startLine": 61,
+        "startColumn": 47,
+        "endLine": 61,
+        "endColumn": 80
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "wait_condition",
+      "from": "resource:channel:AwaitParallelStepsFlow.complete_ch",
+      "to": "wait:AwaitStep:53:16:0",
+      "label": "parallel-complete.for input",
+      "span": {
+        "startLine": 53,
+        "startColumn": 27,
+        "endLine": 53,
+        "endColumn": 56
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "resource_publish",
+      "from": "step:DoWorkStep",
+      "to": "resource:channel:AwaitParallelStepsFlow.complete_ch",
+      "label": "publish",
+      "span": {
+        "startLine": 44,
+        "startColumn": 9,
+        "endLine": 44,
+        "endColumn": 48
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "unreachable_step",
+      "message": "Step DoWorkStep is not reachable from the start Step or an RPC",
+      "span": {
+        "startLine": 77,
+        "startColumn": 59,
+        "endLine": 77,
+        "endColumn": 68
+      }
+    }
+  ]
+}

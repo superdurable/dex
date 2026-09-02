@@ -2,11 +2,13 @@
 title: Manual Recovery
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/manual-recovery.json';
+
 # Manual Recovery
 
 Escalate a Step to a person after its automatic retries are exhausted.
 
-![ManualRecoveryFlow: DoWorkStep completes on success or, after exhausted retries, proceeds to ManualStep. ManualStep waits for Retry or Skip; Retry returns to DoWorkStep and Skip fails the Flow.](/img/design-patterns/manual-recovery-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **ManualRecoveryFlow** starts **DoWorkStep**. Its failure policy makes three exponential-backoff retries, then proceeds to **ManualStep**. **ManualStep** waits for either the **Retry** Channel or the **Skip** Channel. Retry returns to **DoWorkStep** after the operator resolves the problem; skip fails the Flow with an explicit reason.
 

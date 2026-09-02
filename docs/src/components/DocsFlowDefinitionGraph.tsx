@@ -13,11 +13,11 @@ import {
   type FlowDefinitionGraph,
 } from '@superdurable/flow-definition-renderer';
 
-interface ProductFlowDefinitionGraphProps {
+interface DocsFlowDefinitionGraphProps {
   graph: FlowDefinitionGraph;
 }
 
-export default function ProductFlowDefinitionGraph({graph}: ProductFlowDefinitionGraphProps) {
+export default function DocsFlowDefinitionGraph({graph}: DocsFlowDefinitionGraphProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const {i18n} = useDocusaurusContext();
   const isChinese = i18n.currentLocale === 'zh-Hans';
@@ -35,10 +35,10 @@ export default function ProductFlowDefinitionGraph({graph}: ProductFlowDefinitio
     <div
       aria-label={isExpanded ? graph.flow.name : undefined}
       aria-modal={isExpanded || undefined}
-      className={`product-flow-definition-graph${isExpanded ? ' is-expanded' : ''}`}
+      className={`docs-flow-definition-graph${isExpanded ? ' is-expanded' : ''}`}
       role={isExpanded ? 'dialog' : undefined}
     >
-      <div className="product-flow-definition-graph-actions">
+      <div className="docs-flow-definition-graph-actions">
         <button
           aria-expanded={isExpanded}
           onClick={() => setIsExpanded((expanded) => !expanded)}

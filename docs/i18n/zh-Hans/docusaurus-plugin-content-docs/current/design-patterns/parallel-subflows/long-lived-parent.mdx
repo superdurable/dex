@@ -3,11 +3,13 @@ title: 高级：长生命周期父 Flow
 sidebar_label: "Advanced: Long-lived Parent"
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-subflows-long-lived.json';
+
 # 高级：长生命周期父 Flow
 
 保持有界的父 Step pool，同时让 Flow 持续接收新请求。
 
-![长生命周期父 Flow](/img/design-patterns/parallel-subflows-long-lived-parent.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **InitStep** 将初始请求发布到 **RequestChannel**，把 **Stopped** 设为 false，并启动 N 个 **HandleRequestStep**。每个 worker 取得一条 FIFO 消息后跳转到 **HandleSubFlowStep**。后者启动并等待 **ExampleSubFlow**；完成后检查 **Stopped**，决定回到 **HandleRequestStep** 还是 graceful complete。
 

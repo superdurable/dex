@@ -2,6 +2,8 @@
 title: Drain Internal Channels
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/drain-internal-channels.json';
+
 # Drain Internal Channels
 
 Finish a producer/consumer Flow after its internally published Channel messages have been processed.
@@ -12,7 +14,7 @@ Use this pattern when one branch of a Flow publishes work for another branch. **
 
 The key is the sentinel published by **Finalize**. After **MainStep** has published every ordinary message, **Finalize** publishes a final command to **SideStepData**. Because a Channel is a FIFO queue, **SideStep** cannot receive that sentinel until it has received every earlier message. It completes only when it receives the sentinel, so the Flow does not finish before every published document is handled. With several producer branches, make **Finalize** wait for all producers before it publishes the sentinel.
 
-![DrainInternalChannelFlow: Init starts MainStep and SideStep. MainStep and Finalize publish to SideStepData; SideStep consumes the FIFO queue and completes after the sentinel.](/img/design-patterns/drain-internal-channel.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Code examples
 

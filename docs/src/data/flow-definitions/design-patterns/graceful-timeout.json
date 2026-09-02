@@ -1,0 +1,139 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py"
+  },
+  "flow": {
+    "name": "FlowGracefulTimeout",
+    "startStepId": "step:LongWaitStep",
+    "span": {
+      "startLine": 45,
+      "startColumn": 1,
+      "endLine": 56,
+      "endColumn": 70
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:step:LongWaitStep:42:16",
+      "kind": "decision",
+      "name": "forceComplete",
+      "parentId": "step:LongWaitStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 42,
+        "startColumn": 16,
+        "endLine": 42,
+        "endColumn": 65
+      },
+      "decision": {
+        "type": "forceComplete"
+      }
+    },
+    {
+      "id": "decision:timeout_handler:FlowGracefulTimeout:56:16",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "timeout_handler:FlowGracefulTimeout",
+      "phase": "execute",
+      "span": {
+        "startLine": 56,
+        "startColumn": 16,
+        "endLine": 56,
+        "endColumn": 70
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "step:LongWaitStep",
+      "kind": "step",
+      "name": "LongWaitStep",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 50,
+        "startColumn": 36,
+        "endLine": 50,
+        "endColumn": 55
+      }
+    },
+    {
+      "id": "timeout_handler:FlowGracefulTimeout",
+      "kind": "timeout_handler",
+      "name": "handleTimeout",
+      "span": {
+        "startLine": 55,
+        "startColumn": 5,
+        "endLine": 56,
+        "endColumn": 70
+      }
+    },
+    {
+      "id": "wait-dispatch:LongWaitStep",
+      "kind": "wait_dispatch",
+      "name": "WaitFor",
+      "parentId": "step:LongWaitStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 36,
+        "startColumn": 5,
+        "endLine": 39,
+        "endColumn": 65
+      }
+    },
+    {
+      "id": "wait:LongWaitStep:38:20:0",
+      "kind": "wait",
+      "name": "skipWaitImmediately",
+      "parentId": "step:LongWaitStep",
+      "condition": "input",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 38,
+        "startColumn": 20,
+        "endLine": 38,
+        "endColumn": 43
+      },
+      "wait": {
+        "type": "skipWaitImmediately",
+        "conditions": []
+      }
+    },
+    {
+      "id": "wait:LongWaitStep:39:16:1",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:LongWaitStep",
+      "condition": "not (input)",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 39,
+        "startColumn": 16,
+        "endLine": 39,
+        "endColumn": 65
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "SLOW_TASK_DURATION timer",
+            "expression": "SLOW_TASK_DURATION",
+            "span": {
+              "startLine": 39,
+              "startColumn": 27,
+              "endLine": 39,
+              "endColumn": 64
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [],
+  "diagnostics": []
+}

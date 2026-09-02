@@ -2,11 +2,13 @@
 title: Wait for Half
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-subflows-wait-for-half.json';
+
 # Wait for Half
 
 Start N SubFlows, wait for half to finish, then stop the unfinished children.
 
-![Wait for half parent Flow](/img/design-patterns/parallel-subflows-wait-for-half.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 Each child runs in its own **SubFlowStep** execution. A completed child publishes one message to **SubFlowCompletedCh**. **WaitSubFlowsStep** waits for half of those messages, then publishes one **AllDoneCh** message for every possible unfinished child.
 

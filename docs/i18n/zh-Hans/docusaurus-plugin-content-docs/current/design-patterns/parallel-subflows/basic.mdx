@@ -2,11 +2,13 @@
 title: 基础父 Flow
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-subflows-basic.json';
+
 # 基础父 Flow
 
 为每个输入启动一个 SubFlow，并等待所有 SubFlow 完成。
 
-![基础父 Flow](/img/design-patterns/parallel-subflows-basic.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **SubFlowsStep.WaitFor** 为每个请求创建一个 SubFlow 条件，并用 **allOf** 组合。只有所有子 Flow 都结束后，父 Flow 才会继续。当不需要部分完成或取消时，这是最简单的父子 fan-out。
 

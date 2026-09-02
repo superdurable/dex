@@ -2,11 +2,13 @@
 title: "Advanced: Short-lived Parent"
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-subflows-short-lived.json';
+
 # Advanced: Short-lived Parent
 
 Drain the current workload, then complete the parent without racing new requests.
 
-![Short-lived parent](/img/design-patterns/parallel-subflows-short-lived-parent.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **InitStep** fills **RequestChannel**, initializes **CurrSubFlowNum**, and starts N workers. **HandleRequestStep.Execute** holds the Attribute lock while incrementing the active SubFlow count. **HandleSubFlowStep.Execute** holds the same lock while decrementing it.
 

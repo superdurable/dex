@@ -2,11 +2,13 @@
 title: "Advanced: Multiple Parents with Partitioning"
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-subflows-submit-request.json';
+
 # Advanced: Multiple Parents with Partitioning
 
 Route requests across several parent Flow IDs so the total number of active SubFlows can grow beyond one parent's concurrency limit.
 
-![Multiple parents with partitioning](/img/design-patterns/parallel-subflows-partitioning.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 Use a stable partition key, such as a request ID hash modulo the number of parents. Every request with the same key reaches the same parent. Each parent independently applies its Channel buffer and SubFlow concurrency limit. Increasing the parent count therefore increases total capacity without making one Flow execution unbounded.
 

@@ -2,11 +2,13 @@
 title: Dynamic Parallel Steps
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-dynamic.json';
+
 # Dynamic Parallel Steps
 
 Start a runtime-sized set of executions of the same Step type.
 
-![DynamicParallelStepsFlow](/img/design-patterns/parallel-dynamic-steps-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **InitStep** builds one **DoWorkStep** movement per input item. Dex schedules those movements concurrently. Each worker sleeps for a random short duration to make the concurrent completion order visible. Use this pattern when the degree of parallelism is known only at runtime.
 

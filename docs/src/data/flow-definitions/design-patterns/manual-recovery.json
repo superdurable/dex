@@ -1,0 +1,250 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py"
+  },
+  "flow": {
+    "name": "ManualRecoveryFlow",
+    "startStepId": "step:DoWorkStep",
+    "span": {
+      "startLine": 76,
+      "startColumn": 1,
+      "endLine": 91,
+      "endColumn": 75
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:ManualStep",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:ManualStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 70,
+        "startColumn": 5,
+        "endLine": 73,
+        "endColumn": 53
+      }
+    },
+    {
+      "id": "decision:step:DoWorkStep:52:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:DoWorkStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 52,
+        "startColumn": 16,
+        "endLine": 52,
+        "endColumn": 51
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:ManualStep:72:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ManualStep",
+      "condition": "self.retry_channel.results(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 72,
+        "startColumn": 20,
+        "endLine": 72,
+        "endColumn": 44
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ManualStep:73:16",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:ManualStep",
+      "condition": "not (self.retry_channel.results(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 73,
+        "startColumn": 16,
+        "endLine": 73,
+        "endColumn": 53
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "resource:channel:ManualRecoveryFlow.retry_channel",
+      "kind": "channel",
+      "name": "manual-recovery-retry",
+      "span": {
+        "startLine": 80,
+        "startColumn": 5,
+        "endLine": 80,
+        "endColumn": 61
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "resource:channel:ManualRecoveryFlow.skip_channel",
+      "kind": "channel",
+      "name": "manual-recovery-skip",
+      "span": {
+        "startLine": 81,
+        "startColumn": 5,
+        "endLine": 81,
+        "endColumn": 59
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "step:DoWorkStep",
+      "kind": "step",
+      "name": "DoWorkStep",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 88,
+        "startColumn": 36,
+        "endLine": 88,
+        "endColumn": 53
+      }
+    },
+    {
+      "id": "step:ManualStep",
+      "kind": "step",
+      "name": "ManualStep",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 88,
+        "startColumn": 67,
+        "endLine": 88,
+        "endColumn": 83
+      }
+    },
+    {
+      "id": "wait:ManualStep:65:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:ManualStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 65,
+        "startColumn": 16,
+        "endLine": 68,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "manual-recovery-retry.for 1",
+            "resourceId": "resource:channel:ManualRecoveryFlow.retry_channel",
+            "span": {
+              "startLine": 66,
+              "startColumn": 13,
+              "endLine": 66,
+              "endColumn": 41
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "manual-recovery-skip.for 1",
+            "resourceId": "resource:channel:ManualRecoveryFlow.skip_channel",
+            "span": {
+              "startLine": 67,
+              "startColumn": 13,
+              "endLine": 67,
+              "endColumn": 40
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:ManualStep:72:20",
+      "to": "step:DoWorkStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 72,
+        "startColumn": 20,
+        "endLine": 72,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "resource_read",
+      "from": "resource:channel:ManualRecoveryFlow.retry_channel",
+      "to": "step:ManualStep",
+      "label": "results",
+      "span": {
+        "startLine": 71,
+        "startColumn": 12,
+        "endLine": 71,
+        "endColumn": 47
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "wait_condition",
+      "from": "resource:channel:ManualRecoveryFlow.retry_channel",
+      "to": "wait:ManualStep:65:16:0",
+      "label": "manual-recovery-retry.for 1",
+      "span": {
+        "startLine": 66,
+        "startColumn": 13,
+        "endLine": 66,
+        "endColumn": 41
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "wait_condition",
+      "from": "resource:channel:ManualRecoveryFlow.skip_channel",
+      "to": "wait:ManualStep:65:16:0",
+      "label": "manual-recovery-skip.for 1",
+      "span": {
+        "startLine": 67,
+        "startColumn": 13,
+        "endLine": 67,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "failure_transition",
+      "from": "step:DoWorkStep",
+      "to": "step:ManualStep",
+      "label": "Execute failure",
+      "span": {
+        "startLine": 40,
+        "startColumn": 16,
+        "endLine": 47,
+        "endColumn": 52
+      },
+      "metadata": {
+        "skipWaitFor": false
+      }
+    }
+  ],
+  "diagnostics": []
+}

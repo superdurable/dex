@@ -31,9 +31,9 @@ Runnable application samples live under [`examples/`](../examples/); see
 [`examples/README.md`](../examples/README.md) and the playground
 ([`examples/playground/`](../examples/playground/)).
 
-Product Flow design sections render checked-in JSON with the shared
+Flow diagrams render checked-in JSON with the shared
 [`flow-definition-renderer`](../packages/flow-definition-renderer). Regenerate
-the JSON after changing a Python product Flow:
+the JSON after changing a referenced Python Flow:
 
 ```bash
 cd docs

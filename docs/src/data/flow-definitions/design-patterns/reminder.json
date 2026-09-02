@@ -1,0 +1,163 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/reminders/reminder_flow.py"
+  },
+  "flow": {
+    "name": "ReminderFlow",
+    "startStepId": "step:ReminderStep",
+    "span": {
+      "startLine": 60,
+      "startColumn": 1,
+      "endLine": 72,
+      "endColumn": 50
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:ReminderStep",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:ReminderStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 53,
+        "startColumn": 5,
+        "endLine": 57,
+        "endColumn": 41
+      }
+    },
+    {
+      "id": "decision:step:ReminderStep:55:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:ReminderStep",
+      "condition": "not context.has_timer_fired()",
+      "phase": "execute",
+      "span": {
+        "startLine": 55,
+        "startColumn": 20,
+        "endLine": 55,
+        "endColumn": 39
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:ReminderStep:57:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ReminderStep",
+      "condition": "not (not context.has_timer_fired())",
+      "phase": "execute",
+      "span": {
+        "startLine": 57,
+        "startColumn": 16,
+        "endLine": 57,
+        "endColumn": 41
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:channel:ReminderFlow.opt_out",
+      "kind": "channel",
+      "name": "OptOut",
+      "span": {
+        "startLine": 63,
+        "startColumn": 5,
+        "endLine": 63,
+        "endColumn": 51
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "step:ReminderStep",
+      "kind": "step",
+      "name": "ReminderStep",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 69,
+        "startColumn": 36,
+        "endLine": 69,
+        "endColumn": 54
+      }
+    },
+    {
+      "id": "wait:ReminderStep:48:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:ReminderStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 48,
+        "startColumn": 16,
+        "endLine": 51,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "REMINDER_INTERVAL timer",
+            "expression": "REMINDER_INTERVAL",
+            "span": {
+              "startLine": 49,
+              "startColumn": 13,
+              "endLine": 49,
+              "endColumn": 49
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "OptOut.for 1",
+            "resourceId": "resource:channel:ReminderFlow.opt_out",
+            "span": {
+              "startLine": 50,
+              "startColumn": 13,
+              "endLine": 50,
+              "endColumn": 35
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:ReminderStep:57:16",
+      "to": "step:ReminderStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 57,
+        "startColumn": 16,
+        "endLine": 57,
+        "endColumn": 41
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "wait_condition",
+      "from": "resource:channel:ReminderFlow.opt_out",
+      "to": "wait:ReminderStep:48:16:0",
+      "label": "OptOut.for 1",
+      "span": {
+        "startLine": 50,
+        "startColumn": 13,
+        "endLine": 50,
+        "endColumn": 35
+      }
+    }
+  ],
+  "diagnostics": []
+}

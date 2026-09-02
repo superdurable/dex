@@ -1,0 +1,521 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/parallel-subflows/advanced_short_live_parent_flow.py"
+  },
+  "flow": {
+    "name": "AdvancedShortLiveParentFlow",
+    "startStepId": "step:ShortLiveInitStep",
+    "span": {
+      "startLine": 121,
+      "startColumn": 1,
+      "endLine": 147,
+      "endColumn": 31
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:rpc:send_request",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:send_request",
+      "phase": "rpc",
+      "span": {
+        "startLine": 143,
+        "startColumn": 5,
+        "endLine": 147,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "decision-dispatch:step:ShortLiveHandleSubFlowStep",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:ShortLiveHandleSubFlowStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 109,
+        "startColumn": 5,
+        "endLine": 118,
+        "endColumn": 55
+      }
+    },
+    {
+      "id": "decision:rpc:send_request:145:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:send_request",
+      "condition": "self.request_channel.size(context) \u003e= MAX_BUFFERED_REQUESTS",
+      "phase": "rpc",
+      "span": {
+        "startLine": 145,
+        "startColumn": 20,
+        "endLine": 145,
+        "endColumn": 36
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:send_request:147:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:send_request",
+      "condition": "not (self.request_channel.size(context) \u003e= MAX_BUFFERED_REQUESTS)",
+      "phase": "rpc",
+      "span": {
+        "startLine": 147,
+        "startColumn": 16,
+        "endLine": 147,
+        "endColumn": 31
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:ShortLiveHandleRequestStep:86:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ShortLiveHandleRequestStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 86,
+        "startColumn": 16,
+        "endLine": 86,
+        "endColumn": 58
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ShortLiveHandleSubFlowStep:113:20",
+      "kind": "decision",
+      "name": "forceCompleteIfChannelsEmpty",
+      "parentId": "step:ShortLiveHandleSubFlowStep",
+      "condition": "current == 0",
+      "phase": "execute",
+      "span": {
+        "startLine": 113,
+        "startColumn": 20,
+        "endLine": 117,
+        "endColumn": 14
+      },
+      "decision": {
+        "type": "forceCompleteIfChannelsEmpty",
+        "checkedChannels": [
+          "resource:channel:AdvancedShortLiveParentFlow.request_channel"
+        ]
+      }
+    },
+    {
+      "id": "decision:step:ShortLiveHandleSubFlowStep:118:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ShortLiveHandleSubFlowStep",
+      "condition": "not (current == 0)",
+      "phase": "execute",
+      "span": {
+        "startLine": 118,
+        "startColumn": 16,
+        "endLine": 118,
+        "endColumn": 55
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ShortLiveInitStep:60:16",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:ShortLiveInitStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 60,
+        "startColumn": 16,
+        "endLine": 62,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
+      "kind": "attribute",
+      "name": "CurrSubFlowNum",
+      "span": {
+        "startLine": 123,
+        "startColumn": 5,
+        "endLine": 123,
+        "endColumn": 56
+      },
+      "resource": {
+        "valueType": "int"
+      }
+    },
+    {
+      "id": "resource:channel:AdvancedShortLiveParentFlow.request_channel",
+      "kind": "channel",
+      "name": "RequestChannel",
+      "span": {
+        "startLine": 122,
+        "startColumn": 5,
+        "endLine": 122,
+        "endColumn": 53
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "rpc:send_request",
+      "kind": "rpc",
+      "name": "send_request",
+      "span": {
+        "startLine": 143,
+        "startColumn": 5,
+        "endLine": 147,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "step:ShortLiveHandleRequestStep",
+      "kind": "step",
+      "name": "HandleRequestStep",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 136,
+        "startColumn": 13,
+        "endLine": 136,
+        "endColumn": 32
+      }
+    },
+    {
+      "id": "step:ShortLiveHandleSubFlowStep",
+      "kind": "step",
+      "name": "HandleSubFlowStep",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 136,
+        "startColumn": 34,
+        "endLine": 136,
+        "endColumn": 53
+      }
+    },
+    {
+      "id": "step:ShortLiveInitStep",
+      "kind": "step",
+      "name": "InitStep",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 135,
+        "startColumn": 36,
+        "endLine": 135,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "subflow:self.example_subflow:107",
+      "kind": "subflow",
+      "name": "self.example_subflow",
+      "external": true,
+      "span": {
+        "startLine": 107,
+        "startColumn": 27,
+        "endLine": 107,
+        "endColumn": 69
+      }
+    },
+    {
+      "id": "wait:ShortLiveHandleRequestStep:81:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:ShortLiveHandleRequestStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 81,
+        "startColumn": 16,
+        "endLine": 81,
+        "endColumn": 58
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "RequestChannel.for 1",
+            "resourceId": "resource:channel:AdvancedShortLiveParentFlow.request_channel",
+            "span": {
+              "startLine": 81,
+              "startColumn": 27,
+              "endLine": 81,
+              "endColumn": 57
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:ShortLiveHandleSubFlowStep:107:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:ShortLiveHandleSubFlowStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 107,
+        "startColumn": 16,
+        "endLine": 107,
+        "endColumn": 70
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "subflow",
+            "label": "self.example_subflow",
+            "subFlowId": "subflow:self.example_subflow:107",
+            "span": {
+              "startLine": 107,
+              "startColumn": 27,
+              "endLine": 107,
+              "endColumn": 69
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:ShortLiveHandleRequestStep:86:16",
+      "to": "step:ShortLiveHandleSubFlowStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 86,
+        "startColumn": 16,
+        "endLine": 86,
+        "endColumn": 58
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:ShortLiveHandleSubFlowStep:113:20",
+      "to": "step:ShortLiveHandleRequestStep",
+      "label": "fan-out",
+      "span": {
+        "startLine": 115,
+        "startColumn": 17,
+        "endLine": 115,
+        "endColumn": 66
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:ShortLiveHandleSubFlowStep:118:16",
+      "to": "step:ShortLiveHandleRequestStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 118,
+        "startColumn": 16,
+        "endLine": 118,
+        "endColumn": 55
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:ShortLiveInitStep:60:16",
+      "to": "step:ShortLiveHandleRequestStep",
+      "label": "fan-out",
+      "multiplicity": "×N",
+      "span": {
+        "startLine": 61,
+        "startColumn": 15,
+        "endLine": 61,
+        "endColumn": 64
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "resource_read",
+      "from": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
+      "to": "step:ShortLiveHandleRequestStep",
+      "label": "get",
+      "span": {
+        "startLine": 85,
+        "startColumn": 45,
+        "endLine": 85,
+        "endColumn": 79
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "resource_read",
+      "from": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
+      "to": "step:ShortLiveHandleSubFlowStep",
+      "label": "get",
+      "span": {
+        "startLine": 110,
+        "startColumn": 20,
+        "endLine": 110,
+        "endColumn": 54
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_read",
+      "from": "resource:channel:AdvancedShortLiveParentFlow.request_channel",
+      "to": "rpc:send_request",
+      "label": "size",
+      "span": {
+        "startLine": 144,
+        "startColumn": 12,
+        "endLine": 144,
+        "endColumn": 46
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "resource_read",
+      "from": "resource:channel:AdvancedShortLiveParentFlow.request_channel",
+      "to": "step:ShortLiveHandleRequestStep",
+      "label": "results",
+      "span": {
+        "startLine": 84,
+        "startColumn": 19,
+        "endLine": 84,
+        "endColumn": 56
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "wait_condition",
+      "from": "resource:channel:AdvancedShortLiveParentFlow.request_channel",
+      "to": "wait:ShortLiveHandleRequestStep:81:16:0",
+      "label": "RequestChannel.for 1",
+      "span": {
+        "startLine": 81,
+        "startColumn": 27,
+        "endLine": 81,
+        "endColumn": 57
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_publish",
+      "from": "rpc:send_request",
+      "to": "resource:channel:AdvancedShortLiveParentFlow.request_channel",
+      "label": "publish",
+      "span": {
+        "startLine": 146,
+        "startColumn": 9,
+        "endLine": 146,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "resource_write",
+      "from": "step:ShortLiveHandleRequestStep",
+      "to": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
+      "label": "set",
+      "span": {
+        "startLine": 85,
+        "startColumn": 9,
+        "endLine": 85,
+        "endColumn": 90
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "resource_write",
+      "from": "step:ShortLiveHandleSubFlowStep",
+      "to": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
+      "label": "set",
+      "span": {
+        "startLine": 111,
+        "startColumn": 9,
+        "endLine": 111,
+        "endColumn": 52
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "resource_write",
+      "from": "step:ShortLiveInitStep",
+      "to": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
+      "label": "set",
+      "span": {
+        "startLine": 58,
+        "startColumn": 9,
+        "endLine": 58,
+        "endColumn": 46
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "resource_publish",
+      "from": "step:ShortLiveInitStep",
+      "to": "resource:channel:AdvancedShortLiveParentFlow.request_channel",
+      "label": "publish",
+      "span": {
+        "startLine": 57,
+        "startColumn": 13,
+        "endLine": 57,
+        "endColumn": 59
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "subflow",
+      "from": "wait:ShortLiveHandleSubFlowStep:107:16:0",
+      "to": "subflow:self.example_subflow:107",
+      "label": "start",
+      "span": {
+        "startLine": 107,
+        "startColumn": 27,
+        "endLine": 107,
+        "endColumn": 69
+      }
+    }
+  ],
+  "diagnostics": []
+}

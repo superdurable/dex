@@ -1,0 +1,231 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py"
+  },
+  "flow": {
+    "name": "InactivenessTrackerFlow",
+    "startStepId": "step:TrackerStep",
+    "span": {
+      "startLine": 66,
+      "startColumn": 1,
+      "endLine": 88,
+      "endColumn": 51
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:TrackerStep",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:TrackerStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 60,
+        "startColumn": 5,
+        "endLine": 63,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "decision:step:ProcessInactivenessStep:42:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:ProcessInactivenessStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 42,
+        "startColumn": 16,
+        "endLine": 42,
+        "endColumn": 35
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:TrackerStep:62:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:TrackerStep",
+      "condition": "context.has_timer_fired()",
+      "phase": "execute",
+      "span": {
+        "startLine": 62,
+        "startColumn": 20,
+        "endLine": 62,
+        "endColumn": 56
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:TrackerStep:63:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:TrackerStep",
+      "condition": "not (context.has_timer_fired())",
+      "phase": "execute",
+      "span": {
+        "startLine": 63,
+        "startColumn": 16,
+        "endLine": 63,
+        "endColumn": 40
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:channel:InactivenessTrackerFlow.active_channel",
+      "kind": "channel",
+      "name": "Active",
+      "span": {
+        "startLine": 69,
+        "startColumn": 5,
+        "endLine": 69,
+        "endColumn": 57
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "rpc:record_activity",
+      "kind": "rpc",
+      "name": "record_activity",
+      "span": {
+        "startLine": 87,
+        "startColumn": 5,
+        "endLine": 88,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "step:ProcessInactivenessStep",
+      "kind": "step",
+      "name": "ProcessInactivenessStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 80,
+        "startColumn": 13,
+        "endLine": 80,
+        "endColumn": 38
+      }
+    },
+    {
+      "id": "step:TrackerStep",
+      "kind": "step",
+      "name": "TrackerStep",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 79,
+        "startColumn": 36,
+        "endLine": 79,
+        "endColumn": 53
+      }
+    },
+    {
+      "id": "wait:TrackerStep:55:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:TrackerStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 55,
+        "startColumn": 16,
+        "endLine": 58,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "TRACKER_DURATION timer",
+            "expression": "TRACKER_DURATION",
+            "span": {
+              "startLine": 56,
+              "startColumn": 13,
+              "endLine": 56,
+              "endColumn": 48
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "Active.for 1",
+            "resourceId": "resource:channel:InactivenessTrackerFlow.active_channel",
+            "span": {
+              "startLine": 57,
+              "startColumn": 13,
+              "endLine": 57,
+              "endColumn": 42
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:TrackerStep:62:20",
+      "to": "step:ProcessInactivenessStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 62,
+        "startColumn": 20,
+        "endLine": 62,
+        "endColumn": 56
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:TrackerStep:63:16",
+      "to": "step:TrackerStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 63,
+        "startColumn": 16,
+        "endLine": 63,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "wait_condition",
+      "from": "resource:channel:InactivenessTrackerFlow.active_channel",
+      "to": "wait:TrackerStep:55:16:0",
+      "label": "Active.for 1",
+      "span": {
+        "startLine": 57,
+        "startColumn": 13,
+        "endLine": 57,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "resource_publish",
+      "from": "rpc:record_activity",
+      "to": "resource:channel:InactivenessTrackerFlow.active_channel",
+      "label": "publish",
+      "span": {
+        "startLine": 88,
+        "startColumn": 9,
+        "endLine": 88,
+        "endColumn": 51
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    }
+  ],
+  "diagnostics": []
+}

@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/parallel-subflows/basic_parent_flow.py"
+  },
+  "flow": {
+    "name": "BasicParentFlow",
+    "startStepId": "step:SubFlowsStep",
+    "span": {
+      "startLine": 33,
+      "startColumn": 1,
+      "endLine": 38,
+      "endColumn": 50
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:step:SubFlowsStep:30:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:SubFlowsStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 30,
+        "startColumn": 16,
+        "endLine": 30,
+        "endColumn": 35
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "step:SubFlowsStep",
+      "kind": "step",
+      "name": "SubFlowsStep",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 38,
+        "startColumn": 36,
+        "endLine": 38,
+        "endColumn": 49
+      }
+    },
+    {
+      "id": "subflow:self.example_subflow:26",
+      "kind": "subflow",
+      "name": "self.example_subflow",
+      "external": true,
+      "span": {
+        "startLine": 26,
+        "startColumn": 15,
+        "endLine": 26,
+        "endColumn": 57
+      }
+    },
+    {
+      "id": "wait:SubFlowsStep:25:16:0",
+      "kind": "wait",
+      "name": "allOf",
+      "parentId": "step:SubFlowsStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 25,
+        "startColumn": 16,
+        "endLine": 27,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "allOf",
+        "conditions": [
+          {
+            "kind": "subflow",
+            "label": "self.example_subflow",
+            "subFlowId": "subflow:self.example_subflow:26",
+            "span": {
+              "startLine": 26,
+              "startColumn": 15,
+              "endLine": 26,
+              "endColumn": 57
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "subflow",
+      "from": "wait:SubFlowsStep:25:16:0",
+      "to": "subflow:self.example_subflow:26",
+      "label": "start",
+      "span": {
+        "startLine": 26,
+        "startColumn": 15,
+        "endLine": 26,
+        "endColumn": 57
+      }
+    }
+  ],
+  "diagnostics": []
+}

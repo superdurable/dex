@@ -2,11 +2,15 @@
 title: Graceful Timeout
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/graceful-timeout.json';
+
 # Graceful Timeout
 
 Use Dex's built-in graceful timeout when an overall Flow deadline needs application-defined handling. The timeout belongs to the Flow execution, not to a competing Step.
 
 **FlowGracefulTimeout** starts **LongWaitStep**. A positive timeout in **StartFlowOptions** uses the Flow's timeout handler. When the durable deadline expires, Dex invokes **handleTimeout** once and applies its decision with normal Execute semantics.
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Core implementation
 

@@ -3,9 +3,11 @@ title: 动态并行 Step
 sidebar_label: Dynamic Parallel Steps
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-dynamic.json';
+
 # 动态并行 Step
 
-![DynamicParallelStepsFlow](/img/design-patterns/parallel-dynamic-steps-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **InitStep** 为每个输入项创建一个 **DoWorkStep** movement。Dex 并发调度这些 execution。每个 worker 会随机等待一小段时间，让并发完成顺序更直观。这个模式适用于并行度只能在运行时确定的场景。
 

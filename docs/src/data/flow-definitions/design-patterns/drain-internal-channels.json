@@ -1,0 +1,429 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/drain-channels/internal/drain_internal_channels_flow.py"
+  },
+  "flow": {
+    "name": "DrainInternalChannelFlow",
+    "startStepId": "step:Init",
+    "span": {
+      "startLine": 133,
+      "startColumn": 1,
+      "endLine": 169,
+      "endColumn": 10
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:MainStep",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:MainStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 64,
+        "startColumn": 5,
+        "endLine": 83,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "decision-dispatch:step:SideStep",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:SideStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 98,
+        "startColumn": 5,
+        "endLine": 111,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "decision:step:Finalize:48:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:Finalize",
+      "phase": "execute",
+      "span": {
+        "startLine": 48,
+        "startColumn": 16,
+        "endLine": 48,
+        "endColumn": 35
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:Init:127:16",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:Init",
+      "phase": "execute",
+      "span": {
+        "startLine": 127,
+        "startColumn": 16,
+        "endLine": 130,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:MainStep:82:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:MainStep",
+      "condition": "execution_count \u003c= 3",
+      "phase": "execute",
+      "span": {
+        "startLine": 82,
+        "startColumn": 20,
+        "endLine": 82,
+        "endColumn": 42
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:MainStep:83:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:MainStep",
+      "condition": "not (execution_count \u003c= 3)",
+      "phase": "execute",
+      "span": {
+        "startLine": 83,
+        "startColumn": 16,
+        "endLine": 83,
+        "endColumn": 37
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:SideStep:110:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:SideStep",
+      "condition": "document.final_command",
+      "phase": "execute",
+      "span": {
+        "startLine": 110,
+        "startColumn": 20,
+        "endLine": 110,
+        "endColumn": 39
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:SideStep:111:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:SideStep",
+      "condition": "not (document.final_command)",
+      "phase": "execute",
+      "span": {
+        "startLine": 111,
+        "startColumn": 16,
+        "endLine": 111,
+        "endColumn": 37
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:attribute:DrainInternalChannelFlow.main_step_execution_counter",
+      "kind": "attribute",
+      "name": "main_step_execution_counter",
+      "span": {
+        "startLine": 137,
+        "startColumn": 5,
+        "endLine": 140,
+        "endColumn": 6
+      },
+      "resource": {
+        "valueType": "int"
+      }
+    },
+    {
+      "id": "resource:channel:DrainInternalChannelFlow.side_step_data",
+      "kind": "channel",
+      "name": "SideStepData",
+      "span": {
+        "startLine": 141,
+        "startColumn": 5,
+        "endLine": 141,
+        "endColumn": 68
+      },
+      "resource": {
+        "valueType": "MongoDocument"
+      }
+    },
+    {
+      "id": "step:Finalize",
+      "kind": "step",
+      "name": "Finalize",
+      "phase": "execute",
+      "span": {
+        "startLine": 162,
+        "startColumn": 13,
+        "endLine": 162,
+        "endColumn": 26
+      }
+    },
+    {
+      "id": "step:Init",
+      "kind": "step",
+      "name": "Init",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 159,
+        "startColumn": 36,
+        "endLine": 159,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "step:MainStep",
+      "kind": "step",
+      "name": "MainStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 161,
+        "startColumn": 13,
+        "endLine": 161,
+        "endColumn": 27
+      }
+    },
+    {
+      "id": "step:SideStep",
+      "kind": "step",
+      "name": "SideStep",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 160,
+        "startColumn": 13,
+        "endLine": 160,
+        "endColumn": 27
+      }
+    },
+    {
+      "id": "wait:SideStep:96:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:SideStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 96,
+        "startColumn": 16,
+        "endLine": 96,
+        "endColumn": 57
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "SideStepData.for 1",
+            "resourceId": "resource:channel:DrainInternalChannelFlow.side_step_data",
+            "span": {
+              "startLine": 96,
+              "startColumn": 27,
+              "endLine": 96,
+              "endColumn": 56
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:Init:127:16",
+      "to": "step:MainStep",
+      "label": "fan-out",
+      "span": {
+        "startLine": 129,
+        "startColumn": 13,
+        "endLine": 129,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:Init:127:16",
+      "to": "step:SideStep",
+      "label": "fan-out",
+      "span": {
+        "startLine": 128,
+        "startColumn": 13,
+        "endLine": 128,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:MainStep:82:20",
+      "to": "step:MainStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 82,
+        "startColumn": 20,
+        "endLine": 82,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:MainStep:83:16",
+      "to": "step:Finalize",
+      "label": "go_to",
+      "span": {
+        "startLine": 83,
+        "startColumn": 16,
+        "endLine": 83,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:SideStep:111:16",
+      "to": "step:SideStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 111,
+        "startColumn": 16,
+        "endLine": 111,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "resource_read",
+      "from": "resource:attribute:DrainInternalChannelFlow.main_step_execution_counter",
+      "to": "step:MainStep",
+      "label": "get",
+      "span": {
+        "startLine": 65,
+        "startColumn": 27,
+        "endLine": 65,
+        "endColumn": 62
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_read",
+      "from": "resource:channel:DrainInternalChannelFlow.side_step_data",
+      "to": "step:SideStep",
+      "label": "results",
+      "span": {
+        "startLine": 99,
+        "startColumn": 21,
+        "endLine": 99,
+        "endColumn": 57
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "wait_condition",
+      "from": "resource:channel:DrainInternalChannelFlow.side_step_data",
+      "to": "wait:SideStep:96:16:0",
+      "label": "SideStepData.for 1",
+      "span": {
+        "startLine": 96,
+        "startColumn": 27,
+        "endLine": 96,
+        "endColumn": 56
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_publish",
+      "from": "step:Finalize",
+      "to": "resource:channel:DrainInternalChannelFlow.side_step_data",
+      "label": "publish",
+      "span": {
+        "startLine": 44,
+        "startColumn": 9,
+        "endLine": 47,
+        "endColumn": 10
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_write",
+      "from": "step:Init",
+      "to": "resource:attribute:DrainInternalChannelFlow.main_step_execution_counter",
+      "label": "set",
+      "span": {
+        "startLine": 126,
+        "startColumn": 9,
+        "endLine": 126,
+        "endColumn": 47
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "resource_write",
+      "from": "step:MainStep",
+      "to": "resource:attribute:DrainInternalChannelFlow.main_step_execution_counter",
+      "label": "set",
+      "span": {
+        "startLine": 66,
+        "startColumn": 9,
+        "endLine": 66,
+        "endColumn": 61
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "resource_publish",
+      "from": "step:MainStep",
+      "to": "resource:channel:DrainInternalChannelFlow.side_step_data",
+      "label": "publish",
+      "span": {
+        "startLine": 69,
+        "startColumn": 9,
+        "endLine": 72,
+        "endColumn": 10
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    }
+  ],
+  "diagnostics": []
+}

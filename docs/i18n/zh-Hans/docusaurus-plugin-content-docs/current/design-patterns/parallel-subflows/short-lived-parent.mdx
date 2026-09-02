@@ -3,11 +3,13 @@ title: 高级：短生命周期父 Flow
 sidebar_label: "Advanced: Short-lived Parent"
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-subflows-short-lived.json';
+
 # 高级：短生命周期父 Flow
 
 排空当前工作后完成父 Flow，同时避免与新请求产生竞态。
 
-![短生命周期父 Flow](/img/design-patterns/parallel-subflows-short-lived-parent.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **HandleRequestStep.Execute** 持有 **CurrSubFlowNum** 的 Attribute lock 并加一；**HandleSubFlowStep.Execute** 持有同一把 lock 并减一。
 

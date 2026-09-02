@@ -2,6 +2,8 @@
 title: Interruptible execution
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/interruptible.json';
+
 # Interruptible execution
 
 Stop long-running work safely when a durable interrupt arrives.
@@ -10,7 +12,7 @@ Use this pattern for work that repeats for a long time, such as polling or batch
 
 **InterruptibleFlow** starts **WorkAStep** and **WorkBStep** in parallel. Each Step checks the durable **interruptSignal** before scheduling its next unit of work. The **interrupt** RPC sets that signal, letting either branch finish the Flow gracefully.
 
-![InterruptibleFlow diagram](/img/design-patterns/interruptible-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Core implementation
 
