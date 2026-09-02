@@ -31,7 +31,7 @@ dexcli visualize ./order_flow.py --out -
 dexcli dev --flow-rendering-dir ./build
 ```
 
-在 Dex Web 中打开 **Flow Rendering**。该页面独立于 Flow 搜索页和运行详情页，用于交互式渲染所选定义图。通过图例可以显示或隐藏控制流、WaitFor、RPC 和 timeout handler、Attribute、Channel、Stream、SubFlow 及诊断。Stream 默认隐藏，其他图层默认显示。
+在 Dex Web 中打开 **Flow Rendering**。该页面独立于 Flow 搜索页和运行详情页，用于交互式渲染所选定义图。通过图例可以显示或隐藏控制流、WaitFor、RPC、Attribute、Channel、Stream、SubFlow 及诊断。Flow timeout handler 始终作为 Flow 的一部分显示。Stream 默认隐藏，其他图层默认显示。
 
 Dex 会递归扫描 JSON 文件，并在启动时创建一次快照。文件改变后需要重启 Dex。无效 JSON、不支持的 schema 版本或非目录路径都会使启动失败并返回错误。
 

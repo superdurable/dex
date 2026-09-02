@@ -31,7 +31,7 @@ Start Dex with a directory containing generated JSON files:
 dexcli dev --flow-rendering-dir ./build
 ```
 
-Open **Flow Rendering** in Dex Web. This page is independent from Flow search and run details. It renders the selected definition interactively. Its legend can show or hide control flow, WaitFor, RPC and timeout handlers, Attributes, Channels, Streams, SubFlows, and diagnostics. Streams are hidden by default. The other layers start visible.
+Open **Flow Rendering** in Dex Web. This page is independent from Flow search and run details. It renders the selected definition interactively. Its legend can show or hide control flow, WaitFor, RPCs, Attributes, Channels, Streams, SubFlows, and diagnostics. Flow timeout handlers are always shown as part of the Flow. Streams are hidden by default. The other layers start visible.
 
 Dex scans JSON files recursively and takes a snapshot when it starts. Restart Dex after changing the files. Invalid JSON, an unsupported schema version, or a path that is not a directory stops startup with an error.
 
