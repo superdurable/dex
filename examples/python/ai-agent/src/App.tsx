@@ -630,10 +630,17 @@ const App: React.FC = () => {
                 Connect a model, choose trusted capabilities, then start a durable conversation.
               </p>
             </div>
-            <div style={styles.portalSteps}>
-              <span style={styles.activeStep}>1 · Configure</span>
-              <span>2 · Chat</span>
-            </div>
+            <nav style={styles.portalSteps} aria-label="AI Agent setup progress">
+              <span style={{ ...styles.portalStep, ...styles.activeStep }} aria-current="step">
+                <span style={{ ...styles.portalStepNumber, ...styles.activeStepNumber }}>1</span>
+                Configure
+              </span>
+              <span style={styles.portalStepDivider} aria-hidden="true" />
+              <span style={styles.portalStep}>
+                <span style={styles.portalStepNumber}>2</span>
+                Chat
+              </span>
+            </nav>
           </header>
 
           <div style={styles.portalGrid}>
@@ -795,7 +802,7 @@ const App: React.FC = () => {
           </section>
 
           <div style={styles.portalFooter}>
-            <div>
+            <div style={styles.portalFooterCopy}>
               <strong>Ready to start</strong>
               <p style={styles.sectionCopy}>You can create plans and approve write tools from the Agent page.</p>
             </div>
@@ -804,7 +811,7 @@ const App: React.FC = () => {
               disabled={isBusy || !portalConfig || !model.trim() || !systemPrompt.trim() || !hasValidToolSelection || !hasValidMcpSelection}
               onClick={startAgent}
             >
-              {isBusy ? 'Starting Agent…' : 'Enter AI Agent →'}
+              {isBusy ? 'Starting Agent…' : 'Start AI Agent →'}
             </button>
           </div>
           {!hasValidToolSelection && <p style={styles.error}>Select at least one available MCP tool, or disable MCP.</p>}
@@ -1201,9 +1208,13 @@ const planTaskIcon = (status: PlanTask['status']): string => {
 const styles: Record<string, React.CSSProperties> = {
   page: { minHeight: '100vh', background: 'linear-gradient(145deg, #f7f8fc 0%, #eef1fb 100%)', color: '#172033', padding: '32px 18px', fontFamily: 'Inter, system-ui, sans-serif' },
   portalShell: { maxWidth: 1120, margin: '0 auto', paddingBottom: 40 },
-  portalHero: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 24, padding: '22px 4px 30px' },
-  portalSteps: { display: 'flex', gap: 8, padding: 6, borderRadius: 999, background: '#e6e9f3', color: '#6b7280', fontSize: 13, fontWeight: 700 },
-  activeStep: { padding: '8px 13px', borderRadius: 999, background: '#fff', color: '#3730a3', boxShadow: '0 2px 8px rgba(25, 33, 61, .08)' },
+  portalHero: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24, padding: '22px 4px 30px' },
+  portalSteps: { display: 'flex', alignItems: 'center', gap: 9, flex: '0 0 auto', padding: '7px 9px', border: '1px solid #dce1eb', borderRadius: 14, background: 'rgba(255,255,255,.8)', color: '#7b8495', boxShadow: '0 6px 18px rgba(24,39,75,.06)', fontSize: 13, fontWeight: 750 },
+  portalStep: { display: 'flex', alignItems: 'center', gap: 7, minHeight: 34, padding: '0 8px', borderRadius: 9 },
+  activeStep: { background: '#eef0ff', color: '#3730a3' },
+  portalStepNumber: { display: 'grid', placeItems: 'center', width: 21, height: 21, borderRadius: 999, background: '#e1e5ee', color: '#667085', fontSize: 11, fontWeight: 850 },
+  activeStepNumber: { background: '#4f46e5', color: '#fff' },
+  portalStepDivider: { width: 20, height: 1, background: '#cfd6e4' },
   portalGrid: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 18 },
   portalCard: { padding: 26, borderRadius: 20, background: 'rgba(255,255,255,.94)', border: '1px solid rgba(207,214,228,.8)', boxShadow: '0 16px 48px rgba(24, 39, 75, 0.08)' },
   sectionHeading: { display: 'flex', alignItems: 'center', gap: 12 },
@@ -1227,8 +1238,9 @@ const styles: Record<string, React.CSSProperties> = {
   emptyCapability: { margin: 0, padding: 14, borderRadius: 11, background: '#f7f8fb', color: '#667085' },
   builtIns: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 22, paddingTop: 18, borderTop: '1px solid #e6e9ef' },
   toolPill: { padding: '5px 9px', borderRadius: 999, background: '#e9ecff', color: '#3730a3', fontSize: 12, fontWeight: 700 },
-  portalFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 20, marginTop: 18, padding: '20px 24px', borderRadius: 18, background: '#172033', color: '#fff' },
-  launchButton: { border: 0, borderRadius: 11, padding: '13px 20px', background: '#7c72ff', color: '#fff', fontWeight: 800, cursor: 'pointer', fontSize: 15 },
+  portalFooter: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 18, marginTop: 18, padding: 24, borderRadius: 18, background: '#172033', color: '#fff' },
+  portalFooterCopy: { maxWidth: 620 },
+  launchButton: { width: '100%', minHeight: 54, border: '1px solid rgba(255,255,255,.16)', borderRadius: 12, padding: '15px 24px', background: '#7668ff', color: '#fff', boxShadow: '0 10px 24px rgba(80,70,229,.35)', fontWeight: 850, cursor: 'pointer', fontSize: 16, letterSpacing: '.01em' },
   header: { maxWidth: 960, margin: '0 auto 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   headerButton: { border: '1px solid #cfd6e4', borderRadius: 10, padding: '9px 13px', background: '#fff', color: '#27334a', fontWeight: 700, cursor: 'pointer' },
   title: { margin: '4px 0 10px', fontSize: 44 },
