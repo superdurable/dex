@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import asdict
 from datetime import timedelta
 from pathlib import Path
@@ -82,7 +83,7 @@ PROVIDERS: dict[str, ProviderConfig] = {
         "label": "Other LiteLLM provider",
         "prefix": "",
         "defaultModel": "",
-        "environmentVariable": None,
+        "environmentVariable": "LITELLM_API_KEY",
     },
 }
 
@@ -113,7 +114,12 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
             )
         return jsonify(
             providers=[
-                {"id": provider_id, **provider}
+                {
+                    "id": provider_id,
+                    **provider,
+                    "isConfigured": _provider_api_key(provider) is not None
+                    or provider_id == "mock",
+                }
                 for provider_id, provider in PROVIDERS.items()
             ],
             mcpServers=app_state.mcp_registry.server_names,
@@ -125,7 +131,19 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
     async def start() -> Response:
         payload = await _json_object()
         flow_id = _required_string(payload, "workflowId")
-        provider = _optional_string(payload, "provider", "mock")
+        provider = _optional_string(payload, "provider", "mock").strip().lower()
+        provider_config = PROVIDERS.get(provider)
+        if provider_config is None:
+            raise BadRequest(f"unknown provider {provider!r}")
+        api_key = _provider_api_key(provider_config)
+        if provider != "mock" and api_key is None:
+            environment_variable = provider_config["environmentVariable"]
+            if environment_variable is None:
+                raise RuntimeError(f"provider {provider!r} has no credential variable")
+            raise BadRequest(
+                f"{provider} is not configured; set {environment_variable} "
+                "in examples/.env and restart the Python examples"
+            )
         config = AgentConfig(
             model=_provider_model(
                 provider,
@@ -162,7 +180,6 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
             enabled_tools=_string_list(payload, "enabledTools"),
         )
         config.validate()
-        api_key = _optional_nullable_string(payload, "apiKey")
         try:
             app_state.ai_agent_credentials.set_api_key(flow_id, api_key)
         except ValueError as error:
@@ -376,6 +393,13 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         )
 
     return blueprint
+
+
+def _provider_api_key(provider: ProviderConfig) -> str | None:
+    environment_variable = provider["environmentVariable"]
+    if environment_variable is None:
+        return None
+    return os.environ.get(environment_variable) or None
 
 
 async def _json_object() -> dict[str, Any]:

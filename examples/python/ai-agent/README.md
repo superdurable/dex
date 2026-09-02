@@ -85,9 +85,10 @@ uv run --frozen python main.py
 ```
 
 Open [http://127.0.0.1:8080/products/ai-agent/](http://127.0.0.1:8080/products/ai-agent/).
-The first page is the Agent Portal. Choose a LiteLLM provider and model, enter an
-API key or use the Worker environment, and select the registered MCP servers and
-tools available to the new session.
+The first page is the Agent Portal. Choose a configured LiteLLM provider and
+model, then select the registered MCP servers and tools available to the new
+session. Providers without their required Worker environment variable remain
+visible but cannot be selected.
 
 The local MCP configuration starts credential-free search, Slack, and Google
 Docs demo servers before the Portal loads. Read operations run automatically.
@@ -105,20 +106,18 @@ selection buttons; otherwise the panel renders a free-form text box.
 
 ## Configure a real model
 
-Set the provider credential required by LiteLLM and select its model name:
+Add the provider credential required by LiteLLM to `examples/.env`:
 
 ```bash
-export OPENAI_API_KEY="..."
-export DEX_AGENT_MODEL="openai/gpt-5-mini"
+OPENAI_API_KEY="..."
 ```
 
-Other LiteLLM providers work the same way. The Portal may override the model and
-system prompt per conversation. A key entered in the Portal is held only in the
-Worker process for that Flow ID and is used for normal and context-compaction model
-calls. It is cleared from the browser after startup and is never stored in a Dex
-Attribute, message, or Flow history. Environment variables
-remain the better choice for a deployed Worker or a session that must survive a
-Worker process restart.
+Restart the Python examples after changing the file. The Portal shows every
+supported provider, but providers without their environment variable are disabled.
+It never sends credentials to the browser. Shell environment variables take
+precedence over values in `examples/.env`. The selected credential is used for
+normal and context-compaction model calls and is never stored in a Dex Attribute,
+message, or Flow history.
 
 Worker defaults:
 

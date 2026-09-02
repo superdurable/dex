@@ -408,10 +408,15 @@ async def _ai_agent_trigger(
 async def test_ai_agent_portal_configures_credentials_and_capabilities(
     flow_smoke_http: FlowSmokeHttpClient,
     example_app: ExampleApp,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "environment-test-secret")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     _, _, portal_body = await flow_smoke_http.get("/products/ai-agent/portal")
     portal = json.loads(portal_body)
-    assert any(provider["id"] == "openai" for provider in portal["providers"])
+    providers = {provider["id"]: provider for provider in portal["providers"]}
+    assert providers["openai"]["isConfigured"] is True
+    assert providers["anthropic"]["isConfigured"] is False
     assert "write_todos" in portal["builtInTools"]
     assert "test" in portal["mcpServers"]
 
@@ -422,21 +427,25 @@ async def test_ai_agent_portal_configures_credentials_and_capabilities(
             "workflowId": flow_id,
             "provider": "openai",
             "model": "gpt-example",
-            "apiKey": "portal-test-secret",
             "mcpEnabled": False,
             "enabledMcpServers": [],
             "enabledTools": [],
         },
     )
-    assert example_app.ai_agent_credentials.get_api_key(flow_id) == "portal-test-secret"
+    assert (
+        example_app.ai_agent_credentials.get_api_key(flow_id)
+        == "environment-test-secret"
+    )
     example_app.ai_agent_credentials.set_api_key(flow_id, None)
 
 
-async def test_ai_agent_portal_rejects_non_ascii_api_key(
+async def test_ai_agent_portal_rejects_unconfigured_provider(
     example_app: ExampleApp,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     client = create_app(example_app).test_client()
-    flow_id = f"ai-agent-invalid-key-{uuid4().hex}"
+    flow_id = f"ai-agent-unconfigured-provider-{uuid4().hex}"
 
     response = await client.post(
         "/products/ai-agent/start",
@@ -444,12 +453,13 @@ async def test_ai_agent_portal_rejects_non_ascii_api_key(
             "workflowId": flow_id,
             "provider": "openai",
             "model": "gpt-example",
-            "apiKey": "密钥",
         },
     )
 
     assert response.status_code == 400
-    assert "printable ASCII characters" in await response.get_data(as_text=True)
+    assert "set OPENAI_API_KEY in examples/.env" in await response.get_data(
+        as_text=True
+    )
     assert example_app.ai_agent_credentials.get_api_key(flow_id) is None
 
 

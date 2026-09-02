@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from dex import FlowAlreadyStartedError, StartFlowOptions
+from dotenv import load_dotenv
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import ExamplesConfig
@@ -32,6 +34,7 @@ from dex_examples.patterns.cron.cron_schedule_flow import (
 
 
 async def main() -> None:
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
     config = ExamplesConfig.from_env()
     app_state = ExampleApp(config)
     await app_state.start_worker()

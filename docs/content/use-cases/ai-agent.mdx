@@ -87,7 +87,7 @@ Tool progress, timer state, and compaction status use a separate Stream. Stream 
 
 The Flow and HTTP routes are under [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent). The React UI and MCP configuration example are under [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent).
 
-The application opens on an Agent Portal. Choose a LiteLLM provider and model, optionally enter its API key, and select registered MCP servers and tools before starting the Agent. A key entered in the Portal stays in Worker memory and is not written to Dex state or Flow history. Use a Worker environment variable when the credential must survive a process restart.
+The application opens on an Agent Portal. Choose a configured LiteLLM provider and model, then select registered MCP servers and tools before starting the Agent. Providers without their required environment variable remain visible but cannot be selected. Add credentials to **examples/.env** and restart the Python examples. The Portal never sends credential values to the browser or writes them to Dex state or Flow history.
 
 The local playground starts credential-free search, Slack, and Google Docs demo MCP servers. The chat page separates Thinking, Response, and Agent activity while a call is running. Use **Command/Ctrl+Enter** or **Alt+Enter** to send a message. When work needs user input, the built-in **request_user_input** tool expands a durable input panel in the conversation. Known answers appear as selection buttons; open-ended questions use a text box. Execution waits for the submitted answer before continuing.
 

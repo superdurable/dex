@@ -114,6 +114,7 @@ interface PortalProvider {
   prefix: string;
   defaultModel: string;
   environmentVariable: string | null;
+  isConfigured: boolean;
 }
 
 interface PortalTool {
@@ -139,8 +140,6 @@ const App: React.FC = () => {
   );
   const [workflowId, setWorkflowId] = useState(queryWorkflowId);
   const [provider, setProvider] = useState('mock');
-  const [apiKey, setApiKey] = useState('');
-  const [showApiKey, setShowApiKey] = useState(false);
   const [portalConfig, setPortalConfig] = useState<PortalConfig | null>(null);
   const [model, setModel] = useState('mock/dex');
   const [systemPrompt, setSystemPrompt] = useState(
@@ -377,10 +376,6 @@ const App: React.FC = () => {
     setIsBusy(true);
     setError('');
     try {
-      const normalizedApiKey = apiKey.trim();
-      if (normalizedApiKey && !/^[\x20-\x7E]+$/.test(normalizedApiKey)) {
-        throw new Error('API key must contain only printable ASCII characters. Paste only the raw key value.');
-      }
       const newWorkflowId = generateWorkflowId();
       const response = await fetch(`${API_BASE}/start`, {
         method: 'POST',
@@ -388,7 +383,6 @@ const App: React.FC = () => {
         body: JSON.stringify({
           workflowId: newWorkflowId,
           provider,
-          apiKey: normalizedApiKey || null,
           model,
           systemPrompt,
           maxContextTokens,
@@ -402,7 +396,6 @@ const App: React.FC = () => {
       });
       if (!response.ok) throw new Error(await response.text());
       window.history.replaceState({}, '', `${window.location.pathname}?workflowId=${newWorkflowId}`);
-      setApiKey('');
       setWorkflowId(newWorkflowId);
     } catch (reason) {
       setError(String(reason));
@@ -426,7 +419,6 @@ const App: React.FC = () => {
     const nextProvider = portalConfig?.providers.find((item) => item.id === providerId);
     setProvider(providerId);
     setModel(nextProvider?.defaultModel ?? '');
-    setApiKey('');
   };
 
   const toggleSelection = (
@@ -672,8 +664,10 @@ const App: React.FC = () => {
                 onChange={(event) => changeProvider(event.target.value)}
                 disabled={!portalConfig}
               >
-                {(portalConfig?.providers ?? [{ id: 'mock', label: 'Local mock' } as PortalProvider]).map((item) => (
-                  <option key={item.id} value={item.id}>{item.label}</option>
+                {(portalConfig?.providers ?? [{ id: 'mock', label: 'Local mock', isConfigured: true } as PortalProvider]).map((item) => (
+                  <option key={item.id} value={item.id} disabled={!item.isConfigured}>
+                    {item.label}{item.isConfigured ? '' : ' — not configured'}
+                  </option>
                 ))}
               </select>
               <label style={styles.label}>Model</label>
@@ -684,27 +678,20 @@ const App: React.FC = () => {
                 disabled={provider === 'mock'}
                 placeholder={provider === 'custom' ? 'provider/model-name' : 'Model name'}
               />
-              <label style={styles.label}>API key</label>
-              <div style={styles.secretInput}>
-                <input
-                  style={{ ...styles.input, paddingRight: 72 }}
-                  type={showApiKey ? 'text' : 'password'}
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  disabled={provider === 'mock'}
-                  autoComplete="off"
-                  placeholder={provider === 'mock' ? 'Not needed for mock/dex' : 'Enter a key or use the Worker environment'}
-                />
-                {provider !== 'mock' && (
-                  <button style={styles.revealButton} onClick={() => setShowApiKey((shown) => !shown)}>
-                    {showApiKey ? 'Hide' : 'Show'}
-                  </button>
-                )}
-              </div>
               <p style={styles.securityNote}>
-                The key stays in this Worker process and is never written to Dex history.
-                {selectedProvider?.environmentVariable && ` You may instead set ${selectedProvider.environmentVariable}.`}
+                {selectedProvider?.environmentVariable
+                  ? `${selectedProvider.label} uses ${selectedProvider.environmentVariable} from the Worker environment.`
+                  : 'Local mock does not require credentials.'}
               </p>
+              {(portalConfig?.providers ?? []).some((item) => !item.isConfigured) && (
+                <div style={styles.providerSetupNote}>
+                  <strong>Enable another provider</strong>
+                  <p>Add its key to <code>examples/.env</code>, then restart the Python examples:</p>
+                  {(portalConfig?.providers ?? []).filter((item) => !item.isConfigured).map((item) => (
+                    <code key={item.id}>{item.environmentVariable}=...</code>
+                  ))}
+                </div>
+              )}
             </section>
 
             <section style={styles.portalCard}>
@@ -821,7 +808,7 @@ const App: React.FC = () => {
             </div>
             <button
               style={styles.launchButton}
-              disabled={isBusy || !portalConfig || !model.trim() || !systemPrompt.trim() || !hasValidToolSelection || !hasValidMcpSelection}
+              disabled={isBusy || !portalConfig || !selectedProvider?.isConfigured || !model.trim() || !systemPrompt.trim() || !hasValidToolSelection || !hasValidMcpSelection}
               onClick={startAgent}
             >
               {isBusy ? 'Starting Agent…' : 'Start AI Agent →'}
@@ -1243,9 +1230,8 @@ const styles: Record<string, React.CSSProperties> = {
   sectionNumber: { display: 'grid', placeItems: 'center', width: 34, height: 34, flex: '0 0 34px', borderRadius: 11, background: '#4f46e5', color: '#fff', fontWeight: 800 },
   sectionTitle: { margin: 0, fontSize: 19 },
   sectionCopy: { margin: '4px 0 0', color: '#667085', lineHeight: 1.45 },
-  secretInput: { position: 'relative' },
-  revealButton: { position: 'absolute', right: 8, top: 7, border: 0, borderRadius: 7, padding: '5px 8px', background: '#eef1f7', color: '#39445a', fontWeight: 700, cursor: 'pointer' },
   securityNote: { margin: '10px 0 0', padding: '10px 12px', borderRadius: 10, background: '#eef8f4', color: '#17634a', fontSize: 13, lineHeight: 1.45 },
+  providerSetupNote: { display: 'grid', gap: 6, marginTop: 10, padding: '12px 14px', borderRadius: 10, background: '#fff7e8', color: '#744b12', fontSize: 13, lineHeight: 1.45 },
   capabilityHeader: { display: 'flex', justifyContent: 'space-between', gap: 18, alignItems: 'center' },
   switchLabel: { display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 10, background: '#f0f4ff', color: '#3730a3', fontWeight: 800 },
   disabledSection: { opacity: 0.45 },
