@@ -24,7 +24,7 @@ from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
 from dex.attribute import Attribute, AttributeMap, _apply_attribute_store_sync
 from dex.blob_cache import BlobCache
-from dex.channel import Channel, ChannelMap
+from dex.channel import Channel, ChannelMap, ChannelMessage
 from dex.client_options import ClientOptions
 from dex.context import Context
 from dex.dexpb import dex_pb2 as pb
@@ -273,6 +273,7 @@ class Client:
                     timeout_seconds=timeout,
                     lock_attribute_keys=rpc.locks,
                     request_id=str(uuid4()),
+                    is_transactional=rpc.options.is_transactional,
                 ),
                 "invoke_rpc",
                 flow_id,
@@ -543,6 +544,146 @@ class Client:
             "write_stream",
             flow_id,
             "none",
+        )
+
+    @overload
+    def get_channel_messages(
+        self,
+        flow_id: str,
+        channel: Channel[ValueT],
+        /,
+        *,
+        run_id: str = "",
+    ) -> tuple[ChannelMessage[ValueT], ...]: ...
+
+    @overload
+    def get_channel_messages(
+        self,
+        flow_id: str,
+        channel: ChannelMap[ValueT],
+        instance: str,
+        /,
+        *,
+        run_id: str = "",
+    ) -> tuple[ChannelMessage[ValueT], ...]: ...
+
+    def get_channel_messages(
+        self,
+        flow_id: str,
+        channel: Channel[Any] | ChannelMap[Any],
+        instance: str | None = None,
+        /,
+        *,
+        run_id: str = "",
+    ) -> tuple[ChannelMessage[Any], ...]:
+        """Return every pending message for a Channel in FIFO order.
+
+        Args:
+            flow_id: The non-empty target Flow ID.
+            channel: A typed singleton Channel or ChannelMap definition.
+            instance: Required ChannelMap instance; omit for a singleton Channel.
+            run_id: Optional exact run; ``""`` targets the current run.
+
+        Returns:
+            Immutable typed message envelopes with server-assigned IDs.
+
+        Raises:
+            ValueMappingError: If a pending value cannot be decoded.
+            FlowNotFoundError: If the selected Flow run does not exist.
+            DexServiceError: If FlowService cannot read the queue.
+        """
+        name = self._definition_name(channel, instance)
+        response = cast(
+            pb.GetChannelMessagesResponse,
+            self._call(
+                self._service.GetChannelMessages,
+                pb.GetChannelMessagesRequest(
+                    flow_id=require_name(flow_id),
+                    run_id=run_id,
+                    channel_name=name,
+                ),
+                "get_channel_messages",
+                flow_id,
+                "existing",
+            ),
+        )
+        codec = self._values.codec(channel.value_type)
+        return tuple(
+            ChannelMessage(
+                message_id=message.message_id,
+                value=self._values.decode(
+                    self._hydrator.hydrate(message.value),
+                    codec,
+                ),
+            )
+            for message in response.messages
+        )
+
+    @overload
+    def delete_channel_message(
+        self,
+        flow_id: str,
+        channel: Channel[Any],
+        message_id: str,
+        /,
+        *,
+        run_id: str = "",
+    ) -> None: ...
+
+    @overload
+    def delete_channel_message(
+        self,
+        flow_id: str,
+        channel: ChannelMap[Any],
+        instance: str,
+        message_id: str,
+        /,
+        *,
+        run_id: str = "",
+    ) -> None: ...
+
+    def delete_channel_message(
+        self,
+        flow_id: str,
+        channel: Channel[Any] | ChannelMap[Any],
+        instance_or_message_id: str,
+        message_id: str | None = None,
+        /,
+        *,
+        run_id: str = "",
+    ) -> None:
+        """Delete one pending Channel message by its server-assigned ID.
+
+        Args:
+            flow_id: The non-empty target Flow ID.
+            channel: A typed singleton Channel or ChannelMap definition.
+            instance_or_message_id: Singleton message ID or ChannelMap instance.
+            message_id: ChannelMap message ID; omit for a singleton Channel.
+            run_id: Optional exact run; ``""`` targets the active run.
+
+        Raises:
+            ChannelMessageNotFoundError: If the message is no longer pending.
+            FlowNotActiveError: If the selected Flow run is closed.
+            DexServiceError: If FlowService cannot delete the message.
+        """
+        instance = instance_or_message_id if isinstance(channel, ChannelMap) else None
+        resolved_message_id = (
+            message_id if instance is not None else instance_or_message_id
+        )
+        if resolved_message_id is None:
+            raise ValueError("ChannelMap message ID is required")
+        self._call(
+            self._service.DeleteChannelMessage,
+            pb.DeleteChannelMessageRequest(
+                flow_id=require_name(flow_id),
+                run_id=run_id,
+                channel_name=self._definition_name(channel, instance),
+                message_id=require_name(resolved_message_id),
+                request_id=str(uuid4()),
+            ),
+            "delete_channel_message",
+            flow_id,
+            "active",
         )
 
     def read_stream(

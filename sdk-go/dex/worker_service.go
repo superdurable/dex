@@ -376,6 +376,7 @@ func (service *workerService) invokeWorkerRPC(
 	response.UpsertAttributes = invocation.mappedAttributeWrites()
 	response.RecordEvents = invocation.recordedEvents
 	response.PublishToChannel = invocation.publications
+	response.DeleteFromChannel = invocation.deletions
 	return response, nil
 }
 

@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -50,6 +51,10 @@ func (c *flowCommand) Execute(ctx context.Context, args []string, options option
 		return c.state(ctx, args[1:], options)
 	case "history":
 		return c.history(ctx, args[1:], options)
+	case "channel-messages":
+		return c.channelMessages(ctx, args[1:], options)
+	case "delete-channel-message":
+		return c.deleteChannelMessage(ctx, args[1:], options)
 	case "inspect":
 		return executeInspect(c, ctx, args[1:], options)
 	case "watch":
@@ -72,6 +77,77 @@ func (c *flowCommand) Execute(ctx context.Context, args []string, options option
 	default:
 		return newUsageError("flow", fmt.Errorf("unknown command %q", args[0]))
 	}
+}
+
+func (c *flowCommand) channelMessages(ctx context.Context, args []string, options options) error {
+	flags := newFlagSet("dexcli flow channel-messages", c.stderr)
+	runID := flags.String("run-id", "", "Flow run ID")
+	channelName := flags.String("channel", "", "physical Channel name")
+	addCommonFlags(flags, &options)
+	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow channel-messages FLOW_ID --channel NAME [flags]"); done || err != nil {
+		return err
+	}
+	flowID, err := oneFlowID(flags, "flow channel-messages")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(*channelName) == "" {
+		return newUsageError("flow channel-messages", fmt.Errorf("channel is required"))
+	}
+	return withFlowService(ctx, options, func(callCtx context.Context, client *flowService) error {
+		response, callErr := client.service.GetChannelMessages(callCtx, &dexpb.GetChannelMessagesRequest{
+			FlowId: flowID, RunId: *runID, ChannelName: *channelName,
+		})
+		if callErr != nil {
+			return newOperationError("flow channel-messages", callErr)
+		}
+		mapped, warnings, mapErr := naturalMessage(callCtx, client.service, response, options.noHydrate)
+		if mapErr != nil {
+			return newOperationError("flow channel-messages", mapErr)
+		}
+		mapped["flowId"] = flowID
+		mapped["runId"] = *runID
+		mapped["channelName"] = *channelName
+		if len(warnings) > 0 {
+			mapped["warnings"] = warnings
+		}
+		return writeOutput(c.stdout, options.output, mapped)
+	})
+}
+
+func (c *flowCommand) deleteChannelMessage(ctx context.Context, args []string, options options) error {
+	flags := newFlagSet("dexcli flow delete-channel-message", c.stderr)
+	runID := flags.String("run-id", "", "Flow run ID")
+	channelName := flags.String("channel", "", "physical Channel name")
+	messageID := flags.String("message-id", "", "server-assigned message ID")
+	yes := flags.Bool("yes", false, "confirm the operation")
+	addCommonFlags(flags, &options)
+	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow delete-channel-message FLOW_ID --channel NAME --message-id ID --yes"); done || err != nil {
+		return err
+	}
+	flowID, err := oneFlowID(flags, "flow delete-channel-message")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(*channelName) == "" || strings.TrimSpace(*messageID) == "" {
+		return newUsageError("flow delete-channel-message", fmt.Errorf("channel and message-id are required"))
+	}
+	if !*yes {
+		return newConfirmationError("flow delete-channel-message")
+	}
+	return withFlowService(ctx, options, func(callCtx context.Context, client *flowService) error {
+		_, callErr := client.service.DeleteChannelMessage(callCtx, &dexpb.DeleteChannelMessageRequest{
+			FlowId: flowID, RunId: *runID, ChannelName: *channelName,
+			MessageId: *messageID, RequestId: uuid.NewString(),
+		})
+		if callErr != nil {
+			return newOperationError("flow delete-channel-message", callErr)
+		}
+		return writeOutput(c.stdout, options.output, map[string]any{
+			"flowId": flowID, "runId": *runID, "channelName": *channelName,
+			"messageId": *messageID, "deleted": true,
+		})
+	})
 }
 
 func (c *flowCommand) search(ctx context.Context, args []string, options options) error {
@@ -306,7 +382,7 @@ func protoTimestamp(timestamp *timestamppb.Timestamp) any {
 func (c *flowCommand) printUsage() {
 	fmt.Fprintln(c.stdout, "Usage: dexcli flow <command>")
 	fmt.Fprintln(c.stdout)
-	fmt.Fprintln(c.stdout, "Commands: start, wait, search, summary, state, history, inspect, watch, stop, skip-timer, wait-step, update-config, trigger-continue-as-new, time-travel")
+	fmt.Fprintln(c.stdout, "Commands: start, wait, search, summary, state, history, channel-messages, delete-channel-message, inspect, watch, stop, skip-timer, wait-step, update-config, trigger-continue-as-new, time-travel")
 }
 
 func parseInt32(value string, name string) (int32, error) {

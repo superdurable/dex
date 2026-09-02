@@ -68,4 +68,14 @@ public @interface RPC {
      * @return map-instance lock annotations; defaults to an empty array
      */
     RPCAttributeMapLock[] lockAttributeMaps() default {};
+
+    /**
+     * Requests transactional reads and writes without requiring Attribute locks.
+     *
+     * <p>Set this for an RPC that deletes a Channel message when a missing ID must prevent every
+     * other staged write from committing.
+     *
+     * @return {@code true} to request transactional execution; defaults to {@code false}
+     */
+    boolean isTransactional() default false;
 }

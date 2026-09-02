@@ -1,5 +1,10 @@
 # Dex CLI
 
+Use `dexcli flow channel-messages FLOW_ID --channel NAME` to list pending FIFO
+messages with their server-assigned IDs and decoded values. Delete one with
+`dexcli flow delete-channel-message FLOW_ID --channel NAME --message-id ID --yes`.
+Raw `dexcli api call InvokeRPC` accepts the `isTransactional` field.
+
 `dexcli` starts a complete local Dex development environment with one command.
 It also gives humans and AI agents a JSON-first interface to every public Dex
 FlowService API without requiring a browser.

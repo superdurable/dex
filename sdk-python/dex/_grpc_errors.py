@@ -19,6 +19,7 @@ from grpc_status import rpc_status
 
 from dex.dexpb import dex_pb2 as pb
 from dex.runtime_errors import (
+    ChannelMessageNotFoundError,
     DexServiceError,
     ErrorSubStatus,
     FlowAlreadyStartedError,
@@ -136,6 +137,8 @@ def translate_rpc_error(
         )
     if sub_status is ErrorSubStatus.LONG_POLL_TIMEOUT:
         return LongPollTimeoutError(*parameters)
+    if sub_status is ErrorSubStatus.CHANNEL_MESSAGE_NOT_FOUND:
+        return ChannelMessageNotFoundError(*parameters)
     return DexServiceError(*parameters)
 
 
@@ -219,5 +222,8 @@ def _map_sub_status(value: int) -> ErrorSubStatus:
         int(pb.ERROR_SUB_STATUS_FLOW_NOT_EXISTS): ErrorSubStatus.FLOW_NOT_EXISTS,
         int(pb.ERROR_SUB_STATUS_WORKER_API_ERROR): ErrorSubStatus.WORKER_API_ERROR,
         int(pb.ERROR_SUB_STATUS_LONG_POLL_TIME_OUT): ErrorSubStatus.LONG_POLL_TIMEOUT,
+        int(
+            pb.ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND
+        ): ErrorSubStatus.CHANNEL_MESSAGE_NOT_FOUND,
     }
     return statuses.get(value, ErrorSubStatus.UNCATEGORIZED)

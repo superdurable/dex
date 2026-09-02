@@ -10,6 +10,15 @@ use std::marker::PhantomData;
 
 use crate::{Condition, Context, HandlerResult, Value};
 
+/// Identifies one typed value that is still pending in a Channel.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChannelMessage<T> {
+    /// UUIDv7 assigned by Dex when the message was published.
+    pub message_id: String,
+    /// Decoded Channel value.
+    pub value: T,
+}
+
 /// Defines one durable FIFO queue of typed messages.
 ///
 /// Add the Channel to [`crate::PersistenceSchema`]. Clients and handlers may publish messages;
@@ -48,6 +57,11 @@ impl<T> Channel<T> {
         T: Value,
     {
         context.publish(self, value)
+    }
+
+    /// Stages deletion of one pending message from an RPC handler.
+    pub fn delete(&self, context: &mut Context, message_id: &str) -> HandlerResult<()> {
+        context.delete_channel_message(self, message_id)
     }
 
     /// Returns the invocation snapshot's queued-message count.
@@ -142,6 +156,16 @@ impl<T> ChannelMap<T> {
         T: Value,
     {
         context.publish_map(self, instance, value)
+    }
+
+    /// Stages deletion of one pending message from a Channel-map instance in an RPC.
+    pub fn delete(
+        &self,
+        context: &mut Context,
+        instance: &str,
+        message_id: &str,
+    ) -> HandlerResult<()> {
+        context.delete_channel_map_message(self, instance, message_id)
     }
 
     /// Returns the invocation snapshot's message count for `instance`.

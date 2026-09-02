@@ -23,6 +23,7 @@ class ErrorSubStatus(Enum):
         FLOW_NOT_EXISTS: No Flow with the requested ID exists.
         WORKER_API_ERROR: An application Worker rejected or failed an invocation.
         LONG_POLL_TIMEOUT: A wait ended without observing its condition.
+        CHANNEL_MESSAGE_NOT_FOUND: A pending Channel message ID no longer exists.
     """
 
     UNCATEGORIZED = "uncategorized"
@@ -30,6 +31,7 @@ class ErrorSubStatus(Enum):
     FLOW_NOT_EXISTS = "flow_not_exists"
     WORKER_API_ERROR = "worker_api_error"
     LONG_POLL_TIMEOUT = "long_poll_timeout"
+    CHANNEL_MESSAGE_NOT_FOUND = "channel_message_not_found"
 
 
 class FlowErrorType(Enum):
@@ -157,6 +159,12 @@ class RpcLockConflictError(DexServiceError):
 
 class LongPollTimeoutError(DexServiceError):
     """Indicate that a retryable long poll ended before its condition was observed."""
+
+    pass
+
+
+class ChannelMessageNotFoundError(DexServiceError):
+    """Indicate that a pending Channel message ID no longer exists."""
 
     pass
 

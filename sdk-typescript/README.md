@@ -1,5 +1,16 @@
 # Dex SDK for TypeScript
 
+## Pending Channel messages
+
+`Client.getChannelMessages` returns typed `ChannelMessage<T>` envelopes in FIFO
+order. `Client.deleteChannelMessage` deletes a still-pending ID and rejects with
+`ChannelMessageNotFoundError` after consumption or another deletion.
+
+An RPC can stage `channel.delete(context, messageId)`. Set the decorator option
+`isTransactional: true` when a missing ID must abort all other RPC writes.
+Attribute locks already select transactional execution; Channel deletion requires
+the explicit option.
+
 This package targets Node.js 22 and 24. It provides strongly typed workflow
 contracts and a Promise-based gRPC Client. The Client and Worker runtime use
 `@grpc/grpc-js`. Blob caching uses the shared Rust DXBC implementation through

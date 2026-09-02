@@ -24,6 +24,7 @@ import {
   IndexType as ProtoIndexType,
   ExecuteMethodFailurePolicy,
   type GetAttributesResponse,
+  type GetChannelMessagesResponse,
   type GetFlowSummaryResponse,
   type InvokeRPCResponse,
   type ReadStreamResponse,
@@ -85,7 +86,7 @@ import type { RPCResult } from "./rpc.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
 import { requireName } from "./validation.js";
 import { codecOrJson, decodeUnknown, decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
-import { ChannelMap, type Channel } from "./wait.js";
+import { ChannelMap, type Channel, type ChannelMessage } from "./wait.js";
 import type { Stream, StreamMessage } from "./stream.js";
 
 const defaultServerAddress = "localhost:8801";
@@ -290,7 +291,7 @@ export class Client {
             physicalName(lock.attribute.name, lock.instance),
           ),
           requestId: crypto.randomUUID(),
-          isTransactional: false,
+          isTransactional: rpc.options.isTransactional ?? false,
         },
         callback,
       ),
@@ -497,6 +498,120 @@ export class Client {
             value: encodeValue(channel.codec, value),
             messageId: "",
           })),
+        },
+        callback,
+      ),
+    );
+  }
+
+  /**
+   * Returns every pending singleton Channel message in FIFO order.
+   * @typeParam T - Channel value type.
+   * @param flowId - Non-empty existing Flow ID.
+   * @param channel - Registered singleton Channel.
+   * @returns Typed pending message envelopes.
+   */
+  public getChannelMessages<T>(
+    flowId: string,
+    channel: Channel<T>,
+  ): Promise<readonly ChannelMessage<T>[]>;
+
+  /**
+   * Returns every pending message for one ChannelMap instance in FIFO order.
+   * @typeParam T - Channel value type.
+   * @param flowId - Non-empty existing Flow ID.
+   * @param channel - Registered ChannelMap.
+   * @param instance - Non-empty ChannelMap instance.
+   * @returns Typed pending message envelopes.
+   */
+  public getChannelMessages<T>(
+    flowId: string,
+    channel: ChannelMap<T>,
+    instance: string,
+  ): Promise<readonly ChannelMessage<T>[]>;
+
+  /**
+   * Implements singleton and ChannelMap pending-message reads.
+   * @typeParam T - Channel value type.
+   * @param flowId - Non-empty existing Flow ID.
+   * @param channel - Registered singleton or map definition.
+   * @param instance - Required ChannelMap instance; omitted for a singleton.
+   * @returns Typed pending message envelopes in FIFO order.
+   */
+  public async getChannelMessages<T>(
+    flowId: string,
+    channel: Channel<T> | ChannelMap<T>,
+    instance?: string,
+  ): Promise<readonly ChannelMessage<T>[]> {
+    const response = await unary<GetChannelMessagesResponse>(
+      { operation: "getChannelMessages", flowId, requirement: "existing" },
+      (callback) => this.service.getChannelMessages(
+        {
+          flowId: requireName(flowId),
+          runId: "",
+          channelName: physicalName(channel.name, instance),
+        },
+        callback,
+      ),
+    );
+    return Promise.all(response.messages.map(async (message) => ({
+      messageId: message.messageId,
+      value: decodeValue(channel.codec, await this.hydrator.hydrate(message.value)),
+    })));
+  }
+
+  /**
+   * Deletes one pending singleton Channel message by its server-assigned ID.
+   * @param flowId - Non-empty active Flow ID.
+   * @param channel - Registered singleton Channel.
+   * @param messageId - Non-empty server-assigned message ID.
+   */
+  public deleteChannelMessage(
+    flowId: string,
+    channel: Channel<unknown>,
+    messageId: string,
+  ): Promise<void>;
+
+  /**
+   * Deletes one pending message from a ChannelMap instance by server-assigned ID.
+   * @param flowId - Non-empty active Flow ID.
+   * @param channel - Registered ChannelMap.
+   * @param instance - Non-empty ChannelMap instance.
+   * @param messageId - Non-empty server-assigned message ID.
+   */
+  public deleteChannelMessage(
+    flowId: string,
+    channel: ChannelMap<unknown>,
+    instance: string,
+    messageId: string,
+  ): Promise<void>;
+
+  /**
+   * Implements singleton and ChannelMap pending-message deletion.
+   * @param flowId - Non-empty active Flow ID.
+   * @param channel - Registered singleton or map definition.
+   * @param instanceOrMessageId - Map instance or singleton message ID.
+   * @param mapMessageId - Required message ID for a ChannelMap.
+   * @returns A promise resolved after Dex accepts the deletion.
+   */
+  public async deleteChannelMessage(
+    flowId: string,
+    channel: Channel<unknown> | ChannelMap<unknown>,
+    instanceOrMessageId: string,
+    mapMessageId?: string,
+  ): Promise<void> {
+    const isMap = channel instanceof ChannelMap;
+    const instance = isMap ? instanceOrMessageId : undefined;
+    const messageId = isMap ? mapMessageId : instanceOrMessageId;
+    await unary<Empty>(
+      { operation: "deleteChannelMessage", flowId, requirement: "active" },
+      (callback) => this.service.deleteChannelMessage(
+        {
+          flowId: requireName(flowId),
+          runId: "",
+          channelName: physicalName(channel.name, instance),
+          messageId: requireName(messageId ?? ""),
+          requestId: crypto.randomUUID(),
         },
         callback,
       ),

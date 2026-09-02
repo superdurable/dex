@@ -1,5 +1,16 @@
 # Dex Rust SDK
 
+## Pending Channel messages
+
+`Client::get_channel_messages` and `Client::get_channel_map_messages` return typed
+`ChannelMessage<T>` envelopes in FIFO order. Deleting an already-consumed ID
+returns `SdkError::ChannelMessageNotFound`.
+
+An RPC can stage `channel.delete(context, message_id)`. Define it with
+`Rpc::is_transactional()` when a missing ID must abort all other RPC writes.
+Attribute locks already select transactional execution, while Channel deletion
+requires the explicit option.
+
 [![Rust SDK CI](https://github.com/superdurable/dex/actions/workflows/sdk-rust-ci.yml/badge.svg?branch=main)](https://github.com/superdurable/dex/actions/workflows/sdk-rust-ci.yml)
 
 This workspace contains the synchronous Rust SDK, the shared DXBC BlobCache,

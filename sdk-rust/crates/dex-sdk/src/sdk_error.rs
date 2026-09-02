@@ -32,6 +32,8 @@ pub enum ErrorSubStatus {
     WorkerApiError,
     /// A long-poll deadline elapsed while the Flow remained active.
     LongPollTimeout,
+    /// A pending Channel message ID no longer exists.
+    ChannelMessageNotFound,
 }
 
 #[derive(Debug)]
@@ -164,6 +166,11 @@ pub enum SdkError {
         /// Structured timeout failure.
         service: ServiceError,
     },
+    /// A requested Channel message is no longer pending.
+    ChannelMessageNotFound {
+        /// Structured deletion failure.
+        service: ServiceError,
+    },
     /// A registered Flow, Step, RPC, or persistence definition is invalid.
     FlowDefinition {
         /// Developer-actionable contract violation.
@@ -198,7 +205,8 @@ impl Display for SdkError {
             | Self::FlowNotFound { service }
             | Self::FlowNotActive { service }
             | Self::RpcLockConflict { service }
-            | Self::LongPollTimeout { service } => Display::fmt(service, formatter),
+            | Self::LongPollTimeout { service }
+            | Self::ChannelMessageNotFound { service } => Display::fmt(service, formatter),
             Self::WorkerInvocation { service, .. } => Display::fmt(service, formatter),
             Self::InvalidStepResult { detail, .. } => formatter.write_str(detail),
             Self::FlowDefinition { message }
@@ -226,7 +234,8 @@ impl SdkError {
             | Self::FlowNotFound { service }
             | Self::FlowNotActive { service }
             | Self::RpcLockConflict { service }
-            | Self::LongPollTimeout { service } => Some(service),
+            | Self::LongPollTimeout { service }
+            | Self::ChannelMessageNotFound { service } => Some(service),
             Self::WorkerInvocation { service, .. } => Some(service),
             _ => None,
         }
@@ -290,6 +299,7 @@ impl SdkError {
                 }
             }
             ErrorSubStatus::LongPollTimeout => Self::LongPollTimeout { service },
+            ErrorSubStatus::ChannelMessageNotFound => Self::ChannelMessageNotFound { service },
             ErrorSubStatus::Uncategorized => Self::Service { service },
         }
     }
@@ -337,6 +347,7 @@ fn map_sub_status(value: i32) -> ErrorSubStatus {
         Some(ProtoErrorSubStatus::FlowNotExists) => ErrorSubStatus::FlowNotExists,
         Some(ProtoErrorSubStatus::WorkerApiError) => ErrorSubStatus::WorkerApiError,
         Some(ProtoErrorSubStatus::LongPollTimeOut) => ErrorSubStatus::LongPollTimeout,
+        Some(ProtoErrorSubStatus::ChannelMessageNotFound) => ErrorSubStatus::ChannelMessageNotFound,
         _ => ErrorSubStatus::Uncategorized,
     }
 }

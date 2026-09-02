@@ -21,6 +21,7 @@ import {
   FlowNotActiveError,
   FlowNotFoundError,
   LongPollTimeoutError,
+  ChannelMessageNotFoundError,
   RpcLockConflictError,
   WorkerInvocationError,
   type ErrorSubStatus as ErrorSubStatusValue,
@@ -125,6 +126,8 @@ export function translateServiceError(
       );
     case ErrorSubStatus.LONG_POLL_TIMEOUT:
       return new LongPollTimeoutError(...parameters);
+    case ErrorSubStatus.CHANNEL_MESSAGE_NOT_FOUND:
+      return new ChannelMessageNotFoundError(...parameters);
     default:
       return new DexServiceError(...parameters);
   }
@@ -162,6 +165,8 @@ function mapSubStatus(value: ProtoErrorSubStatus): ErrorSubStatusValue {
       return ErrorSubStatus.WORKER_API_ERROR;
     case ProtoErrorSubStatus.ERROR_SUB_STATUS_LONG_POLL_TIME_OUT:
       return ErrorSubStatus.LONG_POLL_TIMEOUT;
+    case ProtoErrorSubStatus.ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND:
+      return ErrorSubStatus.CHANNEL_MESSAGE_NOT_FOUND;
     default:
       return ErrorSubStatus.UNCATEGORIZED;
   }

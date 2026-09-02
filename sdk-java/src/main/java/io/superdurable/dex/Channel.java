@@ -77,6 +77,16 @@ public final class Channel<T> extends PersistenceDefinition {
     }
 
     /**
+     * Stages deletion of one pending message from an RPC handler.
+     *
+     * @param context the RPC invocation context
+     * @param messageId the nonblank server-assigned message ID
+     */
+    public void delete(final Context context, final String messageId) {
+        context.deleteChannelMessage(this, messageId);
+    }
+
+    /**
      * Returns the number of messages currently visible to this invocation.
      *
      * @param context the Step or RPC invocation context

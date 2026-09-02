@@ -264,6 +264,9 @@ type InvokeOptions struct {
 	Timeout time.Duration
 	// LockAttributes are acquired atomically for the RPC invocation.
 	LockAttributes []AttributeLock
+	// IsTransactional requests transactional reads and writes without requiring Attribute locks.
+	// Channel deletions require this option to make a missing message abort all RPC writes.
+	IsTransactional bool
 }
 
 // WaitForFlowOptions controls Flow-result hydration.

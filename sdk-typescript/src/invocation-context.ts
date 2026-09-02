@@ -14,7 +14,8 @@ import {
   IndexType as ProtoIndexType,
   type AttributeWrite,
   type ChannelInfo,
-  type ChannelMessage,
+  type ChannelMessage as ProtoChannelMessage,
+  type ChannelMessageDeletion,
   type ConditionResults,
   type Context as ProtoContext,
   type IndexConfig,
@@ -59,7 +60,8 @@ export class InvocationContext implements AsyncContext {
   private readonly localWrites = new Map<string, KV>();
   private readonly events: KV[] = [];
   private readonly eventNames = new Set<string>();
-  private readonly publications: ChannelMessage[] = [];
+  private readonly publications: ProtoChannelMessage[] = [];
+  private readonly channelDeletions: ChannelMessageDeletion[] = [];
   private readonly lastHeartbeatValue: Value | undefined;
   private readonly stepOutputFinalizers: StepOutputFinalizer[] = [];
   private stepOutputsFinalized = false;
@@ -306,6 +308,23 @@ export class InvocationContext implements AsyncContext {
     }
   }
 
+  public deleteChannelMessage(
+    channel: Channel<unknown> | ChannelMap<unknown>,
+    messageId: string,
+    instance?: string,
+  ): void {
+    if (this.method !== "rpc") {
+      throw new TypeError("Channel message deletion requires an RPC Context");
+    }
+    this.requireRegistered(channel);
+    const name = definitionName(channel, instance);
+    this.channelDeletions.push({ channelName: name, messageId: requireName(messageId) });
+    const size = this.channelInfos.get(name)?.size ?? 0;
+    if (size > 0) {
+      this.channelInfos.set(name, { size: size - 1 });
+    }
+  }
+
   public channelSize(
     channel: Channel<unknown> | ChannelMap<unknown>,
     instance?: string,
@@ -353,8 +372,12 @@ export class InvocationContext implements AsyncContext {
     return this.events;
   }
 
-  public getPublications(): readonly ChannelMessage[] {
+  public getPublications(): readonly ProtoChannelMessage[] {
     return this.publications;
+  }
+
+  public getChannelDeletions(): readonly ChannelMessageDeletion[] {
+    return this.channelDeletions;
   }
 
   private requireRegistered(

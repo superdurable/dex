@@ -17,7 +17,7 @@ package io.superdurable.dex;
 import io.superdurable.gen.AttributeSyncConfig;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.ChannelInfo;
-import io.superdurable.gen.ChannelMessage;
+import io.superdurable.gen.ChannelMessageDeletion;
 import io.superdurable.gen.ChannelResult;
 import io.superdurable.gen.ConditionResults;
 import io.superdurable.gen.ConditionStatus;
@@ -65,7 +65,10 @@ final class InvocationContext implements Context {
     private final Map<String, KV> localWrites = new LinkedHashMap<String, KV>();
     private final List<KV> events = new ArrayList<KV>();
     private final Set<String> eventNames = new HashSet<String>();
-    private final List<ChannelMessage> publications = new ArrayList<ChannelMessage>();
+    private final List<io.superdurable.gen.ChannelMessage> publications =
+            new ArrayList<io.superdurable.gen.ChannelMessage>();
+    private final List<ChannelMessageDeletion> channelDeletions =
+            new ArrayList<ChannelMessageDeletion>();
     private final List<StepOutputFinalizer> stepOutputFinalizers =
             new ArrayList<StepOutputFinalizer>();
     private boolean stepOutputsFinalized;
@@ -415,6 +418,19 @@ final class InvocationContext implements Context {
     }
 
     @Override
+    public void deleteChannelMessage(final Channel<?> channel, final String messageId) {
+        deleteChannelMessageValue(channel, null, messageId);
+    }
+
+    @Override
+    public void deleteChannelMessage(
+            final ChannelMap<?> channel,
+            final String instance,
+            final String messageId) {
+        deleteChannelMessageValue(channel, instance, messageId);
+    }
+
+    @Override
     public int channelSize(final Channel<?> channel) {
         return channelSizeValue(channel, null);
     }
@@ -500,8 +516,12 @@ final class InvocationContext implements Context {
         return Collections.unmodifiableList(events);
     }
 
-    List<ChannelMessage> getPublications() {
+    List<io.superdurable.gen.ChannelMessage> getPublications() {
         return Collections.unmodifiableList(publications);
+    }
+
+    List<ChannelMessageDeletion> getChannelDeletions() {
+        return Collections.unmodifiableList(channelDeletions);
     }
 
     private <T> T getAttributeValue(
@@ -572,7 +592,7 @@ final class InvocationContext implements Context {
             final Object value) {
         requireRegistered(definition);
         final String name = physicalName(definition, instance);
-        publications.add(ChannelMessage.newBuilder()
+        publications.add(io.superdurable.gen.ChannelMessage.newBuilder()
                 .setChannelName(name)
                 .setValue(values.encode(value))
                 .build());
@@ -580,6 +600,27 @@ final class InvocationContext implements Context {
             final ChannelInfo existing = channelInfos.get(name);
             final int size = existing == null ? 0 : existing.getSize();
             channelInfos.put(name, ChannelInfo.newBuilder().setSize(size + 1).build());
+        }
+    }
+
+    private void deleteChannelMessageValue(
+            final PersistenceDefinition definition,
+            final String instance,
+            final String messageId) {
+        if (method != Method.RPC) {
+            throw new IllegalStateException("Channel message deletion requires an RPC Context");
+        }
+        requireRegistered(definition);
+        final String name = physicalName(definition, instance);
+        channelDeletions.add(ChannelMessageDeletion.newBuilder()
+                .setChannelName(name)
+                .setMessageId(Attribute.requireName(messageId))
+                .build());
+        final ChannelInfo existing = channelInfos.get(name);
+        if (existing != null && existing.getSize() > 0) {
+            channelInfos.put(
+                    name,
+                    ChannelInfo.newBuilder().setSize(existing.getSize() - 1).build());
         }
     }
 

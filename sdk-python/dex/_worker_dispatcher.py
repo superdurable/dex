@@ -233,6 +233,7 @@ class WorkerDispatcher:
             response = pb.InvokeWorkerRPCResponse(
                 upsert_attributes=list(context.attribute_writes.values()),
                 record_events=context.events,
+                delete_from_channel=context.channel_deletions,
                 publish_to_channel=context.publications,
             )
             if isinstance(returned, RPCResult):

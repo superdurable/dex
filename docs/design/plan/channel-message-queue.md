@@ -1,5 +1,22 @@
 # Channel Message Queue
 
+## Client surface
+
+All five SDKs expose a typed pending-message envelope containing the server UUIDv7
+and decoded Channel value. Client list operations preserve FIFO order, while
+Client deletion maps the channel-message-not-found substatus to a stable SDK
+error. RPC Contexts can stage deletion alongside other durable mutations.
+
+The RPC option is named `is_transactional` in snake-case APIs and
+`isTransactional` or `IsTransactional` where the language requires it. Attribute
+locks implicitly select the transactional server path. A Channel deletion must
+opt in explicitly when its existence check and the rest of the RPC writes need a
+single transaction.
+
+Dex Web and Dex CLI expose pending IDs and deletion. They identify the Cadence
+query-plus-signal behavior as best effort because it cannot provide Temporal's
+synchronous Update guarantee.
+
 ## Scope
 
 This design adds stable identities and pending-message management to Channels.

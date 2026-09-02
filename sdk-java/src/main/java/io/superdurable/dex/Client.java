@@ -36,11 +36,14 @@ import io.superdurable.gen.FlowResetStepMethod;
 import io.superdurable.gen.FlowResetType;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.FlowStartOptions;
+import io.superdurable.gen.GetChannelMessagesRequest;
+import io.superdurable.gen.GetChannelMessagesResponse;
 import io.superdurable.gen.GetAttributesRequest;
 import io.superdurable.gen.GetAttributesResponse;
 import io.superdurable.gen.GetFlowSummaryRequest;
 import io.superdurable.gen.GetFlowSummaryResponse;
 import io.superdurable.gen.InvokeRPCRequest;
+import io.superdurable.gen.DeleteChannelMessageRequest;
 import io.superdurable.gen.KV;
 import io.superdurable.gen.PublishToChannelRequest;
 import io.superdurable.gen.ReadStreamRequest;
@@ -578,6 +581,74 @@ public final class Client implements AutoCloseable {
     }
 
     /**
+     * Returns all pending messages for a singleton Channel in FIFO order.
+     *
+     * @param flowId the target Flow ID
+     * @param channel the typed singleton Channel
+     * @param <T> the Channel message type
+     * @return immutable pending message envelopes
+     */
+    public <T> List<ChannelMessage<T>> getChannelMessages(
+            final String flowId,
+            final Channel<T> channel) {
+        return getChannelMessages(flowId, "", channel.getName(), channel.getValueType());
+    }
+
+    /**
+     * Returns all pending messages for one Channel-map instance in FIFO order.
+     *
+     * @param flowId the target Flow ID
+     * @param channel the typed Channel map
+     * @param instance the nonblank Channel-map instance
+     * @param <T> the Channel message type
+     * @return immutable pending message envelopes
+     */
+    public <T> List<ChannelMessage<T>> getChannelMessages(
+            final String flowId,
+            final ChannelMap<T> channel,
+            final String instance) {
+        return getChannelMessages(
+                flowId,
+                "",
+                Registry.physicalName(channel.getName(), instance),
+                channel.getValueType());
+    }
+
+    /**
+     * Deletes one pending singleton Channel message by its server-assigned ID.
+     *
+     * @param flowId the target Flow ID
+     * @param channel the singleton Channel
+     * @param messageId the nonblank server-assigned message ID
+     */
+    public void deleteChannelMessage(
+            final String flowId,
+            final Channel<?> channel,
+            final String messageId) {
+        deleteChannelMessage(flowId, "", channel.getName(), messageId);
+    }
+
+    /**
+     * Deletes one pending message from a Channel-map instance by server-assigned ID.
+     *
+     * @param flowId the target Flow ID
+     * @param channel the Channel map
+     * @param instance the nonblank Channel-map instance
+     * @param messageId the nonblank server-assigned message ID
+     */
+    public void deleteChannelMessage(
+            final String flowId,
+            final ChannelMap<?> channel,
+            final String instance,
+            final String messageId) {
+        deleteChannelMessage(
+                flowId,
+                "",
+                Registry.physicalName(channel.getName(), instance),
+                messageId);
+    }
+
+    /**
      * Appends one typed best-effort Stream message with producer metadata.
      *
      * <p>Each call appends a new message. The source is informational and may be reused, including
@@ -1062,6 +1133,7 @@ public final class Client implements AutoCloseable {
                 .setTimeoutSeconds(rpc.getAnnotation().timeoutSeconds())
                 .addAllLockAttributeKeys(rpc.getLocks())
                 .setRequestId(UUID.randomUUID().toString())
+                .setIsTransactional(rpc.getAnnotation().isTransactional())
                 .build();
         final io.superdurable.gen.Value output = hydrator.hydrate(
                 call(
@@ -1149,6 +1221,45 @@ public final class Client implements AutoCloseable {
         }
         call(
                 () -> service.publishToChannel(request.build()),
+                FlowTargetRequirement.ACTIVE,
+                flowId);
+    }
+
+    private <T> List<ChannelMessage<T>> getChannelMessages(
+            final String flowId,
+            final String runId,
+            final String channelName,
+            final Class<T> valueType) {
+        final GetChannelMessagesResponse response = call(
+                () -> service.getChannelMessages(GetChannelMessagesRequest.newBuilder()
+                        .setFlowId(Attribute.requireName(flowId))
+                        .setRunId(runId)
+                        .setChannelName(channelName)
+                        .build()),
+                FlowTargetRequirement.EXISTING,
+                flowId);
+        final List<ChannelMessage<T>> messages = new ArrayList<ChannelMessage<T>>();
+        for (io.superdurable.gen.ChannelMessage message : response.getMessagesList()) {
+            messages.add(new ChannelMessage<T>(
+                    message.getMessageId(),
+                    values.decode(hydrator.hydrate(message.getValue()), valueType)));
+        }
+        return Collections.unmodifiableList(messages);
+    }
+
+    private void deleteChannelMessage(
+            final String flowId,
+            final String runId,
+            final String channelName,
+            final String messageId) {
+        call(
+                () -> service.deleteChannelMessage(DeleteChannelMessageRequest.newBuilder()
+                        .setFlowId(Attribute.requireName(flowId))
+                        .setRunId(runId)
+                        .setChannelName(channelName)
+                        .setMessageId(Attribute.requireName(messageId))
+                        .setRequestId(UUID.randomUUID().toString())
+                        .build()),
                 FlowTargetRequirement.ACTIVE,
                 flowId);
     }

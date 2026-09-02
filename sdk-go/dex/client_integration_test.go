@@ -130,6 +130,32 @@ type clientTestFlowService struct {
 	getAttributesRequest *dexpb.GetAttributesRequest
 	writeStreamRequests  []*dexpb.WriteStreamRequest
 	readStreamRequest    *dexpb.ReadStreamRequest
+	getMessagesRequest   *dexpb.GetChannelMessagesRequest
+	deleteMessageRequest *dexpb.DeleteChannelMessageRequest
+}
+
+func (service *clientTestFlowService) GetChannelMessages(
+	_ context.Context,
+	request *dexpb.GetChannelMessagesRequest,
+) (*dexpb.GetChannelMessagesResponse, error) {
+	service.getMessagesRequest = request
+	value, err := encodeValue("queued")
+	if err != nil {
+		return nil, err
+	}
+	return &dexpb.GetChannelMessagesResponse{Messages: []*dexpb.ChannelMessage{{
+		ChannelName: request.ChannelName,
+		MessageId:   "0198-message",
+		Value:       value,
+	}}}, nil
+}
+
+func (service *clientTestFlowService) DeleteChannelMessage(
+	_ context.Context,
+	request *dexpb.DeleteChannelMessageRequest,
+) (*emptypb.Empty, error) {
+	service.deleteMessageRequest = request
+	return &emptypb.Empty{}, nil
 }
 
 func (service *clientTestFlowService) WriteStream(
@@ -521,6 +547,11 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	require.Len(t, service.publishRequest.Messages, 2)
 	require.NoError(t, client.PublishToChannelMap(ctx, "order-1", clientTestByOrder, "order-1", "pack"))
 	require.Equal(t, "commands-by-order/order-1", service.publishRequest.Messages[0].ChannelName)
+	var pending []ChannelMessage[string]
+	require.NoError(t, client.GetChannelMessages(ctx, "order-1", clientTestCommands, &pending))
+	require.Equal(t, []ChannelMessage[string]{{MessageID: "0198-message", Value: "queued"}}, pending)
+	require.NoError(t, client.DeleteChannelMessage(ctx, "order-1", clientTestCommands, pending[0].MessageID))
+	require.Equal(t, "0198-message", service.deleteMessageRequest.MessageId)
 
 	var status string
 	found, err := client.GetAttribute(ctx, "order-1", clientTestStatus, &status)
@@ -678,9 +709,13 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 		clientTestFlow{}.Update,
 		clientTestRPCInput{Status: "updated"},
 		&output,
-		InvokeOptions{LockAttributes: []AttributeLock{LockAttribute(clientTestStatus)}},
+		InvokeOptions{
+			LockAttributes:  []AttributeLock{LockAttribute(clientTestStatus)},
+			IsTransactional: true,
+		},
 	)
 	require.NoError(t, err)
+	require.True(t, service.invokeRequest.IsTransactional)
 	require.Equal(t, "updated", output.Status)
 	_, err = uuid.Parse(service.invokeRequest.RequestId)
 	require.NoError(t, err)

@@ -23,6 +23,17 @@ type Channel[T any] struct {
 	name string
 }
 
+// ChannelMessage identifies one pending Channel value returned by Client.GetChannelMessages.
+//
+// MessageID is assigned by Dex when the value is published. It can be passed to
+// Client.DeleteChannelMessage or Channel.Delete from a transactional RPC.
+type ChannelMessage[T any] struct {
+	// MessageID is the server-assigned UUIDv7 for this pending message.
+	MessageID string
+	// Value is the decoded Channel value.
+	Value T
+}
+
 // DefineChannel creates a typed Channel with a stable name without performing I/O.
 // "/" is reserved as the ChannelMap separator and is prohibited in Channel names.
 func DefineChannel[T any](name string) Channel[T] {
@@ -46,6 +57,16 @@ func (c Channel[T]) Publish(ctx Context, value T) error {
 		return errInvalidInvocationContext
 	}
 	return invocation.publishChannel(c.name, value)
+}
+
+// Delete stages one pending-message deletion from an RPC handler.
+// Use InvokeOptions.IsTransactional when a missing ID must abort all RPC writes.
+func (c Channel[T]) Delete(ctx Context, messageID string) error {
+	invocation, ok := ctx.(channelInvocation)
+	if !ok {
+		return errInvalidInvocationContext
+	}
+	return invocation.deleteChannelMessage(c.name, "", false, messageID)
 }
 
 // ForOne returns a Condition that consumes exactly one queued message.
@@ -141,6 +162,16 @@ func (c ChannelMap[T]) Publish(ctx Context, instance string, value T) error {
 		return errInvalidInvocationContext
 	}
 	return invocation.publishChannelMap(c.name, instance, value)
+}
+
+// Delete stages one pending-message deletion from a ChannelMap instance in an RPC handler.
+// Use InvokeOptions.IsTransactional when a missing ID must abort all RPC writes.
+func (c ChannelMap[T]) Delete(ctx Context, instance string, messageID string) error {
+	invocation, ok := ctx.(channelInvocation)
+	if !ok {
+		return errInvalidInvocationContext
+	}
+	return invocation.deleteChannelMessage(c.name, instance, true, messageID)
 }
 
 // ForOne returns an instance Condition that consumes exactly one message.
@@ -264,6 +295,7 @@ func (ChannelMap[T]) channelIsMap() bool {
 type channelInvocation interface {
 	publishChannel(name string, value any) error
 	publishChannelMap(name string, instance string, value any) error
+	deleteChannelMessage(name string, instance string, isMap bool, messageID string) error
 	channelSize(name string) int
 	channelMapSize(name string, instance string) int
 	channelMapKeys(name string) []string

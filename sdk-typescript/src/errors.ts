@@ -24,6 +24,8 @@ export const ErrorSubStatus = Object.freeze({
   WORKER_API_ERROR: "workerApiError",
   /** A retryable long poll ended without observing its condition. */
   LONG_POLL_TIMEOUT: "longPollTimeout",
+  /** A pending Channel message ID no longer exists. */
+  CHANNEL_MESSAGE_NOT_FOUND: "channelMessageNotFound",
 } as const);
 
 /** Represents a value from {@link ErrorSubStatus}. */
@@ -115,6 +117,9 @@ export class RpcLockConflictError extends DexServiceError {}
 
 /** Indicates that a retryable long poll ended before its condition was observed. */
 export class LongPollTimeoutError extends DexServiceError {}
+
+/** Indicates that a requested Channel message is no longer pending. */
+export class ChannelMessageNotFoundError extends DexServiceError {}
 
 /** Indicates that Registry construction found an invalid Flow definition. */
 export class FlowDefinitionError extends Error {

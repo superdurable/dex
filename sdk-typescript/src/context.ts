@@ -126,6 +126,17 @@ export interface Context {
    */
   publish<T>(channel: Channel<T> | ChannelMap<T>, value: T, instance?: string): void;
   /**
+   * Stages deletion of one pending Channel message from an RPC handler.
+   * @param channel - Registered singleton or map definition.
+   * @param messageId - Non-empty server-assigned message ID.
+   * @param instance - Required ChannelMap instance; omitted for a singleton.
+   */
+  deleteChannelMessage(
+    channel: Channel<unknown> | ChannelMap<unknown>,
+    messageId: string,
+    instance?: string,
+  ): void;
+  /**
    * Returns a Channel's current queued value count.
    * @param channel - Registered singleton or map definition.
    * @param instance - Required ChannelMap instance; omitted for a singleton.

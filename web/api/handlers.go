@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -44,12 +45,37 @@ func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
 	mux.HandleFunc("GET /api/flows/summary", handler.getFlowSummary)
 	mux.HandleFunc("GET /api/flows/history", handler.getHistoryEvents)
 	mux.HandleFunc("GET /api/flows/state", handler.getFlowState)
+	mux.HandleFunc("DELETE /api/flows/channels/messages", handler.deleteChannelMessage)
 	mux.HandleFunc("GET /api/flows/wait", handler.waitForHistoryEvent)
 	mux.HandleFunc("GET /api/flows/stream", handler.readStream)
 	mux.HandleFunc("POST /api/flows/time-travel", handler.timeTravelFlow)
 	mux.HandleFunc("POST /api/flows/stop", handler.stopFlow)
 	mux.HandleFunc("POST /api/blobs/load", handler.loadBlobs)
 	mux.HandleFunc("GET /healthz", health)
+}
+
+func (h *handler) deleteChannelMessage(response http.ResponseWriter, request *http.Request) {
+	var body deleteChannelMessageRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if body.FlowID == "" || body.ChannelName == "" || body.MessageID == "" {
+		WriteError(response, http.StatusBadRequest, "flowId, channelName, and messageId are required", nil)
+		return
+	}
+	_, err := h.client.DeleteChannelMessage(request.Context(), &dexpb.DeleteChannelMessageRequest{
+		FlowId:      body.FlowID,
+		RunId:       body.RunID,
+		ChannelName: body.ChannelName,
+		MessageId:   body.MessageID,
+		RequestId:   uuid.NewString(),
+	})
+	if err != nil {
+		writeGRPCError(response, err, "DeleteChannelMessage")
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]bool{"deleted": true})
 }
 
 func (h *handler) searchFlows(response http.ResponseWriter, request *http.Request) {

@@ -124,14 +124,14 @@ impl WorkerDispatcher {
                 })
             });
             let waiting_condition = context.finalize_step_outputs(handler_result)?;
-            let (attributes, locals, events, publications) = context.take_outputs();
+            let outputs = context.take_outputs();
             Ok(InvokeWaitForMethodResponse {
                 local_activity_metadata: None,
-                upsert_attributes: attributes,
+                upsert_attributes: outputs.attributes,
                 waiting_condition,
-                upsert_step_exe_locals: locals,
-                record_events: events,
-                publish_to_channel: publications,
+                upsert_step_exe_locals: outputs.locals,
+                record_events: outputs.events,
+                publish_to_channel: outputs.publications,
             })
         })
         .await
@@ -211,14 +211,14 @@ impl WorkerDispatcher {
                 })
             });
             let decision = context.finalize_step_outputs(handler_result)?;
-            let (attributes, locals, events, publications) = context.take_outputs();
+            let outputs = context.take_outputs();
             Ok(InvokeExecuteMethodResponse {
                 local_activity_metadata: None,
                 step_decision: Some(decision),
-                upsert_attributes: attributes,
-                record_events: events,
-                upsert_step_exe_locals: locals,
-                publish_to_channel: publications,
+                upsert_attributes: outputs.attributes,
+                record_events: outputs.events,
+                upsert_step_exe_locals: outputs.locals,
+                publish_to_channel: outputs.publications,
             })
         })
         .await
@@ -271,14 +271,14 @@ impl WorkerDispatcher {
                     error,
                 )
             })?;
-            let (attributes, locals, events, publications) = context.take_outputs();
+            let outputs = context.take_outputs();
             Ok(InvokeExecuteMethodResponse {
                 local_activity_metadata: None,
                 step_decision: Some(decision),
-                upsert_attributes: attributes,
-                record_events: events,
-                upsert_step_exe_locals: locals,
-                publish_to_channel: publications,
+                upsert_attributes: outputs.attributes,
+                record_events: outputs.events,
+                upsert_step_exe_locals: outputs.locals,
+                publish_to_channel: outputs.publications,
             })
         })
         .await
@@ -338,14 +338,14 @@ impl WorkerDispatcher {
                     cancel_sibling_step_types: Vec::new(),
                 })
             };
-            let (attributes, _, events, publications) = context.take_outputs();
+            let outputs = context.take_outputs();
             Ok(InvokeWorkerRpcResponse {
                 output: Some(output),
                 step_decision: decision,
-                upsert_attributes: attributes,
-                record_events: events,
-                delete_from_channel: Vec::new(),
-                publish_to_channel: publications,
+                upsert_attributes: outputs.attributes,
+                record_events: outputs.events,
+                delete_from_channel: outputs.channel_deletions,
+                publish_to_channel: outputs.publications,
             })
         })
         .await

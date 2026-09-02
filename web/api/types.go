@@ -87,6 +87,13 @@ type flowState struct {
 	CompletedSteps         []interface{}          `json:"completedSteps"`
 }
 
+type deleteChannelMessageRequest struct {
+	FlowID      string `json:"flowId"`
+	RunID       string `json:"runId"`
+	ChannelName string `json:"channelName"`
+	MessageID   string `json:"messageId"`
+}
+
 type streamMessage struct {
 	Value       interface{} `json:"value"`
 	ResumeToken string      `json:"resumeToken"`

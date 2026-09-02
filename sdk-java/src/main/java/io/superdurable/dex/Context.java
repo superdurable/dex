@@ -284,6 +284,23 @@ public interface Context {
     <T> void publish(ChannelMap<T> channel, String instance, T value);
 
     /**
+     * Stages deletion of one pending singleton Channel message from an RPC.
+     *
+     * @param channel the registered singleton Channel
+     * @param messageId the nonblank server-assigned message ID
+     */
+    void deleteChannelMessage(Channel<?> channel, String messageId);
+
+    /**
+     * Stages deletion of one pending Channel-map message from an RPC.
+     *
+     * @param channel the registered Channel map
+     * @param instance the nonblank Channel-map instance
+     * @param messageId the nonblank server-assigned message ID
+     */
+    void deleteChannelMessage(ChannelMap<?> channel, String instance, String messageId);
+
+    /**
      * Returns the visible message count for a Channel.
      *
      * @param channel the registered Channel
