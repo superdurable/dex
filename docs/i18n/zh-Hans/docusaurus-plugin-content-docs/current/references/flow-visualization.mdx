@@ -11,16 +11,16 @@ sidebar_label: Flow 可视化
 dexcli visualize ./order_flow.go
 ```
 
-该命令会在源文件旁生成 **order_flow.flow.json**。使用 **--out** 可以选择其他输出前缀：
+该命令会打开本地的 **Flow Rendering** 页面，并持续提供图形直到按下 Ctrl+C。需要 Flow Definition Graph 文件时使用 **--json**。未指定 **--out** 时，JSON 会写入标准输出；使用 **--out** 可以选择文件前缀：
 
 ```bash
-dexcli visualize ./order_flow.py --out ./build/order-flow
+dexcli visualize ./order_flow.py --json --out ./build/order-flow
 ```
 
-使用 **--out -** 可以把 JSON 写入标准输出：
+使用 **--json** 可以把 JSON 写入标准输出：
 
 ```bash
-dexcli visualize ./order_flow.py --out -
+dexcli visualize ./order_flow.py --json
 ```
 
 ## 在 Dex Web 中渲染定义图
@@ -89,7 +89,7 @@ Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查�
 
 ## Unknown 节点和诊断
 
-不支持的动态控制流不会被静默省略。输出会包含 Unknown 节点和错误诊断。命令仍然写出部分 JSON，并以状态码 1 退出。
+不支持的动态控制流不会被静默省略。输出会包含 Unknown 节点和错误诊断。默认 renderer 仍会显示部分图。使用 **--json** 时，命令会写出部分 JSON，并以状态码 1 退出。
 
 warning 不会使图失效。例如，无法确定 value type 的 Attribute 会显示 **unknown** 并产生 warning。从起始 Step 或 RPC 都无法到达的已注册 Step 也会产生 warning。无效命令参数以状态码 2 退出。
 

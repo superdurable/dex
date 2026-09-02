@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -25,19 +26,36 @@ import (
 	"github.com/superdurable/dex/cli/internal/flowviz"
 )
 
-func TestVisualizeDefaultsToJSONNextToPythonSource(t *testing.T) {
+func TestVisualizeDefaultsToFlowRendering(t *testing.T) {
 	temporaryDirectory := t.TempDir()
 	sourcePath := filepath.Join(temporaryDirectory, "order_flow.py")
 	require.NoError(t, os.WriteFile(sourcePath, []byte(minimalPythonFlow), 0o644))
 
 	var stdout bytes.Buffer
 	app := NewApp(strings.NewReader(""), &stdout, &bytes.Buffer{})
-	require.NoError(t, app.Execute(context.Background(), []string{"visualize", sourcePath}))
-
-	jsonPath := filepath.Join(temporaryDirectory, "order_flow.flow.json")
-	require.FileExists(t, jsonPath)
-	require.NoFileExists(t, filepath.Join(temporaryDirectory, "order_flow.flow.svg"))
-	require.Contains(t, stdout.String(), jsonPath)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	app.openBrowser = func(url string) error {
+		response, err := http.Get(strings.TrimSuffix(url, "/rendering") + "/api/flow-definitions")
+		if err != nil {
+			return err
+		}
+		defer response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		var catalog struct {
+			Definitions []struct {
+				FlowName string `json:"flowName"`
+			} `json:"definitions"`
+		}
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&catalog))
+		require.Len(t, catalog.Definitions, 1)
+		require.Equal(t, "PythonFlow", catalog.Definitions[0].FlowName)
+		cancel()
+		return nil
+	}
+	require.NoError(t, app.Execute(ctx, []string{"visualize", sourcePath}))
+	require.Contains(t, stdout.String(), "Flow Rendering: http://127.0.0.1:")
+	require.NoFileExists(t, filepath.Join(temporaryDirectory, "order_flow.flow.json"))
 }
 
 func TestVisualizeCanWriteJSONToStdout(t *testing.T) {
@@ -50,13 +68,20 @@ func TestVisualizeCanWriteJSONToStdout(t *testing.T) {
 
 	var stdout bytes.Buffer
 	app := NewApp(strings.NewReader(""), &stdout, &bytes.Buffer{})
-	require.NoError(t, app.Execute(context.Background(), []string{"visualize", relativeSourcePath, "--out", "-"}))
+	require.NoError(t, app.Execute(context.Background(), []string{"visualize", relativeSourcePath, "--json"}))
 
 	var graph flowviz.Graph
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &graph))
 	require.True(t, graph.Valid)
 	require.Equal(t, "PythonFlow", graph.Flow.Name)
 	require.Equal(t, filepath.ToSlash(relativeSourcePath), graph.Source.Path)
+}
+
+func TestVisualizeRejectsJSONOutputPathWithoutJSONFlag(t *testing.T) {
+	app := NewApp(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	err := app.Execute(context.Background(), []string{"visualize", "flow.py", "--out", "flow"})
+	require.Error(t, err)
+	require.Equal(t, 2, ExitCode(err))
 }
 
 func TestVisualizeRejectsRemovedFormatFlag(t *testing.T) {
@@ -81,7 +106,7 @@ func TestVisualizeGoAndPythonRecoveryPolicies(t *testing.T) {
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 			app := NewApp(strings.NewReader(""), &stdout, &stderr)
-			executeErr := app.Execute(context.Background(), []string{"visualize", test.source, "--out", outputPrefix})
+			executeErr := app.Execute(context.Background(), []string{"visualize", test.source, "--json", "--out", outputPrefix})
 			if executeErr != nil {
 				partial, readErr := os.ReadFile(outputPrefix + ".json")
 				if readErr == nil {
@@ -113,7 +138,7 @@ func TestVisualizeDynamicPythonTargetWritesPartialArtifacts(t *testing.T) {
 	outputPrefix := filepath.Join(t.TempDir(), "dynamic")
 
 	app := NewApp(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
-	err := app.Execute(context.Background(), []string{"visualize", sourcePath, "--out", outputPrefix})
+	err := app.Execute(context.Background(), []string{"visualize", sourcePath, "--json", "--out", outputPrefix})
 	require.Error(t, err)
 	require.Equal(t, 1, ExitCode(err))
 	require.FileExists(t, outputPrefix+".json")
@@ -544,7 +569,7 @@ func TestVisualizeMissingPythonWritesDiagnosticArtifact(t *testing.T) {
 	outputPrefix := filepath.Join(t.TempDir(), "missing-python")
 	app := NewApp(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 
-	err := app.Execute(context.Background(), []string{"visualize", sourcePath, "--python", filepath.Join(t.TempDir(), "python-does-not-exist"), "--out", outputPrefix})
+	err := app.Execute(context.Background(), []string{"visualize", sourcePath, "--python", filepath.Join(t.TempDir(), "python-does-not-exist"), "--json", "--out", outputPrefix})
 	require.Error(t, err)
 	data, readErr := os.ReadFile(outputPrefix + ".json")
 	require.NoError(t, readErr)

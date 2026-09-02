@@ -61,7 +61,7 @@ func printUsage(output *os.File) {
 	fmt.Fprintln(output, "Commands:")
 	fmt.Fprintln(output, "  dev       Start a local Dex development environment")
 	fmt.Fprintln(output, "  health    Check Dex FlowService health")
-	fmt.Fprintln(output, "  visualize Generate a static Flow graph from Go or Python source")
+	fmt.Fprintln(output, "  visualize Render a static Flow graph from Go or Python source")
 	fmt.Fprintln(output, "  flow      Search, inspect, watch, stop, or reset Flows")
 	fmt.Fprintln(output, "  api       List, describe, or call FlowService RPCs")
 	fmt.Fprintln(output, "  version   Print version information")

@@ -15,7 +15,7 @@ GOWORK=off go -C cli build -trimpath -o dexcli ./cmd/dexcli
 generate_flow_definition() {
   local source_path="$1"
   local output_path="$2"
-  ./cli/dexcli visualize "${source_path}" "${python_arguments[@]}" --out "docs/src/data/flow-definitions/${output_path}"
+  ./cli/dexcli visualize "${source_path}" "${python_arguments[@]}" --json --out "docs/src/data/flow-definitions/${output_path}"
 }
 
 generate_flow_definition examples/python/dex_examples/products/ai-agent/ai_agent_flow.py ai-agent

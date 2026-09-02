@@ -149,19 +149,22 @@ Pass `--no-hydrate` to retain their references.
 
 ## Visualize Flow source
 
-Generate a static possible-path graph from one Go or Python Flow source file:
+Render a static possible-path graph from one Go or Python Flow source file in
+your local browser:
 
 ```bash
 dexcli visualize ./order_flow.go
 ```
 
-The default writes `order_flow.flow.json` next to the source. The JSON is the
-versioned Flow Definition Graph consumed by Dex Web and other tools. Choose
-another prefix or write the graph to stdout:
+The command starts a local Flow Rendering page, opens it in your default
+browser, and keeps serving the graph until you press Ctrl+C. Use **--json**
+when you need the versioned Flow Definition Graph for Dex Web or another tool.
+Without **--out**, **--json** writes the graph to stdout. Choose another prefix
+with **--out**:
 
 ```bash
-dexcli visualize ./order_flow.py --out -
-dexcli visualize ./order_flow.go --out ./build/order-flow
+dexcli visualize ./order_flow.py --json
+dexcli visualize ./order_flow.go --json --out ./build/order-flow
 dexcli dev --flow-rendering-dir ./build
 ```
 
@@ -190,12 +193,13 @@ synchronous Step generators and asynchronous Step handlers are both recognized.
 Heartbeat checkpoints are runtime details and are omitted. Step Stream progress
 from an RPC or Flow timeout handler produces a blocking diagnostic. Business
 helpers may remain in other files, but they must not hide Dex control flow.
-Dynamic targets produce an Unknown node and a blocking diagnostic. A partial
-JSON artifact is still written, and the command exits with status 1.
+Dynamic targets produce an Unknown node and a blocking diagnostic. The default
+renderer still shows the partial graph. With **--json**, a partial JSON artifact
+is written, and the command exits with status 1.
 
 ```text
-dexcli visualize SOURCE [--language auto|go|python]
-                         [--out PATH_PREFIX|-]
+dexcli visualize SOURCE [--language auto|go|python] [--open=true|false]
+                         [--json [--out PATH_PREFIX|-]]
                          [--python PYTHON_PATH]
 ```
 

@@ -35,7 +35,7 @@ dexcli dev --flow-rendering-dir ./build/flow-definitions
 ```
 
 Dex scans JSON files recursively and takes a snapshot at startup. Generate them
-with `dexcli visualize SOURCE --out ./build/flow-definitions/name` and restart
+with `dexcli visualize SOURCE --json --out ./build/flow-definitions/name` and restart
 Dex after changing the files. Invalid JSON, unsupported schema versions, or a
 non-directory path stop startup with an error.
 

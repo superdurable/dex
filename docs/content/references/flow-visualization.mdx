@@ -11,16 +11,16 @@ sidebar_label: Flow visualization
 dexcli visualize ./order_flow.go
 ```
 
-This creates **order_flow.flow.json** next to the source file. Use **--out** to choose a different prefix:
+This opens the local **Flow Rendering** page and keeps it available until you press Ctrl+C. Use **--json** when you need a Flow Definition Graph artifact. Without **--out**, it writes JSON to stdout. Use **--out** to choose a file prefix:
 
 ```bash
-dexcli visualize ./order_flow.py --out ./build/order-flow
+dexcli visualize ./order_flow.py --json --out ./build/order-flow
 ```
 
-Use **--out -** to write the JSON to stdout:
+Use **--json** to write the JSON to stdout:
 
 ```bash
-dexcli visualize ./order_flow.py --out -
+dexcli visualize ./order_flow.py --json
 ```
 
 ## Render definitions in Dex Web
@@ -89,7 +89,7 @@ Version 1 does not support multiple Flows in one file, reflection, dynamic class
 
 ## Unknown nodes and diagnostics
 
-Unsupported dynamic control flow is never omitted silently. The output contains an Unknown node and an error diagnostic. A partial JSON artifact is still written, and the command exits with status 1.
+Unsupported dynamic control flow is never omitted silently. The output contains an Unknown node and an error diagnostic. The default renderer still shows the partial graph. With **--json**, a partial JSON artifact is written, and the command exits with status 1.
 
 Warnings do not invalidate the graph. For example, an Attribute whose value type cannot be determined uses **unknown** and produces a warning. A registered Step that cannot be reached from the start Step or an RPC also produces a warning. Invalid command arguments exit with status 2.
 
