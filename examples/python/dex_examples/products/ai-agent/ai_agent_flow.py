@@ -503,7 +503,11 @@ class AwaitToolApproval(Step[None]):
             call,
             ToolExecutionResult('{"status":"rejected_by_user"}', True),
         )
-        return self.flow.advance_tool(context)
+        if self.flow.has_next_tool_call(context):
+            self.flow.advance_tool(context)
+            return go_to(RouteTool, None)
+        self.flow.clear_pending_tool_calls(context)
+        return go_to(CompactContext, None)
 
 
 class ExecuteTool(Step[None]):
@@ -561,7 +565,11 @@ class ExecuteTool(Step[None]):
             context,
             AgentEvent("tool_result", result.content, call.id, call.name),
         )
-        return self.flow.advance_tool(context)
+        if self.flow.has_next_tool_call(context):
+            self.flow.advance_tool(context)
+            return go_to(RouteTool, None)
+        self.flow.clear_pending_tool_calls(context)
+        return go_to(CompactContext, None)
 
 
 class DurableWait(Step[None]):
@@ -862,17 +870,23 @@ class AIAgentFlow(Flow[AgentConfig]):
                 ),
             )
 
-    def advance_tool(self, context: Context) -> StepDecision:
+    def has_next_tool_call(self, context: Context) -> bool:
         state = self.state.get(context)
-        next_index = state.pending_tool_index + 1
-        if next_index < len(state.pending_tool_calls):
-            self.state.set(context, replace(state, pending_tool_index=next_index))
-            return go_to(RouteTool, None)
+        return state.pending_tool_index + 1 < len(state.pending_tool_calls)
+
+    def advance_tool(self, context: Context) -> None:
+        state = self.state.get(context)
+        self.state.set(
+            context,
+            replace(state, pending_tool_index=state.pending_tool_index + 1),
+        )
+
+    def clear_pending_tool_calls(self, context: Context) -> None:
+        state = self.state.get(context)
         self.state.set(
             context,
             replace(state, pending_tool_calls=[], pending_tool_index=0),
         )
-        return go_to(CompactContext, None)
 
     def current_tool_call(self, context: Context) -> ToolCall:
         state = self.state.get(context)

@@ -1,0 +1,2237 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/products/ai-agent/ai_agent_flow.py"
+  },
+  "flow": {
+    "name": "AIAgentFlow",
+    "startStepId": "step:Init",
+    "span": {
+      "startLine": 628,
+      "startColumn": 1,
+      "endLine": 1218,
+      "endColumn": 10
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:rpc:approve_tool",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:approve_tool",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1072,
+        "startColumn": 5,
+        "endLine": 1088,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "decision-dispatch:rpc:describe",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:describe",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1143,
+        "startColumn": 5,
+        "endLine": 1218,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "decision-dispatch:rpc:execute_plan",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:execute_plan",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1091,
+        "startColumn": 5,
+        "endLine": 1119,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "decision-dispatch:rpc:history",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:history",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1122,
+        "startColumn": 5,
+        "endLine": 1140,
+        "endColumn": 61
+      }
+    },
+    {
+      "id": "decision-dispatch:rpc:send_message",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:send_message",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1055,
+        "startColumn": 5,
+        "endLine": 1069,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "decision-dispatch:step:AwaitToolApproval",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:AwaitToolApproval",
+      "phase": "execute",
+      "span": {
+        "startLine": 493,
+        "startColumn": 5,
+        "endLine": 510,
+        "endColumn": 43
+      }
+    },
+    {
+      "id": "decision-dispatch:step:AwaitUser",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:AwaitUser",
+      "phase": "execute",
+      "span": {
+        "startLine": 137,
+        "startColumn": 5,
+        "endLine": 175,
+        "endColumn": 43
+      }
+    },
+    {
+      "id": "decision-dispatch:step:CallModel",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:CallModel",
+      "phase": "execute",
+      "span": {
+        "startLine": 252,
+        "startColumn": 5,
+        "endLine": 327,
+        "endColumn": 38
+      }
+    },
+    {
+      "id": "decision-dispatch:step:CompactContext",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:CompactContext",
+      "phase": "execute",
+      "span": {
+        "startLine": 185,
+        "startColumn": 5,
+        "endLine": 242,
+        "endColumn": 38
+      }
+    },
+    {
+      "id": "decision-dispatch:step:ExecuteTool",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:ExecuteTool",
+      "phase": "execute",
+      "span": {
+        "startLine": 520,
+        "startColumn": 5,
+        "endLine": 572,
+        "endColumn": 43
+      }
+    },
+    {
+      "id": "decision-dispatch:step:RouteTool",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:RouteTool",
+      "phase": "execute",
+      "span": {
+        "startLine": 334,
+        "startColumn": 5,
+        "endLine": 481,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "decision:rpc:approve_tool:1080:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:approve_tool",
+      "condition": "exception",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1080,
+        "startColumn": 20,
+        "endLine": 1080,
+        "endColumn": 36
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:approve_tool:1082:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:approve_tool",
+      "condition": "pending.call_id != input.call_id",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1082,
+        "startColumn": 20,
+        "endLine": 1082,
+        "endColumn": 36
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:approve_tool:1088:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:approve_tool",
+      "condition": "not (pending.call_id != input.call_id)",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1088,
+        "startColumn": 16,
+        "endLine": 1088,
+        "endColumn": 31
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:describe:1147:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:describe",
+      "condition": "state is None or config is None",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1147,
+        "startColumn": 20,
+        "endLine": 1173,
+        "endColumn": 14
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:describe:1178:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:describe",
+      "condition": "not (state is None or config is None)",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1178,
+        "startColumn": 16,
+        "endLine": 1218,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:execute_plan:1109:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:execute_plan",
+      "condition": "state is None or plan is None or state.status != STATUS_WAITING or (state.pending_plan_execution_revision is not None) or (state.pending_user_message_count \u003e 0) or (_optional_attribute(self.pending_user_input, context) is not None) or (self.user_messages.size(context) \u003e 0) or (plan.revision != input.revision) or (plan.status not in {PLAN_DRAFT, PLAN_ACTIVE})",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1109,
+        "startColumn": 20,
+        "endLine": 1109,
+        "endColumn": 36
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:execute_plan:1119:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:execute_plan",
+      "condition": "not (state is None or plan is None or state.status != STATUS_WAITING or (state.pending_plan_execution_revision is not None) or (state.pending_user_message_count \u003e 0) or (_optional_attribute(self.pending_user_input, context) is not None) or (self.user_messages.size(context) \u003e 0) or (plan.revision != input.revision) or (plan.status not in {PLAN_DRAFT, PLAN_ACTIVE}))",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1119,
+        "startColumn": 16,
+        "endLine": 1119,
+        "endColumn": 31
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:history:1125:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:history",
+      "condition": "state is None",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1125,
+        "startColumn": 20,
+        "endLine": 1125,
+        "endColumn": 52
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:history:1140:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:history",
+      "condition": "not (state is None)",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1140,
+        "startColumn": 16,
+        "endLine": 1140,
+        "endColumn": 61
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:send_message:1057:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:send_message",
+      "condition": "not input.content.strip()",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1057,
+        "startColumn": 20,
+        "endLine": 1057,
+        "endColumn": 36
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:send_message:1069:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:send_message",
+      "condition": "not (not input.content.strip())",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1069,
+        "startColumn": 16,
+        "endLine": 1069,
+        "endColumn": 31
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:AwaitToolApproval:500:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitToolApproval",
+      "condition": "approvals[0].approved",
+      "phase": "execute",
+      "span": {
+        "startLine": 500,
+        "startColumn": 20,
+        "endLine": 500,
+        "endColumn": 44
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitToolApproval:508:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitToolApproval",
+      "condition": "not (approvals[0].approved) and self.flow.has_next_tool_call(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 508,
+        "startColumn": 20,
+        "endLine": 508,
+        "endColumn": 42
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitToolApproval:510:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitToolApproval",
+      "condition": "not (approvals[0].approved) and not (self.flow.has_next_tool_call(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 510,
+        "startColumn": 16,
+        "endLine": 510,
+        "endColumn": 43
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitUser:141:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitUser",
+      "condition": "messages",
+      "phase": "execute",
+      "span": {
+        "startLine": 141,
+        "startColumn": 20,
+        "endLine": 141,
+        "endColumn": 47
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitUser:157:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitUser",
+      "condition": "not (messages) and not executions or executions[0].revision != plan.revision or state.pending_plan_execution_revision != plan.revision",
+      "phase": "execute",
+      "span": {
+        "startLine": 157,
+        "startColumn": 20,
+        "endLine": 157,
+        "endColumn": 42
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitUser:175:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitUser",
+      "condition": "not (messages) and not (not executions or executions[0].revision != plan.revision or state.pending_plan_execution_revision != plan.revision)",
+      "phase": "execute",
+      "span": {
+        "startLine": 175,
+        "startColumn": 16,
+        "endLine": 175,
+        "endColumn": 43
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CallModel:317:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CallModel",
+      "condition": "not reply.tool_calls",
+      "phase": "execute",
+      "span": {
+        "startLine": 317,
+        "startColumn": 20,
+        "endLine": 317,
+        "endColumn": 42
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CallModel:327:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CallModel",
+      "condition": "not (not reply.tool_calls)",
+      "phase": "execute",
+      "span": {
+        "startLine": 327,
+        "startColumn": 16,
+        "endLine": 327,
+        "endColumn": 38
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CompactContext:206:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CompactContext",
+      "condition": "token_count \u003c int(config.max_context_tokens * config.compaction_trigger_fraction) and (not has_retention_pressure)",
+      "phase": "execute",
+      "span": {
+        "startLine": 206,
+        "startColumn": 20,
+        "endLine": 206,
+        "endColumn": 42
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CompactContext:210:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CompactContext",
+      "condition": "not (token_count \u003c int(config.max_context_tokens * config.compaction_trigger_fraction) and (not has_retention_pressure)) and cutoff \u003c= state.summarized_through_sequence",
+      "phase": "execute",
+      "span": {
+        "startLine": 210,
+        "startColumn": 20,
+        "endLine": 210,
+        "endColumn": 42
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CompactContext:242:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CompactContext",
+      "condition": "not (token_count \u003c int(config.max_context_tokens * config.compaction_trigger_fraction) and (not has_retention_pressure)) and not (cutoff \u003c= state.summarized_through_sequence)",
+      "phase": "execute",
+      "span": {
+        "startLine": 242,
+        "startColumn": 16,
+        "endLine": 242,
+        "endColumn": 38
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:DurableWait:609:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:DurableWait",
+      "condition": "user_messages",
+      "phase": "execute",
+      "span": {
+        "startLine": 609,
+        "startColumn": 20,
+        "endLine": 609,
+        "endColumn": 47
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ExecuteTool:570:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ExecuteTool",
+      "condition": "self.flow.has_next_tool_call(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 570,
+        "startColumn": 20,
+        "endLine": 570,
+        "endColumn": 42
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ExecuteTool:572:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ExecuteTool",
+      "condition": "not (self.flow.has_next_tool_call(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 572,
+        "startColumn": 16,
+        "endLine": 572,
+        "endColumn": 43
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Init:117:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Init",
+      "phase": "execute",
+      "span": {
+        "startLine": 117,
+        "startColumn": 16,
+        "endLine": 117,
+        "endColumn": 38
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:425:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "call.name == 'durable_wait'",
+      "phase": "execute",
+      "span": {
+        "startLine": 425,
+        "startColumn": 20,
+        "endLine": 425,
+        "endColumn": 44
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:473:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "not (call.name == 'durable_wait') and call.name == 'request_user_input'",
+      "phase": "execute",
+      "span": {
+        "startLine": 473,
+        "startColumn": 20,
+        "endLine": 473,
+        "endColumn": 42
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:480:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "not (call.name == 'durable_wait') and not (call.name == 'request_user_input') and definition.requires_approval",
+      "phase": "execute",
+      "span": {
+        "startLine": 480,
+        "startColumn": 20,
+        "endLine": 480,
+        "endColumn": 50
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RouteTool:481:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RouteTool",
+      "condition": "not (call.name == 'durable_wait') and not (call.name == 'request_user_input') and not (definition.requires_approval)",
+      "phase": "execute",
+      "span": {
+        "startLine": 481,
+        "startColumn": 16,
+        "endLine": 481,
+        "endColumn": 40
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:attribute:AIAgentFlow.config",
+      "kind": "attribute",
+      "name": "AgentConfig",
+      "span": {
+        "startLine": 629,
+        "startColumn": 5,
+        "endLine": 629,
+        "endColumn": 51
+      },
+      "resource": {
+        "valueType": "AgentConfig"
+      }
+    },
+    {
+      "id": "resource:attribute:AIAgentFlow.messages",
+      "kind": "attribute",
+      "name": "AgentMessages",
+      "span": {
+        "startLine": 632,
+        "startColumn": 5,
+        "endLine": 632,
+        "endColumn": 59
+      },
+      "resource": {
+        "valueType": "AgentMessage",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:attribute:AIAgentFlow.pending_approval",
+      "kind": "attribute",
+      "name": "PendingApproval",
+      "span": {
+        "startLine": 634,
+        "startColumn": 5,
+        "endLine": 634,
+        "endColumn": 69
+      },
+      "resource": {
+        "valueType": "PendingApproval"
+      }
+    },
+    {
+      "id": "resource:attribute:AIAgentFlow.pending_timer",
+      "kind": "attribute",
+      "name": "PendingTimer",
+      "span": {
+        "startLine": 635,
+        "startColumn": 5,
+        "endLine": 635,
+        "endColumn": 60
+      },
+      "resource": {
+        "valueType": "PendingTimer"
+      }
+    },
+    {
+      "id": "resource:attribute:AIAgentFlow.pending_user_input",
+      "kind": "attribute",
+      "name": "PendingUserInput",
+      "span": {
+        "startLine": 636,
+        "startColumn": 5,
+        "endLine": 636,
+        "endColumn": 73
+      },
+      "resource": {
+        "valueType": "PendingUserInput"
+      }
+    },
+    {
+      "id": "resource:attribute:AIAgentFlow.plan",
+      "kind": "attribute",
+      "name": "AgentPlan",
+      "span": {
+        "startLine": 633,
+        "startColumn": 5,
+        "endLine": 633,
+        "endColumn": 45
+      },
+      "resource": {
+        "valueType": "AgentPlan"
+      }
+    },
+    {
+      "id": "resource:attribute:AIAgentFlow.state",
+      "kind": "attribute",
+      "name": "AgentState",
+      "span": {
+        "startLine": 630,
+        "startColumn": 5,
+        "endLine": 630,
+        "endColumn": 48
+      },
+      "resource": {
+        "valueType": "AgentState"
+      }
+    },
+    {
+      "id": "resource:attribute:AIAgentFlow.summary",
+      "kind": "attribute",
+      "name": "ContextSummary",
+      "span": {
+        "startLine": 631,
+        "startColumn": 5,
+        "endLine": 631,
+        "endColumn": 58
+      },
+      "resource": {
+        "valueType": "ContextSummary"
+      }
+    },
+    {
+      "id": "resource:channel:AIAgentFlow.plan_executions",
+      "kind": "channel",
+      "name": "PlanExecutions",
+      "span": {
+        "startLine": 639,
+        "startColumn": 5,
+        "endLine": 639,
+        "endColumn": 73
+      },
+      "resource": {
+        "valueType": "PlanExecutionRequest",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:channel:AIAgentFlow.tool_approvals",
+      "kind": "channel",
+      "name": "ToolApprovals",
+      "span": {
+        "startLine": 638,
+        "startColumn": 5,
+        "endLine": 638,
+        "endColumn": 63
+      },
+      "resource": {
+        "valueType": "ToolApproval",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:channel:AIAgentFlow.user_messages",
+      "kind": "channel",
+      "name": "UserMessages",
+      "span": {
+        "startLine": 637,
+        "startColumn": 5,
+        "endLine": 637,
+        "endColumn": 57
+      },
+      "resource": {
+        "valueType": "UserMessage"
+      }
+    },
+    {
+      "id": "resource:stream:AIAgentFlow.agent_activity",
+      "kind": "stream",
+      "name": "AgentActivity",
+      "span": {
+        "startLine": 642,
+        "startColumn": 5,
+        "endLine": 642,
+        "endColumn": 75
+      },
+      "resource": {
+        "valueType": "AgentEvent"
+      }
+    },
+    {
+      "id": "resource:stream:AIAgentFlow.assistant_text",
+      "kind": "stream",
+      "name": "AssistantText",
+      "span": {
+        "startLine": 641,
+        "startColumn": 5,
+        "endLine": 641,
+        "endColumn": 68
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:stream:AIAgentFlow.reasoning_summary",
+      "kind": "stream",
+      "name": "ReasoningSummary",
+      "span": {
+        "startLine": 640,
+        "startColumn": 5,
+        "endLine": 640,
+        "endColumn": 74
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "rpc:approve_tool",
+      "kind": "rpc",
+      "name": "approve_tool",
+      "span": {
+        "startLine": 1072,
+        "startColumn": 5,
+        "endLine": 1088,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "rpc:describe",
+      "kind": "rpc",
+      "name": "describe",
+      "span": {
+        "startLine": 1143,
+        "startColumn": 5,
+        "endLine": 1218,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "rpc:execute_plan",
+      "kind": "rpc",
+      "name": "execute_plan",
+      "span": {
+        "startLine": 1091,
+        "startColumn": 5,
+        "endLine": 1119,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "rpc:history",
+      "kind": "rpc",
+      "name": "history",
+      "span": {
+        "startLine": 1122,
+        "startColumn": 5,
+        "endLine": 1140,
+        "endColumn": 61
+      }
+    },
+    {
+      "id": "rpc:send_message",
+      "kind": "rpc",
+      "name": "send_message",
+      "span": {
+        "startLine": 1055,
+        "startColumn": 5,
+        "endLine": 1069,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "step:AwaitToolApproval",
+      "kind": "step",
+      "name": "AwaitToolApproval",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 666,
+        "startColumn": 13,
+        "endLine": 666,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "step:AwaitUser",
+      "kind": "step",
+      "name": "AwaitUser",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 662,
+        "startColumn": 13,
+        "endLine": 662,
+        "endColumn": 28
+      }
+    },
+    {
+      "id": "step:CallModel",
+      "kind": "step",
+      "name": "CallModel",
+      "phase": "execute",
+      "span": {
+        "startLine": 664,
+        "startColumn": 13,
+        "endLine": 664,
+        "endColumn": 28
+      }
+    },
+    {
+      "id": "step:CompactContext",
+      "kind": "step",
+      "name": "CompactContext",
+      "phase": "execute",
+      "span": {
+        "startLine": 663,
+        "startColumn": 13,
+        "endLine": 663,
+        "endColumn": 33
+      }
+    },
+    {
+      "id": "step:DurableWait",
+      "kind": "step",
+      "name": "DurableWait",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 668,
+        "startColumn": 13,
+        "endLine": 668,
+        "endColumn": 30
+      }
+    },
+    {
+      "id": "step:ExecuteTool",
+      "kind": "step",
+      "name": "ExecuteTool",
+      "phase": "execute",
+      "span": {
+        "startLine": 667,
+        "startColumn": 13,
+        "endLine": 667,
+        "endColumn": 30
+      }
+    },
+    {
+      "id": "step:Init",
+      "kind": "step",
+      "name": "Init",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 661,
+        "startColumn": 36,
+        "endLine": 661,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "step:RouteTool",
+      "kind": "step",
+      "name": "RouteTool",
+      "phase": "execute",
+      "span": {
+        "startLine": 665,
+        "startColumn": 13,
+        "endLine": 665,
+        "endColumn": 28
+      }
+    },
+    {
+      "id": "wait-dispatch:AwaitUser",
+      "kind": "wait_dispatch",
+      "name": "WaitFor",
+      "parentId": "step:AwaitUser",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 124,
+        "startColumn": 5,
+        "endLine": 135,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "wait:AwaitToolApproval:491:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:AwaitToolApproval",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 491,
+        "startColumn": 16,
+        "endLine": 491,
+        "endColumn": 69
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "ToolApprovals[call.id].for 1",
+            "resourceId": "resource:channel:AIAgentFlow.tool_approvals",
+            "expression": "call.id",
+            "span": {
+              "startLine": 491,
+              "startColumn": 27,
+              "endLine": 491,
+              "endColumn": 68
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:AwaitUser:128:20:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:AwaitUser",
+      "condition": "plan is None or plan.status == PLAN_COMPLETED",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 128,
+        "startColumn": 20,
+        "endLine": 128,
+        "endColumn": 65
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "UserMessages.for 1",
+            "resourceId": "resource:channel:AIAgentFlow.user_messages",
+            "span": {
+              "startLine": 128,
+              "startColumn": 31,
+              "endLine": 128,
+              "endColumn": 64
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:AwaitUser:129:16:1",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:AwaitUser",
+      "condition": "not (plan is None or plan.status == PLAN_COMPLETED)",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 129,
+        "startColumn": 16,
+        "endLine": 135,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "UserMessages.for 1",
+            "resourceId": "resource:channel:AIAgentFlow.user_messages",
+            "expression": "condition_id='user-message'",
+            "span": {
+              "startLine": 130,
+              "startColumn": 13,
+              "endLine": 130,
+              "endColumn": 73
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "PlanExecutions[str(plan.revision)].for 1",
+            "resourceId": "resource:channel:AIAgentFlow.plan_executions",
+            "expression": "str(plan.revision), condition_id='plan-execution'",
+            "span": {
+              "startLine": 131,
+              "startColumn": 13,
+              "endLine": 134,
+              "endColumn": 14
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:DurableWait:582:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:DurableWait",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 582,
+        "startColumn": 16,
+        "endLine": 588,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "timedelta(seconds=timer.duration_seconds) timer",
+            "expression": "timedelta(seconds=timer.duration_seconds)",
+            "span": {
+              "startLine": 583,
+              "startColumn": 13,
+              "endLine": 586,
+              "endColumn": 14
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "UserMessages.for 1",
+            "resourceId": "resource:channel:AIAgentFlow.user_messages",
+            "expression": "condition_id='durable-wait-user'",
+            "span": {
+              "startLine": 587,
+              "startColumn": 13,
+              "endLine": 587,
+              "endColumn": 78
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:AwaitToolApproval:500:20",
+      "to": "step:ExecuteTool",
+      "label": "go_to",
+      "span": {
+        "startLine": 500,
+        "startColumn": 20,
+        "endLine": 500,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:AwaitToolApproval:508:20",
+      "to": "step:RouteTool",
+      "label": "go_to",
+      "span": {
+        "startLine": 508,
+        "startColumn": 20,
+        "endLine": 508,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:AwaitToolApproval:510:16",
+      "to": "step:CompactContext",
+      "label": "go_to",
+      "span": {
+        "startLine": 510,
+        "startColumn": 16,
+        "endLine": 510,
+        "endColumn": 43
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:AwaitUser:141:20",
+      "to": "step:CompactContext",
+      "label": "go_to",
+      "span": {
+        "startLine": 141,
+        "startColumn": 20,
+        "endLine": 141,
+        "endColumn": 47
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:AwaitUser:157:20",
+      "to": "step:AwaitUser",
+      "label": "go_to",
+      "span": {
+        "startLine": 157,
+        "startColumn": 20,
+        "endLine": 157,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "decision:step:AwaitUser:175:16",
+      "to": "step:CompactContext",
+      "label": "go_to",
+      "span": {
+        "startLine": 175,
+        "startColumn": 16,
+        "endLine": 175,
+        "endColumn": 43
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "transition",
+      "from": "decision:step:CallModel:317:20",
+      "to": "step:AwaitUser",
+      "label": "go_to",
+      "span": {
+        "startLine": 317,
+        "startColumn": 20,
+        "endLine": 317,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "transition",
+      "from": "decision:step:CallModel:327:16",
+      "to": "step:RouteTool",
+      "label": "go_to",
+      "span": {
+        "startLine": 327,
+        "startColumn": 16,
+        "endLine": 327,
+        "endColumn": 38
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "transition",
+      "from": "decision:step:CompactContext:206:20",
+      "to": "step:CallModel",
+      "label": "go_to",
+      "span": {
+        "startLine": 206,
+        "startColumn": 20,
+        "endLine": 206,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "transition",
+      "from": "decision:step:CompactContext:210:20",
+      "to": "step:CallModel",
+      "label": "go_to",
+      "span": {
+        "startLine": 210,
+        "startColumn": 20,
+        "endLine": 210,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "transition",
+      "from": "decision:step:CompactContext:242:16",
+      "to": "step:CallModel",
+      "label": "go_to",
+      "span": {
+        "startLine": 242,
+        "startColumn": 16,
+        "endLine": 242,
+        "endColumn": 38
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "transition",
+      "from": "decision:step:DurableWait:609:20",
+      "to": "step:CompactContext",
+      "label": "go_to",
+      "span": {
+        "startLine": 609,
+        "startColumn": 20,
+        "endLine": 609,
+        "endColumn": 47
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "transition",
+      "from": "decision:step:ExecuteTool:570:20",
+      "to": "step:RouteTool",
+      "label": "go_to",
+      "span": {
+        "startLine": 570,
+        "startColumn": 20,
+        "endLine": 570,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "transition",
+      "from": "decision:step:ExecuteTool:572:16",
+      "to": "step:CompactContext",
+      "label": "go_to",
+      "span": {
+        "startLine": 572,
+        "startColumn": 16,
+        "endLine": 572,
+        "endColumn": 43
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "transition",
+      "from": "decision:step:Init:117:16",
+      "to": "step:AwaitUser",
+      "label": "go_to",
+      "span": {
+        "startLine": 117,
+        "startColumn": 16,
+        "endLine": 117,
+        "endColumn": 38
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:425:20",
+      "to": "step:DurableWait",
+      "label": "go_to",
+      "span": {
+        "startLine": 425,
+        "startColumn": 20,
+        "endLine": 425,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "edge:0017",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:473:20",
+      "to": "step:AwaitUser",
+      "label": "go_to",
+      "span": {
+        "startLine": 473,
+        "startColumn": 20,
+        "endLine": 473,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0018",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:480:20",
+      "to": "step:AwaitToolApproval",
+      "label": "go_to",
+      "span": {
+        "startLine": 480,
+        "startColumn": 20,
+        "endLine": 480,
+        "endColumn": 50
+      }
+    },
+    {
+      "id": "edge:0019",
+      "kind": "transition",
+      "from": "decision:step:RouteTool:481:16",
+      "to": "step:ExecuteTool",
+      "label": "go_to",
+      "span": {
+        "startLine": 481,
+        "startColumn": 16,
+        "endLine": 481,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "edge:0020",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.config",
+      "to": "rpc:describe",
+      "label": "get",
+      "span": {
+        "startLine": 1145,
+        "startColumn": 18,
+        "endLine": 1145,
+        "endColumn": 42
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0021",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.config",
+      "to": "step:CallModel",
+      "label": "get",
+      "span": {
+        "startLine": 258,
+        "startColumn": 18,
+        "endLine": 258,
+        "endColumn": 47
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0022",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.config",
+      "to": "step:CompactContext",
+      "label": "get",
+      "span": {
+        "startLine": 191,
+        "startColumn": 18,
+        "endLine": 191,
+        "endColumn": 47
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0023",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.config",
+      "to": "step:ExecuteTool",
+      "label": "get",
+      "span": {
+        "startLine": 527,
+        "startColumn": 18,
+        "endLine": 527,
+        "endColumn": 47
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0024",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.config",
+      "to": "step:RouteTool",
+      "label": "get",
+      "span": {
+        "startLine": 337,
+        "startColumn": 18,
+        "endLine": 337,
+        "endColumn": 47
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0025",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.messages",
+      "to": "rpc:history",
+      "label": "get",
+      "span": {
+        "startLine": 1135,
+        "startColumn": 17,
+        "endLine": 1135,
+        "endColumn": 68
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0026",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.pending_approval",
+      "to": "rpc:approve_tool",
+      "label": "get",
+      "span": {
+        "startLine": 1078,
+        "startColumn": 23,
+        "endLine": 1078,
+        "endColumn": 57
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0027",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.pending_timer",
+      "to": "step:DurableWait",
+      "label": "get",
+      "span": {
+        "startLine": 592,
+        "startColumn": 17,
+        "endLine": 592,
+        "endColumn": 53
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0028",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.pending_timer",
+      "to": "step:DurableWait",
+      "label": "get",
+      "span": {
+        "startLine": 580,
+        "startColumn": 17,
+        "endLine": 580,
+        "endColumn": 53
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0029",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.state",
+      "to": "rpc:describe",
+      "label": "get",
+      "span": {
+        "startLine": 1144,
+        "startColumn": 17,
+        "endLine": 1144,
+        "endColumn": 40
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0030",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.state",
+      "to": "rpc:execute_plan",
+      "label": "get",
+      "span": {
+        "startLine": 1096,
+        "startColumn": 17,
+        "endLine": 1096,
+        "endColumn": 40
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0031",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.state",
+      "to": "rpc:history",
+      "label": "get",
+      "span": {
+        "startLine": 1123,
+        "startColumn": 17,
+        "endLine": 1123,
+        "endColumn": 40
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0032",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.state",
+      "to": "rpc:send_message",
+      "label": "get",
+      "span": {
+        "startLine": 1058,
+        "startColumn": 17,
+        "endLine": 1058,
+        "endColumn": 40
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0033",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.state",
+      "to": "step:AwaitUser",
+      "label": "get",
+      "span": {
+        "startLine": 147,
+        "startColumn": 17,
+        "endLine": 147,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0034",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.state",
+      "to": "step:CallModel",
+      "label": "get",
+      "span": {
+        "startLine": 259,
+        "startColumn": 17,
+        "endLine": 259,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0035",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.state",
+      "to": "step:CompactContext",
+      "label": "get",
+      "span": {
+        "startLine": 192,
+        "startColumn": 17,
+        "endLine": 192,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0036",
+      "kind": "resource_read",
+      "from": "resource:attribute:AIAgentFlow.state",
+      "to": "step:RouteTool",
+      "label": "get",
+      "span": {
+        "startLine": 338,
+        "startColumn": 17,
+        "endLine": 338,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0037",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.plan_executions",
+      "to": "step:AwaitUser",
+      "label": "results",
+      "span": {
+        "startLine": 146,
+        "startColumn": 22,
+        "endLine": 146,
+        "endColumn": 84
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0038",
+      "kind": "wait_condition",
+      "from": "resource:channel:AIAgentFlow.plan_executions",
+      "to": "wait:AwaitUser:129:16:1",
+      "label": "PlanExecutions[str(plan.revision)].for 1",
+      "span": {
+        "startLine": 131,
+        "startColumn": 13,
+        "endLine": 134,
+        "endColumn": 14
+      }
+    },
+    {
+      "id": "edge:0039",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.tool_approvals",
+      "to": "step:AwaitToolApproval",
+      "label": "results",
+      "span": {
+        "startLine": 495,
+        "startColumn": 21,
+        "endLine": 495,
+        "endColumn": 71
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0040",
+      "kind": "wait_condition",
+      "from": "resource:channel:AIAgentFlow.tool_approvals",
+      "to": "wait:AwaitToolApproval:491:16:0",
+      "label": "ToolApprovals[call.id].for 1",
+      "span": {
+        "startLine": 491,
+        "startColumn": 27,
+        "endLine": 491,
+        "endColumn": 68
+      }
+    },
+    {
+      "id": "edge:0041",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.user_messages",
+      "to": "rpc:execute_plan",
+      "label": "size",
+      "span": {
+        "startLine": 1105,
+        "startColumn": 16,
+        "endLine": 1105,
+        "endColumn": 48
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0042",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.user_messages",
+      "to": "step:AwaitUser",
+      "label": "results",
+      "span": {
+        "startLine": 138,
+        "startColumn": 20,
+        "endLine": 138,
+        "endColumn": 60
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0043",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.user_messages",
+      "to": "step:DurableWait",
+      "label": "results",
+      "span": {
+        "startLine": 593,
+        "startColumn": 25,
+        "endLine": 593,
+        "endColumn": 65
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0044",
+      "kind": "wait_condition",
+      "from": "resource:channel:AIAgentFlow.user_messages",
+      "to": "wait:AwaitUser:128:20:0",
+      "label": "UserMessages.for 1",
+      "span": {
+        "startLine": 128,
+        "startColumn": 31,
+        "endLine": 128,
+        "endColumn": 64
+      }
+    },
+    {
+      "id": "edge:0045",
+      "kind": "wait_condition",
+      "from": "resource:channel:AIAgentFlow.user_messages",
+      "to": "wait:AwaitUser:129:16:1",
+      "label": "UserMessages.for 1",
+      "span": {
+        "startLine": 130,
+        "startColumn": 13,
+        "endLine": 130,
+        "endColumn": 73
+      }
+    },
+    {
+      "id": "edge:0046",
+      "kind": "wait_condition",
+      "from": "resource:channel:AIAgentFlow.user_messages",
+      "to": "wait:DurableWait:582:16:0",
+      "label": "UserMessages.for 1",
+      "span": {
+        "startLine": 587,
+        "startColumn": 13,
+        "endLine": 587,
+        "endColumn": 78
+      }
+    },
+    {
+      "id": "edge:0047",
+      "kind": "resource_publish",
+      "from": "rpc:approve_tool",
+      "to": "resource:channel:AIAgentFlow.tool_approvals",
+      "label": "publish",
+      "span": {
+        "startLine": 1083,
+        "startColumn": 9,
+        "endLine": 1087,
+        "endColumn": 10
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0048",
+      "kind": "resource_write",
+      "from": "rpc:execute_plan",
+      "to": "resource:attribute:AIAgentFlow.state",
+      "label": "set",
+      "span": {
+        "startLine": 1110,
+        "startColumn": 9,
+        "endLine": 1113,
+        "endColumn": 10
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0049",
+      "kind": "resource_publish",
+      "from": "rpc:execute_plan",
+      "to": "resource:channel:AIAgentFlow.plan_executions",
+      "label": "publish",
+      "span": {
+        "startLine": 1114,
+        "startColumn": 9,
+        "endLine": 1118,
+        "endColumn": 10
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0050",
+      "kind": "resource_write",
+      "from": "rpc:send_message",
+      "to": "resource:attribute:AIAgentFlow.state",
+      "label": "set",
+      "span": {
+        "startLine": 1060,
+        "startColumn": 13,
+        "endLine": 1067,
+        "endColumn": 14
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0051",
+      "kind": "resource_publish",
+      "from": "rpc:send_message",
+      "to": "resource:channel:AIAgentFlow.user_messages",
+      "label": "publish",
+      "span": {
+        "startLine": 1068,
+        "startColumn": 9,
+        "endLine": 1068,
+        "endColumn": 51
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0052",
+      "kind": "resource_write",
+      "from": "step:AwaitToolApproval",
+      "to": "resource:attribute:AIAgentFlow.pending_approval",
+      "label": "delete",
+      "span": {
+        "startLine": 498,
+        "startColumn": 9,
+        "endLine": 498,
+        "endColumn": 51
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0053",
+      "kind": "resource_write",
+      "from": "step:AwaitUser",
+      "to": "resource:attribute:AIAgentFlow.plan",
+      "label": "set",
+      "span": {
+        "startLine": 160,
+        "startColumn": 13,
+        "endLine": 160,
+        "endColumn": 75
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0054",
+      "kind": "resource_write",
+      "from": "step:AwaitUser",
+      "to": "resource:attribute:AIAgentFlow.state",
+      "label": "set",
+      "span": {
+        "startLine": 161,
+        "startColumn": 9,
+        "endLine": 170,
+        "endColumn": 10
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0055",
+      "kind": "resource_write",
+      "from": "step:AwaitUser",
+      "to": "resource:stream:AIAgentFlow.agent_activity",
+      "label": "write",
+      "span": {
+        "startLine": 171,
+        "startColumn": 9,
+        "endLine": 174,
+        "endColumn": 10
+      },
+      "metadata": {
+        "bestEffort": true,
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0056",
+      "kind": "resource_write",
+      "from": "step:CallModel",
+      "to": "resource:attribute:AIAgentFlow.state",
+      "label": "set",
+      "span": {
+        "startLine": 318,
+        "startColumn": 9,
+        "endLine": 326,
+        "endColumn": 10
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0057",
+      "kind": "resource_write",
+      "from": "step:CallModel",
+      "to": "resource:stream:AIAgentFlow.agent_activity",
+      "label": "write",
+      "span": {
+        "startLine": 270,
+        "startColumn": 9,
+        "endLine": 273,
+        "endColumn": 10
+      },
+      "metadata": {
+        "bestEffort": true,
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0058",
+      "kind": "resource_write",
+      "from": "step:CompactContext",
+      "to": "resource:attribute:AIAgentFlow.state",
+      "label": "set",
+      "span": {
+        "startLine": 233,
+        "startColumn": 9,
+        "endLine": 233,
+        "endColumn": 44
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0059",
+      "kind": "resource_write",
+      "from": "step:CompactContext",
+      "to": "resource:attribute:AIAgentFlow.summary",
+      "label": "set",
+      "span": {
+        "startLine": 224,
+        "startColumn": 9,
+        "endLine": 227,
+        "endColumn": 10
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0060",
+      "kind": "resource_write",
+      "from": "step:CompactContext",
+      "to": "resource:stream:AIAgentFlow.agent_activity",
+      "label": "write",
+      "span": {
+        "startLine": 235,
+        "startColumn": 9,
+        "endLine": 241,
+        "endColumn": 10
+      },
+      "metadata": {
+        "bestEffort": true,
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0061",
+      "kind": "resource_write",
+      "from": "step:DurableWait",
+      "to": "resource:attribute:AIAgentFlow.pending_timer",
+      "label": "delete",
+      "span": {
+        "startLine": 594,
+        "startColumn": 9,
+        "endLine": 594,
+        "endColumn": 48
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0062",
+      "kind": "resource_write",
+      "from": "step:ExecuteTool",
+      "to": "resource:stream:AIAgentFlow.agent_activity",
+      "label": "write",
+      "span": {
+        "startLine": 564,
+        "startColumn": 9,
+        "endLine": 567,
+        "endColumn": 10
+      },
+      "metadata": {
+        "bestEffort": true,
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0063",
+      "kind": "resource_write",
+      "from": "step:Init",
+      "to": "resource:attribute:AIAgentFlow.config",
+      "label": "set",
+      "span": {
+        "startLine": 115,
+        "startColumn": 9,
+        "endLine": 115,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0064",
+      "kind": "resource_write",
+      "from": "step:Init",
+      "to": "resource:attribute:AIAgentFlow.state",
+      "label": "set",
+      "span": {
+        "startLine": 116,
+        "startColumn": 9,
+        "endLine": 116,
+        "endColumn": 72
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0065",
+      "kind": "resource_write",
+      "from": "step:RouteTool",
+      "to": "resource:attribute:AIAgentFlow.pending_approval",
+      "label": "set",
+      "span": {
+        "startLine": 476,
+        "startColumn": 13,
+        "endLine": 479,
+        "endColumn": 14
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0066",
+      "kind": "resource_write",
+      "from": "step:RouteTool",
+      "to": "resource:attribute:AIAgentFlow.pending_timer",
+      "label": "set",
+      "span": {
+        "startLine": 421,
+        "startColumn": 13,
+        "endLine": 424,
+        "endColumn": 14
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0067",
+      "kind": "resource_write",
+      "from": "step:RouteTool",
+      "to": "resource:attribute:AIAgentFlow.pending_user_input",
+      "label": "set",
+      "span": {
+        "startLine": 449,
+        "startColumn": 13,
+        "endLine": 452,
+        "endColumn": 14
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0068",
+      "kind": "resource_write",
+      "from": "step:RouteTool",
+      "to": "resource:stream:AIAgentFlow.agent_activity",
+      "label": "write",
+      "span": {
+        "startLine": 469,
+        "startColumn": 13,
+        "endLine": 472,
+        "endColumn": 14
+      },
+      "metadata": {
+        "bestEffort": true,
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "unused_resource",
+      "message": "stream AssistantText has no direct access in the source file",
+      "span": {
+        "startLine": 641,
+        "startColumn": 5,
+        "endLine": 641,
+        "endColumn": 68
+      }
+    },
+    {
+      "severity": "warning",
+      "code": "unused_resource",
+      "message": "stream ReasoningSummary has no direct access in the source file",
+      "span": {
+        "startLine": 640,
+        "startColumn": 5,
+        "endLine": 640,
+        "endColumn": 74
+      }
+    }
+  ]
+}
