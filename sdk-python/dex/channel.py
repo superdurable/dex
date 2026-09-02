@@ -152,7 +152,11 @@ class Channel(Generic[ValueT]):
         *,
         condition_id: str | None = None,
     ) -> Condition:
-        """Create a condition consuming at most ``count`` available values.
+        """Create a non-blocking condition consuming up to ``count`` queued values.
+
+        The condition does not wait on its own for values to accumulate. When
+        its surrounding Wait completes, Dex consumes up to ``count`` values
+        queued at that time. An empty queue produces no values.
 
         Args:
             count: The inclusive, non-negative upper bound.
@@ -173,7 +177,9 @@ class Channel(Generic[ValueT]):
         """Create a bounded condition for queued Channel values.
 
         At least one bound is required. When both are present, ``at_least``
-        cannot exceed ``at_most``. The condition is evaluated durably by Dex.
+        cannot exceed ``at_most``. Dex waits only for ``at_least``. Once that
+        bound is met, it consumes currently queued values up to ``at_most``.
+        Omitting ``at_least`` makes the condition complete immediately.
 
         Args:
             at_least: Optional inclusive lower bound.
@@ -356,7 +362,11 @@ class ChannelMap(Generic[ValueT]):
         *,
         condition_id: str | None = None,
     ) -> Condition:
-        """Create an instance condition consuming at most ``count`` values.
+        """Create a non-blocking instance condition consuming up to ``count`` values.
+
+        The condition does not wait on its own for values to accumulate. When
+        its surrounding Wait completes, Dex consumes up to ``count`` values
+        queued for the instance at that time. An empty queue produces no values.
 
         Args:
             instance: The non-empty logical map key.
@@ -381,6 +391,10 @@ class ChannelMap(Generic[ValueT]):
         condition_id: str | None = None,
     ) -> Condition:
         """Create a bounded condition for one ChannelMap instance.
+
+        Dex waits only for ``at_least``. Once that bound is met, it consumes
+        currently queued values up to ``at_most``. Omitting ``at_least`` makes
+        the condition complete immediately.
 
         Args:
             instance: The non-empty logical map key.

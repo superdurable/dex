@@ -201,7 +201,9 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     }
 
     /**
-     * Creates a condition accepting at most {@code count} messages from an instance.
+     * Creates a non-blocking condition consuming up to {@code count} queued messages from an
+     * instance. When its surrounding Wait completes, it consumes messages queued then. An empty
+     * queue yields none.
      *
      * @param instance the Channel-map instance
      * @param count the maximum message count
@@ -212,7 +214,9 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     }
 
     /**
-     * Creates a named condition accepting at most {@code count} messages from an instance.
+     * Creates a named, non-blocking condition consuming up to {@code count} queued messages from an
+     * instance. When its surrounding Wait completes, it consumes messages queued then. An empty
+     * queue yields none.
      *
      * @param instance the Channel-map instance
      * @param count the maximum message count
@@ -227,7 +231,9 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     }
 
     /**
-     * Creates a condition with optional message-count bounds for one instance.
+     * Creates a condition with optional message-count bounds for one instance. Dex waits only for
+     * the minimum, then consumes currently queued messages up to the maximum. A {@code null}
+     * minimum makes the condition complete immediately.
      *
      * @param instance the Channel-map instance
      * @param atLeast the minimum count, or {@code null} for no minimum
@@ -243,7 +249,9 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     }
 
     /**
-     * Creates a named condition with optional message-count bounds for one instance.
+     * Creates a named condition with optional message-count bounds for one instance. Dex waits only
+     * for the minimum, then consumes currently queued messages up to the maximum. A {@code null}
+     * minimum makes the condition complete immediately.
      *
      * @param instance the Channel-map instance
      * @param atLeast the minimum count, or {@code null} for no minimum
