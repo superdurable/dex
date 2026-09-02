@@ -2460,6 +2460,44 @@
     {
       "id": "edge:0072",
       "kind": "resource_write",
+      "from": "step:CallModel",
+      "to": "resource:stream:AIAgentFlow.assistant_text",
+      "label": "write",
+      "span": {
+        "startLine": 279,
+        "startColumn": 13,
+        "endLine": 279,
+        "endColumn": 33
+      },
+      "metadata": {
+        "bestEffort": true,
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0073",
+      "kind": "resource_write",
+      "from": "step:CallModel",
+      "to": "resource:stream:AIAgentFlow.reasoning_summary",
+      "label": "write",
+      "span": {
+        "startLine": 280,
+        "startColumn": 13,
+        "endLine": 280,
+        "endColumn": 36
+      },
+      "metadata": {
+        "bestEffort": true,
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0074",
+      "kind": "resource_write",
       "from": "step:CompactContext",
       "to": "resource:attribute:AIAgentFlow.state",
       "label": "set",
@@ -2474,7 +2512,7 @@
       }
     },
     {
-      "id": "edge:0073",
+      "id": "edge:0075",
       "kind": "resource_write",
       "from": "step:CompactContext",
       "to": "resource:attribute:AIAgentFlow.summary",
@@ -2490,7 +2528,7 @@
       }
     },
     {
-      "id": "edge:0074",
+      "id": "edge:0076",
       "kind": "resource_write",
       "from": "step:CompactContext",
       "to": "resource:stream:AIAgentFlow.agent_activity",
@@ -2509,7 +2547,7 @@
       }
     },
     {
-      "id": "edge:0075",
+      "id": "edge:0077",
       "kind": "resource_write",
       "from": "step:DurableWait",
       "to": "resource:attribute:AIAgentFlow.pending_timer",
@@ -2525,7 +2563,7 @@
       }
     },
     {
-      "id": "edge:0076",
+      "id": "edge:0078",
       "kind": "resource_write",
       "from": "step:ExecuteTool",
       "to": "resource:stream:AIAgentFlow.agent_activity",
@@ -2544,7 +2582,7 @@
       }
     },
     {
-      "id": "edge:0077",
+      "id": "edge:0079",
       "kind": "resource_write",
       "from": "step:Init",
       "to": "resource:attribute:AIAgentFlow.config",
@@ -2560,7 +2598,7 @@
       }
     },
     {
-      "id": "edge:0078",
+      "id": "edge:0080",
       "kind": "resource_write",
       "from": "step:Init",
       "to": "resource:attribute:AIAgentFlow.state",
@@ -2576,7 +2614,7 @@
       }
     },
     {
-      "id": "edge:0079",
+      "id": "edge:0081",
       "kind": "resource_write",
       "from": "step:RouteTool",
       "to": "resource:attribute:AIAgentFlow.pending_approval",
@@ -2592,7 +2630,7 @@
       }
     },
     {
-      "id": "edge:0080",
+      "id": "edge:0082",
       "kind": "resource_write",
       "from": "step:RouteTool",
       "to": "resource:attribute:AIAgentFlow.pending_timer",
@@ -2608,7 +2646,7 @@
       }
     },
     {
-      "id": "edge:0081",
+      "id": "edge:0083",
       "kind": "resource_write",
       "from": "step:RouteTool",
       "to": "resource:attribute:AIAgentFlow.pending_user_input",
@@ -2624,7 +2662,7 @@
       }
     },
     {
-      "id": "edge:0082",
+      "id": "edge:0084",
       "kind": "resource_write",
       "from": "step:RouteTool",
       "to": "resource:stream:AIAgentFlow.agent_activity",
@@ -2643,28 +2681,5 @@
       }
     }
   ],
-  "diagnostics": [
-    {
-      "severity": "warning",
-      "code": "unused_resource",
-      "message": "stream AssistantText has no direct access in the source file",
-      "span": {
-        "startLine": 669,
-        "startColumn": 5,
-        "endLine": 669,
-        "endColumn": 68
-      }
-    },
-    {
-      "severity": "warning",
-      "code": "unused_resource",
-      "message": "stream ReasoningSummary has no direct access in the source file",
-      "span": {
-        "startLine": 668,
-        "startColumn": 5,
-        "endLine": 668,
-        "endColumn": 74
-      }
-    }
-  ]
+  "diagnostics": []
 }

@@ -269,19 +269,71 @@
         "endLine": 125,
         "endColumn": 46
       }
-    }
-  ],
-  "diagnostics": [
+    },
     {
-      "severity": "warning",
-      "code": "unreachable_step",
-      "message": "Step Compensate is not reachable from the start Step or an RPC",
+      "id": "edge:0005",
+      "kind": "failure_transition",
+      "from": "step:CreateCreditMemo",
+      "to": "step:Compensate",
+      "label": "Execute failure",
       "span": {
-        "startLine": 179,
-        "startColumn": 13,
-        "endLine": 179,
-        "endColumn": 28
+        "startLine": 66,
+        "startColumn": 12,
+        "endLine": 71,
+        "endColumn": 6
+      },
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "failure_transition",
+      "from": "step:CreateDebitMemo",
+      "to": "step:Compensate",
+      "label": "Execute failure",
+      "span": {
+        "startLine": 66,
+        "startColumn": 12,
+        "endLine": 71,
+        "endColumn": 6
+      },
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "failure_transition",
+      "from": "step:Credit",
+      "to": "step:Compensate",
+      "label": "Execute failure",
+      "span": {
+        "startLine": 66,
+        "startColumn": 12,
+        "endLine": 71,
+        "endColumn": 6
+      },
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "failure_transition",
+      "from": "step:Debit",
+      "to": "step:Compensate",
+      "label": "Execute failure",
+      "span": {
+        "startLine": 66,
+        "startColumn": 12,
+        "endLine": 71,
+        "endColumn": 6
+      },
+      "metadata": {
+        "skipWaitFor": true
       }
     }
-  ]
+  ],
+  "diagnostics": []
 }

@@ -393,6 +393,22 @@
     {
       "id": "edge:0005",
       "kind": "resource_read",
+      "from": "resource:attribute:UPDATE_VERSION",
+      "to": "rpc:update",
+      "label": "get",
+      "span": {
+        "startLine": 153,
+        "startColumn": 19,
+        "endLine": 153,
+        "endColumn": 51
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "resource_read",
       "from": "resource:channel:INDEED_POSTING_UPDATES",
       "to": "step:UpdateIndeedPosting",
       "label": "results",
@@ -407,7 +423,7 @@
       }
     },
     {
-      "id": "edge:0006",
+      "id": "edge:0007",
       "kind": "wait_condition",
       "from": "resource:channel:INDEED_POSTING_UPDATES",
       "to": "wait:UpdateIndeedPosting:90:16:0",
@@ -420,7 +436,7 @@
       }
     },
     {
-      "id": "edge:0007",
+      "id": "edge:0008",
       "kind": "resource_read",
       "from": "resource:channel:LINKEDIN_POSTING_UPDATES",
       "to": "step:UpdateLinkedInPosting",
@@ -436,7 +452,7 @@
       }
     },
     {
-      "id": "edge:0008",
+      "id": "edge:0009",
       "kind": "wait_condition",
       "from": "resource:channel:LINKEDIN_POSTING_UPDATES",
       "to": "wait:UpdateLinkedInPosting:71:16:0",
@@ -449,7 +465,7 @@
       }
     },
     {
-      "id": "edge:0009",
+      "id": "edge:0010",
       "kind": "resource_write",
       "from": "rpc:update",
       "to": "resource:attribute:JobPostingFlow.job_description",
@@ -465,7 +481,7 @@
       }
     },
     {
-      "id": "edge:0010",
+      "id": "edge:0011",
       "kind": "resource_write",
       "from": "rpc:update",
       "to": "resource:attribute:JobPostingFlow.last_update_time_millis",
@@ -481,7 +497,7 @@
       }
     },
     {
-      "id": "edge:0011",
+      "id": "edge:0012",
       "kind": "resource_write",
       "from": "rpc:update",
       "to": "resource:attribute:JobPostingFlow.notes",
@@ -497,7 +513,7 @@
       }
     },
     {
-      "id": "edge:0012",
+      "id": "edge:0013",
       "kind": "resource_write",
       "from": "rpc:update",
       "to": "resource:attribute:JobPostingFlow.title",
@@ -511,30 +527,71 @@
       "metadata": {
         "phase": "rpc"
       }
-    }
-  ],
-  "diagnostics": [
+    },
     {
-      "severity": "warning",
-      "code": "unused_resource",
-      "message": "attribute UpdatePostingLock has no direct access in the source file",
+      "id": "edge:0014",
+      "kind": "resource_lock",
+      "from": "rpc:update",
+      "to": "resource:attribute:UPDATE_POSTING_LOCK",
+      "label": "lock",
       "span": {
-        "startLine": 50,
-        "startColumn": 1,
-        "endLine": 50,
-        "endColumn": 65
+        "startLine": 151,
+        "startColumn": 27,
+        "endLine": 151,
+        "endColumn": 53
+      },
+      "metadata": {
+        "phase": "rpc"
       }
     },
     {
-      "severity": "warning",
-      "code": "unused_resource",
-      "message": "attribute UpdateVersion has no direct access in the source file",
+      "id": "edge:0015",
+      "kind": "resource_write",
+      "from": "rpc:update",
+      "to": "resource:attribute:UPDATE_VERSION",
+      "label": "set",
       "span": {
-        "startLine": 49,
-        "startColumn": 1,
-        "endLine": 49,
-        "endColumn": 49
+        "startLine": 159,
+        "startColumn": 9,
+        "endLine": 159,
+        "endColumn": 50
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "resource_publish",
+      "from": "rpc:update",
+      "to": "resource:channel:INDEED_POSTING_UPDATES",
+      "label": "publish",
+      "span": {
+        "startLine": 166,
+        "startColumn": 9,
+        "endLine": 166,
+        "endColumn": 61
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0017",
+      "kind": "resource_publish",
+      "from": "rpc:update",
+      "to": "resource:channel:LINKEDIN_POSTING_UPDATES",
+      "label": "publish",
+      "span": {
+        "startLine": 165,
+        "startColumn": 9,
+        "endLine": 165,
+        "endColumn": 63
+      },
+      "metadata": {
+        "phase": "rpc"
       }
     }
-  ]
+  ],
+  "diagnostics": []
 }

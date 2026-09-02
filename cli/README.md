@@ -178,7 +178,9 @@ directory.
 
 Python analysis requires Python 3.11 or newer. Pass `--python /path/to/python`
 to select an interpreter. The analyzer parses Python with the standard-library
-AST and never imports or executes the application module.
+AST and never imports or executes the application module. It resolves static
+Flow resource aliases and records RPC and Step Attribute locks as
+`resource_lock` relations.
 
 Go analysis requires a local Go toolchain and a module/package that passes type
 checking. Version 1 accepts one Flow per file. Step registration, transitions,
