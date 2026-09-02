@@ -12,6 +12,8 @@ Docs: https://docs.superdurable.io/primitives/flow
 
 Use a Step for retried background work and explicit state transitions. **WaitFor** returns Conditions; **Execute** performs work and returns a Step decision.
 
+Leave Conditions unnamed in **Until**, **AnyOf**, and **AllOf**. Do not add condition IDs merely to distinguish branches: read Channel results from the Channel definition and inspect Timer outcomes through the Context. Every Condition in **AnyCombinationOf** needs a unique ID. A Timer also needs an ID when another operation selects it by ID, such as **SkipTimer**.
+
 Use multiple next Steps for parallel work. Use cancellation deliberately when a first-winner branch makes siblings unnecessary.
 
 Step durability resolves in this order: a method override, FlowConfig, then **SYNC**. The default retry total duration is four hours. Regular attempts default to a two-hour method timeout and one-minute heartbeat timeout.

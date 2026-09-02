@@ -137,20 +137,13 @@ class AwaitUser(Step[None]):
         plan = self.flow.get_plan(context)
         if plan is None or plan.status == PLAN_COMPLETED:
             return Wait.any_of(
-                self.flow.immediate_user_messages.for_one(
-                    condition_id="immediate-user-message"
-                ),
-                self.flow.user_messages.for_one(condition_id="user-message"),
+                self.flow.immediate_user_messages.for_one(),
+                self.flow.user_messages.for_one(),
             )
         return Wait.any_of(
-            self.flow.immediate_user_messages.for_one(
-                condition_id="immediate-user-message"
-            ),
-            self.flow.user_messages.for_one(condition_id="user-message"),
-            self.flow.plan_executions.for_one(
-                str(plan.revision),
-                condition_id="plan-execution",
-            ),
+            self.flow.immediate_user_messages.for_one(),
+            self.flow.user_messages.for_one(),
+            self.flow.plan_executions.for_one(str(plan.revision)),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
@@ -567,13 +560,8 @@ class AwaitToolApproval(Step[None]):
         call = self.flow.current_tool_call(context)
         self.flow.update_status(context, STATUS_WAITING_APPROVAL)
         return Wait.any_of(
-            self.flow.immediate_user_messages.for_one(
-                condition_id="approval-immediate-message"
-            ),
-            self.flow.tool_approvals.for_one(
-                call.id,
-                condition_id="tool-approval",
-            ),
+            self.flow.immediate_user_messages.for_one(),
+            self.flow.tool_approvals.for_one(call.id),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
@@ -670,13 +658,8 @@ class DurableWait(Step[None]):
         timer = self.flow.pending_timer.get(context)
         self.flow.update_status(context, STATUS_WAITING_TIMER)
         return Wait.any_of(
-            Timer.by_duration(
-                timedelta(seconds=timer.duration_seconds),
-                condition_id="durable-wait-timer",
-            ),
-            self.flow.immediate_user_messages.for_one(
-                condition_id="durable-wait-immediate-message"
-            ),
+            Timer.by_duration(timedelta(seconds=timer.duration_seconds)),
+            self.flow.immediate_user_messages.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:

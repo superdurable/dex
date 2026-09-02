@@ -8,6 +8,10 @@ slug: /primitives/step/waiting-condition
 
 本页介绍比基础功能更高级的 **WaitFor** 功能。
 
+**Until**、**AnyOf** 和 **AllOf** 不要求 condition ID。通过 Channel 定义读取 Channel
+结果，并通过 **Context** 检查 Timer 结果。仅当其他 API 有要求时才添加 ID，例如
+**AnyCombinationOf**，或按 ID 选择 Timer。
+
 
 ## ConditionResults {#condition-results}
 
@@ -254,8 +258,8 @@ anyCombinationOf 表示 AND 组的 OR。每组内用 all_of 组合构建。
 
 各组合之间不会 greedy 地消费 Channel。Dex 只消费被选中组合里的 Channel condition。即使其他组合也已满足，只属于其他组合的 Channel condition 也不会消费消息，消息会继续留在队列中。
 
-注意：
-组合中的**每个** Condition 都需要唯一的 **condition ID**。
+**AnyCombinationOf** 与普通等待组合器不同：组合中的每个 Condition 都需要唯一的
+**condition ID**。
 
 <SdkTabs
   examples={{

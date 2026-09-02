@@ -23,8 +23,8 @@ import (
 // Example:
 //
 //	return dex.AnyOf(
-//		approvals.ForOne(dex.WithConditionID("approved")),
-//		dex.Timer(5*time.Minute, dex.WithConditionID("timeout")),
+//		approvals.ForOne(),
+//		dex.Timer(5*time.Minute),
 //	), nil
 type Wait struct {
 	kind         waitKind
@@ -37,17 +37,18 @@ func SkipWaitImmediately() *Wait {
 	return &Wait{kind: skipWaitImmediately}
 }
 
-// Until waits until one condition is satisfied.
+// Until waits until one condition is satisfied. The Condition does not need an ID.
 func Until(condition Condition) *Wait {
 	return AllOf(condition)
 }
 
-// AllOf waits until every condition is satisfied.
+// AllOf waits until every condition is satisfied. Conditions do not need IDs.
 func AllOf(conditions ...Condition) *Wait {
 	return &Wait{kind: waitAllOf, conditions: conditions}
 }
 
 // AnyOf waits until at least one condition is satisfied.
+// Conditions do not need IDs.
 // It consumes messages only from the selected Channel condition, not other ready alternatives.
 func AnyOf(conditions ...Condition) *Wait {
 	return &Wait{kind: waitAnyOf, conditions: conditions}

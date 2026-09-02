@@ -147,9 +147,10 @@ synchronization while retaining protocol presence.
 
 ### Waiting and map inspection
 
-`Wait.allOf` and `Wait.anyOf` may contain unnamed Conditions and send empty
-Condition IDs. Every Condition in `Wait.anyCombinationOf` needs a non-empty
-user ID; the same Condition object may be reused across combinations.
+`Wait.until`, `Wait.allOf`, and `Wait.anyOf` use unnamed Conditions by default.
+Do not add Condition IDs merely because a Condition is nested in one of these
+waits. Every Condition in `Wait.anyCombinationOf` needs a non-empty user ID;
+the same Condition object may be reused across combinations.
 
 `Client.waitForAttributeEqual` overloads target the current
 run and accept only string, boolean, integer, or double wire values. JSON,

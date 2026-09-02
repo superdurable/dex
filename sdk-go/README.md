@@ -239,10 +239,11 @@ attribute returns `*dex.AttributeNotFoundError`, which callers can inspect with
 
 ## Waiting and map inspection
 
-`AllOf` and `AnyOf` may contain unnamed Conditions; the Worker sends an empty
-Condition ID and Dex evaluates them normally. Every Condition in `AnyComboOf`
-must use `WithConditionID`. Reusing the same Condition value across combinations
-is supported, while duplicate IDs on distinct Conditions are rejected.
+`Until`, `AllOf`, and `AnyOf` use unnamed Conditions by default. Do not add
+Condition IDs merely because a Condition is nested in one of these waits.
+Every Condition in `AnyComboOf` must use `WithConditionID`. Reusing the same
+Condition value across combinations is supported, while duplicate IDs on
+distinct Conditions are rejected.
 
 Clients wait on singleton Attribute equality in the current run with
 `WaitForAttributeEqual` or `WaitForAttributeMapInstanceEqual`. Client-side map

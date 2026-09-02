@@ -37,8 +37,8 @@ class Wait:
 
     Examples:
         >>> wait = Wait.any_of(
-        ...     replies.for_one(condition_id="reply"),
-        ...     Timer.by_duration(timedelta(hours=1), condition_id="timeout"),
+        ...     replies.for_one(),
+        ...     Timer.by_duration(timedelta(hours=1)),
         ... )
     """
 
@@ -59,6 +59,8 @@ class Wait:
     def until(condition: Condition) -> Wait:
         """Create a Wait for one Condition.
 
+        The Condition does not need a condition ID.
+
         Args:
             condition: The only readiness condition.
 
@@ -71,6 +73,9 @@ class Wait:
     def all_of(*conditions: Condition) -> Wait:
         """Create a Wait that requires every Condition.
 
+        This combinator does not require condition IDs. Every Condition in
+        :meth:`any_combination_of` does require one.
+
         Args:
             *conditions: Conditions evaluated as one all-of group.
 
@@ -82,6 +87,9 @@ class Wait:
     @staticmethod
     def any_of(*conditions: Condition) -> Wait:
         """Create a Wait that continues when any Condition is ready.
+
+        Conditions do not need condition IDs. Read Channel results from the
+        Channel definition and inspect Timer outcomes through ``Context``.
 
         Channel consumption is not greedy across alternatives. Dex consumes
         messages only from the selected Channel Condition; other ready Channel
