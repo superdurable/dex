@@ -563,6 +563,7 @@ func (t *temporalClient) buildTemporalHistoryEvents(
 	scheduledTypes := map[int64]string{}
 	localFallbackCounts := map[string]int{}
 	acceptedRpcUpdates := map[int64]*dexpb.InvokeRPCRequest{}
+	acceptedChannelDeleteUpdates := map[int64]*dexpb.DeleteChannelMessageRequest{}
 	rpcLocalActivityResults := map[string]*dexpb.InvokeWorkerRPCResponse{}
 	for iterator.HasNext() {
 		event, err := iterator.Next()
@@ -574,6 +575,7 @@ func (t *temporalClient) buildTemporalHistoryEvents(
 			scheduledTypes,
 			localFallbackCounts,
 			acceptedRpcUpdates,
+			acceptedChannelDeleteUpdates,
 			rpcLocalActivityResults,
 			event,
 		); err != nil {
@@ -616,6 +618,7 @@ func (t *temporalClient) addTemporalHistoryEvent(
 	scheduledTypes map[int64]string,
 	localFallbackCounts map[string]int,
 	acceptedRpcUpdates map[int64]*dexpb.InvokeRPCRequest,
+	acceptedChannelDeleteUpdates map[int64]*dexpb.DeleteChannelMessageRequest,
 	rpcLocalActivityResults map[string]*dexpb.InvokeWorkerRPCResponse,
 	event *history.HistoryEvent,
 ) error {
@@ -721,21 +724,47 @@ func (t *temporalClient) addTemporalHistoryEvent(
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
 		attributes := event.GetWorkflowExecutionUpdateAcceptedEventAttributes()
 		acceptedRequest := attributes.GetAcceptedRequest()
-		if acceptedRequest.GetInput().GetName() != service.InvokeRpcUpdateType {
+		switch acceptedRequest.GetInput().GetName() {
+		case service.InvokeRpcUpdateType:
+			var request dexpb.InvokeRPCRequest
+			if err := t.dataConverter.FromPayloads(
+				acceptedRequest.GetInput().GetArgs(),
+				&request,
+			); err != nil {
+				return err
+			}
+			acceptedRpcUpdates[event.GetEventId()] = &request
+		case service.DeleteChannelMessageUpdateType:
+			var request dexpb.DeleteChannelMessageRequest
+			if err := t.dataConverter.FromPayloads(
+				acceptedRequest.GetInput().GetArgs(),
+				&request,
+			); err != nil {
+				return err
+			}
+			acceptedChannelDeleteUpdates[event.GetEventId()] = &request
+		default:
 			return nil
 		}
-		var request dexpb.InvokeRPCRequest
-		if err := t.dataConverter.FromPayloads(
-			acceptedRequest.GetInput().GetArgs(),
-			&request,
-		); err != nil {
-			return err
-		}
-		acceptedRpcUpdates[event.GetEventId()] = &request
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
 		attributes := event.GetWorkflowExecutionUpdateCompletedEventAttributes()
+		if attributes.GetOutcome().GetSuccess() == nil {
+			return nil
+		}
+		if acceptedDelete := acceptedChannelDeleteUpdates[attributes.GetAcceptedEventId()]; acceptedDelete != nil {
+			builder.RecordExternalDelete(
+				event.GetEventId(),
+				eventTime,
+				[]*dexpb.ChannelMessageDeletion{{
+					ChannelName: acceptedDelete.GetChannelName(),
+					MessageId:   acceptedDelete.GetMessageId(),
+				}},
+			)
+			delete(acceptedChannelDeleteUpdates, attributes.GetAcceptedEventId())
+			return nil
+		}
 		accepted := acceptedRpcUpdates[attributes.GetAcceptedEventId()]
-		if accepted == nil || attributes.GetOutcome().GetSuccess() == nil {
+		if accepted == nil {
 			return nil
 		}
 		var result dexpb.InvokeRpcUpdateResult

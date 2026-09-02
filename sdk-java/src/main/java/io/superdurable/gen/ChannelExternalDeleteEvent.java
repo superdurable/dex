@@ -6,13 +6,13 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf type {@code dex.ChannelValues}
+ * Protobuf type {@code dex.ChannelExternalDeleteEvent}
  */
 @com.google.protobuf.Generated
-public final class ChannelValues extends
+public final class ChannelExternalDeleteEvent extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.ChannelValues)
-    ChannelValuesOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.ChannelExternalDeleteEvent)
+    ChannelExternalDeleteEventOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -21,71 +21,71 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "ChannelValues");
+      "ChannelExternalDeleteEvent");
   }
-  // Use ChannelValues.newBuilder() to construct.
-  private ChannelValues(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use ChannelExternalDeleteEvent.newBuilder() to construct.
+  private ChannelExternalDeleteEvent(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private ChannelValues() {
+  private ChannelExternalDeleteEvent() {
     messages_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_ChannelValues_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_ChannelExternalDeleteEvent_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_ChannelValues_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_ChannelExternalDeleteEvent_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_ChannelValues_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_ChannelExternalDeleteEvent_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.ChannelValues.class, io.superdurable.gen.ChannelValues.Builder.class);
+            io.superdurable.gen.ChannelExternalDeleteEvent.class, io.superdurable.gen.ChannelExternalDeleteEvent.Builder.class);
   }
 
   public static final int MESSAGES_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
-  private java.util.List<io.superdurable.gen.ChannelMessage> messages_;
+  private java.util.List<io.superdurable.gen.ChannelMessageDeletion> messages_;
   /**
-   * <code>repeated .dex.ChannelMessage messages = 1;</code>
+   * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<io.superdurable.gen.ChannelMessage> getMessagesList() {
+  public java.util.List<io.superdurable.gen.ChannelMessageDeletion> getMessagesList() {
     return messages_;
   }
   /**
-   * <code>repeated .dex.ChannelMessage messages = 1;</code>
+   * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
+  public java.util.List<? extends io.superdurable.gen.ChannelMessageDeletionOrBuilder> 
       getMessagesOrBuilderList() {
     return messages_;
   }
   /**
-   * <code>repeated .dex.ChannelMessage messages = 1;</code>
+   * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
    */
   @java.lang.Override
   public int getMessagesCount() {
     return messages_.size();
   }
   /**
-   * <code>repeated .dex.ChannelMessage messages = 1;</code>
+   * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.ChannelMessage getMessages(int index) {
+  public io.superdurable.gen.ChannelMessageDeletion getMessages(int index) {
     return messages_.get(index);
   }
   /**
-   * <code>repeated .dex.ChannelMessage messages = 1;</code>
+   * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.ChannelMessageOrBuilder getMessagesOrBuilder(
+  public io.superdurable.gen.ChannelMessageDeletionOrBuilder getMessagesOrBuilder(
       int index) {
     return messages_.get(index);
   }
@@ -139,10 +139,10 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.ChannelValues)) {
+    if (!(obj instanceof io.superdurable.gen.ChannelExternalDeleteEvent)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.ChannelValues other = (io.superdurable.gen.ChannelValues) obj;
+    io.superdurable.gen.ChannelExternalDeleteEvent other = (io.superdurable.gen.ChannelExternalDeleteEvent) obj;
 
     if (!getMessagesList()
         .equals(other.getMessagesList())) return false;
@@ -166,44 +166,44 @@ private static final long serialVersionUID = 0L;
     return hash;
   }
 
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.ChannelExternalDeleteEvent parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.ChannelExternalDeleteEvent parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.ChannelExternalDeleteEvent parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.ChannelExternalDeleteEvent parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(byte[] data)
+  public static io.superdurable.gen.ChannelExternalDeleteEvent parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.ChannelExternalDeleteEvent parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.ChannelExternalDeleteEvent parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.ChannelExternalDeleteEvent parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -211,26 +211,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.ChannelValues parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.ChannelExternalDeleteEvent parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.ChannelValues parseDelimitedFrom(
+  public static io.superdurable.gen.ChannelExternalDeleteEvent parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.ChannelExternalDeleteEvent parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.ChannelExternalDeleteEvent parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -243,7 +243,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.ChannelValues prototype) {
+  public static Builder newBuilder(io.superdurable.gen.ChannelExternalDeleteEvent prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -259,26 +259,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * Protobuf type {@code dex.ChannelValues}
+   * Protobuf type {@code dex.ChannelExternalDeleteEvent}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.ChannelValues)
-      io.superdurable.gen.ChannelValuesOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.ChannelExternalDeleteEvent)
+      io.superdurable.gen.ChannelExternalDeleteEventOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_ChannelValues_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_ChannelExternalDeleteEvent_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_ChannelValues_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_ChannelExternalDeleteEvent_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.ChannelValues.class, io.superdurable.gen.ChannelValues.Builder.class);
+              io.superdurable.gen.ChannelExternalDeleteEvent.class, io.superdurable.gen.ChannelExternalDeleteEvent.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.ChannelValues.newBuilder()
+    // Construct using io.superdurable.gen.ChannelExternalDeleteEvent.newBuilder()
     private Builder() {
 
     }
@@ -305,17 +305,17 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_ChannelValues_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_ChannelExternalDeleteEvent_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.ChannelValues getDefaultInstanceForType() {
-      return io.superdurable.gen.ChannelValues.getDefaultInstance();
+    public io.superdurable.gen.ChannelExternalDeleteEvent getDefaultInstanceForType() {
+      return io.superdurable.gen.ChannelExternalDeleteEvent.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.ChannelValues build() {
-      io.superdurable.gen.ChannelValues result = buildPartial();
+    public io.superdurable.gen.ChannelExternalDeleteEvent build() {
+      io.superdurable.gen.ChannelExternalDeleteEvent result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -323,15 +323,15 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.ChannelValues buildPartial() {
-      io.superdurable.gen.ChannelValues result = new io.superdurable.gen.ChannelValues(this);
+    public io.superdurable.gen.ChannelExternalDeleteEvent buildPartial() {
+      io.superdurable.gen.ChannelExternalDeleteEvent result = new io.superdurable.gen.ChannelExternalDeleteEvent(this);
       buildPartialRepeatedFields(result);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartialRepeatedFields(io.superdurable.gen.ChannelValues result) {
+    private void buildPartialRepeatedFields(io.superdurable.gen.ChannelExternalDeleteEvent result) {
       if (messagesBuilder_ == null) {
         if (((bitField0_ & 0x00000001) != 0)) {
           messages_ = java.util.Collections.unmodifiableList(messages_);
@@ -343,22 +343,22 @@ private static final long serialVersionUID = 0L;
       }
     }
 
-    private void buildPartial0(io.superdurable.gen.ChannelValues result) {
+    private void buildPartial0(io.superdurable.gen.ChannelExternalDeleteEvent result) {
       int from_bitField0_ = bitField0_;
     }
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.ChannelValues) {
-        return mergeFrom((io.superdurable.gen.ChannelValues)other);
+      if (other instanceof io.superdurable.gen.ChannelExternalDeleteEvent) {
+        return mergeFrom((io.superdurable.gen.ChannelExternalDeleteEvent)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.ChannelValues other) {
-      if (other == io.superdurable.gen.ChannelValues.getDefaultInstance()) return this;
+    public Builder mergeFrom(io.superdurable.gen.ChannelExternalDeleteEvent other) {
+      if (other == io.superdurable.gen.ChannelExternalDeleteEvent.getDefaultInstance()) return this;
       if (messagesBuilder_ == null) {
         if (!other.messages_.isEmpty()) {
           if (messages_.isEmpty()) {
@@ -412,9 +412,9 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              io.superdurable.gen.ChannelMessage m =
+              io.superdurable.gen.ChannelMessageDeletion m =
                   input.readMessage(
-                      io.superdurable.gen.ChannelMessage.parser(),
+                      io.superdurable.gen.ChannelMessageDeletion.parser(),
                       extensionRegistry);
               if (messagesBuilder_ == null) {
                 ensureMessagesIsMutable();
@@ -441,22 +441,22 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private java.util.List<io.superdurable.gen.ChannelMessage> messages_ =
+    private java.util.List<io.superdurable.gen.ChannelMessageDeletion> messages_ =
       java.util.Collections.emptyList();
     private void ensureMessagesIsMutable() {
       if (!((bitField0_ & 0x00000001) != 0)) {
-        messages_ = new java.util.ArrayList<io.superdurable.gen.ChannelMessage>(messages_);
+        messages_ = new java.util.ArrayList<io.superdurable.gen.ChannelMessageDeletion>(messages_);
         bitField0_ |= 0x00000001;
        }
     }
 
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.ChannelMessage, io.superdurable.gen.ChannelMessage.Builder, io.superdurable.gen.ChannelMessageOrBuilder> messagesBuilder_;
+        io.superdurable.gen.ChannelMessageDeletion, io.superdurable.gen.ChannelMessageDeletion.Builder, io.superdurable.gen.ChannelMessageDeletionOrBuilder> messagesBuilder_;
 
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.ChannelMessage> getMessagesList() {
+    public java.util.List<io.superdurable.gen.ChannelMessageDeletion> getMessagesList() {
       if (messagesBuilder_ == null) {
         return java.util.Collections.unmodifiableList(messages_);
       } else {
@@ -464,7 +464,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
     public int getMessagesCount() {
       if (messagesBuilder_ == null) {
@@ -474,9 +474,9 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
-    public io.superdurable.gen.ChannelMessage getMessages(int index) {
+    public io.superdurable.gen.ChannelMessageDeletion getMessages(int index) {
       if (messagesBuilder_ == null) {
         return messages_.get(index);
       } else {
@@ -484,10 +484,10 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
     public Builder setMessages(
-        int index, io.superdurable.gen.ChannelMessage value) {
+        int index, io.superdurable.gen.ChannelMessageDeletion value) {
       if (messagesBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -501,10 +501,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
     public Builder setMessages(
-        int index, io.superdurable.gen.ChannelMessage.Builder builderForValue) {
+        int index, io.superdurable.gen.ChannelMessageDeletion.Builder builderForValue) {
       if (messagesBuilder_ == null) {
         ensureMessagesIsMutable();
         messages_.set(index, builderForValue.build());
@@ -515,9 +515,9 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
-    public Builder addMessages(io.superdurable.gen.ChannelMessage value) {
+    public Builder addMessages(io.superdurable.gen.ChannelMessageDeletion value) {
       if (messagesBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -531,10 +531,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
     public Builder addMessages(
-        int index, io.superdurable.gen.ChannelMessage value) {
+        int index, io.superdurable.gen.ChannelMessageDeletion value) {
       if (messagesBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -548,10 +548,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
     public Builder addMessages(
-        io.superdurable.gen.ChannelMessage.Builder builderForValue) {
+        io.superdurable.gen.ChannelMessageDeletion.Builder builderForValue) {
       if (messagesBuilder_ == null) {
         ensureMessagesIsMutable();
         messages_.add(builderForValue.build());
@@ -562,10 +562,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
     public Builder addMessages(
-        int index, io.superdurable.gen.ChannelMessage.Builder builderForValue) {
+        int index, io.superdurable.gen.ChannelMessageDeletion.Builder builderForValue) {
       if (messagesBuilder_ == null) {
         ensureMessagesIsMutable();
         messages_.add(index, builderForValue.build());
@@ -576,10 +576,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
     public Builder addAllMessages(
-        java.lang.Iterable<? extends io.superdurable.gen.ChannelMessage> values) {
+        java.lang.Iterable<? extends io.superdurable.gen.ChannelMessageDeletion> values) {
       if (messagesBuilder_ == null) {
         ensureMessagesIsMutable();
         com.google.protobuf.AbstractMessageLite.Builder.addAll(
@@ -591,7 +591,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
     public Builder clearMessages() {
       if (messagesBuilder_ == null) {
@@ -604,7 +604,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
     public Builder removeMessages(int index) {
       if (messagesBuilder_ == null) {
@@ -617,16 +617,16 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
-    public io.superdurable.gen.ChannelMessage.Builder getMessagesBuilder(
+    public io.superdurable.gen.ChannelMessageDeletion.Builder getMessagesBuilder(
         int index) {
       return internalGetMessagesFieldBuilder().getBuilder(index);
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
-    public io.superdurable.gen.ChannelMessageOrBuilder getMessagesOrBuilder(
+    public io.superdurable.gen.ChannelMessageDeletionOrBuilder getMessagesOrBuilder(
         int index) {
       if (messagesBuilder_ == null) {
         return messages_.get(index);  } else {
@@ -634,9 +634,9 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
+    public java.util.List<? extends io.superdurable.gen.ChannelMessageDeletionOrBuilder> 
          getMessagesOrBuilderList() {
       if (messagesBuilder_ != null) {
         return messagesBuilder_.getMessageOrBuilderList();
@@ -645,33 +645,33 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
-    public io.superdurable.gen.ChannelMessage.Builder addMessagesBuilder() {
+    public io.superdurable.gen.ChannelMessageDeletion.Builder addMessagesBuilder() {
       return internalGetMessagesFieldBuilder().addBuilder(
-          io.superdurable.gen.ChannelMessage.getDefaultInstance());
+          io.superdurable.gen.ChannelMessageDeletion.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
-    public io.superdurable.gen.ChannelMessage.Builder addMessagesBuilder(
+    public io.superdurable.gen.ChannelMessageDeletion.Builder addMessagesBuilder(
         int index) {
       return internalGetMessagesFieldBuilder().addBuilder(
-          index, io.superdurable.gen.ChannelMessage.getDefaultInstance());
+          index, io.superdurable.gen.ChannelMessageDeletion.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.ChannelMessage messages = 1;</code>
+     * <code>repeated .dex.ChannelMessageDeletion messages = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.ChannelMessage.Builder> 
+    public java.util.List<io.superdurable.gen.ChannelMessageDeletion.Builder> 
          getMessagesBuilderList() {
       return internalGetMessagesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.ChannelMessage, io.superdurable.gen.ChannelMessage.Builder, io.superdurable.gen.ChannelMessageOrBuilder> 
+        io.superdurable.gen.ChannelMessageDeletion, io.superdurable.gen.ChannelMessageDeletion.Builder, io.superdurable.gen.ChannelMessageDeletionOrBuilder> 
         internalGetMessagesFieldBuilder() {
       if (messagesBuilder_ == null) {
         messagesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
-            io.superdurable.gen.ChannelMessage, io.superdurable.gen.ChannelMessage.Builder, io.superdurable.gen.ChannelMessageOrBuilder>(
+            io.superdurable.gen.ChannelMessageDeletion, io.superdurable.gen.ChannelMessageDeletion.Builder, io.superdurable.gen.ChannelMessageDeletionOrBuilder>(
                 messages_,
                 ((bitField0_ & 0x00000001) != 0),
                 getParentForChildren(),
@@ -681,23 +681,23 @@ private static final long serialVersionUID = 0L;
       return messagesBuilder_;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.ChannelValues)
+    // @@protoc_insertion_point(builder_scope:dex.ChannelExternalDeleteEvent)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.ChannelValues)
-  private static final io.superdurable.gen.ChannelValues DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.ChannelExternalDeleteEvent)
+  private static final io.superdurable.gen.ChannelExternalDeleteEvent DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.ChannelValues();
+    DEFAULT_INSTANCE = new io.superdurable.gen.ChannelExternalDeleteEvent();
   }
 
-  public static io.superdurable.gen.ChannelValues getDefaultInstance() {
+  public static io.superdurable.gen.ChannelExternalDeleteEvent getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<ChannelValues>
-      PARSER = new com.google.protobuf.AbstractParser<ChannelValues>() {
+  private static final com.google.protobuf.Parser<ChannelExternalDeleteEvent>
+      PARSER = new com.google.protobuf.AbstractParser<ChannelExternalDeleteEvent>() {
     @java.lang.Override
-    public ChannelValues parsePartialFrom(
+    public ChannelExternalDeleteEvent parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -716,17 +716,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<ChannelValues> parser() {
+  public static com.google.protobuf.Parser<ChannelExternalDeleteEvent> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<ChannelValues> getParserForType() {
+  public com.google.protobuf.Parser<ChannelExternalDeleteEvent> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.ChannelValues getDefaultInstanceForType() {
+  public io.superdurable.gen.ChannelExternalDeleteEvent getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

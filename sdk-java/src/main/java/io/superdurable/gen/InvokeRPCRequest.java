@@ -321,6 +321,22 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int IS_TRANSACTIONAL_FIELD_NUMBER = 8;
+  private boolean isTransactional_ = false;
+  /**
+   * <pre>
+   * Requests transactional reads and writes. Attribute locking enables it
+   * automatically. Channel deletion alone does not; callers must opt in.
+   * </pre>
+   *
+   * <code>bool is_transactional = 8;</code>
+   * @return The isTransactional.
+   */
+  @java.lang.Override
+  public boolean getIsTransactional() {
+    return isTransactional_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -356,6 +372,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 7, requestId_);
     }
+    if (isTransactional_ != false) {
+      output.writeBool(8, isTransactional_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -387,6 +406,10 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(7, requestId_);
+    }
+    if (isTransactional_ != false) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeBoolSize(8, isTransactional_);
     }
     return size;
   }
@@ -429,6 +452,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getLockAttributeKeysList())) return false;
     if (!getRequestId()
         .equals(other.getRequestId())) return false;
+    if (getIsTransactional()
+        != other.getIsTransactional()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -458,6 +483,9 @@ private static final long serialVersionUID = 0L;
     }
     hash = (37 * hash) + REQUEST_ID_FIELD_NUMBER;
     hash = (53 * hash) + getRequestId().hashCode();
+    hash = (37 * hash) + IS_TRANSACTIONAL_FIELD_NUMBER;
+    hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+        getIsTransactional());
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -607,6 +635,7 @@ private static final long serialVersionUID = 0L;
       lockAttributeKeys_ =
           com.google.protobuf.LazyStringArrayList.emptyList();
       requestId_ = "";
+      isTransactional_ = false;
       return this;
     }
 
@@ -666,6 +695,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000040) != 0)) {
         result.requestId_ = requestId_;
       }
+      if (((from_bitField0_ & 0x00000080) != 0)) {
+        result.isTransactional_ = isTransactional_;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -716,6 +748,9 @@ private static final long serialVersionUID = 0L;
         requestId_ = other.requestId_;
         bitField0_ |= 0x00000040;
         onChanged();
+      }
+      if (other.getIsTransactional() != false) {
+        setIsTransactional(other.getIsTransactional());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -780,6 +815,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000040;
               break;
             } // case 58
+            case 64: {
+              isTransactional_ = input.readBool();
+              bitField0_ |= 0x00000080;
+              break;
+            } // case 64
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1430,6 +1470,53 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       requestId_ = value;
       bitField0_ |= 0x00000040;
+      onChanged();
+      return this;
+    }
+
+    private boolean isTransactional_ ;
+    /**
+     * <pre>
+     * Requests transactional reads and writes. Attribute locking enables it
+     * automatically. Channel deletion alone does not; callers must opt in.
+     * </pre>
+     *
+     * <code>bool is_transactional = 8;</code>
+     * @return The isTransactional.
+     */
+    @java.lang.Override
+    public boolean getIsTransactional() {
+      return isTransactional_;
+    }
+    /**
+     * <pre>
+     * Requests transactional reads and writes. Attribute locking enables it
+     * automatically. Channel deletion alone does not; callers must opt in.
+     * </pre>
+     *
+     * <code>bool is_transactional = 8;</code>
+     * @param value The isTransactional to set.
+     * @return This builder for chaining.
+     */
+    public Builder setIsTransactional(boolean value) {
+
+      isTransactional_ = value;
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Requests transactional reads and writes. Attribute locking enables it
+     * automatically. Channel deletion alone does not; callers must opt in.
+     * </pre>
+     *
+     * <code>bool is_transactional = 8;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearIsTransactional() {
+      bitField0_ = (bitField0_ & ~0x00000080);
+      isTransactional_ = false;
       onChanged();
       return this;
     }

@@ -87,6 +87,20 @@ func (h *handler) PublishToChannel(
 	return h.svc.PublishToChannel(ctx, req)
 }
 
+func (h *handler) GetChannelMessages(
+	ctx context.Context,
+	req *dexpb.GetChannelMessagesRequest,
+) (*dexpb.GetChannelMessagesResponse, error) {
+	return h.svc.GetChannelMessages(ctx, req)
+}
+
+func (h *handler) DeleteChannelMessage(
+	ctx context.Context,
+	req *dexpb.DeleteChannelMessageRequest,
+) (*emptypb.Empty, error) {
+	return h.svc.DeleteChannelMessage(ctx, req)
+}
+
 func (h *handler) WriteStream(
 	ctx context.Context,
 	req *dexpb.WriteStreamRequest,

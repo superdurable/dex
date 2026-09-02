@@ -26,6 +26,7 @@ import (
 	"github.com/superdurable/dex/service/client/history"
 	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
+	"github.com/superdurable/dex/service/common/channelmessage"
 	serviceerrors "github.com/superdurable/dex/service/common/errors"
 	"github.com/superdurable/dex/service/common/grpctarget"
 	"github.com/superdurable/dex/service/common/index"
@@ -464,6 +465,9 @@ func (s *serviceImpl) PublishToChannel(
 	if len(req.GetMessages()) == 0 {
 		return &emptypb.Empty{}, nil
 	}
+	if err := channelmessage.AssignIDs(req.GetMessages()); err != nil {
+		return nil, s.handleError(err)
+	}
 	if err := blobstore.OffloadLargeChannelMessages(
 		ctx,
 		req.GetMessages(),
@@ -485,6 +489,161 @@ func (s *serviceImpl) PublishToChannel(
 		return nil, s.handleError(err)
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func (s *serviceImpl) GetChannelMessages(
+	ctx context.Context,
+	req *dexpb.GetChannelMessagesRequest,
+) (*dexpb.GetChannelMessagesResponse, error) {
+	if req == nil || req.GetFlowId() == "" || req.GetChannelName() == "" {
+		return nil, makeInvalidRequestError("flow ID and channel name are required")
+	}
+	var response dexpb.GetChannelMessagesResponse
+	if err := s.client.QueryWorkflow(
+		ctx,
+		&response,
+		req.GetFlowId(),
+		req.GetRunId(),
+		service.GetChannelMessagesWorkflowQueryType,
+		req,
+	); err != nil {
+		return nil, s.handleError(err)
+	}
+	if !s.blobStoreCfg.EffectiveLazyLoading() {
+		values := make([]*dexpb.Value, 0, len(response.GetMessages()))
+		for _, message := range response.GetMessages() {
+			values = append(values, message.GetValue())
+		}
+		if err := blobstore.HydrateValues(ctx, values, s.store); err != nil {
+			return nil, s.handleError(err)
+		}
+	}
+	return &response, nil
+}
+
+func (s *serviceImpl) DeleteChannelMessage(
+	ctx context.Context,
+	req *dexpb.DeleteChannelMessageRequest,
+) (*emptypb.Empty, error) {
+	if req == nil || req.GetFlowId() == "" || req.GetChannelName() == "" || req.GetMessageId() == "" {
+		return nil, makeInvalidRequestError("flow ID, channel name, and message ID are required")
+	}
+	if req.GetRequestId() == "" {
+		return nil, makeInvalidRequestError("request ID is required")
+	}
+	runID := req.GetRunId()
+	if runID == "" {
+		description, err := s.client.DescribeWorkflowExecution(ctx, req.GetFlowId(), "", nil)
+		if err != nil {
+			return nil, s.handleError(err)
+		}
+		runID = description.RunId
+	}
+	if s.client.GetBackendType() == service.BackendTypeCadence {
+		return s.deleteCadenceChannelMessage(ctx, req, runID)
+	}
+	retryBackoff := retry.NewInvokeRPCBackoff(s.apiCfg.InvokeRPCContinuedAsNewErrorRetryPolicy)
+	for {
+		response, err := s.deleteTemporalChannelMessage(ctx, req, runID)
+		if err == nil {
+			return response, nil
+		}
+		transitionError := s.isChannelMessageDeleteTransitionError(err)
+		if req.GetRunId() != "" || (!s.client.IsNotFoundError(err) && !transitionError) {
+			return nil, s.handleError(err)
+		}
+		description, describeErr := s.client.DescribeWorkflowExecution(ctx, req.GetFlowId(), "", nil)
+		if describeErr != nil {
+			return nil, s.handleError(err)
+		}
+		if description.RunId == runID && !transitionError {
+			return nil, s.handleError(err)
+		}
+		shouldRetry, retryErr := retryBackoff.WaitForNextAttempt(ctx)
+		if retryErr != nil {
+			return nil, s.handleError(retryErr)
+		}
+		if !shouldRetry {
+			return nil, s.handleError(err)
+		}
+		runID = description.RunId
+	}
+}
+
+func (s *serviceImpl) deleteTemporalChannelMessage(
+	ctx context.Context,
+	req *dexpb.DeleteChannelMessageRequest,
+	runID string,
+) (*emptypb.Empty, error) {
+	var response emptypb.Empty
+	if err := s.client.SynchronousUpdateWorkflow(
+		ctx,
+		&response,
+		req.GetFlowId(),
+		runID,
+		req.GetRequestId(),
+		service.DeleteChannelMessageUpdateType,
+		req,
+	); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (s *serviceImpl) isChannelMessageDeleteTransitionError(err error) bool {
+	if s.client.IsUnknownUpdateError(err, service.DeleteChannelMessageUpdateType) {
+		return true
+	}
+	updateType, updateError := s.client.GetIfUpdateError(err, nil)
+	return updateError &&
+		updateType == dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED
+}
+
+func (s *serviceImpl) deleteCadenceChannelMessage(
+	ctx context.Context,
+	req *dexpb.DeleteChannelMessageRequest,
+	runID string,
+) (*emptypb.Empty, error) {
+	listRequest := &dexpb.GetChannelMessagesRequest{
+		FlowId:      req.GetFlowId(),
+		RunId:       runID,
+		ChannelName: req.GetChannelName(),
+	}
+	response, err := s.GetChannelMessages(ctx, listRequest)
+	if err != nil {
+		return nil, err
+	}
+	if !containsChannelMessage(response.GetMessages(), req.GetMessageId()) {
+		return nil, serviceerrors.ChannelMessageNotFound(
+			fmt.Sprintf("Channel message %q was not found in channel %q", req.GetMessageId(), req.GetChannelName()),
+		).ToGRPCError()
+	}
+	deletion := &dexpb.ChannelMessageDeletion{
+		ChannelName: req.GetChannelName(),
+		MessageId:   req.GetMessageId(),
+	}
+	if err := s.client.SignalWorkflow(
+		ctx,
+		req.GetFlowId(),
+		runID,
+		service.ExecuteRpcSignalChannelName,
+		&dexpb.ExecuteRpcSignalRequest{
+			DeleteFromChannel:         []*dexpb.ChannelMessageDeletion{deletion},
+			IsDeleteChannelMessageApi: true,
+		},
+	); err != nil {
+		return nil, s.handleError(err)
+	}
+	return &emptypb.Empty{}, nil
+}
+
+func containsChannelMessage(messages []*dexpb.ChannelMessage, messageID string) bool {
+	for _, message := range messages {
+		if message.GetMessageId() == messageID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *serviceImpl) WriteStream(
@@ -1121,7 +1280,7 @@ func (s *serviceImpl) InvokeRPC(
 	if len(req.GetLockAttributeKeys()) > 0 && backendType == service.BackendTypeCadence {
 		return nil, status.Errorf(codes.Unimplemented, "locking RPC requires Temporal synchronous update")
 	}
-	useSynchronousUpdate := s.shouldInvokeRPCWithSynchronousUpdate(req)
+	isTransactional := s.shouldInvokeRPCTransactionally(req)
 	if err := blobstore.OffloadLargeValue(
 		ctx,
 		req.GetInput(),
@@ -1148,7 +1307,7 @@ func (s *serviceImpl) InvokeRPC(
 		s.apiCfg.InvokeRPCContinuedAsNewErrorRetryPolicy,
 	)
 	for {
-		response, err := s.doInvokeRPC(ctx, req, runID, useSynchronousUpdate)
+		response, err := s.doInvokeRPC(ctx, req, runID, isTransactional)
 		if err == nil {
 			if !s.blobStoreCfg.EffectiveLazyLoading() {
 				if err := blobstore.HydrateValue(ctx, response.GetOutput(), s.store); err != nil {
@@ -1157,7 +1316,7 @@ func (s *serviceImpl) InvokeRPC(
 			}
 			return response, nil
 		}
-		updateTransitionError := useSynchronousUpdate && s.isInvokeRPCUpdateTransitionError(err)
+		updateTransitionError := isTransactional && s.isInvokeRPCUpdateTransitionError(err)
 		if req.GetRunId() != "" ||
 			(!s.client.IsNotFoundError(err) && !updateTransitionError) {
 			return nil, s.handleInvokeRPCError(err)
@@ -1237,15 +1396,17 @@ func (s *serviceImpl) doInvokeRPC(
 	decision := workerResponse.GetStepDecision()
 	if len(workerResponse.GetUpsertAttributes()) > 0 ||
 		len(workerResponse.GetRecordEvents()) > 0 ||
+		len(workerResponse.GetDeleteFromChannel()) > 0 ||
 		len(workerResponse.GetPublishToChannel()) > 0 ||
 		len(decision.GetNextSteps()) > 0 ||
 		len(decision.GetCancelStepTypes()) > 0 ||
 		decision.GetCloseDecision() != nil {
 		signalRequest := &dexpb.ExecuteRpcSignalRequest{
-			UpsertAttributes: workerResponse.GetUpsertAttributes(),
-			StepDecision:     workerResponse.GetStepDecision(),
-			RecordEvents:     workerResponse.GetRecordEvents(),
-			PublishToChannel: workerResponse.GetPublishToChannel(),
+			UpsertAttributes:  workerResponse.GetUpsertAttributes(),
+			StepDecision:      workerResponse.GetStepDecision(),
+			RecordEvents:      workerResponse.GetRecordEvents(),
+			DeleteFromChannel: workerResponse.GetDeleteFromChannel(),
+			PublishToChannel:  workerResponse.GetPublishToChannel(),
 		}
 		if s.apiCfg.IncludeRPCInputOutputIntoHistory {
 			signalRequest.RpcInput = req.GetInput()
@@ -1264,9 +1425,9 @@ func (s *serviceImpl) doInvokeRPC(
 	return &dexpb.InvokeRPCResponse{Output: workerResponse.GetOutput()}, nil
 }
 
-func (s *serviceImpl) shouldInvokeRPCWithSynchronousUpdate(req *dexpb.InvokeRPCRequest) bool {
+func (s *serviceImpl) shouldInvokeRPCTransactionally(req *dexpb.InvokeRPCRequest) bool {
 	return s.client.GetBackendType() == service.BackendTypeTemporal &&
-		(len(req.GetLockAttributeKeys()) > 0 ||
+		(req.GetIsTransactional() || len(req.GetLockAttributeKeys()) > 0 ||
 			s.apiCfg.UseTemporalSynchronousUpdateForAllRPCs)
 }
 
@@ -1517,6 +1678,8 @@ func (s *serviceImpl) handleError(err error) error {
 			return serviceerrors.AbortedLockFailure(details).ToGRPCError()
 		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_SERVER_INTERNAL:
 			return serviceerrors.Internal(details).ToGRPCError()
+		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CHANNEL_MESSAGE_NOT_FOUND:
+			return serviceerrors.ChannelMessageNotFound(details).ToGRPCError()
 		default:
 			return serviceerrors.Internal(details).ToGRPCError()
 		}

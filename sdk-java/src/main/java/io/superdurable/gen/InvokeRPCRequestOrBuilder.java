@@ -139,4 +139,15 @@ public interface InvokeRPCRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getRequestIdBytes();
+
+  /**
+   * <pre>
+   * Requests transactional reads and writes. Attribute locking enables it
+   * automatically. Channel deletion alone does not; callers must opt in.
+   * </pre>
+   *
+   * <code>bool is_transactional = 8;</code>
+   * @return The isTransactional.
+   */
+  boolean getIsTransactional();
 }

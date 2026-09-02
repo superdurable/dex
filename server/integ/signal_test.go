@@ -227,11 +227,11 @@ func doTestSignalWorkflow(
 	var dump dexpb.DebugDumpResponse
 	err = unifiedClient.QueryWorkflow(ctx, &dump, flowId, "", service.DebugDumpQueryType)
 	require.NoError(t, err)
-	received := dump.GetSnapshot().GetChannelReceived()[signal.UnhandledSignalName].GetValues()
+	received := dump.GetSnapshot().GetChannelReceived()[signal.UnhandledSignalName].GetMessages()
 	assertions.True(len(unhandledSignalVals) > 0)
 	require.Len(t, received, len(unhandledSignalVals))
 	for i, expected := range unhandledSignalVals {
-		assertions.True(proto.Equal(expected, received[i]))
+		assertions.True(proto.Equal(expected, received[i].GetValue()))
 	}
 
 	if flowConfig == nil {

@@ -39,6 +39,21 @@ func SetQueryHandlers(
 	if err != nil {
 		return err
 	}
+	err = provider.SetQueryHandler(
+		ctx,
+		service.GetChannelMessagesWorkflowQueryType,
+		func(req *dexpb.GetChannelMessagesRequest) (*dexpb.GetChannelMessagesResponse, error) {
+			if req == nil || req.GetChannelName() == "" {
+				return nil, fmt.Errorf("GetChannelMessages query requires a channel name")
+			}
+			return &dexpb.GetChannelMessagesResponse{
+				Messages: channelStore.GetMessages(req.GetChannelName()),
+			}, nil
+		},
+	)
+	if err != nil {
+		return err
+	}
 	err = continueAsNewer.SetQueryHandlersForContinueAsNew(ctx)
 	if err != nil {
 		return err

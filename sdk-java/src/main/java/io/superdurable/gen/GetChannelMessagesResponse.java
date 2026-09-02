@@ -6,13 +6,13 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf type {@code dex.ChannelValues}
+ * Protobuf type {@code dex.GetChannelMessagesResponse}
  */
 @com.google.protobuf.Generated
-public final class ChannelValues extends
+public final class GetChannelMessagesResponse extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.ChannelValues)
-    ChannelValuesOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.GetChannelMessagesResponse)
+    GetChannelMessagesResponseOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -21,32 +21,32 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "ChannelValues");
+      "GetChannelMessagesResponse");
   }
-  // Use ChannelValues.newBuilder() to construct.
-  private ChannelValues(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use GetChannelMessagesResponse.newBuilder() to construct.
+  private GetChannelMessagesResponse(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private ChannelValues() {
+  private GetChannelMessagesResponse() {
     messages_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_ChannelValues_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_GetChannelMessagesResponse_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_ChannelValues_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_GetChannelMessagesResponse_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_ChannelValues_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_GetChannelMessagesResponse_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.ChannelValues.class, io.superdurable.gen.ChannelValues.Builder.class);
+            io.superdurable.gen.GetChannelMessagesResponse.class, io.superdurable.gen.GetChannelMessagesResponse.Builder.class);
   }
 
   public static final int MESSAGES_FIELD_NUMBER = 1;
@@ -139,10 +139,10 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.ChannelValues)) {
+    if (!(obj instanceof io.superdurable.gen.GetChannelMessagesResponse)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.ChannelValues other = (io.superdurable.gen.ChannelValues) obj;
+    io.superdurable.gen.GetChannelMessagesResponse other = (io.superdurable.gen.GetChannelMessagesResponse) obj;
 
     if (!getMessagesList()
         .equals(other.getMessagesList())) return false;
@@ -166,44 +166,44 @@ private static final long serialVersionUID = 0L;
     return hash;
   }
 
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.GetChannelMessagesResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.GetChannelMessagesResponse parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.GetChannelMessagesResponse parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.GetChannelMessagesResponse parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(byte[] data)
+  public static io.superdurable.gen.GetChannelMessagesResponse parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.GetChannelMessagesResponse parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.GetChannelMessagesResponse parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.GetChannelMessagesResponse parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -211,26 +211,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.ChannelValues parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.GetChannelMessagesResponse parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.ChannelValues parseDelimitedFrom(
+  public static io.superdurable.gen.GetChannelMessagesResponse parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.GetChannelMessagesResponse parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.ChannelValues parseFrom(
+  public static io.superdurable.gen.GetChannelMessagesResponse parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -243,7 +243,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.ChannelValues prototype) {
+  public static Builder newBuilder(io.superdurable.gen.GetChannelMessagesResponse prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -259,26 +259,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * Protobuf type {@code dex.ChannelValues}
+   * Protobuf type {@code dex.GetChannelMessagesResponse}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.ChannelValues)
-      io.superdurable.gen.ChannelValuesOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.GetChannelMessagesResponse)
+      io.superdurable.gen.GetChannelMessagesResponseOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_ChannelValues_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_GetChannelMessagesResponse_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_ChannelValues_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_GetChannelMessagesResponse_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.ChannelValues.class, io.superdurable.gen.ChannelValues.Builder.class);
+              io.superdurable.gen.GetChannelMessagesResponse.class, io.superdurable.gen.GetChannelMessagesResponse.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.ChannelValues.newBuilder()
+    // Construct using io.superdurable.gen.GetChannelMessagesResponse.newBuilder()
     private Builder() {
 
     }
@@ -305,17 +305,17 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_ChannelValues_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_GetChannelMessagesResponse_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.ChannelValues getDefaultInstanceForType() {
-      return io.superdurable.gen.ChannelValues.getDefaultInstance();
+    public io.superdurable.gen.GetChannelMessagesResponse getDefaultInstanceForType() {
+      return io.superdurable.gen.GetChannelMessagesResponse.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.ChannelValues build() {
-      io.superdurable.gen.ChannelValues result = buildPartial();
+    public io.superdurable.gen.GetChannelMessagesResponse build() {
+      io.superdurable.gen.GetChannelMessagesResponse result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -323,15 +323,15 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.ChannelValues buildPartial() {
-      io.superdurable.gen.ChannelValues result = new io.superdurable.gen.ChannelValues(this);
+    public io.superdurable.gen.GetChannelMessagesResponse buildPartial() {
+      io.superdurable.gen.GetChannelMessagesResponse result = new io.superdurable.gen.GetChannelMessagesResponse(this);
       buildPartialRepeatedFields(result);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartialRepeatedFields(io.superdurable.gen.ChannelValues result) {
+    private void buildPartialRepeatedFields(io.superdurable.gen.GetChannelMessagesResponse result) {
       if (messagesBuilder_ == null) {
         if (((bitField0_ & 0x00000001) != 0)) {
           messages_ = java.util.Collections.unmodifiableList(messages_);
@@ -343,22 +343,22 @@ private static final long serialVersionUID = 0L;
       }
     }
 
-    private void buildPartial0(io.superdurable.gen.ChannelValues result) {
+    private void buildPartial0(io.superdurable.gen.GetChannelMessagesResponse result) {
       int from_bitField0_ = bitField0_;
     }
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.ChannelValues) {
-        return mergeFrom((io.superdurable.gen.ChannelValues)other);
+      if (other instanceof io.superdurable.gen.GetChannelMessagesResponse) {
+        return mergeFrom((io.superdurable.gen.GetChannelMessagesResponse)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.ChannelValues other) {
-      if (other == io.superdurable.gen.ChannelValues.getDefaultInstance()) return this;
+    public Builder mergeFrom(io.superdurable.gen.GetChannelMessagesResponse other) {
+      if (other == io.superdurable.gen.GetChannelMessagesResponse.getDefaultInstance()) return this;
       if (messagesBuilder_ == null) {
         if (!other.messages_.isEmpty()) {
           if (messages_.isEmpty()) {
@@ -681,23 +681,23 @@ private static final long serialVersionUID = 0L;
       return messagesBuilder_;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.ChannelValues)
+    // @@protoc_insertion_point(builder_scope:dex.GetChannelMessagesResponse)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.ChannelValues)
-  private static final io.superdurable.gen.ChannelValues DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.GetChannelMessagesResponse)
+  private static final io.superdurable.gen.GetChannelMessagesResponse DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.ChannelValues();
+    DEFAULT_INSTANCE = new io.superdurable.gen.GetChannelMessagesResponse();
   }
 
-  public static io.superdurable.gen.ChannelValues getDefaultInstance() {
+  public static io.superdurable.gen.GetChannelMessagesResponse getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<ChannelValues>
-      PARSER = new com.google.protobuf.AbstractParser<ChannelValues>() {
+  private static final com.google.protobuf.Parser<GetChannelMessagesResponse>
+      PARSER = new com.google.protobuf.AbstractParser<GetChannelMessagesResponse>() {
     @java.lang.Override
-    public ChannelValues parsePartialFrom(
+    public GetChannelMessagesResponse parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -716,17 +716,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<ChannelValues> parser() {
+  public static com.google.protobuf.Parser<GetChannelMessagesResponse> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<ChannelValues> getParserForType() {
+  public com.google.protobuf.Parser<GetChannelMessagesResponse> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.ChannelValues getDefaultInstanceForType() {
+  public io.superdurable.gen.GetChannelMessagesResponse getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

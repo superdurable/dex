@@ -32,13 +32,15 @@ import (
  *      - Execute method will gracefully complete flow
  */
 const (
-	WorkflowType              = "rpc"
-	State1                    = "S1"
-	State2                    = "S2"
-	TestInterStateChannelName = "test-TestInterStateChannelName"
-	RPCName                   = "test-RPCName"
-	RPCNameReadOnly           = "test-RPC-readonly"
-	RPCNameError              = "test-RPC-error"
+	WorkflowType                      = "rpc"
+	State1                            = "S1"
+	State2                            = "S2"
+	TestInterStateChannelName         = "test-TestInterStateChannelName"
+	RPCName                           = "test-RPCName"
+	RPCNameReadOnly                   = "test-RPC-readonly"
+	RPCNameError                      = "test-RPC-error"
+	RPCNameDeleteMissingTransactional = "test-RPC-delete-missing-transactional"
+	RPCNameDeleteMissingSignal        = "test-RPC-delete-missing-signal"
 
 	TestDataAttributeKey = "test-data-attribute"
 
@@ -94,7 +96,9 @@ func (h *handler) InvokeWorkerRPC(
 	if request.GetFlowType() != WorkflowType ||
 		(request.GetRpcName() != RPCName &&
 			request.GetRpcName() != RPCNameReadOnly &&
-			request.GetRpcName() != RPCNameError) {
+			request.GetRpcName() != RPCNameError &&
+			request.GetRpcName() != RPCNameDeleteMissingTransactional &&
+			request.GetRpcName() != RPCNameDeleteMissingSignal) {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid rpc name: %s", request.GetRpcName()))
 	}
 
@@ -117,6 +121,28 @@ func (h *handler) InvokeWorkerRPC(
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 		return nil, st.Err()
+	}
+	if request.GetRpcName() == RPCNameDeleteMissingTransactional ||
+		request.GetRpcName() == RPCNameDeleteMissingSignal {
+		return &dexpb.InvokeWorkerRPCResponse{
+			Output: TestOutput,
+			UpsertAttributes: []*dexpb.AttributeWrite{
+				dataObjectWrite(TestDataAttributeKey, request.GetRpcName()),
+			},
+			RecordEvents: []*dexpb.KV{{Key: "deletion", Value: TestRecordEvent}},
+			DeleteFromChannel: []*dexpb.ChannelMessageDeletion{{
+				ChannelName: "source",
+				MessageId:   "missing",
+			}},
+			PublishToChannel: []*dexpb.ChannelMessage{{
+				ChannelName: "destination",
+				MessageId:   "worker-supplied",
+				Value:       TestInterstateChannelValue,
+			}},
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{{StepType: State2}},
+			},
+		}, nil
 	}
 
 	return &dexpb.InvokeWorkerRPCResponse{

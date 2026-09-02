@@ -196,5 +196,20 @@ public interface FlowHistoryEventOrBuilder extends
    */
   io.superdurable.gen.TimeTravelForkHistoryEventOrBuilder getTimeTravelForkOrBuilder();
 
+  /**
+   * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+   * @return Whether the channelExternalDelete field is set.
+   */
+  boolean hasChannelExternalDelete();
+  /**
+   * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+   * @return The channelExternalDelete.
+   */
+  io.superdurable.gen.ChannelExternalDeleteEvent getChannelExternalDelete();
+  /**
+   * <code>.dex.ChannelExternalDeleteEvent channel_external_delete = 31;</code>
+   */
+  io.superdurable.gen.ChannelExternalDeleteEventOrBuilder getChannelExternalDeleteOrBuilder();
+
   io.superdurable.gen.FlowHistoryEvent.PayloadCase getPayloadCase();
 }

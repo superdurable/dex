@@ -175,6 +175,7 @@ type WorkflowProvider interface {
 	GetLogger(ctx UnifiedContext) UnifiedLogger
 	NewInterpreterContinueAsNewError(ctx UnifiedContext, input *dexpb.InterpreterWorkflowInput) error
 	SetInvokeRPCUpdateHandler(ctx UnifiedContext, validator InvokeRPCUpdateValidator, handler InvokeRPCUpdateHandler) error
+	SetDeleteChannelMessageUpdateHandler(ctx UnifiedContext, validator DeleteChannelMessageUpdateValidator, handler DeleteChannelMessageUpdateHandler) error
 	SetWaitForStepCompletionUpdateHandler(ctx UnifiedContext, validator WaitForStepCompletionUpdateValidator, handler WaitForStepCompletionUpdateHandler) error
 	SetWaitForAttributeUpdateHandler(ctx UnifiedContext, validator WaitForAttributeUpdateValidator, handler WaitForAttributeUpdateHandler) error
 }
@@ -182,6 +183,9 @@ type WorkflowProvider interface {
 type (
 	InvokeRPCUpdateValidator func(ctx UnifiedContext, req *dexpb.InvokeRPCRequest) error
 	InvokeRPCUpdateHandler   func(ctx UnifiedContext, req *dexpb.InvokeRPCRequest) (*dexpb.InvokeRpcUpdateResult, error)
+
+	DeleteChannelMessageUpdateValidator func(ctx UnifiedContext, req *dexpb.DeleteChannelMessageRequest) error
+	DeleteChannelMessageUpdateHandler   func(ctx UnifiedContext, req *dexpb.DeleteChannelMessageRequest) (*emptypb.Empty, error)
 
 	WaitForStepCompletionUpdateValidator func(ctx UnifiedContext, req *dexpb.WaitForStepCompletionRequest) error
 	WaitForStepCompletionUpdateHandler   func(ctx UnifiedContext, req *dexpb.WaitForStepCompletionRequest) (*dexpb.WaitForStepCompletionResponse, error)

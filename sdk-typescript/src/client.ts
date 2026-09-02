@@ -290,6 +290,7 @@ export class Client {
             physicalName(lock.attribute.name, lock.instance),
           ),
           requestId: crypto.randomUUID(),
+          isTransactional: false,
         },
         callback,
       ),
@@ -494,6 +495,7 @@ export class Client {
           messages: values.map((value) => ({
             channelName: physicalName(channel.name, instance),
             value: encodeValue(channel.codec, value),
+            messageId: "",
           })),
         },
         callback,

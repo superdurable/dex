@@ -148,6 +148,15 @@ func NotFound(details string) *ErrorAndStatus {
 	return NewErrorAndStatus(codes.NotFound, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS, details)
 }
 
+// ChannelMessageNotFound reports a missing pending Channel message.
+func ChannelMessageNotFound(details string) *ErrorAndStatus {
+	return NewErrorAndStatus(
+		codes.NotFound,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND,
+		details,
+	)
+}
+
 // AlreadyExists is a convenience for duplicate flow starts.
 func AlreadyExists(details string) *ErrorAndStatus {
 	return NewErrorAndStatus(codes.AlreadyExists, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_ALREADY_STARTED, details)

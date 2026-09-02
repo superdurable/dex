@@ -6,8 +6,8 @@
 package io.superdurable.gen;
 
 @com.google.protobuf.Generated
-public interface ChannelMessageOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:dex.ChannelMessage)
+public interface ChannelMessageDeletionOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:dex.ChannelMessageDeletion)
     com.google.protobuf.MessageOrBuilder {
 
   /**
@@ -23,27 +23,12 @@ public interface ChannelMessageOrBuilder extends
       getChannelNameBytes();
 
   /**
-   * <code>.dex.Value value = 2;</code>
-   * @return Whether the value field is set.
-   */
-  boolean hasValue();
-  /**
-   * <code>.dex.Value value = 2;</code>
-   * @return The value.
-   */
-  io.superdurable.gen.Value getValue();
-  /**
-   * <code>.dex.Value value = 2;</code>
-   */
-  io.superdurable.gen.ValueOrBuilder getValueOrBuilder();
-
-  /**
-   * <code>string message_id = 3;</code>
+   * <code>string message_id = 2;</code>
    * @return The messageId.
    */
   java.lang.String getMessageId();
   /**
-   * <code>string message_id = 3;</code>
+   * <code>string message_id = 2;</code>
    * @return The bytes for messageId.
    */
   com.google.protobuf.ByteString

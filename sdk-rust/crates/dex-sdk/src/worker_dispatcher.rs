@@ -344,6 +344,7 @@ impl WorkerDispatcher {
                 step_decision: decision,
                 upsert_attributes: attributes,
                 record_events: events,
+                delete_from_channel: Vec::new(),
                 publish_to_channel: publications,
             })
         })

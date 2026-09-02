@@ -30,6 +30,8 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	FlowService_StartFlow_FullMethodName             = "/dex.FlowService/StartFlow"
 	FlowService_PublishToChannel_FullMethodName      = "/dex.FlowService/PublishToChannel"
+	FlowService_GetChannelMessages_FullMethodName    = "/dex.FlowService/GetChannelMessages"
+	FlowService_DeleteChannelMessage_FullMethodName  = "/dex.FlowService/DeleteChannelMessage"
 	FlowService_WriteStream_FullMethodName           = "/dex.FlowService/WriteStream"
 	FlowService_ReadStream_FullMethodName            = "/dex.FlowService/ReadStream"
 	FlowService_StopFlow_FullMethodName              = "/dex.FlowService/StopFlow"
@@ -61,6 +63,8 @@ const (
 type FlowServiceClient interface {
 	StartFlow(ctx context.Context, in *StartFlowRequest, opts ...grpc.CallOption) (*StartFlowResponse, error)
 	PublishToChannel(ctx context.Context, in *PublishToChannelRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	GetChannelMessages(ctx context.Context, in *GetChannelMessagesRequest, opts ...grpc.CallOption) (*GetChannelMessagesResponse, error)
+	DeleteChannelMessage(ctx context.Context, in *DeleteChannelMessageRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	WriteStream(ctx context.Context, in *WriteStreamRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ReadStream(ctx context.Context, in *ReadStreamRequest, opts ...grpc.CallOption) (*ReadStreamResponse, error)
 	StopFlow(ctx context.Context, in *StopFlowRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -106,6 +110,26 @@ func (c *flowServiceClient) PublishToChannel(ctx context.Context, in *PublishToC
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, FlowService_PublishToChannel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) GetChannelMessages(ctx context.Context, in *GetChannelMessagesRequest, opts ...grpc.CallOption) (*GetChannelMessagesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetChannelMessagesResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetChannelMessages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) DeleteChannelMessage(ctx context.Context, in *DeleteChannelMessageRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, FlowService_DeleteChannelMessage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -330,6 +354,8 @@ func (c *flowServiceClient) HealthCheck(ctx context.Context, in *emptypb.Empty, 
 type FlowServiceServer interface {
 	StartFlow(context.Context, *StartFlowRequest) (*StartFlowResponse, error)
 	PublishToChannel(context.Context, *PublishToChannelRequest) (*emptypb.Empty, error)
+	GetChannelMessages(context.Context, *GetChannelMessagesRequest) (*GetChannelMessagesResponse, error)
+	DeleteChannelMessage(context.Context, *DeleteChannelMessageRequest) (*emptypb.Empty, error)
 	WriteStream(context.Context, *WriteStreamRequest) (*emptypb.Empty, error)
 	ReadStream(context.Context, *ReadStreamRequest) (*ReadStreamResponse, error)
 	StopFlow(context.Context, *StopFlowRequest) (*emptypb.Empty, error)
@@ -366,6 +392,12 @@ func (UnimplementedFlowServiceServer) StartFlow(context.Context, *StartFlowReque
 }
 func (UnimplementedFlowServiceServer) PublishToChannel(context.Context, *PublishToChannelRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method PublishToChannel not implemented")
+}
+func (UnimplementedFlowServiceServer) GetChannelMessages(context.Context, *GetChannelMessagesRequest) (*GetChannelMessagesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetChannelMessages not implemented")
+}
+func (UnimplementedFlowServiceServer) DeleteChannelMessage(context.Context, *DeleteChannelMessageRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteChannelMessage not implemented")
 }
 func (UnimplementedFlowServiceServer) WriteStream(context.Context, *WriteStreamRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method WriteStream not implemented")
@@ -483,6 +515,42 @@ func _FlowService_PublishToChannel_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FlowServiceServer).PublishToChannel(ctx, req.(*PublishToChannelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_GetChannelMessages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetChannelMessagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetChannelMessages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetChannelMessages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetChannelMessages(ctx, req.(*GetChannelMessagesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_DeleteChannelMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteChannelMessageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).DeleteChannelMessage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_DeleteChannelMessage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).DeleteChannelMessage(ctx, req.(*DeleteChannelMessageRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -879,6 +947,14 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PublishToChannel",
 			Handler:    _FlowService_PublishToChannel_Handler,
+		},
+		{
+			MethodName: "GetChannelMessages",
+			Handler:    _FlowService_GetChannelMessages_Handler,
+		},
+		{
+			MethodName: "DeleteChannelMessage",
+			Handler:    _FlowService_DeleteChannelMessage_Handler,
 		},
 		{
 			MethodName: "WriteStream",

@@ -20,6 +20,24 @@ Workers call `SyncAttributeIndexes` before opening their listener. The RPC is
 an internal startup protocol: it adds missing backend indexes, validates
 existing types, and returns only after all requested indexes are readable.
 
+## Channel message queues
+
+Dex assigns every Channel publication a UUIDv7 `message_id`, replacing any ID
+in an incoming protocol message. `GetChannelMessages` returns all pending
+messages for one Channel in FIFO order. `DeleteChannelMessage` deletes one
+pending message by ID and returns `CHANNEL_MESSAGE_NOT_FOUND` when it is absent.
+
+Temporal performs direct deletion through a synchronous Update. Cadence uses a
+query followed by a signal, so consumption may race deletion. Channel conditions
+continue to expose only Values to Step handlers.
+
+`InvokeWorkerRPCResponse.delete_from_channel` stages deletions with other RPC
+side effects. Set `InvokeRPCRequest.is_transactional` for transactional reads
+and writes on Temporal: Dex validates all deletions before committing any side
+effect. Attribute locking enables transactions automatically, but Channel
+deletion does not. Signal RPCs treat a missing deletion as a no-op. Cadence
+always uses signal semantics without transactional guarantees.
+
 ## Worker targets
 
 `WorkerTarget.address` is a plaintext gRPC target. Set `is_headless_address` for a
@@ -207,7 +225,7 @@ record; none of these internal types is returned by `FlowService`.
 by value kind and blob ID before loading. Missing objects and unconfigured store
 IDs are omitted from the response map so callers can render them as unavailable.
 
-History events describe flows, step methods, RPCs, and channel publications.
+History events describe flows, step methods, RPCs, and Channel publications or deletions.
 They do not expose workflow tasks, activities, markers, or raw backend events.
 
 When a flow closes before a regular Step activity finishes, semantic history

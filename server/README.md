@@ -4,6 +4,17 @@ Dex Server provides the FlowService API for durable application Flows. It
 persists Flow state and dispatches Step and RPC tasks to application Workers.
 Learn about the programming model in the [Dex documentation](https://docs.superdurable.io/).
 
+Channel messages are stored as FIFO envelopes with server-generated UUIDv7
+identities. FlowService can list all pending messages for one Channel or delete
+one by ID. Temporal deletion uses a synchronous Update. Cadence uses a query
+followed by a signal and therefore provides best-effort race semantics.
+
+Worker RPC responses may stage Channel deletions. Transactional Temporal RPCs
+validate every deletion before any Flow mutation. Attribute locking enables a
+transaction automatically; Channel deletion requires an explicit transactional
+request. Signal RPCs ignore missing deletions and continue applying their
+remaining side effects.
+
 ## Local development
 
 Use `dexcli` to start a complete local Dex environment:

@@ -80,6 +80,68 @@ public final class FlowServiceGrpc {
     return getPublishToChannelMethod;
   }
 
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.GetChannelMessagesRequest,
+      io.superdurable.gen.GetChannelMessagesResponse> getGetChannelMessagesMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "GetChannelMessages",
+      requestType = io.superdurable.gen.GetChannelMessagesRequest.class,
+      responseType = io.superdurable.gen.GetChannelMessagesResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.GetChannelMessagesRequest,
+      io.superdurable.gen.GetChannelMessagesResponse> getGetChannelMessagesMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.GetChannelMessagesRequest, io.superdurable.gen.GetChannelMessagesResponse> getGetChannelMessagesMethod;
+    if ((getGetChannelMessagesMethod = FlowServiceGrpc.getGetChannelMessagesMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getGetChannelMessagesMethod = FlowServiceGrpc.getGetChannelMessagesMethod) == null) {
+          FlowServiceGrpc.getGetChannelMessagesMethod = getGetChannelMessagesMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.GetChannelMessagesRequest, io.superdurable.gen.GetChannelMessagesResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "GetChannelMessages"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.GetChannelMessagesRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.GetChannelMessagesResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("GetChannelMessages"))
+              .build();
+        }
+      }
+    }
+    return getGetChannelMessagesMethod;
+  }
+
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.DeleteChannelMessageRequest,
+      com.google.protobuf.Empty> getDeleteChannelMessageMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "DeleteChannelMessage",
+      requestType = io.superdurable.gen.DeleteChannelMessageRequest.class,
+      responseType = com.google.protobuf.Empty.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.DeleteChannelMessageRequest,
+      com.google.protobuf.Empty> getDeleteChannelMessageMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.DeleteChannelMessageRequest, com.google.protobuf.Empty> getDeleteChannelMessageMethod;
+    if ((getDeleteChannelMessageMethod = FlowServiceGrpc.getDeleteChannelMessageMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getDeleteChannelMessageMethod = FlowServiceGrpc.getDeleteChannelMessageMethod) == null) {
+          FlowServiceGrpc.getDeleteChannelMessageMethod = getDeleteChannelMessageMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.DeleteChannelMessageRequest, com.google.protobuf.Empty>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "DeleteChannelMessage"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.DeleteChannelMessageRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  com.google.protobuf.Empty.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("DeleteChannelMessage"))
+              .build();
+        }
+      }
+    }
+    return getDeleteChannelMessageMethod;
+  }
+
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.WriteStreamRequest,
       com.google.protobuf.Empty> getWriteStreamMethod;
 
@@ -798,6 +860,20 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    default void getChannelMessages(io.superdurable.gen.GetChannelMessagesRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.GetChannelMessagesResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getGetChannelMessagesMethod(), responseObserver);
+    }
+
+    /**
+     */
+    default void deleteChannelMessage(io.superdurable.gen.DeleteChannelMessageRequest request,
+        io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getDeleteChannelMessageMethod(), responseObserver);
+    }
+
+    /**
+     */
     default void writeStream(io.superdurable.gen.WriteStreamRequest request,
         io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getWriteStreamMethod(), responseObserver);
@@ -991,6 +1067,22 @@ public final class FlowServiceGrpc {
         io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
       io.grpc.stub.ClientCalls.asyncUnaryCall(
           getChannel().newCall(getPublishToChannelMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     */
+    public void getChannelMessages(io.superdurable.gen.GetChannelMessagesRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.GetChannelMessagesResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getGetChannelMessagesMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     */
+    public void deleteChannelMessage(io.superdurable.gen.DeleteChannelMessageRequest request,
+        io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getDeleteChannelMessageMethod(), getCallOptions()), request, responseObserver);
     }
 
     /**
@@ -1197,6 +1289,20 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public io.superdurable.gen.GetChannelMessagesResponse getChannelMessages(io.superdurable.gen.GetChannelMessagesRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getGetChannelMessagesMethod(), getCallOptions(), request);
+    }
+
+    /**
+     */
+    public com.google.protobuf.Empty deleteChannelMessage(io.superdurable.gen.DeleteChannelMessageRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getDeleteChannelMessageMethod(), getCallOptions(), request);
+    }
+
+    /**
+     */
     public com.google.protobuf.Empty writeStream(io.superdurable.gen.WriteStreamRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getWriteStreamMethod(), getCallOptions(), request);
@@ -1380,6 +1486,22 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.GetChannelMessagesResponse> getChannelMessages(
+        io.superdurable.gen.GetChannelMessagesRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getGetChannelMessagesMethod(), getCallOptions()), request);
+    }
+
+    /**
+     */
+    public com.google.common.util.concurrent.ListenableFuture<com.google.protobuf.Empty> deleteChannelMessage(
+        io.superdurable.gen.DeleteChannelMessageRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getDeleteChannelMessageMethod(), getCallOptions()), request);
+    }
+
+    /**
+     */
     public com.google.common.util.concurrent.ListenableFuture<com.google.protobuf.Empty> writeStream(
         io.superdurable.gen.WriteStreamRequest request) {
       return io.grpc.stub.ClientCalls.futureUnaryCall(
@@ -1549,27 +1671,29 @@ public final class FlowServiceGrpc {
 
   private static final int METHODID_START_FLOW = 0;
   private static final int METHODID_PUBLISH_TO_CHANNEL = 1;
-  private static final int METHODID_WRITE_STREAM = 2;
-  private static final int METHODID_READ_STREAM = 3;
-  private static final int METHODID_STOP_FLOW = 4;
-  private static final int METHODID_GET_ATTRIBUTES = 5;
-  private static final int METHODID_SET_ATTRIBUTES = 6;
-  private static final int METHODID_LOAD_BLOBS = 7;
-  private static final int METHODID_WAIT_FOR_FLOW = 8;
-  private static final int METHODID_SEARCH_FLOWS = 9;
-  private static final int METHODID_SYNC_ATTRIBUTE_INDEXES = 10;
-  private static final int METHODID_GET_FLOW_SUMMARY = 11;
-  private static final int METHODID_GET_HISTORY_EVENTS = 12;
-  private static final int METHODID_WAIT_FOR_HISTORY_EVENT = 13;
-  private static final int METHODID_GET_FLOW_STATE = 14;
-  private static final int METHODID_RESET_FLOW = 15;
-  private static final int METHODID_INVOKE_RPC = 16;
-  private static final int METHODID_SKIP_TIMER = 17;
-  private static final int METHODID_UPDATE_FLOW_CONFIG = 18;
-  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 19;
-  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 20;
-  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 21;
-  private static final int METHODID_HEALTH_CHECK = 22;
+  private static final int METHODID_GET_CHANNEL_MESSAGES = 2;
+  private static final int METHODID_DELETE_CHANNEL_MESSAGE = 3;
+  private static final int METHODID_WRITE_STREAM = 4;
+  private static final int METHODID_READ_STREAM = 5;
+  private static final int METHODID_STOP_FLOW = 6;
+  private static final int METHODID_GET_ATTRIBUTES = 7;
+  private static final int METHODID_SET_ATTRIBUTES = 8;
+  private static final int METHODID_LOAD_BLOBS = 9;
+  private static final int METHODID_WAIT_FOR_FLOW = 10;
+  private static final int METHODID_SEARCH_FLOWS = 11;
+  private static final int METHODID_SYNC_ATTRIBUTE_INDEXES = 12;
+  private static final int METHODID_GET_FLOW_SUMMARY = 13;
+  private static final int METHODID_GET_HISTORY_EVENTS = 14;
+  private static final int METHODID_WAIT_FOR_HISTORY_EVENT = 15;
+  private static final int METHODID_GET_FLOW_STATE = 16;
+  private static final int METHODID_RESET_FLOW = 17;
+  private static final int METHODID_INVOKE_RPC = 18;
+  private static final int METHODID_SKIP_TIMER = 19;
+  private static final int METHODID_UPDATE_FLOW_CONFIG = 20;
+  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 21;
+  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 22;
+  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 23;
+  private static final int METHODID_HEALTH_CHECK = 24;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -1594,6 +1718,14 @@ public final class FlowServiceGrpc {
           break;
         case METHODID_PUBLISH_TO_CHANNEL:
           serviceImpl.publishToChannel((io.superdurable.gen.PublishToChannelRequest) request,
+              (io.grpc.stub.StreamObserver<com.google.protobuf.Empty>) responseObserver);
+          break;
+        case METHODID_GET_CHANNEL_MESSAGES:
+          serviceImpl.getChannelMessages((io.superdurable.gen.GetChannelMessagesRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.GetChannelMessagesResponse>) responseObserver);
+          break;
+        case METHODID_DELETE_CHANNEL_MESSAGE:
+          serviceImpl.deleteChannelMessage((io.superdurable.gen.DeleteChannelMessageRequest) request,
               (io.grpc.stub.StreamObserver<com.google.protobuf.Empty>) responseObserver);
           break;
         case METHODID_WRITE_STREAM:
@@ -1712,6 +1844,20 @@ public final class FlowServiceGrpc {
               io.superdurable.gen.PublishToChannelRequest,
               com.google.protobuf.Empty>(
                 service, METHODID_PUBLISH_TO_CHANNEL)))
+        .addMethod(
+          getGetChannelMessagesMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.GetChannelMessagesRequest,
+              io.superdurable.gen.GetChannelMessagesResponse>(
+                service, METHODID_GET_CHANNEL_MESSAGES)))
+        .addMethod(
+          getDeleteChannelMessageMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.DeleteChannelMessageRequest,
+              com.google.protobuf.Empty>(
+                service, METHODID_DELETE_CHANNEL_MESSAGE)))
         .addMethod(
           getWriteStreamMethod(),
           io.grpc.stub.ServerCalls.asyncUnaryCall(
@@ -1909,6 +2055,8 @@ public final class FlowServiceGrpc {
               .setSchemaDescriptor(new FlowServiceFileDescriptorSupplier())
               .addMethod(getStartFlowMethod())
               .addMethod(getPublishToChannelMethod())
+              .addMethod(getGetChannelMessagesMethod())
+              .addMethod(getDeleteChannelMessageMethod())
               .addMethod(getWriteStreamMethod())
               .addMethod(getReadStreamMethod())
               .addMethod(getStopFlowMethod())

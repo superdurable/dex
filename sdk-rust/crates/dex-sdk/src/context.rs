@@ -731,6 +731,7 @@ impl Context {
         self.publications.push(ChannelMessage {
             channel_name: channel_name.clone(),
             value: Some(value),
+            message_id: String::new(),
         });
         if self.method == InvocationMethod::Rpc {
             self.channel_infos

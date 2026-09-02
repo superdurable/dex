@@ -6,8 +6,8 @@
 package io.superdurable.gen;
 
 @com.google.protobuf.Generated
-public interface ChannelValuesOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:dex.ChannelValues)
+public interface GetChannelMessagesResponseOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:dex.GetChannelMessagesResponse)
     com.google.protobuf.MessageOrBuilder {
 
   /**

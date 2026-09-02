@@ -63,9 +63,9 @@ class FlowServiceStub:
 
     Notable per-RPC behavior:
     InvokeRPC — empty LockAttributeKeys uses query + WorkerService + optional
-    signal by default. Temporal can opt into synchronous Updates for all RPCs.
-    Non-empty LockAttributeKeys requires a Temporal synchronous Update;
-    Cadence returns Unimplemented.
+    signal by default. IsTransactional requests transactional reads and writes.
+    Non-empty LockAttributeKeys enables transactional execution automatically;
+    Cadence returns Unimplemented for attribute locking.
     WorkerService errors (app or transport-to-worker) → FailedPrecondition +
     WORKER_API_ERROR + OriginalWorker* when present.
     WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
@@ -96,6 +96,16 @@ class FlowServiceStub:
         self.PublishToChannel = channel.unary_unary(
                 '/dex.FlowService/PublishToChannel',
                 request_serializer=dex__pb2.PublishToChannelRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
+        self.GetChannelMessages = channel.unary_unary(
+                '/dex.FlowService/GetChannelMessages',
+                request_serializer=dex__pb2.GetChannelMessagesRequest.SerializeToString,
+                response_deserializer=dex__pb2.GetChannelMessagesResponse.FromString,
+                _registered_method=True)
+        self.DeleteChannelMessage = channel.unary_unary(
+                '/dex.FlowService/DeleteChannelMessage',
+                request_serializer=dex__pb2.DeleteChannelMessageRequest.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 _registered_method=True)
         self.WriteStream = channel.unary_unary(
@@ -242,9 +252,9 @@ class FlowServiceServicer:
 
     Notable per-RPC behavior:
     InvokeRPC — empty LockAttributeKeys uses query + WorkerService + optional
-    signal by default. Temporal can opt into synchronous Updates for all RPCs.
-    Non-empty LockAttributeKeys requires a Temporal synchronous Update;
-    Cadence returns Unimplemented.
+    signal by default. IsTransactional requests transactional reads and writes.
+    Non-empty LockAttributeKeys enables transactional execution automatically;
+    Cadence returns Unimplemented for attribute locking.
     WorkerService errors (app or transport-to-worker) → FailedPrecondition +
     WORKER_API_ERROR + OriginalWorker* when present.
     WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
@@ -268,6 +278,18 @@ class FlowServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def PublishToChannel(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetChannelMessages(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteChannelMessage(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -410,6 +432,16 @@ def add_FlowServiceServicer_to_server(servicer, server):
             'PublishToChannel': grpc.unary_unary_rpc_method_handler(
                     servicer.PublishToChannel,
                     request_deserializer=dex__pb2.PublishToChannelRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'GetChannelMessages': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetChannelMessages,
+                    request_deserializer=dex__pb2.GetChannelMessagesRequest.FromString,
+                    response_serializer=dex__pb2.GetChannelMessagesResponse.SerializeToString,
+            ),
+            'DeleteChannelMessage': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteChannelMessage,
+                    request_deserializer=dex__pb2.DeleteChannelMessageRequest.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
             'WriteStream': grpc.unary_unary_rpc_method_handler(
@@ -562,9 +594,9 @@ class FlowService:
 
     Notable per-RPC behavior:
     InvokeRPC — empty LockAttributeKeys uses query + WorkerService + optional
-    signal by default. Temporal can opt into synchronous Updates for all RPCs.
-    Non-empty LockAttributeKeys requires a Temporal synchronous Update;
-    Cadence returns Unimplemented.
+    signal by default. IsTransactional requests transactional reads and writes.
+    Non-empty LockAttributeKeys enables transactional execution automatically;
+    Cadence returns Unimplemented for attribute locking.
     WorkerService errors (app or transport-to-worker) → FailedPrecondition +
     WORKER_API_ERROR + OriginalWorker* when present.
     WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
@@ -624,6 +656,60 @@ class FlowService:
             target,
             '/dex.FlowService/PublishToChannel',
             dex__pb2.PublishToChannelRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetChannelMessages(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/GetChannelMessages',
+            dex__pb2.GetChannelMessagesRequest.SerializeToString,
+            dex__pb2.GetChannelMessagesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteChannelMessage(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/DeleteChannelMessage',
+            dex__pb2.DeleteChannelMessageRequest.SerializeToString,
             google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,
