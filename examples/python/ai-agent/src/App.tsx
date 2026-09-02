@@ -51,6 +51,14 @@ interface MessageQueue {
   immediate: QueuedMessage[];
 }
 
+interface ThinkingEntry {
+  source: string;
+  content: string;
+  isStreaming: boolean;
+  isExpanded: boolean;
+  isManuallyExpanded: boolean;
+}
+
 interface PlanTask {
   content: string;
   status: 'pending' | 'in_progress' | 'completed';
@@ -145,7 +153,7 @@ const App: React.FC = () => {
   const [pressedInputChoice, setPressedInputChoice] = useState<string | null>(null);
   const [selectedInputChoice, setSelectedInputChoice] = useState<string | null>(null);
   const [isInputSubmitPressed, setIsInputSubmitPressed] = useState(false);
-  const [liveReasoningSummary, setLiveReasoningSummary] = useState('');
+  const [thinkingEntries, setThinkingEntries] = useState<ThinkingEntry[]>([]);
   const [liveResponseText, setLiveResponseText] = useState('');
   const [activity, setActivity] = useState<AgentEvent[]>([]);
   const [isBusy, setIsBusy] = useState(false);
@@ -158,6 +166,7 @@ const App: React.FC = () => {
   const stateFetchSequenceRef = useRef(0);
   const descriptionStatusRef = useRef('');
   const eventRefreshTimerRef = useRef<number | null>(null);
+  const completedThinkingSourcesRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (workflowId) return;
@@ -220,7 +229,6 @@ const App: React.FC = () => {
       nextDescription.status === 'waiting_for_message'
       && history.messages.at(-1)?.message.role === 'assistant'
     ) {
-      setLiveReasoningSummary('');
       setLiveResponseText('');
     }
   }, [workflowId]);
@@ -254,6 +262,19 @@ const App: React.FC = () => {
     const controller = new AbortController();
     let reasoningSource = '';
     let assistantSource = '';
+    const finishThinking = (source: string) => {
+      if (!source) return;
+      completedThinkingSourcesRef.current.add(source);
+      setThinkingEntries((current) => current.map((entry) => (
+        entry.source === source
+          ? {
+            ...entry,
+            isStreaming: false,
+            isExpanded: entry.isManuallyExpanded,
+          }
+          : entry
+      )));
+    };
     const requestEventRefresh = () => {
       if (eventRefreshTimerRef.current !== null) return;
       eventRefreshTimerRef.current = window.setTimeout(() => {
@@ -285,12 +306,36 @@ const App: React.FC = () => {
       }
     };
     void readStream('reasoning', (payload) => {
+      const content = String(payload.value);
+      if (!content) return;
       if (payload.source !== reasoningSource) {
+        finishThinking(reasoningSource);
         reasoningSource = payload.source;
-        setLiveReasoningSummary(String(payload.value));
+        const isStreaming = !completedThinkingSourcesRef.current.has(payload.source);
+        setThinkingEntries((current) => [
+          ...current,
+          {
+            source: payload.source,
+            content,
+            isStreaming,
+            isExpanded: isStreaming,
+            isManuallyExpanded: false,
+          },
+        ]);
         return;
       }
-      setLiveReasoningSummary((current) => current + String(payload.value));
+      setThinkingEntries((current) => current.map((entry) => (
+        entry.source === payload.source
+          ? {
+            ...entry,
+            content: entry.content + content,
+            isStreaming: !completedThinkingSourcesRef.current.has(payload.source),
+            isExpanded: completedThinkingSourcesRef.current.has(payload.source)
+              ? entry.isExpanded
+              : true,
+          }
+          : entry
+      )));
     });
     void readStream('assistant', (payload) => {
       if (payload.source !== assistantSource) {
@@ -301,7 +346,9 @@ const App: React.FC = () => {
       setLiveResponseText((current) => current + String(payload.value));
     });
     void readStream('activity', (payload) => {
-      setActivity((current) => [...current, payload.value as AgentEvent].slice(-30));
+      const event = payload.value as AgentEvent;
+      if (event.kind === 'model_completed') finishThinking(payload.source);
+      setActivity((current) => [...current, event].slice(-30));
       requestEventRefresh();
     });
     return () => {
@@ -387,7 +434,8 @@ const App: React.FC = () => {
     setDescription(null);
     setMessages([]);
     setMessageQueue({ regular: [], immediate: [] });
-    setLiveReasoningSummary('');
+    setThinkingEntries([]);
+    completedThinkingSourcesRef.current.clear();
     setLiveResponseText('');
     setActivity([]);
     setError('');
@@ -399,7 +447,6 @@ const App: React.FC = () => {
     setIsBusy(true);
     setError('');
     setInput('');
-    setLiveReasoningSummary('');
     setLiveResponseText('');
     const requestedPlanMode = planMode;
     const optimisticId = `optimistic-${crypto.randomUUID()}`;
@@ -547,6 +594,30 @@ const App: React.FC = () => {
   };
 
   const isModelRunning = description?.status === 'calling_model';
+  useEffect(() => {
+    if (isModelRunning) return;
+    setThinkingEntries((current) => current.map((entry) => (
+      entry.isStreaming
+        ? {
+          ...entry,
+          isStreaming: false,
+          isExpanded: entry.isManuallyExpanded,
+        }
+        : entry
+    )));
+  }, [isModelRunning]);
+
+  const toggleThinking = (source: string) => {
+    setThinkingEntries((current) => current.map((entry) => {
+      if (entry.source !== source) return entry;
+      const isExpanded = !entry.isExpanded;
+      return {
+        ...entry,
+        isExpanded,
+        isManuallyExpanded: isExpanded,
+      };
+    }));
+  };
   if (!workflowId) {
     return (
       <main style={styles.page}>
@@ -768,16 +839,25 @@ const App: React.FC = () => {
             ))}
         </div>
 
-        {liveReasoningSummary && (
-          <section style={styles.thinkingCard} aria-live="polite">
-            <div style={styles.streamHeader}>
-              <span style={styles.thinkingIndicator} />
+        {thinkingEntries.map((entry, index) => (
+          <section key={entry.source} style={styles.thinkingCard} aria-live="polite">
+            <button
+              type="button"
+              style={styles.thinkingHeader}
+              aria-expanded={entry.isExpanded}
+              aria-controls={`thinking-${index}`}
+              onClick={() => toggleThinking(entry.source)}
+            >
+              <span style={entry.isStreaming ? styles.thinkingIndicator : styles.thinkingCompleteIndicator} />
               <strong>Thinking</strong>
-              <small>OpenAI reasoning summary</small>
-            </div>
-            <p style={styles.streamText}>{liveReasoningSummary}</p>
+              <small>{entry.isStreaming ? 'Streaming reasoning summary…' : 'Reasoning summary'}</small>
+              <span style={styles.thinkingChevron}>{entry.isExpanded ? '▾' : '▸'}</span>
+            </button>
+            {entry.isExpanded && (
+              <p id={`thinking-${index}`} style={styles.streamText}>{entry.content}</p>
+            )}
           </section>
-        )}
+        ))}
 
         {(isModelRunning || liveResponseText) && (
           <section style={styles.liveModelCard} aria-live="polite">
@@ -1174,8 +1254,11 @@ const styles: Record<string, React.CSSProperties> = {
   timerCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#e9f8f2', border: '1px solid #8dd7bd' },
   liveModelCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#161b2e', color: '#eef2ff', border: '1px solid #343b5f', boxShadow: '0 12px 30px rgba(20, 24, 45, .16)' },
   thinkingCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#f4f1ff', color: '#3d3168', border: '1px solid #cfc4ff' },
+  thinkingHeader: { display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: 0, border: 0, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
+  thinkingChevron: { marginLeft: 'auto', fontSize: 18, lineHeight: 1 },
   streamHeader: { display: 'flex', alignItems: 'center', gap: 9, color: 'inherit' },
   thinkingIndicator: { width: 9, height: 9, borderRadius: '50%', background: '#9b72e8', boxShadow: '0 0 0 5px rgba(155,114,232,.15)' },
+  thinkingCompleteIndicator: { width: 9, height: 9, borderRadius: '50%', background: '#9ca3af' },
   liveIndicator: { width: 9, height: 9, borderRadius: '50%', background: '#7c72ff', boxShadow: '0 0 0 5px rgba(124,114,255,.15)' },
   streamText: { margin: '13px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.6, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
   inputCard: { marginTop: 18, padding: 20, borderRadius: 16, background: '#f5f7ff', border: '1px solid #aebdf2', boxShadow: '0 12px 28px rgba(79, 70, 229, .10)' },
