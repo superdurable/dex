@@ -1,0 +1,28 @@
+# Trusted Worker-side MCP configuration. Never accept this content from the browser.
+servers:
+  - name: search
+    transport: stdio
+    command: npx
+    args: ["-y", "@brave/brave-search-mcp-server", "--transport", "stdio"]
+    env:
+      BRAVE_API_KEY: BRAVE_API_KEY
+    tools:
+      brave_web_search:
+        read_only: true
+        timeout_seconds: 30
+        maximum_attempts: 3
+        retry_total_seconds: 120
+
+  - name: slack
+    transport: streamable_http
+    url: https://replace-with-your-slack-mcp.example/mcp
+    headers:
+      Authorization: SLACK_MCP_AUTHORIZATION
+    trust_read_only_annotations: true
+
+  - name: google_docs
+    transport: streamable_http
+    url: https://replace-with-your-google-docs-mcp.example/mcp
+    headers:
+      Authorization: GOOGLE_DOCS_MCP_AUTHORIZATION
+    trust_read_only_annotations: true

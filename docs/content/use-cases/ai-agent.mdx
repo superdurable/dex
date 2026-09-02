@@ -1,0 +1,82 @@
+---
+title: AI Agent
+---
+
+# AI Agent
+
+This Python application is a general, long-running AI Agent. It can plan work for review, chat with a user, call trusted MCP tools, wait for approval before external writes, and suspend itself with a durable timer.
+
+Dex owns the conversation state. The Agent rebuilds the model input from durable state for every call, so it does not depend on an LLM provider's conversation API.
+
+## Durable context
+
+The application stores each user, assistant, and tool message as a separate [AttributeMap](/primitives/attribute) instance. A small Attribute tracks sequence ranges, pending tools, and the active context summary.
+
+When the model context reaches 85 percent of its configured window, a Step summarizes older messages. The model receives the system prompt, the cumulative summary, and the recent unsummarized messages. The current AttributeMap keeps the latest 2,000 messages by default.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/ai_agent_flow.py'}}>
+<SdkSnippet lang="python">
+
+```python
+    config = Attribute("AgentConfig", AgentConfig)
+    state = Attribute("AgentState", AgentState)
+    summary = Attribute("ContextSummary", ContextSummary)
+    messages = AttributeMap("AgentMessages", AgentMessage)
+    plan = Attribute("AgentPlan", AgentPlan)
+    pending_approval = Attribute("PendingApproval", PendingApproval)
+    pending_timer = Attribute("PendingTimer", PendingTimer)
+    user_messages = Channel("UserMessages", UserMessage)
+    tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
+    plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
+    reasoning_summary = Stream("ReasoningSummary", str, 10 * 1024 * 1024)
+    assistant_text = Stream("AssistantText", str, 10 * 1024 * 1024)
+    agent_activity = Stream("AgentActivity", AgentEvent, 10 * 1024 * 1024)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Each map instance can be loaded and updated independently. This avoids rewriting one ever-growing conversation value. Dex blob storage and the Worker BlobCache handle large messages and MCP results.
+
+## Durable plans
+
+Turn on **Plan mode** for a message to ask the Agent to create or revise a plan without executing it. The planning call can only use the built-in **write_todos** tool. It cannot call MCP tools or start a durable wait.
+
+The current plan is a regular Attribute. One update atomically replaces its ordered task list and advances the revision. Tasks are pending, in progress, or completed. Because the plan is independent of conversation messages, context compaction does not remove it.
+
+The UI displays the draft and starts execution only after the user selects **Execute plan**. An active plan that stops with unfinished tasks remains incomplete and can be continued. The Agent waiting for another input does not mean that every plan task is complete.
+
+## MCP tools and approvals
+
+The Worker loads trusted stdio or Streamable HTTP MCP servers from local configuration. The Agent Portal can enable registered servers and tools for a new session, but it cannot register an MCP command, URL, or credential.
+
+Read-only tools can run immediately. Write, destructive, and unclassified tools wait on a durable approval Channel. Tool timeout and retry policies are configurable per server and per tool. A final failure becomes a tool result so the model and user can decide what to do next.
+
+The example supports tools, resources, resource templates, prompts, progress, and logging. Server-initiated sampling, elicitation, and roots are not enabled.
+
+## Durable waits
+
+The built-in **durable_wait** tool moves the Flow to a Step that waits on both a [Timer](/primitives/timer) and the user-message Channel. The timer can survive Worker restarts. A new user message interrupts it and lets the Agent replan.
+
+## Live events
+
+Reasoning summaries and assistant text use separate buffered [Streams](/primitives/stream). The Step passes both buffered writers to the model adapter. The SDK combines small chunks for up to one second or 16 KiB and flushes each tail before the Step result or error.
+
+OpenAI models use LiteLLM's Responses adapter. Each request asks for an automatic reasoning summary but does not use provider-side conversation storage. Dex retains encrypted OpenAI reasoning items with the durable assistant message and replays them as stateless model context. The UI shows official reasoning-summary deltas under **Thinking**, visible output under **Response**, and tool calls or lifecycle progress under **Agent activity**. Other providers do not show a Thinking panel unless their adapter supplies a real reasoning-summary event.
+
+Tool progress, timer state, and compaction status use a separate Stream. Stream delivery is best effort. Durable chat history always comes from Attributes, so refreshing the browser does not depend on replaying every progress event.
+
+## Run the example
+
+The Flow and HTTP routes are under [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent). The React UI and MCP configuration example are under [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent).
+
+The application opens on an Agent Portal. Choose a LiteLLM provider and model, optionally enter its API key, and select registered MCP servers and tools before starting the Agent. A key entered in the Portal stays in Worker memory and is not written to Dex state or Flow history. Use a Worker environment variable when the credential must survive a process restart.
+
+The local playground starts credential-free search, Slack, and Google Docs demo MCP servers. The chat page separates Thinking, Response, and Agent activity while a call is running. Use **Command/Ctrl+Enter** or **Alt+Enter** to send a message. When work needs user input, the built-in **request_user_input** tool expands a durable input panel in the conversation. Known answers appear as selection buttons; open-ended questions use a text box. Execution waits for the submitted answer before continuing.
+
+## Related
+
+- [Attribute](/primitives/attribute)
+- [Channel](/primitives/channel)
+- [Stream](/primitives/stream)
+- [Timer](/primitives/timer)

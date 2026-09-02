@@ -96,7 +96,7 @@ The script opens a browser tab to [http://127.0.0.1:3333](http://127.0.0.1:3333)
 You can also change the example server and Dex web UI URLs in the page header.
 
 The Go [Deal DSL](go/products/deal-dsl/) application and Python-only
-[AI Agent Email](python/ai-agent-email/) have their own UIs; they are not on
+[AI Agent](python/ai-agent/) have their own UIs; they are not on
 the shared playground. Deal DSL Flow implementations also run in Java, Python,
 TypeScript, and Rust.
 
@@ -128,7 +128,7 @@ client-apis.
 Language-specific extras live next to those trees: the Go
 [Deal DSL](go/products/deal-dsl/) UI, PostgreSQL catalog, and
 `dex-deal-dsl` binary; and the Python
-[AI Agent Email](python/ai-agent-email/) UI. The Deal DSL interpreter itself is
+[AI Agent](python/ai-agent/) UI. The Deal DSL interpreter itself is
 implemented across all five language SDK examples.
 
 Each language README has setup, env overrides, and verify steps. CI workflows

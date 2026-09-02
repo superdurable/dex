@@ -24,8 +24,10 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
+import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -62,6 +64,7 @@ async def example_app(
         worker_target=None,
         http_address="127.0.0.1:0",
         blob_cache_dir=tmp_path_factory.mktemp("dex-examples-blob-cache"),
+        agent_mcp_config=_agent_mcp_config(tmp_path_factory),
     )
     app = ExampleApp(config)
     await app.start_worker()
@@ -76,6 +79,22 @@ async def example_app(
         yield app
     finally:
         await app.close()
+
+
+def _agent_mcp_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    config_path = tmp_path_factory.mktemp("dex-agent-mcp") / "servers.yaml"
+    server_path = Path(__file__).with_name("ai_agent_mcp_server.py")
+    config_path.write_text(
+        f"""
+servers:
+  - name: test
+    transport: stdio
+    command: {sys.executable}
+    args: [{server_path}]
+    trust_read_only_annotations: true
+""".strip()
+    )
+    return config_path
 
 
 @pytest_asyncio.fixture(scope="session")

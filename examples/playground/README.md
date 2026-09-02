@@ -4,7 +4,7 @@ A single static page that calls every example HTTP controller (products,
 patterns, and primitives) without hand-building GET/POST URLs.
 
 The Go Deal DSL application is a separate `dex-deal-dsl` binary with its own UI
-and PostgreSQL catalog. AI Agent Email (Python) also has its own UI. Neither UI
+and PostgreSQL catalog. AI Agent (Python) also has its own UI. Neither UI
 is included here; Deal DSL Flow implementations still run in all five SDK
 examples.
 

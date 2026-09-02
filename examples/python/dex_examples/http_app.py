@@ -71,7 +71,7 @@ from dex_examples.primitives.stream.controller import create_stream_blueprint
 from dex_examples.primitives.subflow.controller import create_subflow_blueprint
 from dex_examples.primitives.timer.controller import create_timer_blueprint
 from dex_examples.primitives.wait_types.controller import create_wait_types_blueprint
-from dex_examples.products.ai_agent_email.http_routes import (
+from dex_examples.products.ai_agent.http_routes import (
     STATIC_DIR,
     TEMPLATE_DIR,
     create_ai_agent_blueprint,

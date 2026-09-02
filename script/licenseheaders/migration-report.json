@@ -638,17 +638,17 @@
     },
     {
       "classification": "excluded",
-      "path": "examples/python/ai-agent-email/ai_agent_workflow.py",
+      "path": "examples/python/ai-agent/ai_agent_workflow.py",
       "reason": "excluded by policy"
     },
     {
       "classification": "excluded",
-      "path": "examples/python/ai-agent-email/dex_config.py",
+      "path": "examples/python/ai-agent/dex_config.py",
       "reason": "excluded by policy"
     },
     {
       "classification": "excluded",
-      "path": "examples/python/ai-agent-email/main.py",
+      "path": "examples/python/ai-agent/main.py",
       "reason": "excluded by policy"
     },
     {

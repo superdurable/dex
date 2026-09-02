@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import socket
 from collections.abc import AsyncIterator, Callable
 from uuid import uuid4
@@ -112,10 +113,10 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             flags=FlowSmokeFlags(no_start_step=True),
         ),
         FlowSmokeEntry(
-            "products/ai-agent-email",
-            lambda c: trigger_get(
-                "/products/ai-agent-email/start",
-                {"workflowId": new_id("ai-agent")},
+            "products/ai-agent",
+            lambda c: _ai_agent_trigger(
+                c,
+                new_id("ai-agent"),
             ),
         ),
         FlowSmokeEntry(
@@ -390,6 +391,65 @@ async def _signup_trigger(
     return parsed_flow_id or flow_id or username, parsed_run_id or run_id
 
 
+async def _ai_agent_trigger(
+    client: FlowSmokeHttpClient,
+    flow_id: str,
+) -> tuple[str, str]:
+    await client.post(
+        "/products/ai-agent/start",
+        {"workflowId": flow_id},
+    )
+    return flow_id, ""
+
+
+async def test_ai_agent_portal_configures_credentials_and_capabilities(
+    flow_smoke_http: FlowSmokeHttpClient,
+    example_app: ExampleApp,
+) -> None:
+    _, _, portal_body = await flow_smoke_http.get("/products/ai-agent/portal")
+    portal = json.loads(portal_body)
+    assert any(provider["id"] == "openai" for provider in portal["providers"])
+    assert "write_todos" in portal["builtInTools"]
+    assert "test" in portal["mcpServers"]
+
+    flow_id = flow_smoke_http.new_flow_id("ai-agent-portal")
+    await flow_smoke_http.post(
+        "/products/ai-agent/start",
+        {
+            "workflowId": flow_id,
+            "provider": "openai",
+            "model": "gpt-example",
+            "apiKey": "portal-test-secret",
+            "mcpEnabled": False,
+            "enabledMcpServers": [],
+            "enabledTools": [],
+        },
+    )
+    assert example_app.ai_agent_credentials.get_api_key(flow_id) == "portal-test-secret"
+    example_app.ai_agent_credentials.set_api_key(flow_id, None)
+
+
+async def test_ai_agent_portal_rejects_non_ascii_api_key(
+    example_app: ExampleApp,
+) -> None:
+    client = create_app(example_app).test_client()
+    flow_id = f"ai-agent-invalid-key-{uuid4().hex}"
+
+    response = await client.post(
+        "/products/ai-agent/start",
+        json={
+            "workflowId": flow_id,
+            "provider": "openai",
+            "model": "gpt-example",
+            "apiKey": "密钥",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "printable ASCII characters" in await response.get_data(as_text=True)
+    assert example_app.ai_agent_credentials.get_api_key(flow_id) is None
+
+
 async def _reminders_trigger(client: FlowSmokeHttpClient) -> tuple[str, str]:
     _, _, body = await client.get("/patterns/reminders/start", {})
     return parse_flow_trigger_response(body, "")
@@ -452,3 +512,10 @@ async def test_flow_smoke_all_registered_flows_via_controller(
         assert flow_id, f"{entry.name}: controller response did not include flowID"
         await assert_flow_smoke_start_step(entry, flow_id, run_id)
         await assert_flow_smoke_no_unexpected_failures(entry, flow_id, run_id)
+
+
+@pytest.mark.integ
+def test_legacy_agent_route_is_not_registered(example_app: ExampleApp) -> None:
+    paths = {rule.rule for rule in create_app(example_app).url_map.iter_rules()}
+    legacy_path = "/products/" + "ai-agent-" + "email"
+    assert not any(path.startswith(legacy_path) for path in paths)

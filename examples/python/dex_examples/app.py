@@ -97,7 +97,12 @@ from dex_examples.primitives.stream.stream_flow import StreamFlow
 from dex_examples.primitives.subflow.subflow_flow import SubFlowChildFlow, SubFlowParentFlow
 from dex_examples.primitives.timer.timer_flow import TimerFlow
 from dex_examples.primitives.wait_types.wait_types_flow import WaitTypesFlow
-from dex_examples.products.ai_agent_email.ai_agent_flow import EmailAgentFlow
+from dex_examples.products.ai_agent.ai_agent_flow import AIAgentFlow
+from dex_examples.products.ai_agent.mcp_registry import MCPRegistry
+from dex_examples.products.ai_agent.model_client import (
+    AgentCredentialStore,
+    LiteLLMModelClient,
+)
 from dex_examples.products.deal_dsl.deal_dsl_flow import DealDSLFlow
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.job_post.job_post_flow import JobPostingFlow
@@ -182,7 +187,12 @@ class ExampleApp:
 
         self.controller = ControllerFlow(client_provider, lambda: self.processing)
         self.processing = ProcessingFlow(client_provider, lambda: self.controller)
-        self.email_agent = EmailAgentFlow()
+        self.mcp_registry = MCPRegistry.from_file(config.agent_mcp_config)
+        self.ai_agent_credentials = AgentCredentialStore()
+        self.ai_agent = AIAgentFlow(
+            LiteLLMModelClient(self.ai_agent_credentials),
+            self.mcp_registry,
+        )
 
         flows: list[Flow[Any]] = [
             self.money_transfer,
@@ -238,7 +248,7 @@ class ExampleApp:
             self.client_apis,
             self.controller,
             self.processing,
-            self.email_agent,
+            self.ai_agent,
         ]
         self.registry = Registry(tuple(flows), allow_async_handlers=True)
         config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -277,6 +287,7 @@ class ExampleApp:
     async def start_worker(self) -> None:
         if self._worker_task is not None:
             return
+        await self.mcp_registry.start()
         self._worker_task = asyncio.create_task(self.worker.start())
         await _await_worker(self.worker.worker_target.address, self._worker_task)
 
@@ -291,6 +302,7 @@ class ExampleApp:
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._worker_task.cancel()
             self._worker_task = None
+        await self.mcp_registry.close()
         self.blob_cache.close()
 
 
