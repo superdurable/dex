@@ -240,6 +240,17 @@ type LongPollTimeoutError struct {
 	*ServiceError
 }
 
+// ChannelMessageNotFoundError reports a pending message ID that no longer exists.
+type ChannelMessageNotFoundError struct {
+	// ServiceError contains the failed deletion metadata.
+	*ServiceError
+}
+
+// Unwrap returns the shared service failure.
+func (e *ChannelMessageNotFoundError) Unwrap() error {
+	return e.ServiceError
+}
+
 // Unwrap returns the shared service failure.
 func (e *LongPollTimeoutError) Unwrap() error {
 	return e.ServiceError
@@ -269,6 +280,8 @@ const (
 	ErrorSubStatusWorkerAPI
 	// ErrorSubStatusLongPollTimeout identifies an active wait whose deadline elapsed.
 	ErrorSubStatusLongPollTimeout
+	// ErrorSubStatusChannelMessageNotFound identifies a pending message that no longer exists.
+	ErrorSubStatusChannelMessageNotFound
 )
 
 type flowTargetRequirement uint8
@@ -344,6 +357,8 @@ func translateRPCError(
 		}
 	case ErrorSubStatusLongPollTimeout:
 		return &LongPollTimeoutError{ServiceError: serviceError}
+	case ErrorSubStatusChannelMessageNotFound:
+		return &ChannelMessageNotFoundError{ServiceError: serviceError}
 	default:
 		return serviceError
 	}
@@ -372,6 +387,8 @@ func mapErrorSubStatus(subStatus dexpb.ErrorSubStatus) ErrorSubStatus {
 		return ErrorSubStatusWorkerAPI
 	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT:
 		return ErrorSubStatusLongPollTimeout
+	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND:
+		return ErrorSubStatusChannelMessageNotFound
 	default:
 		return ErrorSubStatusUncategorized
 	}

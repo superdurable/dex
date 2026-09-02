@@ -21,6 +21,19 @@ ValueT = TypeVar("ValueT")
 
 
 @dataclass(frozen=True)
+class ChannelMessage(Generic[ValueT]):
+    """Represent one pending Channel message and its server-assigned identity.
+
+    Attributes:
+        message_id: UUIDv7 assigned by Dex when the message was published.
+        value: The decoded Channel value.
+    """
+
+    message_id: str
+    value: ValueT
+
+
+@dataclass(frozen=True)
 class Channel(Generic[ValueT]):
     """Define a typed, durable singleton message stream owned by a Flow.
 
@@ -52,6 +65,19 @@ class Channel(Generic[ValueT]):
             value: A value compatible with ``value_type``.
         """
         context._publish_channel(self, None, value)
+
+    def delete(self, context: Context, message_id: str) -> None:
+        """Stage deletion of one pending message from an RPC handler.
+
+        Use ``@rpc(is_transactional=True)`` when a missing message must fail the
+        entire RPC without committing its other writes. Step Contexts reject this
+        operation.
+
+        Args:
+            context: The current RPC Context.
+            message_id: Non-empty ID returned by a Client pending-message read.
+        """
+        context._delete_channel_message(self, None, message_id)
 
     def size(self, context: Context) -> int:
         """Return the current number of queued values.
@@ -197,6 +223,16 @@ class ChannelMap(Generic[ValueT]):
             value: A value compatible with ``value_type``.
         """
         context._publish_channel(self, instance, value)
+
+    def delete(self, context: Context, instance: str, message_id: str) -> None:
+        """Stage deletion of one pending message from a ChannelMap instance.
+
+        Args:
+            context: The current RPC Context.
+            instance: The non-empty logical map key.
+            message_id: Non-empty ID returned by a Client pending-message read.
+        """
+        context._delete_channel_message(self, instance, message_id)
 
     def size(self, context: Context, instance: str) -> int:
         """Return the queued value count for one instance.

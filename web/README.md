@@ -1,5 +1,10 @@
 # Dex Web
 
+The live Flow overview lists pending Channel messages with their server-assigned
+IDs and decoded values. Operators can delete a pending message. Temporal performs
+the deletion atomically; the Cadence query-plus-signal fallback is best effort and
+can race message consumption.
+
 Dex Web searches flows and displays Dex semantic history, step topology,
 live flow state, time travel points, and stop controls.
 

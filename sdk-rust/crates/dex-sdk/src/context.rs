@@ -12,8 +12,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, SystemTime};
 
 use dex_protocol::dex::{
-    AttributeWrite, ChannelInfo, ChannelMessage, ConditionResults, ConditionStatus,
-    Context as ProtoContext, Kv, StepStreamWrite, Value as ProtoValue, value,
+    AttributeWrite, ChannelInfo, ChannelMessage, ChannelMessageDeletion, ConditionResults,
+    ConditionStatus, Context as ProtoContext, Kv, StepStreamWrite, Value as ProtoValue, value,
 };
 
 use crate::persistence::PersistenceKind;
@@ -42,6 +42,14 @@ pub(crate) struct ContextInput {
     pub(crate) channel_infos: HashMap<String, ChannelInfo>,
 }
 
+pub(crate) struct InvocationOutputs {
+    pub(crate) attributes: Vec<AttributeWrite>,
+    pub(crate) locals: Vec<Kv>,
+    pub(crate) events: Vec<Kv>,
+    pub(crate) publications: Vec<ChannelMessage>,
+    pub(crate) channel_deletions: Vec<ChannelMessageDeletion>,
+}
+
 /// Provides invocation metadata and staged durable changes to Step and RPC handlers.
 ///
 /// A Context belongs to one handler attempt and must not outlive the call. Attribute writes,
@@ -61,6 +69,7 @@ pub struct Context {
     events: Vec<Kv>,
     event_names: HashSet<String>,
     publications: Vec<ChannelMessage>,
+    channel_deletions: Vec<ChannelMessageDeletion>,
     cancellation: InvocationCancellation,
     runtime: Option<tokio::runtime::Handle>,
     step_output_finalizers: Vec<Arc<dyn StepOutputFinalizer>>,
@@ -91,6 +100,7 @@ impl Context {
             events: Vec::new(),
             event_names: HashSet::new(),
             publications: Vec::new(),
+            channel_deletions: Vec::new(),
             cancellation,
             runtime: tokio::runtime::Handle::try_current().ok(),
             step_output_finalizers: Vec::new(),
@@ -644,15 +654,14 @@ impl Context {
         self.cancellation.clone()
     }
 
-    pub(crate) fn take_outputs(
-        self,
-    ) -> (Vec<AttributeWrite>, Vec<Kv>, Vec<Kv>, Vec<ChannelMessage>) {
-        (
-            self.attribute_writes.into_values().collect(),
-            self.local_writes.into_values().collect(),
-            self.events,
-            self.publications,
-        )
+    pub(crate) fn take_outputs(self) -> InvocationOutputs {
+        InvocationOutputs {
+            attributes: self.attribute_writes.into_values().collect(),
+            locals: self.local_writes.into_values().collect(),
+            events: self.events,
+            publications: self.publications,
+            channel_deletions: self.channel_deletions,
+        }
     }
 
     fn step_output_emitter(&self) -> HandlerResult<&StepOutputEmitter> {
@@ -738,6 +747,65 @@ impl Context {
                 .entry(channel_name)
                 .and_modify(|info| info.size += 1)
                 .or_insert(ChannelInfo { size: 1 });
+        }
+        Ok(())
+    }
+
+    /// Stages deletion of one singleton Channel message from an RPC.
+    pub fn delete_channel_message<T>(
+        &mut self,
+        channel: &Channel<T>,
+        message_id: &str,
+    ) -> HandlerResult<()> {
+        self.delete_channel_message_value(
+            channel.name(),
+            PersistenceKind::Channel,
+            None,
+            message_id,
+        )
+    }
+
+    /// Stages deletion of one Channel-map message from an RPC.
+    pub fn delete_channel_map_message<T>(
+        &mut self,
+        channel: &ChannelMap<T>,
+        instance: &str,
+        message_id: &str,
+    ) -> HandlerResult<()> {
+        self.delete_channel_message_value(
+            channel.name(),
+            PersistenceKind::ChannelMap,
+            Some(instance),
+            message_id,
+        )
+    }
+
+    fn delete_channel_message_value(
+        &mut self,
+        name: &str,
+        kind: PersistenceKind,
+        instance: Option<&str>,
+        message_id: &str,
+    ) -> HandlerResult<()> {
+        if self.method != InvocationMethod::Rpc {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "Channel message deletion requires an RPC Context",
+            ));
+        }
+        if message_id.is_empty() {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "Channel message ID must not be empty",
+            ));
+        }
+        let channel_name = self.registered_name(name, kind, instance)?;
+        self.channel_deletions.push(ChannelMessageDeletion {
+            channel_name: channel_name.clone(),
+            message_id: message_id.to_string(),
+        });
+        if let Some(info) = self.channel_infos.get_mut(&channel_name) {
+            info.size = info.size.saturating_sub(1);
         }
         Ok(())
     }

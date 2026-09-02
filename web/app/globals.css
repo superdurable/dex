@@ -493,6 +493,27 @@ h3 {
   background: var(--danger);
 }
 
+.channel-message-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.channel-message-row {
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.75rem;
+}
+
+.channel-message-row code {
+  display: block;
+  margin-top: 0.25rem;
+}
+
 .saved-query-panel {
   display: grid;
   grid-template-columns: 1fr 1fr;

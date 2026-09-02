@@ -55,11 +55,15 @@ export function FlowOverview({
   events,
   state,
   selectedEvent,
+  deletingChannelMessage,
+  onDeleteChannelMessage,
 }: {
   summary: FlowSummary;
   events: FlowHistoryEvent[];
   state: FlowState | null;
   selectedEvent: FlowHistoryEvent | null;
+  deletingChannelMessage?: string;
+  onDeleteChannelMessage?: (channelName: string, messageId: string) => Promise<void>;
 }) {
   const started = events.find((event) => event.type === 'FlowStartedOrContinued');
   const closed = events.findLast((event) => event.type === 'FlowClosed');
@@ -72,6 +76,7 @@ export function FlowOverview({
   const activeStepIds = state?.activeStepExecutions.map((step) => step.stepExecutionId) ?? [];
   const allActiveStepsExpanded = activeStepIds.length > 0
     && activeStepIds.every((stepExecutionId) => !collapsedActiveStepIds.has(stepExecutionId));
+  const pendingMessages = pendingChannelEntries(state?.pendingChannelMessages ?? {});
 
   const setAllActiveStepsExpanded = (expanded: boolean) => {
     setCollapsedActiveStepIds((current) => {
@@ -215,6 +220,34 @@ export function FlowOverview({
                   forceOpen={channelsExpand.expanded || undefined}
                   collapseNonce={channelsExpand.collapseNonce}
                 />
+                {pendingMessages.length > 0 && (
+                  <div className="channel-message-list">
+                    {pendingMessages.map((message) => (
+                      <div className="channel-message-row" key={`${message.channelName}:${message.messageId}`}>
+                        <div>
+                          <b>{message.channelName}</b>
+                          <code>{message.messageId}</code>
+                          <JsonView value={message.value} label="Value" />
+                        </div>
+                        {onDeleteChannelMessage && (
+                          <button
+                            className="button danger"
+                            disabled={deletingChannelMessage === message.messageId}
+                            onClick={() => void onDeleteChannelMessage(
+                              message.channelName,
+                              message.messageId,
+                            )}
+                          >
+                            {deletingChannelMessage === message.messageId ? 'Deleting…' : 'Delete'}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <p className="muted">
+                      Temporal deletes are atomic. Cadence deletion is best effort and may race consumption.
+                    </p>
+                  </div>
+                )}
                 <JsonView
                   value={state.pendingChannelMessages}
                   label="Pending channel messages"
@@ -313,4 +346,24 @@ export function FlowOverview({
       </div>
     </div>
   );
+}
+
+interface PendingChannelEntry {
+  channelName: string;
+  messageId: string;
+  value: unknown;
+}
+
+function pendingChannelEntries(channels: Record<string, unknown>): PendingChannelEntry[] {
+  return Object.entries(channels).flatMap(([channelName, entry]) => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const values = 'values' in entry ? (entry as { values?: unknown }).values : undefined;
+    if (!Array.isArray(values)) return [];
+    return values.flatMap((message) => {
+      if (typeof message !== 'object' || message === null) return [];
+      const envelope = message as { messageId?: unknown; value?: unknown };
+      if (typeof envelope.messageId !== 'string' || envelope.messageId.length === 0) return [];
+      return [{ channelName, messageId: envelope.messageId, value: envelope.value }];
+    });
+  });
 }

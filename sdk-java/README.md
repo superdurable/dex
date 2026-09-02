@@ -1,5 +1,16 @@
 # dex-sdk (Java)
 
+## Pending Channel messages
+
+`Client.getChannelMessages` returns typed `ChannelMessage<T>` values in FIFO
+order. `Client.deleteChannelMessage` deletes a still-pending ID and throws
+`ChannelMessageNotFoundException` if it has already been consumed or deleted.
+
+An RPC can stage `channel.delete(context, messageId)`. Annotate it with
+`@RPC(isTransactional = true)` when a missing ID must abort every other RPC
+write. Attribute locks already select transactional execution, but Channel
+deletion does not do so implicitly.
+
 Java SDK for [Dex workflow engine](https://github.com/superdurable/dex)
 
 See [samples](../examples/java) for how to use this SDK to build your workflow.

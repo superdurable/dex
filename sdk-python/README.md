@@ -1,6 +1,19 @@
 
 # Dex SDK for Python
 
+## Pending Channel messages
+
+`Client.get_channel_messages(flow_id, channel)` returns typed `ChannelMessage`
+envelopes in FIFO order. Each envelope contains the decoded value and the UUIDv7
+assigned by Dex. `Client.delete_channel_message` deletes only a still-pending
+message and raises `ChannelMessageNotFoundError` after consumption or another
+deletion.
+
+RPC handlers can stage `channel.delete(context, message_id)`. Declare the RPC as
+`@rpc(is_transactional=True)` when a missing message must abort its other writes.
+Attribute locks already select transactional execution, but Channel deletion
+itself does not.
+
 Python SDK for [Dex workflow engine](https://github.com/superdurable/dex)
 
 ## New user contracts

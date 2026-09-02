@@ -945,6 +945,54 @@ func (client *Client) PublishToChannelMap(
 	return client.publishToChannel(ctx, flowID, channel, instance, true, values)
 }
 
+// GetChannelMessages decodes every pending singleton Channel message into messagesPtr.
+//
+// messagesPtr must point to []ChannelMessage[T] for the Channel's value type. Results
+// preserve FIFO order. IDs remain valid only while their messages are pending.
+func (client *Client) GetChannelMessages(
+	ctx context.Context,
+	flowID string,
+	channel ChannelDef,
+	messagesPtr any,
+) error {
+	return client.getChannelMessages(ctx, flowID, channel, "", false, messagesPtr)
+}
+
+// GetChannelMapMessages decodes every pending message for one ChannelMap instance.
+//
+// messagesPtr must point to []ChannelMessage[T] for the ChannelMap's value type. Results
+// preserve FIFO order. IDs remain valid only while their messages are pending.
+func (client *Client) GetChannelMapMessages(
+	ctx context.Context,
+	flowID string,
+	channel ChannelDef,
+	instance string,
+	messagesPtr any,
+) error {
+	return client.getChannelMessages(ctx, flowID, channel, instance, true, messagesPtr)
+}
+
+// DeleteChannelMessage removes one pending singleton Channel message by server-assigned ID.
+func (client *Client) DeleteChannelMessage(
+	ctx context.Context,
+	flowID string,
+	channel ChannelDef,
+	messageID string,
+) error {
+	return client.deleteChannelMessage(ctx, flowID, channel, "", false, messageID)
+}
+
+// DeleteChannelMapMessage removes one pending message from a ChannelMap instance.
+func (client *Client) DeleteChannelMapMessage(
+	ctx context.Context,
+	flowID string,
+	channel ChannelDef,
+	instance string,
+	messageID string,
+) error {
+	return client.deleteChannelMessage(ctx, flowID, channel, instance, true, messageID)
+}
+
 func (client *Client) publishToChannel(
 	ctx context.Context,
 	flowID string,
@@ -983,6 +1031,112 @@ func (client *Client) publishToChannel(
 		Messages: messages,
 	})
 	return translateRPCError(err, "PublishToChannel", flowID, flowTargetActive)
+}
+
+func (client *Client) getChannelMessages(
+	ctx context.Context,
+	flowID string,
+	channel ChannelDef,
+	instance string,
+	isMap bool,
+	messagesPtr any,
+) error {
+	if err := client.validateFlowCall(ctx, flowID); err != nil {
+		return err
+	}
+	registered, err := client.registry.resolveChannel(channel, isMap)
+	if err != nil {
+		return err
+	}
+	name, err := physicalName(registered.name, instance, isMap)
+	if err != nil {
+		return err
+	}
+	target, valueType, err := channelMessagesTarget(messagesPtr)
+	if err != nil {
+		return err
+	}
+	response, err := client.service.GetChannelMessages(ctx, &dexpb.GetChannelMessagesRequest{
+		FlowId:      flowID,
+		ChannelName: name,
+	})
+	if err != nil {
+		return translateRPCError(err, "GetChannelMessages", flowID, flowTargetExisting)
+	}
+	if response == nil {
+		return fmt.Errorf("dex: GetChannelMessages response is nil")
+	}
+	result := reflect.MakeSlice(target.Type(), 0, len(response.Messages))
+	for _, message := range response.Messages {
+		if message == nil || message.MessageId == "" || message.Value == nil {
+			return fmt.Errorf("dex: GetChannelMessages response contains an incomplete message")
+		}
+		if err := client.hydrateValues(ctx, []**dexpb.Value{&message.Value}); err != nil {
+			return err
+		}
+		decoded, err := decodeReflectValue(message.Value, valueType)
+		if err != nil {
+			return err
+		}
+		envelope := reflect.New(target.Type().Elem()).Elem()
+		envelope.FieldByName("MessageID").SetString(message.MessageId)
+		envelope.FieldByName("Value").Set(decoded)
+		result = reflect.Append(result, envelope)
+	}
+	target.Set(result)
+	return nil
+}
+
+func (client *Client) deleteChannelMessage(
+	ctx context.Context,
+	flowID string,
+	channel ChannelDef,
+	instance string,
+	isMap bool,
+	messageID string,
+) error {
+	if err := client.validateFlowCall(ctx, flowID); err != nil {
+		return err
+	}
+	if messageID == "" {
+		return fmt.Errorf("dex: Channel message ID must not be empty")
+	}
+	registered, err := client.registry.resolveChannel(channel, isMap)
+	if err != nil {
+		return err
+	}
+	name, err := physicalName(registered.name, instance, isMap)
+	if err != nil {
+		return err
+	}
+	requestID, err := newRequestID()
+	if err != nil {
+		return err
+	}
+	_, err = client.service.DeleteChannelMessage(ctx, &dexpb.DeleteChannelMessageRequest{
+		FlowId:      flowID,
+		ChannelName: name,
+		MessageId:   messageID,
+		RequestId:   requestID,
+	})
+	return translateRPCError(err, "DeleteChannelMessage", flowID, flowTargetActive)
+}
+
+func channelMessagesTarget(messagesPtr any) (reflect.Value, reflect.Type, error) {
+	if messagesPtr == nil {
+		return reflect.Value{}, nil, fmt.Errorf("dex: Channel messages target must be a non-nil pointer")
+	}
+	target := reflect.ValueOf(messagesPtr)
+	if target.Kind() != reflect.Pointer || target.IsNil() || target.Elem().Kind() != reflect.Slice {
+		return reflect.Value{}, nil, fmt.Errorf("dex: Channel messages target must point to a slice")
+	}
+	elementType := target.Elem().Type().Elem()
+	if elementType.Kind() != reflect.Struct || elementType.NumField() != 2 ||
+		elementType.Field(0).Name != "MessageID" || elementType.Field(0).Type.Kind() != reflect.String ||
+		elementType.Field(1).Name != "Value" {
+		return reflect.Value{}, nil, fmt.Errorf("dex: Channel messages target must point to []ChannelMessage[T]")
+	}
+	return target.Elem(), elementType.Field(1).Type, nil
 }
 
 // WriteStream appends one best-effort message with client-supplied source metadata.
@@ -1534,6 +1688,7 @@ func (client *Client) InvokeRPC(
 		TimeoutSeconds:    timeout,
 		LockAttributeKeys: locks,
 		RequestId:         requestID,
+		IsTransactional:   options.IsTransactional,
 	})
 	if err != nil {
 		return translateRPCError(err, "InvokeRPC", flowID, flowTargetActive)

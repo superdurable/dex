@@ -72,6 +72,17 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     }
 
     /**
+     * Stages deletion of one pending message from a Channel-map instance in an RPC handler.
+     *
+     * @param context the RPC invocation context
+     * @param instance the nonblank Channel-map instance
+     * @param messageId the nonblank server-assigned message ID
+     */
+    public void delete(final Context context, final String instance, final String messageId) {
+        context.deleteChannelMessage(this, instance, messageId);
+    }
+
+    /**
      * Returns the number of messages visible in one map instance.
      *
      * @param context the Step or RPC invocation context

@@ -127,4 +127,41 @@ describe('live Flow state failures', () => {
     expect(markup).toContain('second');
     expect(markup).toContain('<details class="semantic-record semantic-map-entry">');
   });
+
+  it('shows pending Channel message IDs and deletion controls', () => {
+    const state: FlowState = {
+      flowConfig: {},
+      attributes: [],
+      activeStepExecutions: [],
+      queuedSteps: [],
+      pendingChannelMessages: {
+        approvals: { values: [{ messageId: '0198-message', value: 'approve' }] },
+      },
+      completedSteps: [],
+    };
+    const summary: FlowSummary = {
+      flowId: 'flow-1',
+      runId: 'run-1',
+      firstRunId: 'run-1',
+      requestId: 'request-1',
+      flowType: 'PaymentFlow',
+      flowStatus: 'Running',
+      flowStatusCode: 1,
+      startTime: '2026-08-10T00:00:00Z',
+      closeTime: null,
+    };
+    const markup = renderToStaticMarkup(
+      <FlowOverview
+        summary={summary}
+        events={[]}
+        state={state}
+        selectedEvent={null}
+        onDeleteChannelMessage={async () => {}}
+      />,
+    );
+
+    expect(markup).toContain('0198-message');
+    expect(markup).toContain('Delete');
+    expect(markup).toContain('Cadence deletion is best effort');
+  });
 });

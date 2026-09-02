@@ -15,6 +15,7 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.superdurable.dex.exceptions.DexServiceException;
+import io.superdurable.dex.exceptions.ChannelMessageNotFoundException;
 import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
@@ -65,6 +66,8 @@ final class GrpcExceptionTranslator {
                 return workerException(code, detail, exception, details);
             case LONG_POLL_TIMEOUT:
                 return new LongPollTimeoutException(code, detail, flowId, exception);
+            case CHANNEL_MESSAGE_NOT_FOUND:
+                return new ChannelMessageNotFoundException(code, detail, exception);
             default:
                 return new DexServiceException(code, subStatus, detail, exception);
         }
@@ -161,6 +164,8 @@ final class GrpcExceptionTranslator {
                 return ErrorSubStatus.WORKER_API_ERROR;
             case ERROR_SUB_STATUS_LONG_POLL_TIME_OUT:
                 return ErrorSubStatus.LONG_POLL_TIMEOUT;
+            case ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND:
+                return ErrorSubStatus.CHANNEL_MESSAGE_NOT_FOUND;
             default:
                 return ErrorSubStatus.UNCATEGORIZED;
         }

@@ -1,5 +1,17 @@
 # Dex Go SDK
 
+## Pending Channel messages
+
+`Client.GetChannelMessages` and `Client.GetChannelMapMessages` decode the current
+FIFO queue into a pointer to `[]dex.ChannelMessage[T]`. Delete a still-pending ID
+with `DeleteChannelMessage` or `DeleteChannelMapMessage`; a race with consumption
+returns `ChannelMessageNotFoundError`.
+
+An RPC can stage `channel.Delete(ctx, messageID)`. Set
+`dex.InvokeOptions{IsTransactional: true}` when a missing ID must abort every
+other RPC write. Attribute locking already selects transactional execution, while
+Channel deletion requires this explicit option.
+
 The Go SDK is being rewritten around the current Dex `Flow`, `Step`,
 `Attribute`, `Channel`, `Stream`, `WaitFor`, and `Execute` contracts.
 

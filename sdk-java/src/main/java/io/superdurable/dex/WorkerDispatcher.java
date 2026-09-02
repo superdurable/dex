@@ -215,7 +215,8 @@ final class WorkerDispatcher {
         final InvokeWorkerRPCResponse.Builder response = InvokeWorkerRPCResponse.newBuilder()
                 .addAllUpsertAttributes(context.getAttributeWrites())
                 .addAllRecordEvents(context.getEvents())
-                .addAllPublishToChannel(context.getPublications());
+                .addAllPublishToChannel(context.getPublications())
+                .addAllDeleteFromChannel(context.getChannelDeletions());
         if (returned instanceof RPCResult) {
             final RPCResult<?> result = (RPCResult<?>) returned;
             response.setOutput(values.encode(result.getOutput()));

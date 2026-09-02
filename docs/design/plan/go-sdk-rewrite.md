@@ -1,5 +1,11 @@
 # Go SDK rewrite plan
 
+Pending Channel queues use `ChannelMessage[T]` envelopes. Client list methods
+decode into a caller-owned slice pointer, and deletion uses the server-assigned
+message ID. RPC handlers stage deletion through the Channel definition and set
+`InvokeOptions.IsTransactional` when existence validation must be atomic with all
+other RPC writes.
+
 Status: Phases 1 through 5 are implemented.
 
 ## Current source of truth

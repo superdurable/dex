@@ -19,7 +19,7 @@ from dex.attribute import (
     IndexType,
 )
 from dex.blob_cache import BlobCache, BlobCacheConfig, open_blob_cache
-from dex.channel import Channel, ChannelMap
+from dex.channel import Channel, ChannelMap, ChannelMessage
 from dex.client import Client
 from dex.client_options import ClientOptions
 from dex.codec import (
@@ -68,6 +68,7 @@ from dex.runtime_errors import (
     FlowNotFoundError,
     InvalidStepResultError,
     LongPollTimeoutError,
+    ChannelMessageNotFoundError,
     RpcLockConflictError,
     ValueMappingError,
     WorkerInvocationError,
@@ -124,6 +125,8 @@ __all__ = [
     "BufferedTextStream",
     "Channel",
     "ChannelMap",
+    "ChannelMessage",
+    "ChannelMessageNotFoundError",
     "Client",
     "ClientOptions",
     "Codec",

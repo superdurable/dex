@@ -58,6 +58,7 @@ type invocationContext struct {
 	events         map[string]struct{}
 	recordedEvents []*dexpb.KV
 	publications   []*dexpb.ChannelMessage
+	deletions      []*dexpb.ChannelMessageDeletion
 
 	conditionResults *dexpb.ConditionResults
 	channelSizes     map[string]int
@@ -650,6 +651,32 @@ func (invocation *invocationContext) publishChannelValue(
 	})
 	if invocation.method == invocationRPC {
 		invocation.channelSizes[physical]++
+	}
+	return nil
+}
+
+func (invocation *invocationContext) deleteChannelMessage(
+	name string,
+	instance string,
+	isMap bool,
+	messageID string,
+) error {
+	if err := invocation.requireActive(invocationRPC); err != nil {
+		return err
+	}
+	if messageID == "" {
+		return fmt.Errorf("dex: Channel message ID must not be empty")
+	}
+	physical, err := invocation.resolveChannel(name, instance, isMap)
+	if err != nil {
+		return err
+	}
+	invocation.deletions = append(invocation.deletions, &dexpb.ChannelMessageDeletion{
+		ChannelName: physical,
+		MessageId:   messageID,
+	})
+	if invocation.channelSizes[physical] > 0 {
+		invocation.channelSizes[physical]--
 	}
 	return nil
 }

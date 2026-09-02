@@ -88,6 +88,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [deletingChannelMessage, setDeletingChannelMessage] = useState('');
   const [error, setError] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [timeTravelOpen, setTimeTravelOpen] = useState(false);
@@ -173,6 +174,24 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       setError(stateError instanceof Error ? stateError.message : 'State query failed');
     }
   }, [addDataWarning, stateURL]);
+
+  const deleteChannelMessage = useCallback(async (channelName: string, messageId: string) => {
+    if (!summary) return;
+    setDeletingChannelMessage(messageId);
+    setError('');
+    try {
+      await readResponseJSON(await fetch('/api/flows/channels/messages', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ flowId, runId, channelName, messageId }),
+      }));
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Channel deletion failed');
+    } finally {
+      setDeletingChannelMessage('');
+      await loadState(summary.flowStatusCode);
+    }
+  }, [flowId, loadState, runId, summary]);
 
   const hydrateEvent = useCallback(async (event: FlowHistoryEvent) => {
     if (hydratedEventIDs.current.has(event.eventId)
@@ -494,6 +513,8 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
               events={displayedHistory}
               state={state}
               selectedEvent={selected}
+              deletingChannelMessage={deletingChannelMessage}
+              onDeleteChannelMessage={deleteChannelMessage}
             />
           )}
           {tab === 'steps' && (

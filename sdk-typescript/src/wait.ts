@@ -81,6 +81,17 @@ export const Timer = Object.freeze({
 });
 
 /**
+ * Identifies one typed value that is still pending in a Channel.
+ * @typeParam T - Decoded Channel value type.
+ */
+export interface ChannelMessage<T> {
+  /** UUIDv7 assigned by Dex when the message was published. */
+  readonly messageId: string;
+  /** Decoded Channel value. */
+  readonly value: T;
+}
+
+/**
  * Defines a typed, durable singleton message stream owned by a Flow.
  * @typeParam T - Type of every published value.
  */
@@ -104,6 +115,15 @@ export class Channel<T> {
    */
   public publish(context: Context, value: T): void {
     context.publish(this, value);
+  }
+
+  /**
+   * Stages deletion of one pending message from an RPC.
+   * @param context - Current RPC Context.
+   * @param messageId - Non-empty server-assigned message ID.
+   */
+  public delete(context: Context, messageId: string): void {
+    context.deleteChannelMessage(this as Channel<unknown>, messageId);
   }
 
   /**
@@ -208,6 +228,16 @@ export class ChannelMap<T> {
    */
   public publish(context: Context, instance: string, value: T): void {
     context.publish(this, value, instance);
+  }
+
+  /**
+   * Stages deletion of one pending message from a ChannelMap instance in an RPC.
+   * @param context - Current RPC Context.
+   * @param instance - Non-empty ChannelMap instance.
+   * @param messageId - Non-empty server-assigned message ID.
+   */
+  public delete(context: Context, instance: string, messageId: string): void {
+    context.deleteChannelMessage(this as ChannelMap<unknown>, messageId, instance);
   }
 
   /**

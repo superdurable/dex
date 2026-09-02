@@ -14,9 +14,10 @@ use std::time::{Duration, SystemTime};
 use dex_protocol::dex::flow_service_client::FlowServiceClient;
 use dex_protocol::dex::{
     ActiveStepSearchMode as ProtoSearchMode, AttributeStoreNames, AttributeWrite,
-    FlowAlreadyStartedOptions, FlowConfig as ProtoFlowConfig, FlowResetStepMethod, FlowResetType,
-    FlowRetryPolicy, FlowStartOptions, FlowStatus as ProtoFlowStatus,
-    FlowTimeoutPolicy as ProtoFlowTimeoutPolicy, GetAttributesRequest, GetFlowSummaryRequest,
+    DeleteChannelMessageRequest, FlowAlreadyStartedOptions, FlowConfig as ProtoFlowConfig,
+    FlowResetStepMethod, FlowResetType, FlowRetryPolicy, FlowStartOptions,
+    FlowStatus as ProtoFlowStatus, FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
+    GetAttributesRequest, GetChannelMessagesRequest, GetFlowSummaryRequest,
     IdReusePolicy as ProtoIdReusePolicy, InvokeRpcRequest, PublishToChannelRequest,
     ReadStreamRequest, ResetFlowRequest, SearchFlowsRequest, SetAttributesRequest,
     SkipTimerRequest, StartFlowRequest, StepDurability as ProtoStepDurability, StopFlowRequest,
@@ -36,11 +37,12 @@ use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
 use crate::worker_dispatcher::map_step_options;
 use crate::{
-    ActiveStepSearchMode, Attribute, AttributeMap, BlobCache, Channel, ChannelMap, ClientOptions,
-    Flow, FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus, FlowTimeoutPolicy,
-    IdReusePolicy, Registry, RetryPolicy, Rpc, SdkError, SdkResult, SearchFlowEntry,
-    SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability, StepExecutionId,
-    StopFlowOptions, Stream, StreamMessage, TimeTravelOptions, TimerId, Value, WorkerTarget,
+    ActiveStepSearchMode, Attribute, AttributeMap, BlobCache, Channel, ChannelMap, ChannelMessage,
+    ClientOptions, Flow, FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus,
+    FlowTimeoutPolicy, IdReusePolicy, Registry, RetryPolicy, Rpc, SdkError, SdkResult,
+    SearchFlowEntry, SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability,
+    StepExecutionId, StopFlowOptions, Stream, StreamMessage, TimeTravelOptions, TimerId, Value,
+    WorkerTarget,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -329,6 +331,53 @@ impl Client {
             flow_id,
             &crate::registry::physical_name(channel.name(), instance),
             values,
+        )
+    }
+
+    /// Returns every pending singleton Channel message in FIFO order.
+    pub fn get_channel_messages<T: Value>(
+        &self,
+        flow_id: &str,
+        channel: &Channel<T>,
+    ) -> SdkResult<Vec<ChannelMessage<T>>> {
+        self.get_channel_messages_value(flow_id, channel.name())
+    }
+
+    /// Returns every pending message for one Channel-map instance in FIFO order.
+    pub fn get_channel_map_messages<T: Value>(
+        &self,
+        flow_id: &str,
+        channel: &ChannelMap<T>,
+        instance: &str,
+    ) -> SdkResult<Vec<ChannelMessage<T>>> {
+        self.get_channel_messages_value(
+            flow_id,
+            &crate::registry::physical_name(channel.name(), instance),
+        )
+    }
+
+    /// Deletes one pending singleton Channel message by server-assigned ID.
+    pub fn delete_channel_message<T>(
+        &self,
+        flow_id: &str,
+        channel: &Channel<T>,
+        message_id: &str,
+    ) -> SdkResult<()> {
+        self.delete_channel_message_value(flow_id, channel.name(), message_id)
+    }
+
+    /// Deletes one pending message from a Channel-map instance by server-assigned ID.
+    pub fn delete_channel_map_message<T>(
+        &self,
+        flow_id: &str,
+        channel: &ChannelMap<T>,
+        instance: &str,
+        message_id: &str,
+    ) -> SdkResult<()> {
+        self.delete_channel_message_value(
+            flow_id,
+            &crate::registry::physical_name(channel.name(), instance),
+            message_id,
         )
     }
 
@@ -830,7 +879,7 @@ impl Client {
             timeout_seconds: optional_seconds(rpc.timeout)?,
             lock_attribute_keys: rpc.locks.iter().map(|lock| lock.physical_name()).collect(),
             request_id: Uuid::new_v4().to_string(),
-            is_transactional: false,
+            is_transactional: rpc.is_transactional,
         };
         let mut service = self.service.clone();
         let output = self.runtime.block_on(async {
@@ -940,6 +989,73 @@ impl Client {
                         flow_id: flow_id.to_string(),
                         run_id: String::new(),
                         messages,
+                    })
+                    .await
+            },
+        )
+    }
+
+    fn get_channel_messages_value<T: Value>(
+        &self,
+        flow_id: &str,
+        channel_name: &str,
+    ) -> SdkResult<Vec<ChannelMessage<T>>> {
+        let mut service = self.service.clone();
+        let response = self.runtime.block_on(async {
+            service
+                .get_channel_messages(GetChannelMessagesRequest {
+                    flow_id: flow_id.to_string(),
+                    run_id: String::new(),
+                    channel_name: channel_name.to_string(),
+                })
+                .await
+                .map(|response| response.into_inner())
+                .map_err(|status| {
+                    SdkError::from_status(
+                        status,
+                        "get_channel_messages",
+                        Some(flow_id),
+                        FlowTargetRequirement::Existing,
+                    )
+                })
+        })?;
+        response
+            .messages
+            .into_iter()
+            .map(|message| {
+                let value = message
+                    .value
+                    .ok_or_else(|| invalid("GetChannelMessages returned an empty Value"))?;
+                let value = self.runtime.block_on(self.hydrator.hydrate(value))?;
+                Ok(ChannelMessage {
+                    message_id: message.message_id,
+                    value: value_mapper::decode(&value)?,
+                })
+            })
+            .collect()
+    }
+
+    fn delete_channel_message_value(
+        &self,
+        flow_id: &str,
+        channel_name: &str,
+        message_id: &str,
+    ) -> SdkResult<()> {
+        if message_id.is_empty() {
+            return Err(invalid("Channel message ID must not be empty"));
+        }
+        self.call_empty(
+            "delete_channel_message",
+            Some(flow_id),
+            FlowTargetRequirement::Active,
+            |mut service| async move {
+                service
+                    .delete_channel_message(DeleteChannelMessageRequest {
+                        flow_id: flow_id.to_string(),
+                        run_id: String::new(),
+                        channel_name: channel_name.to_string(),
+                        message_id: message_id.to_string(),
+                        request_id: Uuid::new_v4().to_string(),
                     })
                     .await
             },

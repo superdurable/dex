@@ -58,6 +58,7 @@ class _RPCOptions:
     name: str | None
     timeout: timedelta | None
     lock_attributes: tuple[AttributeLock, ...]
+    is_transactional: bool
 
 
 @overload
@@ -70,6 +71,7 @@ def rpc(
     name: str | None = None,
     timeout: timedelta | None = None,
     lock_attributes: Sequence[AttributeLock] = (),
+    is_transactional: bool = False,
 ) -> Callable[[CallableT], CallableT]: ...
 
 
@@ -79,6 +81,7 @@ def rpc(
     name: str | None = None,
     timeout: timedelta | None = None,
     lock_attributes: Sequence[AttributeLock] = (),
+    is_transactional: bool = False,
 ) -> CallableT | Callable[[CallableT], CallableT]:
     """Mark a Flow method as a typed RPC handler.
 
@@ -91,6 +94,7 @@ def rpc(
         name: Optional protocol RPC name; defaults to the method name.
         timeout: Optional non-negative handler timeout.
         lock_attributes: Attribute locks held for the entire handler invocation.
+        is_transactional: Request transactional reads and writes even without locks.
 
     Returns:
         The original handler, or a decorator that returns it after attaching options.
@@ -114,7 +118,7 @@ def rpc(
         setattr(
             handler,
             "__dex_rpc_options__",
-            _RPCOptions(name, timeout, tuple(lock_attributes)),
+            _RPCOptions(name, timeout, tuple(lock_attributes), is_transactional),
         )
         return handler
 

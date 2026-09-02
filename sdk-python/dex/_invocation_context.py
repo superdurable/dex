@@ -82,6 +82,7 @@ class InvocationContext:
         self.attribute_writes: dict[str, pb.AttributeWrite] = {}
         self.local_writes: dict[str, pb.KV] = {}
         self.events: list[pb.KV] = []
+        self.channel_deletions: list[pb.ChannelMessageDeletion] = []
         self.publications: list[pb.ChannelMessage] = []
         self._event_names: set[str] = set()
         self._step_output_finalizers: list[_StepOutputFinalizer] = []
@@ -348,6 +349,26 @@ class InvocationContext:
             self._channel_infos[name] = pb.ChannelInfo(
                 size=(current.size if current is not None else 0) + 1
             )
+
+    def _delete_channel_message(
+        self,
+        definition: Channel[object] | ChannelMap[object],
+        instance: str | None,
+        message_id: str,
+    ) -> None:
+        if self._method is not InvocationMethod.RPC:
+            raise ValueError("Channel message deletion requires an RPC Context")
+        self._require_registered(definition)
+        name = self._physical_name(definition, instance)
+        self.channel_deletions.append(
+            pb.ChannelMessageDeletion(
+                channel_name=name,
+                message_id=require_name(message_id),
+            )
+        )
+        current = self._channel_infos.get(name)
+        if current is not None and current.size > 0:
+            self._channel_infos[name] = pb.ChannelInfo(size=current.size - 1)
 
     def _attribute_map_keys(
         self,

@@ -31,5 +31,8 @@ public enum ErrorSubStatus {
     WORKER_API_ERROR,
 
     /** Indicates that a long-poll operation reached its wait timeout. */
-    LONG_POLL_TIMEOUT
+    LONG_POLL_TIMEOUT,
+
+    /** Indicates that a pending Channel message ID no longer exists. */
+    CHANNEL_MESSAGE_NOT_FOUND
 }

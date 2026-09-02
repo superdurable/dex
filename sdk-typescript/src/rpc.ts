@@ -58,6 +58,8 @@ export interface RPCOptions<Input = unknown, Output = unknown> {
   readonly timeoutMs?: number;
   /** Attribute locks held for the entire invocation. */
   readonly lockAttributes?: readonly AttributeLock[];
+  /** Requests transactional reads and writes even when no Attribute lock is configured. */
+  readonly isTransactional?: boolean;
 }
 
 export interface RegisteredRPC {

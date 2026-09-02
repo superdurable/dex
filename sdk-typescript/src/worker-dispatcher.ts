@@ -249,6 +249,7 @@ export class WorkerDispatcher {
         upsertAttributes: [...context.getAttributeWrites()],
         recordEvents: [...context.getEvents()],
         publishToChannel: [...context.getPublications()],
+        deleteFromChannel: [...context.getChannelDeletions()],
       });
     } catch (failure) {
       throw invalidStepResult(flow.name, undefined, "rpc", failure);

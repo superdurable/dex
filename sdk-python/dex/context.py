@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, Sequence, TypeVar
 
 if TYPE_CHECKING:
     from dex.attribute import Attribute, AttributeMap
@@ -208,6 +208,13 @@ class Context(Protocol):
         definition: Channel[ValueT] | ChannelMap[ValueT],
         instance: str | None,
         value: ValueT,
+    ) -> None: ...
+
+    def _delete_channel_message(
+        self,
+        definition: Channel[Any] | ChannelMap[Any],
+        instance: str | None,
+        message_id: str,
     ) -> None: ...
 
     def _channel_size(

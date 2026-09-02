@@ -69,6 +69,11 @@ impl<Input, Output> Rpc<Input, Output> {
         RpcDefinition::from(self).lock(lock)
     }
 
+    /// Requests transactional reads and writes for this RPC.
+    pub fn is_transactional(self) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).is_transactional()
+    }
+
     pub(crate) fn name(&self) -> &'static str {
         self.name
     }
@@ -90,6 +95,7 @@ pub struct RpcDefinition<Input, Output> {
     rpc: Rpc<Input, Output>,
     timeout: Option<Duration>,
     locks: Vec<AttributeLock>,
+    is_transactional: bool,
 }
 
 impl<Input, Output> RpcDefinition<Input, Output> {
@@ -104,6 +110,12 @@ impl<Input, Output> RpcDefinition<Input, Output> {
         self.locks.push(lock);
         self
     }
+
+    /// Requests transactional reads and writes even when no Attribute lock is configured.
+    pub fn is_transactional(mut self) -> Self {
+        self.is_transactional = true;
+        self
+    }
 }
 
 impl<Input, Output> From<Rpc<Input, Output>> for RpcDefinition<Input, Output> {
@@ -112,6 +124,7 @@ impl<Input, Output> From<Rpc<Input, Output>> for RpcDefinition<Input, Output> {
             rpc,
             timeout: None,
             locks: Vec::new(),
+            is_transactional: false,
         }
     }
 }
@@ -278,6 +291,7 @@ pub(crate) struct RegisteredRpc {
     pub(crate) name: &'static str,
     pub(crate) timeout: Option<Duration>,
     pub(crate) locks: Vec<AttributeLock>,
+    pub(crate) is_transactional: bool,
     pub(crate) handler: Arc<dyn ErasedRpc>,
 }
 
@@ -453,6 +467,7 @@ fn registered_rpc<Input, Output>(
         name: definition.rpc.name,
         timeout: definition.timeout,
         locks: definition.locks,
+        is_transactional: definition.is_transactional,
         handler,
     }
 }
