@@ -64,6 +64,10 @@ call, tool, approval wait, or Timer continuation. It does not cancel an LLM or M
 request already running. A Steer clears unexecuted tool calls and records durable
 cancellation results. Only Steer interrupts a tool approval or durable wait.
 
+The UI treats the Server queue as canonical. It refreshes immediately after each
+mutation, refreshes from Agent activity events and browser reconnection, and uses
+an eight-second fallback poll while the page is visible or the Agent is active.
+
 ## Run locally
 
 Start Dex, install the Python dependencies, and build the React application:

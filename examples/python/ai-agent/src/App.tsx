@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const API_BASE = '/products/ai-agent';
 
@@ -155,6 +155,9 @@ const App: React.FC = () => {
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const userInputCardRef = useRef<HTMLElement>(null);
   const userInputRef = useRef<HTMLTextAreaElement>(null);
+  const stateFetchSequenceRef = useRef(0);
+  const descriptionStatusRef = useRef('');
+  const eventRefreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (workflowId) return;
@@ -184,8 +187,9 @@ const App: React.FC = () => {
     }
   }, [description?.pending_user_input_call_id]);
 
-  const fetchState = async () => {
+  const fetchState = useCallback(async () => {
     if (!workflowId) return;
+    const fetchSequence = ++stateFetchSequenceRef.current;
     const query = new URLSearchParams({ workflowId, limit: '200' });
     const [historyResponse, describeResponse, queueResponse] = await Promise.all([
       fetch(`${API_BASE}/history?${query}`),
@@ -197,9 +201,11 @@ const App: React.FC = () => {
     if (!queueResponse.ok) throw new Error(await queueResponse.text());
     const history = await historyResponse.json();
     const nextDescription = await describeResponse.json();
-    const nextQueue = await queueResponse.json();
+    const nextQueue = await queueResponse.json() as MessageQueue;
+    if (fetchSequence !== stateFetchSequenceRef.current) return;
     setMessages(history.messages);
     setDescription(nextDescription);
+    descriptionStatusRef.current = nextDescription.status;
     setMessageQueue((current) => ({
       regular: [
         ...nextQueue.regular,
@@ -217,23 +223,44 @@ const App: React.FC = () => {
       setLiveReasoningSummary('');
       setLiveResponseText('');
     }
-  };
+  }, [workflowId]);
 
   useEffect(() => {
     if (!workflowId) return;
-    void fetchState().catch((reason) => setError(String(reason)));
-    const interval = window.setInterval(
-      () => void fetchState().catch((reason) => setError(String(reason))),
-      1500,
-    );
-    return () => window.clearInterval(interval);
-  }, [workflowId]);
+    const refresh = () => void fetchState().catch((reason) => setError(String(reason)));
+    const refreshAfterVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    const fallbackRefresh = () => {
+      const isAgentActive = descriptionStatusRef.current !== ''
+        && descriptionStatusRef.current !== 'waiting_for_message';
+      if (document.visibilityState === 'visible' || isAgentActive) refresh();
+    };
+    refresh();
+    const interval = window.setInterval(fallbackRefresh, 8000);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
+    document.addEventListener('visibilitychange', refreshAfterVisibilityChange);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh);
+      document.removeEventListener('visibilitychange', refreshAfterVisibilityChange);
+    };
+  }, [workflowId, fetchState]);
 
   useEffect(() => {
     if (!workflowId) return;
     const controller = new AbortController();
     let reasoningSource = '';
     let assistantSource = '';
+    const requestEventRefresh = () => {
+      if (eventRefreshTimerRef.current !== null) return;
+      eventRefreshTimerRef.current = window.setTimeout(() => {
+        eventRefreshTimerRef.current = null;
+        void fetchState().catch((reason) => setError(String(reason)));
+      }, 250);
+    };
     const readStream = async (
       stream: 'reasoning' | 'assistant' | 'activity',
       receive: (payload: { value: unknown; source: string }) => void,
@@ -251,8 +278,9 @@ const App: React.FC = () => {
           resumeToken = payload.resume_token;
           receive(payload);
         } catch (reason) {
-          if (!controller.signal.aborted) setError(String(reason));
-          return;
+          if (controller.signal.aborted) return;
+          setError(String(reason));
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 1000));
         }
       }
     };
@@ -274,9 +302,16 @@ const App: React.FC = () => {
     });
     void readStream('activity', (payload) => {
       setActivity((current) => [...current, payload.value as AgentEvent].slice(-30));
+      requestEventRefresh();
     });
-    return () => controller.abort();
-  }, [workflowId]);
+    return () => {
+      controller.abort();
+      if (eventRefreshTimerRef.current !== null) {
+        window.clearTimeout(eventRefreshTimerRef.current);
+        eventRefreshTimerRef.current = null;
+      }
+    };
+  }, [workflowId, fetchState]);
 
   const startAgent = async () => {
     setIsBusy(true);
@@ -345,6 +380,8 @@ const App: React.FC = () => {
   };
 
   const returnToPortal = () => {
+    stateFetchSequenceRef.current += 1;
+    descriptionStatusRef.current = '';
     window.history.replaceState({}, '', window.location.pathname);
     setWorkflowId('');
     setDescription(null);
@@ -385,11 +422,6 @@ const App: React.FC = () => {
         body: JSON.stringify({ workflowId, content, planMode: requestedPlanMode }),
       });
       if (!response.ok) throw new Error(await response.text());
-      setMessageQueue((current) => ({
-        ...current,
-        regular: current.regular.filter((message) => message.message_id !== optimisticId),
-      }));
-      await fetchState();
     } catch (reason) {
       setMessageQueue((current) => ({
         ...current,
@@ -398,9 +430,17 @@ const App: React.FC = () => {
       setError(String(reason));
       setInput(content);
       setPlanMode(requestedPlanMode);
-    } finally {
       setIsBusy(false);
+      return;
     }
+    setMessageQueue((current) => ({
+      ...current,
+      regular: current.regular.filter((message) => message.message_id !== optimisticId),
+    }));
+    await fetchState().catch((reason) => {
+      setError(`Message accepted; queue refresh failed: ${String(reason)}`);
+    });
+    setIsBusy(false);
   };
 
   const mutateQueuedMessage = async (
@@ -409,20 +449,8 @@ const App: React.FC = () => {
   ) => {
     if (!workflowId || message.optimistic) return;
     const mutationKey = `${action}:${message.message_id}`;
-    const steeringId = `steering-${message.message_id}`;
     setQueueMutation(mutationKey);
     setError('');
-    if (action === 'steer') {
-      setMessageQueue((current) => ({
-        regular: current.regular.filter(
-          (queuedMessage) => queuedMessage.message_id !== message.message_id,
-        ),
-        immediate: [
-          ...current.immediate,
-          { ...message, message_id: steeringId, optimistic: true },
-        ],
-      }));
-    }
     try {
       const response = await fetch(
         `${API_BASE}/message-queue/${action === 'edit' ? 'delete' : action}`,
@@ -433,26 +461,29 @@ const App: React.FC = () => {
         },
       );
       if (!response.ok) throw new Error(await response.text());
-      if (action === 'edit') {
-        setInput(message.value.content);
-        setPlanMode(message.value.plan_mode);
-        window.requestAnimationFrame(() => messageInputRef.current?.focus());
-      }
-      if (action === 'steer') {
-        setMessageQueue((current) => ({
-          ...current,
-          immediate: current.immediate.filter(
-            (queuedMessage) => queuedMessage.message_id !== steeringId,
-          ),
-        }));
-      }
-      await fetchState();
     } catch (reason) {
       setError(String(reason));
       await fetchState().catch(() => undefined);
-    } finally {
       setQueueMutation('');
+      return;
     }
+    if (action !== 'steer') {
+      setMessageQueue((current) => ({
+        ...current,
+        regular: current.regular.filter(
+          (queuedMessage) => queuedMessage.message_id !== message.message_id,
+        ),
+      }));
+    }
+    if (action === 'edit') {
+      setInput(message.value.content);
+      setPlanMode(message.value.plan_mode);
+      window.requestAnimationFrame(() => messageInputRef.current?.focus());
+    }
+    await fetchState().catch((reason) => {
+      setError(`Queue updated; refresh failed: ${String(reason)}`);
+    });
+    setQueueMutation('');
   };
 
   const executePlan = async (revision: number) => {
