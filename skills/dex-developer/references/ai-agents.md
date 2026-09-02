@@ -53,7 +53,7 @@ Use a ChannelMap keyed by tool-call ID for approvals. Store the pending request 
 
 Do not accept executable MCP commands, remote URLs, or credentials from an untrusted Flow input. Register trusted servers in Worker configuration and let a Flow select only from that registry.
 
-When the model needs a user reply, route the question through a durable input tool instead of assistant prose alone. Persist the pending question in an Attribute and wait on the user Channel. Let the tool provide known choices for a selection UI; use free-form input when valid answers are not enumerable.
+When the model needs a user reply, route the question through a durable input tool instead of assistant prose alone. Persist the pending question in an Attribute and wait on the user Channel. Expand an inline input panel in the conversation. Let the tool provide known choices for selection buttons; use free-form input when valid answers are not enumerable.
 
 ## Model long waits as Timer tools
 
