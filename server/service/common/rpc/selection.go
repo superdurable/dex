@@ -12,12 +12,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-
-	"github.com/superdurable/dex/gen/dexpb"
 )
 
-// StateSelection identifies collection values loaded for one RPC.
-type StateSelection struct {
+// RPCStateSelection identifies collection values loaded for one RPC.
+type RPCStateSelection struct {
 	AttributeMapNames []string
 	ChannelNames      []string
 	ChannelMapNames   []string
@@ -28,57 +26,30 @@ func NormalizeStateSelection(
 	attributeMapNames []string,
 	channelNames []string,
 	channelMapNames []string,
-) (StateSelection, error) {
+) (RPCStateSelection, error) {
 	normalizedAttributeMapNames, err := normalizeDefinitionNames(
 		"AttributeMap",
 		attributeMapNames,
 	)
 	if err != nil {
-		return StateSelection{}, err
+		return RPCStateSelection{}, err
 	}
 	normalizedChannelNames, err := normalizeDefinitionNames("Channel", channelNames)
 	if err != nil {
-		return StateSelection{}, err
+		return RPCStateSelection{}, err
 	}
 	normalizedChannelMapNames, err := normalizeDefinitionNames(
 		"ChannelMap",
 		channelMapNames,
 	)
 	if err != nil {
-		return StateSelection{}, err
+		return RPCStateSelection{}, err
 	}
-	return StateSelection{
+	return RPCStateSelection{
 		AttributeMapNames: normalizedAttributeMapNames,
 		ChannelNames:      normalizedChannelNames,
 		ChannelMapNames:   normalizedChannelMapNames,
 	}, nil
-}
-
-// NormalizeInvokeRequestSelection validates and normalizes one public request.
-func NormalizeInvokeRequestSelection(request *dexpb.InvokeRPCRequest) (StateSelection, error) {
-	selection, err := NormalizeStateSelection(
-		request.GetLoadAttributeMapNames(),
-		request.GetLoadChannelNames(),
-		request.GetLoadChannelMapNames(),
-	)
-	if err != nil {
-		return StateSelection{}, err
-	}
-	request.LoadAttributeMapNames = selection.AttributeMapNames
-	request.LoadChannelNames = selection.ChannelNames
-	request.LoadChannelMapNames = selection.ChannelMapNames
-	return selection, nil
-}
-
-// NormalizePrepareRequestSelection validates one internal query request.
-func NormalizePrepareRequestSelection(
-	request *dexpb.PrepareRpcQueryRequest,
-) (StateSelection, error) {
-	return NormalizeStateSelection(
-		request.GetLoadAttributeMapNames(),
-		request.GetLoadChannelNames(),
-		request.GetLoadChannelMapNames(),
-	)
 }
 
 func normalizeDefinitionNames(kind string, names []string) ([]string, error) {

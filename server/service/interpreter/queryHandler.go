@@ -90,7 +90,11 @@ func SetQueryHandlers(
 		if req == nil {
 			return nil, fmt.Errorf("PrepareRpc query requires a request")
 		}
-		selection, err := rpc.NormalizePrepareRequestSelection(req)
+		selection, err := rpc.NormalizeStateSelection(
+			req.GetLoadAttributeMapNames(),
+			req.GetLoadChannelNames(),
+			req.GetLoadChannelMapNames(),
+		)
 		if err != nil {
 			return nil, err
 		}

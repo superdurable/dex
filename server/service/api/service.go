@@ -1273,7 +1273,11 @@ func (s *serviceImpl) InvokeRPC(
 	if req.GetTimeoutSeconds() < 0 {
 		return nil, makeInvalidRequestError("RPC timeout must be non-negative")
 	}
-	if _, err := rpc.NormalizeInvokeRequestSelection(req); err != nil {
+	if _, err := rpc.NormalizeStateSelection(
+		req.GetLoadAttributeMapNames(),
+		req.GetLoadChannelNames(),
+		req.GetLoadChannelMapNames(),
+	); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
 	if err := workerclient.RejectWorkerBlobIDs(req.GetInput()); err != nil {
