@@ -162,6 +162,21 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 </SdkSnippet>
 </SdkTabs>
 
+## 选择性加载 RPC 状态
+
+RPC annotation 或 **Client** invoke option 会请求 **AttributeMap** entry 或 pending
+**Channel** message。Dex Server 会验证请求并推导已加载范围，再随 RPC snapshot 返回。
+RPC 读取选择性加载的 collection 时，SDK 会检查这个返回范围。
+
+如果 **AttributeMap** entry 或 instance 不在该范围内，SDK 会抛出
+**AttributeMapNotLoadedError**。如果 pending message 不在该范围内，SDK 会抛出
+**ChannelMessagesNotLoadedError**。Java 使用 **AttributeMapNotLoadedException** 和
+**ChannelMessagesNotLoadedException**。
+
+显式加载的 collection 可以为空，这不是错误。空的 pending-message snapshot 会返回空列表。
+不存在的 **AttributeMap** entry 会使用 SDK 正常的缺失值语义。not-loaded error 表示
+Dex Server 没有为该 collection 返回加载保证。正常情况下，返回范围与请求的加载项一致。
+
 ## Transactional read 与 write {#transactional-reads-and-writes}
 
 Transactional RPC 会把 RPC 的 read 和 write 作为一个 atomic operation 执行。

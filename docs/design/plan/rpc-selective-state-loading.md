@@ -35,8 +35,11 @@ Clients escape logical map instances and sort the resulting physical names.
 
 RPC Context APIs return typed FIFO message envelopes and support lookup by
 server-assigned message ID. A loaded empty collection returns an empty result.
-Reading a collection that was not loaded raises a stable state-not-loaded
-usage error. Staged publications and deletions do not mutate the input snapshot.
+Reading an unloaded AttributeMap entry or enumerating unloaded AttributeMap
+instances raises `AttributeMapNotLoadedError` (`AttributeMapNotLoadedException`
+in Java). Reading unloaded pending Channel messages raises
+`ChannelMessagesNotLoadedError` (`ChannelMessagesNotLoadedException` in Java).
+Staged publications and deletions do not mutate the input snapshot.
 
 ## Worker state projection
 
@@ -52,8 +55,9 @@ Every `InvokeWorkerRPCRequest` contains:
 ChannelInfo contains only queue size metadata. Reading Channel size or
 ChannelMap keys and sizes does not require loading pending messages.
 
-The echoed names distinguish a loaded collection with no entries from a
-collection that was not loaded. An explicitly loaded empty Channel or exact
+The server derives and echoes the validated requested names. The echoed names
+distinguish a loaded collection with no entries from a collection that was not
+loaded. An explicitly loaded empty Channel or exact
 ChannelMap instance has an empty `ChannelValues` entry. An empty all-instance
 ChannelMap load is represented only by its echoed instance name.
 
