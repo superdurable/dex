@@ -21,24 +21,24 @@ type RPCStateSelection struct {
 	ChannelMapNames   []string
 }
 
-// NormalizeStateSelection validates and sorts RPC collection selectors.
-func NormalizeStateSelection(
+// ValidateAndSortSelections validates and sorts RPC collection selectors.
+func ValidateAndSortSelections(
 	attributeMapNames []string,
 	channelNames []string,
 	channelMapNames []string,
 ) (RPCStateSelection, error) {
-	normalizedAttributeMapNames, err := normalizeDefinitionNames(
+	sortedAttributeMapNames, err := validateAndSortDefinitionNames(
 		"AttributeMap",
 		attributeMapNames,
 	)
 	if err != nil {
 		return RPCStateSelection{}, err
 	}
-	normalizedChannelNames, err := normalizeDefinitionNames("Channel", channelNames)
+	sortedChannelNames, err := validateAndSortDefinitionNames("Channel", channelNames)
 	if err != nil {
 		return RPCStateSelection{}, err
 	}
-	normalizedChannelMapNames, err := normalizeDefinitionNames(
+	sortedChannelMapNames, err := validateAndSortDefinitionNames(
 		"ChannelMap",
 		channelMapNames,
 	)
@@ -46,14 +46,14 @@ func NormalizeStateSelection(
 		return RPCStateSelection{}, err
 	}
 	return RPCStateSelection{
-		AttributeMapNames: normalizedAttributeMapNames,
-		ChannelNames:      normalizedChannelNames,
-		ChannelMapNames:   normalizedChannelMapNames,
+		AttributeMapNames: sortedAttributeMapNames,
+		ChannelNames:      sortedChannelNames,
+		ChannelMapNames:   sortedChannelMapNames,
 	}, nil
 }
 
-func normalizeDefinitionNames(kind string, names []string) ([]string, error) {
-	normalized := make([]string, 0, len(names))
+func validateAndSortDefinitionNames(kind string, names []string) ([]string, error) {
+	sortedNames := make([]string, 0, len(names))
 	seen := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		if strings.TrimSpace(name) == "" {
@@ -66,8 +66,8 @@ func normalizeDefinitionNames(kind string, names []string) ([]string, error) {
 			return nil, fmt.Errorf("RPC load %s name %q is duplicated", kind, name)
 		}
 		seen[name] = struct{}{}
-		normalized = append(normalized, name)
+		sortedNames = append(sortedNames, name)
 	}
-	sort.Strings(normalized)
-	return normalized, nil
+	sort.Strings(sortedNames)
+	return sortedNames, nil
 }

@@ -1273,7 +1273,7 @@ func (s *serviceImpl) InvokeRPC(
 	if req.GetTimeoutSeconds() < 0 {
 		return nil, makeInvalidRequestError("RPC timeout must be non-negative")
 	}
-	if _, err := rpc.NormalizeStateSelection(
+	if _, err := rpc.ValidateAndSortSelections(
 		req.GetLoadAttributeMapNames(),
 		req.GetLoadChannelNames(),
 		req.GetLoadChannelMapNames(),

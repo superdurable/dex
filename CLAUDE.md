@@ -186,6 +186,8 @@ Keep a struct's methods in one primary file. Do not split its method set across 
 - Boolean variables and constants, and methods returning booleans, must use
   predicate names such as `isXxx`, `hasXxx`, `canXxx`, `shouldXxx`, or
   `supportsXxx`, following the language's capitalization conventions.
+- Do not introduce `NormalizeXyz` identifiers. Name the concrete operations,
+  such as `ValidateAndSortSelections`, `TrimWhitespace`, or `CanonicalizeURL`.
 
 ## Nil and Config Fields
 

@@ -164,7 +164,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 			err.Error(),
 		)
 	}
-	selection, err := rpc.NormalizeStateSelection(
+	selection, err := rpc.ValidateAndSortSelections(
 		input.GetLoadAttributeMapNames(),
 		input.GetLoadChannelNames(),
 		input.GetLoadChannelMapNames(),
@@ -320,7 +320,7 @@ func (u *WorkflowUpdater) validateWorkerRpc(
 	if !u.persistenceManager.CanLockKeys(keys) {
 		return u.rpcLockError()
 	}
-	if _, err := rpc.NormalizeStateSelection(
+	if _, err := rpc.ValidateAndSortSelections(
 		input.GetLoadAttributeMapNames(),
 		input.GetLoadChannelNames(),
 		input.GetLoadChannelMapNames(),
