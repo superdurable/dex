@@ -1274,9 +1274,9 @@ func (s *serviceImpl) InvokeRPC(
 		return nil, makeInvalidRequestError("RPC timeout must be non-negative")
 	}
 	if _, err := rpc.ValidateAndSortSelections(
-		req.GetLoadAttributeMapSelectors(),
+		req.GetLoadAttributeMapInstances(),
 		req.GetLoadChannelNames(),
-		req.GetLoadChannelMapSelectors(),
+		req.GetLoadChannelMapInstances(),
 	); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
@@ -1383,9 +1383,9 @@ func (s *serviceImpl) doInvokeRPC(
 		runID,
 		service.PrepareRpcQueryType,
 		&dexpb.PrepareRpcQueryRequest{
-			LoadAttributeMapSelectors: req.GetLoadAttributeMapSelectors(),
+			LoadAttributeMapInstances: req.GetLoadAttributeMapInstances(),
 			LoadChannelNames:          req.GetLoadChannelNames(),
-			LoadChannelMapSelectors:   req.GetLoadChannelMapSelectors(),
+			LoadChannelMapInstances:   req.GetLoadChannelMapInstances(),
 		},
 	); err != nil {
 		return nil, err

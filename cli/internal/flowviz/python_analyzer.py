@@ -435,6 +435,46 @@ class Analyzer:
                 self.analyze_locks(node_id, statement.decorator_list, {"lock_attributes": "rpc"})
                 self.analyze_decisions(node_id, statement, rpc=True)
                 self.analyze_resources(node_id, statement, "rpc")
+                self.analyze_rpc_state_loads(node_id, statement.decorator_list)
+
+    def analyze_rpc_state_loads(self, owner_id, decorators):
+        option_methods = {
+            "load_attribute_map_instances": {"load"},
+            "load_channel_map_instances": {"load_messages"},
+        }
+        direct_options = {"load_attribute_maps", "load_channels", "load_channel_maps"}
+        for decorator in decorators:
+            if not isinstance(decorator, ast.Call) or not self.is_dex_reference(decorator.func, "rpc"):
+                continue
+            for keyword in decorator.keywords:
+                if keyword.arg in direct_options:
+                    selections = keyword.value.elts if isinstance(keyword.value, (ast.List, ast.Set, ast.Tuple)) else [keyword.value]
+                    for selection in selections:
+                        self.add_rpc_state_read(owner_id, selection, keyword.arg)
+                    continue
+                methods = option_methods.get(keyword.arg)
+                if methods is None:
+                    continue
+                selections = keyword.value.elts if isinstance(keyword.value, (ast.List, ast.Set, ast.Tuple)) else [keyword.value]
+                for selection in selections:
+                    if not isinstance(selection, ast.Call) or not isinstance(selection.func, ast.Attribute) or selection.func.attr not in methods:
+                        continue
+                    self.add_rpc_state_read(owner_id, selection.func.value, selection.func.attr)
+
+    def add_rpc_state_read(self, owner_id, selection, label):
+        resource_id = self.resource_for(selection, owner_id)
+        if not resource_id:
+            return
+        if any(edge["kind"] == "resource_read" and edge["from"] == resource_id and edge["to"] == owner_id for edge in self.graph["edges"]):
+            return
+        self.add_edge(
+            "resource_read",
+            resource_id,
+            owner_id,
+            label=label,
+            span=self.span(selection),
+            metadata={"phase": "rpc"},
+        )
 
     def analyze_locks(self, owner_id, expressions, phases):
         seen = set()
@@ -1118,7 +1158,7 @@ class Analyzer:
     def resource_edge_kind(self, method, phase):
         if phase == "wait_for" and method in {"for_one", "for_n", "at_least", "at_most", "for_range"}:
             return "wait_condition"
-        if method in {"get", "size", "map_size", "all_instance_keys", "get_map_size", "get_all_instance_keys", "results"}:
+        if method in {"get", "size", "map_size", "all_instance_keys", "get_map_size", "get_all_instance_keys", "results", "pending_messages", "find_pending_message"}:
             return "resource_read"
         if method in {"set", "delete", "write"}:
             return "resource_write"

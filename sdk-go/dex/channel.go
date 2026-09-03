@@ -10,6 +10,12 @@
 
 package dex
 
+import (
+	"fmt"
+
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+)
+
 // Channel defines one durable FIFO queue of typed messages.
 //
 // Add the Channel to PersistenceSchema. Clients and handlers may publish messages; Step WaitFor
@@ -21,6 +27,14 @@ package dex
 //	return dex.AnyOf(approvals.ForOne(), dex.Timer(5*time.Minute)), nil
 type Channel[T any] struct {
 	name string
+}
+
+// ChannelMapLoad selects one ChannelMap instance for an RPC invocation.
+// Create values with ChannelMap.LoadMessages and place them in
+// InvokeOptions.LoadChannelMapInstances.
+type ChannelMapLoad struct {
+	name     string
+	instance string
 }
 
 // ChannelMessage identifies one pending Channel value returned by Client.GetChannelMessages.
@@ -67,6 +81,37 @@ func (c Channel[T]) Delete(ctx Context, messageID string) error {
 		return errInvalidInvocationContext
 	}
 	return invocation.deleteChannelMessage(c.name, "", false, messageID)
+}
+
+// PendingMessages returns the loaded RPC snapshot in FIFO order.
+// It returns StateNotLoadedError when InvokeOptions did not select this Channel.
+func (c Channel[T]) PendingMessages(ctx Context) ([]ChannelMessage[T], error) {
+	invocation, ok := ctx.(channelInvocation)
+	if !ok {
+		return nil, errInvalidInvocationContext
+	}
+	messages, err := invocation.pendingChannelMessages(c.name, "", false)
+	if err != nil {
+		return nil, err
+	}
+	return decodePendingMessages[T](messages)
+}
+
+// FindPendingMessage returns one loaded message by ID and reports whether it exists.
+func (c Channel[T]) FindPendingMessage(
+	ctx Context,
+	messageID string,
+) (ChannelMessage[T], bool, error) {
+	messages, err := c.PendingMessages(ctx)
+	if err != nil {
+		return ChannelMessage[T]{}, false, err
+	}
+	for _, message := range messages {
+		if message.MessageID == messageID {
+			return message, true, nil
+		}
+	}
+	return ChannelMessage[T]{}, false, nil
 }
 
 // ForOne returns a Condition that consumes exactly one queued message.
@@ -138,6 +183,10 @@ func (c Channel[T]) channelName() string {
 	return c.name
 }
 
+func (c Channel[T]) channelLoadName() string {
+	return c.name
+}
+
 func (Channel[T]) channelIsMap() bool {
 	return false
 }
@@ -173,6 +222,46 @@ func (c ChannelMap[T]) Delete(ctx Context, instance string, messageID string) er
 		return errInvalidInvocationContext
 	}
 	return invocation.deleteChannelMessage(c.name, instance, true, messageID)
+}
+
+// LoadMessages selects pending messages from one slash-free logical instance for an RPC snapshot.
+func (c ChannelMap[T]) LoadMessages(instance string) ChannelMapLoad {
+	return ChannelMapLoad{name: c.name, instance: instance}
+}
+
+// PendingMessages returns one loaded instance snapshot in FIFO order.
+// It returns StateNotLoadedError when InvokeOptions did not select this ChannelMap.
+func (c ChannelMap[T]) PendingMessages(
+	ctx Context,
+	instance string,
+) ([]ChannelMessage[T], error) {
+	invocation, ok := ctx.(channelInvocation)
+	if !ok {
+		return nil, errInvalidInvocationContext
+	}
+	messages, err := invocation.pendingChannelMessages(c.name, instance, true)
+	if err != nil {
+		return nil, err
+	}
+	return decodePendingMessages[T](messages)
+}
+
+// FindPendingMessage returns one loaded instance message by ID and reports whether it exists.
+func (c ChannelMap[T]) FindPendingMessage(
+	ctx Context,
+	instance string,
+	messageID string,
+) (ChannelMessage[T], bool, error) {
+	messages, err := c.PendingMessages(ctx, instance)
+	if err != nil {
+		return ChannelMessage[T]{}, false, err
+	}
+	for _, message := range messages {
+		if message.MessageID == messageID {
+			return message, true, nil
+		}
+	}
+	return ChannelMessage[T]{}, false, nil
 }
 
 // ForOne returns an instance Condition that consumes exactly one message.
@@ -300,10 +389,35 @@ type channelInvocation interface {
 	channelSize(name string) int
 	channelMapSize(name string, instance string) int
 	channelMapKeys(name string) []string
+	pendingChannelMessages(
+		name string,
+		instance string,
+		isMap bool,
+	) ([]*dexpb.ChannelMessage, error)
 	getChannelResults(
 		name string,
 		instance string,
 		isMap bool,
 		resultsPtr any,
 	) error
+}
+
+func decodePendingMessages[T any](
+	messages []*dexpb.ChannelMessage,
+) ([]ChannelMessage[T], error) {
+	decoded := make([]ChannelMessage[T], 0, len(messages))
+	for _, message := range messages {
+		if message == nil || message.MessageId == "" || message.Value == nil {
+			return nil, fmt.Errorf("dex: invalid loaded Channel message")
+		}
+		var value T
+		if err := decodeValue(message.Value, &value); err != nil {
+			return nil, err
+		}
+		decoded = append(decoded, ChannelMessage[T]{
+			MessageID: message.MessageId,
+			Value:     value,
+		})
+	}
+	return decoded, nil
 }

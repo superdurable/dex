@@ -1134,6 +1134,9 @@ public final class Client implements AutoCloseable {
                 .addAllLockAttributeKeys(rpc.getLocks())
                 .setRequestId(UUID.randomUUID().toString())
                 .setIsTransactional(rpc.getAnnotation().isTransactional())
+                .addAllLoadAttributeMapInstances(rpc.getStateLoads().getAttributeMaps())
+                .addAllLoadChannelNames(rpc.getStateLoads().getChannels())
+                .addAllLoadChannelMapInstances(rpc.getStateLoads().getChannelMaps())
                 .build();
         final io.superdurable.gen.Value output = hydrator.hydrate(
                 call(

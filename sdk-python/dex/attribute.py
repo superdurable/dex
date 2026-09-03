@@ -13,12 +13,39 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Generic, TypeVar, cast
+from urllib.parse import quote
 
 from dex._utils import require_map_instance, require_persistence_definition_name
 from dex.context import Context
 from dex.dexpb import dex_pb2 as pb
 
 ValueT = TypeVar("ValueT")
+
+
+@dataclass(frozen=True)
+class AttributeMapLoad:
+    """Load one AttributeMap instance for an RPC snapshot.
+
+    Create a load with :meth:`AttributeMap.load`. Loading provides a point-in-time
+    value snapshot; it does not lock the map against concurrent writers.
+
+    Attributes:
+        attribute_map: The exact AttributeMap definition registered with the Flow.
+        instance: One logical instance key.
+    """
+
+    attribute_map: AttributeMap[Any]
+    instance: str
+
+    @property
+    def physical_name(self) -> str:
+        """Return the physical instance name for this typed load.
+
+        Returns:
+            The encoded physical instance name.
+        """
+        instance = require_map_instance(self.instance)
+        return f"{self.attribute_map.name}/{quote(instance, safe='')}"
 
 
 class IndexType(Enum):
@@ -171,6 +198,22 @@ class AttributeMap(Generic[ValueT]):
 
     def __post_init__(self) -> None:
         require_persistence_definition_name(self.name)
+
+    def load(self, instance: str) -> AttributeMapLoad:
+        """Select one instance for an RPC snapshot.
+
+        Pass the result through ``@rpc(load_attribute_map_instances=(...))``.
+
+        Args:
+            instance: The non-empty, slash-free logical map key to load.
+
+        Returns:
+            A load for this one instance.
+
+        Raises:
+            ValueError: If ``instance`` is empty or contains ``/``.
+        """
+        return AttributeMapLoad(self, require_map_instance(instance))
 
     def get(self, context: Context, instance: str) -> ValueT:
         """Return one map instance from a Step or RPC Context.

@@ -26,8 +26,10 @@ import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.superdurable.dex.exceptions.InvalidStepResultException;
 import io.superdurable.dex.exceptions.RetryAfterException;
+import io.superdurable.dex.exceptions.StateNotLoadedException;
 import io.superdurable.gen.CloseDecisionType;
 import io.superdurable.gen.ChannelInfo;
+import io.superdurable.gen.ChannelValues;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.InvokeExecuteMethodOutput;
 import io.superdurable.gen.InvokeExecuteMethodRequest;
@@ -305,7 +307,12 @@ final class WorkerServiceIntegrationTest {
                                 .build()),
                 Collections.<KV>emptyList(),
                 null,
-                channelInfos);
+                channelInfos,
+                null,
+                Collections.<String, ChannelValues>emptyMap(),
+                Collections.singletonList("items/"),
+                Collections.<String>emptyList(),
+                Collections.<String>emptyList());
         assertEquals(Arrays.asList(special, "z"), attributes.getAllInstanceKeys(context));
         attributes.set(context, "a", "added");
         attributes.delete(context, "z");
@@ -315,6 +322,94 @@ final class WorkerServiceIntegrationTest {
         channels.publish(context, "a", "published");
         assertEquals(Arrays.asList("a", special), channels.getAllInstanceKeys(context));
         assertEquals(2, channels.getMapSize(context));
+    }
+
+    @Test
+    void rpcSelectiveStateSnapshotsAreTypedAndPresenceAware() {
+        final AttributeMap<String> attributes =
+                AttributeMap.define("selected-items", String.class);
+        final Channel<String> queued = Channel.define("selected-commands", String.class);
+        final ChannelMap<String> byTenant =
+                ChannelMap.define("selected-by-tenant", String.class);
+        final Flow<Void> flow = new Flow<Void>() {
+            @Override
+            public String getFlowType() {
+                return "SelectiveFlow";
+            }
+
+            @Override
+            public StepList<Void> getSteps() {
+                return StepList.empty();
+            }
+
+            @Override
+            public PersistenceSchema getPersistenceSchema() {
+                return PersistenceSchema.of(attributes, queued, byTenant);
+            }
+
+            @RPC(
+                    loadAttributeMaps = {"selected-items"},
+                    loadAttributeMapInstances = {"selected-items/tenant-a"},
+                    loadChannels = {"selected-commands"},
+                    loadChannelMaps = {"selected-by-tenant"},
+                    loadChannelMapInstances = {"selected-by-tenant/tenant-a"})
+            public void snapshot(final Context context) {
+            }
+        };
+        final Registry registry = new Registry(Collections.<Flow<?>>singletonList(flow));
+        final ValueMapper values = new ValueMapper(new ObjectMapper());
+        final String attributeName = Registry.physicalName("selected-items", "tenant-a");
+        final String channelMapName = Registry.physicalName("selected-by-tenant", "tenant-a");
+        final Map<String, ChannelValues> loadedMessages = new HashMap<String, ChannelValues>();
+        loadedMessages.put("selected-commands", ChannelValues.newBuilder()
+                .addMessages(io.superdurable.gen.ChannelMessage.newBuilder()
+                        .setChannelName("selected-commands")
+                        .setMessageId("message-1")
+                        .setValue(values.encode("first")))
+                .build());
+        loadedMessages.put(channelMapName, ChannelValues.newBuilder()
+                .addMessages(io.superdurable.gen.ChannelMessage.newBuilder()
+                        .setChannelName(channelMapName)
+                        .setMessageId("message-2")
+                        .setValue(values.encode("second")))
+                .build());
+        final InvocationContext context = new InvocationContext(
+                InvocationContext.Method.RPC,
+                registry.getFlow("SelectiveFlow"),
+                io.superdurable.gen.Context.getDefaultInstance(),
+                values,
+                null,
+                Collections.singletonList(KV.newBuilder()
+                        .setKey(attributeName)
+                        .setValue(values.encode("value"))
+                        .build()),
+                Collections.<KV>emptyList(),
+                null,
+                Collections.<String, ChannelInfo>emptyMap(),
+                null,
+                loadedMessages,
+                Collections.singletonList(attributeName),
+                Collections.singletonList("selected-commands"),
+                Collections.singletonList(channelMapName));
+
+        assertEquals("value", attributes.get(context, "tenant-a"));
+        assertEquals("first", queued.pendingMessages(context).get(0).getValue());
+        assertEquals("message-2", byTenant.pendingMessages(context, "tenant-a")
+                .get(0).getMessageId());
+        assertEquals("first", queued.findPendingMessage(context, "message-1").getValue());
+        assertThrows(StateNotLoadedException.class, () -> attributes.get(context, "other"));
+        assertThrows(
+                StateNotLoadedException.class,
+                () -> byTenant.pendingMessages(context, "other"));
+        final Registry.RpcStateLoads stateLoads = registry.getFlow("SelectiveFlow")
+                .getRpc("snapshot")
+                .getStateLoads();
+        assertEquals(
+                Arrays.asList("selected-items/", attributeName),
+                stateLoads.getAttributeMaps());
+        assertEquals(
+                Arrays.asList("selected-by-tenant/", channelMapName),
+                stateLoads.getChannelMaps());
     }
 
     @Test

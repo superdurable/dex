@@ -16,20 +16,20 @@ import (
 
 // RPCStateSelection identifies collection values loaded for one RPC.
 type RPCStateSelection struct {
-	AttributeMapSelectors []string
+	AttributeMapInstances []string
 	ChannelNames          []string
-	ChannelMapSelectors   []string
+	ChannelMapInstances   []string
 }
 
-// ValidateAndSortSelections validates and sorts RPC collection selectors.
+// ValidateAndSortSelections validates and sorts RPC collection names and instances.
 func ValidateAndSortSelections(
-	attributeMapSelectors []string,
+	attributeMapInstances []string,
 	channelNames []string,
-	channelMapSelectors []string,
+	channelMapInstances []string,
 ) (RPCStateSelection, error) {
-	sortedAttributeMapSelectors, err := validateAndSortMapSelectors(
+	sortedAttributeMapInstances, err := validateAndSortMapInstances(
 		"AttributeMap",
-		attributeMapSelectors,
+		attributeMapInstances,
 	)
 	if err != nil {
 		return RPCStateSelection{}, err
@@ -38,43 +38,43 @@ func ValidateAndSortSelections(
 	if err != nil {
 		return RPCStateSelection{}, err
 	}
-	sortedChannelMapSelectors, err := validateAndSortMapSelectors(
+	sortedChannelMapInstances, err := validateAndSortMapInstances(
 		"ChannelMap",
-		channelMapSelectors,
+		channelMapInstances,
 	)
 	if err != nil {
 		return RPCStateSelection{}, err
 	}
 	return RPCStateSelection{
-		AttributeMapSelectors: sortedAttributeMapSelectors,
+		AttributeMapInstances: sortedAttributeMapInstances,
 		ChannelNames:          sortedChannelNames,
-		ChannelMapSelectors:   sortedChannelMapSelectors,
+		ChannelMapInstances:   sortedChannelMapInstances,
 	}, nil
 }
 
-func validateAndSortMapSelectors(kind string, selectors []string) ([]string, error) {
-	sortedSelectors := make([]string, 0, len(selectors))
-	seen := make(map[string]struct{}, len(selectors))
-	for _, selector := range selectors {
-		if strings.TrimSpace(selector) == "" {
-			return nil, fmt.Errorf("RPC load %s selector is empty", kind)
+func validateAndSortMapInstances(kind string, instances []string) ([]string, error) {
+	sortedInstances := make([]string, 0, len(instances))
+	seen := make(map[string]struct{}, len(instances))
+	for _, instance := range instances {
+		if strings.TrimSpace(instance) == "" {
+			return nil, fmt.Errorf("RPC load %s instance is empty", kind)
 		}
-		separatorIndex := strings.IndexByte(selector, '/')
-		if separatorIndex <= 0 || separatorIndex != strings.LastIndexByte(selector, '/') {
+		separatorIndex := strings.IndexByte(instance, '/')
+		if separatorIndex <= 0 || separatorIndex != strings.LastIndexByte(instance, '/') {
 			return nil, fmt.Errorf(
-				"RPC load %s selector %q must contain one '/' after the definition name",
+				"RPC load %s instance %q must contain one '/' after the definition name",
 				kind,
-				selector,
+				instance,
 			)
 		}
-		if _, exists := seen[selector]; exists {
-			return nil, fmt.Errorf("RPC load %s selector %q is duplicated", kind, selector)
+		if _, exists := seen[instance]; exists {
+			return nil, fmt.Errorf("RPC load %s instance %q is duplicated", kind, instance)
 		}
-		seen[selector] = struct{}{}
-		sortedSelectors = append(sortedSelectors, selector)
+		seen[instance] = struct{}{}
+		sortedInstances = append(sortedInstances, instance)
 	}
-	sort.Strings(sortedSelectors)
-	return sortedSelectors, nil
+	sort.Strings(sortedInstances)
+	return sortedInstances, nil
 }
 
 func validateAndSortDefinitionNames(kind string, names []string) ([]string, error) {

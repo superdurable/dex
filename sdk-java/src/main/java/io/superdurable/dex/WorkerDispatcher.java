@@ -200,7 +200,11 @@ final class WorkerDispatcher {
                 null,
                 null,
                 request.getChannelInfosMap(),
-                bufferedStreamScheduler);
+                bufferedStreamScheduler,
+                request.getLoadedChannelMessagesMap(),
+                request.getLoadedAttributeMapInstancesList(),
+                request.getLoadedChannelNamesList(),
+                request.getLoadedChannelMapInstancesList());
         final Method method = rpc.getMethod();
         final Object[] arguments;
         if (method.getParameterTypes().length == 2) {

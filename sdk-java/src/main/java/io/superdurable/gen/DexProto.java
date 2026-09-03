@@ -1264,9 +1264,9 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       "\030\004 \001(\0132\n.dex.Value\022\027\n\017timeout_seconds\030\005 " +
       "\001(\005\022\033\n\023lock_attribute_keys\030\006 \003(\t\022\022\n\nrequ" +
       "est_id\030\007 \001(\t\022\030\n\020is_transactional\030\010 \001(\010\022$" +
-      "\n\034load_attribute_map_selectors\030\t \003(\t\022\032\n\022" +
+      "\n\034load_attribute_map_instances\030\t \003(\t\022\032\n\022" +
       "load_channel_names\030\n \003(\t\022\"\n\032load_channel" +
-      "_map_selectors\030\013 \003(\t\"/\n\021InvokeRPCRespons" +
+      "_map_instances\030\013 \003(\t\"/\n\021InvokeRPCRespons" +
       "e\022\032\n\006output\030\001 \001(\0132\n.dex.Value\"\250\001\n\020SkipTi" +
       "merRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 " +
       "\001(\t\022\031\n\021step_execution_id\030\003 \001(\t\022\032\n\022timer_" +
@@ -1354,8 +1354,8 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       "InfosEntry\022W\n\027loaded_channel_messages\030\007 " +
       "\003(\01326.dex.InvokeWorkerRPCRequest.LoadedC" +
       "hannelMessagesEntry\022&\n\036loaded_attribute_" +
-      "map_selectors\030\010 \003(\t\022\034\n\024loaded_channel_na" +
-      "mes\030\t \003(\t\022$\n\034loaded_channel_map_selector" +
+      "map_instances\030\010 \003(\t\022\034\n\024loaded_channel_na" +
+      "mes\030\t \003(\t\022$\n\034loaded_channel_map_instance" +
       "s\030\n \003(\t\032E\n\021ChannelInfosEntry\022\013\n\003key\030\001 \001(" +
       "\t\022\037\n\005value\030\002 \001(\0132\020.dex.ChannelInfo:\0028\001\032P" +
       "\n\032LoadedChannelMessagesEntry\022\013\n\003key\030\001 \001(" +
@@ -1565,9 +1565,9 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       "\004keys\030\001 \003(\t\022\020\n\010all_keys\030\002 \001(\010\"9\n\032GetAttr" +
       "ibutesQueryResponse\022\033\n\nattributes\030\001 \003(\0132" +
       "\007.dex.KV\"~\n\026PrepareRpcQueryRequest\022$\n\034lo" +
-      "ad_attribute_map_selectors\030\001 \003(\t\022\032\n\022load" +
+      "ad_attribute_map_instances\030\001 \003(\t\022\032\n\022load" +
       "_channel_names\030\002 \003(\t\022\"\n\032load_channel_map" +
-      "_selectors\030\003 \003(\t\"\311\004\n\027PrepareRpcQueryResp" +
+      "_instances\030\003 \003(\t\"\311\004\n\027PrepareRpcQueryResp" +
       "onse\022\033\n\nattributes\030\001 \003(\0132\007.dex.KV\022\016\n\006run" +
       "_id\030\002 \001(\t\022\036\n\026flow_started_timestamp\030\003 \001(" +
       "\003\022\021\n\tflow_type\030\004 \001(\t\022(\n\rworker_target\030\005 " +
@@ -1576,9 +1576,9 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       "nelInfosEntry\022X\n\027loaded_channel_messages" +
       "\030\007 \003(\01327.dex.PrepareRpcQueryResponse.Loa" +
       "dedChannelMessagesEntry\022&\n\036loaded_attrib" +
-      "ute_map_selectors\030\010 \003(\t\022\034\n\024loaded_channe" +
-      "l_names\030\t \003(\t\022$\n\034loaded_channel_map_sele" +
-      "ctors\030\n \003(\t\032E\n\021ChannelInfosEntry\022\013\n\003key\030" +
+      "ute_map_instances\030\010 \003(\t\022\034\n\024loaded_channe" +
+      "l_names\030\t \003(\t\022$\n\034loaded_channel_map_inst" +
+      "ances\030\n \003(\t\032E\n\021ChannelInfosEntry\022\013\n\003key\030" +
       "\001 \001(\t\022\037\n\005value\030\002 \001(\0132\020.dex.ChannelInfo:\002" +
       "8\001\032P\n\032LoadedChannelMessagesEntry\022\013\n\003key\030" +
       "\001 \001(\t\022!\n\005value\030\002 \001(\0132\022.dex.ChannelValues" +
@@ -2268,7 +2268,7 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
     internal_static_dex_InvokeRPCRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_InvokeRPCRequest_descriptor,
-        new java.lang.String[] { "FlowId", "RunId", "RpcName", "Input", "TimeoutSeconds", "LockAttributeKeys", "RequestId", "IsTransactional", "LoadAttributeMapSelectors", "LoadChannelNames", "LoadChannelMapSelectors", });
+        new java.lang.String[] { "FlowId", "RunId", "RpcName", "Input", "TimeoutSeconds", "LockAttributeKeys", "RequestId", "IsTransactional", "LoadAttributeMapInstances", "LoadChannelNames", "LoadChannelMapInstances", });
     internal_static_dex_InvokeRPCResponse_descriptor =
       getDescriptor().getMessageType(78);
     internal_static_dex_InvokeRPCResponse_fieldAccessorTable = new
@@ -2418,7 +2418,7 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
     internal_static_dex_InvokeWorkerRPCRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_InvokeWorkerRPCRequest_descriptor,
-        new java.lang.String[] { "Context", "FlowType", "RpcName", "Input", "Attributes", "ChannelInfos", "LoadedChannelMessages", "LoadedAttributeMapSelectors", "LoadedChannelNames", "LoadedChannelMapSelectors", });
+        new java.lang.String[] { "Context", "FlowType", "RpcName", "Input", "Attributes", "ChannelInfos", "LoadedChannelMessages", "LoadedAttributeMapInstances", "LoadedChannelNames", "LoadedChannelMapInstances", });
     internal_static_dex_InvokeWorkerRPCRequest_ChannelInfosEntry_descriptor =
       internal_static_dex_InvokeWorkerRPCRequest_descriptor.getNestedType(0);
     internal_static_dex_InvokeWorkerRPCRequest_ChannelInfosEntry_fieldAccessorTable = new
@@ -2784,13 +2784,13 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
     internal_static_dex_PrepareRpcQueryRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_PrepareRpcQueryRequest_descriptor,
-        new java.lang.String[] { "LoadAttributeMapSelectors", "LoadChannelNames", "LoadChannelMapSelectors", });
+        new java.lang.String[] { "LoadAttributeMapInstances", "LoadChannelNames", "LoadChannelMapInstances", });
     internal_static_dex_PrepareRpcQueryResponse_descriptor =
       getDescriptor().getMessageType(156);
     internal_static_dex_PrepareRpcQueryResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_PrepareRpcQueryResponse_descriptor,
-        new java.lang.String[] { "Attributes", "RunId", "FlowStartedTimestamp", "FlowType", "WorkerTarget", "ChannelInfos", "LoadedChannelMessages", "LoadedAttributeMapSelectors", "LoadedChannelNames", "LoadedChannelMapSelectors", });
+        new java.lang.String[] { "Attributes", "RunId", "FlowStartedTimestamp", "FlowType", "WorkerTarget", "ChannelInfos", "LoadedChannelMessages", "LoadedAttributeMapInstances", "LoadedChannelNames", "LoadedChannelMapInstances", });
     internal_static_dex_PrepareRpcQueryResponse_ChannelInfosEntry_descriptor =
       internal_static_dex_PrepareRpcQueryResponse_descriptor.getNestedType(0);
     internal_static_dex_PrepareRpcQueryResponse_ChannelInfosEntry_fieldAccessorTable = new

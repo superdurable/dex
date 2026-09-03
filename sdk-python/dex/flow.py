@@ -35,8 +35,8 @@ from typing import (
 from urllib.parse import quote
 
 from dex._utils import require_map_instance, require_name
-from dex.attribute import Attribute, AttributeLock, AttributeMap
-from dex.channel import Channel, ChannelMap
+from dex.attribute import Attribute, AttributeLock, AttributeMap, AttributeMapLoad
+from dex.channel import Channel, ChannelMap, ChannelMapLoad
 from dex.codec import Codec, CodecRegistry
 from dex.context import AsyncContext, Context
 from dex.dexpb import dex_pb2 as pb
@@ -59,6 +59,11 @@ class _RPCOptions:
     timeout: timedelta | None
     lock_attributes: tuple[AttributeLock, ...]
     is_transactional: bool
+    load_attribute_maps: tuple[AttributeMap[Any], ...]
+    load_attribute_map_instances: tuple[AttributeMapLoad, ...]
+    load_channels: tuple[Channel[Any], ...]
+    load_channel_maps: tuple[ChannelMap[Any], ...]
+    load_channel_map_instances: tuple[ChannelMapLoad, ...]
 
 
 @overload
@@ -72,6 +77,11 @@ def rpc(
     timeout: timedelta | None = None,
     lock_attributes: Sequence[AttributeLock] = (),
     is_transactional: bool = False,
+    load_attribute_maps: Sequence[AttributeMap[Any]] = (),
+    load_attribute_map_instances: Sequence[AttributeMapLoad] = (),
+    load_channels: Sequence[Channel[Any]] = (),
+    load_channel_maps: Sequence[ChannelMap[Any]] = (),
+    load_channel_map_instances: Sequence[ChannelMapLoad] = (),
 ) -> Callable[[CallableT], CallableT]: ...
 
 
@@ -82,6 +92,11 @@ def rpc(
     timeout: timedelta | None = None,
     lock_attributes: Sequence[AttributeLock] = (),
     is_transactional: bool = False,
+    load_attribute_maps: Sequence[AttributeMap[Any]] = (),
+    load_attribute_map_instances: Sequence[AttributeMapLoad] = (),
+    load_channels: Sequence[Channel[Any]] = (),
+    load_channel_maps: Sequence[ChannelMap[Any]] = (),
+    load_channel_map_instances: Sequence[ChannelMapLoad] = (),
 ) -> CallableT | Callable[[CallableT], CallableT]:
     """Mark a Flow method as a typed RPC handler.
 
@@ -95,6 +110,12 @@ def rpc(
         timeout: Optional non-negative handler timeout.
         lock_attributes: Attribute locks held for the entire handler invocation.
         is_transactional: Request transactional reads and writes even without locks.
+        load_attribute_maps: AttributeMaps whose current instances are loaded.
+        load_attribute_map_instances: Exact instances created by ``AttributeMap.load``.
+        load_channels: Channels whose pending messages are loaded.
+        load_channel_maps: ChannelMaps whose current instance messages are loaded.
+        load_channel_map_instances: Exact instances created by
+            ``ChannelMap.load_messages``.
 
     Returns:
         The original handler, or a decorator that returns it after attaching options.
@@ -118,7 +139,17 @@ def rpc(
         setattr(
             handler,
             "__dex_rpc_options__",
-            _RPCOptions(name, timeout, tuple(lock_attributes), is_transactional),
+            _RPCOptions(
+                name,
+                timeout,
+                tuple(lock_attributes),
+                is_transactional,
+                tuple(load_attribute_maps),
+                tuple(load_attribute_map_instances),
+                tuple(load_channels),
+                tuple(load_channel_maps),
+                tuple(load_channel_map_instances),
+            ),
         )
         return handler
 
@@ -279,6 +310,9 @@ class _RegisteredRPC:
     input_codec: Codec[Any] | None
     output_codec: Codec[Any] | None
     locks: tuple[str, ...]
+    load_attribute_map_instances: tuple[str, ...]
+    load_channel_names: tuple[str, ...]
+    load_channel_map_instances: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -511,6 +545,7 @@ class Registry:
             if rpc_name in registered_rpcs:
                 raise ValueError(f"duplicate RPC {rpc_name}")
             Registry._validate_rpc_locks(rpc_name, options, schema)
+            state_loads = Registry._validate_rpc_state_loads(rpc_name, options, schema)
             input_codec, output_codec = Registry._rpc_codecs(
                 method,
                 codec_registry,
@@ -525,6 +560,7 @@ class Registry:
                 tuple(
                     Registry._physical_lock(lock) for lock in options.lock_attributes
                 ),
+                *state_loads,
             )
         return _RegisteredFlow(
             flow_name,
@@ -634,6 +670,82 @@ class Registry:
             if identity in lock_identities:
                 raise ValueError(f"RPC {rpc_name} has a duplicate attribute lock")
             lock_identities.add(identity)
+
+    @staticmethod
+    def _validate_rpc_state_loads(
+        rpc_name: str,
+        options: _RPCOptions,
+        schema: PersistenceSchema,
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        attribute_map_instances: list[str] = []
+        for attribute_map in options.load_attribute_maps:
+            if not isinstance(attribute_map, AttributeMap):
+                raise TypeError(f"RPC {rpc_name} has an invalid AttributeMap load")
+            Registry._require_registered_rpc_state(
+                rpc_name, attribute_map, schema.attributes, "AttributeMap"
+            )
+            attribute_map_instances.append(f"{attribute_map.name}/")
+        for attribute_map_load in options.load_attribute_map_instances:
+            if not isinstance(attribute_map_load, AttributeMapLoad):
+                raise TypeError(f"RPC {rpc_name} has an invalid AttributeMapLoad load")
+            Registry._require_registered_rpc_state(
+                rpc_name,
+                attribute_map_load.attribute_map,
+                schema.attributes,
+                "AttributeMap",
+            )
+            attribute_map_instances.append(attribute_map_load.physical_name)
+
+        channel_names: list[str] = []
+        for channel in options.load_channels:
+            if not isinstance(channel, Channel):
+                raise TypeError(f"RPC {rpc_name} has an invalid Channel load")
+            Registry._require_registered_rpc_state(
+                rpc_name, channel, schema.channels, "Channel"
+            )
+            channel_names.append(channel.name)
+
+        channel_map_instances: list[str] = []
+        for channel_map in options.load_channel_maps:
+            if not isinstance(channel_map, ChannelMap):
+                raise TypeError(f"RPC {rpc_name} has an invalid ChannelMap load")
+            Registry._require_registered_rpc_state(
+                rpc_name, channel_map, schema.channels, "ChannelMap"
+            )
+            channel_map_instances.append(f"{channel_map.name}/")
+        for channel_map_load in options.load_channel_map_instances:
+            if not isinstance(channel_map_load, ChannelMapLoad):
+                raise TypeError(f"RPC {rpc_name} has an invalid ChannelMapLoad load")
+            Registry._require_registered_rpc_state(
+                rpc_name,
+                channel_map_load.channel_map,
+                schema.channels,
+                "ChannelMap",
+            )
+            channel_map_instances.append(channel_map_load.physical_name)
+
+        for kind, instances in (
+            ("AttributeMap", attribute_map_instances),
+            ("Channel", channel_names),
+            ("ChannelMap", channel_map_instances),
+        ):
+            if len(instances) != len(set(instances)):
+                raise ValueError(f"RPC {rpc_name} has a duplicate {kind} load")
+        return (
+            tuple(sorted(attribute_map_instances)),
+            tuple(sorted(channel_names)),
+            tuple(sorted(channel_map_instances)),
+        )
+
+    @staticmethod
+    def _require_registered_rpc_state(
+        rpc_name: str,
+        selection: object,
+        registered: tuple[object, ...],
+        kind: str,
+    ) -> None:
+        if all(selection is not candidate for candidate in registered):
+            raise ValueError(f"RPC {rpc_name} loads an unregistered {kind}")
 
     @staticmethod
     def _step_input_codec(

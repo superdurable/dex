@@ -42,17 +42,17 @@ a missing deletion as a no-op. Cadence does not provide the same atomicity.
 
 Worker RPC requests always contain ordinary Attribute values and size metadata
 for every known Channel and ChannelMap instance. AttributeMap entries and
-pending Channel message envelopes are loaded only when the caller selects their
-state with `load_attribute_map_selectors`, `load_channel_names`, or
-`load_channel_map_selectors`. A map selector ending in `/` loads every instance.
-The suffix selects one instance.
+pending Channel message envelopes are loaded only when the caller requests them
+with `load_attribute_map_instances`, `load_channel_names`, or
+`load_channel_map_instances`. A map instance name ending in `/` loads every
+instance. The suffix names one instance.
 
-The worker request echoes validated, sorted selectors so an empty loaded collection is distinct from
-one that was not loaded. Pending messages retain FIFO order, server-generated
+The worker request echoes validated, sorted names so an empty loaded collection
+is distinct from one that was not loaded. Pending messages retain FIFO order, server-generated
 message IDs, and Values. Loading never consumes a message and does not add a Dex
 semantic history event.
 
-Selectors must be unique, non-empty definition names without `/`. Loading,
+Names must be unique and non-empty. Loading,
 transactional execution, and Attribute locking are independent. Transactional
 execution makes staged effects atomic and validates Channel deletions. It does
 not isolate handler reads from concurrent writers. When that isolation matters,

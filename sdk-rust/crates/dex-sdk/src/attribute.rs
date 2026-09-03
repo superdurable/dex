@@ -12,6 +12,16 @@ use dex_protocol::dex::{AttributeSyncConfig, IndexConfig};
 
 use crate::{Context, HandlerError, HandlerResult, Value};
 
+/// Selects one AttributeMap instance to load for an RPC invocation.
+///
+/// Create instance loads with [`AttributeMap::load`], then attach them with
+/// [`Rpc::load_attribute_map_instance`](crate::Rpc::load_attribute_map_instance).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttributeMapLoad {
+    pub(crate) name: String,
+    pub(crate) instance: Option<String>,
+}
+
 /// Defines one durable, typed value stored with a Flow.
 ///
 /// Declare Attributes on the Flow, add them to [`crate::PersistenceSchema`], and reuse the same
@@ -190,6 +200,17 @@ impl<T> AttributeMap<T> {
     pub fn sync_to_attribute_store(mut self) -> Self {
         self.sync_to_attribute_store = true;
         self
+    }
+
+    /// Selects one slash-free map `instance` for loading into an RPC Context.
+    ///
+    /// The instance remains readable for the handler even when it is absent; absence is returned as
+    /// `None`. Load the map definition when the RPC must enumerate every instance.
+    pub fn load(&self, instance: impl Into<String>) -> AttributeMapLoad {
+        AttributeMapLoad {
+            name: self.name.clone(),
+            instance: Some(instance.into()),
+        }
     }
 
     /// Reads one instance, returning `Ok(None)` when it is absent.

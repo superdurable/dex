@@ -4,44 +4,58 @@
 
 Worker RPC handlers should receive the state they need without copying every
 potentially large collection into every invocation. The protocol keeps small,
-frequently used metadata available while requiring callers to select collection
+frequently used metadata available while requiring callers to load collection
 contents explicitly.
 
-## Request selectors
+## Requested state
 
-`InvokeRPCRequest` has three collection selectors:
+`InvokeRPCRequest` has three collection load fields:
 
-- `load_attribute_map_selectors` loads every current entry with `AttributeMap/`
+- `load_attribute_map_instances` loads every current entry with `AttributeMap/`
   or one entry with `AttributeMap/<instance>`.
-- `load_channel_names` loads pending envelopes for each selected Channel
+- `load_channel_names` loads pending envelopes for each requested Channel
   definition.
-- `load_channel_map_selectors` loads pending envelopes for every current instance
+- `load_channel_map_instances` loads pending envelopes for every current instance
   with `ChannelMap/`, or one instance with `ChannelMap/<instance>`.
 
-Singleton Channel selectors are definition names. Map selectors contain exactly
-one `/`. A trailing separator selects all instances. The suffix selects one
+Singleton Channel loads use definition names. Map instance names contain exactly
+one `/`. A trailing separator loads all instances. The suffix names one
 instance. Slash is prohibited in instance keys because it is a reserved
-character. Selectors must be non-empty and unique. Dex sorts them before
+character. Names must be non-empty and unique. Dex sorts them before
 preparing the Worker request. Pagination and silent truncation are unsupported.
+
+## SDK APIs
+
+Each SDK exposes typed loads from the persistence definition itself. An
+AttributeMap can load one logical instance or all instances. A Channel loads its
+pending messages. A ChannelMap can load one logical instance or all instances.
+SDK registries reject a load whose definition is not registered in the Flow
+schema, has the wrong persistence kind, or duplicates another load.
+Clients escape logical map instances and sort the resulting physical names.
+
+RPC Context APIs return typed FIFO message envelopes and support lookup by
+server-assigned message ID. A loaded empty collection returns an empty result.
+Reading a collection that was not loaded raises a stable state-not-loaded
+usage error. Staged publications and deletions do not mutate the input snapshot.
 
 ## Worker state projection
 
 Every `InvokeWorkerRPCRequest` contains:
 
 - all ordinary Attribute values;
-- entries from explicitly selected AttributeMap definitions;
+- entries from explicitly loaded AttributeMap definitions;
 - `channel_infos` for every known Channel and ChannelMap instance;
-- `loaded_channel_messages` for explicitly selected Channel and ChannelMap
+- `loaded_channel_messages` for explicitly loaded Channel and ChannelMap
   definitions; and
-- the validated, sorted selectors.
+- the validated, sorted names.
 
 ChannelInfo contains only queue size metadata. Reading Channel size or
 ChannelMap keys and sizes does not require loading pending messages.
 
-The echoed selectors distinguish a loaded collection with no entries from a
-collection that was not loaded. An explicitly selected empty Channel or exact
+The echoed names distinguish a loaded collection with no entries from a
+collection that was not loaded. An explicitly loaded empty Channel or exact
 ChannelMap instance has an empty `ChannelValues` entry. An empty all-instance
-ChannelMap selection is represented only by its echoed selector.
+ChannelMap load is represented only by its echoed instance name.
 
 Pending envelopes preserve FIFO order, server-generated message ID, and Value.
 Loading is a snapshot operation and does not consume messages. Large Values use
@@ -52,7 +66,7 @@ the same eager or lazy Blob Store policy as other Worker RPC state.
 Loading, transactional execution, and Attribute locking solve different
 problems:
 
-- Loading selects the collection data sent to the Worker.
+- Loading specifies the collection data sent to the Worker.
 - Transactional execution commits all staged effects together and verifies that
   every staged Channel deletion still identifies a pending message.
 - Attribute locking isolates cooperating Steps and RPCs that use the same lock.
@@ -80,8 +94,8 @@ not create a Dex semantic history event.
 
 ## Failure behavior
 
-Invalid selectors fail before Worker dispatch. Lazy Blob Store references remain
-available for Worker-side hydration. Eager loading hydrates selected pending
+Invalid load names fail before Worker dispatch. Lazy Blob Store references remain
+available for Worker-side hydration. Eager loading hydrates loaded pending
 message Values before dispatch and fails the RPC if hydration fails.
 
 Transactional deletion validation uses the existing Channel-message-not-found

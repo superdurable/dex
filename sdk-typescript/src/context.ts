@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import type { Attribute, AttributeMap } from "./persistence.js";
-import type { Channel, ChannelMap } from "./wait.js";
+import type { Channel, ChannelMap, ChannelMessage } from "./wait.js";
 import type { Codec } from "./codec.js";
 import type { Stream } from "./stream.js";
 
@@ -143,6 +143,17 @@ export interface Context {
    * @returns Non-negative queued value count.
    */
   channelSize(channel: Channel<unknown> | ChannelMap<unknown>, instance?: string): number;
+  /**
+   * Returns loaded pending Channel messages in FIFO order.
+   * @typeParam T - Channel element type.
+   * @param channel - Registered singleton or map definition selected by the RPC.
+   * @param instance - Required ChannelMap instance; omitted for a singleton.
+   * @returns Immutable pending message IDs and decoded values.
+   */
+  pendingChannelMessages<T>(
+    channel: Channel<T> | ChannelMap<T>,
+    instance?: string,
+  ): readonly ChannelMessage<T>[];
   /**
    * Returns values selected by the satisfied Channel condition.
    * @typeParam T - Channel element type.

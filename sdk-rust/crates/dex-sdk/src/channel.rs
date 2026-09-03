@@ -10,6 +10,21 @@ use std::marker::PhantomData;
 
 use crate::{Condition, Context, HandlerResult, Value};
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ChannelLoad {
+    pub(crate) name: String,
+}
+
+/// Selects one ChannelMap instance's pending messages for an RPC invocation.
+///
+/// Create instance loads with [`ChannelMap::load_messages`], then attach them with
+/// [`Rpc::load_channel_map_instance`](crate::Rpc::load_channel_map_instance).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChannelMapLoad {
+    pub(crate) name: String,
+    pub(crate) instance: Option<String>,
+}
+
 /// Identifies one typed value that is still pending in a Channel.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChannelMessage<T> {
@@ -69,6 +84,40 @@ impl<T> Channel<T> {
     /// Returns the invocation snapshot's queued-message count.
     pub fn size(&self, context: &Context) -> HandlerResult<usize> {
         context.channel_size(self)
+    }
+
+    /// Returns pending messages from the RPC invocation snapshot in FIFO order.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`crate::HandlerError`] when called outside an RPC, when this Channel was not
+    /// selected with [`Rpc::load_channel`](crate::Rpc::load_channel), or when decoding fails.
+    pub fn pending_messages(&self, context: &Context) -> HandlerResult<Vec<ChannelMessage<T>>>
+    where
+        T: Value,
+    {
+        context.pending_channel_messages(self)
+    }
+
+    /// Finds one pending message by its Dex-assigned ID.
+    ///
+    /// Returns `Ok(None)` when the loaded snapshot does not contain `message_id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::pending_messages`].
+    pub fn find_pending_message(
+        &self,
+        context: &Context,
+        message_id: &str,
+    ) -> HandlerResult<Option<ChannelMessage<T>>>
+    where
+        T: Value,
+    {
+        Ok(self
+            .pending_messages(context)?
+            .into_iter()
+            .find(|message| message.message_id == message_id))
     }
 
     /// Decodes messages consumed by this Channel's satisfied condition.
@@ -157,6 +206,14 @@ impl<T> ChannelMap<T> {
         }
     }
 
+    /// Selects one slash-free map `instance`'s pending messages for an RPC Context.
+    pub fn load_messages(&self, instance: impl Into<String>) -> ChannelMapLoad {
+        ChannelMapLoad {
+            name: self.name.clone(),
+            instance: Some(instance.into()),
+        }
+    }
+
     /// Stages one message for `instance` from the current invocation.
     ///
     /// # Errors
@@ -182,6 +239,45 @@ impl<T> ChannelMap<T> {
     /// Returns the invocation snapshot's message count for `instance`.
     pub fn size(&self, context: &Context, instance: &str) -> HandlerResult<usize> {
         context.channel_map_size(self, instance)
+    }
+
+    /// Returns one instance's pending messages from the RPC snapshot in FIFO order.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`crate::HandlerError`] when called outside an RPC, when the instance was not
+    /// selected for loading, or when a Value cannot be decoded.
+    pub fn pending_messages(
+        &self,
+        context: &Context,
+        instance: &str,
+    ) -> HandlerResult<Vec<ChannelMessage<T>>>
+    where
+        T: Value,
+    {
+        context.pending_channel_map_messages(self, instance)
+    }
+
+    /// Finds one pending message by ID within one loaded map instance.
+    ///
+    /// Returns `Ok(None)` when the loaded snapshot does not contain `message_id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::pending_messages`].
+    pub fn find_pending_message(
+        &self,
+        context: &Context,
+        instance: &str,
+        message_id: &str,
+    ) -> HandlerResult<Option<ChannelMessage<T>>>
+    where
+        T: Value,
+    {
+        Ok(self
+            .pending_messages(context, instance)?
+            .into_iter()
+            .find(|message| message.message_id == message_id))
     }
 
     /// Returns the number of non-empty instances visible to the current RPC.

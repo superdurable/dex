@@ -12,6 +12,9 @@ import test from "node:test";
 import { Server, ServerCredentials, type sendUnaryData } from "@grpc/grpc-js";
 
 import {
+  AttributeMap,
+  Channel,
+  ChannelMap,
   Client,
   Registry,
   Stream,
@@ -62,6 +65,9 @@ const outputCodec = jsonCodec<Output>({
   decode: (value) => value as Output,
 });
 const thinking = new Stream("thinking", stringCodec, 1_048_576);
+const items = new AttributeMap("items", stringCodec);
+const queued = new Channel("queued", stringCodec);
+const byTenant = new ChannelMap("by-tenant", stringCodec);
 
 class Start implements Step<Input> {
   public readonly inputCodec = inputCodec;
@@ -91,10 +97,22 @@ class TestFlow implements Flow<Input> {
   }
 
   public getPersistenceSchema() {
-    return { streams: [thinking] };
+    return {
+      attributes: [items],
+      channels: [queued, byTenant],
+      streams: [thinking],
+    };
   }
 
-  @rpc({ inputCodec, outputCodec })
+  @rpc({
+    inputCodec,
+    outputCodec,
+    loadAttributeMaps: [items],
+    loadAttributeMapInstances: [items.load("tenant-a")],
+    loadChannels: [queued],
+    loadChannelMaps: [byTenant],
+    loadChannelMapInstances: [byTenant.loadMessages("tenant-a")],
+  })
   public accept(_context: Context, _input: Input): RPCResult<Output> {
     return { output: { accepted: true } };
   }
@@ -229,6 +247,12 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.start?.stepOptions?.heartbeatTimeoutSeconds, 2);
     assert.equal(requests.rpc?.rpcName, "accept");
+    assert.deepEqual(requests.rpc?.loadAttributeMapInstances, ["items/", "items/tenant-a"]);
+    assert.deepEqual(requests.rpc?.loadChannelNames, ["queued"]);
+    assert.deepEqual(requests.rpc?.loadChannelMapInstances, [
+      "by-tenant/",
+      "by-tenant/tenant-a",
+    ]);
     assert.deepEqual(requests.writeStream, {
       flowId: "flow-1",
       flowType: "TestFlow",

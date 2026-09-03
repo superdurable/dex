@@ -375,6 +375,112 @@ fn validate_rpc(
             )));
         }
     }
+    validate_rpc_map_loads(
+        flow_name,
+        rpc.name,
+        &rpc.load_attribute_maps,
+        PersistenceKind::AttributeMap,
+        persistence,
+        |load| (&load.name, load.instance.as_deref()),
+    )?;
+    validate_rpc_definition_loads(
+        flow_name,
+        rpc.name,
+        &rpc.load_channels,
+        PersistenceKind::Channel,
+        persistence,
+        |load| &load.name,
+    )?;
+    validate_rpc_map_loads(
+        flow_name,
+        rpc.name,
+        &rpc.load_channel_maps,
+        PersistenceKind::ChannelMap,
+        persistence,
+        |load| (&load.name, load.instance.as_deref()),
+    )?;
+    Ok(())
+}
+
+fn validate_rpc_map_loads<Load, GetLoad>(
+    flow_name: &str,
+    rpc_name: &str,
+    loads: &[Load],
+    kind: PersistenceKind,
+    persistence: &HashMap<String, PersistenceDefinition>,
+    get_load: GetLoad,
+) -> SdkResult<()>
+where
+    GetLoad: for<'a> Fn(&'a Load) -> (&'a String, Option<&'a str>),
+{
+    let mut physical_names = HashSet::new();
+    for load in loads {
+        let (name, instance) = get_load(load);
+        validate_rpc_load_definition(flow_name, rpc_name, name, kind, persistence)?;
+        if instance.is_some_and(str::is_empty) {
+            return Err(definition_error(format!(
+                "Flow {flow_name} RPC {rpc_name} loads an empty map instance"
+            )));
+        }
+        if instance.is_some_and(|value| value.contains('/')) {
+            return Err(definition_error(format!(
+                "Flow {flow_name} RPC {rpc_name} map instance must not contain /"
+            )));
+        }
+        let physical_name = match instance {
+            Some(instance) => physical_name(name, instance),
+            None => format!("{name}/"),
+        };
+        if !physical_names.insert(physical_name) {
+            return Err(definition_error(format!(
+                "Flow {flow_name} RPC {rpc_name} has a duplicate state load"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_rpc_definition_loads<Load, GetLoad>(
+    flow_name: &str,
+    rpc_name: &str,
+    loads: &[Load],
+    kind: PersistenceKind,
+    persistence: &HashMap<String, PersistenceDefinition>,
+    get_load: GetLoad,
+) -> SdkResult<()>
+where
+    GetLoad: for<'a> Fn(&'a Load) -> &'a String,
+{
+    let mut names = HashSet::new();
+    for load in loads {
+        let name = get_load(load);
+        validate_rpc_load_definition(flow_name, rpc_name, name, kind, persistence)?;
+        if !names.insert(name) {
+            return Err(definition_error(format!(
+                "Flow {flow_name} RPC {rpc_name} has a duplicate state load"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_rpc_load_definition(
+    flow_name: &str,
+    rpc_name: &str,
+    name: &str,
+    kind: PersistenceKind,
+    persistence: &HashMap<String, PersistenceDefinition>,
+) -> SdkResult<()> {
+    let definition = persistence.get(name).ok_or_else(|| {
+        definition_error(format!(
+            "Flow {flow_name} RPC {rpc_name} loads unregistered state: {name}"
+        ))
+    })?;
+    if definition.kind != kind {
+        return Err(definition_error(format!(
+            "Flow {flow_name} RPC {rpc_name} loads the wrong state kind: {name}"
+        )));
+    }
     Ok(())
 }
 

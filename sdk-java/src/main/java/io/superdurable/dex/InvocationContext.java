@@ -14,11 +14,13 @@
 
 package io.superdurable.dex;
 
+import io.superdurable.dex.exceptions.StateNotLoadedException;
 import io.superdurable.gen.AttributeSyncConfig;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.ChannelInfo;
 import io.superdurable.gen.ChannelMessageDeletion;
 import io.superdurable.gen.ChannelResult;
+import io.superdurable.gen.ChannelValues;
 import io.superdurable.gen.ConditionResults;
 import io.superdurable.gen.ConditionStatus;
 import io.superdurable.gen.KV;
@@ -28,9 +30,9 @@ import io.superdurable.gen.StepStreamWrite;
 import io.superdurable.gen.TimerResult;
 import io.superdurable.gen.Value;
 
-import java.time.Instant;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -57,6 +59,10 @@ final class InvocationContext implements Context {
     private final Map<String, Value> locals;
     private final ConditionResults conditionResults;
     private final Map<String, ChannelInfo> channelInfos;
+    private final Map<String, ChannelValues> loadedChannelMessages;
+    private final Set<String> loadedAttributeMapInstances;
+    private final Set<String> loadedChannelNames;
+    private final Set<String> loadedChannelMapInstances;
     private final ScheduledExecutorService bufferedStreamScheduler;
     private final io.grpc.Context requestContext;
     private final io.grpc.Context.CancellationListener cancellationListener;
@@ -107,6 +113,38 @@ final class InvocationContext implements Context {
             final ConditionResults conditionResults,
             final Map<String, ChannelInfo> channelInfos,
             final ScheduledExecutorService bufferedStreamScheduler) {
+        this(
+                method,
+                flow,
+                metadata,
+                values,
+                stepOutputEmitter,
+                attributes,
+                locals,
+                conditionResults,
+                channelInfos,
+                bufferedStreamScheduler,
+                Collections.<String, ChannelValues>emptyMap(),
+                Collections.<String>emptyList(),
+                Collections.<String>emptyList(),
+                Collections.<String>emptyList());
+    }
+
+    InvocationContext(
+            final Method method,
+            final Registry.RegisteredFlow flow,
+            final io.superdurable.gen.Context metadata,
+            final ValueMapper values,
+            final StepOutputEmitter stepOutputEmitter,
+            final List<KV> attributes,
+            final List<KV> locals,
+            final ConditionResults conditionResults,
+            final Map<String, ChannelInfo> channelInfos,
+            final ScheduledExecutorService bufferedStreamScheduler,
+            final Map<String, ChannelValues> loadedChannelMessages,
+            final List<String> loadedAttributeMapInstances,
+            final List<String> loadedChannelNames,
+            final List<String> loadedChannelMapInstances) {
         if (metadata == null) {
             throw new IllegalArgumentException("Worker request Context is required");
         }
@@ -127,6 +165,10 @@ final class InvocationContext implements Context {
         this.channelInfos = channelInfos == null
                 ? new HashMap<String, ChannelInfo>()
                 : new HashMap<String, ChannelInfo>(channelInfos);
+        this.loadedChannelMessages = new HashMap<String, ChannelValues>(loadedChannelMessages);
+        this.loadedAttributeMapInstances = new HashSet<String>(loadedAttributeMapInstances);
+        this.loadedChannelNames = new HashSet<String>(loadedChannelNames);
+        this.loadedChannelMapInstances = new HashSet<String>(loadedChannelMapInstances);
     }
 
     @Override
@@ -441,6 +483,18 @@ final class InvocationContext implements Context {
     }
 
     @Override
+    public <T> List<ChannelMessage<T>> pendingChannelMessages(final Channel<T> channel) {
+        return pendingChannelMessagesValue(channel, null, channel.getValueType());
+    }
+
+    @Override
+    public <T> List<ChannelMessage<T>> pendingChannelMessages(
+            final ChannelMap<T> channel,
+            final String instance) {
+        return pendingChannelMessagesValue(channel, instance, channel.getValueType());
+    }
+
+    @Override
     public <T> List<T> channelResults(final Channel<T> channel) {
         return channelResultsValue(channel, null, channel.getValueType());
     }
@@ -458,6 +512,12 @@ final class InvocationContext implements Context {
 
     List<String> attributeMapKeys(final AttributeMap<?> attribute) {
         requireRegistered(attribute);
+        if (method == Method.RPC
+                && !loadedAttributeMapInstances.contains(attribute.getName() + "/")) {
+            throw new StateNotLoadedException(
+                    "all AttributeMap instances were not loaded for RPC: "
+                            + attribute.getName());
+        }
         final String prefix = attribute.getName() + "/";
         final Set<String> physicalKeys = new HashSet<String>();
         for (String key : attributes.keySet()) {
@@ -531,6 +591,13 @@ final class InvocationContext implements Context {
             final Class<T> valueType) {
         requireRegistered(definition);
         final String key = physicalName(definition, instance);
+        if (method == Method.RPC
+                && definition instanceof AttributeMap
+                && !isMapInstanceLoaded(
+                        loadedAttributeMapInstances, definition.getName(), key)) {
+            throw new StateNotLoadedException(
+                    "AttributeMap instance was not loaded for RPC: " + key);
+        }
         final AttributeWrite write = attributeWrites.get(key);
         if (write != null) {
             if (write.getValue().getKindCase() == Value.KindCase.NULL_VALUE) {
@@ -652,6 +719,45 @@ final class InvocationContext implements Context {
             }
         }
         return Collections.unmodifiableList(decoded);
+    }
+
+    private <T> List<ChannelMessage<T>> pendingChannelMessagesValue(
+            final PersistenceDefinition definition,
+            final String instance,
+            final Class<T> valueType) {
+        if (method != Method.RPC) {
+            throw new IllegalStateException("pending Channel messages require an RPC Context");
+        }
+        requireRegistered(definition);
+        final String name = physicalName(definition, instance);
+        final boolean isLoaded;
+        if (definition instanceof ChannelMap) {
+            isLoaded = isMapInstanceLoaded(
+                    loadedChannelMapInstances, definition.getName(), name);
+        } else {
+            isLoaded = loadedChannelNames.contains(name);
+        }
+        if (!isLoaded) {
+            throw new StateNotLoadedException(
+                    "Channel messages were not loaded for RPC: " + name);
+        }
+        final ChannelValues loaded = loadedChannelMessages.get(name);
+        if (loaded == null) {
+            return Collections.emptyList();
+        }
+        final List<ChannelMessage<T>> decoded = new ArrayList<ChannelMessage<T>>();
+        for (io.superdurable.gen.ChannelMessage message : loaded.getMessagesList()) {
+            decoded.add(new ChannelMessage<T>(
+                    message.getMessageId(), values.decode(message.getValue(), valueType)));
+        }
+        return Collections.unmodifiableList(decoded);
+    }
+
+    private static boolean isMapInstanceLoaded(
+            final Set<String> instances,
+            final String name,
+            final String physicalName) {
+        return instances.contains(name + "/") || instances.contains(physicalName);
     }
 
     private void requireRegistered(final PersistenceDefinition definition) {

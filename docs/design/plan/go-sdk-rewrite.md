@@ -6,6 +6,13 @@ message ID. RPC handlers stage deletion through the Channel definition and set
 `InvokeOptions.IsTransactional` when existence validation must be atomic with all
 other RPC writes.
 
+`InvokeOptions` also carries typed AttributeMap, Channel, and ChannelMap loads.
+Ordinary Attributes and Channel size metadata remain automatic.
+Map entries and pending message envelopes are available only when loaded.
+Exact map loads use a slash-free logical instance and encode its physical name;
+all-instance loads use a trailing slash. The RPC Context returns a stable
+state-not-loaded error when an unloaded collection is read.
+
 Status: Phases 1 through 5 are implemented.
 
 ## Current source of truth

@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use dex_protocol::dex::Value as ProtoValue;
 
-use crate::attribute::AttributeLock;
+use crate::attribute::{AttributeLock, AttributeMap, AttributeMapLoad};
+use crate::channel::{Channel, ChannelLoad, ChannelMap, ChannelMapLoad};
 use crate::step::{ErasedValue, TypedValue};
 use crate::value_mapper;
 use crate::{Context, HandlerResult, SdkResult, StepMovement, Value};
@@ -74,6 +75,37 @@ impl<Input, Output> Rpc<Input, Output> {
         RpcDefinition::from(self).is_transactional()
     }
 
+    /// Converts this RPC into a definition that loads every current AttributeMap instance.
+    pub fn load_attribute_map<T>(
+        self,
+        attribute_map: &AttributeMap<T>,
+    ) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).load_attribute_map(attribute_map)
+    }
+
+    /// Converts this RPC into a definition that loads one AttributeMap instance.
+    pub fn load_attribute_map_instance(
+        self,
+        load: AttributeMapLoad,
+    ) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).load_attribute_map_instance(load)
+    }
+
+    /// Converts this RPC into a definition that loads one singleton Channel's messages.
+    pub fn load_channel<T>(self, channel: &Channel<T>) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).load_channel(channel)
+    }
+
+    /// Converts this RPC into a definition that loads every current ChannelMap instance.
+    pub fn load_channel_map<T>(self, channel_map: &ChannelMap<T>) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).load_channel_map(channel_map)
+    }
+
+    /// Converts this RPC into a definition that loads one ChannelMap instance.
+    pub fn load_channel_map_instance(self, load: ChannelMapLoad) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).load_channel_map_instance(load)
+    }
+
     pub(crate) fn name(&self) -> &'static str {
         self.name
     }
@@ -96,6 +128,9 @@ pub struct RpcDefinition<Input, Output> {
     timeout: Option<Duration>,
     locks: Vec<AttributeLock>,
     is_transactional: bool,
+    load_attribute_maps: Vec<AttributeMapLoad>,
+    load_channels: Vec<ChannelLoad>,
+    load_channel_maps: Vec<ChannelMapLoad>,
 }
 
 impl<Input, Output> RpcDefinition<Input, Output> {
@@ -116,6 +151,44 @@ impl<Input, Output> RpcDefinition<Input, Output> {
         self.is_transactional = true;
         self
     }
+
+    /// Loads every current instance of one AttributeMap into the invocation snapshot.
+    pub fn load_attribute_map<T>(mut self, attribute_map: &AttributeMap<T>) -> Self {
+        self.load_attribute_maps.push(AttributeMapLoad {
+            name: attribute_map.name().to_owned(),
+            instance: None,
+        });
+        self
+    }
+
+    /// Loads one AttributeMap instance into the invocation snapshot.
+    pub fn load_attribute_map_instance(mut self, load: AttributeMapLoad) -> Self {
+        self.load_attribute_maps.push(load);
+        self
+    }
+
+    /// Adds one singleton Channel's pending messages to the invocation snapshot.
+    pub fn load_channel<T>(mut self, channel: &Channel<T>) -> Self {
+        self.load_channels.push(ChannelLoad {
+            name: channel.name().to_owned(),
+        });
+        self
+    }
+
+    /// Loads every current instance of one ChannelMap into the invocation snapshot.
+    pub fn load_channel_map<T>(mut self, channel_map: &ChannelMap<T>) -> Self {
+        self.load_channel_maps.push(ChannelMapLoad {
+            name: channel_map.name().to_owned(),
+            instance: None,
+        });
+        self
+    }
+
+    /// Loads one ChannelMap instance into the invocation snapshot.
+    pub fn load_channel_map_instance(mut self, load: ChannelMapLoad) -> Self {
+        self.load_channel_maps.push(load);
+        self
+    }
 }
 
 impl<Input, Output> From<Rpc<Input, Output>> for RpcDefinition<Input, Output> {
@@ -125,6 +198,9 @@ impl<Input, Output> From<Rpc<Input, Output>> for RpcDefinition<Input, Output> {
             timeout: None,
             locks: Vec::new(),
             is_transactional: false,
+            load_attribute_maps: Vec::new(),
+            load_channels: Vec::new(),
+            load_channel_maps: Vec::new(),
         }
     }
 }
@@ -292,6 +368,9 @@ pub(crate) struct RegisteredRpc {
     pub(crate) timeout: Option<Duration>,
     pub(crate) locks: Vec<AttributeLock>,
     pub(crate) is_transactional: bool,
+    pub(crate) load_attribute_maps: Vec<AttributeMapLoad>,
+    pub(crate) load_channels: Vec<ChannelLoad>,
+    pub(crate) load_channel_maps: Vec<ChannelMapLoad>,
     pub(crate) handler: Arc<dyn ErasedRpc>,
 }
 
@@ -468,6 +547,9 @@ fn registered_rpc<Input, Output>(
         timeout: definition.timeout,
         locks: definition.locks,
         is_transactional: definition.is_transactional,
+        load_attribute_maps: definition.load_attribute_maps,
+        load_channels: definition.load_channels,
+        load_channel_maps: definition.load_channel_maps,
         handler,
     }
 }

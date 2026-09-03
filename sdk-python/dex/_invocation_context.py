@@ -15,11 +15,12 @@ from urllib.parse import unquote
 from dex._utils import require_map_instance, require_name
 from dex._value_mapper import ValueMapper
 from dex.attribute import Attribute, AttributeMap, _apply_attribute_store_sync
-from dex.channel import Channel, ChannelMap
+from dex.channel import Channel, ChannelMap, ChannelMessage
 from dex.codec import Codec
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, _RegisteredFlow
 from dex.flow_result import FlowResult, flow_result_from_proto
+from dex.runtime_errors import StateNotLoadedError
 from dex.step import (
     _NO_HEARTBEAT_VALUE,
     StepOutput,
@@ -66,6 +67,10 @@ class InvocationContext:
         locals: Sequence[pb.KV] = (),
         condition_results: pb.ConditionResults | None = None,
         channel_infos: dict[str, pb.ChannelInfo] | None = None,
+        loaded_channel_messages: dict[str, pb.ChannelValues] | None = None,
+        loaded_attribute_map_instances: Sequence[str] = (),
+        loaded_channel_names: Sequence[str] = (),
+        loaded_channel_map_instances: Sequence[str] = (),
         is_active: Callable[[], bool] | None = None,
         output_emitter: _StepOutputEmitter | None = None,
     ) -> None:
@@ -77,6 +82,10 @@ class InvocationContext:
         self._locals = self._map_values("step-execution local", locals)
         self._condition_results = condition_results
         self._channel_infos = dict(channel_infos or {})
+        self._loaded_channel_messages = dict(loaded_channel_messages or {})
+        self._loaded_attribute_map_instances = frozenset(loaded_attribute_map_instances)
+        self._loaded_channel_names = frozenset(loaded_channel_names)
+        self._loaded_channel_map_instances = frozenset(loaded_channel_map_instances)
         self._is_active = is_active or _always_active
         self._output_emitter = output_emitter
         self.attribute_writes: dict[str, pb.AttributeWrite] = {}
@@ -276,6 +285,7 @@ class InvocationContext:
         instance: str | None,
     ) -> ValueT:
         self._require_registered(definition)
+        self._require_attribute_map_instance_loaded(definition, instance)
         key = self._physical_name(definition, instance)
         write = self.attribute_writes.get(key)
         if write is not None:
@@ -375,6 +385,7 @@ class InvocationContext:
         definition: AttributeMap[object],
     ) -> tuple[str, ...]:
         self._require_registered(definition)
+        self._require_attribute_map_all_loaded(definition)
         prefix = f"{definition.name}/"
         physical_keys = {key for key in self._attributes if key.startswith(prefix)}
         for key, write in self.attribute_writes.items():
@@ -416,6 +427,39 @@ class InvocationContext:
         info = self._channel_infos.get(self._physical_name(definition, instance))
         return info.size if info is not None else 0
 
+    def _pending_channel_messages(
+        self,
+        definition: Channel[ValueT] | ChannelMap[ValueT],
+        instance: str | None,
+    ) -> tuple[ChannelMessage[ValueT], ...]:
+        if self._method is not InvocationMethod.RPC:
+            raise ValueError("pending Channel messages require an RPC Context")
+        self._require_registered(definition)
+        if isinstance(definition, ChannelMap):
+            channel_name = self._physical_name(definition, instance)
+            is_loaded = (
+                f"{definition.name}/" in self._loaded_channel_map_instances
+                or channel_name in self._loaded_channel_map_instances
+            )
+        else:
+            channel_name = self._physical_name(definition, instance)
+            is_loaded = definition.name in self._loaded_channel_names
+        if not is_loaded:
+            raise StateNotLoadedError(
+                f"Channel messages were not loaded for RPC: {definition.name}"
+            )
+        values = self._loaded_channel_messages.get(channel_name)
+        if values is None:
+            return ()
+        codec = self._flow_codec(definition.value_type)
+        return tuple(
+            ChannelMessage(
+                message_id=message.message_id,
+                value=cast(ValueT, self._values.decode(message.value, codec)),
+            )
+            for message in values.messages
+        )
+
     def _channel_results(
         self,
         definition: Channel[ValueT] | ChannelMap[ValueT],
@@ -436,6 +480,36 @@ class InvocationContext:
 
     def _flow_codec(self, value_type: object) -> Codec[Any]:
         return self._values.codec(value_type)
+
+    def _require_attribute_map_instance_loaded(
+        self,
+        definition: Attribute[Any] | AttributeMap[Any],
+        instance: str | None,
+    ) -> None:
+        if self._method is not InvocationMethod.RPC or not isinstance(
+            definition, AttributeMap
+        ):
+            return
+        physical_name = self._physical_name(definition, instance)
+        if (
+            f"{definition.name}/" not in self._loaded_attribute_map_instances
+            and physical_name not in self._loaded_attribute_map_instances
+        ):
+            raise StateNotLoadedError(
+                f"AttributeMap instance was not loaded for RPC: {physical_name}"
+            )
+
+    def _require_attribute_map_all_loaded(
+        self,
+        definition: AttributeMap[object],
+    ) -> None:
+        if (
+            self._method is InvocationMethod.RPC
+            and f"{definition.name}/" not in self._loaded_attribute_map_instances
+        ):
+            raise StateNotLoadedError(
+                f"all AttributeMap instances were not loaded for RPC: {definition.name}"
+            )
 
     def _require_registered(self, definition: _Definition) -> None:
         registered = self._flow.persistence.get(definition.name)

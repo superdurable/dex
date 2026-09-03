@@ -213,6 +213,38 @@ func TestVisualizePythonFlowResourceAliasesAndRPCLocks(t *testing.T) {
 	require.Contains(t, lockPhases, "rpc")
 }
 
+func TestVisualizePythonRPCSelectiveStateLoads(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "selective_rpc.py")
+	source := `from dex import AttributeMap, Channel, ChannelMap, Context, Flow, PersistenceSchema, StepList, rpc
+
+ITEMS = AttributeMap("Items", str)
+QUEUED = Channel("Queued", str)
+BY_TENANT = ChannelMap("ByTenant", str)
+
+class SelectiveFlow(Flow[None]):
+    def get_steps(self):
+        return StepList.empty()
+
+    def get_persistence_schema(self):
+        return PersistenceSchema.of(ITEMS, QUEUED, BY_TENANT)
+
+    @rpc(
+        load_attribute_map_instances=(ITEMS.load("tenant-a"),),
+        load_channels=(QUEUED,),
+        load_channel_maps=(BY_TENANT,),
+    )
+    def snapshot(self, context: Context) -> None:
+        pass
+`
+	require.NoError(t, os.WriteFile(sourcePath, []byte(source), 0o644))
+	graph, err := flowviz.Analyze(context.Background(), sourcePath, flowviz.AnalyzeOptions{})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, graph.Diagnostics)
+	require.True(t, hasEdge(graph.Edges, "resource_read", "resource:attribute:ITEMS", "rpc:snapshot"))
+	require.True(t, hasEdge(graph.Edges, "resource_read", "resource:channel:QUEUED", "rpc:snapshot"))
+	require.True(t, hasEdge(graph.Edges, "resource_read", "resource:channel:BY_TENANT", "rpc:snapshot"))
+}
+
 func TestVisualizePythonInjectedFailureRecoveryOptions(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
 	source := filepath.Join(repositoryRoot, "examples/python/dex_examples/products/money-transfer/money_transfer_flow.py")

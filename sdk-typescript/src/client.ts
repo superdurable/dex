@@ -84,7 +84,7 @@ import {
 import { Attribute, AttributeMap, IndexType } from "./persistence.js";
 import type { RPCResult } from "./rpc.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
-import { requireMapInstance, requireName } from "./validation.js";
+import { physicalMapName, requireName } from "./validation.js";
 import { codecOrJson, decodeUnknown, decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
 import { ChannelMap, type Channel, type ChannelMessage } from "./wait.js";
 import type { Stream, StreamMessage } from "./stream.js";
@@ -292,9 +292,23 @@ export class Client {
           ),
           requestId: crypto.randomUUID(),
           isTransactional: rpc.options.isTransactional ?? false,
-          loadAttributeMapSelectors: [],
-          loadChannelNames: [],
-          loadChannelMapSelectors: [],
+          loadAttributeMapInstances: [
+            ...(rpc.options.loadAttributeMaps ?? []).map((attributeMap) =>
+              `${attributeMap.name}/`),
+            ...(rpc.options.loadAttributeMapInstances ?? []).map((load) =>
+              physicalName(load.attributeMap.name, load.instance)),
+          ]
+            .sort(),
+          loadChannelNames: (rpc.options.loadChannels ?? [])
+            .map((channel) => channel.name)
+            .sort(),
+          loadChannelMapInstances: [
+            ...(rpc.options.loadChannelMaps ?? []).map((channelMap) =>
+              `${channelMap.name}/`),
+            ...(rpc.options.loadChannelMapInstances ?? []).map((load) =>
+              physicalName(load.channelMap.name, load.instance)),
+          ]
+            .sort(),
         },
         callback,
       ),
@@ -1296,11 +1310,7 @@ function physicalName(name: string, instance?: string): string {
   if (instance === undefined) {
     return name;
   }
-  requireMapInstance(instance);
-  const encoded = encodeURIComponent(instance).replace(/[!'()*]/g, (character) =>
-    `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-  return `${name}/${encoded}`;
+  return physicalMapName(name, instance);
 }
 
 function seconds(milliseconds: number | undefined): number {

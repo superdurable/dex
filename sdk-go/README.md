@@ -12,6 +12,31 @@ An RPC can stage `channel.Delete(ctx, messageID)`. Set
 other RPC write. Attribute locking already selects transactional execution, while
 Channel deletion requires this explicit option.
 
+## RPC state loading
+
+RPCs receive ordinary Attributes and all Channel size metadata by default.
+AttributeMap entries and pending Channel messages are opt-in:
+
+```go
+options := dex.InvokeOptions{
+	LoadAttributeMapInstances: []dex.AttributeMapLoad{Items.Load("tenant-a")},
+	LoadChannels:              []dex.ChannelDef{Queued},
+	LoadChannelMaps:           []dex.ChannelDef{ByTenant},
+}
+```
+
+Put an AttributeMap or ChannelMap directly in its plural load option when every
+current instance is needed. Use the singular instance options for the less common
+exact-instance case. A selected empty queue returns an empty slice; reading an
+unselected map entry or pending-message snapshot returns **StateNotLoadedError**.
+Pending messages preserve FIFO order and include the server-assigned message ID.
+The snapshot does not change after the handler stages a publish or deletion.
+
+Loading controls which data reaches the Worker. **IsTransactional** controls
+atomic commit and Channel deletion validation. Attribute locks add isolation
+only among cooperating Steps and RPCs using the same lock. Write-only publish
+and delete operations do not require loading.
+
 The Go SDK is being rewritten around the current Dex `Flow`, `Step`,
 `Attribute`, `Channel`, `Stream`, `WaitFor`, and `Execute` contracts.
 

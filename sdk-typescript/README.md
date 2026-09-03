@@ -11,6 +11,34 @@ An RPC can stage `channel.delete(context, messageId)`. Set the decorator option
 Attribute locks already select transactional execution; Channel deletion requires
 the explicit option.
 
+## RPC state loading
+
+RPCs receive ordinary Attributes and all Channel size metadata by default.
+AttributeMap entries and pending Channel messages are opt-in:
+
+```typescript
+@rpc({
+  loadAttributeMapInstances: [items.load("tenant-a")],
+  loadChannels: [queued],
+  loadChannelMaps: [byTenant],
+})
+snapshot(context: Context): RPCResult<Snapshot> {
+  return { output: { messages: queued.pendingMessages(context) } };
+}
+```
+
+Put an AttributeMap or ChannelMap directly in its plural load option when every
+current instance is needed. Use the singular instance options for the less common
+exact-instance case. A selected empty queue returns an empty array; reading an
+unselected map entry or pending-message snapshot throws **StateNotLoadedError**.
+Pending messages preserve FIFO order and include the server-assigned message ID.
+The snapshot does not change after the handler stages a publish or deletion.
+
+Loading controls which data reaches the Worker. **isTransactional** controls
+atomic commit and Channel deletion validation. Attribute locks add isolation
+only among cooperating Steps and RPCs using the same lock. Write-only publish
+and delete operations do not require loading.
+
 This package targets Node.js 22 and 24. It provides strongly typed workflow
 contracts and a Promise-based gRPC Client. The Client and Worker runtime use
 `@grpc/grpc-js`. Blob caching uses the shared Rust DXBC implementation through

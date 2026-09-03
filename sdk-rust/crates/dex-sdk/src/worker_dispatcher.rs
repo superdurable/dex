@@ -107,6 +107,10 @@ impl WorkerDispatcher {
                 locals: Vec::new(),
                 condition_results: None,
                 channel_infos: HashMap::new(),
+                loaded_channel_messages: HashMap::new(),
+                loaded_attribute_map_instances: Vec::new(),
+                loaded_channel_names: Vec::new(),
+                loaded_channel_map_instances: Vec::new(),
             },
             Some(output_emitter),
             cancellation,
@@ -195,6 +199,10 @@ impl WorkerDispatcher {
                 locals: request.step_exe_locals,
                 condition_results: request.condition_results,
                 channel_infos: HashMap::new(),
+                loaded_channel_messages: HashMap::new(),
+                loaded_attribute_map_instances: Vec::new(),
+                loaded_channel_names: Vec::new(),
+                loaded_channel_map_instances: Vec::new(),
             },
             Some(output_emitter),
             cancellation,
@@ -256,6 +264,10 @@ impl WorkerDispatcher {
                 locals: request.step_exe_locals,
                 condition_results: request.condition_results,
                 channel_infos: HashMap::new(),
+                loaded_channel_messages: HashMap::new(),
+                loaded_attribute_map_instances: Vec::new(),
+                loaded_channel_names: Vec::new(),
+                loaded_channel_map_instances: Vec::new(),
             },
             None,
             cancellation,
@@ -314,6 +326,10 @@ impl WorkerDispatcher {
                 locals: Vec::new(),
                 condition_results: None,
                 channel_infos: request.channel_infos,
+                loaded_channel_messages: request.loaded_channel_messages,
+                loaded_attribute_map_instances: request.loaded_attribute_map_instances,
+                loaded_channel_names: request.loaded_channel_names,
+                loaded_channel_map_instances: request.loaded_channel_map_instances,
             },
             None,
             InvocationCancellation::new(),
@@ -446,7 +462,34 @@ impl WorkerDispatcher {
         mut request: InvokeWorkerRpcRequest,
     ) -> HandlerResult<InvokeWorkerRpcRequest> {
         let mut values = vec![request.input.take().unwrap_or_default()];
+        let attribute_count = request.attributes.len();
         values.extend(take_entry_values(&mut request.attributes)?);
+        let mut channel_message_counts = request
+            .loaded_channel_messages
+            .iter()
+            .map(|(name, channel_values)| (name.clone(), channel_values.messages.len()))
+            .collect::<Vec<_>>();
+        channel_message_counts.sort_by(|left, right| left.0.cmp(&right.0));
+        for (name, _) in &channel_message_counts {
+            let channel_values =
+                request
+                    .loaded_channel_messages
+                    .get_mut(name)
+                    .ok_or_else(|| {
+                        HandlerError::new(
+                            "dex_sdk::HandlerError",
+                            format!("loaded Channel messages disappeared: {name}"),
+                        )
+                    })?;
+            for message in &mut channel_values.messages {
+                values.push(message.value.take().ok_or_else(|| {
+                    HandlerError::new(
+                        "dex_sdk::HandlerError",
+                        format!("Channel message {} has no Value", message.message_id),
+                    )
+                })?);
+            }
+        }
         let hydrated = self
             .hydrator
             .hydrate_all(values)
@@ -454,7 +497,36 @@ impl WorkerDispatcher {
             .map_err(handler_error)?;
         let mut hydrated = hydrated.into_iter();
         request.input = hydrated.next();
-        restore_entry_values(&mut request.attributes, hydrated)?;
+        restore_n_entry_values(&mut request.attributes, &mut hydrated, attribute_count)?;
+        for (name, message_count) in channel_message_counts {
+            let channel_values =
+                request
+                    .loaded_channel_messages
+                    .get_mut(&name)
+                    .ok_or_else(|| {
+                        HandlerError::new(
+                            "dex_sdk::HandlerError",
+                            format!("loaded Channel messages disappeared: {name}"),
+                        )
+                    })?;
+            if channel_values.messages.len() != message_count {
+                return Err(HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    "hydrated Value count mismatch",
+                ));
+            }
+            for message in &mut channel_values.messages {
+                message.value = Some(hydrated.next().ok_or_else(|| {
+                    HandlerError::new("dex_sdk::HandlerError", "hydrated Value count mismatch")
+                })?);
+            }
+        }
+        if hydrated.next().is_some() {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "hydrated Value count mismatch",
+            ));
+        }
         Ok(request)
     }
 

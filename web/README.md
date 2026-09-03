@@ -5,6 +5,10 @@ IDs and decoded values. Operators can delete a pending message. Temporal perform
 the deletion atomically; the Cadence query-plus-signal fallback is best effort and
 can race message consumption.
 
+Flow Definition Graphs show resource-read edges for AttributeMap and Channel
+message snapshots explicitly selected by Python RPC decorators. Channel size
+metadata does not add a resource-read edge because every RPC receives it.
+
 Dex Web searches flows and displays Dex semantic history, step topology,
 live flow state, time travel points, and stop controls.
 

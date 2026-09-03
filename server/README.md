@@ -16,10 +16,10 @@ missing deletions and continue applying their remaining side effects. Cadence
 does not provide the same atomicity.
 
 Worker RPCs receive ordinary Attributes and all Channel size metadata by
-default. Callers explicitly select AttributeMap definitions and Channel or
+default. Callers explicitly load AttributeMap definitions and Channel or
 ChannelMap definitions when the handler needs their entries or pending message
-envelopes. A trailing-slash map selector loads every instance. The suffix selects
-one instance. Empty selections
+envelopes. A trailing-slash map name loads every instance. The suffix names one
+instance. Empty loads
 are echoed separately from their loaded data.
 
 State loading controls only the Worker request projection. Transactional

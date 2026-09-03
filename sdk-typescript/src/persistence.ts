@@ -13,6 +13,14 @@ import type { Context } from "./context.js";
 import type { Stream } from "./stream.js";
 import { requireMapInstance, requirePersistenceDefinitionName } from "./validation.js";
 
+/** Selects one AttributeMap instance for an RPC snapshot. */
+export interface AttributeMapLoad {
+  /** Exact AttributeMap definition registered with the Flow. */
+  readonly attributeMap: AttributeMap<unknown>;
+  /** One slash-free logical instance key. */
+  readonly instance: string;
+}
+
 /** Selects how Dex indexes an Attribute for Flow search. */
 export const IndexType = Object.freeze({
   /** Indexes an exact string value. */
@@ -170,6 +178,16 @@ export class AttributeMap<T> {
    */
   public delete(context: Context, instance: string): void {
     context.deleteAttribute(this as AttributeMap<unknown>, instance);
+  }
+
+  /**
+   * Selects one logical instance for an RPC snapshot.
+   * @param instance - Non-empty logical map key. The SDK escapes it for the protocol.
+   * @returns An exact instance load for {@link RPCOptions.loadAttributeMapInstances}.
+   */
+  public load(instance: string): AttributeMapLoad {
+    requireMapInstance(instance);
+    return { attributeMap: this as AttributeMap<unknown>, instance };
   }
 
   /**

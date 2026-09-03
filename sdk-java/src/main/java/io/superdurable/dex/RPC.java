@@ -78,4 +78,45 @@ public @interface RPC {
      * @return {@code true} to request transactional execution; defaults to {@code false}
      */
     boolean isTransactional() default false;
+
+    /**
+     * Selects AttributeMaps whose current entries are included in the RPC snapshot.
+     *
+     * @return registered AttributeMap names; defaults to an empty array
+     */
+    String[] loadAttributeMaps() default {};
+
+    /**
+     * Selects exact AttributeMap instances included in the RPC snapshot.
+     *
+     * <p>Each value uses {@code MapName/instance}. The SDK escapes the instance portion before
+     * sending the request.
+     *
+     * @return registered AttributeMap instances; defaults to an empty array
+     */
+    String[] loadAttributeMapInstances() default {};
+
+    /**
+     * Selects Channels whose pending messages are included in the RPC snapshot.
+     *
+     * @return registered singleton Channel names; defaults to an empty array
+     */
+    String[] loadChannels() default {};
+
+    /**
+     * Selects ChannelMaps whose current pending messages are included in the RPC snapshot.
+     *
+     * @return registered ChannelMap names; defaults to an empty array
+     */
+    String[] loadChannelMaps() default {};
+
+    /**
+     * Selects exact ChannelMap instance messages included in the RPC snapshot.
+     *
+     * <p>Each value uses {@code MapName/instance}. The SDK escapes the instance portion before
+     * sending the request.
+     *
+     * @return registered ChannelMap instances; defaults to an empty array
+     */
+    String[] loadChannelMapInstances() default {};
 }

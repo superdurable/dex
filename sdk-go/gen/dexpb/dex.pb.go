@@ -6719,14 +6719,14 @@ type InvokeRPCRequest struct {
 	// Requests transactional reads and writes. Attribute locking enables it
 	// automatically. Channel deletion alone does not; callers must opt in.
 	IsTransactional bool `protobuf:"varint,8,opt,name=is_transactional,json=isTransactional,proto3" json:"is_transactional,omitempty"`
-	// AttributeMap selectors whose entries are loaded for the RPC handler.
-	// A trailing slash selects every instance. The suffix selects one instance.
-	LoadAttributeMapSelectors []string `protobuf:"bytes,9,rep,name=load_attribute_map_selectors,json=loadAttributeMapSelectors,proto3" json:"load_attribute_map_selectors,omitempty"`
+	// AttributeMap instances whose entries are loaded for the RPC handler.
+	// A trailing slash loads every instance. The suffix names one instance.
+	LoadAttributeMapInstances []string `protobuf:"bytes,9,rep,name=load_attribute_map_instances,json=loadAttributeMapInstances,proto3" json:"load_attribute_map_instances,omitempty"`
 	// Channel definitions whose pending messages are loaded for the RPC handler.
 	LoadChannelNames []string `protobuf:"bytes,10,rep,name=load_channel_names,json=loadChannelNames,proto3" json:"load_channel_names,omitempty"`
-	// ChannelMap selectors whose pending messages are loaded for the RPC handler.
-	// A trailing slash selects every instance. The suffix selects one instance.
-	LoadChannelMapSelectors []string `protobuf:"bytes,11,rep,name=load_channel_map_selectors,json=loadChannelMapSelectors,proto3" json:"load_channel_map_selectors,omitempty"`
+	// ChannelMap instances whose pending messages are loaded for the RPC handler.
+	// A trailing slash loads every instance. The suffix names one instance.
+	LoadChannelMapInstances []string `protobuf:"bytes,11,rep,name=load_channel_map_instances,json=loadChannelMapInstances,proto3" json:"load_channel_map_instances,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -6817,9 +6817,9 @@ func (x *InvokeRPCRequest) GetIsTransactional() bool {
 	return false
 }
 
-func (x *InvokeRPCRequest) GetLoadAttributeMapSelectors() []string {
+func (x *InvokeRPCRequest) GetLoadAttributeMapInstances() []string {
 	if x != nil {
-		return x.LoadAttributeMapSelectors
+		return x.LoadAttributeMapInstances
 	}
 	return nil
 }
@@ -6831,9 +6831,9 @@ func (x *InvokeRPCRequest) GetLoadChannelNames() []string {
 	return nil
 }
 
-func (x *InvokeRPCRequest) GetLoadChannelMapSelectors() []string {
+func (x *InvokeRPCRequest) GetLoadChannelMapInstances() []string {
 	if x != nil {
-		return x.LoadChannelMapSelectors
+		return x.LoadChannelMapInstances
 	}
 	return nil
 }
@@ -8485,9 +8485,9 @@ type InvokeWorkerRPCRequest struct {
 	Attributes                  []*KV                     `protobuf:"bytes,5,rep,name=attributes,proto3" json:"attributes,omitempty"`
 	ChannelInfos                map[string]*ChannelInfo   `protobuf:"bytes,6,rep,name=channel_infos,json=channelInfos,proto3" json:"channel_infos,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	LoadedChannelMessages       map[string]*ChannelValues `protobuf:"bytes,7,rep,name=loaded_channel_messages,json=loadedChannelMessages,proto3" json:"loaded_channel_messages,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	LoadedAttributeMapSelectors []string                  `protobuf:"bytes,8,rep,name=loaded_attribute_map_selectors,json=loadedAttributeMapSelectors,proto3" json:"loaded_attribute_map_selectors,omitempty"`
+	LoadedAttributeMapInstances []string                  `protobuf:"bytes,8,rep,name=loaded_attribute_map_instances,json=loadedAttributeMapInstances,proto3" json:"loaded_attribute_map_instances,omitempty"`
 	LoadedChannelNames          []string                  `protobuf:"bytes,9,rep,name=loaded_channel_names,json=loadedChannelNames,proto3" json:"loaded_channel_names,omitempty"`
-	LoadedChannelMapSelectors   []string                  `protobuf:"bytes,10,rep,name=loaded_channel_map_selectors,json=loadedChannelMapSelectors,proto3" json:"loaded_channel_map_selectors,omitempty"`
+	LoadedChannelMapInstances   []string                  `protobuf:"bytes,10,rep,name=loaded_channel_map_instances,json=loadedChannelMapInstances,proto3" json:"loaded_channel_map_instances,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }
@@ -8571,9 +8571,9 @@ func (x *InvokeWorkerRPCRequest) GetLoadedChannelMessages() map[string]*ChannelV
 	return nil
 }
 
-func (x *InvokeWorkerRPCRequest) GetLoadedAttributeMapSelectors() []string {
+func (x *InvokeWorkerRPCRequest) GetLoadedAttributeMapInstances() []string {
 	if x != nil {
-		return x.LoadedAttributeMapSelectors
+		return x.LoadedAttributeMapInstances
 	}
 	return nil
 }
@@ -8585,9 +8585,9 @@ func (x *InvokeWorkerRPCRequest) GetLoadedChannelNames() []string {
 	return nil
 }
 
-func (x *InvokeWorkerRPCRequest) GetLoadedChannelMapSelectors() []string {
+func (x *InvokeWorkerRPCRequest) GetLoadedChannelMapInstances() []string {
 	if x != nil {
-		return x.LoadedChannelMapSelectors
+		return x.LoadedChannelMapInstances
 	}
 	return nil
 }
@@ -11752,9 +11752,9 @@ func (x *GetAttributesQueryResponse) GetAttributes() []*KV {
 
 type PrepareRpcQueryRequest struct {
 	state                     protoimpl.MessageState `protogen:"open.v1"`
-	LoadAttributeMapSelectors []string               `protobuf:"bytes,1,rep,name=load_attribute_map_selectors,json=loadAttributeMapSelectors,proto3" json:"load_attribute_map_selectors,omitempty"`
+	LoadAttributeMapInstances []string               `protobuf:"bytes,1,rep,name=load_attribute_map_instances,json=loadAttributeMapInstances,proto3" json:"load_attribute_map_instances,omitempty"`
 	LoadChannelNames          []string               `protobuf:"bytes,2,rep,name=load_channel_names,json=loadChannelNames,proto3" json:"load_channel_names,omitempty"`
-	LoadChannelMapSelectors   []string               `protobuf:"bytes,3,rep,name=load_channel_map_selectors,json=loadChannelMapSelectors,proto3" json:"load_channel_map_selectors,omitempty"`
+	LoadChannelMapInstances   []string               `protobuf:"bytes,3,rep,name=load_channel_map_instances,json=loadChannelMapInstances,proto3" json:"load_channel_map_instances,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -11789,9 +11789,9 @@ func (*PrepareRpcQueryRequest) Descriptor() ([]byte, []int) {
 	return file_dex_proto_rawDescGZIP(), []int{155}
 }
 
-func (x *PrepareRpcQueryRequest) GetLoadAttributeMapSelectors() []string {
+func (x *PrepareRpcQueryRequest) GetLoadAttributeMapInstances() []string {
 	if x != nil {
-		return x.LoadAttributeMapSelectors
+		return x.LoadAttributeMapInstances
 	}
 	return nil
 }
@@ -11803,9 +11803,9 @@ func (x *PrepareRpcQueryRequest) GetLoadChannelNames() []string {
 	return nil
 }
 
-func (x *PrepareRpcQueryRequest) GetLoadChannelMapSelectors() []string {
+func (x *PrepareRpcQueryRequest) GetLoadChannelMapInstances() []string {
 	if x != nil {
-		return x.LoadChannelMapSelectors
+		return x.LoadChannelMapInstances
 	}
 	return nil
 }
@@ -11819,9 +11819,9 @@ type PrepareRpcQueryResponse struct {
 	WorkerTarget                *WorkerTarget             `protobuf:"bytes,5,opt,name=worker_target,json=workerTarget,proto3" json:"worker_target,omitempty"`
 	ChannelInfos                map[string]*ChannelInfo   `protobuf:"bytes,6,rep,name=channel_infos,json=channelInfos,proto3" json:"channel_infos,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	LoadedChannelMessages       map[string]*ChannelValues `protobuf:"bytes,7,rep,name=loaded_channel_messages,json=loadedChannelMessages,proto3" json:"loaded_channel_messages,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	LoadedAttributeMapSelectors []string                  `protobuf:"bytes,8,rep,name=loaded_attribute_map_selectors,json=loadedAttributeMapSelectors,proto3" json:"loaded_attribute_map_selectors,omitempty"`
+	LoadedAttributeMapInstances []string                  `protobuf:"bytes,8,rep,name=loaded_attribute_map_instances,json=loadedAttributeMapInstances,proto3" json:"loaded_attribute_map_instances,omitempty"`
 	LoadedChannelNames          []string                  `protobuf:"bytes,9,rep,name=loaded_channel_names,json=loadedChannelNames,proto3" json:"loaded_channel_names,omitempty"`
-	LoadedChannelMapSelectors   []string                  `protobuf:"bytes,10,rep,name=loaded_channel_map_selectors,json=loadedChannelMapSelectors,proto3" json:"loaded_channel_map_selectors,omitempty"`
+	LoadedChannelMapInstances   []string                  `protobuf:"bytes,10,rep,name=loaded_channel_map_instances,json=loadedChannelMapInstances,proto3" json:"loaded_channel_map_instances,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }
@@ -11905,9 +11905,9 @@ func (x *PrepareRpcQueryResponse) GetLoadedChannelMessages() map[string]*Channel
 	return nil
 }
 
-func (x *PrepareRpcQueryResponse) GetLoadedAttributeMapSelectors() []string {
+func (x *PrepareRpcQueryResponse) GetLoadedAttributeMapInstances() []string {
 	if x != nil {
-		return x.LoadedAttributeMapSelectors
+		return x.LoadedAttributeMapInstances
 	}
 	return nil
 }
@@ -11919,9 +11919,9 @@ func (x *PrepareRpcQueryResponse) GetLoadedChannelNames() []string {
 	return nil
 }
 
-func (x *PrepareRpcQueryResponse) GetLoadedChannelMapSelectors() []string {
+func (x *PrepareRpcQueryResponse) GetLoadedChannelMapInstances() []string {
 	if x != nil {
-		return x.LoadedChannelMapSelectors
+		return x.LoadedChannelMapInstances
 	}
 	return nil
 }
@@ -12762,10 +12762,10 @@ const file_dex_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\a \x01(\tR\trequestId\x12)\n" +
 	"\x10is_transactional\x18\b \x01(\bR\x0fisTransactional\x12?\n" +
-	"\x1cload_attribute_map_selectors\x18\t \x03(\tR\x19loadAttributeMapSelectors\x12,\n" +
+	"\x1cload_attribute_map_instances\x18\t \x03(\tR\x19loadAttributeMapInstances\x12,\n" +
 	"\x12load_channel_names\x18\n" +
 	" \x03(\tR\x10loadChannelNames\x12;\n" +
-	"\x1aload_channel_map_selectors\x18\v \x03(\tR\x17loadChannelMapSelectors\"7\n" +
+	"\x1aload_channel_map_instances\x18\v \x03(\tR\x17loadChannelMapInstances\"7\n" +
 	"\x11InvokeRPCResponse\x12\"\n" +
 	"\x06output\x18\x01 \x01(\v2\n" +
 	".dex.ValueR\x06output\"\xef\x01\n" +
@@ -12908,10 +12908,10 @@ const file_dex_proto_rawDesc = "" +
 	"attributes\x12R\n" +
 	"\rchannel_infos\x18\x06 \x03(\v2-.dex.InvokeWorkerRPCRequest.ChannelInfosEntryR\fchannelInfos\x12n\n" +
 	"\x17loaded_channel_messages\x18\a \x03(\v26.dex.InvokeWorkerRPCRequest.LoadedChannelMessagesEntryR\x15loadedChannelMessages\x12C\n" +
-	"\x1eloaded_attribute_map_selectors\x18\b \x03(\tR\x1bloadedAttributeMapSelectors\x120\n" +
+	"\x1eloaded_attribute_map_instances\x18\b \x03(\tR\x1bloadedAttributeMapInstances\x120\n" +
 	"\x14loaded_channel_names\x18\t \x03(\tR\x12loadedChannelNames\x12?\n" +
-	"\x1cloaded_channel_map_selectors\x18\n" +
-	" \x03(\tR\x19loadedChannelMapSelectors\x1aQ\n" +
+	"\x1cloaded_channel_map_instances\x18\n" +
+	" \x03(\tR\x19loadedChannelMapInstances\x1aQ\n" +
 	"\x11ChannelInfosEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12&\n" +
 	"\x05value\x18\x02 \x01(\v2\x10.dex.ChannelInfoR\x05value:\x028\x01\x1a\\\n" +
@@ -13179,9 +13179,9 @@ const file_dex_proto_rawDesc = "" +
 	"attributes\x18\x01 \x03(\v2\a.dex.KVR\n" +
 	"attributes\"\xc4\x01\n" +
 	"\x16PrepareRpcQueryRequest\x12?\n" +
-	"\x1cload_attribute_map_selectors\x18\x01 \x03(\tR\x19loadAttributeMapSelectors\x12,\n" +
+	"\x1cload_attribute_map_instances\x18\x01 \x03(\tR\x19loadAttributeMapInstances\x12,\n" +
 	"\x12load_channel_names\x18\x02 \x03(\tR\x10loadChannelNames\x12;\n" +
-	"\x1aload_channel_map_selectors\x18\x03 \x03(\tR\x17loadChannelMapSelectors\"\x93\x06\n" +
+	"\x1aload_channel_map_instances\x18\x03 \x03(\tR\x17loadChannelMapInstances\"\x93\x06\n" +
 	"\x17PrepareRpcQueryResponse\x12'\n" +
 	"\n" +
 	"attributes\x18\x01 \x03(\v2\a.dex.KVR\n" +
@@ -13192,10 +13192,10 @@ const file_dex_proto_rawDesc = "" +
 	"\rworker_target\x18\x05 \x01(\v2\x11.dex.WorkerTargetR\fworkerTarget\x12S\n" +
 	"\rchannel_infos\x18\x06 \x03(\v2..dex.PrepareRpcQueryResponse.ChannelInfosEntryR\fchannelInfos\x12o\n" +
 	"\x17loaded_channel_messages\x18\a \x03(\v27.dex.PrepareRpcQueryResponse.LoadedChannelMessagesEntryR\x15loadedChannelMessages\x12C\n" +
-	"\x1eloaded_attribute_map_selectors\x18\b \x03(\tR\x1bloadedAttributeMapSelectors\x120\n" +
+	"\x1eloaded_attribute_map_instances\x18\b \x03(\tR\x1bloadedAttributeMapInstances\x120\n" +
 	"\x14loaded_channel_names\x18\t \x03(\tR\x12loadedChannelNames\x12?\n" +
-	"\x1cloaded_channel_map_selectors\x18\n" +
-	" \x03(\tR\x19loadedChannelMapSelectors\x1aQ\n" +
+	"\x1cloaded_channel_map_instances\x18\n" +
+	" \x03(\tR\x19loadedChannelMapInstances\x1aQ\n" +
 	"\x11ChannelInfosEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12&\n" +
 	"\x05value\x18\x02 \x01(\v2\x10.dex.ChannelInfoR\x05value:\x028\x01\x1a\\\n" +

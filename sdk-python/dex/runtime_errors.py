@@ -175,6 +175,12 @@ class FlowDefinitionError(RuntimeError):
     pass
 
 
+class StateNotLoadedError(RuntimeError):
+    """Indicate that an RPC read state omitted from its load configuration."""
+
+    pass
+
+
 class InvalidStepResultError(FlowDefinitionError):
     """Identify a Step or RPC handler result that violates the SDK contract.
 

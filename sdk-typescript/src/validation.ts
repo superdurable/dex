@@ -29,6 +29,14 @@ export function requireMapInstance(instance: string): string {
   return instance;
 }
 
+export function physicalMapName(name: string, instance: string): string {
+  const requiredInstance = requireMapInstance(instance);
+  const encoded = encodeURIComponent(requiredInstance).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `${name}/${encoded}`;
+}
+
 export function requireConditionId(conditionId: string | undefined): void {
   if (conditionId !== undefined && conditionId.length === 0) {
     throw new TypeError("condition ID must not be empty");

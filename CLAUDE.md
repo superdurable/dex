@@ -190,6 +190,9 @@ Keep a struct's methods in one primary file. Do not split its method set across 
   `supportsXxx`, following the language's capitalization conventions.
 - Do not introduce `NormalizeXyz` identifiers. Name the concrete operations,
   such as `ValidateAndSortSelections`, `TrimWhitespace`, or `CanonicalizeURL`.
+- When a concept already has a repository or public API term, reuse that exact
+  term in identifiers. Do not invent a synonym for an existing term such as
+  instance, name, message, or definition.
 
 ## Nil and Config Fields
 

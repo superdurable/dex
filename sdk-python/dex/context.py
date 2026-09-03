@@ -223,6 +223,12 @@ class Context(Protocol):
         instance: str | None,
     ) -> int: ...
 
+    def _pending_channel_messages(
+        self,
+        definition: Channel[ValueT] | ChannelMap[ValueT],
+        instance: str | None,
+    ) -> Sequence[object]: ...
+
     def _channel_results(
         self,
         definition: Channel[ValueT] | ChannelMap[ValueT],

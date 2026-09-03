@@ -110,6 +110,10 @@ func (service *workerService) invokeWaitForMethod(
 		nil,
 		nil,
 		nil,
+		nil,
+		nil,
+		nil,
+		nil,
 	)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
@@ -200,6 +204,10 @@ func (service *workerService) invokeExecuteMethod(
 		request.StepExeLocals,
 		request.ConditionResults,
 		nil,
+		nil,
+		nil,
+		nil,
+		nil,
 	)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
@@ -274,6 +282,10 @@ func (service *workerService) invokeTimeoutHandler(
 		request.StepExeLocals,
 		request.ConditionResults,
 		nil,
+		nil,
+		nil,
+		nil,
+		nil,
 	)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
@@ -339,7 +351,7 @@ func (service *workerService) invokeWorkerRPC(
 	}
 	if err := service.hydrator.HydrateValuesInPlace(
 		ctx,
-		stepRequestValuePointers(&request.Input, request.Attributes),
+		rpcRequestValuePointers(request),
 	); err != nil {
 		return nil, err
 	}
@@ -357,6 +369,10 @@ func (service *workerService) invokeWorkerRPC(
 		nil,
 		nil,
 		request.ChannelInfos,
+		request.LoadedChannelMessages,
+		request.LoadedAttributeMapInstances,
+		request.LoadedChannelNames,
+		request.LoadedChannelMapInstances,
 	)
 	if err != nil {
 		return nil, newWorkerFailure(codes.InvalidArgument, err)
@@ -509,6 +525,16 @@ func stepRequestValuePointers(
 	valuePointers = append(valuePointers, input)
 	for _, attribute := range attributes {
 		valuePointers = append(valuePointers, &attribute.Value)
+	}
+	return valuePointers
+}
+
+func rpcRequestValuePointers(request *dexpb.InvokeWorkerRPCRequest) []**dexpb.Value {
+	valuePointers := stepRequestValuePointers(&request.Input, request.Attributes)
+	for _, values := range request.LoadedChannelMessages {
+		for _, message := range values.Messages {
+			valuePointers = append(valuePointers, &message.Value)
+		}
 	}
 	return valuePointers
 }
