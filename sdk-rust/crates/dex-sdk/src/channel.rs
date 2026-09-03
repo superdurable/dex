@@ -91,7 +91,7 @@ impl<T> Channel<T> {
     /// # Errors
     ///
     /// Returns a [`crate::HandlerError`] when called outside an RPC, when this Channel was not
-    /// selected with [`Self::load_messages`], or when a Value cannot be decoded.
+    /// selected with [`Rpc::load_channel`](crate::Rpc::load_channel), or when decoding fails.
     pub fn pending_messages(&self, context: &Context) -> HandlerResult<Vec<ChannelMessage<T>>>
     where
         T: Value,
