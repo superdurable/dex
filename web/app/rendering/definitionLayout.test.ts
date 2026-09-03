@@ -131,9 +131,10 @@ describe('Flow Definition Graph layout', () => {
       (edge) => edge.kind === 'transition' && edge.to === 'step:CheckSteered',
     ));
 
-    expect(decisions).toHaveLength(2);
-    expect(checkSteered?.data.definitions).toHaveLength(3);
+    expect(decisions).toHaveLength(1);
+    expect(checkSteered?.data.definitions).toHaveLength(4);
     expect(checkSteered?.data.selectionDetails?.map((detail) => detail.label)).toEqual([
+      'steered_messages',
       'not (steered_messages) and approvals[0].approved',
       'not (steered_messages) and not (approvals[0].approved) and self.flow.has_next_tool_call(context)',
       'not (steered_messages) and not (approvals[0].approved) and not (self.flow.has_next_tool_call(context))',
@@ -142,18 +143,20 @@ describe('Flow Definition Graph layout', () => {
     const transition = scene.edges.find(
       (edge) => edge.data?.sceneSourceID === checkSteered?.id && edge.target === 'step:CheckSteered',
     );
-    const branch = scene.edges.find((edge) => edge.target === checkSteered?.id && edge.data?.kind === 'branch');
-    expect(transition?.data?.selectionDetails).toHaveLength(3);
-    expect(branch?.data?.selectionDetails).toHaveLength(3);
+    expect(transition?.data?.selectionDetails).toHaveLength(4);
 
     const awaitUserDecisions = scene.nodes.filter(
       (node) => node.parentId === 'step:AwaitUser' && node.data.kind === 'decision',
     );
-    const compactContext = awaitUserDecisions.find((node) => node.data.relatedEdges?.some(
-      (edge) => edge.kind === 'transition' && edge.to === 'step:CompactContext',
+    const checkSteeredAfterUser = awaitUserDecisions.find((node) => node.data.relatedEdges?.some(
+      (edge) => edge.kind === 'transition' && edge.to === 'step:CheckSteered',
     ));
     expect(awaitUserDecisions).toHaveLength(2);
-    expect(compactContext?.data.definitions).toHaveLength(3);
+    expect(checkSteeredAfterUser?.data.definitions).toHaveLength(3);
+    const awaitUserBranch = scene.edges.find(
+      (edge) => edge.target === checkSteeredAfterUser?.id && edge.data?.kind === 'branch',
+    );
+    expect(awaitUserBranch?.data?.selectionDetails).toHaveLength(3);
   });
 
   it('routes self transitions through a selectable outer lane and keeps full branch text', () => {
