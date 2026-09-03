@@ -137,11 +137,17 @@ class AwaitUser(Step[None]):
         plan = self.flow.get_plan(context)
         if plan is None or plan.status == PLAN_COMPLETED:
             return Wait.any_of(
-                self.flow.steered_user_messages.for_one(),
+                self.flow.steered_user_messages.for_range(
+                    at_least=1,
+                    at_most=MAX_STEERING_MESSAGES,
+                ),
                 self.flow.queued_user_messages.for_one(),
             )
         return Wait.any_of(
-            self.flow.steered_user_messages.for_one(),
+            self.flow.steered_user_messages.for_range(
+                at_least=1,
+                at_most=MAX_STEERING_MESSAGES,
+            ),
             self.flow.queued_user_messages.for_one(),
             self.flow.plan_executions.for_one(str(plan.revision)),
         )
@@ -150,11 +156,11 @@ class AwaitUser(Step[None]):
         steered_messages = self.flow.steered_user_messages.results(context)
         if steered_messages:
             self.flow.begin_steered_turn(context, steered_messages)
-            return go_to(CompactContext, None)
+            return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
         messages = self.flow.queued_user_messages.results(context)
         if messages:
             self.flow.begin_user_turn(context, messages[0])
-            return go_to(CompactContext, None)
+            return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
 
         plan = self.flow.get_plan(context)
         if plan is None:
@@ -178,6 +184,7 @@ class AwaitUser(Step[None]):
             context,
             replace(
                 state,
+                status=STATUS_CALLING_MODEL,
                 interaction_mode=MODE_EXECUTING,
                 planning_requires_write=False,
                 planning_allows_write=False,
@@ -188,10 +195,10 @@ class AwaitUser(Step[None]):
             context,
             AgentEvent("plan_started", f"Executing plan revision {plan.revision}."),
         )
-        return go_to(CompactContext, None)
+        return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
 
 
-class CompactContext(Step[None]):
+class CompactContext(Step[int]):
     def __init__(self, flow: AIAgentFlow) -> None:
         self.flow = flow
 
@@ -201,33 +208,15 @@ class CompactContext(Step[None]):
     async def execute(  # type: ignore[override]
         self,
         context: AsyncContext,
-        input: None,
+        input: int,
     ) -> StepDecision:
         self.flow.update_status(context, STATUS_COMPACTING)
         config = self.flow.config.get(context)
         state = self.flow.state.get(context)
-        state = self.flow.trim_summarized_messages(context, config, state)
-        context_messages = self.flow.context_messages(context, config, state)
-        count_messages = [AgentMessage("system", config.system_prompt), *context_messages]
-        token_count = self.flow.model_client.count_tokens(config.model, count_messages)
-        has_retention_pressure = (
-            state.last_sequence - state.first_retained_sequence + 1
-            > config.message_retention_limit
-        )
-        if (
-            token_count
-            < int(config.max_context_tokens * config.compaction_trigger_fraction)
-            and not has_retention_pressure
-        ):
-            return go_to(CheckSteered, CONTINUE_CALL_MODEL)
-
-        cutoff = self.flow.compaction_cutoff(context, config, state)
-        if cutoff <= state.summarized_through_sequence:
-            return go_to(CheckSteered, CONTINUE_CALL_MODEL)
         messages = self.flow.load_messages(
             context,
             state.summarized_through_sequence + 1,
-            cutoff,
+            input,
             config,
         )
         previous_summary = self.flow.get_summary(context).content
@@ -247,11 +236,11 @@ class CompactContext(Step[None]):
         generation = state.compaction_generation + 1
         self.flow.summary.set(
             context,
-            ContextSummary(generation, cutoff, summary),
+            ContextSummary(generation, input, summary),
         )
         state = replace(
             state,
-            summarized_through_sequence=cutoff,
+            summarized_through_sequence=input,
             compaction_generation=generation,
         )
         self.flow.state.set(context, state)
@@ -260,7 +249,7 @@ class CompactContext(Step[None]):
             context,
             AgentEvent(
                 "compaction",
-                f"Compacted conversation through message {cutoff}.",
+                f"Compacted conversation through message {input}.",
             ),
         )
         return go_to(CheckSteered, CONTINUE_CALL_MODEL)
@@ -371,13 +360,16 @@ class CheckSteered(Step[str]):
         messages = self.flow.steered_user_messages.results(context)
         if messages:
             self.flow.begin_steered_turn(context, messages)
-            return go_to(CompactContext, None)
+            input = CONTINUE_COMPACT_CONTEXT
+        if input == CONTINUE_COMPACT_CONTEXT:
+            cutoff = self.flow.pending_compaction_cutoff(context)
+            if cutoff is not None:
+                return go_to(CompactContext, cutoff)
+            return go_to(CallModel, None)
         if input == CONTINUE_AWAIT_USER:
             return go_to(AwaitUser, None)
         if input == CONTINUE_CALL_MODEL:
             return go_to(CallModel, None)
-        if input == CONTINUE_COMPACT_CONTEXT:
-            return go_to(CompactContext, None)
         if input == CONTINUE_ROUTE_TOOL:
             return go_to(RouteTool, None)
         if input == CONTINUE_AWAIT_TOOL_APPROVAL:
@@ -575,7 +567,10 @@ class AwaitToolApproval(Step[None]):
         call = self.flow.current_tool_call(context)
         self.flow.update_status(context, STATUS_WAITING_APPROVAL)
         return Wait.any_of(
-            self.flow.steered_user_messages.for_one(),
+            self.flow.steered_user_messages.for_range(
+                at_least=1,
+                at_most=MAX_STEERING_MESSAGES,
+            ),
             self.flow.tool_approvals.for_one(call.id),
         )
 
@@ -583,7 +578,7 @@ class AwaitToolApproval(Step[None]):
         steered_messages = self.flow.steered_user_messages.results(context)
         if steered_messages:
             self.flow.begin_steered_turn(context, steered_messages)
-            return go_to(CompactContext, None)
+            return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
         call = self.flow.current_tool_call(context)
         approvals = self.flow.tool_approvals.results(context, call.id)
         if not approvals:
@@ -674,7 +669,10 @@ class DurableWait(Step[None]):
         self.flow.update_status(context, STATUS_WAITING_TIMER)
         return Wait.any_of(
             Timer.by_duration(timedelta(seconds=timer.duration_seconds)),
-            self.flow.steered_user_messages.for_one(),
+            self.flow.steered_user_messages.for_range(
+                at_least=1,
+                at_most=MAX_STEERING_MESSAGES,
+            ),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
@@ -696,7 +694,7 @@ class DurableWait(Step[None]):
                 "superseded_by_steered_user_message",
             )
             self.flow.begin_steered_turn(context, steered_messages)
-            return go_to(CompactContext, None)
+            return go_to(CheckSteered, CONTINUE_COMPACT_CONTEXT)
         self.flow.append_tool_result(
             context,
             call,
@@ -866,7 +864,7 @@ class AIAgentFlow(Flow[AgentConfig]):
             context,
             replace(
                 state,
-                status=STATUS_COMPACTING,
+                status=STATUS_CALLING_MODEL,
                 interaction_mode=interaction_mode,
                 planning_requires_write=planning_requires_write,
                 planning_allows_write=planning_allows_write,
@@ -1180,6 +1178,28 @@ class AIAgentFlow(Flow[AgentConfig]):
         cutoff = max(state.summarized_through_sequence, cutoff)
         messages = self.load_messages(context, start, cutoff, config)
         return _tool_safe_compaction_cutoff(messages, start, cutoff)
+
+    def pending_compaction_cutoff(self, context: Context) -> int | None:
+        config = self.config.get(context)
+        state = self.state.get(context)
+        state = self.trim_summarized_messages(context, config, state)
+        context_messages = self.context_messages(context, config, state)
+        count_messages = [AgentMessage("system", config.system_prompt), *context_messages]
+        token_count = self.model_client.count_tokens(config.model, count_messages)
+        has_retention_pressure = (
+            state.last_sequence - state.first_retained_sequence + 1
+            > config.message_retention_limit
+        )
+        if (
+            token_count
+            < int(config.max_context_tokens * config.compaction_trigger_fraction)
+            and not has_retention_pressure
+        ):
+            return None
+        cutoff = self.compaction_cutoff(context, config, state)
+        if cutoff <= state.summarized_through_sequence:
+            return None
+        return cutoff
 
     def trim_summarized_messages(
         self,

@@ -705,6 +705,58 @@ async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
     )
 
 
+async def test_ai_agent_consumes_steered_messages_as_a_batch(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("ai-agent-steer-batch")
+    await client.start_flow(
+        app.ai_agent,
+        flow_id,
+        AgentConfig(),
+        StartFlowOptions(),
+    )
+    await _send(client, app, flow_id, "/wait 30 integration timer")
+
+    async def is_waiting_for_timer() -> bool:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        return description.status == "waiting_for_timer"
+
+    await wait_until("AI Agent durable wait", is_waiting_for_timer, WAIT_TIMEOUT)
+    await client.publish(
+        flow_id,
+        app.ai_agent.steered_user_messages,
+        UserMessage("first replacement objective"),
+        UserMessage("final replacement objective"),
+    )
+
+    await _wait_for_content(
+        client,
+        app,
+        flow_id,
+        "Local demo response: final replacement objective",
+    )
+    history = await client.invoke_rpc(
+        app.ai_agent.history,
+        flow_id,
+        HistoryRequest(limit=100),
+    )
+    user_messages = [
+        message.message.content
+        for message in history.messages
+        if message.message.role == "user"
+    ]
+    assert user_messages[-2:] == [
+        "first replacement objective",
+        "final replacement objective",
+    ]
+    assert not await client.get_channel_messages(
+        flow_id,
+        app.ai_agent.steered_user_messages,
+    )
+
+
 async def _send(
     client: AsyncClient,
     app: ExampleApp,
