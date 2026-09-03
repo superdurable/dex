@@ -25,18 +25,25 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       go: ${{ steps.plan.outputs.go }}
       go_tag: ${{ steps.plan.outputs.go_tag }}
+      go_baseline: ${{ steps.plan.outputs.go_baseline }}
       rust: ${{ steps.plan.outputs.rust }}
       rust_tag: ${{ steps.plan.outputs.rust_tag }}
+      rust_baseline: ${{ steps.plan.outputs.rust_baseline }}
       java: ${{ steps.plan.outputs.java }}
       java_tag: ${{ steps.plan.outputs.java_tag }}
+      java_baseline: ${{ steps.plan.outputs.java_baseline }}
       python: ${{ steps.plan.outputs.python }}
       python_tag: ${{ steps.plan.outputs.python_tag }}
+      python_baseline: ${{ steps.plan.outputs.python_baseline }}
       typescript: ${{ steps.plan.outputs.typescript }}
       typescript_tag: ${{ steps.plan.outputs.typescript_tag }}
+      typescript_baseline: ${{ steps.plan.outputs.typescript_baseline }}
       server: ${{ steps.plan.outputs.server }}
       server_tag: ${{ steps.plan.outputs.server_tag }}
+      server_baseline: ${{ steps.plan.outputs.server_baseline }}
       cli: ${{ steps.plan.outputs.cli }}
       cli_tag: ${{ steps.plan.outputs.cli_tag }}
+      cli_baseline: ${{ steps.plan.outputs.cli_baseline }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -77,32 +84,45 @@ jobs:
         env:
           GO_SELECTED: ${{ needs.plan.outputs.go }}
           GO_TAG: ${{ needs.plan.outputs.go_tag }}
+          GO_BASELINE: ${{ needs.plan.outputs.go_baseline }}
           RUST_SELECTED: ${{ needs.plan.outputs.rust }}
           RUST_TAG: ${{ needs.plan.outputs.rust_tag }}
+          RUST_BASELINE: ${{ needs.plan.outputs.rust_baseline }}
           JAVA_SELECTED: ${{ needs.plan.outputs.java }}
           JAVA_TAG: ${{ needs.plan.outputs.java_tag }}
+          JAVA_BASELINE: ${{ needs.plan.outputs.java_baseline }}
           PYTHON_SELECTED: ${{ needs.plan.outputs.python }}
           PYTHON_TAG: ${{ needs.plan.outputs.python_tag }}
+          PYTHON_BASELINE: ${{ needs.plan.outputs.python_baseline }}
           TYPESCRIPT_SELECTED: ${{ needs.plan.outputs.typescript }}
           TYPESCRIPT_TAG: ${{ needs.plan.outputs.typescript_tag }}
+          TYPESCRIPT_BASELINE: ${{ needs.plan.outputs.typescript_baseline }}
           SERVER_SELECTED: ${{ needs.plan.outputs.server }}
           SERVER_TAG: ${{ needs.plan.outputs.server_tag }}
+          SERVER_BASELINE: ${{ needs.plan.outputs.server_baseline }}
           CLI_SELECTED: ${{ needs.plan.outputs.cli }}
           CLI_TAG: ${{ needs.plan.outputs.cli_tag }}
+          CLI_BASELINE: ${{ needs.plan.outputs.cli_baseline }}
         run: |
           selected=(
-            "${GO_SELECTED}:${GO_TAG}"
-            "${RUST_SELECTED}:${RUST_TAG}"
-            "${JAVA_SELECTED}:${JAVA_TAG}"
-            "${PYTHON_SELECTED}:${PYTHON_TAG}"
-            "${TYPESCRIPT_SELECTED}:${TYPESCRIPT_TAG}"
-            "${SERVER_SELECTED}:${SERVER_TAG}"
-            "${CLI_SELECTED}:${CLI_TAG}"
+            "${GO_SELECTED}:${GO_TAG}:${GO_BASELINE}"
+            "${RUST_SELECTED}:${RUST_TAG}:${RUST_BASELINE}"
+            "${JAVA_SELECTED}:${JAVA_TAG}:${JAVA_BASELINE}"
+            "${PYTHON_SELECTED}:${PYTHON_TAG}:${PYTHON_BASELINE}"
+            "${TYPESCRIPT_SELECTED}:${TYPESCRIPT_TAG}:${TYPESCRIPT_BASELINE}"
+            "${SERVER_SELECTED}:${SERVER_TAG}:${SERVER_BASELINE}"
+            "${CLI_SELECTED}:${CLI_TAG}:${CLI_BASELINE}"
           )
           for release in "${selected[@]}"; do
             if [[ "${release%%:*}" == "true" ]]; then
-              tag="${release#*:}"
-              gh release create "${tag}" --target "${GITHUB_SHA}" --title "${tag}" --generate-notes
+              release="${release#*:}"
+              tag="${release%%:*}"
+              baseline="${release#*:}"
+              arguments=(--target "${GITHUB_SHA}" --title "${tag}" --generate-notes)
+              if [[ -n "${baseline}" ]]; then
+                arguments+=(--notes-start-tag "${baseline}")
+              fi
+              gh release create "${tag}" "${arguments[@]}"
             fi
           done
 

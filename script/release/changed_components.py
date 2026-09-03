@@ -163,6 +163,7 @@ def write_outputs(output_path: Path, version: str) -> int:
             (
                 f"{component.key}={'true' if selected else 'false'}",
                 f"{component.key}_tag={target}",
+                f"{component.key}_baseline={baseline or ''}",
             )
         )
         baseline_text = baseline or "none (first release)"
