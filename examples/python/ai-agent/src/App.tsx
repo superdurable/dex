@@ -171,6 +171,7 @@ const App: React.FC = () => {
   const [selectedMcpServers, setSelectedMcpServers] = useState<string[]>([]);
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [messages, setMessages] = useState<SequencedMessage[]>([]);
+  const [hasLoadedConversation, setHasLoadedConversation] = useState(false);
   const [messageQueue, setMessageQueue] = useState<MessageQueue>({ queued: [], steered: [] });
   const [description, setDescription] = useState<AgentDescription | null>(null);
   const [flowStatus, setFlowStatus] = useState<AgentFlowStatus | null>(null);
@@ -191,6 +192,7 @@ const App: React.FC = () => {
   const conversationScrollRef = useRef<HTMLDivElement>(null);
   const timelineEntryRefs = useRef(new Map<string, HTMLDivElement>());
   const currentTurnSequenceRef = useRef<number | null>(null);
+  const hasInitializedConversationViewportRef = useRef(false);
   const isFollowingTimelineRef = useRef(true);
   const isProgrammaticScrollRef = useRef(false);
   const userInputCardRef = useRef<HTMLElement>(null);
@@ -213,6 +215,13 @@ const App: React.FC = () => {
         setSelectedTools(configuration.tools.map((tool) => tool.name));
       })
       .catch((reason) => setError(String(reason)));
+  }, [workflowId]);
+
+  useEffect(() => {
+    setHasLoadedConversation(false);
+    hasInitializedConversationViewportRef.current = false;
+    currentTurnSequenceRef.current = null;
+    isFollowingTimelineRef.current = true;
   }, [workflowId]);
 
   useEffect(() => {
@@ -250,6 +259,7 @@ const App: React.FC = () => {
     const nextQueue = await queueResponse.json() as MessageQueue;
     if (fetchSequence !== stateFetchSequenceRef.current) return;
     setMessages(history.messages);
+    setHasLoadedConversation(true);
     setDescription(nextDescription);
     descriptionStatusRef.current = nextDescription.status;
     setMessageQueue((current) => ({
@@ -476,6 +486,7 @@ const App: React.FC = () => {
     setWorkflowId('');
     setDescription(null);
     setMessages([]);
+    setHasLoadedConversation(false);
     setMessageQueue({ queued: [], steered: [] });
     setThinkingEntries([]);
     completedThinkingSourcesRef.current.clear();
@@ -668,10 +679,23 @@ const App: React.FC = () => {
     [messages, thinkingEntries, liveResponse, activity],
   );
   useEffect(() => {
-    if (!workflowId || timeline.length === 0) return;
+    if (!workflowId || !hasLoadedConversation) return;
     const latestUserMessage = [...timeline].reverse().find(
       (entry) => entry.kind === 'message' && entry.message.role === 'user',
     );
+    if (!hasInitializedConversationViewportRef.current) {
+      hasInitializedConversationViewportRef.current = true;
+      currentTurnSequenceRef.current = latestUserMessage?.kind === 'message'
+        ? latestUserMessage.sequence
+        : null;
+      isFollowingTimelineRef.current = true;
+      const frame = window.requestAnimationFrame(() => {
+        const container = conversationScrollRef.current;
+        if (container) container.scrollTo({ top: container.scrollHeight, behavior: 'auto' });
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
+    if (timeline.length === 0) return;
     const isNewTurn = latestUserMessage?.kind === 'message'
       && latestUserMessage.sequence !== currentTurnSequenceRef.current;
     if (!isNewTurn && !isFollowingTimelineRef.current) return;
@@ -699,7 +723,7 @@ const App: React.FC = () => {
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [workflowId, timeline]);
+  }, [workflowId, hasLoadedConversation, timeline]);
 
   const stopFollowingTimeline = () => {
     if (!isProgrammaticScrollRef.current) isFollowingTimelineRef.current = false;
