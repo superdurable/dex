@@ -3,6 +3,12 @@ name: Release Dex CLI
 on:
   release:
     types: [published]
+  workflow_call:
+    inputs:
+      version:
+        description: CLI semantic version without the v prefix
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:
@@ -16,6 +22,7 @@ permissions:
 jobs:
   release:
     if: >
+      github.event_name == 'workflow_call' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.release.tag_name, 'cli-v')
     runs-on: ubuntu-latest
@@ -37,12 +44,15 @@ jobs:
         id: version
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_call" ]; then
+            version="v${{ inputs.version }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             version="${{ inputs.version }}"
           else
             version="${GITHUB_REF_NAME#cli-}"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=cli-$version" >> "$GITHUB_OUTPUT"
       - name: Build embedded Web assets
         working-directory: web
         run: |
@@ -71,7 +81,7 @@ jobs:
             rm -r "dist/${name}"
           done
           cd dist
-          sha256sum *.tar.gz > checksums.txt
+          sha256sum -- ./*.tar.gz > checksums.txt
       - name: Generate Homebrew formula
         working-directory: cli
         env:
@@ -92,19 +102,19 @@ jobs:
             -e "s/@LINUX_AMD64_SHA256@/${linux_amd64}/g" \
             homebrew/dexcli.rb.tmpl > dist/dexcli.rb
       - name: Upload release assets
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || github.event_name == 'workflow_call'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" cli/dist/* --clobber
+        run: gh release upload '${{ steps.version.outputs.tag }}' cli/dist/* --clobber
       - name: Checkout Homebrew tap
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || github.event_name == 'workflow_call'
         uses: actions/checkout@v7
         with:
           repository: superdurable/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
       - name: Publish Homebrew formula
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || github.event_name == 'workflow_call'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         shell: bash

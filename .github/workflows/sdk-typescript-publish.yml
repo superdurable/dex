@@ -3,19 +3,27 @@ name: Publish TypeScript SDK to npm
 on:
   release:
     types: [published]
+  workflow_call:
+    inputs:
+      version:
+        description: TypeScript SDK release version
+        required: true
+        type: string
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: sdk-typescript-publish-${{ github.event.release.tag_name }}
+  group: sdk-typescript-publish-${{ github.event.release.tag_name || inputs.version }}
   cancel-in-progress: false
 
 jobs:
   native:
     name: Native ${{ matrix.platform }}
-    if: startsWith(github.event.release.tag_name, 'sdk-typescript/v')
+    if: >
+      github.event_name == 'workflow_call' ||
+      startsWith(github.event.release.tag_name, 'sdk-typescript/v')
     strategy:
       fail-fast: false
       matrix:
@@ -63,7 +71,9 @@ jobs:
   publish:
     name: Publish @superdurable/dex
     needs: native
-    if: startsWith(github.event.release.tag_name, 'sdk-typescript/v')
+    if: >
+      github.event_name == 'workflow_call' ||
+      startsWith(github.event.release.tag_name, 'sdk-typescript/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -86,9 +96,19 @@ jobs:
         id: release
         shell: bash
         env:
+          EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          CALL_VERSION: ${{ inputs.version }}
         run: |
-          release_version="${RELEASE_TAG#sdk-typescript/v}"
+          if [[ "${EVENT_NAME}" == "release" ]]; then
+            release_version="${RELEASE_TAG#sdk-typescript/v}"
+          else
+            release_version="${CALL_VERSION}"
+          fi
+          if [[ ! "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "Invalid npm release version: ${release_version}" >&2
+            exit 1
+          fi
           npm version "${release_version}" --no-git-tag-version --allow-same-version
           if [[ "$(node -p "require('./package.json').version")" != "${release_version}" ]]; then
             echo "npm did not resolve release version ${release_version}" >&2

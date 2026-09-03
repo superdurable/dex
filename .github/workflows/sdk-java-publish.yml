@@ -3,6 +3,12 @@ name: Publish Java SDK to Maven Central
 on:
   release:
     types: [published]
+  workflow_call:
+    inputs:
+      version:
+        description: Maven release version
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:
@@ -21,6 +27,7 @@ jobs:
   native:
     name: Native ${{ matrix.platform }}
     if: >
+      github.event_name == 'workflow_call' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.release.tag_name, 'sdk-java/v')
     strategy:

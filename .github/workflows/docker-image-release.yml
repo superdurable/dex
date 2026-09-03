@@ -3,6 +3,12 @@ name: Push Docker images (release)
 on:
   release:
     types: [published]
+  workflow_call:
+    inputs:
+      version:
+        description: Docker image semantic version without the v prefix
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:
@@ -15,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     # Monorepo: only publish on server-v* release tags, or manual dispatch.
     if: >
+      github.event_name == 'workflow_call' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.release.tag_name, 'server-v')
     steps:
@@ -22,7 +29,9 @@ jobs:
       - name: Resolve image tag
         id: meta
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_call" ]; then
+            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "tag=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
           else
             # server-v1.2.3 -> v1.2.3

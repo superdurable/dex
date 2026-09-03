@@ -164,6 +164,24 @@ To run every CI workflow against the latest `main` commit, dispatch **Main CI (a
 
 Each component has its own version and tag prefix. Create a GitHub Release for that tag only — workflows filter on the prefix so one release does not publish another component.
 
+For coordinated releases, run **Release changed components** from the **main** branch and enter one semantic version. The workflow applies that version to every selected component. It compares each component with its own latest reachable release tag, preflights every selected target tag, creates the GitHub Releases, and directly invokes each publisher. The run succeeds only after every selected registry, Docker, CLI asset, and Homebrew publication succeeds. Go SDK publication is complete when its module tag and GitHub Release exist.
+
+Components without relevant changes are skipped. A run with no relevant changes succeeds without creating tags. Documentation and workflow changes alone do not select a product release. A missing component baseline is treated as its first release.
+
+The dependency-aware paths are:
+
+| Component | Relevant paths |
+|-----------|----------------|
+| Go SDK | `sdk-go/**` |
+| Rust SDK | `sdk-rust/**` |
+| Java SDK | `sdk-java/**`, shared Rust manifests and Blob Cache core, and `dex-blob-cache-jni/**` |
+| Python SDK | `sdk-python/**`, shared Rust manifests and Blob Cache core, and `dex-blob-cache-python/**` |
+| TypeScript SDK | `sdk-typescript/**`, shared Rust manifests and Blob Cache core, and `dex-blob-cache-node/**` |
+| Server | `server/**`, `protos/**` |
+| CLI | `cli/**`, `web/**`, `server/**`, `protos/**`, `go.work` |
+
+Server baselines may use either historical `server/vX.Y.Z` tags or current `server-vX.Y.Z` tags. New server releases always use `server-vX.Y.Z`.
+
 | Component | Tag format | Example | What it publishes |
 |-----------|------------|---------|-------------------|
 | Server / Docker | `server-vX.Y.Z` | `server-v1.0.0` | Docker Hub `dex-server:v1.0.0` |
