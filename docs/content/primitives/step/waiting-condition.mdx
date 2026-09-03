@@ -8,6 +8,11 @@ slug: /primitives/step/waiting-condition
 
 This page covers more advanced features for **WaitFor** than the basic features.
 
+**Until**, **AnyOf**, and **AllOf** do not require condition IDs. Read Channel
+results from the Channel definition and inspect Timer outcomes through the
+**Context**. Add IDs only when another API requires them, such as
+**AnyCombinationOf** or a Timer selected by ID.
+
 
 
 ## ConditionResults {#condition-results}
@@ -255,8 +260,8 @@ anyCombinationOf expresses an OR of AND groups. Build each inner group as an all
 
 Channel consumption is not greedy across combinations. Dex consumes messages only from Channel conditions in the selected combination. Conditions belonging only to other ready combinations consume nothing, so their messages remain queued.
 
-Note:
-**Every** Condition in the combination requires a unique **condition ID**.
+**AnyCombinationOf** is different from the flat wait combinators: every
+Condition in its combinations requires a unique **condition ID**.
 
 <SdkTabs
   examples={{

@@ -40,6 +40,10 @@ func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *ChannelFlow) {
 	group := router.Group("/primitives/channel")
 	group.GET("/start", controller.start)
 	group.GET("/approve", controller.approve)
+	group.GET("/enqueue", controller.enqueue)
+	group.GET("/messages", controller.messages)
+	group.GET("/delete", controller.delete)
+	group.GET("/move", controller.move)
 }
 
 func primitiveStartOptions() sdk.StartFlowOptions {
@@ -84,6 +88,100 @@ func (controller *controller) approve(request *gin.Context) {
 		nil,
 		&none,
 		sdk.InvokeOptions{},
+	)
+	httputil.RespondString(request, "done", err)
+}
+
+func (controller *controller) enqueue(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	value, found := httputil.RequiredQuery(request, "value")
+	if !found {
+		return
+	}
+	err := controller.client.PublishToChannel(
+		request.Request.Context(),
+		flowID,
+		Queued,
+		value,
+	)
+	httputil.RespondString(request, "done", err)
+}
+
+func (controller *controller) messages(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	var messages []sdk.ChannelMessage[string]
+	err := controller.client.GetChannelMessages(
+		request.Request.Context(),
+		flowID,
+		Queued,
+		&messages,
+	)
+	httputil.Respond(request, messages, err)
+}
+
+func (controller *controller) delete(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	messageID, found := httputil.RequiredQuery(request, "messageId")
+	if !found {
+		return
+	}
+	err := controller.client.DeleteChannelMessage(
+		request.Request.Context(),
+		flowID,
+		Queued,
+		messageID,
+	)
+	httputil.RespondString(request, "done", err)
+}
+
+func (controller *controller) move(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	messageID, found := httputil.RequiredQuery(request, "messageId")
+	if !found {
+		return
+	}
+	var messages []sdk.ChannelMessage[string]
+	err := controller.client.GetChannelMessages(
+		request.Request.Context(),
+		flowID,
+		Queued,
+		&messages,
+	)
+	if err != nil {
+		httputil.RespondString(request, "", err)
+		return
+	}
+	var messageToMove *sdk.ChannelMessage[string]
+	for index := range messages {
+		if messages[index].MessageID == messageID {
+			messageToMove = &messages[index]
+			break
+		}
+	}
+	if messageToMove == nil {
+		request.JSON(http.StatusNotFound, gin.H{"error": "channel message not found"})
+		return
+	}
+	var none sdk.None
+	err = controller.client.InvokeRPC(
+		request.Request.Context(),
+		flowID,
+		controller.flow.Move,
+		MoveMessage{MessageID: messageToMove.MessageID, Value: messageToMove.Value},
+		&none,
+		sdk.InvokeOptions{IsTransactional: true},
 	)
 	httputil.RespondString(request, "done", err)
 }

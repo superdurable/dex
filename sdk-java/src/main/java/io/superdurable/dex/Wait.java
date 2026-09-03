@@ -32,8 +32,8 @@ import java.util.List;
  * <pre>{@code
  * public Wait waitFor(Context context, Order input) {
  *     return Wait.anyOf(
- *             paymentReceived.forOne("payment"),
- *             Timer.byDuration(Duration.ofHours(1), "timeout"));
+ *             paymentReceived.forOne(),
+ *             Timer.byDuration(Duration.ofHours(1)));
  * }
  * }</pre>
  */
@@ -70,6 +70,8 @@ public final class Wait {
     /**
      * Waits for one condition to be satisfied.
      *
+     * <p>The Condition does not need a condition ID.
+     *
      * @param condition the single Timer, Channel, or SubFlow condition
      * @return a wait equivalent to {@code allOf(condition)}
      */
@@ -80,6 +82,9 @@ public final class Wait {
     /**
      * Waits until every supplied condition is satisfied.
      *
+     * <p>This combinator does not require condition IDs. Every Condition in {@link
+     * #anyCombinationOf} does require one.
+     *
      * @param conditions the conditions that must all be satisfied
      * @return an all-of wait definition
      */
@@ -89,6 +94,9 @@ public final class Wait {
 
     /**
      * Waits until any supplied condition is satisfied.
+     *
+     * <p>Conditions do not need condition IDs. Read Channel results from the Channel definition
+     * and inspect Timer outcomes through {@link Context}.
      *
      * <p>Channel consumption is not greedy across alternatives. Dex consumes messages only from
      * the selected Channel condition; other ready Channel conditions consume nothing.

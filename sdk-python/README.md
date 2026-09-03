@@ -268,9 +268,11 @@ instead of raw Flow, Step, or RPC strings.
 
 ### Waiting and map inspection
 
-`Wait.all_of` and `Wait.any_of` may use unnamed Conditions. Every Condition in
-`Wait.any_combination_of` must have a non-empty user ID; the same Condition
-instance may appear in multiple combinations.
+`Wait.until`, `Wait.all_of`, and `Wait.any_of` use unnamed Conditions by
+default. Do not add condition IDs merely because a Condition is nested in one
+of these waits. Every Condition in `Wait.any_combination_of` must have a
+non-empty user ID; the same Condition instance may appear in multiple
+combinations.
 
 Both `Client` and `AsyncClient` provide singleton and AttributeMap-instance
 overloads of `wait_for_attribute_equal`. They target the current run and accept

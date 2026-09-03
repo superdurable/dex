@@ -79,6 +79,8 @@ Read [large-attributes-and-locality.md](references/large-attributes-and-locality
 
 Read [ai-agents.md](references/ai-agents.md) when an Agent owns model context, calls MCP or other tools, waits for approval, compacts conversation history, or exposes a durable wait tool.
 
+For queued-message inspection, deletion, editing, or steering, also read [primitives.md](references/primitives.md) and [operations.md](references/operations.md). These operations apply only to pending Channel messages, not conversation history.
+
 ## Choose proven Flow shapes
 
 Prefer an existing Dex pattern over an ad hoc coordination loop. Read [patterns.md](references/patterns.md) when the request involves retries with compensation, polling, reminders, inactivity, parallel work, fan-out, back pressure, interruption, external publishing, responsive updates, or durable entity state.

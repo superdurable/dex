@@ -13,6 +13,7 @@ import {
   type DefinitionVisibility,
   type FlowDefinitionGraph,
 } from '@superdurable/flow-definition-renderer';
+import aiAgentGraph from '../../../docs/src/data/flow-definitions/ai-agent.json';
 
 const visible: DefinitionVisibility = {
   control: true,
@@ -109,6 +110,53 @@ describe('Flow Definition Graph layout', () => {
     const start = requiredNode(first, 'step:start');
     const next = requiredNode(first, 'step:next');
     expect(next.position.y - (start.position.y + Number(start.style?.height))).toBeGreaterThanOrEqual(140);
+  });
+
+  it('keeps the configured start Step above cyclic control flow', () => {
+    const scene = buildDefinitionScene(aiAgentGraph as FlowDefinitionGraph, visible);
+    const start = requiredNode(scene, 'step:Init');
+    const stepPositions = scene.nodes
+      .filter((node) => node.data.kind === 'step')
+      .map((node) => node.position.y);
+
+    expect(start.position.y).toBe(Math.min(...stepPositions));
+  });
+
+  it('merges decision branches with the same target and preserves selectable conditions', () => {
+    const scene = buildDefinitionScene(aiAgentGraph as FlowDefinitionGraph, visible);
+    const decisions = scene.nodes.filter(
+      (node) => node.parentId === 'step:AwaitToolApproval' && node.data.kind === 'decision',
+    );
+    const checkSteered = decisions.find((node) => node.data.relatedEdges?.some(
+      (edge) => edge.kind === 'transition' && edge.to === 'step:CheckSteered',
+    ));
+
+    expect(decisions).toHaveLength(1);
+    expect(checkSteered?.data.definitions).toHaveLength(4);
+    expect(checkSteered?.data.selectionDetails?.map((detail) => detail.label)).toEqual([
+      'steered_messages',
+      'not (steered_messages) and approvals[0].approved',
+      'not (steered_messages) and not (approvals[0].approved) and self.flow.has_next_tool_call(context)',
+      'not (steered_messages) and not (approvals[0].approved) and not (self.flow.has_next_tool_call(context))',
+    ]);
+
+    const transition = scene.edges.find(
+      (edge) => edge.data?.sceneSourceID === checkSteered?.id && edge.target === 'step:CheckSteered',
+    );
+    expect(transition?.data?.selectionDetails).toHaveLength(4);
+
+    const awaitUserDecisions = scene.nodes.filter(
+      (node) => node.parentId === 'step:AwaitUser' && node.data.kind === 'decision',
+    );
+    const checkSteeredAfterUser = awaitUserDecisions.find((node) => node.data.relatedEdges?.some(
+      (edge) => edge.kind === 'transition' && edge.to === 'step:CheckSteered',
+    ));
+    expect(awaitUserDecisions).toHaveLength(2);
+    expect(checkSteeredAfterUser?.data.definitions).toHaveLength(3);
+    const awaitUserBranch = scene.edges.find(
+      (edge) => edge.target === checkSteeredAfterUser?.id && edge.data?.kind === 'branch',
+    );
+    expect(awaitUserBranch?.data?.selectionDetails).toHaveLength(3);
   });
 
   it('routes self transitions through a selectable outer lane and keeps full branch text', () => {

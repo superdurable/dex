@@ -14,20 +14,23 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from dataclasses import asdict
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, TypedDict
 
-from dex import StartFlowOptions
+from dex import ChannelMessageNotFoundError, FlowStatus, StartFlowOptions
 from quart import Blueprint, Response, jsonify, render_template, request
-from werkzeug.exceptions import BadRequest, Conflict
+from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from dex_examples.app import ExampleApp
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
     HistoryRequest,
     PlanExecutionRequest,
+    SteerMessageRequest,
     ToolApprovalRequest,
     UserMessage,
 )
@@ -36,6 +39,7 @@ from dex_examples.shared.query import optional_query, required_query
 WEB_ROOT = Path(__file__).resolve().parents[3] / "ai-agent"
 TEMPLATE_DIR = WEB_ROOT / "templates"
 STATIC_DIR = WEB_ROOT / "static"
+
 
 class ProviderConfig(TypedDict):
     label: str
@@ -79,7 +83,7 @@ PROVIDERS: dict[str, ProviderConfig] = {
         "label": "Other LiteLLM provider",
         "prefix": "",
         "defaultModel": "",
-        "environmentVariable": None,
+        "environmentVariable": "LITELLM_API_KEY",
     },
 }
 
@@ -110,7 +114,12 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
             )
         return jsonify(
             providers=[
-                {"id": provider_id, **provider}
+                {
+                    "id": provider_id,
+                    **provider,
+                    "isConfigured": _provider_api_key(provider) is not None
+                    or provider_id == "mock",
+                }
                 for provider_id, provider in PROVIDERS.items()
             ],
             mcpServers=app_state.mcp_registry.server_names,
@@ -122,7 +131,19 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
     async def start() -> Response:
         payload = await _json_object()
         flow_id = _required_string(payload, "workflowId")
-        provider = _optional_string(payload, "provider", "mock")
+        provider = _optional_string(payload, "provider", "mock").strip().lower()
+        provider_config = PROVIDERS.get(provider)
+        if provider_config is None:
+            raise BadRequest(f"unknown provider {provider!r}")
+        api_key = _provider_api_key(provider_config)
+        if provider != "mock" and api_key is None:
+            environment_variable = provider_config["environmentVariable"]
+            if environment_variable is None:
+                raise RuntimeError(f"provider {provider!r} has no credential variable")
+            raise BadRequest(
+                f"{provider} is not configured; set {environment_variable} "
+                "in examples/.env and restart the Python examples"
+            )
         config = AgentConfig(
             model=_provider_model(
                 provider,
@@ -159,7 +180,6 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
             enabled_tools=_string_list(payload, "enabledTools"),
         )
         config.validate()
-        api_key = _optional_nullable_string(payload, "apiKey")
         try:
             app_state.ai_agent_credentials.set_api_key(flow_id, api_key)
         except ValueError as error:
@@ -188,6 +208,76 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
             ),
         )
         return jsonify(accepted=accepted)
+
+    @blueprint.get("/message-queue")
+    async def message_queue() -> Response:
+        flow_id = required_query("workflowId")
+        queued, steered = await asyncio.gather(
+            app_state.client.get_channel_messages(
+                flow_id,
+                app_state.ai_agent.queued_user_messages,
+            ),
+            app_state.client.get_channel_messages(
+                flow_id,
+                app_state.ai_agent.steered_user_messages,
+            ),
+        )
+        return jsonify(
+            queued=[
+                {
+                    "message_id": message.message_id,
+                    "value": asdict(message.value),
+                }
+                for message in queued
+            ],
+            steered=[
+                {
+                    "message_id": message.message_id,
+                    "value": asdict(message.value),
+                }
+                for message in steered
+            ],
+        )
+
+    @blueprint.post("/message-queue/delete")
+    async def delete_queued_message() -> Response:
+        payload = await _json_object()
+        try:
+            await app_state.client.delete_channel_message(
+                _required_string(payload, "workflowId"),
+                app_state.ai_agent.queued_user_messages,
+                _required_string(payload, "messageId"),
+            )
+        except ChannelMessageNotFoundError as error:
+            raise NotFound("the queued message is no longer pending") from error
+        return jsonify(deleted=True)
+
+    @blueprint.post("/message-queue/steer")
+    async def steer_queued_message() -> Response:
+        payload = await _json_object()
+        flow_id = _required_string(payload, "workflowId")
+        message_id = _required_string(payload, "messageId")
+        pending = await app_state.client.get_channel_messages(
+            flow_id,
+            app_state.ai_agent.queued_user_messages,
+        )
+        message = next(
+            (item.value for item in pending if item.message_id == message_id),
+            None,
+        )
+        if message is None:
+            raise NotFound("the queued message is no longer pending")
+        try:
+            accepted = await app_state.client.invoke_rpc(
+                app_state.ai_agent.steer_message,
+                flow_id,
+                SteerMessageRequest(message_id, message),
+            )
+        except ChannelMessageNotFoundError as error:
+            raise NotFound("the queued message is no longer pending") from error
+        if not accepted:
+            raise Conflict("the queued message cannot be steered")
+        return jsonify(steered=True)
 
     @blueprint.post("/plans/execute")
     async def execute_plan() -> Response:
@@ -285,7 +375,31 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         )
         return jsonify(asdict(details))
 
+    @blueprint.get("/status")
+    async def status() -> Response:
+        flow_id = required_query("workflowId")
+        info = await app_state.client.describe_flow(flow_id)
+        error_type = None
+        error_message = None
+        if info.status not in {FlowStatus.RUNNING, FlowStatus.CONTINUED_AS_NEW}:
+            result = await app_state.client.wait_for_flow(flow_id)
+            error_type = result.error_type.value if result.error_type else None
+            error_message = result.error_message
+        return jsonify(
+            status=info.status.value,
+            run_id=info.run_id,
+            error_type=error_type,
+            error_message=error_message,
+        )
+
     return blueprint
+
+
+def _provider_api_key(provider: ProviderConfig) -> str | None:
+    environment_variable = provider["environmentVariable"]
+    if environment_variable is None:
+        return None
+    return os.environ.get(environment_variable) or None
 
 
 async def _json_object() -> dict[str, Any]:

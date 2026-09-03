@@ -120,8 +120,12 @@ shared [`flow-definition-renderer`](../packages/flow-definition-renderer)
 package. Product docs import the same renderer for checked-in Python example
 graphs.
 
-The Run page opens on Execution graph and also provides Overview (Live Flow State beside
-Selected event, then Run input beside Identity), Timeline, Streams, attributes, timers, queued
+The Run page remembers the last selected Overview, Execution graph, Timeline, or
+Streams tab across browser refreshes. It automatically loads the complete semantic
+history for the selected run. A continued-as-new run remains on screen until the
+operator follows **Next run**; Dex Web never combines two runs into one graph or timeline.
+The page also provides Live Flow State beside Selected event, Run input beside Identity,
+attributes, timers, queued
 steps, channels, completed outputs, stop, and time travel. Timeline and Execution graph keep
 Selected event in the sidebar, where the critical-action **Review time travel**
 entry opens the operation with that Step execution and its WaitFor or Execute

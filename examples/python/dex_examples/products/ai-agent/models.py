@@ -78,6 +78,7 @@ class AgentMessage:
     tool_call_id: str | None = None
     tool_name: str | None = None
     provider_context_items: list[ProviderContextItem] = field(default_factory=list)
+    created_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -95,7 +96,6 @@ class AgentState:
     planning_requires_write: bool = False
     planning_allows_write: bool = False
     pending_plan_execution_revision: int | None = None
-    pending_user_message_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -109,6 +109,12 @@ class ContextSummary:
 class UserMessage:
     content: str
     plan_mode: bool = False
+
+
+@dataclass(frozen=True)
+class SteerMessageRequest:
+    message_id: str
+    message: UserMessage
 
 
 @dataclass(frozen=True)
@@ -179,6 +185,7 @@ class HistoryRequest:
 class SequencedMessage:
     sequence: int
     message: AgentMessage
+    created_at: str
 
 
 @dataclass(frozen=True)
@@ -206,6 +213,8 @@ class AgentDescription:
     pending_user_input_choices: list[str]
     plan: dict[str, Any] | None
     plan_execution_requested: bool
+    pending_queued_message_count: int
+    pending_steered_message_count: int
     available_mcp_servers: list[str]
     available_tools: list[str]
 

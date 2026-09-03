@@ -27,8 +27,8 @@ use crate::SubFlowOptions;
 ///
 /// let approvals = Channel::<String>::new("approvals");
 /// let wait = Wait::any_of([
-///     approvals.for_one().with_id("approved"),
-///     Timer::by_duration(Duration::from_secs(300)).with_id("timeout"),
+///     approvals.for_one(),
+///     Timer::by_duration(Duration::from_secs(300)),
 /// ]);
 /// ```
 pub struct Wait {
@@ -50,19 +50,19 @@ impl Wait {
         }
     }
 
-    /// Waits until one condition is satisfied.
+    /// Waits until one condition is satisfied. The Condition does not need an ID.
     pub fn until(condition: Condition) -> Self {
         Self::all_of([condition])
     }
 
-    /// Waits until every condition is satisfied.
+    /// Waits until every condition is satisfied. Conditions do not need IDs.
     pub fn all_of(conditions: impl IntoIterator<Item = Condition>) -> Self {
         Self {
             kind: WaitKind::AllOf(conditions.into_iter().collect()),
         }
     }
 
-    /// Waits until at least one condition is satisfied.
+    /// Waits until at least one condition is satisfied. Conditions do not need IDs.
     ///
     /// Channel consumption is not greedy across alternatives. Only the selected Channel condition
     /// consumes messages; other ready Channel conditions consume nothing.

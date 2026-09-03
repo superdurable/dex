@@ -17,6 +17,7 @@
 package io.superdurable.dex.primitives.channel;
 
 import io.superdurable.dex.Client;
+import io.superdurable.dex.ChannelMessage;
 import io.superdurable.dex.shared.ExampleFlows;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -54,6 +56,47 @@ public final class ChannelController {
     public ResponseEntity<String> approve(@RequestParam final String workflowId) {
         final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
         client.invokeRPC(stub::approve);
+        return ResponseEntity.ok("done");
+    }
+
+    @GetMapping("/enqueue")
+    public ResponseEntity<String> enqueue(
+            @RequestParam final String workflowId,
+            @RequestParam final String value) {
+        client.publish(workflowId, flow.queued, value);
+        return ResponseEntity.ok("done");
+    }
+
+    @GetMapping("/messages")
+    public ResponseEntity<List<ChannelMessage<String>>> messages(
+            @RequestParam final String workflowId) {
+        return ResponseEntity.ok(client.getChannelMessages(workflowId, flow.queued));
+    }
+
+    @GetMapping("/delete")
+    public ResponseEntity<String> delete(
+            @RequestParam final String workflowId,
+            @RequestParam final String messageId) {
+        client.deleteChannelMessage(workflowId, flow.queued, messageId);
+        return ResponseEntity.ok("done");
+    }
+
+    @GetMapping("/move")
+    public ResponseEntity<String> move(
+            @RequestParam final String workflowId,
+            @RequestParam final String messageId) {
+        final ChannelMessage<String> message = client.getChannelMessages(workflowId, flow.queued)
+                .stream()
+                .filter(candidate -> candidate.getMessageId().equals(messageId))
+                .findFirst()
+                .orElse(null);
+        if (message == null) {
+            return ResponseEntity.notFound().build();
+        }
+        final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
+        client.invokeRPC(
+                stub::move,
+                new ChannelFlow.MoveMessage(message.getMessageId(), message.getValue()));
         return ResponseEntity.ok("done");
     }
 }

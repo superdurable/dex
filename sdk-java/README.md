@@ -321,9 +321,10 @@ Step executions use `StepExecutionId.of(stepType)` or
 `StepExecutionId.of(stepType, executionNumber)`. Constructors are intentionally
 not part of the public API.
 
-`Wait.allOf` and `Wait.anyOf` accept unnamed Conditions and send an empty
-Condition ID. Every Condition in `Wait.anyCombinationOf` must have a non-empty
-user ID; the same Condition object may be reused across combinations.
+`Wait.until`, `Wait.allOf`, and `Wait.anyOf` use unnamed Conditions by default.
+Do not add Condition IDs merely because a Condition is nested in one of these
+waits. Every Condition in `Wait.anyCombinationOf` must have a non-empty user ID;
+the same Condition object may be reused across combinations.
 
 `SubFlow.run(ChildFlow.class, input)` declares a normal Flow execution as a
 durable condition. Read it during `execute` with

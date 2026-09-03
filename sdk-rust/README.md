@@ -42,9 +42,11 @@ domain-specific `SdkError` variants such as `FlowNotFound`, `FlowNotActive`,
 `FlowAlreadyStarted`, `RpcLockConflict`, and `WorkerInvocation` instead of
 requiring callers to inspect transport metadata.
 
-Flat waits may contain unnamed Conditions and send an empty Condition ID.
-`Wait::any_combination_of` requires a non-empty user ID on every Condition; a
-cloned Condition retains its identity and may be reused across combinations.
+`Wait::until`, `Wait::all_of`, and `Wait::any_of` use unnamed Conditions by
+default. Do not add Condition IDs merely because a Condition is nested in one
+of these waits. `Wait::any_combination_of` requires a non-empty user ID on every
+Condition; a cloned Condition retains its identity and may be reused across
+combinations.
 
 Client-side map reads and writes use `get_attribute_map_instance` and
 `set_attribute_map_instance`. `Client::wait_for_attribute_equal` and

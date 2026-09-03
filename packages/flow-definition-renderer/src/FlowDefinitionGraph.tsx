@@ -32,6 +32,7 @@ import {
   type DefinitionEdgeData,
   type DefinitionLayer,
   type DefinitionNodeData,
+  type DefinitionSelectionDetail,
   type DefinitionVisibility,
 } from './definitionLayout';
 
@@ -219,6 +220,7 @@ export function FlowDefinitionGraphView({
           </div>
           <code>{selectedNode.id}</code>
           {selectedNode.data.sourceTitle && <span>{selectedNode.data.sourceTitle}</span>}
+          <SelectionDetails details={selectedNode.data.selectionDetails} />
         </div>
       )}
 
@@ -230,6 +232,7 @@ export function FlowDefinitionGraphView({
           </div>
           <code>{sceneNodeName(scene.nodes, selectedEdge.source)} → {sceneNodeName(scene.nodes, selectedEdge.target)}</code>
           {selectedEdge.data?.title && <span>{selectedEdge.data.title}</span>}
+          <SelectionDetails details={selectedEdge.data?.selectionDetails} />
         </div>
       )}
 
@@ -316,7 +319,10 @@ function DecisionNode({ data }: NodeProps) {
       id: edge.id,
       label: definitionData.nameByID?.[edge.to] ?? shortID(edge.to),
       multiplicity: edge.multiplicity,
-    }));
+    }))
+    .filter((row, index, rows) => rows.findIndex(
+      (candidate) => candidate.label === row.label && candidate.multiplicity === row.multiplicity,
+    ) === index);
   return (
     <div
       className={`definition-decision-card decision-${details?.type ?? 'unknown'}`}
@@ -472,7 +478,12 @@ function DefinitionEdge({
       <BaseEdge id={id} interactionWidth={28} markerEnd={markerEnd} path={path} style={selectedStyle} />
       {selected && edgeData?.displayLabel && (
         <EdgeLabelRenderer>
-          <SelectedEdgeLabel label={edgeData.displayLabel} labelX={labelX} labelY={labelY} />
+          <SelectedEdgeLabel
+            details={edgeData.selectionDetails}
+            label={edgeData.displayLabel}
+            labelX={labelX}
+            labelY={labelY}
+          />
         </EdgeLabelRenderer>
       )}
     </>
@@ -480,10 +491,12 @@ function DefinitionEdge({
 }
 
 export function SelectedEdgeLabel({
+  details,
   label,
   labelX,
   labelY,
 }: {
+  details?: DefinitionSelectionDetail[];
   label: string;
   labelX: number;
   labelY: number;
@@ -493,8 +506,27 @@ export function SelectedEdgeLabel({
       className="definition-selected-edge-label nodrag nopan"
       style={{ transform: `translate(-50%, -100%) translate(${labelX}px, ${labelY - 14}px)` }}
     >
-      {label}
+      {details?.length ? details.map((detail, index) => (
+        <span key={`${detail.label}-${detail.sourceTitle ?? ''}-${index}`}>{detail.label}</span>
+      )) : label}
     </span>
+  );
+}
+
+function SelectionDetails({ details }: { details?: DefinitionSelectionDetail[] }) {
+  if (!details?.length) return null;
+  return (
+    <div className="flow-definition-selection-details">
+      <b>Conditions / input</b>
+      <ol>
+        {details.map((detail, index) => (
+          <li key={`${detail.label}-${detail.sourceTitle ?? ''}-${index}`}>
+            <code>{detail.label}</code>
+            {detail.sourceTitle && <span>{detail.sourceTitle}</span>}
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 

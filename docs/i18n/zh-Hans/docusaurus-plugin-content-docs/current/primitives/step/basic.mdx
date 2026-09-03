@@ -272,6 +272,10 @@ impl Step for StepSecond {
 </SdkSnippet>
 </SdkTabs>
 
+**Until**、**AnyOf** 和 **AllOf** 接受没有 condition ID 的 Condition。不要仅仅因为
+Condition 嵌套在这些等待组合中就为它添加 ID。**AnyCombinationOf** 是例外：其中引用的
+每个 Condition 都需要唯一的 condition ID。
+
 Step 可等待的 Condition 见 [Timer](/primitives/timer)、[Channel](/primitives/channel) 与 [SubFlow](/primitives/subflow)。
 
 ## StepDecision（movement）{#stepdecision-movements}

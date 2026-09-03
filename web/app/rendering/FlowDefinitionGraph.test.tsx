@@ -57,6 +57,24 @@ describe('Flow Definition Graph renderer', () => {
     expect(markup).toContain(condition);
     expect(markup).toContain('translate(120px, 66px)');
   });
+
+  it('lists every merged condition only when an edge is selected', () => {
+    const markup = renderToStaticMarkup(
+      <SelectedEdgeLabel
+        details={[
+          { label: 'input == FIRST' },
+          { label: 'input == SECOND' },
+        ]}
+        label="2 conditions"
+        labelX={120}
+        labelY={80}
+      />,
+    );
+
+    expect(markup).toContain('input == FIRST');
+    expect(markup).toContain('input == SECOND');
+    expect(markup).not.toContain('2 conditions');
+  });
 });
 
 const graph: FlowDefinitionGraph = {

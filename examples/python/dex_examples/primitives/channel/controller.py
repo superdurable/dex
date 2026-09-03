@@ -14,10 +14,11 @@
 
 from __future__ import annotations
 
-from quart import Blueprint, Response
+from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
+from dex_examples.primitives.channel.channel_flow import MoveMessage
 from dex_examples.shared.query import required_int_query, required_query, started_flow
 
 
@@ -40,6 +41,58 @@ def create_channel_blueprint(app_state: ExampleApp) -> Blueprint:
         await app_state.client.invoke_rpc(
             app_state.channel.approve,
             required_query("workflowId"),
+        )
+        return "done"
+
+    @blueprint.get("/enqueue")
+    async def enqueue() -> str:
+        await app_state.client.publish(
+            required_query("workflowId"),
+            app_state.channel.queued,
+            required_query("value"),
+        )
+        return "done"
+
+    @blueprint.get("/messages")
+    async def messages() -> Response:
+        pending = await app_state.client.get_channel_messages(
+            required_query("workflowId"),
+            app_state.channel.queued,
+        )
+        return jsonify(
+            [
+                {"messageID": message.message_id, "value": message.value}
+                for message in pending
+            ]
+        )
+
+    @blueprint.get("/delete")
+    async def delete() -> str:
+        await app_state.client.delete_channel_message(
+            required_query("workflowId"),
+            app_state.channel.queued,
+            required_query("messageId"),
+        )
+        return "done"
+
+    @blueprint.get("/move")
+    async def move() -> Response | str:
+        flow_id = required_query("workflowId")
+        message_id = required_query("messageId")
+        pending = await app_state.client.get_channel_messages(
+            flow_id,
+            app_state.channel.queued,
+        )
+        message = next(
+            (message for message in pending if message.message_id == message_id),
+            None,
+        )
+        if message is None:
+            return Response("channel message not found", status=404)
+        await app_state.client.invoke_rpc(
+            app_state.channel.move,
+            flow_id,
+            MoveMessage(message.message_id, message.value),
         )
         return "done"
 

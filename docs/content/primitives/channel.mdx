@@ -32,6 +32,12 @@ rust: 'examples/rust/src/primitives/channel/flow.rs',
 <SdkSnippet lang="python">
 
 ```python
+@dataclass(frozen=True)
+class MoveMessage:
+    message_id: str
+    value: str
+
+
 class ChannelWaitStep(Step[int]):
     def __init__(self, approval: Channel[str]) -> None:
         self.approval = approval
@@ -51,6 +57,8 @@ class ChannelWaitStep(Step[int]):
 
 class ChannelFlow(Flow[int]):
     approval = Channel("Approval", str)
+    queued = Channel("Queued", str)
+    moved = Channel("Moved", str)
 
     def __init__(self) -> None:
         self.wait_for_approval = ChannelWaitStep(self.approval)
@@ -59,21 +67,35 @@ class ChannelFlow(Flow[int]):
         return StepList.start_step(self.wait_for_approval)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.approval)
+        return PersistenceSchema.of(self.approval, self.queued, self.moved)
 
     @rpc
     def approve(self, context: Context) -> None:
         self.approval.publish(context, "approved")
+
+    @rpc(is_transactional=True)
+    def move(self, context: Context, input: MoveMessage) -> None:
+        self.queued.delete(context, input.message_id)
+        self.moved.publish(context, input.value)
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-var Approval = dex.DefineChannel[string]("Approval")
+var (
+	Approval = dex.DefineChannel[string]("Approval")
+	Queued   = dex.DefineChannel[string]("Queued")
+	Moved    = dex.DefineChannel[string]("Moved")
+)
 
 type ChannelFlow struct {
 	dex.FlowDefaults
+}
+
+type MoveMessage struct {
+	MessageID string `json:"messageId"`
+	Value     string `json:"value"`
 }
 
 func (*ChannelFlow) GetSteps() []dex.StepDef {
@@ -81,7 +103,9 @@ func (*ChannelFlow) GetSteps() []dex.StepDef {
 }
 
 func (*ChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{Approval}}
+	return dex.PersistenceSchema{
+		Channels: []dex.ChannelDef{Approval, Queued, Moved},
+	}
 }
 
 type channelWaitStep struct {
@@ -112,6 +136,16 @@ func (*ChannelFlow) Approve(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.Non
 	}
 	return &dex.RPCResult[dex.None]{}, nil
 }
+
+func (*ChannelFlow) Move(ctx dex.Context, message MoveMessage) (*dex.RPCResult[dex.None], error) {
+	if err := Queued.Delete(ctx, message.MessageID); err != nil {
+		return nil, err
+	}
+	if err := Moved.Publish(ctx, message.Value); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
 ```
 
 </SdkSnippet>
@@ -119,7 +153,22 @@ func (*ChannelFlow) Approve(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.Non
 
 ```java
 public class ChannelFlow implements Flow<Integer> {
+    public static final class MoveMessage {
+        public String messageId;
+        public String value;
+
+        public MoveMessage() {
+        }
+
+        public MoveMessage(final String messageId, final String value) {
+            this.messageId = messageId;
+            this.value = value;
+        }
+    }
+
     public final Channel<String> approval = Channel.define("Approval", String.class);
+    public final Channel<String> queued = Channel.define("Queued", String.class);
+    public final Channel<String> moved = Channel.define("Moved", String.class);
     private final ChannelWaitStep waitForApproval = new ChannelWaitStep();
 
     @Override
@@ -129,12 +178,18 @@ public class ChannelFlow implements Flow<Integer> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(approval);
+        return PersistenceSchema.of(approval, queued, moved);
     }
 
     @RPC
     public void approve(final Context context) {
         approval.publish(context, "approved");
+    }
+
+    @RPC(isTransactional = true)
+    public void move(final Context context, final MoveMessage message) {
+        queued.delete(context, message.messageId);
+        moved.publish(context, message.value);
     }
 
     final class ChannelWaitStep implements Step<Integer> {
@@ -167,6 +222,15 @@ public class ChannelFlow implements Flow<Integer> {
 
 ```typescript
 const approval = new Channel("Approval", stringCodec);
+export const queued = new Channel("Queued", stringCodec);
+export const moved = new Channel("Moved", stringCodec);
+
+export interface MoveMessage {
+  readonly messageId: string;
+  readonly value: string;
+}
+
+const moveMessageCodec = jsonCodec<MoveMessage>();
 
 class ChannelWait implements Step<number> {
   public readonly inputCodec = doubleCodec;
@@ -203,12 +267,18 @@ export class ChannelFlow implements Flow<number> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [approval] };
+    return { channels: [approval, queued, moved] };
   }
 
   @rpc()
   public approve(context: Context): void {
     approval.publish(context, "approved");
+  }
+
+  @rpc({ isTransactional: true, inputCodec: moveMessageCodec })
+  public move(context: Context, message: MoveMessage): void {
+    queued.delete(context, message.messageId);
+    moved.publish(context, message.value);
   }
 }
 ```
@@ -218,8 +288,17 @@ export class ChannelFlow implements Flow<number> {
 
 ```rust
 pub const CHANNEL_APPROVE: Rpc<(), ()> = Rpc::new("ChannelApprove");
+pub const CHANNEL_MOVE: Rpc<MoveMessage, ()> = Rpc::new("ChannelMove");
 
 static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
+pub static QUEUED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Queued"));
+static MOVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Moved"));
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MoveMessage {
+    pub message_id: String,
+    pub value: String,
+}
 
 #[derive(Default)]
 pub struct ChannelFlow {
@@ -229,6 +308,11 @@ pub struct ChannelFlow {
 impl ChannelFlow {
     fn approve(&self, context: &mut Context) -> HandlerResult<()> {
         APPROVAL.publish(context, "approved".to_string())
+    }
+
+    fn move_message(&self, context: &mut Context, message: MoveMessage) -> HandlerResult<()> {
+        QUEUED.delete(context, &message.message_id)?;
+        MOVED.publish(context, message.value)
     }
 }
 
@@ -240,11 +324,16 @@ impl Flow for ChannelFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&APPROVAL)
+        PersistenceSchema::new()
+            .channel(&APPROVAL)
+            .channel(&QUEUED)
+            .channel(&MOVED)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure_without_input(CHANNEL_APPROVE, Self::approve)
+        RpcList::new()
+            .procedure_without_input(CHANNEL_APPROVE, Self::approve)
+            .procedure(CHANNEL_MOVE.is_transactional(), Self::move_message)
     }
 }
 
@@ -299,6 +388,88 @@ Inside a Step or RPC, call the Channel publish method with the handler **Context
 Code outside a Worker can publish directly through the Client **PublishToChannel** API. A client publishes to an active Flow, and a batch keeps the order in which its values were supplied. See [Client](/primitives/client/basic#publish-to-a-channel).
 
 Messages can arrive before a Step starts waiting. Dex Server keeps them in the Channel until a later wait consumes them.
+
+## Manage pending messages {#manage-pending-messages}
+
+Dex assigns a UUIDv7 message ID when it accepts each publication. A Client can list every pending message in FIFO order and delete one by ID. Listing does not consume messages. Only a message that is still pending can be deleted; a concurrent Step consumption or deletion returns the Channel-message-not-found error.
+
+This is queue state, not Flow history. After a Step consumes a message, it disappears from the Channel even though the publication and consumption remain observable in Flow history until retention removes them.
+
+<SdkTabs
+examples={{
+python: 'examples/python/dex_examples/primitives/channel/controller.py',
+go: 'examples/go/primitives/channel/controller.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelController.java',
+typescript: 'examples/typescript/src/primitives/channel/controller.ts',
+rust: 'examples/rust/src/primitives/channel/controller.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+@blueprint.get("/messages")
+async def messages() -> Response:
+    pending = await app_state.client.get_channel_messages(
+        required_query("workflowId"),
+        app_state.channel.queued,
+    )
+    return jsonify(
+        [
+            {"messageID": message.message_id, "value": message.value}
+            for message in pending
+        ]
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var messages []sdk.ChannelMessage[string]
+err := controller.client.GetChannelMessages(
+	request.Request.Context(),
+	flowID,
+	Queued,
+	&messages,
+)
+httputil.Respond(request, messages, err)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+return ResponseEntity.ok(client.getChannelMessages(workflowId, flow.queued));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+response.json(await client.getChannelMessages(workflowId, queued));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+match run_blocking(move || client.get_channel_messages(&query.workflow_id, &QUEUED)) {
+    Ok(messages) => ok_json(
+        messages
+            .into_iter()
+            .map(|message| PendingMessage {
+                message_id: message.message_id,
+                value: message.value,
+            })
+            .collect::<Vec<_>>(),
+    ),
+    Err(error) => map_sdk_error(error).into_response(),
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+An RPC can combine deletion with other durable writes. Enable transactional execution when a missing message must abort every write; see [Transactional reads and writes](/primitives/rpc#transactional-reads-and-writes).
 
 ## ChannelMap {#channelmap}
 

@@ -54,6 +54,7 @@ class ModelClient(Protocol):
         config: AgentConfig,
         previous_summary: str,
         messages: Sequence[AgentMessage],
+        flow_id: str | None = None,
     ) -> str: ...
 
     def count_tokens(self, model: str, messages: Sequence[AgentMessage]) -> int: ...
@@ -182,6 +183,7 @@ class LiteLLMModelClient:
         config: AgentConfig,
         previous_summary: str,
         messages: Sequence[AgentMessage],
+        flow_id: str | None = None,
     ) -> str:
         if config.model == "mock/dex":
             return _local_summary(previous_summary, messages)
@@ -192,9 +194,9 @@ class LiteLLMModelClient:
             [_message_as_json(message) for message in messages],
             ensure_ascii=False,
         )
-        response = await litellm.acompletion(
-            model=config.compaction_model or config.model,
-            messages=[
+        request: dict[str, Any] = {
+            "model": config.compaction_model or config.model,
+            "messages": [
                 {
                     "role": "system",
                     "content": (
@@ -208,7 +210,11 @@ class LiteLLMModelClient:
                     "content": f"Previous summary:\n{previous_summary}\n\nMessages:\n{transcript}",
                 },
             ],
-        )
+        }
+        api_key = self._credentials.get_api_key(flow_id)
+        if api_key is not None:
+            request["api_key"] = api_key
+        response = await litellm.acompletion(**request)
         content = response.choices[0].message.content
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError("the compaction model returned an empty summary")
@@ -718,7 +724,7 @@ def _to_litellm_messages(
     result: list[dict[str, Any]] = []
     if system_prompt:
         result.append({"role": "system", "content": system_prompt})
-    for message in messages:
+    for message in _without_orphan_tool_outputs(messages):
         item: dict[str, Any] = {"role": message.role, "content": message.content}
         if message.tool_calls:
             item["tool_calls"] = [
@@ -755,7 +761,7 @@ def _to_responses_input(
     messages: Sequence[AgentMessage],
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    for message in messages:
+    for message in _without_orphan_tool_outputs(messages):
         if message.role == "tool":
             if not message.tool_call_id:
                 raise ValueError("tool messages require a tool call ID")
@@ -787,6 +793,22 @@ def _to_responses_input(
             }
             for call in message.tool_calls
         )
+    return result
+
+
+def _without_orphan_tool_outputs(
+    messages: Sequence[AgentMessage],
+) -> list[AgentMessage]:
+    known_call_ids: set[str] = set()
+    result: list[AgentMessage] = []
+    for message in messages:
+        if message.role == "tool":
+            if message.tool_call_id not in known_call_ids:
+                continue
+            known_call_ids.remove(message.tool_call_id)
+        else:
+            known_call_ids.update(call.id for call in message.tool_calls)
+        result.append(message)
     return result
 
 

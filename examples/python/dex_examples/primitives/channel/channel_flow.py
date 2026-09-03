@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import timedelta
 
 from dex import (
@@ -32,6 +33,13 @@ from dex import (
     graceful_complete,
     rpc,
 )
+
+
+@dataclass(frozen=True)
+class MoveMessage:
+    message_id: str
+    value: str
+
 
 class ChannelWaitStep(Step[int]):
     def __init__(self, approval: Channel[str]) -> None:
@@ -52,6 +60,8 @@ class ChannelWaitStep(Step[int]):
 
 class ChannelFlow(Flow[int]):
     approval = Channel("Approval", str)
+    queued = Channel("Queued", str)
+    moved = Channel("Moved", str)
 
     def __init__(self) -> None:
         self.wait_for_approval = ChannelWaitStep(self.approval)
@@ -60,8 +70,13 @@ class ChannelFlow(Flow[int]):
         return StepList.start_step(self.wait_for_approval)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.approval)
+        return PersistenceSchema.of(self.approval, self.queued, self.moved)
 
     @rpc
     def approve(self, context: Context) -> None:
         self.approval.publish(context, "approved")
+
+    @rpc(is_transactional=True)
+    def move(self, context: Context, input: MoveMessage) -> None:
+        self.queued.delete(context, input.message_id)
+        self.moved.publish(context, input.value)

@@ -222,9 +222,10 @@ As the name says,
 
 [Timer](/primitives/timer), [Channel](/primitives/channel), and [SubFlow](/primitives/subflow) are the conditions that the waiting type can wait on.
 
-Note:
-
-* **ConditionID** is not required for AnyOf / AllOf, but only required for AnyCombinationOf
+**Until**, **AnyOf**, and **AllOf** accept Conditions without condition IDs. Do
+not add IDs merely because a Condition is nested in one of these waits.
+**AnyCombinationOf** is the exception: every referenced Condition needs a
+unique condition ID.
 
 
 <SdkTabs

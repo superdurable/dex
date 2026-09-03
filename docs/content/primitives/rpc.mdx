@@ -161,6 +161,83 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 </SdkSnippet>
 </SdkTabs>
 
+## Transactional reads and writes {#transactional-reads-and-writes}
+
+A transactional RPC performs its reads and writes as one atomic operation.
+
+An RPC that holds an Attribute lock is already transactional implicitly. You can also make an RPC explicitly transactional by setting **is_transactional=true**. This is especially useful for Channel message deletion because Dex validates that the message is still pending before committing any writes.
+
+The controller reads the pending message first, then passes its ID and Value to the transactional RPC. A concurrent consumer makes the deletion fail, so Dex does not publish a stale copy:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
+    go: 'examples/go/primitives/channel/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
+    typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
+    rust: 'examples/rust/src/primitives/channel/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(is_transactional=True)
+def move(self, context: Context, input: MoveMessage) -> None:
+    self.queued.delete(context, input.message_id)
+    self.moved.publish(context, input.value)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+err = controller.client.InvokeRPC(
+	request.Request.Context(),
+	flowID,
+	controller.flow.Move,
+	MoveMessage{MessageID: messageToMove.MessageID, Value: messageToMove.Value},
+	&none,
+	sdk.InvokeOptions{IsTransactional: true},
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(isTransactional = true)
+public void move(final Context context, final MoveMessage message) {
+    queued.delete(context, message.messageId);
+    moved.publish(context, message.value);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+@rpc({ isTransactional: true, inputCodec: moveMessageCodec })
+public move(context: Context, message: MoveMessage): void {
+  queued.delete(context, message.messageId);
+  moved.publish(context, message.value);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn rpcs(&self) -> RpcList<Self> {
+    RpcList::new()
+        .procedure_without_input(CHANNEL_APPROVE, Self::approve)
+        .procedure(CHANNEL_MOVE.is_transactional(), Self::move_message)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+A non-transactional RPC treats a missing deletion as a no-op and still commits its other successful effects. Cadence does not provide the same atomic guarantee for Channel deletion validation and writes. Design Cadence callers to tolerate that race.
+
 ## RPC timeout
 
 An RPC timeout limits one Worker handler invocation.

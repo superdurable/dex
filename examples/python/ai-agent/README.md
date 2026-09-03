@@ -11,14 +11,16 @@ model. Its local model echoes normal messages and understands `/wait <seconds>
 
 ## Architecture
 
-- `AgentMessages` is an AttributeMap. Each message is an independent value.
+- `AgentMessages` is an AttributeMap. Each value stores one message and its creation time.
 - `AgentPlan` atomically stores the current revision and ordered task list.
 - `ContextSummary` keeps the cumulative compaction summary.
-- Channels carry durable user messages, plan execution requests, and tool approvals.
+- `QueuedUserMessages` keeps user messages in a durable FIFO queue.
+- `SteeredUserMessages` carries explicit Steer messages to safe boundaries.
+- Other Channels carry plan execution requests and tool approvals.
 - `ReasoningSummary` uses a buffered text writer for OpenAI reasoning summaries.
 - `AssistantText` uses a separate buffered writer for visible response text.
 - `AgentActivity` is a best-effort Stream for tool and lifecycle progress.
-- The `durable_wait` tool uses a Dex Timer and can be interrupted by a user message.
+- The `durable_wait` tool uses a Dex Timer and can be interrupted by Steer.
 - Write, destructive, and unclassified MCP tools wait for explicit approval.
 
 The current AttributeMap retains 2,000 messages by default. Dex compacts older
@@ -48,6 +50,30 @@ progress, and completed tasks. If the model stops with unfinished work, the card
 remains active and offers **Continue plan**. A waiting Agent is not necessarily a
 completed plan.
 
+## Queue and Steer
+
+Submitting while the Agent loop is active adds a visible **Queued** message. The
+Agent does not consume it until the loop returns to **AwaitUser**. Before then,
+the UI can edit it, delete it, or choose **Steer**. Editing first deletes the
+pending message and puts its content back in the composer; submitting it again
+creates a new message at the queue tail.
+
+Steer uses a transactional RPC to delete the selected queued message and publish
+the same value to **SteeredUserMessages**. Dex applies it before the next model
+call, tool, approval wait, or Timer continuation. It does not cancel an LLM or MCP
+request already running. A Steer clears unexecuted tool calls and records durable
+cancellation results. Only Steer interrupts a tool approval or durable wait.
+
+The queue panel remains above the composer. It collapses to a compact status row
+when both queues are empty and expands automatically when a pending message appears.
+The browser page is the conversation scroll surface. The queue, user-input request,
+and composer stay fixed at the bottom while new activity remains visible above them.
+The UI treats the Server queue as canonical. It keeps a submitted item visible
+until the Server reports it as pending or the Flow consumes it into history. It
+refreshes immediately after each mutation, refreshes from Agent activity events
+and browser reconnection, and uses an eight-second fallback poll while the page
+is visible or the Agent is active.
+
 ## Run locally
 
 Start Dex, install the Python dependencies, and build the React application:
@@ -65,9 +91,10 @@ uv run --frozen python main.py
 ```
 
 Open [http://127.0.0.1:8080/products/ai-agent/](http://127.0.0.1:8080/products/ai-agent/).
-The first page is the Agent Portal. Choose a LiteLLM provider and model, enter an
-API key or use the Worker environment, and select the registered MCP servers and
-tools available to the new session.
+The first page is the Agent Portal. Choose a configured LiteLLM provider and
+model, then select the registered MCP servers and tools available to the new
+session. Providers without their required Worker environment variable remain
+visible but cannot be selected.
 
 The local MCP configuration starts credential-free search, Slack, and Google
 Docs demo servers before the Portal loads. Read operations run automatically.
@@ -85,19 +112,18 @@ selection buttons; otherwise the panel renders a free-form text box.
 
 ## Configure a real model
 
-Set the provider credential required by LiteLLM and select its model name:
+Add the provider credential required by LiteLLM to `examples/.env`:
 
 ```bash
-export OPENAI_API_KEY="..."
-export DEX_AGENT_MODEL="openai/gpt-5-mini"
+OPENAI_API_KEY="..."
 ```
 
-Other LiteLLM providers work the same way. The Portal may override the model and
-system prompt per conversation. A key entered in the Portal is held only in the
-Worker process for that Flow ID. It is cleared from the browser after startup and
-is never stored in a Dex Attribute, message, or Flow history. Environment variables
-remain the better choice for a deployed Worker or a session that must survive a
-Worker process restart.
+Restart the Python examples after changing the file. The Portal shows every
+supported provider, but providers without their environment variable are disabled.
+It never sends credentials to the browser. Shell environment variables take
+precedence over values in `examples/.env`. The selected credential is used for
+normal and context-compaction model calls and is never stored in a Dex Attribute,
+message, or Flow history.
 
 Worker defaults:
 
@@ -145,4 +171,5 @@ With `mock/dex`, send:
 ```
 
 Refresh the page while it waits. The Timer remains active. Send another message
-before it fires to interrupt the wait and let the Agent replan.
+before it fires, then choose **Steer** to interrupt the wait and let the Agent
+replan.

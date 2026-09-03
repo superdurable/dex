@@ -34,7 +34,8 @@ Application 会把每条 user、assistant 与 tool message 分别保存在 [Attr
     plan = Attribute("AgentPlan", AgentPlan)
     pending_approval = Attribute("PendingApproval", PendingApproval)
     pending_timer = Attribute("PendingTimer", PendingTimer)
-    user_messages = Channel("UserMessages", UserMessage)
+    queued_user_messages = Channel("QueuedUserMessages", UserMessage)
+    steered_user_messages = Channel("SteeredUserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
     plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
     reasoning_summary = Stream("ReasoningSummary", str, 10 * 1024 * 1024)
@@ -46,6 +47,14 @@ Application 会把每条 user、assistant 与 tool message 分别保存在 [Attr
 </SdkTabs>
 
 每个 map instance 都可以独立加载和更新，避免每次追加消息时重写不断增长的 conversation value。Dex blob storage 与 Worker BlobCache 会处理较大的 message 和 MCP result。
+
+## 排队消息与 Steer
+
+User message 会进入 durable **QueuedUserMessages** FIFO queue。Agent loop 运行期间，这些 message 会保持 pending，不会中断当前 model 或 tool call。Server 接受后，UI 会立即显示它们。只要 message 尚未被消费，用户就能 Edit、Delete 或选择 Steer。Edit 会先删除 pending message；重新提交时，它会带着新的 ID 加到 queue 尾部。
+
+Steer 会在一个 transaction 中删除选中的 queued message，并把相同 value 发布到 **SteeredUserMessages**。Agent 会在下一次 model call、tool、approval wait 或 Timer continuation 前检查这条 queue。它不会取消已经开始的 LLM 或 MCP request。到达下一个 safe boundary 后，Agent 会清除尚未执行的 tool call 与过期 approval 或 Timer state，记录结构化 cancellation result，再根据 Steer message 重新规划。
+
+Message queue 不是 chat history。Pending Channel message 尚未被 Agent 消费，因此可以修改。Message 被消费后会成为 durable conversation history，原 message ID 也随即失效。
 
 ## Durable plan
 
@@ -65,7 +74,7 @@ Example 支持 tool、resource、resource template、prompt、progress 与 loggi
 
 ## Durable wait
 
-内置 **durable_wait** tool 会把 Flow 移动到同时等待 [Timer](/primitives/timer) 与 user-message Channel 的 Step。Timer 可以跨 Worker restart 继续等待。新的用户消息会中断 Timer，并让 Agent 重新规划。
+内置 **durable_wait** tool 会把 Flow 移动到同时等待 [Timer](/primitives/timer) 与 **SteeredUserMessages** 的 Step。Timer 可以跨 Worker restart 继续等待。Queued message 会继续排队；选择 Steer 才会中断等待并让 Agent 重新规划。
 
 ## 实时 event
 
@@ -79,9 +88,11 @@ Tool progress、timer state 与 compaction status 使用另一个 Stream。Strea
 
 Flow 与 HTTP route 位于 [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent)。React UI 与 MCP 配置示例位于 [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent)。
 
-Application 默认先进入 Agent Portal。启动 Agent 前，可以选择 LiteLLM provider 和 model、输入可选 API key，并选择已注册的 MCP server 与 tool。Portal 中输入的 key 只保存在 Worker memory，不会写入 Dex state 或 Flow history。需要在 Worker process 重启后继续使用 credential 时，应配置 Worker environment variable。
+Application 默认先进入 Agent Portal。启动 Agent 前，先选择已配置的 LiteLLM provider 和 model，再选择已注册的 MCP server 与 tool。缺少所需 environment variable 的 provider 仍会显示，但无法选择。请把 credential 加到 **examples/.env**，然后重启 Python examples。Portal 不会把 credential value 发送到 browser，也不会写入 Dex state 或 Flow history。
 
 Local playground 会启动无需 credential 的 search、Slack 和 Google Docs demo MCP server。Model call 运行时，chat page 会分别展示 Thinking、Response 与 Agent activity。可以使用 **Command/Ctrl+Enter** 或 **Alt+Enter** 发送 message。当 work 需要用户输入时，内置 **request_user_input** tool 会在 conversation 中展开 durable input panel。已知答案会显示为选择按钮，开放式问题会显示文本框。Execution 会等待用户提交答案后再继续。
+
+Browser page 是 conversation 的 scroll surface。Queue、user-input request 与 composer 固定在窗口底部，新 activity 会持续显示在它们上方。Queue panel 为空时会折叠成紧凑的状态行；出现 pending message 时会自动展开。Active work 期间提交的 message 会在其中显示为 **Queued**。在 Server 报告它已 pending，或 Flow 已把它消费到 history 之前，UI 会一直保留已提交的 item。消费前可以用 **Edit** 或 **Delete**，也可以用 **Steer** 在下一个 safe boundary 让 Agent 处理它。
 
 ## 相关内容
 

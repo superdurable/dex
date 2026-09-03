@@ -55,11 +55,21 @@ Do not accept executable MCP commands, remote URLs, or credentials from an untru
 
 When the model needs a user reply, route the question through a durable input tool instead of assistant prose alone. Persist the pending question in an Attribute and wait on the user Channel. Expand an inline input panel in the conversation. Let the tool provide known choices for selection buttons; use free-form input when valid answers are not enumerable.
 
+## Separate queued messages from steering
+
+Use one Channel for queued user messages and another for steered messages. While the Agent loop is active, leave queued messages pending so the user can inspect, edit, delete, or explicitly steer them. Consume queued messages in FIFO order after the Agent reaches its user-input wait.
+
+Implement Steer with a transactional RPC that deletes the selected queued message ID and publishes its value to the steered Channel. Treat a missing ID as stale UI state and refresh the queue. Do not copy queued messages into conversation history until the Agent consumes them.
+
+Apply steered messages at safe Step boundaries. Do not cancel an in-flight model or tool invocation. Before the next model call, tool call, approval continuation, or timer continuation, drain steered messages, persist structured cancellation results for abandoned calls, clear stale approval or timer state, and let the model replan.
+
+Only steered messages should interrupt a pending approval or durable Timer. A queued message remains editable and does not alter active work until the Agent becomes idle or the user chooses Steer.
+
 ## Model long waits as Timer tools
 
 A durable wait tool should transition to a Step whose **WaitFor** returns a Timer condition. Do not keep a model call, MCP call, coroutine, or worker process blocked for the delay.
 
-To support interruption, race the Timer against a user-message Channel. If the user message wins, persist an interrupted tool result, consume the message, clear stale pending calls, and ask the model to replan.
+To support explicit interruption, race the Timer against the steered-message Channel. If that message wins, persist an interrupted tool result, consume the message, clear stale pending calls, and ask the model to replan. Leave queued messages pending until the Agent reaches its input wait.
 
 ## Verification
 

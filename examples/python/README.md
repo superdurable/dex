@@ -1,6 +1,7 @@
 # Dex Python examples
 
-These examples target [`dex-python-sdk==0.2.6`](https://pypi.org/project/dex-python-sdk/0.2.6/)
+These examples target the published Dex Python SDK version pinned in
+[`pyproject.toml`](./pyproject.toml)
 (`import dex`). Requires Python 3.11+.
 
 The primary sample process hosts one asyncio `AsyncWorker` on `127.0.0.1:8803` and a
@@ -59,7 +60,7 @@ after E2E tests for manual HTTP exploration.
 - [User onboarding process](./dex_examples/products/signup)
 - [Job posting](./dex_examples/products/job-post)
 - [Deal DSL](./dex_examples/products/deal_dsl)
-- [AI Agent](./ai-agent/) (Python only; durable plans, MCP tools, context compaction, and UI assets in [`ai-agent/`](./ai-agent))
+- [AI Agent](./ai-agent/) (Python only; durable plans, queued messages, Steer, MCP tools, context compaction, and UI assets in [`ai-agent/`](./ai-agent))
 
 ## Patterns
 

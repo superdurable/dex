@@ -21,6 +21,7 @@ from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.patterns.resource_control.controller_flow import SPOT_INSTANCE_IDS
 from dex_examples.patterns.resource_control.request import Request
+from dex_examples.primitives.channel.channel_flow import MoveMessage
 from dex_examples.products.ai_agent.ai_agent_flow import STATUS_WAITING
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
@@ -29,7 +30,7 @@ from dex_examples.products.ai_agent.models import (
 )
 from tests.integ.conftest import LONG_WAIT_TIMEOUT, WAIT_TIMEOUT, wait_until
 
-from dex import AsyncClient
+from dex import AsyncClient, ChannelMessageNotFoundError
 
 pytestmark = pytest.mark.integ
 
@@ -41,6 +42,42 @@ async def test_channel_approve_completes(
 ) -> None:
     flow_id = new_flow_id("channel")
     await client.start_flow(app.channel, flow_id, 5, start_options())
+    await client.invoke_rpc(app.channel.approve, flow_id)
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == "approved"
+
+
+async def test_channel_pending_messages_can_be_deleted_and_moved(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("channel-queue")
+    await client.start_flow(app.channel, flow_id, 30, start_options())
+    await client.publish(flow_id, app.channel.queued, "delete me")
+    await client.publish(flow_id, app.channel.queued, "move me")
+
+    pending = await client.get_channel_messages(flow_id, app.channel.queued)
+    assert [message.value for message in pending] == ["delete me", "move me"]
+
+    await client.delete_channel_message(
+        flow_id,
+        app.channel.queued,
+        pending[0].message_id,
+    )
+    move_message = MoveMessage(pending[1].message_id, pending[1].value)
+    await client.invoke_rpc(app.channel.move, flow_id, move_message)
+
+    assert not await client.get_channel_messages(flow_id, app.channel.queued)
+    moved = await client.get_channel_messages(flow_id, app.channel.moved)
+    assert [message.value for message in moved] == ["move me"]
+
+    with pytest.raises(ChannelMessageNotFoundError):
+        await client.invoke_rpc(app.channel.move, flow_id, move_message)
+    moved_after_failure = await client.get_channel_messages(flow_id, app.channel.moved)
+    assert [message.value for message in moved_after_failure] == ["move me"]
+
     await client.invoke_rpc(app.channel.approve, flow_id)
     assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
         str

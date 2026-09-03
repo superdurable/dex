@@ -361,8 +361,8 @@ export class ChannelMap<T> {
  * ```ts
  * const approvals = new Channel("approvals", stringCodec);
  * const wait = Wait.anyOf(
- *   approvals.forOne("approved"),
- *   Timer.byDuration(5 * 60_000, "timeout"),
+ *   approvals.forOne(),
+ *   Timer.byDuration(5 * 60_000),
  * );
  * ```
  */
@@ -386,6 +386,7 @@ export const Wait = Object.freeze({
   },
   /**
    * Creates a Wait for one condition.
+   * The Condition does not need a condition ID.
    * @param condition - The only readiness condition.
    * @returns An all-of Wait with the condition.
    */
@@ -394,6 +395,8 @@ export const Wait = Object.freeze({
   },
   /**
    * Creates a Wait requiring every condition.
+   * This combinator does not require condition IDs. Every Condition in
+   * `anyCombinationOf` does require one.
    * @param conditions - Conditions evaluated as one all-of group.
    * @returns An all-of Wait.
    */
@@ -402,6 +405,9 @@ export const Wait = Object.freeze({
   },
   /**
    * Creates a Wait that continues when any condition is ready.
+   * Conditions do not need condition IDs. Read Channel results from the Channel
+   * definition and inspect Timer outcomes through `Context`.
+   *
    * Channel consumption is not greedy across alternatives: only the selected condition consumes.
    * Other ready Channel conditions consume nothing.
    * @param conditions - Alternative readiness conditions.

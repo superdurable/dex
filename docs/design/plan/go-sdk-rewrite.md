@@ -2096,7 +2096,7 @@ func Timer(
 ) Condition
 ```
 
-Channel condition IDs are optional for `AllOf` and `AnyOf`:
+Channel condition IDs are optional for `Until`, `AllOf`, and `AnyOf`:
 
 ```go
 func WithConditionID(conditionID string) ConditionOption

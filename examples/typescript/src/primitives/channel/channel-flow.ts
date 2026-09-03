@@ -22,6 +22,7 @@ import {
   doubleCodec,
   goTo,
   gracefulComplete,
+  jsonCodec,
   rpc,
   stringCodec,
   type Context,
@@ -32,6 +33,15 @@ import {
 } from "@superdurable/dex";
 
 const approval = new Channel("Approval", stringCodec);
+export const queued = new Channel("Queued", stringCodec);
+export const moved = new Channel("Moved", stringCodec);
+
+export interface MoveMessage {
+  readonly messageId: string;
+  readonly value: string;
+}
+
+const moveMessageCodec = jsonCodec<MoveMessage>();
 
 class ChannelWait implements Step<number> {
   public readonly inputCodec = doubleCodec;
@@ -68,12 +78,18 @@ export class ChannelFlow implements Flow<number> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [approval] };
+    return { channels: [approval, queued, moved] };
   }
 
   @rpc()
   public approve(context: Context): void {
     approval.publish(context, "approved");
+  }
+
+  @rpc({ isTransactional: true, inputCodec: moveMessageCodec })
+  public move(context: Context, message: MoveMessage): void {
+    queued.delete(context, message.messageId);
+    moved.publish(context, message.value);
   }
 }
 
