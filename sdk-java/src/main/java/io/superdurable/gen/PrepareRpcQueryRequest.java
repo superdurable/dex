@@ -28,7 +28,11 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private PrepareRpcQueryRequest() {
-    lockAttributeKeys_ =
+    loadAttributeMapNames_ =
+        com.google.protobuf.LazyStringArrayList.emptyList();
+    loadChannelNames_ =
+        com.google.protobuf.LazyStringArrayList.emptyList();
+    loadChannelMapNames_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
   }
 
@@ -50,41 +54,115 @@ private static final long serialVersionUID = 0L;
             io.superdurable.gen.PrepareRpcQueryRequest.class, io.superdurable.gen.PrepareRpcQueryRequest.Builder.class);
   }
 
-  public static final int LOCK_ATTRIBUTE_KEYS_FIELD_NUMBER = 1;
+  public static final int LOAD_ATTRIBUTE_MAP_NAMES_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
-  private com.google.protobuf.LazyStringArrayList lockAttributeKeys_ =
+  private com.google.protobuf.LazyStringArrayList loadAttributeMapNames_ =
       com.google.protobuf.LazyStringArrayList.emptyList();
   /**
-   * <code>repeated string lock_attribute_keys = 1;</code>
-   * @return A list containing the lockAttributeKeys.
+   * <code>repeated string load_attribute_map_names = 1;</code>
+   * @return A list containing the loadAttributeMapNames.
    */
   public com.google.protobuf.ProtocolStringList
-      getLockAttributeKeysList() {
-    return lockAttributeKeys_;
+      getLoadAttributeMapNamesList() {
+    return loadAttributeMapNames_;
   }
   /**
-   * <code>repeated string lock_attribute_keys = 1;</code>
-   * @return The count of lockAttributeKeys.
+   * <code>repeated string load_attribute_map_names = 1;</code>
+   * @return The count of loadAttributeMapNames.
    */
-  public int getLockAttributeKeysCount() {
-    return lockAttributeKeys_.size();
+  public int getLoadAttributeMapNamesCount() {
+    return loadAttributeMapNames_.size();
   }
   /**
-   * <code>repeated string lock_attribute_keys = 1;</code>
+   * <code>repeated string load_attribute_map_names = 1;</code>
    * @param index The index of the element to return.
-   * @return The lockAttributeKeys at the given index.
+   * @return The loadAttributeMapNames at the given index.
    */
-  public java.lang.String getLockAttributeKeys(int index) {
-    return lockAttributeKeys_.get(index);
+  public java.lang.String getLoadAttributeMapNames(int index) {
+    return loadAttributeMapNames_.get(index);
   }
   /**
-   * <code>repeated string lock_attribute_keys = 1;</code>
+   * <code>repeated string load_attribute_map_names = 1;</code>
    * @param index The index of the value to return.
-   * @return The bytes of the lockAttributeKeys at the given index.
+   * @return The bytes of the loadAttributeMapNames at the given index.
    */
   public com.google.protobuf.ByteString
-      getLockAttributeKeysBytes(int index) {
-    return lockAttributeKeys_.getByteString(index);
+      getLoadAttributeMapNamesBytes(int index) {
+    return loadAttributeMapNames_.getByteString(index);
+  }
+
+  public static final int LOAD_CHANNEL_NAMES_FIELD_NUMBER = 2;
+  @SuppressWarnings("serial")
+  private com.google.protobuf.LazyStringArrayList loadChannelNames_ =
+      com.google.protobuf.LazyStringArrayList.emptyList();
+  /**
+   * <code>repeated string load_channel_names = 2;</code>
+   * @return A list containing the loadChannelNames.
+   */
+  public com.google.protobuf.ProtocolStringList
+      getLoadChannelNamesList() {
+    return loadChannelNames_;
+  }
+  /**
+   * <code>repeated string load_channel_names = 2;</code>
+   * @return The count of loadChannelNames.
+   */
+  public int getLoadChannelNamesCount() {
+    return loadChannelNames_.size();
+  }
+  /**
+   * <code>repeated string load_channel_names = 2;</code>
+   * @param index The index of the element to return.
+   * @return The loadChannelNames at the given index.
+   */
+  public java.lang.String getLoadChannelNames(int index) {
+    return loadChannelNames_.get(index);
+  }
+  /**
+   * <code>repeated string load_channel_names = 2;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadChannelNames at the given index.
+   */
+  public com.google.protobuf.ByteString
+      getLoadChannelNamesBytes(int index) {
+    return loadChannelNames_.getByteString(index);
+  }
+
+  public static final int LOAD_CHANNEL_MAP_NAMES_FIELD_NUMBER = 3;
+  @SuppressWarnings("serial")
+  private com.google.protobuf.LazyStringArrayList loadChannelMapNames_ =
+      com.google.protobuf.LazyStringArrayList.emptyList();
+  /**
+   * <code>repeated string load_channel_map_names = 3;</code>
+   * @return A list containing the loadChannelMapNames.
+   */
+  public com.google.protobuf.ProtocolStringList
+      getLoadChannelMapNamesList() {
+    return loadChannelMapNames_;
+  }
+  /**
+   * <code>repeated string load_channel_map_names = 3;</code>
+   * @return The count of loadChannelMapNames.
+   */
+  public int getLoadChannelMapNamesCount() {
+    return loadChannelMapNames_.size();
+  }
+  /**
+   * <code>repeated string load_channel_map_names = 3;</code>
+   * @param index The index of the element to return.
+   * @return The loadChannelMapNames at the given index.
+   */
+  public java.lang.String getLoadChannelMapNames(int index) {
+    return loadChannelMapNames_.get(index);
+  }
+  /**
+   * <code>repeated string load_channel_map_names = 3;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadChannelMapNames at the given index.
+   */
+  public com.google.protobuf.ByteString
+      getLoadChannelMapNamesBytes(int index) {
+    return loadChannelMapNames_.getByteString(index);
   }
 
   private byte memoizedIsInitialized = -1;
@@ -101,8 +179,14 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    for (int i = 0; i < lockAttributeKeys_.size(); i++) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 1, lockAttributeKeys_.getRaw(i));
+    for (int i = 0; i < loadAttributeMapNames_.size(); i++) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 1, loadAttributeMapNames_.getRaw(i));
+    }
+    for (int i = 0; i < loadChannelNames_.size(); i++) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 2, loadChannelNames_.getRaw(i));
+    }
+    for (int i = 0; i < loadChannelMapNames_.size(); i++) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 3, loadChannelMapNames_.getRaw(i));
     }
     getUnknownFields().writeTo(output);
   }
@@ -110,11 +194,27 @@ private static final long serialVersionUID = 0L;
     int size = 0;
     {
       int dataSize = 0;
-      for (int i = 0; i < lockAttributeKeys_.size(); i++) {
-        dataSize += computeStringSizeNoTag(lockAttributeKeys_.getRaw(i));
+      for (int i = 0; i < loadAttributeMapNames_.size(); i++) {
+        dataSize += computeStringSizeNoTag(loadAttributeMapNames_.getRaw(i));
       }
       size += dataSize;
-      size += 1 * getLockAttributeKeysList().size();
+      size += 1 * getLoadAttributeMapNamesList().size();
+    }
+    {
+      int dataSize = 0;
+      for (int i = 0; i < loadChannelNames_.size(); i++) {
+        dataSize += computeStringSizeNoTag(loadChannelNames_.getRaw(i));
+      }
+      size += dataSize;
+      size += 1 * getLoadChannelNamesList().size();
+    }
+    {
+      int dataSize = 0;
+      for (int i = 0; i < loadChannelMapNames_.size(); i++) {
+        dataSize += computeStringSizeNoTag(loadChannelMapNames_.getRaw(i));
+      }
+      size += dataSize;
+      size += 1 * getLoadChannelMapNamesList().size();
     }
     return size;
   }
@@ -140,8 +240,12 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.PrepareRpcQueryRequest other = (io.superdurable.gen.PrepareRpcQueryRequest) obj;
 
-    if (!getLockAttributeKeysList()
-        .equals(other.getLockAttributeKeysList())) return false;
+    if (!getLoadAttributeMapNamesList()
+        .equals(other.getLoadAttributeMapNamesList())) return false;
+    if (!getLoadChannelNamesList()
+        .equals(other.getLoadChannelNamesList())) return false;
+    if (!getLoadChannelMapNamesList()
+        .equals(other.getLoadChannelMapNamesList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -153,9 +257,17 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    if (getLockAttributeKeysCount() > 0) {
-      hash = (37 * hash) + LOCK_ATTRIBUTE_KEYS_FIELD_NUMBER;
-      hash = (53 * hash) + getLockAttributeKeysList().hashCode();
+    if (getLoadAttributeMapNamesCount() > 0) {
+      hash = (37 * hash) + LOAD_ATTRIBUTE_MAP_NAMES_FIELD_NUMBER;
+      hash = (53 * hash) + getLoadAttributeMapNamesList().hashCode();
+    }
+    if (getLoadChannelNamesCount() > 0) {
+      hash = (37 * hash) + LOAD_CHANNEL_NAMES_FIELD_NUMBER;
+      hash = (53 * hash) + getLoadChannelNamesList().hashCode();
+    }
+    if (getLoadChannelMapNamesCount() > 0) {
+      hash = (37 * hash) + LOAD_CHANNEL_MAP_NAMES_FIELD_NUMBER;
+      hash = (53 * hash) + getLoadChannelMapNamesList().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -288,7 +400,11 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      lockAttributeKeys_ =
+      loadAttributeMapNames_ =
+          com.google.protobuf.LazyStringArrayList.emptyList();
+      loadChannelNames_ =
+          com.google.protobuf.LazyStringArrayList.emptyList();
+      loadChannelMapNames_ =
           com.google.protobuf.LazyStringArrayList.emptyList();
       return this;
     }
@@ -324,8 +440,16 @@ private static final long serialVersionUID = 0L;
     private void buildPartial0(io.superdurable.gen.PrepareRpcQueryRequest result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        lockAttributeKeys_.makeImmutable();
-        result.lockAttributeKeys_ = lockAttributeKeys_;
+        loadAttributeMapNames_.makeImmutable();
+        result.loadAttributeMapNames_ = loadAttributeMapNames_;
+      }
+      if (((from_bitField0_ & 0x00000002) != 0)) {
+        loadChannelNames_.makeImmutable();
+        result.loadChannelNames_ = loadChannelNames_;
+      }
+      if (((from_bitField0_ & 0x00000004) != 0)) {
+        loadChannelMapNames_.makeImmutable();
+        result.loadChannelMapNames_ = loadChannelMapNames_;
       }
     }
 
@@ -341,13 +465,33 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.PrepareRpcQueryRequest other) {
       if (other == io.superdurable.gen.PrepareRpcQueryRequest.getDefaultInstance()) return this;
-      if (!other.lockAttributeKeys_.isEmpty()) {
-        if (lockAttributeKeys_.isEmpty()) {
-          lockAttributeKeys_ = other.lockAttributeKeys_;
+      if (!other.loadAttributeMapNames_.isEmpty()) {
+        if (loadAttributeMapNames_.isEmpty()) {
+          loadAttributeMapNames_ = other.loadAttributeMapNames_;
           bitField0_ |= 0x00000001;
         } else {
-          ensureLockAttributeKeysIsMutable();
-          lockAttributeKeys_.addAll(other.lockAttributeKeys_);
+          ensureLoadAttributeMapNamesIsMutable();
+          loadAttributeMapNames_.addAll(other.loadAttributeMapNames_);
+        }
+        onChanged();
+      }
+      if (!other.loadChannelNames_.isEmpty()) {
+        if (loadChannelNames_.isEmpty()) {
+          loadChannelNames_ = other.loadChannelNames_;
+          bitField0_ |= 0x00000002;
+        } else {
+          ensureLoadChannelNamesIsMutable();
+          loadChannelNames_.addAll(other.loadChannelNames_);
+        }
+        onChanged();
+      }
+      if (!other.loadChannelMapNames_.isEmpty()) {
+        if (loadChannelMapNames_.isEmpty()) {
+          loadChannelMapNames_ = other.loadChannelMapNames_;
+          bitField0_ |= 0x00000004;
+        } else {
+          ensureLoadChannelMapNamesIsMutable();
+          loadChannelMapNames_.addAll(other.loadChannelMapNames_);
         }
         onChanged();
       }
@@ -378,10 +522,20 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              ensureLockAttributeKeysIsMutable();
-              lockAttributeKeys_.add(input.readStringRequireUtf8());
+              ensureLoadAttributeMapNamesIsMutable();
+              loadAttributeMapNames_.add(input.readStringRequireUtf8());
               break;
             } // case 10
+            case 18: {
+              ensureLoadChannelNamesIsMutable();
+              loadChannelNames_.add(input.readStringRequireUtf8());
+              break;
+            } // case 18
+            case 26: {
+              ensureLoadChannelMapNamesIsMutable();
+              loadChannelMapNames_.add(input.readStringRequireUtf8());
+              break;
+            } // case 26
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -399,113 +553,335 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private com.google.protobuf.LazyStringArrayList lockAttributeKeys_ =
+    private com.google.protobuf.LazyStringArrayList loadAttributeMapNames_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
-    private void ensureLockAttributeKeysIsMutable() {
-      if (!lockAttributeKeys_.isModifiable()) {
-        lockAttributeKeys_ = new com.google.protobuf.LazyStringArrayList(lockAttributeKeys_);
+    private void ensureLoadAttributeMapNamesIsMutable() {
+      if (!loadAttributeMapNames_.isModifiable()) {
+        loadAttributeMapNames_ = new com.google.protobuf.LazyStringArrayList(loadAttributeMapNames_);
       }
       bitField0_ |= 0x00000001;
     }
     /**
-     * <code>repeated string lock_attribute_keys = 1;</code>
-     * @return A list containing the lockAttributeKeys.
+     * <code>repeated string load_attribute_map_names = 1;</code>
+     * @return A list containing the loadAttributeMapNames.
      */
     public com.google.protobuf.ProtocolStringList
-        getLockAttributeKeysList() {
-      lockAttributeKeys_.makeImmutable();
-      return lockAttributeKeys_;
+        getLoadAttributeMapNamesList() {
+      loadAttributeMapNames_.makeImmutable();
+      return loadAttributeMapNames_;
     }
     /**
-     * <code>repeated string lock_attribute_keys = 1;</code>
-     * @return The count of lockAttributeKeys.
+     * <code>repeated string load_attribute_map_names = 1;</code>
+     * @return The count of loadAttributeMapNames.
      */
-    public int getLockAttributeKeysCount() {
-      return lockAttributeKeys_.size();
+    public int getLoadAttributeMapNamesCount() {
+      return loadAttributeMapNames_.size();
     }
     /**
-     * <code>repeated string lock_attribute_keys = 1;</code>
+     * <code>repeated string load_attribute_map_names = 1;</code>
      * @param index The index of the element to return.
-     * @return The lockAttributeKeys at the given index.
+     * @return The loadAttributeMapNames at the given index.
      */
-    public java.lang.String getLockAttributeKeys(int index) {
-      return lockAttributeKeys_.get(index);
+    public java.lang.String getLoadAttributeMapNames(int index) {
+      return loadAttributeMapNames_.get(index);
     }
     /**
-     * <code>repeated string lock_attribute_keys = 1;</code>
+     * <code>repeated string load_attribute_map_names = 1;</code>
      * @param index The index of the value to return.
-     * @return The bytes of the lockAttributeKeys at the given index.
+     * @return The bytes of the loadAttributeMapNames at the given index.
      */
     public com.google.protobuf.ByteString
-        getLockAttributeKeysBytes(int index) {
-      return lockAttributeKeys_.getByteString(index);
+        getLoadAttributeMapNamesBytes(int index) {
+      return loadAttributeMapNames_.getByteString(index);
     }
     /**
-     * <code>repeated string lock_attribute_keys = 1;</code>
+     * <code>repeated string load_attribute_map_names = 1;</code>
      * @param index The index to set the value at.
-     * @param value The lockAttributeKeys to set.
+     * @param value The loadAttributeMapNames to set.
      * @return This builder for chaining.
      */
-    public Builder setLockAttributeKeys(
+    public Builder setLoadAttributeMapNames(
         int index, java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      ensureLockAttributeKeysIsMutable();
-      lockAttributeKeys_.set(index, value);
+      ensureLoadAttributeMapNamesIsMutable();
+      loadAttributeMapNames_.set(index, value);
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>repeated string lock_attribute_keys = 1;</code>
-     * @param value The lockAttributeKeys to add.
+     * <code>repeated string load_attribute_map_names = 1;</code>
+     * @param value The loadAttributeMapNames to add.
      * @return This builder for chaining.
      */
-    public Builder addLockAttributeKeys(
+    public Builder addLoadAttributeMapNames(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      ensureLockAttributeKeysIsMutable();
-      lockAttributeKeys_.add(value);
+      ensureLoadAttributeMapNamesIsMutable();
+      loadAttributeMapNames_.add(value);
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>repeated string lock_attribute_keys = 1;</code>
-     * @param values The lockAttributeKeys to add.
+     * <code>repeated string load_attribute_map_names = 1;</code>
+     * @param values The loadAttributeMapNames to add.
      * @return This builder for chaining.
      */
-    public Builder addAllLockAttributeKeys(
+    public Builder addAllLoadAttributeMapNames(
         java.lang.Iterable<java.lang.String> values) {
-      ensureLockAttributeKeysIsMutable();
+      ensureLoadAttributeMapNamesIsMutable();
       com.google.protobuf.AbstractMessageLite.Builder.addAll(
-          values, lockAttributeKeys_);
+          values, loadAttributeMapNames_);
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>repeated string lock_attribute_keys = 1;</code>
+     * <code>repeated string load_attribute_map_names = 1;</code>
      * @return This builder for chaining.
      */
-    public Builder clearLockAttributeKeys() {
-      lockAttributeKeys_ =
+    public Builder clearLoadAttributeMapNames() {
+      loadAttributeMapNames_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
       bitField0_ = (bitField0_ & ~0x00000001);;
       onChanged();
       return this;
     }
     /**
-     * <code>repeated string lock_attribute_keys = 1;</code>
-     * @param value The bytes of the lockAttributeKeys to add.
+     * <code>repeated string load_attribute_map_names = 1;</code>
+     * @param value The bytes of the loadAttributeMapNames to add.
      * @return This builder for chaining.
      */
-    public Builder addLockAttributeKeysBytes(
+    public Builder addLoadAttributeMapNamesBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
-      ensureLockAttributeKeysIsMutable();
-      lockAttributeKeys_.add(value);
+      ensureLoadAttributeMapNamesIsMutable();
+      loadAttributeMapNames_.add(value);
       bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+
+    private com.google.protobuf.LazyStringArrayList loadChannelNames_ =
+        com.google.protobuf.LazyStringArrayList.emptyList();
+    private void ensureLoadChannelNamesIsMutable() {
+      if (!loadChannelNames_.isModifiable()) {
+        loadChannelNames_ = new com.google.protobuf.LazyStringArrayList(loadChannelNames_);
+      }
+      bitField0_ |= 0x00000002;
+    }
+    /**
+     * <code>repeated string load_channel_names = 2;</code>
+     * @return A list containing the loadChannelNames.
+     */
+    public com.google.protobuf.ProtocolStringList
+        getLoadChannelNamesList() {
+      loadChannelNames_.makeImmutable();
+      return loadChannelNames_;
+    }
+    /**
+     * <code>repeated string load_channel_names = 2;</code>
+     * @return The count of loadChannelNames.
+     */
+    public int getLoadChannelNamesCount() {
+      return loadChannelNames_.size();
+    }
+    /**
+     * <code>repeated string load_channel_names = 2;</code>
+     * @param index The index of the element to return.
+     * @return The loadChannelNames at the given index.
+     */
+    public java.lang.String getLoadChannelNames(int index) {
+      return loadChannelNames_.get(index);
+    }
+    /**
+     * <code>repeated string load_channel_names = 2;</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the loadChannelNames at the given index.
+     */
+    public com.google.protobuf.ByteString
+        getLoadChannelNamesBytes(int index) {
+      return loadChannelNames_.getByteString(index);
+    }
+    /**
+     * <code>repeated string load_channel_names = 2;</code>
+     * @param index The index to set the value at.
+     * @param value The loadChannelNames to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLoadChannelNames(
+        int index, java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      ensureLoadChannelNamesIsMutable();
+      loadChannelNames_.set(index, value);
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string load_channel_names = 2;</code>
+     * @param value The loadChannelNames to add.
+     * @return This builder for chaining.
+     */
+    public Builder addLoadChannelNames(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      ensureLoadChannelNamesIsMutable();
+      loadChannelNames_.add(value);
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string load_channel_names = 2;</code>
+     * @param values The loadChannelNames to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllLoadChannelNames(
+        java.lang.Iterable<java.lang.String> values) {
+      ensureLoadChannelNamesIsMutable();
+      com.google.protobuf.AbstractMessageLite.Builder.addAll(
+          values, loadChannelNames_);
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string load_channel_names = 2;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLoadChannelNames() {
+      loadChannelNames_ =
+        com.google.protobuf.LazyStringArrayList.emptyList();
+      bitField0_ = (bitField0_ & ~0x00000002);;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string load_channel_names = 2;</code>
+     * @param value The bytes of the loadChannelNames to add.
+     * @return This builder for chaining.
+     */
+    public Builder addLoadChannelNamesBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      ensureLoadChannelNamesIsMutable();
+      loadChannelNames_.add(value);
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+
+    private com.google.protobuf.LazyStringArrayList loadChannelMapNames_ =
+        com.google.protobuf.LazyStringArrayList.emptyList();
+    private void ensureLoadChannelMapNamesIsMutable() {
+      if (!loadChannelMapNames_.isModifiable()) {
+        loadChannelMapNames_ = new com.google.protobuf.LazyStringArrayList(loadChannelMapNames_);
+      }
+      bitField0_ |= 0x00000004;
+    }
+    /**
+     * <code>repeated string load_channel_map_names = 3;</code>
+     * @return A list containing the loadChannelMapNames.
+     */
+    public com.google.protobuf.ProtocolStringList
+        getLoadChannelMapNamesList() {
+      loadChannelMapNames_.makeImmutable();
+      return loadChannelMapNames_;
+    }
+    /**
+     * <code>repeated string load_channel_map_names = 3;</code>
+     * @return The count of loadChannelMapNames.
+     */
+    public int getLoadChannelMapNamesCount() {
+      return loadChannelMapNames_.size();
+    }
+    /**
+     * <code>repeated string load_channel_map_names = 3;</code>
+     * @param index The index of the element to return.
+     * @return The loadChannelMapNames at the given index.
+     */
+    public java.lang.String getLoadChannelMapNames(int index) {
+      return loadChannelMapNames_.get(index);
+    }
+    /**
+     * <code>repeated string load_channel_map_names = 3;</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the loadChannelMapNames at the given index.
+     */
+    public com.google.protobuf.ByteString
+        getLoadChannelMapNamesBytes(int index) {
+      return loadChannelMapNames_.getByteString(index);
+    }
+    /**
+     * <code>repeated string load_channel_map_names = 3;</code>
+     * @param index The index to set the value at.
+     * @param value The loadChannelMapNames to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLoadChannelMapNames(
+        int index, java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      ensureLoadChannelMapNamesIsMutable();
+      loadChannelMapNames_.set(index, value);
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string load_channel_map_names = 3;</code>
+     * @param value The loadChannelMapNames to add.
+     * @return This builder for chaining.
+     */
+    public Builder addLoadChannelMapNames(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      ensureLoadChannelMapNamesIsMutable();
+      loadChannelMapNames_.add(value);
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string load_channel_map_names = 3;</code>
+     * @param values The loadChannelMapNames to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllLoadChannelMapNames(
+        java.lang.Iterable<java.lang.String> values) {
+      ensureLoadChannelMapNamesIsMutable();
+      com.google.protobuf.AbstractMessageLite.Builder.addAll(
+          values, loadChannelMapNames_);
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string load_channel_map_names = 3;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLoadChannelMapNames() {
+      loadChannelMapNames_ =
+        com.google.protobuf.LazyStringArrayList.emptyList();
+      bitField0_ = (bitField0_ & ~0x00000004);;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>repeated string load_channel_map_names = 3;</code>
+     * @param value The bytes of the loadChannelMapNames to add.
+     * @return This builder for chaining.
+     */
+    public Builder addLoadChannelMapNamesBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      ensureLoadChannelMapNamesIsMutable();
+      loadChannelMapNames_.add(value);
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }

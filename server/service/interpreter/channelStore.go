@@ -12,6 +12,8 @@ package interpreter
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/interpreter/condition"
@@ -109,6 +111,33 @@ func (i *ChannelStore) GetInfos() map[string]*dexpb.ChannelInfo {
 		infos[name] = &dexpb.ChannelInfo{Size: int32(len(values))}
 	}
 	return infos
+}
+
+// GetLoadedMessages returns pending envelopes for selected Channel definitions.
+func (i *ChannelStore) GetLoadedMessages(
+	channelNames []string,
+	channelMapNames []string,
+) map[string]*dexpb.ChannelValues {
+	loaded := make(map[string]*dexpb.ChannelValues, len(channelNames))
+	for _, name := range channelNames {
+		loaded[name] = &dexpb.ChannelValues{Messages: i.channelMessages[name]}
+	}
+	physicalNames := make([]string, 0, len(i.channelMessages))
+	for name := range i.channelMessages {
+		physicalNames = append(physicalNames, name)
+	}
+	sort.Strings(physicalNames)
+	for _, mapName := range channelMapNames {
+		prefix := mapName + "/"
+		for _, physicalName := range physicalNames {
+			if strings.HasPrefix(physicalName, prefix) {
+				loaded[physicalName] = &dexpb.ChannelValues{
+					Messages: i.channelMessages[physicalName],
+				}
+			}
+		}
+	}
+	return loaded
 }
 
 // GetAllReceived returns the current messages.

@@ -12,6 +12,7 @@ package interpreter
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/common/index"
@@ -106,11 +107,42 @@ func (am *PersistenceManager) TryLoadAttributes(
 	return am.GetAllAttributes(), true
 }
 
+// TryLoadRPCAttributes locks keys and loads the requested RPC Attribute state.
+func (am *PersistenceManager) TryLoadRPCAttributes(
+	keysToLock []string,
+	attributeMapNames []string,
+) ([]*dexpb.KV, bool) {
+	if !am.CanLockKeys(keysToLock) {
+		return nil, false
+	}
+	am.lockKeys(keysToLock)
+	return am.GetRPCAttributes(attributeMapNames), true
+}
+
 func (am *PersistenceManager) GetAllAttributes() []*dexpb.KV {
 	attributes := make([]*dexpb.KV, 0, len(am.attributes))
 
 	// NOTE: using sortedAttributeKeys so that the protobuf snapshot for continueAsNew is stable for pagination
 	for _, key := range sortedAttributeKeys(am.attributes) {
+		attributes = append(attributes, &dexpb.KV{Key: key, Value: am.attributes[key]})
+	}
+	return attributes
+}
+
+// GetRPCAttributes returns ordinary Attributes and selected AttributeMap entries.
+func (am *PersistenceManager) GetRPCAttributes(attributeMapNames []string) []*dexpb.KV {
+	attributeMapPrefixes := make(map[string]struct{}, len(attributeMapNames))
+	for _, name := range attributeMapNames {
+		attributeMapPrefixes[name+"/"] = struct{}{}
+	}
+	attributes := make([]*dexpb.KV, 0, len(am.attributes))
+	for _, key := range sortedAttributeKeys(am.attributes) {
+		separatorIndex := strings.IndexByte(key, '/')
+		if separatorIndex >= 0 {
+			if _, loaded := attributeMapPrefixes[key[:separatorIndex+1]]; !loaded {
+				continue
+			}
+		}
 		attributes = append(attributes, &dexpb.KV{Key: key, Value: am.attributes[key]})
 	}
 	return attributes

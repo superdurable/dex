@@ -6,14 +6,26 @@ Learn about the programming model in the [Dex documentation](https://docs.superd
 
 Channel messages are stored as FIFO envelopes with server-generated UUIDv7
 identities. FlowService can list all pending messages for one Channel or delete
-one by ID. Temporal deletion uses a synchronous Update. Cadence uses a query
-followed by a signal and therefore provides best-effort race semantics.
+one by ID. Cadence deletion provides best-effort race semantics.
 
-Worker RPC responses may stage Channel deletions. Transactional Temporal RPCs
-validate every deletion before any Flow mutation. Attribute locking enables a
-transaction automatically; Channel deletion requires an explicit transactional
-request. Signal RPCs ignore missing deletions and continue applying their
-remaining side effects.
+Worker RPC responses may stage Channel deletions. Transactional RPCs validate
+every deletion before any Flow mutation on supported backends. Attribute
+locking enables transactional execution automatically; Channel deletion
+requires an explicit transactional request. Nontransactional RPCs ignore
+missing deletions and continue applying their remaining side effects. Cadence
+does not provide the same atomicity.
+
+Worker RPCs receive ordinary Attributes and all Channel size metadata by
+default. Callers explicitly select AttributeMap definitions and Channel or
+ChannelMap definitions when the handler needs their entries or pending message
+envelopes. Selecting a ChannelMap loads every current instance. Empty selections
+are echoed separately from their loaded data.
+
+State loading controls only the Worker request projection. Transactional
+execution controls atomic commit and Channel deletion validation. Attribute
+locking additionally isolates cooperating Steps and RPCs that use the same
+lock. A transactional RPC without a shared lock does not prevent another
+operation from changing loaded collection state while its handler runs.
 
 ## Local development
 

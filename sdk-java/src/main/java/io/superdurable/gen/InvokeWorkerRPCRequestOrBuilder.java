@@ -121,4 +121,113 @@ io.superdurable.gen.ChannelInfo defaultValue);
    */
   io.superdurable.gen.ChannelInfo getChannelInfosOrThrow(
       java.lang.String key);
+
+  /**
+   * <code>map&lt;string, .dex.ChannelValues&gt; loaded_channel_messages = 7;</code>
+   */
+  int getLoadedChannelMessagesCount();
+  /**
+   * <code>map&lt;string, .dex.ChannelValues&gt; loaded_channel_messages = 7;</code>
+   */
+  boolean containsLoadedChannelMessages(
+      java.lang.String key);
+  /**
+   * Use {@link #getLoadedChannelMessagesMap()} instead.
+   */
+  @java.lang.Deprecated
+  java.util.Map<java.lang.String, io.superdurable.gen.ChannelValues>
+  getLoadedChannelMessages();
+  /**
+   * <code>map&lt;string, .dex.ChannelValues&gt; loaded_channel_messages = 7;</code>
+   */
+  java.util.Map<java.lang.String, io.superdurable.gen.ChannelValues>
+  getLoadedChannelMessagesMap();
+  /**
+   * <code>map&lt;string, .dex.ChannelValues&gt; loaded_channel_messages = 7;</code>
+   */
+  /* nullable */
+io.superdurable.gen.ChannelValues getLoadedChannelMessagesOrDefault(
+      java.lang.String key,
+      /* nullable */
+io.superdurable.gen.ChannelValues defaultValue);
+  /**
+   * <code>map&lt;string, .dex.ChannelValues&gt; loaded_channel_messages = 7;</code>
+   */
+  io.superdurable.gen.ChannelValues getLoadedChannelMessagesOrThrow(
+      java.lang.String key);
+
+  /**
+   * <code>repeated string loaded_attribute_map_names = 8;</code>
+   * @return A list containing the loadedAttributeMapNames.
+   */
+  java.util.List<java.lang.String>
+      getLoadedAttributeMapNamesList();
+  /**
+   * <code>repeated string loaded_attribute_map_names = 8;</code>
+   * @return The count of loadedAttributeMapNames.
+   */
+  int getLoadedAttributeMapNamesCount();
+  /**
+   * <code>repeated string loaded_attribute_map_names = 8;</code>
+   * @param index The index of the element to return.
+   * @return The loadedAttributeMapNames at the given index.
+   */
+  java.lang.String getLoadedAttributeMapNames(int index);
+  /**
+   * <code>repeated string loaded_attribute_map_names = 8;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadedAttributeMapNames at the given index.
+   */
+  com.google.protobuf.ByteString
+      getLoadedAttributeMapNamesBytes(int index);
+
+  /**
+   * <code>repeated string loaded_channel_names = 9;</code>
+   * @return A list containing the loadedChannelNames.
+   */
+  java.util.List<java.lang.String>
+      getLoadedChannelNamesList();
+  /**
+   * <code>repeated string loaded_channel_names = 9;</code>
+   * @return The count of loadedChannelNames.
+   */
+  int getLoadedChannelNamesCount();
+  /**
+   * <code>repeated string loaded_channel_names = 9;</code>
+   * @param index The index of the element to return.
+   * @return The loadedChannelNames at the given index.
+   */
+  java.lang.String getLoadedChannelNames(int index);
+  /**
+   * <code>repeated string loaded_channel_names = 9;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadedChannelNames at the given index.
+   */
+  com.google.protobuf.ByteString
+      getLoadedChannelNamesBytes(int index);
+
+  /**
+   * <code>repeated string loaded_channel_map_names = 10;</code>
+   * @return A list containing the loadedChannelMapNames.
+   */
+  java.util.List<java.lang.String>
+      getLoadedChannelMapNamesList();
+  /**
+   * <code>repeated string loaded_channel_map_names = 10;</code>
+   * @return The count of loadedChannelMapNames.
+   */
+  int getLoadedChannelMapNamesCount();
+  /**
+   * <code>repeated string loaded_channel_map_names = 10;</code>
+   * @param index The index of the element to return.
+   * @return The loadedChannelMapNames at the given index.
+   */
+  java.lang.String getLoadedChannelMapNames(int index);
+  /**
+   * <code>repeated string loaded_channel_map_names = 10;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadedChannelMapNames at the given index.
+   */
+  com.google.protobuf.ByteString
+      getLoadedChannelMapNamesBytes(int index);
 }

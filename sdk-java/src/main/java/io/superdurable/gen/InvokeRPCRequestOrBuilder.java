@@ -150,4 +150,127 @@ public interface InvokeRPCRequestOrBuilder extends
    * @return The isTransactional.
    */
   boolean getIsTransactional();
+
+  /**
+   * <pre>
+   * AttributeMap definitions whose entries are loaded for the RPC handler.
+   * </pre>
+   *
+   * <code>repeated string load_attribute_map_names = 9;</code>
+   * @return A list containing the loadAttributeMapNames.
+   */
+  java.util.List<java.lang.String>
+      getLoadAttributeMapNamesList();
+  /**
+   * <pre>
+   * AttributeMap definitions whose entries are loaded for the RPC handler.
+   * </pre>
+   *
+   * <code>repeated string load_attribute_map_names = 9;</code>
+   * @return The count of loadAttributeMapNames.
+   */
+  int getLoadAttributeMapNamesCount();
+  /**
+   * <pre>
+   * AttributeMap definitions whose entries are loaded for the RPC handler.
+   * </pre>
+   *
+   * <code>repeated string load_attribute_map_names = 9;</code>
+   * @param index The index of the element to return.
+   * @return The loadAttributeMapNames at the given index.
+   */
+  java.lang.String getLoadAttributeMapNames(int index);
+  /**
+   * <pre>
+   * AttributeMap definitions whose entries are loaded for the RPC handler.
+   * </pre>
+   *
+   * <code>repeated string load_attribute_map_names = 9;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadAttributeMapNames at the given index.
+   */
+  com.google.protobuf.ByteString
+      getLoadAttributeMapNamesBytes(int index);
+
+  /**
+   * <pre>
+   * Channel definitions whose pending messages are loaded for the RPC handler.
+   * </pre>
+   *
+   * <code>repeated string load_channel_names = 10;</code>
+   * @return A list containing the loadChannelNames.
+   */
+  java.util.List<java.lang.String>
+      getLoadChannelNamesList();
+  /**
+   * <pre>
+   * Channel definitions whose pending messages are loaded for the RPC handler.
+   * </pre>
+   *
+   * <code>repeated string load_channel_names = 10;</code>
+   * @return The count of loadChannelNames.
+   */
+  int getLoadChannelNamesCount();
+  /**
+   * <pre>
+   * Channel definitions whose pending messages are loaded for the RPC handler.
+   * </pre>
+   *
+   * <code>repeated string load_channel_names = 10;</code>
+   * @param index The index of the element to return.
+   * @return The loadChannelNames at the given index.
+   */
+  java.lang.String getLoadChannelNames(int index);
+  /**
+   * <pre>
+   * Channel definitions whose pending messages are loaded for the RPC handler.
+   * </pre>
+   *
+   * <code>repeated string load_channel_names = 10;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadChannelNames at the given index.
+   */
+  com.google.protobuf.ByteString
+      getLoadChannelNamesBytes(int index);
+
+  /**
+   * <pre>
+   * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+   * </pre>
+   *
+   * <code>repeated string load_channel_map_names = 11;</code>
+   * @return A list containing the loadChannelMapNames.
+   */
+  java.util.List<java.lang.String>
+      getLoadChannelMapNamesList();
+  /**
+   * <pre>
+   * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+   * </pre>
+   *
+   * <code>repeated string load_channel_map_names = 11;</code>
+   * @return The count of loadChannelMapNames.
+   */
+  int getLoadChannelMapNamesCount();
+  /**
+   * <pre>
+   * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+   * </pre>
+   *
+   * <code>repeated string load_channel_map_names = 11;</code>
+   * @param index The index of the element to return.
+   * @return The loadChannelMapNames at the given index.
+   */
+  java.lang.String getLoadChannelMapNames(int index);
+  /**
+   * <pre>
+   * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+   * </pre>
+   *
+   * <code>repeated string load_channel_map_names = 11;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadChannelMapNames at the given index.
+   */
+  com.google.protobuf.ByteString
+      getLoadChannelMapNamesBytes(int index);
 }

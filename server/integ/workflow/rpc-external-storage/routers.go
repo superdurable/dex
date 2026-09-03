@@ -43,6 +43,7 @@ const (
 
 	SmallDataKey = "small-data"
 	LargeDataKey = "large-data"
+	LargeChannel = "large-channel"
 
 	SmallDataContent = "small-data-content"
 
@@ -116,6 +117,24 @@ func (h *handler) InvokeWorkerRPC(
 		})
 	}
 	h.testData.Store(request.GetRpcName()+"-received-data", resolvedAttributes)
+	h.testData.Store(request.GetRpcName()+"-raw-channels", request.GetLoadedChannelMessages())
+	resolvedChannels := make(map[string]*dexpb.ChannelValues, len(request.GetLoadedChannelMessages()))
+	for channelName, values := range request.GetLoadedChannelMessages() {
+		resolvedMessages := make([]*dexpb.ChannelMessage, 0, len(values.GetMessages()))
+		for _, message := range values.GetMessages() {
+			resolved, loadErr := common.LoadBlobsValue(ctx, h.flowClient, message.GetValue())
+			if loadErr != nil {
+				return nil, status.Errorf(codes.Internal, "LoadBlobs for %s: %v", channelName, loadErr)
+			}
+			resolvedMessages = append(resolvedMessages, &dexpb.ChannelMessage{
+				ChannelName: message.GetChannelName(),
+				MessageId:   message.GetMessageId(),
+				Value:       resolved,
+			})
+		}
+		resolvedChannels[channelName] = &dexpb.ChannelValues{Messages: resolvedMessages}
+	}
+	h.testData.Store(request.GetRpcName()+"-received-channels", resolvedChannels)
 
 	if request.GetRpcName() != UpdateDataAttributesRPC {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("unknown RPC name: %s", request.GetRpcName()))

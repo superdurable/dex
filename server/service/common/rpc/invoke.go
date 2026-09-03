@@ -45,6 +45,13 @@ func InvokeWorkerRpc(
 		if err := blobstore.HydrateKVs(ctx, rpcPrep.GetAttributes(), blobStore); err != nil {
 			return nil, err
 		}
+		if err := blobstore.HydrateChannelValues(
+			ctx,
+			rpcPrep.GetLoadedChannelMessages(),
+			blobStore,
+		); err != nil {
+			return nil, err
+		}
 		if workerInput != nil {
 			// Use a new struct to preserve the request's blob reference
 			// because eager hydration replaces Value.Kind in place.
@@ -90,11 +97,15 @@ func InvokeWorkerRpc(
 			RunId:                rpcPrep.GetRunId(),
 			FlowStartedTimestamp: rpcPrep.GetFlowStartedTimestamp(),
 		},
-		FlowType:     rpcPrep.GetFlowType(),
-		RpcName:      req.GetRpcName(),
-		Input:        workerInput,
-		Attributes:   rpcPrep.GetAttributes(),
-		ChannelInfos: channelInfos,
+		FlowType:                rpcPrep.GetFlowType(),
+		RpcName:                 req.GetRpcName(),
+		Input:                   workerInput,
+		Attributes:              rpcPrep.GetAttributes(),
+		ChannelInfos:            channelInfos,
+		LoadedChannelMessages:   rpcPrep.GetLoadedChannelMessages(),
+		LoadedAttributeMapNames: rpcPrep.GetLoadedAttributeMapNames(),
+		LoadedChannelNames:      rpcPrep.GetLoadedChannelNames(),
+		LoadedChannelMapNames:   rpcPrep.GetLoadedChannelMapNames(),
 	}
 
 	resp, err := client.InvokeWorkerRPC(callCtx, workerReq)

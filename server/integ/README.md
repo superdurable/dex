@@ -34,6 +34,13 @@ cover transactional RPC deletion and implicit transactions from Attribute
 locking. Temporal and Cadence tests cover best-effort signal deletion and the
 Cadence query-plus-signal boundary.
 
+RPC selective-state coverage verifies that ordinary Attributes and all Channel
+size metadata are always available. AttributeMap entries and pending Channel or
+ChannelMap messages require explicit selectors. The suite covers loaded-empty
+collections, normalized selectors, FIFO envelopes, message IDs, eager and lazy
+blob loading, and the independence of loading, transactions, and Attribute
+locks.
+
 Resumable Stream integration covers per-message size limits, Flow-type scope
 isolation, global FIFO trim, resume, repeated sources, and multi-server trim
 coordination. It requires Redis 7 on `127.0.0.1:6379`. The standard dependency

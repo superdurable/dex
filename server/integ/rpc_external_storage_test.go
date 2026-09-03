@@ -88,6 +88,89 @@ func TestRpcExternalStorageNonLockingCadence(t *testing.T) {
 	})
 }
 
+func TestRpcSelectedChannelExternalStorageTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	testRPCSelectedChannelExternalStorage(t, service.BackendTypeTemporal)
+}
+
+func TestRpcSelectedChannelExternalStorageCadence(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	testRPCSelectedChannelExternalStorage(t, service.BackendTypeCadence)
+}
+
+func testRPCSelectedChannelExternalStorage(t *testing.T, backendType service.BackendType) {
+	for _, lazyLoading := range []bool{true, false} {
+		t.Run(fmt.Sprintf("lazy=%v", lazyLoading), func(t *testing.T) {
+			runtime := startDexService(t, DexServiceTestConfig{
+				BackendType:     backendType,
+				S3TestThreshold: 100,
+				LazyLoading:     ptr.Any(lazyLoading),
+			})
+			workerHandler := rpcStorage.NewHandler(runtime.FlowClient)
+			workerTarget := startWorker(t, workerHandler)
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+
+			flowID := rpcStorage.WorkflowType + "-selected-channel-" + uuid.NewString()
+			_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+				RequestId:          newRequestID(),
+				FlowId:             flowID,
+				FlowType:           rpcStorage.WorkflowType,
+				FlowTimeoutSeconds: 30,
+				StartStepType:      rpcStorage.State1,
+				StepInput:          objJSONValue(`"start-input"`),
+				FlowStartOptions:   withWorkerTarget(nil, workerTarget),
+			})
+			require.NoError(t, err)
+			require.Eventually(t, func() bool {
+				response, getErr := runtime.FlowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+					FlowId: flowID,
+					Keys:   []string{rpcStorage.LargeDataKey},
+				})
+				return getErr == nil && len(response.GetAttributes()) == 1
+			}, 5*time.Second, 50*time.Millisecond)
+
+			_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+				FlowId: flowID,
+				Messages: []*dexpb.ChannelMessage{{
+					ChannelName: rpcStorage.LargeChannel,
+					Value:       rpcStorage.InitialLargeData,
+				}},
+			})
+			require.NoError(t, err)
+			waitForChannelMessages(t, ctx, runtime, flowID, rpcStorage.LargeChannel, 1)
+			_, err = runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+				RequestId:        newRequestID(),
+				FlowId:           flowID,
+				RpcName:          rpcStorage.UpdateDataAttributesRPC,
+				Input:            rpcStorage.TestInput,
+				TimeoutSeconds:   10,
+				LoadChannelNames: []string{rpcStorage.LargeChannel},
+			})
+			require.NoError(t, err)
+
+			testData := workerHandler.GetTestResult().InvokeData
+			rawChannels := testData[rpcStorage.UpdateDataAttributesRPC+"-raw-channels"].(map[string]*dexpb.ChannelValues)
+			rawMessage := rawChannels[rpcStorage.LargeChannel].GetMessages()[0]
+			require.NotEmpty(t, rawMessage.GetMessageId())
+			require.Equal(t, lazyLoading, integcommon.BlobIdFromValue(rawMessage.GetValue()) != "")
+			resolvedChannels := testData[rpcStorage.UpdateDataAttributesRPC+"-received-channels"].(map[string]*dexpb.ChannelValues)
+			resolvedMessage := resolvedChannels[rpcStorage.LargeChannel].GetMessages()[0]
+			require.Equal(t, rawMessage.GetMessageId(), resolvedMessage.GetMessageId())
+			require.True(t, proto.Equal(rpcStorage.InitialLargeData, resolvedMessage.GetValue()))
+			_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+				FlowId:          flowID,
+				WaitTimeSeconds: 5,
+			})
+			require.NoError(t, err)
+		})
+	}
+}
+
 func doTestRpcExternalStorage(
 	t *testing.T,
 	backendType service.BackendType,
@@ -130,7 +213,6 @@ func doTestRpcExternalStorage(
 		})
 		return getErr == nil && len(getResult.GetAttributes()) == 2
 	}, 5*time.Second, 50*time.Millisecond)
-
 	rpcRequest := &dexpb.InvokeRPCRequest{
 		RequestId:      newRequestID(),
 		FlowId:         flowId,

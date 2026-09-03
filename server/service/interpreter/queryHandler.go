@@ -15,6 +15,7 @@ import (
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/rpc"
 	"github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
@@ -89,17 +90,22 @@ func SetQueryHandlers(
 		if req == nil {
 			return nil, fmt.Errorf("PrepareRpc query requires a request")
 		}
-		if _, err := normalizeLockKeys(req.GetLockAttributeKeys()); err != nil {
+		selection, err := rpc.NormalizePrepareRequestSelection(req)
+		if err != nil {
 			return nil, err
 		}
 		info := provider.GetWorkflowInfo(ctx)
 		return &dexpb.PrepareRpcQueryResponse{
-			Attributes:           persistenceManager.GetAllAttributes(),
-			RunId:                info.WorkflowExecution.RunID,
-			FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
-			FlowType:             basicInfo.FlowType,
-			WorkerTarget:         flowConfiger.GetWorkerTarget(),
-			ChannelInfos:         channelStore.GetInfos(),
+			Attributes:              persistenceManager.GetRPCAttributes(selection.AttributeMapNames),
+			RunId:                   info.WorkflowExecution.RunID,
+			FlowStartedTimestamp:    info.WorkflowStartTime.Unix(),
+			FlowType:                basicInfo.FlowType,
+			WorkerTarget:            flowConfiger.GetWorkerTarget(),
+			ChannelInfos:            channelStore.GetInfos(),
+			LoadedChannelMessages:   channelStore.GetLoadedMessages(selection.ChannelNames, selection.ChannelMapNames),
+			LoadedAttributeMapNames: selection.AttributeMapNames,
+			LoadedChannelNames:      selection.ChannelNames,
+			LoadedChannelMapNames:   selection.ChannelMapNames,
 		}, nil
 	})
 	if err != nil {

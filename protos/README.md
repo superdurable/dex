@@ -27,16 +27,36 @@ in an incoming protocol message. `GetChannelMessages` returns all pending
 messages for one Channel in FIFO order. `DeleteChannelMessage` deletes one
 pending message by ID and returns `CHANNEL_MESSAGE_NOT_FOUND` when it is absent.
 
-Temporal performs direct deletion through a synchronous Update. Cadence uses a
-query followed by a signal, so consumption may race deletion. Channel conditions
+Direct deletion verifies the pending message ID before committing. Cadence uses
+a best-effort path, so consumption may race deletion. Channel conditions
 continue to expose only Values to Step handlers.
 
 `InvokeWorkerRPCResponse.delete_from_channel` stages deletions with other RPC
-side effects. Set `InvokeRPCRequest.is_transactional` for transactional reads
-and writes on Temporal: Dex validates all deletions before committing any side
-effect. Attribute locking enables transactions automatically, but Channel
-deletion does not. Signal RPCs treat a missing deletion as a no-op. Cadence
-always uses signal semantics without transactional guarantees.
+side effects. Set `InvokeRPCRequest.is_transactional` for one atomic read and
+write operation on supported backends. Dex validates all deletions before
+committing any side effect. Attribute locking enables transactional execution
+automatically, but Channel deletion alone does not. Nontransactional RPCs treat
+a missing deletion as a no-op. Cadence does not provide the same atomicity.
+
+## RPC state loading
+
+Worker RPC requests always contain ordinary Attribute values and size metadata
+for every known Channel and ChannelMap instance. AttributeMap entries and
+pending Channel message envelopes are loaded only when the caller selects their
+definitions with `load_attribute_map_names`, `load_channel_names`, or
+`load_channel_map_names`.
+
+Selecting a ChannelMap loads all its current instances. The worker request
+echoes normalized selector names so an empty loaded collection is distinct from
+one that was not loaded. Pending messages retain FIFO order, server-generated
+message IDs, and Values. Loading never consumes a message and does not add a Dex
+semantic history event.
+
+Selectors must be unique, non-empty definition names without `/`. Loading,
+transactional execution, and Attribute locking are independent. Transactional
+execution makes staged effects atomic and validates Channel deletions. It does
+not isolate handler reads from concurrent writers. When that isolation matters,
+all cooperating Steps and RPCs must use the same Attribute lock.
 
 ## Worker targets
 

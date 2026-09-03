@@ -19,6 +19,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/event"
+	"github.com/superdurable/dex/service/common/rpc"
 	"github.com/superdurable/dex/service/common/utils"
 	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/cont"
@@ -163,18 +164,36 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 			err.Error(),
 		)
 	}
-	attributes, locked := u.persistenceManager.TryLoadAttributes(keysToLock)
+	selection, err := rpc.NormalizeStateSelection(
+		input.GetLoadAttributeMapNames(),
+		input.GetLoadChannelNames(),
+		input.GetLoadChannelMapNames(),
+	)
+	if err != nil {
+		return nil, u.provider.NewUpdateError(
+			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
+			err.Error(),
+		)
+	}
+	attributes, locked := u.persistenceManager.TryLoadRPCAttributes(
+		keysToLock,
+		selection.AttributeMapNames,
+	)
 	if !locked {
 		return nil, u.rpcLockError()
 	}
 
 	rpcPrep := &dexpb.PrepareRpcQueryResponse{
-		Attributes:           attributes,
-		RunId:                info.WorkflowExecution.RunID,
-		FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
-		FlowType:             u.basicInfo.FlowType,
-		WorkerTarget:         u.flowConfiger.GetWorkerTarget(),
-		ChannelInfos:         u.channelStore.GetInfos(),
+		Attributes:              attributes,
+		RunId:                   info.WorkflowExecution.RunID,
+		FlowStartedTimestamp:    info.WorkflowStartTime.Unix(),
+		FlowType:                u.basicInfo.FlowType,
+		WorkerTarget:            u.flowConfiger.GetWorkerTarget(),
+		ChannelInfos:            u.channelStore.GetInfos(),
+		LoadedChannelMessages:   u.channelStore.GetLoadedMessages(selection.ChannelNames, selection.ChannelMapNames),
+		LoadedAttributeMapNames: selection.AttributeMapNames,
+		LoadedChannelNames:      selection.ChannelNames,
+		LoadedChannelMapNames:   selection.ChannelMapNames,
 	}
 	budget := u.effectiveRPCBudget(input.GetTimeoutSeconds())
 	activityOptions := interfaces.ActivityOptions{
@@ -300,6 +319,16 @@ func (u *WorkflowUpdater) validateWorkerRpc(
 	}
 	if !u.persistenceManager.CanLockKeys(keys) {
 		return u.rpcLockError()
+	}
+	if _, err := rpc.NormalizeStateSelection(
+		input.GetLoadAttributeMapNames(),
+		input.GetLoadChannelNames(),
+		input.GetLoadChannelMapNames(),
+	); err != nil {
+		return u.provider.NewUpdateError(
+			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
+			err.Error(),
+		)
 	}
 	return nil
 }
