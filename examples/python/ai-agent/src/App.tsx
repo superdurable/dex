@@ -967,6 +967,8 @@ const App: React.FC = () => {
     );
   }
 
+  const hasPendingMessages = messageQueue.queued.length > 0 || messageQueue.steered.length > 0;
+
   return (
     <main style={{ ...styles.page, ...styles.chatPage }}>
       <header style={styles.header}>
@@ -1063,19 +1065,29 @@ const App: React.FC = () => {
         </div>
 
         <div style={styles.composerArea}>
-          <section style={styles.queueArea} aria-label="Pending user messages">
-            <div style={styles.queueHeader}>
+          <section
+            style={{
+              ...styles.queueArea,
+              ...(!hasPendingMessages ? styles.queueAreaCollapsed : {}),
+            }}
+            aria-label="Pending user messages"
+          >
+            <div
+              style={{
+                ...styles.queueHeader,
+                ...(!hasPendingMessages ? styles.queueHeaderCollapsed : {}),
+              }}
+            >
               <div>
                 <strong>Message queue</strong>
-                <small style={styles.queueHint}>
-                  Queued messages wait for the current Agent loop. Steer applies one at the next safe boundary.
-                </small>
+                {hasPendingMessages && (
+                  <small style={styles.queueHint}>
+                    Queued messages wait for the current Agent loop. Steer applies one at the next safe boundary.
+                  </small>
+                )}
               </div>
               <span>{messageQueue.queued.length} queued · {messageQueue.steered.length} steered</span>
             </div>
-            {(messageQueue.queued.length === 0 && messageQueue.steered.length === 0) && (
-              <p style={styles.queueEmpty}>No queued or steered messages.</p>
-            )}
             {[...messageQueue.steered, ...messageQueue.queued].map((message) => {
               const isSteered = messageQueue.steered.some(
                 (item) => item.message_id === message.message_id,
@@ -1548,9 +1560,10 @@ const styles: Record<string, React.CSSProperties> = {
   actions: { display: 'flex', gap: 10 },
   activity: { marginTop: 18, padding: 14, borderRadius: 12, background: '#f7f8fb', color: '#4b5568' },
   queueArea: { marginBottom: 14, padding: 16, borderRadius: 14, border: '1px solid #d8deea', background: '#fafbfe' },
+  queueAreaCollapsed: { padding: '10px 14px' },
   queueHeader: { display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'start', marginBottom: 10 },
+  queueHeaderCollapsed: { alignItems: 'center', marginBottom: 0 },
   queueHint: { display: 'block', marginTop: 4, color: '#667085', lineHeight: 1.4 },
-  queueEmpty: { margin: 0, color: '#7b8495', fontSize: 13 },
   queueItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, padding: 13, marginTop: 9, borderRadius: 11, border: '1px solid #dce1eb', background: '#fff' },
   steeringItem: { borderColor: '#aebdf2', background: '#f0f4ff' },
   queueContent: { minWidth: 0, flex: 1 },

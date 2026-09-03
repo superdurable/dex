@@ -92,7 +92,7 @@ Application 默认先进入 Agent Portal。启动 Agent 前，先选择已配置
 
 Local playground 会启动无需 credential 的 search、Slack 和 Google Docs demo MCP server。Model call 运行时，chat page 会分别展示 Thinking、Response 与 Agent activity。可以使用 **Command/Ctrl+Enter** 或 **Alt+Enter** 发送 message。当 work 需要用户输入时，内置 **request_user_input** tool 会在 conversation 中展开 durable input panel。已知答案会显示为选择按钮，开放式问题会显示文本框。Execution 会等待用户提交答案后再继续。
 
-Queue panel 始终保持在 composer 上方，即使 queue 为空也会显示。Active work 期间提交的 message 会在其中显示为 **Queued**。在 Server 报告它已 pending，或 Flow 已把它消费到 history 之前，UI 会一直保留已提交的 item。消费前可以用 **Edit** 或 **Delete**，也可以用 **Steer** 在下一个 safe boundary 让 Agent 处理它。
+Queue panel 始终保持在 composer 上方。Queue 为空时，它会折叠成紧凑的状态行；出现 pending message 时会自动展开。Active work 期间提交的 message 会在其中显示为 **Queued**。在 Server 报告它已 pending，或 Flow 已把它消费到 history 之前，UI 会一直保留已提交的 item。消费前可以用 **Edit** 或 **Delete**，也可以用 **Steer** 在下一个 safe boundary 让 Agent 处理它。
 
 ## 相关内容
 

@@ -64,7 +64,8 @@ call, tool, approval wait, or Timer continuation. It does not cancel an LLM or M
 request already running. A Steer clears unexecuted tool calls and records durable
 cancellation results. Only Steer interrupts a tool approval or durable wait.
 
-The queue panel remains above the composer, including when both queues are empty.
+The queue panel remains above the composer. It collapses to a compact status row
+when both queues are empty and expands automatically when a pending message appears.
 The UI treats the Server queue as canonical. It keeps a submitted item visible
 until the Server reports it as pending or the Flow consumes it into history. It
 refreshes immediately after each mutation, refreshes from Agent activity events
