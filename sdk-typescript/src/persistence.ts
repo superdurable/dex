@@ -11,7 +11,7 @@ import { markAttributeStoreSynced } from "./attribute-store-sync.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import type { Stream } from "./stream.js";
-import { requirePersistenceDefinitionName, requireName } from "./validation.js";
+import { requireMapInstance, requirePersistenceDefinitionName } from "./validation.js";
 
 /** Selects how Dex indexes an Attribute for Flow search. */
 export const IndexType = Object.freeze({
@@ -124,7 +124,8 @@ export class Attribute<T> {
 }
 
 /**
- * Defines a typed family of durable values keyed by map instance.
+ * Defines a typed family of durable values keyed by instance.
+ * Slash is prohibited in instance keys because it is a reserved character.
  * @typeParam T - Value encoded for every map instance.
  */
 export class AttributeMap<T> {
@@ -145,7 +146,7 @@ export class AttributeMap<T> {
   /**
    * Reads one map instance from handler decision state.
    * @param context - Current Step or RPC Context.
-   * @param instance - Non-empty logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    * @returns The decoded instance value.
    */
   public get(context: Context, instance: string): T {
@@ -155,7 +156,7 @@ export class AttributeMap<T> {
   /**
    * Stages one map-instance write.
    * @param context - Current Step or RPC Context.
-   * @param instance - Non-empty logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    * @param value - Typed value to persist.
    */
   public set(context: Context, instance: string, value: T): void {
@@ -165,7 +166,7 @@ export class AttributeMap<T> {
   /**
    * Stages deletion of one map instance.
    * @param context - Current Step or RPC Context.
-   * @param instance - Non-empty logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    */
   public delete(context: Context, instance: string): void {
     context.deleteAttribute(this as AttributeMap<unknown>, instance);
@@ -203,11 +204,11 @@ export class AttributeMap<T> {
 
   /**
    * Creates a lock request scoped to one map instance.
-   * @param instance - Non-empty logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    * @returns A lock for the requested instance.
    */
   public lock(instance: string): AttributeLock {
-    requireName(instance);
+    requireMapInstance(instance);
     return { attribute: this as AttributeMap<unknown>, instance };
   }
 }

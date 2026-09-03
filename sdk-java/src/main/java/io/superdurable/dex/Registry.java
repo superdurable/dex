@@ -478,7 +478,7 @@ public final class Registry {
     }
 
     static String physicalName(final String name, final String instance) {
-        final String value = Attribute.requireName(instance);
+        final String value = Attribute.requireMapInstance(instance);
         try {
             return name + "/" + java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20");
         } catch (java.io.UnsupportedEncodingException impossible) {

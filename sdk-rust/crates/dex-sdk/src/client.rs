@@ -252,10 +252,7 @@ impl Client {
         attribute: &AttributeMap<T>,
         instance: &str,
     ) -> SdkResult<Option<T>> {
-        self.get_attribute_value(
-            flow_id,
-            &crate::registry::physical_name(attribute.name(), instance),
-        )
+        self.get_attribute_value(flow_id, &map_physical_name(attribute.name(), instance)?)
     }
 
     /// Writes one Attribute on an active Flow.
@@ -292,7 +289,7 @@ impl Client {
     ) -> SdkResult<()> {
         self.set_attribute_value(
             flow_id,
-            &crate::registry::physical_name(attribute.name(), instance),
+            &map_physical_name(attribute.name(), instance)?,
             &value,
             attribute.index().map(|index| index.proto_config(true)),
             attribute.sync_config(),
@@ -329,7 +326,7 @@ impl Client {
     ) -> SdkResult<()> {
         self.publish_values(
             flow_id,
-            &crate::registry::physical_name(channel.name(), instance),
+            &map_physical_name(channel.name(), instance)?,
             values,
         )
     }
@@ -350,10 +347,7 @@ impl Client {
         channel: &ChannelMap<T>,
         instance: &str,
     ) -> SdkResult<Vec<ChannelMessage<T>>> {
-        self.get_channel_messages_value(
-            flow_id,
-            &crate::registry::physical_name(channel.name(), instance),
-        )
+        self.get_channel_messages_value(flow_id, &map_physical_name(channel.name(), instance)?)
     }
 
     /// Deletes one pending singleton Channel message by server-assigned ID.
@@ -376,7 +370,7 @@ impl Client {
     ) -> SdkResult<()> {
         self.delete_channel_message_value(
             flow_id,
-            &crate::registry::physical_name(channel.name(), instance),
+            &map_physical_name(channel.name(), instance)?,
             message_id,
         )
     }
@@ -763,7 +757,7 @@ impl Client {
     ) -> SdkResult<()> {
         self.wait_for_attribute_value(
             flow_id,
-            &crate::registry::physical_name(attribute.name(), instance),
+            &map_physical_name(attribute.name(), instance)?,
             &expected,
             timeout,
         )
@@ -1450,6 +1444,11 @@ fn require_name(value: &str, kind: &str) -> SdkResult<()> {
     } else {
         Ok(())
     }
+}
+
+fn map_physical_name(name: &str, instance: &str) -> SdkResult<String> {
+    crate::registry::validate_map_instance(instance).map_err(invalid)?;
+    Ok(crate::registry::physical_name(name, instance))
 }
 
 fn sdk_handler_error(error: impl std::fmt::Display) -> SdkError {

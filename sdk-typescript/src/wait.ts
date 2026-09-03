@@ -12,6 +12,7 @@ import type { Flow } from "./flow.js";
 import type { SubFlowOptions } from "./subflow.js";
 import {
   requireConditionId,
+  requireMapInstance,
   requireName,
   requirePersistenceDefinitionName,
   validateChannelBounds,
@@ -27,7 +28,7 @@ export interface Condition {
   readonly durationMs?: number;
   /** Physical Channel name for a Channel condition. */
   readonly channelName?: string;
-  /** ChannelMap instance for a map condition. */
+  /** The ChannelMap instance for a map condition. Slash is prohibited because it is a reserved character. */
   readonly instance?: string;
   /** Inclusive lower queued-value bound. */
   readonly atLeast?: number;
@@ -208,6 +209,7 @@ export class Channel<T> {
 
 /**
  * Defines keyed Channel instances that share one typed schema.
+ * Instance keys must be non-empty and must not contain `/`.
  * @typeParam T - Type of every published value.
  */
 export class ChannelMap<T> {
@@ -226,7 +228,7 @@ export class ChannelMap<T> {
   /**
    * Stages one value for a ChannelMap instance.
    * @param context - Current Step or RPC Context.
-   * @param instance - Non-empty logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    * @param value - Typed value to append.
    */
   public publish(context: Context, instance: string, value: T): void {
@@ -236,7 +238,7 @@ export class ChannelMap<T> {
   /**
    * Stages deletion of one pending message from a ChannelMap instance in an RPC.
    * @param context - Current RPC Context.
-   * @param instance - Non-empty ChannelMap instance.
+   * @param instance - The ChannelMap instance. Slash is prohibited because it is a reserved character.
    * @param messageId - Non-empty server-assigned message ID.
    */
   public delete(context: Context, instance: string, messageId: string): void {
@@ -246,7 +248,7 @@ export class ChannelMap<T> {
   /**
    * Returns one instance's queued value count.
    * @param context - Current Step or RPC Context.
-   * @param instance - Non-empty logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    * @returns Non-negative queued value count.
    */
   public size(context: Context, instance: string): number {
@@ -274,7 +276,7 @@ export class ChannelMap<T> {
   /**
    * Returns values selected for one instance by the satisfied condition.
    * @param context - Current Step Context.
-   * @param instance - Non-empty logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    * @returns Ordered values for this Step execution.
    */
   public results(context: Context, instance: string): readonly T[] {
@@ -283,7 +285,7 @@ export class ChannelMap<T> {
 
   /**
    * Creates an instance condition consuming exactly one value.
-   * @param instance - Non-empty logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    * @param conditionId - Optional stable condition identifier.
    * @returns An exact-one instance condition.
    */
@@ -293,7 +295,7 @@ export class ChannelMap<T> {
 
   /**
    * Creates an instance condition consuming exactly `count` values.
-   * @param instance - Non-empty logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    * @param count - Required non-negative count.
    * @param conditionId - Optional stable condition identifier.
    * @returns A condition with equal bounds.
@@ -304,7 +306,7 @@ export class ChannelMap<T> {
 
   /**
    * Creates an instance condition requiring at least `count` values.
-   * @param instance - Non-empty logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    * @param count - Inclusive non-negative lower bound.
    * @param conditionId - Optional stable condition identifier.
    * @returns A condition without an upper bound.
@@ -316,7 +318,7 @@ export class ChannelMap<T> {
   /**
    * Creates a non-blocking instance condition consuming up to `count` queued values.
    * When its surrounding Wait completes, it consumes values queued then; an empty queue yields none.
-   * @param instance - Non-empty logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    * @param count - Inclusive non-negative upper bound.
    * @param conditionId - Optional stable condition identifier.
    * @returns A condition without a positive lower bound.
@@ -329,7 +331,7 @@ export class ChannelMap<T> {
    * Creates a bounded condition for one ChannelMap instance.
    * Dex waits only for `atLeast`, then consumes currently queued values up to `atMost`.
    * Omitting `atLeast` makes the condition complete immediately.
-   * @param instance - Non-empty logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    * @param atLeast - Optional inclusive lower bound.
    * @param atMost - Optional inclusive upper bound.
    * @param conditionId - Optional stable condition identifier.
@@ -343,6 +345,7 @@ export class ChannelMap<T> {
   ): Condition {
     validateChannelBounds(atLeast, atMost);
     requireConditionId(conditionId);
+    requireMapInstance(instance);
     return {
       kind: "channel",
       channelName: this.name,

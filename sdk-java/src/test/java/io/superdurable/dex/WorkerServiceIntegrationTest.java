@@ -280,7 +280,7 @@ final class WorkerServiceIntegrationTest {
         };
         final Registry registry = new Registry(Collections.<Flow<?>>singletonList(flow));
         final ValueMapper values = new ValueMapper(new ObjectMapper());
-        final String special = "special / key";
+        final String special = "special % key";
         final Map<String, ChannelInfo> channelInfos = new HashMap<String, ChannelInfo>();
         channelInfos.put(
                 Registry.physicalName("messages", special),

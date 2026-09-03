@@ -277,7 +277,8 @@ combinations.
 Both `Client` and `AsyncClient` provide singleton and AttributeMap-instance
 overloads of `wait_for_attribute_equal`. They target the current run and accept
 only string, bool, int, or float wire values. JSON objects, bytes, and null fail
-before transport. `AttributeMap.get_map_size/get_all_instance_keys` include
+before transport. Every AttributeMap and ChannelMap instance must be non-empty
+and must not contain `/`. `AttributeMap.get_map_size/get_all_instance_keys` include
 buffered sets and deletes. The matching `ChannelMap` methods are RPC-only,
 include buffered publishes, and omit empty instances. Keys are decoded and
 sorted. Use `force_complete_if_channels_empty(...)` for conditional completion.

@@ -21,6 +21,14 @@ export function requirePersistenceDefinitionName(name: string): string {
   return name;
 }
 
+export function requireMapInstance(instance: string): string {
+  requireName(instance);
+  if (instance.includes("/")) {
+    throw new TypeError("map instances must not contain '/'");
+  }
+  return instance;
+}
+
 export function requireConditionId(conditionId: string | undefined): void {
   if (conditionId !== undefined && conditionId.length === 0) {
     throw new TypeError("condition ID must not be empty");

@@ -173,7 +173,7 @@ public final class PersistenceTest {
                     () -> environment.client().waitForAttributeEqual(
                             flowId,
                             SET_ATTRIBUTES_WORKFLOW.dataMap,
-                            "special / key",
+                            "special % key",
                             "mapped-value",
                             Duration.ofSeconds(30)));
             environment.client().setAttribute(
@@ -184,7 +184,7 @@ public final class PersistenceTest {
             environment.client().setAttribute(
                     flowId,
                     SET_ATTRIBUTES_WORKFLOW.dataMap,
-                    "special / key",
+                    "special % key",
                     "mapped-value");
             waitingMap.get(30, TimeUnit.SECONDS);
             assertThrows(

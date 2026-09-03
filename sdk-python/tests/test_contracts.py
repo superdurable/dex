@@ -98,6 +98,14 @@ def test_persistence_definition_names_reserve_slash(definition: Any) -> None:
         definition()
 
 
+def test_map_instances_reserve_slash() -> None:
+    with pytest.raises(ValueError, match="map instances must not contain"):
+        ChannelMap("messages", str).for_one("orders/by-id")
+
+    with pytest.raises(ValueError, match="map instances must not contain"):
+        AttributeMap("items", str).lock("orders/by-id")
+
+
 class ApproveOrder(Step[OrderInput]):
     def get_step_type(self) -> str:
         return "ApproveOrder"
@@ -480,7 +488,7 @@ def test_map_introspection_tracks_buffered_changes() -> None:
 
     registry = Registry((MapFlow(),))
     values = ValueMapper(registry.codec_registry)
-    special = "special / key"
+    special = "special % key"
     context = InvocationContext(
         InvocationMethod.RPC,
         registry._flow_by_type("MapFlow"),

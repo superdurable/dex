@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Any, Callable, Protocol, Sequence, TypeVar, cast
 from urllib.parse import unquote
 
-from dex._utils import require_name
+from dex._utils import require_map_instance, require_name
 from dex._value_mapper import ValueMapper
 from dex.attribute import Attribute, AttributeMap, _apply_attribute_store_sync
 from dex.channel import Channel, ChannelMap
@@ -384,7 +384,12 @@ class InvocationContext:
                 physical_keys.discard(key)
             else:
                 physical_keys.add(key)
-        return tuple(sorted(unquote(key[len(prefix) :]) for key in physical_keys))
+        return tuple(
+            sorted(
+                require_map_instance(unquote(key[len(prefix) :]))
+                for key in physical_keys
+            )
+        )
 
     def _channel_map_keys(
         self,
@@ -396,7 +401,7 @@ class InvocationContext:
         prefix = f"{definition.name}/"
         return tuple(
             sorted(
-                unquote(key[len(prefix) :])
+                require_map_instance(unquote(key[len(prefix) :]))
                 for key, info in self._channel_infos.items()
                 if key.startswith(prefix) and info.size > 0
             )

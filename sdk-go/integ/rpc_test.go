@@ -100,7 +100,7 @@ func (rpcFlow) SetWaitTargets(
 	if err := rpcFlowWaitStatus.Set(ctx, "ready"); err != nil {
 		return nil, err
 	}
-	if err := rpcFlowWaitMap.Set(ctx, "special / key", "mapped"); err != nil {
+	if err := rpcFlowWaitMap.Set(ctx, "special % key", "mapped"); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
@@ -182,7 +182,7 @@ func TestRPCFlow(t *testing.T) {
 			ctx,
 			flowID,
 			rpcFlowWaitMap,
-			"special / key",
+			"special % key",
 			"mapped",
 		)
 	}()

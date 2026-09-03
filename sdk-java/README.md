@@ -337,7 +337,8 @@ their parent closes.
 
 `client.waitForAttributeEqual(...)` overloads cover singleton Attributes and
 AttributeMap instances in the current run. Only String,
-boolean, integer, and floating-point wire values are accepted; objects, bytes,
+boolean, integer, and floating-point wire values are accepted. Every AttributeMap
+and ChannelMap instance must be nonblank and must not contain `/`. Objects, bytes,
 and null fail locally. `AttributeMap.getMapSize/getAllInstanceKeys` reflect
 buffered sets and deletes. The corresponding `ChannelMap` methods are RPC-only,
 include buffered publishes, and omit empty instances. Returned keys are decoded

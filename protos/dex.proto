@@ -810,12 +810,12 @@ message InvokeRPCRequest {
   // automatically. Channel deletion alone does not; callers must opt in.
   bool is_transactional = 8;
   // AttributeMap selectors whose entries are loaded for the RPC handler.
-  // A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+  // A trailing slash selects every instance. The suffix selects one instance.
   repeated string load_attribute_map_selectors = 9;
   // Channel definitions whose pending messages are loaded for the RPC handler.
   repeated string load_channel_names = 10;
   // ChannelMap selectors whose pending messages are loaded for the RPC handler.
-  // A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+  // A trailing slash selects every instance. The suffix selects one instance.
   repeated string load_channel_map_selectors = 11;
 }
 

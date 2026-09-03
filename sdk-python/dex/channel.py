@@ -203,6 +203,7 @@ class ChannelMap(Generic[ValueT]):
 
     Each ``instance`` has an independent queue and may be waited on separately.
     Add the ChannelMap definition to the Flow's ``PersistenceSchema``.
+    Instance keys must be non-empty and must not contain ``/``.
 
     Attributes:
         name: The non-empty Channel name without ``/``, unique within its Flow.
@@ -225,7 +226,7 @@ class ChannelMap(Generic[ValueT]):
 
         Args:
             context: The current Step or RPC Context.
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
             value: A value compatible with ``value_type``.
         """
         context._publish_channel(self, instance, value)
@@ -235,7 +236,7 @@ class ChannelMap(Generic[ValueT]):
 
         Args:
             context: The current RPC Context.
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
             message_id: Non-empty ID returned by a Client pending-message read.
         """
         context._delete_channel_message(self, instance, message_id)
@@ -245,7 +246,7 @@ class ChannelMap(Generic[ValueT]):
 
         Args:
             context: The current Step or RPC Context.
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
 
         Returns:
             The non-negative number of queued values for ``instance``.
@@ -279,7 +280,7 @@ class ChannelMap(Generic[ValueT]):
 
         Args:
             context: The current Step Context.
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
 
         Returns:
             An ordered, read-only sequence for this Step execution.
@@ -295,7 +296,7 @@ class ChannelMap(Generic[ValueT]):
         """Create an instance condition that consumes exactly one value.
 
         Args:
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
             condition_id: Optional stable condition identifier.
 
         Returns:
@@ -318,7 +319,7 @@ class ChannelMap(Generic[ValueT]):
         """Create an instance condition that consumes exactly ``count`` values.
 
         Args:
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
             count: The required non-negative value count.
             condition_id: Optional stable condition identifier.
 
@@ -342,7 +343,7 @@ class ChannelMap(Generic[ValueT]):
         """Create an instance condition requiring at least ``count`` values.
 
         Args:
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
             count: The inclusive, non-negative lower bound.
             condition_id: Optional stable condition identifier.
 
@@ -369,7 +370,7 @@ class ChannelMap(Generic[ValueT]):
         queued for the instance at that time. An empty queue produces no values.
 
         Args:
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
             count: The inclusive, non-negative upper bound.
             condition_id: Optional stable condition identifier.
 
@@ -397,7 +398,7 @@ class ChannelMap(Generic[ValueT]):
         the condition complete immediately.
 
         Args:
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
             at_least: Optional inclusive lower bound.
             at_most: Optional inclusive upper bound.
             condition_id: Optional stable identifier unique within the Wait tree.

@@ -18,8 +18,8 @@ does not provide the same atomicity.
 Worker RPCs receive ordinary Attributes and all Channel size metadata by
 default. Callers explicitly select AttributeMap definitions and Channel or
 ChannelMap definitions when the handler needs their entries or pending message
-envelopes. A trailing-slash map selector loads every instance; an escaped suffix
-loads one instance. Empty selections
+envelopes. A trailing-slash map selector loads every instance. The suffix selects
+one instance. Empty selections
 are echoed separately from their loaded data.
 
 State loading controls only the Worker request projection. Transactional

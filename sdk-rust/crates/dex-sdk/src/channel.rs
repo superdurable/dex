@@ -39,7 +39,9 @@ pub struct Channel<T> {
 }
 
 impl<T> Channel<T> {
-    /// Defines a Channel with stable slash-free `name`.
+    /// Defines a Channel with a stable `name`.
+    ///
+    /// Slash is prohibited because it is a reserved character.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -138,13 +140,16 @@ impl<T> Clone for Channel<T> {
 ///
 /// Supply an instance string for every publish, read, condition, and completion guard. Add the map
 /// definition once to [`crate::PersistenceSchema`].
+/// Slash is prohibited in instance keys because it is a reserved character.
 pub struct ChannelMap<T> {
     name: String,
     marker: PhantomData<fn() -> T>,
 }
 
 impl<T> ChannelMap<T> {
-    /// Defines a Channel map with stable slash-free `name`.
+    /// Defines a Channel map with a stable `name`.
+    ///
+    /// Slash is prohibited because it is a reserved character.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -234,6 +239,7 @@ impl<T> ChannelMap<T> {
         at_least: Option<usize>,
         at_most: Option<usize>,
     ) -> Condition {
+        crate::registry::assert_map_instance(instance);
         Condition::channel(
             self.name.clone(),
             Some(instance.to_string()),
@@ -244,6 +250,7 @@ impl<T> ChannelMap<T> {
 
     /// Creates a conditional-completion guard requiring `instance` to be empty.
     pub fn when_empty(&self, instance: &str) -> ChannelGuard {
+        crate::registry::assert_map_instance(instance);
         ChannelGuard {
             name: self.name.clone(),
             instance: Some(instance.to_string()),

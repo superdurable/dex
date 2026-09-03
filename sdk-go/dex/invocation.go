@@ -717,6 +717,9 @@ func sortedInstanceKeys(
 		if err != nil {
 			panic(fmt.Errorf("dex: invalid map instance key %q: %w", physical, err))
 		}
+		if err := validateMapInstance(instance); err != nil {
+			panic(fmt.Errorf("dex: invalid map instance key %q: %w", physical, err))
+		}
 		keys = append(keys, instance)
 	}
 	sort.Strings(keys)

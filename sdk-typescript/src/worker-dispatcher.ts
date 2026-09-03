@@ -73,6 +73,7 @@ import {
   type ValueHydrator,
 } from "./value-mapper.js";
 import { Channel, ChannelMap, type Condition, type Wait } from "./wait.js";
+import { requireMapInstance } from "./validation.js";
 
 const timeoutHandlerStepType = "sys:timeout_handler";
 
@@ -884,9 +885,10 @@ function requireValue(value: Value | undefined, kind: string): Value {
 }
 
 function physicalName(name: string, instance: string | undefined): string {
-  if (instance === undefined || instance === "") {
+  if (instance === undefined) {
     throw new TypeError(`map definition ${name} requires an instance`);
   }
+  requireMapInstance(instance);
   return `${name}/${encodeURIComponent(instance).replace(/[!'()*]/g, (character) =>
     `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
   )}`;

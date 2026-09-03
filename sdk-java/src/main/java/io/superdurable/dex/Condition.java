@@ -87,11 +87,14 @@ public final class Condition {
         if (atLeast == null && atMost == null) {
             throw new IllegalArgumentException("channel condition requires a bound");
         }
+        final String validatedInstance = instance == null
+                ? null
+                : Attribute.requireMapInstance(instance);
         return new Condition(
                 Kind.CHANNEL,
                 conditionId,
                 channelName,
-                instance,
+                validatedInstance,
                 atLeast,
                 atMost,
                 null,

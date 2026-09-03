@@ -34,7 +34,7 @@ from typing import (
 )
 from urllib.parse import quote
 
-from dex._utils import require_name
+from dex._utils import require_map_instance, require_name
 from dex.attribute import Attribute, AttributeLock, AttributeMap
 from dex.channel import Channel, ChannelMap
 from dex.codec import Codec, CodecRegistry
@@ -625,7 +625,7 @@ class Registry:
                     raise ValueError(
                         f"RPC {rpc_name} attribute-map lock needs an instance"
                     )
-                require_name(lock.instance)
+                require_map_instance(lock.instance)
             elif lock.instance is not None:
                 raise ValueError(
                     f"RPC {rpc_name} attribute lock cannot have an instance"
@@ -754,19 +754,19 @@ class Registry:
 
     @staticmethod
     def physical_name(name: str, instance: str) -> str:
-        """Return the escaped physical name for a map definition instance.
+        """Return the physical name for a map instance.
 
         Args:
-            name: The logical AttributeMap or ChannelMap name.
-            instance: The non-empty logical instance key.
+            name: The AttributeMap or ChannelMap name.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
 
         Returns:
-            ``name`` followed by a slash and percent-encoded instance.
+            The physical name.
 
         Raises:
-            ValueError: If ``instance`` is empty.
+            ValueError: If ``instance`` is empty or contains ``/``.
         """
-        require_name(instance)
+        require_map_instance(instance)
         return f"{name}/{quote(instance, safe='')}"
 
     @staticmethod

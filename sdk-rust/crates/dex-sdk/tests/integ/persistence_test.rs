@@ -252,7 +252,7 @@ fn test_set_data_attributes() {
             environment.client.wait_for_attribute_map_instance_equal(
                 &flow_id,
                 &workflow.data_map,
-                "special / key",
+                "special % key",
                 "mapped-value".to_string(),
                 Duration::from_secs(30),
             )
@@ -262,7 +262,7 @@ fn test_set_data_attributes() {
             .set_attribute_map_instance(
                 &flow_id,
                 &workflow.data_map,
-                "special / key",
+                "special % key",
                 "mapped-value".to_string(),
             )
             .expect("set special AttributeMap entry");

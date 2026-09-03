@@ -931,8 +931,8 @@ func (client *Client) PublishToChannel(
 
 // PublishToChannelMap appends values to one instance of a registered ChannelMap.
 //
-// instance is the logical map key and must be non-empty. Every value must match the
-// ChannelMap's element type and is published in argument order. Supplying no values
+// instance identifies the map entry. Slash is prohibited in instance keys because it is a reserved character.
+// Every value must match the ChannelMap's element type and is published in argument order. Supplying no values
 // is a successful no-op. The method returns validation, serialization, registration,
 // inactive-Flow, context, transport, or server errors.
 func (client *Client) PublishToChannelMap(
@@ -1246,8 +1246,8 @@ func (client *Client) GetAttribute(
 
 // GetAttributeMapInstance decodes one AttributeMap instance into valuePtr.
 //
-// instance must be non-empty and valuePtr must be a non-nil pointer matching the
-// registered value type. The result is false with a nil error when that instance has
+// instance identifies the map entry. Slash is prohibited in instance keys because it is a reserved character.
+// valuePtr must be a non-nil pointer matching the registered value type. The result is false with a nil error when that instance has
 // not been set; valuePtr is then unchanged. Validation, decoding, registration,
 // hydration, not-found Flow, context, transport, and server failures return errors.
 func (client *Client) GetAttributeMapInstance(
@@ -1342,8 +1342,8 @@ func (client *Client) SetAttribute(
 
 // SetAttributeMapInstance writes one AttributeMap instance on an active Flow.
 //
-// instance must be non-empty and value must match the registered value type. The
-// server applies the write atomically for this instance. Validation, serialization,
+// instance identifies the map entry. Slash is prohibited in instance keys because it is a reserved character.
+// value must match the registered value type. The server applies the write atomically for this instance. Validation, serialization,
 // registration, inactive-Flow, context, transport, and server failures return errors.
 func (client *Client) SetAttributeMapInstance(
 	ctx context.Context,
@@ -1524,8 +1524,8 @@ func (client *Client) WaitForAttributeEqual(
 
 // WaitForAttributeMapInstanceEqual blocks until one AttributeMap instance equals expected.
 //
-// instance must be non-empty and expected must match the registered type. A nil error means equality
-// was observed. LongPollTimeoutError is retryable. Use context.WithTimeout or
+// instance identifies the map entry. Slash is prohibited in instance keys because it is a reserved character.
+// expected must match the registered type. A nil error means equality was observed. LongPollTimeoutError is retryable. Use context.WithTimeout or
 // context.WithDeadline for a shorter Go-side wait.
 func (client *Client) WaitForAttributeMapInstanceEqual(
 	ctx context.Context,

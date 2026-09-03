@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Generic, TypeVar, cast
 
-from dex._utils import require_name, require_persistence_definition_name
+from dex._utils import require_map_instance, require_persistence_definition_name
 from dex.context import Context
 from dex.dexpb import dex_pb2 as pb
 
@@ -145,6 +145,7 @@ class AttributeMap(Generic[ValueT]):
 
     AttributeMap instances share one schema definition while keeping independent
     values and locks. Declare the map in ``PersistenceSchema`` before using it.
+    Instance keys must be non-empty and must not contain ``/``.
     Synced instances use their physical Attribute names as target columns. Projection
     is asynchronous and latest-state only, deletion projects SQL NULL, and failures
     do not roll back Flow Attributes.
@@ -176,14 +177,14 @@ class AttributeMap(Generic[ValueT]):
 
         Args:
             context: The current handler Context.
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
 
         Returns:
             The decoded instance value.
 
         Raises:
             KeyError: If the instance has no value.
-            ValueError: If ``instance`` is empty.
+            ValueError: If ``instance`` is empty or contains ``/``.
         """
         return context._get_attribute(self, instance)
 
@@ -192,7 +193,7 @@ class AttributeMap(Generic[ValueT]):
 
         Args:
             context: The current handler Context.
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
             value: A value compatible with ``value_type``.
         """
         context._set_attribute(self, instance, value)
@@ -202,7 +203,7 @@ class AttributeMap(Generic[ValueT]):
 
         Args:
             context: The current handler Context.
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
         """
         context._delete_attribute(cast(AttributeMap[object], self), instance)
 
@@ -232,15 +233,15 @@ class AttributeMap(Generic[ValueT]):
         """Return a lock request for one map instance.
 
         Args:
-            instance: The non-empty logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
 
         Returns:
             A lock for ``instance``.
 
         Raises:
-            ValueError: If ``instance`` is empty.
+            ValueError: If ``instance`` is empty or contains ``/``.
         """
-        require_name(instance)
+        require_map_instance(instance)
         return AttributeLock(self, instance)
 
 
@@ -255,6 +256,10 @@ class AttributeLock:
 
     attribute: Attribute[Any] | AttributeMap[Any]
     instance: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.instance is not None:
+            require_map_instance(self.instance)
 
 
 def _apply_attribute_store_sync(

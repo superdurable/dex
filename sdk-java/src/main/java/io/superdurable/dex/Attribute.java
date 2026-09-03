@@ -164,4 +164,12 @@ public final class Attribute<T> extends PersistenceDefinition {
         }
         return value;
     }
+
+    static String requireMapInstance(final String instance) {
+        final String value = requireName(instance);
+        if (value.contains("/")) {
+            throw new IllegalArgumentException("map instances must not contain '/'");
+        }
+        return value;
+    }
 }

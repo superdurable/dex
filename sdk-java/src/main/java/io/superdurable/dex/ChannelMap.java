@@ -18,7 +18,8 @@ import java.util.Objects;
  *
  * <p>Use a Channel map when the instance key is selected at runtime, such as one Channel per order
  * or tenant. Register the definition once in the Flow's {@link PersistenceSchema}, then pass the
- * same instance key when publishing, waiting, and reading condition results.
+ * same instance key when publishing, waiting, and reading condition results. Instance keys must
+ * be nonblank and must not contain {@code /}.
  *
  * <pre>{@code
  * private final ChannelMap<String> commands =

@@ -93,12 +93,12 @@ test("Client sets primitive, mapped, and model data attributes", async () => {
     const waitingMap = client.waitForAttributeEqual(
       id,
       flow.dataMap,
-      "special / key",
+      "special % key",
       "mapped-value",
       30_000,
     );
     await client.setAttribute(id, flow.dataMap, "one", "mapped-value");
-    await client.setAttribute(id, flow.dataMap, "special / key", "mapped-value");
+    await client.setAttribute(id, flow.dataMap, "special % key", "mapped-value");
     await waitingMap;
     await assert.rejects(
       client.waitForAttributeEqual(id, flow.model, { value: 8 }, 30_000),

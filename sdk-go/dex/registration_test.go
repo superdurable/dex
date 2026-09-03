@@ -765,6 +765,15 @@ func TestRegistryValidatesStepOptions(t *testing.T) {
 			error: "map instance must not be empty",
 		},
 		{
+			name: "slash map instance",
+			options: &StepOptions{
+				ExecuteLockAttributes: []AttributeLock{
+					LockAttributeMap(items, "tenant/order"),
+				},
+			},
+			error: "map instance must not contain '/'",
+		},
+		{
 			name: "unregistered fallback",
 			options: &StepOptions{
 				ExecuteFailure: ProceedToOnExecuteFailure(

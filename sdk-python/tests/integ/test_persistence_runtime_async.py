@@ -40,11 +40,11 @@ async def test_async_wait_for_attribute_equal() -> None:
         await waiting
         waiting_map = asyncio.create_task(
             environment.client.wait_for_attribute_equal(
-                flow_id, flow.data_map, "special / key", "mapped", timeout
+                flow_id, flow.data_map, "special % key", "mapped", timeout
             )
         )
         await environment.client.set_attribute(
-            flow_id, flow.data_map, "special / key", "mapped"
+            flow_id, flow.data_map, "special % key", "mapped"
         )
         await waiting_map
         with pytest.raises(ValueError, match="only string, boolean, or number values"):

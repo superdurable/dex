@@ -208,12 +208,12 @@ public final class StartFlowOptions {
          * Adds an initial Attribute-map value atomically with Flow start.
          *
          * @param attributeMap the nonnull registered Attribute map
-         * @param instance the nonblank map instance
+         * @param instance the map instance. Slash is prohibited because it is a reserved character
          * @param value the typed initial value
          * @param <T> the Attribute value type
          * @return this builder
          * @throws NullPointerException if {@code attributeMap} is {@code null}
-         * @throws IllegalArgumentException if {@code instance} is {@code null} or blank
+         * @throws IllegalArgumentException if {@code instance} is {@code null}, blank, or contains {@code /}
          */
         public <T> Builder addAttribute(
                 final AttributeMap<T> attributeMap,
@@ -221,7 +221,7 @@ public final class StartFlowOptions {
                 final T value) {
             attributes.add(new AttributeInitialization(
                     Objects.requireNonNull(attributeMap, "attributeMap"),
-                    Attribute.requireName(instance),
+                    Attribute.requireMapInstance(instance),
                     value));
             return this;
         }
