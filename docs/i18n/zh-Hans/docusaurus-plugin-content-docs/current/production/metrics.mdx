@@ -4,217 +4,220 @@ title: 指标
 
 # 指标
 
-启用 Prometheus reporter 后，Dex Server 会导出本页的指标目录。这些是最终指标名。对应操作
-发生前不会出现 series；可选组件只会在启用时导出其指标。
+本页只介绍使用 Temporal 和 Prometheus reporter 的 Dex Server。下面的目录是两个实际
+scrape 的并集：一个来自集成测试流量运行后的独立 Dex Server，另一个来自 Temporal
+指标集成测试。这里只列出实际出现的 metric family，不根据 SDK 常量推测其他名称，
+因此也反映了本仓库固定使用的 Temporal SDK fork。
 
-duration timer 用于记录耗时。在 Prometheus 中单位为秒；reporter 会按其配置将它导出为
-histogram 或 summary。下文其余类型都是 Prometheus counter 或 gauge。
+## 启用 Prometheus
 
-## 标签与基数
+在 **interpreter.temporal.prometheus** 下配置 reporter：
 
-Server 生成的 series 会在运行时提供标签值时携带以下公共标签：
+```yaml
+interpreter:
+  temporal:
+    hostPort: temporal:7233
+    namespace: default
+    prometheus:
+      listenAddress: 0.0.0.0:8890
+      timerType: histogram
+```
 
-| 标签 | 值和限制 |
+Dex Server 启动后，从配置的地址抓取指标：
+
+```bash
+curl http://127.0.0.1:8890/metrics
+```
+
+表格使用 **TYPE** 行中的 metric family 名称。每个 histogram 还会导出
+**_bucket**、**_sum** 和 **_count** series。Histogram 的单位是秒，Prometheus
+会为 bucket 添加 **le** 标签。
+
+某个操作发生前，对应 family 可能不存在。Dex 在启动时创建的 counter 可能以零值出现。
+
+## 标签
+
+表格有意忽略下列 Temporal 上下文标签：**namespace**、**client_name**、
+**worker_type**、**workflow_type**、**activity_type** 和 **task_queue**。它们仍可能
+出现在 scrape 中，但使用本页的 Dex 指标时不需要关注它们。
+
+表格中列出的可用标签含义如下：
+
+| 标签 | 含义和值 |
 | --- | --- |
-| **namespace** | 配置的 execution namespace。保持 namespace 数量较小。 |
-| **client_name** | 固定的 runtime client identifier。每个已部署 runtime 只有一个有界值。 |
-| **worker_type** | 有界的 worker category；不适用时为 **none**。 |
-| **workflow_type** | 已注册的 workflow implementation name；不适用时为 **none**。不要使用 execution ID 作为 type name。 |
-| **activity_type** | 已注册的 activity implementation name；不适用时为 **none**。 |
-| **task_queue** | 配置的 task-queue name；不适用时为 **none**。使用有界的 queue name 集合。 |
+| **flow_type** | 应用 Flow type。不属于应用 Flow 的 system Step 使用 **none**。 |
+| **step_type** | 应用 Step type。 |
+| **sub_flow_type** | SubFlow Step 启动的 child Flow type。 |
+| **rpc_name** | Worker RPC name。 |
+| **operation** | Temporal service operation，例如 **StartWorkflowExecution** 或 **PollActivityTaskQueue**。 |
+| **status_code** | 失败请求的有限 gRPC status code，例如 **NOT_FOUND** 或 **INVALID_ARGUMENT**。 |
+| **cause** | 有限的资源耗尽原因。实际 scrape 中出现的值是 **BusyWorkflow**。 |
+| **poller_type** | 实际 scrape 中出现了 **workflow_task**、**workflow_sticky_task** 和 **activity_task**。 |
+| **prefix** | 配置的 Blob Store prefix。 |
 
-Dex 会为 Flow 和 Step 指标添加下列之一的语义标签集：
+Prometheus reporter 会把标签值中不支持的字符替换为下划线。例如，Flow type
+**order-flow** 会导出为 **order_flow**。Flow type、Step type、SubFlow type 和 RPC
+name 应使用有限集合。不要把 Flow ID、Run ID、request ID、payload 或 error message
+放进 metric 标签。
 
-| 指标主体 | 额外标签 |
-| --- | --- |
-| 应用 Flow | **flow_type** |
-| 同步或异步 Step | **flow_type**、**step_type** |
-| 同步或异步 SubFlow start | **flow_type**、**sub_flow_type** |
-| 同步或异步 Worker RPC | **flow_type**、**rpc_name** |
-| 同步或异步 system Step | **flow_type** |
+## Flow 生命周期
 
-对于 Dex 语义标签，**none** 表示该指标 family 有该标签，但此观测没有适用值。例如，
-应用 Flow 之外的 system Step 具有 **flow_type="none"**。它不表示未知 Flow type。
-
-目录还使用以下有界标签：
-
-| 标签 | 值和限制 |
-| --- | --- |
-| **poller_type** | **workflow_task**、**workflow_sticky_task**、**activity_task** 或 **nexus_task** 之一。 |
-| **operation** | 稳定的 server RPC operation name。不要将 request ID 或用户输入放在这里。 |
-| **status_code** | 有限的 gRPC status code，例如 **UNAVAILABLE** 或 **INTERNAL**。它出现在失败 request 指标上。 |
-| **failure_reason** 和 **cause** | 有界的 runtime reason value。不要把 error message 复制到任一标签中。 |
-| **nexus_service** 和 **nexus_operation** | 配置的 Nexus name。两个集合都应保持有界。 |
-| **prefix** | 配置的 Blob Store namespace 或 domain。 |
-| **step_method** | **wait_for** 或 **execute**。 |
-| **reason** | 有界的 Step-stream write failure reason。 |
-
-不要把 Flow ID、Run ID、Step execution ID、customer ID、request ID、payload value 或 error text
-作为 metric label。它们会造成无界的 Prometheus cardinality。
-
-## Flow 结果
-
-应用 Flow 指标带有公共标签和 **flow_type**。system Flow 指标带有公共标签，但没有
-**flow_type** 标签。
-
-| 最终指标名 | 类型 | 含义 |
-| --- | --- | --- |
-| **dex_flow_completed**<br/>**dex_sys_flow_completed** | Counter | 成功完成的 Flow。 |
-| **dex_flow_canceled**<br/>**dex_sys_flow_canceled** | Counter | 以 canceled 状态关闭的 Flow。 |
-| **dex_flow_failed**<br/>**dex_sys_flow_failed** | Counter | 以 failed 状态关闭的 Flow。 |
-| **dex_flow_continue_as_new**<br/>**dex_sys_flow_continue_as_new** | Counter | continue-as-new 为新 run 的 Flow run。 |
-| **dex_flow_endtoend_latency**<br/>**dex_sys_flow_endtoend_latency** | Duration timer，秒 | 从 Flow-run start 到 close 的时间。 |
-
-## Flow task 调度与执行
-
-应用 Flow task 指标带有公共标签和 **flow_type**。system Flow task 指标带有公共标签，但没有
-**flow_type** 标签。
-
-| 最终指标名 | 类型 | 含义 |
-| --- | --- | --- |
-| **dex_flow_task_replay_latency**<br/>**dex_sys_flow_task_replay_latency** | Duration timer，秒 | replay 一个 Flow task 所花的时间。 |
-| **dex_flow_task_queue_poll_empty**<br/>**dex_sys_flow_task_queue_poll_empty** | Counter | 空的 Flow-task poll。 |
-| **dex_flow_task_queue_poll_succeed**<br/>**dex_sys_flow_task_queue_poll_succeed** | Counter | 返回 task 的 Flow-task poll。 |
-| **dex_flow_task_schedule_to_start_latency**<br/>**dex_sys_flow_task_schedule_to_start_latency** | Duration timer，秒 | 从 Flow-task schedule 到 start 的时间。 |
-| **dex_flow_task_execution_latency**<br/>**dex_sys_flow_task_execution_latency** | Duration timer，秒 | 执行一个 Flow task 所花的时间。 |
-| **dex_flow_task_execution_failed**<br/>**dex_sys_flow_task_execution_failed** | Counter | 失败的 Flow-task execution。 |
-| **dex_flow_task_no_completion**<br/>**dex_sys_flow_task_no_completion** | Counter | 返回时没有 completion 的 Flow task。 |
-
-## 同步 Step 工作
-
-本节每个指标都有公共标签。每个指标名后列出额外的 Dex 标签。
-
-| 最终指标名和额外标签 | 类型 | 含义 |
-| --- | --- | --- |
-| **dex_sync_sys_step_poll_no_task** — **flow_type** | Counter | 未找到同步 system-Step task 的 poll。 |
-| **dex_sync_step_schedule_to_start_latency** — **flow_type**、**step_type**<br/>**dex_sync_start_sub_flow_schedule_to_start_latency** — **flow_type**、**sub_flow_type**<br/>**dex_sync_invoke_rpc_schedule_to_start_latency** — **flow_type**、**rpc_name**<br/>**dex_sync_sys_step_schedule_to_start_latency** — **flow_type** | Duration timer，秒 | 从同步工作 schedule 到 execution start 的时间。 |
-| **dex_sync_step_execution_failed** — **flow_type**、**step_type**<br/>**dex_sync_start_sub_flow_execution_failed** — **flow_type**、**sub_flow_type**<br/>**dex_sync_invoke_rpc_execution_failed** — **flow_type**、**rpc_name**<br/>**dex_sync_sys_step_execution_failed** — **flow_type** | Counter | 失败的同步 execution。 |
-| **dex_sync_sys_step_unregistered_activity_invocation** — **flow_type** | Counter | 调用未注册同步 system-Step handler 的尝试。 |
-| **dex_sync_step_execution_latency** — **flow_type**、**step_type**<br/>**dex_sync_start_sub_flow_execution_latency** — **flow_type**、**sub_flow_type**<br/>**dex_sync_invoke_rpc_execution_latency** — **flow_type**、**rpc_name**<br/>**dex_sync_sys_step_execution_latency** — **flow_type** | Duration timer，秒 | 一次同步 execution 所花的时间。 |
-| **dex_sync_step_succeed_endtoend_latency** — **flow_type**、**step_type**<br/>**dex_sync_start_sub_flow_succeed_endtoend_latency** — **flow_type**、**sub_flow_type**<br/>**dex_sync_invoke_rpc_succeed_endtoend_latency** — **flow_type**、**rpc_name**<br/>**dex_sync_sys_step_succeed_endtoend_latency** — **flow_type** | Duration timer，秒 | 从 schedule 到同步工作成功完成的时间。 |
-| **dex_sync_step_task_error** — **flow_type**、**step_type**<br/>**dex_sync_start_sub_flow_task_error** — **flow_type**、**sub_flow_type**<br/>**dex_sync_invoke_rpc_task_error** — **flow_type**、**rpc_name**<br/>**dex_sync_sys_step_task_error** — **flow_type** | Counter | 同步 task-processing error。 |
-
-## 异步 Step 工作
-
-本节每个指标都有公共标签。每个指标名后列出额外的 Dex 标签。
-
-| 最终指标名和额外标签 | 类型 | 含义 |
-| --- | --- | --- |
-| **dex_async_step_total** — **flow_type**、**step_type**<br/>**dex_async_start_sub_flow_total** — **flow_type**、**sub_flow_type**<br/>**dex_async_invoke_rpc_total** — **flow_type**、**rpc_name**<br/>**dex_async_sys_step_total** — **flow_type** | Counter | 已开始的异步 execution。 |
-| **dex_async_step_canceled** — **flow_type**、**step_type**<br/>**dex_async_start_sub_flow_canceled** — **flow_type**、**sub_flow_type**<br/>**dex_async_invoke_rpc_canceled** — **flow_type**、**rpc_name**<br/>**dex_async_sys_step_canceled** — **flow_type** | Counter | 报告为 canceled 的异步 execution。 |
-| **dex_async_step_execution_cancelled** — **flow_type**、**step_type**<br/>**dex_async_start_sub_flow_execution_cancelled** — **flow_type**、**sub_flow_type**<br/>**dex_async_invoke_rpc_execution_cancelled** — **flow_type**、**rpc_name**<br/>**dex_async_sys_step_execution_cancelled** — **flow_type** | Counter | 在 execution 期间 canceled 的异步 execution。 |
-| **dex_async_step_failed** — **flow_type**、**step_type**<br/>**dex_async_start_sub_flow_failed** — **flow_type**、**sub_flow_type**<br/>**dex_async_invoke_rpc_failed** — **flow_type**、**rpc_name**<br/>**dex_async_sys_step_failed** — **flow_type** | Counter | 报告为 failed 的异步 execution。 |
-| **dex_async_step_execution_failed** — **flow_type**、**step_type**<br/>**dex_async_start_sub_flow_execution_failed** — **flow_type**、**sub_flow_type**<br/>**dex_async_invoke_rpc_execution_failed** — **flow_type**、**rpc_name**<br/>**dex_async_sys_step_execution_failed** — **flow_type** | Counter | 在 execution 期间失败的异步 execution。 |
-| **dex_async_step_error** — **flow_type**、**step_type**<br/>**dex_async_start_sub_flow_error** — **flow_type**、**sub_flow_type**<br/>**dex_async_invoke_rpc_error** — **flow_type**、**rpc_name**<br/>**dex_async_sys_step_error** — **flow_type** | Counter | 其他异步 execution error。 |
-| **dex_async_step_execution_latency** — **flow_type**、**step_type**<br/>**dex_async_start_sub_flow_execution_latency** — **flow_type**、**sub_flow_type**<br/>**dex_async_invoke_rpc_execution_latency** — **flow_type**、**rpc_name**<br/>**dex_async_sys_step_execution_latency** — **flow_type** | Duration timer，秒 | 一次异步 execution 所花的时间。 |
-| **dex_async_step_succeed_endtoend_latency** — **flow_type**、**step_type**<br/>**dex_async_start_sub_flow_succeed_endtoend_latency** — **flow_type**、**sub_flow_type**<br/>**dex_async_invoke_rpc_succeed_endtoend_latency** — **flow_type**、**rpc_name**<br/>**dex_async_sys_step_succeed_endtoend_latency** — **flow_type** | Duration timer，秒 | 从 schedule 到异步工作成功完成的时间。 |
-
-## Worker 容量与调度
-
-这些指标带有公共标签。poller 指标有 **poller_type**。可用时，**worker_type** 和
-**task_queue** 标识适用的 worker。
-
-| 最终指标名 | 类型 | 额外标签 | 含义 |
+| Metric family | 类型 | 含义 | 可用标签 |
 | --- | --- | --- | --- |
-| **dex_corrupted_signals** | Counter | 无 | 因 payload 无法解码而被丢弃的 signal。 |
-| **dex_worker_start** | Counter | **worker_type** | Worker start 次数。 |
-| **dex_worker_task_slots_available** | Gauge | **worker_type**、**task_queue** | 可用的 worker task slot。 |
-| **dex_worker_task_slots_used** | Gauge | **worker_type**、**task_queue** | 当前正在使用的 worker task slot。 |
-| **dex_poller_start** | Counter | **poller_type** | Poller start 次数。 |
-| **dex_num_pollers** | Gauge | **poller_type**、**task_queue** | 已配置或活动的 poller 数量。 |
-| **dex_workflow_active_thread_count** | Gauge | **workflow_type**、**task_queue** | 活动 Flow execution thread。 |
-| **dex_nexus_poll_no_task** | Counter | **nexus_service**、**nexus_operation**、**task_queue** | 返回无 task 的 Nexus poll。 |
-| **dex_nexus_task_schedule_to_start_latency** | Duration timer，秒 | **nexus_service**、**nexus_operation**、**task_queue** | 从 Nexus task schedule 到 start 的时间。 |
-| **dex_nexus_task_execution_failed** | Counter | **nexus_service**、**nexus_operation**、**failure_reason**、**task_queue** | 失败的 Nexus task execution。 |
-| **dex_nexus_task_execution_latency** | Duration timer，秒 | **nexus_service**、**nexus_operation**、**task_queue** | 执行 Nexus task 所花的时间。 |
-| **dex_nexus_task_endtoend_latency** | Duration timer，秒 | **nexus_service**、**nexus_operation**、**task_queue** | 从 Nexus task schedule 到 completion 的时间。 |
+| **dex_flow_completed** | Counter | 成功完成的应用 Flow run。 | **flow_type** |
+| **dex_flow_canceled** | Counter | 以 canceled 状态关闭的应用 Flow run。 | **flow_type** |
+| **dex_flow_failed** | Counter | 以 failed 状态关闭的应用 Flow run。 | **flow_type** |
+| **dex_flow_continue_as_new** | Counter | continue-as-new 为新 run 的应用 Flow run。 | **flow_type** |
+| **dex_flow_endtoend_latency** | Histogram | 应用 Flow run 从启动到关闭的时间。 | **flow_type** |
+| **dex_sys_flow_completed** | Counter | 成功完成的内部 system Flow run。 | 无 |
+| **dex_sys_flow_endtoend_latency** | Histogram | 内部 system Flow run 从启动到关闭的时间。 | 无 |
 
-## 请求
+## Flow task 处理
 
-request 指标带有公共标签和 **operation**。failure 和 resource-exhausted 指标还带有
-**status_code**。以 **_attempt** 结尾的名称统计单次 transport attempt（包括 retry）；
-其他名称统计逻辑 request。
-
-| 最终指标名 | 类型 | 含义 |
-| --- | --- | --- |
-| **dex_request**<br/>**dex_request_attempt** | Counter | 已开始的非长 request。 |
-| **dex_request_failure**<br/>**dex_request_failure_attempt** | Counter | 失败的非长 request。 |
-| **dex_request_latency**<br/>**dex_request_latency_attempt** | Duration timer，秒 | 非长 request latency。 |
-| **dex_request_resource_exhausted**<br/>**dex_request_resource_exhausted_attempt** | Counter | 因 resource exhaustion 被拒绝的非长 request。 |
-| **dex_long_request**<br/>**dex_long_request_attempt** | Counter | 已开始的 long-poll request。 |
-| **dex_long_request_failure**<br/>**dex_long_request_failure_attempt** | Counter | 失败的 long-poll request。 |
-| **dex_long_request_latency**<br/>**dex_long_request_latency_attempt** | Duration timer，秒 | long-poll request latency。 |
-| **dex_long_request_resource_exhausted**<br/>**dex_long_request_resource_exhausted_attempt** | Counter | 因 resource exhaustion 被拒绝的 long-poll request。 |
-
-## 缓存
-
-这些指标带有公共标签。它们报告 Server sticky cache；Blob Store cache 指标在下一节。
-
-| 最终指标名 | 类型 | 额外标签 | 含义 |
+| Metric family | 类型 | 含义 | 可用标签 |
 | --- | --- | --- | --- |
-| **dex_sticky_cache_hit** | Counter | **workflow_type**、**task_queue** | 找到 entry 的 sticky-cache lookup。 |
-| **dex_sticky_cache_miss** | Counter | **workflow_type**、**task_queue** | 未找到 entry 的 sticky-cache lookup。 |
-| **dex_sticky_cache_total_forced_eviction** | Counter | **workflow_type**、**task_queue**、**cause** | 从 sticky cache 强制逐出的 entry。 |
-| **dex_sticky_cache_size** | Gauge | **workflow_type**、**task_queue** | 当前 sticky-cache entry count。 |
+| **dex_flow_task_queue_poll_succeed** | Counter | 返回应用 Flow task 的 poll。 | **flow_type** |
+| **dex_flow_task_schedule_to_start_latency** | Histogram | 应用 Flow task 从调度到 Worker 开始处理的时间。 | **flow_type** |
+| **dex_flow_task_replay_latency** | Histogram | 应用 Flow task replay history 所花的时间。 | **flow_type** |
+| **dex_flow_task_execution_latency** | Histogram | 处理应用 Flow task 所花的时间。 | **flow_type** |
+| **dex_sys_flow_task_queue_poll_empty** | Counter | 未返回内部 system Flow task 的 poll。 | 无 |
+| **dex_sys_flow_task_queue_poll_succeed** | Counter | 返回内部 system Flow task 的 poll。 | 无 |
+| **dex_sys_flow_task_schedule_to_start_latency** | Histogram | 内部 system Flow task 从调度到 Worker 开始处理的时间。 | 无 |
+| **dex_sys_flow_task_replay_latency** | Histogram | 内部 system Flow task replay history 所花的时间。 | 无 |
+| **dex_sys_flow_task_execution_latency** | Histogram | 处理内部 system Flow task 所花的时间。 | 无 |
+
+## 同步 Step
+
+| Metric family | 类型 | 含义 | 可用标签 |
+| --- | --- | --- | --- |
+| **dex_sync_step_schedule_to_start_latency** | Histogram | 同步 Step 工作从调度到 Worker 开始处理的时间。 | **flow_type**、**step_type** |
+| **dex_sync_step_execution_latency** | Histogram | 执行同步 Step 工作所花的时间。 | **flow_type**、**step_type** |
+| **dex_sync_step_succeed_endtoend_latency** | Histogram | 同步 Step 工作从调度到成功完成的时间。 | **flow_type**、**step_type** |
+| **dex_sync_step_execution_failed** | Counter | 执行失败的同步 Step。 | **flow_type**、**step_type** |
+| **dex_sync_sys_step_poll_no_task** | Counter | 未返回同步 system-Step task 的 poll。 | **flow_type** |
+| **dex_sync_sys_step_schedule_to_start_latency** | Histogram | 同步 system-Step 工作从调度到 Worker 开始处理的时间。 | **flow_type** |
+| **dex_sync_sys_step_execution_latency** | Histogram | 执行同步 system-Step 工作所花的时间。 | **flow_type** |
+| **dex_sync_sys_step_succeed_endtoend_latency** | Histogram | 同步 system-Step 工作从调度到成功完成的时间。 | **flow_type** |
+
+## 异步 Step
+
+| Metric family | 类型 | 含义 | 可用标签 |
+| --- | --- | --- | --- |
+| **dex_async_step_total** | Counter | 已开始的异步 Step execution。 | **flow_type**、**step_type** |
+| **dex_async_step_canceled** | Counter | 异步 Step 报告的 cancellation outcome。 | **flow_type**、**step_type** |
+| **dex_async_step_execution_cancelled** | Counter | 最终被取消的异步 Step execution。 | **flow_type**、**step_type** |
+| **dex_async_step_failed** | Counter | 异步 Step 报告的 failure outcome。 | **flow_type**、**step_type** |
+| **dex_async_step_execution_failed** | Counter | 最终失败的异步 Step execution。 | **flow_type**、**step_type** |
+| **dex_async_step_execution_latency** | Histogram | 执行异步 Step 工作所花的时间。 | **flow_type**、**step_type** |
+| **dex_async_step_succeed_endtoend_latency** | Histogram | 异步 Step 工作从调度到成功完成的时间。 | **flow_type**、**step_type** |
+
+## Worker RPC 和 SubFlow 工作
+
+| Metric family | 类型 | 含义 | 可用标签 |
+| --- | --- | --- | --- |
+| **dex_async_invoke_rpc_total** | Counter | 已开始的异步 Worker RPC execution。 | **flow_type**、**rpc_name** |
+| **dex_async_invoke_rpc_failed** | Counter | 异步 Worker RPC 报告的 failure outcome。 | **flow_type**、**rpc_name** |
+| **dex_async_invoke_rpc_execution_failed** | Counter | 最终失败的异步 Worker RPC execution。 | **flow_type**、**rpc_name** |
+| **dex_async_invoke_rpc_execution_latency** | Histogram | 执行异步 Worker RPC 工作所花的时间。 | **flow_type**、**rpc_name** |
+| **dex_async_invoke_rpc_succeed_endtoend_latency** | Histogram | 异步 Worker RPC 从调度到成功完成的时间。 | **flow_type**、**rpc_name** |
+| **dex_async_start_sub_flow_total** | Counter | 已开始的异步 SubFlow-start execution。 | **flow_type**、**sub_flow_type** |
+| **dex_async_start_sub_flow_execution_latency** | Histogram | 执行异步 SubFlow-start 工作所花的时间。 | **flow_type**、**sub_flow_type** |
+| **dex_async_start_sub_flow_succeed_endtoend_latency** | Histogram | 异步 SubFlow start 从调度到成功完成的时间。 | **flow_type**、**sub_flow_type** |
+
+## 异步 system Step
+
+| Metric family | 类型 | 含义 | 可用标签 |
+| --- | --- | --- | --- |
+| **dex_async_sys_step_total** | Counter | 已开始的异步内部 system-Step execution。 | **flow_type** |
+| **dex_async_sys_step_execution_latency** | Histogram | 执行异步内部 system-Step 工作所花的时间。 | **flow_type** |
+| **dex_async_sys_step_succeed_endtoend_latency** | Histogram | 异步内部 system-Step 工作从调度到成功完成的时间。 | **flow_type** |
+
+## Temporal 请求
+
+以 **_attempt** 结尾的指标会统计每一次 transport attempt，包括 retry。不带
+**_attempt** 的对应名称统计逻辑 request。Long-request 指标包括 long poll 和 Workflow
+Update 等长时间运行的操作。
+
+| Metric family | 类型 | 含义 | 可用标签 |
+| --- | --- | --- | --- |
+| **dex_request** | Counter | 已开始的非 long Temporal 逻辑请求。 | **operation** |
+| **dex_request_attempt** | Counter | 非 long Temporal 请求的 transport attempt。 | **operation** |
+| **dex_request_failure** | Counter | 失败的非 long Temporal 逻辑请求。 | **operation**、**status_code** |
+| **dex_request_failure_attempt** | Counter | 失败的非 long Temporal request attempt。 | **operation**、**status_code** |
+| **dex_request_latency** | Histogram | 非 long Temporal 逻辑请求的端到端延迟。 | **operation** |
+| **dex_request_latency_attempt** | Histogram | 单次非 long Temporal request attempt 的延迟。 | **operation** |
+| **dex_long_request** | Counter | 已开始的 long Temporal 逻辑请求。 | **operation** |
+| **dex_long_request_attempt** | Counter | long Temporal 请求的 transport attempt。 | **operation** |
+| **dex_long_request_failure** | Counter | 失败的 long Temporal 逻辑请求。 | **operation**、**status_code** |
+| **dex_long_request_failure_attempt** | Counter | 失败的 long Temporal request attempt。 | **operation**、**status_code** |
+| **dex_long_request_latency** | Histogram | long Temporal 逻辑请求的端到端延迟。 | **operation** |
+| **dex_long_request_latency_attempt** | Histogram | 单次 long Temporal request attempt 的延迟。 | **operation** |
+| **dex_long_request_resource_exhausted** | Counter | 因 runtime 资源耗尽而被拒绝的 long 逻辑请求。 | **operation**、**status_code**、**cause** |
+
+## Worker 和 cache 状态
+
+| Metric family | 类型 | 含义 | 可用标签 |
+| --- | --- | --- | --- |
+| **dex_poller_start** | Counter | Dex Server Worker 启动的 poller。 | 无 |
+| **dex_num_pollers** | Gauge | 按 task 类型统计的已配置或活动 poller。 | **poller_type** |
+| **dex_worker_start** | Counter | 已启动的 Dex Server Worker component。 | 无 |
+| **dex_worker_task_slots_available** | Gauge | 当前可用的 Worker task slot。 | 无 |
+| **dex_worker_task_slots_used** | Gauge | 当前正在使用的 Worker task slot。 | 无 |
+| **dex_sticky_cache_hit** | Counter | 找到缓存 Flow execution 的 sticky-cache lookup。 | 无 |
+| **dex_sticky_cache_size** | Gauge | 当前 sticky-cache entry 数量。 | 无 |
+| **dex_sticky_cache_total_forced_eviction** | Counter | 从 sticky cache 强制移除的 entry。 | 无 |
 
 ## Blob Store
 
-Blob Store 指标带有公共标签和 **prefix**。cache 行只会在启用 S3 Attribute cache 时出现。
+这些 family 来自 Temporal-backed Dex Server 使用的 Dex Blob Store。配置 Blob cache
+后会出现 cache counter。
 
-| 最终指标名 | 类型 | 含义 |
-| --- | --- | --- |
-| **write_object_error** | Counter | Blob Store write failure。 |
-| **read_object_error** | Counter | Blob Store read failure。 |
-| **write_object_success** | Duration timer，秒 | 成功的 Blob Store write latency。 |
-| **read_object_success** | Duration timer，秒 | 成功的 Blob Store read latency。 |
-| **blob_cache_hit** | Counter | Attribute Blob cache hit。 |
-| **blob_cache_miss** | Counter | Attribute Blob cache miss。 |
-| **blob_cache_write_through** | Counter | 写入 Attribute Blob cache 的 object。 |
-| **blob_cache_read_fill** | Counter | source read 后填充 Attribute Blob cache。 |
-| **blob_cache_bypass** | Counter | 有意不缓存的 Attribute object。 |
-| **blob_cache_error** | Counter | Attribute Blob cache error。 |
-
-## Step-stream 写入失败
-
-| 最终指标名 | 类型 | 标签 | 含义 |
+| Metric family | 类型 | 含义 | 可用标签 |
 | --- | --- | --- | --- |
-| **dex_step_stream_write_failure** | Counter | 公共标签、**flow_type**、**step_type**、**step_method**、**reason** | 写入 Worker 提供的 Step Stream event 失败。 |
+| **write_object_error** | Counter | 失败的 Blob Store object write。 | **prefix** |
+| **write_object_success** | Histogram | 成功 Blob Store object write 的延迟。 | **prefix** |
+| **read_object_error** | Counter | 失败的 Blob Store object read。 | **prefix** |
+| **read_object_success** | Histogram | 成功 Blob Store object read 的延迟。 | **prefix** |
+| **blob_cache_hit** | Counter | 找到 entry 的 Blob-cache lookup。 | **prefix** |
+| **blob_cache_miss** | Counter | 未找到 entry 的 Blob-cache lookup。 | **prefix** |
+| **blob_cache_write_through** | Counter | 写入 Blob cache 的 object。 | **prefix** |
+| **blob_cache_read_fill** | Counter | 读取 backing store 后填充的 Blob-cache entry。 | **prefix** |
+| **blob_cache_bypass** | Counter | 有意绕过 cache 的 Blob operation。 | **prefix** |
+| **blob_cache_error** | Counter | 失败的 Blob-cache operation。 | **prefix** |
 
-## 查询和告警方向
+## 查询和告警
 
-使用 counter 创建可移植的 dashboard 和 alert。下面的示例不依赖 histogram 或 summary 配置。
-
-按 Flow type 查看失败的应用 Flow：
+按 Flow type 统计失败的应用 Flow：
 
 ~~~promql
 sum(rate(dex_flow_failed[5m])) by (flow_type)
 ~~~
 
-按 Flow 和 Step type 查看失败的同步 Step：
+按 Flow type 和 Step type 统计失败的同步 Step：
 
 ~~~promql
 sum(rate(dex_sync_step_execution_failed[5m])) by (flow_type, step_type)
 ~~~
 
-失败的 Worker RPC 调用：
+失败的异步 Worker RPC：
 
 ~~~promql
-sum(rate(dex_sync_invoke_rpc_execution_failed[5m])) by (flow_type, rpc_name)
+sum(rate(dex_async_invoke_rpc_execution_failed[5m])) by (flow_type, rpc_name)
 ~~~
 
-Step-stream write failure：
+按 operation 和 status 统计 Temporal 请求失败：
 
 ~~~promql
-sum(rate(dex_step_stream_write_failure[5m])) by (flow_type, step_type, reason)
+sum(rate(dex_request_failure[5m])) by (operation, status_code)
 ~~~
 
-Blob Store read 和 write error：
+按 prefix 统计 Blob Store error：
 
 ~~~promql
 sum(rate(read_object_error[5m])) by (prefix)
 + sum(rate(write_object_error[5m])) by (prefix)
 ~~~
 
-当 **dex_flow_failed**、Step failure counter、request failure、Blob Store error 或 Step-stream
-write failure 持续增加时告警。将 alert 与有界的 **flow_type**、**step_type**、**rpc_name**、
-**operation** 或 **prefix** breakdown 配对，让响应者无需查询高基数标签就能识别受影响服务。
+对 Flow、Step、Worker RPC、request 或 Blob Store failure counter 的持续增长设置告警。
+使用表格中的有界标签定位受影响的操作。只有在 histogram bucket 与服务级别目标匹配后，
+才使用 histogram quantile 构建延迟 dashboard。

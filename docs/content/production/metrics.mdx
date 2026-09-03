@@ -4,198 +4,194 @@ title: Metrics
 
 # Metrics
 
-When the Prometheus reporter is enabled, Dex Server exports the metric catalog
-on this page. These are the final metric names. A series is absent until the
-corresponding operation occurs, and optional components export their metrics
-only when enabled.
+This page covers Dex Server running with Temporal and the Prometheus reporter.
+The catalog is the union of metric families observed from a standalone Dex
+Server scrape after integration traffic and the scrape performed by the
+Temporal metrics integration test. It does not list metric names inferred only
+from SDK constants. It therefore reflects the forked Temporal SDK dependency
+pinned by this repository.
 
-A duration timer records elapsed time. Its unit is seconds in Prometheus; the
-reporter exposes it as a histogram or summary according to its configuration.
-All other types below are Prometheus counters or gauges.
+## Enable Prometheus
 
-## Labels and cardinality
+Configure the reporter under **interpreter.temporal.prometheus**:
 
-Server-generated series carry these common labels where the runtime supplies
-them:
+```yaml
+interpreter:
+  temporal:
+    hostPort: temporal:7233
+    namespace: default
+    prometheus:
+      listenAddress: 0.0.0.0:8890
+      timerType: histogram
+```
 
-| Label | Values and constraint |
+After Dex Server starts, scrape the configured address:
+
+```bash
+curl http://127.0.0.1:8890/metrics
+```
+
+The tables use the metric family name shown in the **TYPE** line. A histogram
+also exposes **_bucket**, **_sum**, and **_count** series. Histogram values are
+seconds. Prometheus adds the **le** label to histogram buckets.
+
+A family may be absent until its operation occurs. A counter can appear with a
+zero value when Dex creates it during startup.
+
+## Tags
+
+The tables intentionally omit these Temporal context tags:
+**namespace**, **client_name**, **worker_type**, **workflow_type**,
+**activity_type**, and **task_queue**. They can still appear in a scrape, but
+they are not needed to use the Dex metrics on this page.
+
+The available tags shown below are:
+
+| Tag | Meaning and values |
 | --- | --- |
-| **namespace** | The configured execution namespace. Keep the number of namespaces small. |
-| **client_name** | The fixed runtime client identifier. It has one bounded value per deployed runtime. |
-| **worker_type** | The bounded worker category, or **none** when no worker applies. |
-| **workflow_type** | A registered workflow implementation name, or **none**. Do not use an execution ID as a type name. |
-| **activity_type** | A registered activity implementation name, or **none**. |
-| **task_queue** | A configured task-queue name, or **none**. Use a bounded set of queue names. |
+| **flow_type** | Application Flow type. A system Step outside an application Flow uses **none**. |
+| **step_type** | Application Step type. |
+| **sub_flow_type** | Child Flow type started by a SubFlow Step. |
+| **rpc_name** | Worker RPC name. |
+| **operation** | Temporal service operation, such as **StartWorkflowExecution** or **PollActivityTaskQueue**. |
+| **status_code** | Bounded gRPC status code for a failed request, such as **NOT_FOUND** or **INVALID_ARGUMENT**. |
+| **cause** | Bounded resource-exhaustion cause. The observed value was **BusyWorkflow**. |
+| **poller_type** | **workflow_task**, **workflow_sticky_task**, or **activity_task** in the observed scrape. |
+| **prefix** | Configured Blob Store prefix. |
 
-Dex adds one of the following semantic label sets to Flow and Step metrics:
+The Prometheus reporter replaces unsupported characters in tag values with
+underscores. For example, Flow type **order-flow** is exported as
+**order_flow**. Keep Flow types, Step types, SubFlow types, and RPC names
+bounded. Never put Flow IDs, Run IDs, request IDs, payloads, or error messages
+in metric tags.
 
-| Metric subject | Additional labels |
-| --- | --- |
-| Application Flow | **flow_type** |
-| Synchronous or asynchronous Step | **flow_type**, **step_type** |
-| Synchronous or asynchronous SubFlow start | **flow_type**, **sub_flow_type** |
-| Synchronous or asynchronous Worker RPC | **flow_type**, **rpc_name** |
-| Synchronous or asynchronous system Step | **flow_type** |
+## Flow lifecycle
 
-For a Dex semantic label, **none** means that the metric family has that label
-but no value applies to this observation. For example, a system Step outside an
-application Flow has **flow_type="none"**. It is not an unknown Flow type.
-
-The catalog also uses these bounded labels:
-
-| Label | Values and constraint |
-| --- | --- |
-| **poller_type** | One of **workflow_task**, **workflow_sticky_task**, **activity_task**, or **nexus_task**. |
-| **operation** | A stable server RPC operation name. Never place request IDs or user input here. |
-| **status_code** | A finite gRPC status code such as **UNAVAILABLE** or **INTERNAL**. It appears on failed request metrics. |
-| **failure_reason** and **cause** | Bounded runtime reason values. Do not copy an error message into either label. |
-| **nexus_service** and **nexus_operation** | Configured Nexus names. Keep both sets bounded. |
-| **prefix** | The configured Blob Store namespace or domain. |
-| **step_method** | **wait_for** or **execute**. |
-| **reason** | A bounded Step-stream write failure reason. |
-
-Do not add Flow IDs, Run IDs, Step execution IDs, customer IDs, request IDs,
-payload values, or error text as metric labels. They create unbounded
-Prometheus cardinality.
-
-## Flow results
-
-Application Flow metrics have the common labels plus **flow_type**. System Flow
-metrics have the common labels and no **flow_type** label.
-
-| Final metric names | Type | Meaning |
-| --- | --- | --- |
-| **dex_flow_completed**<br/>**dex_sys_flow_completed** | Counter | Flows that completed successfully. |
-| **dex_flow_canceled**<br/>**dex_sys_flow_canceled** | Counter | Flows that closed as canceled. |
-| **dex_flow_failed**<br/>**dex_sys_flow_failed** | Counter | Flows that closed as failed. |
-| **dex_flow_continue_as_new**<br/>**dex_sys_flow_continue_as_new** | Counter | Flow runs that continued as a new run. |
-| **dex_flow_endtoend_latency**<br/>**dex_sys_flow_endtoend_latency** | Duration timer, seconds | Time from Flow-run start to close. |
-
-## Flow task scheduling and execution
-
-Application Flow task metrics have the common labels plus **flow_type**.
-System Flow task metrics have the common labels and no **flow_type** label.
-
-| Final metric names | Type | Meaning |
-| --- | --- | --- |
-| **dex_flow_task_replay_latency**<br/>**dex_sys_flow_task_replay_latency** | Duration timer, seconds | Time spent replaying a Flow task. |
-| **dex_flow_task_queue_poll_empty**<br/>**dex_sys_flow_task_queue_poll_empty** | Counter | Empty Flow-task polls. |
-| **dex_flow_task_queue_poll_succeed**<br/>**dex_sys_flow_task_queue_poll_succeed** | Counter | Flow-task polls that returned a task. |
-| **dex_flow_task_schedule_to_start_latency**<br/>**dex_sys_flow_task_schedule_to_start_latency** | Duration timer, seconds | Time from Flow-task scheduling to start. |
-| **dex_flow_task_execution_latency**<br/>**dex_sys_flow_task_execution_latency** | Duration timer, seconds | Time spent executing a Flow task. |
-| **dex_flow_task_execution_failed**<br/>**dex_sys_flow_task_execution_failed** | Counter | Failed Flow-task executions. |
-| **dex_flow_task_no_completion**<br/>**dex_sys_flow_task_no_completion** | Counter | Flow tasks that returned without a completion. |
-
-## Synchronous Step work
-
-Every metric in this section has the common labels. The labels after each name
-are the additional Dex labels.
-
-| Final metric names and additional labels | Type | Meaning |
-| --- | --- | --- |
-| **dex_sync_sys_step_poll_no_task** — **flow_type** | Counter | Polls that found no synchronous system-Step task. |
-| **dex_sync_step_schedule_to_start_latency** — **flow_type**, **step_type**<br/>**dex_sync_start_sub_flow_schedule_to_start_latency** — **flow_type**, **sub_flow_type**<br/>**dex_sync_invoke_rpc_schedule_to_start_latency** — **flow_type**, **rpc_name**<br/>**dex_sync_sys_step_schedule_to_start_latency** — **flow_type** | Duration timer, seconds | Time from synchronous work scheduling to execution start. |
-| **dex_sync_step_execution_failed** — **flow_type**, **step_type**<br/>**dex_sync_start_sub_flow_execution_failed** — **flow_type**, **sub_flow_type**<br/>**dex_sync_invoke_rpc_execution_failed** — **flow_type**, **rpc_name**<br/>**dex_sync_sys_step_execution_failed** — **flow_type** | Counter | Failed synchronous executions. |
-| **dex_sync_sys_step_unregistered_activity_invocation** — **flow_type** | Counter | Attempts to invoke an unregistered synchronous system-Step handler. |
-| **dex_sync_step_execution_latency** — **flow_type**, **step_type**<br/>**dex_sync_start_sub_flow_execution_latency** — **flow_type**, **sub_flow_type**<br/>**dex_sync_invoke_rpc_execution_latency** — **flow_type**, **rpc_name**<br/>**dex_sync_sys_step_execution_latency** — **flow_type** | Duration timer, seconds | Time spent in a synchronous execution. |
-| **dex_sync_step_succeed_endtoend_latency** — **flow_type**, **step_type**<br/>**dex_sync_start_sub_flow_succeed_endtoend_latency** — **flow_type**, **sub_flow_type**<br/>**dex_sync_invoke_rpc_succeed_endtoend_latency** — **flow_type**, **rpc_name**<br/>**dex_sync_sys_step_succeed_endtoend_latency** — **flow_type** | Duration timer, seconds | Time from scheduling to successful completion of synchronous work. |
-| **dex_sync_step_task_error** — **flow_type**, **step_type**<br/>**dex_sync_start_sub_flow_task_error** — **flow_type**, **sub_flow_type**<br/>**dex_sync_invoke_rpc_task_error** — **flow_type**, **rpc_name**<br/>**dex_sync_sys_step_task_error** — **flow_type** | Counter | Synchronous task-processing errors. |
-
-## Asynchronous Step work
-
-Every metric in this section has the common labels. The labels after each name
-are the additional Dex labels.
-
-| Final metric names and additional labels | Type | Meaning |
-| --- | --- | --- |
-| **dex_async_step_total** — **flow_type**, **step_type**<br/>**dex_async_start_sub_flow_total** — **flow_type**, **sub_flow_type**<br/>**dex_async_invoke_rpc_total** — **flow_type**, **rpc_name**<br/>**dex_async_sys_step_total** — **flow_type** | Counter | Asynchronous executions started. |
-| **dex_async_step_canceled** — **flow_type**, **step_type**<br/>**dex_async_start_sub_flow_canceled** — **flow_type**, **sub_flow_type**<br/>**dex_async_invoke_rpc_canceled** — **flow_type**, **rpc_name**<br/>**dex_async_sys_step_canceled** — **flow_type** | Counter | Asynchronous executions reported as canceled. |
-| **dex_async_step_execution_cancelled** — **flow_type**, **step_type**<br/>**dex_async_start_sub_flow_execution_cancelled** — **flow_type**, **sub_flow_type**<br/>**dex_async_invoke_rpc_execution_cancelled** — **flow_type**, **rpc_name**<br/>**dex_async_sys_step_execution_cancelled** — **flow_type** | Counter | Asynchronous executions canceled during execution. |
-| **dex_async_step_failed** — **flow_type**, **step_type**<br/>**dex_async_start_sub_flow_failed** — **flow_type**, **sub_flow_type**<br/>**dex_async_invoke_rpc_failed** — **flow_type**, **rpc_name**<br/>**dex_async_sys_step_failed** — **flow_type** | Counter | Asynchronous executions reported as failed. |
-| **dex_async_step_execution_failed** — **flow_type**, **step_type**<br/>**dex_async_start_sub_flow_execution_failed** — **flow_type**, **sub_flow_type**<br/>**dex_async_invoke_rpc_execution_failed** — **flow_type**, **rpc_name**<br/>**dex_async_sys_step_execution_failed** — **flow_type** | Counter | Asynchronous executions that failed during execution. |
-| **dex_async_step_error** — **flow_type**, **step_type**<br/>**dex_async_start_sub_flow_error** — **flow_type**, **sub_flow_type**<br/>**dex_async_invoke_rpc_error** — **flow_type**, **rpc_name**<br/>**dex_async_sys_step_error** — **flow_type** | Counter | Other asynchronous execution errors. |
-| **dex_async_step_execution_latency** — **flow_type**, **step_type**<br/>**dex_async_start_sub_flow_execution_latency** — **flow_type**, **sub_flow_type**<br/>**dex_async_invoke_rpc_execution_latency** — **flow_type**, **rpc_name**<br/>**dex_async_sys_step_execution_latency** — **flow_type** | Duration timer, seconds | Time spent in an asynchronous execution. |
-| **dex_async_step_succeed_endtoend_latency** — **flow_type**, **step_type**<br/>**dex_async_start_sub_flow_succeed_endtoend_latency** — **flow_type**, **sub_flow_type**<br/>**dex_async_invoke_rpc_succeed_endtoend_latency** — **flow_type**, **rpc_name**<br/>**dex_async_sys_step_succeed_endtoend_latency** — **flow_type** | Duration timer, seconds | Time from scheduling to successful completion of asynchronous work. |
-
-## Worker capacity and scheduling
-
-These metrics have the common labels. **poller_type** is present on poller
-metrics. **worker_type** and **task_queue** identify the applicable worker when
-available.
-
-| Final metric name | Type | Additional labels | Meaning |
+| Metric family | Type | Meaning | Available tags |
 | --- | --- | --- | --- |
-| **dex_corrupted_signals** | Counter | None | Signals discarded because their payload could not be decoded. |
-| **dex_worker_start** | Counter | **worker_type** | Worker starts. |
-| **dex_worker_task_slots_available** | Gauge | **worker_type**, **task_queue** | Available worker task slots. |
-| **dex_worker_task_slots_used** | Gauge | **worker_type**, **task_queue** | Worker task slots currently in use. |
-| **dex_poller_start** | Counter | **poller_type** | Poller starts. |
-| **dex_num_pollers** | Gauge | **poller_type**, **task_queue** | Configured or active poller count. |
-| **dex_workflow_active_thread_count** | Gauge | **workflow_type**, **task_queue** | Active Flow execution threads. |
-| **dex_nexus_poll_no_task** | Counter | **nexus_service**, **nexus_operation**, **task_queue** | Nexus polls that returned no task. |
-| **dex_nexus_task_schedule_to_start_latency** | Duration timer, seconds | **nexus_service**, **nexus_operation**, **task_queue** | Time from Nexus task scheduling to start. |
-| **dex_nexus_task_execution_failed** | Counter | **nexus_service**, **nexus_operation**, **failure_reason**, **task_queue** | Failed Nexus task executions. |
-| **dex_nexus_task_execution_latency** | Duration timer, seconds | **nexus_service**, **nexus_operation**, **task_queue** | Time spent executing a Nexus task. |
-| **dex_nexus_task_endtoend_latency** | Duration timer, seconds | **nexus_service**, **nexus_operation**, **task_queue** | Time from Nexus task scheduling to completion. |
+| **dex_flow_completed** | Counter | Application Flow runs that completed successfully. | **flow_type** |
+| **dex_flow_canceled** | Counter | Application Flow runs that closed as canceled. | **flow_type** |
+| **dex_flow_failed** | Counter | Application Flow runs that closed as failed. | **flow_type** |
+| **dex_flow_continue_as_new** | Counter | Application Flow runs that continued as a new run. | **flow_type** |
+| **dex_flow_endtoend_latency** | Histogram | Time from an application Flow run starting to closing. | **flow_type** |
+| **dex_sys_flow_completed** | Counter | Internal system Flow runs that completed successfully. | None |
+| **dex_sys_flow_endtoend_latency** | Histogram | Time from an internal system Flow run starting to closing. | None |
 
-## Requests
+## Flow task processing
 
-Request metrics have the common labels and **operation**. Failure and
-resource-exhausted metrics also have **status_code**. The names ending in
-**_attempt** count an individual transport attempt, including retries; the
-other names count the logical request.
-
-| Final metric names | Type | Meaning |
-| --- | --- | --- |
-| **dex_request**<br/>**dex_request_attempt** | Counter | Started non-long requests. |
-| **dex_request_failure**<br/>**dex_request_failure_attempt** | Counter | Failed non-long requests. |
-| **dex_request_latency**<br/>**dex_request_latency_attempt** | Duration timer, seconds | Non-long request latency. |
-| **dex_request_resource_exhausted**<br/>**dex_request_resource_exhausted_attempt** | Counter | Non-long requests rejected for resource exhaustion. |
-| **dex_long_request**<br/>**dex_long_request_attempt** | Counter | Started long-poll requests. |
-| **dex_long_request_failure**<br/>**dex_long_request_failure_attempt** | Counter | Failed long-poll requests. |
-| **dex_long_request_latency**<br/>**dex_long_request_latency_attempt** | Duration timer, seconds | Long-poll request latency. |
-| **dex_long_request_resource_exhausted**<br/>**dex_long_request_resource_exhausted_attempt** | Counter | Long-poll requests rejected for resource exhaustion. |
-
-## Cache
-
-These metrics have the common labels. They report the Server's sticky cache;
-Blob Store cache metrics are in the next section.
-
-| Final metric name | Type | Additional labels | Meaning |
+| Metric family | Type | Meaning | Available tags |
 | --- | --- | --- | --- |
-| **dex_sticky_cache_hit** | Counter | **workflow_type**, **task_queue** | Sticky-cache lookups that found an entry. |
-| **dex_sticky_cache_miss** | Counter | **workflow_type**, **task_queue** | Sticky-cache lookups that found no entry. |
-| **dex_sticky_cache_total_forced_eviction** | Counter | **workflow_type**, **task_queue**, **cause** | Entries forcibly evicted from the sticky cache. |
-| **dex_sticky_cache_size** | Gauge | **workflow_type**, **task_queue** | Current sticky-cache entry count. |
+| **dex_flow_task_queue_poll_succeed** | Counter | Polls that returned an application Flow task. | **flow_type** |
+| **dex_flow_task_schedule_to_start_latency** | Histogram | Time from scheduling an application Flow task until a Worker started it. | **flow_type** |
+| **dex_flow_task_replay_latency** | Histogram | Time spent replaying history for an application Flow task. | **flow_type** |
+| **dex_flow_task_execution_latency** | Histogram | Time spent processing an application Flow task. | **flow_type** |
+| **dex_sys_flow_task_queue_poll_empty** | Counter | Polls that returned no internal system Flow task. | None |
+| **dex_sys_flow_task_queue_poll_succeed** | Counter | Polls that returned an internal system Flow task. | None |
+| **dex_sys_flow_task_schedule_to_start_latency** | Histogram | Time from scheduling an internal system Flow task until a Worker started it. | None |
+| **dex_sys_flow_task_replay_latency** | Histogram | Time spent replaying history for an internal system Flow task. | None |
+| **dex_sys_flow_task_execution_latency** | Histogram | Time spent processing an internal system Flow task. | None |
+
+## Synchronous Steps
+
+| Metric family | Type | Meaning | Available tags |
+| --- | --- | --- | --- |
+| **dex_sync_step_schedule_to_start_latency** | Histogram | Time from scheduling synchronous Step work until a Worker started it. | **flow_type**, **step_type** |
+| **dex_sync_step_execution_latency** | Histogram | Time spent executing synchronous Step work. | **flow_type**, **step_type** |
+| **dex_sync_step_succeed_endtoend_latency** | Histogram | Time from scheduling synchronous Step work to successful completion. | **flow_type**, **step_type** |
+| **dex_sync_step_execution_failed** | Counter | Synchronous Step executions that failed. | **flow_type**, **step_type** |
+| **dex_sync_sys_step_poll_no_task** | Counter | Polls that returned no synchronous system-Step task. | **flow_type** |
+| **dex_sync_sys_step_schedule_to_start_latency** | Histogram | Time from scheduling synchronous system-Step work until a Worker started it. | **flow_type** |
+| **dex_sync_sys_step_execution_latency** | Histogram | Time spent executing synchronous system-Step work. | **flow_type** |
+| **dex_sync_sys_step_succeed_endtoend_latency** | Histogram | Time from scheduling synchronous system-Step work to successful completion. | **flow_type** |
+
+## Asynchronous Steps
+
+| Metric family | Type | Meaning | Available tags |
+| --- | --- | --- | --- |
+| **dex_async_step_total** | Counter | Asynchronous Step executions started. | **flow_type**, **step_type** |
+| **dex_async_step_canceled** | Counter | Cancellation outcomes reported for asynchronous Steps. | **flow_type**, **step_type** |
+| **dex_async_step_execution_cancelled** | Counter | Asynchronous Step executions that ended as canceled. | **flow_type**, **step_type** |
+| **dex_async_step_failed** | Counter | Failure outcomes reported for asynchronous Steps. | **flow_type**, **step_type** |
+| **dex_async_step_execution_failed** | Counter | Asynchronous Step executions that ended as failed. | **flow_type**, **step_type** |
+| **dex_async_step_execution_latency** | Histogram | Time spent executing asynchronous Step work. | **flow_type**, **step_type** |
+| **dex_async_step_succeed_endtoend_latency** | Histogram | Time from scheduling asynchronous Step work to successful completion. | **flow_type**, **step_type** |
+
+## Worker RPC and SubFlow work
+
+| Metric family | Type | Meaning | Available tags |
+| --- | --- | --- | --- |
+| **dex_async_invoke_rpc_total** | Counter | Asynchronous Worker RPC executions started. | **flow_type**, **rpc_name** |
+| **dex_async_invoke_rpc_failed** | Counter | Failure outcomes reported for asynchronous Worker RPCs. | **flow_type**, **rpc_name** |
+| **dex_async_invoke_rpc_execution_failed** | Counter | Asynchronous Worker RPC executions that ended as failed. | **flow_type**, **rpc_name** |
+| **dex_async_invoke_rpc_execution_latency** | Histogram | Time spent executing asynchronous Worker RPC work. | **flow_type**, **rpc_name** |
+| **dex_async_invoke_rpc_succeed_endtoend_latency** | Histogram | Time from scheduling an asynchronous Worker RPC to successful completion. | **flow_type**, **rpc_name** |
+| **dex_async_start_sub_flow_total** | Counter | Asynchronous SubFlow-start executions started. | **flow_type**, **sub_flow_type** |
+| **dex_async_start_sub_flow_execution_latency** | Histogram | Time spent executing asynchronous SubFlow-start work. | **flow_type**, **sub_flow_type** |
+| **dex_async_start_sub_flow_succeed_endtoend_latency** | Histogram | Time from scheduling an asynchronous SubFlow start to successful completion. | **flow_type**, **sub_flow_type** |
+
+## Asynchronous system Steps
+
+| Metric family | Type | Meaning | Available tags |
+| --- | --- | --- | --- |
+| **dex_async_sys_step_total** | Counter | Asynchronous internal system-Step executions started. | **flow_type** |
+| **dex_async_sys_step_execution_latency** | Histogram | Time spent executing asynchronous internal system-Step work. | **flow_type** |
+| **dex_async_sys_step_succeed_endtoend_latency** | Histogram | Time from scheduling asynchronous internal system-Step work to successful completion. | **flow_type** |
+
+## Temporal requests
+
+Metrics ending in **_attempt** count each transport attempt, including retries.
+The corresponding name without **_attempt** counts the logical request.
+Long-request metrics cover long polls and other long-running operations such as
+Workflow Updates.
+
+| Metric family | Type | Meaning | Available tags |
+| --- | --- | --- | --- |
+| **dex_request** | Counter | Logical non-long Temporal requests started. | **operation** |
+| **dex_request_attempt** | Counter | Transport attempts for non-long Temporal requests. | **operation** |
+| **dex_request_failure** | Counter | Logical non-long Temporal requests that failed. | **operation**, **status_code** |
+| **dex_request_failure_attempt** | Counter | Failed transport attempts for non-long Temporal requests. | **operation**, **status_code** |
+| **dex_request_latency** | Histogram | End-to-end latency of logical non-long Temporal requests. | **operation** |
+| **dex_request_latency_attempt** | Histogram | Latency of individual non-long Temporal request attempts. | **operation** |
+| **dex_long_request** | Counter | Logical long Temporal requests started. | **operation** |
+| **dex_long_request_attempt** | Counter | Transport attempts for long Temporal requests. | **operation** |
+| **dex_long_request_failure** | Counter | Logical long Temporal requests that failed. | **operation**, **status_code** |
+| **dex_long_request_failure_attempt** | Counter | Failed transport attempts for long Temporal requests. | **operation**, **status_code** |
+| **dex_long_request_latency** | Histogram | End-to-end latency of logical long Temporal requests. | **operation** |
+| **dex_long_request_latency_attempt** | Histogram | Latency of individual long Temporal request attempts. | **operation** |
+| **dex_long_request_resource_exhausted** | Counter | Logical long requests rejected because a runtime resource was exhausted. | **operation**, **status_code**, **cause** |
+
+## Worker and cache state
+
+| Metric family | Type | Meaning | Available tags |
+| --- | --- | --- | --- |
+| **dex_poller_start** | Counter | Pollers started by Dex Server Workers. | None |
+| **dex_num_pollers** | Gauge | Configured or active pollers by task kind. | **poller_type** |
+| **dex_worker_start** | Counter | Dex Server Worker components started. | None |
+| **dex_worker_task_slots_available** | Gauge | Worker task slots currently available. | None |
+| **dex_worker_task_slots_used** | Gauge | Worker task slots currently in use. | None |
+| **dex_sticky_cache_hit** | Counter | Sticky-cache lookups that found a cached Flow execution. | None |
+| **dex_sticky_cache_size** | Gauge | Current number of sticky-cache entries. | None |
+| **dex_sticky_cache_total_forced_eviction** | Counter | Entries forcibly removed from the sticky cache. | None |
 
 ## Blob Store
 
-Blob Store metrics carry the common labels and **prefix**. Cache rows appear
-only when the S3 Attribute cache is enabled.
+These families come from the Dex Blob Store used by a Temporal-backed Server.
+The cache counters appear when the Blob cache is configured.
 
-| Final metric name | Type | Meaning |
-| --- | --- | --- |
-| **write_object_error** | Counter | Blob Store write failures. |
-| **read_object_error** | Counter | Blob Store read failures. |
-| **write_object_success** | Duration timer, seconds | Successful Blob Store write latency. |
-| **read_object_success** | Duration timer, seconds | Successful Blob Store read latency. |
-| **blob_cache_hit** | Counter | Attribute Blob cache hits. |
-| **blob_cache_miss** | Counter | Attribute Blob cache misses. |
-| **blob_cache_write_through** | Counter | Attribute objects written through to the Blob cache. |
-| **blob_cache_read_fill** | Counter | Attribute Blob cache fills after source reads. |
-| **blob_cache_bypass** | Counter | Attribute objects intentionally not cached. |
-| **blob_cache_error** | Counter | Attribute Blob cache errors. |
-
-## Step-stream write failure
-
-| Final metric name | Type | Labels | Meaning |
+| Metric family | Type | Meaning | Available tags |
 | --- | --- | --- | --- |
-| **dex_step_stream_write_failure** | Counter | Common labels, **flow_type**, **step_type**, **step_method**, **reason** | Failed write of a Worker-provided Step Stream event. |
+| **write_object_error** | Counter | Blob Store object writes that failed. | **prefix** |
+| **write_object_success** | Histogram | Latency of successful Blob Store object writes. | **prefix** |
+| **read_object_error** | Counter | Blob Store object reads that failed. | **prefix** |
+| **read_object_success** | Histogram | Latency of successful Blob Store object reads. | **prefix** |
+| **blob_cache_hit** | Counter | Blob-cache lookups that found an entry. | **prefix** |
+| **blob_cache_miss** | Counter | Blob-cache lookups that did not find an entry. | **prefix** |
+| **blob_cache_write_through** | Counter | Objects written through to the Blob cache. | **prefix** |
+| **blob_cache_read_fill** | Counter | Blob-cache entries filled after reading the backing store. | **prefix** |
+| **blob_cache_bypass** | Counter | Blob operations that intentionally bypassed the cache. | **prefix** |
+| **blob_cache_error** | Counter | Blob-cache operations that failed. | **prefix** |
 
-## Queries and alert directions
-
-Use counters for portable dashboards and alerts. The following examples do not
-depend on a histogram or summary configuration.
+## Queries and alerts
 
 Failed application Flows by Flow type:
 
@@ -209,27 +205,26 @@ Failed synchronous Steps by Flow and Step type:
 sum(rate(dex_sync_step_execution_failed[5m])) by (flow_type, step_type)
 ~~~
 
-Failed Worker RPC calls:
+Failed asynchronous Worker RPCs:
 
 ~~~promql
-sum(rate(dex_sync_invoke_rpc_execution_failed[5m])) by (flow_type, rpc_name)
+sum(rate(dex_async_invoke_rpc_execution_failed[5m])) by (flow_type, rpc_name)
 ~~~
 
-Step-stream write failures:
+Temporal request failures by operation and status:
 
 ~~~promql
-sum(rate(dex_step_stream_write_failure[5m])) by (flow_type, step_type, reason)
+sum(rate(dex_request_failure[5m])) by (operation, status_code)
 ~~~
 
-Blob Store read and write errors:
+Blob Store errors by prefix:
 
 ~~~promql
 sum(rate(read_object_error[5m])) by (prefix)
 + sum(rate(write_object_error[5m])) by (prefix)
 ~~~
 
-Alert on a sustained increase in **dex_flow_failed**, Step failure counters,
-request failures, Blob Store errors, or Step-stream write failures. Pair an
-alert with a bounded **flow_type**, **step_type**, **rpc_name**, **operation**,
-or **prefix** breakdown so the responder can identify the affected service
-without querying high-cardinality labels.
+Alert on sustained increases in Flow, Step, Worker RPC, request, or Blob Store
+failure counters. Use the bounded tags in the tables to identify the affected
+operation. Use histogram quantiles for latency dashboards only after choosing
+buckets that match the service-level objective.
