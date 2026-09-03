@@ -27,12 +27,11 @@ pub const CHANNEL_MOVE: Rpc<MoveMessage, ()> = Rpc::new("ChannelMove");
 
 static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
 pub static QUEUED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Queued"));
-static MOVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Moved"));
+pub static MOVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Moved"));
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MoveMessage {
     pub message_id: String,
-    pub value: String,
 }
 
 #[derive(Default)]
@@ -46,8 +45,12 @@ impl ChannelFlow {
     }
 
     fn move_message(&self, context: &mut Context, message: MoveMessage) -> HandlerResult<()> {
+        let message_to_move = QUEUED.find_pending_message(context, &message.message_id)?;
         QUEUED.delete(context, &message.message_id)?;
-        MOVED.publish(context, message.value)
+        if let Some(message_to_move) = message_to_move {
+            MOVED.publish(context, message_to_move.value)?;
+        }
+        Ok(())
     }
 }
 
@@ -68,7 +71,10 @@ impl Flow for ChannelFlow {
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
             .procedure_without_input(CHANNEL_APPROVE, Self::approve)
-            .procedure(CHANNEL_MOVE.is_transactional(), Self::move_message)
+            .procedure(
+                CHANNEL_MOVE.is_transactional().load_channel(&QUEUED),
+                Self::move_message,
+            )
     }
 }
 

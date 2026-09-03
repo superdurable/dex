@@ -66,7 +66,7 @@ async def test_channel_pending_messages_can_be_deleted_and_moved(
         app.channel.queued,
         pending[0].message_id,
     )
-    move_message = MoveMessage(pending[1].message_id, pending[1].value)
+    move_message = MoveMessage(pending[1].message_id)
     await client.invoke_rpc(app.channel.move, flow_id, move_message)
 
     assert not await client.get_channel_messages(flow_id, app.channel.queued)

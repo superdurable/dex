@@ -85,18 +85,8 @@ public final class ChannelController {
     public ResponseEntity<String> move(
             @RequestParam final String workflowId,
             @RequestParam final String messageId) {
-        final ChannelMessage<String> message = client.getChannelMessages(workflowId, flow.queued)
-                .stream()
-                .filter(candidate -> candidate.getMessageId().equals(messageId))
-                .findFirst()
-                .orElse(null);
-        if (message == null) {
-            return ResponseEntity.notFound().build();
-        }
         final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
-        client.invokeRPC(
-                stub::move,
-                new ChannelFlow.MoveMessage(message.getMessageId(), message.getValue()));
+        client.invokeRPC(stub::move, new ChannelFlow.MoveMessage(messageId));
         return ResponseEntity.ok("done");
     }
 }

@@ -39,6 +39,8 @@ Only pending Channel state is mutable through these operations. Editing a messag
 
 Use a transactional RPC when deletion must commit atomically with a replacement publication or other Flow-state writes. Signal RPC deletion is best-effort when the ID is missing. Cadence uses query plus signal and retains a race between validation and mutation, so applications must reconcile from a fresh list.
 
+For an application queue UI, prefer one application snapshot RPC that returns durable conversation state, description, and loaded pending queues together. Refresh that snapshot after mutations and live events, on focus or reconnect, and periodically at low frequency. Keep optimistic items only as a short bridge; the snapshot is canonical.
+
 Use **dexcli flow search**, **summary**, **state**, and **history** for narrower JSON output. Use **--no-hydrate** when payload contents are unnecessary or sensitive.
 
 ## Common failure classes

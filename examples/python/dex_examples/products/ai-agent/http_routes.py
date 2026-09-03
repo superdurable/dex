@@ -14,21 +14,24 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from dataclasses import asdict
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, TypedDict
 
-from dex import ChannelMessageNotFoundError, FlowStatus, StartFlowOptions
+from dex import (
+    ChannelMessageNotFoundError,
+    FlowNotActiveError,
+    FlowStatus,
+    StartFlowOptions,
+)
 from quart import Blueprint, Response, jsonify, render_template, request
 from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from dex_examples.app import ExampleApp
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
-    HistoryRequest,
     PlanExecutionRequest,
     SteerMessageRequest,
     ToolApprovalRequest,
@@ -209,35 +212,36 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         )
         return jsonify(accepted=accepted)
 
-    @blueprint.get("/message-queue")
-    async def message_queue() -> Response:
+    @blueprint.get("/snapshot")
+    async def snapshot() -> Response:
         flow_id = required_query("workflowId")
-        queued, steered = await asyncio.gather(
-            app_state.client.get_channel_messages(
+        try:
+            agent_snapshot = await app_state.client.invoke_rpc(
+                app_state.ai_agent.snapshot,
                 flow_id,
-                app_state.ai_agent.queued_user_messages,
-            ),
-            app_state.client.get_channel_messages(
-                flow_id,
-                app_state.ai_agent.steered_user_messages,
-            ),
+            )
+        except FlowNotActiveError:
+            info = await app_state.client.describe_flow(flow_id)
+            if info.status in {FlowStatus.RUNNING, FlowStatus.CONTINUED_AS_NEW}:
+                raise
+            result = await app_state.client.wait_for_flow(flow_id)
+            return jsonify(
+                run_id=info.run_id,
+                flow_status=info.status.value,
+                error_type=result.error_type.value if result.error_type else None,
+                error_message=result.error_message,
+                messages=[],
+                description=None,
+                queued=[],
+                steered=[],
+            )
+        payload = asdict(agent_snapshot)
+        payload.update(
+            flow_status=FlowStatus.RUNNING.value,
+            error_type=None,
+            error_message=None,
         )
-        return jsonify(
-            queued=[
-                {
-                    "message_id": message.message_id,
-                    "value": asdict(message.value),
-                }
-                for message in queued
-            ],
-            steered=[
-                {
-                    "message_id": message.message_id,
-                    "value": asdict(message.value),
-                }
-                for message in steered
-            ],
-        )
+        return jsonify(payload)
 
     @blueprint.post("/message-queue/delete")
     async def delete_queued_message() -> Response:
@@ -257,21 +261,11 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         payload = await _json_object()
         flow_id = _required_string(payload, "workflowId")
         message_id = _required_string(payload, "messageId")
-        pending = await app_state.client.get_channel_messages(
-            flow_id,
-            app_state.ai_agent.queued_user_messages,
-        )
-        message = next(
-            (item.value for item in pending if item.message_id == message_id),
-            None,
-        )
-        if message is None:
-            raise NotFound("the queued message is no longer pending")
         try:
             accepted = await app_state.client.invoke_rpc(
                 app_state.ai_agent.steer_message,
                 flow_id,
-                SteerMessageRequest(message_id, message),
+                SteerMessageRequest(message_id),
             )
         except ChannelMessageNotFoundError as error:
             raise NotFound("the queued message is no longer pending") from error
@@ -306,19 +300,6 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
             ),
         )
         return jsonify(accepted=accepted)
-
-    @blueprint.get("/history")
-    async def history() -> Response:
-        before_text = optional_query("before", "")
-        page = await app_state.client.invoke_rpc(
-            app_state.ai_agent.history,
-            required_query("workflowId"),
-            HistoryRequest(
-                before_sequence=int(before_text) if before_text else None,
-                limit=int(optional_query("limit", "50")),
-            ),
-        )
-        return jsonify(asdict(page))
 
     @blueprint.get("/events")
     async def events() -> Response:
@@ -365,31 +346,6 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
             resume_token=message.resume_token,
             created_time=message.created_time.isoformat(),
             source=message.source,
-        )
-
-    @blueprint.get("/describe")
-    async def describe() -> Response:
-        details = await app_state.client.invoke_rpc(
-            app_state.ai_agent.describe,
-            required_query("workflowId"),
-        )
-        return jsonify(asdict(details))
-
-    @blueprint.get("/status")
-    async def status() -> Response:
-        flow_id = required_query("workflowId")
-        info = await app_state.client.describe_flow(flow_id)
-        error_type = None
-        error_message = None
-        if info.status not in {FlowStatus.RUNNING, FlowStatus.CONTINUED_AS_NEW}:
-            result = await app_state.client.wait_for_flow(flow_id)
-            error_type = result.error_type.value if result.error_type else None
-            error_message = result.error_message
-        return jsonify(
-            status=info.status.value,
-            run_id=info.run_id,
-            error_type=error_type,
-            error_message=error_message,
         )
 
     return blueprint

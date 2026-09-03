@@ -161,22 +161,17 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 </SdkSnippet>
 </SdkTabs>
 
-## Selective RPC state loading
+## Selective RPC state loading {#load-collection-state}
 
-An RPC annotation or **Client** invoke option requests **AttributeMap** entries or pending
-**Channel** messages. Dex Server validates that request and derives the loaded scope. It returns
-that scope with the RPC snapshot. The SDK checks the returned scope when an RPC reads a
-selectively loaded collection.
+Every RPC receives regular Attribute values and Channel size metadata. Reading AttributeMap entries or pending Channel messages requires an explicit load. This keeps large collections out of RPC requests that do not use them.
 
-For an **AttributeMap** entry or instance enumeration outside that scope, the SDK raises
-**AttributeMapNotLoadedError**. For pending messages outside that scope, it raises
-**ChannelMessagesNotLoadedError**. Java uses **AttributeMapNotLoadedException** and
-**ChannelMessagesNotLoadedException**.
+Load a whole AttributeMap or ChannelMap when the handler needs all current instances. Load exact map instances when it needs only known keys. Load a Channel when the handler needs its pending message IDs or Values. Channel size and ChannelMap keys and sizes remain available without loading pending messages.
 
-An explicitly loaded collection can be empty. That is not an error. An empty pending-message
-snapshot returns an empty list. An absent **AttributeMap** entry uses the SDK's normal
-absent-value behavior. The not-loaded errors mean Dex Server did not return a loading guarantee
-for that collection. In normal operation, the returned scope matches the requested loads.
+Python, Java, TypeScript, and Rust declare loads with the RPC. Go supplies them in **InvokeOptions**. Dex Server validates each requested definition against the Flow persistence schema and returns the loaded scope with the RPC snapshot. The SDK checks that scope when the handler reads a selectively loaded collection.
+
+For an **AttributeMap** entry or instance enumeration outside that scope, the SDK raises **AttributeMapNotLoadedError**. For pending messages outside that scope, it raises **ChannelMessagesNotLoadedError**. Java uses **AttributeMapNotLoadedException** and **ChannelMessagesNotLoadedException**.
+
+An explicitly loaded collection can be empty. That is not an error. An empty pending-message snapshot returns an empty list. An absent **AttributeMap** entry uses the SDK's normal absent-value behavior. Loading creates one input snapshot. It does not consume messages, make the RPC transactional, or isolate the handler from concurrent work.
 
 ## Transactional reads and writes {#transactional-reads-and-writes}
 
@@ -184,7 +179,7 @@ A transactional RPC performs its reads and writes as one atomic operation.
 
 An RPC that holds an Attribute lock is already transactional implicitly. You can also make an RPC explicitly transactional by setting **is_transactional=true**. This is especially useful for Channel message deletion because Dex validates that the message is still pending before committing any writes.
 
-The controller reads the pending message first, then passes its ID and Value to the transactional RPC. A concurrent consumer makes the deletion fail, so Dex does not publish a stale copy:
+The caller passes only a pending message ID. The RPC loads the source Channel, reads the original Value from its snapshot, then stages the deletion and destination publication. A concurrent consumer makes deletion validation fail, so Dex commits neither effect:
 
 <SdkTabs
   examples={{
@@ -197,23 +192,28 @@ The controller reads the pending message first, then passes its ID and Value to 
 <SdkSnippet lang="python">
 
 ```python
-@rpc(is_transactional=True)
+@rpc(is_transactional=True, load_channels=(queued,))
 def move(self, context: Context, input: MoveMessage) -> None:
+    message = self.queued.find_pending_message(context, input.message_id)
     self.queued.delete(context, input.message_id)
-    self.moved.publish(context, input.value)
+    if message is not None:
+        self.moved.publish(context, message.value)
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
-err = controller.client.InvokeRPC(
+err := controller.client.InvokeRPC(
 	request.Request.Context(),
 	flowID,
 	controller.flow.Move,
-	MoveMessage{MessageID: messageToMove.MessageID, Value: messageToMove.Value},
+	MoveMessage{MessageID: messageID},
 	&none,
-	sdk.InvokeOptions{IsTransactional: true},
+	sdk.InvokeOptions{
+		IsTransactional: true,
+		LoadChannels:   []sdk.ChannelDef{Queued},
+	},
 )
 ```
 
@@ -221,10 +221,14 @@ err = controller.client.InvokeRPC(
 <SdkSnippet lang="java">
 
 ```java
-@RPC(isTransactional = true)
+@RPC(isTransactional = true, loadChannels = {"Queued"})
 public void move(final Context context, final MoveMessage message) {
+    final ChannelMessage<String> messageToMove =
+            queued.findPendingMessage(context, message.messageId);
     queued.delete(context, message.messageId);
-    moved.publish(context, message.value);
+    if (messageToMove != null) {
+        moved.publish(context, messageToMove.getValue());
+    }
 }
 ```
 
@@ -232,10 +236,13 @@ public void move(final Context context, final MoveMessage message) {
 <SdkSnippet lang="typescript">
 
 ```typescript
-@rpc({ isTransactional: true, inputCodec: moveMessageCodec })
+@rpc({ isTransactional: true, loadChannels: [queued], inputCodec: moveMessageCodec })
 public move(context: Context, message: MoveMessage): void {
+  const messageToMove = queued.findPendingMessage(context, message.messageId);
   queued.delete(context, message.messageId);
-  moved.publish(context, message.value);
+  if (messageToMove !== undefined) {
+    moved.publish(context, messageToMove.value);
+  }
 }
 ```
 
@@ -246,12 +253,17 @@ public move(context: Context, message: MoveMessage): void {
 fn rpcs(&self) -> RpcList<Self> {
     RpcList::new()
         .procedure_without_input(CHANNEL_APPROVE, Self::approve)
-        .procedure(CHANNEL_MOVE.is_transactional(), Self::move_message)
+        .procedure(
+            CHANNEL_MOVE.is_transactional().load_channel(&QUEUED),
+            Self::move_message,
+        )
 }
 ```
 
 </SdkSnippet>
 </SdkTabs>
+
+A transactional commit does not isolate the handler while it runs. If a decision depends on the whole loaded Channel, ChannelMap, or AttributeMap remaining unchanged, every cooperating Step and RPC writer must use the same Attribute lock. The lock provides that isolation and implicitly makes the RPC transactional; it does not load collection contents.
 
 A non-transactional RPC treats a missing deletion as a no-op and still commits its other successful effects. Cadence does not provide the same atomic guarantee for Channel deletion validation and writes. Design Cadence callers to tolerate that race.
 

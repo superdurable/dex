@@ -58,21 +58,27 @@ the UI can edit it, delete it, or choose **Steer**. Editing first deletes the
 pending message and puts its content back in the composer; submitting it again
 creates a new message at the queue tail.
 
-Steer uses a transactional RPC to delete the selected queued message and publish
-the same value to **SteeredUserMessages**. Dex applies it before the next model
-call, tool, approval wait, or Timer continuation. It does not cancel an LLM or MCP
-request already running. A Steer clears unexecuted tool calls and records durable
-cancellation results. Only Steer interrupts a tool approval or durable wait.
+Steer sends only the selected message ID. A transactional RPC loads
+**QueuedUserMessages**, finds the original Value, stages its deletion, and
+publishes that Value to **SteeredUserMessages**. A concurrent consumption makes
+the entire operation fail without a destination publication. Dex applies the
+steered message before the next model call, tool, approval wait, or Timer
+continuation. It does not cancel an LLM or MCP request already running. A Steer
+clears unexecuted tool calls and records durable cancellation results. Only Steer
+interrupts a tool approval or durable wait.
 
 The queue panel remains above the composer. It collapses to a compact status row
 when both queues are empty and expands automatically when a pending message appears.
 The browser page is the conversation scroll surface. The queue, user-input request,
 and composer stay fixed at the bottom while new activity remains visible above them.
-The UI treats the Server queue as canonical. It keeps a submitted item visible
-until the Server reports it as pending or the Flow consumes it into history. It
-refreshes immediately after each mutation, refreshes from Agent activity events
-and browser reconnection, and uses an eight-second fallback poll while the page
-is visible or the Agent is active.
+The UI treats the Server queue as canonical. Its snapshot endpoint invokes one
+read-only RPC that loads **AgentMessages**, **QueuedUserMessages**, and
+**SteeredUserMessages**, then returns the application history, Agent description,
+run ID, and both queues. It keeps a submitted item visible until the snapshot
+reports it as pending or the Flow consumes it into history. It refreshes
+immediately after each mutation, refreshes from Agent activity events and browser
+reconnection, and uses an eight-second fallback poll while the page is visible or
+the Agent is active.
 
 ## Run locally
 

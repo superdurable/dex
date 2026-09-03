@@ -51,6 +51,7 @@ from dex_examples.products.ai_agent.models import (
     AgentEvent,
     AgentMessage,
     AgentPlan,
+    AgentSnapshot,
     AgentState,
     ContextSummary,
     HistoryPage,
@@ -58,6 +59,7 @@ from dex_examples.products.ai_agent.models import (
     PendingApproval,
     PendingTimer,
     PendingUserInput,
+    PendingUserMessage,
     PlanExecutionRequest,
     PlanTask,
     SequencedMessage,
@@ -1225,16 +1227,24 @@ class AIAgentFlow(Flow[AgentConfig]):
         self.queued_user_messages.publish(context, input)
         return RPCResult(True)
 
-    @rpc(is_transactional=True)
+    @rpc(
+        is_transactional=True,
+        load_channels=(queued_user_messages,),
+    )
     def steer_message(
         self,
         context: Context,
         input: SteerMessageRequest,
     ) -> RPCResult[bool]:
-        if not input.message_id.strip() or not input.message.content.strip():
+        if not input.message_id.strip():
             return RPCResult(False)
+        message = self.queued_user_messages.find_pending_message(
+            context,
+            input.message_id,
+        )
         self.queued_user_messages.delete(context, input.message_id)
-        self.steered_user_messages.publish(context, input.message)
+        if message is not None:
+            self.steered_user_messages.publish(context, message.value)
         return RPCResult(True)
 
     @rpc
@@ -1287,7 +1297,7 @@ class AIAgentFlow(Flow[AgentConfig]):
         )
         return RPCResult(True)
 
-    @rpc
+    @rpc(load_attribute_maps=(messages,))
     def history(self, context: Context, input: HistoryRequest) -> RPCResult[HistoryPage]:
         state = self.state.get(context)
         if state is None:
@@ -1307,86 +1317,106 @@ class AIAgentFlow(Flow[AgentConfig]):
 
     @rpc
     def describe(self, context: Context) -> RPCResult[AgentDescription]:
+        return RPCResult(self._description(context))
+
+    @rpc(
+        load_attribute_maps=(messages,),
+        load_channels=(queued_user_messages, steered_user_messages),
+    )
+    def snapshot(self, context: Context) -> RPCResult[AgentSnapshot]:
+        state = self.state.get(context)
+        messages: list[SequencedMessage] = []
+        if state is not None:
+            for sequence in range(
+                state.first_retained_sequence,
+                state.last_sequence + 1,
+            ):
+                message = self.messages.get(context, _sequence_key(sequence))
+                messages.append(
+                    SequencedMessage(sequence, message, message.created_at)
+                )
+        return RPCResult(
+            AgentSnapshot(
+                run_id=context.run_id,
+                messages=messages,
+                description=self._description(context),
+                queued=[
+                    PendingUserMessage(message.message_id, message.value)
+                    for message in self.queued_user_messages.pending_messages(context)
+                ],
+                steered=[
+                    PendingUserMessage(message.message_id, message.value)
+                    for message in self.steered_user_messages.pending_messages(context)
+                ],
+            )
+        )
+
+    def _description(self, context: Context) -> AgentDescription:
         state = self.state.get(context)
         config = self.config.get(context)
         if state is None or config is None:
-            return RPCResult(
-                AgentDescription(
-                    status="initializing",
-                    model="",
-                    system_prompt="",
-                    first_retained_sequence=1,
-                    last_sequence=0,
-                    summarized_through_sequence=0,
-                    pending_approval_call_id=None,
-                    pending_approval_tool_name=None,
-                    pending_approval_arguments_json=None,
-                    pending_timer_call_id=None,
-                    pending_timer_duration_seconds=None,
-                    pending_timer_reason=None,
-                    pending_user_input_call_id=None,
-                    pending_user_input_prompt=None,
-                    pending_user_input_choices=[],
-                    plan=None,
-                    plan_execution_requested=False,
-                    pending_queued_message_count=0,
-                    pending_steered_message_count=0,
-                    available_mcp_servers=self.mcp_registry.server_names,
-                    available_tools=[
-                        "write_todos",
-                        "durable_wait",
-                        "request_user_input",
-                    ],
-                )
+            return AgentDescription(
+                status="initializing",
+                model="",
+                system_prompt="",
+                first_retained_sequence=1,
+                last_sequence=0,
+                summarized_through_sequence=0,
+                pending_approval_call_id=None,
+                pending_approval_tool_name=None,
+                pending_approval_arguments_json=None,
+                pending_timer_call_id=None,
+                pending_timer_duration_seconds=None,
+                pending_timer_reason=None,
+                pending_user_input_call_id=None,
+                pending_user_input_prompt=None,
+                pending_user_input_choices=[],
+                plan=None,
+                plan_execution_requested=False,
+                available_mcp_servers=self.mcp_registry.server_names,
+                available_tools=[
+                    "write_todos",
+                    "durable_wait",
+                    "request_user_input",
+                ],
             )
         approval = _optional_attribute(self.pending_approval, context)
         timer = _optional_attribute(self.pending_timer, context)
         pending_user_input = _optional_attribute(self.pending_user_input, context)
         plan = self.get_plan(context)
-        return RPCResult(
-            AgentDescription(
-                status=state.status,
-                model=config.model,
-                system_prompt=config.system_prompt,
-                first_retained_sequence=state.first_retained_sequence,
-                last_sequence=state.last_sequence,
-                summarized_through_sequence=state.summarized_through_sequence,
-                pending_approval_call_id=(approval.call_id if approval else None),
-                pending_approval_tool_name=(approval.tool_name if approval else None),
-                pending_approval_arguments_json=(
-                    approval.arguments_json if approval else None
-                ),
-                pending_timer_call_id=(timer.call_id if timer else None),
-                pending_timer_duration_seconds=(
-                    timer.duration_seconds if timer else None
-                ),
-                pending_timer_reason=(timer.reason if timer else None),
-                pending_user_input_call_id=(
-                    pending_user_input.call_id if pending_user_input else None
-                ),
-                pending_user_input_prompt=(
-                    pending_user_input.prompt if pending_user_input else None
-                ),
-                pending_user_input_choices=(
-                    pending_user_input.choices if pending_user_input else []
-                ),
-                plan=_plan_description(plan),
-                plan_execution_requested=(
-                    state.pending_plan_execution_revision is not None
-                ),
-                pending_queued_message_count=self.queued_user_messages.size(context),
-                pending_steered_message_count=(
-                    self.steered_user_messages.size(context)
-                ),
-                available_mcp_servers=self.mcp_registry.server_names,
-                available_tools=[
-                    "write_todos",
-                    *(
-                        definition.name
-                        for definition in self.tool_definitions(config)
-                    ),
-                ],
-            )
+        return AgentDescription(
+            status=state.status,
+            model=config.model,
+            system_prompt=config.system_prompt,
+            first_retained_sequence=state.first_retained_sequence,
+            last_sequence=state.last_sequence,
+            summarized_through_sequence=state.summarized_through_sequence,
+            pending_approval_call_id=(approval.call_id if approval else None),
+            pending_approval_tool_name=(approval.tool_name if approval else None),
+            pending_approval_arguments_json=(
+                approval.arguments_json if approval else None
+            ),
+            pending_timer_call_id=(timer.call_id if timer else None),
+            pending_timer_duration_seconds=(timer.duration_seconds if timer else None),
+            pending_timer_reason=(timer.reason if timer else None),
+            pending_user_input_call_id=(
+                pending_user_input.call_id if pending_user_input else None
+            ),
+            pending_user_input_prompt=(
+                pending_user_input.prompt if pending_user_input else None
+            ),
+            pending_user_input_choices=(
+                pending_user_input.choices if pending_user_input else []
+            ),
+            plan=_plan_description(plan),
+            plan_execution_requested=(
+                state.pending_plan_execution_revision is not None
+            ),
+            available_mcp_servers=self.mcp_registry.server_names,
+            available_tools=[
+                "write_todos",
+                *(definition.name for definition in self.tool_definitions(config)),
+            ],
         )
 
 

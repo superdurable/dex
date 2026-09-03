@@ -666,21 +666,24 @@ async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
     assert [message.value.content for message in pending] == [
         "replace the current objective"
     ]
-    description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
-    assert description.status == "waiting_for_timer"
-    assert description.pending_queued_message_count == 1
+    snapshot = await client.invoke_rpc(app.ai_agent.snapshot, flow_id)
+    assert snapshot.description.status == "waiting_for_timer"
+    assert [item.value.content for item in snapshot.queued] == [
+        "replace the current objective"
+    ]
+    assert snapshot.steered == []
 
     message = pending[0]
     assert await client.invoke_rpc(
         app.ai_agent.steer_message,
         flow_id,
-        SteerMessageRequest(message.message_id, message.value),
+        SteerMessageRequest(message.message_id),
     )
     with pytest.raises(ChannelMessageNotFoundError):
         await client.invoke_rpc(
             app.ai_agent.steer_message,
             flow_id,
-            SteerMessageRequest(message.message_id, message.value),
+            SteerMessageRequest(message.message_id),
         )
 
     await _wait_for_content(

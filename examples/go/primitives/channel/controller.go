@@ -152,36 +152,17 @@ func (controller *controller) move(request *gin.Context) {
 	if !found {
 		return
 	}
-	var messages []sdk.ChannelMessage[string]
-	err := controller.client.GetChannelMessages(
-		request.Request.Context(),
-		flowID,
-		Queued,
-		&messages,
-	)
-	if err != nil {
-		httputil.RespondString(request, "", err)
-		return
-	}
-	var messageToMove *sdk.ChannelMessage[string]
-	for index := range messages {
-		if messages[index].MessageID == messageID {
-			messageToMove = &messages[index]
-			break
-		}
-	}
-	if messageToMove == nil {
-		request.JSON(http.StatusNotFound, gin.H{"error": "channel message not found"})
-		return
-	}
 	var none sdk.None
-	err = controller.client.InvokeRPC(
+	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
 		controller.flow.Move,
-		MoveMessage{MessageID: messageToMove.MessageID, Value: messageToMove.Value},
+		MoveMessage{MessageID: messageID},
 		&none,
-		sdk.InvokeOptions{IsTransactional: true},
+		sdk.InvokeOptions{
+			IsTransactional: true,
+			LoadChannels:    []sdk.ChannelDef{Queued},
+		},
 	)
 	httputil.RespondString(request, "done", err)
 }

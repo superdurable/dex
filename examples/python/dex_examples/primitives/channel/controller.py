@@ -79,20 +79,10 @@ def create_channel_blueprint(app_state: ExampleApp) -> Blueprint:
     async def move() -> Response | str:
         flow_id = required_query("workflowId")
         message_id = required_query("messageId")
-        pending = await app_state.client.get_channel_messages(
-            flow_id,
-            app_state.channel.queued,
-        )
-        message = next(
-            (message for message in pending if message.message_id == message_id),
-            None,
-        )
-        if message is None:
-            return Response("channel message not found", status=404)
         await app_state.client.invoke_rpc(
             app_state.channel.move,
             flow_id,
-            MoveMessage(message.message_id, message.value),
+            MoveMessage(message_id),
         )
         return "done"
 

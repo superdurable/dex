@@ -98,7 +98,8 @@ You can also change the example server and Dex web UI URLs in the page header.
 The Go [Deal DSL](go/products/deal-dsl/) application and Python-only
 [AI Agent](python/ai-agent/) have their own UIs; they are not on
 the shared playground. Deal DSL Flow implementations also run in Java, Python,
-TypeScript, and Rust.
+TypeScript, and Rust. The AI Agent UI reads conversation state, description, and
+both message queues through one application snapshot RPC.
 
 # Directory organization
 

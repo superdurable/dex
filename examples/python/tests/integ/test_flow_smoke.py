@@ -489,11 +489,11 @@ async def test_ai_agent_http_queue_can_delete_and_steer(
         "/products/ai-agent/messages",
         {"workflowId": flow_id, "content": "delete this"},
     )
-    _, _, queue_body = await flow_smoke_http.get(
-        "/products/ai-agent/message-queue",
+    _, _, snapshot_body = await flow_smoke_http.get(
+        "/products/ai-agent/snapshot",
         {"workflowId": flow_id},
     )
-    queued = json.loads(queue_body)["queued"]
+    queued = json.loads(snapshot_body)["queued"]
     assert [message["value"]["content"] for message in queued] == ["delete this"]
     await flow_smoke_http.post(
         "/products/ai-agent/message-queue/delete",
@@ -504,11 +504,11 @@ async def test_ai_agent_http_queue_can_delete_and_steer(
         "/products/ai-agent/messages",
         {"workflowId": flow_id, "content": "steer this"},
     )
-    _, _, queue_body = await flow_smoke_http.get(
-        "/products/ai-agent/message-queue",
+    _, _, snapshot_body = await flow_smoke_http.get(
+        "/products/ai-agent/snapshot",
         {"workflowId": flow_id},
     )
-    queued = json.loads(queue_body)["queued"]
+    queued = json.loads(snapshot_body)["queued"]
     await flow_smoke_http.post(
         "/products/ai-agent/message-queue/steer",
         {"workflowId": flow_id, "messageId": queued[0]["message_id"]},

@@ -38,7 +38,6 @@ from dex import (
 @dataclass(frozen=True)
 class MoveMessage:
     message_id: str
-    value: str
 
 
 class ChannelWaitStep(Step[int]):
@@ -76,7 +75,9 @@ class ChannelFlow(Flow[int]):
     def approve(self, context: Context) -> None:
         self.approval.publish(context, "approved")
 
-    @rpc(is_transactional=True)
+    @rpc(is_transactional=True, load_channels=(queued,))
     def move(self, context: Context, input: MoveMessage) -> None:
+        message = self.queued.find_pending_message(context, input.message_id)
         self.queued.delete(context, input.message_id)
-        self.moved.publish(context, input.value)
+        if message is not None:
+            self.moved.publish(context, message.value)
