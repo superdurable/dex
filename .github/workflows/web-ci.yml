@@ -5,12 +5,14 @@ on:
     branches: [main]
     paths:
       - "web/**"
+      - "packages/flow-definition-renderer/**"
       - "server/**"
       - "protos/**"
       - ".github/workflows/web-ci.yml"
   pull_request:
     paths:
       - "web/**"
+      - "packages/flow-definition-renderer/**"
       - "server/**"
       - "protos/**"
       - ".github/workflows/web-ci.yml"

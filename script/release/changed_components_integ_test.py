@@ -40,6 +40,7 @@ INITIAL_FILES = (
     "protos/api.proto",
     "cli/main.go",
     "web/package.json",
+    "packages/flow-definition-renderer/src/index.ts",
     "go.work",
 )
 
@@ -125,6 +126,7 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "server", "cli")
+        self.assertEqual(values["server_baseline"], "server/v0.1.0")
 
     def test_current_server_tag_is_preferred_over_historical_tag(self) -> None:
         self.change("server/main.go")
@@ -133,9 +135,16 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "cli")
+        self.assertEqual(values["server_baseline"], "server-v0.2.0")
 
     def test_web_change_triggers_only_cli(self) -> None:
         self.change("web/package.json")
+        result, values = self.plan()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_selected(values, "cli")
+
+    def test_flow_definition_renderer_change_triggers_only_cli(self) -> None:
+        self.change("packages/flow-definition-renderer/src/index.ts")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "cli")
@@ -153,6 +162,7 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "go")
+        self.assertEqual(values["go_baseline"], "")
 
     def test_existing_target_tag_fails_preflight(self) -> None:
         self.git("tag", "sdk-go/v1.2.3")
