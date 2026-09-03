@@ -619,7 +619,7 @@ def test_rpc_selective_state_snapshots_are_typed_and_presence_aware() -> None:
 
     assert attributes.get(context, "tenant-a") == "loaded"
     with pytest.raises(StateNotLoadedError):
-        attributes.get(context, "tenant/b")
+        attributes.get(context, "tenant-b")
     with pytest.raises(StateNotLoadedError):
         attributes.get_all_instance_keys(context)
     assert commands.size(context) == 1
@@ -628,7 +628,7 @@ def test_rpc_selective_state_snapshots_are_typed_and_presence_aware() -> None:
     assert channels.get_all_instance_keys(context) == ("tenant-a",)
     assert channels.pending_messages(context, "tenant-a")[0].value == "mapped"
     with pytest.raises(StateNotLoadedError):
-        channels.pending_messages(context, "tenant/b")
+        channels.pending_messages(context, "tenant-b")
 
 
 def test_explicit_custom_codec_remains_available() -> None:

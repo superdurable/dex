@@ -290,7 +290,7 @@ export class ChannelMap<T> {
    * @returns A typed exact-instance selection for {@link RPCOptions.loadChannelMapInstances}.
    */
   public loadMessages(instance: string): ChannelMapLoad {
-    requireName(instance);
+    requireMapInstance(instance);
     return { channelMap: this as ChannelMap<unknown>, instance };
   }
 

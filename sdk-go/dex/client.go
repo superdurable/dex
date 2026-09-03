@@ -1745,7 +1745,7 @@ func validateInvokeStateLoads(
 				flow.flowType,
 			)
 		}
-		selector, err := mapInstanceLoadSelector(load.name, load.instance)
+		selector, err := physicalName(load.name, load.instance, true)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -1792,7 +1792,7 @@ func validateInvokeStateLoads(
 				flow.flowType,
 			)
 		}
-		selector, err := mapInstanceLoadSelector(load.name, load.instance)
+		selector, err := physicalName(load.name, load.instance, true)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -1822,11 +1822,4 @@ func validateUniqueStateLoadNames(kind string, names []string) error {
 		seen[name] = struct{}{}
 	}
 	return nil
-}
-
-func mapInstanceLoadSelector(name string, instance string) (string, error) {
-	if strings.Contains(instance, "/") {
-		return "", fmt.Errorf("dex: map instance must not contain /")
-	}
-	return physicalName(name, instance, true)
 }

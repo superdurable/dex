@@ -44,9 +44,8 @@ class AttributeMapLoad:
         Returns:
             The encoded physical instance name.
         """
-        if "/" in self.instance:
-            raise ValueError("map instances must not contain '/'")
-        return f"{self.attribute_map.name}/{quote(self.instance, safe='')}"
+        instance = require_map_instance(self.instance)
+        return f"{self.attribute_map.name}/{quote(instance, safe='')}"
 
 
 class IndexType(Enum):
@@ -214,7 +213,7 @@ class AttributeMap(Generic[ValueT]):
         Raises:
             ValueError: If ``instance`` is empty or contains ``/``.
         """
-        return AttributeMapLoad(self, require_name(instance))
+        return AttributeMapLoad(self, require_map_instance(instance))
 
     def get(self, context: Context, instance: str) -> ValueT:
         """Return one map instance from a Step or RPC Context.

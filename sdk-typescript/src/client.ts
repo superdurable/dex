@@ -84,7 +84,7 @@ import {
 import { Attribute, AttributeMap, IndexType } from "./persistence.js";
 import type { RPCResult } from "./rpc.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
-import { requireMapInstance, requireName } from "./validation.js";
+import { physicalMapName, requireName } from "./validation.js";
 import { codecOrJson, decodeUnknown, decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
 import { ChannelMap, type Channel, type ChannelMessage } from "./wait.js";
 import type { Stream, StreamMessage } from "./stream.js";
@@ -1310,11 +1310,7 @@ function physicalName(name: string, instance?: string): string {
   if (instance === undefined) {
     return name;
   }
-  requireMapInstance(instance);
-  const encoded = encodeURIComponent(instance).replace(/[!'()*]/g, (character) =>
-    `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-  return `${name}/${encoded}`;
+  return physicalMapName(name, instance);
 }
 
 function seconds(milliseconds: number | undefined): number {

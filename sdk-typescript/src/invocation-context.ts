@@ -29,7 +29,7 @@ import { createFlowResultFromProto, type FlowResult } from "./flow-result.js";
 import { AttributeMap, IndexType, type Attribute } from "./persistence.js";
 import { codecOrJson, decodeValue, deletionValue, encodeValue } from "./value-mapper.js";
 import { StateNotLoadedError } from "./errors.js";
-import { requireMapInstance, requireName } from "./validation.js";
+import { physicalMapName, requireMapInstance, requireName } from "./validation.js";
 import { ChannelMap, type Channel, type ChannelMessage } from "./wait.js";
 import type { Stream } from "./stream.js";
 
@@ -457,8 +457,7 @@ function definitionName(
     if (instance === undefined) {
       throw new TypeError(`map definition ${definition.name} requires an instance`);
     }
-    requireMapInstance(instance);
-    return `${definition.name}/${encodeURIComponent(instance).replace(/[!'()*]/g, encodeCharacter)}`;
+    return physicalMapName(definition.name, instance);
   }
   if (instance !== undefined) {
     throw new TypeError(`static definition ${definition.name} cannot use an instance`);

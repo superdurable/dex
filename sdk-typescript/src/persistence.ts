@@ -186,7 +186,7 @@ export class AttributeMap<T> {
    * @returns A typed exact-instance selection for {@link RPCOptions.loadAttributeMapInstances}.
    */
   public load(instance: string): AttributeMapLoad {
-    requireName(instance);
+    requireMapInstance(instance);
     return { attributeMap: this as AttributeMap<unknown>, instance };
   }
 

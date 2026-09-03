@@ -71,6 +71,12 @@ type selectiveRPCSnapshot struct {
 	UnloadedRejected bool
 }
 
+type selectiveRPCComplementarySnapshot struct {
+	ItemKeys         []string
+	TenantA          []dex.ChannelMessage[string]
+	UnloadedRejected bool
+}
+
 func (selectiveRPCFlow) Snapshot(
 	ctx dex.Context,
 	_ dex.None,
@@ -103,6 +109,29 @@ func (selectiveRPCFlow) Snapshot(
 		TenantB:          tenantB,
 		UnloadedRejected: true,
 	}}, nil
+}
+
+func (selectiveRPCFlow) ComplementarySnapshot(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[selectiveRPCComplementarySnapshot], error) {
+	itemKeys := selectiveRPCItems.AllInstanceKeys(ctx)
+	tenantA, err := selectiveRPCByTenant.PendingMessages(ctx, "tenant-a")
+	if err != nil {
+		return nil, err
+	}
+	_, err = selectiveRPCByTenant.PendingMessages(ctx, "tenant-b")
+	var notLoaded *dex.StateNotLoadedError
+	if !errors.As(err, &notLoaded) {
+		return nil, fmt.Errorf("unselected ChannelMap instance error = %v", err)
+	}
+	return &dex.RPCResult[selectiveRPCComplementarySnapshot]{
+		Output: selectiveRPCComplementarySnapshot{
+			ItemKeys:         itemKeys,
+			TenantA:          tenantA,
+			UnloadedRejected: true,
+		},
+	}, nil
 }
 
 func TestRPCSelectiveStateLoading(t *testing.T) {
@@ -146,6 +175,24 @@ func TestRPCSelectiveStateLoading(t *testing.T) {
 	) {
 		require.NotEmpty(t, message.MessageID)
 	}
+
+	var complementary selectiveRPCComplementarySnapshot
+	require.NoError(t, integClient.InvokeRPC(
+		ctx,
+		flowID,
+		flow.ComplementarySnapshot,
+		nil,
+		&complementary,
+		dex.InvokeOptions{
+			LoadAttributeMaps: []dex.AttributeMapSelection{selectiveRPCItems},
+			LoadChannelMapInstances: []dex.ChannelMapLoad{
+				selectiveRPCByTenant.LoadMessages("tenant-a"),
+			},
+		},
+	))
+	require.Equal(t, []string{"tenant-a", "tenant-b"}, complementary.ItemKeys)
+	require.Equal(t, []string{"alpha"}, channelMessageValues(complementary.TenantA))
+	require.True(t, complementary.UnloadedRejected)
 	require.NoError(t, integClient.StopFlow(
 		ctx,
 		flowID,

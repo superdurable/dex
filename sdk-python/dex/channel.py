@@ -14,7 +14,11 @@ from dataclasses import dataclass
 from typing import Any, Generic, Sequence, TypeVar, cast
 from urllib.parse import quote
 
-from dex._utils import require_name, require_persistence_definition_name
+from dex._utils import (
+    require_map_instance,
+    require_name,
+    require_persistence_definition_name,
+)
 from dex.condition import ChannelCondition, Condition
 from dex.context import Context
 
@@ -40,9 +44,8 @@ class ChannelMapLoad:
         Returns:
             The encoded physical instance name.
         """
-        if "/" in self.instance:
-            raise ValueError("map instances must not contain '/'")
-        return f"{self.channel_map.name}/{quote(self.instance, safe='')}"
+        instance = require_map_instance(self.instance)
+        return f"{self.channel_map.name}/{quote(instance, safe='')}"
 
 
 @dataclass(frozen=True)
@@ -301,7 +304,7 @@ class ChannelMap(Generic[ValueT]):
         Raises:
             ValueError: If ``instance`` is empty or contains ``/``.
         """
-        return ChannelMapLoad(self, require_name(instance))
+        return ChannelMapLoad(self, require_map_instance(instance))
 
     def publish(self, context: Context, instance: str, value: ValueT) -> None:
         """Stage a value to append to one ChannelMap instance.

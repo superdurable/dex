@@ -367,7 +367,7 @@ function validateRPCStateLoads(
     registeredRPC.options.loadAttributeMapInstances ?? [],
     attributeMaps,
     (load) => load.attributeMap,
-    (load) => rpcMapInstanceSelector(load.attributeMap.name, load.instance),
+    (load) => physicalMapName(load.attributeMap.name, load.instance),
   );
   validateStateLoads(
     flowName,
@@ -394,15 +394,8 @@ function validateRPCStateLoads(
     registeredRPC.options.loadChannelMapInstances ?? [],
     channelMaps,
     (load) => load.channelMap,
-    (load) => rpcMapInstanceSelector(load.channelMap.name, load.instance),
+    (load) => physicalMapName(load.channelMap.name, load.instance),
   );
-}
-
-function rpcMapInstanceSelector(name: string, instance: string): string {
-  if (instance.includes("/")) {
-    throw new FlowDefinitionError("RPC map instance must not contain /");
-  }
-  return physicalMapName(name, instance);
 }
 
 function validateStateLoads<Load, Definition>(
