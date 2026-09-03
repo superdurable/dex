@@ -1,13 +1,13 @@
 # Dex - Durable Execution(D-EX)
 
-**Durable Execution** is an abstraction of the design patterns every reliable backend needs: multi-step orchestration, durable timers, retries, human-in-the-loop coordination, and production observability. Traditional databases and storage only persist data with passive read/write APIs—they do not give you atomic step transitions, worker dispatch, or failure handling out of the box. Engineers end up rebuilding the same queue-and-poll infrastructure on every project.
+**Durable Execution** provides programming model that makes an application's execution durable. This includes local state and control flow such as branches and loops, as well as parallel execution and coordination, waiting for timers or external events, error handling, and remote procedure invocations. The application logic is expressed directly in ordinary code, while the platform reliably restores and resumes the execution after failures and restarts.
 
-<img width="676" height="607" alt="arch" src="https://github.com/user-attachments/assets/720e38a8-b151-4251-aa8a-5b62ae64a7f4" />
-
-**Dex** provides structural programming model with only a few concepts as [durable primitives](https://docs.superdurable.io/primitives). You use Dex to write a Flow filled with ordinary code: durable Steps, Attributes, RPCs, and durable conditions using Channels and Timers. Then you run Workers hosting your Flow. The Client calls Dex Server to start and interact with Flow instances. Dex Server dispatches Step and RPC invocation tasks to your Workers.
+**Dex** provides such a structural programming model with only a few concepts as [durable primitives](https://docs.superdurable.io/primitives). You use Dex to write a Flow filled with ordinary code: durable Steps, Attributes, RPCs, and durable conditions using Channels and Timers. Then you run Workers hosting your Flow. The Client calls Dex Server to start and interact with Flow instances. Dex Server dispatches Step and RPC invocation tasks to your Workers.
 
 Unlike replay-based durable execution engines, Dex does not split your logic into deterministic workflow code and separate activities—Worker handlers are ordinary code, and Attribute data lives in a blob store you can sync to databases you already run.
-<img width="913" height="414" alt="dex-arch" src="https://github.com/user-attachments/assets/8613f6d7-810e-4ef3-a614-cf0a93eb72be" />
+
+<img width="921" height="664" alt="dex-arch2" src="https://github.com/user-attachments/assets/fe91af8a-58e7-4688-9f01-057a25db7bc4" />
+
 
 Learn more: [What is Durable Execution?](https://docs.superdurable.io/intro/what-is-durable-execution) · [Why Dex?](https://docs.superdurable.io/intro/what-is-dex)
 
@@ -16,5 +16,3 @@ AI coding assistants can use the repository's [Dex Developer skill](skills/dex-d
 ## Quick start
 
 See [Quick start](https://docs.superdurable.io/quick-start) on docs.superdurable.io.
-
-If Dex is useful to you, please [star us on GitHub](https://github.com/superdurable/dex) to follow releases.
