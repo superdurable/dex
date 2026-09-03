@@ -188,6 +188,11 @@ const App: React.FC = () => {
   const [pressedQueueAction, setPressedQueueAction] = useState('');
   const [error, setError] = useState('');
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const conversationScrollRef = useRef<HTMLDivElement>(null);
+  const timelineEntryRefs = useRef(new Map<string, HTMLDivElement>());
+  const currentTurnSequenceRef = useRef<number | null>(null);
+  const isFollowingTimelineRef = useRef(true);
+  const isProgrammaticScrollRef = useRef(false);
   const userInputCardRef = useRef<HTMLElement>(null);
   const userInputRef = useRef<HTMLTextAreaElement>(null);
   const stateFetchSequenceRef = useRef(0);
@@ -477,6 +482,8 @@ const App: React.FC = () => {
     setLiveResponse(null);
     setActivity([]);
     setError('');
+    currentTurnSequenceRef.current = null;
+    isFollowingTimelineRef.current = true;
   };
 
   const sendMessage = async () => {
@@ -660,6 +667,48 @@ const App: React.FC = () => {
     () => buildTimeline(messages, thinkingEntries, liveResponse, activity),
     [messages, thinkingEntries, liveResponse, activity],
   );
+  useEffect(() => {
+    if (!workflowId || timeline.length === 0) return;
+    const latestUserMessage = [...timeline].reverse().find(
+      (entry) => entry.kind === 'message' && entry.message.role === 'user',
+    );
+    const isNewTurn = latestUserMessage?.kind === 'message'
+      && latestUserMessage.sequence !== currentTurnSequenceRef.current;
+    if (!isNewTurn && !isFollowingTimelineRef.current) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const container = conversationScrollRef.current;
+      const targetEntry = isNewTurn ? latestUserMessage : timeline.at(-1);
+      if (!container || !targetEntry) return;
+      const target = timelineEntryRefs.current.get(targetEntry.id);
+      if (!target) return;
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const targetTop = container.scrollTop + targetRect.top - containerRect.top;
+      const targetScrollTop = isNewTurn
+        ? targetTop
+        : Math.max(container.scrollTop, targetTop + targetRect.height - container.clientHeight + 24);
+      isProgrammaticScrollRef.current = true;
+      container.scrollTo({ top: targetScrollTop, behavior: isNewTurn ? 'smooth' : 'auto' });
+      window.requestAnimationFrame(() => {
+        isProgrammaticScrollRef.current = false;
+      });
+      if (isNewTurn) {
+        currentTurnSequenceRef.current = latestUserMessage.sequence;
+        isFollowingTimelineRef.current = true;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [workflowId, timeline]);
+
+  const stopFollowingTimeline = () => {
+    if (!isProgrammaticScrollRef.current) isFollowingTimelineRef.current = false;
+  };
+
+  const setTimelineEntryRef = (entryId: string, element: HTMLDivElement | null) => {
+    if (element) timelineEntryRefs.current.set(entryId, element);
+    else timelineEntryRefs.current.delete(entryId);
+  };
   if (!workflowId) {
     return (
       <main style={styles.page}>
@@ -861,7 +910,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <main style={styles.page}>
+    <main style={{ ...styles.page, ...styles.chatPage }}>
       <header style={styles.header}>
         <div>
           <p style={styles.eyebrow}>Durable conversation</p>
@@ -884,19 +933,30 @@ const App: React.FC = () => {
       )}
 
       <section style={styles.chatCard}>
-        <div style={styles.messages}>
-          {timeline.length === 0 && <p style={styles.empty}>Send a message to begin.</p>}
-          {timeline.map((entry) => (
-            <TimelineEntryCard
-              key={entry.id}
-              entry={entry}
-              model={description?.model ?? ''}
-              onToggleThinking={toggleThinking}
-            />
-          ))}
-        </div>
+        <div
+          ref={conversationScrollRef}
+          style={styles.conversationScroll}
+          onWheel={stopFollowingTimeline}
+          onTouchStart={stopFollowingTimeline}
+        >
+          <div style={styles.messages}>
+            {timeline.length === 0 && <p style={styles.empty}>Send a message to begin.</p>}
+            {timeline.map((entry) => (
+              <div
+                key={entry.id}
+                ref={(element) => setTimelineEntryRef(entry.id, element)}
+                style={styles.timelineEntry}
+              >
+                <TimelineEntryCard
+                  entry={entry}
+                  model={description?.model ?? ''}
+                  onToggleThinking={toggleThinking}
+                />
+              </div>
+            ))}
+          </div>
 
-        {description?.pending_user_input_prompt && (
+          {description?.pending_user_input_prompt && (
           <section
             ref={userInputCardRef}
             style={styles.inputCard}
@@ -975,9 +1035,9 @@ const App: React.FC = () => {
               Your answer is delivered through a durable Channel and resumes the Agent.
             </small>
           </section>
-        )}
+          )}
 
-        {description?.plan && (
+          {description?.plan && (
           <PlanCard
             plan={description.plan}
             canExecute={
@@ -989,9 +1049,9 @@ const App: React.FC = () => {
             isBusy={isBusy || description.plan_execution_requested}
             onExecute={executePlan}
           />
-        )}
+          )}
 
-        {description?.pending_approval_call_id && (
+          {description?.pending_approval_call_id && (
           <div style={styles.approvalCard}>
             <strong>Approve tool: {description.pending_approval_tool_name}</strong>
             <pre style={styles.pre}>{description.pending_approval_arguments_json}</pre>
@@ -1013,17 +1073,17 @@ const App: React.FC = () => {
               </button>
             </div>
           </div>
-        )}
+          )}
 
-        {description?.pending_timer_call_id && (
+          {description?.pending_timer_call_id && (
           <div style={styles.timerCard}>
             <strong>Durable timer · {description.pending_timer_duration_seconds}s</strong>
             <p>{description.pending_timer_reason}</p>
             <small>Queue a message, then choose Steer to interrupt this wait.</small>
           </div>
-        )}
+          )}
 
-        {(messageQueue.queued.length > 0 || messageQueue.steered.length > 0) && (
+          {(messageQueue.queued.length > 0 || messageQueue.steered.length > 0) && (
           <section style={styles.queueArea} aria-label="Pending user messages">
             <div style={styles.queueHeader}>
               <div>
@@ -1081,7 +1141,10 @@ const App: React.FC = () => {
               );
             })}
           </section>
-        )}
+          )}
+
+          <div style={styles.timelineTail} aria-hidden="true" />
+        </div>
 
         <div style={styles.composerArea}>
           <label style={styles.planModeToggle}>
@@ -1122,8 +1185,8 @@ const App: React.FC = () => {
             </button>
           </div>
           <small style={styles.shortcutHint}>Send with ⌘/Ctrl + Enter or Alt + Enter · Enter adds a new line</small>
+          {error && <p style={styles.error}>{error}</p>}
         </div>
-        {error && <p style={styles.error}>{error}</p>}
       </section>
 
       <footer style={styles.footer}>
@@ -1336,6 +1399,7 @@ const planTaskIcon = (status: PlanTask['status']): string => {
 
 const styles: Record<string, React.CSSProperties> = {
   page: { minHeight: '100vh', background: 'linear-gradient(145deg, #f7f8fc 0%, #eef1fb 100%)', color: '#172033', padding: '32px 18px', fontFamily: 'Inter, system-ui, sans-serif' },
+  chatPage: { boxSizing: 'border-box', height: '100dvh', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '20px 18px 12px' },
   portalShell: { maxWidth: 1120, margin: '0 auto', paddingBottom: 40 },
   portalHero: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24, padding: '22px 4px 30px' },
   portalSteps: { display: 'flex', alignItems: 'center', gap: 9, flex: '0 0 auto', padding: '7px 9px', border: '1px solid #dce1eb', borderRadius: 14, background: 'rgba(255,255,255,.8)', color: '#7b8495', boxShadow: '0 6px 18px rgba(24,39,75,.06)', fontSize: 13, fontWeight: 750 },
@@ -1369,7 +1433,7 @@ const styles: Record<string, React.CSSProperties> = {
   portalFooter: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 18, marginTop: 18, padding: 24, borderRadius: 18, background: '#172033', color: '#fff' },
   portalFooterCopy: { maxWidth: 620 },
   launchButton: { width: '100%', minHeight: 54, border: '1px solid rgba(255,255,255,.16)', borderRadius: 12, padding: '15px 24px', background: '#7668ff', color: '#fff', boxShadow: '0 10px 24px rgba(80,70,229,.35)', fontWeight: 850, cursor: 'pointer', fontSize: 16, letterSpacing: '.01em' },
-  header: { maxWidth: 960, margin: '0 auto 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  header: { width: '100%', maxWidth: 960, flex: '0 0 auto', margin: '0 auto 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   headerButton: { border: '1px solid #cfd6e4', borderRadius: 10, padding: '9px 13px', background: '#fff', color: '#27334a', fontWeight: 700, cursor: 'pointer' },
   flowFailureCard: { maxWidth: 960, boxSizing: 'border-box', margin: '0 auto 18px', padding: '16px 18px', borderRadius: 14, border: '1px solid #ef9a9a', background: '#fff0f0', color: '#8f1d2c' },
   flowFailureText: { margin: '7px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.5 },
@@ -1382,8 +1446,11 @@ const styles: Record<string, React.CSSProperties> = {
   primaryButton: { border: 0, borderRadius: 10, padding: '11px 18px', background: '#4f46e5', color: '#fff', fontWeight: 700, cursor: 'pointer', marginTop: 18 },
   secondaryButton: { border: '1px solid #cfd6e4', borderRadius: 10, padding: '11px 18px', background: '#fff', color: '#27334a', fontWeight: 700, cursor: 'pointer', marginTop: 18 },
   status: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', padding: '9px 14px', borderRadius: 12, background: '#e9ecff', color: '#3730a3' },
-  chatCard: { maxWidth: 960, margin: '0 auto', padding: 22, background: '#fff', borderRadius: 20, boxShadow: '0 18px 60px rgba(24, 39, 75, 0.08)' },
+  chatCard: { width: '100%', maxWidth: 960, minHeight: 0, flex: '1 1 auto', margin: '0 auto', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff', borderRadius: 20, boxShadow: '0 18px 60px rgba(24, 39, 75, 0.08)' },
+  conversationScroll: { minHeight: 0, flex: '1 1 auto', overflowY: 'auto', overscrollBehavior: 'contain', padding: '22px 22px 0', scrollPaddingTop: 22 },
   messages: { display: 'flex', flexDirection: 'column', gap: 14, minHeight: 320 },
+  timelineEntry: { display: 'flex', flexDirection: 'column', flex: '0 0 auto' },
+  timelineTail: { minHeight: 'calc(100% - 150px)' },
   message: { maxWidth: '82%', borderRadius: 15, padding: '13px 16px', position: 'relative' },
   userMessage: { alignSelf: 'flex-end', background: '#4f46e5', color: '#fff' },
   assistantMessage: { alignSelf: 'flex-start', background: '#eef1f7' },
@@ -1438,14 +1505,14 @@ const styles: Record<string, React.CSSProperties> = {
   queueButton: { border: '1px solid #cfd6e4', borderRadius: 8, padding: '7px 10px', background: '#fff', color: '#27334a', fontWeight: 700, cursor: 'pointer', transition: 'transform 80ms ease, box-shadow 80ms ease' },
   steerButton: { borderColor: '#4f46e5', background: '#4f46e5', color: '#fff' },
   queueButtonPressed: { transform: 'translateY(2px) scale(.97)', boxShadow: 'inset 0 2px 4px rgba(30, 27, 75, .25)' },
-  composerArea: { marginTop: 22, paddingTop: 18, borderTop: '1px solid #e6e9ef' },
+  composerArea: { flex: '0 0 auto', padding: '16px 22px 18px', borderTop: '1px solid #e6e9ef', background: 'rgba(255,255,255,.98)', boxShadow: '0 -12px 28px rgba(24,39,75,.06)' },
   planModeToggle: { display: 'flex', gap: 8, alignItems: 'center', fontWeight: 700, marginBottom: 10 },
   planModeHint: { color: '#667085', fontWeight: 400 },
   composer: { display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end' },
   shortcutHint: { display: 'block', marginTop: 8, color: '#7b8495' },
   error: { padding: 12, borderRadius: 9, background: '#ffeded', color: '#a11d2b' },
   empty: { textAlign: 'center', color: '#7b8495', margin: '100px 0' },
-  footer: { maxWidth: 960, margin: '14px auto', color: '#6b7280', fontSize: 13 },
+  footer: { width: '100%', maxWidth: 960, flex: '0 0 auto', margin: '8px auto 0', color: '#6b7280', fontSize: 13 },
 };
 
 export default App;
