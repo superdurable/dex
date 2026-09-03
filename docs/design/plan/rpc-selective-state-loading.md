@@ -55,8 +55,9 @@ Every `InvokeWorkerRPCRequest` contains:
 ChannelInfo contains only queue size metadata. Reading Channel size or
 ChannelMap keys and sizes does not require loading pending messages.
 
-The echoed names distinguish a loaded collection with no entries from a
-collection that was not loaded. An explicitly loaded empty Channel or exact
+The server derives and echoes the validated requested names. The echoed names
+distinguish a loaded collection with no entries from a collection that was not
+loaded. An explicitly loaded empty Channel or exact
 ChannelMap instance has an empty `ChannelValues` entry. An empty all-instance
 ChannelMap load is represented only by its echoed instance name.
 
