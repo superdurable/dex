@@ -9,19 +9,19 @@ slug: /use-cases
 
 比设计模式更完整的产品向例子。每一个都把 Dex primitive 组合成真实的后端场景。
 
-## 共用例子
+## 示例
 
-- [订单处理](/intro/what-is-dex) — 扣款、卖家审批带提醒、发货或退款
-- [Money transfer](/use-cases/money-transfer) — saga 借记/贷记和补偿
-- [Microservice orchestration](/use-cases/microservice-orchestration) — 并发 API + Channel/Timer
-- [求职者沟通](/use-cases/job-seeker-engagement) — 提醒、退订、拒绝和接受
+- [AI Agent](/use-cases/ai-agent) — 支持 MCP tool 与 Timer 的 Python durable agent
 - [订阅与计费生命周期](/use-cases/subscription) — 试用与定期计费
 - [用户入驻流程](/use-cases/user-onboarding-process) — 邮箱验证和两个按顺序完成的设置任务
+- [Money transfer](/use-cases/money-transfer) — saga 借记/贷记和补偿
+- [求职者沟通](/use-cases/job-seeker-engagement) — 提醒、退订、拒绝和接受
+- [Deal DSL](/use-cases/deal-dsl) — 适用于任意商品的持久化交易解释器
+- [Microservice orchestration](/use-cases/microservice-orchestration) — 并发 API + Channel/Timer
 - [职位发布](/use-cases/job-post) — 带 lock 的更新与两个独立 FIFO 招聘网站 consumer
 
-## 语言特定
+## 相关示例
 
-- [Deal DSL](/use-cases/deal-dsl) — 适用于任意商品的持久化交易解释器
-- [AI Agent](/use-cases/ai-agent) — 支持 MCP tool 与 Timer 的 Python durable agent
+- [订单处理](/intro/what-is-dex) — 扣款、卖家审批带提醒、发货或退款
 
 可运行代码：GitHub 上的 examples/go, examples/java, examples/python, examples/typescript, and examples/rust（适用时 HTTP 前缀 /products/name/...）。共用例子可在 examples playground（**examples/playground**）里试；见 **examples/README.md**。Deal DSL 和 AI agent email 有自己的 UI，不在 playground 上。
