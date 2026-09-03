@@ -42,9 +42,9 @@ pub(crate) struct ContextInput {
     pub(crate) condition_results: Option<ConditionResults>,
     pub(crate) channel_infos: HashMap<String, ChannelInfo>,
     pub(crate) loaded_channel_messages: HashMap<String, ChannelValues>,
-    pub(crate) loaded_attribute_map_selectors: Vec<String>,
+    pub(crate) loaded_attribute_map_instances: Vec<String>,
     pub(crate) loaded_channel_names: Vec<String>,
-    pub(crate) loaded_channel_map_selectors: Vec<String>,
+    pub(crate) loaded_channel_map_instances: Vec<String>,
 }
 
 pub(crate) struct InvocationOutputs {
@@ -70,9 +70,9 @@ pub struct Context {
     condition_results: Option<ConditionResults>,
     channel_infos: HashMap<String, ChannelInfo>,
     loaded_channel_messages: HashMap<String, ChannelValues>,
-    loaded_attribute_map_selectors: HashSet<String>,
+    loaded_attribute_map_instances: HashSet<String>,
     loaded_channel_names: HashSet<String>,
-    loaded_channel_map_selectors: HashSet<String>,
+    loaded_channel_map_instances: HashSet<String>,
     attribute_writes: HashMap<String, AttributeWrite>,
     local_writes: HashMap<String, Kv>,
     events: Vec<Kv>,
@@ -105,12 +105,12 @@ impl Context {
             condition_results: input.condition_results,
             channel_infos: input.channel_infos,
             loaded_channel_messages: input.loaded_channel_messages,
-            loaded_attribute_map_selectors: input
-                .loaded_attribute_map_selectors
+            loaded_attribute_map_instances: input
+                .loaded_attribute_map_instances
                 .into_iter()
                 .collect(),
             loaded_channel_names: input.loaded_channel_names.into_iter().collect(),
-            loaded_channel_map_selectors: input.loaded_channel_map_selectors.into_iter().collect(),
+            loaded_channel_map_instances: input.loaded_channel_map_instances.into_iter().collect(),
             attribute_writes: HashMap::new(),
             local_writes: HashMap::new(),
             events: Vec::new(),
@@ -448,7 +448,7 @@ impl Context {
         )?;
         if self.method == InvocationMethod::Rpc
             && !self
-                .loaded_attribute_map_selectors
+                .loaded_attribute_map_instances
                 .contains(&format!("{}/", attribute.name()))
         {
             return Err(state_not_loaded(format!(
@@ -738,9 +738,9 @@ impl Context {
         let key = self.registered_name(name, kind, instance)?;
         if self.method == InvocationMethod::Rpc && kind == PersistenceKind::AttributeMap {
             let is_loaded = self
-                .loaded_attribute_map_selectors
+                .loaded_attribute_map_instances
                 .contains(&format!("{name}/"))
-                || self.loaded_attribute_map_selectors.contains(&key);
+                || self.loaded_attribute_map_instances.contains(&key);
             if !is_loaded {
                 return Err(state_not_loaded(format!(
                     "AttributeMap instance was not loaded for RPC: {key}"
@@ -920,9 +920,9 @@ impl Context {
         let is_loaded = match kind {
             PersistenceKind::Channel => self.loaded_channel_names.contains(&physical_name),
             PersistenceKind::ChannelMap => {
-                self.loaded_channel_map_selectors
+                self.loaded_channel_map_instances
                     .contains(&format!("{name}/"))
-                    || self.loaded_channel_map_selectors.contains(&physical_name)
+                    || self.loaded_channel_map_instances.contains(&physical_name)
             }
             _ => false,
         };
@@ -1161,9 +1161,9 @@ mod tests {
                     (physical_name("messages", "empty"), ChannelInfo { size: 0 }),
                 ]),
                 loaded_channel_messages: HashMap::new(),
-                loaded_attribute_map_selectors: vec!["items/".to_string()],
+                loaded_attribute_map_instances: vec!["items/".to_string()],
                 loaded_channel_names: Vec::new(),
-                loaded_channel_map_selectors: Vec::new(),
+                loaded_channel_map_instances: Vec::new(),
             },
             None,
             InvocationCancellation::new(),
@@ -1290,9 +1290,9 @@ mod tests {
                         },
                     ),
                 ]),
-                loaded_attribute_map_selectors: vec![attribute_name],
+                loaded_attribute_map_instances: vec![attribute_name],
                 loaded_channel_names: vec!["selected-commands".to_string()],
-                loaded_channel_map_selectors: vec![channel_map_name],
+                loaded_channel_map_instances: vec![channel_map_name],
             },
             None,
             InvocationCancellation::new(),

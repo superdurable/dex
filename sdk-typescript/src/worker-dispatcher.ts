@@ -239,9 +239,9 @@ export class WorkerDispatcher {
       cancellationSignal,
       undefined,
       request.loadedChannelMessages,
-      request.loadedAttributeMapSelectors,
+      request.loadedAttributeMapInstances,
       request.loadedChannelNames,
-      request.loadedChannelMapSelectors,
+      request.loadedChannelMapInstances,
     );
     const returned = await invokeRPC(flow, rpc, context, request.input);
     try {

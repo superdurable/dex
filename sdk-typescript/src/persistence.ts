@@ -183,7 +183,7 @@ export class AttributeMap<T> {
   /**
    * Selects one logical instance for an RPC snapshot.
    * @param instance - Non-empty logical map key. The SDK escapes it for the protocol.
-   * @returns A typed exact-instance selection for {@link RPCOptions.loadAttributeMapInstances}.
+   * @returns An exact instance load for {@link RPCOptions.loadAttributeMapInstances}.
    */
   public load(instance: string): AttributeMapLoad {
     requireMapInstance(instance);

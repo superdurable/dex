@@ -29,18 +29,6 @@ type Channel[T any] struct {
 	name string
 }
 
-// ChannelSelection selects one Channel's pending messages for an RPC invocation.
-// Channel values implement this sealed interface.
-type ChannelSelection interface {
-	channelLoadName() string
-}
-
-// ChannelMapSelection selects every current ChannelMap instance for an RPC invocation.
-// ChannelMap values implement this sealed interface.
-type ChannelMapSelection interface {
-	channelMapLoadName() string
-}
-
 // ChannelMapLoad selects one ChannelMap instance for an RPC invocation.
 // Create values with ChannelMap.LoadMessages and place them in
 // InvokeOptions.LoadChannelMapInstances.
@@ -387,10 +375,6 @@ func (c ChannelMap[T]) ChannelName() string {
 }
 
 func (c ChannelMap[T]) channelName() string {
-	return c.name
-}
-
-func (c ChannelMap[T]) channelMapLoadName() string {
 	return c.name
 }
 

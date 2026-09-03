@@ -292,7 +292,7 @@ export class Client {
           ),
           requestId: crypto.randomUUID(),
           isTransactional: rpc.options.isTransactional ?? false,
-          loadAttributeMapSelectors: [
+          loadAttributeMapInstances: [
             ...(rpc.options.loadAttributeMaps ?? []).map((attributeMap) =>
               `${attributeMap.name}/`),
             ...(rpc.options.loadAttributeMapInstances ?? []).map((load) =>
@@ -302,7 +302,7 @@ export class Client {
           loadChannelNames: (rpc.options.loadChannels ?? [])
             .map((channel) => channel.name)
             .sort(),
-          loadChannelMapSelectors: [
+          loadChannelMapInstances: [
             ...(rpc.options.loadChannelMaps ?? []).map((channelMap) =>
               `${channelMap.name}/`),
             ...(rpc.options.loadChannelMapInstances ?? []).map((load) =>

@@ -88,7 +88,7 @@ func (selectiveRPCFlow) Snapshot(
 	_, err = selectiveRPCItems.Get(ctx, "tenant-b")
 	var notLoaded *dex.StateNotLoadedError
 	if !errors.As(err, &notLoaded) {
-		return nil, fmt.Errorf("unselected AttributeMap instance error = %v", err)
+		return nil, fmt.Errorf("unloaded AttributeMap instance error = %v", err)
 	}
 	queued, err := selectiveRPCQueued.PendingMessages(ctx)
 	if err != nil {
@@ -123,7 +123,7 @@ func (selectiveRPCFlow) ComplementarySnapshot(
 	_, err = selectiveRPCByTenant.PendingMessages(ctx, "tenant-b")
 	var notLoaded *dex.StateNotLoadedError
 	if !errors.As(err, &notLoaded) {
-		return nil, fmt.Errorf("unselected ChannelMap instance error = %v", err)
+		return nil, fmt.Errorf("unloaded ChannelMap instance error = %v", err)
 	}
 	return &dex.RPCResult[selectiveRPCComplementarySnapshot]{
 		Output: selectiveRPCComplementarySnapshot{
@@ -160,8 +160,8 @@ func TestRPCSelectiveStateLoading(t *testing.T) {
 			LoadAttributeMapInstances: []dex.AttributeMapLoad{
 				selectiveRPCItems.Load("tenant-a"),
 			},
-			LoadChannels:    []dex.ChannelSelection{selectiveRPCQueued},
-			LoadChannelMaps: []dex.ChannelMapSelection{selectiveRPCByTenant},
+			LoadChannels:    []dex.ChannelDef{selectiveRPCQueued},
+			LoadChannelMaps: []dex.ChannelDef{selectiveRPCByTenant},
 		},
 	))
 	require.Equal(t, 11, snapshot.Item)
@@ -184,7 +184,7 @@ func TestRPCSelectiveStateLoading(t *testing.T) {
 		nil,
 		&complementary,
 		dex.InvokeOptions{
-			LoadAttributeMaps: []dex.AttributeMapSelection{selectiveRPCItems},
+			LoadAttributeMaps: []dex.AttributeDef{selectiveRPCItems},
 			LoadChannelMapInstances: []dex.ChannelMapLoad{
 				selectiveRPCByTenant.LoadMessages("tenant-a"),
 			},

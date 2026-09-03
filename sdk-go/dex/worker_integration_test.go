@@ -490,9 +490,9 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 				"commands-by-order/empty":               {Size: 0},
 				"commands-by-order/initial%20%25%20key": {Size: 1},
 			},
-			LoadedAttributeMapSelectors: []string{"items/"},
+			LoadedAttributeMapInstances: []string{"items/"},
 			LoadedChannelNames:          []string{"commands"},
-			LoadedChannelMapSelectors: []string{
+			LoadedChannelMapInstances: []string{
 				"commands-by-order/selected",
 			},
 			LoadedChannelMessages: map[string]*dexpb.ChannelValues{

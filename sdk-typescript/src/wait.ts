@@ -287,7 +287,7 @@ export class ChannelMap<T> {
   /**
    * Selects one instance's pending messages for an RPC snapshot.
    * @param instance - Non-empty logical instance key. The SDK escapes it for the protocol.
-   * @returns A typed exact-instance selection for {@link RPCOptions.loadChannelMapInstances}.
+   * @returns An exact instance load for {@link RPCOptions.loadChannelMapInstances}.
    */
   public loadMessages(instance: string): ChannelMapLoad {
     requireMapInstance(instance);

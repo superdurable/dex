@@ -401,15 +401,15 @@ final class WorkerServiceIntegrationTest {
         assertThrows(
                 StateNotLoadedException.class,
                 () -> byTenant.pendingMessages(context, "other"));
-        final Registry.RpcStateSelections selections = registry.getFlow("SelectiveFlow")
+        final Registry.RpcStateLoads stateLoads = registry.getFlow("SelectiveFlow")
                 .getRpc("snapshot")
-                .getSelections();
+                .getStateLoads();
         assertEquals(
                 Arrays.asList("selected-items/", attributeName),
-                selections.getAttributeMaps());
+                stateLoads.getAttributeMaps());
         assertEquals(
                 Arrays.asList("selected-by-tenant/", channelMapName),
-                selections.getChannelMaps());
+                stateLoads.getChannelMaps());
     }
 
     @Test

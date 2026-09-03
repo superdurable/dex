@@ -59,9 +59,9 @@ export class InvocationContext implements AsyncContext {
   private readonly locals: Map<string, Value>;
   private readonly channelInfos: Map<string, ChannelInfo>;
   private readonly loadedChannelMessages: Readonly<Record<string, ChannelValues>>;
-  private readonly loadedAttributeMapSelectors: ReadonlySet<string>;
+  private readonly loadedAttributeMapInstances: ReadonlySet<string>;
   private readonly loadedChannelNames: ReadonlySet<string>;
-  private readonly loadedChannelMapSelectors: ReadonlySet<string>;
+  private readonly loadedChannelMapInstances: ReadonlySet<string>;
   private readonly attributeWrites = new Map<string, AttributeWrite>();
   private readonly localWrites = new Map<string, KV>();
   private readonly events: KV[] = [];
@@ -83,9 +83,9 @@ export class InvocationContext implements AsyncContext {
     cancellationSignal: AbortSignal = new AbortController().signal,
     private readonly stepOutput?: StepOutputEmitter,
     loadedChannelMessages: Readonly<Record<string, ChannelValues>> = {},
-    loadedAttributeMapSelectors: readonly string[] = [],
+    loadedAttributeMapInstances: readonly string[] = [],
     loadedChannelNames: readonly string[] = [],
-    loadedChannelMapSelectors: readonly string[] = [],
+    loadedChannelMapInstances: readonly string[] = [],
   ) {
     if (metadata === undefined) {
       throw new TypeError("Worker request Context is required");
@@ -103,9 +103,9 @@ export class InvocationContext implements AsyncContext {
     this.locals = mapValues("step-execution local", locals);
     this.channelInfos = new Map(Object.entries(channelInfos));
     this.loadedChannelMessages = loadedChannelMessages;
-    this.loadedAttributeMapSelectors = new Set(loadedAttributeMapSelectors);
+    this.loadedAttributeMapInstances = new Set(loadedAttributeMapInstances);
     this.loadedChannelNames = new Set(loadedChannelNames);
-    this.loadedChannelMapSelectors = new Set(loadedChannelMapSelectors);
+    this.loadedChannelMapInstances = new Set(loadedChannelMapInstances);
     cancellationSignal.addEventListener("abort", () => this.cancelStepOutputs(), { once: true });
   }
 
@@ -254,7 +254,7 @@ export class InvocationContext implements AsyncContext {
     if (
       this.method === "rpc" &&
       attribute instanceof AttributeMap &&
-      !mapSelectorLoaded(this.loadedAttributeMapSelectors, attribute.name, key)
+      !mapInstanceLoaded(this.loadedAttributeMapInstances, attribute.name, key)
     ) {
       throw new StateNotLoadedError(`AttributeMap instance was not loaded for RPC: ${key}`);
     }
@@ -297,7 +297,7 @@ export class InvocationContext implements AsyncContext {
 
   public attributeMapKeys(attribute: AttributeMap<unknown>): readonly string[] {
     this.requireRegistered(attribute);
-    if (this.method === "rpc" && !this.loadedAttributeMapSelectors.has(`${attribute.name}/`)) {
+    if (this.method === "rpc" && !this.loadedAttributeMapInstances.has(`${attribute.name}/`)) {
       throw new StateNotLoadedError(
         `all AttributeMap instances were not loaded for RPC: ${attribute.name}`,
       );
@@ -369,7 +369,7 @@ export class InvocationContext implements AsyncContext {
     this.requireRegistered(channel);
     const name = definitionName(channel, instance);
     const isLoaded = channel instanceof ChannelMap
-      ? mapSelectorLoaded(this.loadedChannelMapSelectors, channel.name, name)
+      ? mapInstanceLoaded(this.loadedChannelMapInstances, channel.name, name)
       : this.loadedChannelNames.has(name);
     if (!isLoaded) {
       throw new StateNotLoadedError(`Channel messages were not loaded for RPC: ${name}`);
@@ -465,8 +465,8 @@ function definitionName(
   return definition.name;
 }
 
-function mapSelectorLoaded(selectors: ReadonlySet<string>, name: string, physical: string): boolean {
-  return selectors.has(`${name}/`) || selectors.has(physical);
+function mapInstanceLoaded(instances: ReadonlySet<string>, name: string, physical: string): boolean {
+  return instances.has(`${name}/`) || instances.has(physical);
 }
 
 function mapValues(kind: string, entries: readonly KV[]): Map<string, Value> {

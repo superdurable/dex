@@ -1670,7 +1670,7 @@ func (client *Client) InvokeRPC(
 	if err := flow.validateAttributeLocks(options.LockAttributes); err != nil {
 		return err
 	}
-	attributeMapSelectors, channelNames, channelMapSelectors, err := validateInvokeStateLoads(
+	attributeMapInstances, channelNames, channelMapInstances, err := validateInvokeStateLoads(
 		flow,
 		options,
 	)
@@ -1697,9 +1697,9 @@ func (client *Client) InvokeRPC(
 		LockAttributeKeys:         locks,
 		RequestId:                 requestID,
 		IsTransactional:           options.IsTransactional,
-		LoadAttributeMapSelectors: attributeMapSelectors,
+		LoadAttributeMapInstances: attributeMapInstances,
 		LoadChannelNames:          channelNames,
-		LoadChannelMapSelectors:   channelMapSelectors,
+		LoadChannelMapInstances:   channelMapInstances,
 	})
 	if err != nil {
 		return translateRPCError(err, "InvokeRPC", flowID, flowTargetActive)
@@ -1721,11 +1721,14 @@ func validateInvokeStateLoads(
 	options InvokeOptions,
 ) ([]string, []string, []string, error) {
 	attributeMaps := make([]string, 0, len(options.LoadAttributeMaps)+len(options.LoadAttributeMapInstances))
-	for _, selection := range options.LoadAttributeMaps {
-		if selection == nil {
+	for _, attributeMap := range options.LoadAttributeMaps {
+		if attributeMap == nil {
 			return nil, nil, nil, fmt.Errorf("dex: AttributeMap load must not be nil")
 		}
-		name := selection.attributeMapLoadName()
+		name := attributeMap.attributeName()
+		if !attributeMap.attributeIsMap() {
+			return nil, nil, nil, fmt.Errorf("dex: AttributeMap load %q is not an AttributeMap", name)
+		}
 		attribute, found := flow.attributes[name]
 		if !found || !attribute.isMap {
 			return nil, nil, nil, fmt.Errorf(
@@ -1745,18 +1748,21 @@ func validateInvokeStateLoads(
 				flow.flowType,
 			)
 		}
-		selector, err := physicalName(load.name, load.instance, true)
+		instance, err := physicalName(load.name, load.instance, true)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		attributeMaps = append(attributeMaps, selector)
+		attributeMaps = append(attributeMaps, instance)
 	}
 	channels := make([]string, 0, len(options.LoadChannels))
-	for _, selection := range options.LoadChannels {
-		if selection == nil {
+	for _, channelDefinition := range options.LoadChannels {
+		if channelDefinition == nil {
 			return nil, nil, nil, fmt.Errorf("dex: Channel load must not be nil")
 		}
-		name := selection.channelLoadName()
+		name := channelDefinition.channelName()
+		if channelDefinition.channelIsMap() {
+			return nil, nil, nil, fmt.Errorf("dex: Channel load %q is a ChannelMap", name)
+		}
 		channel, found := flow.channels[name]
 		if !found || channel.isMap {
 			return nil, nil, nil, fmt.Errorf(
@@ -1768,11 +1774,14 @@ func validateInvokeStateLoads(
 		channels = append(channels, name)
 	}
 	channelMaps := make([]string, 0, len(options.LoadChannelMaps)+len(options.LoadChannelMapInstances))
-	for _, selection := range options.LoadChannelMaps {
-		if selection == nil {
+	for _, channelMap := range options.LoadChannelMaps {
+		if channelMap == nil {
 			return nil, nil, nil, fmt.Errorf("dex: ChannelMap load must not be nil")
 		}
-		name := selection.channelMapLoadName()
+		name := channelMap.channelName()
+		if !channelMap.channelIsMap() {
+			return nil, nil, nil, fmt.Errorf("dex: ChannelMap load %q is not a ChannelMap", name)
+		}
 		channel, found := flow.channels[name]
 		if !found || !channel.isMap {
 			return nil, nil, nil, fmt.Errorf(
@@ -1792,11 +1801,11 @@ func validateInvokeStateLoads(
 				flow.flowType,
 			)
 		}
-		selector, err := physicalName(load.name, load.instance, true)
+		instance, err := physicalName(load.name, load.instance, true)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		channelMaps = append(channelMaps, selector)
+		channelMaps = append(channelMaps, instance)
 	}
 	if err := validateUniqueStateLoadNames("AttributeMap", attributeMaps); err != nil {
 		return nil, nil, nil, err

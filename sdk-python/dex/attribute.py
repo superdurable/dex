@@ -24,9 +24,9 @@ ValueT = TypeVar("ValueT")
 
 @dataclass(frozen=True)
 class AttributeMapLoad:
-    """Select one AttributeMap instance for an RPC snapshot.
+    """Load one AttributeMap instance for an RPC snapshot.
 
-    Create a selection with :meth:`AttributeMap.load`. Loading provides a point-in-time
+    Create a load with :meth:`AttributeMap.load`. Loading provides a point-in-time
     value snapshot; it does not lock the map against concurrent writers.
 
     Attributes:
@@ -38,8 +38,8 @@ class AttributeMapLoad:
     instance: str
 
     @property
-    def selector(self) -> str:
-        """Return the protocol selector for this typed load.
+    def physical_name(self) -> str:
+        """Return the physical instance name for this typed load.
 
         Returns:
             The encoded physical instance name.
@@ -208,7 +208,7 @@ class AttributeMap(Generic[ValueT]):
             instance: The non-empty, slash-free logical map key to load.
 
         Returns:
-            A typed selection for this one instance.
+            A load for this one instance.
 
         Raises:
             ValueError: If ``instance`` is empty or contains ``/``.

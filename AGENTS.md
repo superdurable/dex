@@ -385,6 +385,12 @@ that clearly signal boolean semantics, such as `isXxx`, `hasXxx`, `canXxx`,
 Do not introduce `NormalizeXyz` identifiers. Name the concrete operations, such
 as `ValidateAndSortSelections`, `TrimWhitespace`, or `CanonicalizeURL`.
 
+### Reuse Existing Domain Terms
+
+When a concept already has a repository or public API term, reuse that exact
+term in identifiers. Do not invent a synonym for an existing term such as
+instance, name, message, or definition.
+
 ### Interpreter Components
 
 Within `server/service/interpreter/`, every component type must be exported.

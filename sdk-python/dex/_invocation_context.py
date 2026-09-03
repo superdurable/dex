@@ -68,9 +68,9 @@ class InvocationContext:
         condition_results: pb.ConditionResults | None = None,
         channel_infos: dict[str, pb.ChannelInfo] | None = None,
         loaded_channel_messages: dict[str, pb.ChannelValues] | None = None,
-        loaded_attribute_map_selectors: Sequence[str] = (),
+        loaded_attribute_map_instances: Sequence[str] = (),
         loaded_channel_names: Sequence[str] = (),
-        loaded_channel_map_selectors: Sequence[str] = (),
+        loaded_channel_map_instances: Sequence[str] = (),
         is_active: Callable[[], bool] | None = None,
         output_emitter: _StepOutputEmitter | None = None,
     ) -> None:
@@ -83,9 +83,9 @@ class InvocationContext:
         self._condition_results = condition_results
         self._channel_infos = dict(channel_infos or {})
         self._loaded_channel_messages = dict(loaded_channel_messages or {})
-        self._loaded_attribute_map_selectors = frozenset(loaded_attribute_map_selectors)
+        self._loaded_attribute_map_instances = frozenset(loaded_attribute_map_instances)
         self._loaded_channel_names = frozenset(loaded_channel_names)
-        self._loaded_channel_map_selectors = frozenset(loaded_channel_map_selectors)
+        self._loaded_channel_map_instances = frozenset(loaded_channel_map_instances)
         self._is_active = is_active or _always_active
         self._output_emitter = output_emitter
         self.attribute_writes: dict[str, pb.AttributeWrite] = {}
@@ -438,8 +438,8 @@ class InvocationContext:
         if isinstance(definition, ChannelMap):
             channel_name = self._physical_name(definition, instance)
             is_loaded = (
-                f"{definition.name}/" in self._loaded_channel_map_selectors
-                or channel_name in self._loaded_channel_map_selectors
+                f"{definition.name}/" in self._loaded_channel_map_instances
+                or channel_name in self._loaded_channel_map_instances
             )
         else:
             channel_name = self._physical_name(definition, instance)
@@ -490,13 +490,13 @@ class InvocationContext:
             definition, AttributeMap
         ):
             return
-        selector = self._physical_name(definition, instance)
+        physical_name = self._physical_name(definition, instance)
         if (
-            f"{definition.name}/" not in self._loaded_attribute_map_selectors
-            and selector not in self._loaded_attribute_map_selectors
+            f"{definition.name}/" not in self._loaded_attribute_map_instances
+            and physical_name not in self._loaded_attribute_map_instances
         ):
             raise StateNotLoadedError(
-                f"AttributeMap instance was not loaded for RPC: {selector}"
+                f"AttributeMap instance was not loaded for RPC: {physical_name}"
             )
 
     def _require_attribute_map_all_loaded(
@@ -505,7 +505,7 @@ class InvocationContext:
     ) -> None:
         if (
             self._method is InvocationMethod.RPC
-            and f"{definition.name}/" not in self._loaded_attribute_map_selectors
+            and f"{definition.name}/" not in self._loaded_attribute_map_instances
         ):
             raise StateNotLoadedError(
                 f"all AttributeMap instances were not loaded for RPC: {definition.name}"

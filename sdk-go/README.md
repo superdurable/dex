@@ -20,8 +20,8 @@ AttributeMap entries and pending Channel messages are opt-in:
 ```go
 options := dex.InvokeOptions{
 	LoadAttributeMapInstances: []dex.AttributeMapLoad{Items.Load("tenant-a")},
-	LoadChannels:              []dex.ChannelSelection{Queued},
-	LoadChannelMaps:           []dex.ChannelMapSelection{ByTenant},
+	LoadChannels:              []dex.ChannelDef{Queued},
+	LoadChannelMaps:           []dex.ChannelDef{ByTenant},
 }
 ```
 

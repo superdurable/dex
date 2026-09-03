@@ -356,12 +356,12 @@ def test_registry_validates_and_sorts_rpc_state_loads() -> None:
     flow = LoadedFlow()
     registry = Registry((flow,))
     _, registered = registry._rpc_for_method(flow.snapshot)
-    assert registered.load_attribute_map_selectors == (
+    assert registered.load_attribute_map_instances == (
         "items/",
         "items/tenant-a",
     )
     assert registered.load_channel_names == ("commands",)
-    assert registered.load_channel_map_selectors == (
+    assert registered.load_channel_map_instances == (
         "commands-by-tenant/",
         "commands-by-tenant/tenant-a",
     )
@@ -553,7 +553,7 @@ def test_map_introspection_tracks_buffered_changes() -> None:
             Registry.physical_name("messages", special): pb.ChannelInfo(size=1),
             Registry.physical_name("messages", "empty"): pb.ChannelInfo(size=0),
         },
-        loaded_attribute_map_selectors=("items/",),
+        loaded_attribute_map_instances=("items/",),
     )
     assert attributes.get_all_instance_keys(context) == (special, "z")
     attributes.set(context, "a", "added")
@@ -612,9 +612,9 @@ def test_rpc_selective_state_snapshots_are_typed_and_presence_aware() -> None:
                 )
             ),
         },
-        loaded_attribute_map_selectors=(exact_attribute,),
+        loaded_attribute_map_instances=(exact_attribute,),
         loaded_channel_names=("commands",),
-        loaded_channel_map_selectors=(exact_channel,),
+        loaded_channel_map_instances=(exact_channel,),
     )
 
     assert attributes.get(context, "tenant-a") == "loaded"

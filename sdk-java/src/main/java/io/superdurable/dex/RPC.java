@@ -92,7 +92,7 @@ public @interface RPC {
      * <p>Each value uses {@code MapName/instance}. The SDK escapes the instance portion before
      * sending the request.
      *
-     * @return registered AttributeMap instance selectors; defaults to an empty array
+     * @return registered AttributeMap instances; defaults to an empty array
      */
     String[] loadAttributeMapInstances() default {};
 
@@ -116,7 +116,7 @@ public @interface RPC {
      * <p>Each value uses {@code MapName/instance}. The SDK escapes the instance portion before
      * sending the request.
      *
-     * @return registered ChannelMap instance selectors; defaults to an empty array
+     * @return registered ChannelMap instances; defaults to an empty array
      */
     String[] loadChannelMapInstances() default {};
 }

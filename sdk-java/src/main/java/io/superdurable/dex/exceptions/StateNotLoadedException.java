@@ -13,14 +13,14 @@ package io.superdurable.dex.exceptions;
 /**
  * Reports a selective RPC-state read that the RPC annotation did not request.
  *
- * <p>Add the matching AttributeMap, Channel, or ChannelMap selector to the RPC annotation and
+ * <p>Add the matching AttributeMap, Channel, or ChannelMap load to the RPC annotation and
  * retry. Channel size metadata and ChannelMap keys remain readable without loading message values.
  */
 public final class StateNotLoadedException extends IllegalStateException {
     /**
-     * Creates a usage error for one unavailable state selection.
+     * Creates a usage error for one unavailable state load.
      *
-     * @param message the selection required by the attempted read
+     * @param message the load required by the attempted read
      */
     public StateNotLoadedException(final String message) {
         super(message);

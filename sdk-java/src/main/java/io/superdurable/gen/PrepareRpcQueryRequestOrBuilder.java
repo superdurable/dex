@@ -11,29 +11,29 @@ public interface PrepareRpcQueryRequestOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>repeated string load_attribute_map_selectors = 1;</code>
-   * @return A list containing the loadAttributeMapSelectors.
+   * <code>repeated string load_attribute_map_instances = 1;</code>
+   * @return A list containing the loadAttributeMapInstances.
    */
   java.util.List<java.lang.String>
-      getLoadAttributeMapSelectorsList();
+      getLoadAttributeMapInstancesList();
   /**
-   * <code>repeated string load_attribute_map_selectors = 1;</code>
-   * @return The count of loadAttributeMapSelectors.
+   * <code>repeated string load_attribute_map_instances = 1;</code>
+   * @return The count of loadAttributeMapInstances.
    */
-  int getLoadAttributeMapSelectorsCount();
+  int getLoadAttributeMapInstancesCount();
   /**
-   * <code>repeated string load_attribute_map_selectors = 1;</code>
+   * <code>repeated string load_attribute_map_instances = 1;</code>
    * @param index The index of the element to return.
-   * @return The loadAttributeMapSelectors at the given index.
+   * @return The loadAttributeMapInstances at the given index.
    */
-  java.lang.String getLoadAttributeMapSelectors(int index);
+  java.lang.String getLoadAttributeMapInstances(int index);
   /**
-   * <code>repeated string load_attribute_map_selectors = 1;</code>
+   * <code>repeated string load_attribute_map_instances = 1;</code>
    * @param index The index of the value to return.
-   * @return The bytes of the loadAttributeMapSelectors at the given index.
+   * @return The bytes of the loadAttributeMapInstances at the given index.
    */
   com.google.protobuf.ByteString
-      getLoadAttributeMapSelectorsBytes(int index);
+      getLoadAttributeMapInstancesBytes(int index);
 
   /**
    * <code>repeated string load_channel_names = 2;</code>
@@ -61,27 +61,27 @@ public interface PrepareRpcQueryRequestOrBuilder extends
       getLoadChannelNamesBytes(int index);
 
   /**
-   * <code>repeated string load_channel_map_selectors = 3;</code>
-   * @return A list containing the loadChannelMapSelectors.
+   * <code>repeated string load_channel_map_instances = 3;</code>
+   * @return A list containing the loadChannelMapInstances.
    */
   java.util.List<java.lang.String>
-      getLoadChannelMapSelectorsList();
+      getLoadChannelMapInstancesList();
   /**
-   * <code>repeated string load_channel_map_selectors = 3;</code>
-   * @return The count of loadChannelMapSelectors.
+   * <code>repeated string load_channel_map_instances = 3;</code>
+   * @return The count of loadChannelMapInstances.
    */
-  int getLoadChannelMapSelectorsCount();
+  int getLoadChannelMapInstancesCount();
   /**
-   * <code>repeated string load_channel_map_selectors = 3;</code>
+   * <code>repeated string load_channel_map_instances = 3;</code>
    * @param index The index of the element to return.
-   * @return The loadChannelMapSelectors at the given index.
+   * @return The loadChannelMapInstances at the given index.
    */
-  java.lang.String getLoadChannelMapSelectors(int index);
+  java.lang.String getLoadChannelMapInstances(int index);
   /**
-   * <code>repeated string load_channel_map_selectors = 3;</code>
+   * <code>repeated string load_channel_map_instances = 3;</code>
    * @param index The index of the value to return.
-   * @return The bytes of the loadChannelMapSelectors at the given index.
+   * @return The bytes of the loadChannelMapInstances at the given index.
    */
   com.google.protobuf.ByteString
-      getLoadChannelMapSelectorsBytes(int index);
+      getLoadChannelMapInstancesBytes(int index);
 }

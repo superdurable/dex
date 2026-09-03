@@ -857,7 +857,7 @@ test("RPC selective state snapshots are typed and distinguish not loaded", () =>
   assert.throws(() => byTenant.pendingMessages(context, "other"), StateNotLoadedError);
 });
 
-test("registry rejects invalid and duplicate RPC state selections", () => {
+test("registry rejects invalid and duplicate RPC state loads", () => {
   const attributes = new AttributeMap("registry-items", stringCodec);
   const queued = new Channel("registry-commands", stringCodec);
   class DuplicateLoads implements Flow<void> {

@@ -247,9 +247,9 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.start?.stepOptions?.heartbeatTimeoutSeconds, 2);
     assert.equal(requests.rpc?.rpcName, "accept");
-    assert.deepEqual(requests.rpc?.loadAttributeMapSelectors, ["items/", "items/tenant-a"]);
+    assert.deepEqual(requests.rpc?.loadAttributeMapInstances, ["items/", "items/tenant-a"]);
     assert.deepEqual(requests.rpc?.loadChannelNames, ["queued"]);
-    assert.deepEqual(requests.rpc?.loadChannelMapSelectors, [
+    assert.deepEqual(requests.rpc?.loadChannelMapInstances, [
       "by-tenant/",
       "by-tenant/tenant-a",
     ]);

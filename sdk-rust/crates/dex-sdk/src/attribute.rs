@@ -14,7 +14,7 @@ use crate::{Context, HandlerError, HandlerResult, Value};
 
 /// Selects one AttributeMap instance to load for an RPC invocation.
 ///
-/// Create selections with [`AttributeMap::load`], then attach them with
+/// Create instance loads with [`AttributeMap::load`], then attach them with
 /// [`Rpc::load_attribute_map_instance`](crate::Rpc::load_attribute_map_instance).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttributeMapLoad {

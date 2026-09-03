@@ -86,9 +86,9 @@ impl<Input, Output> Rpc<Input, Output> {
     /// Converts this RPC into a definition that loads one AttributeMap instance.
     pub fn load_attribute_map_instance(
         self,
-        selection: AttributeMapLoad,
+        load: AttributeMapLoad,
     ) -> RpcDefinition<Input, Output> {
-        RpcDefinition::from(self).load_attribute_map_instance(selection)
+        RpcDefinition::from(self).load_attribute_map_instance(load)
     }
 
     /// Converts this RPC into a definition that loads one singleton Channel's messages.
@@ -102,11 +102,8 @@ impl<Input, Output> Rpc<Input, Output> {
     }
 
     /// Converts this RPC into a definition that loads one ChannelMap instance.
-    pub fn load_channel_map_instance(
-        self,
-        selection: ChannelMapLoad,
-    ) -> RpcDefinition<Input, Output> {
-        RpcDefinition::from(self).load_channel_map_instance(selection)
+    pub fn load_channel_map_instance(self, load: ChannelMapLoad) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).load_channel_map_instance(load)
     }
 
     pub(crate) fn name(&self) -> &'static str {
@@ -165,8 +162,8 @@ impl<Input, Output> RpcDefinition<Input, Output> {
     }
 
     /// Loads one AttributeMap instance into the invocation snapshot.
-    pub fn load_attribute_map_instance(mut self, selection: AttributeMapLoad) -> Self {
-        self.load_attribute_maps.push(selection);
+    pub fn load_attribute_map_instance(mut self, load: AttributeMapLoad) -> Self {
+        self.load_attribute_maps.push(load);
         self
     }
 
@@ -188,8 +185,8 @@ impl<Input, Output> RpcDefinition<Input, Output> {
     }
 
     /// Loads one ChannelMap instance into the invocation snapshot.
-    pub fn load_channel_map_instance(mut self, selection: ChannelMapLoad) -> Self {
-        self.load_channel_maps.push(selection);
+    pub fn load_channel_map_instance(mut self, load: ChannelMapLoad) -> Self {
+        self.load_channel_maps.push(load);
         self
     }
 }

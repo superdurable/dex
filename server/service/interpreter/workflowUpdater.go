@@ -165,9 +165,9 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		)
 	}
 	selection, err := rpc.ValidateAndSortSelections(
-		input.GetLoadAttributeMapSelectors(),
+		input.GetLoadAttributeMapInstances(),
 		input.GetLoadChannelNames(),
-		input.GetLoadChannelMapSelectors(),
+		input.GetLoadChannelMapInstances(),
 	)
 	if err != nil {
 		return nil, u.provider.NewUpdateError(
@@ -177,7 +177,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 	}
 	attributes, locked := u.persistenceManager.TryLoadRPCAttributes(
 		keysToLock,
-		selection.AttributeMapSelectors,
+		selection.AttributeMapInstances,
 	)
 	if !locked {
 		return nil, u.rpcLockError()
@@ -190,10 +190,10 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		FlowType:                    u.basicInfo.FlowType,
 		WorkerTarget:                u.flowConfiger.GetWorkerTarget(),
 		ChannelInfos:                u.channelStore.GetInfos(),
-		LoadedChannelMessages:       u.channelStore.GetLoadedMessages(selection.ChannelNames, selection.ChannelMapSelectors),
-		LoadedAttributeMapSelectors: selection.AttributeMapSelectors,
+		LoadedChannelMessages:       u.channelStore.GetLoadedMessages(selection.ChannelNames, selection.ChannelMapInstances),
+		LoadedAttributeMapInstances: selection.AttributeMapInstances,
 		LoadedChannelNames:          selection.ChannelNames,
-		LoadedChannelMapSelectors:   selection.ChannelMapSelectors,
+		LoadedChannelMapInstances:   selection.ChannelMapInstances,
 	}
 	budget := u.effectiveRPCBudget(input.GetTimeoutSeconds())
 	activityOptions := interfaces.ActivityOptions{
@@ -321,9 +321,9 @@ func (u *WorkflowUpdater) validateWorkerRpc(
 		return u.rpcLockError()
 	}
 	if _, err := rpc.ValidateAndSortSelections(
-		input.GetLoadAttributeMapSelectors(),
+		input.GetLoadAttributeMapInstances(),
 		input.GetLoadChannelNames(),
-		input.GetLoadChannelMapSelectors(),
+		input.GetLoadChannelMapInstances(),
 	); err != nil {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,

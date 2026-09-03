@@ -405,7 +405,7 @@ function validateStateLoads<Load, Definition>(
   loads: readonly Load[],
   registered: ReadonlySet<Definition>,
   definitionFor: (load: Load) => Definition,
-  selectorFor: (load: Load) => string,
+  physicalNameFor: (load: Load) => string,
 ): void {
   const seen = new Set<string>();
   for (const load of loads) {
@@ -414,13 +414,13 @@ function validateStateLoads<Load, Definition>(
         `Flow ${flowName} RPC ${rpcName} loads an unregistered ${kind}`,
       );
     }
-    const selector = selectorFor(load);
-    if (seen.has(selector)) {
+    const physicalName = physicalNameFor(load);
+    if (seen.has(physicalName)) {
       throw new FlowDefinitionError(
-        `Flow ${flowName} RPC ${rpcName} has duplicate ${kind} load ${selector}`,
+        `Flow ${flowName} RPC ${rpcName} has duplicate ${kind} load ${physicalName}`,
       );
     }
-    seen.add(selector);
+    seen.add(physicalName);
   }
 }
 

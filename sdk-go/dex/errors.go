@@ -31,7 +31,7 @@ type StateNotLoadedError struct {
 	Name string
 }
 
-// Error describes the missing RPC state selection.
+// Error describes the missing RPC state load.
 func (e *StateNotLoadedError) Error() string {
 	return fmt.Sprintf("dex: %s %q was not loaded for RPC", e.Kind, e.Name)
 }

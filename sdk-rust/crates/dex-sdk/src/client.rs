@@ -865,24 +865,24 @@ impl Client {
         input: &Input,
     ) -> SdkResult<Output> {
         let rpc = self.registry.rpc(rpc_name)?;
-        let mut load_attribute_map_selectors = rpc
+        let mut load_attribute_map_instances = rpc
             .load_attribute_maps
             .iter()
-            .map(|selection| map_load_selector(&selection.name, selection.instance.as_deref()))
+            .map(|load| map_load_name(&load.name, load.instance.as_deref()))
             .collect::<Vec<_>>();
-        load_attribute_map_selectors.sort();
+        load_attribute_map_instances.sort();
         let mut load_channel_names = rpc
             .load_channels
             .iter()
-            .map(|selection| selection.name.clone())
+            .map(|load| load.name.clone())
             .collect::<Vec<_>>();
         load_channel_names.sort();
-        let mut load_channel_map_selectors = rpc
+        let mut load_channel_map_instances = rpc
             .load_channel_maps
             .iter()
-            .map(|selection| map_load_selector(&selection.name, selection.instance.as_deref()))
+            .map(|load| map_load_name(&load.name, load.instance.as_deref()))
             .collect::<Vec<_>>();
-        load_channel_map_selectors.sort();
+        load_channel_map_instances.sort();
         let request = InvokeRpcRequest {
             flow_id: flow_id.to_string(),
             run_id: String::new(),
@@ -892,9 +892,9 @@ impl Client {
             lock_attribute_keys: rpc.locks.iter().map(|lock| lock.physical_name()).collect(),
             request_id: Uuid::new_v4().to_string(),
             is_transactional: rpc.is_transactional,
-            load_attribute_map_selectors,
+            load_attribute_map_instances,
             load_channel_names,
-            load_channel_map_selectors,
+            load_channel_map_instances,
         };
         let mut service = self.service.clone();
         let output = self.runtime.block_on(async {
@@ -1434,7 +1434,7 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-fn map_load_selector(name: &str, instance: Option<&str>) -> String {
+fn map_load_name(name: &str, instance: Option<&str>) -> String {
     match instance {
         Some(instance) => crate::registry::physical_name(name, instance),
         None => format!("{name}/"),

@@ -63,9 +63,9 @@ type invocationContext struct {
 	conditionResults            *dexpb.ConditionResults
 	channelSizes                map[string]int
 	loadedChannelMessages       map[string]*dexpb.ChannelValues
-	loadedAttributeMapSelectors map[string]struct{}
+	loadedAttributeMapInstances map[string]struct{}
 	loadedChannelNames          map[string]struct{}
-	loadedChannelMapSelectors   map[string]struct{}
+	loadedChannelMapInstances   map[string]struct{}
 	outputFinalizers            []invocationOutputFinalizer
 }
 
@@ -84,9 +84,9 @@ func newInvocationContext(
 	conditionResults *dexpb.ConditionResults,
 	channelInfos map[string]*dexpb.ChannelInfo,
 	loadedChannelMessages map[string]*dexpb.ChannelValues,
-	loadedAttributeMapSelectors []string,
+	loadedAttributeMapInstances []string,
 	loadedChannelNames []string,
-	loadedChannelMapSelectors []string,
+	loadedChannelMapInstances []string,
 ) (*invocationContext, error) {
 	attributeValues, err := buildInvocationValues("attribute", attributes)
 	if err != nil {
@@ -129,9 +129,9 @@ func newInvocationContext(
 		conditionResults:            conditionResults,
 		channelSizes:                sizes,
 		loadedChannelMessages:       loadedChannelMessages,
-		loadedAttributeMapSelectors: stringSet(loadedAttributeMapSelectors),
+		loadedAttributeMapInstances: stringSet(loadedAttributeMapInstances),
 		loadedChannelNames:          stringSet(loadedChannelNames),
-		loadedChannelMapSelectors:   stringSet(loadedChannelMapSelectors),
+		loadedChannelMapInstances:   stringSet(loadedChannelMapInstances),
 	}
 	if method != invocationRPC {
 		invocation.stepExecutionID = metadata.StepExecutionId
@@ -496,8 +496,8 @@ func (invocation *invocationContext) getAttributeValue(
 	if err != nil {
 		return false, err
 	}
-	if isMap && invocation.method == invocationRPC && !isMapSelectorLoaded(
-		invocation.loadedAttributeMapSelectors,
+	if isMap && invocation.method == invocationRPC && !isMapInstanceLoaded(
+		invocation.loadedAttributeMapInstances,
 		name,
 		physical,
 	) {
@@ -589,7 +589,7 @@ func (invocation *invocationContext) attributeMapKeys(name string) []string {
 		panic(err)
 	}
 	if invocation.method == invocationRPC {
-		if _, loaded := invocation.loadedAttributeMapSelectors[name+"/"]; !loaded {
+		if _, loaded := invocation.loadedAttributeMapInstances[name+"/"]; !loaded {
 			panic(&StateNotLoadedError{Kind: "AttributeMap", Name: name})
 		}
 	}
@@ -749,7 +749,7 @@ func (invocation *invocationContext) pendingChannelMessages(
 	loadedNames := invocation.loadedChannelNames
 	kind := "Channel"
 	if isMap {
-		loadedNames = invocation.loadedChannelMapSelectors
+		loadedNames = invocation.loadedChannelMapInstances
 		kind = "ChannelMap"
 	}
 	physical, err := invocation.resolveChannel(name, instance, isMap)
@@ -758,7 +758,7 @@ func (invocation *invocationContext) pendingChannelMessages(
 	}
 	isLoaded := false
 	if isMap {
-		isLoaded = isMapSelectorLoaded(loadedNames, name, physical)
+		isLoaded = isMapInstanceLoaded(loadedNames, name, physical)
 	} else {
 		_, isLoaded = loadedNames[name]
 	}
@@ -772,11 +772,11 @@ func (invocation *invocationContext) pendingChannelMessages(
 	return values.Messages, nil
 }
 
-func isMapSelectorLoaded(selectors map[string]struct{}, name string, physical string) bool {
-	if _, loaded := selectors[name+"/"]; loaded {
+func isMapInstanceLoaded(instances map[string]struct{}, name string, physical string) bool {
+	if _, loaded := instances[name+"/"]; loaded {
 		return true
 	}
-	_, loaded := selectors[physical]
+	_, loaded := instances[physical]
 	return loaded
 }
 

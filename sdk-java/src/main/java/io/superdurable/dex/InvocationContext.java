@@ -60,9 +60,9 @@ final class InvocationContext implements Context {
     private final ConditionResults conditionResults;
     private final Map<String, ChannelInfo> channelInfos;
     private final Map<String, ChannelValues> loadedChannelMessages;
-    private final Set<String> loadedAttributeMapSelectors;
+    private final Set<String> loadedAttributeMapInstances;
     private final Set<String> loadedChannelNames;
-    private final Set<String> loadedChannelMapSelectors;
+    private final Set<String> loadedChannelMapInstances;
     private final ScheduledExecutorService bufferedStreamScheduler;
     private final io.grpc.Context requestContext;
     private final io.grpc.Context.CancellationListener cancellationListener;
@@ -142,9 +142,9 @@ final class InvocationContext implements Context {
             final Map<String, ChannelInfo> channelInfos,
             final ScheduledExecutorService bufferedStreamScheduler,
             final Map<String, ChannelValues> loadedChannelMessages,
-            final List<String> loadedAttributeMapSelectors,
+            final List<String> loadedAttributeMapInstances,
             final List<String> loadedChannelNames,
-            final List<String> loadedChannelMapSelectors) {
+            final List<String> loadedChannelMapInstances) {
         if (metadata == null) {
             throw new IllegalArgumentException("Worker request Context is required");
         }
@@ -166,9 +166,9 @@ final class InvocationContext implements Context {
                 ? new HashMap<String, ChannelInfo>()
                 : new HashMap<String, ChannelInfo>(channelInfos);
         this.loadedChannelMessages = new HashMap<String, ChannelValues>(loadedChannelMessages);
-        this.loadedAttributeMapSelectors = new HashSet<String>(loadedAttributeMapSelectors);
+        this.loadedAttributeMapInstances = new HashSet<String>(loadedAttributeMapInstances);
         this.loadedChannelNames = new HashSet<String>(loadedChannelNames);
-        this.loadedChannelMapSelectors = new HashSet<String>(loadedChannelMapSelectors);
+        this.loadedChannelMapInstances = new HashSet<String>(loadedChannelMapInstances);
     }
 
     @Override
@@ -513,7 +513,7 @@ final class InvocationContext implements Context {
     List<String> attributeMapKeys(final AttributeMap<?> attribute) {
         requireRegistered(attribute);
         if (method == Method.RPC
-                && !loadedAttributeMapSelectors.contains(attribute.getName() + "/")) {
+                && !loadedAttributeMapInstances.contains(attribute.getName() + "/")) {
             throw new StateNotLoadedException(
                     "all AttributeMap instances were not loaded for RPC: "
                             + attribute.getName());
@@ -593,8 +593,8 @@ final class InvocationContext implements Context {
         final String key = physicalName(definition, instance);
         if (method == Method.RPC
                 && definition instanceof AttributeMap
-                && !isMapSelectorLoaded(
-                        loadedAttributeMapSelectors, definition.getName(), key)) {
+                && !isMapInstanceLoaded(
+                        loadedAttributeMapInstances, definition.getName(), key)) {
             throw new StateNotLoadedException(
                     "AttributeMap instance was not loaded for RPC: " + key);
         }
@@ -732,8 +732,8 @@ final class InvocationContext implements Context {
         final String name = physicalName(definition, instance);
         final boolean isLoaded;
         if (definition instanceof ChannelMap) {
-            isLoaded = isMapSelectorLoaded(
-                    loadedChannelMapSelectors, definition.getName(), name);
+            isLoaded = isMapInstanceLoaded(
+                    loadedChannelMapInstances, definition.getName(), name);
         } else {
             isLoaded = loadedChannelNames.contains(name);
         }
@@ -753,11 +753,11 @@ final class InvocationContext implements Context {
         return Collections.unmodifiableList(decoded);
     }
 
-    private static boolean isMapSelectorLoaded(
-            final Set<String> selectors,
+    private static boolean isMapInstanceLoaded(
+            final Set<String> instances,
             final String name,
             final String physicalName) {
-        return selectors.contains(name + "/") || selectors.contains(physicalName);
+        return instances.contains(name + "/") || instances.contains(physicalName);
     }
 
     private void requireRegistered(final PersistenceDefinition definition) {

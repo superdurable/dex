@@ -17,7 +17,7 @@ pub(crate) struct ChannelLoad {
 
 /// Selects one ChannelMap instance's pending messages for an RPC invocation.
 ///
-/// Create selections with [`ChannelMap::load_messages`], then attach them with
+/// Create instance loads with [`ChannelMap::load_messages`], then attach them with
 /// [`Rpc::load_channel_map_instance`](crate::Rpc::load_channel_map_instance).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChannelMapLoad {

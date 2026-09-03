@@ -167,7 +167,7 @@ func doTestRpcWorkflow(
 
 	time.Sleep(time.Second)
 	testRPCSelectiveStateLoading(t, ctx, runtime, flowId, backendType, workerHandler)
-	testInvalidRPCStateSelectors(t, ctx, flowClient, flowId)
+	testInvalidRPCStateLoads(t, ctx, flowClient, flowId)
 
 	rpcRespReadOnly, err := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 		RequestId:      newRequestID(),
@@ -274,9 +274,9 @@ func testRPCSelectiveStateLoading(
 		FlowId:                    flowID,
 		RpcName:                   rpc.RPCNameSnapshot,
 		TimeoutSeconds:            2,
-		LoadAttributeMapSelectors: []string{"selected-map/one", "empty-map/"},
+		LoadAttributeMapInstances: []string{"selected-map/one", "empty-map/"},
 		LoadChannelNames:          []string{"selected-empty", "selected-channel"},
-		LoadChannelMapSelectors:   []string{"selected-empty-map/", "selected-channel-map/one"},
+		LoadChannelMapInstances:   []string{"selected-empty-map/", "selected-channel-map/one"},
 	})
 	require.NoError(t, err)
 
@@ -309,9 +309,9 @@ func testRPCSelectiveStateLoading(
 
 	data := workerHandler.GetTestResult().InvokeData
 	selected := data[rpc.RPCNameSnapshot+"-request"].(*dexpb.InvokeWorkerRPCRequest)
-	require.Equal(t, []string{"empty-map/", "selected-map/one"}, selected.GetLoadedAttributeMapSelectors())
+	require.Equal(t, []string{"empty-map/", "selected-map/one"}, selected.GetLoadedAttributeMapInstances())
 	require.Equal(t, []string{"selected-channel", "selected-empty"}, selected.GetLoadedChannelNames())
-	require.Equal(t, []string{"selected-channel-map/one", "selected-empty-map/"}, selected.GetLoadedChannelMapSelectors())
+	require.Equal(t, []string{"selected-channel-map/one", "selected-empty-map/"}, selected.GetLoadedChannelMapInstances())
 	selectedAttributes := attributesToMap(selected.GetAttributes())
 	require.Equal(t, "ordinary", selectedAttributes["ordinary"].GetStringValue())
 	require.Equal(t, "selected", selectedAttributes["selected-map/one"].GetStringValue())
@@ -361,7 +361,7 @@ func channelStrings(values *dexpb.ChannelValues) []string {
 	return result
 }
 
-func testInvalidRPCStateSelectors(
+func testInvalidRPCStateLoads(
 	t *testing.T,
 	ctx context.Context,
 	flowClient dexpb.FlowServiceClient,
@@ -374,19 +374,19 @@ func testInvalidRPCStateSelectors(
 		{
 			name: "empty",
 			request: &dexpb.InvokeRPCRequest{
-				LoadAttributeMapSelectors: []string{" "},
+				LoadAttributeMapInstances: []string{" "},
 			},
 		},
 		{
 			name: "missing-map-separator",
 			request: &dexpb.InvokeRPCRequest{
-				LoadChannelMapSelectors: []string{"mapped"},
+				LoadChannelMapInstances: []string{"mapped"},
 			},
 		},
 		{
 			name: "multiple-map-separators",
 			request: &dexpb.InvokeRPCRequest{
-				LoadChannelMapSelectors: []string{"mapped/one/two"},
+				LoadChannelMapInstances: []string{"mapped/one/two"},
 			},
 		},
 		{

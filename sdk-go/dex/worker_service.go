@@ -370,9 +370,9 @@ func (service *workerService) invokeWorkerRPC(
 		nil,
 		request.ChannelInfos,
 		request.LoadedChannelMessages,
-		request.LoadedAttributeMapSelectors,
+		request.LoadedAttributeMapInstances,
 		request.LoadedChannelNames,
-		request.LoadedChannelMapSelectors,
+		request.LoadedChannelMapInstances,
 	)
 	if err != nil {
 		return nil, newWorkerFailure(codes.InvalidArgument, err)

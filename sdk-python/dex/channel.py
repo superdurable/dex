@@ -27,7 +27,7 @@ ValueT = TypeVar("ValueT")
 
 @dataclass(frozen=True)
 class ChannelMapLoad:
-    """Select one ChannelMap instance's pending messages for an RPC snapshot.
+    """Load one ChannelMap instance's pending messages for an RPC snapshot.
 
     Attributes:
         channel_map: The exact ChannelMap definition registered with the Flow.
@@ -38,8 +38,8 @@ class ChannelMapLoad:
     instance: str
 
     @property
-    def selector(self) -> str:
-        """Return the protocol selector for this typed load.
+    def physical_name(self) -> str:
+        """Return the physical instance name for this typed load.
 
         Returns:
             The encoded physical instance name.
@@ -299,7 +299,7 @@ class ChannelMap(Generic[ValueT]):
             instance: The non-empty, slash-free logical ChannelMap instance key.
 
         Returns:
-            A typed selection for this one instance.
+            A load for this one instance.
 
         Raises:
             ValueError: If ``instance`` is empty or contains ``/``.

@@ -310,9 +310,9 @@ class _RegisteredRPC:
     input_codec: Codec[Any] | None
     output_codec: Codec[Any] | None
     locks: tuple[str, ...]
-    load_attribute_map_selectors: tuple[str, ...]
+    load_attribute_map_instances: tuple[str, ...]
     load_channel_names: tuple[str, ...]
-    load_channel_map_selectors: tuple[str, ...]
+    load_channel_map_instances: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -545,9 +545,7 @@ class Registry:
             if rpc_name in registered_rpcs:
                 raise ValueError(f"duplicate RPC {rpc_name}")
             Registry._validate_rpc_locks(rpc_name, options, schema)
-            selections = Registry._validate_rpc_state_selections(
-                rpc_name, options, schema
-            )
+            state_loads = Registry._validate_rpc_state_loads(rpc_name, options, schema)
             input_codec, output_codec = Registry._rpc_codecs(
                 method,
                 codec_registry,
@@ -562,7 +560,7 @@ class Registry:
                 tuple(
                     Registry._physical_lock(lock) for lock in options.lock_attributes
                 ),
-                *selections,
+                *state_loads,
             )
         return _RegisteredFlow(
             flow_name,
@@ -674,19 +672,19 @@ class Registry:
             lock_identities.add(identity)
 
     @staticmethod
-    def _validate_rpc_state_selections(
+    def _validate_rpc_state_loads(
         rpc_name: str,
         options: _RPCOptions,
         schema: PersistenceSchema,
     ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-        attribute_map_selectors: list[str] = []
+        attribute_map_instances: list[str] = []
         for attribute_map in options.load_attribute_maps:
             if not isinstance(attribute_map, AttributeMap):
                 raise TypeError(f"RPC {rpc_name} has an invalid AttributeMap load")
             Registry._require_registered_rpc_state(
                 rpc_name, attribute_map, schema.attributes, "AttributeMap"
             )
-            attribute_map_selectors.append(f"{attribute_map.name}/")
+            attribute_map_instances.append(f"{attribute_map.name}/")
         for attribute_map_load in options.load_attribute_map_instances:
             if not isinstance(attribute_map_load, AttributeMapLoad):
                 raise TypeError(f"RPC {rpc_name} has an invalid AttributeMapLoad load")
@@ -696,7 +694,7 @@ class Registry:
                 schema.attributes,
                 "AttributeMap",
             )
-            attribute_map_selectors.append(attribute_map_load.selector)
+            attribute_map_instances.append(attribute_map_load.physical_name)
 
         channel_names: list[str] = []
         for channel in options.load_channels:
@@ -707,14 +705,14 @@ class Registry:
             )
             channel_names.append(channel.name)
 
-        channel_map_selectors: list[str] = []
+        channel_map_instances: list[str] = []
         for channel_map in options.load_channel_maps:
             if not isinstance(channel_map, ChannelMap):
                 raise TypeError(f"RPC {rpc_name} has an invalid ChannelMap load")
             Registry._require_registered_rpc_state(
                 rpc_name, channel_map, schema.channels, "ChannelMap"
             )
-            channel_map_selectors.append(f"{channel_map.name}/")
+            channel_map_instances.append(f"{channel_map.name}/")
         for channel_map_load in options.load_channel_map_instances:
             if not isinstance(channel_map_load, ChannelMapLoad):
                 raise TypeError(f"RPC {rpc_name} has an invalid ChannelMapLoad load")
@@ -724,19 +722,19 @@ class Registry:
                 schema.channels,
                 "ChannelMap",
             )
-            channel_map_selectors.append(channel_map_load.selector)
+            channel_map_instances.append(channel_map_load.physical_name)
 
-        for kind, selectors in (
-            ("AttributeMap", attribute_map_selectors),
+        for kind, instances in (
+            ("AttributeMap", attribute_map_instances),
             ("Channel", channel_names),
-            ("ChannelMap", channel_map_selectors),
+            ("ChannelMap", channel_map_instances),
         ):
-            if len(selectors) != len(set(selectors)):
+            if len(instances) != len(set(instances)):
                 raise ValueError(f"RPC {rpc_name} has a duplicate {kind} load")
         return (
-            tuple(sorted(attribute_map_selectors)),
+            tuple(sorted(attribute_map_instances)),
             tuple(sorted(channel_names)),
-            tuple(sorted(channel_map_selectors)),
+            tuple(sorted(channel_map_instances)),
         )
 
     @staticmethod

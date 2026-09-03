@@ -268,14 +268,14 @@ type InvokeOptions struct {
 	// Channel deletions require this option to make a missing message abort all RPC writes.
 	IsTransactional bool
 	// LoadAttributeMaps includes every current instance of each AttributeMap in the RPC snapshot.
-	LoadAttributeMaps []AttributeMapSelection
-	// LoadAttributeMapInstances includes selected AttributeMap instances in the RPC snapshot.
+	LoadAttributeMaps []AttributeDef
+	// LoadAttributeMapInstances includes exact AttributeMap instances in the RPC snapshot.
 	LoadAttributeMapInstances []AttributeMapLoad
 	// LoadChannels includes pending messages from the selected Channels in the RPC snapshot.
-	LoadChannels []ChannelSelection
+	LoadChannels []ChannelDef
 	// LoadChannelMaps includes every current instance of each ChannelMap in the RPC snapshot.
-	LoadChannelMaps []ChannelMapSelection
-	// LoadChannelMapInstances includes selected ChannelMap instance messages in the RPC snapshot.
+	LoadChannelMaps []ChannelDef
+	// LoadChannelMapInstances includes exact ChannelMap instance messages in the RPC snapshot.
 	LoadChannelMapInstances []ChannelMapLoad
 }
 

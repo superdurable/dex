@@ -712,10 +712,10 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 		InvokeOptions{
 			LockAttributes:            []AttributeLock{LockAttribute(clientTestStatus)},
 			IsTransactional:           true,
-			LoadAttributeMaps:         []AttributeMapSelection{clientTestItems},
+			LoadAttributeMaps:         []AttributeDef{clientTestItems},
 			LoadAttributeMapInstances: []AttributeMapLoad{clientTestItems.Load("tenant-a")},
-			LoadChannels:              []ChannelSelection{clientTestCommands},
-			LoadChannelMaps:           []ChannelMapSelection{clientTestByOrder},
+			LoadChannels:              []ChannelDef{clientTestCommands},
+			LoadChannelMaps:           []ChannelDef{clientTestByOrder},
 			LoadChannelMapInstances: []ChannelMapLoad{
 				clientTestByOrder.LoadMessages("tenant-a"),
 			},
@@ -723,12 +723,12 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.True(t, service.invokeRequest.IsTransactional)
-	require.Equal(t, []string{"items/", "items/tenant-a"}, service.invokeRequest.LoadAttributeMapSelectors)
+	require.Equal(t, []string{"items/", "items/tenant-a"}, service.invokeRequest.LoadAttributeMapInstances)
 	require.Equal(t, []string{"commands"}, service.invokeRequest.LoadChannelNames)
 	require.Equal(
 		t,
 		[]string{"commands-by-order/", "commands-by-order/tenant-a"},
-		service.invokeRequest.LoadChannelMapSelectors,
+		service.invokeRequest.LoadChannelMapInstances,
 	)
 	require.Equal(t, "updated", output.Status)
 	_, err = uuid.Parse(service.invokeRequest.RequestId)

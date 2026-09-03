@@ -103,9 +103,9 @@ func InvokeWorkerRpc(
 		Attributes:                  rpcPrep.GetAttributes(),
 		ChannelInfos:                channelInfos,
 		LoadedChannelMessages:       rpcPrep.GetLoadedChannelMessages(),
-		LoadedAttributeMapSelectors: rpcPrep.GetLoadedAttributeMapSelectors(),
+		LoadedAttributeMapInstances: rpcPrep.GetLoadedAttributeMapInstances(),
 		LoadedChannelNames:          rpcPrep.GetLoadedChannelNames(),
-		LoadedChannelMapSelectors:   rpcPrep.GetLoadedChannelMapSelectors(),
+		LoadedChannelMapInstances:   rpcPrep.GetLoadedChannelMapInstances(),
 	}
 
 	resp, err := client.InvokeWorkerRPC(callCtx, workerReq)
