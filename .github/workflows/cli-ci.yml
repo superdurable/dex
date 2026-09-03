@@ -6,6 +6,7 @@ on:
     paths:
       - "cli/**"
       - "web/**"
+      - "packages/flow-definition-renderer/**"
       - "server/**"
       - "protos/**"
       - "go.work"
@@ -14,6 +15,7 @@ on:
     paths:
       - "cli/**"
       - "web/**"
+      - "packages/flow-definition-renderer/**"
       - "server/**"
       - "protos/**"
       - "go.work"

@@ -178,7 +178,7 @@ The dependency-aware paths are:
 | Python SDK | `sdk-python/**`, shared Rust manifests and Blob Cache core, and `dex-blob-cache-python/**` |
 | TypeScript SDK | `sdk-typescript/**`, shared Rust manifests and Blob Cache core, and `dex-blob-cache-node/**` |
 | Server | `server/**`, `protos/**` |
-| CLI | `cli/**`, `web/**`, `server/**`, `protos/**`, `go.work` |
+| CLI | `cli/**`, `web/**`, `packages/flow-definition-renderer/**`, `server/**`, `protos/**`, `go.work` |
 
 Server baselines may use either historical `server/vX.Y.Z` tags or current `server-vX.Y.Z` tags. New server releases always use `server-vX.Y.Z`.
 

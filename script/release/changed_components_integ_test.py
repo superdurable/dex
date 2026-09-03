@@ -40,6 +40,7 @@ INITIAL_FILES = (
     "protos/api.proto",
     "cli/main.go",
     "web/package.json",
+    "packages/flow-definition-renderer/src/index.ts",
     "go.work",
 )
 
@@ -138,6 +139,12 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
 
     def test_web_change_triggers_only_cli(self) -> None:
         self.change("web/package.json")
+        result, values = self.plan()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_selected(values, "cli")
+
+    def test_flow_definition_renderer_change_triggers_only_cli(self) -> None:
+        self.change("packages/flow-definition-renderer/src/index.ts")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "cli")

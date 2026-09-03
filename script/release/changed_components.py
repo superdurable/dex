@@ -74,7 +74,7 @@ COMPONENTS = (
         "CLI",
         "cli-v",
         ("cli-v*",),
-        ("cli", "web", "server", "protos", "go.work"),
+        ("cli", "web", "packages/flow-definition-renderer", "server", "protos", "go.work"),
     ),
 )
 
