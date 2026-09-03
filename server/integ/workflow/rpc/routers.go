@@ -41,6 +41,11 @@ const (
 	RPCNameError                      = "test-RPC-error"
 	RPCNameDeleteMissingTransactional = "test-RPC-delete-missing-transactional"
 	RPCNameDeleteMissingSignal        = "test-RPC-delete-missing-signal"
+	RPCNameSnapshot                   = "test-RPC-snapshot"
+	RPCNameSnapshotDefault            = "test-RPC-snapshot-default"
+	RPCNameSnapshotTransactional      = "test-RPC-snapshot-transactional"
+	RPCNameSnapshotLocked             = "test-RPC-snapshot-locked"
+	RPCNameMove                       = "test-RPC-move"
 
 	TestDataAttributeKey = "test-data-attribute"
 
@@ -98,12 +103,45 @@ func (h *handler) InvokeWorkerRPC(
 			request.GetRpcName() != RPCNameReadOnly &&
 			request.GetRpcName() != RPCNameError &&
 			request.GetRpcName() != RPCNameDeleteMissingTransactional &&
-			request.GetRpcName() != RPCNameDeleteMissingSignal) {
+			request.GetRpcName() != RPCNameDeleteMissingSignal &&
+			request.GetRpcName() != RPCNameSnapshot &&
+			request.GetRpcName() != RPCNameSnapshotDefault &&
+			request.GetRpcName() != RPCNameSnapshotTransactional &&
+			request.GetRpcName() != RPCNameSnapshotLocked &&
+			request.GetRpcName() != RPCNameMove) {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid rpc name: %s", request.GetRpcName()))
 	}
 
 	h.invokeData.Store(request.GetRpcName()+"-input", request.GetInput())
 	h.invokeData.Store(request.GetRpcName()+"-attributes", request.GetAttributes())
+	h.invokeData.Store(request.GetRpcName()+"-request", request)
+
+	if request.GetRpcName() == RPCNameSnapshot ||
+		request.GetRpcName() == RPCNameSnapshotDefault ||
+		request.GetRpcName() == RPCNameSnapshotTransactional ||
+		request.GetRpcName() == RPCNameSnapshotLocked {
+		return &dexpb.InvokeWorkerRPCResponse{Output: TestOutput}, nil
+	}
+	if request.GetRpcName() == RPCNameMove {
+		messageID := request.GetInput().GetStringValue()
+		response := &dexpb.InvokeWorkerRPCResponse{
+			Output: TestOutput,
+			DeleteFromChannel: []*dexpb.ChannelMessageDeletion{{
+				ChannelName: "source",
+				MessageId:   messageID,
+			}},
+		}
+		for _, message := range request.GetLoadedChannelMessages()["source"].GetMessages() {
+			if message.GetMessageId() == messageID {
+				response.PublishToChannel = []*dexpb.ChannelMessage{{
+					ChannelName: "destination",
+					Value:       message.GetValue(),
+				}}
+				break
+			}
+		}
+		return response, nil
+	}
 
 	if request.GetRpcName() == RPCNameReadOnly {
 		return &dexpb.InvokeWorkerRPCResponse{

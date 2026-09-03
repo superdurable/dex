@@ -1273,6 +1273,13 @@ func (s *serviceImpl) InvokeRPC(
 	if req.GetTimeoutSeconds() < 0 {
 		return nil, makeInvalidRequestError("RPC timeout must be non-negative")
 	}
+	if _, err := rpc.ValidateAndSortSelections(
+		req.GetLoadAttributeMapNames(),
+		req.GetLoadChannelNames(),
+		req.GetLoadChannelMapNames(),
+	); err != nil {
+		return nil, makeInvalidRequestError(err.Error())
+	}
 	if err := workerclient.RejectWorkerBlobIDs(req.GetInput()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
@@ -1375,7 +1382,11 @@ func (s *serviceImpl) doInvokeRPC(
 		req.GetFlowId(),
 		runID,
 		service.PrepareRpcQueryType,
-		&dexpb.PrepareRpcQueryRequest{},
+		&dexpb.PrepareRpcQueryRequest{
+			LoadAttributeMapNames: req.GetLoadAttributeMapNames(),
+			LoadChannelNames:      req.GetLoadChannelNames(),
+			LoadChannelMapNames:   req.GetLoadChannelMapNames(),
+		},
 	); err != nil {
 		return nil, err
 	}

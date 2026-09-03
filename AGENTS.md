@@ -377,6 +377,11 @@ Boolean variables and constants, and methods returning booleans, must use names
 that clearly signal boolean semantics, such as `isXxx`, `hasXxx`, `canXxx`,
 `shouldXxx`, or `supportsXxx`. Follow each language's capitalization conventions.
 
+### No `NormalizeXyz` Names
+
+Do not introduce `NormalizeXyz` identifiers. Name the concrete operations, such
+as `ValidateAndSortSelections`, `TrimWhitespace`, or `CanonicalizeURL`.
+
 ### Interpreter Components
 
 Within `server/service/interpreter/`, every component type must be exported.

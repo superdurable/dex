@@ -262,6 +262,39 @@ func testChannelMessageTransactionalRpcDeletion(t *testing.T) {
 	for _, event := range historyResponse.GetEvents() {
 		require.NotEqual(t, rpc.RPCNameDeleteMissingTransactional, event.GetRpcExecutionCompleted().GetRpcName())
 	}
+
+	_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+		FlowId: flowID,
+		Messages: []*dexpb.ChannelMessage{{
+			ChannelName: "source",
+			Value:       stringValue("move-value"),
+		}},
+	})
+	require.NoError(t, err)
+	source := waitForChannelMessages(t, ctx, runtime, flowID, "source", 1)[0]
+	_, err = runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		FlowId:           flowID,
+		RpcName:          rpc.RPCNameMove,
+		Input:            stringValue(source.GetMessageId()),
+		RequestId:        newRequestID(),
+		IsTransactional:  true,
+		LoadChannelNames: []string{"source"},
+	})
+	require.NoError(t, err)
+	waitForChannelMessages(t, ctx, runtime, flowID, "source", 0)
+	destination := waitForChannelMessages(t, ctx, runtime, flowID, "destination", 1)
+	require.Equal(t, "move-value", destination[0].GetValue().GetStringValue())
+
+	_, err = runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		FlowId:           flowID,
+		RpcName:          rpc.RPCNameMove,
+		Input:            stringValue(source.GetMessageId()),
+		RequestId:        newRequestID(),
+		IsTransactional:  true,
+		LoadChannelNames: []string{"source"},
+	})
+	require.Equal(t, codes.NotFound, status.Code(err))
+	require.Len(t, waitForChannelMessages(t, ctx, runtime, flowID, "destination", 1), 1)
 }
 
 func testChannelMessageLargeValueHydration(t *testing.T, backendType service.BackendType) {

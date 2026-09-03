@@ -11,27 +11,77 @@ public interface PrepareRpcQueryRequestOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>repeated string lock_attribute_keys = 1;</code>
-   * @return A list containing the lockAttributeKeys.
+   * <code>repeated string load_attribute_map_names = 1;</code>
+   * @return A list containing the loadAttributeMapNames.
    */
   java.util.List<java.lang.String>
-      getLockAttributeKeysList();
+      getLoadAttributeMapNamesList();
   /**
-   * <code>repeated string lock_attribute_keys = 1;</code>
-   * @return The count of lockAttributeKeys.
+   * <code>repeated string load_attribute_map_names = 1;</code>
+   * @return The count of loadAttributeMapNames.
    */
-  int getLockAttributeKeysCount();
+  int getLoadAttributeMapNamesCount();
   /**
-   * <code>repeated string lock_attribute_keys = 1;</code>
+   * <code>repeated string load_attribute_map_names = 1;</code>
    * @param index The index of the element to return.
-   * @return The lockAttributeKeys at the given index.
+   * @return The loadAttributeMapNames at the given index.
    */
-  java.lang.String getLockAttributeKeys(int index);
+  java.lang.String getLoadAttributeMapNames(int index);
   /**
-   * <code>repeated string lock_attribute_keys = 1;</code>
+   * <code>repeated string load_attribute_map_names = 1;</code>
    * @param index The index of the value to return.
-   * @return The bytes of the lockAttributeKeys at the given index.
+   * @return The bytes of the loadAttributeMapNames at the given index.
    */
   com.google.protobuf.ByteString
-      getLockAttributeKeysBytes(int index);
+      getLoadAttributeMapNamesBytes(int index);
+
+  /**
+   * <code>repeated string load_channel_names = 2;</code>
+   * @return A list containing the loadChannelNames.
+   */
+  java.util.List<java.lang.String>
+      getLoadChannelNamesList();
+  /**
+   * <code>repeated string load_channel_names = 2;</code>
+   * @return The count of loadChannelNames.
+   */
+  int getLoadChannelNamesCount();
+  /**
+   * <code>repeated string load_channel_names = 2;</code>
+   * @param index The index of the element to return.
+   * @return The loadChannelNames at the given index.
+   */
+  java.lang.String getLoadChannelNames(int index);
+  /**
+   * <code>repeated string load_channel_names = 2;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadChannelNames at the given index.
+   */
+  com.google.protobuf.ByteString
+      getLoadChannelNamesBytes(int index);
+
+  /**
+   * <code>repeated string load_channel_map_names = 3;</code>
+   * @return A list containing the loadChannelMapNames.
+   */
+  java.util.List<java.lang.String>
+      getLoadChannelMapNamesList();
+  /**
+   * <code>repeated string load_channel_map_names = 3;</code>
+   * @return The count of loadChannelMapNames.
+   */
+  int getLoadChannelMapNamesCount();
+  /**
+   * <code>repeated string load_channel_map_names = 3;</code>
+   * @param index The index of the element to return.
+   * @return The loadChannelMapNames at the given index.
+   */
+  java.lang.String getLoadChannelMapNames(int index);
+  /**
+   * <code>repeated string load_channel_map_names = 3;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadChannelMapNames at the given index.
+   */
+  com.google.protobuf.ByteString
+      getLoadChannelMapNamesBytes(int index);
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"github.com/superdurable/dex/integ/workflow/rpc"
 	"github.com/superdurable/dex/service"
 	"google.golang.org/grpc/codes"
@@ -155,11 +156,18 @@ func doTestRpcWorkflow(
 		StartStepType: rpc.State1,
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
+			Attributes: []*dexpb.AttributeWrite{
+				{Key: "ordinary", Value: stringValue("ordinary")},
+				{Key: "selected-map/one", Value: stringValue("selected")},
+				{Key: "other-map/two", Value: stringValue("other")},
+			},
 		}, workerTarget),
 	})
 	require.NoError(t, err)
 
 	time.Sleep(time.Second)
+	testRPCSelectiveStateLoading(t, ctx, runtime, flowId, backendType, workerHandler)
+	testInvalidRPCStateSelectors(t, ctx, flowClient, flowId)
 
 	rpcRespReadOnly, err := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 		RequestId:      newRequestID(),
@@ -169,7 +177,6 @@ func doTestRpcWorkflow(
 		TimeoutSeconds: 2,
 	})
 	require.NoError(t, err)
-
 	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 		RequestId:      newRequestID(),
 		FlowId:         flowId,
@@ -237,6 +244,162 @@ func doTestRpcWorkflow(
 	assertions.Equal(int64(rpc.TestSearchAttributeIntValue2), attributeMap[rpc.TestSearchAttributeIntKey].GetIntValue())
 	assertions.Equal(rpc.TestSearchAttributeKeywordValue2, attributeMap[rpc.TestSearchAttributeKeywordKey].GetStringValue())
 	assertions.Equal(false, attributeMap[rpc.TestSearchAttributeBoolKey].GetBoolValue())
+}
+
+func testRPCSelectiveStateLoading(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+	backendType service.BackendType,
+	workerHandler interface{ GetTestResult() common.TestResult },
+) {
+	flowClient := runtime.FlowClient
+	_, err := flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+		FlowId: flowID,
+		Messages: []*dexpb.ChannelMessage{
+			{ChannelName: "selected-channel", Value: stringValue("first")},
+			{ChannelName: "selected-channel", Value: stringValue("second")},
+			{ChannelName: "other-channel", Value: stringValue("other")},
+			{ChannelName: "selected-channel-map/one", Value: stringValue("map-one")},
+			{ChannelName: "selected-channel-map/two", Value: stringValue("map-two")},
+			{ChannelName: "other-channel-map/one", Value: stringValue("other-map")},
+		},
+	})
+	require.NoError(t, err)
+	waitForChannelMessages(t, ctx, runtime, flowID, "selected-channel", 2)
+
+	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId:             newRequestID(),
+		FlowId:                flowID,
+		RpcName:               rpc.RPCNameSnapshot,
+		TimeoutSeconds:        2,
+		LoadAttributeMapNames: []string{"selected-map", "empty-map"},
+		LoadChannelNames:      []string{"selected-empty", "selected-channel"},
+		LoadChannelMapNames:   []string{"selected-empty-map", "selected-channel-map"},
+	})
+	require.NoError(t, err)
+
+	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId:      newRequestID(),
+		FlowId:         flowID,
+		RpcName:        rpc.RPCNameSnapshotDefault,
+		TimeoutSeconds: 2,
+	})
+	require.NoError(t, err)
+
+	if backendType == service.BackendTypeTemporal {
+		_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+			RequestId:       newRequestID(),
+			FlowId:          flowID,
+			RpcName:         rpc.RPCNameSnapshotTransactional,
+			TimeoutSeconds:  2,
+			IsTransactional: true,
+		})
+		require.NoError(t, err)
+		_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+			RequestId:         newRequestID(),
+			FlowId:            flowID,
+			RpcName:           rpc.RPCNameSnapshotLocked,
+			TimeoutSeconds:    2,
+			LockAttributeKeys: []string{"ordinary"},
+		})
+		require.NoError(t, err)
+	}
+
+	data := workerHandler.GetTestResult().InvokeData
+	selected := data[rpc.RPCNameSnapshot+"-request"].(*dexpb.InvokeWorkerRPCRequest)
+	require.Equal(t, []string{"empty-map", "selected-map"}, selected.GetLoadedAttributeMapNames())
+	require.Equal(t, []string{"selected-channel", "selected-empty"}, selected.GetLoadedChannelNames())
+	require.Equal(t, []string{"selected-channel-map", "selected-empty-map"}, selected.GetLoadedChannelMapNames())
+	selectedAttributes := attributesToMap(selected.GetAttributes())
+	require.Equal(t, "ordinary", selectedAttributes["ordinary"].GetStringValue())
+	require.Equal(t, "selected", selectedAttributes["selected-map/one"].GetStringValue())
+	require.NotContains(t, selectedAttributes, "other-map/two")
+	require.Contains(t, selected.GetChannelInfos(), "selected-channel")
+	require.Contains(t, selected.GetChannelInfos(), "other-channel")
+	require.Equal(t, int32(2), selected.GetChannelInfos()["selected-channel"].GetSize())
+	require.Equal(t, int32(1), selected.GetChannelInfos()["other-channel"].GetSize())
+
+	loaded := selected.GetLoadedChannelMessages()
+	require.Contains(t, loaded, "selected-empty")
+	require.Empty(t, loaded["selected-empty"].GetMessages())
+	require.NotContains(t, loaded, "other-channel")
+	require.NotContains(t, loaded, "other-channel-map/one")
+	require.Equal(t, []string{"first", "second"}, channelStrings(loaded["selected-channel"]))
+	require.Equal(t, []string{"map-one"}, channelStrings(loaded["selected-channel-map/one"]))
+	require.Equal(t, []string{"map-two"}, channelStrings(loaded["selected-channel-map/two"]))
+	for _, values := range loaded {
+		for _, message := range values.GetMessages() {
+			require.NotEmpty(t, message.GetMessageId())
+		}
+	}
+
+	defaultRequest := data[rpc.RPCNameSnapshotDefault+"-request"].(*dexpb.InvokeWorkerRPCRequest)
+	defaultAttributes := attributesToMap(defaultRequest.GetAttributes())
+	require.Equal(t, "ordinary", defaultAttributes["ordinary"].GetStringValue())
+	require.NotContains(t, defaultAttributes, "selected-map/one")
+	require.NotContains(t, defaultAttributes, "other-map/two")
+	require.Empty(t, defaultRequest.GetLoadedChannelMessages())
+	require.Contains(t, defaultRequest.GetChannelInfos(), "selected-channel")
+
+	if backendType == service.BackendTypeTemporal {
+		transactional := data[rpc.RPCNameSnapshotTransactional+"-request"].(*dexpb.InvokeWorkerRPCRequest)
+		locked := data[rpc.RPCNameSnapshotLocked+"-request"].(*dexpb.InvokeWorkerRPCRequest)
+		require.NotContains(t, attributesToMap(transactional.GetAttributes()), "selected-map/one")
+		require.NotContains(t, attributesToMap(locked.GetAttributes()), "selected-map/one")
+		require.Empty(t, transactional.GetLoadedChannelMessages())
+		require.Empty(t, locked.GetLoadedChannelMessages())
+	}
+}
+
+func channelStrings(values *dexpb.ChannelValues) []string {
+	result := make([]string, 0, len(values.GetMessages()))
+	for _, message := range values.GetMessages() {
+		result = append(result, message.GetValue().GetStringValue())
+	}
+	return result
+}
+
+func testInvalidRPCStateSelectors(
+	t *testing.T,
+	ctx context.Context,
+	flowClient dexpb.FlowServiceClient,
+	flowID string,
+) {
+	testCases := []struct {
+		name    string
+		request *dexpb.InvokeRPCRequest
+	}{
+		{
+			name: "empty",
+			request: &dexpb.InvokeRPCRequest{
+				LoadAttributeMapNames: []string{" "},
+			},
+		},
+		{
+			name: "physical-channel-name",
+			request: &dexpb.InvokeRPCRequest{
+				LoadChannelMapNames: []string{"mapped/one"},
+			},
+		},
+		{
+			name: "duplicate",
+			request: &dexpb.InvokeRPCRequest{
+				LoadChannelNames: []string{"queued", "queued"},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			testCase.request.RequestId = newRequestID()
+			testCase.request.FlowId = flowID
+			testCase.request.RpcName = rpc.RPCNameSnapshot
+			testCase.request.TimeoutSeconds = 2
+			_, err := flowClient.InvokeRPC(ctx, testCase.request)
+			require.Equal(t, codes.InvalidArgument, status.Code(err))
+		})
+	}
 }
 
 func TestRpcLockingErrorMappingTemporal(t *testing.T) {

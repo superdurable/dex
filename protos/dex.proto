@@ -809,6 +809,12 @@ message InvokeRPCRequest {
   // Requests transactional reads and writes. Attribute locking enables it
   // automatically. Channel deletion alone does not; callers must opt in.
   bool is_transactional = 8;
+  // AttributeMap definitions whose entries are loaded for the RPC handler.
+  repeated string load_attribute_map_names = 9;
+  // Channel definitions whose pending messages are loaded for the RPC handler.
+  repeated string load_channel_names = 10;
+  // ChannelMap definitions whose pending messages are loaded for the RPC handler.
+  repeated string load_channel_map_names = 11;
 }
 
 message InvokeRPCResponse {
@@ -993,6 +999,10 @@ message InvokeWorkerRPCRequest {
   Value input = 4;
   repeated KV attributes = 5;
   map<string, ChannelInfo> channel_infos = 6;
+  map<string, ChannelValues> loaded_channel_messages = 7;
+  repeated string loaded_attribute_map_names = 8;
+  repeated string loaded_channel_names = 9;
+  repeated string loaded_channel_map_names = 10;
 }
 
 message InvokeWorkerRPCResponse {
@@ -1383,7 +1393,9 @@ message GetAttributesQueryResponse {
 }
 
 message PrepareRpcQueryRequest {
-  repeated string lock_attribute_keys = 1;
+  repeated string load_attribute_map_names = 1;
+  repeated string load_channel_names = 2;
+  repeated string load_channel_map_names = 3;
 }
 
 message PrepareRpcQueryResponse {
@@ -1393,6 +1405,10 @@ message PrepareRpcQueryResponse {
   string flow_type = 4;
   WorkerTarget worker_target = 5;
   map<string, ChannelInfo> channel_infos = 6;
+  map<string, ChannelValues> loaded_channel_messages = 7;
+  repeated string loaded_attribute_map_names = 8;
+  repeated string loaded_channel_names = 9;
+  repeated string loaded_channel_map_names = 10;
 }
 
 message TimerInfo {

@@ -842,6 +842,12 @@ export interface InvokeRPCRequest {
    * automatically. Channel deletion alone does not; callers must opt in.
    */
   isTransactional: boolean;
+  /** AttributeMap definitions whose entries are loaded for the RPC handler. */
+  loadAttributeMapNames: string[];
+  /** Channel definitions whose pending messages are loaded for the RPC handler. */
+  loadChannelNames: string[];
+  /** ChannelMap definitions whose pending messages are loaded for the RPC handler. */
+  loadChannelMapNames: string[];
 }
 
 export interface InvokeRPCResponse {
@@ -1015,11 +1021,20 @@ export interface InvokeWorkerRPCRequest {
   input: Value | undefined;
   attributes: KV[];
   channelInfos: { [key: string]: ChannelInfo };
+  loadedChannelMessages: { [key: string]: ChannelValues };
+  loadedAttributeMapNames: string[];
+  loadedChannelNames: string[];
+  loadedChannelMapNames: string[];
 }
 
 export interface InvokeWorkerRPCRequest_ChannelInfosEntry {
   key: string;
   value: ChannelInfo | undefined;
+}
+
+export interface InvokeWorkerRPCRequest_LoadedChannelMessagesEntry {
+  key: string;
+  value: ChannelValues | undefined;
 }
 
 export interface InvokeWorkerRPCResponse {
@@ -1390,7 +1405,9 @@ export interface GetAttributesQueryResponse {
 }
 
 export interface PrepareRpcQueryRequest {
-  lockAttributeKeys: string[];
+  loadAttributeMapNames: string[];
+  loadChannelNames: string[];
+  loadChannelMapNames: string[];
 }
 
 export interface PrepareRpcQueryResponse {
@@ -1400,11 +1417,20 @@ export interface PrepareRpcQueryResponse {
   flowType: string;
   workerTarget: WorkerTarget | undefined;
   channelInfos: { [key: string]: ChannelInfo };
+  loadedChannelMessages: { [key: string]: ChannelValues };
+  loadedAttributeMapNames: string[];
+  loadedChannelNames: string[];
+  loadedChannelMapNames: string[];
 }
 
 export interface PrepareRpcQueryResponse_ChannelInfosEntry {
   key: string;
   value: ChannelInfo | undefined;
+}
+
+export interface PrepareRpcQueryResponse_LoadedChannelMessagesEntry {
+  key: string;
+  value: ChannelValues | undefined;
 }
 
 export interface TimerInfo {
@@ -8582,6 +8608,9 @@ function createBaseInvokeRPCRequest(): InvokeRPCRequest {
     lockAttributeKeys: [],
     requestId: "",
     isTransactional: false,
+    loadAttributeMapNames: [],
+    loadChannelNames: [],
+    loadChannelMapNames: [],
   };
 }
 
@@ -8610,6 +8639,15 @@ export const InvokeRPCRequest: MessageFns<InvokeRPCRequest> = {
     }
     if (message.isTransactional !== false) {
       writer.uint32(64).bool(message.isTransactional);
+    }
+    for (const v of message.loadAttributeMapNames) {
+      writer.uint32(74).string(v!);
+    }
+    for (const v of message.loadChannelNames) {
+      writer.uint32(82).string(v!);
+    }
+    for (const v of message.loadChannelMapNames) {
+      writer.uint32(90).string(v!);
     }
     return writer;
   },
@@ -8685,6 +8723,30 @@ export const InvokeRPCRequest: MessageFns<InvokeRPCRequest> = {
           message.isTransactional = reader.bool();
           continue;
         }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.loadAttributeMapNames.push(reader.string());
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.loadChannelNames.push(reader.string());
+          continue;
+        }
+        case 11: {
+          if (tag !== 90) {
+            break;
+          }
+
+          message.loadChannelMapNames.push(reader.string());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8707,6 +8769,9 @@ export const InvokeRPCRequest: MessageFns<InvokeRPCRequest> = {
     message.lockAttributeKeys = object.lockAttributeKeys?.map((e) => e) || [];
     message.requestId = object.requestId ?? "";
     message.isTransactional = object.isTransactional ?? false;
+    message.loadAttributeMapNames = object.loadAttributeMapNames?.map((e) => e) || [];
+    message.loadChannelNames = object.loadChannelNames?.map((e) => e) || [];
+    message.loadChannelMapNames = object.loadChannelMapNames?.map((e) => e) || [];
     return message;
   },
 };
@@ -10611,7 +10676,18 @@ export const InvokeExecuteMethodOutput: MessageFns<InvokeExecuteMethodOutput> = 
 };
 
 function createBaseInvokeWorkerRPCRequest(): InvokeWorkerRPCRequest {
-  return { context: undefined, flowType: "", rpcName: "", input: undefined, attributes: [], channelInfos: {} };
+  return {
+    context: undefined,
+    flowType: "",
+    rpcName: "",
+    input: undefined,
+    attributes: [],
+    channelInfos: {},
+    loadedChannelMessages: {},
+    loadedAttributeMapNames: [],
+    loadedChannelNames: [],
+    loadedChannelMapNames: [],
+  };
 }
 
 export const InvokeWorkerRPCRequest: MessageFns<InvokeWorkerRPCRequest> = {
@@ -10634,6 +10710,19 @@ export const InvokeWorkerRPCRequest: MessageFns<InvokeWorkerRPCRequest> = {
     globalThis.Object.entries(message.channelInfos).forEach(([key, value]: [string, ChannelInfo]) => {
       InvokeWorkerRPCRequest_ChannelInfosEntry.encode({ key: key as any, value }, writer.uint32(50).fork()).join();
     });
+    globalThis.Object.entries(message.loadedChannelMessages).forEach(([key, value]: [string, ChannelValues]) => {
+      InvokeWorkerRPCRequest_LoadedChannelMessagesEntry.encode({ key: key as any, value }, writer.uint32(58).fork())
+        .join();
+    });
+    for (const v of message.loadedAttributeMapNames) {
+      writer.uint32(66).string(v!);
+    }
+    for (const v of message.loadedChannelNames) {
+      writer.uint32(74).string(v!);
+    }
+    for (const v of message.loadedChannelMapNames) {
+      writer.uint32(82).string(v!);
+    }
     return writer;
   },
 
@@ -10695,6 +10784,41 @@ export const InvokeWorkerRPCRequest: MessageFns<InvokeWorkerRPCRequest> = {
           }
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          const entry7 = InvokeWorkerRPCRequest_LoadedChannelMessagesEntry.decode(reader, reader.uint32());
+          if (entry7.value !== undefined) {
+            message.loadedChannelMessages[entry7.key] = entry7.value;
+          }
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.loadedAttributeMapNames.push(reader.string());
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.loadedChannelNames.push(reader.string());
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.loadedChannelMapNames.push(reader.string());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -10725,6 +10849,19 @@ export const InvokeWorkerRPCRequest: MessageFns<InvokeWorkerRPCRequest> = {
       },
       {},
     );
+    message.loadedChannelMessages =
+      (globalThis.Object.entries(object.loadedChannelMessages ?? {}) as [string, ChannelValues][]).reduce(
+        (acc: { [key: string]: ChannelValues }, [key, value]: [string, ChannelValues]) => {
+          if (value !== undefined) {
+            acc[key] = ChannelValues.fromPartial(value);
+          }
+          return acc;
+        },
+        {},
+      );
+    message.loadedAttributeMapNames = object.loadedAttributeMapNames?.map((e) => e) || [];
+    message.loadedChannelNames = object.loadedChannelNames?.map((e) => e) || [];
+    message.loadedChannelMapNames = object.loadedChannelMapNames?.map((e) => e) || [];
     return message;
   },
 };
@@ -10788,6 +10925,75 @@ export const InvokeWorkerRPCRequest_ChannelInfosEntry: MessageFns<InvokeWorkerRP
     message.key = object.key ?? "";
     message.value = (object.value !== undefined && object.value !== null)
       ? ChannelInfo.fromPartial(object.value)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseInvokeWorkerRPCRequest_LoadedChannelMessagesEntry(): InvokeWorkerRPCRequest_LoadedChannelMessagesEntry {
+  return { key: "", value: undefined };
+}
+
+export const InvokeWorkerRPCRequest_LoadedChannelMessagesEntry: MessageFns<
+  InvokeWorkerRPCRequest_LoadedChannelMessagesEntry
+> = {
+  encode(
+    message: InvokeWorkerRPCRequest_LoadedChannelMessagesEntry,
+    writer: BinaryWriter = new BinaryWriter(),
+  ): BinaryWriter {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== undefined) {
+      ChannelValues.encode(message.value, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InvokeWorkerRPCRequest_LoadedChannelMessagesEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInvokeWorkerRPCRequest_LoadedChannelMessagesEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = ChannelValues.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<InvokeWorkerRPCRequest_LoadedChannelMessagesEntry>, I>>(
+    base?: I,
+  ): InvokeWorkerRPCRequest_LoadedChannelMessagesEntry {
+    return InvokeWorkerRPCRequest_LoadedChannelMessagesEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InvokeWorkerRPCRequest_LoadedChannelMessagesEntry>, I>>(
+    object: I,
+  ): InvokeWorkerRPCRequest_LoadedChannelMessagesEntry {
+    const message = createBaseInvokeWorkerRPCRequest_LoadedChannelMessagesEntry();
+    message.key = object.key ?? "";
+    message.value = (object.value !== undefined && object.value !== null)
+      ? ChannelValues.fromPartial(object.value)
       : undefined;
     return message;
   },
@@ -15214,13 +15420,19 @@ export const GetAttributesQueryResponse: MessageFns<GetAttributesQueryResponse> 
 };
 
 function createBasePrepareRpcQueryRequest(): PrepareRpcQueryRequest {
-  return { lockAttributeKeys: [] };
+  return { loadAttributeMapNames: [], loadChannelNames: [], loadChannelMapNames: [] };
 }
 
 export const PrepareRpcQueryRequest: MessageFns<PrepareRpcQueryRequest> = {
   encode(message: PrepareRpcQueryRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    for (const v of message.lockAttributeKeys) {
+    for (const v of message.loadAttributeMapNames) {
       writer.uint32(10).string(v!);
+    }
+    for (const v of message.loadChannelNames) {
+      writer.uint32(18).string(v!);
+    }
+    for (const v of message.loadChannelMapNames) {
+      writer.uint32(26).string(v!);
     }
     return writer;
   },
@@ -15237,7 +15449,23 @@ export const PrepareRpcQueryRequest: MessageFns<PrepareRpcQueryRequest> = {
             break;
           }
 
-          message.lockAttributeKeys.push(reader.string());
+          message.loadAttributeMapNames.push(reader.string());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.loadChannelNames.push(reader.string());
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.loadChannelMapNames.push(reader.string());
           continue;
         }
       }
@@ -15254,7 +15482,9 @@ export const PrepareRpcQueryRequest: MessageFns<PrepareRpcQueryRequest> = {
   },
   fromPartial<I extends Exact<DeepPartial<PrepareRpcQueryRequest>, I>>(object: I): PrepareRpcQueryRequest {
     const message = createBasePrepareRpcQueryRequest();
-    message.lockAttributeKeys = object.lockAttributeKeys?.map((e) => e) || [];
+    message.loadAttributeMapNames = object.loadAttributeMapNames?.map((e) => e) || [];
+    message.loadChannelNames = object.loadChannelNames?.map((e) => e) || [];
+    message.loadChannelMapNames = object.loadChannelMapNames?.map((e) => e) || [];
     return message;
   },
 };
@@ -15267,6 +15497,10 @@ function createBasePrepareRpcQueryResponse(): PrepareRpcQueryResponse {
     flowType: "",
     workerTarget: undefined,
     channelInfos: {},
+    loadedChannelMessages: {},
+    loadedAttributeMapNames: [],
+    loadedChannelNames: [],
+    loadedChannelMapNames: [],
   };
 }
 
@@ -15293,6 +15527,19 @@ export const PrepareRpcQueryResponse: MessageFns<PrepareRpcQueryResponse> = {
     globalThis.Object.entries(message.channelInfos).forEach(([key, value]: [string, ChannelInfo]) => {
       PrepareRpcQueryResponse_ChannelInfosEntry.encode({ key: key as any, value }, writer.uint32(50).fork()).join();
     });
+    globalThis.Object.entries(message.loadedChannelMessages).forEach(([key, value]: [string, ChannelValues]) => {
+      PrepareRpcQueryResponse_LoadedChannelMessagesEntry.encode({ key: key as any, value }, writer.uint32(58).fork())
+        .join();
+    });
+    for (const v of message.loadedAttributeMapNames) {
+      writer.uint32(66).string(v!);
+    }
+    for (const v of message.loadedChannelNames) {
+      writer.uint32(74).string(v!);
+    }
+    for (const v of message.loadedChannelMapNames) {
+      writer.uint32(82).string(v!);
+    }
     return writer;
   },
 
@@ -15354,6 +15601,41 @@ export const PrepareRpcQueryResponse: MessageFns<PrepareRpcQueryResponse> = {
           }
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          const entry7 = PrepareRpcQueryResponse_LoadedChannelMessagesEntry.decode(reader, reader.uint32());
+          if (entry7.value !== undefined) {
+            message.loadedChannelMessages[entry7.key] = entry7.value;
+          }
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.loadedAttributeMapNames.push(reader.string());
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.loadedChannelNames.push(reader.string());
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.loadedChannelMapNames.push(reader.string());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -15386,6 +15668,19 @@ export const PrepareRpcQueryResponse: MessageFns<PrepareRpcQueryResponse> = {
       },
       {},
     );
+    message.loadedChannelMessages =
+      (globalThis.Object.entries(object.loadedChannelMessages ?? {}) as [string, ChannelValues][]).reduce(
+        (acc: { [key: string]: ChannelValues }, [key, value]: [string, ChannelValues]) => {
+          if (value !== undefined) {
+            acc[key] = ChannelValues.fromPartial(value);
+          }
+          return acc;
+        },
+        {},
+      );
+    message.loadedAttributeMapNames = object.loadedAttributeMapNames?.map((e) => e) || [];
+    message.loadedChannelNames = object.loadedChannelNames?.map((e) => e) || [];
+    message.loadedChannelMapNames = object.loadedChannelMapNames?.map((e) => e) || [];
     return message;
   },
 };
@@ -15449,6 +15744,75 @@ export const PrepareRpcQueryResponse_ChannelInfosEntry: MessageFns<PrepareRpcQue
     message.key = object.key ?? "";
     message.value = (object.value !== undefined && object.value !== null)
       ? ChannelInfo.fromPartial(object.value)
+      : undefined;
+    return message;
+  },
+};
+
+function createBasePrepareRpcQueryResponse_LoadedChannelMessagesEntry(): PrepareRpcQueryResponse_LoadedChannelMessagesEntry {
+  return { key: "", value: undefined };
+}
+
+export const PrepareRpcQueryResponse_LoadedChannelMessagesEntry: MessageFns<
+  PrepareRpcQueryResponse_LoadedChannelMessagesEntry
+> = {
+  encode(
+    message: PrepareRpcQueryResponse_LoadedChannelMessagesEntry,
+    writer: BinaryWriter = new BinaryWriter(),
+  ): BinaryWriter {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== undefined) {
+      ChannelValues.encode(message.value, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PrepareRpcQueryResponse_LoadedChannelMessagesEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePrepareRpcQueryResponse_LoadedChannelMessagesEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = ChannelValues.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<PrepareRpcQueryResponse_LoadedChannelMessagesEntry>, I>>(
+    base?: I,
+  ): PrepareRpcQueryResponse_LoadedChannelMessagesEntry {
+    return PrepareRpcQueryResponse_LoadedChannelMessagesEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PrepareRpcQueryResponse_LoadedChannelMessagesEntry>, I>>(
+    object: I,
+  ): PrepareRpcQueryResponse_LoadedChannelMessagesEntry {
+    const message = createBasePrepareRpcQueryResponse_LoadedChannelMessagesEntry();
+    message.key = object.key ?? "";
+    message.value = (object.value !== undefined && object.value !== null)
+      ? ChannelValues.fromPartial(object.value)
       : undefined;
     return message;
   },

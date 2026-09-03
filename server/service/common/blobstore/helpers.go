@@ -177,6 +177,28 @@ func HydrateKVs(ctx context.Context, kvs []*dexpb.KV, blobStore BlobStore) error
 	return nil
 }
 
+// HydrateChannelValues hydrates every pending Channel message Value.
+func HydrateChannelValues(
+	ctx context.Context,
+	channels map[string]*dexpb.ChannelValues,
+	blobStore BlobStore,
+) error {
+	for _, channel := range channels {
+		if channel == nil {
+			continue
+		}
+		for _, message := range channel.GetMessages() {
+			if message == nil {
+				continue
+			}
+			if err := HydrateValue(ctx, message.GetValue(), blobStore); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func HydrateConditionResults(
 	ctx context.Context,
 	results *dexpb.ConditionResults,
