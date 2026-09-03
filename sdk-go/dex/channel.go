@@ -84,7 +84,7 @@ func (c Channel[T]) Delete(ctx Context, messageID string) error {
 }
 
 // PendingMessages returns the loaded RPC snapshot in FIFO order.
-// It returns StateNotLoadedError when InvokeOptions did not select this Channel.
+// It returns ChannelMessagesNotLoadedError when InvokeOptions did not select this Channel.
 func (c Channel[T]) PendingMessages(ctx Context) ([]ChannelMessage[T], error) {
 	invocation, ok := ctx.(channelInvocation)
 	if !ok {
@@ -230,7 +230,7 @@ func (c ChannelMap[T]) LoadMessages(instance string) ChannelMapLoad {
 }
 
 // PendingMessages returns one loaded instance snapshot in FIFO order.
-// It returns StateNotLoadedError when InvokeOptions did not select this ChannelMap.
+// It returns ChannelMessagesNotLoadedError when InvokeOptions did not select this ChannelMap.
 func (c ChannelMap[T]) PendingMessages(
 	ctx Context,
 	instance string,

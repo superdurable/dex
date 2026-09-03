@@ -28,7 +28,8 @@ options := dex.InvokeOptions{
 Put an AttributeMap or ChannelMap directly in its plural load option when every
 current instance is needed. Use the singular instance options for the less common
 exact-instance case. A selected empty queue returns an empty slice; reading an
-unselected map entry or pending-message snapshot returns **StateNotLoadedError**.
+unselected map entry returns **AttributeMapNotLoadedError**. An unselected pending-message
+snapshot returns **ChannelMessagesNotLoadedError**.
 Pending messages preserve FIFO order and include the server-assigned message ID.
 The snapshot does not change after the handler stages a publish or deletion.
 

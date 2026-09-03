@@ -14,7 +14,8 @@
 
 package io.superdurable.dex;
 
-import io.superdurable.dex.exceptions.StateNotLoadedException;
+import io.superdurable.dex.exceptions.AttributeMapNotLoadedException;
+import io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException;
 import io.superdurable.gen.AttributeSyncConfig;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.ChannelInfo;
@@ -514,7 +515,7 @@ final class InvocationContext implements Context {
         requireRegistered(attribute);
         if (method == Method.RPC
                 && !loadedAttributeMapInstances.contains(attribute.getName() + "/")) {
-            throw new StateNotLoadedException(
+            throw new AttributeMapNotLoadedException(
                     "all AttributeMap instances were not loaded for RPC: "
                             + attribute.getName());
         }
@@ -595,7 +596,7 @@ final class InvocationContext implements Context {
                 && definition instanceof AttributeMap
                 && !isMapInstanceLoaded(
                         loadedAttributeMapInstances, definition.getName(), key)) {
-            throw new StateNotLoadedException(
+            throw new AttributeMapNotLoadedException(
                     "AttributeMap instance was not loaded for RPC: " + key);
         }
         final AttributeWrite write = attributeWrites.get(key);
@@ -738,7 +739,7 @@ final class InvocationContext implements Context {
             isLoaded = loadedChannelNames.contains(name);
         }
         if (!isLoaded) {
-            throw new StateNotLoadedException(
+            throw new ChannelMessagesNotLoadedException(
                     "Channel messages were not loaded for RPC: " + name);
         }
         final ChannelValues loaded = loadedChannelMessages.get(name);

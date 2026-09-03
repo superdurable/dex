@@ -26,7 +26,8 @@ import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.superdurable.dex.exceptions.InvalidStepResultException;
 import io.superdurable.dex.exceptions.RetryAfterException;
-import io.superdurable.dex.exceptions.StateNotLoadedException;
+import io.superdurable.dex.exceptions.AttributeMapNotLoadedException;
+import io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException;
 import io.superdurable.gen.CloseDecisionType;
 import io.superdurable.gen.ChannelInfo;
 import io.superdurable.gen.ChannelValues;
@@ -397,9 +398,9 @@ final class WorkerServiceIntegrationTest {
         assertEquals("message-2", byTenant.pendingMessages(context, "tenant-a")
                 .get(0).getMessageId());
         assertEquals("first", queued.findPendingMessage(context, "message-1").getValue());
-        assertThrows(StateNotLoadedException.class, () -> attributes.get(context, "other"));
+        assertThrows(AttributeMapNotLoadedException.class, () -> attributes.get(context, "other"));
         assertThrows(
-                StateNotLoadedException.class,
+                ChannelMessagesNotLoadedException.class,
                 () -> byTenant.pendingMessages(context, "other"));
         final Registry.RpcStateLoads stateLoads = registry.getFlow("SelectiveFlow")
                 .getRpc("snapshot")

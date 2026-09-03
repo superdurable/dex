@@ -15,14 +15,15 @@ import test from "node:test";
 import {
   Attribute,
   AttributeMap,
+  AttributeMapNotLoadedError,
   Channel,
   ChannelMap,
+  ChannelMessagesNotLoadedError,
   Client,
   ConditionCombination,
   FlowDefinitionError,
   InvalidStepResultError,
   Registry,
-  StateNotLoadedError,
   Stream,
   StepList,
   Timer,
@@ -853,8 +854,11 @@ test("RPC selective state snapshots are typed and distinguish not loaded", () =>
     { messageId: "message-2", value: "second" },
   ]);
   assert.equal(queued.findPendingMessage(context, "message-1")?.value, "first");
-  assert.throws(() => attributes.get(context, "other"), StateNotLoadedError);
-  assert.throws(() => byTenant.pendingMessages(context, "other"), StateNotLoadedError);
+  assert.throws(() => attributes.get(context, "other"), AttributeMapNotLoadedError);
+  assert.throws(
+    () => byTenant.pendingMessages(context, "other"),
+    ChannelMessagesNotLoadedError,
+  );
 });
 
 test("registry rejects invalid and duplicate RPC state loads", () => {

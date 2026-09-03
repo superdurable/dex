@@ -501,7 +501,7 @@ func (invocation *invocationContext) getAttributeValue(
 		name,
 		physical,
 	) {
-		return false, &StateNotLoadedError{Kind: "AttributeMap", Name: physical}
+		return false, &AttributeMapNotLoadedError{Name: physical}
 	}
 	if write, found := invocation.attributeWrites[physical]; found {
 		if _, deleted := write.Value.Kind.(*dexpb.Value_NullValue); deleted {
@@ -590,7 +590,7 @@ func (invocation *invocationContext) attributeMapKeys(name string) []string {
 	}
 	if invocation.method == invocationRPC {
 		if _, loaded := invocation.loadedAttributeMapInstances[name+"/"]; !loaded {
-			panic(&StateNotLoadedError{Kind: "AttributeMap", Name: name})
+			panic(&AttributeMapNotLoadedError{Name: name})
 		}
 	}
 	attribute, found := invocation.flow.attributes[name]
@@ -747,10 +747,8 @@ func (invocation *invocationContext) pendingChannelMessages(
 		return nil, err
 	}
 	loadedNames := invocation.loadedChannelNames
-	kind := "Channel"
 	if isMap {
 		loadedNames = invocation.loadedChannelMapInstances
-		kind = "ChannelMap"
 	}
 	physical, err := invocation.resolveChannel(name, instance, isMap)
 	if err != nil {
@@ -763,7 +761,7 @@ func (invocation *invocationContext) pendingChannelMessages(
 		_, isLoaded = loadedNames[name]
 	}
 	if !isLoaded {
-		return nil, &StateNotLoadedError{Kind: kind, Name: physical}
+		return nil, &ChannelMessagesNotLoadedError{Name: physical}
 	}
 	values := invocation.loadedChannelMessages[physical]
 	if values == nil {

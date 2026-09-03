@@ -132,7 +132,7 @@ class Channel(Generic[ValueT]):
             Pending message IDs and decoded values in FIFO order.
 
         Raises:
-            StateNotLoadedError: If the RPC did not load this Channel.
+            ChannelMessagesNotLoadedError: If the RPC did not load this Channel's messages.
         """
         return cast(
             Sequence[ChannelMessage[ValueT]],
@@ -355,7 +355,7 @@ class ChannelMap(Generic[ValueT]):
             Pending message IDs and decoded values in FIFO order.
 
         Raises:
-            StateNotLoadedError: If the RPC did not load this ChannelMap.
+            ChannelMessagesNotLoadedError: If the RPC did not load this ChannelMap's messages.
         """
         return cast(
             Sequence[ChannelMessage[ValueT]],

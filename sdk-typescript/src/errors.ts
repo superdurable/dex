@@ -121,8 +121,11 @@ export class LongPollTimeoutError extends DexServiceError {}
 /** Indicates that a requested Channel message is no longer pending. */
 export class ChannelMessageNotFoundError extends DexServiceError {}
 
-/** Indicates that an RPC read state it did not explicitly load. */
-export class StateNotLoadedError extends Error {}
+/** Indicates that an RPC did not load the requested AttributeMap entries. */
+export class AttributeMapNotLoadedError extends Error {}
+
+/** Indicates that an RPC did not load the requested pending Channel messages. */
+export class ChannelMessagesNotLoadedError extends Error {}
 
 /** Indicates that Registry construction found an invalid Flow definition. */
 export class FlowDefinitionError extends Error {

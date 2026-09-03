@@ -148,7 +148,7 @@ export class Channel<T> {
    * Returns the loaded pending-message snapshot in FIFO order.
    * @param context - Current RPC Context.
    * @returns Immutable pending message IDs and decoded values.
-   * @throws {@link StateNotLoadedError} when the RPC did not load this Channel.
+   * @throws {@link ChannelMessagesNotLoadedError} when the RPC did not load this Channel's messages.
    */
   public pendingMessages(context: Context): readonly ChannelMessage<T>[] {
     return context.pendingChannelMessages(this);
@@ -299,7 +299,7 @@ export class ChannelMap<T> {
    * @param context - Current RPC Context.
    * @param instance - Logical ChannelMap instance.
    * @returns Immutable pending message IDs and decoded values.
-   * @throws {@link StateNotLoadedError} when the RPC did not load this instance or map.
+   * @throws {@link ChannelMessagesNotLoadedError} when the RPC did not load this instance's messages.
    */
   public pendingMessages(context: Context, instance: string): readonly ChannelMessage<T>[] {
     return context.pendingChannelMessages(this, instance);

@@ -86,7 +86,7 @@ func (selectiveRPCFlow) Snapshot(
 		return nil, err
 	}
 	_, err = selectiveRPCItems.Get(ctx, "tenant-b")
-	var notLoaded *dex.StateNotLoadedError
+	var notLoaded *dex.AttributeMapNotLoadedError
 	if !errors.As(err, &notLoaded) {
 		return nil, fmt.Errorf("unloaded AttributeMap instance error = %v", err)
 	}
@@ -121,7 +121,7 @@ func (selectiveRPCFlow) ComplementarySnapshot(
 		return nil, err
 	}
 	_, err = selectiveRPCByTenant.PendingMessages(ctx, "tenant-b")
-	var notLoaded *dex.StateNotLoadedError
+	var notLoaded *dex.ChannelMessagesNotLoadedError
 	if !errors.As(err, &notLoaded) {
 		return nil, fmt.Errorf("unloaded ChannelMap instance error = %v", err)
 	}

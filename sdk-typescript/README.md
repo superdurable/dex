@@ -30,7 +30,8 @@ snapshot(context: Context): RPCResult<Snapshot> {
 Put an AttributeMap or ChannelMap directly in its plural load option when every
 current instance is needed. Use the singular instance options for the less common
 exact-instance case. A selected empty queue returns an empty array; reading an
-unselected map entry or pending-message snapshot throws **StateNotLoadedError**.
+unselected map entry throws **AttributeMapNotLoadedError**. An unselected pending-message
+snapshot throws **ChannelMessagesNotLoadedError**.
 Pending messages preserve FIFO order and include the server-assigned message ID.
 The snapshot does not change after the handler stages a publish or deletion.
 

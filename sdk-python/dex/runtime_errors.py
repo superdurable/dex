@@ -175,8 +175,14 @@ class FlowDefinitionError(RuntimeError):
     pass
 
 
-class StateNotLoadedError(RuntimeError):
-    """Indicate that an RPC read state omitted from its load configuration."""
+class AttributeMapNotLoadedError(RuntimeError):
+    """Indicate that an RPC did not load the requested AttributeMap entries."""
+
+    pass
+
+
+class ChannelMessagesNotLoadedError(RuntimeError):
+    """Indicate that an RPC did not load the requested pending Channel messages."""
 
     pass
 

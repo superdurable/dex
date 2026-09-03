@@ -323,7 +323,8 @@ public interface Context {
      * @param channel the registered typed Channel selected by the RPC annotation
      * @param <T> the Channel message type
      * @return immutable pending message IDs and decoded values
-     * @throws io.superdurable.dex.exceptions.StateNotLoadedException if the RPC did not load it
+     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the RPC did
+     *     not load its messages
      */
     <T> List<ChannelMessage<T>> pendingChannelMessages(Channel<T> channel);
 
@@ -334,7 +335,8 @@ public interface Context {
      * @param instance the logical map instance
      * @param <T> the Channel message type
      * @return immutable pending message IDs and decoded values
-     * @throws io.superdurable.dex.exceptions.StateNotLoadedException if the RPC did not load it
+     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the RPC did
+     *     not load its messages
      */
     <T> List<ChannelMessage<T>> pendingChannelMessages(
             ChannelMap<T> channel, String instance);
