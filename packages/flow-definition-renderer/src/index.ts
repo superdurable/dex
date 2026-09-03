@@ -18,6 +18,7 @@ export {
   type DefinitionLayer,
   type DefinitionNodeData,
   type DefinitionScene,
+  type DefinitionSelectionDetail,
   type DefinitionVisibility,
 } from './definitionLayout';
 export type {

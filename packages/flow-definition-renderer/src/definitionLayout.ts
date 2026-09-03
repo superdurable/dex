@@ -33,6 +33,7 @@ export interface DefinitionNodeData extends Record<string, unknown> {
   displayName?: string;
   relatedEdges?: FlowDefinitionEdge[];
   nameByID?: Record<string, string>;
+  selectionDetails?: DefinitionSelectionDetail[];
   sourceTitle?: string;
 }
 
@@ -42,7 +43,14 @@ export interface DefinitionEdgeData extends Record<string, unknown> {
   displayLabel?: string;
   kind?: string;
   route?: 'forward' | 'outer-right';
+  sceneSourceID?: string;
+  selectionDetails?: DefinitionSelectionDetail[];
   title?: string;
+}
+
+export interface DefinitionSelectionDetail {
+  label: string;
+  sourceTitle?: string;
 }
 
 export interface DefinitionScene {
@@ -58,6 +66,11 @@ interface Dimensions {
 interface StepLayout {
   children: Array<Node<DefinitionNodeData>>;
   dimensions: Dimensions;
+}
+
+interface DefinitionGroup {
+  definitions: FlowDefinitionNode[];
+  id: string;
 }
 
 const flowID = 'definition:flow';
@@ -166,10 +179,13 @@ export function buildDefinitionScene(
       endpointMap.set(definition.id, parent.id);
     }
   }
-  const edges = graph.edges
+  for (const node of childNodes.filter((child) => child.data.kind === 'decision')) {
+    for (const definition of node.data.definitions ?? []) endpointMap.set(definition.id, node.id);
+  }
+  const edges = mergeGroupedTransitionEdges(graph.edges
     .filter((edge) => edge.kind !== 'cancel')
     .map((edge) => definitionEdge(edge, endpointMap, definitionsByID, stepNodes))
-    .filter((edge) => visibleIDs.has(edge.source) && visibleIDs.has(edge.target));
+    .filter((edge) => visibleIDs.has(edge.source) && visibleIDs.has(edge.target)));
   edges.push(...internalStepEdges(graph, stepLayouts, visibleIDs));
   return { nodes, edges };
 }
@@ -247,10 +263,12 @@ function layoutStep(
     ? graph.nodes.filter((node) => node.kind === 'unknown' && node.parentId === step.id).sort(bySpanThenID)
     : [];
   const nameByID = Object.fromEntries(graph.nodes.map((node) => [node.id, node.name]));
-  const waitSection = sectionDimensions(waitDefinitions, waitDimensions);
+  const waitGroups = waitDefinitions.map(singleDefinitionGroup);
+  const decisionGroups = groupDecisionDefinitions(decisionDefinitions, graph.edges);
+  const waitSection = sectionDimensions(waitGroups, (group) => waitDimensions(group.definitions[0]));
   const decisionSection = sectionDimensions(
-    decisionDefinitions,
-    (definition) => decisionDimensions(definition, graph.edges, nameByID),
+    decisionGroups,
+    (group) => decisionDimensions(group, graph.edges, nameByID),
   );
   const unknownSection = { height: unknownDefinitions.length * 82, width: 224 };
   const contentWidth = Math.max(268, waitSection.width, decisionSection.width, unknownSection.width);
@@ -258,12 +276,12 @@ function layoutStep(
   let cursorTop = stepHeaderHeight(step.name, width);
   const children: Array<Node<DefinitionNodeData>> = [];
   if (waitDefinitions.length > 0) {
-    const placed = placeSection(step.id, waitDefinitions, cursorTop, contentWidth, 'wait');
+    const placed = placeSection(step.id, waitGroups, cursorTop, contentWidth, 'wait');
     children.push(...placed.nodes);
     cursorTop += placed.height + 38;
   }
   if (decisionDefinitions.length > 0) {
-    const placed = placeSection(step.id, decisionDefinitions, cursorTop, contentWidth, 'decision', graph.edges, graph.nodes);
+    const placed = placeSection(step.id, decisionGroups, cursorTop, contentWidth, 'decision', graph.edges, graph.nodes);
     children.push(...placed.nodes);
     cursorTop += placed.height + 32;
   }
@@ -285,28 +303,28 @@ function layoutStep(
 }
 
 function sectionDimensions(
-  definitions: FlowDefinitionNode[],
-  dimensionsFor: (definition: FlowDefinitionNode) => Dimensions,
+  groups: DefinitionGroup[],
+  dimensionsFor: (group: DefinitionGroup) => Dimensions,
 ): Dimensions {
-  if (definitions.length === 0) return { height: 0, width: 0 };
-  const columns = Math.min(3, definitions.length);
-  const rows = Math.ceil(definitions.length / columns);
+  if (groups.length === 0) return { height: 0, width: 0 };
+  const columns = Math.min(3, groups.length);
+  const rows = Math.ceil(groups.length / columns);
   const rowHeights = Array.from({ length: rows }, (_, row) => Math.max(
-    ...definitions
+    ...groups
       .slice(row * columns, row * columns + columns)
-      .map((definition) => dimensionsFor(definition).height),
+      .map((group) => dimensionsFor(group).height),
   ));
   return {
     width: columns * cardWidth + (columns - 1) * branchGap,
     height: rowHeights.reduce((total, height) => total + height, 0)
       + (rows - 1) * branchGap
-      + (definitions.length > 1 ? dispatchSize + branchGap : 0),
+      + (groups.length > 1 ? dispatchSize + branchGap : 0),
   };
 }
 
 function placeSection(
   parentID: string,
-  definitions: FlowDefinitionNode[],
+  groups: DefinitionGroup[],
   top: number,
   contentWidth: number,
   kind: 'wait' | 'decision',
@@ -314,16 +332,16 @@ function placeSection(
   graphDefinitions: FlowDefinitionNode[] = [],
 ): { height: number; nodes: Array<Node<DefinitionNodeData>> } {
   const dimensionsFor = kind === 'wait'
-    ? waitDimensions
-    : (definition: FlowDefinitionNode) => decisionDimensions(
-      definition,
+    ? (group: DefinitionGroup) => waitDimensions(group.definitions[0])
+    : (group: DefinitionGroup) => decisionDimensions(
+      group,
       graphEdges,
       Object.fromEntries(graphDefinitions.map((item) => [item.id, item.name])),
     );
-  const measured = sectionDimensions(definitions, dimensionsFor);
+  const measured = sectionDimensions(groups, dimensionsFor);
   const nodes: Array<Node<DefinitionNodeData>> = [];
   let gridTop = top;
-  if (definitions.length > 1) {
+  if (groups.length > 1) {
     const dispatchID = `${kind}-scene-dispatch:${parentID}`;
     nodes.push({
       id: dispatchID,
@@ -335,24 +353,26 @@ function placeSection(
     });
     gridTop += dispatchSize + branchGap;
   }
-  const columns = Math.min(3, definitions.length);
-  const rows = Math.ceil(definitions.length / columns);
+  const columns = Math.min(3, groups.length);
+  const rows = Math.ceil(groups.length / columns);
   const rowHeights = Array.from({ length: rows }, (_, row) => Math.max(
-    ...definitions.slice(row * columns, row * columns + columns).map((definition) => dimensionsFor(definition).height),
+    ...groups.slice(row * columns, row * columns + columns).map((group) => dimensionsFor(group).height),
   ));
   let rowTop = gridTop;
-  for (let index = 0; index < definitions.length; index += 1) {
-    const definition = definitions[index];
+  for (let index = 0; index < groups.length; index += 1) {
+    const group = groups[index];
+    const definition = group.definitions[0];
     const row = Math.floor(index / columns);
     const column = index % columns;
-    const dimensions = dimensionsFor(definition);
-    const rowCount = Math.min(columns, definitions.length - row * columns);
+    const dimensions = dimensionsFor(group);
+    const rowCount = Math.min(columns, groups.length - row * columns);
     const rowWidth = rowCount * cardWidth + (rowCount - 1) * branchGap;
     const left = (contentWidth - rowWidth) / 2 + column * (cardWidth + branchGap) + stepGap;
-    const relatedEdges = graphEdges.filter((edge) => edge.from === definition.id);
+    const definitionIDs = new Set(group.definitions.map((item) => item.id));
+    const relatedEdges = graphEdges.filter((edge) => definitionIDs.has(edge.from));
     const nameByID = Object.fromEntries(graphDefinitions.map((item) => [item.id, item.name]));
     nodes.push({
-      id: definition.id,
+      id: group.id,
       type: kind === 'wait' ? 'definitionWait' : 'definitionDecision',
       parentId: parentID,
       position: { x: left, y: rowTop },
@@ -360,8 +380,10 @@ function placeSection(
       data: {
         kind,
         definition,
+        definitions: group.definitions,
         relatedEdges,
         nameByID,
+        selectionDetails: kind === 'decision' ? decisionSelectionDetails(group.definitions) : undefined,
         sourceTitle: sourceTitle(definition.span),
       },
     });
@@ -380,13 +402,15 @@ function waitDimensions(definition: FlowDefinitionNode): Dimensions {
 }
 
 function decisionDimensions(
-  definition: FlowDefinitionNode,
+  group: DefinitionGroup,
   graphEdges: FlowDefinitionEdge[] = [],
   nameByID: Record<string, string> = {},
 ): Dimensions {
+  const definition = group.definitions[0];
+  const definitionIDs = new Set(group.definitions.map((item) => item.id));
   const headerLines = wrappedLineCount(definition.decision?.type ?? definition.name, 30);
-  const transitionLines = graphEdges
-    .filter((edge) => edge.from === definition.id && edge.kind === 'transition')
+  const transitionLines = uniqueEdgesByTarget(graphEdges
+    .filter((edge) => definitionIDs.has(edge.from) && edge.kind === 'transition'))
     .reduce((total, edge) => total + wrappedLineCount(
       `Step ${nameByID[edge.to] ?? shortID(edge.to)} ${edge.multiplicity ?? ''}`,
       34,
@@ -402,6 +426,64 @@ function decisionDimensions(
     ), 0);
   const rowLines = transitionLines + channelLines + cancellationLines;
   return { height: Math.max(102, 48 + headerLines * 18 + rowLines * 22), width: cardWidth };
+}
+
+function singleDefinitionGroup(definition: FlowDefinitionNode): DefinitionGroup {
+  return { definitions: [definition], id: definition.id };
+}
+
+function groupDecisionDefinitions(
+  definitions: FlowDefinitionNode[],
+  graphEdges: FlowDefinitionEdge[],
+): DefinitionGroup[] {
+  const groups: DefinitionGroup[] = [];
+  const groupsByTarget = new Map<string, DefinitionGroup>();
+  for (const definition of definitions) {
+    const key = decisionTargetKey(definition, graphEdges);
+    const existing = key ? groupsByTarget.get(key) : undefined;
+    if (existing) {
+      existing.definitions.push(definition);
+      continue;
+    }
+    const group = singleDefinitionGroup(definition);
+    groups.push(group);
+    if (key) groupsByTarget.set(key, group);
+  }
+  return groups;
+}
+
+function decisionTargetKey(
+  definition: FlowDefinitionNode,
+  graphEdges: FlowDefinitionEdge[],
+): string {
+  const transitions = graphEdges
+    .filter((edge) => edge.kind === 'transition' && edge.from === definition.id)
+    .map((edge) => `${edge.to}:${edge.multiplicity ?? ''}`)
+    .sort();
+  if (transitions.length === 0) return '';
+  return JSON.stringify({
+    cancellations: definition.decision?.cancellations ?? [],
+    checkedChannels: [...(definition.decision?.checkedChannels ?? [])].sort(),
+    transitions,
+    type: definition.decision?.type ?? definition.name,
+  });
+}
+
+function decisionSelectionDetails(definitions: FlowDefinitionNode[]): DefinitionSelectionDetail[] {
+  return definitions.map((definition) => ({
+    label: definition.condition || 'otherwise',
+    sourceTitle: sourceTitle(definition.span),
+  }));
+}
+
+function uniqueEdgesByTarget(edges: FlowDefinitionEdge[]): FlowDefinitionEdge[] {
+  const seen = new Set<string>();
+  return edges.filter((edge) => {
+    const key = `${edge.to}:${edge.multiplicity ?? ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function layoutStepTopology(
@@ -679,9 +761,45 @@ function definitionEdge(
       displayLabel: definition.condition || label || definition.label,
       kind: definition.kind,
       route: isOuterRight ? 'outer-right' : 'forward',
+      sceneSourceID: source,
+      selectionDetails: sourceDefinition?.kind === 'decision' && definition.kind === 'transition'
+        ? decisionSelectionDetails([sourceDefinition])
+        : undefined,
       title: [definition.condition, definition.label, sourceTitle(definition.span)].filter(Boolean).join(' · '),
     },
   };
+}
+
+function mergeGroupedTransitionEdges(
+  edges: Array<Edge<DefinitionEdgeData>>,
+): Array<Edge<DefinitionEdgeData>> {
+  const merged: Array<Edge<DefinitionEdgeData>> = [];
+  const transitionsByTarget = new Map<string, Edge<DefinitionEdgeData>>();
+  for (const edge of edges) {
+    if (edge.data?.kind !== 'transition' || !edge.data.sceneSourceID) {
+      merged.push(edge);
+      continue;
+    }
+    const key = `${edge.data.sceneSourceID}:${edge.target}:${edge.sourceHandle ?? ''}:${edge.targetHandle ?? ''}`;
+    const existing = transitionsByTarget.get(key);
+    if (!existing) {
+      const copy = { ...edge, data: { ...edge.data } };
+      transitionsByTarget.set(key, copy);
+      merged.push(copy);
+      continue;
+    }
+    const selectionDetails = [
+      ...(existing.data?.selectionDetails ?? []),
+      ...(edge.data.selectionDetails ?? []),
+    ];
+    existing.data = {
+      ...existing.data,
+      displayLabel: `${selectionDetails.length} conditions`,
+      selectionDetails,
+      title: `${selectionDetails.length} conditions lead to the same target`,
+    };
+  }
+  return merged;
 }
 
 function sourceHandle(
@@ -766,7 +884,15 @@ function internalStepEdges(
 }
 
 function branchEdge(source: string, target: Node<DefinitionNodeData>): Edge<DefinitionEdgeData> {
-  const condition = target.data.definition?.condition || 'otherwise';
+  const selectionDetails = target.data.selectionDetails?.length
+    ? target.data.selectionDetails
+    : [{
+      label: target.data.definition?.condition || 'otherwise',
+      sourceTitle: sourceTitle(target.data.definition?.span),
+    }];
+  const condition = selectionDetails.length === 1
+    ? selectionDetails[0].label
+    : `${selectionDetails.length} conditions`;
   return {
     id: `branch:${source}:${target.id}`,
     source,
@@ -779,7 +905,10 @@ function branchEdge(source: string, target: Node<DefinitionNodeData>): Edge<Defi
     data: {
       displayLabel: condition,
       kind: 'branch',
-      title: [condition, sourceTitle(target.data.definition?.span)].filter(Boolean).join(' · '),
+      selectionDetails,
+      title: selectionDetails.length > 1
+        ? `${selectionDetails.length} conditions lead to the same target`
+        : [condition, sourceTitle(target.data.definition?.span)].filter(Boolean).join(' · '),
     },
   };
 }

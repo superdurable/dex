@@ -122,6 +122,40 @@ describe('Flow Definition Graph layout', () => {
     expect(start.position.y).toBe(Math.min(...stepPositions));
   });
 
+  it('merges decision branches with the same target and preserves selectable conditions', () => {
+    const scene = buildDefinitionScene(aiAgentGraph as FlowDefinitionGraph, visible);
+    const decisions = scene.nodes.filter(
+      (node) => node.parentId === 'step:AwaitToolApproval' && node.data.kind === 'decision',
+    );
+    const checkSteered = decisions.find((node) => node.data.relatedEdges?.some(
+      (edge) => edge.kind === 'transition' && edge.to === 'step:CheckSteered',
+    ));
+
+    expect(decisions).toHaveLength(2);
+    expect(checkSteered?.data.definitions).toHaveLength(3);
+    expect(checkSteered?.data.selectionDetails?.map((detail) => detail.label)).toEqual([
+      'not (steered_messages) and approvals[0].approved',
+      'not (steered_messages) and not (approvals[0].approved) and self.flow.has_next_tool_call(context)',
+      'not (steered_messages) and not (approvals[0].approved) and not (self.flow.has_next_tool_call(context))',
+    ]);
+
+    const transition = scene.edges.find(
+      (edge) => edge.data?.sceneSourceID === checkSteered?.id && edge.target === 'step:CheckSteered',
+    );
+    const branch = scene.edges.find((edge) => edge.target === checkSteered?.id && edge.data?.kind === 'branch');
+    expect(transition?.data?.selectionDetails).toHaveLength(3);
+    expect(branch?.data?.selectionDetails).toHaveLength(3);
+
+    const awaitUserDecisions = scene.nodes.filter(
+      (node) => node.parentId === 'step:AwaitUser' && node.data.kind === 'decision',
+    );
+    const compactContext = awaitUserDecisions.find((node) => node.data.relatedEdges?.some(
+      (edge) => edge.kind === 'transition' && edge.to === 'step:CompactContext',
+    ));
+    expect(awaitUserDecisions).toHaveLength(2);
+    expect(compactContext?.data.definitions).toHaveLength(3);
+  });
+
   it('routes self transitions through a selectable outer lane and keeps full branch text', () => {
     const scene = buildDefinitionScene(graph, visible);
     const selfTransition = scene.edges.find((edge) => edge.id === 'self-transition')!;

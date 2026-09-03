@@ -357,6 +357,7 @@
   border-radius: 8px;
   background: #dff6e5;
   box-shadow: 0 6px 14px rgba(33, 105, 58, 0.12);
+  cursor: pointer;
   text-align: center;
 }
 
@@ -570,7 +571,9 @@
 .definition-selected-edge-label {
   position: absolute;
   z-index: 20;
+  display: grid;
   max-width: 320px;
+  gap: 5px;
   padding: 5px 8px;
   border: 1px solid #9cb7e8;
   border-radius: 6px;
@@ -586,8 +589,14 @@
   white-space: normal;
 }
 
+.definition-selected-edge-label > span + span {
+  padding-top: 5px;
+  border-top: 1px solid #d4e0f4;
+}
+
 .flow-definition-selection {
   align-items: center;
+  flex-wrap: wrap;
   padding: 13px 16px;
   border: 1px solid var(--flow-definition-line);
   border-radius: 14px;
@@ -613,6 +622,33 @@
 
 .flow-definition-edge-selection > span:last-child {
   max-width: 44rem;
+  overflow-wrap: anywhere;
+}
+
+.flow-definition-selection-details {
+  flex: 1 0 100%;
+  padding-top: 10px;
+  border-top: 1px solid var(--flow-definition-line);
+}
+
+.flow-definition-selection-details > b {
+  font-size: 12px;
+}
+
+.flow-definition-selection-details ol {
+  display: grid;
+  margin: 5px 0 0;
+  padding-left: 22px;
+  gap: 6px;
+}
+
+.flow-definition-selection-details li {
+  padding-left: 2px;
+}
+
+.flow-definition-selection-details li code,
+.flow-definition-selection-details li span {
+  display: block;
   overflow-wrap: anywhere;
 }
 
