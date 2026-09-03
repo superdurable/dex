@@ -78,6 +78,7 @@ class AgentMessage:
     tool_call_id: str | None = None
     tool_name: str | None = None
     provider_context_items: list[ProviderContextItem] = field(default_factory=list)
+    created_at: str = ""
 
 
 @dataclass(frozen=True)

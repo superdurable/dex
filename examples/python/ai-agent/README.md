@@ -11,7 +11,7 @@ model. Its local model echoes normal messages and understands `/wait <seconds>
 
 ## Architecture
 
-- `AgentMessages` is an AttributeMap. Each message is an independent value.
+- `AgentMessages` is an AttributeMap. Each value stores one message and its creation time.
 - `AgentPlan` atomically stores the current revision and ordered task list.
 - `ContextSummary` keeps the cumulative compaction summary.
 - `QueuedUserMessages` keeps user messages in a durable FIFO queue.

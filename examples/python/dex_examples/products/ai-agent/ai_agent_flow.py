@@ -722,7 +722,6 @@ class AIAgentFlow(Flow[AgentConfig]):
     state = Attribute("AgentState", AgentState)
     summary = Attribute("ContextSummary", ContextSummary)
     messages = AttributeMap("AgentMessages", AgentMessage)
-    message_created_times = AttributeMap("AgentMessageCreatedTimes", str)
     plan = Attribute("AgentPlan", AgentPlan)
     pending_approval = Attribute("PendingApproval", PendingApproval)
     pending_timer = Attribute("PendingTimer", PendingTimer)
@@ -770,7 +769,6 @@ class AIAgentFlow(Flow[AgentConfig]):
             self.state,
             self.summary,
             self.messages,
-            self.message_created_times,
             self.plan,
             self.pending_approval,
             self.pending_timer,
@@ -959,11 +957,10 @@ class AIAgentFlow(Flow[AgentConfig]):
     def append_message(self, context: Context, message: AgentMessage) -> int:
         state = self.state.get(context)
         sequence = state.next_sequence
-        self.messages.set(context, _sequence_key(sequence), message)
-        self.message_created_times.set(
+        self.messages.set(
             context,
             _sequence_key(sequence),
-            datetime.now(timezone.utc).isoformat(),
+            replace(message, created_at=datetime.now(timezone.utc).isoformat()),
         )
         self.state.set(
             context,
@@ -1214,7 +1211,6 @@ class AIAgentFlow(Flow[AgentConfig]):
             and first <= state.summarized_through_sequence
         ):
             self.messages.delete(context, _sequence_key(first))
-            self.message_created_times.delete(context, _sequence_key(first))
             first += 1
             retained -= 1
         if first != state.first_retained_sequence:
@@ -1302,22 +1298,12 @@ class AIAgentFlow(Flow[AgentConfig]):
             state.last_sequence + 1,
         )
         start = max(state.first_retained_sequence, end - limit)
-        messages = [
-            SequencedMessage(
-                sequence,
-                self.messages.get(context, _sequence_key(sequence)),
-                self._message_created_at(context, sequence),
-            )
-            for sequence in range(start, end)
-        ]
+        messages = []
+        for sequence in range(start, end):
+            message = self.messages.get(context, _sequence_key(sequence))
+            messages.append(SequencedMessage(sequence, message, message.created_at))
         next_before = start if start > state.first_retained_sequence else None
         return RPCResult(HistoryPage(messages, next_before))
-
-    def _message_created_at(self, context: Context, sequence: int) -> str:
-        try:
-            return self.message_created_times.get(context, _sequence_key(sequence))
-        except KeyError:
-            return ""
 
     @rpc
     def describe(self, context: Context) -> RPCResult[AgentDescription]:
