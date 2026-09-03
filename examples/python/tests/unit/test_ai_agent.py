@@ -27,6 +27,8 @@ from dex_examples.products.ai_agent.http_routes import _provider_model
 from dex_examples.products.ai_agent.model_client import (
     AgentCredentialStore,
     LiteLLMModelClient,
+    _to_litellm_messages,
+    _to_responses_input,
 )
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
@@ -37,6 +39,7 @@ from dex_examples.products.ai_agent.models import (
 )
 from dex_examples.products.ai_agent.ai_agent_flow import (
     _plan_tasks,
+    _tool_safe_compaction_cutoff,
     _user_input_choices,
     _write_todos_definition,
 )
@@ -76,6 +79,46 @@ def test_provider_model_adds_and_validates_litellm_prefix() -> None:
     assert _provider_model("mock", "ignored") == "mock/dex"
     with pytest.raises(BadRequest, match="must start with openai/"):
         _provider_model("openai", "anthropic/model")
+
+
+def test_compaction_does_not_split_tool_interactions() -> None:
+    messages = [
+        AgentMessage("user", "Search"),
+        AgentMessage(
+            "assistant",
+            "",
+            [
+                ToolCall("call-one", "search", '{}'),
+                ToolCall("call-two", "lookup", '{}'),
+            ],
+        ),
+        AgentMessage("tool", "first", tool_call_id="call-one"),
+        AgentMessage("tool", "second", tool_call_id="call-two"),
+        AgentMessage("assistant", "Done"),
+    ]
+
+    assert _tool_safe_compaction_cutoff(messages[:3], 10, 12) == 10
+    assert _tool_safe_compaction_cutoff(messages[:4], 10, 13) == 13
+
+
+def test_model_context_omits_orphan_tool_outputs() -> None:
+    messages = [
+        AgentMessage("system", "Summary through the missing tool call"),
+        AgentMessage("tool", "orphan", tool_call_id="missing-call"),
+        AgentMessage(
+            "assistant",
+            "",
+            [ToolCall("retained-call", "search", '{}')],
+        ),
+        AgentMessage("tool", "retained", tool_call_id="retained-call"),
+    ]
+
+    responses_input = _to_responses_input(messages)
+    assert not any(item.get("output") == "orphan" for item in responses_input)
+    assert any(item.get("output") == "retained" for item in responses_input)
+    chat_messages = _to_litellm_messages("", messages)
+    assert not any(item.get("content") == "orphan" for item in chat_messages)
+    assert any(item.get("content") == "retained" for item in chat_messages)
 
 
 async def test_mock_model_returns_a_durable_wait_tool() -> None:

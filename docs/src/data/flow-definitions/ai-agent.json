@@ -11,7 +11,7 @@
     "span": {
       "startLine": 722,
       "startColumn": 1,
-      "endLine": 1367,
+      "endLine": 1369,
       "endColumn": 10
     }
   },
@@ -23,9 +23,9 @@
       "parentId": "rpc:approve_tool",
       "phase": "rpc",
       "span": {
-        "startLine": 1215,
+        "startLine": 1217,
         "startColumn": 5,
-        "endLine": 1231,
+        "endLine": 1233,
         "endColumn": 31
       }
     },
@@ -36,9 +36,9 @@
       "parentId": "rpc:describe",
       "phase": "rpc",
       "span": {
-        "startLine": 1286,
+        "startLine": 1288,
         "startColumn": 5,
-        "endLine": 1367,
+        "endLine": 1369,
         "endColumn": 10
       }
     },
@@ -49,9 +49,9 @@
       "parentId": "rpc:execute_plan",
       "phase": "rpc",
       "span": {
-        "startLine": 1234,
+        "startLine": 1236,
         "startColumn": 5,
-        "endLine": 1262,
+        "endLine": 1264,
         "endColumn": 31
       }
     },
@@ -62,9 +62,9 @@
       "parentId": "rpc:history",
       "phase": "rpc",
       "span": {
-        "startLine": 1265,
+        "startLine": 1267,
         "startColumn": 5,
-        "endLine": 1283,
+        "endLine": 1285,
         "endColumn": 61
       }
     },
@@ -75,9 +75,9 @@
       "parentId": "rpc:send_message",
       "phase": "rpc",
       "span": {
-        "startLine": 1196,
+        "startLine": 1198,
         "startColumn": 5,
-        "endLine": 1200,
+        "endLine": 1202,
         "endColumn": 31
       }
     },
@@ -88,9 +88,9 @@
       "parentId": "rpc:steer_message",
       "phase": "rpc",
       "span": {
-        "startLine": 1203,
+        "startLine": 1205,
         "startColumn": 5,
-        "endLine": 1212,
+        "endLine": 1214,
         "endColumn": 31
       }
     },
@@ -199,28 +199,11 @@
       }
     },
     {
-      "id": "decision:rpc:approve_tool:1223:20",
-      "kind": "decision",
-      "name": "rpcResult",
-      "parentId": "rpc:approve_tool",
-      "condition": "exception",
-      "phase": "rpc",
-      "span": {
-        "startLine": 1223,
-        "startColumn": 20,
-        "endLine": 1223,
-        "endColumn": 36
-      },
-      "decision": {
-        "type": "rpcResult"
-      }
-    },
-    {
       "id": "decision:rpc:approve_tool:1225:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:approve_tool",
-      "condition": "pending.call_id != input.call_id",
+      "condition": "exception",
       "phase": "rpc",
       "span": {
         "startLine": 1225,
@@ -233,16 +216,33 @@
       }
     },
     {
-      "id": "decision:rpc:approve_tool:1231:16",
+      "id": "decision:rpc:approve_tool:1227:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:approve_tool",
+      "condition": "pending.call_id != input.call_id",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1227,
+        "startColumn": 20,
+        "endLine": 1227,
+        "endColumn": 36
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:approve_tool:1233:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:approve_tool",
       "condition": "not (pending.call_id != input.call_id)",
       "phase": "rpc",
       "span": {
-        "startLine": 1231,
+        "startLine": 1233,
         "startColumn": 16,
-        "endLine": 1231,
+        "endLine": 1233,
         "endColumn": 31
       },
       "decision": {
@@ -250,16 +250,16 @@
       }
     },
     {
-      "id": "decision:rpc:describe:1290:20",
+      "id": "decision:rpc:describe:1292:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:describe",
       "condition": "state is None or config is None",
       "phase": "rpc",
       "span": {
-        "startLine": 1290,
+        "startLine": 1292,
         "startColumn": 20,
-        "endLine": 1318,
+        "endLine": 1320,
         "endColumn": 14
       },
       "decision": {
@@ -267,16 +267,16 @@
       }
     },
     {
-      "id": "decision:rpc:describe:1323:16",
+      "id": "decision:rpc:describe:1325:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:describe",
       "condition": "not (state is None or config is None)",
       "phase": "rpc",
       "span": {
-        "startLine": 1323,
+        "startLine": 1325,
         "startColumn": 16,
-        "endLine": 1367,
+        "endLine": 1369,
         "endColumn": 10
       },
       "decision": {
@@ -284,16 +284,16 @@
       }
     },
     {
-      "id": "decision:rpc:execute_plan:1252:20",
+      "id": "decision:rpc:execute_plan:1254:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:execute_plan",
       "condition": "state is None or plan is None or state.status != STATUS_WAITING or (state.pending_plan_execution_revision is not None) or (_optional_attribute(self.pending_user_input, context) is not None) or (self.queued_user_messages.size(context) \u003e 0) or (self.steered_user_messages.size(context) \u003e 0) or (plan.revision != input.revision) or (plan.status not in {PLAN_DRAFT, PLAN_ACTIVE})",
       "phase": "rpc",
       "span": {
-        "startLine": 1252,
+        "startLine": 1254,
         "startColumn": 20,
-        "endLine": 1252,
+        "endLine": 1254,
         "endColumn": 36
       },
       "decision": {
@@ -301,16 +301,16 @@
       }
     },
     {
-      "id": "decision:rpc:execute_plan:1262:16",
+      "id": "decision:rpc:execute_plan:1264:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:execute_plan",
       "condition": "not (state is None or plan is None or state.status != STATUS_WAITING or (state.pending_plan_execution_revision is not None) or (_optional_attribute(self.pending_user_input, context) is not None) or (self.queued_user_messages.size(context) \u003e 0) or (self.steered_user_messages.size(context) \u003e 0) or (plan.revision != input.revision) or (plan.status not in {PLAN_DRAFT, PLAN_ACTIVE}))",
       "phase": "rpc",
       "span": {
-        "startLine": 1262,
+        "startLine": 1264,
         "startColumn": 16,
-        "endLine": 1262,
+        "endLine": 1264,
         "endColumn": 31
       },
       "decision": {
@@ -318,16 +318,16 @@
       }
     },
     {
-      "id": "decision:rpc:history:1268:20",
+      "id": "decision:rpc:history:1270:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:history",
       "condition": "state is None",
       "phase": "rpc",
       "span": {
-        "startLine": 1268,
+        "startLine": 1270,
         "startColumn": 20,
-        "endLine": 1268,
+        "endLine": 1270,
         "endColumn": 52
       },
       "decision": {
@@ -335,16 +335,16 @@
       }
     },
     {
-      "id": "decision:rpc:history:1283:16",
+      "id": "decision:rpc:history:1285:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:history",
       "condition": "not (state is None)",
       "phase": "rpc",
       "span": {
-        "startLine": 1283,
+        "startLine": 1285,
         "startColumn": 16,
-        "endLine": 1283,
+        "endLine": 1285,
         "endColumn": 61
       },
       "decision": {
@@ -352,16 +352,16 @@
       }
     },
     {
-      "id": "decision:rpc:send_message:1198:20",
+      "id": "decision:rpc:send_message:1200:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:send_message",
       "condition": "not input.content.strip()",
       "phase": "rpc",
       "span": {
-        "startLine": 1198,
+        "startLine": 1200,
         "startColumn": 20,
-        "endLine": 1198,
+        "endLine": 1200,
         "endColumn": 36
       },
       "decision": {
@@ -369,16 +369,16 @@
       }
     },
     {
-      "id": "decision:rpc:send_message:1200:16",
+      "id": "decision:rpc:send_message:1202:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:send_message",
       "condition": "not (not input.content.strip())",
       "phase": "rpc",
       "span": {
-        "startLine": 1200,
+        "startLine": 1202,
         "startColumn": 16,
-        "endLine": 1200,
+        "endLine": 1202,
         "endColumn": 31
       },
       "decision": {
@@ -386,16 +386,16 @@
       }
     },
     {
-      "id": "decision:rpc:steer_message:1209:20",
+      "id": "decision:rpc:steer_message:1211:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:steer_message",
       "condition": "not input.message_id.strip() or not input.message.content.strip()",
       "phase": "rpc",
       "span": {
-        "startLine": 1209,
+        "startLine": 1211,
         "startColumn": 20,
-        "endLine": 1209,
+        "endLine": 1211,
         "endColumn": 36
       },
       "decision": {
@@ -403,16 +403,16 @@
       }
     },
     {
-      "id": "decision:rpc:steer_message:1212:16",
+      "id": "decision:rpc:steer_message:1214:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:steer_message",
       "condition": "not (not input.message_id.strip() or not input.message.content.strip())",
       "phase": "rpc",
       "span": {
-        "startLine": 1212,
+        "startLine": 1214,
         "startColumn": 16,
-        "endLine": 1212,
+        "endLine": 1214,
         "endColumn": 31
       },
       "decision": {
@@ -1367,9 +1367,9 @@
       "kind": "rpc",
       "name": "approve_tool",
       "span": {
-        "startLine": 1215,
+        "startLine": 1217,
         "startColumn": 5,
-        "endLine": 1231,
+        "endLine": 1233,
         "endColumn": 31
       }
     },
@@ -1378,9 +1378,9 @@
       "kind": "rpc",
       "name": "describe",
       "span": {
-        "startLine": 1286,
+        "startLine": 1288,
         "startColumn": 5,
-        "endLine": 1367,
+        "endLine": 1369,
         "endColumn": 10
       }
     },
@@ -1389,9 +1389,9 @@
       "kind": "rpc",
       "name": "execute_plan",
       "span": {
-        "startLine": 1234,
+        "startLine": 1236,
         "startColumn": 5,
-        "endLine": 1262,
+        "endLine": 1264,
         "endColumn": 31
       }
     },
@@ -1400,9 +1400,9 @@
       "kind": "rpc",
       "name": "history",
       "span": {
-        "startLine": 1265,
+        "startLine": 1267,
         "startColumn": 5,
-        "endLine": 1283,
+        "endLine": 1285,
         "endColumn": 61
       }
     },
@@ -1411,9 +1411,9 @@
       "kind": "rpc",
       "name": "send_message",
       "span": {
-        "startLine": 1196,
+        "startLine": 1198,
         "startColumn": 5,
-        "endLine": 1200,
+        "endLine": 1202,
         "endColumn": 31
       }
     },
@@ -1422,9 +1422,9 @@
       "kind": "rpc",
       "name": "steer_message",
       "span": {
-        "startLine": 1203,
+        "startLine": 1205,
         "startColumn": 5,
-        "endLine": 1212,
+        "endLine": 1214,
         "endColumn": 31
       }
     },
@@ -2323,9 +2323,9 @@
       "to": "rpc:describe",
       "label": "get",
       "span": {
-        "startLine": 1288,
+        "startLine": 1290,
         "startColumn": 18,
-        "endLine": 1288,
+        "endLine": 1290,
         "endColumn": 42
       },
       "metadata": {
@@ -2403,9 +2403,9 @@
       "to": "rpc:history",
       "label": "get",
       "span": {
-        "startLine": 1278,
+        "startLine": 1280,
         "startColumn": 17,
-        "endLine": 1278,
+        "endLine": 1280,
         "endColumn": 68
       },
       "metadata": {
@@ -2419,9 +2419,9 @@
       "to": "rpc:approve_tool",
       "label": "get",
       "span": {
-        "startLine": 1221,
+        "startLine": 1223,
         "startColumn": 23,
-        "endLine": 1221,
+        "endLine": 1223,
         "endColumn": 57
       },
       "metadata": {
@@ -2467,9 +2467,9 @@
       "to": "rpc:describe",
       "label": "get",
       "span": {
-        "startLine": 1287,
+        "startLine": 1289,
         "startColumn": 17,
-        "endLine": 1287,
+        "endLine": 1289,
         "endColumn": 40
       },
       "metadata": {
@@ -2483,9 +2483,9 @@
       "to": "rpc:execute_plan",
       "label": "get",
       "span": {
-        "startLine": 1239,
+        "startLine": 1241,
         "startColumn": 17,
-        "endLine": 1239,
+        "endLine": 1241,
         "endColumn": 40
       },
       "metadata": {
@@ -2499,9 +2499,9 @@
       "to": "rpc:history",
       "label": "get",
       "span": {
-        "startLine": 1266,
+        "startLine": 1268,
         "startColumn": 17,
-        "endLine": 1266,
+        "endLine": 1268,
         "endColumn": 40
       },
       "metadata": {
@@ -2608,9 +2608,9 @@
       "to": "rpc:describe",
       "label": "size",
       "span": {
-        "startLine": 1354,
+        "startLine": 1356,
         "startColumn": 46,
-        "endLine": 1354,
+        "endLine": 1356,
         "endColumn": 85
       },
       "metadata": {
@@ -2624,9 +2624,9 @@
       "to": "rpc:execute_plan",
       "label": "size",
       "span": {
-        "startLine": 1247,
+        "startLine": 1249,
         "startColumn": 16,
-        "endLine": 1247,
+        "endLine": 1249,
         "endColumn": 55
       },
       "metadata": {
@@ -2682,9 +2682,9 @@
       "to": "rpc:describe",
       "label": "size",
       "span": {
-        "startLine": 1356,
+        "startLine": 1358,
         "startColumn": 21,
-        "endLine": 1356,
+        "endLine": 1358,
         "endColumn": 61
       },
       "metadata": {
@@ -2698,9 +2698,9 @@
       "to": "rpc:execute_plan",
       "label": "size",
       "span": {
-        "startLine": 1248,
+        "startLine": 1250,
         "startColumn": 16,
-        "endLine": 1248,
+        "endLine": 1250,
         "endColumn": 56
       },
       "metadata": {
@@ -2872,9 +2872,9 @@
       "to": "resource:channel:AIAgentFlow.tool_approvals",
       "label": "publish",
       "span": {
-        "startLine": 1226,
+        "startLine": 1228,
         "startColumn": 9,
-        "endLine": 1230,
+        "endLine": 1232,
         "endColumn": 10
       },
       "metadata": {
@@ -2888,9 +2888,9 @@
       "to": "resource:attribute:AIAgentFlow.state",
       "label": "set",
       "span": {
-        "startLine": 1253,
+        "startLine": 1255,
         "startColumn": 9,
-        "endLine": 1256,
+        "endLine": 1258,
         "endColumn": 10
       },
       "metadata": {
@@ -2904,9 +2904,9 @@
       "to": "resource:channel:AIAgentFlow.plan_executions",
       "label": "publish",
       "span": {
-        "startLine": 1257,
+        "startLine": 1259,
         "startColumn": 9,
-        "endLine": 1261,
+        "endLine": 1263,
         "endColumn": 10
       },
       "metadata": {
@@ -2920,9 +2920,9 @@
       "to": "resource:channel:AIAgentFlow.queued_user_messages",
       "label": "publish",
       "span": {
-        "startLine": 1199,
+        "startLine": 1201,
         "startColumn": 9,
-        "endLine": 1199,
+        "endLine": 1201,
         "endColumn": 58
       },
       "metadata": {
@@ -2936,9 +2936,9 @@
       "to": "resource:channel:AIAgentFlow.queued_user_messages",
       "label": "delete",
       "span": {
-        "startLine": 1210,
+        "startLine": 1212,
         "startColumn": 9,
-        "endLine": 1210,
+        "endLine": 1212,
         "endColumn": 68
       },
       "metadata": {
@@ -2952,9 +2952,9 @@
       "to": "resource:channel:AIAgentFlow.steered_user_messages",
       "label": "publish",
       "span": {
-        "startLine": 1211,
+        "startLine": 1213,
         "startColumn": 9,
-        "endLine": 1211,
+        "endLine": 1213,
         "endColumn": 67
       },
       "metadata": {

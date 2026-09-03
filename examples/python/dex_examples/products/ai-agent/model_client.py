@@ -724,7 +724,7 @@ def _to_litellm_messages(
     result: list[dict[str, Any]] = []
     if system_prompt:
         result.append({"role": "system", "content": system_prompt})
-    for message in messages:
+    for message in _without_orphan_tool_outputs(messages):
         item: dict[str, Any] = {"role": message.role, "content": message.content}
         if message.tool_calls:
             item["tool_calls"] = [
@@ -761,7 +761,7 @@ def _to_responses_input(
     messages: Sequence[AgentMessage],
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    for message in messages:
+    for message in _without_orphan_tool_outputs(messages):
         if message.role == "tool":
             if not message.tool_call_id:
                 raise ValueError("tool messages require a tool call ID")
@@ -793,6 +793,22 @@ def _to_responses_input(
             }
             for call in message.tool_calls
         )
+    return result
+
+
+def _without_orphan_tool_outputs(
+    messages: Sequence[AgentMessage],
+) -> list[AgentMessage]:
+    known_call_ids: set[str] = set()
+    result: list[AgentMessage] = []
+    for message in messages:
+        if message.role == "tool":
+            if message.tool_call_id not in known_call_ids:
+                continue
+            known_call_ids.remove(message.tool_call_id)
+        else:
+            known_call_ids.update(call.id for call in message.tool_calls)
+        result.append(message)
     return result
 
 

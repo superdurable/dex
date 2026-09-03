@@ -1170,7 +1170,9 @@ class AIAgentFlow(Flow[AgentConfig]):
                 cutoff = sequence
                 break
             cutoff = sequence - 1
-        return max(state.summarized_through_sequence, cutoff)
+        cutoff = max(state.summarized_through_sequence, cutoff)
+        messages = self.load_messages(context, start, cutoff, config)
+        return _tool_safe_compaction_cutoff(messages, start, cutoff)
 
     def trim_summarized_messages(
         self,
@@ -1365,6 +1367,23 @@ class AIAgentFlow(Flow[AgentConfig]):
                 ],
             )
         )
+
+
+def _tool_safe_compaction_cutoff(
+    messages: list[AgentMessage],
+    first_sequence: int,
+    cutoff: int,
+) -> int:
+    pending_call_sequences: dict[str, int] = {}
+    for offset, message in enumerate(messages):
+        sequence = first_sequence + offset
+        for call in message.tool_calls:
+            pending_call_sequences[call.id] = sequence
+        if message.role == "tool" and message.tool_call_id:
+            pending_call_sequences.pop(message.tool_call_id, None)
+    if not pending_call_sequences:
+        return cutoff
+    return min(cutoff, min(pending_call_sequences.values()) - 1)
 
 
 def _write_todos_definition() -> ToolDefinition:

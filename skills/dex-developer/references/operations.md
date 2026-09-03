@@ -66,6 +66,18 @@ Before a mutation:
 
 Time travel is appropriate after deploying a code fix when replaying from a safe Step boundary will not duplicate an unprotected side effect. If that cannot be established, design an explicit recovery or compensation Step instead.
 
+When a durable-history bug has already failed a Flow, validate the fix against that
+same history when safe:
+
+1. Deploy or restart the Worker with the corrected code.
+2. Time travel the failed Flow to the last safe execution before the failure.
+3. Let Dex replay and continue with the corrected Worker.
+4. Re-inspect the new run and verify the formerly failing path and durable state.
+
+This is stronger than testing only a new Flow because it exercises recovery from the
+actual recorded history. Do not cross an external side effect unless it is idempotent,
+compensated, or explicitly safe to repeat.
+
 ## Deployment changes
 
 Open Flows can continue after new Worker code is deployed. Before removing or changing a durable contract, search for open executions that may still reference it. Keep old Step types and schemas available until those executions finish or are deliberately migrated.
