@@ -1,16 +1,19 @@
 ---
 id: index
-title: Production
+title: Deploy to Production
 sidebar_label: Overview
 slug: /production
 ---
 
-# Production
+# Deploy to Production
 
-Operate Dex applications and servers safely.
+Operate Dex applications and servers safely in production.
 
-- [Dex application operations](/production/application-operations) — Worker health, failures, debugging
-- [Dex server operations](/production/server-operations) — deploy, config, backends
-- [Metrics](/production/metrics) — Dex metric names, Flow and Step labels, Prometheus migration
-- [Custom Attribute Store](/production/attribute-store) — MySQL/PostgreSQL projection, schema contract, retry semantics
-- [Versioning](/production/versioning) — how to change Flow code without breaking running executions
+- [Application operation](/production/application-operations) — Worker health,
+  read-only debugging, recovery, and Flow-code versioning
+- [Server operation](/production/server-operations) — deployment,
+  configuration, storage, and Dex Web access control
+- [Metrics](/production/metrics) — built-in Dex Server metric catalog and
+  Prometheus queries
+- [Custom Attribute Store](/production/attribute-store) — MySQL/PostgreSQL
+  projection, schema contract, and retry semantics

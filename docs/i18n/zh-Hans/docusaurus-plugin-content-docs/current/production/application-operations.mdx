@@ -1,0 +1,152 @@
+---
+title: 应用运维
+---
+
+# 应用运维
+
+Dex 应用是承载 Flow 定义并处理 **WaitFor**、**Execute** 和 Worker RPC 调用的
+Worker 服务。将它作为生产服务来运维：记录已部署版本、保留可用日志，并保持它到
+Dex Server 的网络路径健康。
+
+## Worker API 可用性
+
+当 Worker 无法接收或完成 Step 调用时，Flow 无法推进。你可能看到 Step 一直处于
+活动状态、重试次数增加，或在重试策略耗尽后终止失败。
+
+请按以下顺序检查：
+
+1. 收集 Flow ID、Run ID、Flow type、Worker 版本和 Dex Server 地址。在修改任何内容前，
+   将它们写入故障记录。
+2. 检查 Worker 日志中的 handler 异常、注册失败和启动配置。使用 Flow ID 或 Run ID
+   搜索日志。
+3. 检查 Dex Server 到 Worker 的网络路径：服务发现、地址、TLS、认证和负载均衡器
+   健康检查。
+4. 确认已部署的 Worker 注册了打开的 Flow 所使用的 Flow、Step 和 RPC 名称。即使
+   部署健康，旧 Step type 也可能在该 Worker 版本中缺失。
+5. 在 Dex Web 中检查受影响的 Step。重试次数、Worker 错误、gRPC 状态和 stack trace
+   可以区分 Worker 不可用和应用失败。
+
+修复可用性后，如果活动重试仍在有效的重试预算内，让它自行继续。对于终止的 Flow，
+先用一个新 Flow 验证修复，然后在符合预期恢复方案时，从安全 Step 边界使用
+[Time Travel](/primitives/client/advanced#time-travel)。不要只为测试连通性而重启或
+Time Travel 一个 Flow。
+
+## Flow 失败与超时
+
+Flow 可能因为 Worker handler 返回失败、Worker 重试耗尽，或达到配置的 Flow 超时而
+失败。
+
+Flow 超时是 Flow 启动时配置的持久化 Dex timer；零会禁用它。请选择 **FAIL**、
+**CANCEL** 或 Flow timeout handler。检查启动事件中的配置时长和解析后的策略。
+continue-as-new run 会保留原始绝对截止时间；重试会得到新的超时预算。
+
+每个正值超时都有一个内部 **sys:timeout_handler** timer。它会显示在活动 Step 诊断中，
+并且 **SkipTimer** 可以通过 timer index 提前触发它。恢复超时失败前，先修复根本原因。
+
+## 只读排障流程
+
+从 Dex Web 开始。它会展示持久化的、应用层的记录，然后你才需要检查原始 JSON。
+
+### 1. 选择相关事件
+
+使用 Flow ID 和 Run ID 打开 Flow，选择 **Timeline**，然后选择正在等待、已完成或失败的
+Step 事件。右侧的 **Selected event** 面板会显示事件编号和类型。
+
+<img
+  src="/img/production/dex-web-timeline-step-input.png"
+  alt="Dex Web Timeline 中已选择 WaitForCondition 事件，右侧显示 Step input"
+/>
+
+### 2. 读取输入、Attribute、条件和输出
+
+在 **Details** 中先读取 **Input**。面板会显示该事件可用的 Step input、持久化
+Attribute 和 condition result。对于已完成的 Step，继续查看 **Output**，检查
+Step decision、下一个 Step input 和产生的 Attribute 变化。
+
+<img
+  src="/img/production/dex-web-step-input-output.png"
+  alt="Dex Web Timeline 中已选择完成的 Step，右侧同时显示 input 和 output"
+/>
+
+### 3. 展开失败 Step 的 stack trace
+
+对于正在重试或失败的 Step，从 **Timeline** 选择失败事件，或从 **Step graph** 选择
+失败节点。在 **Failure** 下比较 attempt、Worker error type、error detail 和 gRPC
+status。在请负责人调查前，展开 **Stack trace**。
+
+<img
+  src="/img/production/dex-web-failed-step-stack-trace.png"
+  alt="Dex Web 失败 Step 详情，Stack trace 已展开"
+/>
+
+这些截图使用仓库中的合成 Java 示例，不含凭据或生产客户记录。
+
+### 4. 使用 dexcli 保存可审计 JSON
+
+在 CLI 中使用相同的 Flow ID 和 Run ID。这些命令是只读的并输出 JSON，因此可以将输出附到
+故障记录，或保存在受保护的诊断存储中。
+
+~~~bash
+dexcli flow inspect FLOW_ID --run-id RUN_ID
+
+dexcli flow history FLOW_ID --run-id RUN_ID --all
+
+dexcli flow inspect FLOW_ID --run-id RUN_ID --all-history --no-hydrate
+
+dexcli flow history FLOW_ID --run-id RUN_ID --all --no-hydrate
+~~~
+
+**dexcli flow inspect** 会返回当前 Flow 摘要和可用状态。**dexcli flow history** 会返回
+语义事件。使用 **--all** 获取每一页历史。若 payload 可能很大或敏感，请使用
+**--no-hydrate**：输出会保留 blob reference，而不会获取其中内容。
+
+### 5. 使用 Dex Developer skill 进行调查
+
+[Dex Developer skill](https://github.com/superdurable/dex/tree/main/skills/dex-developer)
+可以指导与仓库相关的调查。提供这些标识符，并明确要求先执行只读检查。例如：
+
+~~~text
+$dex-developer Diagnose Dex Flow FLOW_ID, Run ID RUN_ID. The Worker version is
+WORKER_VERSION and Dex Server is SERVER_ADDRESS. First perform read-only checks:
+inspect Dex Web, application logs, dexcli flow inspect, and dexcli flow history
+with --all. Do not stop, time travel, restart, or otherwise modify a Flow unless
+I explicitly authorize that action. Report the suspected failing Step, evidence,
+and the safest recovery option.
+~~~
+
+## Flow 代码版本控制 {#versioning-flow-code}
+
+Dex 不会通过 replay 你的 Flow handler 代码来决定后续转换，因此部署不会产生用户代码的
+replay nondeterminism error。这并不意味着不需要兼容性工作。打开的 Flow 仍可能观察到
+已改变的业务规则、不可用的 Step implementation、改名的 RPC 或不兼容的数据。
+
+### 在 Flow 启动时锁定业务行为
+
+在 Flow 启动时持久化一个业务版本值，例如 Attribute 或 start state 中的字段。根据这个
+已存储的值分支，而不是根据当前处理调用的 Worker build 分支。已有 Flow 保持旧行为；
+新 Flow 可以在部署后使用新行为。
+
+当修改会改变决策、支付规则、重试策略、截止时间或其他客户可见含义时，请使用此模式。
+仅发布代码不是版本控制策略，因为一个长时间运行的 Flow 可能在之后调用新部署的 Worker。
+
+### 以增量方式演进数据与契约
+
+添加 optional field。读取方必须容忍旧 run 中缺失的 field，并忽略较新组件发送的未知
+field。为缺失 field 提供安全默认值，并保持现有 field value 的原有含义。对于不兼容的
+payload 或 output 契约，请引入新的 Step type 或 RPC name，而不是静默修改旧名称。
+
+### 在旧 Flow 结束前保留旧定义
+
+当打开的 Flow 仍可能调用一个 Flow type、Step type 或 RPC implementation 时，不要删除或
+重命名它。将新定义与旧定义一起部署，只将新版本 Flow 路由到新定义，并通过重试、
+continue-as-new run 和任何已批准的 Time Travel 恢复保留旧 implementation。
+
+移除旧定义前，搜索旧 Flow type，并确认没有正在运行、等待、重试或可恢复的终止 Flow
+需要它。将搜索结果保存在变更记录中。确切查询取决于 visibility store 的字段；可以从
+如下的有界 Flow-type 查询开始：
+
+~~~bash
+dexcli flow search --query 'FlowType = "OldFlowType"'
+~~~
+
+只有在结果为空，或每个剩余 Flow 都有明确批准的退役计划后，才删除旧代码。

@@ -1,50 +1,81 @@
 ---
-title: Dex server operations
+title: Server operation
 ---
 
-# Dex server operations
+# Server operation
 
-The Dex **server** interprets Flows on Temporal or Cadence and exposes the FlowService API to clients and Workers.
+Dex Server exposes the FlowService API, coordinates durable Flow execution, and
+serves the Dex Web API. Run it as a managed production service with explicit
+configuration, health checks, and access control.
 
 ## Local development
 
-Prefer:
+For a local stack, install dexcli and run:
 
-```bash
+~~~bash
 brew install superdurable/tap/dexcli
 dexcli dev
-```
+~~~
 
-This supervises Temporal, Dex Server, and Dex Web for local use. See [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md).
+This starts Dex Server and Dex Web for local use. See the
+[CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md) for
+options.
 
-## Production shape
+## Production deployment shape
 
-- Run Dex server as a managed service with health checks
-- Point it at a production Temporal/Cadence cluster
-- Configure blob storage for large payloads
-- Optionally configure MySQL/PostgreSQL Custom Attribute Stores
-- Expose Dex Web (or your own UI) behind auth as needed
+- Run Dex Server as a managed service with readiness and liveness checks.
+- Give application clients and Workers a stable, authenticated server address.
+- Configure durable Blob Store storage for large payloads.
+- Configure a MySQL or PostgreSQL Custom Attribute Store when you need
+  searchable projections.
+- Publish Dex Web only through your organization’s authenticated access path.
+- Collect logs and Prometheus metrics from every Server instance.
+
+Deploy Server configuration and application Worker changes independently. A
+Worker release can change Flow behavior; use the versioning process in
+[Application operation](/production/application-operations#versioning-flow-code)
+before retiring a definition.
 
 ## Configuration
 
-Server configuration is YAML/typed config for the Go server (not every knob is exposed on **dexcli dev**). For Docker-based deploys, see archived notes under **docs/archive/** and current **server/config** docs in the repo.
+Server configuration is YAML and typed Go configuration. The production
+configuration is separate from the limited flags accepted by **dexcli dev**.
+Keep configuration in your approved secret-management and deployment system,
+not in an application image.
 
-The blob section is named **blobStore**; the former **externalStorage** key is not
-accepted. **BlobStoreConfig** contains **BlobStoreConfigEntry** values.
+The Blob Store section is named **blobStore**. Its entries use
+**BlobStoreConfigEntry**. The former **externalStorage** key is not accepted.
 
-An optional **blobStore.blobCache** caches only S3-backed Attribute objects. A
-non-empty **directory** enables it, must be exclusive to one Server process, and
-defaults to a 1 GiB budget. Ristretto attempts SampledLFU eviction until an
-eligible object fits, while TinyLFU may reject a colder candidate to preserve
-hot entries. Oversized and rejected objects bypass the cache without failing
-the source Blob Store operation. A corrupt entry is invalidated and refilled
-from S3; initialization, recovery, and disk I/O errors remain strict
-Server/system errors. Local blob storage and step-event input snapshots bypass
-this cache.
+## Blob Store
 
-See [Custom Attribute Store](/production/attribute-store) for table and retry
-requirements.
+Configure a durable store before allowing payloads that exceed inline limits.
+Use separate credentials and least-privilege policies for each environment.
+Monitor write and read failures, then test a recovery procedure that can still
+read existing objects after a credential rotation.
 
-## Backends
+The optional **blobStore.blobCache** caches S3-backed Attribute objects. A
+non-empty **directory** enables it and must belong to one Server process. Its
+default budget is 1 GiB. Oversized or rejected objects bypass the cache and
+continue to the source Blob Store. A corrupt entry is invalidated and refilled;
+initialization, recovery, and disk I/O errors are Server errors. Local Blob
+Store objects and Step-event input snapshots do not use this cache.
 
-Dex currently interprets on Temporal (primary for **dexcli**) and can target Cadence in server builds that enable it. Production ops for the underlying workflow engine (persistence, multi-cluster, upgrades) follow that engine’s runbooks; Dex adds Flow-level semantics on top.
+## Custom Attribute Store
+
+Use a Custom Attribute Store when a relational projection supports operational
+searches or business reporting. Follow the schema and retry requirements in
+[Custom Attribute Store](/production/attribute-store). Treat its database,
+credentials, migrations, and backups as production dependencies of the Dex
+deployment.
+
+## Dex Web access control
+
+Dex Web can reveal Flow inputs, outputs, Attributes, and Worker stack traces.
+Place it behind TLS and an authentication-enforcing reverse proxy or gateway.
+Authorize production access by role, and restrict it to operators who need to
+inspect Flow data.
+
+Do not expose Dex Web or the FlowService API directly to the public Internet.
+Protect server and Worker endpoints with network policy, authenticated
+transport, and narrowly scoped service identities. Audit access to production
+Flow details according to your data-handling policy.

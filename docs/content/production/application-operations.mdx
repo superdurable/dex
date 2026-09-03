@@ -1,70 +1,177 @@
 ---
-title: Dex application operations
+title: Application operation
 ---
 
-# Dex application operations
+# Application operation
 
-Your Dex **application** is the Worker process that hosts Flow definitions (WaitFor / Execute / RPC handlers) and talks to the Dex server.
+Your Dex application is the Worker service that hosts Flow definitions and
+handles **WaitFor**, **Execute**, and Worker RPC calls. Operate it as a
+production service: record the deployed version, expose useful logs, and keep
+its network path to Dex Server healthy.
 
-## What to monitor
+## Worker API availability
 
-### Step API availability
+When a Worker cannot receive or complete a Step call, a Flow cannot advance.
+You may see a Step remain active, retries increase, or a terminal failure after
+the retry policy is exhausted.
 
-If WaitFor/Execute/RPC Worker calls fail, Dex cannot advance Flows.
+Check these items in order:
 
-- Inspect application logs for handler errors
-- Check network connectivity between Dex server and Workers
-- In Temporal/Cadence UI, inspect pending activities for error details
-- After max retry, failures appear as activity failures in history
+1. Collect the Flow ID, Run ID, Flow type, Worker version, and Dex Server
+   address. Put them in the incident record before changing anything.
+2. Check the Worker logs for handler exceptions, registration failures, and
+   startup configuration. Include the Flow ID or Run ID in log searches.
+3. Check the network route from Dex Server to the Worker: service discovery,
+   address, TLS, authentication, and any load-balancer health checks.
+4. Confirm that the deployed Worker registered the Flow, Step, and RPC names
+   used by the open Flow. A deployment can be healthy while an old Step type is
+   missing from that Worker version.
+5. Inspect the affected Step in Dex Web. The retry attempt, Worker error,
+   gRPC status, and stack trace distinguish an unavailable Worker from an
+   application failure.
 
-### Flow failure
+After fixing availability, let an active retry continue when its retry budget
+is still valid. For a terminal Flow, verify the fix with a new run first, then
+use [Time Travel](/primitives/client/advanced#time-travel) from a safe Step
+boundary when that is the intended recovery. Do not restart or time travel a
+Flow merely to test connectivity.
 
-Flows fail when:
+## Flow failure and timeout
 
-- Application code decides to fail a Step
-- Step API retries are exhausted
+A Flow can fail because a Worker handler returns a failure, Worker retries are
+exhausted, or the Flow reaches its configured timeout.
 
-Mitigation after a fix: [time travel](/primitives/client/advanced#time-travel) failed Flows when appropriate.
+Flow timeouts are durable Dex timers configured when a Flow starts; zero
+disables them. Choose **FAIL**, **CANCEL**, or a Flow timeout handler. Inspect
+the start event for the configured duration and resolved policy. A
+continue-as-new run keeps the original absolute deadline; a retry starts with a
+fresh timeout budget.
 
-### Flow timeout
+Every positive timeout has one internal **sys:timeout_handler** timer. It is
+visible in active-Step diagnostics and **SkipTimer** can fire it early by timer
+index. Fix the underlying cause before recovering a failed timeout.
 
-Flow timeouts are durable Dex timers configured at start; zero disables them.
-Choose **FAIL**, **CANCEL**, or a Flow timeout handler. A fail timeout records
-**FLOW_ERROR_TYPE_FLOW_TIMEOUT**, while cancel produces a canceled Flow. Both
-paths finish Dex terminal coordination before the backend execution closes.
+## Read-only debugging workflow
 
-Inspect Dex start history for the configured timeout and resolved policy. Do
-not infer it from Temporal or Cadence execution settings: Temporal has no
-execution timeout for interpreter Flows, and Cadence uses its maximum value as
-an implementation detail. A continue-as-new run retains the original absolute
-deadline; retries start with a fresh budget.
+Start with Dex Web. It shows the durable, application-level record before you
+need to inspect raw JSON.
 
-Every positive timeout uses one internal **sys:timeout_handler** timer visible in
-active-Step diagnostics. **SkipTimer** can fire it early by timer index. Mitigate
-a failed timeout with time travel only after fixing the underlying cause.
+### 1. Select the relevant event
 
-## How to operate
+Open the Flow by Flow ID and Run ID, choose **Timeline**, then select the
+Step event that is waiting, completed, or failed. The right-side **Selected
+event** panel identifies the event number and its type.
 
-### Scale Workers horizontally
+<img
+  src="/img/production/dex-web-timeline-step-input.png"
+  alt="Dex Web Timeline with a WaitForCondition event selected and its Step input visible"
+/>
 
-Workers are ordinary services. Add instances behind your worker target / load balancer.
+### 2. Read inputs, Attributes, conditions, and outputs
 
-### Debugging tips
+In **Details**, read **Input** first. The panel shows the Step input, durable
+Attributes, and condition results available at that event. For a completed
+Step, continue to **Output** to inspect the Step decision, the next Step input,
+and resulting Attribute changes.
 
-- Return rich error details from Worker handlers so pending activity views show stack traces
-- Use Dex Web for Flow/Step/Attribute/channel views
-- Prefer Dex Web first; Temporal/Cadence UI remains useful for underlying activity failures
+<img
+  src="/img/production/dex-web-step-input-output.png"
+  alt="Dex Web Timeline with a completed Step selected and both input and output visible"
+/>
 
-Useful inspection concepts (Dex terms):
+### 3. Expand a failed Step's stack trace
 
-- **Attributes** — current durable variables
-- **Active Steps** — what is running or waiting
-- **Timers / channel waits** — outstanding Conditions
+For a retrying or failed Step, select the failed event from **Timeline** or the
+failed node from **Step graph**. Under **Failure**, compare the attempt, Worker
+error type, error detail, and gRPC status. Expand **Stack trace** before asking
+the owning team to investigate.
 
-### History reading (mental model)
+<img
+  src="/img/production/dex-web-failed-step-stack-trace.png"
+  alt="Dex Web failed Step details with Stack trace expanded"
+/>
 
-Focus on application-meaningful events: Flow started (input), Step activity scheduled/completed/failed, and completion. Treat pure Temporal plumbing as implementation detail unless you are debugging the Dex server itself.
+These screenshots use the repository's synthetic Java examples. They contain
+no credentials or production customer records.
 
-### Time Travel
+### 4. Save auditable JSON with dexcli
 
-Time Travel is the primary mitigation after shipping a Worker bugfix. Prefer a safe Step boundary. See [Versioning](/production/versioning) and Client APIs.
+Use the same Flow ID and Run ID in the CLI. These commands are read-only and
+print JSON, so attach their output to an incident or retain it in secure
+diagnostic storage.
+
+~~~bash
+dexcli flow inspect FLOW_ID --run-id RUN_ID
+
+dexcli flow history FLOW_ID --run-id RUN_ID --all
+
+dexcli flow inspect FLOW_ID --run-id RUN_ID --all-history --no-hydrate
+
+dexcli flow history FLOW_ID --run-id RUN_ID --all --no-hydrate
+~~~
+
+**dexcli flow inspect** returns the current Flow summary and state when it is
+available. **dexcli flow history** returns semantic events. Use **--all** to
+retrieve every history page. Use **--no-hydrate** when payloads may be large or
+sensitive: the output retains blob references instead of fetching their
+contents.
+
+### 5. Ask the Dex Developer skill for an investigation
+
+The [Dex Developer skill](https://github.com/superdurable/dex/tree/main/skills/dex-developer)
+can guide a repository-aware investigation. Give it the identifiers and
+require a read-only first pass. For example:
+
+~~~text
+$dex-developer Diagnose Dex Flow FLOW_ID, Run ID RUN_ID. The Worker version is
+WORKER_VERSION and Dex Server is SERVER_ADDRESS. First perform read-only checks:
+inspect Dex Web, application logs, dexcli flow inspect, and dexcli flow history
+with --all. Do not stop, time travel, restart, or otherwise modify a Flow unless
+I explicitly authorize that action. Report the suspected failing Step, evidence,
+and the safest recovery option.
+~~~
+
+## Versioning Flow code
+
+Dex does not replay your Flow handler code to decide later transitions, so a
+deployment does not produce a user-code replay nondeterminism error. That does
+not remove compatibility work. Open Flows can still observe changed business
+rules, unavailable Step implementations, renamed RPCs, or incompatible data.
+
+### Lock business behavior at Flow start
+
+Persist a business version value when a Flow starts, such as an Attribute or a
+field in the start state. Branch on that stored value, not on the Worker build
+currently serving the call. Existing Flows keep their old behavior; new Flows
+can use the new behavior after deployment.
+
+Use this when a change alters a decision, payment rule, retry policy, deadline,
+or other customer-visible meaning. A code rollout alone is not a versioning
+strategy because a long-running Flow can call a newly deployed Worker later.
+
+### Evolve data and contracts additively
+
+Add optional fields. Readers must tolerate absent fields from older runs and
+ignore unknown fields sent by newer components. Supply a safe default for an
+absent field, and keep the previous meaning of existing field values. For an
+incompatible payload or output contract, introduce a new Step type or RPC name
+instead of silently changing the old one.
+
+### Keep old definitions until old Flows finish
+
+Do not delete or rename a Flow type, Step type, or RPC implementation while an
+open Flow can still call it. Deploy the new definition alongside the old one,
+route only new-version Flows to it, and keep the old implementation available
+through retries, continue-as-new runs, and any approved Time Travel recovery.
+
+Before removing the old definition, search for the legacy Flow type and confirm
+that no running, waiting, retrying, or recoverable terminal Flow needs it. Keep
+the search result with the change record. The exact query depends on your
+visibility-store fields; begin with a bounded Flow-type search such as:
+
+~~~bash
+dexcli flow search --query 'FlowType = "OldFlowType"'
+~~~
+
+Only remove the old code after the result is empty or every remaining Flow has
+an explicitly approved retirement plan.
