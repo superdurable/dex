@@ -154,7 +154,7 @@ public interface InvokeRPCRequestOrBuilder extends
   /**
    * <pre>
    * AttributeMap selectors whose entries are loaded for the RPC handler.
-   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -165,7 +165,7 @@ public interface InvokeRPCRequestOrBuilder extends
   /**
    * <pre>
    * AttributeMap selectors whose entries are loaded for the RPC handler.
-   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -175,7 +175,7 @@ public interface InvokeRPCRequestOrBuilder extends
   /**
    * <pre>
    * AttributeMap selectors whose entries are loaded for the RPC handler.
-   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -186,7 +186,7 @@ public interface InvokeRPCRequestOrBuilder extends
   /**
    * <pre>
    * AttributeMap selectors whose entries are loaded for the RPC handler.
-   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -240,7 +240,7 @@ public interface InvokeRPCRequestOrBuilder extends
   /**
    * <pre>
    * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -251,7 +251,7 @@ public interface InvokeRPCRequestOrBuilder extends
   /**
    * <pre>
    * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -261,7 +261,7 @@ public interface InvokeRPCRequestOrBuilder extends
   /**
    * <pre>
    * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -272,7 +272,7 @@ public interface InvokeRPCRequestOrBuilder extends
   /**
    * <pre>
    * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_channel_map_selectors = 11;</code>

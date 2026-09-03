@@ -6720,12 +6720,12 @@ type InvokeRPCRequest struct {
 	// automatically. Channel deletion alone does not; callers must opt in.
 	IsTransactional bool `protobuf:"varint,8,opt,name=is_transactional,json=isTransactional,proto3" json:"is_transactional,omitempty"`
 	// AttributeMap selectors whose entries are loaded for the RPC handler.
-	// A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+	// A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
 	LoadAttributeMapSelectors []string `protobuf:"bytes,9,rep,name=load_attribute_map_selectors,json=loadAttributeMapSelectors,proto3" json:"load_attribute_map_selectors,omitempty"`
 	// Channel definitions whose pending messages are loaded for the RPC handler.
 	LoadChannelNames []string `protobuf:"bytes,10,rep,name=load_channel_names,json=loadChannelNames,proto3" json:"load_channel_names,omitempty"`
 	// ChannelMap selectors whose pending messages are loaded for the RPC handler.
-	// A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+	// A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
 	LoadChannelMapSelectors []string `protobuf:"bytes,11,rep,name=load_channel_map_selectors,json=loadChannelMapSelectors,proto3" json:"load_channel_map_selectors,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache

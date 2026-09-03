@@ -45,7 +45,7 @@ for every known Channel and ChannelMap instance. AttributeMap entries and
 pending Channel message envelopes are loaded only when the caller selects their
 state with `load_attribute_map_selectors`, `load_channel_names`, or
 `load_channel_map_selectors`. A map selector ending in `/` loads every instance;
-otherwise its escaped suffix identifies one instance.
+otherwise its percent-encoded suffix identifies one instance.
 
 The worker request echoes validated, sorted selectors so an empty loaded collection is distinct from
 one that was not loaded. Pending messages retain FIFO order, server-generated
