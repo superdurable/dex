@@ -729,8 +729,8 @@ definition by logical name and verify static/map kind. The runtime uses the
 registered index configuration rather than trusting a same-name lookalike
 handle.
 
-Map operations derive the physical key with the Phase 2 escaping rule. Get
-first observes the invocation's latest buffered write:
+Map operations derive the physical key from the definition name and instance.
+Get first observes the invocation's latest buffered write:
 
 - a buffered Set decodes that value;
 - a buffered Delete returns `*AttributeNotFoundError`;
@@ -1901,7 +1901,8 @@ func DefineAttributeMap[T any](
 ```
 
 `AttributeMap` maps an application instance key to one flat server attribute
-key. Physical keys and their escaping are internal SDK details.
+key. Slash is prohibited in instance keys because it is a reserved character.
+Physical keys are internal SDK details.
 
 Invocation operations take `Context` explicitly:
 

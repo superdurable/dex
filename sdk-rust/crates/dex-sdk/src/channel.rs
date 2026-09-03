@@ -39,7 +39,9 @@ pub struct Channel<T> {
 }
 
 impl<T> Channel<T> {
-    /// Defines a Channel with stable slash-free `name`.
+    /// Defines a Channel with a stable `name`.
+    ///
+    /// Slash is prohibited because it is a reserved character.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -137,14 +139,17 @@ impl<T> Clone for Channel<T> {
 /// Defines independently queued Channel instances under one name.
 ///
 /// Supply an instance string for every publish, read, condition, and completion guard. Add the map
-/// definition once to [`crate::PersistenceSchema`]. Instances must be non-empty and slash-free.
+/// definition once to [`crate::PersistenceSchema`].
+/// Slash is prohibited in instance keys because it is a reserved character.
 pub struct ChannelMap<T> {
     name: String,
     marker: PhantomData<fn() -> T>,
 }
 
 impl<T> ChannelMap<T> {
-    /// Defines a Channel map with stable slash-free `name`.
+    /// Defines a Channel map with a stable `name`.
+    ///
+    /// Slash is prohibited because it is a reserved character.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),

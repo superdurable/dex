@@ -49,7 +49,7 @@ public final class AttributeLock {
      * Locks one instance of an Attribute map.
      *
      * @param attribute the registered Attribute map
-     * @param instance the nonblank, slash-free map instance to lock
+     * @param instance the map instance to lock. Slash is prohibited because it is a reserved character
      * @return a lock definition for that map instance
      * @throws IllegalArgumentException if {@code instance} is {@code null}, blank, or contains {@code /}
      */

@@ -754,14 +754,14 @@ class Registry:
 
     @staticmethod
     def physical_name(name: str, instance: str) -> str:
-        """Return the escaped physical name for a map definition instance.
+        """Return the physical name for a map instance.
 
         Args:
-            name: The logical AttributeMap or ChannelMap name.
-            instance: The non-empty, slash-free logical instance key.
+            name: The AttributeMap or ChannelMap name.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
 
         Returns:
-            ``name`` followed by a slash and percent-encoded instance.
+            The physical name.
 
         Raises:
             ValueError: If ``instance`` is empty or contains ``/``.

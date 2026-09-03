@@ -12,15 +12,16 @@ contents explicitly.
 `InvokeRPCRequest` has three collection selectors:
 
 - `load_attribute_map_selectors` loads every current entry with `AttributeMap/`
-  or one entry with `AttributeMap/<escaped-instance>`.
+  or one entry with `AttributeMap/<instance>`.
 - `load_channel_names` loads pending envelopes for each selected Channel
   definition.
 - `load_channel_map_selectors` loads pending envelopes for every current instance
-  with `ChannelMap/`, or one instance with `ChannelMap/<escaped-instance>`.
+  with `ChannelMap/`, or one instance with `ChannelMap/<instance>`.
 
 Singleton Channel selectors are definition names. Map selectors contain exactly
-one `/`: a trailing separator selects all instances and an escaped suffix selects
-one instance. Selectors must be non-empty and unique. Dex sorts them before
+one `/`. A trailing separator selects all instances. The suffix selects one
+instance. Slash is prohibited in instance keys because it is a reserved
+character. Selectors must be non-empty and unique. Dex sorts them before
 preparing the Worker request. Pagination and silent truncation are unsupported.
 
 ## Worker state projection

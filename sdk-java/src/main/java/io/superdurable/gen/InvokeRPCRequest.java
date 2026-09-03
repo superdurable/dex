@@ -350,7 +350,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * AttributeMap selectors whose entries are loaded for the RPC handler.
-   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+   * A trailing slash selects every instance. The suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -363,7 +363,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * AttributeMap selectors whose entries are loaded for the RPC handler.
-   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+   * A trailing slash selects every instance. The suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -375,7 +375,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * AttributeMap selectors whose entries are loaded for the RPC handler.
-   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+   * A trailing slash selects every instance. The suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -388,7 +388,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * AttributeMap selectors whose entries are loaded for the RPC handler.
-   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+   * A trailing slash selects every instance. The suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -460,7 +460,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+   * A trailing slash selects every instance. The suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -473,7 +473,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+   * A trailing slash selects every instance. The suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -485,7 +485,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+   * A trailing slash selects every instance. The suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -498,7 +498,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+   * A trailing slash selects every instance. The suffix selects one instance.
    * </pre>
    *
    * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -1819,7 +1819,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * AttributeMap selectors whose entries are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -1833,7 +1833,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * AttributeMap selectors whose entries are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -1845,7 +1845,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * AttributeMap selectors whose entries are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -1858,7 +1858,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * AttributeMap selectors whose entries are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -1872,7 +1872,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * AttributeMap selectors whose entries are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -1892,7 +1892,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * AttributeMap selectors whose entries are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -1911,7 +1911,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * AttributeMap selectors whose entries are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -1930,7 +1930,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * AttributeMap selectors whose entries are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -1946,7 +1946,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * AttributeMap selectors whose entries are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_attribute_map_selectors = 9;</code>
@@ -2122,7 +2122,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -2136,7 +2136,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -2148,7 +2148,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -2161,7 +2161,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -2175,7 +2175,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -2195,7 +2195,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -2214,7 +2214,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -2233,7 +2233,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_channel_map_selectors = 11;</code>
@@ -2249,7 +2249,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-     * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+     * A trailing slash selects every instance. The suffix selects one instance.
      * </pre>
      *
      * <code>repeated string load_channel_map_selectors = 11;</code>

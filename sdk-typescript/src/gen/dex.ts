@@ -844,14 +844,14 @@ export interface InvokeRPCRequest {
   isTransactional: boolean;
   /**
    * AttributeMap selectors whose entries are loaded for the RPC handler.
-   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+   * A trailing slash selects every instance. The suffix selects one instance.
    */
   loadAttributeMapSelectors: string[];
   /** Channel definitions whose pending messages are loaded for the RPC handler. */
   loadChannelNames: string[];
   /**
    * ChannelMap selectors whose pending messages are loaded for the RPC handler.
-   * A trailing slash selects every instance. Otherwise, the percent-encoded suffix selects one instance.
+   * A trailing slash selects every instance. The suffix selects one instance.
    */
   loadChannelMapSelectors: string[];
 }

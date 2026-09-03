@@ -208,7 +208,7 @@ public final class StartFlowOptions {
          * Adds an initial Attribute-map value atomically with Flow start.
          *
          * @param attributeMap the nonnull registered Attribute map
-         * @param instance the nonblank, slash-free map instance
+         * @param instance the map instance. Slash is prohibited because it is a reserved character
          * @param value the typed initial value
          * @param <T> the Attribute value type
          * @return this builder

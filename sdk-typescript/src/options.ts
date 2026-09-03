@@ -92,7 +92,7 @@ export interface FlowConfig {
 export interface InitialAttribute<T> {
   /** Registered singleton Attribute or AttributeMap definition. */
   readonly attribute: Attribute<T> | AttributeMap<T>;
-  /** Required non-empty, slash-free map key; omitted for a singleton Attribute. */
+  /** The map instance. Omit it for a singleton Attribute. Slash is prohibited because it is a reserved character. */
   readonly instance?: string;
   /** Typed initial value. */
   readonly value: T;
@@ -114,7 +114,7 @@ export const InitialAttribute = Object.freeze({
    * Creates an AttributeMap instance initialization.
    * @typeParam T - Attribute value type.
    * @param attribute - Registered AttributeMap.
-   * @param instance - Non-empty, slash-free logical map key.
+   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
    * @param value - Typed initial value.
    * @returns The AttributeMap initialization value.
    */

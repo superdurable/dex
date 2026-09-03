@@ -319,7 +319,7 @@ class AsyncClient:
         Args:
             flow_id: The non-empty target Flow ID.
             attribute: A typed singleton Attribute or AttributeMap definition.
-            instance: The non-empty, slash-free map key; omit for a singleton Attribute.
+            instance: The map instance. Omit it for a singleton Attribute. Slash is prohibited because it is a reserved character.
             run_id: Optional exact run; ``""`` targets the current run.
 
         Returns:
@@ -1068,7 +1068,7 @@ class AsyncClient:
         Args:
             flow_id: The non-empty active Flow ID.
             attribute: The registered AttributeMap to observe.
-            instance: The non-empty, slash-free logical map key to observe.
+            instance: The map instance to observe. Slash is prohibited because it is a reserved character.
             expected: The string, bool, int, or float value to await.
             timeout: The non-negative server-side wait duration.
 

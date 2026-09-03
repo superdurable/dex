@@ -187,7 +187,7 @@ public final class SubFlowOptions {
          * Adds one initial Attribute-map value to the SubFlow start.
          *
          * @param attribute an Attribute map registered by the target SubFlow
-         * @param instance the nonblank, slash-free map instance
+         * @param instance the map instance. Slash is prohibited because it is a reserved character
          * @param value the initial value, including {@code null} when supported by its value type
          * @param <T> the Attribute value type
          * @return this builder

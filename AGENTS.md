@@ -215,6 +215,9 @@ interface, class, method, function, constructor, field, constant, enum value,
 struct member, annotation element, and equivalent language construct. Do not
 add API documentation to non-public or generated declarations.
 
+Keep documentation direct. Put one idea in each sentence. Split behavior,
+constraints, and rationale into separate sentences.
+
 Write each API document from the application developer's perspective. Start
 with a one-sentence summary, then explain when and how the API is used. Give a
 complete language-native example for each related API family; overloads and

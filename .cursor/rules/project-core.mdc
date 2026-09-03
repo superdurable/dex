@@ -81,6 +81,8 @@ one requires equivalent updates to all three in the same commit.
   interface, class, method, function, constructor, field, constant, enum value,
   struct member, annotation element, and equivalent language construct. Do not
   document non-public or generated declarations.
+- Keep documentation direct. Put one idea in each sentence. Split behavior,
+  constraints, and rationale into separate sentences.
 - Write SDK API documentation from the application developer's perspective.
   Start with a one-sentence summary, then explain when and how to use the API.
   Give a complete language-native example for each related API family;

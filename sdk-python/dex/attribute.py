@@ -177,7 +177,7 @@ class AttributeMap(Generic[ValueT]):
 
         Args:
             context: The current handler Context.
-            instance: The non-empty, slash-free logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
 
         Returns:
             The decoded instance value.
@@ -193,7 +193,7 @@ class AttributeMap(Generic[ValueT]):
 
         Args:
             context: The current handler Context.
-            instance: The non-empty, slash-free logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
             value: A value compatible with ``value_type``.
         """
         context._set_attribute(self, instance, value)
@@ -203,7 +203,7 @@ class AttributeMap(Generic[ValueT]):
 
         Args:
             context: The current handler Context.
-            instance: The non-empty, slash-free logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
         """
         context._delete_attribute(cast(AttributeMap[object], self), instance)
 
@@ -233,7 +233,7 @@ class AttributeMap(Generic[ValueT]):
         """Return a lock request for one map instance.
 
         Args:
-            instance: The non-empty, slash-free logical map key.
+            instance: The map instance. Slash is prohibited because it is a reserved character.
 
         Returns:
             A lock for ``instance``.

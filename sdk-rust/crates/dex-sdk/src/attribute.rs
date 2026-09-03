@@ -34,7 +34,9 @@ pub struct Attribute<T> {
 }
 
 impl<T> Attribute<T> {
-    /// Defines an unindexed Attribute with stable slash-free `name`.
+    /// Defines an unindexed Attribute with a stable `name`.
+    ///
+    /// Slash is prohibited because it is a reserved character.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -151,7 +153,8 @@ impl<T> Clone for Attribute<T> {
 /// Defines keyed durable values sharing one Attribute name.
 ///
 /// Each `instance` identifies an independent stored value and lock. Add the map definition once to
-/// [`crate::PersistenceSchema`]; pass a non-empty, slash-free instance name on each access.
+/// [`crate::PersistenceSchema`], then pass an instance on each access.
+/// Slash is prohibited in instance keys because it is a reserved character.
 pub struct AttributeMap<T> {
     name: String,
     index: Option<AttributeIndex>,
@@ -160,7 +163,9 @@ pub struct AttributeMap<T> {
 }
 
 impl<T> AttributeMap<T> {
-    /// Defines an unindexed Attribute map with stable slash-free `name`.
+    /// Defines an unindexed Attribute map with a stable `name`.
+    ///
+    /// Slash is prohibited because it is a reserved character.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
