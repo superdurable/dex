@@ -45,12 +45,51 @@ interface QueuedMessage {
     plan_mode: boolean;
   };
   optimistic?: boolean;
+  submittedAfterSequence?: number;
+  knownMessageIdsAtSubmit?: string[];
 }
 
 interface MessageQueue {
   queued: QueuedMessage[];
   steered: QueuedMessage[];
 }
+
+const hasSameQueuedValue = (left: QueuedMessage, right: QueuedMessage): boolean => (
+  left.value.content === right.value.content
+  && left.value.plan_mode === right.value.plan_mode
+);
+
+const reconcileOptimisticMessages = (
+  current: QueuedMessage[],
+  canonical: QueuedMessage[],
+  history: SequencedMessage[],
+): QueuedMessage[] => {
+  const matchedCanonicalIds = new Set<string>();
+  const matchedHistorySequences = new Set<number>();
+  const optimistic = current.filter((message) => message.optimistic).filter((message) => {
+    const canonicalMatch = canonical.find((candidate) => (
+      !matchedCanonicalIds.has(candidate.message_id)
+      && !(message.knownMessageIdsAtSubmit ?? []).includes(candidate.message_id)
+      && hasSameQueuedValue(message, candidate)
+    ));
+    if (canonicalMatch) {
+      matchedCanonicalIds.add(canonicalMatch.message_id);
+      return false;
+    }
+    const historyMatch = history.find((candidate) => (
+      !matchedHistorySequences.has(candidate.sequence)
+      && candidate.sequence > (message.submittedAfterSequence ?? 0)
+      && candidate.message.role === 'user'
+      && candidate.message.content === message.value.content
+    ));
+    if (historyMatch) {
+      matchedHistorySequences.add(historyMatch.sequence);
+      return false;
+    }
+    return true;
+  });
+  return [...canonical, ...optimistic];
+};
 
 interface ThinkingEntry {
   source: string;
@@ -261,14 +300,8 @@ const App: React.FC = () => {
     setDescription(nextDescription);
     descriptionStatusRef.current = nextDescription.status;
     setMessageQueue((current) => ({
-      queued: [
-        ...nextQueue.queued,
-        ...current.queued.filter((message) => message.optimistic),
-      ],
-      steered: [
-        ...nextQueue.steered,
-        ...current.steered.filter((message) => message.optimistic),
-      ],
+      queued: reconcileOptimisticMessages(current.queued, nextQueue.queued, history.messages),
+      steered: nextQueue.steered,
     }));
     if (
       nextDescription.status === 'waiting_for_message'
@@ -512,6 +545,13 @@ const App: React.FC = () => {
           message_id: optimisticId,
           value: { content, plan_mode: requestedPlanMode },
           optimistic: true,
+          submittedAfterSequence: Math.max(
+            description?.last_sequence ?? 0,
+            messages.at(-1)?.sequence ?? 0,
+          ),
+          knownMessageIdsAtSubmit: current.queued
+            .filter((message) => !message.optimistic)
+            .map((message) => message.message_id),
         },
       ],
     }));
@@ -534,10 +574,6 @@ const App: React.FC = () => {
       setIsBusy(false);
       return;
     }
-    setMessageQueue((current) => ({
-      ...current,
-      queued: current.queued.filter((message) => message.message_id !== optimisticId),
-    }));
     await fetchState().catch((reason) => {
       setError(`Message accepted; queue refresh failed: ${String(reason)}`);
     });
@@ -1024,7 +1060,9 @@ const App: React.FC = () => {
           </div>
           )}
 
-          {(messageQueue.queued.length > 0 || messageQueue.steered.length > 0) && (
+        </div>
+
+        <div style={styles.composerArea}>
           <section style={styles.queueArea} aria-label="Pending user messages">
             <div style={styles.queueHeader}>
               <div>
@@ -1033,8 +1071,11 @@ const App: React.FC = () => {
                   Queued messages wait for the current Agent loop. Steer applies one at the next safe boundary.
                 </small>
               </div>
-              <span>{messageQueue.queued.length + messageQueue.steered.length} pending</span>
+              <span>{messageQueue.queued.length} queued · {messageQueue.steered.length} steered</span>
             </div>
+            {(messageQueue.queued.length === 0 && messageQueue.steered.length === 0) && (
+              <p style={styles.queueEmpty}>No queued or steered messages.</p>
+            )}
             {[...messageQueue.steered, ...messageQueue.queued].map((message) => {
               const isSteered = messageQueue.steered.some(
                 (item) => item.message_id === message.message_id,
@@ -1082,11 +1123,7 @@ const App: React.FC = () => {
               );
             })}
           </section>
-          )}
 
-        </div>
-
-        <div style={styles.composerArea}>
           {description?.pending_user_input_prompt ? (
             <section
               style={{ ...styles.inputCard, ...styles.composerInputCard }}
@@ -1510,9 +1547,10 @@ const styles: Record<string, React.CSSProperties> = {
   completedTask: { display: 'block', marginTop: 2, textDecoration: 'line-through', opacity: 0.65 },
   actions: { display: 'flex', gap: 10 },
   activity: { marginTop: 18, padding: 14, borderRadius: 12, background: '#f7f8fb', color: '#4b5568' },
-  queueArea: { marginTop: 18, padding: 16, borderRadius: 14, border: '1px solid #d8deea', background: '#fafbfe' },
+  queueArea: { marginBottom: 14, padding: 16, borderRadius: 14, border: '1px solid #d8deea', background: '#fafbfe' },
   queueHeader: { display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'start', marginBottom: 10 },
   queueHint: { display: 'block', marginTop: 4, color: '#667085', lineHeight: 1.4 },
+  queueEmpty: { margin: 0, color: '#7b8495', fontSize: 13 },
   queueItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, padding: 13, marginTop: 9, borderRadius: 11, border: '1px solid #dce1eb', background: '#fff' },
   steeringItem: { borderColor: '#aebdf2', background: '#f0f4ff' },
   queueContent: { minWidth: 0, flex: 1 },

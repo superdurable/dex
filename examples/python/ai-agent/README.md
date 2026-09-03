@@ -64,9 +64,12 @@ call, tool, approval wait, or Timer continuation. It does not cancel an LLM or M
 request already running. A Steer clears unexecuted tool calls and records durable
 cancellation results. Only Steer interrupts a tool approval or durable wait.
 
-The UI treats the Server queue as canonical. It refreshes immediately after each
-mutation, refreshes from Agent activity events and browser reconnection, and uses
-an eight-second fallback poll while the page is visible or the Agent is active.
+The queue panel remains above the composer, including when both queues are empty.
+The UI treats the Server queue as canonical. It keeps a submitted item visible
+until the Server reports it as pending or the Flow consumes it into history. It
+refreshes immediately after each mutation, refreshes from Agent activity events
+and browser reconnection, and uses an eight-second fallback poll while the page
+is visible or the Agent is active.
 
 ## Run locally
 
