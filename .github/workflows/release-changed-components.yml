@@ -1,0 +1,233 @@
+name: Release changed components
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Shared semantic version for every changed component
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-changed-components
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan releases
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      go: ${{ steps.plan.outputs.go }}
+      go_tag: ${{ steps.plan.outputs.go_tag }}
+      rust: ${{ steps.plan.outputs.rust }}
+      rust_tag: ${{ steps.plan.outputs.rust_tag }}
+      java: ${{ steps.plan.outputs.java }}
+      java_tag: ${{ steps.plan.outputs.java_tag }}
+      python: ${{ steps.plan.outputs.python }}
+      python_tag: ${{ steps.plan.outputs.python_tag }}
+      typescript: ${{ steps.plan.outputs.typescript }}
+      typescript_tag: ${{ steps.plan.outputs.typescript_tag }}
+      server: ${{ steps.plan.outputs.server }}
+      server_tag: ${{ steps.plan.outputs.server_tag }}
+      cli: ${{ steps.plan.outputs.cli }}
+      cli_tag: ${{ steps.plan.outputs.cli_tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Verify main branch
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          if [[ "${RELEASE_REF}" != "refs/heads/main" ]]; then
+            echo "Changed-component releases can run only from main" >&2
+            exit 1
+          fi
+      - name: Detect changes and preflight tags
+        id: plan
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: python3 script/release/changed_components.py "${RELEASE_VERSION}" --output "${GITHUB_OUTPUT}"
+
+  reject-non-main:
+    name: Reject non-main dispatch
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Changed-component releases can run only from main" >&2
+          exit 1
+
+  create-releases:
+    name: Create selected releases
+    needs: plan
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create GitHub Releases
+        shell: bash
+        env:
+          GO_SELECTED: ${{ needs.plan.outputs.go }}
+          GO_TAG: ${{ needs.plan.outputs.go_tag }}
+          RUST_SELECTED: ${{ needs.plan.outputs.rust }}
+          RUST_TAG: ${{ needs.plan.outputs.rust_tag }}
+          JAVA_SELECTED: ${{ needs.plan.outputs.java }}
+          JAVA_TAG: ${{ needs.plan.outputs.java_tag }}
+          PYTHON_SELECTED: ${{ needs.plan.outputs.python }}
+          PYTHON_TAG: ${{ needs.plan.outputs.python_tag }}
+          TYPESCRIPT_SELECTED: ${{ needs.plan.outputs.typescript }}
+          TYPESCRIPT_TAG: ${{ needs.plan.outputs.typescript_tag }}
+          SERVER_SELECTED: ${{ needs.plan.outputs.server }}
+          SERVER_TAG: ${{ needs.plan.outputs.server_tag }}
+          CLI_SELECTED: ${{ needs.plan.outputs.cli }}
+          CLI_TAG: ${{ needs.plan.outputs.cli_tag }}
+        run: |
+          selected=(
+            "${GO_SELECTED}:${GO_TAG}"
+            "${RUST_SELECTED}:${RUST_TAG}"
+            "${JAVA_SELECTED}:${JAVA_TAG}"
+            "${PYTHON_SELECTED}:${PYTHON_TAG}"
+            "${TYPESCRIPT_SELECTED}:${TYPESCRIPT_TAG}"
+            "${SERVER_SELECTED}:${SERVER_TAG}"
+            "${CLI_SELECTED}:${CLI_TAG}"
+          )
+          for release in "${selected[@]}"; do
+            if [[ "${release%%:*}" == "true" ]]; then
+              tag="${release#*:}"
+              gh release create "${tag}" --target "${GITHUB_SHA}" --title "${tag}" --generate-notes
+            fi
+          done
+
+  publish-java:
+    name: Publish Java SDK
+    needs: [plan, create-releases]
+    if: needs.plan.outputs.java == 'true'
+    uses: ./.github/workflows/sdk-java-publish.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+    secrets: inherit
+
+  publish-python:
+    name: Publish Python SDK
+    needs: [plan, create-releases]
+    if: needs.plan.outputs.python == 'true'
+    uses: ./.github/workflows/sdk-python-publish.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      publish: true
+    secrets: inherit
+
+  publish-rust:
+    name: Publish Rust SDK
+    needs: [plan, create-releases]
+    if: needs.plan.outputs.rust == 'true'
+    uses: ./.github/workflows/sdk-rust-publish.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      publish: true
+    secrets: inherit
+
+  publish-typescript:
+    name: Publish TypeScript SDK
+    needs: [plan, create-releases]
+    if: needs.plan.outputs.typescript == 'true'
+    uses: ./.github/workflows/sdk-typescript-publish.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+    secrets: inherit
+
+  publish-server:
+    name: Publish server
+    needs: [plan, create-releases]
+    if: needs.plan.outputs.server == 'true'
+    uses: ./.github/workflows/docker-image-release.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+    secrets: inherit
+
+  publish-cli:
+    name: Publish CLI
+    needs: [plan, create-releases]
+    if: needs.plan.outputs.cli == 'true'
+    uses: ./.github/workflows/cli-release.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+    secrets: inherit
+
+  complete:
+    name: Verify publications
+    if: always() && needs.plan.result != 'skipped'
+    needs:
+      - plan
+      - create-releases
+      - publish-java
+      - publish-python
+      - publish-rust
+      - publish-typescript
+      - publish-server
+      - publish-cli
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report results
+        shell: bash
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          RELEASE_RESULT: ${{ needs.create-releases.result }}
+          GO_SELECTED: ${{ needs.plan.outputs.go }}
+          JAVA_SELECTED: ${{ needs.plan.outputs.java }}
+          JAVA_RESULT: ${{ needs.publish-java.result }}
+          PYTHON_SELECTED: ${{ needs.plan.outputs.python }}
+          PYTHON_RESULT: ${{ needs.publish-python.result }}
+          RUST_SELECTED: ${{ needs.plan.outputs.rust }}
+          RUST_RESULT: ${{ needs.publish-rust.result }}
+          TYPESCRIPT_SELECTED: ${{ needs.plan.outputs.typescript }}
+          TYPESCRIPT_RESULT: ${{ needs.publish-typescript.result }}
+          SERVER_SELECTED: ${{ needs.plan.outputs.server }}
+          SERVER_RESULT: ${{ needs.publish-server.result }}
+          CLI_SELECTED: ${{ needs.plan.outputs.cli }}
+          CLI_RESULT: ${{ needs.publish-cli.result }}
+        run: |
+          {
+            echo "### Publication results"
+            echo
+            echo "| Component | Result |"
+            echo "|---|---|"
+            [[ "${GO_SELECTED}" == "true" ]] && echo "| Go SDK | released |" || echo "| Go SDK | skipped |"
+            for result in \
+              "Java SDK:${JAVA_SELECTED}:${JAVA_RESULT}" \
+              "Python SDK:${PYTHON_SELECTED}:${PYTHON_RESULT}" \
+              "Rust SDK:${RUST_SELECTED}:${RUST_RESULT}" \
+              "TypeScript SDK:${TYPESCRIPT_SELECTED}:${TYPESCRIPT_RESULT}" \
+              "Server:${SERVER_SELECTED}:${SERVER_RESULT}" \
+              "CLI:${CLI_SELECTED}:${CLI_RESULT}"; do
+              name="${result%%:*}"
+              remainder="${result#*:}"
+              selected="${remainder%%:*}"
+              outcome="${remainder#*:}"
+              [[ "${selected}" == "true" ]] || outcome="skipped"
+              echo "| ${name} | ${outcome} |"
+            done
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [[ "${PLAN_RESULT}" != "success" || "${RELEASE_RESULT}" != "success" ]]; then
+            exit 1
+          fi
+          for result in \
+            "${JAVA_SELECTED}:${JAVA_RESULT}" \
+            "${PYTHON_SELECTED}:${PYTHON_RESULT}" \
+            "${RUST_SELECTED}:${RUST_RESULT}" \
+            "${TYPESCRIPT_SELECTED}:${TYPESCRIPT_RESULT}" \
+            "${SERVER_SELECTED}:${SERVER_RESULT}" \
+            "${CLI_SELECTED}:${CLI_RESULT}"; do
+            if [[ "${result%%:*}" == "true" && "${result#*:}" != "success" ]]; then
+              exit 1
+            fi
+          done
