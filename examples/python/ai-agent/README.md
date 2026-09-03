@@ -66,6 +66,8 @@ cancellation results. Only Steer interrupts a tool approval or durable wait.
 
 The queue panel remains above the composer. It collapses to a compact status row
 when both queues are empty and expands automatically when a pending message appears.
+The browser page is the conversation scroll surface. The queue, user-input request,
+and composer stay fixed at the bottom while new activity remains visible above them.
 The UI treats the Server queue as canonical. It keeps a submitted item visible
 until the Server reports it as pending or the Flow consumes it into history. It
 refreshes immediately after each mutation, refreshes from Agent activity events

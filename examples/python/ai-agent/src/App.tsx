@@ -227,9 +227,9 @@ const App: React.FC = () => {
   const [queueMutation, setQueueMutation] = useState('');
   const [pressedQueueAction, setPressedQueueAction] = useState('');
   const [error, setError] = useState('');
+  const [composerHeight, setComposerHeight] = useState(0);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
-  const conversationScrollRef = useRef<HTMLDivElement>(null);
-  const timelineEntryRefs = useRef(new Map<string, HTMLDivElement>());
+  const composerAreaRef = useRef<HTMLDivElement>(null);
   const currentTurnSequenceRef = useRef<number | null>(null);
   const hasInitializedConversationViewportRef = useRef(false);
   const isFollowingTimelineRef = useRef(true);
@@ -260,6 +260,21 @@ const App: React.FC = () => {
     hasInitializedConversationViewportRef.current = false;
     currentTurnSequenceRef.current = null;
     isFollowingTimelineRef.current = true;
+  }, [workflowId]);
+
+  useEffect(() => {
+    if (!workflowId) return;
+    const composer = composerAreaRef.current;
+    if (!composer) return;
+    const updateComposerHeight = () => setComposerHeight(Math.ceil(composer.getBoundingClientRect().height));
+    updateComposerHeight();
+    const observer = new ResizeObserver(updateComposerHeight);
+    observer.observe(composer);
+    window.addEventListener('resize', updateComposerHeight);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateComposerHeight);
+    };
   }, [workflowId]);
 
   useEffect(() => {
@@ -724,8 +739,11 @@ const App: React.FC = () => {
         : null;
       isFollowingTimelineRef.current = true;
       const frame = window.requestAnimationFrame(() => {
-        const container = conversationScrollRef.current;
-        if (container) container.scrollTo({ top: container.scrollHeight, behavior: 'auto' });
+        isProgrammaticScrollRef.current = true;
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
+        window.requestAnimationFrame(() => {
+          isProgrammaticScrollRef.current = false;
+        });
       });
       return () => window.cancelAnimationFrame(frame);
     }
@@ -735,19 +753,8 @@ const App: React.FC = () => {
     if (!isNewTurn && !isFollowingTimelineRef.current) return;
 
     const frame = window.requestAnimationFrame(() => {
-      const container = conversationScrollRef.current;
-      const targetEntry = isNewTurn ? latestUserMessage : timeline.at(-1);
-      if (!container || !targetEntry) return;
-      const target = timelineEntryRefs.current.get(targetEntry.id);
-      if (!target) return;
-      const containerRect = container.getBoundingClientRect();
-      const targetRect = target.getBoundingClientRect();
-      const targetTop = container.scrollTop + targetRect.top - containerRect.top;
-      const targetScrollTop = isNewTurn
-        ? targetTop
-        : Math.max(container.scrollTop, targetTop + targetRect.height - container.clientHeight + 24);
       isProgrammaticScrollRef.current = true;
-      container.scrollTo({ top: targetScrollTop, behavior: isNewTurn ? 'smooth' : 'auto' });
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
       window.requestAnimationFrame(() => {
         isProgrammaticScrollRef.current = false;
       });
@@ -757,16 +764,25 @@ const App: React.FC = () => {
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [workflowId, hasLoadedConversation, timeline]);
+  }, [workflowId, hasLoadedConversation, timeline, composerHeight]);
+
+  useEffect(() => {
+    if (!workflowId) return;
+    const updateFollowingTimeline = () => {
+      if (isProgrammaticScrollRef.current) return;
+      const distanceFromBottom = document.documentElement.scrollHeight
+        - window.scrollY
+        - window.innerHeight;
+      isFollowingTimelineRef.current = distanceFromBottom < 160;
+    };
+    window.addEventListener('scroll', updateFollowingTimeline, { passive: true });
+    return () => window.removeEventListener('scroll', updateFollowingTimeline);
+  }, [workflowId]);
 
   const stopFollowingTimeline = () => {
     if (!isProgrammaticScrollRef.current) isFollowingTimelineRef.current = false;
   };
 
-  const setTimelineEntryRef = (entryId: string, element: HTMLDivElement | null) => {
-    if (element) timelineEntryRefs.current.set(entryId, element);
-    else timelineEntryRefs.current.delete(entryId);
-  };
   if (!workflowId) {
     return (
       <main style={styles.page}>
@@ -970,7 +986,11 @@ const App: React.FC = () => {
   const hasPendingMessages = messageQueue.queued.length > 0 || messageQueue.steered.length > 0;
 
   return (
-    <main style={{ ...styles.page, ...styles.chatPage }}>
+    <main
+      style={{ ...styles.page, ...styles.chatPage, paddingBottom: composerHeight + 36 }}
+      onWheel={stopFollowingTimeline}
+      onTouchStart={stopFollowingTimeline}
+    >
       <header style={styles.header}>
         <div>
           <p style={styles.eyebrow}>Durable conversation</p>
@@ -993,20 +1013,11 @@ const App: React.FC = () => {
       )}
 
       <section style={styles.chatCard}>
-        <div
-          ref={conversationScrollRef}
-          style={styles.conversationScroll}
-          onWheel={stopFollowingTimeline}
-          onTouchStart={stopFollowingTimeline}
-        >
+        <div style={styles.conversationScroll}>
           <div style={styles.messages}>
             {timeline.length === 0 && <p style={styles.empty}>Send a message to begin.</p>}
             {timeline.map((entry) => (
-              <div
-                key={entry.id}
-                ref={(element) => setTimelineEntryRef(entry.id, element)}
-                style={styles.timelineEntry}
-              >
+              <div key={entry.id} style={styles.timelineEntry}>
                 <TimelineEntryCard
                   entry={entry}
                   model={description?.model ?? ''}
@@ -1064,7 +1075,7 @@ const App: React.FC = () => {
 
         </div>
 
-        <div style={styles.composerArea}>
+        <div ref={composerAreaRef} style={styles.composerArea}>
           <section
             style={{
               ...styles.queueArea,
@@ -1466,7 +1477,7 @@ const planTaskIcon = (status: PlanTask['status']): string => {
 
 const styles: Record<string, React.CSSProperties> = {
   page: { minHeight: '100vh', background: 'linear-gradient(145deg, #f7f8fc 0%, #eef1fb 100%)', color: '#172033', padding: '32px 18px', fontFamily: 'Inter, system-ui, sans-serif' },
-  chatPage: { boxSizing: 'border-box', height: '100dvh', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '20px 18px 12px' },
+  chatPage: { boxSizing: 'border-box', minHeight: '100dvh', overflow: 'visible', padding: '20px 18px 12px' },
   portalShell: { maxWidth: 1120, margin: '0 auto', paddingBottom: 40 },
   portalHero: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24, padding: '22px 4px 30px' },
   portalSteps: { display: 'flex', alignItems: 'center', gap: 9, flex: '0 0 auto', padding: '7px 9px', border: '1px solid #dce1eb', borderRadius: 14, background: 'rgba(255,255,255,.8)', color: '#7b8495', boxShadow: '0 6px 18px rgba(24,39,75,.06)', fontSize: 13, fontWeight: 750 },
@@ -1513,9 +1524,9 @@ const styles: Record<string, React.CSSProperties> = {
   primaryButton: { border: 0, borderRadius: 10, padding: '11px 18px', background: '#4f46e5', color: '#fff', fontWeight: 700, cursor: 'pointer', marginTop: 18 },
   secondaryButton: { border: '1px solid #cfd6e4', borderRadius: 10, padding: '11px 18px', background: '#fff', color: '#27334a', fontWeight: 700, cursor: 'pointer', marginTop: 18 },
   status: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', padding: '9px 14px', borderRadius: 12, background: '#e9ecff', color: '#3730a3' },
-  chatCard: { width: '100%', maxWidth: 960, minHeight: 0, flex: '1 1 auto', margin: '0 auto', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff', borderRadius: 20, boxShadow: '0 18px 60px rgba(24, 39, 75, 0.08)' },
-  conversationScroll: { minHeight: 0, flex: '1 1 auto', display: 'flex', flexDirection: 'column', overflowY: 'auto', overscrollBehavior: 'contain', padding: 22, scrollPaddingTop: 22 },
-  messages: { display: 'flex', flexDirection: 'column', gap: 14, minHeight: 320, marginTop: 'auto' },
+  chatCard: { width: '100%', maxWidth: 960, margin: '0 auto', display: 'block' },
+  conversationScroll: { display: 'flex', flexDirection: 'column', padding: '8px 0 24px' },
+  messages: { display: 'flex', flexDirection: 'column', gap: 14 },
   timelineEntry: { display: 'flex', flexDirection: 'column', flex: '0 0 auto' },
   message: { maxWidth: '82%', borderRadius: 15, padding: '13px 16px', position: 'relative' },
   userMessage: { alignSelf: 'flex-end', background: '#4f46e5', color: '#fff' },
@@ -1574,7 +1585,7 @@ const styles: Record<string, React.CSSProperties> = {
   queueButton: { border: '1px solid #cfd6e4', borderRadius: 8, padding: '7px 10px', background: '#fff', color: '#27334a', fontWeight: 700, cursor: 'pointer', transition: 'transform 80ms ease, box-shadow 80ms ease' },
   steerButton: { borderColor: '#4f46e5', background: '#4f46e5', color: '#fff' },
   queueButtonPressed: { transform: 'translateY(2px) scale(.97)', boxShadow: 'inset 0 2px 4px rgba(30, 27, 75, .25)' },
-  composerArea: { flex: '0 0 auto', padding: '16px 22px 18px', borderTop: '1px solid #e6e9ef', background: 'rgba(255,255,255,.98)', boxShadow: '0 -12px 28px rgba(24,39,75,.06)' },
+  composerArea: { position: 'fixed', left: '50%', bottom: 12, zIndex: 20, boxSizing: 'border-box', width: 'calc(100% - 36px)', maxWidth: 960, maxHeight: 'calc(100dvh - 24px)', overflowY: 'auto', transform: 'translateX(-50%)', padding: '16px 22px 18px', border: '1px solid #e0e4ed', borderRadius: 18, background: 'rgba(255,255,255,.98)', boxShadow: '0 16px 48px rgba(24,39,75,.18)' },
   planModeToggle: { display: 'flex', gap: 8, alignItems: 'center', fontWeight: 700, marginBottom: 10 },
   planModeHint: { color: '#667085', fontWeight: 400 },
   composer: { display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end' },
