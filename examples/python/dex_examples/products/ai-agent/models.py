@@ -114,7 +114,6 @@ class UserMessage:
 @dataclass(frozen=True)
 class SteerMessageRequest:
     message_id: str
-    message: UserMessage
 
 
 @dataclass(frozen=True)
@@ -213,10 +212,23 @@ class AgentDescription:
     pending_user_input_choices: list[str]
     plan: dict[str, Any] | None
     plan_execution_requested: bool
-    pending_queued_message_count: int
-    pending_steered_message_count: int
     available_mcp_servers: list[str]
     available_tools: list[str]
+
+
+@dataclass(frozen=True)
+class PendingUserMessage:
+    message_id: str
+    value: UserMessage
+
+
+@dataclass(frozen=True)
+class AgentSnapshot:
+    run_id: str
+    messages: list[SequencedMessage]
+    description: AgentDescription
+    queued: list[PendingUserMessage]
+    steered: list[PendingUserMessage]
 
 
 @dataclass(frozen=True)

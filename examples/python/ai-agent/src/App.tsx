@@ -149,8 +149,6 @@ interface AgentDescription {
   pending_user_input_choices: string[];
   plan: AgentPlan | null;
   plan_execution_requested: boolean;
-  pending_queued_message_count: number;
-  pending_steered_message_count: number;
   available_mcp_servers: string[];
   available_tools: string[];
 }
@@ -167,6 +165,17 @@ interface AgentFlowStatus {
   run_id: string;
   error_type: string | null;
   error_message: string | null;
+}
+
+interface AgentSnapshot {
+  run_id: string;
+  flow_status: string;
+  error_type: string | null;
+  error_message: string | null;
+  messages: SequencedMessage[];
+  description: AgentDescription | null;
+  queued: QueuedMessage[];
+  steered: QueuedMessage[];
 }
 
 interface PortalProvider {
@@ -294,42 +303,38 @@ const App: React.FC = () => {
   const fetchState = useCallback(async (acceptedSubmissionId?: string) => {
     if (!workflowId) return;
     const fetchSequence = ++stateFetchSequenceRef.current;
-    const query = new URLSearchParams({ workflowId, limit: '200' });
-    const [historyResponse, describeResponse, queueResponse, statusResponse] = await Promise.all([
-      fetch(`${API_BASE}/history?${query}`),
-      fetch(`${API_BASE}/describe?workflowId=${encodeURIComponent(workflowId)}`),
-      fetch(`${API_BASE}/message-queue?workflowId=${encodeURIComponent(workflowId)}`),
-      fetch(`${API_BASE}/status?workflowId=${encodeURIComponent(workflowId)}`),
-    ]);
-    if (!statusResponse.ok) throw new Error(await statusResponse.text());
-    const nextFlowStatus = await statusResponse.json() as AgentFlowStatus;
+    const response = await fetch(
+      `${API_BASE}/snapshot?workflowId=${encodeURIComponent(workflowId)}`,
+    );
+    if (!response.ok) throw new Error(await response.text());
+    const snapshot = await response.json() as AgentSnapshot;
     if (fetchSequence !== stateFetchSequenceRef.current) return;
-    setFlowStatus(nextFlowStatus);
-    if (!historyResponse.ok) throw new Error(await historyResponse.text());
-    if (!describeResponse.ok) throw new Error(await describeResponse.text());
-    if (!queueResponse.ok) throw new Error(await queueResponse.text());
-    const history = await historyResponse.json();
-    const nextDescription = await describeResponse.json();
-    const nextQueue = await queueResponse.json() as MessageQueue;
-    if (fetchSequence !== stateFetchSequenceRef.current) return;
-    setMessages(history.messages);
+    setFlowStatus({
+      status: snapshot.flow_status,
+      run_id: snapshot.run_id,
+      error_type: snapshot.error_type,
+      error_message: snapshot.error_message,
+    });
     setHasLoadedConversation(true);
-    setDescription(nextDescription);
-    descriptionStatusRef.current = nextDescription.status;
-    setMessageQueue((current) => ({
-      queued: reconcileOptimisticMessages(
-        current.queued,
-        nextQueue.queued,
-        history.messages,
-        acceptedSubmissionId,
-      ),
-      steered: nextQueue.steered,
-    }));
-    if (
-      nextDescription.status === 'waiting_for_message'
-      && history.messages.at(-1)?.message.role === 'assistant'
-    ) {
-      setLiveResponse(null);
+    if (snapshot.description !== null) {
+      setMessages(snapshot.messages);
+      setDescription(snapshot.description);
+      descriptionStatusRef.current = snapshot.description.status;
+      setMessageQueue((current) => ({
+        queued: reconcileOptimisticMessages(
+          current.queued,
+          snapshot.queued,
+          snapshot.messages,
+          acceptedSubmissionId,
+        ),
+        steered: snapshot.steered,
+      }));
+      if (
+        snapshot.description.status === 'waiting_for_message'
+        && snapshot.messages.at(-1)?.message.role === 'assistant'
+      ) {
+        setLiveResponse(null);
+      }
     }
   }, [workflowId]);
 

@@ -30,6 +30,8 @@ Use an Attribute for durable state inside one Flow execution. Register every Att
 
 Use one Attribute when the value is cohesive and should be replaced as a unit. Use an AttributeMap when runtime-keyed instances change independently; each instance is stored separately, avoiding a rewrite of the whole collection. Use stable domain keys and delete instances that are no longer needed.
 
+RPCs receive regular Attribute values automatically. They must explicitly load AttributeMap entries. Load the whole map for broad snapshots or exact instances for known keys. AttributeMap size does not make its entries available. An explicit load controls data transfer only; it does not enable transactional execution or isolation.
+
 Lock the exact AttributeMap instance when Steps or RPCs can race on it. Do not treat an AttributeMap index as an index over its instances: all instances share one Flow search field, later writes replace that field, and instance keys are not searchable. AttributeMap enumeration is not server-side pagination.
 
 Read [large-attributes-and-locality.md](large-attributes-and-locality.md) for large values, map chunking, BlobCache locality, and external projections.
@@ -44,11 +46,15 @@ Use a ChannelMap when the same message contract is partitioned by a dynamic key.
 
 Every pending Channel message has a server-assigned message ID. List pending messages when an application needs a durable queue UI. Listing preserves FIFO order and does not consume messages. Only a pending message can be deleted; deletion after consumption returns the Channel-message-not-found error.
 
+RPCs always receive ChannelInfo sizes, so Channel size and ChannelMap keys and sizes do not require a load. Reading pending message envelopes requires an explicit Channel or ChannelMap load. Load the whole ChannelMap or exact instances according to what the handler reads. A loaded empty queue is empty; reading an unloaded queue is a usage error.
+
 A Channel queue is not conversation history. Keep consumed user and assistant messages in Attributes when the application must display or reconstruct them.
 
-Use a transactional RPC to move or edit a pending message atomically: stage deletion of its message ID and publication of the replacement in one handler. Attribute locking already selects transactional execution. Channel deletion without an Attribute lock must explicitly select the SDK's transactional RPC option. A missing message then rejects the entire transaction, including all Attribute writes and Channel publications.
+Use a transactional RPC to move or edit a pending message atomically. The caller should send only the message ID. Explicitly load the source Channel, find the original Value in the RPC snapshot, then stage its deletion and destination publication. A missing message rejects the entire transaction, including all Attribute writes and Channel publications.
 
-Without transactional execution, a signal RPC treats a missing deletion as a no-op and commits its other effects. Cadence implements the operation as query followed by signal and cannot provide Temporal's atomic guarantee.
+Attribute locking already selects transactional execution. Channel deletion without an Attribute lock must explicitly select the SDK's transactional RPC option. Transactional validation protects an ID-only move from concurrent consumption, but it does not isolate decisions based on the whole snapshot. For those decisions, every cooperating Step and RPC writer must use the same Attribute lock. The lock does not implicitly load map entries or Channel messages.
+
+Without transactional execution, a signal RPC treats a missing deletion as a no-op and commits its other effects. Cadence implements the operation as query followed by signal and cannot provide the same atomic guarantee.
 
 Docs: https://docs.superdurable.io/primitives/channel
 
@@ -57,6 +63,8 @@ Docs: https://docs.superdurable.io/primitives/channel
 Use an RPC for a typed request/response interaction with an active Flow. RPC handlers may read or update Attributes and publish Channels. Protect shared mutations with Attribute locks when they can race with Steps or other RPCs.
 
 Use a Channel instead when the caller should enqueue work without synchronous application-level handling.
+
+Keep application read models cohesive. When one page needs conversation Attributes, a description, and pending queues, prefer one read-only snapshot RPC that explicitly loads those collections over several independently timed requests.
 
 Select transactional execution when an RPC must atomically validate a pending Channel message ID and commit its deletion with other Flow-state writes. Handle the Channel-message-not-found error as a stale queue view and refresh before retrying.
 

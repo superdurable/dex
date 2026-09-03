@@ -52,9 +52,11 @@ Application 会把每条 user、assistant 与 tool message 分别保存在 [Attr
 
 User message 会进入 durable **QueuedUserMessages** FIFO queue。Agent loop 运行期间，这些 message 会保持 pending，不会中断当前 model 或 tool call。Server 接受后，UI 会立即显示它们。只要 message 尚未被消费，用户就能 Edit、Delete 或选择 Steer。Edit 会先删除 pending message；重新提交时，它会带着新的 ID 加到 queue 尾部。
 
-Steer 会在一个 transaction 中删除选中的 queued message，并把相同 value 发布到 **SteeredUserMessages**。Agent 会在下一次 model call、tool、approval wait 或 Timer continuation 前检查这条 queue。它不会取消已经开始的 LLM 或 MCP request。到达下一个 safe boundary 后，Agent 会清除尚未执行的 tool call 与过期 approval 或 Timer state，记录结构化 cancellation result，再根据 Steer message 重新规划。
+Steer 只发送选中的 message ID。Transactional RPC 会显式加载 **QueuedUserMessages**，找到原始 Value，暂存 deletion，并把该 Value 发布到 **SteeredUserMessages**。如果另一个 operation 先消费了 message，Dex 不会 commit 任何一项 effect。Agent 会在下一次 model call、tool、approval wait 或 Timer continuation 前检查 steered queue。它不会取消已经开始的 LLM 或 MCP request。到达下一个 safe boundary 后，Agent 会清除尚未执行的 tool call 与过期 approval 或 Timer state，记录结构化 cancellation result，再根据 Steer message 重新规划。
 
 Message queue 不是 chat history。Pending Channel message 尚未被 Agent 消费，因此可以修改。Message 被消费后会成为 durable conversation history，原 message ID 也随即失效。
+
+Browser 通过一个 snapshot endpoint 加载 application state。一个 read-only RPC 会显式加载 **AgentMessages**、**QueuedUserMessages** 和 **SteeredUserMessages**，再从同一次 invocation 返回 conversation、Agent description、run ID 与两个 queue。每次 mutation 成功、live event 到达、页面恢复 focus 或 connectivity 时，browser 都会刷新；另外每八秒执行一次低频兜底刷新。
 
 ## Durable plan
 

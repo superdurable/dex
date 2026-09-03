@@ -32,6 +32,7 @@ import io.superdurable.dex.products.jobpost.JobPostingFlow;
 import io.superdurable.dex.products.microservices.OrchestrationFlow;
 import io.superdurable.dex.products.moneytransfer.MoneyTransferFlow;
 import io.superdurable.dex.products.orderprocessing.OrderProcessingFlow;
+import io.superdurable.dex.primitives.channel.ChannelFlow;
 import io.superdurable.dex.primitives.step.RetryingFailureFlow;
 import io.superdurable.dex.primitives.stream.StreamFlow;
 import io.superdurable.dex.products.subscription.SubscriptionFlow;
@@ -69,6 +70,7 @@ final class IntegEnvironment implements AutoCloseable {
     private final JobPostingFlow jobPostingFlow;
     private final OrchestrationFlow orchestrationFlow;
     private final RetryingFailureFlow retryingFailureFlow;
+    private final ChannelFlow channelFlow;
     private final StreamFlow streamFlow;
     private final SubscriptionFlow subscriptionFlow;
     private final UserOnboardingFlow userOnboardingFlow;
@@ -87,6 +89,7 @@ final class IntegEnvironment implements AutoCloseable {
             final JobPostingFlow jobPostingFlow,
             final OrchestrationFlow orchestrationFlow,
             final RetryingFailureFlow retryingFailureFlow,
+            final ChannelFlow channelFlow,
             final StreamFlow streamFlow,
             final SubscriptionFlow subscriptionFlow,
             final UserOnboardingFlow userOnboardingFlow) {
@@ -103,6 +106,7 @@ final class IntegEnvironment implements AutoCloseable {
         this.jobPostingFlow = jobPostingFlow;
         this.orchestrationFlow = orchestrationFlow;
         this.retryingFailureFlow = retryingFailureFlow;
+        this.channelFlow = channelFlow;
         this.streamFlow = streamFlow;
         this.subscriptionFlow = subscriptionFlow;
         this.userOnboardingFlow = userOnboardingFlow;
@@ -120,6 +124,7 @@ final class IntegEnvironment implements AutoCloseable {
         final JobPostingFlow jobPostingFlow = new JobPostingFlow(service);
         final OrchestrationFlow orchestrationFlow = new OrchestrationFlow(service);
         final RetryingFailureFlow retryingFailureFlow = new RetryingFailureFlow();
+        final ChannelFlow channelFlow = new ChannelFlow();
         final StreamFlow streamFlow = new StreamFlow();
         final SubscriptionFlow subscriptionFlow = new SubscriptionFlow(service);
         final UserOnboardingFlow userOnboardingFlow = new UserOnboardingFlow(service);
@@ -131,6 +136,7 @@ final class IntegEnvironment implements AutoCloseable {
                 jobPostingFlow,
                 orchestrationFlow,
                 retryingFailureFlow,
+                channelFlow,
                 streamFlow,
                 subscriptionFlow,
                 userOnboardingFlow);
@@ -178,6 +184,7 @@ final class IntegEnvironment implements AutoCloseable {
                 jobPostingFlow,
                 orchestrationFlow,
                 retryingFailureFlow,
+                channelFlow,
                 streamFlow,
                 subscriptionFlow,
                 userOnboardingFlow);
@@ -213,6 +220,10 @@ final class IntegEnvironment implements AutoCloseable {
 
     RetryingFailureFlow retryingFailureFlow() {
         return retryingFailureFlow;
+    }
+
+    ChannelFlow channelFlow() {
+        return channelFlow;
     }
 
     StreamFlow streamFlow() {

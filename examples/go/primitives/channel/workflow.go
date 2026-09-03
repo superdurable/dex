@@ -38,7 +38,6 @@ type ChannelFlow struct {
 
 type MoveMessage struct {
 	MessageID string `json:"messageId"`
-	Value     string `json:"value"`
 }
 
 func NewChannelFlow() *ChannelFlow {
@@ -85,11 +84,17 @@ func (*ChannelFlow) Approve(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.Non
 }
 
 func (*ChannelFlow) Move(ctx dex.Context, message MoveMessage) (*dex.RPCResult[dex.None], error) {
+	messageToMove, found, err := Queued.FindPendingMessage(ctx, message.MessageID)
+	if err != nil {
+		return nil, err
+	}
 	if err := Queued.Delete(ctx, message.MessageID); err != nil {
 		return nil, err
 	}
-	if err := Moved.Publish(ctx, message.Value); err != nil {
-		return nil, err
+	if found {
+		if err := Moved.Publish(ctx, messageToMove.Value); err != nil {
+			return nil, err
+		}
 	}
 	return &dex.RPCResult[dex.None]{}, nil
 }

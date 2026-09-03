@@ -36,7 +36,6 @@ rust: 'examples/rust/src/primitives/channel/flow.rs',
 @dataclass(frozen=True)
 class MoveMessage:
     message_id: str
-    value: str
 
 
 class ChannelWaitStep(Step[int]):
@@ -74,10 +73,12 @@ class ChannelFlow(Flow[int]):
     def approve(self, context: Context) -> None:
         self.approval.publish(context, "approved")
 
-    @rpc(is_transactional=True)
+    @rpc(is_transactional=True, load_channels=(queued,))
     def move(self, context: Context, input: MoveMessage) -> None:
+        message = self.queued.find_pending_message(context, input.message_id)
         self.queued.delete(context, input.message_id)
-        self.moved.publish(context, input.value)
+        if message is not None:
+            self.moved.publish(context, message.value)
 ```
 
 </SdkSnippet>
@@ -96,7 +97,6 @@ type ChannelFlow struct {
 
 type MoveMessage struct {
 	MessageID string `json:"messageId"`
-	Value     string `json:"value"`
 }
 
 func (*ChannelFlow) GetSteps() []dex.StepDef {
@@ -139,11 +139,17 @@ func (*ChannelFlow) Approve(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.Non
 }
 
 func (*ChannelFlow) Move(ctx dex.Context, message MoveMessage) (*dex.RPCResult[dex.None], error) {
+	messageToMove, found, err := Queued.FindPendingMessage(ctx, message.MessageID)
+	if err != nil {
+		return nil, err
+	}
 	if err := Queued.Delete(ctx, message.MessageID); err != nil {
 		return nil, err
 	}
-	if err := Moved.Publish(ctx, message.Value); err != nil {
-		return nil, err
+	if found {
+		if err := Moved.Publish(ctx, messageToMove.Value); err != nil {
+			return nil, err
+		}
 	}
 	return &dex.RPCResult[dex.None]{}, nil
 }
@@ -156,14 +162,12 @@ func (*ChannelFlow) Move(ctx dex.Context, message MoveMessage) (*dex.RPCResult[d
 public class ChannelFlow implements Flow<Integer> {
     public static final class MoveMessage {
         public String messageId;
-        public String value;
 
         public MoveMessage() {
         }
 
-        public MoveMessage(final String messageId, final String value) {
+        public MoveMessage(final String messageId) {
             this.messageId = messageId;
-            this.value = value;
         }
     }
 
@@ -187,10 +191,14 @@ public class ChannelFlow implements Flow<Integer> {
         approval.publish(context, "approved");
     }
 
-    @RPC(isTransactional = true)
+    @RPC(isTransactional = true, loadChannels = {"Queued"})
     public void move(final Context context, final MoveMessage message) {
+        final ChannelMessage<String> messageToMove =
+                queued.findPendingMessage(context, message.messageId);
         queued.delete(context, message.messageId);
-        moved.publish(context, message.value);
+        if (messageToMove != null) {
+            moved.publish(context, messageToMove.getValue());
+        }
     }
 
     final class ChannelWaitStep implements Step<Integer> {
@@ -228,7 +236,6 @@ export const moved = new Channel("Moved", stringCodec);
 
 export interface MoveMessage {
   readonly messageId: string;
-  readonly value: string;
 }
 
 const moveMessageCodec = jsonCodec<MoveMessage>();
@@ -276,10 +283,13 @@ export class ChannelFlow implements Flow<number> {
     approval.publish(context, "approved");
   }
 
-  @rpc({ isTransactional: true, inputCodec: moveMessageCodec })
+  @rpc({ isTransactional: true, loadChannels: [queued], inputCodec: moveMessageCodec })
   public move(context: Context, message: MoveMessage): void {
+    const messageToMove = queued.findPendingMessage(context, message.messageId);
     queued.delete(context, message.messageId);
-    moved.publish(context, message.value);
+    if (messageToMove !== undefined) {
+      moved.publish(context, messageToMove.value);
+    }
   }
 }
 ```
@@ -293,12 +303,11 @@ pub const CHANNEL_MOVE: Rpc<MoveMessage, ()> = Rpc::new("ChannelMove");
 
 static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
 pub static QUEUED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Queued"));
-static MOVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Moved"));
+pub static MOVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Moved"));
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MoveMessage {
     pub message_id: String,
-    pub value: String,
 }
 
 #[derive(Default)]
@@ -312,8 +321,12 @@ impl ChannelFlow {
     }
 
     fn move_message(&self, context: &mut Context, message: MoveMessage) -> HandlerResult<()> {
+        let message_to_move = QUEUED.find_pending_message(context, &message.message_id)?;
         QUEUED.delete(context, &message.message_id)?;
-        MOVED.publish(context, message.value)
+        if let Some(message_to_move) = message_to_move {
+            MOVED.publish(context, message_to_move.value)?;
+        }
+        Ok(())
     }
 }
 
@@ -334,7 +347,10 @@ impl Flow for ChannelFlow {
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
             .procedure_without_input(CHANNEL_APPROVE, Self::approve)
-            .procedure(CHANNEL_MOVE.is_transactional(), Self::move_message)
+            .procedure(
+                CHANNEL_MOVE.is_transactional().load_channel(&QUEUED),
+                Self::move_message,
+            )
     }
 }
 
@@ -395,6 +411,8 @@ Worker 外的代码可以用 Client **PublishToChannel** API 直接发布。Clie
 Dex 接受每次 publication 时都会分配一个 UUIDv7 message ID。Client 可以按 FIFO 顺序列出所有 pending message，也可以用 ID 删除其中一条。List 不会消费 message。只有仍然 pending 的 message 才能删除；如果并发 Step 已经消费它，或者另一个请求已经删除它，API 会返回 Channel-message-not-found error。
 
 这是 queue state，不是 Flow history。Step 消费 message 后，它会从 Channel 消失，但 publication 与 consumption 仍可在 Flow history 中观察，直到 retention 将它们清理。
+
+RPC 始终会收到 Channel size metadata。读取 pending message 的 ID 或 Value 前，必须显式加载对应 Channel。加载会建立一份 invocation snapshot，但不会消费 message。已加载的空 Channel 返回空列表；未加载就读取 pending message 会返回 usage error。
 
 <SdkTabs
 examples={{
@@ -470,8 +488,10 @@ match run_blocking(move || client.get_channel_messages(&query.workflow_id, &QUEU
 </SdkSnippet>
 </SdkTabs>
 
-RPC 可以把删除与其他 durable write 组合。Missing message 必须中止所有 write 时，需要启用 transactional execution；见 [Transactional read 与 write](/primitives/rpc#transactional-reads-and-writes)。
+RPC 可以把删除与其他 durable write 组合。Move 示例加载 **Queued**，按 message ID 找到原始 Value，再暂存 deletion 并重新发布该 Value。Caller 只传 ID。Missing message 必须中止所有 write 时，需要启用 transactional execution；见 [Transactional read 与 write](/primitives/rpc#transactional-reads-and-writes)。
 
 ## ChannelMap {#channelmap}
 
 一个 Flow 有一组数量不受限、彼此独立的队列时，用 **ChannelMap**，例如每个订单、客户或 job 一条 Channel。ChannelMap 只声明一个名字和一个值类型，每个 instance key 都有自己的 FIFO 队列。
+
+RPC 无需加载 pending message，也能读取当前 ChannelMap key 和 size。Handler 需要所有 instance 的 pending message 时，加载整个 ChannelMap；只需要已知 key 时，加载指定 instance。Instance key 不能包含 **/**，因为 Dex 使用该字符分隔 map name 与 instance key。

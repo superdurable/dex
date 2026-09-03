@@ -148,26 +148,11 @@ async fn move_message(
     Query(query): Query<MessageQuery>,
 ) -> impl IntoResponse {
     match run_blocking(move || {
-        let messages = client.get_channel_messages(&query.workflow_id, &QUEUED)?;
-        let Some(message) = messages
-            .into_iter()
-            .find(|message| message.message_id == query.message_id)
-        else {
-            return client.invoke_rpc(
-                &query.workflow_id,
-                CHANNEL_MOVE,
-                MoveMessage {
-                    message_id: query.message_id,
-                    value: String::new(),
-                },
-            );
-        };
         client.invoke_rpc(
             &query.workflow_id,
             CHANNEL_MOVE,
             MoveMessage {
-                message_id: message.message_id,
-                value: message.value,
+                message_id: query.message_id,
             },
         )
     }) {

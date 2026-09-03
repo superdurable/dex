@@ -241,9 +241,9 @@ dependencies = [
 
 [[package]]
 name = "dex-blob-cache"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b117cacd11488669221c89132d9e21d68cb70d5a475fb28f582aa61f33e1d65"
+checksum = "0b9239ff69867ad30891b0144690e3d1bd223bdd0755e04c88102821585f1018"
 dependencies = [
  "crc32c",
  "sha2",
@@ -268,9 +268,9 @@ dependencies = [
 
 [[package]]
 name = "dex-protocol"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1b62ccf738f641bd75fc7eb54c36fe7abc728282cc97a7862a756fa06a2c437"
+checksum = "4c7fedec07f4325d2ca5032c5212b933fcf021b1eca67f11ef26d28bb384f732"
 dependencies = [
  "prost",
  "prost-types",
@@ -282,9 +282,9 @@ dependencies = [
 
 [[package]]
 name = "dex-sdk"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09b343bb79634157a2de81ecca2974cce1ea7763ca4900c03e4390d36f3e5c24"
+checksum = "4899d97003f72c6f31668664dadef5fe2e2a7e518dbcd683d79aba2863bb57c8"
 dependencies = [
  "dex-blob-cache",
  "dex-protocol",

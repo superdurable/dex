@@ -51,9 +51,11 @@ Each map instance can be loaded and updated independently. This avoids rewriting
 
 User messages enter the durable **QueuedUserMessages** FIFO queue. While the Agent loop is running, they remain pending instead of interrupting the current model or tool call. The UI shows them as soon as they are accepted and lets the user edit, delete, or Steer a message while it is still pending. Editing removes the pending message first; resubmitting appends a new message with a new ID at the tail.
 
-Steer transactionally deletes one selected queued message and republishes its value to **SteeredUserMessages**. The Agent checks that queue before its next model call, tool, approval wait, or Timer continuation. It does not cancel an LLM or MCP request already running. At the next safe boundary, the Agent clears unexecuted tool calls and stale approval or Timer state, records structured cancellation results, and replans from the Steer message.
+Steer sends only the selected message ID. Its transactional RPC explicitly loads **QueuedUserMessages**, finds the original Value, stages its deletion, and publishes that Value to **SteeredUserMessages**. If another operation consumes the message first, Dex commits neither effect. The Agent checks the steered queue before its next model call, tool, approval wait, or Timer continuation. It does not cancel an LLM or MCP request already running. At the next safe boundary, the Agent clears unexecuted tool calls and stale approval or Timer state, records structured cancellation results, and replans from the Steer message.
 
 The message queue is not chat history. Pending Channel messages can be changed because the Agent has not consumed them. Once consumed, the user message becomes durable conversation history and its message ID is no longer valid.
+
+The browser loads application state through one snapshot endpoint. One read-only RPC explicitly loads **AgentMessages**, **QueuedUserMessages**, and **SteeredUserMessages**, then returns the conversation, Agent description, run ID, and both queues from the same invocation. The browser refreshes after every mutation, when a live event arrives, when the page regains focus or connectivity, and every eight seconds as a fallback.
 
 ## Durable plans
 

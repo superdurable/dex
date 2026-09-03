@@ -20,6 +20,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dex_examples_rust::create_example_registry;
 use dex_examples_rust::patterns::recovery::FailureRecoveryFlow;
+use dex_examples_rust::primitives::channel::flow::{
+    CHANNEL_APPROVE, CHANNEL_MOVE, ChannelFlow, MOVED, MoveMessage, QUEUED,
+};
 use dex_examples_rust::primitives::stream::flow::{PROGRESS, StreamFlow};
 use dex_examples_rust::products::deal_dsl::{
     DEAL_CONDITION_MESSAGES, DEAL_CURRENT_STATE, DealDSLFlow, example_deal_start,
@@ -47,8 +50,8 @@ use dex_examples_rust::products::subscription::{
     SubscriptionRequest, SubscriptionState,
 };
 use dex_sdk::{
-    BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkResult, StepExecutionId,
-    StopFlowOptions, TimerId, Worker, WorkerOptions,
+    BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkError, SdkResult,
+    StepExecutionId, StopFlowOptions, TimerId, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
 
@@ -151,6 +154,75 @@ impl Drop for DexEnvironment {
         }
         self.cache.close().expect("close Rust examples cache");
     }
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn channel_message_can_be_moved_by_id() {
+    let environment = DexEnvironment::start();
+    let flow = ChannelFlow::default();
+    let flow_id = unique_flow_id("channel-message");
+    environment
+        .client
+        .start_flow(&flow, &flow_id, 30)
+        .expect("start Rust Channel Flow");
+    environment
+        .client
+        .publish(&flow_id, &QUEUED, "delete me".to_string())
+        .expect("publish first queued message");
+    environment
+        .client
+        .publish(&flow_id, &QUEUED, "move me".to_string())
+        .expect("publish second queued message");
+
+    let pending = environment
+        .client
+        .get_channel_messages(&flow_id, &QUEUED)
+        .expect("list queued messages");
+    assert_eq!(
+        pending
+            .iter()
+            .map(|message| message.value.as_str())
+            .collect::<Vec<_>>(),
+        ["delete me", "move me"]
+    );
+    environment
+        .client
+        .delete_channel_message(&flow_id, &QUEUED, &pending[0].message_id)
+        .expect("delete first queued message");
+
+    let move_message = MoveMessage {
+        message_id: pending[1].message_id.clone(),
+    };
+    environment
+        .client
+        .invoke_rpc(&flow_id, CHANNEL_MOVE, move_message.clone())
+        .expect("move queued message");
+    let moved = environment
+        .client
+        .get_channel_messages(&flow_id, &MOVED)
+        .expect("list moved messages");
+    assert_eq!(moved[0].value, "move me");
+
+    assert!(matches!(
+        environment
+            .client
+            .invoke_rpc(&flow_id, CHANNEL_MOVE, move_message),
+        Err(SdkError::ChannelMessageNotFound { .. })
+    ));
+    assert_eq!(
+        environment
+            .client
+            .get_channel_messages(&flow_id, &MOVED)
+            .expect("list moved messages after failed retry")
+            .len(),
+        1
+    );
+
+    environment
+        .client
+        .invoke_rpc_without_input(&flow_id, CHANNEL_APPROVE)
+        .expect("approve Channel Flow");
 }
 
 #[test]

@@ -162,20 +162,17 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 </SdkSnippet>
 </SdkTabs>
 
-## 选择性加载 RPC 状态
+## 选择性加载 RPC 状态 {#load-collection-state}
 
-RPC annotation 或 **Client** invoke option 会请求 **AttributeMap** entry 或 pending
-**Channel** message。Dex Server 会验证请求并推导已加载范围，再随 RPC snapshot 返回。
-RPC 读取选择性加载的 collection 时，SDK 会检查这个返回范围。
+每个 RPC 都会收到普通 Attribute value 和 Channel size metadata。读取 AttributeMap entry 或 pending Channel message 时必须显式加载，避免不使用这些大型 collection 的 RPC 仍要接收它们。
 
-如果 **AttributeMap** entry 或 instance 不在该范围内，SDK 会抛出
-**AttributeMapNotLoadedError**。如果 pending message 不在该范围内，SDK 会抛出
-**ChannelMessagesNotLoadedError**。Java 使用 **AttributeMapNotLoadedException** 和
-**ChannelMessagesNotLoadedException**。
+Handler 需要所有当前 instance 时，加载整个 AttributeMap 或 ChannelMap；只需要已知 key 时，加载指定 map instance。需要 pending message 的 ID 或 Value 时，加载对应 Channel。Channel size、ChannelMap key 和 size 无需加载 pending message 即可读取。
 
-显式加载的 collection 可以为空，这不是错误。空的 pending-message snapshot 会返回空列表。
-不存在的 **AttributeMap** entry 会使用 SDK 正常的缺失值语义。not-loaded error 表示
-Dex Server 没有为该 collection 返回加载保证。正常情况下，返回范围与请求的加载项一致。
+Python、Java、TypeScript 和 Rust 在 RPC definition 上声明 load；Go 在 **InvokeOptions** 中提供。Dex Server 会根据 Flow persistence schema 验证 requested definition，并随 RPC snapshot 返回已加载范围。Handler 读取选择性加载的 collection 时，SDK 会检查这个范围。
+
+如果 **AttributeMap** entry 或 instance 不在该范围内，SDK 会抛出 **AttributeMapNotLoadedError**。如果 pending message 不在该范围内，SDK 会抛出 **ChannelMessagesNotLoadedError**。Java 使用 **AttributeMapNotLoadedException** 和 **ChannelMessagesNotLoadedException**。
+
+显式加载的 collection 可以为空，这不是错误。空的 pending-message snapshot 会返回空列表。不存在的 **AttributeMap** entry 会使用 SDK 正常的缺失值语义。Load 会建立一份 input snapshot。它不会消费 message，也不会使 RPC 具备 transactional 语义或阻止并发 operation。
 
 ## Transactional read 与 write {#transactional-reads-and-writes}
 
@@ -183,7 +180,7 @@ Transactional RPC 会把 RPC 的 read 和 write 作为一个 atomic operation �
 
 持有 Attribute lock 的 RPC 已经隐式具备 transactional 语义。也可以设置 **is_transactional=true**，显式启用 transactional RPC。这对 Channel message deletion 尤其有用，因为 Dex 会在 commit 任何 write 前验证 message 是否仍处于 pending 状态。
 
-Controller 先读取 pending message，再把 ID 和 Value 传给 transactional RPC。如果 concurrent consumer 已取走该消息，删除会失败，因此 Dex 不会发布 stale copy：
+Caller 只传 pending message ID。RPC 加载 source Channel，从 snapshot 读取原始 Value，再暂存 deletion 和 destination publication。如果 concurrent consumer 已取走该消息，deletion validation 会失败，因此 Dex 不会 commit 任何一项 effect：
 
 <SdkTabs
   examples={{
@@ -196,23 +193,28 @@ Controller 先读取 pending message，再把 ID 和 Value 传给 transactional 
 <SdkSnippet lang="python">
 
 ```python
-@rpc(is_transactional=True)
+@rpc(is_transactional=True, load_channels=(queued,))
 def move(self, context: Context, input: MoveMessage) -> None:
+    message = self.queued.find_pending_message(context, input.message_id)
     self.queued.delete(context, input.message_id)
-    self.moved.publish(context, input.value)
+    if message is not None:
+        self.moved.publish(context, message.value)
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
-err = controller.client.InvokeRPC(
+err := controller.client.InvokeRPC(
 	request.Request.Context(),
 	flowID,
 	controller.flow.Move,
-	MoveMessage{MessageID: messageToMove.MessageID, Value: messageToMove.Value},
+	MoveMessage{MessageID: messageID},
 	&none,
-	sdk.InvokeOptions{IsTransactional: true},
+	sdk.InvokeOptions{
+		IsTransactional: true,
+		LoadChannels:   []sdk.ChannelDef{Queued},
+	},
 )
 ```
 
@@ -220,10 +222,14 @@ err = controller.client.InvokeRPC(
 <SdkSnippet lang="java">
 
 ```java
-@RPC(isTransactional = true)
+@RPC(isTransactional = true, loadChannels = {"Queued"})
 public void move(final Context context, final MoveMessage message) {
+    final ChannelMessage<String> messageToMove =
+            queued.findPendingMessage(context, message.messageId);
     queued.delete(context, message.messageId);
-    moved.publish(context, message.value);
+    if (messageToMove != null) {
+        moved.publish(context, messageToMove.getValue());
+    }
 }
 ```
 
@@ -231,10 +237,13 @@ public void move(final Context context, final MoveMessage message) {
 <SdkSnippet lang="typescript">
 
 ```typescript
-@rpc({ isTransactional: true, inputCodec: moveMessageCodec })
+@rpc({ isTransactional: true, loadChannels: [queued], inputCodec: moveMessageCodec })
 public move(context: Context, message: MoveMessage): void {
+  const messageToMove = queued.findPendingMessage(context, message.messageId);
   queued.delete(context, message.messageId);
-  moved.publish(context, message.value);
+  if (messageToMove !== undefined) {
+    moved.publish(context, messageToMove.value);
+  }
 }
 ```
 
@@ -245,12 +254,17 @@ public move(context: Context, message: MoveMessage): void {
 fn rpcs(&self) -> RpcList<Self> {
     RpcList::new()
         .procedure_without_input(CHANNEL_APPROVE, Self::approve)
-        .procedure(CHANNEL_MOVE.is_transactional(), Self::move_message)
+        .procedure(
+            CHANNEL_MOVE.is_transactional().load_channel(&QUEUED),
+            Self::move_message,
+        )
 }
 ```
 
 </SdkSnippet>
 </SdkTabs>
+
+Transactional commit 不会在 handler 运行期间提供 isolation。如果决策依赖整个 loaded Channel、ChannelMap 或 AttributeMap 保持不变，所有协作的 Step 与 RPC writer 都必须使用同一把 Attribute lock。该 lock 提供 isolation，并隐式使 RPC 具备 transactional 语义；它不会加载 collection content。
 
 Non-transactional RPC 遇到 missing deletion 时会把它当作 no-op，仍然 commit 其他成功的 effect。Cadence 的 Channel deletion validation 和 write 不具备相同的 atomic guarantee。Cadence caller 必须能容忍这项竞态。
 

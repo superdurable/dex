@@ -17,6 +17,7 @@
 package io.superdurable.dex.primitives.channel;
 
 import io.superdurable.dex.Channel;
+import io.superdurable.dex.ChannelMessage;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
@@ -35,14 +36,12 @@ import java.util.List;
 public class ChannelFlow implements Flow<Integer> {
     public static final class MoveMessage {
         public String messageId;
-        public String value;
 
         public MoveMessage() {
         }
 
-        public MoveMessage(final String messageId, final String value) {
+        public MoveMessage(final String messageId) {
             this.messageId = messageId;
-            this.value = value;
         }
     }
 
@@ -66,10 +65,14 @@ public class ChannelFlow implements Flow<Integer> {
         approval.publish(context, "approved");
     }
 
-    @RPC(isTransactional = true)
+    @RPC(isTransactional = true, loadChannels = {"Queued"})
     public void move(final Context context, final MoveMessage message) {
+        final ChannelMessage<String> messageToMove =
+                queued.findPendingMessage(context, message.messageId);
         queued.delete(context, message.messageId);
-        moved.publish(context, message.value);
+        if (messageToMove != null) {
+            moved.publish(context, messageToMove.getValue());
+        }
     }
 
     final class ChannelWaitStep implements Step<Integer> {

@@ -59,11 +59,13 @@ When the model needs a user reply, route the question through a durable input to
 
 Use one Channel for queued user messages and another for steered messages. While the Agent loop is active, leave queued messages pending so the user can inspect, edit, delete, or explicitly steer them. Consume queued messages in FIFO order after the Agent reaches its user-input wait.
 
-Implement Steer with a transactional RPC that deletes the selected queued message ID and publishes its value to the steered Channel. Treat a missing ID as stale UI state and refresh the queue. Do not copy queued messages into conversation history until the Agent consumes them.
+Implement Steer with a transactional RPC that explicitly loads the queued Channel. Send only the selected message ID, find its original Value in the loaded snapshot, then stage its deletion and publication to the steered Channel. Treat a missing ID as stale UI state and refresh the queue. Do not copy queued messages into conversation history until the Agent consumes them.
 
 Apply steered messages at safe Step boundaries. Do not cancel an in-flight model or tool invocation. Before the next model call, tool call, approval continuation, or timer continuation, drain steered messages, persist structured cancellation results for abandoned calls, clear stale approval or timer state, and let the model replan.
 
 Only steered messages should interrupt a pending approval or durable Timer. A queued message remains editable and does not alter active work until the Agent becomes idle or the user chooses Steer.
+
+Expose one read-only application snapshot RPC for the browser. Explicitly load the conversation AttributeMap and both pending-message Channels, then return application history, Agent description, run ID, queued messages, and steered messages from that invocation. This history is the application's durable message history, not Dex execution history. Reconcile after mutations and live events, on focus or reconnect, and with a low-frequency fallback poll.
 
 ## Model long waits as Timer tools
 

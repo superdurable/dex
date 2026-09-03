@@ -38,7 +38,6 @@ export const moved = new Channel("Moved", stringCodec);
 
 export interface MoveMessage {
   readonly messageId: string;
-  readonly value: string;
 }
 
 const moveMessageCodec = jsonCodec<MoveMessage>();
@@ -86,10 +85,13 @@ export class ChannelFlow implements Flow<number> {
     approval.publish(context, "approved");
   }
 
-  @rpc({ isTransactional: true, inputCodec: moveMessageCodec })
+  @rpc({ isTransactional: true, loadChannels: [queued], inputCodec: moveMessageCodec })
   public move(context: Context, message: MoveMessage): void {
+    const messageToMove = queued.findPendingMessage(context, message.messageId);
     queued.delete(context, message.messageId);
-    moved.publish(context, message.value);
+    if (messageToMove !== undefined) {
+      moved.publish(context, messageToMove.value);
+    }
   }
 }
 
