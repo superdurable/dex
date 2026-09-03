@@ -110,13 +110,13 @@ func (am *PersistenceManager) TryLoadAttributes(
 // TryLoadRPCAttributes locks keys and loads the requested RPC Attribute state.
 func (am *PersistenceManager) TryLoadRPCAttributes(
 	keysToLock []string,
-	attributeMapNames []string,
+	attributeMapSelectors []string,
 ) ([]*dexpb.KV, bool) {
 	if !am.CanLockKeys(keysToLock) {
 		return nil, false
 	}
 	am.lockKeys(keysToLock)
-	return am.GetRPCAttributes(attributeMapNames), true
+	return am.GetRPCAttributes(attributeMapSelectors), true
 }
 
 func (am *PersistenceManager) GetAllAttributes() []*dexpb.KV {
@@ -130,16 +130,25 @@ func (am *PersistenceManager) GetAllAttributes() []*dexpb.KV {
 }
 
 // GetRPCAttributes returns ordinary Attributes and selected AttributeMap entries.
-func (am *PersistenceManager) GetRPCAttributes(attributeMapNames []string) []*dexpb.KV {
-	attributeMapPrefixes := make(map[string]struct{}, len(attributeMapNames))
-	for _, name := range attributeMapNames {
-		attributeMapPrefixes[name+"/"] = struct{}{}
+func (am *PersistenceManager) GetRPCAttributes(attributeMapSelectors []string) []*dexpb.KV {
+	allInstancePrefixes := make([]string, 0, len(attributeMapSelectors))
+	exactInstances := make(map[string]struct{}, len(attributeMapSelectors))
+	for _, selector := range attributeMapSelectors {
+		if strings.HasSuffix(selector, "/") {
+			allInstancePrefixes = append(allInstancePrefixes, selector)
+		} else {
+			exactInstances[selector] = struct{}{}
+		}
 	}
 	attributes := make([]*dexpb.KV, 0, len(am.attributes))
 	for _, key := range sortedAttributeKeys(am.attributes) {
 		separatorIndex := strings.IndexByte(key, '/')
 		if separatorIndex >= 0 {
-			if _, loaded := attributeMapPrefixes[key[:separatorIndex+1]]; !loaded {
+			_, loaded := exactInstances[key]
+			for _, prefix := range allInstancePrefixes {
+				loaded = loaded || strings.HasPrefix(key, prefix)
+			}
+			if !loaded {
 				continue
 			}
 		}

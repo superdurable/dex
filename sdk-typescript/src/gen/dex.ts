@@ -842,12 +842,18 @@ export interface InvokeRPCRequest {
    * automatically. Channel deletion alone does not; callers must opt in.
    */
   isTransactional: boolean;
-  /** AttributeMap definitions whose entries are loaded for the RPC handler. */
-  loadAttributeMapNames: string[];
+  /**
+   * AttributeMap selectors whose entries are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+   */
+  loadAttributeMapSelectors: string[];
   /** Channel definitions whose pending messages are loaded for the RPC handler. */
   loadChannelNames: string[];
-  /** ChannelMap definitions whose pending messages are loaded for the RPC handler. */
-  loadChannelMapNames: string[];
+  /**
+   * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
+   */
+  loadChannelMapSelectors: string[];
 }
 
 export interface InvokeRPCResponse {
@@ -1022,9 +1028,9 @@ export interface InvokeWorkerRPCRequest {
   attributes: KV[];
   channelInfos: { [key: string]: ChannelInfo };
   loadedChannelMessages: { [key: string]: ChannelValues };
-  loadedAttributeMapNames: string[];
+  loadedAttributeMapSelectors: string[];
   loadedChannelNames: string[];
-  loadedChannelMapNames: string[];
+  loadedChannelMapSelectors: string[];
 }
 
 export interface InvokeWorkerRPCRequest_ChannelInfosEntry {
@@ -1405,9 +1411,9 @@ export interface GetAttributesQueryResponse {
 }
 
 export interface PrepareRpcQueryRequest {
-  loadAttributeMapNames: string[];
+  loadAttributeMapSelectors: string[];
   loadChannelNames: string[];
-  loadChannelMapNames: string[];
+  loadChannelMapSelectors: string[];
 }
 
 export interface PrepareRpcQueryResponse {
@@ -1418,9 +1424,9 @@ export interface PrepareRpcQueryResponse {
   workerTarget: WorkerTarget | undefined;
   channelInfos: { [key: string]: ChannelInfo };
   loadedChannelMessages: { [key: string]: ChannelValues };
-  loadedAttributeMapNames: string[];
+  loadedAttributeMapSelectors: string[];
   loadedChannelNames: string[];
-  loadedChannelMapNames: string[];
+  loadedChannelMapSelectors: string[];
 }
 
 export interface PrepareRpcQueryResponse_ChannelInfosEntry {
@@ -8608,9 +8614,9 @@ function createBaseInvokeRPCRequest(): InvokeRPCRequest {
     lockAttributeKeys: [],
     requestId: "",
     isTransactional: false,
-    loadAttributeMapNames: [],
+    loadAttributeMapSelectors: [],
     loadChannelNames: [],
-    loadChannelMapNames: [],
+    loadChannelMapSelectors: [],
   };
 }
 
@@ -8640,13 +8646,13 @@ export const InvokeRPCRequest: MessageFns<InvokeRPCRequest> = {
     if (message.isTransactional !== false) {
       writer.uint32(64).bool(message.isTransactional);
     }
-    for (const v of message.loadAttributeMapNames) {
+    for (const v of message.loadAttributeMapSelectors) {
       writer.uint32(74).string(v!);
     }
     for (const v of message.loadChannelNames) {
       writer.uint32(82).string(v!);
     }
-    for (const v of message.loadChannelMapNames) {
+    for (const v of message.loadChannelMapSelectors) {
       writer.uint32(90).string(v!);
     }
     return writer;
@@ -8728,7 +8734,7 @@ export const InvokeRPCRequest: MessageFns<InvokeRPCRequest> = {
             break;
           }
 
-          message.loadAttributeMapNames.push(reader.string());
+          message.loadAttributeMapSelectors.push(reader.string());
           continue;
         }
         case 10: {
@@ -8744,7 +8750,7 @@ export const InvokeRPCRequest: MessageFns<InvokeRPCRequest> = {
             break;
           }
 
-          message.loadChannelMapNames.push(reader.string());
+          message.loadChannelMapSelectors.push(reader.string());
           continue;
         }
       }
@@ -8769,9 +8775,9 @@ export const InvokeRPCRequest: MessageFns<InvokeRPCRequest> = {
     message.lockAttributeKeys = object.lockAttributeKeys?.map((e) => e) || [];
     message.requestId = object.requestId ?? "";
     message.isTransactional = object.isTransactional ?? false;
-    message.loadAttributeMapNames = object.loadAttributeMapNames?.map((e) => e) || [];
+    message.loadAttributeMapSelectors = object.loadAttributeMapSelectors?.map((e) => e) || [];
     message.loadChannelNames = object.loadChannelNames?.map((e) => e) || [];
-    message.loadChannelMapNames = object.loadChannelMapNames?.map((e) => e) || [];
+    message.loadChannelMapSelectors = object.loadChannelMapSelectors?.map((e) => e) || [];
     return message;
   },
 };
@@ -10684,9 +10690,9 @@ function createBaseInvokeWorkerRPCRequest(): InvokeWorkerRPCRequest {
     attributes: [],
     channelInfos: {},
     loadedChannelMessages: {},
-    loadedAttributeMapNames: [],
+    loadedAttributeMapSelectors: [],
     loadedChannelNames: [],
-    loadedChannelMapNames: [],
+    loadedChannelMapSelectors: [],
   };
 }
 
@@ -10714,13 +10720,13 @@ export const InvokeWorkerRPCRequest: MessageFns<InvokeWorkerRPCRequest> = {
       InvokeWorkerRPCRequest_LoadedChannelMessagesEntry.encode({ key: key as any, value }, writer.uint32(58).fork())
         .join();
     });
-    for (const v of message.loadedAttributeMapNames) {
+    for (const v of message.loadedAttributeMapSelectors) {
       writer.uint32(66).string(v!);
     }
     for (const v of message.loadedChannelNames) {
       writer.uint32(74).string(v!);
     }
-    for (const v of message.loadedChannelMapNames) {
+    for (const v of message.loadedChannelMapSelectors) {
       writer.uint32(82).string(v!);
     }
     return writer;
@@ -10800,7 +10806,7 @@ export const InvokeWorkerRPCRequest: MessageFns<InvokeWorkerRPCRequest> = {
             break;
           }
 
-          message.loadedAttributeMapNames.push(reader.string());
+          message.loadedAttributeMapSelectors.push(reader.string());
           continue;
         }
         case 9: {
@@ -10816,7 +10822,7 @@ export const InvokeWorkerRPCRequest: MessageFns<InvokeWorkerRPCRequest> = {
             break;
           }
 
-          message.loadedChannelMapNames.push(reader.string());
+          message.loadedChannelMapSelectors.push(reader.string());
           continue;
         }
       }
@@ -10859,9 +10865,9 @@ export const InvokeWorkerRPCRequest: MessageFns<InvokeWorkerRPCRequest> = {
         },
         {},
       );
-    message.loadedAttributeMapNames = object.loadedAttributeMapNames?.map((e) => e) || [];
+    message.loadedAttributeMapSelectors = object.loadedAttributeMapSelectors?.map((e) => e) || [];
     message.loadedChannelNames = object.loadedChannelNames?.map((e) => e) || [];
-    message.loadedChannelMapNames = object.loadedChannelMapNames?.map((e) => e) || [];
+    message.loadedChannelMapSelectors = object.loadedChannelMapSelectors?.map((e) => e) || [];
     return message;
   },
 };
@@ -15420,18 +15426,18 @@ export const GetAttributesQueryResponse: MessageFns<GetAttributesQueryResponse> 
 };
 
 function createBasePrepareRpcQueryRequest(): PrepareRpcQueryRequest {
-  return { loadAttributeMapNames: [], loadChannelNames: [], loadChannelMapNames: [] };
+  return { loadAttributeMapSelectors: [], loadChannelNames: [], loadChannelMapSelectors: [] };
 }
 
 export const PrepareRpcQueryRequest: MessageFns<PrepareRpcQueryRequest> = {
   encode(message: PrepareRpcQueryRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    for (const v of message.loadAttributeMapNames) {
+    for (const v of message.loadAttributeMapSelectors) {
       writer.uint32(10).string(v!);
     }
     for (const v of message.loadChannelNames) {
       writer.uint32(18).string(v!);
     }
-    for (const v of message.loadChannelMapNames) {
+    for (const v of message.loadChannelMapSelectors) {
       writer.uint32(26).string(v!);
     }
     return writer;
@@ -15449,7 +15455,7 @@ export const PrepareRpcQueryRequest: MessageFns<PrepareRpcQueryRequest> = {
             break;
           }
 
-          message.loadAttributeMapNames.push(reader.string());
+          message.loadAttributeMapSelectors.push(reader.string());
           continue;
         }
         case 2: {
@@ -15465,7 +15471,7 @@ export const PrepareRpcQueryRequest: MessageFns<PrepareRpcQueryRequest> = {
             break;
           }
 
-          message.loadChannelMapNames.push(reader.string());
+          message.loadChannelMapSelectors.push(reader.string());
           continue;
         }
       }
@@ -15482,9 +15488,9 @@ export const PrepareRpcQueryRequest: MessageFns<PrepareRpcQueryRequest> = {
   },
   fromPartial<I extends Exact<DeepPartial<PrepareRpcQueryRequest>, I>>(object: I): PrepareRpcQueryRequest {
     const message = createBasePrepareRpcQueryRequest();
-    message.loadAttributeMapNames = object.loadAttributeMapNames?.map((e) => e) || [];
+    message.loadAttributeMapSelectors = object.loadAttributeMapSelectors?.map((e) => e) || [];
     message.loadChannelNames = object.loadChannelNames?.map((e) => e) || [];
-    message.loadChannelMapNames = object.loadChannelMapNames?.map((e) => e) || [];
+    message.loadChannelMapSelectors = object.loadChannelMapSelectors?.map((e) => e) || [];
     return message;
   },
 };
@@ -15498,9 +15504,9 @@ function createBasePrepareRpcQueryResponse(): PrepareRpcQueryResponse {
     workerTarget: undefined,
     channelInfos: {},
     loadedChannelMessages: {},
-    loadedAttributeMapNames: [],
+    loadedAttributeMapSelectors: [],
     loadedChannelNames: [],
-    loadedChannelMapNames: [],
+    loadedChannelMapSelectors: [],
   };
 }
 
@@ -15531,13 +15537,13 @@ export const PrepareRpcQueryResponse: MessageFns<PrepareRpcQueryResponse> = {
       PrepareRpcQueryResponse_LoadedChannelMessagesEntry.encode({ key: key as any, value }, writer.uint32(58).fork())
         .join();
     });
-    for (const v of message.loadedAttributeMapNames) {
+    for (const v of message.loadedAttributeMapSelectors) {
       writer.uint32(66).string(v!);
     }
     for (const v of message.loadedChannelNames) {
       writer.uint32(74).string(v!);
     }
-    for (const v of message.loadedChannelMapNames) {
+    for (const v of message.loadedChannelMapSelectors) {
       writer.uint32(82).string(v!);
     }
     return writer;
@@ -15617,7 +15623,7 @@ export const PrepareRpcQueryResponse: MessageFns<PrepareRpcQueryResponse> = {
             break;
           }
 
-          message.loadedAttributeMapNames.push(reader.string());
+          message.loadedAttributeMapSelectors.push(reader.string());
           continue;
         }
         case 9: {
@@ -15633,7 +15639,7 @@ export const PrepareRpcQueryResponse: MessageFns<PrepareRpcQueryResponse> = {
             break;
           }
 
-          message.loadedChannelMapNames.push(reader.string());
+          message.loadedChannelMapSelectors.push(reader.string());
           continue;
         }
       }
@@ -15678,9 +15684,9 @@ export const PrepareRpcQueryResponse: MessageFns<PrepareRpcQueryResponse> = {
         },
         {},
       );
-    message.loadedAttributeMapNames = object.loadedAttributeMapNames?.map((e) => e) || [];
+    message.loadedAttributeMapSelectors = object.loadedAttributeMapSelectors?.map((e) => e) || [];
     message.loadedChannelNames = object.loadedChannelNames?.map((e) => e) || [];
-    message.loadedChannelMapNames = object.loadedChannelMapNames?.map((e) => e) || [];
+    message.loadedChannelMapSelectors = object.loadedChannelMapSelectors?.map((e) => e) || [];
     return message;
   },
 };

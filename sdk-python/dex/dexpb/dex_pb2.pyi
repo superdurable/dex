@@ -1228,7 +1228,7 @@ class ResetFlowResponse(_message.Message):
     def __init__(self, run_id: _Optional[str] = ...) -> None: ...
 
 class InvokeRPCRequest(_message.Message):
-    __slots__ = ("flow_id", "run_id", "rpc_name", "input", "timeout_seconds", "lock_attribute_keys", "request_id", "is_transactional", "load_attribute_map_names", "load_channel_names", "load_channel_map_names")
+    __slots__ = ("flow_id", "run_id", "rpc_name", "input", "timeout_seconds", "lock_attribute_keys", "request_id", "is_transactional", "load_attribute_map_selectors", "load_channel_names", "load_channel_map_selectors")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     RPC_NAME_FIELD_NUMBER: _ClassVar[int]
@@ -1237,9 +1237,9 @@ class InvokeRPCRequest(_message.Message):
     LOCK_ATTRIBUTE_KEYS_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     IS_TRANSACTIONAL_FIELD_NUMBER: _ClassVar[int]
-    LOAD_ATTRIBUTE_MAP_NAMES_FIELD_NUMBER: _ClassVar[int]
+    LOAD_ATTRIBUTE_MAP_SELECTORS_FIELD_NUMBER: _ClassVar[int]
     LOAD_CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
-    LOAD_CHANNEL_MAP_NAMES_FIELD_NUMBER: _ClassVar[int]
+    LOAD_CHANNEL_MAP_SELECTORS_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     run_id: str
     rpc_name: str
@@ -1248,10 +1248,10 @@ class InvokeRPCRequest(_message.Message):
     lock_attribute_keys: _containers.RepeatedScalarFieldContainer[str]
     request_id: str
     is_transactional: bool
-    load_attribute_map_names: _containers.RepeatedScalarFieldContainer[str]
+    load_attribute_map_selectors: _containers.RepeatedScalarFieldContainer[str]
     load_channel_names: _containers.RepeatedScalarFieldContainer[str]
-    load_channel_map_names: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., rpc_name: _Optional[str] = ..., input: _Optional[_Union[Value, _Mapping]] = ..., timeout_seconds: _Optional[int] = ..., lock_attribute_keys: _Optional[_Iterable[str]] = ..., request_id: _Optional[str] = ..., is_transactional: _Optional[bool] = ..., load_attribute_map_names: _Optional[_Iterable[str]] = ..., load_channel_names: _Optional[_Iterable[str]] = ..., load_channel_map_names: _Optional[_Iterable[str]] = ...) -> None: ...
+    load_channel_map_selectors: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., rpc_name: _Optional[str] = ..., input: _Optional[_Union[Value, _Mapping]] = ..., timeout_seconds: _Optional[int] = ..., lock_attribute_keys: _Optional[_Iterable[str]] = ..., request_id: _Optional[str] = ..., is_transactional: _Optional[bool] = ..., load_attribute_map_selectors: _Optional[_Iterable[str]] = ..., load_channel_names: _Optional[_Iterable[str]] = ..., load_channel_map_selectors: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class InvokeRPCResponse(_message.Message):
     __slots__ = ("output",)
@@ -1510,7 +1510,7 @@ class InvokeExecuteMethodOutput(_message.Message):
     def __init__(self, heartbeat: _Optional[_Union[StepMethodHeartbeat, _Mapping]] = ..., stream_write: _Optional[_Union[StepStreamWrite, _Mapping]] = ..., result: _Optional[_Union[InvokeExecuteMethodResponse, _Mapping]] = ...) -> None: ...
 
 class InvokeWorkerRPCRequest(_message.Message):
-    __slots__ = ("context", "flow_type", "rpc_name", "input", "attributes", "channel_infos", "loaded_channel_messages", "loaded_attribute_map_names", "loaded_channel_names", "loaded_channel_map_names")
+    __slots__ = ("context", "flow_type", "rpc_name", "input", "attributes", "channel_infos", "loaded_channel_messages", "loaded_attribute_map_selectors", "loaded_channel_names", "loaded_channel_map_selectors")
     class ChannelInfosEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -1532,9 +1532,9 @@ class InvokeWorkerRPCRequest(_message.Message):
     ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     CHANNEL_INFOS_FIELD_NUMBER: _ClassVar[int]
     LOADED_CHANNEL_MESSAGES_FIELD_NUMBER: _ClassVar[int]
-    LOADED_ATTRIBUTE_MAP_NAMES_FIELD_NUMBER: _ClassVar[int]
+    LOADED_ATTRIBUTE_MAP_SELECTORS_FIELD_NUMBER: _ClassVar[int]
     LOADED_CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
-    LOADED_CHANNEL_MAP_NAMES_FIELD_NUMBER: _ClassVar[int]
+    LOADED_CHANNEL_MAP_SELECTORS_FIELD_NUMBER: _ClassVar[int]
     context: Context
     flow_type: str
     rpc_name: str
@@ -1542,10 +1542,10 @@ class InvokeWorkerRPCRequest(_message.Message):
     attributes: _containers.RepeatedCompositeFieldContainer[KV]
     channel_infos: _containers.MessageMap[str, ChannelInfo]
     loaded_channel_messages: _containers.MessageMap[str, ChannelValues]
-    loaded_attribute_map_names: _containers.RepeatedScalarFieldContainer[str]
+    loaded_attribute_map_selectors: _containers.RepeatedScalarFieldContainer[str]
     loaded_channel_names: _containers.RepeatedScalarFieldContainer[str]
-    loaded_channel_map_names: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., rpc_name: _Optional[str] = ..., input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ..., loaded_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., loaded_attribute_map_names: _Optional[_Iterable[str]] = ..., loaded_channel_names: _Optional[_Iterable[str]] = ..., loaded_channel_map_names: _Optional[_Iterable[str]] = ...) -> None: ...
+    loaded_channel_map_selectors: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., rpc_name: _Optional[str] = ..., input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ..., loaded_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., loaded_attribute_map_selectors: _Optional[_Iterable[str]] = ..., loaded_channel_names: _Optional[_Iterable[str]] = ..., loaded_channel_map_selectors: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class InvokeWorkerRPCResponse(_message.Message):
     __slots__ = ("output", "step_decision", "upsert_attributes", "record_events", "delete_from_channel", "publish_to_channel")
@@ -2116,17 +2116,17 @@ class GetAttributesQueryResponse(_message.Message):
     def __init__(self, attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
 
 class PrepareRpcQueryRequest(_message.Message):
-    __slots__ = ("load_attribute_map_names", "load_channel_names", "load_channel_map_names")
-    LOAD_ATTRIBUTE_MAP_NAMES_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("load_attribute_map_selectors", "load_channel_names", "load_channel_map_selectors")
+    LOAD_ATTRIBUTE_MAP_SELECTORS_FIELD_NUMBER: _ClassVar[int]
     LOAD_CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
-    LOAD_CHANNEL_MAP_NAMES_FIELD_NUMBER: _ClassVar[int]
-    load_attribute_map_names: _containers.RepeatedScalarFieldContainer[str]
+    LOAD_CHANNEL_MAP_SELECTORS_FIELD_NUMBER: _ClassVar[int]
+    load_attribute_map_selectors: _containers.RepeatedScalarFieldContainer[str]
     load_channel_names: _containers.RepeatedScalarFieldContainer[str]
-    load_channel_map_names: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, load_attribute_map_names: _Optional[_Iterable[str]] = ..., load_channel_names: _Optional[_Iterable[str]] = ..., load_channel_map_names: _Optional[_Iterable[str]] = ...) -> None: ...
+    load_channel_map_selectors: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, load_attribute_map_selectors: _Optional[_Iterable[str]] = ..., load_channel_names: _Optional[_Iterable[str]] = ..., load_channel_map_selectors: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class PrepareRpcQueryResponse(_message.Message):
-    __slots__ = ("attributes", "run_id", "flow_started_timestamp", "flow_type", "worker_target", "channel_infos", "loaded_channel_messages", "loaded_attribute_map_names", "loaded_channel_names", "loaded_channel_map_names")
+    __slots__ = ("attributes", "run_id", "flow_started_timestamp", "flow_type", "worker_target", "channel_infos", "loaded_channel_messages", "loaded_attribute_map_selectors", "loaded_channel_names", "loaded_channel_map_selectors")
     class ChannelInfosEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -2148,9 +2148,9 @@ class PrepareRpcQueryResponse(_message.Message):
     WORKER_TARGET_FIELD_NUMBER: _ClassVar[int]
     CHANNEL_INFOS_FIELD_NUMBER: _ClassVar[int]
     LOADED_CHANNEL_MESSAGES_FIELD_NUMBER: _ClassVar[int]
-    LOADED_ATTRIBUTE_MAP_NAMES_FIELD_NUMBER: _ClassVar[int]
+    LOADED_ATTRIBUTE_MAP_SELECTORS_FIELD_NUMBER: _ClassVar[int]
     LOADED_CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
-    LOADED_CHANNEL_MAP_NAMES_FIELD_NUMBER: _ClassVar[int]
+    LOADED_CHANNEL_MAP_SELECTORS_FIELD_NUMBER: _ClassVar[int]
     attributes: _containers.RepeatedCompositeFieldContainer[KV]
     run_id: str
     flow_started_timestamp: int
@@ -2158,10 +2158,10 @@ class PrepareRpcQueryResponse(_message.Message):
     worker_target: WorkerTarget
     channel_infos: _containers.MessageMap[str, ChannelInfo]
     loaded_channel_messages: _containers.MessageMap[str, ChannelValues]
-    loaded_attribute_map_names: _containers.RepeatedScalarFieldContainer[str]
+    loaded_attribute_map_selectors: _containers.RepeatedScalarFieldContainer[str]
     loaded_channel_names: _containers.RepeatedScalarFieldContainer[str]
-    loaded_channel_map_names: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., run_id: _Optional[str] = ..., flow_started_timestamp: _Optional[int] = ..., flow_type: _Optional[str] = ..., worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ..., loaded_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., loaded_attribute_map_names: _Optional[_Iterable[str]] = ..., loaded_channel_names: _Optional[_Iterable[str]] = ..., loaded_channel_map_names: _Optional[_Iterable[str]] = ...) -> None: ...
+    loaded_channel_map_selectors: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., run_id: _Optional[str] = ..., flow_started_timestamp: _Optional[int] = ..., flow_type: _Optional[str] = ..., worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ..., loaded_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., loaded_attribute_map_selectors: _Optional[_Iterable[str]] = ..., loaded_channel_names: _Optional[_Iterable[str]] = ..., loaded_channel_map_selectors: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class TimerInfo(_message.Message):
     __slots__ = ("condition_id", "firing_unix_timestamp_seconds", "status")
