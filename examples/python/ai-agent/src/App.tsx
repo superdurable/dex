@@ -195,7 +195,6 @@ const App: React.FC = () => {
   const hasInitializedConversationViewportRef = useRef(false);
   const isFollowingTimelineRef = useRef(true);
   const isProgrammaticScrollRef = useRef(false);
-  const userInputCardRef = useRef<HTMLElement>(null);
   const userInputRef = useRef<HTMLTextAreaElement>(null);
   const stateFetchSequenceRef = useRef(0);
   const descriptionStatusRef = useRef('');
@@ -231,7 +230,6 @@ const App: React.FC = () => {
       setSelectedInputChoice(null);
       setIsInputSubmitPressed(false);
       window.requestAnimationFrame(() => {
-        userInputCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         userInputRef.current?.focus();
       });
     }
@@ -980,87 +978,6 @@ const App: React.FC = () => {
             ))}
           </div>
 
-          {description?.pending_user_input_prompt && (
-          <section
-            ref={userInputCardRef}
-            style={styles.inputCard}
-            role="group"
-            aria-labelledby="agent-input-title"
-          >
-            <div style={styles.inputCardHeader}>
-              <span style={styles.inputIndicator}>?</span>
-              <div>
-                <p style={styles.eyebrow}>Agent needs your input</p>
-                <h2 id="agent-input-title" style={styles.inputPrompt}>
-                  {description.pending_user_input_prompt}
-                </h2>
-              </div>
-            </div>
-            {(description.pending_user_input_choices ?? []).length > 0 ? (
-              <div style={styles.inputChoices}>
-                {description.pending_user_input_choices.map((choice) => {
-                  const isPressed = pressedInputChoice === choice;
-                  const isSelected = selectedInputChoice === choice;
-                  return (
-                    <button
-                      key={choice}
-                      style={{
-                        ...styles.inputChoice,
-                        ...(isPressed ? styles.inputChoicePressed : {}),
-                        ...(isSelected ? styles.inputChoiceSelected : {}),
-                      }}
-                      disabled={isBusy}
-                      aria-pressed={isSelected}
-                      onPointerDown={() => setPressedInputChoice(choice)}
-                      onPointerUp={() => setPressedInputChoice(null)}
-                      onPointerCancel={() => setPressedInputChoice(null)}
-                      onPointerLeave={() => setPressedInputChoice(null)}
-                      onClick={() => void answerUserInput(choice)}
-                    >
-                      <span>{isSelected ? '✓' : '→'}</span>
-                      <span>{choice}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={styles.inputAnswerComposer}>
-                <textarea
-                  ref={userInputRef}
-                  style={{ ...styles.input, minHeight: 96, resize: 'vertical' }}
-                  value={userInputAnswer}
-                  placeholder="Type your answer…"
-                  onChange={(event) => setUserInputAnswer(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey || event.altKey)) {
-                      event.preventDefault();
-                      void answerUserInput(userInputAnswer);
-                    }
-                  }}
-                />
-                <button
-                  style={{
-                    ...styles.primaryButton,
-                    ...styles.inputSubmitButton,
-                    ...(isInputSubmitPressed ? styles.inputSubmitButtonPressed : {}),
-                  }}
-                  disabled={isBusy || !userInputAnswer.trim()}
-                  onPointerDown={() => setIsInputSubmitPressed(true)}
-                  onPointerUp={() => setIsInputSubmitPressed(false)}
-                  onPointerCancel={() => setIsInputSubmitPressed(false)}
-                  onPointerLeave={() => setIsInputSubmitPressed(false)}
-                  onClick={() => void answerUserInput(userInputAnswer)}
-                >
-                  {isBusy ? 'Sending…' : 'Submit answer'}
-                </button>
-              </div>
-            )}
-            <small style={styles.inputHint}>
-              Your answer is delivered through a durable Channel and resumes the Agent.
-            </small>
-          </section>
-          )}
-
           {description?.plan && (
           <PlanCard
             plan={description.plan}
@@ -1167,48 +1084,125 @@ const App: React.FC = () => {
           </section>
           )}
 
-          <div style={styles.timelineTail} aria-hidden="true" />
         </div>
 
         <div style={styles.composerArea}>
-          <label style={styles.planModeToggle}>
-            <input
-              type="checkbox"
-              checked={planMode}
-              disabled={Boolean(description?.pending_user_input_prompt)}
-              onChange={(event) => setPlanMode(event.target.checked)}
-            />
-            Plan mode
-            <small style={styles.planModeHint}>Create or revise a plan without executing tools</small>
-          </label>
-          <div style={styles.composer}>
-            <textarea
-              ref={messageInputRef}
-              style={{ ...styles.input, minHeight: 90, margin: 0 }}
-              value={input}
-              disabled={Boolean(description?.pending_user_input_prompt)}
-              placeholder={description?.pending_user_input_prompt
-                ? 'Answer the Agent above to continue.'
-                : planMode
-                  ? 'Describe what you want the Agent to plan.'
-                  : 'Message the AI Agent. Try /wait 5 demo when using mock/dex.'}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey || event.altKey)) {
-                  event.preventDefault();
-                  void sendMessage();
-                }
-              }}
-            />
-            <button
-              style={styles.primaryButton}
-              disabled={isBusy || Boolean(description?.pending_user_input_prompt) || !input.trim()}
-              onClick={sendMessage}
+          {description?.pending_user_input_prompt ? (
+            <section
+              style={{ ...styles.inputCard, ...styles.composerInputCard }}
+              role="group"
+              aria-labelledby="agent-input-title"
             >
-              {planMode ? 'Create plan' : 'Send'}
-            </button>
-          </div>
-          <small style={styles.shortcutHint}>Send with ⌘/Ctrl + Enter or Alt + Enter · Enter adds a new line</small>
+              <div style={styles.inputCardHeader}>
+                <span style={styles.inputIndicator}>?</span>
+                <div>
+                  <p style={styles.eyebrow}>Agent needs your input</p>
+                  <h2 id="agent-input-title" style={styles.inputPrompt}>
+                    {description.pending_user_input_prompt}
+                  </h2>
+                </div>
+              </div>
+              {(description.pending_user_input_choices ?? []).length > 0 ? (
+                <div style={styles.inputChoices}>
+                  {description.pending_user_input_choices.map((choice) => {
+                    const isPressed = pressedInputChoice === choice;
+                    const isSelected = selectedInputChoice === choice;
+                    return (
+                      <button
+                        key={choice}
+                        style={{
+                          ...styles.inputChoice,
+                          ...(isPressed ? styles.inputChoicePressed : {}),
+                          ...(isSelected ? styles.inputChoiceSelected : {}),
+                        }}
+                        disabled={isBusy}
+                        aria-pressed={isSelected}
+                        onPointerDown={() => setPressedInputChoice(choice)}
+                        onPointerUp={() => setPressedInputChoice(null)}
+                        onPointerCancel={() => setPressedInputChoice(null)}
+                        onPointerLeave={() => setPressedInputChoice(null)}
+                        onClick={() => void answerUserInput(choice)}
+                      >
+                        <span>{isSelected ? '✓' : '→'}</span>
+                        <span>{choice}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={styles.inputAnswerComposer}>
+                  <textarea
+                    ref={userInputRef}
+                    style={{ ...styles.input, minHeight: 96, resize: 'vertical' }}
+                    value={userInputAnswer}
+                    placeholder="Type your answer…"
+                    onChange={(event) => setUserInputAnswer(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey || event.altKey)) {
+                        event.preventDefault();
+                        void answerUserInput(userInputAnswer);
+                      }
+                    }}
+                  />
+                  <button
+                    style={{
+                      ...styles.primaryButton,
+                      ...styles.inputSubmitButton,
+                      ...(isInputSubmitPressed ? styles.inputSubmitButtonPressed : {}),
+                    }}
+                    disabled={isBusy || !userInputAnswer.trim()}
+                    onPointerDown={() => setIsInputSubmitPressed(true)}
+                    onPointerUp={() => setIsInputSubmitPressed(false)}
+                    onPointerCancel={() => setIsInputSubmitPressed(false)}
+                    onPointerLeave={() => setIsInputSubmitPressed(false)}
+                    onClick={() => void answerUserInput(userInputAnswer)}
+                  >
+                    {isBusy ? 'Sending…' : 'Submit answer'}
+                  </button>
+                </div>
+              )}
+              <small style={styles.inputHint}>
+                Your answer is delivered through a durable Channel and resumes the Agent.
+              </small>
+            </section>
+          ) : (
+            <>
+              <label style={styles.planModeToggle}>
+                <input
+                  type="checkbox"
+                  checked={planMode}
+                  onChange={(event) => setPlanMode(event.target.checked)}
+                />
+                Plan mode
+                <small style={styles.planModeHint}>Create or revise a plan without executing tools</small>
+              </label>
+              <div style={styles.composer}>
+                <textarea
+                  ref={messageInputRef}
+                  style={{ ...styles.input, minHeight: 90, margin: 0 }}
+                  value={input}
+                  placeholder={planMode
+                    ? 'Describe what you want the Agent to plan.'
+                    : 'Message the AI Agent. Try /wait 5 demo when using mock/dex.'}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey || event.altKey)) {
+                      event.preventDefault();
+                      void sendMessage();
+                    }
+                  }}
+                />
+                <button
+                  style={styles.primaryButton}
+                  disabled={isBusy || !input.trim()}
+                  onClick={sendMessage}
+                >
+                  {planMode ? 'Create plan' : 'Send'}
+                </button>
+              </div>
+              <small style={styles.shortcutHint}>Send with ⌘/Ctrl + Enter or Alt + Enter · Enter adds a new line</small>
+            </>
+          )}
           {error && <p style={styles.error}>{error}</p>}
         </div>
       </section>
@@ -1471,10 +1465,9 @@ const styles: Record<string, React.CSSProperties> = {
   secondaryButton: { border: '1px solid #cfd6e4', borderRadius: 10, padding: '11px 18px', background: '#fff', color: '#27334a', fontWeight: 700, cursor: 'pointer', marginTop: 18 },
   status: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', padding: '9px 14px', borderRadius: 12, background: '#e9ecff', color: '#3730a3' },
   chatCard: { width: '100%', maxWidth: 960, minHeight: 0, flex: '1 1 auto', margin: '0 auto', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff', borderRadius: 20, boxShadow: '0 18px 60px rgba(24, 39, 75, 0.08)' },
-  conversationScroll: { minHeight: 0, flex: '1 1 auto', overflowY: 'auto', overscrollBehavior: 'contain', padding: '22px 22px 0', scrollPaddingTop: 22 },
-  messages: { display: 'flex', flexDirection: 'column', gap: 14, minHeight: 320 },
+  conversationScroll: { minHeight: 0, flex: '1 1 auto', display: 'flex', flexDirection: 'column', overflowY: 'auto', overscrollBehavior: 'contain', padding: 22, scrollPaddingTop: 22 },
+  messages: { display: 'flex', flexDirection: 'column', gap: 14, minHeight: 320, marginTop: 'auto' },
   timelineEntry: { display: 'flex', flexDirection: 'column', flex: '0 0 auto' },
-  timelineTail: { minHeight: 'calc(100% - 150px)' },
   message: { maxWidth: '82%', borderRadius: 15, padding: '13px 16px', position: 'relative' },
   userMessage: { alignSelf: 'flex-end', background: '#4f46e5', color: '#fff' },
   assistantMessage: { alignSelf: 'flex-start', background: '#eef1f7' },
@@ -1495,6 +1488,7 @@ const styles: Record<string, React.CSSProperties> = {
   liveIndicator: { width: 9, height: 9, borderRadius: '50%', background: '#7c72ff', boxShadow: '0 0 0 5px rgba(124,114,255,.15)' },
   streamText: { margin: '13px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.6, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
   inputCard: { marginTop: 18, padding: 20, borderRadius: 16, background: '#f5f7ff', border: '1px solid #aebdf2', boxShadow: '0 12px 28px rgba(79, 70, 229, .10)' },
+  composerInputCard: { maxHeight: '45dvh', marginTop: 0, overflowY: 'auto', boxShadow: 'none' },
   inputCardHeader: { display: 'flex', alignItems: 'flex-start', gap: 13 },
   inputIndicator: { display: 'grid', placeItems: 'center', width: 32, height: 32, flex: '0 0 32px', borderRadius: 10, background: '#4f46e5', color: '#fff', fontWeight: 900 },
   inputPrompt: { margin: '5px 0 17px', fontSize: 20, lineHeight: 1.45 },
