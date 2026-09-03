@@ -123,26 +123,27 @@ type AttributeMap[T any] struct {
 	syncToAttributeStore bool
 }
 
-// AttributeMapLoad selects AttributeMap entries for an RPC invocation.
-// Create values with AttributeMap.Load or AttributeMap.LoadAll and place them in
-// InvokeOptions.LoadAttributeMaps.
+// AttributeMapSelection selects every entry in one AttributeMap for an RPC invocation.
+// AttributeMap values implement this sealed interface.
+type AttributeMapSelection interface {
+	attributeMapLoadName() string
+}
+
+// AttributeMapLoad selects one AttributeMap instance for an RPC invocation.
+// Create values with AttributeMap.Load and place them in InvokeOptions.LoadAttributeMapInstances.
 type AttributeMapLoad struct {
 	name     string
 	instance string
-	isAll    bool
 }
 
-// LoadAll selects every current instance for an RPC snapshot.
-// Loading does not lock the map or prevent concurrent changes.
-func (a AttributeMap[T]) LoadAll() AttributeMapLoad {
-	return AttributeMapLoad{name: a.name, isAll: true}
-}
-
-// Load selects one logical instance for an RPC snapshot.
-// The SDK escapes instance when constructing the protocol selector. Loading does not lock the
-// instance or prevent concurrent changes.
+// Load selects one slash-free logical instance for an RPC snapshot.
+// Loading does not lock the instance or prevent concurrent changes.
 func (a AttributeMap[T]) Load(instance string) AttributeMapLoad {
 	return AttributeMapLoad{name: a.name, instance: instance}
+}
+
+func (a AttributeMap[T]) attributeMapLoadName() string {
+	return a.name
 }
 
 // DefineAttributeMap creates a typed Attribute map with a stable name and definition options.

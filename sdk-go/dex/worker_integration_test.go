@@ -323,7 +323,7 @@ func (workerTestFlow) Update(
 		}
 		mapped, found, err := workerTestByOrder.FindPendingMessage(
 			ctx,
-			"initial / key",
+			"selected",
 			"message-2",
 		)
 		if err != nil || !found || mapped.Value != "mapped" {
@@ -493,14 +493,14 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 			LoadedAttributeMapSelectors: []string{"items/"},
 			LoadedChannelNames:          []string{"commands"},
 			LoadedChannelMapSelectors: []string{
-				"commands-by-order/initial%20%2F%20key",
+				"commands-by-order/selected",
 			},
 			LoadedChannelMessages: map[string]*dexpb.ChannelValues{
 				"commands": {Messages: []*dexpb.ChannelMessage{{
 					MessageId: "message-1",
 					Value:     mustEncodeWorkerTestValue(t, "queued"),
 				}}},
-				"commands-by-order/initial%20%2F%20key": {
+				"commands-by-order/selected": {
 					Messages: []*dexpb.ChannelMessage{{
 						MessageId: "message-2",
 						Value:     mustEncodeWorkerTestValue(t, "mapped"),

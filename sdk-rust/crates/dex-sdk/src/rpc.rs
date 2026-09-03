@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use dex_protocol::dex::Value as ProtoValue;
 
-use crate::attribute::{AttributeLock, AttributeMapLoad};
-use crate::channel::{ChannelLoad, ChannelMapLoad};
+use crate::attribute::{AttributeLock, AttributeMap, AttributeMapLoad};
+use crate::channel::{Channel, ChannelLoad, ChannelMap, ChannelMapLoad};
 use crate::step::{ErasedValue, TypedValue};
 use crate::value_mapper;
 use crate::{Context, HandlerResult, SdkResult, StepMovement, Value};
@@ -75,21 +75,38 @@ impl<Input, Output> Rpc<Input, Output> {
         RpcDefinition::from(self).is_transactional()
     }
 
-    /// Converts this RPC into a definition that loads selected Attribute-map state.
-    ///
-    /// Call this repeatedly to load multiple instances or map definitions.
-    pub fn load_attribute_map(self, selection: AttributeMapLoad) -> RpcDefinition<Input, Output> {
-        RpcDefinition::from(self).load_attribute_map(selection)
+    /// Converts this RPC into a definition that loads every current AttributeMap instance.
+    pub fn load_attribute_map<T>(
+        self,
+        attribute_map: &AttributeMap<T>,
+    ) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).load_attribute_map(attribute_map)
+    }
+
+    /// Converts this RPC into a definition that loads one AttributeMap instance.
+    pub fn load_attribute_map_instance(
+        self,
+        selection: AttributeMapLoad,
+    ) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).load_attribute_map_instance(selection)
     }
 
     /// Converts this RPC into a definition that loads one singleton Channel's messages.
-    pub fn load_channel(self, selection: ChannelLoad) -> RpcDefinition<Input, Output> {
-        RpcDefinition::from(self).load_channel(selection)
+    pub fn load_channel<T>(self, channel: &Channel<T>) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).load_channel(channel)
     }
 
-    /// Converts this RPC into a definition that loads selected Channel-map messages.
-    pub fn load_channel_map(self, selection: ChannelMapLoad) -> RpcDefinition<Input, Output> {
-        RpcDefinition::from(self).load_channel_map(selection)
+    /// Converts this RPC into a definition that loads every current ChannelMap instance.
+    pub fn load_channel_map<T>(self, channel_map: &ChannelMap<T>) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).load_channel_map(channel_map)
+    }
+
+    /// Converts this RPC into a definition that loads one ChannelMap instance.
+    pub fn load_channel_map_instance(
+        self,
+        selection: ChannelMapLoad,
+    ) -> RpcDefinition<Input, Output> {
+        RpcDefinition::from(self).load_channel_map_instance(selection)
     }
 
     pub(crate) fn name(&self) -> &'static str {
@@ -138,20 +155,40 @@ impl<Input, Output> RpcDefinition<Input, Output> {
         self
     }
 
-    /// Adds an Attribute-map state selection to the invocation snapshot.
-    pub fn load_attribute_map(mut self, selection: AttributeMapLoad) -> Self {
+    /// Loads every current instance of one AttributeMap into the invocation snapshot.
+    pub fn load_attribute_map<T>(mut self, attribute_map: &AttributeMap<T>) -> Self {
+        self.load_attribute_maps.push(AttributeMapLoad {
+            name: attribute_map.name().to_owned(),
+            instance: None,
+        });
+        self
+    }
+
+    /// Loads one AttributeMap instance into the invocation snapshot.
+    pub fn load_attribute_map_instance(mut self, selection: AttributeMapLoad) -> Self {
         self.load_attribute_maps.push(selection);
         self
     }
 
     /// Adds one singleton Channel's pending messages to the invocation snapshot.
-    pub fn load_channel(mut self, selection: ChannelLoad) -> Self {
-        self.load_channels.push(selection);
+    pub fn load_channel<T>(mut self, channel: &Channel<T>) -> Self {
+        self.load_channels.push(ChannelLoad {
+            name: channel.name().to_owned(),
+        });
         self
     }
 
-    /// Adds a Channel-map message selection to the invocation snapshot.
-    pub fn load_channel_map(mut self, selection: ChannelMapLoad) -> Self {
+    /// Loads every current instance of one ChannelMap into the invocation snapshot.
+    pub fn load_channel_map<T>(mut self, channel_map: &ChannelMap<T>) -> Self {
+        self.load_channel_maps.push(ChannelMapLoad {
+            name: channel_map.name().to_owned(),
+            instance: None,
+        });
+        self
+    }
+
+    /// Loads one ChannelMap instance into the invocation snapshot.
+    pub fn load_channel_map_instance(mut self, selection: ChannelMapLoad) -> Self {
         self.load_channel_maps.push(selection);
         self
     }

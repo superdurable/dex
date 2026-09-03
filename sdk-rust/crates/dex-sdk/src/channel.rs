@@ -10,19 +10,15 @@ use std::marker::PhantomData;
 
 use crate::{Condition, Context, HandlerResult, Value};
 
-/// Selects one singleton Channel's pending messages for an RPC invocation.
-///
-/// Create this value with [`Channel::load_messages`] and attach it to an
-/// [`Rpc`](crate::Rpc). Queue size remains available without loading messages.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ChannelLoad {
+pub(crate) struct ChannelLoad {
     pub(crate) name: String,
 }
 
-/// Selects Channel-map pending messages for an RPC invocation.
+/// Selects one ChannelMap instance's pending messages for an RPC invocation.
 ///
-/// Create selections with [`ChannelMap::load_messages`] or [`ChannelMap::load_all_messages`].
-/// Loading one instance avoids transferring unrelated queues.
+/// Create selections with [`ChannelMap::load_messages`], then attach them with
+/// [`Rpc::load_channel_map_instance`](crate::Rpc::load_channel_map_instance).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChannelMapLoad {
     pub(crate) name: String,
@@ -65,16 +61,6 @@ impl<T> Channel<T> {
         Self {
             name: name.into(),
             marker: PhantomData,
-        }
-    }
-
-    /// Selects this Channel's pending message envelopes for loading into an RPC Context.
-    ///
-    /// Loaded messages preserve FIFO order and include Dex-assigned message IDs. Loading does not
-    /// consume them.
-    pub fn load_messages(&self) -> ChannelLoad {
-        ChannelLoad {
-            name: self.name.clone(),
         }
     }
 
@@ -220,21 +206,11 @@ impl<T> ChannelMap<T> {
         }
     }
 
-    /// Selects one map `instance`'s pending messages for loading into an RPC Context.
+    /// Selects one slash-free map `instance`'s pending messages for an RPC Context.
     pub fn load_messages(&self, instance: impl Into<String>) -> ChannelMapLoad {
         ChannelMapLoad {
             name: self.name.clone(),
             instance: Some(instance.into()),
-        }
-    }
-
-    /// Selects every current map instance's pending messages for loading into an RPC Context.
-    ///
-    /// Prefer [`Self::load_messages`] when the RPC needs only one known instance.
-    pub fn load_all_messages(&self) -> ChannelMapLoad {
-        ChannelMapLoad {
-            name: self.name.clone(),
-            instance: None,
         }
     }
 

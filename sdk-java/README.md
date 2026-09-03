@@ -18,21 +18,22 @@ AttributeMap entries and pending Channel messages are opt-in:
 
 ```java
 @RPC(
-    loadAttributeMaps = {"Items/tenant/a"},
+    loadAttributeMapInstances = {"Items/tenant-a"},
     loadChannels = {"Queued"},
-    loadChannelMaps = {"ByTenant/"}
+    loadChannelMaps = {"ByTenant"}
 )
 public RPCResult<Snapshot> snapshot(Context context) {
     return RPCResult.of(new Snapshot(queued.pendingMessages(context)));
 }
 ```
 
-A trailing slash selects every current map instance. Otherwise, text after the
-first slash is the logical instance and the SDK escapes it. A selected empty
-queue returns an empty list; reading an unselected map entry or pending-message
-snapshot throws **StateNotLoadedException**. Pending messages preserve FIFO
-order and include the server-assigned message ID. The snapshot does not change
-after the handler stages a publish or deletion.
+Put a map name in **loadAttributeMaps** or **loadChannelMaps** to load every
+current instance. Use the singular instance options for the less common exact
+instance case. Text after the first slash is the logical instance and the SDK
+escapes it. A selected empty queue returns an empty list; reading an unselected
+map entry or pending-message snapshot throws **StateNotLoadedException**. Pending
+messages preserve FIFO order and include the server-assigned message ID. The
+snapshot does not change after the handler stages a publish or deletion.
 
 Loading controls which data reaches the Worker. **isTransactional** controls
 atomic commit and Channel deletion validation. Attribute locks add isolation

@@ -18,20 +18,21 @@ AttributeMap entries and pending Channel messages are opt-in:
 
 ```typescript
 @rpc({
-  loadAttributeMaps: [items.load("tenant/a")],
-  loadChannels: [queued.loadMessages()],
-  loadChannelMaps: [byTenant.loadAllMessages()],
+  loadAttributeMapInstances: [items.load("tenant-a")],
+  loadChannels: [queued],
+  loadChannelMaps: [byTenant],
 })
 snapshot(context: Context): RPCResult<Snapshot> {
   return { output: { messages: queued.pendingMessages(context) } };
 }
 ```
 
-Use **loadAll** or **loadAllMessages** only when every current map instance is
-needed. A selected empty queue returns an empty array; reading an unselected map
-entry or pending-message snapshot throws **StateNotLoadedError**. Pending
-messages preserve FIFO order and include the server-assigned message ID. The
-snapshot does not change after the handler stages a publish or deletion.
+Put an AttributeMap or ChannelMap directly in its plural load option when every
+current instance is needed. Use the singular instance options for the less common
+exact-instance case. A selected empty queue returns an empty array; reading an
+unselected map entry or pending-message snapshot throws **StateNotLoadedError**.
+Pending messages preserve FIFO order and include the server-assigned message ID.
+The snapshot does not change after the handler stages a publish or deletion.
 
 Loading controls which data reaches the Worker. **isTransactional** controls
 atomic commit and Channel deletion validation. Attribute locks add isolation

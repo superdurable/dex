@@ -422,6 +422,11 @@ where
                 "Flow {flow_name} RPC {rpc_name} loads an empty map instance"
             )));
         }
+        if instance.is_some_and(|value| value.contains('/')) {
+            return Err(definition_error(format!(
+                "Flow {flow_name} RPC {rpc_name} map instance must not contain /"
+            )));
+        }
         let selector = match instance {
             Some(instance) => physical_name(name, instance),
             None => format!("{name}/"),

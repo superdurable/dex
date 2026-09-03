@@ -48,7 +48,7 @@ mod worker_options;
 mod worker_output;
 
 pub use attribute::{Attribute, AttributeIndex, AttributeMap, AttributeMapLoad};
-pub use channel::{Channel, ChannelGuard, ChannelLoad, ChannelMap, ChannelMapLoad, ChannelMessage};
+pub use channel::{Channel, ChannelGuard, ChannelMap, ChannelMapLoad, ChannelMessage};
 pub use client::Client;
 pub use client_options::ClientOptions;
 pub use context::Context;

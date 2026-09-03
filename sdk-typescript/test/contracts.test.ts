@@ -873,7 +873,7 @@ test("registry rejects invalid and duplicate RPC state selections", () => {
       return { attributes: [attributes], channels: [queued] };
     }
 
-    @rpc({ loadAttributeMaps: [attributes.loadAll(), attributes.loadAll()] })
+    @rpc({ loadAttributeMaps: [attributes, attributes] })
     public inspect(_context: Context): void {}
   }
 

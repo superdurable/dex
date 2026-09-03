@@ -229,9 +229,9 @@ class SelectiveFlow(Flow[None]):
         return PersistenceSchema.of(ITEMS, QUEUED, BY_TENANT)
 
     @rpc(
-        load_attribute_maps=(ITEMS.load("tenant/a"),),
-        load_channels=(QUEUED.load_messages(),),
-        load_channel_maps=(BY_TENANT.load_all_messages(),),
+        load_attribute_map_instances=(ITEMS.load("tenant-a"),),
+        load_channels=(QUEUED,),
+        load_channel_maps=(BY_TENANT,),
     )
     def snapshot(self, context: Context) -> None:
         pass

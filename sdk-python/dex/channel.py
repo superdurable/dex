@@ -22,46 +22,26 @@ ValueT = TypeVar("ValueT")
 
 
 @dataclass(frozen=True)
-class ChannelLoad:
-    """Select one Channel's pending messages for an RPC snapshot.
-
-    Attributes:
-        channel: The exact Channel definition registered with the Flow.
-    """
-
-    channel: Channel[Any]
-
-    @property
-    def selector(self) -> str:
-        """Return the Channel name sent to Dex.
-
-        Returns:
-            The registered singleton Channel name.
-        """
-        return self.channel.name
-
-
-@dataclass(frozen=True)
 class ChannelMapLoad:
-    """Select ChannelMap pending messages for an RPC snapshot.
+    """Select one ChannelMap instance's pending messages for an RPC snapshot.
 
     Attributes:
         channel_map: The exact ChannelMap definition registered with the Flow.
-        instance: One logical instance key, or ``None`` to load every instance.
+        instance: One logical instance key.
     """
 
     channel_map: ChannelMap[Any]
-    instance: str | None
+    instance: str
 
     @property
     def selector(self) -> str:
         """Return the protocol selector for this typed load.
 
         Returns:
-            ``MapName/`` for all instances, or the escaped physical instance name.
+            The encoded physical instance name.
         """
-        if self.instance is None:
-            return f"{self.channel_map.name}/"
+        if "/" in self.instance:
+            raise ValueError("map instances must not contain '/'")
         return f"{self.channel_map.name}/{quote(self.instance, safe='')}"
 
 
@@ -102,17 +82,6 @@ class Channel(Generic[ValueT]):
     def __post_init__(self) -> None:
         require_persistence_definition_name(self.name)
 
-    def load_messages(self) -> ChannelLoad:
-        """Select this Channel's pending messages for an RPC snapshot.
-
-        Pass the result through ``@rpc(load_channels=(...))``. Loading preserves
-        FIFO order and does not consume or lock messages.
-
-        Returns:
-            A typed pending-message selection for this Channel.
-        """
-        return ChannelLoad(self)
-
     def publish(self, context: Context, value: ValueT) -> None:
         """Stage one value to append with the current handler decision.
 
@@ -149,7 +118,7 @@ class Channel(Generic[ValueT]):
     def pending_messages(self, context: Context) -> Sequence[ChannelMessage[ValueT]]:
         """Return the pending messages loaded for the current RPC snapshot.
 
-        Configure the RPC with ``load_channels=(this_channel.load_messages(),)``.
+        Configure the RPC with ``load_channels=(this_channel,)``.
         The returned sequence preserves FIFO order and does not change after staged
         publications or deletions.
 
@@ -324,26 +293,15 @@ class ChannelMap(Generic[ValueT]):
         """Select one instance's pending messages for an RPC snapshot.
 
         Args:
-            instance: The non-empty logical ChannelMap instance key.
+            instance: The non-empty, slash-free logical ChannelMap instance key.
 
         Returns:
             A typed selection for this one instance.
 
         Raises:
-            ValueError: If ``instance`` is empty.
+            ValueError: If ``instance`` is empty or contains ``/``.
         """
         return ChannelMapLoad(self, require_name(instance))
-
-    def load_all_messages(self) -> ChannelMapLoad:
-        """Select pending messages from every current map instance.
-
-        Loading preserves each instance's FIFO order and does not consume or lock
-        messages. ChannelMap keys and sizes remain available without this load.
-
-        Returns:
-            A typed all-instances selection for this ChannelMap.
-        """
-        return ChannelMapLoad(self, None)
 
     def publish(self, context: Context, instance: str, value: ValueT) -> None:
         """Stage a value to append to one ChannelMap instance.
@@ -383,8 +341,8 @@ class ChannelMap(Generic[ValueT]):
         """Return one instance's pending messages from the loaded RPC snapshot.
 
         Configure the RPC with
-        ``load_channel_maps=(this_channel_map.load_messages(instance),)`` or use
-        ``load_all_messages()``. This method reads one instance.
+        ``load_channel_map_instances=(this_channel_map.load_messages(instance),)`` or
+        load the whole map with ``load_channel_maps=(this_channel_map,)``.
 
         Args:
             context: The current RPC Context.

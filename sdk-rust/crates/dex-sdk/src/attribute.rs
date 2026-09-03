@@ -12,10 +12,10 @@ use dex_protocol::dex::{AttributeSyncConfig, IndexConfig};
 
 use crate::{Context, HandlerError, HandlerResult, Value};
 
-/// Selects Attribute-map state to load for one RPC invocation.
+/// Selects one AttributeMap instance to load for an RPC invocation.
 ///
-/// Create selections with [`AttributeMap::load`] or [`AttributeMap::load_all`], then attach them to
-/// an [`Rpc`](crate::Rpc). Loading one instance avoids transferring unrelated map entries.
+/// Create selections with [`AttributeMap::load`], then attach them with
+/// [`Rpc::load_attribute_map_instance`](crate::Rpc::load_attribute_map_instance).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttributeMapLoad {
     pub(crate) name: String,
@@ -202,24 +202,14 @@ impl<T> AttributeMap<T> {
         self
     }
 
-    /// Selects one map `instance` for loading into an RPC Context.
+    /// Selects one slash-free map `instance` for loading into an RPC Context.
     ///
     /// The instance remains readable for the handler even when it is absent; absence is returned as
-    /// `None`. Use [`Self::load_all`] when the RPC must enumerate every instance.
+    /// `None`. Load the map definition when the RPC must enumerate every instance.
     pub fn load(&self, instance: impl Into<String>) -> AttributeMapLoad {
         AttributeMapLoad {
             name: self.name.clone(),
             instance: Some(instance.into()),
-        }
-    }
-
-    /// Selects every current map instance for loading into an RPC Context.
-    ///
-    /// This selection is required by [`Self::all_instance_keys`] and may transfer substantial state.
-    pub fn load_all(&self) -> AttributeMapLoad {
-        AttributeMapLoad {
-            name: self.name.clone(),
-            instance: None,
         }
     }
 

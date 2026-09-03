@@ -9,9 +9,9 @@ other RPC writes.
 `InvokeOptions` also carries typed AttributeMap, Channel, and ChannelMap load
 selections. Ordinary Attributes and Channel size metadata remain automatic.
 Map entries and pending message envelopes are available only when selected.
-Exact map loads escape the logical instance; all-instance loads use a trailing
-slash selector. The RPC Context returns a stable state-not-loaded error when an
-unselected collection is read.
+Exact map loads use a slash-free logical instance and encode its physical name;
+all-instance loads use a trailing slash selector. The RPC Context returns a
+stable state-not-loaded error when an unselected collection is read.
 
 Status: Phases 1 through 5 are implemented.
 

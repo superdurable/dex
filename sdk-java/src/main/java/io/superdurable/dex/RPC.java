@@ -80,14 +80,21 @@ public @interface RPC {
     boolean isTransactional() default false;
 
     /**
-     * Selects AttributeMap entries included in the RPC snapshot.
+     * Selects AttributeMaps whose current entries are included in the RPC snapshot.
      *
-     * <p>Use {@code MapName/} for every current instance or {@code MapName/instance} for one
-     * logical instance. The SDK escapes the instance portion before sending the request.
-     *
-     * @return registered AttributeMap selectors; defaults to an empty array
+     * @return registered AttributeMap names; defaults to an empty array
      */
     String[] loadAttributeMaps() default {};
+
+    /**
+     * Selects exact AttributeMap instances included in the RPC snapshot.
+     *
+     * <p>Each value uses {@code MapName/instance}. The SDK escapes the instance portion before
+     * sending the request.
+     *
+     * @return registered AttributeMap instance selectors; defaults to an empty array
+     */
+    String[] loadAttributeMapInstances() default {};
 
     /**
      * Selects Channels whose pending messages are included in the RPC snapshot.
@@ -97,12 +104,19 @@ public @interface RPC {
     String[] loadChannels() default {};
 
     /**
-     * Selects ChannelMap pending messages included in the RPC snapshot.
+     * Selects ChannelMaps whose current pending messages are included in the RPC snapshot.
      *
-     * <p>Use {@code MapName/} for every current instance or {@code MapName/instance} for one
-     * logical instance. The SDK escapes the instance portion before sending the request.
-     *
-     * @return registered ChannelMap selectors; defaults to an empty array
+     * @return registered ChannelMap names; defaults to an empty array
      */
     String[] loadChannelMaps() default {};
+
+    /**
+     * Selects exact ChannelMap instance messages included in the RPC snapshot.
+     *
+     * <p>Each value uses {@code MapName/instance}. The SDK escapes the instance portion before
+     * sending the request.
+     *
+     * @return registered ChannelMap instance selectors; defaults to an empty array
+     */
+    String[] loadChannelMapInstances() default {};
 }

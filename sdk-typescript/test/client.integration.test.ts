@@ -107,9 +107,11 @@ class TestFlow implements Flow<Input> {
   @rpc({
     inputCodec,
     outputCodec,
-    loadAttributeMaps: [items.loadAll(), items.load("tenant/a")],
-    loadChannels: [queued.loadMessages()],
-    loadChannelMaps: [byTenant.loadAllMessages(), byTenant.loadMessages("tenant/a")],
+    loadAttributeMaps: [items],
+    loadAttributeMapInstances: [items.load("tenant-a")],
+    loadChannels: [queued],
+    loadChannelMaps: [byTenant],
+    loadChannelMapInstances: [byTenant.loadMessages("tenant-a")],
   })
   public accept(_context: Context, _input: Input): RPCResult<Output> {
     return { output: { accepted: true } };
@@ -245,11 +247,11 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.start?.stepOptions?.heartbeatTimeoutSeconds, 2);
     assert.equal(requests.rpc?.rpcName, "accept");
-    assert.deepEqual(requests.rpc?.loadAttributeMapSelectors, ["items/", "items/tenant%2Fa"]);
+    assert.deepEqual(requests.rpc?.loadAttributeMapSelectors, ["items/", "items/tenant-a"]);
     assert.deepEqual(requests.rpc?.loadChannelNames, ["queued"]);
     assert.deepEqual(requests.rpc?.loadChannelMapSelectors, [
       "by-tenant/",
-      "by-tenant/tenant%2Fa",
+      "by-tenant/tenant-a",
     ]);
     assert.deepEqual(requests.writeStream, {
       flowId: "flow-1",

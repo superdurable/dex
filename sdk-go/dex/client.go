@@ -1720,8 +1720,23 @@ func validateInvokeStateLoads(
 	flow *registeredFlow,
 	options InvokeOptions,
 ) ([]string, []string, []string, error) {
-	attributeMaps := make([]string, 0, len(options.LoadAttributeMaps))
-	for _, load := range options.LoadAttributeMaps {
+	attributeMaps := make([]string, 0, len(options.LoadAttributeMaps)+len(options.LoadAttributeMapInstances))
+	for _, selection := range options.LoadAttributeMaps {
+		if selection == nil {
+			return nil, nil, nil, fmt.Errorf("dex: AttributeMap load must not be nil")
+		}
+		name := selection.attributeMapLoadName()
+		attribute, found := flow.attributes[name]
+		if !found || !attribute.isMap {
+			return nil, nil, nil, fmt.Errorf(
+				"dex: AttributeMap %q is not registered with Flow %q",
+				name,
+				flow.flowType,
+			)
+		}
+		attributeMaps = append(attributeMaps, name+"/")
+	}
+	for _, load := range options.LoadAttributeMapInstances {
 		attribute, found := flow.attributes[load.name]
 		if !found || !attribute.isMap {
 			return nil, nil, nil, fmt.Errorf(
@@ -1730,26 +1745,45 @@ func validateInvokeStateLoads(
 				flow.flowType,
 			)
 		}
-		selector, err := mapLoadSelector(load.name, load.instance, load.isAll)
+		selector, err := mapInstanceLoadSelector(load.name, load.instance)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		attributeMaps = append(attributeMaps, selector)
 	}
 	channels := make([]string, 0, len(options.LoadChannels))
-	for _, load := range options.LoadChannels {
-		channel, found := flow.channels[load.name]
+	for _, selection := range options.LoadChannels {
+		if selection == nil {
+			return nil, nil, nil, fmt.Errorf("dex: Channel load must not be nil")
+		}
+		name := selection.channelLoadName()
+		channel, found := flow.channels[name]
 		if !found || channel.isMap {
 			return nil, nil, nil, fmt.Errorf(
 				"dex: Channel %q is not registered with Flow %q",
-				load.name,
+				name,
 				flow.flowType,
 			)
 		}
-		channels = append(channels, load.name)
+		channels = append(channels, name)
 	}
-	channelMaps := make([]string, 0, len(options.LoadChannelMaps))
-	for _, load := range options.LoadChannelMaps {
+	channelMaps := make([]string, 0, len(options.LoadChannelMaps)+len(options.LoadChannelMapInstances))
+	for _, selection := range options.LoadChannelMaps {
+		if selection == nil {
+			return nil, nil, nil, fmt.Errorf("dex: ChannelMap load must not be nil")
+		}
+		name := selection.channelMapLoadName()
+		channel, found := flow.channels[name]
+		if !found || !channel.isMap {
+			return nil, nil, nil, fmt.Errorf(
+				"dex: ChannelMap %q is not registered with Flow %q",
+				name,
+				flow.flowType,
+			)
+		}
+		channelMaps = append(channelMaps, name+"/")
+	}
+	for _, load := range options.LoadChannelMapInstances {
 		channel, found := flow.channels[load.name]
 		if !found || !channel.isMap {
 			return nil, nil, nil, fmt.Errorf(
@@ -1758,7 +1792,7 @@ func validateInvokeStateLoads(
 				flow.flowType,
 			)
 		}
-		selector, err := mapLoadSelector(load.name, load.instance, load.isAll)
+		selector, err := mapInstanceLoadSelector(load.name, load.instance)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -1790,9 +1824,9 @@ func validateUniqueStateLoadNames(kind string, names []string) error {
 	return nil
 }
 
-func mapLoadSelector(name string, instance string, isAll bool) (string, error) {
-	if isAll {
-		return name + "/", nil
+func mapInstanceLoadSelector(name string, instance string) (string, error) {
+	if strings.Contains(instance, "/") {
+		return "", fmt.Errorf("dex: map instance must not contain /")
 	}
 	return physicalName(name, instance, true)
 }

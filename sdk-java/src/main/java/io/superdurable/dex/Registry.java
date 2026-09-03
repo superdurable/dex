@@ -420,13 +420,13 @@ public final class Registry {
             final Map<String, PersistenceDefinition> persistence) {
         final List<String> attributeMaps = validateRpcMapStateSelection(
                 flowType, rpcName, "AttributeMap", annotation.loadAttributeMaps(),
-                persistence, AttributeMap.class);
+                annotation.loadAttributeMapInstances(), persistence, AttributeMap.class);
         final List<String> channels = validateRpcStateSelection(
                 flowType, rpcName, "Channel", annotation.loadChannels(),
                 persistence, Channel.class);
         final List<String> channelMaps = validateRpcMapStateSelection(
                 flowType, rpcName, "ChannelMap", annotation.loadChannelMaps(),
-                persistence, ChannelMap.class);
+                annotation.loadChannelMapInstances(), persistence, ChannelMap.class);
         return new RpcStateSelections(attributeMaps, channels, channelMaps);
     }
 
@@ -460,32 +460,58 @@ public final class Registry {
             final String flowType,
             final String rpcName,
             final String kind,
+            final String[] names,
             final String[] selectors,
             final Map<String, PersistenceDefinition> persistence,
             final Class<?> expectedType) {
         final Set<String> seen = new HashSet<String>();
-        final List<String> normalized = new ArrayList<String>();
+        final List<String> protocolSelectors = new ArrayList<String>();
+        for (String name : names) {
+            if (!expectedType.isInstance(persistence.get(name))) {
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " RPC " + rpcName + " loads an unregistered "
+                                + kind + ": " + name);
+            }
+            addRpcMapStateSelection(
+                    flowType, rpcName, kind, name, name + "/", seen, protocolSelectors);
+        }
         for (String selector : selectors) {
             final int separator = selector.indexOf('/');
             final String name = separator < 0 ? selector : selector.substring(0, separator);
-            if (separator < 0 || !expectedType.isInstance(persistence.get(name))) {
+            if (separator < 0 || separator == selector.length() - 1
+                    || !expectedType.isInstance(persistence.get(name))) {
                 throw new FlowDefinitionException(
                         "Flow " + flowType + " RPC " + rpcName + " loads an unregistered "
                                 + kind + ": " + selector);
             }
             final String instance = selector.substring(separator + 1);
-            final String protocolSelector = instance.isEmpty()
-                    ? name + "/"
-                    : physicalName(name, instance);
-            if (!seen.add(protocolSelector)) {
+            if (instance.indexOf('/') >= 0) {
                 throw new FlowDefinitionException(
-                        "Flow " + flowType + " RPC " + rpcName + " has duplicate "
-                                + kind + " load " + selector);
+                        "Flow " + flowType + " RPC " + rpcName
+                                + " map instance must not contain /");
             }
-            normalized.add(protocolSelector);
+            addRpcMapStateSelection(
+                    flowType, rpcName, kind, selector, physicalName(name, instance), seen,
+                    protocolSelectors);
         }
-        Collections.sort(normalized);
-        return Collections.unmodifiableList(normalized);
+        Collections.sort(protocolSelectors);
+        return Collections.unmodifiableList(protocolSelectors);
+    }
+
+    private static void addRpcMapStateSelection(
+            final String flowType,
+            final String rpcName,
+            final String kind,
+            final String source,
+            final String protocolSelector,
+            final Set<String> seen,
+            final List<String> protocolSelectors) {
+        if (!seen.add(protocolSelector)) {
+            throw new FlowDefinitionException(
+                    "Flow " + flowType + " RPC " + rpcName + " has duplicate "
+                            + kind + " load " + source);
+        }
+        protocolSelectors.add(protocolSelector);
     }
 
     private static void validateRpcSignature(

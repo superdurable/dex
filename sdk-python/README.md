@@ -21,20 +21,21 @@ AttributeMap entries and pending Channel messages are opt-in:
 
 ```python
 @dex.rpc(
-    load_attribute_maps=(items.load("tenant/a"),),
-    load_channels=(queued.load_messages(),),
-    load_channel_maps=(by_tenant.load_all_messages(),),
+    load_attribute_map_instances=(items.load("tenant-a"),),
+    load_channels=(queued,),
+    load_channel_maps=(by_tenant,),
 )
 def snapshot(self, context: dex.Context) -> dex.RPCResult[Snapshot]:
     messages = queued.pending_messages(context)
     return dex.RPCResult(Snapshot(messages=messages))
 ```
 
-Use **load_all** or **load_all_messages** only when every current map instance
-is needed. A selected empty queue returns an empty tuple; reading an unselected
-map entry or pending-message snapshot raises **StateNotLoadedError**. Pending
-messages preserve FIFO order and include the server-assigned message ID. The
-snapshot does not change after the handler stages a publish or deletion.
+Put an AttributeMap or ChannelMap directly in its plural load option when every
+current instance is needed. Use the singular instance options for the less common
+exact-instance case. A selected empty queue returns an empty tuple; reading an
+unselected map entry or pending-message snapshot raises **StateNotLoadedError**.
+Pending messages preserve FIFO order and include the server-assigned message ID.
+The snapshot does not change after the handler stages a publish or deletion.
 
 Loading controls which data reaches the Worker. **is_transactional** controls
 atomic commit and Channel deletion validation. Attribute locks add isolation

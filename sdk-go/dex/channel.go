@@ -29,18 +29,24 @@ type Channel[T any] struct {
 	name string
 }
 
-// ChannelLoad selects one Channel's pending messages for an RPC invocation.
-// Create values with Channel.LoadMessages and place them in InvokeOptions.LoadChannels.
-type ChannelLoad struct {
-	name string
+// ChannelSelection selects one Channel's pending messages for an RPC invocation.
+// Channel values implement this sealed interface.
+type ChannelSelection interface {
+	channelLoadName() string
 }
 
-// ChannelMapLoad selects ChannelMap pending messages for an RPC invocation.
-// Create values with ChannelMap.LoadMessages and place them in InvokeOptions.LoadChannelMaps.
+// ChannelMapSelection selects every current ChannelMap instance for an RPC invocation.
+// ChannelMap values implement this sealed interface.
+type ChannelMapSelection interface {
+	channelMapLoadName() string
+}
+
+// ChannelMapLoad selects one ChannelMap instance for an RPC invocation.
+// Create values with ChannelMap.LoadMessages and place them in
+// InvokeOptions.LoadChannelMapInstances.
 type ChannelMapLoad struct {
 	name     string
 	instance string
-	isAll    bool
 }
 
 // ChannelMessage identifies one pending Channel value returned by Client.GetChannelMessages.
@@ -87,12 +93,6 @@ func (c Channel[T]) Delete(ctx Context, messageID string) error {
 		return errInvalidInvocationContext
 	}
 	return invocation.deleteChannelMessage(c.name, "", false, messageID)
-}
-
-// LoadMessages selects this Channel's pending messages for an RPC snapshot.
-// Loading does not consume or lock the messages.
-func (c Channel[T]) LoadMessages() ChannelLoad {
-	return ChannelLoad{name: c.name}
 }
 
 // PendingMessages returns the loaded RPC snapshot in FIFO order.
@@ -195,6 +195,10 @@ func (c Channel[T]) channelName() string {
 	return c.name
 }
 
+func (c Channel[T]) channelLoadName() string {
+	return c.name
+}
+
 func (Channel[T]) channelIsMap() bool {
 	return false
 }
@@ -232,14 +236,7 @@ func (c ChannelMap[T]) Delete(ctx Context, instance string, messageID string) er
 	return invocation.deleteChannelMessage(c.name, instance, true, messageID)
 }
 
-// LoadAllMessages selects pending messages from every current instance for an RPC snapshot.
-// Loading does not consume or lock messages.
-func (c ChannelMap[T]) LoadAllMessages() ChannelMapLoad {
-	return ChannelMapLoad{name: c.name, isAll: true}
-}
-
-// LoadMessages selects pending messages from one logical instance for an RPC snapshot.
-// The SDK escapes instance when constructing the protocol selector.
+// LoadMessages selects pending messages from one slash-free logical instance for an RPC snapshot.
 func (c ChannelMap[T]) LoadMessages(instance string) ChannelMapLoad {
 	return ChannelMapLoad{name: c.name, instance: instance}
 }
@@ -390,6 +387,10 @@ func (c ChannelMap[T]) ChannelName() string {
 }
 
 func (c ChannelMap[T]) channelName() string {
+	return c.name
+}
+
+func (c ChannelMap[T]) channelMapLoadName() string {
 	return c.name
 }
 

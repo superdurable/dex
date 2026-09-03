@@ -6,8 +6,8 @@ messages with their server-assigned IDs and decoded values. Delete one with
 Raw `dexcli api call InvokeRPC` accepts the `isTransactional` field.
 It also accepts `loadAttributeMapSelectors`, `loadChannelNames`, and
 `loadChannelMapSelectors`. For map selectors, `MapName/` loads every current
-instance and `MapName/<escaped-instance>` loads one instance. The raw API expects
-the protocol-escaped instance; SDK typed selectors escape logical instances.
+instance and `MapName/<encoded-instance>` loads one slash-free instance. The raw
+API expects the protocol-encoded instance; SDK typed selectors encode logical instances.
 
 `dexcli` starts a complete local Dex development environment with one command.
 It also gives humans and AI agents a JSON-first interface to every public Dex

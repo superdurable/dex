@@ -357,10 +357,17 @@ function validateRPCStateLoads(
     "AttributeMap",
     registeredRPC.options.loadAttributeMaps ?? [],
     attributeMaps,
+    (attributeMap) => attributeMap,
+    (attributeMap) => `${attributeMap.name}/`,
+  );
+  validateStateLoads(
+    flowName,
+    registeredRPC.name,
+    "AttributeMap",
+    registeredRPC.options.loadAttributeMapInstances ?? [],
+    attributeMaps,
     (load) => load.attributeMap,
-    (load) => load.instance === undefined
-      ? `${load.attributeMap.name}/`
-      : physicalMapName(load.attributeMap.name, load.instance),
+    (load) => rpcMapInstanceSelector(load.attributeMap.name, load.instance),
   );
   validateStateLoads(
     flowName,
@@ -368,8 +375,8 @@ function validateRPCStateLoads(
     "Channel",
     registeredRPC.options.loadChannels ?? [],
     channels,
-    (load) => load.channel,
-    (load) => load.channel.name,
+    (channel) => channel,
+    (channel) => channel.name,
   );
   validateStateLoads(
     flowName,
@@ -377,11 +384,25 @@ function validateRPCStateLoads(
     "ChannelMap",
     registeredRPC.options.loadChannelMaps ?? [],
     channelMaps,
-    (load) => load.channelMap,
-    (load) => load.instance === undefined
-      ? `${load.channelMap.name}/`
-      : physicalMapName(load.channelMap.name, load.instance),
+    (channelMap) => channelMap,
+    (channelMap) => `${channelMap.name}/`,
   );
+  validateStateLoads(
+    flowName,
+    registeredRPC.name,
+    "ChannelMap",
+    registeredRPC.options.loadChannelMapInstances ?? [],
+    channelMaps,
+    (load) => load.channelMap,
+    (load) => rpcMapInstanceSelector(load.channelMap.name, load.instance),
+  );
+}
+
+function rpcMapInstanceSelector(name: string, instance: string): string {
+  if (instance.includes("/")) {
+    throw new FlowDefinitionError("RPC map instance must not contain /");
+  }
+  return physicalMapName(name, instance);
 }
 
 function validateStateLoads<Load, Definition>(

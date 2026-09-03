@@ -24,29 +24,28 @@ ValueT = TypeVar("ValueT")
 
 @dataclass(frozen=True)
 class AttributeMapLoad:
-    """Select AttributeMap entries for an RPC snapshot.
+    """Select one AttributeMap instance for an RPC snapshot.
 
-    Create a selection with :meth:`AttributeMap.load` for one instance or
-    :meth:`AttributeMap.load_all` for every current instance. Loading provides a
-    point-in-time value snapshot; it does not lock the map against concurrent writers.
+    Create a selection with :meth:`AttributeMap.load`. Loading provides a point-in-time
+    value snapshot; it does not lock the map against concurrent writers.
 
     Attributes:
         attribute_map: The exact AttributeMap definition registered with the Flow.
-        instance: One logical instance key, or ``None`` to load every instance.
+        instance: One logical instance key.
     """
 
     attribute_map: AttributeMap[Any]
-    instance: str | None
+    instance: str
 
     @property
     def selector(self) -> str:
         """Return the protocol selector for this typed load.
 
         Returns:
-            ``MapName/`` for all instances, or the escaped physical instance name.
+            The encoded physical instance name.
         """
-        if self.instance is None:
-            return f"{self.attribute_map.name}/"
+        if "/" in self.instance:
+            raise ValueError("map instances must not contain '/'")
         return f"{self.attribute_map.name}/{quote(self.instance, safe='')}"
 
 
@@ -204,31 +203,18 @@ class AttributeMap(Generic[ValueT]):
     def load(self, instance: str) -> AttributeMapLoad:
         """Select one instance for an RPC snapshot.
 
-        Pass the result through ``@rpc(load_attribute_maps=(...))``. The SDK
-        escapes the logical instance key when building the protocol selector.
+        Pass the result through ``@rpc(load_attribute_map_instances=(...))``.
 
         Args:
-            instance: The non-empty logical map key to load.
+            instance: The non-empty, slash-free logical map key to load.
 
         Returns:
             A typed selection for this one instance.
 
         Raises:
-            ValueError: If ``instance`` is empty.
+            ValueError: If ``instance`` is empty or contains ``/``.
         """
         return AttributeMapLoad(self, require_name(instance))
-
-    def load_all(self) -> AttributeMapLoad:
-        """Select every current instance for an RPC snapshot.
-
-        Use this when the handler must enumerate keys or inspect multiple dynamic
-        instances. Loading does not provide isolation; use a shared Attribute lock
-        when cooperating writers must not modify state during the RPC.
-
-        Returns:
-            A typed all-instances selection for this map.
-        """
-        return AttributeMapLoad(self, None)
 
     def get(self, context: Context, instance: str) -> ValueT:
         """Return one map instance from a Step or RPC Context.

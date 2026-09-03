@@ -9,8 +9,8 @@
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import type { Flow } from "./flow.js";
-import type { AttributeLock, AttributeMapLoad } from "./persistence.js";
-import type { ChannelLoad, ChannelMapLoad } from "./wait.js";
+import type { AttributeLock, AttributeMap, AttributeMapLoad } from "./persistence.js";
+import type { Channel, ChannelMap, ChannelMapLoad } from "./wait.js";
 import type { StepClass, StepMovement } from "./step.js";
 import { requireName } from "./validation.js";
 
@@ -61,12 +61,16 @@ export interface RPCOptions<Input = unknown, Output = unknown> {
   readonly lockAttributes?: readonly AttributeLock[];
   /** Requests transactional reads and writes even when no Attribute lock is configured. */
   readonly isTransactional?: boolean;
-  /** AttributeMap instances included in the RPC snapshot. */
-  readonly loadAttributeMaps?: readonly AttributeMapLoad[];
+  /** AttributeMaps whose current instances are included in the RPC snapshot. */
+  readonly loadAttributeMaps?: readonly AttributeMap<unknown>[];
+  /** Exact AttributeMap instances included in the RPC snapshot. */
+  readonly loadAttributeMapInstances?: readonly AttributeMapLoad[];
   /** Singleton Channel pending messages included in the RPC snapshot. */
-  readonly loadChannels?: readonly ChannelLoad[];
-  /** ChannelMap instance pending messages included in the RPC snapshot. */
-  readonly loadChannelMaps?: readonly ChannelMapLoad[];
+  readonly loadChannels?: readonly Channel<unknown>[];
+  /** ChannelMaps whose current instance messages are included in the RPC snapshot. */
+  readonly loadChannelMaps?: readonly ChannelMap<unknown>[];
+  /** Exact ChannelMap instance messages included in the RPC snapshot. */
+  readonly loadChannelMapInstances?: readonly ChannelMapLoad[];
 }
 
 export interface RegisteredRPC {

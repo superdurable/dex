@@ -97,7 +97,7 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     /**
      * Returns one instance's loaded pending-message snapshot in FIFO order.
      *
-     * <p>Add {@code MapName/instance} or {@code MapName/} to {@link RPC#loadChannelMaps()}.
+     * <p>Add {@code MapName/instance} to {@link RPC#loadChannelMapInstances()}.
      * The snapshot does not change after staged publications or deletions in the same handler.
      *
      * @param context the RPC invocation context

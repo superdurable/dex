@@ -1250,8 +1250,8 @@ mod tests {
         let attributes = AttributeMap::<String>::new("selected-items");
         let queued = Channel::<String>::new("selected-commands");
         let by_tenant = ChannelMap::<String>::new("selected-by-tenant");
-        let attribute_name = physical_name("selected-items", "tenant/a");
-        let channel_map_name = physical_name("selected-by-tenant", "tenant/a");
+        let attribute_name = physical_name("selected-items", "tenant-a");
+        let channel_map_name = physical_name("selected-by-tenant", "tenant-a");
         let mut context = Context::new(
             ContextInput {
                 method: InvocationMethod::Rpc,
@@ -1301,12 +1301,12 @@ mod tests {
 
         assert_eq!(
             Some("value".to_string()),
-            attributes.get(&context, "tenant/a").unwrap()
+            attributes.get(&context, "tenant-a").unwrap()
         );
         assert_eq!("first", queued.pending_messages(&context).unwrap()[0].value);
         assert_eq!(
             "message-2",
-            by_tenant.pending_messages(&context, "tenant/a").unwrap()[0].message_id
+            by_tenant.pending_messages(&context, "tenant-a").unwrap()[0].message_id
         );
         assert_eq!(
             Some("first".to_string()),

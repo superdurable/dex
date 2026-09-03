@@ -344,12 +344,11 @@ def test_registry_validates_and_sorts_rpc_state_loads() -> None:
             return PersistenceSchema.of(attributes, commands, channels)
 
         @rpc(
-            load_attribute_maps=(attributes.load("tenant/a"), attributes.load_all()),
-            load_channels=(commands.load_messages(),),
-            load_channel_maps=(
-                channels.load_messages("tenant/a"),
-                channels.load_all_messages(),
-            ),
+            load_attribute_maps=(attributes,),
+            load_attribute_map_instances=(attributes.load("tenant-a"),),
+            load_channels=(commands,),
+            load_channel_maps=(channels,),
+            load_channel_map_instances=(channels.load_messages("tenant-a"),),
         )
         def snapshot(self, context: Context) -> None:
             del context
@@ -359,23 +358,23 @@ def test_registry_validates_and_sorts_rpc_state_loads() -> None:
     _, registered = registry._rpc_for_method(flow.snapshot)
     assert registered.load_attribute_map_selectors == (
         "items/",
-        "items/tenant%2Fa",
+        "items/tenant-a",
     )
     assert registered.load_channel_names == ("commands",)
     assert registered.load_channel_map_selectors == (
         "commands-by-tenant/",
-        "commands-by-tenant/tenant%2Fa",
+        "commands-by-tenant/tenant-a",
     )
 
     class DuplicateFlow(Flow[None]):
         def get_persistence_schema(self) -> PersistenceSchema:
             return PersistenceSchema.of(attributes)
 
-        @rpc(load_attribute_maps=(attributes.load_all(), attributes.load_all()))
+        @rpc(load_attribute_maps=(attributes, attributes))
         def snapshot(self, context: Context) -> None:
             del context
 
-    with pytest.raises(FlowDefinitionError, match="duplicate AttributeMapLoad"):
+    with pytest.raises(FlowDefinitionError, match="duplicate AttributeMap"):
         Registry((DuplicateFlow(),))
 
 
@@ -578,8 +577,8 @@ def test_rpc_selective_state_snapshots_are_typed_and_presence_aware() -> None:
 
     registry = Registry((SnapshotFlow(),))
     values = ValueMapper(registry.codec_registry)
-    exact_attribute = Registry.physical_name("items", "tenant/a")
-    exact_channel = Registry.physical_name("commands-by-tenant", "tenant/a")
+    exact_attribute = Registry.physical_name("items", "tenant-a")
+    exact_channel = Registry.physical_name("commands-by-tenant", "tenant-a")
     context = InvocationContext(
         InvocationMethod.RPC,
         registry._flow_by_type("SnapshotFlow"),
@@ -618,7 +617,7 @@ def test_rpc_selective_state_snapshots_are_typed_and_presence_aware() -> None:
         loaded_channel_map_selectors=(exact_channel,),
     )
 
-    assert attributes.get(context, "tenant/a") == "loaded"
+    assert attributes.get(context, "tenant-a") == "loaded"
     with pytest.raises(StateNotLoadedError):
         attributes.get(context, "tenant/b")
     with pytest.raises(StateNotLoadedError):
@@ -626,8 +625,8 @@ def test_rpc_selective_state_snapshots_are_typed_and_presence_aware() -> None:
     assert commands.size(context) == 1
     assert commands.pending_messages(context)[0].value == "queued"
     assert commands.find_pending_message(context, "message-1") is not None
-    assert channels.get_all_instance_keys(context) == ("tenant/a",)
-    assert channels.pending_messages(context, "tenant/a")[0].value == "mapped"
+    assert channels.get_all_instance_keys(context) == ("tenant-a",)
+    assert channels.pending_messages(context, "tenant-a")[0].value == "mapped"
     with pytest.raises(StateNotLoadedError):
         channels.pending_messages(context, "tenant/b")
 

@@ -19,17 +19,18 @@ AttributeMap entries and pending Channel messages are opt-in:
 
 ```go
 options := dex.InvokeOptions{
-	LoadAttributeMaps: []dex.AttributeMapLoad{Items.Load("tenant/a")},
-	LoadChannels:      []dex.ChannelLoad{Queued.LoadMessages()},
-	LoadChannelMaps:   []dex.ChannelMapLoad{ByTenant.LoadAllMessages()},
+	LoadAttributeMapInstances: []dex.AttributeMapLoad{Items.Load("tenant-a")},
+	LoadChannels:              []dex.ChannelSelection{Queued},
+	LoadChannelMaps:           []dex.ChannelMapSelection{ByTenant},
 }
 ```
 
-Use **LoadAll** or **LoadAllMessages** only when every current map instance is
-needed. A selected empty queue returns an empty slice; reading an unselected
-map entry or pending-message snapshot returns **StateNotLoadedError**. Pending
-messages preserve FIFO order and include the server-assigned message ID. The
-snapshot does not change after the handler stages a publish or deletion.
+Put an AttributeMap or ChannelMap directly in its plural load option when every
+current instance is needed. Use the singular instance options for the less common
+exact-instance case. A selected empty queue returns an empty slice; reading an
+unselected map entry or pending-message snapshot returns **StateNotLoadedError**.
+Pending messages preserve FIFO order and include the server-assigned message ID.
+The snapshot does not change after the handler stages a publish or deletion.
 
 Loading controls which data reaches the Worker. **IsTransactional** controls
 atomic commit and Channel deletion validation. Attribute locks add isolation

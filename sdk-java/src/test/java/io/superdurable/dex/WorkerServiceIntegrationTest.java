@@ -348,20 +348,18 @@ final class WorkerServiceIntegrationTest {
             }
 
             @RPC(
-                    loadAttributeMaps = {
-                        "selected-items/tenant/a", "selected-items/"
-                    },
+                    loadAttributeMaps = {"selected-items"},
+                    loadAttributeMapInstances = {"selected-items/tenant-a"},
                     loadChannels = {"selected-commands"},
-                    loadChannelMaps = {
-                        "selected-by-tenant/tenant/a", "selected-by-tenant/"
-                    })
+                    loadChannelMaps = {"selected-by-tenant"},
+                    loadChannelMapInstances = {"selected-by-tenant/tenant-a"})
             public void snapshot(final Context context) {
             }
         };
         final Registry registry = new Registry(Collections.<Flow<?>>singletonList(flow));
         final ValueMapper values = new ValueMapper(new ObjectMapper());
-        final String attributeName = Registry.physicalName("selected-items", "tenant/a");
-        final String channelMapName = Registry.physicalName("selected-by-tenant", "tenant/a");
+        final String attributeName = Registry.physicalName("selected-items", "tenant-a");
+        final String channelMapName = Registry.physicalName("selected-by-tenant", "tenant-a");
         final Map<String, ChannelValues> loadedMessages = new HashMap<String, ChannelValues>();
         loadedMessages.put("selected-commands", ChannelValues.newBuilder()
                 .addMessages(io.superdurable.gen.ChannelMessage.newBuilder()
@@ -394,9 +392,9 @@ final class WorkerServiceIntegrationTest {
                 Collections.singletonList("selected-commands"),
                 Collections.singletonList(channelMapName));
 
-        assertEquals("value", attributes.get(context, "tenant/a"));
+        assertEquals("value", attributes.get(context, "tenant-a"));
         assertEquals("first", queued.pendingMessages(context).get(0).getValue());
-        assertEquals("message-2", byTenant.pendingMessages(context, "tenant/a")
+        assertEquals("message-2", byTenant.pendingMessages(context, "tenant-a")
                 .get(0).getMessageId());
         assertEquals("first", queued.findPendingMessage(context, "message-1").getValue());
         assertThrows(StateNotLoadedException.class, () -> attributes.get(context, "other"));

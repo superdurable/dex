@@ -13,12 +13,12 @@ import type { Context } from "./context.js";
 import type { Stream } from "./stream.js";
 import { requireMapInstance, requirePersistenceDefinitionName } from "./validation.js";
 
-/** Selects AttributeMap entries for an RPC snapshot. */
+/** Selects one AttributeMap instance for an RPC snapshot. */
 export interface AttributeMapLoad {
   /** Exact AttributeMap definition registered with the Flow. */
   readonly attributeMap: AttributeMap<unknown>;
-  /** One logical instance key; omitted to load every current instance. */
-  readonly instance?: string;
+  /** One slash-free logical instance key. */
+  readonly instance: string;
 }
 
 /** Selects how Dex indexes an Attribute for Flow search. */
@@ -183,20 +183,11 @@ export class AttributeMap<T> {
   /**
    * Selects one logical instance for an RPC snapshot.
    * @param instance - Non-empty logical map key. The SDK escapes it for the protocol.
-   * @returns A typed exact-instance selection for {@link RPCOptions.loadAttributeMaps}.
+   * @returns A typed exact-instance selection for {@link RPCOptions.loadAttributeMapInstances}.
    */
   public load(instance: string): AttributeMapLoad {
     requireName(instance);
     return { attributeMap: this as AttributeMap<unknown>, instance };
-  }
-
-  /**
-   * Selects every current instance for an RPC snapshot.
-   * Loading does not lock the map or isolate it from concurrent writers.
-   * @returns A typed all-instances selection for {@link RPCOptions.loadAttributeMaps}.
-   */
-  public loadAll(): AttributeMapLoad {
-    return { attributeMap: this as AttributeMap<unknown> };
   }
 
   /**
