@@ -161,6 +161,22 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 </SdkSnippet>
 </SdkTabs>
 
+## Selective RPC state loading
+
+An RPC annotation or **Client** invoke option requests **AttributeMap** entries or pending
+**Channel** messages. Dex Server returns the actual loaded scope with the RPC snapshot. The SDK
+checks that returned scope when an RPC reads a selectively loaded collection.
+
+For an **AttributeMap** entry or instance enumeration outside that scope, the SDK raises
+**AttributeMapNotLoadedError**. For pending messages outside that scope, it raises
+**ChannelMessagesNotLoadedError**. Java uses **AttributeMapNotLoadedException** and
+**ChannelMessagesNotLoadedException**.
+
+An explicitly loaded collection can be empty. That is not an error. An empty pending-message
+snapshot returns an empty list. An absent **AttributeMap** entry uses the SDK's normal
+absent-value behavior. The not-loaded errors mean Dex Server did not return a loading guarantee
+for that collection.
+
 ## Transactional reads and writes {#transactional-reads-and-writes}
 
 A transactional RPC performs its reads and writes as one atomic operation.

@@ -35,8 +35,11 @@ Clients escape logical map instances and sort the resulting physical names.
 
 RPC Context APIs return typed FIFO message envelopes and support lookup by
 server-assigned message ID. A loaded empty collection returns an empty result.
-Reading a collection that was not loaded raises a stable state-not-loaded
-usage error. Staged publications and deletions do not mutate the input snapshot.
+Reading an unloaded AttributeMap entry or enumerating unloaded AttributeMap
+instances raises `AttributeMapNotLoadedError` (`AttributeMapNotLoadedException`
+in Java). Reading unloaded pending Channel messages raises
+`ChannelMessagesNotLoadedError` (`ChannelMessagesNotLoadedException` in Java).
+Staged publications and deletions do not mutate the input snapshot.
 
 ## Worker state projection
 
