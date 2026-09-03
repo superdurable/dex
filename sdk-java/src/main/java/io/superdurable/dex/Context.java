@@ -318,6 +318,28 @@ public interface Context {
     int channelSize(ChannelMap<?> channel, String instance);
 
     /**
+     * Returns a singleton Channel's loaded pending-message snapshot in FIFO order.
+     *
+     * @param channel the registered typed Channel selected by the RPC annotation
+     * @param <T> the Channel message type
+     * @return immutable pending message IDs and decoded values
+     * @throws io.superdurable.dex.exceptions.StateNotLoadedException if the RPC did not load it
+     */
+    <T> List<ChannelMessage<T>> pendingChannelMessages(Channel<T> channel);
+
+    /**
+     * Returns one ChannelMap instance's loaded pending-message snapshot in FIFO order.
+     *
+     * @param channel the registered typed ChannelMap selected by the RPC annotation
+     * @param instance the logical map instance
+     * @param <T> the Channel message type
+     * @return immutable pending message IDs and decoded values
+     * @throws io.superdurable.dex.exceptions.StateNotLoadedException if the RPC did not load it
+     */
+    <T> List<ChannelMessage<T>> pendingChannelMessages(
+            ChannelMap<T> channel, String instance);
+
+    /**
      * Returns condition results for a Channel.
      *
      * @param channel the registered typed Channel

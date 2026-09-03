@@ -27,6 +27,7 @@ from typing import (
     Generic,
     Sequence,
     TypeVar,
+    cast,
     get_args,
     get_origin,
     get_type_hints,
@@ -35,8 +36,8 @@ from typing import (
 from urllib.parse import quote
 
 from dex._utils import require_map_instance, require_name
-from dex.attribute import Attribute, AttributeLock, AttributeMap
-from dex.channel import Channel, ChannelMap
+from dex.attribute import Attribute, AttributeLock, AttributeMap, AttributeMapLoad
+from dex.channel import Channel, ChannelLoad, ChannelMap, ChannelMapLoad
 from dex.codec import Codec, CodecRegistry
 from dex.context import AsyncContext, Context
 from dex.dexpb import dex_pb2 as pb
@@ -59,6 +60,9 @@ class _RPCOptions:
     timeout: timedelta | None
     lock_attributes: tuple[AttributeLock, ...]
     is_transactional: bool
+    load_attribute_maps: tuple[AttributeMapLoad, ...]
+    load_channels: tuple[ChannelLoad, ...]
+    load_channel_maps: tuple[ChannelMapLoad, ...]
 
 
 @overload
@@ -72,6 +76,9 @@ def rpc(
     timeout: timedelta | None = None,
     lock_attributes: Sequence[AttributeLock] = (),
     is_transactional: bool = False,
+    load_attribute_maps: Sequence[AttributeMapLoad] = (),
+    load_channels: Sequence[ChannelLoad] = (),
+    load_channel_maps: Sequence[ChannelMapLoad] = (),
 ) -> Callable[[CallableT], CallableT]: ...
 
 
@@ -82,6 +89,9 @@ def rpc(
     timeout: timedelta | None = None,
     lock_attributes: Sequence[AttributeLock] = (),
     is_transactional: bool = False,
+    load_attribute_maps: Sequence[AttributeMapLoad] = (),
+    load_channels: Sequence[ChannelLoad] = (),
+    load_channel_maps: Sequence[ChannelMapLoad] = (),
 ) -> CallableT | Callable[[CallableT], CallableT]:
     """Mark a Flow method as a typed RPC handler.
 
@@ -95,6 +105,11 @@ def rpc(
         timeout: Optional non-negative handler timeout.
         lock_attributes: Attribute locks held for the entire handler invocation.
         is_transactional: Request transactional reads and writes even without locks.
+        load_attribute_maps: Typed selections created by ``AttributeMap.load`` or
+            ``AttributeMap.load_all``.
+        load_channels: Typed selections created by ``Channel.load_messages``.
+        load_channel_maps: Typed selections created by ``ChannelMap.load_messages``
+            or ``ChannelMap.load_all_messages``.
 
     Returns:
         The original handler, or a decorator that returns it after attaching options.
@@ -118,7 +133,15 @@ def rpc(
         setattr(
             handler,
             "__dex_rpc_options__",
-            _RPCOptions(name, timeout, tuple(lock_attributes), is_transactional),
+            _RPCOptions(
+                name,
+                timeout,
+                tuple(lock_attributes),
+                is_transactional,
+                tuple(load_attribute_maps),
+                tuple(load_channels),
+                tuple(load_channel_maps),
+            ),
         )
         return handler
 
@@ -279,6 +302,9 @@ class _RegisteredRPC:
     input_codec: Codec[Any] | None
     output_codec: Codec[Any] | None
     locks: tuple[str, ...]
+    load_attribute_map_selectors: tuple[str, ...]
+    load_channel_names: tuple[str, ...]
+    load_channel_map_selectors: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -511,6 +537,9 @@ class Registry:
             if rpc_name in registered_rpcs:
                 raise ValueError(f"duplicate RPC {rpc_name}")
             Registry._validate_rpc_locks(rpc_name, options, schema)
+            selections = Registry._validate_rpc_state_selections(
+                rpc_name, options, schema
+            )
             input_codec, output_codec = Registry._rpc_codecs(
                 method,
                 codec_registry,
@@ -525,6 +554,7 @@ class Registry:
                 tuple(
                     Registry._physical_lock(lock) for lock in options.lock_attributes
                 ),
+                *selections,
             )
         return _RegisteredFlow(
             flow_name,
@@ -634,6 +664,58 @@ class Registry:
             if identity in lock_identities:
                 raise ValueError(f"RPC {rpc_name} has a duplicate attribute lock")
             lock_identities.add(identity)
+
+    @staticmethod
+    def _validate_rpc_state_selections(
+        rpc_name: str,
+        options: _RPCOptions,
+        schema: PersistenceSchema,
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        selections: tuple[tuple[object, ...], ...] = (
+            options.load_attribute_maps,
+            options.load_channels,
+            options.load_channel_maps,
+        )
+        expected_types = (AttributeMapLoad, ChannelLoad, ChannelMapLoad)
+        registered_groups: tuple[tuple[object, ...], ...] = (
+            schema.attributes,
+            schema.channels,
+            schema.channels,
+        )
+        names: list[tuple[str, ...]] = []
+        for definitions, expected_type, registered in zip(
+            selections, expected_types, registered_groups
+        ):
+            seen: set[str] = set()
+            selected_names: list[str] = []
+            for raw_selection in definitions:
+                selection = cast(Any, raw_selection)
+                if not isinstance(selection, expected_type):
+                    raise TypeError(
+                        f"RPC {rpc_name} has an invalid {expected_type.__name__} load"
+                    )
+                selected_definition: object
+                if isinstance(selection, AttributeMapLoad):
+                    selected_definition = selection.attribute_map
+                elif isinstance(selection, ChannelLoad):
+                    selected_definition = selection.channel
+                else:
+                    selected_definition = cast(Any, selection).channel_map
+                if all(
+                    selected_definition is not candidate for candidate in registered
+                ):
+                    raise ValueError(
+                        f"RPC {rpc_name} loads an unregistered {expected_type.__name__}"
+                    )
+                selector = cast(Any, selection).selector
+                if selector in seen:
+                    raise ValueError(
+                        f"RPC {rpc_name} has a duplicate {expected_type.__name__} load"
+                    )
+                seen.add(selector)
+                selected_names.append(selector)
+            names.append(tuple(sorted(selected_names)))
+        return names[0], names[1], names[2]
 
     @staticmethod
     def _step_input_codec(

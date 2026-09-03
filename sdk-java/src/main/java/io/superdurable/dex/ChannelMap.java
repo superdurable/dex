@@ -95,6 +95,45 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     }
 
     /**
+     * Returns one instance's loaded pending-message snapshot in FIFO order.
+     *
+     * <p>Add {@code MapName/instance} or {@code MapName/} to {@link RPC#loadChannelMaps()}.
+     * The snapshot does not change after staged publications or deletions in the same handler.
+     *
+     * @param context the RPC invocation context
+     * @param instance the logical ChannelMap instance
+     * @return immutable pending message IDs and decoded values
+     * @throws io.superdurable.dex.exceptions.StateNotLoadedException if the RPC did not load it
+     */
+    public List<ChannelMessage<T>> pendingMessages(
+            final Context context,
+            final String instance) {
+        return context.pendingChannelMessages(this, instance);
+    }
+
+    /**
+     * Finds one instance message in the loaded RPC snapshot.
+     *
+     * @param context the RPC invocation context
+     * @param instance the logical ChannelMap instance
+     * @param messageId the server-assigned message ID
+     * @return the matching message, or {@code null} when absent from the snapshot
+     * @throws io.superdurable.dex.exceptions.StateNotLoadedException if the RPC did not load it
+     */
+    public ChannelMessage<T> findPendingMessage(
+            final Context context,
+            final String instance,
+            final String messageId) {
+        final String requiredId = Attribute.requireName(messageId);
+        for (ChannelMessage<T> message : pendingMessages(context, instance)) {
+            if (message.getMessageId().equals(requiredId)) {
+                return message;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Returns the number of non-empty instances visible to the current RPC.
      *
      * @param context the RPC invocation context

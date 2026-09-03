@@ -97,6 +97,40 @@ public final class Channel<T> extends PersistenceDefinition {
     }
 
     /**
+     * Returns this Channel's loaded pending-message snapshot in FIFO order.
+     *
+     * <p>Add this Channel name to {@link RPC#loadChannels()}. The snapshot does not change after
+     * staged publications or deletions in the same handler.
+     *
+     * @param context the RPC invocation context
+     * @return immutable pending message IDs and decoded values
+     * @throws io.superdurable.dex.exceptions.StateNotLoadedException if the RPC did not load it
+     */
+    public List<ChannelMessage<T>> pendingMessages(final Context context) {
+        return context.pendingChannelMessages(this);
+    }
+
+    /**
+     * Finds one pending message in the loaded RPC snapshot.
+     *
+     * @param context the RPC invocation context
+     * @param messageId the server-assigned message ID
+     * @return the matching message, or {@code null} when it is absent from the snapshot
+     * @throws io.superdurable.dex.exceptions.StateNotLoadedException if the RPC did not load it
+     */
+    public ChannelMessage<T> findPendingMessage(
+            final Context context,
+            final String messageId) {
+        final String requiredId = Attribute.requireName(messageId);
+        for (ChannelMessage<T> message : pendingMessages(context)) {
+            if (message.getMessageId().equals(requiredId)) {
+                return message;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Returns messages consumed by this Channel's satisfied condition.
      *
      * @param context the Step invocation context

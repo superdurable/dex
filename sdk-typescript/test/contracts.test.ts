@@ -22,6 +22,7 @@ import {
   FlowDefinitionError,
   InvalidStepResultError,
   Registry,
+  StateNotLoadedError,
   Stream,
   StepList,
   Timer,
@@ -776,6 +777,10 @@ test("map introspection tracks buffered changes", () => {
       [physical("messages", special)]: { size: 1 },
       [physical("messages", "empty")]: { size: 0 },
     },
+    undefined,
+    undefined,
+    {},
+    ["items/"],
   );
   assert.deepEqual(attributes.getAllInstanceKeys(context), [special, "z"]);
   attributes.set(context, "a", "added");
@@ -786,6 +791,93 @@ test("map introspection tracks buffered changes", () => {
   channels.publish(context, "a", "published");
   assert.deepEqual(channels.getAllInstanceKeys(context), ["a", special]);
   assert.equal(channels.getMapSize(context), 2);
+});
+
+test("RPC selective state snapshots are typed and distinguish not loaded", () => {
+  const attributes = new AttributeMap("selected-items", stringCodec);
+  const queued = new Channel("selected-commands", stringCodec);
+  const byTenant = new ChannelMap("selected-by-tenant", stringCodec);
+  class SelectiveFlow implements Flow<void> {
+    public getFlowType(): string {
+      return "SelectiveFlow";
+    }
+
+    public getSteps(): StepList<void> {
+      return StepList.empty();
+    }
+
+    public getPersistenceSchema() {
+      return { attributes: [attributes], channels: [queued, byTenant] };
+    }
+  }
+  const registry = new Registry([new SelectiveFlow()]);
+  const context = new InvocationContext(
+    "rpc",
+    registeredFlowByName(registry, "SelectiveFlow"),
+    ProtoContext.create(),
+    [{ key: "selected-items/tenant-a", value: encodeValue(stringCodec, "value") }],
+    [],
+    undefined,
+    {
+      "selected-commands": { size: 1 },
+      "selected-by-tenant/tenant-a": { size: 1 },
+    },
+    undefined,
+    undefined,
+    {
+      "selected-commands": {
+        messages: [{
+          channelName: "selected-commands",
+          messageId: "message-1",
+          value: encodeValue(stringCodec, "first"),
+        }],
+      },
+      "selected-by-tenant/tenant-a": {
+        messages: [{
+          channelName: "selected-by-tenant/tenant-a",
+          messageId: "message-2",
+          value: encodeValue(stringCodec, "second"),
+        }],
+      },
+    },
+    ["selected-items/tenant-a"],
+    ["selected-commands"],
+    ["selected-by-tenant/tenant-a"],
+  );
+
+  assert.equal(attributes.get(context, "tenant-a"), "value");
+  assert.deepEqual(queued.pendingMessages(context), [
+    { messageId: "message-1", value: "first" },
+  ]);
+  assert.deepEqual(byTenant.pendingMessages(context, "tenant-a"), [
+    { messageId: "message-2", value: "second" },
+  ]);
+  assert.equal(queued.findPendingMessage(context, "message-1")?.value, "first");
+  assert.throws(() => attributes.get(context, "other"), StateNotLoadedError);
+  assert.throws(() => byTenant.pendingMessages(context, "other"), StateNotLoadedError);
+});
+
+test("registry rejects invalid and duplicate RPC state selections", () => {
+  const attributes = new AttributeMap("registry-items", stringCodec);
+  const queued = new Channel("registry-commands", stringCodec);
+  class DuplicateLoads implements Flow<void> {
+    public getFlowType(): string {
+      return "DuplicateLoads";
+    }
+
+    public getSteps(): StepList<void> {
+      return StepList.empty();
+    }
+
+    public getPersistenceSchema() {
+      return { attributes: [attributes], channels: [queued] };
+    }
+
+    @rpc({ loadAttributeMaps: [attributes.loadAll(), attributes.loadAll()] })
+    public inspect(_context: Context): void {}
+  }
+
+  assert.throws(() => new Registry([new DuplicateLoads()]), /duplicate/);
 });
 
 test("persistence definitions and map instances reserve slash", () => {

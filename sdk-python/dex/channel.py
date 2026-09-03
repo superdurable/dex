@@ -11,13 +11,58 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Generic, Sequence, TypeVar, cast
+from typing import Any, Generic, Sequence, TypeVar, cast
+from urllib.parse import quote
 
-from dex._utils import require_persistence_definition_name
+from dex._utils import require_name, require_persistence_definition_name
 from dex.condition import ChannelCondition, Condition
 from dex.context import Context
 
 ValueT = TypeVar("ValueT")
+
+
+@dataclass(frozen=True)
+class ChannelLoad:
+    """Select one Channel's pending messages for an RPC snapshot.
+
+    Attributes:
+        channel: The exact Channel definition registered with the Flow.
+    """
+
+    channel: Channel[Any]
+
+    @property
+    def selector(self) -> str:
+        """Return the Channel name sent to Dex.
+
+        Returns:
+            The registered singleton Channel name.
+        """
+        return self.channel.name
+
+
+@dataclass(frozen=True)
+class ChannelMapLoad:
+    """Select ChannelMap pending messages for an RPC snapshot.
+
+    Attributes:
+        channel_map: The exact ChannelMap definition registered with the Flow.
+        instance: One logical instance key, or ``None`` to load every instance.
+    """
+
+    channel_map: ChannelMap[Any]
+    instance: str | None
+
+    @property
+    def selector(self) -> str:
+        """Return the protocol selector for this typed load.
+
+        Returns:
+            ``MapName/`` for all instances, or the escaped physical instance name.
+        """
+        if self.instance is None:
+            return f"{self.channel_map.name}/"
+        return f"{self.channel_map.name}/{quote(self.instance, safe='')}"
 
 
 @dataclass(frozen=True)
@@ -57,6 +102,17 @@ class Channel(Generic[ValueT]):
     def __post_init__(self) -> None:
         require_persistence_definition_name(self.name)
 
+    def load_messages(self) -> ChannelLoad:
+        """Select this Channel's pending messages for an RPC snapshot.
+
+        Pass the result through ``@rpc(load_channels=(...))``. Loading preserves
+        FIFO order and does not consume or lock messages.
+
+        Returns:
+            A typed pending-message selection for this Channel.
+        """
+        return ChannelLoad(self)
+
     def publish(self, context: Context, value: ValueT) -> None:
         """Stage one value to append with the current handler decision.
 
@@ -89,6 +145,49 @@ class Channel(Generic[ValueT]):
             The non-negative number of queued Channel values.
         """
         return context._channel_size(cast(Channel[object], self), None)
+
+    def pending_messages(self, context: Context) -> Sequence[ChannelMessage[ValueT]]:
+        """Return the pending messages loaded for the current RPC snapshot.
+
+        Configure the RPC with ``load_channels=(this_channel.load_messages(),)``.
+        The returned sequence preserves FIFO order and does not change after staged
+        publications or deletions.
+
+        Args:
+            context: The current RPC Context.
+
+        Returns:
+            Pending message IDs and decoded values in FIFO order.
+
+        Raises:
+            StateNotLoadedError: If the RPC did not load this Channel.
+        """
+        return cast(
+            Sequence[ChannelMessage[ValueT]],
+            context._pending_channel_messages(self, None),
+        )
+
+    def find_pending_message(
+        self, context: Context, message_id: str
+    ) -> ChannelMessage[ValueT] | None:
+        """Find one loaded pending message by server-assigned ID.
+
+        Args:
+            context: The current RPC Context.
+            message_id: The message ID to find.
+
+        Returns:
+            The matching message, or ``None`` when absent from the snapshot.
+        """
+        required_id = require_name(message_id)
+        return next(
+            (
+                message
+                for message in self.pending_messages(context)
+                if message.message_id == required_id
+            ),
+            None,
+        )
 
     def results(self, context: Context) -> Sequence[ValueT]:
         """Return values selected by the Step's satisfied Channel condition.
@@ -221,6 +320,31 @@ class ChannelMap(Generic[ValueT]):
     def __post_init__(self) -> None:
         require_persistence_definition_name(self.name)
 
+    def load_messages(self, instance: str) -> ChannelMapLoad:
+        """Select one instance's pending messages for an RPC snapshot.
+
+        Args:
+            instance: The non-empty logical ChannelMap instance key.
+
+        Returns:
+            A typed selection for this one instance.
+
+        Raises:
+            ValueError: If ``instance`` is empty.
+        """
+        return ChannelMapLoad(self, require_name(instance))
+
+    def load_all_messages(self) -> ChannelMapLoad:
+        """Select pending messages from every current map instance.
+
+        Loading preserves each instance's FIFO order and does not consume or lock
+        messages. ChannelMap keys and sizes remain available without this load.
+
+        Returns:
+            A typed all-instances selection for this ChannelMap.
+        """
+        return ChannelMapLoad(self, None)
+
     def publish(self, context: Context, instance: str, value: ValueT) -> None:
         """Stage a value to append to one ChannelMap instance.
 
@@ -252,6 +376,53 @@ class ChannelMap(Generic[ValueT]):
             The non-negative number of queued values for ``instance``.
         """
         return context._channel_size(cast(ChannelMap[object], self), instance)
+
+    def pending_messages(
+        self, context: Context, instance: str
+    ) -> Sequence[ChannelMessage[ValueT]]:
+        """Return one instance's pending messages from the loaded RPC snapshot.
+
+        Configure the RPC with
+        ``load_channel_maps=(this_channel_map.load_messages(instance),)`` or use
+        ``load_all_messages()``. This method reads one instance.
+
+        Args:
+            context: The current RPC Context.
+            instance: The non-empty logical map key.
+
+        Returns:
+            Pending message IDs and decoded values in FIFO order.
+
+        Raises:
+            StateNotLoadedError: If the RPC did not load this ChannelMap.
+        """
+        return cast(
+            Sequence[ChannelMessage[ValueT]],
+            context._pending_channel_messages(self, instance),
+        )
+
+    def find_pending_message(
+        self, context: Context, instance: str, message_id: str
+    ) -> ChannelMessage[ValueT] | None:
+        """Find one loaded ChannelMap message by server-assigned ID.
+
+        Args:
+            context: The current RPC Context.
+            instance: The non-empty logical map key.
+            message_id: The message ID to find.
+
+        Returns:
+            The matching message, or ``None`` when absent from the snapshot.
+        """
+        required_id = require_name(message_id)
+        return next(
+            (
+                message
+                for message in self.pending_messages(context, instance)
+                if message.message_id == required_id
+            ),
+            None,
+        )
 
     def get_map_size(self, context: Context) -> int:
         """Return the number of non-empty instances visible to the current RPC.

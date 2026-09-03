@@ -267,6 +267,12 @@ type InvokeOptions struct {
 	// IsTransactional requests transactional reads and writes without requiring Attribute locks.
 	// Channel deletions require this option to make a missing message abort all RPC writes.
 	IsTransactional bool
+	// LoadAttributeMaps includes selected AttributeMap instances in the RPC snapshot.
+	LoadAttributeMaps []AttributeMapLoad
+	// LoadChannels includes pending messages from the selected Channels in the RPC snapshot.
+	LoadChannels []ChannelLoad
+	// LoadChannelMaps includes selected ChannelMap instance messages in the RPC snapshot.
+	LoadChannelMaps []ChannelMapLoad
 }
 
 // WaitForFlowOptions controls Flow-result hydration.

@@ -23,6 +23,19 @@ var (
 	errInvalidInvocationContext = errors.New("dex: invalid invocation context")
 )
 
+// StateNotLoadedError reports an RPC read that was omitted from InvokeOptions.
+type StateNotLoadedError struct {
+	// Kind is AttributeMap, Channel, or ChannelMap.
+	Kind string
+	// Name is the registered persistence definition name.
+	Name string
+}
+
+// Error describes the missing RPC state selection.
+func (e *StateNotLoadedError) Error() string {
+	return fmt.Sprintf("dex: %s %q was not loaded for RPC", e.Kind, e.Name)
+}
+
 // AttributeNotFoundError reports a missing invocation attribute.
 type AttributeNotFoundError struct {
 	// AttributeName is the stable Attribute or AttributeMap name.

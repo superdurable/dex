@@ -16,6 +16,7 @@ package io.superdurable.dex;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.superdurable.gen.ChannelResult;
+import io.superdurable.gen.ChannelValues;
 import io.superdurable.gen.ConditionResults;
 import io.superdurable.gen.EncodedObject;
 import io.superdurable.gen.FlowServiceGrpc;
@@ -160,6 +161,12 @@ final class ValueHydrator {
         final List<Value> source = new ArrayList<Value>();
         source.add(request.getInput());
         addValues(source, request.getAttributesList());
+        for (ChannelValues channelValues : request.getLoadedChannelMessagesMap().values()) {
+            for (io.superdurable.gen.ChannelMessage message
+                    : channelValues.getMessagesList()) {
+                source.add(message.getValue());
+            }
+        }
         final List<Value> hydrated = hydrateAll(source);
         int index = 0;
         final InvokeWorkerRPCRequest.Builder builder = request.toBuilder()
@@ -167,6 +174,18 @@ final class ValueHydrator {
                 .clearAttributes();
         for (KV entry : request.getAttributesList()) {
             builder.addAttributes(entry.toBuilder().setValue(hydrated.get(index++)));
+        }
+        builder.clearLoadedChannelMessages();
+        for (Map.Entry<String, ChannelValues> entry
+                : request.getLoadedChannelMessagesMap().entrySet()) {
+            final ChannelValues.Builder channelValues = entry.getValue().toBuilder()
+                    .clearMessages();
+            for (io.superdurable.gen.ChannelMessage message
+                    : entry.getValue().getMessagesList()) {
+                channelValues.addMessages(
+                        message.toBuilder().setValue(hydrated.get(index++)));
+            }
+            builder.putLoadedChannelMessages(entry.getKey(), channelValues.build());
         }
         return builder.build();
     }

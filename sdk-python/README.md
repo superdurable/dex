@@ -14,6 +14,33 @@ RPC handlers can stage `channel.delete(context, message_id)`. Declare the RPC as
 Attribute locks already select transactional execution, but Channel deletion
 itself does not.
 
+## RPC state loading
+
+RPCs receive ordinary Attributes and all Channel size metadata by default.
+AttributeMap entries and pending Channel messages are opt-in:
+
+```python
+@dex.rpc(
+    load_attribute_maps=(items.load("tenant/a"),),
+    load_channels=(queued.load_messages(),),
+    load_channel_maps=(by_tenant.load_all_messages(),),
+)
+def snapshot(self, context: dex.Context) -> dex.RPCResult[Snapshot]:
+    messages = queued.pending_messages(context)
+    return dex.RPCResult(Snapshot(messages=messages))
+```
+
+Use **load_all** or **load_all_messages** only when every current map instance
+is needed. A selected empty queue returns an empty tuple; reading an unselected
+map entry or pending-message snapshot raises **StateNotLoadedError**. Pending
+messages preserve FIFO order and include the server-assigned message ID. The
+snapshot does not change after the handler stages a publish or deletion.
+
+Loading controls which data reaches the Worker. **is_transactional** controls
+atomic commit and Channel deletion validation. Attribute locks add isolation
+only among cooperating Steps and RPCs using the same lock. Write-only publish
+and delete operations do not require loading.
+
 Python SDK for [Dex workflow engine](https://github.com/superdurable/dex)
 
 ## New user contracts

@@ -15,6 +15,7 @@ import {
   type AttributeWrite,
   type ChannelInfo,
   type ChannelMessage as ProtoChannelMessage,
+  type ChannelValues,
   type ChannelMessageDeletion,
   type ConditionResults,
   type Context as ProtoContext,
@@ -27,8 +28,9 @@ import { requireFlowStream, type RegisteredFlow } from "./flow.js";
 import { createFlowResultFromProto, type FlowResult } from "./flow-result.js";
 import { AttributeMap, IndexType, type Attribute } from "./persistence.js";
 import { codecOrJson, decodeValue, deletionValue, encodeValue } from "./value-mapper.js";
+import { StateNotLoadedError } from "./errors.js";
 import { requireMapInstance, requireName } from "./validation.js";
-import { ChannelMap, type Channel } from "./wait.js";
+import { ChannelMap, type Channel, type ChannelMessage } from "./wait.js";
 import type { Stream } from "./stream.js";
 
 export type InvocationMethod = "waitFor" | "execute" | "rpc";
@@ -56,6 +58,10 @@ export class InvocationContext implements AsyncContext {
   private readonly attributes: Map<string, Value>;
   private readonly locals: Map<string, Value>;
   private readonly channelInfos: Map<string, ChannelInfo>;
+  private readonly loadedChannelMessages: Readonly<Record<string, ChannelValues>>;
+  private readonly loadedAttributeMapSelectors: ReadonlySet<string>;
+  private readonly loadedChannelNames: ReadonlySet<string>;
+  private readonly loadedChannelMapSelectors: ReadonlySet<string>;
   private readonly attributeWrites = new Map<string, AttributeWrite>();
   private readonly localWrites = new Map<string, KV>();
   private readonly events: KV[] = [];
@@ -76,6 +82,10 @@ export class InvocationContext implements AsyncContext {
     channelInfos: Readonly<Record<string, ChannelInfo>> = {},
     cancellationSignal: AbortSignal = new AbortController().signal,
     private readonly stepOutput?: StepOutputEmitter,
+    loadedChannelMessages: Readonly<Record<string, ChannelValues>> = {},
+    loadedAttributeMapSelectors: readonly string[] = [],
+    loadedChannelNames: readonly string[] = [],
+    loadedChannelMapSelectors: readonly string[] = [],
   ) {
     if (metadata === undefined) {
       throw new TypeError("Worker request Context is required");
@@ -92,6 +102,10 @@ export class InvocationContext implements AsyncContext {
     this.attributes = mapValues("Attribute", attributes);
     this.locals = mapValues("step-execution local", locals);
     this.channelInfos = new Map(Object.entries(channelInfos));
+    this.loadedChannelMessages = loadedChannelMessages;
+    this.loadedAttributeMapSelectors = new Set(loadedAttributeMapSelectors);
+    this.loadedChannelNames = new Set(loadedChannelNames);
+    this.loadedChannelMapSelectors = new Set(loadedChannelMapSelectors);
     cancellationSignal.addEventListener("abort", () => this.cancelStepOutputs(), { once: true });
   }
 
@@ -237,6 +251,13 @@ export class InvocationContext implements AsyncContext {
   ): T {
     this.requireRegistered(attribute);
     const key = definitionName(attribute, instance);
+    if (
+      this.method === "rpc" &&
+      attribute instanceof AttributeMap &&
+      !mapSelectorLoaded(this.loadedAttributeMapSelectors, attribute.name, key)
+    ) {
+      throw new StateNotLoadedError(`AttributeMap instance was not loaded for RPC: ${key}`);
+    }
     const write = this.attributeWrites.get(key)?.value;
     if (write?.kind?.$case === "nullValue") {
       return defaultValue(attribute.codec);
@@ -276,6 +297,11 @@ export class InvocationContext implements AsyncContext {
 
   public attributeMapKeys(attribute: AttributeMap<unknown>): readonly string[] {
     this.requireRegistered(attribute);
+    if (this.method === "rpc" && !this.loadedAttributeMapSelectors.has(`${attribute.name}/`)) {
+      throw new StateNotLoadedError(
+        `all AttributeMap instances were not loaded for RPC: ${attribute.name}`,
+      );
+    }
     const prefix = `${attribute.name}/`;
     const physicalKeys = new Set(
       [...this.attributes.keys()].filter((key) => key.startsWith(prefix)),
@@ -331,6 +357,32 @@ export class InvocationContext implements AsyncContext {
   ): number {
     this.requireRegistered(channel);
     return this.channelInfos.get(definitionName(channel, instance))?.size ?? 0;
+  }
+
+  public pendingChannelMessages<T>(
+    channel: Channel<T> | ChannelMap<T>,
+    instance?: string,
+  ): readonly ChannelMessage<T>[] {
+    if (this.method !== "rpc") {
+      throw new TypeError("pending Channel messages require an RPC Context");
+    }
+    this.requireRegistered(channel);
+    const name = definitionName(channel, instance);
+    const isLoaded = channel instanceof ChannelMap
+      ? mapSelectorLoaded(this.loadedChannelMapSelectors, channel.name, name)
+      : this.loadedChannelNames.has(name);
+    if (!isLoaded) {
+      throw new StateNotLoadedError(`Channel messages were not loaded for RPC: ${name}`);
+    }
+    return (this.loadedChannelMessages[name]?.messages ?? []).map((message) => {
+      if (message.value === undefined) {
+        throw new TypeError(`Channel message has no Value: ${message.messageId}`);
+      }
+      return {
+        messageId: message.messageId,
+        value: decodeValue(channel.codec, message.value),
+      };
+    });
   }
 
   public channelMapKeys(channel: ChannelMap<unknown>): readonly string[] {
@@ -414,8 +466,8 @@ function definitionName(
   return definition.name;
 }
 
-function encodeCharacter(character: string): string {
-  return `%${character.charCodeAt(0).toString(16).toUpperCase()}`;
+function mapSelectorLoaded(selectors: ReadonlySet<string>, name: string, physical: string): boolean {
+  return selectors.has(`${name}/`) || selectors.has(physical);
 }
 
 function mapValues(kind: string, entries: readonly KV[]): Map<string, Value> {

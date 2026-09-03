@@ -336,8 +336,11 @@ public final class Registry {
                     name,
                     annotation,
                     persistence);
+            final RpcStateSelections selections = validateRpcStateSelections(
+                    flowType, name, annotation, persistence);
             method.setAccessible(true);
-            final RegisteredRpc rpc = new RegisteredRpc(name, method, annotation, locks);
+            final RegisteredRpc rpc = new RegisteredRpc(
+                    name, method, annotation, locks, selections);
             if (rpcs.put(name, rpc) != null) {
                 throw new FlowDefinitionException(
                         "Flow " + flowType + " has duplicate RPC " + name);
@@ -408,6 +411,81 @@ public final class Registry {
                             + " has duplicate Attribute lock " + lock);
         }
         locks.add(lock);
+    }
+
+    private static RpcStateSelections validateRpcStateSelections(
+            final String flowType,
+            final String rpcName,
+            final RPC annotation,
+            final Map<String, PersistenceDefinition> persistence) {
+        final List<String> attributeMaps = validateRpcMapStateSelection(
+                flowType, rpcName, "AttributeMap", annotation.loadAttributeMaps(),
+                persistence, AttributeMap.class);
+        final List<String> channels = validateRpcStateSelection(
+                flowType, rpcName, "Channel", annotation.loadChannels(),
+                persistence, Channel.class);
+        final List<String> channelMaps = validateRpcMapStateSelection(
+                flowType, rpcName, "ChannelMap", annotation.loadChannelMaps(),
+                persistence, ChannelMap.class);
+        return new RpcStateSelections(attributeMaps, channels, channelMaps);
+    }
+
+    private static List<String> validateRpcStateSelection(
+            final String flowType,
+            final String rpcName,
+            final String kind,
+            final String[] names,
+            final Map<String, PersistenceDefinition> persistence,
+            final Class<?> expectedType) {
+        final Set<String> seen = new HashSet<String>();
+        final List<String> selections = new ArrayList<String>();
+        for (String name : names) {
+            if (!expectedType.isInstance(persistence.get(name))) {
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " RPC " + rpcName + " loads an unregistered "
+                                + kind + ": " + name);
+            }
+            if (!seen.add(name)) {
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " RPC " + rpcName + " has duplicate "
+                                + kind + " load " + name);
+            }
+            selections.add(name);
+        }
+        Collections.sort(selections);
+        return Collections.unmodifiableList(selections);
+    }
+
+    private static List<String> validateRpcMapStateSelection(
+            final String flowType,
+            final String rpcName,
+            final String kind,
+            final String[] selectors,
+            final Map<String, PersistenceDefinition> persistence,
+            final Class<?> expectedType) {
+        final Set<String> seen = new HashSet<String>();
+        final List<String> normalized = new ArrayList<String>();
+        for (String selector : selectors) {
+            final int separator = selector.indexOf('/');
+            final String name = separator < 0 ? selector : selector.substring(0, separator);
+            if (separator < 0 || !expectedType.isInstance(persistence.get(name))) {
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " RPC " + rpcName + " loads an unregistered "
+                                + kind + ": " + selector);
+            }
+            final String instance = selector.substring(separator + 1);
+            final String protocolSelector = instance.isEmpty()
+                    ? name + "/"
+                    : physicalName(name, instance);
+            if (!seen.add(protocolSelector)) {
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " RPC " + rpcName + " has duplicate "
+                                + kind + " load " + selector);
+            }
+            normalized.add(protocolSelector);
+        }
+        Collections.sort(normalized);
+        return Collections.unmodifiableList(normalized);
     }
 
     private static void validateRpcSignature(
@@ -609,21 +687,44 @@ public final class Registry {
         private final Method method;
         private final RPC annotation;
         private final List<String> locks;
+        private final RpcStateSelections selections;
 
         RegisteredRpc(
                 final String name,
                 final Method method,
                 final RPC annotation,
-                final List<String> locks) {
+                final List<String> locks,
+                final RpcStateSelections selections) {
             this.name = name;
             this.method = method;
             this.annotation = annotation;
             this.locks = locks;
+            this.selections = selections;
         }
 
         String getName() { return name; }
         Method getMethod() { return method; }
         RPC getAnnotation() { return annotation; }
         List<String> getLocks() { return locks; }
+        RpcStateSelections getSelections() { return selections; }
+    }
+
+    static final class RpcStateSelections {
+        private final List<String> attributeMaps;
+        private final List<String> channels;
+        private final List<String> channelMaps;
+
+        RpcStateSelections(
+                final List<String> attributeMaps,
+                final List<String> channels,
+                final List<String> channelMaps) {
+            this.attributeMaps = attributeMaps;
+            this.channels = channels;
+            this.channelMaps = channelMaps;
+        }
+
+        List<String> getAttributeMaps() { return attributeMaps; }
+        List<String> getChannels() { return channels; }
+        List<String> getChannelMaps() { return channelMaps; }
     }
 }

@@ -11,6 +11,34 @@ An RPC can stage `channel.delete(context, messageId)`. Annotate it with
 write. Attribute locks already select transactional execution, but Channel
 deletion does not do so implicitly.
 
+## RPC state loading
+
+RPCs receive ordinary Attributes and all Channel size metadata by default.
+AttributeMap entries and pending Channel messages are opt-in:
+
+```java
+@RPC(
+    loadAttributeMaps = {"Items/tenant/a"},
+    loadChannels = {"Queued"},
+    loadChannelMaps = {"ByTenant/"}
+)
+public RPCResult<Snapshot> snapshot(Context context) {
+    return RPCResult.of(new Snapshot(queued.pendingMessages(context)));
+}
+```
+
+A trailing slash selects every current map instance. Otherwise, text after the
+first slash is the logical instance and the SDK escapes it. A selected empty
+queue returns an empty list; reading an unselected map entry or pending-message
+snapshot throws **StateNotLoadedException**. Pending messages preserve FIFO
+order and include the server-assigned message ID. The snapshot does not change
+after the handler stages a publish or deletion.
+
+Loading controls which data reaches the Worker. **isTransactional** controls
+atomic commit and Channel deletion validation. Attribute locks add isolation
+only among cooperating Steps and RPCs using the same lock. Write-only publish
+and delete operations do not require loading.
+
 Java SDK for [Dex workflow engine](https://github.com/superdurable/dex)
 
 See [samples](../examples/java) for how to use this SDK to build your workflow.

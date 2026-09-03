@@ -18,6 +18,20 @@ import {
   validateChannelBounds,
 } from "./validation.js";
 
+/** Selects one singleton Channel's pending messages for an RPC snapshot. */
+export interface ChannelLoad {
+  /** Exact Channel definition registered with the Flow. */
+  readonly channel: Channel<unknown>;
+}
+
+/** Selects ChannelMap pending messages for an RPC snapshot. */
+export interface ChannelMapLoad {
+  /** Exact ChannelMap definition registered with the Flow. */
+  readonly channelMap: ChannelMap<unknown>;
+  /** One logical instance key; omitted to load every current instance. */
+  readonly instance?: string;
+}
+
 /** Describes one durable Timer, Channel, or SubFlow readiness condition. */
 export interface Condition {
   /** Condition family interpreted by Dex. */
@@ -137,6 +151,35 @@ export class Channel<T> {
   }
 
   /**
+   * Selects this Channel's pending messages for an RPC snapshot.
+   * @returns A typed selection for {@link RPCOptions.loadChannels}.
+   */
+  public loadMessages(): ChannelLoad {
+    return { channel: this as Channel<unknown> };
+  }
+
+  /**
+   * Returns the loaded pending-message snapshot in FIFO order.
+   * @param context - Current RPC Context.
+   * @returns Immutable pending message IDs and decoded values.
+   * @throws {@link StateNotLoadedError} when the RPC did not load this Channel.
+   */
+  public pendingMessages(context: Context): readonly ChannelMessage<T>[] {
+    return context.pendingChannelMessages(this);
+  }
+
+  /**
+   * Finds one message in the loaded pending snapshot.
+   * @param context - Current RPC Context.
+   * @param messageId - Server-assigned message ID.
+   * @returns The matching message, or `undefined` when absent from the snapshot.
+   */
+  public findPendingMessage(context: Context, messageId: string): ChannelMessage<T> | undefined {
+    const requiredId = requireName(messageId);
+    return this.pendingMessages(context).find((message) => message.messageId === requiredId);
+  }
+
+  /**
    * Returns values selected by this Step's satisfied condition.
    * @param context - Current Step Context.
    * @returns Ordered values, or an empty array when this Channel was not selected.
@@ -253,6 +296,53 @@ export class ChannelMap<T> {
    */
   public size(context: Context, instance: string): number {
     return context.channelSize(this, instance);
+  }
+
+  /**
+   * Selects one instance's pending messages for an RPC snapshot.
+   * @param instance - Non-empty logical instance key. The SDK escapes it for the protocol.
+   * @returns A typed exact-instance selection for {@link RPCOptions.loadChannelMaps}.
+   */
+  public loadMessages(instance: string): ChannelMapLoad {
+    requireName(instance);
+    return { channelMap: this as ChannelMap<unknown>, instance };
+  }
+
+  /**
+   * Selects pending messages from every current instance for an RPC snapshot.
+   * @returns A typed all-instances selection for {@link RPCOptions.loadChannelMaps}.
+   */
+  public loadAllMessages(): ChannelMapLoad {
+    return { channelMap: this as ChannelMap<unknown> };
+  }
+
+  /**
+   * Returns one loaded instance snapshot in FIFO order.
+   * @param context - Current RPC Context.
+   * @param instance - Logical ChannelMap instance.
+   * @returns Immutable pending message IDs and decoded values.
+   * @throws {@link StateNotLoadedError} when the RPC did not load this instance or map.
+   */
+  public pendingMessages(context: Context, instance: string): readonly ChannelMessage<T>[] {
+    return context.pendingChannelMessages(this, instance);
+  }
+
+  /**
+   * Finds one instance message in the loaded pending snapshot.
+   * @param context - Current RPC Context.
+   * @param instance - Logical ChannelMap instance.
+   * @param messageId - Server-assigned message ID.
+   * @returns The matching message, or `undefined` when absent from the snapshot.
+   */
+  public findPendingMessage(
+    context: Context,
+    instance: string,
+    messageId: string,
+  ): ChannelMessage<T> | undefined {
+    const requiredId = requireName(messageId);
+    return this.pendingMessages(context, instance).find(
+      (message) => message.messageId === requiredId,
+    );
   }
 
   /**

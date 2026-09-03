@@ -237,6 +237,11 @@ export class WorkerDispatcher {
       undefined,
       request.channelInfos,
       cancellationSignal,
+      undefined,
+      request.loadedChannelMessages,
+      request.loadedAttributeMapSelectors,
+      request.loadedChannelNames,
+      request.loadedChannelMapSelectors,
     );
     const returned = await invokeRPC(flow, rpc, context, request.input);
     try {
@@ -326,14 +331,34 @@ export class WorkerDispatcher {
 
   private async hydrateRPC(request: InvokeWorkerRPCRequest): Promise<InvokeWorkerRPCRequest> {
     const hasInput = request.input !== undefined;
+    const channelMessages = Object.values(request.loadedChannelMessages)
+      .flatMap((values) => values.messages);
     const values = await this.hydrator.hydrateAll([
       ...(hasInput ? [request.input] : []),
       ...request.attributes.map((entry) => entry.value),
+      ...channelMessages.map((message) => message.value),
     ]);
+    let offset = hasInput ? 1 : 0;
+    const attributes = replaceEntryValues(
+      request.attributes,
+      values.slice(offset, (offset += request.attributes.length)),
+    );
+    const loadedChannelMessages = Object.fromEntries(
+      Object.entries(request.loadedChannelMessages).map(([name, channelValues]) => [
+        name,
+        {
+          messages: channelValues.messages.map((message) => ({
+            ...message,
+            value: values[offset++],
+          })),
+        },
+      ]),
+    );
     return {
       ...request,
       input: hasInput ? values[0] : undefined,
-      attributes: replaceEntryValues(request.attributes, values.slice(hasInput ? 1 : 0)),
+      attributes,
+      loadedChannelMessages,
     };
   }
 }

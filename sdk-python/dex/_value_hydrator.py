@@ -131,10 +131,24 @@ class ValueHydrator:
         result = pb.InvokeWorkerRPCRequest()
         result.CopyFrom(request)
         values = [request.input, *(entry.value for entry in request.attributes)]
+        channel_messages = [
+            message
+            for channel_values in request.loaded_channel_messages.values()
+            for message in channel_values.messages
+        ]
+        values.extend(message.value for message in channel_messages)
         hydrated = self.hydrate_all(values)
         result.input.CopyFrom(hydrated[0])
-        for entry, value in zip(result.attributes, hydrated[1:]):
-            entry.value.CopyFrom(value)
+        hydrated_entries = iter(hydrated[1:])
+        for entry in result.attributes:
+            entry.value.CopyFrom(next(hydrated_entries))
+        result_messages = [
+            message
+            for channel_values in result.loaded_channel_messages.values()
+            for message in channel_values.messages
+        ]
+        for message in result_messages:
+            message.value.CopyFrom(next(hydrated_entries))
         return result
 
     def step_outputs(

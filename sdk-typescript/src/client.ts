@@ -292,9 +292,19 @@ export class Client {
           ),
           requestId: crypto.randomUUID(),
           isTransactional: rpc.options.isTransactional ?? false,
-          loadAttributeMapSelectors: [],
-          loadChannelNames: [],
-          loadChannelMapSelectors: [],
+          loadAttributeMapSelectors: (rpc.options.loadAttributeMaps ?? [])
+            .map((load) => load.instance === undefined
+              ? `${load.attributeMap.name}/`
+              : physicalName(load.attributeMap.name, load.instance))
+            .sort(),
+          loadChannelNames: (rpc.options.loadChannels ?? [])
+            .map((load) => load.channel.name)
+            .sort(),
+          loadChannelMapSelectors: (rpc.options.loadChannelMaps ?? [])
+            .map((load) => load.instance === undefined
+              ? `${load.channelMap.name}/`
+              : physicalName(load.channelMap.name, load.instance))
+            .sort(),
         },
         callback,
       ),

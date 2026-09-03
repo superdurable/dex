@@ -294,6 +294,10 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             self._values,
             request.attributes,
             channel_infos=dict(request.channel_infos),
+            loaded_channel_messages=dict(request.loaded_channel_messages),
+            loaded_attribute_map_selectors=request.loaded_attribute_map_selectors,
+            loaded_channel_names=request.loaded_channel_names,
+            loaded_channel_map_selectors=request.loaded_channel_map_selectors,
             is_active=is_active,
         )
         arguments: list[object] = [context]

@@ -24,6 +24,20 @@ instance. Slash is prohibited in instance keys because it is a reserved
 character. Selectors must be non-empty and unique. Dex sorts them before
 preparing the Worker request. Pagination and silent truncation are unsupported.
 
+## SDK APIs
+
+Each SDK exposes typed selections from the persistence definition itself. An
+AttributeMap can load one logical instance or all instances. A Channel loads its
+pending messages. A ChannelMap can load one logical instance or all instances.
+SDK registries reject a selection whose definition is not registered in the
+Flow schema, has the wrong persistence kind, or duplicates another selection.
+Clients escape logical map instances and sort the resulting protocol selectors.
+
+RPC Context APIs return typed FIFO message envelopes and support lookup by
+server-assigned message ID. A selected empty collection returns an empty result.
+Reading a collection that was not selected raises a stable state-not-loaded
+usage error. Staged publications and deletions do not mutate the input snapshot.
+
 ## Worker state projection
 
 Every `InvokeWorkerRPCRequest` contains:

@@ -11,6 +11,33 @@ An RPC can stage `channel.delete(context, message_id)`. Define it with
 Attribute locks already select transactional execution, while Channel deletion
 requires the explicit option.
 
+## RPC state loading
+
+RPCs receive ordinary Attributes and all Channel size metadata by default.
+AttributeMap entries and pending Channel messages are opt-in:
+
+```rust
+RpcList::new().procedure(
+    Self::SNAPSHOT
+        .load_attribute_map(items.load("tenant/a"))
+        .load_channel(queued.load_messages())
+        .load_channel_map(by_tenant.load_all_messages()),
+    Self::snapshot,
+)
+```
+
+Use **load_all** or **load_all_messages** only when every current map instance
+is needed. A selected empty queue returns an empty vector; reading an unselected
+map entry or pending-message snapshot returns a handler error with type
+**dex_sdk::StateNotLoadedError**. Pending messages preserve FIFO order and
+include the server-assigned message ID. The snapshot does not change after the
+handler stages a publish or deletion.
+
+Loading controls which data reaches the Worker. **is_transactional** controls
+atomic commit and Channel deletion validation. Attribute locks add isolation
+only among cooperating Steps and RPCs using the same lock. Write-only publish
+and delete operations do not require loading.
+
 [![Rust SDK CI](https://github.com/superdurable/dex/actions/workflows/sdk-rust-ci.yml/badge.svg?branch=main)](https://github.com/superdurable/dex/actions/workflows/sdk-rust-ci.yml)
 
 This workspace contains the synchronous Rust SDK, the shared DXBC BlobCache,

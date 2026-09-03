@@ -296,6 +296,15 @@ func (workerTestFlow) Update(
 			return nil, err
 		}
 	}
+	if input.Mode == "pending" {
+		pending, err := workerTestCommands.PendingMessages(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &RPCResult[workerTestOutput]{
+			Output: workerTestOutput{Before: len(pending), After: len(pending)},
+		}, nil
+	}
 	before := workerTestCommands.Size(ctx)
 	if err := workerTestCommands.Publish(ctx, "local"); err != nil {
 		return nil, err
@@ -305,6 +314,21 @@ func (workerTestFlow) Update(
 		return nil, err
 	}
 	if input.Mode == "introspection" {
+		pending, err := workerTestCommands.PendingMessages(ctx)
+		if err != nil || !reflect.DeepEqual(
+			pending,
+			[]ChannelMessage[string]{{MessageID: "message-1", Value: "queued"}},
+		) {
+			return nil, fmt.Errorf("unexpected pending Channel messages %v: %w", pending, err)
+		}
+		mapped, found, err := workerTestByOrder.FindPendingMessage(
+			ctx,
+			"initial / key",
+			"message-2",
+		)
+		if err != nil || !found || mapped.Value != "mapped" {
+			return nil, fmt.Errorf("unexpected pending ChannelMap message %v: %w", mapped, err)
+		}
 		if keys := workerTestItems.AllInstanceKeys(ctx); !reflect.DeepEqual(
 			keys,
 			[]string{"initial % key", input.OrderID},
@@ -466,6 +490,23 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 				"commands-by-order/empty":               {Size: 0},
 				"commands-by-order/initial%20%25%20key": {Size: 1},
 			},
+			LoadedAttributeMapSelectors: []string{"items/"},
+			LoadedChannelNames:          []string{"commands"},
+			LoadedChannelMapSelectors: []string{
+				"commands-by-order/initial%20%2F%20key",
+			},
+			LoadedChannelMessages: map[string]*dexpb.ChannelValues{
+				"commands": {Messages: []*dexpb.ChannelMessage{{
+					MessageId: "message-1",
+					Value:     mustEncodeWorkerTestValue(t, "queued"),
+				}}},
+				"commands-by-order/initial%20%2F%20key": {
+					Messages: []*dexpb.ChannelMessage{{
+						MessageId: "message-2",
+						Value:     mustEncodeWorkerTestValue(t, "mapped"),
+					}},
+				},
+			},
 		},
 	)
 	require.NoError(t, err)
@@ -617,6 +658,10 @@ func TestBufferedTextStreamFlushesOnTimerAndInvocationFinish(t *testing.T) {
 		registeredFlow,
 		progressStream,
 		workerStepContext(),
+		nil,
+		nil,
+		nil,
+		nil,
 		nil,
 		nil,
 		nil,
@@ -970,6 +1015,22 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	var output workerTestOutput
 	require.NoError(t, decodeValue(response.Output, &output))
 	require.Equal(t, workerTestOutput{Before: 0, After: 1}, output)
+
+	flowService.setValue("channel-blob", mustEncodeWorkerTestValue(t, "hydrated-message"))
+	pendingRequest := workerRPCRequest(t, workerTestInput{Mode: "pending"})
+	pendingRequest.LoadedChannelNames = []string{"commands"}
+	pendingRequest.LoadedChannelMessages = map[string]*dexpb.ChannelValues{
+		"commands": {Messages: []*dexpb.ChannelMessage{{
+			MessageId: "message-1",
+			Value: &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForStringValue{
+				InternalBlobIdForStringValue: "channel-blob",
+			}},
+		}}},
+	}
+	pendingResponse, err := workerClient.InvokeWorkerRPC(context.Background(), pendingRequest)
+	require.NoError(t, err)
+	require.NoError(t, decodeValue(pendingResponse.Output, &output))
+	require.Equal(t, workerTestOutput{Before: 1, After: 1}, output)
 
 	wrongID := "wrong-kind"
 	flowService.setValue(wrongID, encodedInput)

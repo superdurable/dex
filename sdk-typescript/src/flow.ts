@@ -11,8 +11,8 @@ import { IndexType as ProtoIndexType } from "./gen/dex.js";
 import { FlowDefinitionError } from "./errors.js";
 import { registeredRPCs, type RegisteredRPC } from "./rpc.js";
 import { StepList, type Step, type StepClass, type StepDecision } from "./step.js";
-import { requireName } from "./validation.js";
-import type { Channel, ChannelMap } from "./wait.js";
+import { physicalMapName, requireName } from "./validation.js";
+import { Channel, ChannelMap } from "./wait.js";
 import type { Context } from "./context.js";
 import type { Stream } from "./stream.js";
 
@@ -322,6 +322,7 @@ function doRegisterFlow(
     ) {
       throw new FlowDefinitionError(`Flow ${name} RPC ${registeredRPC.name} locks an unregistered attribute`);
     }
+    validateRPCStateLoads(name, registeredRPC, schema);
   }
   return Object.freeze({
     name,
@@ -334,6 +335,79 @@ function doRegisterFlow(
     persistence,
     streams: new Set(schema.streams ?? []),
   });
+}
+
+function validateRPCStateLoads(
+  flowName: string,
+  registeredRPC: RegisteredRPC,
+  schema: PersistenceSchema,
+): void {
+  const attributeMaps = new Set(
+    (schema.attributes ?? []).filter((definition) => definition instanceof AttributeMap),
+  );
+  const channels = new Set(
+    (schema.channels ?? []).filter((definition) => definition instanceof Channel),
+  );
+  const channelMaps = new Set(
+    (schema.channels ?? []).filter((definition) => definition instanceof ChannelMap),
+  );
+  validateStateLoads(
+    flowName,
+    registeredRPC.name,
+    "AttributeMap",
+    registeredRPC.options.loadAttributeMaps ?? [],
+    attributeMaps,
+    (load) => load.attributeMap,
+    (load) => load.instance === undefined
+      ? `${load.attributeMap.name}/`
+      : physicalMapName(load.attributeMap.name, load.instance),
+  );
+  validateStateLoads(
+    flowName,
+    registeredRPC.name,
+    "Channel",
+    registeredRPC.options.loadChannels ?? [],
+    channels,
+    (load) => load.channel,
+    (load) => load.channel.name,
+  );
+  validateStateLoads(
+    flowName,
+    registeredRPC.name,
+    "ChannelMap",
+    registeredRPC.options.loadChannelMaps ?? [],
+    channelMaps,
+    (load) => load.channelMap,
+    (load) => load.instance === undefined
+      ? `${load.channelMap.name}/`
+      : physicalMapName(load.channelMap.name, load.instance),
+  );
+}
+
+function validateStateLoads<Load, Definition>(
+  flowName: string,
+  rpcName: string,
+  kind: string,
+  loads: readonly Load[],
+  registered: ReadonlySet<Definition>,
+  definitionFor: (load: Load) => Definition,
+  selectorFor: (load: Load) => string,
+): void {
+  const seen = new Set<string>();
+  for (const load of loads) {
+    if (!registered.has(definitionFor(load))) {
+      throw new FlowDefinitionError(
+        `Flow ${flowName} RPC ${rpcName} loads an unregistered ${kind}`,
+      );
+    }
+    const selector = selectorFor(load);
+    if (seen.has(selector)) {
+      throw new FlowDefinitionError(
+        `Flow ${flowName} RPC ${rpcName} has duplicate ${kind} load ${selector}`,
+      );
+    }
+    seen.add(selector);
+  }
 }
 
 function registeredStepClass<Input>(step: Step<Input>): StepClass<Input> {

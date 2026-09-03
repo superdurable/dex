@@ -12,8 +12,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, SystemTime};
 
 use dex_protocol::dex::{
-    AttributeWrite, ChannelInfo, ChannelMessage, ChannelMessageDeletion, ConditionResults,
-    ConditionStatus, Context as ProtoContext, Kv, StepStreamWrite, Value as ProtoValue, value,
+    AttributeWrite, ChannelInfo, ChannelMessage as ProtoChannelMessage, ChannelMessageDeletion,
+    ChannelValues, ConditionResults, ConditionStatus, Context as ProtoContext, Kv, StepStreamWrite,
+    Value as ProtoValue, value,
 };
 
 use crate::persistence::PersistenceKind;
@@ -21,8 +22,8 @@ use crate::registry::{RegisteredFlow, decode_instance, physical_name, validate_m
 use crate::value_mapper;
 use crate::worker_output::StepOutputEmitter;
 use crate::{
-    Attribute, AttributeMap, Channel, ChannelMap, FlowResult, HandlerError, HandlerResult, Stream,
-    Value,
+    Attribute, AttributeMap, Channel, ChannelMap, ChannelMessage, FlowResult, HandlerError,
+    HandlerResult, Stream, Value,
 };
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -40,13 +41,17 @@ pub(crate) struct ContextInput {
     pub(crate) locals: Vec<Kv>,
     pub(crate) condition_results: Option<ConditionResults>,
     pub(crate) channel_infos: HashMap<String, ChannelInfo>,
+    pub(crate) loaded_channel_messages: HashMap<String, ChannelValues>,
+    pub(crate) loaded_attribute_map_selectors: Vec<String>,
+    pub(crate) loaded_channel_names: Vec<String>,
+    pub(crate) loaded_channel_map_selectors: Vec<String>,
 }
 
 pub(crate) struct InvocationOutputs {
     pub(crate) attributes: Vec<AttributeWrite>,
     pub(crate) locals: Vec<Kv>,
     pub(crate) events: Vec<Kv>,
-    pub(crate) publications: Vec<ChannelMessage>,
+    pub(crate) publications: Vec<ProtoChannelMessage>,
     pub(crate) channel_deletions: Vec<ChannelMessageDeletion>,
 }
 
@@ -64,11 +69,15 @@ pub struct Context {
     locals: HashMap<String, ProtoValue>,
     condition_results: Option<ConditionResults>,
     channel_infos: HashMap<String, ChannelInfo>,
+    loaded_channel_messages: HashMap<String, ChannelValues>,
+    loaded_attribute_map_selectors: HashSet<String>,
+    loaded_channel_names: HashSet<String>,
+    loaded_channel_map_selectors: HashSet<String>,
     attribute_writes: HashMap<String, AttributeWrite>,
     local_writes: HashMap<String, Kv>,
     events: Vec<Kv>,
     event_names: HashSet<String>,
-    publications: Vec<ChannelMessage>,
+    publications: Vec<ProtoChannelMessage>,
     channel_deletions: Vec<ChannelMessageDeletion>,
     cancellation: InvocationCancellation,
     runtime: Option<tokio::runtime::Handle>,
@@ -95,6 +104,13 @@ impl Context {
             locals: map_values("step-execution local", input.locals)?,
             condition_results: input.condition_results,
             channel_infos: input.channel_infos,
+            loaded_channel_messages: input.loaded_channel_messages,
+            loaded_attribute_map_selectors: input
+                .loaded_attribute_map_selectors
+                .into_iter()
+                .collect(),
+            loaded_channel_names: input.loaded_channel_names.into_iter().collect(),
+            loaded_channel_map_selectors: input.loaded_channel_map_selectors.into_iter().collect(),
             attribute_writes: HashMap::new(),
             local_writes: HashMap::new(),
             events: Vec::new(),
@@ -430,6 +446,16 @@ impl Context {
             PersistenceKind::AttributeMap,
             Some("key-check"),
         )?;
+        if self.method == InvocationMethod::Rpc
+            && !self
+                .loaded_attribute_map_selectors
+                .contains(&format!("{}/", attribute.name()))
+        {
+            return Err(state_not_loaded(format!(
+                "all AttributeMap instances were not loaded for RPC: {}",
+                attribute.name()
+            )));
+        }
         let prefix = format!("{}/", attribute.name());
         let mut physical_keys = self
             .attributes
@@ -490,6 +516,27 @@ impl Context {
         instance: &str,
     ) -> HandlerResult<usize> {
         self.channel_size_value(channel.name(), PersistenceKind::ChannelMap, Some(instance))
+    }
+
+    /// Returns one singleton Channel's pending messages from the RPC snapshot.
+    pub fn pending_channel_messages<T: Value>(
+        &self,
+        channel: &Channel<T>,
+    ) -> HandlerResult<Vec<ChannelMessage<T>>> {
+        self.pending_channel_messages_value(channel.name(), PersistenceKind::Channel, None)
+    }
+
+    /// Returns one Channel-map instance's pending messages from the RPC snapshot.
+    pub fn pending_channel_map_messages<T: Value>(
+        &self,
+        channel: &ChannelMap<T>,
+        instance: &str,
+    ) -> HandlerResult<Vec<ChannelMessage<T>>> {
+        self.pending_channel_messages_value(
+            channel.name(),
+            PersistenceKind::ChannelMap,
+            Some(instance),
+        )
     }
 
     pub(crate) fn channel_map_keys<T>(
@@ -689,6 +736,17 @@ impl Context {
         instance: Option<&str>,
     ) -> HandlerResult<Option<T>> {
         let key = self.registered_name(name, kind, instance)?;
+        if self.method == InvocationMethod::Rpc && kind == PersistenceKind::AttributeMap {
+            let is_loaded = self
+                .loaded_attribute_map_selectors
+                .contains(&format!("{name}/"))
+                || self.loaded_attribute_map_selectors.contains(&key);
+            if !is_loaded {
+                return Err(state_not_loaded(format!(
+                    "AttributeMap instance was not loaded for RPC: {key}"
+                )));
+            }
+        }
         if let Some(write) = self.attribute_writes.get(&key) {
             let value = write.value.as_ref().ok_or_else(|| {
                 HandlerError::new(
@@ -737,7 +795,7 @@ impl Context {
         value: ProtoValue,
     ) -> HandlerResult<()> {
         let channel_name = self.registered_name(name, kind, instance)?;
-        self.publications.push(ChannelMessage {
+        self.publications.push(ProtoChannelMessage {
             channel_name: channel_name.clone(),
             value: Some(value),
             message_id: String::new(),
@@ -846,6 +904,52 @@ impl Context {
         Ok(decoded)
     }
 
+    fn pending_channel_messages_value<T: Value>(
+        &self,
+        name: &str,
+        kind: PersistenceKind,
+        instance: Option<&str>,
+    ) -> HandlerResult<Vec<ChannelMessage<T>>> {
+        if self.method != InvocationMethod::Rpc {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "pending Channel messages require an RPC Context",
+            ));
+        }
+        let physical_name = self.registered_name(name, kind, instance)?;
+        let is_loaded = match kind {
+            PersistenceKind::Channel => self.loaded_channel_names.contains(&physical_name),
+            PersistenceKind::ChannelMap => {
+                self.loaded_channel_map_selectors
+                    .contains(&format!("{name}/"))
+                    || self.loaded_channel_map_selectors.contains(&physical_name)
+            }
+            _ => false,
+        };
+        if !is_loaded {
+            return Err(state_not_loaded(format!(
+                "Channel messages were not loaded for RPC: {physical_name}"
+            )));
+        }
+        self.loaded_channel_messages
+            .get(&physical_name)
+            .map_or(&[][..], |values| values.messages.as_slice())
+            .iter()
+            .map(|message| {
+                let value = message.value.as_ref().ok_or_else(|| {
+                    HandlerError::new(
+                        "dex_sdk::HandlerError",
+                        format!("Channel message {} has no Value", message.message_id),
+                    )
+                })?;
+                Ok(ChannelMessage {
+                    message_id: message.message_id.clone(),
+                    value: value_mapper::decode_handler(value)?,
+                })
+            })
+            .collect()
+    }
+
     fn registered_name(
         &self,
         name: &str,
@@ -885,6 +989,10 @@ impl Context {
             )),
         }
     }
+}
+
+fn state_not_loaded(message: impl Into<String>) -> HandlerError {
+    HandlerError::new("dex_sdk::StateNotLoadedError", message)
 }
 
 fn sorted_instance_keys(
@@ -996,10 +1104,13 @@ fn require_name(value: &str, kind: &str) -> HandlerResult<()> {
 mod tests {
     use super::{Context, ContextInput, InvocationCancellation, InvocationMethod};
     use crate::{
-        AttributeMap, ChannelMap, Flow, PersistenceSchema, Registry, registry::physical_name,
-        value_mapper,
+        AttributeMap, Channel, ChannelMap, Flow, PersistenceSchema, Registry,
+        registry::physical_name, value_mapper,
     };
-    use dex_protocol::dex::{ChannelInfo, Context as ProtoContext, Kv};
+    use dex_protocol::dex::{
+        ChannelInfo, ChannelMessage as ProtoChannelMessage, ChannelValues, Context as ProtoContext,
+        Kv,
+    };
     use std::collections::HashMap;
 
     struct MapFlow {
@@ -1049,6 +1160,10 @@ mod tests {
                     (physical_name("messages", special), ChannelInfo { size: 1 }),
                     (physical_name("messages", "empty"), ChannelInfo { size: 0 }),
                 ]),
+                loaded_channel_messages: HashMap::new(),
+                loaded_attribute_map_selectors: vec!["items/".to_string()],
+                loaded_channel_names: Vec::new(),
+                loaded_channel_map_selectors: Vec::new(),
             },
             None,
             InvocationCancellation::new(),
@@ -1099,5 +1214,110 @@ mod tests {
                 .is_err()
         );
         assert!(context.last_heartbeat_value::<String>().is_err());
+    }
+
+    struct SelectiveFlow {
+        attributes: AttributeMap<String>,
+        queued: Channel<String>,
+        by_tenant: ChannelMap<String>,
+    }
+
+    impl Flow for SelectiveFlow {
+        type StartInput = ();
+
+        fn persistence(&self) -> PersistenceSchema {
+            PersistenceSchema::new()
+                .attribute_map(&self.attributes)
+                .channel(&self.queued)
+                .channel_map(&self.by_tenant)
+        }
+    }
+
+    #[test]
+    fn rpc_selective_state_snapshots_are_typed_and_presence_aware() {
+        let flow = SelectiveFlow {
+            attributes: AttributeMap::new("selected-items"),
+            queued: Channel::new("selected-commands"),
+            by_tenant: ChannelMap::new("selected-by-tenant"),
+        };
+        let registry = Registry::new()
+            .register(flow)
+            .expect("register selective Flow");
+        let registered = registry
+            .flow("SelectiveFlow")
+            .expect("lookup selective Flow")
+            .clone();
+        let attributes = AttributeMap::<String>::new("selected-items");
+        let queued = Channel::<String>::new("selected-commands");
+        let by_tenant = ChannelMap::<String>::new("selected-by-tenant");
+        let attribute_name = physical_name("selected-items", "tenant/a");
+        let channel_map_name = physical_name("selected-by-tenant", "tenant/a");
+        let mut context = Context::new(
+            ContextInput {
+                method: InvocationMethod::Rpc,
+                flow: registered,
+                metadata: ProtoContext::default(),
+                attributes: vec![Kv {
+                    key: attribute_name.clone(),
+                    value: Some(value_mapper::encode_handler(&"value".to_string()).unwrap()),
+                }],
+                locals: Vec::new(),
+                condition_results: None,
+                channel_infos: HashMap::new(),
+                loaded_channel_messages: HashMap::from([
+                    (
+                        "selected-commands".to_string(),
+                        ChannelValues {
+                            messages: vec![ProtoChannelMessage {
+                                channel_name: "selected-commands".to_string(),
+                                value: Some(
+                                    value_mapper::encode_handler(&"first".to_string()).unwrap(),
+                                ),
+                                message_id: "message-1".to_string(),
+                            }],
+                        },
+                    ),
+                    (
+                        channel_map_name.clone(),
+                        ChannelValues {
+                            messages: vec![ProtoChannelMessage {
+                                channel_name: channel_map_name.clone(),
+                                value: Some(
+                                    value_mapper::encode_handler(&"second".to_string()).unwrap(),
+                                ),
+                                message_id: "message-2".to_string(),
+                            }],
+                        },
+                    ),
+                ]),
+                loaded_attribute_map_selectors: vec![attribute_name],
+                loaded_channel_names: vec!["selected-commands".to_string()],
+                loaded_channel_map_selectors: vec![channel_map_name],
+            },
+            None,
+            InvocationCancellation::new(),
+        )
+        .expect("create selective RPC Context");
+
+        assert_eq!(
+            Some("value".to_string()),
+            attributes.get(&context, "tenant/a").unwrap()
+        );
+        assert_eq!("first", queued.pending_messages(&context).unwrap()[0].value);
+        assert_eq!(
+            "message-2",
+            by_tenant.pending_messages(&context, "tenant/a").unwrap()[0].message_id
+        );
+        assert_eq!(
+            Some("first".to_string()),
+            queued
+                .find_pending_message(&context, "message-1")
+                .unwrap()
+                .map(|message| message.value)
+        );
+        assert!(attributes.get(&context, "other").is_err());
+        assert!(by_tenant.pending_messages(&context, "other").is_err());
+        assert!(queued.publish(&mut context, "later".to_string()).is_ok());
+        assert_eq!(1, queued.pending_messages(&context).unwrap().len());
     }
 }

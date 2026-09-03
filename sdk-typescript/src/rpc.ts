@@ -9,7 +9,8 @@
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import type { Flow } from "./flow.js";
-import type { AttributeLock } from "./persistence.js";
+import type { AttributeLock, AttributeMapLoad } from "./persistence.js";
+import type { ChannelLoad, ChannelMapLoad } from "./wait.js";
 import type { StepClass, StepMovement } from "./step.js";
 import { requireName } from "./validation.js";
 
@@ -60,6 +61,12 @@ export interface RPCOptions<Input = unknown, Output = unknown> {
   readonly lockAttributes?: readonly AttributeLock[];
   /** Requests transactional reads and writes even when no Attribute lock is configured. */
   readonly isTransactional?: boolean;
+  /** AttributeMap instances included in the RPC snapshot. */
+  readonly loadAttributeMaps?: readonly AttributeMapLoad[];
+  /** Singleton Channel pending messages included in the RPC snapshot. */
+  readonly loadChannels?: readonly ChannelLoad[];
+  /** ChannelMap instance pending messages included in the RPC snapshot. */
+  readonly loadChannelMaps?: readonly ChannelMapLoad[];
 }
 
 export interface RegisteredRPC {

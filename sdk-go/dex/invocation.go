@@ -60,9 +60,13 @@ type invocationContext struct {
 	publications   []*dexpb.ChannelMessage
 	deletions      []*dexpb.ChannelMessageDeletion
 
-	conditionResults *dexpb.ConditionResults
-	channelSizes     map[string]int
-	outputFinalizers []invocationOutputFinalizer
+	conditionResults            *dexpb.ConditionResults
+	channelSizes                map[string]int
+	loadedChannelMessages       map[string]*dexpb.ChannelValues
+	loadedAttributeMapSelectors map[string]struct{}
+	loadedChannelNames          map[string]struct{}
+	loadedChannelMapSelectors   map[string]struct{}
+	outputFinalizers            []invocationOutputFinalizer
 }
 
 type invocationOutputFinalizer interface {
@@ -79,6 +83,10 @@ func newInvocationContext(
 	locals []*dexpb.KV,
 	conditionResults *dexpb.ConditionResults,
 	channelInfos map[string]*dexpb.ChannelInfo,
+	loadedChannelMessages map[string]*dexpb.ChannelValues,
+	loadedAttributeMapSelectors []string,
+	loadedChannelNames []string,
+	loadedChannelMapSelectors []string,
 ) (*invocationContext, error) {
 	attributeValues, err := buildInvocationValues("attribute", attributes)
 	if err != nil {
@@ -105,21 +113,25 @@ func newInvocationContext(
 		invocationHandlerContext, outputEmitter = newStepOutputEmitter(ctx, outputStream)
 	}
 	invocation := &invocationContext{
-		Context:          invocationHandlerContext,
-		method:           method,
-		flow:             flow,
-		outputEmitter:    outputEmitter,
-		active:           true,
-		flowID:           metadata.FlowId,
-		runID:            metadata.RunId,
-		flowStartedAt:    time.Unix(metadata.FlowStartedTimestamp, 0),
-		attributes:       attributeValues,
-		attributeWrites:  make(map[string]*dexpb.AttributeWrite),
-		locals:           localValues,
-		localWrites:      make(map[string]*dexpb.KV),
-		events:           make(map[string]struct{}),
-		conditionResults: conditionResults,
-		channelSizes:     sizes,
+		Context:                     invocationHandlerContext,
+		method:                      method,
+		flow:                        flow,
+		outputEmitter:               outputEmitter,
+		active:                      true,
+		flowID:                      metadata.FlowId,
+		runID:                       metadata.RunId,
+		flowStartedAt:               time.Unix(metadata.FlowStartedTimestamp, 0),
+		attributes:                  attributeValues,
+		attributeWrites:             make(map[string]*dexpb.AttributeWrite),
+		locals:                      localValues,
+		localWrites:                 make(map[string]*dexpb.KV),
+		events:                      make(map[string]struct{}),
+		conditionResults:            conditionResults,
+		channelSizes:                sizes,
+		loadedChannelMessages:       loadedChannelMessages,
+		loadedAttributeMapSelectors: stringSet(loadedAttributeMapSelectors),
+		loadedChannelNames:          stringSet(loadedChannelNames),
+		loadedChannelMapSelectors:   stringSet(loadedChannelMapSelectors),
 	}
 	if method != invocationRPC {
 		invocation.stepExecutionID = metadata.StepExecutionId
@@ -214,6 +226,14 @@ func buildChannelSizes(
 		sizes[name] = int(info.Size)
 	}
 	return sizes, nil
+}
+
+func stringSet(values []string) map[string]struct{} {
+	mapped := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		mapped[value] = struct{}{}
+	}
+	return mapped
 }
 
 func validateConditionResults(results *dexpb.ConditionResults) error {
@@ -476,6 +496,13 @@ func (invocation *invocationContext) getAttributeValue(
 	if err != nil {
 		return false, err
 	}
+	if isMap && invocation.method == invocationRPC && !isMapSelectorLoaded(
+		invocation.loadedAttributeMapSelectors,
+		name,
+		physical,
+	) {
+		return false, &StateNotLoadedError{Kind: "AttributeMap", Name: physical}
+	}
 	if write, found := invocation.attributeWrites[physical]; found {
 		if _, deleted := write.Value.Kind.(*dexpb.Value_NullValue); deleted {
 			return false, nil
@@ -560,6 +587,11 @@ func (invocation *invocationContext) attributeMapKeys(name string) []string {
 		invocationRPC,
 	); err != nil {
 		panic(err)
+	}
+	if invocation.method == invocationRPC {
+		if _, loaded := invocation.loadedAttributeMapSelectors[name+"/"]; !loaded {
+			panic(&StateNotLoadedError{Kind: "AttributeMap", Name: name})
+		}
 	}
 	attribute, found := invocation.flow.attributes[name]
 	if !found || !attribute.isMap {
@@ -704,6 +736,48 @@ func (invocation *invocationContext) channelMapKeys(name string) []string {
 		}
 	}
 	return sortedInstanceKeys(name, physicalKeys)
+}
+
+func (invocation *invocationContext) pendingChannelMessages(
+	name string,
+	instance string,
+	isMap bool,
+) ([]*dexpb.ChannelMessage, error) {
+	if err := invocation.requireActive(invocationRPC); err != nil {
+		return nil, err
+	}
+	loadedNames := invocation.loadedChannelNames
+	kind := "Channel"
+	if isMap {
+		loadedNames = invocation.loadedChannelMapSelectors
+		kind = "ChannelMap"
+	}
+	physical, err := invocation.resolveChannel(name, instance, isMap)
+	if err != nil {
+		return nil, err
+	}
+	isLoaded := false
+	if isMap {
+		isLoaded = isMapSelectorLoaded(loadedNames, name, physical)
+	} else {
+		_, isLoaded = loadedNames[name]
+	}
+	if !isLoaded {
+		return nil, &StateNotLoadedError{Kind: kind, Name: physical}
+	}
+	values := invocation.loadedChannelMessages[physical]
+	if values == nil {
+		return nil, nil
+	}
+	return values.Messages, nil
+}
+
+func isMapSelectorLoaded(selectors map[string]struct{}, name string, physical string) bool {
+	if _, loaded := selectors[name+"/"]; loaded {
+		return true
+	}
+	_, loaded := selectors[physical]
+	return loaded
 }
 
 func sortedInstanceKeys(

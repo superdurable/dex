@@ -375,6 +375,107 @@ fn validate_rpc(
             )));
         }
     }
+    validate_rpc_map_selections(
+        flow_name,
+        rpc.name,
+        &rpc.load_attribute_maps,
+        PersistenceKind::AttributeMap,
+        persistence,
+        |selection| (&selection.name, selection.instance.as_deref()),
+    )?;
+    validate_rpc_static_selections(
+        flow_name,
+        rpc.name,
+        &rpc.load_channels,
+        PersistenceKind::Channel,
+        persistence,
+        |selection| &selection.name,
+    )?;
+    validate_rpc_map_selections(
+        flow_name,
+        rpc.name,
+        &rpc.load_channel_maps,
+        PersistenceKind::ChannelMap,
+        persistence,
+        |selection| (&selection.name, selection.instance.as_deref()),
+    )?;
+    Ok(())
+}
+
+fn validate_rpc_map_selections<Selection, Select>(
+    flow_name: &str,
+    rpc_name: &str,
+    selections: &[Selection],
+    kind: PersistenceKind,
+    persistence: &HashMap<String, PersistenceDefinition>,
+    select: Select,
+) -> SdkResult<()>
+where
+    Select: for<'a> Fn(&'a Selection) -> (&'a String, Option<&'a str>),
+{
+    let mut selectors = HashSet::new();
+    for selection in selections {
+        let (name, instance) = select(selection);
+        validate_rpc_selection_definition(flow_name, rpc_name, name, kind, persistence)?;
+        if instance.is_some_and(str::is_empty) {
+            return Err(definition_error(format!(
+                "Flow {flow_name} RPC {rpc_name} loads an empty map instance"
+            )));
+        }
+        let selector = match instance {
+            Some(instance) => physical_name(name, instance),
+            None => format!("{name}/"),
+        };
+        if !selectors.insert(selector) {
+            return Err(definition_error(format!(
+                "Flow {flow_name} RPC {rpc_name} has a duplicate state load"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_rpc_static_selections<Selection, Select>(
+    flow_name: &str,
+    rpc_name: &str,
+    selections: &[Selection],
+    kind: PersistenceKind,
+    persistence: &HashMap<String, PersistenceDefinition>,
+    select: Select,
+) -> SdkResult<()>
+where
+    Select: for<'a> Fn(&'a Selection) -> &'a String,
+{
+    let mut names = HashSet::new();
+    for selection in selections {
+        let name = select(selection);
+        validate_rpc_selection_definition(flow_name, rpc_name, name, kind, persistence)?;
+        if !names.insert(name) {
+            return Err(definition_error(format!(
+                "Flow {flow_name} RPC {rpc_name} has a duplicate state load"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_rpc_selection_definition(
+    flow_name: &str,
+    rpc_name: &str,
+    name: &str,
+    kind: PersistenceKind,
+    persistence: &HashMap<String, PersistenceDefinition>,
+) -> SdkResult<()> {
+    let definition = persistence.get(name).ok_or_else(|| {
+        definition_error(format!(
+            "Flow {flow_name} RPC {rpc_name} loads unregistered state: {name}"
+        ))
+    })?;
+    if definition.kind != kind {
+        return Err(definition_error(format!(
+            "Flow {flow_name} RPC {rpc_name} loads the wrong state kind: {name}"
+        )));
+    }
     Ok(())
 }
 

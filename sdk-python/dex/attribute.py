@@ -13,12 +13,41 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Generic, TypeVar, cast
+from urllib.parse import quote
 
 from dex._utils import require_map_instance, require_persistence_definition_name
 from dex.context import Context
 from dex.dexpb import dex_pb2 as pb
 
 ValueT = TypeVar("ValueT")
+
+
+@dataclass(frozen=True)
+class AttributeMapLoad:
+    """Select AttributeMap entries for an RPC snapshot.
+
+    Create a selection with :meth:`AttributeMap.load` for one instance or
+    :meth:`AttributeMap.load_all` for every current instance. Loading provides a
+    point-in-time value snapshot; it does not lock the map against concurrent writers.
+
+    Attributes:
+        attribute_map: The exact AttributeMap definition registered with the Flow.
+        instance: One logical instance key, or ``None`` to load every instance.
+    """
+
+    attribute_map: AttributeMap[Any]
+    instance: str | None
+
+    @property
+    def selector(self) -> str:
+        """Return the protocol selector for this typed load.
+
+        Returns:
+            ``MapName/`` for all instances, or the escaped physical instance name.
+        """
+        if self.instance is None:
+            return f"{self.attribute_map.name}/"
+        return f"{self.attribute_map.name}/{quote(self.instance, safe='')}"
 
 
 class IndexType(Enum):
@@ -171,6 +200,35 @@ class AttributeMap(Generic[ValueT]):
 
     def __post_init__(self) -> None:
         require_persistence_definition_name(self.name)
+
+    def load(self, instance: str) -> AttributeMapLoad:
+        """Select one instance for an RPC snapshot.
+
+        Pass the result through ``@rpc(load_attribute_maps=(...))``. The SDK
+        escapes the logical instance key when building the protocol selector.
+
+        Args:
+            instance: The non-empty logical map key to load.
+
+        Returns:
+            A typed selection for this one instance.
+
+        Raises:
+            ValueError: If ``instance`` is empty.
+        """
+        return AttributeMapLoad(self, require_name(instance))
+
+    def load_all(self) -> AttributeMapLoad:
+        """Select every current instance for an RPC snapshot.
+
+        Use this when the handler must enumerate keys or inspect multiple dynamic
+        instances. Loading does not provide isolation; use a shared Attribute lock
+        when cooperating writers must not modify state during the RPC.
+
+        Returns:
+            A typed all-instances selection for this map.
+        """
+        return AttributeMapLoad(self, None)
 
     def get(self, context: Context, instance: str) -> ValueT:
         """Return one map instance from a Step or RPC Context.

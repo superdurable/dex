@@ -45,6 +45,7 @@ from dex import (
     StepList,
     StepOptions,
     StepOutput,
+    StateNotLoadedError,
     Stream,
     Timer,
     ValueMappingError,
@@ -333,6 +334,51 @@ def test_registry_rejects_duplicate_rpc_locks() -> None:
         Registry((DuplicateLockFlow(),))
 
 
+def test_registry_validates_and_sorts_rpc_state_loads() -> None:
+    attributes = AttributeMap("items", str)
+    commands = Channel("commands", str)
+    channels = ChannelMap("commands-by-tenant", str)
+
+    class LoadedFlow(Flow[None]):
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(attributes, commands, channels)
+
+        @rpc(
+            load_attribute_maps=(attributes.load("tenant/a"), attributes.load_all()),
+            load_channels=(commands.load_messages(),),
+            load_channel_maps=(
+                channels.load_messages("tenant/a"),
+                channels.load_all_messages(),
+            ),
+        )
+        def snapshot(self, context: Context) -> None:
+            del context
+
+    flow = LoadedFlow()
+    registry = Registry((flow,))
+    _, registered = registry._rpc_for_method(flow.snapshot)
+    assert registered.load_attribute_map_selectors == (
+        "items/",
+        "items/tenant%2Fa",
+    )
+    assert registered.load_channel_names == ("commands",)
+    assert registered.load_channel_map_selectors == (
+        "commands-by-tenant/",
+        "commands-by-tenant/tenant%2Fa",
+    )
+
+    class DuplicateFlow(Flow[None]):
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(attributes)
+
+        @rpc(load_attribute_maps=(attributes.load_all(), attributes.load_all()))
+        def snapshot(self, context: Context) -> None:
+            del context
+
+    with pytest.raises(FlowDefinitionError, match="duplicate AttributeMapLoad"):
+        Registry((DuplicateFlow(),))
+
+
 def test_value_mapping_errors_are_stable() -> None:
     client = ClientModuleClient(Registry((ORDERS,)), cast(BlobCache, object()))
     with pytest.raises(ValueMappingError, match="Cannot encode Dex Value"):
@@ -508,6 +554,7 @@ def test_map_introspection_tracks_buffered_changes() -> None:
             Registry.physical_name("messages", special): pb.ChannelInfo(size=1),
             Registry.physical_name("messages", "empty"): pb.ChannelInfo(size=0),
         },
+        loaded_attribute_map_selectors=("items/",),
     )
     assert attributes.get_all_instance_keys(context) == (special, "z")
     attributes.set(context, "a", "added")
@@ -518,6 +565,71 @@ def test_map_introspection_tracks_buffered_changes() -> None:
     channels.publish(context, "a", "published")
     assert channels.get_all_instance_keys(context) == ("a", special)
     assert channels.get_map_size(context) == 2
+
+
+def test_rpc_selective_state_snapshots_are_typed_and_presence_aware() -> None:
+    attributes = AttributeMap("items", str)
+    commands = Channel("commands", str)
+    channels = ChannelMap("commands-by-tenant", str)
+
+    class SnapshotFlow(Flow[None]):
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(attributes, commands, channels)
+
+    registry = Registry((SnapshotFlow(),))
+    values = ValueMapper(registry.codec_registry)
+    exact_attribute = Registry.physical_name("items", "tenant/a")
+    exact_channel = Registry.physical_name("commands-by-tenant", "tenant/a")
+    context = InvocationContext(
+        InvocationMethod.RPC,
+        registry._flow_by_type("SnapshotFlow"),
+        pb.Context(),
+        values,
+        (
+            pb.KV(
+                key=exact_attribute,
+                value=values.encode("loaded", values.codec(str)),
+            ),
+        ),
+        channel_infos={
+            "commands": pb.ChannelInfo(size=1),
+            exact_channel: pb.ChannelInfo(size=1),
+        },
+        loaded_channel_messages={
+            "commands": pb.ChannelValues(
+                messages=(
+                    pb.ChannelMessage(
+                        message_id="message-1",
+                        value=values.encode("queued", values.codec(str)),
+                    ),
+                )
+            ),
+            exact_channel: pb.ChannelValues(
+                messages=(
+                    pb.ChannelMessage(
+                        message_id="message-2",
+                        value=values.encode("mapped", values.codec(str)),
+                    ),
+                )
+            ),
+        },
+        loaded_attribute_map_selectors=(exact_attribute,),
+        loaded_channel_names=("commands",),
+        loaded_channel_map_selectors=(exact_channel,),
+    )
+
+    assert attributes.get(context, "tenant/a") == "loaded"
+    with pytest.raises(StateNotLoadedError):
+        attributes.get(context, "tenant/b")
+    with pytest.raises(StateNotLoadedError):
+        attributes.get_all_instance_keys(context)
+    assert commands.size(context) == 1
+    assert commands.pending_messages(context)[0].value == "queued"
+    assert commands.find_pending_message(context, "message-1") is not None
+    assert channels.get_all_instance_keys(context) == ("tenant/a",)
+    assert channels.pending_messages(context, "tenant/a")[0].value == "mapped"
+    with pytest.raises(StateNotLoadedError):
+        channels.pending_messages(context, "tenant/b")
 
 
 def test_explicit_custom_codec_remains_available() -> None:

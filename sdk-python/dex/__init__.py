@@ -16,10 +16,11 @@ from dex.attribute import (
     AttributeIndex,
     AttributeLock,
     AttributeMap,
+    AttributeMapLoad,
     IndexType,
 )
 from dex.blob_cache import BlobCache, BlobCacheConfig, open_blob_cache
-from dex.channel import Channel, ChannelMap, ChannelMessage
+from dex.channel import Channel, ChannelLoad, ChannelMap, ChannelMapLoad, ChannelMessage
 from dex.client import Client
 from dex.client_options import ClientOptions
 from dex.codec import (
@@ -70,6 +71,7 @@ from dex.runtime_errors import (
     LongPollTimeoutError,
     ChannelMessageNotFoundError,
     RpcLockConflictError,
+    StateNotLoadedError,
     ValueMappingError,
     WorkerInvocationError,
 )
@@ -116,6 +118,7 @@ __all__ = [
     "AttributeIndex",
     "AttributeLock",
     "AttributeMap",
+    "AttributeMapLoad",
     "AsyncContext",
     "AsyncClient",
     "AsyncBufferedTextStream",
@@ -124,7 +127,9 @@ __all__ = [
     "BlobCacheConfig",
     "BufferedTextStream",
     "Channel",
+    "ChannelLoad",
     "ChannelMap",
+    "ChannelMapLoad",
     "ChannelMessage",
     "ChannelMessageNotFoundError",
     "Client",
@@ -156,6 +161,7 @@ __all__ = [
     "RPCResult",
     "RetryAfterError",
     "RpcLockConflictError",
+    "StateNotLoadedError",
     "Registry",
     "TimeTravelOptions",
     "TimeTravelStepMethod",
