@@ -10,9 +10,18 @@
 
 package io.superdurable.dex.exceptions;
 
-/** Indicates that an RPC did not load the requested pending Channel messages. */
+/**
+ * Indicates that an RPC did not load the requested pending Channel messages.
+ *
+ * <p>Add the Channel name or required ChannelMap instance to the RPC load configuration before
+ * reading its pending-message snapshot.
+ */
 public final class ChannelMessagesNotLoadedException extends IllegalStateException {
-    /** Creates an exception with an actionable missing-load message. */
+    /**
+     * Creates an exception with an actionable missing-load message.
+     *
+     * @param message the Channel name or instance omitted from the RPC load configuration
+     */
     public ChannelMessagesNotLoadedException(final String message) {
         super(message);
     }

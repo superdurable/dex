@@ -10,9 +10,18 @@
 
 package io.superdurable.dex.exceptions;
 
-/** Indicates that an RPC did not load the requested AttributeMap entries. */
+/**
+ * Indicates that an RPC did not load the requested AttributeMap entries.
+ *
+ * <p>Add the AttributeMap name or required instance to the RPC load configuration before reading
+ * an entry or enumerating its instances.
+ */
 public final class AttributeMapNotLoadedException extends IllegalStateException {
-    /** Creates an exception with an actionable missing-load message. */
+    /**
+     * Creates an exception with an actionable missing-load message.
+     *
+     * @param message the AttributeMap name or instance omitted from the RPC load configuration
+     */
     public AttributeMapNotLoadedException(final String message) {
         super(message);
     }
