@@ -880,9 +880,9 @@ impl Client {
             lock_attribute_keys: rpc.locks.iter().map(|lock| lock.physical_name()).collect(),
             request_id: Uuid::new_v4().to_string(),
             is_transactional: rpc.is_transactional,
-            load_attribute_map_names: Vec::new(),
+            load_attribute_map_selectors: Vec::new(),
             load_channel_names: Vec::new(),
-            load_channel_map_names: Vec::new(),
+            load_channel_map_selectors: Vec::new(),
         };
         let mut service = self.service.clone();
         let output = self.runtime.block_on(async {

@@ -116,7 +116,7 @@ func (i *ChannelStore) GetInfos() map[string]*dexpb.ChannelInfo {
 // GetLoadedMessages returns pending envelopes for selected Channel definitions.
 func (i *ChannelStore) GetLoadedMessages(
 	channelNames []string,
-	channelMapNames []string,
+	channelMapSelectors []string,
 ) map[string]*dexpb.ChannelValues {
 	loaded := make(map[string]*dexpb.ChannelValues, len(channelNames))
 	for _, name := range channelNames {
@@ -127,13 +127,14 @@ func (i *ChannelStore) GetLoadedMessages(
 		physicalNames = append(physicalNames, name)
 	}
 	sort.Strings(physicalNames)
-	for _, mapName := range channelMapNames {
-		prefix := mapName + "/"
+	for _, selector := range channelMapSelectors {
+		if !strings.HasSuffix(selector, "/") {
+			loaded[selector] = &dexpb.ChannelValues{Messages: i.channelMessages[selector]}
+			continue
+		}
 		for _, physicalName := range physicalNames {
-			if strings.HasPrefix(physicalName, prefix) {
-				loaded[physicalName] = &dexpb.ChannelValues{
-					Messages: i.channelMessages[physicalName],
-				}
+			if strings.HasPrefix(physicalName, selector) {
+				loaded[physicalName] = &dexpb.ChannelValues{Messages: i.channelMessages[physicalName]}
 			}
 		}
 	}

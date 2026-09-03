@@ -270,13 +270,13 @@ func testRPCSelectiveStateLoading(
 	waitForChannelMessages(t, ctx, runtime, flowID, "selected-channel", 2)
 
 	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-		RequestId:             newRequestID(),
-		FlowId:                flowID,
-		RpcName:               rpc.RPCNameSnapshot,
-		TimeoutSeconds:        2,
-		LoadAttributeMapNames: []string{"selected-map", "empty-map"},
-		LoadChannelNames:      []string{"selected-empty", "selected-channel"},
-		LoadChannelMapNames:   []string{"selected-empty-map", "selected-channel-map"},
+		RequestId:                 newRequestID(),
+		FlowId:                    flowID,
+		RpcName:                   rpc.RPCNameSnapshot,
+		TimeoutSeconds:            2,
+		LoadAttributeMapSelectors: []string{"selected-map/one", "empty-map/"},
+		LoadChannelNames:          []string{"selected-empty", "selected-channel"},
+		LoadChannelMapSelectors:   []string{"selected-empty-map/", "selected-channel-map/one"},
 	})
 	require.NoError(t, err)
 
@@ -309,9 +309,9 @@ func testRPCSelectiveStateLoading(
 
 	data := workerHandler.GetTestResult().InvokeData
 	selected := data[rpc.RPCNameSnapshot+"-request"].(*dexpb.InvokeWorkerRPCRequest)
-	require.Equal(t, []string{"empty-map", "selected-map"}, selected.GetLoadedAttributeMapNames())
+	require.Equal(t, []string{"empty-map/", "selected-map/one"}, selected.GetLoadedAttributeMapSelectors())
 	require.Equal(t, []string{"selected-channel", "selected-empty"}, selected.GetLoadedChannelNames())
-	require.Equal(t, []string{"selected-channel-map", "selected-empty-map"}, selected.GetLoadedChannelMapNames())
+	require.Equal(t, []string{"selected-channel-map/one", "selected-empty-map/"}, selected.GetLoadedChannelMapSelectors())
 	selectedAttributes := attributesToMap(selected.GetAttributes())
 	require.Equal(t, "ordinary", selectedAttributes["ordinary"].GetStringValue())
 	require.Equal(t, "selected", selectedAttributes["selected-map/one"].GetStringValue())
@@ -328,7 +328,7 @@ func testRPCSelectiveStateLoading(
 	require.NotContains(t, loaded, "other-channel-map/one")
 	require.Equal(t, []string{"first", "second"}, channelStrings(loaded["selected-channel"]))
 	require.Equal(t, []string{"map-one"}, channelStrings(loaded["selected-channel-map/one"]))
-	require.Equal(t, []string{"map-two"}, channelStrings(loaded["selected-channel-map/two"]))
+	require.NotContains(t, loaded, "selected-channel-map/two")
 	for _, values := range loaded {
 		for _, message := range values.GetMessages() {
 			require.NotEmpty(t, message.GetMessageId())
@@ -374,13 +374,19 @@ func testInvalidRPCStateSelectors(
 		{
 			name: "empty",
 			request: &dexpb.InvokeRPCRequest{
-				LoadAttributeMapNames: []string{" "},
+				LoadAttributeMapSelectors: []string{" "},
 			},
 		},
 		{
-			name: "physical-channel-name",
+			name: "missing-map-separator",
 			request: &dexpb.InvokeRPCRequest{
-				LoadChannelMapNames: []string{"mapped/one"},
+				LoadChannelMapSelectors: []string{"mapped"},
+			},
+		},
+		{
+			name: "multiple-map-separators",
+			request: &dexpb.InvokeRPCRequest{
+				LoadChannelMapSelectors: []string{"mapped/one/two"},
 			},
 		},
 		{

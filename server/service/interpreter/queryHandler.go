@@ -91,25 +91,25 @@ func SetQueryHandlers(
 			return nil, fmt.Errorf("PrepareRpc query requires a request")
 		}
 		selection, err := rpc.ValidateAndSortSelections(
-			req.GetLoadAttributeMapNames(),
+			req.GetLoadAttributeMapSelectors(),
 			req.GetLoadChannelNames(),
-			req.GetLoadChannelMapNames(),
+			req.GetLoadChannelMapSelectors(),
 		)
 		if err != nil {
 			return nil, err
 		}
 		info := provider.GetWorkflowInfo(ctx)
 		return &dexpb.PrepareRpcQueryResponse{
-			Attributes:              persistenceManager.GetRPCAttributes(selection.AttributeMapNames),
-			RunId:                   info.WorkflowExecution.RunID,
-			FlowStartedTimestamp:    info.WorkflowStartTime.Unix(),
-			FlowType:                basicInfo.FlowType,
-			WorkerTarget:            flowConfiger.GetWorkerTarget(),
-			ChannelInfos:            channelStore.GetInfos(),
-			LoadedChannelMessages:   channelStore.GetLoadedMessages(selection.ChannelNames, selection.ChannelMapNames),
-			LoadedAttributeMapNames: selection.AttributeMapNames,
-			LoadedChannelNames:      selection.ChannelNames,
-			LoadedChannelMapNames:   selection.ChannelMapNames,
+			Attributes:                  persistenceManager.GetRPCAttributes(selection.AttributeMapSelectors),
+			RunId:                       info.WorkflowExecution.RunID,
+			FlowStartedTimestamp:        info.WorkflowStartTime.Unix(),
+			FlowType:                    basicInfo.FlowType,
+			WorkerTarget:                flowConfiger.GetWorkerTarget(),
+			ChannelInfos:                channelStore.GetInfos(),
+			LoadedChannelMessages:       channelStore.GetLoadedMessages(selection.ChannelNames, selection.ChannelMapSelectors),
+			LoadedAttributeMapSelectors: selection.AttributeMapSelectors,
+			LoadedChannelNames:          selection.ChannelNames,
+			LoadedChannelMapSelectors:   selection.ChannelMapSelectors,
 		}, nil
 	})
 	if err != nil {

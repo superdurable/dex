@@ -148,29 +148,29 @@ io.superdurable.gen.ChannelValues defaultValue);
       java.lang.String key);
 
   /**
-   * <code>repeated string loaded_attribute_map_names = 8;</code>
-   * @return A list containing the loadedAttributeMapNames.
+   * <code>repeated string loaded_attribute_map_selectors = 8;</code>
+   * @return A list containing the loadedAttributeMapSelectors.
    */
   java.util.List<java.lang.String>
-      getLoadedAttributeMapNamesList();
+      getLoadedAttributeMapSelectorsList();
   /**
-   * <code>repeated string loaded_attribute_map_names = 8;</code>
-   * @return The count of loadedAttributeMapNames.
+   * <code>repeated string loaded_attribute_map_selectors = 8;</code>
+   * @return The count of loadedAttributeMapSelectors.
    */
-  int getLoadedAttributeMapNamesCount();
+  int getLoadedAttributeMapSelectorsCount();
   /**
-   * <code>repeated string loaded_attribute_map_names = 8;</code>
+   * <code>repeated string loaded_attribute_map_selectors = 8;</code>
    * @param index The index of the element to return.
-   * @return The loadedAttributeMapNames at the given index.
+   * @return The loadedAttributeMapSelectors at the given index.
    */
-  java.lang.String getLoadedAttributeMapNames(int index);
+  java.lang.String getLoadedAttributeMapSelectors(int index);
   /**
-   * <code>repeated string loaded_attribute_map_names = 8;</code>
+   * <code>repeated string loaded_attribute_map_selectors = 8;</code>
    * @param index The index of the value to return.
-   * @return The bytes of the loadedAttributeMapNames at the given index.
+   * @return The bytes of the loadedAttributeMapSelectors at the given index.
    */
   com.google.protobuf.ByteString
-      getLoadedAttributeMapNamesBytes(int index);
+      getLoadedAttributeMapSelectorsBytes(int index);
 
   /**
    * <code>repeated string loaded_channel_names = 9;</code>
@@ -198,27 +198,27 @@ io.superdurable.gen.ChannelValues defaultValue);
       getLoadedChannelNamesBytes(int index);
 
   /**
-   * <code>repeated string loaded_channel_map_names = 10;</code>
-   * @return A list containing the loadedChannelMapNames.
+   * <code>repeated string loaded_channel_map_selectors = 10;</code>
+   * @return A list containing the loadedChannelMapSelectors.
    */
   java.util.List<java.lang.String>
-      getLoadedChannelMapNamesList();
+      getLoadedChannelMapSelectorsList();
   /**
-   * <code>repeated string loaded_channel_map_names = 10;</code>
-   * @return The count of loadedChannelMapNames.
+   * <code>repeated string loaded_channel_map_selectors = 10;</code>
+   * @return The count of loadedChannelMapSelectors.
    */
-  int getLoadedChannelMapNamesCount();
+  int getLoadedChannelMapSelectorsCount();
   /**
-   * <code>repeated string loaded_channel_map_names = 10;</code>
+   * <code>repeated string loaded_channel_map_selectors = 10;</code>
    * @param index The index of the element to return.
-   * @return The loadedChannelMapNames at the given index.
+   * @return The loadedChannelMapSelectors at the given index.
    */
-  java.lang.String getLoadedChannelMapNames(int index);
+  java.lang.String getLoadedChannelMapSelectors(int index);
   /**
-   * <code>repeated string loaded_channel_map_names = 10;</code>
+   * <code>repeated string loaded_channel_map_selectors = 10;</code>
    * @param index The index of the value to return.
-   * @return The bytes of the loadedChannelMapNames at the given index.
+   * @return The bytes of the loadedChannelMapSelectors at the given index.
    */
   com.google.protobuf.ByteString
-      getLoadedChannelMapNamesBytes(int index);
+      getLoadedChannelMapSelectorsBytes(int index);
 }

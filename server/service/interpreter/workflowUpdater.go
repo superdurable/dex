@@ -165,9 +165,9 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		)
 	}
 	selection, err := rpc.ValidateAndSortSelections(
-		input.GetLoadAttributeMapNames(),
+		input.GetLoadAttributeMapSelectors(),
 		input.GetLoadChannelNames(),
-		input.GetLoadChannelMapNames(),
+		input.GetLoadChannelMapSelectors(),
 	)
 	if err != nil {
 		return nil, u.provider.NewUpdateError(
@@ -177,23 +177,23 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 	}
 	attributes, locked := u.persistenceManager.TryLoadRPCAttributes(
 		keysToLock,
-		selection.AttributeMapNames,
+		selection.AttributeMapSelectors,
 	)
 	if !locked {
 		return nil, u.rpcLockError()
 	}
 
 	rpcPrep := &dexpb.PrepareRpcQueryResponse{
-		Attributes:              attributes,
-		RunId:                   info.WorkflowExecution.RunID,
-		FlowStartedTimestamp:    info.WorkflowStartTime.Unix(),
-		FlowType:                u.basicInfo.FlowType,
-		WorkerTarget:            u.flowConfiger.GetWorkerTarget(),
-		ChannelInfos:            u.channelStore.GetInfos(),
-		LoadedChannelMessages:   u.channelStore.GetLoadedMessages(selection.ChannelNames, selection.ChannelMapNames),
-		LoadedAttributeMapNames: selection.AttributeMapNames,
-		LoadedChannelNames:      selection.ChannelNames,
-		LoadedChannelMapNames:   selection.ChannelMapNames,
+		Attributes:                  attributes,
+		RunId:                       info.WorkflowExecution.RunID,
+		FlowStartedTimestamp:        info.WorkflowStartTime.Unix(),
+		FlowType:                    u.basicInfo.FlowType,
+		WorkerTarget:                u.flowConfiger.GetWorkerTarget(),
+		ChannelInfos:                u.channelStore.GetInfos(),
+		LoadedChannelMessages:       u.channelStore.GetLoadedMessages(selection.ChannelNames, selection.ChannelMapSelectors),
+		LoadedAttributeMapSelectors: selection.AttributeMapSelectors,
+		LoadedChannelNames:          selection.ChannelNames,
+		LoadedChannelMapSelectors:   selection.ChannelMapSelectors,
 	}
 	budget := u.effectiveRPCBudget(input.GetTimeoutSeconds())
 	activityOptions := interfaces.ActivityOptions{
@@ -321,9 +321,9 @@ func (u *WorkflowUpdater) validateWorkerRpc(
 		return u.rpcLockError()
 	}
 	if _, err := rpc.ValidateAndSortSelections(
-		input.GetLoadAttributeMapNames(),
+		input.GetLoadAttributeMapSelectors(),
 		input.GetLoadChannelNames(),
-		input.GetLoadChannelMapNames(),
+		input.GetLoadChannelMapSelectors(),
 	); err != nil {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,

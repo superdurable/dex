@@ -153,44 +153,48 @@ public interface InvokeRPCRequestOrBuilder extends
 
   /**
    * <pre>
-   * AttributeMap definitions whose entries are loaded for the RPC handler.
+   * AttributeMap selectors whose entries are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_attribute_map_names = 9;</code>
-   * @return A list containing the loadAttributeMapNames.
+   * <code>repeated string load_attribute_map_selectors = 9;</code>
+   * @return A list containing the loadAttributeMapSelectors.
    */
   java.util.List<java.lang.String>
-      getLoadAttributeMapNamesList();
+      getLoadAttributeMapSelectorsList();
   /**
    * <pre>
-   * AttributeMap definitions whose entries are loaded for the RPC handler.
+   * AttributeMap selectors whose entries are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_attribute_map_names = 9;</code>
-   * @return The count of loadAttributeMapNames.
+   * <code>repeated string load_attribute_map_selectors = 9;</code>
+   * @return The count of loadAttributeMapSelectors.
    */
-  int getLoadAttributeMapNamesCount();
+  int getLoadAttributeMapSelectorsCount();
   /**
    * <pre>
-   * AttributeMap definitions whose entries are loaded for the RPC handler.
+   * AttributeMap selectors whose entries are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_attribute_map_names = 9;</code>
+   * <code>repeated string load_attribute_map_selectors = 9;</code>
    * @param index The index of the element to return.
-   * @return The loadAttributeMapNames at the given index.
+   * @return The loadAttributeMapSelectors at the given index.
    */
-  java.lang.String getLoadAttributeMapNames(int index);
+  java.lang.String getLoadAttributeMapSelectors(int index);
   /**
    * <pre>
-   * AttributeMap definitions whose entries are loaded for the RPC handler.
+   * AttributeMap selectors whose entries are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_attribute_map_names = 9;</code>
+   * <code>repeated string load_attribute_map_selectors = 9;</code>
    * @param index The index of the value to return.
-   * @return The bytes of the loadAttributeMapNames at the given index.
+   * @return The bytes of the loadAttributeMapSelectors at the given index.
    */
   com.google.protobuf.ByteString
-      getLoadAttributeMapNamesBytes(int index);
+      getLoadAttributeMapSelectorsBytes(int index);
 
   /**
    * <pre>
@@ -235,42 +239,46 @@ public interface InvokeRPCRequestOrBuilder extends
 
   /**
    * <pre>
-   * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+   * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_channel_map_names = 11;</code>
-   * @return A list containing the loadChannelMapNames.
+   * <code>repeated string load_channel_map_selectors = 11;</code>
+   * @return A list containing the loadChannelMapSelectors.
    */
   java.util.List<java.lang.String>
-      getLoadChannelMapNamesList();
+      getLoadChannelMapSelectorsList();
   /**
    * <pre>
-   * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+   * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_channel_map_names = 11;</code>
-   * @return The count of loadChannelMapNames.
+   * <code>repeated string load_channel_map_selectors = 11;</code>
+   * @return The count of loadChannelMapSelectors.
    */
-  int getLoadChannelMapNamesCount();
+  int getLoadChannelMapSelectorsCount();
   /**
    * <pre>
-   * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+   * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_channel_map_names = 11;</code>
+   * <code>repeated string load_channel_map_selectors = 11;</code>
    * @param index The index of the element to return.
-   * @return The loadChannelMapNames at the given index.
+   * @return The loadChannelMapSelectors at the given index.
    */
-  java.lang.String getLoadChannelMapNames(int index);
+  java.lang.String getLoadChannelMapSelectors(int index);
   /**
    * <pre>
-   * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+   * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_channel_map_names = 11;</code>
+   * <code>repeated string load_channel_map_selectors = 11;</code>
    * @param index The index of the value to return.
-   * @return The bytes of the loadChannelMapNames at the given index.
+   * @return The bytes of the loadChannelMapSelectors at the given index.
    */
   com.google.protobuf.ByteString
-      getLoadChannelMapNamesBytes(int index);
+      getLoadChannelMapSelectorsBytes(int index);
 }

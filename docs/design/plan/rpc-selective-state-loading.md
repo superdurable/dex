@@ -11,17 +11,17 @@ contents explicitly.
 
 `InvokeRPCRequest` has three collection selectors:
 
-- `load_attribute_map_names` loads every current entry for each selected
-  AttributeMap definition.
+- `load_attribute_map_selectors` loads every current entry with `AttributeMap/`
+  or one entry with `AttributeMap/<escaped-instance>`.
 - `load_channel_names` loads pending envelopes for each selected Channel
   definition.
-- `load_channel_map_names` loads pending envelopes for every current instance
-  of each selected ChannelMap definition.
+- `load_channel_map_selectors` loads pending envelopes for every current instance
+  with `ChannelMap/`, or one instance with `ChannelMap/<escaped-instance>`.
 
-Each selector is a definition name. Names must be non-empty, unique within their
-selector, and cannot contain `/`. Dex sorts selectors before preparing the
-Worker request. Per-instance ChannelMap selection, pagination, and silent
-truncation are intentionally unsupported.
+Singleton Channel selectors are definition names. Map selectors contain exactly
+one `/`: a trailing separator selects all instances and an escaped suffix selects
+one instance. Selectors must be non-empty and unique. Dex sorts them before
+preparing the Worker request. Pagination and silent truncation are unsupported.
 
 ## Worker state projection
 
@@ -32,15 +32,15 @@ Every `InvokeWorkerRPCRequest` contains:
 - `channel_infos` for every known Channel and ChannelMap instance;
 - `loaded_channel_messages` for explicitly selected Channel and ChannelMap
   definitions; and
-- the normalized selector names.
+- the validated, sorted selectors.
 
 ChannelInfo contains only queue size metadata. Reading Channel size or
 ChannelMap keys and sizes does not require loading pending messages.
 
-The echoed selector names distinguish a loaded collection with no entries from
-a collection that was not loaded. An explicitly selected empty Channel has an
-empty `ChannelValues` entry. An empty selected ChannelMap is represented by its
-echoed selector because it has no physical instances.
+The echoed selectors distinguish a loaded collection with no entries from a
+collection that was not loaded. An explicitly selected empty Channel or exact
+ChannelMap instance has an empty `ChannelValues` entry. An empty all-instance
+ChannelMap selection is represented only by its echoed selector.
 
 Pending envelopes preserve FIFO order, server-generated message ID, and Value.
 Loading is a snapshot operation and does not consume messages. Large Values use

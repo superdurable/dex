@@ -34,11 +34,11 @@ private static final long serialVersionUID = 0L;
     lockAttributeKeys_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
     requestId_ = "";
-    loadAttributeMapNames_ =
+    loadAttributeMapSelectors_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
     loadChannelNames_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
-    loadChannelMapNames_ =
+    loadChannelMapSelectors_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
   }
 
@@ -343,57 +343,61 @@ private static final long serialVersionUID = 0L;
     return isTransactional_;
   }
 
-  public static final int LOAD_ATTRIBUTE_MAP_NAMES_FIELD_NUMBER = 9;
+  public static final int LOAD_ATTRIBUTE_MAP_SELECTORS_FIELD_NUMBER = 9;
   @SuppressWarnings("serial")
-  private com.google.protobuf.LazyStringArrayList loadAttributeMapNames_ =
+  private com.google.protobuf.LazyStringArrayList loadAttributeMapSelectors_ =
       com.google.protobuf.LazyStringArrayList.emptyList();
   /**
    * <pre>
-   * AttributeMap definitions whose entries are loaded for the RPC handler.
+   * AttributeMap selectors whose entries are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_attribute_map_names = 9;</code>
-   * @return A list containing the loadAttributeMapNames.
+   * <code>repeated string load_attribute_map_selectors = 9;</code>
+   * @return A list containing the loadAttributeMapSelectors.
    */
   public com.google.protobuf.ProtocolStringList
-      getLoadAttributeMapNamesList() {
-    return loadAttributeMapNames_;
+      getLoadAttributeMapSelectorsList() {
+    return loadAttributeMapSelectors_;
   }
   /**
    * <pre>
-   * AttributeMap definitions whose entries are loaded for the RPC handler.
+   * AttributeMap selectors whose entries are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_attribute_map_names = 9;</code>
-   * @return The count of loadAttributeMapNames.
+   * <code>repeated string load_attribute_map_selectors = 9;</code>
+   * @return The count of loadAttributeMapSelectors.
    */
-  public int getLoadAttributeMapNamesCount() {
-    return loadAttributeMapNames_.size();
+  public int getLoadAttributeMapSelectorsCount() {
+    return loadAttributeMapSelectors_.size();
   }
   /**
    * <pre>
-   * AttributeMap definitions whose entries are loaded for the RPC handler.
+   * AttributeMap selectors whose entries are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_attribute_map_names = 9;</code>
+   * <code>repeated string load_attribute_map_selectors = 9;</code>
    * @param index The index of the element to return.
-   * @return The loadAttributeMapNames at the given index.
+   * @return The loadAttributeMapSelectors at the given index.
    */
-  public java.lang.String getLoadAttributeMapNames(int index) {
-    return loadAttributeMapNames_.get(index);
+  public java.lang.String getLoadAttributeMapSelectors(int index) {
+    return loadAttributeMapSelectors_.get(index);
   }
   /**
    * <pre>
-   * AttributeMap definitions whose entries are loaded for the RPC handler.
+   * AttributeMap selectors whose entries are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_attribute_map_names = 9;</code>
+   * <code>repeated string load_attribute_map_selectors = 9;</code>
    * @param index The index of the value to return.
-   * @return The bytes of the loadAttributeMapNames at the given index.
+   * @return The bytes of the loadAttributeMapSelectors at the given index.
    */
   public com.google.protobuf.ByteString
-      getLoadAttributeMapNamesBytes(int index) {
-    return loadAttributeMapNames_.getByteString(index);
+      getLoadAttributeMapSelectorsBytes(int index) {
+    return loadAttributeMapSelectors_.getByteString(index);
   }
 
   public static final int LOAD_CHANNEL_NAMES_FIELD_NUMBER = 10;
@@ -449,57 +453,61 @@ private static final long serialVersionUID = 0L;
     return loadChannelNames_.getByteString(index);
   }
 
-  public static final int LOAD_CHANNEL_MAP_NAMES_FIELD_NUMBER = 11;
+  public static final int LOAD_CHANNEL_MAP_SELECTORS_FIELD_NUMBER = 11;
   @SuppressWarnings("serial")
-  private com.google.protobuf.LazyStringArrayList loadChannelMapNames_ =
+  private com.google.protobuf.LazyStringArrayList loadChannelMapSelectors_ =
       com.google.protobuf.LazyStringArrayList.emptyList();
   /**
    * <pre>
-   * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+   * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_channel_map_names = 11;</code>
-   * @return A list containing the loadChannelMapNames.
+   * <code>repeated string load_channel_map_selectors = 11;</code>
+   * @return A list containing the loadChannelMapSelectors.
    */
   public com.google.protobuf.ProtocolStringList
-      getLoadChannelMapNamesList() {
-    return loadChannelMapNames_;
+      getLoadChannelMapSelectorsList() {
+    return loadChannelMapSelectors_;
   }
   /**
    * <pre>
-   * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+   * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_channel_map_names = 11;</code>
-   * @return The count of loadChannelMapNames.
+   * <code>repeated string load_channel_map_selectors = 11;</code>
+   * @return The count of loadChannelMapSelectors.
    */
-  public int getLoadChannelMapNamesCount() {
-    return loadChannelMapNames_.size();
+  public int getLoadChannelMapSelectorsCount() {
+    return loadChannelMapSelectors_.size();
   }
   /**
    * <pre>
-   * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+   * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_channel_map_names = 11;</code>
+   * <code>repeated string load_channel_map_selectors = 11;</code>
    * @param index The index of the element to return.
-   * @return The loadChannelMapNames at the given index.
+   * @return The loadChannelMapSelectors at the given index.
    */
-  public java.lang.String getLoadChannelMapNames(int index) {
-    return loadChannelMapNames_.get(index);
+  public java.lang.String getLoadChannelMapSelectors(int index) {
+    return loadChannelMapSelectors_.get(index);
   }
   /**
    * <pre>
-   * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+   * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+   * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
    * </pre>
    *
-   * <code>repeated string load_channel_map_names = 11;</code>
+   * <code>repeated string load_channel_map_selectors = 11;</code>
    * @param index The index of the value to return.
-   * @return The bytes of the loadChannelMapNames at the given index.
+   * @return The bytes of the loadChannelMapSelectors at the given index.
    */
   public com.google.protobuf.ByteString
-      getLoadChannelMapNamesBytes(int index) {
-    return loadChannelMapNames_.getByteString(index);
+      getLoadChannelMapSelectorsBytes(int index) {
+    return loadChannelMapSelectors_.getByteString(index);
   }
 
   private byte memoizedIsInitialized = -1;
@@ -540,14 +548,14 @@ private static final long serialVersionUID = 0L;
     if (isTransactional_ != false) {
       output.writeBool(8, isTransactional_);
     }
-    for (int i = 0; i < loadAttributeMapNames_.size(); i++) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 9, loadAttributeMapNames_.getRaw(i));
+    for (int i = 0; i < loadAttributeMapSelectors_.size(); i++) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 9, loadAttributeMapSelectors_.getRaw(i));
     }
     for (int i = 0; i < loadChannelNames_.size(); i++) {
       com.google.protobuf.GeneratedMessage.writeString(output, 10, loadChannelNames_.getRaw(i));
     }
-    for (int i = 0; i < loadChannelMapNames_.size(); i++) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 11, loadChannelMapNames_.getRaw(i));
+    for (int i = 0; i < loadChannelMapSelectors_.size(); i++) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 11, loadChannelMapSelectors_.getRaw(i));
     }
     getUnknownFields().writeTo(output);
   }
@@ -587,11 +595,11 @@ private static final long serialVersionUID = 0L;
     }
     {
       int dataSize = 0;
-      for (int i = 0; i < loadAttributeMapNames_.size(); i++) {
-        dataSize += computeStringSizeNoTag(loadAttributeMapNames_.getRaw(i));
+      for (int i = 0; i < loadAttributeMapSelectors_.size(); i++) {
+        dataSize += computeStringSizeNoTag(loadAttributeMapSelectors_.getRaw(i));
       }
       size += dataSize;
-      size += 1 * getLoadAttributeMapNamesList().size();
+      size += 1 * getLoadAttributeMapSelectorsList().size();
     }
     {
       int dataSize = 0;
@@ -603,11 +611,11 @@ private static final long serialVersionUID = 0L;
     }
     {
       int dataSize = 0;
-      for (int i = 0; i < loadChannelMapNames_.size(); i++) {
-        dataSize += computeStringSizeNoTag(loadChannelMapNames_.getRaw(i));
+      for (int i = 0; i < loadChannelMapSelectors_.size(); i++) {
+        dataSize += computeStringSizeNoTag(loadChannelMapSelectors_.getRaw(i));
       }
       size += dataSize;
-      size += 1 * getLoadChannelMapNamesList().size();
+      size += 1 * getLoadChannelMapSelectorsList().size();
     }
     return size;
   }
@@ -652,12 +660,12 @@ private static final long serialVersionUID = 0L;
         .equals(other.getRequestId())) return false;
     if (getIsTransactional()
         != other.getIsTransactional()) return false;
-    if (!getLoadAttributeMapNamesList()
-        .equals(other.getLoadAttributeMapNamesList())) return false;
+    if (!getLoadAttributeMapSelectorsList()
+        .equals(other.getLoadAttributeMapSelectorsList())) return false;
     if (!getLoadChannelNamesList()
         .equals(other.getLoadChannelNamesList())) return false;
-    if (!getLoadChannelMapNamesList()
-        .equals(other.getLoadChannelMapNamesList())) return false;
+    if (!getLoadChannelMapSelectorsList()
+        .equals(other.getLoadChannelMapSelectorsList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -690,17 +698,17 @@ private static final long serialVersionUID = 0L;
     hash = (37 * hash) + IS_TRANSACTIONAL_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
         getIsTransactional());
-    if (getLoadAttributeMapNamesCount() > 0) {
-      hash = (37 * hash) + LOAD_ATTRIBUTE_MAP_NAMES_FIELD_NUMBER;
-      hash = (53 * hash) + getLoadAttributeMapNamesList().hashCode();
+    if (getLoadAttributeMapSelectorsCount() > 0) {
+      hash = (37 * hash) + LOAD_ATTRIBUTE_MAP_SELECTORS_FIELD_NUMBER;
+      hash = (53 * hash) + getLoadAttributeMapSelectorsList().hashCode();
     }
     if (getLoadChannelNamesCount() > 0) {
       hash = (37 * hash) + LOAD_CHANNEL_NAMES_FIELD_NUMBER;
       hash = (53 * hash) + getLoadChannelNamesList().hashCode();
     }
-    if (getLoadChannelMapNamesCount() > 0) {
-      hash = (37 * hash) + LOAD_CHANNEL_MAP_NAMES_FIELD_NUMBER;
-      hash = (53 * hash) + getLoadChannelMapNamesList().hashCode();
+    if (getLoadChannelMapSelectorsCount() > 0) {
+      hash = (37 * hash) + LOAD_CHANNEL_MAP_SELECTORS_FIELD_NUMBER;
+      hash = (53 * hash) + getLoadChannelMapSelectorsList().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -852,11 +860,11 @@ private static final long serialVersionUID = 0L;
           com.google.protobuf.LazyStringArrayList.emptyList();
       requestId_ = "";
       isTransactional_ = false;
-      loadAttributeMapNames_ =
+      loadAttributeMapSelectors_ =
           com.google.protobuf.LazyStringArrayList.emptyList();
       loadChannelNames_ =
           com.google.protobuf.LazyStringArrayList.emptyList();
-      loadChannelMapNames_ =
+      loadChannelMapSelectors_ =
           com.google.protobuf.LazyStringArrayList.emptyList();
       return this;
     }
@@ -921,16 +929,16 @@ private static final long serialVersionUID = 0L;
         result.isTransactional_ = isTransactional_;
       }
       if (((from_bitField0_ & 0x00000100) != 0)) {
-        loadAttributeMapNames_.makeImmutable();
-        result.loadAttributeMapNames_ = loadAttributeMapNames_;
+        loadAttributeMapSelectors_.makeImmutable();
+        result.loadAttributeMapSelectors_ = loadAttributeMapSelectors_;
       }
       if (((from_bitField0_ & 0x00000200) != 0)) {
         loadChannelNames_.makeImmutable();
         result.loadChannelNames_ = loadChannelNames_;
       }
       if (((from_bitField0_ & 0x00000400) != 0)) {
-        loadChannelMapNames_.makeImmutable();
-        result.loadChannelMapNames_ = loadChannelMapNames_;
+        loadChannelMapSelectors_.makeImmutable();
+        result.loadChannelMapSelectors_ = loadChannelMapSelectors_;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -986,13 +994,13 @@ private static final long serialVersionUID = 0L;
       if (other.getIsTransactional() != false) {
         setIsTransactional(other.getIsTransactional());
       }
-      if (!other.loadAttributeMapNames_.isEmpty()) {
-        if (loadAttributeMapNames_.isEmpty()) {
-          loadAttributeMapNames_ = other.loadAttributeMapNames_;
+      if (!other.loadAttributeMapSelectors_.isEmpty()) {
+        if (loadAttributeMapSelectors_.isEmpty()) {
+          loadAttributeMapSelectors_ = other.loadAttributeMapSelectors_;
           bitField0_ |= 0x00000100;
         } else {
-          ensureLoadAttributeMapNamesIsMutable();
-          loadAttributeMapNames_.addAll(other.loadAttributeMapNames_);
+          ensureLoadAttributeMapSelectorsIsMutable();
+          loadAttributeMapSelectors_.addAll(other.loadAttributeMapSelectors_);
         }
         onChanged();
       }
@@ -1006,13 +1014,13 @@ private static final long serialVersionUID = 0L;
         }
         onChanged();
       }
-      if (!other.loadChannelMapNames_.isEmpty()) {
-        if (loadChannelMapNames_.isEmpty()) {
-          loadChannelMapNames_ = other.loadChannelMapNames_;
+      if (!other.loadChannelMapSelectors_.isEmpty()) {
+        if (loadChannelMapSelectors_.isEmpty()) {
+          loadChannelMapSelectors_ = other.loadChannelMapSelectors_;
           bitField0_ |= 0x00000400;
         } else {
-          ensureLoadChannelMapNamesIsMutable();
-          loadChannelMapNames_.addAll(other.loadChannelMapNames_);
+          ensureLoadChannelMapSelectorsIsMutable();
+          loadChannelMapSelectors_.addAll(other.loadChannelMapSelectors_);
         }
         onChanged();
       }
@@ -1085,8 +1093,8 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 64
             case 74: {
-              ensureLoadAttributeMapNamesIsMutable();
-              loadAttributeMapNames_.add(input.readStringRequireUtf8());
+              ensureLoadAttributeMapSelectorsIsMutable();
+              loadAttributeMapSelectors_.add(input.readStringRequireUtf8());
               break;
             } // case 74
             case 82: {
@@ -1095,8 +1103,8 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 82
             case 90: {
-              ensureLoadChannelMapNamesIsMutable();
-              loadChannelMapNames_.add(input.readStringRequireUtf8());
+              ensureLoadChannelMapSelectorsIsMutable();
+              loadChannelMapSelectors_.add(input.readStringRequireUtf8());
               break;
             } // case 90
             default: {
@@ -1800,128 +1808,136 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private com.google.protobuf.LazyStringArrayList loadAttributeMapNames_ =
+    private com.google.protobuf.LazyStringArrayList loadAttributeMapSelectors_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
-    private void ensureLoadAttributeMapNamesIsMutable() {
-      if (!loadAttributeMapNames_.isModifiable()) {
-        loadAttributeMapNames_ = new com.google.protobuf.LazyStringArrayList(loadAttributeMapNames_);
+    private void ensureLoadAttributeMapSelectorsIsMutable() {
+      if (!loadAttributeMapSelectors_.isModifiable()) {
+        loadAttributeMapSelectors_ = new com.google.protobuf.LazyStringArrayList(loadAttributeMapSelectors_);
       }
       bitField0_ |= 0x00000100;
     }
     /**
      * <pre>
-     * AttributeMap definitions whose entries are loaded for the RPC handler.
+     * AttributeMap selectors whose entries are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_attribute_map_names = 9;</code>
-     * @return A list containing the loadAttributeMapNames.
+     * <code>repeated string load_attribute_map_selectors = 9;</code>
+     * @return A list containing the loadAttributeMapSelectors.
      */
     public com.google.protobuf.ProtocolStringList
-        getLoadAttributeMapNamesList() {
-      loadAttributeMapNames_.makeImmutable();
-      return loadAttributeMapNames_;
+        getLoadAttributeMapSelectorsList() {
+      loadAttributeMapSelectors_.makeImmutable();
+      return loadAttributeMapSelectors_;
     }
     /**
      * <pre>
-     * AttributeMap definitions whose entries are loaded for the RPC handler.
+     * AttributeMap selectors whose entries are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_attribute_map_names = 9;</code>
-     * @return The count of loadAttributeMapNames.
+     * <code>repeated string load_attribute_map_selectors = 9;</code>
+     * @return The count of loadAttributeMapSelectors.
      */
-    public int getLoadAttributeMapNamesCount() {
-      return loadAttributeMapNames_.size();
+    public int getLoadAttributeMapSelectorsCount() {
+      return loadAttributeMapSelectors_.size();
     }
     /**
      * <pre>
-     * AttributeMap definitions whose entries are loaded for the RPC handler.
+     * AttributeMap selectors whose entries are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_attribute_map_names = 9;</code>
+     * <code>repeated string load_attribute_map_selectors = 9;</code>
      * @param index The index of the element to return.
-     * @return The loadAttributeMapNames at the given index.
+     * @return The loadAttributeMapSelectors at the given index.
      */
-    public java.lang.String getLoadAttributeMapNames(int index) {
-      return loadAttributeMapNames_.get(index);
+    public java.lang.String getLoadAttributeMapSelectors(int index) {
+      return loadAttributeMapSelectors_.get(index);
     }
     /**
      * <pre>
-     * AttributeMap definitions whose entries are loaded for the RPC handler.
+     * AttributeMap selectors whose entries are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_attribute_map_names = 9;</code>
+     * <code>repeated string load_attribute_map_selectors = 9;</code>
      * @param index The index of the value to return.
-     * @return The bytes of the loadAttributeMapNames at the given index.
+     * @return The bytes of the loadAttributeMapSelectors at the given index.
      */
     public com.google.protobuf.ByteString
-        getLoadAttributeMapNamesBytes(int index) {
-      return loadAttributeMapNames_.getByteString(index);
+        getLoadAttributeMapSelectorsBytes(int index) {
+      return loadAttributeMapSelectors_.getByteString(index);
     }
     /**
      * <pre>
-     * AttributeMap definitions whose entries are loaded for the RPC handler.
+     * AttributeMap selectors whose entries are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_attribute_map_names = 9;</code>
+     * <code>repeated string load_attribute_map_selectors = 9;</code>
      * @param index The index to set the value at.
-     * @param value The loadAttributeMapNames to set.
+     * @param value The loadAttributeMapSelectors to set.
      * @return This builder for chaining.
      */
-    public Builder setLoadAttributeMapNames(
+    public Builder setLoadAttributeMapSelectors(
         int index, java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      ensureLoadAttributeMapNamesIsMutable();
-      loadAttributeMapNames_.set(index, value);
+      ensureLoadAttributeMapSelectorsIsMutable();
+      loadAttributeMapSelectors_.set(index, value);
       bitField0_ |= 0x00000100;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * AttributeMap definitions whose entries are loaded for the RPC handler.
+     * AttributeMap selectors whose entries are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_attribute_map_names = 9;</code>
-     * @param value The loadAttributeMapNames to add.
+     * <code>repeated string load_attribute_map_selectors = 9;</code>
+     * @param value The loadAttributeMapSelectors to add.
      * @return This builder for chaining.
      */
-    public Builder addLoadAttributeMapNames(
+    public Builder addLoadAttributeMapSelectors(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      ensureLoadAttributeMapNamesIsMutable();
-      loadAttributeMapNames_.add(value);
+      ensureLoadAttributeMapSelectorsIsMutable();
+      loadAttributeMapSelectors_.add(value);
       bitField0_ |= 0x00000100;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * AttributeMap definitions whose entries are loaded for the RPC handler.
+     * AttributeMap selectors whose entries are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_attribute_map_names = 9;</code>
-     * @param values The loadAttributeMapNames to add.
+     * <code>repeated string load_attribute_map_selectors = 9;</code>
+     * @param values The loadAttributeMapSelectors to add.
      * @return This builder for chaining.
      */
-    public Builder addAllLoadAttributeMapNames(
+    public Builder addAllLoadAttributeMapSelectors(
         java.lang.Iterable<java.lang.String> values) {
-      ensureLoadAttributeMapNamesIsMutable();
+      ensureLoadAttributeMapSelectorsIsMutable();
       com.google.protobuf.AbstractMessageLite.Builder.addAll(
-          values, loadAttributeMapNames_);
+          values, loadAttributeMapSelectors_);
       bitField0_ |= 0x00000100;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * AttributeMap definitions whose entries are loaded for the RPC handler.
+     * AttributeMap selectors whose entries are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_attribute_map_names = 9;</code>
+     * <code>repeated string load_attribute_map_selectors = 9;</code>
      * @return This builder for chaining.
      */
-    public Builder clearLoadAttributeMapNames() {
-      loadAttributeMapNames_ =
+    public Builder clearLoadAttributeMapSelectors() {
+      loadAttributeMapSelectors_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
       bitField0_ = (bitField0_ & ~0x00000100);;
       onChanged();
@@ -1929,19 +1945,20 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * AttributeMap definitions whose entries are loaded for the RPC handler.
+     * AttributeMap selectors whose entries are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_attribute_map_names = 9;</code>
-     * @param value The bytes of the loadAttributeMapNames to add.
+     * <code>repeated string load_attribute_map_selectors = 9;</code>
+     * @param value The bytes of the loadAttributeMapSelectors to add.
      * @return This builder for chaining.
      */
-    public Builder addLoadAttributeMapNamesBytes(
+    public Builder addLoadAttributeMapSelectorsBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
-      ensureLoadAttributeMapNamesIsMutable();
-      loadAttributeMapNames_.add(value);
+      ensureLoadAttributeMapSelectorsIsMutable();
+      loadAttributeMapSelectors_.add(value);
       bitField0_ |= 0x00000100;
       onChanged();
       return this;
@@ -2094,128 +2111,136 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private com.google.protobuf.LazyStringArrayList loadChannelMapNames_ =
+    private com.google.protobuf.LazyStringArrayList loadChannelMapSelectors_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
-    private void ensureLoadChannelMapNamesIsMutable() {
-      if (!loadChannelMapNames_.isModifiable()) {
-        loadChannelMapNames_ = new com.google.protobuf.LazyStringArrayList(loadChannelMapNames_);
+    private void ensureLoadChannelMapSelectorsIsMutable() {
+      if (!loadChannelMapSelectors_.isModifiable()) {
+        loadChannelMapSelectors_ = new com.google.protobuf.LazyStringArrayList(loadChannelMapSelectors_);
       }
       bitField0_ |= 0x00000400;
     }
     /**
      * <pre>
-     * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+     * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_channel_map_names = 11;</code>
-     * @return A list containing the loadChannelMapNames.
+     * <code>repeated string load_channel_map_selectors = 11;</code>
+     * @return A list containing the loadChannelMapSelectors.
      */
     public com.google.protobuf.ProtocolStringList
-        getLoadChannelMapNamesList() {
-      loadChannelMapNames_.makeImmutable();
-      return loadChannelMapNames_;
+        getLoadChannelMapSelectorsList() {
+      loadChannelMapSelectors_.makeImmutable();
+      return loadChannelMapSelectors_;
     }
     /**
      * <pre>
-     * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+     * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_channel_map_names = 11;</code>
-     * @return The count of loadChannelMapNames.
+     * <code>repeated string load_channel_map_selectors = 11;</code>
+     * @return The count of loadChannelMapSelectors.
      */
-    public int getLoadChannelMapNamesCount() {
-      return loadChannelMapNames_.size();
+    public int getLoadChannelMapSelectorsCount() {
+      return loadChannelMapSelectors_.size();
     }
     /**
      * <pre>
-     * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+     * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_channel_map_names = 11;</code>
+     * <code>repeated string load_channel_map_selectors = 11;</code>
      * @param index The index of the element to return.
-     * @return The loadChannelMapNames at the given index.
+     * @return The loadChannelMapSelectors at the given index.
      */
-    public java.lang.String getLoadChannelMapNames(int index) {
-      return loadChannelMapNames_.get(index);
+    public java.lang.String getLoadChannelMapSelectors(int index) {
+      return loadChannelMapSelectors_.get(index);
     }
     /**
      * <pre>
-     * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+     * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_channel_map_names = 11;</code>
+     * <code>repeated string load_channel_map_selectors = 11;</code>
      * @param index The index of the value to return.
-     * @return The bytes of the loadChannelMapNames at the given index.
+     * @return The bytes of the loadChannelMapSelectors at the given index.
      */
     public com.google.protobuf.ByteString
-        getLoadChannelMapNamesBytes(int index) {
-      return loadChannelMapNames_.getByteString(index);
+        getLoadChannelMapSelectorsBytes(int index) {
+      return loadChannelMapSelectors_.getByteString(index);
     }
     /**
      * <pre>
-     * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+     * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_channel_map_names = 11;</code>
+     * <code>repeated string load_channel_map_selectors = 11;</code>
      * @param index The index to set the value at.
-     * @param value The loadChannelMapNames to set.
+     * @param value The loadChannelMapSelectors to set.
      * @return This builder for chaining.
      */
-    public Builder setLoadChannelMapNames(
+    public Builder setLoadChannelMapSelectors(
         int index, java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      ensureLoadChannelMapNamesIsMutable();
-      loadChannelMapNames_.set(index, value);
+      ensureLoadChannelMapSelectorsIsMutable();
+      loadChannelMapSelectors_.set(index, value);
       bitField0_ |= 0x00000400;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+     * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_channel_map_names = 11;</code>
-     * @param value The loadChannelMapNames to add.
+     * <code>repeated string load_channel_map_selectors = 11;</code>
+     * @param value The loadChannelMapSelectors to add.
      * @return This builder for chaining.
      */
-    public Builder addLoadChannelMapNames(
+    public Builder addLoadChannelMapSelectors(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      ensureLoadChannelMapNamesIsMutable();
-      loadChannelMapNames_.add(value);
+      ensureLoadChannelMapSelectorsIsMutable();
+      loadChannelMapSelectors_.add(value);
       bitField0_ |= 0x00000400;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+     * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_channel_map_names = 11;</code>
-     * @param values The loadChannelMapNames to add.
+     * <code>repeated string load_channel_map_selectors = 11;</code>
+     * @param values The loadChannelMapSelectors to add.
      * @return This builder for chaining.
      */
-    public Builder addAllLoadChannelMapNames(
+    public Builder addAllLoadChannelMapSelectors(
         java.lang.Iterable<java.lang.String> values) {
-      ensureLoadChannelMapNamesIsMutable();
+      ensureLoadChannelMapSelectorsIsMutable();
       com.google.protobuf.AbstractMessageLite.Builder.addAll(
-          values, loadChannelMapNames_);
+          values, loadChannelMapSelectors_);
       bitField0_ |= 0x00000400;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+     * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_channel_map_names = 11;</code>
+     * <code>repeated string load_channel_map_selectors = 11;</code>
      * @return This builder for chaining.
      */
-    public Builder clearLoadChannelMapNames() {
-      loadChannelMapNames_ =
+    public Builder clearLoadChannelMapSelectors() {
+      loadChannelMapSelectors_ =
         com.google.protobuf.LazyStringArrayList.emptyList();
       bitField0_ = (bitField0_ & ~0x00000400);;
       onChanged();
@@ -2223,19 +2248,20 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * ChannelMap definitions whose pending messages are loaded for the RPC handler.
+     * ChannelMap selectors whose pending messages are loaded for the RPC handler.
+     * A trailing slash selects every instance; otherwise the suffix selects one escaped instance.
      * </pre>
      *
-     * <code>repeated string load_channel_map_names = 11;</code>
-     * @param value The bytes of the loadChannelMapNames to add.
+     * <code>repeated string load_channel_map_selectors = 11;</code>
+     * @param value The bytes of the loadChannelMapSelectors to add.
      * @return This builder for chaining.
      */
-    public Builder addLoadChannelMapNamesBytes(
+    public Builder addLoadChannelMapSelectorsBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
-      ensureLoadChannelMapNamesIsMutable();
-      loadChannelMapNames_.add(value);
+      ensureLoadChannelMapSelectorsIsMutable();
+      loadChannelMapSelectors_.add(value);
       bitField0_ |= 0x00000400;
       onChanged();
       return this;
