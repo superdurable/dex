@@ -30,7 +30,8 @@ Pass an AttributeMap or ChannelMap definition to its plural load method when
 every current instance is needed. Use the singular instance methods for the less
 common exact-instance case. A selected empty queue returns an empty vector;
 reading an unselected map entry or pending-message snapshot returns a handler
-error with type **dex_sdk::StateNotLoadedError**. Pending messages preserve FIFO
+error with type **dex_sdk::AttributeMapNotLoadedError**. An unselected pending-message
+snapshot returns **dex_sdk::ChannelMessagesNotLoadedError**. Pending messages preserve FIFO
 order and include the server-assigned message ID. The snapshot does not change
 after the handler stages a publish or deletion.
 

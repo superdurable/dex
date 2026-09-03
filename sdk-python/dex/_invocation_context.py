@@ -20,7 +20,10 @@ from dex.codec import Codec
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, _RegisteredFlow
 from dex.flow_result import FlowResult, flow_result_from_proto
-from dex.runtime_errors import StateNotLoadedError
+from dex.runtime_errors import (
+    AttributeMapNotLoadedError,
+    ChannelMessagesNotLoadedError,
+)
 from dex.step import (
     _NO_HEARTBEAT_VALUE,
     StepOutput,
@@ -445,7 +448,7 @@ class InvocationContext:
             channel_name = self._physical_name(definition, instance)
             is_loaded = definition.name in self._loaded_channel_names
         if not is_loaded:
-            raise StateNotLoadedError(
+            raise ChannelMessagesNotLoadedError(
                 f"Channel messages were not loaded for RPC: {definition.name}"
             )
         values = self._loaded_channel_messages.get(channel_name)
@@ -495,7 +498,7 @@ class InvocationContext:
             f"{definition.name}/" not in self._loaded_attribute_map_instances
             and physical_name not in self._loaded_attribute_map_instances
         ):
-            raise StateNotLoadedError(
+            raise AttributeMapNotLoadedError(
                 f"AttributeMap instance was not loaded for RPC: {physical_name}"
             )
 
@@ -507,7 +510,7 @@ class InvocationContext:
             self._method is InvocationMethod.RPC
             and f"{definition.name}/" not in self._loaded_attribute_map_instances
         ):
-            raise StateNotLoadedError(
+            raise AttributeMapNotLoadedError(
                 f"all AttributeMap instances were not loaded for RPC: {definition.name}"
             )
 

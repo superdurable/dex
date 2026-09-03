@@ -451,7 +451,7 @@ impl Context {
                 .loaded_attribute_map_instances
                 .contains(&format!("{}/", attribute.name()))
         {
-            return Err(state_not_loaded(format!(
+            return Err(attribute_map_not_loaded(format!(
                 "all AttributeMap instances were not loaded for RPC: {}",
                 attribute.name()
             )));
@@ -742,7 +742,7 @@ impl Context {
                 .contains(&format!("{name}/"))
                 || self.loaded_attribute_map_instances.contains(&key);
             if !is_loaded {
-                return Err(state_not_loaded(format!(
+                return Err(attribute_map_not_loaded(format!(
                     "AttributeMap instance was not loaded for RPC: {key}"
                 )));
             }
@@ -927,7 +927,7 @@ impl Context {
             _ => false,
         };
         if !is_loaded {
-            return Err(state_not_loaded(format!(
+            return Err(channel_messages_not_loaded(format!(
                 "Channel messages were not loaded for RPC: {physical_name}"
             )));
         }
@@ -991,8 +991,12 @@ impl Context {
     }
 }
 
-fn state_not_loaded(message: impl Into<String>) -> HandlerError {
-    HandlerError::new("dex_sdk::StateNotLoadedError", message)
+fn attribute_map_not_loaded(message: impl Into<String>) -> HandlerError {
+    HandlerError::new("dex_sdk::AttributeMapNotLoadedError", message)
+}
+
+fn channel_messages_not_loaded(message: impl Into<String>) -> HandlerError {
+    HandlerError::new("dex_sdk::ChannelMessagesNotLoadedError", message)
 }
 
 fn sorted_instance_keys(

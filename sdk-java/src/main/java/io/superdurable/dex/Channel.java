@@ -104,7 +104,8 @@ public final class Channel<T> extends PersistenceDefinition {
      *
      * @param context the RPC invocation context
      * @return immutable pending message IDs and decoded values
-     * @throws io.superdurable.dex.exceptions.StateNotLoadedException if the RPC did not load it
+     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the RPC did
+     *     not load its messages
      */
     public List<ChannelMessage<T>> pendingMessages(final Context context) {
         return context.pendingChannelMessages(this);
@@ -116,7 +117,8 @@ public final class Channel<T> extends PersistenceDefinition {
      * @param context the RPC invocation context
      * @param messageId the server-assigned message ID
      * @return the matching message, or {@code null} when it is absent from the snapshot
-     * @throws io.superdurable.dex.exceptions.StateNotLoadedException if the RPC did not load it
+     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the RPC did
+     *     not load its messages
      */
     public ChannelMessage<T> findPendingMessage(
             final Context context,

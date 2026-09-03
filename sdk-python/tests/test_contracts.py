@@ -45,7 +45,8 @@ from dex import (
     StepList,
     StepOptions,
     StepOutput,
-    StateNotLoadedError,
+    AttributeMapNotLoadedError,
+    ChannelMessagesNotLoadedError,
     Stream,
     Timer,
     ValueMappingError,
@@ -618,16 +619,16 @@ def test_rpc_selective_state_snapshots_are_typed_and_presence_aware() -> None:
     )
 
     assert attributes.get(context, "tenant-a") == "loaded"
-    with pytest.raises(StateNotLoadedError):
+    with pytest.raises(AttributeMapNotLoadedError):
         attributes.get(context, "tenant-b")
-    with pytest.raises(StateNotLoadedError):
+    with pytest.raises(AttributeMapNotLoadedError):
         attributes.get_all_instance_keys(context)
     assert commands.size(context) == 1
     assert commands.pending_messages(context)[0].value == "queued"
     assert commands.find_pending_message(context, "message-1") is not None
     assert channels.get_all_instance_keys(context) == ("tenant-a",)
     assert channels.pending_messages(context, "tenant-a")[0].value == "mapped"
-    with pytest.raises(StateNotLoadedError):
+    with pytest.raises(ChannelMessagesNotLoadedError):
         channels.pending_messages(context, "tenant-b")
 
 

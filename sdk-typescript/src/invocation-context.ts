@@ -28,7 +28,10 @@ import { requireFlowStream, type RegisteredFlow } from "./flow.js";
 import { createFlowResultFromProto, type FlowResult } from "./flow-result.js";
 import { AttributeMap, IndexType, type Attribute } from "./persistence.js";
 import { codecOrJson, decodeValue, deletionValue, encodeValue } from "./value-mapper.js";
-import { StateNotLoadedError } from "./errors.js";
+import {
+  AttributeMapNotLoadedError,
+  ChannelMessagesNotLoadedError,
+} from "./errors.js";
 import { physicalMapName, requireMapInstance, requireName } from "./validation.js";
 import { ChannelMap, type Channel, type ChannelMessage } from "./wait.js";
 import type { Stream } from "./stream.js";
@@ -256,7 +259,9 @@ export class InvocationContext implements AsyncContext {
       attribute instanceof AttributeMap &&
       !mapInstanceLoaded(this.loadedAttributeMapInstances, attribute.name, key)
     ) {
-      throw new StateNotLoadedError(`AttributeMap instance was not loaded for RPC: ${key}`);
+      throw new AttributeMapNotLoadedError(
+        `AttributeMap instance was not loaded for RPC: ${key}`,
+      );
     }
     const write = this.attributeWrites.get(key)?.value;
     if (write?.kind?.$case === "nullValue") {
@@ -298,7 +303,7 @@ export class InvocationContext implements AsyncContext {
   public attributeMapKeys(attribute: AttributeMap<unknown>): readonly string[] {
     this.requireRegistered(attribute);
     if (this.method === "rpc" && !this.loadedAttributeMapInstances.has(`${attribute.name}/`)) {
-      throw new StateNotLoadedError(
+      throw new AttributeMapNotLoadedError(
         `all AttributeMap instances were not loaded for RPC: ${attribute.name}`,
       );
     }
@@ -372,7 +377,9 @@ export class InvocationContext implements AsyncContext {
       ? mapInstanceLoaded(this.loadedChannelMapInstances, channel.name, name)
       : this.loadedChannelNames.has(name);
     if (!isLoaded) {
-      throw new StateNotLoadedError(`Channel messages were not loaded for RPC: ${name}`);
+      throw new ChannelMessagesNotLoadedError(
+        `Channel messages were not loaded for RPC: ${name}`,
+      );
     }
     return (this.loadedChannelMessages[name]?.messages ?? []).map((message) => {
       if (message.value === undefined) {
