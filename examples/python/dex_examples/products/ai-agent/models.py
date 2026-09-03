@@ -184,6 +184,7 @@ class HistoryRequest:
 class SequencedMessage:
     sequence: int
     message: AgentMessage
+    created_at: str
 
 
 @dataclass(frozen=True)

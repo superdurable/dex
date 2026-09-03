@@ -35,6 +35,7 @@ interface AgentMessage {
 interface SequencedMessage {
   sequence: number;
   message: AgentMessage;
+  created_at: string;
 }
 
 interface QueuedMessage {
@@ -54,10 +55,29 @@ interface MessageQueue {
 interface ThinkingEntry {
   source: string;
   content: string;
+  createdTime: string;
   isStreaming: boolean;
   isExpanded: boolean;
   isManuallyExpanded: boolean;
 }
+
+interface ActivityEntry {
+  source: string;
+  createdTime: string;
+  event: AgentEvent;
+}
+
+interface LiveResponseEntry {
+  source: string;
+  content: string;
+  createdTime: string;
+}
+
+type TimelineEntry =
+  | { kind: 'message'; id: string; createdTime: string; sequence: number; message: AgentMessage }
+  | { kind: 'thinking'; id: string; createdTime: string; entry: ThinkingEntry; index: number }
+  | { kind: 'response'; id: string; createdTime: string; entry: LiveResponseEntry }
+  | { kind: 'activity'; id: string; createdTime: string; entry: ActivityEntry; index: number };
 
 interface PlanTask {
   content: string;
@@ -161,8 +181,8 @@ const App: React.FC = () => {
   const [selectedInputChoice, setSelectedInputChoice] = useState<string | null>(null);
   const [isInputSubmitPressed, setIsInputSubmitPressed] = useState(false);
   const [thinkingEntries, setThinkingEntries] = useState<ThinkingEntry[]>([]);
-  const [liveResponseText, setLiveResponseText] = useState('');
-  const [activity, setActivity] = useState<AgentEvent[]>([]);
+  const [liveResponse, setLiveResponse] = useState<LiveResponseEntry | null>(null);
+  const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [isBusy, setIsBusy] = useState(false);
   const [queueMutation, setQueueMutation] = useState('');
   const [pressedQueueAction, setPressedQueueAction] = useState('');
@@ -241,7 +261,7 @@ const App: React.FC = () => {
       nextDescription.status === 'waiting_for_message'
       && history.messages.at(-1)?.message.role === 'assistant'
     ) {
-      setLiveResponseText('');
+      setLiveResponse(null);
     }
   }, [workflowId]);
 
@@ -296,7 +316,7 @@ const App: React.FC = () => {
     };
     const readStream = async (
       stream: 'reasoning' | 'assistant' | 'activity',
-      receive: (payload: { value: unknown; source: string }) => void,
+      receive: (payload: { value: unknown; source: string; created_time: string }) => void,
     ) => {
       let resumeToken = '';
       while (!controller.signal.aborted) {
@@ -329,6 +349,7 @@ const App: React.FC = () => {
           {
             source: payload.source,
             content,
+            createdTime: payload.created_time,
             isStreaming,
             isExpanded: isStreaming,
             isManuallyExpanded: false,
@@ -352,15 +373,27 @@ const App: React.FC = () => {
     void readStream('assistant', (payload) => {
       if (payload.source !== assistantSource) {
         assistantSource = payload.source;
-        setLiveResponseText(String(payload.value));
+        setLiveResponse({
+          source: payload.source,
+          content: String(payload.value),
+          createdTime: payload.created_time,
+        });
         return;
       }
-      setLiveResponseText((current) => current + String(payload.value));
+      setLiveResponse((current) => current && current.source === payload.source
+        ? { ...current, content: current.content + String(payload.value) }
+        : current);
     });
     void readStream('activity', (payload) => {
       const event = payload.value as AgentEvent;
-      if (event.kind === 'model_completed') finishThinking(payload.source);
-      setActivity((current) => [...current, event].slice(-30));
+      if (event.kind === 'model_completed') {
+        finishThinking(payload.source);
+        setLiveResponse((current) => current?.source === payload.source ? null : current);
+      }
+      setActivity((current) => [
+        ...current,
+        { source: payload.source, createdTime: payload.created_time, event },
+      ].slice(-30));
       requestEventRefresh();
     });
     return () => {
@@ -441,7 +474,7 @@ const App: React.FC = () => {
     setMessageQueue({ queued: [], steered: [] });
     setThinkingEntries([]);
     completedThinkingSourcesRef.current.clear();
-    setLiveResponseText('');
+    setLiveResponse(null);
     setActivity([]);
     setError('');
   };
@@ -452,7 +485,7 @@ const App: React.FC = () => {
     setIsBusy(true);
     setError('');
     setInput('');
-    setLiveResponseText('');
+    setLiveResponse(null);
     const requestedPlanMode = planMode;
     const optimisticId = `optimistic-${crypto.randomUUID()}`;
     setMessageQueue((current) => ({
@@ -623,6 +656,10 @@ const App: React.FC = () => {
       };
     }));
   };
+  const timeline = useMemo(
+    () => buildTimeline(messages, thinkingEntries, liveResponse, activity),
+    [messages, thinkingEntries, liveResponse, activity],
+  );
   if (!workflowId) {
     return (
       <main style={styles.page}>
@@ -848,46 +885,16 @@ const App: React.FC = () => {
 
       <section style={styles.chatCard}>
         <div style={styles.messages}>
-          {messages.length === 0 && <p style={styles.empty}>Send a message to begin.</p>}
-          {messages
-            .filter(({ message }) => !isAgentPlumbing(message))
-            .map(({ sequence, message }) => (
-              <MessageCard key={sequence} sequence={sequence} message={message} />
-            ))}
+          {timeline.length === 0 && <p style={styles.empty}>Send a message to begin.</p>}
+          {timeline.map((entry) => (
+            <TimelineEntryCard
+              key={entry.id}
+              entry={entry}
+              model={description?.model ?? ''}
+              onToggleThinking={toggleThinking}
+            />
+          ))}
         </div>
-
-        {thinkingEntries.map((entry, index) => (
-          <section key={entry.source} style={styles.thinkingCard} aria-live="polite">
-            <button
-              type="button"
-              style={styles.thinkingHeader}
-              aria-expanded={entry.isExpanded}
-              aria-controls={`thinking-${index}`}
-              onClick={() => toggleThinking(entry.source)}
-            >
-              <span style={entry.isStreaming ? styles.thinkingIndicator : styles.thinkingCompleteIndicator} />
-              <strong>Thinking</strong>
-              <small>{entry.isStreaming ? 'Streaming reasoning summary…' : 'Reasoning summary'}</small>
-              <span style={styles.thinkingChevron}>{entry.isExpanded ? '▾' : '▸'}</span>
-            </button>
-            {entry.isExpanded && (
-              <p id={`thinking-${index}`} style={styles.streamText}>{entry.content}</p>
-            )}
-          </section>
-        ))}
-
-        {(isModelRunning || liveResponseText) && (
-          <section style={styles.liveModelCard} aria-live="polite">
-            <div style={styles.streamHeader}>
-              <span style={styles.liveIndicator} />
-              <strong>Response</strong>
-              <small>{description?.model}</small>
-            </div>
-            <p style={styles.streamText}>
-              {liveResponseText || 'Waiting for streamed response…'}
-            </p>
-          </section>
-        )}
 
         {description?.pending_user_input_prompt && (
           <section
@@ -1014,17 +1021,6 @@ const App: React.FC = () => {
             <p>{description.pending_timer_reason}</p>
             <small>Queue a message, then choose Steer to interrupt this wait.</small>
           </div>
-        )}
-
-        {activity.length > 0 && (
-          <details style={styles.activity}>
-            <summary>Agent activity ({activity.length})</summary>
-            {activity.map((event, index) => (
-              <p key={`${event.kind}-${index}`}>
-                <strong>{event.kind}</strong> {event.tool_name ? `· ${event.tool_name}` : ''}: {event.message}
-              </p>
-            ))}
-          </details>
         )}
 
         {(messageQueue.queued.length > 0 || messageQueue.steered.length > 0) && (
@@ -1159,6 +1155,60 @@ const MessageCard: React.FC<{ sequence: number; message: AgentMessage }> = ({ se
   );
 };
 
+const TimelineEntryCard: React.FC<{
+  entry: TimelineEntry;
+  model: string;
+  onToggleThinking: (source: string) => void;
+}> = ({ entry, model, onToggleThinking }) => {
+  if (entry.kind === 'message') {
+    return <MessageCard sequence={entry.sequence} message={entry.message} />;
+  }
+  if (entry.kind === 'thinking') {
+    const thinking = entry.entry;
+    return (
+      <section style={styles.thinkingCard} aria-live="polite">
+        <button
+          type="button"
+          style={styles.thinkingHeader}
+          aria-expanded={thinking.isExpanded}
+          aria-controls={`thinking-${entry.index}`}
+          onClick={() => onToggleThinking(thinking.source)}
+        >
+          <span style={thinking.isStreaming ? styles.thinkingIndicator : styles.thinkingCompleteIndicator} />
+          <strong>Thinking</strong>
+          <small>{thinking.isStreaming ? 'Streaming reasoning summary…' : 'Reasoning summary'}</small>
+          <span style={styles.thinkingChevron}>{thinking.isExpanded ? '▾' : '▸'}</span>
+        </button>
+        {thinking.isExpanded && (
+          <p id={`thinking-${entry.index}`} style={styles.streamText}>{thinking.content}</p>
+        )}
+      </section>
+    );
+  }
+  if (entry.kind === 'response') {
+    return (
+      <section style={styles.liveModelCard} aria-live="polite">
+        <div style={styles.streamHeader}>
+          <span style={styles.liveIndicator} />
+          <strong>Response</strong>
+          <small>{model}</small>
+        </div>
+        <p style={styles.streamText}>{entry.entry.content}</p>
+      </section>
+    );
+  }
+  const activityEvent = entry.entry.event;
+  return (
+    <details style={styles.activity}>
+      <summary>
+        <strong>Agent activity</strong> · {activityEvent.kind}
+        {activityEvent.tool_name ? ` · ${activityEvent.tool_name}` : ''}
+      </summary>
+      <p>{activityEvent.message}</p>
+    </details>
+  );
+};
+
 const PlanCard: React.FC<{
   plan: AgentPlan;
   canExecute: boolean;
@@ -1208,6 +1258,75 @@ const isAgentPlumbing = (message: AgentMessage): boolean => (
   (message.tool_name !== null && INTERNAL_TOOLS.has(message.tool_name))
   || (message.tool_calls.length > 0 && message.tool_calls.every((call) => INTERNAL_TOOLS.has(call.name)))
 );
+
+const buildTimeline = (
+  messages: SequencedMessage[],
+  thinkingEntries: ThinkingEntry[],
+  liveResponse: LiveResponseEntry | null,
+  activity: ActivityEntry[],
+): TimelineEntry[] => {
+  const timeline: TimelineEntry[] = messages
+    .filter(({ message }) => !isAgentPlumbing(message))
+    .map(({ sequence, message, created_at: createdAt }) => ({
+      kind: 'message' as const,
+      id: `message-${sequence}`,
+      createdTime: createdAt,
+      sequence,
+      message,
+    }));
+  timeline.push(...thinkingEntries.map((entry, index) => ({
+    kind: 'thinking' as const,
+    id: `thinking-${entry.source}`,
+    createdTime: entry.createdTime,
+    entry,
+    index,
+  })));
+  if (liveResponse) {
+    timeline.push({
+      kind: 'response',
+      id: `response-${liveResponse.source}`,
+      createdTime: liveResponse.createdTime,
+      entry: liveResponse,
+    });
+  }
+  timeline.push(...activity.map((entry, index) => ({
+    kind: 'activity' as const,
+    id: `activity-${entry.source}-${entry.createdTime}-${index}`,
+    createdTime: entry.createdTime,
+    entry,
+    index,
+  })));
+  return timeline.sort(compareTimelineEntries);
+};
+
+const compareTimelineEntries = (left: TimelineEntry, right: TimelineEntry): number => {
+  const leftTime = timelineTime(left.createdTime);
+  const rightTime = timelineTime(right.createdTime);
+  if (leftTime.milliseconds !== rightTime.milliseconds) {
+    return leftTime.milliseconds - rightTime.milliseconds;
+  }
+  const rankDifference = timelineRank(left) - timelineRank(right);
+  if (rankDifference !== 0) return rankDifference;
+  return leftTime.subMilliseconds - rightTime.subMilliseconds;
+};
+
+const timelineRank = (entry: TimelineEntry): number => {
+  if (entry.kind === 'message') return 0;
+  if (entry.kind === 'activity' && entry.entry.event.kind.endsWith('_started')) return 1;
+  if (entry.kind === 'thinking') return 2;
+  if (entry.kind === 'response') return 3;
+  return 4;
+};
+
+const timelineTime = (createdTime: string): { milliseconds: number; subMilliseconds: number } => {
+  if (!createdTime) return { milliseconds: 0, subMilliseconds: 0 };
+  const milliseconds = Date.parse(createdTime);
+  const fraction = /\.(\d+)/.exec(createdTime)?.[1] ?? '';
+  return {
+    milliseconds: Number.isNaN(milliseconds) ? 0 : milliseconds,
+    subMilliseconds: Number(fraction.padEnd(9, '0').slice(3, 9)),
+  };
+};
 
 const planTaskIcon = (status: PlanTask['status']): string => {
   if (status === 'completed') return '✓';

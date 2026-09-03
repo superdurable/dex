@@ -20,6 +20,7 @@ import asyncio
 import socket
 import sys
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -199,6 +200,10 @@ async def test_ai_agent_requests_and_resumes_from_durable_user_input(
         flow_id,
         HistoryRequest(limit=200),
     )
+    created_times = [
+        datetime.fromisoformat(item.created_at) for item in history.messages
+    ]
+    assert created_times == sorted(created_times)
     request_message = next(
         item
         for item in reversed(history.messages)
