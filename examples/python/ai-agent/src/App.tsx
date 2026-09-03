@@ -63,6 +63,7 @@ const reconcileOptimisticMessages = (
   current: QueuedMessage[],
   canonical: QueuedMessage[],
   history: SequencedMessage[],
+  acceptedSubmissionId?: string,
 ): QueuedMessage[] => {
   const matchedCanonicalIds = new Set<string>();
   const matchedHistorySequences = new Set<number>();
@@ -86,6 +87,7 @@ const reconcileOptimisticMessages = (
       matchedHistorySequences.add(historyMatch.sequence);
       return false;
     }
+    if (message.message_id === acceptedSubmissionId) return false;
     return true;
   });
   return [...canonical, ...optimistic];
@@ -289,7 +291,7 @@ const App: React.FC = () => {
     }
   }, [description?.pending_user_input_call_id]);
 
-  const fetchState = useCallback(async () => {
+  const fetchState = useCallback(async (acceptedSubmissionId?: string) => {
     if (!workflowId) return;
     const fetchSequence = ++stateFetchSequenceRef.current;
     const query = new URLSearchParams({ workflowId, limit: '200' });
@@ -315,7 +317,12 @@ const App: React.FC = () => {
     setDescription(nextDescription);
     descriptionStatusRef.current = nextDescription.status;
     setMessageQueue((current) => ({
-      queued: reconcileOptimisticMessages(current.queued, nextQueue.queued, history.messages),
+      queued: reconcileOptimisticMessages(
+        current.queued,
+        nextQueue.queued,
+        history.messages,
+        acceptedSubmissionId,
+      ),
       steered: nextQueue.steered,
     }));
     if (
@@ -589,7 +596,7 @@ const App: React.FC = () => {
       setIsBusy(false);
       return;
     }
-    await fetchState().catch((reason) => {
+    await fetchState(optimisticId).catch((reason) => {
       setError(`Message accepted; queue refresh failed: ${String(reason)}`);
     });
     setIsBusy(false);
