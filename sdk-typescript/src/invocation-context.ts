@@ -27,7 +27,7 @@ import { requireFlowStream, type RegisteredFlow } from "./flow.js";
 import { createFlowResultFromProto, type FlowResult } from "./flow-result.js";
 import { AttributeMap, IndexType, type Attribute } from "./persistence.js";
 import { codecOrJson, decodeValue, deletionValue, encodeValue } from "./value-mapper.js";
-import { requireName } from "./validation.js";
+import { requireMapInstance, requireName } from "./validation.js";
 import { ChannelMap, type Channel } from "./wait.js";
 import type { Stream } from "./stream.js";
 
@@ -291,7 +291,7 @@ export class InvocationContext implements AsyncContext {
       }
     }
     return [...physicalKeys]
-      .map((key) => decodeURIComponent(key.slice(prefix.length)))
+      .map((key) => requireMapInstance(decodeURIComponent(key.slice(prefix.length))))
       .sort();
   }
 
@@ -341,7 +341,7 @@ export class InvocationContext implements AsyncContext {
     const prefix = `${channel.name}/`;
     return [...this.channelInfos]
       .filter(([key, info]) => key.startsWith(prefix) && info.size > 0)
-      .map(([key]) => decodeURIComponent(key.slice(prefix.length)))
+      .map(([key]) => requireMapInstance(decodeURIComponent(key.slice(prefix.length))))
       .sort();
   }
 
@@ -405,7 +405,7 @@ function definitionName(
     if (instance === undefined) {
       throw new TypeError(`map definition ${definition.name} requires an instance`);
     }
-    requireName(instance);
+    requireMapInstance(instance);
     return `${definition.name}/${encodeURIComponent(instance).replace(/[!'()*]/g, encodeCharacter)}`;
   }
   if (instance !== undefined) {

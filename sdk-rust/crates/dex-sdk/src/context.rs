@@ -17,7 +17,7 @@ use dex_protocol::dex::{
 };
 
 use crate::persistence::PersistenceKind;
-use crate::registry::{RegisteredFlow, decode_instance, physical_name};
+use crate::registry::{RegisteredFlow, decode_instance, physical_name, validate_map_instance};
 use crate::value_mapper;
 use crate::worker_output::StepOutputEmitter;
 use crate::{
@@ -865,14 +865,17 @@ impl Context {
             ));
         }
         match kind {
-            PersistenceKind::AttributeMap | PersistenceKind::ChannelMap => instance
-                .map(|instance| physical_name(name, instance))
-                .ok_or_else(|| {
+            PersistenceKind::AttributeMap | PersistenceKind::ChannelMap => {
+                let instance = instance.ok_or_else(|| {
                     HandlerError::new(
                         "dex_sdk::HandlerError",
                         format!("{name} requires an instance"),
                     )
-                }),
+                })?;
+                validate_map_instance(instance)
+                    .map_err(|error| HandlerError::new("dex_sdk::HandlerError", error))?;
+                Ok(physical_name(name, instance))
+            }
             PersistenceKind::Attribute | PersistenceKind::Channel if instance.is_none() => {
                 Ok(name.to_string())
             }
@@ -1024,7 +1027,7 @@ mod tests {
         let registered = registry.flow("MapFlow").expect("lookup map Flow").clone();
         let attributes = AttributeMap::<String>::new("items");
         let channels = ChannelMap::<String>::new("messages");
-        let special = "special / key";
+        let special = "special % key";
         let mut context = Context::new(
             ContextInput {
                 method: InvocationMethod::Rpc,
@@ -1051,6 +1054,17 @@ mod tests {
             InvocationCancellation::new(),
         )
         .expect("create RPC Context");
+
+        assert!(
+            attributes
+                .set(&mut context, "tenant/order", "invalid".to_string())
+                .is_err()
+        );
+        assert!(
+            channels
+                .publish(&mut context, "tenant/order", "invalid".to_string())
+                .is_err()
+        );
 
         assert_eq!(
             vec![special.to_string(), "z".to_string()],

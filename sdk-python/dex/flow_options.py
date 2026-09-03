@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, TypeVar, overload
 
-from dex._utils import require_name
+from dex._utils import require_map_instance
 from dex.attribute import Attribute, AttributeMap
 from dex.flow_config import FlowConfig
 from dex.step import RetryPolicy
@@ -156,7 +156,7 @@ class StartFlowOptions:
 
         Raises:
             TypeError: If arguments do not match either supported form.
-            ValueError: If an AttributeMap instance is empty.
+            ValueError: If an AttributeMap instance is empty or contains ``/``.
         """
         if isinstance(attribute, Attribute) and len(args) == 1:
             initialization = _AttributeInitialization(attribute, None, args[0])
@@ -164,7 +164,7 @@ class StartFlowOptions:
             instance = args[0]
             if not isinstance(instance, str):
                 raise TypeError("attribute-map instance must be a string")
-            require_name(instance)
+            require_map_instance(instance)
             initialization = _AttributeInitialization(attribute, instance, args[1])
         else:
             raise TypeError("with_attribute received invalid arguments")
@@ -249,7 +249,7 @@ class SubFlowOptions:
 
         Raises:
             TypeError: If arguments do not match either supported form.
-            ValueError: If an AttributeMap instance is empty.
+            ValueError: If an AttributeMap instance is empty or contains ``/``.
         """
         if isinstance(attribute, Attribute) and len(args) == 1:
             initialization = _AttributeInitialization(attribute, None, args[0])
@@ -257,7 +257,7 @@ class SubFlowOptions:
             instance = args[0]
             if not isinstance(instance, str):
                 raise TypeError("attribute-map instance must be a string")
-            require_name(instance)
+            require_map_instance(instance)
             initialization = _AttributeInitialization(attribute, instance, args[1])
         else:
             raise TypeError("with_attribute received invalid arguments")

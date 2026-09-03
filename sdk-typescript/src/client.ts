@@ -84,7 +84,7 @@ import {
 import { Attribute, AttributeMap, IndexType } from "./persistence.js";
 import type { RPCResult } from "./rpc.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
-import { requireName } from "./validation.js";
+import { requireMapInstance, requireName } from "./validation.js";
 import { codecOrJson, decodeUnknown, decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
 import { ChannelMap, type Channel, type ChannelMessage } from "./wait.js";
 import type { Stream, StreamMessage } from "./stream.js";
@@ -327,7 +327,7 @@ export class Client {
    * @typeParam T - Attribute value type.
    * @param flowId - Non-empty existing Flow ID.
    * @param attribute - Typed AttributeMap definition.
-   * @param instance - Non-empty logical map key.
+   * @param instance - Non-empty, slash-free logical map key.
    * @param runId - Optional exact run; targets the current run when omitted.
    * @returns The decoded value, or `undefined` when unset.
    */
@@ -394,7 +394,7 @@ export class Client {
    * @typeParam T - Attribute value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Typed AttributeMap definition.
-   * @param instance - Non-empty logical map key.
+   * @param instance - Non-empty, slash-free logical map key.
    * @param value - Value encoded by the Attribute codec.
    * @param runId - Optional exact run; targets the active run when omitted.
    * @returns A promise resolved after Dex applies the write.
@@ -463,7 +463,7 @@ export class Client {
    * @typeParam T - Channel element type.
    * @param flowId - Non-empty active Flow ID.
    * @param channel - Typed ChannelMap definition.
-   * @param instance - Non-empty logical map key.
+   * @param instance - Non-empty, slash-free logical map key.
    * @param values - Values appended in argument order.
    * @returns A promise resolved after Dex accepts the batch.
    */
@@ -524,7 +524,7 @@ export class Client {
    * @typeParam T - Channel value type.
    * @param flowId - Non-empty existing Flow ID.
    * @param channel - Registered ChannelMap.
-   * @param instance - Non-empty ChannelMap instance.
+   * @param instance - Non-empty, slash-free ChannelMap instance.
    * @returns Typed pending message envelopes.
    */
   public getChannelMessages<T>(
@@ -579,7 +579,7 @@ export class Client {
    * Deletes one pending message from a ChannelMap instance by server-assigned ID.
    * @param flowId - Non-empty active Flow ID.
    * @param channel - Registered ChannelMap.
-   * @param instance - Non-empty ChannelMap instance.
+   * @param instance - Non-empty, slash-free ChannelMap instance.
    * @param messageId - Non-empty server-assigned message ID.
    */
   public deleteChannelMessage(
@@ -914,7 +914,7 @@ export class Client {
    * @typeParam T - AttributeMap value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered AttributeMap to observe.
-   * @param instance - Non-empty logical map key to observe.
+   * @param instance - Non-empty, slash-free logical map key to observe.
    * @param expected - String, boolean, integer, or number value to await.
    * @param timeoutMs - Non-negative server-side wait duration in milliseconds.
    */
@@ -1296,7 +1296,7 @@ function physicalName(name: string, instance?: string): string {
   if (instance === undefined) {
     return name;
   }
-  requireName(instance);
+  requireMapInstance(instance);
   const encoded = encodeURIComponent(instance).replace(/[!'()*]/g, (character) =>
     `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
   );

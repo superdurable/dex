@@ -151,7 +151,7 @@ impl<T> Clone for Attribute<T> {
 /// Defines keyed durable values sharing one Attribute name.
 ///
 /// Each `instance` identifies an independent stored value and lock. Add the map definition once to
-/// [`crate::PersistenceSchema`]; pass an instance name on each access.
+/// [`crate::PersistenceSchema`]; pass a non-empty, slash-free instance name on each access.
 pub struct AttributeMap<T> {
     name: String,
     index: Option<AttributeIndex>,
@@ -245,9 +245,11 @@ impl<T> AttributeMap<T> {
 
     /// Creates a lock request scoped to one map instance.
     pub fn lock(&self, instance: impl Into<String>) -> AttributeLock {
+        let instance = instance.into();
+        crate::registry::assert_map_instance(&instance);
         AttributeLock {
             attribute: self.name.clone(),
-            instance: Some(instance.into()),
+            instance: Some(instance),
         }
     }
 

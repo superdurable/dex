@@ -307,11 +307,11 @@ func (workerTestFlow) Update(
 	if input.Mode == "introspection" {
 		if keys := workerTestItems.AllInstanceKeys(ctx); !reflect.DeepEqual(
 			keys,
-			[]string{"initial / key", input.OrderID},
+			[]string{"initial % key", input.OrderID},
 		) || workerTestItems.MapSize(ctx) != len(keys) {
 			return nil, fmt.Errorf("unexpected AttributeMap keys %v", keys)
 		}
-		if err := workerTestItems.Delete(ctx, "initial / key"); err != nil {
+		if err := workerTestItems.Delete(ctx, "initial % key"); err != nil {
 			return nil, err
 		}
 		if keys := workerTestItems.AllInstanceKeys(ctx); !reflect.DeepEqual(
@@ -322,7 +322,7 @@ func (workerTestFlow) Update(
 		}
 		if keys := workerTestByOrder.AllInstanceKeys(ctx); !reflect.DeepEqual(
 			keys,
-			[]string{"initial / key"},
+			[]string{"initial % key"},
 		) || workerTestByOrder.MapSize(ctx) != len(keys) {
 			return nil, fmt.Errorf("unexpected ChannelMap keys %v", keys)
 		}
@@ -331,7 +331,7 @@ func (workerTestFlow) Update(
 		}
 		if keys := workerTestByOrder.AllInstanceKeys(ctx); !reflect.DeepEqual(
 			keys,
-			[]string{"initial / key", input.OrderID},
+			[]string{"initial % key", input.OrderID},
 		) || workerTestByOrder.MapSize(ctx) != len(keys) {
 			return nil, fmt.Errorf("unexpected updated ChannelMap keys %v", keys)
 		}
@@ -458,13 +458,13 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 			RpcName:  "Update",
 			Input:    mustEncodeWorkerTestValue(t, rpcInput),
 			Attributes: []*dexpb.KV{{
-				Key:   "items/initial%20%2F%20key",
+				Key:   "items/initial%20%25%20key",
 				Value: mustEncodeWorkerTestValue(t, 1),
 			}},
 			ChannelInfos: map[string]*dexpb.ChannelInfo{
 				"commands":                              {Size: 2},
 				"commands-by-order/empty":               {Size: 0},
-				"commands-by-order/initial%20%2F%20key": {Size: 1},
+				"commands-by-order/initial%20%25%20key": {Size: 1},
 			},
 		},
 	)

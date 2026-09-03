@@ -20,6 +20,13 @@ def require_persistence_definition_name(name: str) -> str:
     return name
 
 
+def require_map_instance(instance: str) -> str:
+    require_name(instance)
+    if "/" in instance:
+        raise ValueError("map instances must not contain '/'")
+    return instance
+
+
 def validate_condition_id(condition_id: str | None) -> None:
     if condition_id is not None and not condition_id:
         raise ValueError("condition ID must not be empty")

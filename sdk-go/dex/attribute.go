@@ -114,8 +114,8 @@ func (a Attribute[T]) attributeSyncToAttributeStore() bool {
 
 // AttributeMap defines keyed typed persisted values.
 //
-// Register the map once in PersistenceSchema, then supply an instance string for every access and
-// lock.
+// Register the map once in PersistenceSchema, then supply a non-empty, slash-free instance string
+// for every access and lock.
 // String values require valid UTF-8; use []byte for arbitrary bytes.
 type AttributeMap[T any] struct {
 	name                 string
@@ -306,12 +306,16 @@ type InitialAttributeDef interface {
 }
 
 // InitialAttributeMapValue encodes one Attribute-map instance for StartFlowOptions.Attributes.
-// It returns ValueMappingError when the value is unsupported or incompatible with its index.
+// The instance must be non-empty and slash-free. It returns ValueMappingError when the value is
+// unsupported or incompatible with its index.
 func InitialAttributeMapValue[T any](
 	attribute AttributeMap[T],
 	instance string,
 	value T,
 ) (InitialAttributeDef, error) {
+	if err := validateMapInstance(instance); err != nil {
+		return nil, err
+	}
 	encoded, indexConfig, err := encodeAttributeValue(value, attribute.index)
 	if err != nil {
 		return nil, err

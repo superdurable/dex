@@ -34,7 +34,7 @@ from typing import (
 )
 from urllib.parse import quote
 
-from dex._utils import require_name
+from dex._utils import require_map_instance, require_name
 from dex.attribute import Attribute, AttributeLock, AttributeMap
 from dex.channel import Channel, ChannelMap
 from dex.codec import Codec, CodecRegistry
@@ -625,7 +625,7 @@ class Registry:
                     raise ValueError(
                         f"RPC {rpc_name} attribute-map lock needs an instance"
                     )
-                require_name(lock.instance)
+                require_map_instance(lock.instance)
             elif lock.instance is not None:
                 raise ValueError(
                     f"RPC {rpc_name} attribute lock cannot have an instance"
@@ -758,15 +758,15 @@ class Registry:
 
         Args:
             name: The logical AttributeMap or ChannelMap name.
-            instance: The non-empty logical instance key.
+            instance: The non-empty, slash-free logical instance key.
 
         Returns:
             ``name`` followed by a slash and percent-encoded instance.
 
         Raises:
-            ValueError: If ``instance`` is empty.
+            ValueError: If ``instance`` is empty or contains ``/``.
         """
-        require_name(instance)
+        require_map_instance(instance)
         return f"{name}/{quote(instance, safe='')}"
 
     @staticmethod

@@ -154,8 +154,9 @@ the same Condition object may be reused across combinations.
 
 `Client.waitForAttributeEqual` overloads target the current
 run and accept only string, boolean, integer, or double wire values. JSON,
-bytes, and null reject before transport. `AttributeMap.getMapSize` and
-`getAllInstanceKeys` include buffered sets and deletes. The matching
+bytes, and null reject before transport. Every AttributeMap and ChannelMap
+instance must be non-empty and must not contain `/`. `AttributeMap.getMapSize`
+and `getAllInstanceKeys` include buffered sets and deletes. The matching
 `ChannelMap` methods are RPC-only, include buffered publishes, and omit empty
 instances. Keys are decoded and sorted. Use
 `forceCompleteIfChannelsEmpty(...)` for conditional completion.

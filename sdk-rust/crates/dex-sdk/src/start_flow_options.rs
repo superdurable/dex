@@ -162,7 +162,7 @@ impl StartFlowOptions {
         self
     }
 
-    /// Adds an initial value for one Attribute-map instance.
+    /// Adds an initial value for one non-empty, slash-free Attribute-map instance.
     pub fn initial_attribute_map<T: Value>(
         mut self,
         attribute: &AttributeMap<T>,

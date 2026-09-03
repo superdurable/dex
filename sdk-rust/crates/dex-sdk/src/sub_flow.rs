@@ -107,7 +107,7 @@ impl SubFlowOptions {
         self
     }
 
-    /// Adds one initial Attribute-map value owned by the target SubFlow.
+    /// Adds one initial Attribute-map value with a non-empty, slash-free instance.
     pub fn initial_attribute_map<T: Value>(
         mut self,
         attribute: &AttributeMap<T>,

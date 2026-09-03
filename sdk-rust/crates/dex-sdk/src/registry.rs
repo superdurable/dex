@@ -393,9 +393,7 @@ fn definition_error(message: impl Into<String>) -> SdkError {
 }
 
 pub(crate) fn physical_name(name: &str, instance: &str) -> String {
-    if instance.is_empty() {
-        panic!("persistence instance is required");
-    }
+    assert_map_instance(instance);
     let mut encoded = String::new();
     for byte in instance.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
@@ -428,7 +426,25 @@ pub(crate) fn decode_instance(physical_name: &str, prefix: &str) -> Result<Strin
             index += 1;
         }
     }
-    String::from_utf8(decoded).map_err(|error| error.to_string())
+    let instance = String::from_utf8(decoded).map_err(|error| error.to_string())?;
+    validate_map_instance(&instance)?;
+    Ok(instance)
+}
+
+pub(crate) fn assert_map_instance(instance: &str) {
+    if let Err(error) = validate_map_instance(instance) {
+        panic!("{error}");
+    }
+}
+
+pub(crate) fn validate_map_instance(instance: &str) -> Result<(), String> {
+    if instance.is_empty() {
+        return Err("map instance is required".to_string());
+    }
+    if instance.contains('/') {
+        return Err("map instances must not contain '/'".to_string());
+    }
+    Ok(())
 }
 
 fn hex_value(byte: u8) -> Result<u8, String> {
@@ -469,9 +485,6 @@ mod tests {
             assert!(result.is_err());
         }
 
-        assert_eq!(
-            physical_name("messages", "orders/by-id"),
-            "messages/orders%2Fby-id"
-        );
+        assert!(std::panic::catch_unwind(|| physical_name("messages", "orders/by-id")).is_err());
     }
 }

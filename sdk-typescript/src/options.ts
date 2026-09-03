@@ -8,7 +8,7 @@
 
 import type { Attribute, AttributeMap } from "./persistence.js";
 import type { RetryPolicy, StepDurability } from "./step.js";
-import { requireName } from "./validation.js";
+import { requireMapInstance, requireName } from "./validation.js";
 
 /** Configures FlowService connectivity and default Flow routing. */
 export interface ClientOptions {
@@ -92,7 +92,7 @@ export interface FlowConfig {
 export interface InitialAttribute<T> {
   /** Registered singleton Attribute or AttributeMap definition. */
   readonly attribute: Attribute<T> | AttributeMap<T>;
-  /** Required non-empty map key; omitted for a singleton Attribute. */
+  /** Required non-empty, slash-free map key; omitted for a singleton Attribute. */
   readonly instance?: string;
   /** Typed initial value. */
   readonly value: T;
@@ -114,7 +114,7 @@ export const InitialAttribute = Object.freeze({
    * Creates an AttributeMap instance initialization.
    * @typeParam T - Attribute value type.
    * @param attribute - Registered AttributeMap.
-   * @param instance - Non-empty logical map key.
+   * @param instance - Non-empty, slash-free logical map key.
    * @param value - Typed initial value.
    * @returns The AttributeMap initialization value.
    */
@@ -123,7 +123,7 @@ export const InitialAttribute = Object.freeze({
     instance: string,
     value: T,
   ): InitialAttribute<T> {
-    requireName(instance);
+    requireMapInstance(instance);
     return { attribute, instance, value };
   },
 });

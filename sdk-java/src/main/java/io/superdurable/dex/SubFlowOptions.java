@@ -187,12 +187,12 @@ public final class SubFlowOptions {
          * Adds one initial Attribute-map value to the SubFlow start.
          *
          * @param attribute an Attribute map registered by the target SubFlow
-         * @param instance the nonblank map instance
+         * @param instance the nonblank, slash-free map instance
          * @param value the initial value, including {@code null} when supported by its value type
          * @param <T> the Attribute value type
          * @return this builder
          * @throws NullPointerException if {@code attribute} is {@code null}
-         * @throws IllegalArgumentException if {@code instance} is blank
+         * @throws IllegalArgumentException if {@code instance} is blank or contains {@code /}
          */
         public <T> Builder addAttribute(
                 final AttributeMap<T> attribute,
@@ -200,7 +200,7 @@ public final class SubFlowOptions {
                 final T value) {
             attributes.add(new AttributeInitialization(
                     Objects.requireNonNull(attribute, "attribute"),
-                    Attribute.requireName(instance),
+                    Attribute.requireMapInstance(instance),
                     value));
             return this;
         }

@@ -19,7 +19,8 @@ import java.util.Objects;
  * the definition once in the Flow's {@link PersistenceSchema}, then supply an instance name for
  * each read, write, delete, or lock. Each key/value pair is stored as a separate blob, so updating
  * one entry does not rewrite a large Attribute containing the entire logical map. Each value is
- * serialized with the definition's concrete {@link Class}.
+ * serialized with the definition's concrete {@link Class}. Instance names must be nonblank and
+ * must not contain {@code /}.
  *
  * <pre>{@code
  * private final AttributeMap<String> orderStatus =

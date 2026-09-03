@@ -757,7 +757,7 @@ test("map introspection tracks buffered changes", () => {
     }
   }
   const registry = new Registry([new MapFlow()]);
-  const special = "special / key";
+  const special = "special % key";
   const physical = (name: string, instance: string) =>
     `${name}/${encodeURIComponent(instance).replace(/[!'()*]/g, (character) =>
       `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
@@ -788,14 +788,16 @@ test("map introspection tracks buffered changes", () => {
   assert.equal(channels.getMapSize(context), 2);
 });
 
-test("persistence definitions reserve slash while map instances keep it", () => {
+test("persistence definitions and map instances reserve slash", () => {
   assert.throws(() => new Attribute("orders/by-id", stringCodec), TypeError);
   assert.throws(() => new AttributeMap("orders/by-id", stringCodec), TypeError);
   assert.throws(() => new Channel("orders/by-id", stringCodec), TypeError);
   assert.throws(() => new ChannelMap("orders/by-id", stringCodec), TypeError);
 
   const messages = new ChannelMap("messages", stringCodec);
-  assert.equal(messages.forOne("orders/by-id").instance, "orders/by-id");
+  assert.throws(() => messages.forOne("orders/by-id"), /map instances must not contain/);
+  const items = new AttributeMap("items", stringCodec);
+  assert.throws(() => items.lock("orders/by-id"), /map instances must not contain/);
 });
 
 test("blob cache contract opens the native DXBC cache", () => {

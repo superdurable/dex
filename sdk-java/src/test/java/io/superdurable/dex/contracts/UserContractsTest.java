@@ -16,6 +16,7 @@ package io.superdurable.dex.contracts;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.superdurable.dex.Attribute;
+import io.superdurable.dex.AttributeLock;
 import io.superdurable.dex.AttributeMap;
 import io.superdurable.dex.BlobCache;
 import io.superdurable.dex.BlobCacheConfig;
@@ -96,6 +97,14 @@ public class UserContractsTest {
                 IllegalArgumentException.class,
                 () -> ChannelMap.define("orders/by-id", String.class));
 
+        final ChannelMap<String> messages = ChannelMap.define("messages", String.class);
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> messages.forOne("orders/by-id"));
+        final AttributeMap<String> items = AttributeMap.define("items", String.class);
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> AttributeLock.of(items, "orders/by-id"));
     }
 
     @Test

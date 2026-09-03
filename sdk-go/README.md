@@ -248,6 +248,7 @@ distinct Conditions are rejected.
 Clients wait on singleton Attribute equality in the current run with
 `WaitForAttributeEqual` or `WaitForAttributeMapInstanceEqual`. Client-side map
 reads and writes use `GetAttributeMapInstance` and `SetAttributeMapInstance`.
+Every AttributeMap and ChannelMap instance must be non-empty and must not contain `/`.
 Expected values must encode as string, bool, integer, or double; JSON, bytes,
 and null fail before the RPC is sent.
 

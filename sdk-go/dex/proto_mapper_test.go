@@ -82,6 +82,7 @@ func TestWaitMappingAssignsStableConditionIDs(t *testing.T) {
 
 func TestWaitMappingRejectsInvalidConditions(t *testing.T) {
 	channel := DefineChannel[string]("commands")
+	channelMap := DefineChannelMap[string]("commands-by-order")
 	_, err := mapWait(nil)
 	require.ErrorContains(t, err, "must not be nil")
 
@@ -114,6 +115,9 @@ func TestWaitMappingRejectsInvalidConditions(t *testing.T) {
 
 	_, err = mapWait(AllOf(channel.AtLeastAtMost(2, 1)))
 	require.ErrorContains(t, err, "below at_least")
+
+	_, err = mapWait(AllOf(channelMap.ForOne("tenant/order")))
+	require.ErrorContains(t, err, "map instance must not contain '/'")
 }
 
 func TestStepDecisionAndOptionsMapping(t *testing.T) {
@@ -194,6 +198,8 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	attributeMap := DefineAttributeMap[string]("status-by-tenant", SyncToAttributeStore())
 	initialMap, err := InitialAttributeMapValue(attributeMap, "tenant-1", "ready")
 	require.NoError(t, err)
+	_, err = InitialAttributeMapValue(attributeMap, "tenant/order", "ready")
+	require.ErrorContains(t, err, "map instance must not contain '/'")
 	flowTimeout, timeoutPolicy, options, err := mapStartFlowOptions(StartFlowOptions{
 		Timeout:       &timeout,
 		TimeoutPolicy: TimeoutFail,

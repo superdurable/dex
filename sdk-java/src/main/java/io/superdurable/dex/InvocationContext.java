@@ -499,7 +499,8 @@ final class InvocationContext implements Context {
         final List<String> keys = new ArrayList<String>(physicalKeys.size());
         for (String physical : physicalKeys) {
             try {
-                keys.add(URLDecoder.decode(physical.substring(prefix.length()), "UTF-8"));
+                keys.add(Attribute.requireMapInstance(
+                        URLDecoder.decode(physical.substring(prefix.length()), "UTF-8")));
             } catch (UnsupportedEncodingException impossible) {
                 throw new IllegalStateException(impossible);
             }

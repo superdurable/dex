@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
@@ -1228,10 +1229,20 @@ func physicalName(name string, instance string, isMap bool) (string, error) {
 	if !isMap {
 		return name, nil
 	}
-	if instance == "" {
-		return "", fmt.Errorf("dex: map instance must not be empty")
+	if err := validateMapInstance(instance); err != nil {
+		return "", err
 	}
 	return name + "/" + url.PathEscape(instance), nil
+}
+
+func validateMapInstance(instance string) error {
+	if instance == "" {
+		return fmt.Errorf("dex: map instance must not be empty")
+	}
+	if strings.Contains(instance, "/") {
+		return fmt.Errorf("dex: map instance must not contain '/'")
+	}
+	return nil
 }
 
 func mapWaitForFailurePolicy(

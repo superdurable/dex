@@ -143,7 +143,8 @@ func (Channel[T]) channelIsMap() bool {
 }
 
 // ChannelMap defines independently queued Channel instances under one shared name.
-// Register the map once in PersistenceSchema and supply an instance string to each operation.
+// Register the map once in PersistenceSchema and supply a non-empty, slash-free instance string
+// to each operation.
 type ChannelMap[T any] struct {
 	name string
 }

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from dex._utils import validate_condition_id
+from dex._utils import require_map_instance, validate_condition_id
 
 if TYPE_CHECKING:
     from dex.channel import Channel, ChannelMap
@@ -53,6 +53,8 @@ class ChannelCondition(Condition, Generic[ValueT]):
         super().__post_init__()
         if self.channel is None:
             raise ValueError("channel condition requires a channel")
+        if self.instance is not None:
+            require_map_instance(self.instance)
         if self.at_least is None and self.at_most is None:
             raise ValueError("channel condition requires a bound")
         if self.at_least is not None and self.at_least < 0:

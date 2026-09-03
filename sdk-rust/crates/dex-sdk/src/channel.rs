@@ -137,7 +137,7 @@ impl<T> Clone for Channel<T> {
 /// Defines independently queued Channel instances under one name.
 ///
 /// Supply an instance string for every publish, read, condition, and completion guard. Add the map
-/// definition once to [`crate::PersistenceSchema`].
+/// definition once to [`crate::PersistenceSchema`]. Instances must be non-empty and slash-free.
 pub struct ChannelMap<T> {
     name: String,
     marker: PhantomData<fn() -> T>,
@@ -234,6 +234,7 @@ impl<T> ChannelMap<T> {
         at_least: Option<usize>,
         at_most: Option<usize>,
     ) -> Condition {
+        crate::registry::assert_map_instance(instance);
         Condition::channel(
             self.name.clone(),
             Some(instance.to_string()),
@@ -244,6 +245,7 @@ impl<T> ChannelMap<T> {
 
     /// Creates a conditional-completion guard requiring `instance` to be empty.
     pub fn when_empty(&self, instance: &str) -> ChannelGuard {
+        crate::registry::assert_map_instance(instance);
         ChannelGuard {
             name: self.name.clone(),
             instance: Some(instance.to_string()),
