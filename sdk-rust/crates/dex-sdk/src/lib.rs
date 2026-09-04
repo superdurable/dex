@@ -52,7 +52,7 @@ pub use attribute::{Attribute, AttributeIndex, AttributeMap, AttributeMapLoad};
 pub use channel::{Channel, ChannelGuard, ChannelMap, ChannelMapLoad, ChannelMessage};
 pub use client::Client;
 pub use client_options::ClientOptions;
-pub use context::Context;
+pub use context::{Context, RecoveryErrorInfo};
 pub use dex_blob_cache::{BlobCache, BlobCacheConfig};
 pub use flow::{Flow, FlowTimeoutHandler};
 pub use flow_config::{ActiveStepSearchMode, FlowConfig};

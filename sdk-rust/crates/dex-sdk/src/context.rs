@@ -55,6 +55,37 @@ pub(crate) struct InvocationOutputs {
     pub(crate) channel_deletions: Vec<ChannelMessageDeletion>,
 }
 
+/// Describes the final failure that caused a Step method recovery.
+///
+/// Read this value from [`Context::recovery_error`]. Worker failures preserve their original
+/// error type and detail. Backend failures such as timeouts use the Temporal or Cadence failure
+/// type.
+///
+/// ```no_run
+/// # fn inspect(context: &dex_sdk::Context) {
+/// if let Some(error) = context.recovery_error() {
+///     eprintln!("Recovering from {}: {}", error.error_type(), error.detail());
+/// }
+/// # }
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryErrorInfo {
+    detail: String,
+    error_type: String,
+}
+
+impl RecoveryErrorInfo {
+    /// Returns the failure detail supplied by the Worker or backend.
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+
+    /// Returns the original Worker error type or backend failure type.
+    pub fn error_type(&self) -> &str {
+        &self.error_type
+    }
+}
+
 /// Provides invocation metadata and staged durable changes to Step and RPC handlers.
 ///
 /// A Context belongs to one handler attempt and must not outlive the call. Attribute writes,
@@ -65,6 +96,7 @@ pub struct Context {
     flow: RegisteredFlow,
     output_emitter: Option<StepOutputEmitter>,
     metadata: ProtoContext,
+    recovery_error: Option<RecoveryErrorInfo>,
     attributes: HashMap<String, ProtoValue>,
     locals: HashMap<String, ProtoValue>,
     condition_results: Option<ConditionResults>,
@@ -95,11 +127,21 @@ impl Context {
         output_emitter: Option<StepOutputEmitter>,
         cancellation: InvocationCancellation,
     ) -> HandlerResult<Self> {
+        let recovery_error =
+            input
+                .metadata
+                .recovery_error
+                .as_ref()
+                .map(|error| RecoveryErrorInfo {
+                    detail: error.detail.clone(),
+                    error_type: error.error_type.clone(),
+                });
         Ok(Self {
             method: input.method,
             flow: input.flow,
             output_emitter,
             metadata: input.metadata,
+            recovery_error,
             attributes: map_values("Attribute", input.attributes)?,
             locals: map_values("step-execution local", input.locals)?,
             condition_results: input.condition_results,
@@ -147,6 +189,11 @@ impl Context {
     /// Returns the predecessor Step execution ID, or an empty string when absent.
     pub fn from_step_execution_id(&self) -> &str {
         &self.metadata.from_step_execution_id
+    }
+
+    /// Returns the final failure that caused recovery, or `None` outside a recovery Step.
+    pub fn recovery_error(&self) -> Option<&RecoveryErrorInfo> {
+        self.recovery_error.as_ref()
     }
 
     /// Returns when the first attempt of this handler invocation started.

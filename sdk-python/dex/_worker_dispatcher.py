@@ -521,9 +521,11 @@ class WorkerDispatcher:
             mapped.failure_proceed_step_type = target.name
             target_options = self.map_step_options(
                 flow,
-                options._failure_options
-                if options._failure_options is not None
-                else target.step.get_step_options(),
+                (
+                    options._failure_options
+                    if options._failure_options is not None
+                    else target.step.get_step_options()
+                ),
             )
             if target_options is not None:
                 mapped.failure_proceed_step_options.CopyFrom(target_options)
@@ -542,7 +544,9 @@ class WorkerDispatcher:
     ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
         mapped_attribute_maps: list[str] = []
         for attribute_map in attribute_maps:
-            WorkerDispatcher._require_state_load(flow, source, attribute_map, AttributeMap)
+            WorkerDispatcher._require_state_load(
+                flow, source, attribute_map, AttributeMap
+            )
             mapped_attribute_maps.append(f"{attribute_map.name}/")
         for attribute_load in attribute_map_instances:
             if not isinstance(attribute_load, AttributeMapLoad):
