@@ -43,6 +43,7 @@ type invocationContext struct {
 	flowStartedAt       time.Time
 	stepExecutionID     string
 	fromStepExecutionID string
+	recoveryError       *RecoveryErrorInfo
 	firstAttemptAt      time.Time
 	attempt             int32
 	lastHeartbeatValue  *dexpb.Value
@@ -136,6 +137,12 @@ func newInvocationContext(
 	if method != invocationRPC {
 		invocation.stepExecutionID = metadata.StepExecutionId
 		invocation.fromStepExecutionID = metadata.FromStepExecutionId
+		if metadata.RecoveryError != nil {
+			invocation.recoveryError = &RecoveryErrorInfo{
+				Detail:    metadata.RecoveryError.Detail,
+				ErrorType: metadata.RecoveryError.ErrorType,
+			}
+		}
 		invocation.attempt = metadata.Attempt
 		invocation.firstAttemptAt = time.Unix(metadata.FirstAttemptTimestamp, 0)
 		invocation.lastHeartbeatValue = metadata.LastHeartbeatValue
@@ -313,6 +320,10 @@ func (invocation *invocationContext) StepExecutionID() string {
 
 func (invocation *invocationContext) FromStepExecutionID() string {
 	return invocation.fromStepExecutionID
+}
+
+func (invocation *invocationContext) RecoveryError() *RecoveryErrorInfo {
+	return invocation.recoveryError
 }
 
 func (invocation *invocationContext) FirstAttemptAt() time.Time {

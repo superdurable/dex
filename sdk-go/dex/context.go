@@ -15,6 +15,15 @@ import (
 	"time"
 )
 
+// RecoveryErrorInfo describes the final failure that selected a recovery path.
+// Worker failures preserve their detail and error type. Backend failures use the backend failure type.
+type RecoveryErrorInfo struct {
+	// Detail is the failure message supplied by the Worker or backend.
+	Detail string
+	// ErrorType is the original Worker error type or backend failure type.
+	ErrorType string
+}
+
 // Context provides invocation metadata and stages durable mutations for Step and RPC handlers.
 //
 // A Context belongs to one handler attempt and must not outlive it. Attribute writes, Channel
@@ -33,6 +42,8 @@ type Context interface {
 	StepExecutionID() string
 	// FromStepExecutionID returns the predecessor Step execution ID, or empty when absent.
 	FromStepExecutionID() string
+	// RecoveryError returns the final failure that selected this recovery path, or nil when absent.
+	RecoveryError() *RecoveryErrorInfo
 	// FirstAttemptAt returns when the first attempt of this handler invocation started.
 	FirstAttemptAt() time.Time
 	// Attempt returns the one-based handler attempt number.

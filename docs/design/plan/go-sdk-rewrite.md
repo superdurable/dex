@@ -1795,6 +1795,7 @@ type Context interface {
 	FlowStartedAt() time.Time
 	StepExecutionID() string
 	FromStepExecutionID() string
+	RecoveryError() *RecoveryErrorInfo
 	FirstAttemptAt() time.Time
 	Attempt() int32
 
@@ -1826,7 +1827,7 @@ Semantics:
   Flow timeout handlers; RPC invocation contexts reject it.
 - Step-method `Attempt` starts at one. RPC returns zero `Attempt` and a zero
   `FirstAttemptAt` because its request carries no attempt metadata.
-- writes, events, and channel publishes are buffered until the method returns
+- writes, events, channel deletions, and channel publishes are buffered until the method returns
   successfully;
 - attribute reads observe earlier writes in the same invocation.
 
@@ -2252,6 +2253,16 @@ type StepOptions struct {
 	ExecuteDurability  StepDurability
 	WaitForLockAttributes []AttributeLock
 	ExecuteLockAttributes []AttributeLock
+	WaitForLoadAttributeMaps []AttributeDef
+	WaitForLoadAttributeMapInstances []AttributeMapLoad
+	WaitForLoadChannels []ChannelDef
+	WaitForLoadChannelMaps []ChannelDef
+	WaitForLoadChannelMapInstances []ChannelMapLoad
+	ExecuteLoadAttributeMaps []AttributeDef
+	ExecuteLoadAttributeMapInstances []AttributeMapLoad
+	ExecuteLoadChannels []ChannelDef
+	ExecuteLoadChannelMaps []ChannelDef
+	ExecuteLoadChannelMapInstances []ChannelMapLoad
 }
 ```
 
@@ -2265,6 +2276,12 @@ signed int32 range. The server enforces a configurable minimum that defaults to
 ten seconds. Local activities ignore it, and an asynchronous regular fallback
 uses it. Worker heartbeat output may include a typed checkpoint Value. The next
 regular attempt exposes the last checkpoint through its Context.
+
+Ordinary Attributes and Channel size metadata load for every Step method.
+AttributeMap contents and pending Channel messages require method-specific
+selections. WaitFor and Execute use independent snapshots. Execute loads after
+the winning Wait consumes messages, and retries reuse the initial snapshot for
+one logical method execution. Attribute locks never imply state loading.
 
 The server defaults Step durability to sync and retry total duration to four
 hours. Regular attempts default to two hours. Async durability first uses at
@@ -2709,6 +2726,14 @@ timeout uses `TimeoutHandler` when the registered Flow implements
 `FlowErrorTypeFlowTimeout` and permits Flow retry, while `TimeoutCancel` does
 not retry. Continue-as-new preserves the absolute deadline; retry runs receive
 a new budget.
+`StartFlowOptions.TimeoutHandlerOptions` and the matching SubFlow field are
+valid only for a positive timeout whose resolved policy is `TimeoutHandler`.
+They configure Execute-style method and heartbeat timeouts, retry, durability,
+Attribute locks, selective state loading, and exhausted-retry routing to a
+registered `Step[None]`. The recovery Step receives normalized `None` input and
+reads the final failure through `Context.RecoveryError`. Handler timing starts
+when the soft timeout fires and may extend beyond that deadline. Continue-as-new
+and Flow retry preserve the options.
 `StartFlowOptions.StartDelay == nil` omits the start delay. Starting-step
 options come from the step wrapped by `DefineStartStep`; StartFlow has no
 separate step-options override.

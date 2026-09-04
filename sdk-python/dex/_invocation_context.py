@@ -17,6 +17,7 @@ from dex._value_mapper import ValueMapper
 from dex.attribute import Attribute, AttributeMap, _apply_attribute_store_sync
 from dex.channel import Channel, ChannelMap, ChannelMessage
 from dex.codec import Codec
+from dex.context import RecoveryErrorInfo
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, _RegisteredFlow
 from dex.flow_result import FlowResult, flow_result_from_proto
@@ -115,6 +116,15 @@ class InvocationContext:
     @property
     def from_step_execution_id(self) -> str:
         return self._metadata.from_step_execution_id
+
+    @property
+    def recovery_error(self) -> RecoveryErrorInfo | None:
+        if not self._metadata.HasField("recovery_error"):
+            return None
+        return RecoveryErrorInfo(
+            detail=self._metadata.recovery_error.detail,
+            error_type=self._metadata.recovery_error.error_type,
+        )
 
     @property
     def attempt(self) -> int:

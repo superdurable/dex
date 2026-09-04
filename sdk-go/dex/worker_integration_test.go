@@ -687,6 +687,38 @@ func TestBufferedTextStreamFlushesOnTimerAndInvocationFinish(t *testing.T) {
 	require.ErrorIs(t, writer.Write("late"), errInvalidInvocationContext)
 }
 
+func TestInvocationContextExposesRecoveryError(t *testing.T) {
+	registry, err := NewRegistry([]Flow{workerFlow})
+	require.NoError(t, err)
+	registeredFlow, found := registry.lookupFlow(GetFinalFlowType(workerFlow))
+	require.True(t, found)
+	metadata := workerStepContext()
+	metadata.RecoveryError = &dexpb.RecoveryErrorInfo{
+		Detail:    "handler exhausted retries",
+		ErrorType: "TimeoutError",
+	}
+	invocation, err := newInvocationContext(
+		context.Background(),
+		invocationExecute,
+		registeredFlow,
+		nil,
+		metadata,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, &RecoveryErrorInfo{
+		Detail:    "handler exhausted retries",
+		ErrorType: "TimeoutError",
+	}, invocation.RecoveryError())
+}
+
 func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 	client, closeService := newWorkerTestClient(t, nil)
 	defer closeService()

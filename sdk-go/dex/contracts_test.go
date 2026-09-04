@@ -429,6 +429,7 @@ func compileContextOperations(ctx dex.Context) error {
 	_ = ctx.HasTimerFired()
 	_ = ctx.HasTimerFiredByIndex(0)
 	_ = ctx.WaitForMethodFailed()
+	_ = ctx.RecoveryError()
 	_ = itemsAttribute.MapSize(ctx)
 	_ = itemsAttribute.AllInstanceKeys(ctx)
 	_ = commandByOrder.MapSize(ctx)

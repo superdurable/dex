@@ -8,7 +8,7 @@
 
 import type { Codec } from "./codec.js";
 import { mapAttributeStoreSync } from "./attribute-store-sync.js";
-import type { AsyncContext } from "./context.js";
+import type { AsyncContext, RecoveryErrorInfo } from "./context.js";
 import {
   ConditionStatus,
   IndexType as ProtoIndexType,
@@ -54,6 +54,7 @@ export class InvocationContext implements AsyncContext {
   public readonly flowStartedAt: Date;
   public readonly stepExecutionId: string;
   public readonly fromStepExecutionId: string;
+  public readonly recoveryError: RecoveryErrorInfo | undefined;
   public readonly firstAttemptAt: Date;
   public readonly attempt: number;
   public readonly cancellationSignal: AbortSignal;
@@ -98,6 +99,7 @@ export class InvocationContext implements AsyncContext {
     this.flowStartedAt = secondsDate(metadata.flowStartedTimestamp);
     this.stepExecutionId = metadata.stepExecutionId;
     this.fromStepExecutionId = metadata.fromStepExecutionId;
+    this.recoveryError = metadata.recoveryError;
     this.firstAttemptAt = secondsDate(metadata.firstAttemptTimestamp);
     this.attempt = metadata.attempt;
     this.lastHeartbeatValue = metadata.lastHeartbeatValue;

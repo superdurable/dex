@@ -1272,6 +1272,28 @@ def test_context_decodes_last_heartbeat_presence() -> None:
         incompatible.get_last_heartbeat_value(int)
 
 
+def test_context_exposes_recovery_error() -> None:
+    class RecoveryFlow(Flow[None]):
+        pass
+
+    registry = Registry((RecoveryFlow(),))
+    context = InvocationContext(
+        InvocationMethod.EXECUTE,
+        registry._flow_by_type("RecoveryFlow"),
+        pb.Context(
+            recovery_error=pb.RecoveryErrorInfo(
+                detail="handler exhausted retries",
+                error_type="TimeoutError",
+            )
+        ),
+        ValueMapper(registry.codec_registry),
+        (),
+    )
+    assert context.recovery_error is not None
+    assert context.recovery_error.detail == "handler exhausted retries"
+    assert context.recovery_error.error_type == "TimeoutError"
+
+
 def test_async_step_outputs_preserve_call_order() -> None:
     asyncio.run(_assert_async_step_outputs_preserve_call_order())
 
