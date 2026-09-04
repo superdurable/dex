@@ -18,6 +18,8 @@ package io.superdurable.dex.patterns.timeout;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowTimeoutPolicy;
+import io.superdurable.dex.FlowTimeoutHandlerOptions;
+import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.StartFlowOptions;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -51,6 +53,10 @@ public class TimeoutController {
                 StartFlowOptions.newBuilder()
                         .timeout(Duration.ofMinutes(1))
                         .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
+                        .timeoutHandlerOptions(FlowTimeoutHandlerOptions.newBuilder()
+                                .methodTimeout(Duration.ofSeconds(30))
+                                .retry(RetryPolicy.newBuilder().maximumAttempts(3).build())
+                                .build())
                         .build());
         return ResponseEntity.ok(String.format("success for workflow %s", workflowId));
     }

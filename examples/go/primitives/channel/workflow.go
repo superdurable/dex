@@ -58,6 +58,12 @@ type channelWaitStep struct {
 	dex.StepDefaults
 }
 
+func (channelWaitStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLoadChannels: []dex.ChannelDef{Queued},
+	}
+}
+
 func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	return dex.AnyOf(
 		Approval.ForOne(),
@@ -66,6 +72,16 @@ func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 }
 
 func (channelWaitStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	pending, err := Queued.PendingMessages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(pending) > 0 {
+		if err := Queued.Delete(ctx, pending[0].MessageID); err != nil {
+			return nil, err
+		}
+		return dex.GracefulComplete(pending[0].Value), nil
+	}
 	if ctx.HasTimerFired() {
 		return dex.GracefulComplete("approval timed out"), nil
 	}

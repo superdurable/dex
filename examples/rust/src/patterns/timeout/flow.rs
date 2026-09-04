@@ -31,7 +31,8 @@
 use std::time::Duration;
 
 use dex_sdk::{
-    Context, Flow, FlowTimeoutHandler, HandlerResult, Step, StepDecision, StepList, Timer, Wait,
+    Context, Flow, FlowTimeoutHandler, FlowTimeoutHandlerOptions, HandlerResult, RetryPolicy, Step,
+    StepDecision, StepList, Timer, Wait,
 };
 
 #[derive(Default)]
@@ -70,6 +71,12 @@ impl Step for LongWaitStep {
 }
 
 impl FlowGracefulTimeout {
+    pub(crate) fn timeout_handler_options(&self) -> FlowTimeoutHandlerOptions {
+        FlowTimeoutHandlerOptions::new()
+            .method_timeout(Duration::from_secs(30))
+            .retry(RetryPolicy::new().maximum_attempts(3))
+    }
+
     fn handle_timeout(&self, _context: &mut Context) -> HandlerResult<StepDecision> {
         Ok(StepDecision::force_fail("task exceeded graceful timeout"))
     }

@@ -41,6 +41,20 @@ atomic commit and Channel deletion validation. Attribute locks add isolation
 only among cooperating Steps and RPCs using the same lock. Write-only publish
 and delete operations do not require loading.
 
+## Step and timeout-handler state loading
+
+`StepOptions` provides the same five selections independently for `waitFor` and
+`execute`: all AttributeMap instances, exact AttributeMap instances, Channels,
+all ChannelMap instances, and exact ChannelMap instances. The methods receive
+independent snapshots. Execute reads after the winning Wait consumes messages;
+retries of one logical method call reuse its first snapshot.
+
+`FlowTimeoutHandlerOptions` provides Execute-style timeouts, heartbeat detection,
+retry, durability, Attribute locks, and the same state selections. Set it on
+`StartFlowOptions` or `SubFlowOptions` only for a positive timeout using `HANDLER`.
+Exhausted retries may proceed to a registered `Step<Void>`; read the final
+failure with `Context.getRecoveryError()`.
+
 Java SDK for [Dex workflow engine](https://github.com/superdurable/dex)
 
 See [samples](../examples/java) for how to use this SDK to build your workflow.

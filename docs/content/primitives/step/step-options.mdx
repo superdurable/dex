@@ -326,6 +326,77 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 
 A heartbeat helps deliver cancellation. A Step invocation is canceled only when it completes, fails, or records a heartbeat.
 
+## Selective state loading {#selective-state-loading}
+
+Every **WaitFor**, **Execute**, and timeout-handler call receives all ordinary Attributes and size metadata for every Channel and ChannelMap instance. AttributeMap values and pending Channel messages are not loaded unless that method selects them.
+
+**StepOptions** has separate selections for **WaitFor** and **Execute**. Select an entire AttributeMap or ChannelMap when the method must enumerate current instances. Select an exact map instance when its key is already known. An Attribute lock controls concurrency but does not load the AttributeMap value.
+
+The two methods receive independent snapshots. **Execute** reads its snapshot after the winning Wait conditions consume their messages, so it does not see those consumed messages again. Retries of one logical method call reuse its first snapshot.
+
+This Step loads pending **Queued** messages only for **Execute**. It deletes the first pending message in the same successful handler response.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
+    go: 'examples/go/primitives/channel/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
+    typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
+    rust: 'examples/rust/src/primitives/channel/flow.rs',
+  }}>
+  <SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(execute_load_channels=(self.queued,))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (channelWaitStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLoadChannels: []dex.ChannelDef{Queued},
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .addExecuteLoadChannel(queued)
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return { executeLoadChannels: [queued] };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new().execute_load_channel(&QUEUED)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Reading an unselected AttributeMap value or pending Channel message returns the SDK's existing not-loaded error. A selected empty Channel returns an empty message list. Size and map-key introspection remains available without loading message bodies.
+
 ## Attribute locks
 
 Concurrent Steps and RPC invocations can read and write the same Attribute. This can lead to race conditions. To avoid this, use Attribute locks. Dex Server ensures only one Step execution or RPC handling can acquire the lock at a time.

@@ -1,7 +1,8 @@
 # Channel primitive
 
 This Flow can list and delete pending messages by ID. Its move RPC atomically
-deletes from one Channel and publishes to another on Temporal.
+deletes from one Channel and publishes to another. The Step explicitly loads
+pending messages for Execute and deletes the first queued message with its decision.
 
 HTTP:
 

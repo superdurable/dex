@@ -18,7 +18,7 @@ use std::sync::LazyLock;
 
 use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
-    StepList, Timer, Wait,
+    StepList, StepOptions, Timer, Wait,
 };
 use serde::{Deserialize, Serialize};
 
@@ -84,6 +84,10 @@ struct ChannelWait;
 impl Step for ChannelWait {
     type Input = i32;
 
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_load_channel(&QUEUED)
+    }
+
     fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
             APPROVAL.for_one(),
@@ -92,6 +96,11 @@ impl Step for ChannelWait {
     }
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let pending = QUEUED.pending_messages(context)?;
+        if let Some(message) = pending.first() {
+            QUEUED.delete(context, &message.message_id)?;
+            return Ok(StepDecision::graceful_complete(message.value.clone()));
+        }
         if context.has_any_timer_fired() {
             return Ok(StepDecision::graceful_complete(
                 "approval timed out".to_owned(),

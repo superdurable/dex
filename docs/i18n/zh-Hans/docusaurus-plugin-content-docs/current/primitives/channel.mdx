@@ -39,8 +39,12 @@ class MoveMessage:
 
 
 class ChannelWaitStep(Step[int]):
-    def __init__(self, approval: Channel[str]) -> None:
+    def __init__(self, approval: Channel[str], queued: Channel[str]) -> None:
         self.approval = approval
+        self.queued = queued
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_load_channels=(self.queued,))
 
     def wait_for(self, context: Context, input: int) -> Wait:
         return Wait.any_of(
@@ -49,6 +53,10 @@ class ChannelWaitStep(Step[int]):
         )
 
     def execute(self, context: Context, input: int) -> StepDecision:
+        pending = self.queued.pending_messages(context)
+        if pending:
+            self.queued.delete(context, pending[0].message_id)
+            return graceful_complete(pending[0].value)
         if context.has_timer_fired():
             return graceful_complete("approval timed out")
         approvals = self.approval.results(context)
@@ -61,7 +69,7 @@ class ChannelFlow(Flow[int]):
     moved = Channel("Moved", str)
 
     def __init__(self) -> None:
-        self.wait_for_approval = ChannelWaitStep(self.approval)
+        self.wait_for_approval = ChannelWaitStep(self.approval, self.queued)
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.wait_for_approval)
@@ -113,6 +121,12 @@ type channelWaitStep struct {
 	dex.StepDefaults
 }
 
+func (channelWaitStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLoadChannels: []dex.ChannelDef{Queued},
+	}
+}
+
 func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	return dex.AnyOf(
 		Approval.ForOne(),
@@ -121,6 +135,16 @@ func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 }
 
 func (channelWaitStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	pending, err := Queued.PendingMessages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(pending) > 0 {
+		if err := Queued.Delete(ctx, pending[0].MessageID); err != nil {
+			return nil, err
+		}
+		return dex.GracefulComplete(pending[0].Value), nil
+	}
 	if ctx.HasTimerFired() {
 		return dex.GracefulComplete("approval timed out"), nil
 	}
@@ -208,6 +232,13 @@ public class ChannelFlow implements Flow<Integer> {
         }
 
         @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .addExecuteLoadChannel(queued)
+                    .build();
+        }
+
+        @Override
         public Wait waitFor(final Context context, final Integer input) {
             return Wait.anyOf(
                     approval.forOne(),
@@ -216,6 +247,11 @@ public class ChannelFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
+            final List<ChannelMessage<String>> pending = queued.pendingMessages(context);
+            if (!pending.isEmpty()) {
+                queued.delete(context, pending.get(0).getMessageId());
+                return StepDecision.gracefulComplete(pending.get(0).getValue());
+            }
             if (context.hasTimerFired()) {
                 return StepDecision.gracefulComplete("approval timed out");
             }
@@ -247,6 +283,10 @@ class ChannelWait implements Step<number> {
     return "ChannelWait";
   }
 
+  public getStepOptions(): StepOptions {
+    return { executeLoadChannels: [queued] };
+  }
+
   public waitFor(_context: Context, input: number): Wait {
     return Wait.anyOf(
       approval.forOne(),
@@ -255,6 +295,11 @@ class ChannelWait implements Step<number> {
   }
 
   public execute(context: Context, _input: number): StepDecision {
+    const pending = queued.pendingMessages(context);
+    if (pending.length > 0) {
+      queued.delete(context, pending[0]!.messageId);
+      return gracefulComplete(pending[0]!.value);
+    }
     if (context.hasTimerFired()) {
       return gracefulComplete("approval timed out");
     }
@@ -360,6 +405,10 @@ struct ChannelWait;
 impl Step for ChannelWait {
     type Input = i32;
 
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_load_channel(&QUEUED)
+    }
+
     fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
             APPROVAL.for_one(),
@@ -368,6 +417,11 @@ impl Step for ChannelWait {
     }
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let pending = QUEUED.pending_messages(context)?;
+        if let Some(message) = pending.first() {
+            QUEUED.delete(context, &message.message_id)?;
+            return Ok(StepDecision::graceful_complete(message.value.clone()));
+        }
         if context.has_any_timer_fired() {
             return Ok(StepDecision::graceful_complete(
                 "approval timed out".to_owned(),
@@ -412,7 +466,9 @@ Dex 接受每次 publication 时都会分配一个 UUIDv7 message ID。Client �
 
 这是 queue state，不是 Flow history。Step 消费 message 后，它会从 Channel 消失，但 publication 与 consumption 仍可在 Flow history 中观察，直到 retention 将它们清理。
 
-RPC 始终会收到 Channel size metadata。读取 pending message 的 ID 或 Value 前，必须显式加载对应 Channel。加载会建立一份 invocation snapshot，但不会消费 message。已加载的空 Channel 返回空列表；未加载就读取 pending message 会返回 usage error。
+每个 Step method、timeout handler 和 RPC 始终会收到 Channel size metadata。读取 pending message 的 ID 或 Value 前，必须显式加载对应 Channel。删除 ID 已知的 message 不需要加载它。**StepOptions** 为 **WaitFor** 和 **Execute** 分别选择状态；**FlowTimeoutHandlerOptions** 为 timeout handler 选择状态。加载会建立一份 invocation snapshot，但不会消费 message。已加载的空 Channel 返回空列表；未加载就读取 pending message 会返回 usage error。
+
+Step 或 timeout handler 可以把 deletion 与其他 side effect 一起暂存。成功的 handler effect 按 Attribute write、best-effort Channel deletion、Channel publication 的顺序应用，然后处理 Step decision。如果另一项操作已经消费或删除所选消息，deletion 是 no-op，其他 effect 仍会应用。**StepDecision** 只描述 control flow，不包含 deletion。
 
 <SdkTabs
 examples={{

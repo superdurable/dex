@@ -19,6 +19,7 @@ Dex 允许你自定义 Flow execution 的行为。
 |------|------|
 | **Timeout** | Flow timeout。省略或设为零可禁用。 |
 | **TimeoutPolicy** | Flow timeout 触发时的行为。 |
+| **TimeoutHandlerOptions** | Timeout handler 的 execution、retry、recovery、durability、locking 与 state loading。 |
 | **IDReusePolicy** | 启动时如何复用已有 Flow ID。 |
 | **RequestID** | 重试同一次启动请求的幂等键。 |
 | **AlreadyStartedOptions** | 如何处理已启动的 Flow。 |
@@ -179,9 +180,15 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 
 - **FAIL** — 以 timeout error 失败 Flow。**RetryPolicy** 可以重试它。
 - **CANCEL** — 取消 Flow，不会重试。
-- **HANDLER** — 调用一次 Flow timeout handler。
+- **HANDLER** — 运行一次逻辑 Flow timeout-handler execution。
 
 提供正数 **Timeout** 时，Dex SDK 默认使用 **FAIL**。Flow 有 timeout handler 时，则使用 **HANDLER**。没有 handler 时使用 **HANDLER** 无效。一次 retry 会获得新的 timeout budget。
+
+只有 **Timeout** 为正数且最终 policy 为 **HANDLER** 时，才能设置 **TimeoutHandlerOptions**。它采用 Execute 语义：method timeout 限制单次 attempt，**Retry** 可以运行多次 attempt，**HeartbeatTimeout** 检测停滞的 regular attempt，**Failure** 可以在 retry 耗尽后进入已注册的无输入 Step。Recovery Step 会收到 null 或 unit input，并从 handler **Context** 读取最终 error。
+
+Handler 的 attempt 与 retry 计时从 soft Flow timeout 触发时开始，因此可以超过原始 Flow deadline。未配置 failure target 时，handler retry 耗尽会使 Flow 失败。
+
+普通 Attribute 和所有 Channel size metadata 会自动加载。AttributeMap value 与 pending Channel message 必须通过 **TimeoutHandlerOptions** 显式选择。Handler 可以先暂存 Attribute write、Channel deletion 与 Channel publication，再返回 decision。Continue-as-new 和 Flow retry 都会保留这些 options；Flow retry 会开始新的 soft-timeout budget。
 
 把 **TimeoutPolicy** 设为 **HANDLER**，timeout 触发时就会运行下面的代码。这个 handler 记录 Flow 结束的原因，再用应用自己的原因失败该 Flow。
 

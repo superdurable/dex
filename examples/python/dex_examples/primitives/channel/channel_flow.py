@@ -27,6 +27,7 @@ from dex import (
     Step,
     StepDecision,
     StepList,
+    StepOptions,
     Timer,
     Wait,
     go_to,
@@ -41,8 +42,12 @@ class MoveMessage:
 
 
 class ChannelWaitStep(Step[int]):
-    def __init__(self, approval: Channel[str]) -> None:
+    def __init__(self, approval: Channel[str], queued: Channel[str]) -> None:
         self.approval = approval
+        self.queued = queued
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_load_channels=(self.queued,))
 
     def wait_for(self, context: Context, input: int) -> Wait:
         return Wait.any_of(
@@ -51,6 +56,10 @@ class ChannelWaitStep(Step[int]):
         )
 
     def execute(self, context: Context, input: int) -> StepDecision:
+        pending = self.queued.pending_messages(context)
+        if pending:
+            self.queued.delete(context, pending[0].message_id)
+            return graceful_complete(pending[0].value)
         if context.has_timer_fired():
             return graceful_complete("approval timed out")
         approvals = self.approval.results(context)
@@ -63,7 +72,7 @@ class ChannelFlow(Flow[int]):
     moved = Channel("Moved", str)
 
     def __init__(self) -> None:
-        self.wait_for_approval = ChannelWaitStep(self.approval)
+        self.wait_for_approval = ChannelWaitStep(self.approval, self.queued)
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.wait_for_approval)

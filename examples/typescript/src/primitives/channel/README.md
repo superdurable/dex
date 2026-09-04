@@ -2,6 +2,7 @@
 
 Minimal Flow that waits on a Channel, lists pending messages by ID, deletes them,
 and transactionally moves one message between Channels.
+The Step explicitly loads pending messages for Execute and deletes the first queued message with its decision.
 
 HTTP:
 

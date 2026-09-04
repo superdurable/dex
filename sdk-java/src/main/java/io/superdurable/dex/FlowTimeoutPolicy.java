@@ -21,6 +21,6 @@ public enum FlowTimeoutPolicy {
     /** Cancels the Flow without retrying it. */
     CANCEL,
 
-    /** Invokes {@link Flow#handleTimeout} once after the durable timer completes or is skipped. */
+    /** Starts one logical {@link Flow#handleTimeout} execution after the durable timer completes or is skipped. */
     HANDLER
 }

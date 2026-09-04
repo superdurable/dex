@@ -8,13 +8,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/grac
 
 Use Dex's built-in graceful timeout when an overall Flow deadline needs application-defined handling. The timeout belongs to the Flow execution, not to a competing Step.
 
-**FlowGracefulTimeout** starts **LongWaitStep**. A positive timeout in **StartFlowOptions** uses the Flow's timeout handler. When the durable deadline expires, Dex invokes **handleTimeout** once and applies its decision with normal Execute semantics.
+**FlowGracefulTimeout** starts **LongWaitStep**. When the Flow deadline expires, Dex runs **handleTimeout**. The handler response uses Execute semantics.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Core implementation
 
-The complete Flow definition registers **LongWaitStep** through its start Step and registers the timeout hook by implementing the Flow timeout-handler method. Start the Flow with a positive timeout; **HANDLER** is explicit below and is also the default when the Flow provides the hook.
+The complete Flow definition registers **LongWaitStep** and the timeout hook. Start the Flow with a positive timeout; **HANDLER** is explicit below and is also the default when the Flow provides the hook. The example gives the hook its own attempt timeout and retry policy with **FlowTimeoutHandlerOptions**.
 
 <SdkTabs examples={{
   python: 'examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py',
@@ -27,11 +27,14 @@ The complete Flow definition registers **LongWaitStep** through its start Step a
 
 ```python
 class LongWaitStep(Step[bool]):
-    def wait_for(self, context: Context, successful: bool) -> Wait:
-        return Wait.skip_immediately() if successful else Wait.until(Timer.by_duration(timedelta(seconds=65)))
+    def wait_for(self, context: Context, input: bool) -> Wait:
+        if input:
+            return Wait.skip_immediately()
+        return Wait.until(Timer.by_duration(SLOW_TASK_DURATION))
 
-    def execute(self, context: Context, successful: bool) -> StepDecision:
+    def execute(self, context: Context, input: bool) -> StepDecision:
         return force_complete("Workflow completed successfully")
+
 
 class FlowGracefulTimeout(Flow[bool]):
     def __init__(self) -> None:
@@ -45,13 +48,17 @@ class FlowGracefulTimeout(Flow[bool]):
 ```
 
 ```python
-await client.start_flow(
-    flow,
+await app_state.client.start_flow(
+    app_state.timeout,
     flow_id,
-    successful,
+    optional_query("successfulWorkflow", "true").lower() == "true",
     StartFlowOptions(
         timeout=timedelta(minutes=1),
         timeout_policy=FlowTimeoutPolicy.HANDLER,
+        timeout_handler_options=FlowTimeoutHandlerOptions(
+            method_timeout=timedelta(seconds=30),
+            retry=RetryPolicy(maximum_attempts=3),
+        ),
     ),
 )
 ```
@@ -88,20 +95,23 @@ func (longWaitStep) Execute(_ dex.Context, _ bool) (*dex.StepDecision, error) {
 func (*FlowGracefulTimeout) HandleTimeout(_ dex.Context) (*dex.StepDecision, error) {
 	return dex.ForceFail("Workflow did not finish the task in time"), nil
 }
+
 ```
 
 ```go
-timeout := time.Minute
-_, err := client.StartFlow(
-	ctx,
-	flow,
-	flowID,
-	successful,
-	dex.StartFlowOptions{
+func patternStartOptions() sdk.StartFlowOptions {
+	timeout := time.Minute
+	return sdk.StartFlowOptions{
 		Timeout:       &timeout,
-		TimeoutPolicy: dex.TimeoutHandler,
-	},
-)
+		TimeoutPolicy: sdk.TimeoutHandler,
+		TimeoutHandlerOptions: &sdk.FlowTimeoutHandlerOptions{
+			MethodTimeout: 30 * time.Second,
+			Retry: &sdk.RetryPolicy{
+				MaximumAttempts: 3,
+			},
+		},
+	}
+}
 ```
 
 </SdkSnippet>
@@ -150,6 +160,10 @@ client.startFlow(
         StartFlowOptions.newBuilder()
                 .timeout(Duration.ofMinutes(1))
                 .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
+                .timeoutHandlerOptions(FlowTimeoutHandlerOptions.newBuilder()
+                        .methodTimeout(Duration.ofSeconds(30))
+                        .retry(RetryPolicy.newBuilder().maximumAttempts(3).build())
+                        .build())
                 .build());
 ```
 
@@ -193,6 +207,10 @@ class FlowGracefulTimeout implements Flow<boolean> {
 await client.startFlow(flowGracefulTimeout, workflowId, successful, {
   timeoutMs: 60_000,
   timeoutPolicy: FlowTimeoutPolicy.HANDLER,
+  timeoutHandlerOptions: {
+    methodTimeoutMs: 30_000,
+    retry: { maximumAttempts: 3 },
+  },
 });
 ```
 
@@ -231,6 +249,12 @@ impl Step for LongWaitStep {
 }
 
 impl FlowGracefulTimeout {
+    pub(crate) fn timeout_handler_options(&self) -> FlowTimeoutHandlerOptions {
+        FlowTimeoutHandlerOptions::new()
+            .method_timeout(Duration::from_secs(30))
+            .retry(RetryPolicy::new().maximum_attempts(3))
+    }
+
     fn handle_timeout(&self, _context: &mut Context) -> HandlerResult<StepDecision> {
         Ok(StepDecision::force_fail("task exceeded graceful timeout"))
     }
@@ -238,18 +262,22 @@ impl FlowGracefulTimeout {
 ```
 
 ```rust
+let timeout_handler_options = flow.timeout_handler_options();
 client.start_flow_with_options(
     &flow,
     &flow_id,
     successful,
     StartFlowOptions::new()
         .timeout(Duration::from_secs(60))
-        .timeout_policy(FlowTimeoutPolicy::Handler),
+        .timeout_policy(FlowTimeoutPolicy::Handler)
+        .timeout_handler_options(timeout_handler_options),
 )?;
 ```
 
 </SdkSnippet>
 </SdkTabs>
+
+If the timeout handler succeeds, Dex applies its staged writes, best-effort Channel deletions, Channel publications, and decision. If it exhausts the configured retries, Dex fails the Flow.
 
 ## Related
 
