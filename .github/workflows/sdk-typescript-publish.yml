@@ -23,6 +23,7 @@ jobs:
     name: Native ${{ matrix.platform }}
     if: >
       github.event_name == 'workflow_call' ||
+      github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.release.tag_name, 'sdk-typescript/v')
     strategy:
       fail-fast: false
@@ -73,6 +74,7 @@ jobs:
     needs: native
     if: >
       github.event_name == 'workflow_call' ||
+      github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.release.tag_name, 'sdk-typescript/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
