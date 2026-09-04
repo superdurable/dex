@@ -56,7 +56,7 @@ export const FlowTimeoutPolicy = Object.freeze({
   FAIL: "fail",
   /** Cancels without retrying the Flow. */
   CANCEL: "cancel",
-  /** Invokes `Flow.handleTimeout` once after the durable timer fires or is skipped. */
+  /** Starts one logical `Flow.handleTimeout` execution after the durable timer fires or is skipped. */
   HANDLER: "handler",
 } as const);
 

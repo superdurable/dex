@@ -38,6 +38,37 @@ atomic commit and Channel deletion validation. Attribute locks add isolation
 only among cooperating Steps and RPCs using the same lock. Write-only publish
 and delete operations do not require loading.
 
+## Step and timeout-handler state loading
+
+`StepOptions` provides the same five selections independently for `WaitFor` and
+`Execute`: all AttributeMap instances, exact AttributeMap instances, Channels,
+all ChannelMap instances, and exact ChannelMap instances. The two methods receive
+independent snapshots. Execute reads after the winning Wait consumes messages;
+retries of one logical method call reuse its first snapshot.
+
+`FlowTimeoutHandlerOptions` provides Execute-style timeouts, heartbeat detection,
+retry, durability, Attribute locks, and the same state selections. Set it on
+`StartFlowOptions` or `SubFlowOptions` only for a positive timeout using the
+handler policy. Exhausted retries may proceed to a registered `Step[None]`; read
+the final failure with `Context.RecoveryError`.
+
+```go
+type timeoutRecoveryStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (timeoutRecoveryStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	failure := ctx.RecoveryError()
+	if failure == nil {
+		return dex.ForceFail("timeout recovery has no failure"), nil
+	}
+	return dex.ForceFail(failure.Detail), nil
+}
+```
+
 The Go SDK is being rewritten around the current Dex `Flow`, `Step`,
 `Attribute`, `Channel`, `Stream`, `WaitFor`, and `Execute` contracts.
 

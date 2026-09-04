@@ -40,6 +40,35 @@ atomic commit and Channel deletion validation. Attribute locks add isolation
 only among cooperating Steps and RPCs using the same lock. Write-only publish
 and delete operations do not require loading.
 
+## Step and timeout-handler state loading
+
+`StepOptions` provides the same five selections independently for `waitFor` and
+`execute`: all AttributeMap instances, exact AttributeMap instances, Channels,
+all ChannelMap instances, and exact ChannelMap instances. The methods receive
+independent snapshots. Execute reads after the winning Wait consumes messages;
+retries of one logical method call reuse its first snapshot.
+
+`FlowTimeoutHandlerOptions` provides Execute-style timeouts, heartbeat detection,
+retry, durability, Attribute locks, and the same state selections. Set it on
+`StartFlowOptions` or `SubFlowOptions` only for a positive timeout using `HANDLER`.
+Exhausted retries may proceed to a registered `Step<void>` using `voidCodec`;
+read the final failure from `Context.recoveryError`.
+
+```typescript
+class TimeoutRecoveryStep implements Step<void> {
+  public readonly inputCodec = voidCodec;
+
+  public getStepType(): string {
+    return "TimeoutRecoveryStep";
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    const failure = context.recoveryError;
+    return forceFail(failure?.detail ?? "timeout recovery has no failure");
+  }
+}
+```
+
 This package targets Node.js 22 and 24. It provides strongly typed workflow
 contracts and a Promise-based gRPC Client. The Client and Worker runtime use
 `@grpc/grpc-js`. Blob caching uses the shared Rust DXBC implementation through

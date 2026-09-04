@@ -282,6 +282,10 @@ func (registrationContext) FromStepExecutionID() string {
 	return ""
 }
 
+func (registrationContext) RecoveryError() *RecoveryErrorInfo {
+	return nil
+}
+
 func (registrationContext) FirstAttemptAt() time.Time {
 	return time.Time{}
 }

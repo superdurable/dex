@@ -36,7 +36,7 @@ from dex.codec import (
     WireKind,
 )
 from dex.condition import ConditionCombination
-from dex.context import AsyncContext, Context
+from dex.context import AsyncContext, Context, RecoveryErrorInfo
 from dex.flow import Flow, PersistenceSchema, Registry, RPCResult, rpc
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
 from dex.flow_info import (
@@ -163,6 +163,7 @@ __all__ = [
     "LongPollTimeoutError",
     "PersistenceSchema",
     "RPCResult",
+    "RecoveryErrorInfo",
     "RetryAfterError",
     "RpcLockConflictError",
     "Registry",

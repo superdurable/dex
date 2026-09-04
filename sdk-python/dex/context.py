@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, Sequence, TypeVar
 
 if TYPE_CHECKING:
@@ -25,6 +26,19 @@ if TYPE_CHECKING:
 
 
 ValueT = TypeVar("ValueT")
+
+
+@dataclass(frozen=True)
+class RecoveryErrorInfo:
+    """Describe the final failure that selected a recovery path.
+
+    Attributes:
+        detail: Failure message supplied by the Worker or backend.
+        error_type: Original Worker error type or backend failure type.
+    """
+
+    detail: str
+    error_type: str
 
 
 class Context(Protocol):
@@ -69,6 +83,15 @@ class Context(Protocol):
 
         Returns:
             The originating identifier, or an empty string at Flow start.
+        """
+        ...
+
+    @property
+    def recovery_error(self) -> RecoveryErrorInfo | None:
+        """Return the final failure that selected this recovery path.
+
+        Returns:
+            Recovery information, or ``None`` outside a recovery path.
         """
         ...
 

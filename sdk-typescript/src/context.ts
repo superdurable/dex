@@ -11,6 +11,14 @@ import type { Channel, ChannelMap, ChannelMessage } from "./wait.js";
 import type { Codec } from "./codec.js";
 import type { Stream } from "./stream.js";
 
+/** Describes the final failure that selected a recovery path. */
+export interface RecoveryErrorInfo {
+  /** Failure message supplied by the Worker or backend. */
+  readonly detail: string;
+  /** Original Worker error type or backend failure type. */
+  readonly errorType: string;
+}
+
 /**
  * Exposes execution metadata and decision-local persistence operations.
  * Dex supplies a Context to each Step or RPC handler; do not retain it afterward.
@@ -26,6 +34,8 @@ export interface Context {
   readonly stepExecutionId: string;
   /** Predecessor Step execution ID, or an empty string at Flow start. */
   readonly fromStepExecutionId: string;
+  /** Final failure that selected this recovery path, or `undefined` when absent. */
+  readonly recoveryError: RecoveryErrorInfo | undefined;
   /** UTC timestamp of the first handler attempt. */
   readonly firstAttemptAt: Date;
   /** One-based handler retry attempt number. */

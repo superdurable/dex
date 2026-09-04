@@ -729,6 +729,34 @@ test("Async Step Context preserves heartbeat Value presence and codecs", async (
   }
 });
 
+test("Context exposes the recovery error", () => {
+  class RecoveryFlow implements Flow<void> {
+    public getFlowType(): string {
+      return "RecoveryFlow";
+    }
+
+    public getSteps(): StepList<void> {
+      return StepList.empty();
+    }
+  }
+  const flow = new RecoveryFlow();
+  const context = new InvocationContext(
+    "execute",
+    registeredFlowByName(new Registry([flow]), flow.getFlowType()),
+    ProtoContext.create({
+      recoveryError: {
+        detail: "handler exhausted retries",
+        errorType: "TimeoutError",
+      },
+    }),
+    [],
+  );
+  assert.deepEqual(context.recoveryError, {
+    detail: "handler exhausted retries",
+    errorType: "TimeoutError",
+  });
+});
+
 class UnsupportedSynchronousHeartbeatStep implements Step<string> {
   public getStepType(): string {
     return "UnsupportedSynchronousHeartbeatStep";
