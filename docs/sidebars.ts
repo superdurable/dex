@@ -143,14 +143,13 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Production',
+      label: 'Deploy to Production',
       link: {type: 'doc', id: 'production/index'},
       items: [
         'production/application-operations',
         'production/server-operations',
         'production/metrics',
         'production/attribute-store',
-        'production/versioning',
       ],
     },
     {

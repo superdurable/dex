@@ -1,0 +1,69 @@
+---
+title: 服务器运维
+---
+
+# 服务器运维
+
+Dex Server 提供 FlowService API、协调持久化 Flow 执行，并提供 Dex Web API。将它作为
+具有明确配置、健康检查和访问控制的托管生产服务来运行。
+
+## 本地开发
+
+对于本地 stack，请安装 dexcli 并运行：
+
+~~~bash
+brew install superdurable/tap/dexcli
+dexcli dev
+~~~
+
+这会启动 Dex Server 和 Dex Web 供本地使用。选项请参阅
+[CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)。
+
+## 生产部署形态
+
+- 以带有 readiness 和 liveness check 的托管服务运行 Dex Server。
+- 为应用 client 和 Worker 提供稳定、经过认证的 server address。
+- 为大 payload 配置持久化 Blob Store。
+- 在需要可搜索投影时配置 MySQL 或 PostgreSQL Custom Attribute Store。
+- 只通过组织的认证访问路径发布 Dex Web。
+- 从每个 Server instance 收集日志和 Prometheus metrics。
+
+独立部署 Server configuration 和应用 Worker 变更。Worker 发布可以改变 Flow 行为；在退役
+定义前，使用[应用运维](/production/application-operations#versioning-flow-code)中的
+版本控制流程。
+
+## 配置
+
+Server 配置是 YAML 和有类型的 Go 配置。生产配置不同于 **dexcli dev** 接受的有限 flag。
+将配置保存在已批准的 secret-management 和部署系统中，而不是应用镜像中。
+
+Blob Store section 名为 **blobStore**。其中的 entry 使用 **BlobStoreConfigEntry**。
+旧的 **externalStorage** key 不被接受。
+
+## Blob Store
+
+在允许超过 inline limit 的 payload 前配置持久化 store。为每个环境使用独立凭据和
+least-privilege policy。监控 write 和 read failure，并测试 credential rotation 后仍能读取
+现有 object 的恢复流程。
+
+可选的 **blobStore.blobCache** 缓存 S3 支持的 Attribute object。非空 **directory** 会启用
+它，并且只能属于一个 Server process。默认 budget 为 1 GiB。过大或被拒绝的 object 会
+绕过 cache，继续访问源 Blob Store。损坏的 entry 会被失效并重新填充；初始化、恢复和
+disk I/O error 是 Server error。local Blob Store object 和 Step-event input snapshot 不使用
+此 cache。
+
+## Custom Attribute Store
+
+当关系型 projection 支持运维搜索或业务报表时，使用 Custom Attribute Store。请遵循
+[自定义 Attribute Store](/production/attribute-store)中的 schema 和 retry 要求。将其
+数据库、凭据、migration 和 backup 作为 Dex deployment 的生产依赖。
+
+## Dex Web 访问控制
+
+Dex Web 可以显示 Flow input、output、Attribute 和 Worker stack trace。将它放在 TLS 以及
+强制认证的 reverse proxy 或 gateway 后。按 role 授权生产访问，并将其限制给需要检查
+Flow data 的 operator。
+
+不要将 Dex Web 或 FlowService API 直接公开到公网上。使用 network policy、认证传输和
+权限最小化的 service identity 保护 Server 和 Worker endpoint。按照你的 data-handling
+policy 审计对生产 Flow detail 的访问。
