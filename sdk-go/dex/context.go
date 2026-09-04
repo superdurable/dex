@@ -45,7 +45,7 @@ type Context interface {
 	// WaitForMethodFailed reports whether Execute followed an exhausted WaitFor with Proceed policy.
 	WaitForMethodFailed() bool
 
-	// RecordHeartbeat reports progress for the active WaitFor or Execute invocation.
+	// RecordHeartbeat reports progress for the active WaitFor, Execute, or Flow timeout invocation.
 	//
 	// A nil value, including a typed nil, clears persisted heartbeat details. Any
 	// other value is encoded and supplied to the next regular activity attempt.
@@ -55,7 +55,7 @@ type Context interface {
 	// Encoding failures return ValueMappingError; transport failures return the
 	// underlying gRPC error.
 	//
-	// RPC and Flow timeout invocations, and calls after the handler returns, produce an error.
+	// RPC invocations and calls after the handler returns produce an error.
 	//
 	//	var checkpoint ImportCheckpoint
 	//	found, err := ctx.GetLastHeartbeatValue(&checkpoint)
@@ -69,7 +69,7 @@ type Context interface {
 	//		return nil, err
 	//	}
 	RecordHeartbeat(value any) error
-	// GetLastHeartbeatValue decodes the latest regular-activity heartbeat details.
+	// GetLastHeartbeatValue decodes the latest retryable handler heartbeat details.
 	//
 	// valuePtr must be a non-nil pointer. The method returns false without changing
 	// valuePtr when no details exist. Local-activity heartbeats are not available to

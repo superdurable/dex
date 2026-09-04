@@ -380,7 +380,8 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 		"--input", `{"order":42}`, "--attributes", `[{"key":"status","value":"new","index":{"type":"keyword"},"sync":true}]`,
 		"--config", `{"activeStepSearchMode":"all","continueAsNewThreshold":12,"stepDurability":"sync","workerTarget":{"address":"127.0.0.1:9000","headless":true}}`,
 		"--retry-policy", `{"initialInterval":"1500ms","backoffCoefficient":2,"maximumInterval":"5s","maximumAttempts":3}`,
-		"--step-options", `{"skipWaitFor":true}`, "--flow-timeout", "90s", "--flow-timeout-policy", "cancel",
+		"--step-options", `{"skipWaitFor":true}`, "--timeout-handler-options", `{"methodTimeoutSeconds":20,"loadChannelNames":["commands"]}`,
+		"--flow-timeout", "90s", "--flow-timeout-policy", "handler",
 		"--id-reuse-policy", "not-running", "--start-delay", "1500ms", "--ignore-already-started", "--request-id", "request-1", "--yes", "--server", address,
 	)
 	if startResult["runId"] != "run-started" {
@@ -404,7 +405,7 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	startRequest := service.startRequest
-	if service.startCalls != 1 || startRequest.GetFlowType() != "OrderFlow" || startRequest.GetFlowTimeoutSeconds() != 90 || startRequest.GetFlowTimeoutPolicy() != dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL || startRequest.GetRequestId() != "request-1" {
+	if service.startCalls != 1 || startRequest.GetFlowType() != "OrderFlow" || startRequest.GetFlowTimeoutSeconds() != 90 || startRequest.GetFlowTimeoutPolicy() != dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER || startRequest.GetRequestId() != "request-1" {
 		t.Fatalf("unexpected start request: %#v", startRequest)
 	}
 	if string(startRequest.GetStepInput().GetObjValue().GetPayload()) != `{"order":42}` || !startRequest.GetStepOptions().GetSkipWaitFor() {
@@ -412,6 +413,10 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 	}
 	if startRequest.GetFlowStartOptions().GetFlowStartDelaySeconds() != 2 || startRequest.GetFlowStartOptions().GetIdReusePolicy() != dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING || !startRequest.GetFlowStartOptions().GetFlowAlreadyStartedOptions().GetIgnoreAlreadyStartedError() {
 		t.Fatalf("unexpected start options: %#v", startRequest.GetFlowStartOptions())
+	}
+	timeoutHandlerOptions := startRequest.GetFlowStartOptions().GetTimeoutHandlerOptions()
+	if timeoutHandlerOptions.GetMethodTimeoutSeconds() != 20 || len(timeoutHandlerOptions.GetLoadChannelNames()) != 1 || timeoutHandlerOptions.GetLoadChannelNames()[0] != "commands" {
+		t.Fatalf("unexpected timeout handler options: %#v", timeoutHandlerOptions)
 	}
 	attribute := startRequest.GetFlowStartOptions().GetAttributes()[0]
 	if attribute.GetKey() != "status" || attribute.GetValue().GetStringValue() != "new" || attribute.GetIndexConfig().GetType() != dexpb.IndexType_INDEX_TYPE_KEYWORD || !attribute.GetSyncConfig().GetEnabled() {

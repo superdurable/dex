@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
@@ -380,6 +381,12 @@ func (flow *registeredFlow) doValidateStepOptions(
 	); err != nil {
 		return fmt.Errorf("Execute locks: %w", err)
 	}
+	if _, _, _, err := validateStateLoads(flow, waitForStepStateLoads(options)); err != nil {
+		return fmt.Errorf("WaitFor state load: %w", err)
+	}
+	if _, _, _, err := validateStateLoads(flow, executeStepStateLoads(options)); err != nil {
+		return fmt.Errorf("Execute state load: %w", err)
+	}
 	if options.ExecuteFailure == nil {
 		return nil
 	}
@@ -400,6 +407,49 @@ func (flow *registeredFlow) doValidateStepOptions(
 		target.inputType,
 		active,
 	)
+}
+
+func (flow *registeredFlow) validateFlowTimeoutHandlerOptions(
+	timeout *time.Duration,
+	policy FlowTimeoutPolicy,
+	options *FlowTimeoutHandlerOptions,
+) error {
+	if options == nil {
+		return nil
+	}
+	if timeout == nil || *timeout <= 0 || policy != TimeoutHandler {
+		return fmt.Errorf("timeout handler options require a positive timeout with Handler policy")
+	}
+	if err := flow.validateAttributeLocks(options.LockAttributes); err != nil {
+		return fmt.Errorf("timeout handler locks: %w", err)
+	}
+	if _, _, _, err := validateStateLoads(flow, timeoutHandlerStateLoads(options)); err != nil {
+		return fmt.Errorf("timeout handler state load: %w", err)
+	}
+	if options.Failure != nil {
+		target, err := flow.resolveStepReference(options.Failure.step)
+		if err != nil {
+			return fmt.Errorf("timeout handler failure target: %w", err)
+		}
+		if target.inputType != reflect.TypeFor[None]() {
+			return fmt.Errorf(
+				"timeout handler failure target %q input %s is not None",
+				target.stepType,
+				target.inputType,
+			)
+		}
+		if err := flow.doValidateStepOptions(
+			options.Failure.options,
+			target.inputType,
+			make(map[*StepOptions]bool),
+		); err != nil {
+			return err
+		}
+	}
+	if _, err := mapFlowTimeoutHandlerOptions(options); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (flow *registeredFlow) validateAttributeLocks(

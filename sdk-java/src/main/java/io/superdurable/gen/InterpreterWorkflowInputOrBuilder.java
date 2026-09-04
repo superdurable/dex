@@ -144,4 +144,19 @@ public interface InterpreterWorkflowInputOrBuilder extends
    * <code>.dex.ContinueAsNewInput continue_as_new_input = 10;</code>
    */
   io.superdurable.gen.ContinueAsNewInputOrBuilder getContinueAsNewInputOrBuilder();
+
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 11;</code>
+   * @return Whether the timeoutHandlerOptions field is set.
+   */
+  boolean hasTimeoutHandlerOptions();
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 11;</code>
+   * @return The timeoutHandlerOptions.
+   */
+  io.superdurable.gen.FlowTimeoutHandlerOptions getTimeoutHandlerOptions();
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 11;</code>
+   */
+  io.superdurable.gen.FlowTimeoutHandlerOptionsOrBuilder getTimeoutHandlerOptionsOrBuilder();
 }

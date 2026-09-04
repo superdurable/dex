@@ -23,6 +23,7 @@ import {
   SubFlowOptions as ProtoSubFlowOptions,
   SubFlowReusePolicy as ProtoSubFlowReusePolicy,
   FlowRetryPolicy,
+  FlowTimeoutHandlerOptions as ProtoFlowTimeoutHandlerOptions,
   FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
   FlowConfig as ProtoFlowConfig,
   ActiveStepSearchMode as ProtoActiveStepSearchMode,
@@ -33,6 +34,7 @@ import {
   WaitingConditionType,
   type AttributeWrite,
   type ChannelMessage,
+  type ChannelValues,
   type ConditionResults,
   type InvokeExecuteMethodRequest,
   type InvokeWaitForMethodRequest,
@@ -52,9 +54,19 @@ import {
   type Registry,
 } from "./flow.js";
 import { InvocationContext, type StepOutputEmitter } from "./invocation-context.js";
-import { Attribute, AttributeMap, IndexType } from "./persistence.js";
+import {
+  Attribute,
+  AttributeMap,
+  IndexType,
+  type AttributeLock,
+} from "./persistence.js";
 import { mapAttributeStoreNames, mapAttributeStoreSync } from "./attribute-store-sync.js";
-import { ActiveStepSearchMode, FlowTimeoutPolicy, type FlowConfig } from "./options.js";
+import {
+  ActiveStepSearchMode,
+  FlowTimeoutPolicy,
+  type FlowConfig,
+  type FlowTimeoutHandlerOptions,
+} from "./options.js";
 import { SubFlowReusePolicy, type SubFlowOptions } from "./subflow.js";
 import type { RegisteredRPC } from "./rpc.js";
 import type {
@@ -65,6 +77,7 @@ import type {
   StepMovement,
   StepOptions,
 } from "./step.js";
+import { voidCodec } from "./codec.js";
 import {
   codecOrJson,
   decodeValue,
@@ -99,9 +112,13 @@ export class WorkerDispatcher {
       request.attributes,
       [],
       undefined,
-      {},
+      request.channelInfos,
       cancellationSignal,
       stepOutput,
+      request.loadedChannelMessages,
+      request.loadedAttributeMapInstances,
+      request.loadedChannelNames,
+      request.loadedChannelMapInstances,
     );
     const input = decodeValue(
       codecOrJson(step.step.inputCodec),
@@ -120,6 +137,7 @@ export class WorkerDispatcher {
           upsertStepExeLocals: [...context.getLocalWrites()],
           recordEvents: [...context.getEvents()],
           publishToChannel: [...context.getPublications()],
+          deleteFromChannel: [...context.getChannelDeletions()],
         });
       } catch (failure) {
         throw invalidStepResult(flow.name, step.name, "waitFor", failure);
@@ -143,7 +161,7 @@ export class WorkerDispatcher {
     cancellationSignal.throwIfAborted();
     const flow = registeredFlowByName(this.registry, request.flowType);
     if (request.stepType === timeoutHandlerStepType) {
-      return this.invokeTimeoutHandler(request, flow, cancellationSignal);
+      return this.invokeTimeoutHandler(request, flow, cancellationSignal, stepOutput);
     }
     const step = registeredStep(flow, request.stepType);
     const context = new InvocationContext(
@@ -153,9 +171,13 @@ export class WorkerDispatcher {
       request.attributes,
       request.stepExeLocals,
       request.conditionResults,
-      {},
+      request.channelInfos,
       cancellationSignal,
       stepOutput,
+      request.loadedChannelMessages,
+      request.loadedAttributeMapInstances,
+      request.loadedChannelNames,
+      request.loadedChannelMapInstances,
     );
     const input = decodeValue(
       codecOrJson(step.step.inputCodec),
@@ -171,6 +193,7 @@ export class WorkerDispatcher {
           recordEvents: [...context.getEvents()],
           upsertStepExeLocals: [...context.getLocalWrites()],
           publishToChannel: [...context.getPublications()],
+          deleteFromChannel: [...context.getChannelDeletions()],
         });
       } catch (failure) {
         throw invalidStepResult(flow.name, step.name, "execute", failure);
@@ -189,6 +212,7 @@ export class WorkerDispatcher {
     request: InvokeExecuteMethodRequest,
     flow: RegisteredFlow,
     cancellationSignal: AbortSignal,
+    stepOutput?: StepOutputEmitter,
   ): Promise<InvokeExecuteMethodResponse> {
     try {
       if (request.stepInput !== undefined) {
@@ -204,17 +228,32 @@ export class WorkerDispatcher {
         request.attributes,
         request.stepExeLocals,
         request.conditionResults,
-        {},
+        request.channelInfos,
         cancellationSignal,
+        stepOutput,
+        request.loadedChannelMessages,
+        request.loadedAttributeMapInstances,
+        request.loadedChannelNames,
+        request.loadedChannelMapInstances,
       );
-      const decision = await flow.flow.handleTimeout(context);
-      return InvokeExecuteMethodResponse.create({
-        stepDecision: mapDecision(flow, decision),
-        upsertAttributes: [...context.getAttributeWrites()],
-        recordEvents: [...context.getEvents()],
-        upsertStepExeLocals: [...context.getLocalWrites()],
-        publishToChannel: [...context.getPublications()],
-      });
+      try {
+        const decision = await flow.flow.handleTimeout(context);
+        const response = InvokeExecuteMethodResponse.create({
+          stepDecision: mapDecision(flow, decision),
+          upsertAttributes: [...context.getAttributeWrites()],
+          recordEvents: [...context.getEvents()],
+          upsertStepExeLocals: [...context.getLocalWrites()],
+          publishToChannel: [...context.getPublications()],
+          deleteFromChannel: [...context.getChannelDeletions()],
+        });
+        const finalizationFailure = context.finalizeStepOutputs();
+        if (finalizationFailure !== undefined) {
+          throw finalizationFailure;
+        }
+        return response;
+      } catch (failure) {
+        throw context.finalizeStepOutputs(failure);
+      }
     } catch (failure) {
       throw invalidStepResult(flow.name, timeoutHandlerStepType, "execute", failure);
     }
@@ -271,15 +310,24 @@ export class WorkerDispatcher {
       ...(hasLastHeartbeatValue ? [lastHeartbeatValue] : []),
       request.stepInput,
       ...request.attributes.map((entry) => entry.value),
+      ...loadedMessageValues(request.loadedChannelMessages),
     ]);
     const offset = hasLastHeartbeatValue ? 1 : 0;
+    const loadedChannelMessages = replaceLoadedChannelMessageValues(
+      request.loadedChannelMessages,
+      values.slice(offset + 1 + request.attributes.length),
+    );
     return {
       ...request,
       context: hasLastHeartbeatValue
         ? { ...request.context!, lastHeartbeatValue: values[0] }
         : request.context,
       stepInput: values[offset],
-      attributes: replaceEntryValues(request.attributes, values.slice(offset + 1)),
+      attributes: replaceEntryValues(
+        request.attributes,
+        values.slice(offset + 1, offset + 1 + request.attributes.length),
+      ),
+      loadedChannelMessages,
     };
   }
 
@@ -302,6 +350,7 @@ export class WorkerDispatcher {
       ...request.stepExeLocals.map((entry) => entry.value),
       ...channelValues,
       ...subFlowValues,
+      ...loadedMessageValues(request.loadedChannelMessages),
     ]);
     let offset = hasLastHeartbeatValue ? 1 : 0;
     const stepInput = hasInput ? values[offset++] : undefined;
@@ -315,6 +364,11 @@ export class WorkerDispatcher {
     );
     const conditionResults = replaceConditionValues(
       request.conditionResults,
+      values.slice(offset, offset + channelValues.length + subFlowValues.length),
+    );
+    offset += channelValues.length + subFlowValues.length;
+    const loadedChannelMessages = replaceLoadedChannelMessageValues(
+      request.loadedChannelMessages,
       values.slice(offset),
     );
     return {
@@ -326,33 +380,26 @@ export class WorkerDispatcher {
       attributes,
       stepExeLocals,
       conditionResults,
+      loadedChannelMessages,
     };
   }
 
   private async hydrateRPC(request: InvokeWorkerRPCRequest): Promise<InvokeWorkerRPCRequest> {
     const hasInput = request.input !== undefined;
-    const channelMessages = Object.values(request.loadedChannelMessages)
-      .flatMap((values) => values.messages);
+    const channelMessages = loadedMessageValues(request.loadedChannelMessages);
     const values = await this.hydrator.hydrateAll([
       ...(hasInput ? [request.input] : []),
       ...request.attributes.map((entry) => entry.value),
-      ...channelMessages.map((message) => message.value),
+      ...channelMessages,
     ]);
     let offset = hasInput ? 1 : 0;
     const attributes = replaceEntryValues(
       request.attributes,
       values.slice(offset, (offset += request.attributes.length)),
     );
-    const loadedChannelMessages = Object.fromEntries(
-      Object.entries(request.loadedChannelMessages).map(([name, channelValues]) => [
-        name,
-        {
-          messages: channelValues.messages.map((message) => ({
-            ...message,
-            value: values[offset++],
-          })),
-        },
-      ]),
+    const loadedChannelMessages = replaceLoadedChannelMessageValues(
+      request.loadedChannelMessages,
+      values.slice(offset),
     );
     return {
       ...request,
@@ -589,6 +636,20 @@ function mapStepOptions(
     throw new TypeError("execute failure Step must belong to the Flow");
   }
   const failureOptions = options?.executeFailure?.options ?? failureDefinition?.step.getStepOptions?.();
+  const waitForLoads = mapHandlerStateLoads(flow, {
+    attributeMaps: options?.waitForLoadAttributeMaps,
+    attributeMapInstances: options?.waitForLoadAttributeMapInstances,
+    channels: options?.waitForLoadChannels,
+    channelMaps: options?.waitForLoadChannelMaps,
+    channelMapInstances: options?.waitForLoadChannelMapInstances,
+  }, "WaitFor");
+  const executeLoads = mapHandlerStateLoads(flow, {
+    attributeMaps: options?.executeLoadAttributeMaps,
+    attributeMapInstances: options?.executeLoadAttributeMapInstances,
+    channels: options?.executeLoadChannels,
+    channelMaps: options?.executeLoadChannelMaps,
+    channelMapInstances: options?.executeLoadChannelMapInstances,
+  }, "Execute");
   return ProtoStepOptions.create({
     waitForTimeoutSeconds: seconds(options?.waitForMethodTimeoutMs),
     executeTimeoutSeconds: seconds(options?.executeMethodTimeoutMs),
@@ -637,6 +698,12 @@ function mapStepOptions(
         ? lock.attribute.name
         : physicalName(lock.attribute.name, lock.instance),
     ),
+    waitForLoadAttributeMapInstances: waitForLoads.attributeMaps,
+    waitForLoadChannelNames: waitForLoads.channels,
+    waitForLoadChannelMapInstances: waitForLoads.channelMaps,
+    executeLoadAttributeMapInstances: executeLoads.attributeMaps,
+    executeLoadChannelNames: executeLoads.channels,
+    executeLoadChannelMapInstances: executeLoads.channelMaps,
   });
 }
 
@@ -770,18 +837,188 @@ function mapSubFlowOptions(
       : options.reusePolicy === SubFlowReusePolicy.ALWAYS_RESTART
         ? ProtoSubFlowReusePolicy.SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART
         : ProtoSubFlowReusePolicy.SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY;
+  const flowTimeoutPolicy = resolveFlowTimeoutPolicy(
+    target,
+    timeoutSeconds,
+    options.timeoutPolicy,
+  );
   return ProtoSubFlowOptions.create({
     reusePolicy,
     flowTimeoutSeconds: timeoutSeconds,
-    flowTimeoutPolicy: resolveFlowTimeoutPolicy(
+    flowTimeoutPolicy,
+    timeoutHandlerOptions: mapFlowTimeoutHandlerOptions(
       target,
       timeoutSeconds,
-      options.timeoutPolicy,
+      flowTimeoutPolicy,
+      options.timeoutHandlerOptions,
     ),
     flowStartDelaySeconds: seconds(options.startDelayMs),
     retryPolicy: mapFlowRetry(options.retryPolicy),
     attributes,
     flowConfigOverride: mapSubFlowConfig(options.configOverride),
+  });
+}
+
+function mapFlowTimeoutHandlerOptions(
+  flow: RegisteredFlow,
+  timeoutSeconds: number,
+  timeoutPolicy: ProtoFlowTimeoutPolicy,
+  options: FlowTimeoutHandlerOptions | undefined,
+): ProtoFlowTimeoutHandlerOptions | undefined {
+  if (options === undefined) {
+    return undefined;
+  }
+  if (
+    timeoutSeconds <= 0 ||
+    timeoutPolicy !== ProtoFlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_HANDLER
+  ) {
+    throw new TypeError(
+      "timeout handler options require a positive timeout with handler policy",
+    );
+  }
+  const failureStep = options.failure?.step;
+  const failureDefinition = failureStep === undefined
+    ? undefined
+    : flow.stepsByClass.get(failureStep);
+  if (failureStep !== undefined && failureDefinition === undefined) {
+    throw new TypeError("timeout handler failure Step must belong to the Flow");
+  }
+  if (failureDefinition !== undefined && failureDefinition.step.inputCodec !== voidCodec) {
+    throw new TypeError("timeout handler failure Step must use voidCodec");
+  }
+  const loads = mapHandlerStateLoads(flow, {
+    attributeMaps: options.loadAttributeMaps,
+    attributeMapInstances: options.loadAttributeMapInstances,
+    channels: options.loadChannels,
+    channelMaps: options.loadChannelMaps,
+    channelMapInstances: options.loadChannelMapInstances,
+  }, "timeout handler");
+  return ProtoFlowTimeoutHandlerOptions.create({
+    methodTimeoutSeconds: seconds(options.methodTimeoutMs),
+    heartbeatTimeoutSeconds: heartbeatSeconds(options.heartbeatTimeoutMs),
+    retryPolicy: mapRetry(options.retry),
+    failurePolicy: failureDefinition === undefined
+      ? ExecuteMethodFailurePolicy.EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED
+      : ExecuteMethodFailurePolicy.EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
+    failureProceedStepType: failureDefinition?.name ?? "",
+    failureProceedStepOptions: failureDefinition === undefined
+      ? undefined
+      : mapStepOptions(
+          flow,
+          options.failure?.options ?? failureDefinition.step.getStepOptions?.(),
+          failureDefinition.step.waitFor === undefined,
+        ),
+    durabilityOverride: mapDurability(options.durability),
+    lockAttributeKeys: mapAttributeLocks(flow, options.lockAttributes ?? [], "timeout handler"),
+    loadAttributeMapInstances: loads.attributeMaps,
+    loadChannelNames: loads.channels,
+    loadChannelMapInstances: loads.channelMaps,
+  });
+}
+
+interface HandlerStateLoads {
+  readonly attributeMaps: readonly AttributeMap<unknown>[] | undefined;
+  readonly attributeMapInstances: readonly {
+    readonly attributeMap: AttributeMap<unknown>;
+    readonly instance: string;
+  }[] | undefined;
+  readonly channels: readonly Channel<unknown>[] | undefined;
+  readonly channelMaps: readonly ChannelMap<unknown>[] | undefined;
+  readonly channelMapInstances: readonly {
+    readonly channelMap: ChannelMap<unknown>;
+    readonly instance: string;
+  }[] | undefined;
+}
+
+function mapHandlerStateLoads(
+  flow: RegisteredFlow,
+  loads: HandlerStateLoads,
+  source: string,
+): { attributeMaps: string[]; channels: string[]; channelMaps: string[] } {
+  const attributeMaps = mapDefinitionLoads(
+    flow,
+    loads.attributeMaps ?? [],
+    AttributeMap,
+    source,
+    (definition) => `${definition.name}/`,
+  );
+  attributeMaps.push(...mapDefinitionLoads(
+    flow,
+    loads.attributeMapInstances ?? [],
+    AttributeMap,
+    source,
+    (load) => physicalName(load.attributeMap.name, load.instance),
+    (load) => load.attributeMap,
+    new Set(attributeMaps),
+  ));
+  const channels = mapDefinitionLoads(
+    flow,
+    loads.channels ?? [],
+    Channel,
+    source,
+    (definition) => definition.name,
+  );
+  const channelMaps = mapDefinitionLoads(
+    flow,
+    loads.channelMaps ?? [],
+    ChannelMap,
+    source,
+    (definition) => `${definition.name}/`,
+  );
+  channelMaps.push(...mapDefinitionLoads(
+    flow,
+    loads.channelMapInstances ?? [],
+    ChannelMap,
+    source,
+    (load) => physicalName(load.channelMap.name, load.instance),
+    (load) => load.channelMap,
+    new Set(channelMaps),
+  ));
+  return {
+    attributeMaps: attributeMaps.sort(),
+    channels: channels.sort(),
+    channelMaps: channelMaps.sort(),
+  };
+}
+
+function mapDefinitionLoads<Load, Definition extends { readonly name: string }>(
+  flow: RegisteredFlow,
+  loads: readonly Load[],
+  expected: abstract new (...arguments_: any[]) => Definition,
+  source: string,
+  physicalNameFor: (load: Load) => string,
+  definitionFor: (load: Load) => Definition = (load) => load as unknown as Definition,
+  seen = new Set<string>(),
+): string[] {
+  const mapped: string[] = [];
+  for (const load of loads) {
+    const definition = definitionFor(load);
+    if (
+      !(definition instanceof expected) ||
+      flow.persistence.get(definition.name) !== (definition as unknown)
+    ) {
+      throw new TypeError(`${source} state load does not belong to Flow ${flow.name}`);
+    }
+    const name = physicalNameFor(load);
+    if (seen.has(name)) {
+      throw new TypeError(`${source} has duplicate state load ${name}`);
+    }
+    seen.add(name);
+    mapped.push(name);
+  }
+  return mapped;
+}
+
+function mapAttributeLocks(
+  flow: RegisteredFlow,
+  locks: readonly AttributeLock[],
+  source: string,
+): string[] {
+  return locks.map((lock) => {
+    if (flow.persistence.get(lock.attribute.name) !== lock.attribute) {
+      throw new TypeError(`${source} lock does not belong to Flow ${flow.name}`);
+    }
+    return physicalName(lock.attribute.name, lock.instance);
   });
 }
 
@@ -821,6 +1058,16 @@ function mapFlowRetry(retry: RetryPolicy | undefined): FlowRetryPolicy | undefin
     maximumIntervalSeconds: seconds(retry.maximumIntervalMs),
     maximumAttempts: retry.maximumAttempts ?? 0,
   });
+}
+
+function mapDurability(value: "sync" | "async" | undefined): ProtoStepDurability {
+  if (value === "sync") {
+    return ProtoStepDurability.STEP_DURABILITY_SYNC;
+  }
+  if (value === "async") {
+    return ProtoStepDurability.STEP_DURABILITY_ASYNC;
+  }
+  return ProtoStepDurability.STEP_DURABILITY_UNSPECIFIED;
 }
 
 function mapSubFlowConfig(config: FlowConfig | undefined): ProtoFlowConfig | undefined {
@@ -870,6 +1117,36 @@ function replaceEntryValues(entries: readonly KV[], values: readonly Value[]): K
     throw new TypeError("hydrated entry count does not match request");
   }
   return entries.map((entry, index) => ({ ...entry, value: values[index] }));
+}
+
+function loadedMessageValues(
+  loaded: Readonly<Record<string, ChannelValues>>,
+): Array<Value | undefined> {
+  return Object.values(loaded).flatMap((channelValues) =>
+    channelValues.messages.map((message) => message.value),
+  );
+}
+
+function replaceLoadedChannelMessageValues(
+  loaded: Readonly<Record<string, ChannelValues>>,
+  values: readonly Value[],
+): Record<string, ChannelValues> {
+  let offset = 0;
+  const replaced = Object.fromEntries(
+    Object.entries(loaded).map(([name, channelValues]) => [
+      name,
+      {
+        messages: channelValues.messages.map((message) => ({
+          ...message,
+          value: values[offset++],
+        })),
+      },
+    ]),
+  );
+  if (offset !== values.length) {
+    throw new TypeError("hydrated Channel message count does not match request");
+  }
+  return replaced;
 }
 
 function replaceConditionValues(

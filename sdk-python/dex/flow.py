@@ -297,6 +297,7 @@ class Flow(Generic[StartT], ABC):
 class _RegisteredStep:
     name: str
     step: Step[Any]
+    input_type: object
     input_codec: Codec[Any]
     starting: bool
     skips_wait_for: bool
@@ -513,9 +514,17 @@ class Registry:
             step_class = type(step)
             if step_class in registered_steps_by_class:
                 raise ValueError(f"duplicate Step class {step_class.__qualname__}")
+            input_type = Registry._step_handler_input_type(
+                step,
+                "execute",
+                step.execute,
+                StepDecision,
+                allow_async_handlers=allow_async_handlers,
+            )
             registered_step = _RegisteredStep(
                 step_name,
                 step,
+                input_type,
                 Registry._step_input_codec(
                     step,
                     codec_registry,
@@ -584,13 +593,35 @@ class Registry:
         if type(flow).handle_timeout is Flow.handle_timeout:
             return False
         handler = flow.handle_timeout
+        if isasyncgenfunction(handler):
+            raise TypeError("Flow handle_timeout must not be an async generator")
         if iscoroutinefunction(handler) and not allow_async_handlers:
             raise TypeError("Flow handle_timeout must be synchronous")
         parameters = tuple(signature(handler).parameters.values())
         hints = get_type_hints(handler)
-        if len(parameters) != 1 or hints.get(parameters[0].name) is not Context:
-            raise TypeError("Flow handle_timeout must accept Context")
-        if hints.get("return") is not StepDecision:
+        expected_context = AsyncContext if iscoroutinefunction(handler) else Context
+        if (
+            len(parameters) != 1
+            or hints.get(parameters[0].name) is not expected_context
+        ):
+            raise TypeError(
+                f"Flow handle_timeout must accept {expected_context.__name__}"
+            )
+        annotated_return = hints.get("return")
+        if isgeneratorfunction(handler):
+            arguments = get_args(annotated_return)
+            if (
+                get_origin(annotated_return) is not GeneratorABC
+                or len(arguments) != 3
+                or arguments[0] is not StepOutput
+                or arguments[1] not in (None, type(None))
+                or arguments[2] is not StepDecision
+            ):
+                raise TypeError(
+                    "Flow handle_timeout generator must return "
+                    "Generator[StepOutput, None, StepDecision]"
+                )
+        elif annotated_return is not StepDecision:
             raise TypeError("Flow handle_timeout must return StepDecision")
         return True
 
@@ -897,7 +928,7 @@ class Registry:
         registered = self._flow_by_type(flow.get_flow_type())
         if registered.flow is not flow:
             raise FlowDefinitionError(
-                f"Flow {flow.get_flow_type()} instance is not registered"
+                f"Flow instance is not registered: {flow.get_flow_type()}"
             )
         return registered
 

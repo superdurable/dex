@@ -33,11 +33,14 @@ from dex import (
     Flow,
     FlowConfig,
     FlowDefinitionError,
+    FlowTimeoutHandlerOptions,
+    FlowTimeoutPolicy,
     InvalidStepResultError,
     JsonCodec,
     PersistenceSchema,
     Registry,
     RPCResult,
+    RetryPolicy,
     StartFlowOptions,
     Step,
     StepDecision,
@@ -55,6 +58,7 @@ from dex import (
     WireKind,
     graceful_complete,
     heartbeat,
+    dead_end,
     open_blob_cache,
     rpc,
 )
@@ -377,6 +381,104 @@ def test_registry_validates_and_sorts_rpc_state_loads() -> None:
 
     with pytest.raises(FlowDefinitionError, match="duplicate AttributeMap"):
         Registry((DuplicateFlow(),))
+
+
+def test_step_and_timeout_handler_options_map_state_and_execution_policy() -> None:
+    status = Attribute("status", str)
+    attributes = AttributeMap("items", str)
+    commands = Channel("commands", str)
+    channels = ChannelMap("commands-by-tenant", str)
+
+    class Recovery(Step[None]):
+        def execute(self, context: Context, input: None) -> StepDecision:
+            del context, input
+            return dead_end()
+
+    class LoadedFlow(Flow[None]):
+        recovery = Recovery()
+
+        def get_steps(self) -> StepList[None]:
+            return StepList.start_step(self.recovery)
+
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(status, attributes, commands, channels)
+
+        def handle_timeout(self, context: Context) -> StepDecision:
+            del context
+            return dead_end()
+
+    registry = Registry((LoadedFlow(),))
+    registered = registry._flow_by_type("LoadedFlow")
+    dispatcher = WorkerDispatcher(
+        registry,
+        ValueMapper(registry.codec_registry),
+        cast(Any, object()),
+    )
+    step_options = StepOptions(
+        wait_for_load_attribute_maps=(attributes,),
+        wait_for_load_attribute_map_instances=(attributes.load("tenant-a"),),
+        wait_for_load_channels=(commands,),
+        wait_for_load_channel_maps=(channels,),
+        wait_for_load_channel_map_instances=(channels.load_messages("tenant-a"),),
+        execute_load_attribute_maps=(attributes,),
+        execute_load_attribute_map_instances=(attributes.load("tenant-b"),),
+        execute_load_channels=(commands,),
+        execute_load_channel_maps=(channels,),
+        execute_load_channel_map_instances=(channels.load_messages("tenant-b"),),
+    )
+    mapped_step = dispatcher.map_step_options(registered, step_options)
+    assert mapped_step is not None
+    assert tuple(mapped_step.wait_for_load_attribute_map_instances) == (
+        "items/",
+        "items/tenant-a",
+    )
+    assert tuple(mapped_step.execute_load_channel_map_instances) == (
+        "commands-by-tenant/",
+        "commands-by-tenant/tenant-b",
+    )
+    with pytest.raises(ValueError, match="duplicate"):
+        dispatcher.map_step_options(
+            registered,
+            StepOptions(execute_load_channels=(commands, commands)),
+        )
+
+    timeout_options = FlowTimeoutHandlerOptions(
+        method_timeout=timedelta(seconds=10),
+        heartbeat_timeout=timedelta(seconds=5),
+        retry=RetryPolicy(maximum_attempts=3),
+        durability=StepDurability.ASYNC,
+        lock_attributes=(status.lock(),),
+        load_attribute_maps=(attributes,),
+        load_attribute_map_instances=(attributes.load("tenant-a"),),
+        load_channels=(commands,),
+        load_channel_maps=(channels,),
+        load_channel_map_instances=(channels.load_messages("tenant-a"),),
+    ).on_failure_proceed_to(Recovery)
+    mapped_timeout = dispatcher.map_flow_timeout_handler_options(
+        registered,
+        timedelta(seconds=30),
+        FlowTimeoutPolicy.HANDLER,
+        timeout_options,
+    )
+    assert mapped_timeout is not None
+    assert mapped_timeout.method_timeout_seconds == 10
+    assert mapped_timeout.heartbeat_timeout_seconds == 5
+    assert mapped_timeout.retry_policy.maximum_attempts == 3
+    assert tuple(mapped_timeout.lock_attribute_keys) == ("status",)
+    assert tuple(mapped_timeout.load_attribute_map_instances) == (
+        "items/",
+        "items/tenant-a",
+    )
+    assert mapped_timeout.failure_proceed_step_type == "Recovery"
+    assert mapped_timeout.failure_proceed_step_options.skip_wait_for
+
+    with pytest.raises(ValueError, match="positive timeout"):
+        dispatcher.map_flow_timeout_handler_options(
+            registered,
+            None,
+            FlowTimeoutPolicy.DEFAULT,
+            timeout_options,
+        )
 
 
 def test_value_mapping_errors_are_stable() -> None:
@@ -1367,7 +1469,7 @@ async def _assert_async_step_stream_cancellation_cancels_handler() -> None:
     await asyncio.wait_for(heartbeat_canceled.wait(), timeout=1)
 
 
-def test_rpc_and_timeout_contexts_reject_progress() -> None:
+def test_rpc_rejects_progress_and_timeout_allows_sync_stream_output() -> None:
     stream = Stream("restricted-progress", str, 1024)
 
     class RestrictedFlow(Flow[None]):
@@ -1376,15 +1478,25 @@ def test_rpc_and_timeout_contexts_reject_progress() -> None:
 
     registry = Registry((RestrictedFlow(),))
     values = ValueMapper(registry.codec_registry)
-    for method in (InvocationMethod.RPC, InvocationMethod.TIMEOUT):
-        context = InvocationContext(
-            method,
-            registry._flow_by_type("RestrictedFlow"),
-            pb.Context(),
-            values,
-            (),
-        )
-        with pytest.raises(ValueError, match="Step Context"):
-            stream.write(context, "rejected")
-        with pytest.raises(ValueError, match="asynchronous Step Context"):
-            asyncio.run(context.heartbeat())
+    rpc_context = InvocationContext(
+        InvocationMethod.RPC,
+        registry._flow_by_type("RestrictedFlow"),
+        pb.Context(),
+        values,
+        (),
+    )
+    with pytest.raises(ValueError, match="Step Context"):
+        stream.write(rpc_context, "rejected")
+    with pytest.raises(ValueError, match="asynchronous Step Context"):
+        asyncio.run(rpc_context.heartbeat())
+
+    timeout_context = InvocationContext(
+        InvocationMethod.TIMEOUT,
+        registry._flow_by_type("RestrictedFlow"),
+        pb.Context(),
+        values,
+        (),
+    )
+    assert stream.write(timeout_context, "allowed") is not None
+    with pytest.raises(ValueError, match="asynchronous Step Context"):
+        asyncio.run(timeout_context.heartbeat())

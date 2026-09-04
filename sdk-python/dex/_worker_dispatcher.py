@@ -15,13 +15,19 @@ from typing import Any, Callable, Generator, cast
 from dex._invocation_context import InvocationContext, InvocationMethod
 from dex._value_hydrator import ValueHydrator
 from dex._value_mapper import ValueMapper
-from dex.attribute import AttributeLock, AttributeMap, _apply_attribute_store_sync
-from dex.channel import Channel, ChannelMap
+from dex.attribute import (
+    AttributeLock,
+    AttributeMap,
+    AttributeMapLoad,
+    _apply_attribute_store_sync,
+)
+from dex.channel import Channel, ChannelMap, ChannelMapLoad
 from dex.condition import ChannelCondition, Condition, SubFlowCondition, TimerCondition
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, RPCResult, _RegisteredFlow, _RegisteredStep
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
 from dex.flow_options import (
+    FlowTimeoutHandlerOptions,
     FlowTimeoutPolicy,
     SubFlowOptions,
     SubFlowReusePolicy,
@@ -71,6 +77,11 @@ class WorkerDispatcher:
             request.context,
             self._values,
             request.attributes,
+            channel_infos=dict(request.channel_infos),
+            loaded_channel_messages=dict(request.loaded_channel_messages),
+            loaded_attribute_map_instances=request.loaded_attribute_map_instances,
+            loaded_channel_names=request.loaded_channel_names,
+            loaded_channel_map_instances=request.loaded_channel_map_instances,
             is_active=is_active,
         )
         input = self._values.decode(request.step_input, step.input_codec)
@@ -92,6 +103,7 @@ class WorkerDispatcher:
                 upsert_step_exe_locals=list(context.local_writes.values()),
                 record_events=context.events,
                 publish_to_channel=context.publications,
+                delete_from_channel=context.channel_deletions,
             )
             waiting = self._map_wait(flow, wait)
             if waiting is not None:
@@ -110,9 +122,8 @@ class WorkerDispatcher:
         request = self._hydrator.execute_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
         if request.step_type == _TIMEOUT_HANDLER_STEP_TYPE:
-            yield pb.InvokeExecuteMethodOutput(
-                result=self._invoke_timeout_handler(request, flow)
-            )
+            response = yield from self._invoke_timeout_handler(request, flow)
+            yield pb.InvokeExecuteMethodOutput(result=response)
             return
         step = flow.step(request.step_type)
         condition_results = (
@@ -126,6 +137,11 @@ class WorkerDispatcher:
             request.attributes,
             request.step_exe_locals,
             condition_results,
+            channel_infos=dict(request.channel_infos),
+            loaded_channel_messages=dict(request.loaded_channel_messages),
+            loaded_attribute_map_instances=request.loaded_attribute_map_instances,
+            loaded_channel_names=request.loaded_channel_names,
+            loaded_channel_map_instances=request.loaded_channel_map_instances,
             is_active=is_active,
         )
         input = self._values.decode(request.step_input, step.input_codec)
@@ -149,6 +165,7 @@ class WorkerDispatcher:
                     record_events=context.events,
                     upsert_step_exe_locals=list(context.local_writes.values()),
                     publish_to_channel=context.publications,
+                    delete_from_channel=context.channel_deletions,
                 )
             )
         except (TypeError, ValueError) as error:
@@ -160,7 +177,7 @@ class WorkerDispatcher:
         self,
         request: pb.InvokeExecuteMethodRequest,
         flow: _RegisteredFlow,
-    ) -> pb.InvokeExecuteMethodResponse:
+    ) -> Generator[pb.InvokeExecuteMethodOutput, None, pb.InvokeExecuteMethodResponse]:
         if request.HasField("step_input"):
             raise InvalidStepResultError(
                 flow.name, _TIMEOUT_HANDLER_STEP_TYPE, "execute", "input must be absent"
@@ -183,8 +200,29 @@ class WorkerDispatcher:
             request.attributes,
             request.step_exe_locals,
             condition_results,
+            channel_infos=dict(request.channel_infos),
+            loaded_channel_messages=dict(request.loaded_channel_messages),
+            loaded_attribute_map_instances=request.loaded_attribute_map_instances,
+            loaded_channel_names=request.loaded_channel_names,
+            loaded_channel_map_instances=request.loaded_channel_map_instances,
         )
         decision = flow.flow.handle_timeout(context)
+        if isgenerator(decision):
+            while True:
+                try:
+                    output = next(decision)
+                except StopIteration as completion:
+                    decision = completion.value
+                    break
+                try:
+                    yield self._map_execute_output(output)
+                except (TypeError, ValueError) as error:
+                    raise InvalidStepResultError(
+                        flow.name,
+                        _TIMEOUT_HANDLER_STEP_TYPE,
+                        "execute",
+                        str(error),
+                    ) from error
         try:
             if isawaitable(decision):
                 raise TypeError(
@@ -198,6 +236,7 @@ class WorkerDispatcher:
                 record_events=context.events,
                 upsert_step_exe_locals=list(context.local_writes.values()),
                 publish_to_channel=context.publications,
+                delete_from_channel=context.channel_deletions,
             )
         except (TypeError, ValueError) as error:
             raise InvalidStepResultError(
@@ -402,7 +441,159 @@ class WorkerDispatcher:
             mapped.execute_failure_proceed_step_options.skip_wait_for = (
                 target.skips_wait_for
             )
+        wait_for_loads = self._map_handler_state_loads(
+            flow,
+            "WaitFor",
+            options.wait_for_load_attribute_maps,
+            options.wait_for_load_attribute_map_instances,
+            options.wait_for_load_channels,
+            options.wait_for_load_channel_maps,
+            options.wait_for_load_channel_map_instances,
+        )
+        mapped.wait_for_load_attribute_map_instances.extend(wait_for_loads[0])
+        mapped.wait_for_load_channel_names.extend(wait_for_loads[1])
+        mapped.wait_for_load_channel_map_instances.extend(wait_for_loads[2])
+        execute_loads = self._map_handler_state_loads(
+            flow,
+            "Execute",
+            options.execute_load_attribute_maps,
+            options.execute_load_attribute_map_instances,
+            options.execute_load_channels,
+            options.execute_load_channel_maps,
+            options.execute_load_channel_map_instances,
+        )
+        mapped.execute_load_attribute_map_instances.extend(execute_loads[0])
+        mapped.execute_load_channel_names.extend(execute_loads[1])
+        mapped.execute_load_channel_map_instances.extend(execute_loads[2])
         return mapped
+
+    def map_flow_timeout_handler_options(
+        self,
+        flow: _RegisteredFlow,
+        timeout: timedelta | None,
+        policy: FlowTimeoutPolicy,
+        options: FlowTimeoutHandlerOptions | None,
+    ) -> pb.FlowTimeoutHandlerOptions | None:
+        """Map validated timeout-handler options for a Flow start."""
+        if options is None:
+            return None
+        if (
+            timeout is None
+            or timeout.total_seconds() <= 0
+            or policy is not FlowTimeoutPolicy.HANDLER
+        ):
+            raise ValueError(
+                "timeout handler options require a positive timeout with HANDLER policy"
+            )
+        mapped = pb.FlowTimeoutHandlerOptions(
+            durability_override=cast(Any, self._map_durability(options.durability)),
+            lock_attribute_keys=[
+                self._map_lock(lock) for lock in options.lock_attributes
+            ],
+        )
+        if options.method_timeout is not None:
+            mapped.method_timeout_seconds = self._seconds32(options.method_timeout)
+        if options.heartbeat_timeout is not None:
+            mapped.heartbeat_timeout_seconds = self._seconds32(
+                options.heartbeat_timeout
+            )
+        if options.retry is not None:
+            mapped.retry_policy.CopyFrom(self._map_retry(options.retry))
+        state_loads = self._map_handler_state_loads(
+            flow,
+            "timeout handler",
+            options.load_attribute_maps,
+            options.load_attribute_map_instances,
+            options.load_channels,
+            options.load_channel_maps,
+            options.load_channel_map_instances,
+        )
+        mapped.load_attribute_map_instances.extend(state_loads[0])
+        mapped.load_channel_names.extend(state_loads[1])
+        mapped.load_channel_map_instances.extend(state_loads[2])
+        if options._failure_target is not None:
+            target = self._registered_movement_target(flow, options._failure_target)
+            if target.input_type not in (None, type(None)):
+                raise ValueError("timeout handler failure Step must use None input")
+            mapped.failure_policy = (
+                pb.EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
+            )
+            mapped.failure_proceed_step_type = target.name
+            target_options = self.map_step_options(
+                flow,
+                (
+                    options._failure_options
+                    if options._failure_options is not None
+                    else target.step.get_step_options()
+                ),
+            )
+            if target_options is not None:
+                mapped.failure_proceed_step_options.CopyFrom(target_options)
+            mapped.failure_proceed_step_options.skip_wait_for = target.skips_wait_for
+        return mapped
+
+    @staticmethod
+    def _map_handler_state_loads(
+        flow: _RegisteredFlow,
+        source: str,
+        attribute_maps: tuple[AttributeMap[Any], ...],
+        attribute_map_instances: tuple[AttributeMapLoad, ...],
+        channels: tuple[Channel[Any], ...],
+        channel_maps: tuple[ChannelMap[Any], ...],
+        channel_map_instances: tuple[ChannelMapLoad, ...],
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        mapped_attribute_maps: list[str] = []
+        for attribute_map in attribute_maps:
+            WorkerDispatcher._require_state_load(
+                flow, source, attribute_map, AttributeMap
+            )
+            mapped_attribute_maps.append(f"{attribute_map.name}/")
+        for attribute_load in attribute_map_instances:
+            if not isinstance(attribute_load, AttributeMapLoad):
+                raise TypeError(f"{source} has an invalid AttributeMap instance load")
+            WorkerDispatcher._require_state_load(
+                flow, source, attribute_load.attribute_map, AttributeMap
+            )
+            mapped_attribute_maps.append(attribute_load.physical_name)
+        mapped_channels: list[str] = []
+        for channel in channels:
+            WorkerDispatcher._require_state_load(flow, source, channel, Channel)
+            mapped_channels.append(channel.name)
+        mapped_channel_maps: list[str] = []
+        for channel_map in channel_maps:
+            WorkerDispatcher._require_state_load(flow, source, channel_map, ChannelMap)
+            mapped_channel_maps.append(f"{channel_map.name}/")
+        for channel_load in channel_map_instances:
+            if not isinstance(channel_load, ChannelMapLoad):
+                raise TypeError(f"{source} has an invalid ChannelMap instance load")
+            WorkerDispatcher._require_state_load(
+                flow, source, channel_load.channel_map, ChannelMap
+            )
+            mapped_channel_maps.append(channel_load.physical_name)
+        for kind, values in (
+            ("AttributeMap", mapped_attribute_maps),
+            ("Channel", mapped_channels),
+            ("ChannelMap", mapped_channel_maps),
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError(f"{source} has a duplicate {kind} load")
+        return (
+            tuple(sorted(mapped_attribute_maps)),
+            tuple(sorted(mapped_channels)),
+            tuple(sorted(mapped_channel_maps)),
+        )
+
+    @staticmethod
+    def _require_state_load(
+        flow: _RegisteredFlow,
+        source: str,
+        definition: object,
+        expected_type: type[object],
+    ) -> None:
+        if not isinstance(definition, expected_type):
+            raise TypeError(f"{source} has an invalid state load")
+        if flow.persistence.get(cast(Any, definition).name) is not definition:
+            raise ValueError(f"{source} state load does not belong to Flow {flow.name}")
 
     def _map_wait(
         self,
@@ -467,6 +658,14 @@ class WorkerDispatcher:
             FlowTimeoutPolicy.CANCEL: pb.FLOW_TIMEOUT_POLICY_CANCEL,
             FlowTimeoutPolicy.HANDLER: pb.FLOW_TIMEOUT_POLICY_HANDLER,
         }[timeout_policy]
+        timeout_handler_options = self.map_flow_timeout_handler_options(
+            target,
+            options.timeout,
+            timeout_policy,
+            options.timeout_handler_options,
+        )
+        if timeout_handler_options is not None:
+            mapped.timeout_handler_options.CopyFrom(timeout_handler_options)
         if options.start_delay is not None:
             mapped.flow_start_delay_seconds = self._seconds32(options.start_delay)
         if options.retry_policy is not None:

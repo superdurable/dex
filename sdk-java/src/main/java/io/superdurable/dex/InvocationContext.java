@@ -513,10 +513,9 @@ final class InvocationContext implements Context {
 
     List<String> attributeMapKeys(final AttributeMap<?> attribute) {
         requireRegistered(attribute);
-        if (method == Method.RPC
-                && !loadedAttributeMapInstances.contains(attribute.getName() + "/")) {
+        if (!loadedAttributeMapInstances.contains(attribute.getName() + "/")) {
             throw new AttributeMapNotLoadedException(
-                    "all AttributeMap instances were not loaded for RPC: "
+                    "all AttributeMap instances were not loaded for this invocation: "
                             + attribute.getName());
         }
         final String prefix = attribute.getName() + "/";
@@ -541,9 +540,6 @@ final class InvocationContext implements Context {
 
     List<String> channelMapKeys(final ChannelMap<?> channel) {
         requireRegistered(channel);
-        if (method != Method.RPC) {
-            throw new IllegalStateException("ChannelMap introspection requires an RPC invocation");
-        }
         final String prefix = channel.getName() + "/";
         final Set<String> physicalKeys = new HashSet<String>();
         for (Map.Entry<String, ChannelInfo> entry : channelInfos.entrySet()) {
@@ -592,12 +588,11 @@ final class InvocationContext implements Context {
             final Class<T> valueType) {
         requireRegistered(definition);
         final String key = physicalName(definition, instance);
-        if (method == Method.RPC
-                && definition instanceof AttributeMap
+        if (definition instanceof AttributeMap
                 && !isMapInstanceLoaded(
                         loadedAttributeMapInstances, definition.getName(), key)) {
             throw new AttributeMapNotLoadedException(
-                    "AttributeMap instance was not loaded for RPC: " + key);
+                    "AttributeMap instance was not loaded for this invocation: " + key);
         }
         final AttributeWrite write = attributeWrites.get(key);
         if (write != null) {
@@ -665,20 +660,15 @@ final class InvocationContext implements Context {
                 .setChannelName(name)
                 .setValue(values.encode(value))
                 .build());
-        if (method == Method.RPC) {
-            final ChannelInfo existing = channelInfos.get(name);
-            final int size = existing == null ? 0 : existing.getSize();
-            channelInfos.put(name, ChannelInfo.newBuilder().setSize(size + 1).build());
-        }
+        final ChannelInfo existing = channelInfos.get(name);
+        final int size = existing == null ? 0 : existing.getSize();
+        channelInfos.put(name, ChannelInfo.newBuilder().setSize(size + 1).build());
     }
 
     private void deleteChannelMessageValue(
             final PersistenceDefinition definition,
             final String instance,
             final String messageId) {
-        if (method != Method.RPC) {
-            throw new IllegalStateException("Channel message deletion requires an RPC Context");
-        }
         requireRegistered(definition);
         final String name = physicalName(definition, instance);
         channelDeletions.add(ChannelMessageDeletion.newBuilder()
@@ -726,9 +716,6 @@ final class InvocationContext implements Context {
             final PersistenceDefinition definition,
             final String instance,
             final Class<T> valueType) {
-        if (method != Method.RPC) {
-            throw new IllegalStateException("pending Channel messages require an RPC Context");
-        }
         requireRegistered(definition);
         final String name = physicalName(definition, instance);
         final boolean isLoaded;
@@ -740,7 +727,7 @@ final class InvocationContext implements Context {
         }
         if (!isLoaded) {
             throw new ChannelMessagesNotLoadedException(
-                    "Channel messages were not loaded for RPC: " + name);
+                    "Channel messages were not loaded for this invocation: " + name);
         }
         final ChannelValues loaded = loadedChannelMessages.get(name);
         if (loaded == null) {

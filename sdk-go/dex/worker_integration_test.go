@@ -88,9 +88,10 @@ func (workerWaitingStep) WaitFor(
 	}
 	_, err = workerTestItems.Get(ctx, "missing")
 	var missingItem *AttributeNotFoundError
-	if !errors.As(err, &missingItem) ||
+	var notLoaded *AttributeMapNotLoadedError
+	if !errors.As(err, &notLoaded) && (!errors.As(err, &missingItem) ||
 		missingItem.AttributeName != workerTestItems.AttributeName() ||
-		missingItem.Instance != "missing" {
+		missingItem.Instance != "missing") {
 		return nil, errors.New("missing attribute map value returned the wrong error")
 	}
 	if err := ctx.SetStepExecutionLocal("input", input); err != nil {
@@ -249,11 +250,11 @@ type workerTestFlow struct {
 }
 
 func (workerTestFlow) HandleTimeout(ctx Context) (*StepDecision, error) {
-	if err := ctx.RecordHeartbeat("timeout-checkpoint"); !errors.Is(err, errInvalidInvocationContext) {
-		return nil, fmt.Errorf("timeout heartbeat error = %v", err)
+	if err := ctx.RecordHeartbeat("timeout-checkpoint"); err != nil {
+		return nil, err
 	}
-	if err := workerTestThinking.Write(ctx, "timeout-progress"); !errors.Is(err, errInvalidInvocationContext) {
-		return nil, fmt.Errorf("timeout Stream write error = %v", err)
+	if err := workerTestThinking.Write(ctx, "timeout-progress"); err != nil {
+		return nil, err
 	}
 	return GracefulComplete("timeout"), nil
 }
@@ -599,8 +600,10 @@ func TestWorkerStepProgressFrames(t *testing.T) {
 	}
 	timeoutOutputs, err := collectExecuteOutputs(client, timeoutRequest)
 	require.NoError(t, err)
-	require.Len(t, timeoutOutputs, 1)
-	require.NotNil(t, timeoutOutputs[0].GetResult())
+	require.Len(t, timeoutOutputs, 3)
+	require.Equal(t, "timeout-checkpoint", timeoutOutputs[0].GetHeartbeat().GetValue().GetStringValue())
+	require.Equal(t, "timeout-progress", timeoutOutputs[1].GetStreamWrite().GetValue().GetStringValue())
+	require.NotNil(t, timeoutOutputs[2].GetResult())
 
 	_, err = client.InvokeWorkerRPC(context.Background(), workerRPCRequest(
 		t,

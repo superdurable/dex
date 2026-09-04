@@ -471,6 +471,13 @@ func (client *Client) resolveStartFlowOptions(
 		return StartFlowOptions{}, err
 	}
 	resolved.TimeoutPolicy = timeoutPolicy
+	if err := flow.validateFlowTimeoutHandlerOptions(
+		options.Timeout,
+		timeoutPolicy,
+		options.TimeoutHandlerOptions,
+	); err != nil {
+		return StartFlowOptions{}, err
+	}
 	attributes, err := validateInitialAttributes(flow, options.Attributes)
 	if err != nil {
 		return StartFlowOptions{}, err
@@ -1720,8 +1727,29 @@ func validateInvokeStateLoads(
 	flow *registeredFlow,
 	options InvokeOptions,
 ) ([]string, []string, []string, error) {
-	attributeMaps := make([]string, 0, len(options.LoadAttributeMaps)+len(options.LoadAttributeMapInstances))
-	for _, attributeMap := range options.LoadAttributeMaps {
+	return validateStateLoads(flow, stateLoads{
+		attributeMaps:         options.LoadAttributeMaps,
+		attributeMapInstances: options.LoadAttributeMapInstances,
+		channels:              options.LoadChannels,
+		channelMaps:           options.LoadChannelMaps,
+		channelMapInstances:   options.LoadChannelMapInstances,
+	})
+}
+
+type stateLoads struct {
+	attributeMaps         []AttributeDef
+	attributeMapInstances []AttributeMapLoad
+	channels              []ChannelDef
+	channelMaps           []ChannelDef
+	channelMapInstances   []ChannelMapLoad
+}
+
+func validateStateLoads(
+	flow *registeredFlow,
+	loads stateLoads,
+) ([]string, []string, []string, error) {
+	attributeMaps := make([]string, 0, len(loads.attributeMaps)+len(loads.attributeMapInstances))
+	for _, attributeMap := range loads.attributeMaps {
 		if attributeMap == nil {
 			return nil, nil, nil, fmt.Errorf("dex: AttributeMap load must not be nil")
 		}
@@ -1729,8 +1757,11 @@ func validateInvokeStateLoads(
 		if !attributeMap.attributeIsMap() {
 			return nil, nil, nil, fmt.Errorf("dex: AttributeMap load %q is not an AttributeMap", name)
 		}
-		attribute, found := flow.attributes[name]
-		if !found || !attribute.isMap {
+		attribute, found := registeredAttribute{}, false
+		if flow != nil {
+			attribute, found = flow.attributes[name]
+		}
+		if flow != nil && (!found || !attribute.isMap) {
 			return nil, nil, nil, fmt.Errorf(
 				"dex: AttributeMap %q is not registered with Flow %q",
 				name,
@@ -1739,9 +1770,12 @@ func validateInvokeStateLoads(
 		}
 		attributeMaps = append(attributeMaps, name+"/")
 	}
-	for _, load := range options.LoadAttributeMapInstances {
-		attribute, found := flow.attributes[load.name]
-		if !found || !attribute.isMap {
+	for _, load := range loads.attributeMapInstances {
+		attribute, found := registeredAttribute{}, false
+		if flow != nil {
+			attribute, found = flow.attributes[load.name]
+		}
+		if flow != nil && (!found || !attribute.isMap) {
 			return nil, nil, nil, fmt.Errorf(
 				"dex: AttributeMap %q is not registered with Flow %q",
 				load.name,
@@ -1754,8 +1788,8 @@ func validateInvokeStateLoads(
 		}
 		attributeMaps = append(attributeMaps, instance)
 	}
-	channels := make([]string, 0, len(options.LoadChannels))
-	for _, channelDefinition := range options.LoadChannels {
+	channels := make([]string, 0, len(loads.channels))
+	for _, channelDefinition := range loads.channels {
 		if channelDefinition == nil {
 			return nil, nil, nil, fmt.Errorf("dex: Channel load must not be nil")
 		}
@@ -1763,8 +1797,11 @@ func validateInvokeStateLoads(
 		if channelDefinition.channelIsMap() {
 			return nil, nil, nil, fmt.Errorf("dex: Channel load %q is a ChannelMap", name)
 		}
-		channel, found := flow.channels[name]
-		if !found || channel.isMap {
+		channel, found := registeredChannel{}, false
+		if flow != nil {
+			channel, found = flow.channels[name]
+		}
+		if flow != nil && (!found || channel.isMap) {
 			return nil, nil, nil, fmt.Errorf(
 				"dex: Channel %q is not registered with Flow %q",
 				name,
@@ -1773,8 +1810,8 @@ func validateInvokeStateLoads(
 		}
 		channels = append(channels, name)
 	}
-	channelMaps := make([]string, 0, len(options.LoadChannelMaps)+len(options.LoadChannelMapInstances))
-	for _, channelMap := range options.LoadChannelMaps {
+	channelMaps := make([]string, 0, len(loads.channelMaps)+len(loads.channelMapInstances))
+	for _, channelMap := range loads.channelMaps {
 		if channelMap == nil {
 			return nil, nil, nil, fmt.Errorf("dex: ChannelMap load must not be nil")
 		}
@@ -1782,8 +1819,11 @@ func validateInvokeStateLoads(
 		if !channelMap.channelIsMap() {
 			return nil, nil, nil, fmt.Errorf("dex: ChannelMap load %q is not a ChannelMap", name)
 		}
-		channel, found := flow.channels[name]
-		if !found || !channel.isMap {
+		channel, found := registeredChannel{}, false
+		if flow != nil {
+			channel, found = flow.channels[name]
+		}
+		if flow != nil && (!found || !channel.isMap) {
 			return nil, nil, nil, fmt.Errorf(
 				"dex: ChannelMap %q is not registered with Flow %q",
 				name,
@@ -1792,9 +1832,12 @@ func validateInvokeStateLoads(
 		}
 		channelMaps = append(channelMaps, name+"/")
 	}
-	for _, load := range options.LoadChannelMapInstances {
-		channel, found := flow.channels[load.name]
-		if !found || !channel.isMap {
+	for _, load := range loads.channelMapInstances {
+		channel, found := registeredChannel{}, false
+		if flow != nil {
+			channel, found = flow.channels[load.name]
+		}
+		if flow != nil && (!found || !channel.isMap) {
 			return nil, nil, nil, fmt.Errorf(
 				"dex: ChannelMap %q is not registered with Flow %q",
 				load.name,

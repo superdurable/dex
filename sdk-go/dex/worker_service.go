@@ -109,11 +109,11 @@ func (service *workerService) invokeWaitForMethod(
 		request.Attributes,
 		nil,
 		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
+		request.ChannelInfos,
+		request.LoadedChannelMessages,
+		request.LoadedAttributeMapInstances,
+		request.LoadedChannelNames,
+		request.LoadedChannelMapInstances,
 	)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
@@ -137,6 +137,7 @@ func (service *workerService) invokeWaitForMethod(
 		UpsertStepExeLocals: invocation.mappedLocalWrites(),
 		RecordEvents:        invocation.recordedEvents,
 		PublishToChannel:    invocation.publications,
+		DeleteFromChannel:   invocation.deletions,
 	})
 }
 
@@ -203,11 +204,11 @@ func (service *workerService) invokeExecuteMethod(
 		request.Attributes,
 		request.StepExeLocals,
 		request.ConditionResults,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
+		request.ChannelInfos,
+		request.LoadedChannelMessages,
+		request.LoadedAttributeMapInstances,
+		request.LoadedChannelNames,
+		request.LoadedChannelMapInstances,
 	)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
@@ -226,10 +227,11 @@ func (service *workerService) invokeExecuteMethod(
 		})
 	}
 	return output.sendResult(&dexpb.InvokeExecuteMethodResponse{
-		StepDecision:     mapped,
-		UpsertAttributes: invocation.mappedAttributeWrites(),
-		RecordEvents:     invocation.recordedEvents,
-		PublishToChannel: invocation.publications,
+		StepDecision:      mapped,
+		UpsertAttributes:  invocation.mappedAttributeWrites(),
+		RecordEvents:      invocation.recordedEvents,
+		PublishToChannel:  invocation.publications,
+		DeleteFromChannel: invocation.deletions,
 	})
 }
 
@@ -276,16 +278,16 @@ func (service *workerService) invokeTimeoutHandler(
 		output.stream.Context(),
 		invocationExecute,
 		flow,
-		nil,
+		output,
 		request.Context,
 		request.Attributes,
 		request.StepExeLocals,
 		request.ConditionResults,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
+		request.ChannelInfos,
+		request.LoadedChannelMessages,
+		request.LoadedAttributeMapInstances,
+		request.LoadedChannelNames,
+		request.LoadedChannelMapInstances,
 	)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
@@ -309,6 +311,7 @@ func (service *workerService) invokeTimeoutHandler(
 		UpsertStepExeLocals: invocation.mappedLocalWrites(),
 		RecordEvents:        invocation.recordedEvents,
 		PublishToChannel:    invocation.publications,
+		DeleteFromChannel:   invocation.deletions,
 	})
 }
 
@@ -531,12 +534,7 @@ func stepRequestValuePointers(
 
 func rpcRequestValuePointers(request *dexpb.InvokeWorkerRPCRequest) []**dexpb.Value {
 	valuePointers := stepRequestValuePointers(&request.Input, request.Attributes)
-	for _, values := range request.LoadedChannelMessages {
-		for _, message := range values.Messages {
-			valuePointers = append(valuePointers, &message.Value)
-		}
-	}
-	return valuePointers
+	return appendLoadedChannelMessageValuePointers(valuePointers, request.LoadedChannelMessages)
 }
 
 func waitForRequestValuePointers(
@@ -546,7 +544,7 @@ func waitForRequestValuePointers(
 	if request.Context.LastHeartbeatValue != nil {
 		valuePointers = append(valuePointers, &request.Context.LastHeartbeatValue)
 	}
-	return valuePointers
+	return appendLoadedChannelMessageValuePointers(valuePointers, request.LoadedChannelMessages)
 }
 
 func executeRequestValuePointers(
@@ -565,6 +563,10 @@ func executeRequestValuePointers(
 	for _, local := range request.StepExeLocals {
 		valuePointers = append(valuePointers, &local.Value)
 	}
+	valuePointers = appendLoadedChannelMessageValuePointers(
+		valuePointers,
+		request.LoadedChannelMessages,
+	)
 	if request.ConditionResults == nil {
 		return valuePointers, nil
 	}
@@ -592,6 +594,18 @@ func executeRequestValuePointers(
 		}
 	}
 	return valuePointers, nil
+}
+
+func appendLoadedChannelMessageValuePointers(
+	valuePointers []**dexpb.Value,
+	loadedMessages map[string]*dexpb.ChannelValues,
+) []**dexpb.Value {
+	for _, values := range loadedMessages {
+		for _, message := range values.Messages {
+			valuePointers = append(valuePointers, &message.Value)
+		}
+	}
+	return valuePointers
 }
 
 func decodeHandlerInput(value *dexpb.Value, inputType reflect.Type) (any, error) {

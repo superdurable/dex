@@ -351,6 +351,12 @@ function StepOptionsView({ value }: { value: unknown }) {
         ['Failure proceeds to', options.executeFailureProceedStepType],
         ['WaitFor locks', listText(options.waitForLockAttributeKeys)],
         ['Execute locks', listText(options.executeLockAttributeKeys)],
+        ['WaitFor AttributeMap loads', listText(options.waitForLoadAttributeMapInstances)],
+        ['WaitFor Channel loads', listText(options.waitForLoadChannelNames)],
+        ['WaitFor ChannelMap loads', listText(options.waitForLoadChannelMapInstances)],
+        ['Execute AttributeMap loads', listText(options.executeLoadAttributeMapInstances)],
+        ['Execute Channel loads', listText(options.executeLoadChannelNames)],
+        ['Execute ChannelMap loads', listText(options.executeLoadChannelMapInstances)],
       ]} />
     </div>
   );
@@ -395,6 +401,33 @@ function FlowConfigView({ value }: { value: unknown }) {
         ['Continue-as-new threshold', config.continueAsNewThreshold],
         ['Continue-as-new page size', bytes(config.continueAsNewPageSizeInBytes)],
       ]} />
+    </DetailSection>
+  );
+}
+
+function FlowTimeoutHandlerOptionsView({ value }: { value: unknown }) {
+  const options = asData(value);
+  if (!hasData(options)) return null;
+  const retry = asData(options.retryPolicy);
+  return (
+    <DetailSection title="Timeout handler options">
+      <Fields values={[
+        ['Method timeout', seconds(options.methodTimeoutSeconds)],
+        ['Heartbeat timeout', seconds(options.heartbeatTimeoutSeconds)],
+        ['Retry initial interval', seconds(retry.initialIntervalSeconds)],
+        ['Retry backoff coefficient', retry.backoffCoefficient],
+        ['Retry maximum interval', seconds(retry.maximumIntervalSeconds)],
+        ['Retry maximum attempts', retry.maximumAttempts],
+        ['Retry total duration', seconds(retry.totalDurationSeconds)],
+        ['Failure policy', isPresent(options.failurePolicy) ? executeFailurePolicyLabel(options.failurePolicy) : undefined],
+        ['Failure proceeds to', options.failureProceedStepType],
+        ['Durability', isPresent(options.durabilityOverride) ? durabilityLabel(options.durabilityOverride) : undefined],
+        ['Locking attributes', listText(options.lockAttributeKeys)],
+        ['AttributeMap loads', listText(options.loadAttributeMapInstances)],
+        ['Channel loads', listText(options.loadChannelNames)],
+        ['ChannelMap loads', listText(options.loadChannelMapInstances)],
+      ]} />
+      <StepOptionsView value={options.failureProceedStepOptions} />
     </DetailSection>
   );
 }
@@ -775,8 +808,12 @@ function EffectsContent({ value }: { value: Data }) {
   const attributes = value.upsertAttributes;
   const events = value.recordEvents;
   const channels = value.publishToChannel;
+  const deletions = asDataArray(value.deleteFromChannel);
   const locals = value.upsertStepExecutionLocals;
-  if (![attributes, events, channels, locals].some((entry) => Array.isArray(entry) && entry.length > 0)) return null;
+  if (
+    deletions.length === 0 &&
+    ![attributes, events, channels, locals].some((entry) => Array.isArray(entry) && entry.length > 0)
+  ) return null;
   return (
     <>
       {Array.isArray(attributes) && attributes.length > 0 && (
@@ -790,6 +827,21 @@ function EffectsContent({ value }: { value: Data }) {
       )}
       {Array.isArray(channels) && channels.length > 0 && (
         <div className="semantic-subsection"><h5>Channel publishes</h5><ChannelMessages values={channels} /></div>
+      )}
+      {deletions.length > 0 && (
+        <div className="semantic-subsection">
+          <h5>Channel deletions</h5>
+          <div className="semantic-records">
+            {deletions.map((deletion, index) => (
+              <div className="semantic-record" key={`${String(deletion.messageId)}-${index}`}>
+                <Fields values={[
+                  ['Channel', deletion.channelName],
+                  ['Message ID', deletion.messageId],
+                ]} />
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </>
   );
@@ -1018,6 +1070,7 @@ function InitialStartDetails({ payload, showHeading = true }: { payload: Data; s
         <DetailSection title="Initial attributes"><KeyValues values={start.initialAttributes} /></DetailSection>
       )}
       <FlowConfigView value={payload.flowConfig} />
+      <FlowTimeoutHandlerOptionsView value={payload.timeoutHandlerOptions} />
     </>
   );
 }
@@ -1077,6 +1130,7 @@ function ContinuedStartDetails({
         <DetailSection title="Completed steps"><StepOutputs values={continued.completedSteps} /></DetailSection>
       )}
       <FlowConfigView value={payload.flowConfig} />
+      <FlowTimeoutHandlerOptionsView value={payload.timeoutHandlerOptions} />
     </>
   );
 }

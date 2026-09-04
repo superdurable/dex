@@ -180,8 +180,8 @@ export interface Context {
 /**
  * Adds asynchronous progress reporting to a Step invocation Context.
  *
- * Annotate an async `waitFor` or `execute` handler with AsyncContext when it records heartbeats.
- * RPC and Flow timeout handlers receive Context and cannot record Step heartbeats.
+ * Annotate an async `waitFor`, `execute`, or Flow timeout handler with AsyncContext when it
+ * records heartbeats. RPC handlers receive Context and cannot record heartbeats.
  */
 export interface AsyncContext extends Context {
   /**

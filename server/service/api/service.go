@@ -126,6 +126,14 @@ func (s *serviceImpl) StartFlow(
 	}
 
 	startOptions := req.GetFlowStartOptions()
+	if err := service.ValidateFlowTimeoutHandlerOptions(
+		req.GetFlowTimeoutSeconds(),
+		timeoutPolicy,
+		startOptions.GetTimeoutHandlerOptions(),
+		s.interpreterCfg.InterpreterActivityConfig.EffectiveMinimumStepHeartbeatTimeout(),
+	); err != nil {
+		return nil, makeInvalidRequestError(err.Error())
+	}
 	attributes := startOptions.GetAttributes()
 	if err := validateAttributeWrites(attributes); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
@@ -235,6 +243,7 @@ func (s *serviceImpl) StartFlow(
 		StepOptions:                  req.GetStepOptions(),
 		InitAttributes:               attributes,
 		Config:                       &workflowConfig,
+		TimeoutHandlerOptions:        startOptions.GetTimeoutHandlerOptions(),
 	}
 
 	runId, err := s.client.StartInterpreterWorkflow(ctx, workflowOptions, input)

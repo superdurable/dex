@@ -100,7 +100,7 @@ func SetQueryHandlers(
 		}
 		info := provider.GetWorkflowInfo(ctx)
 		return &dexpb.PrepareRpcQueryResponse{
-			Attributes:                  persistenceManager.GetRPCAttributes(selection.AttributeMapInstances),
+			Attributes:                  persistenceManager.GetSelectedAttributes(selection.AttributeMapInstances),
 			RunId:                       info.WorkflowExecution.RunID,
 			FlowStartedTimestamp:        info.WorkflowStartTime.Unix(),
 			FlowType:                    basicInfo.FlowType,

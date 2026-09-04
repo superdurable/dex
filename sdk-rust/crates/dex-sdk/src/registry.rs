@@ -194,6 +194,14 @@ fn assemble_flow<SomeFlow: Flow>(
     }
 
     let persistence = assemble_persistence(name, flow.persistence().definitions())?;
+    for step in steps.values() {
+        let options = flow
+            .steps()
+            .find(step.name)
+            .ok_or_else(|| definition_error(format!("Flow {name} Step disappeared")))?
+            .options();
+        validate_step_state_loads(name, step.name, &options, &persistence)?;
+    }
     let mut rpcs = HashMap::new();
     for rpc in flow.rpcs().bind(Arc::clone(&flow)) {
         require_static_name(rpc.name, "RPC name")?;
@@ -375,25 +383,25 @@ fn validate_rpc(
             )));
         }
     }
-    validate_rpc_map_loads(
+    validate_map_loads(
         flow_name,
-        rpc.name,
+        &format!("RPC {}", rpc.name),
         &rpc.load_attribute_maps,
         PersistenceKind::AttributeMap,
         persistence,
         |load| (&load.name, load.instance.as_deref()),
     )?;
-    validate_rpc_definition_loads(
+    validate_definition_loads(
         flow_name,
-        rpc.name,
+        &format!("RPC {}", rpc.name),
         &rpc.load_channels,
         PersistenceKind::Channel,
         persistence,
         |load| &load.name,
     )?;
-    validate_rpc_map_loads(
+    validate_map_loads(
         flow_name,
-        rpc.name,
+        &format!("RPC {}", rpc.name),
         &rpc.load_channel_maps,
         PersistenceKind::ChannelMap,
         persistence,
@@ -402,9 +410,69 @@ fn validate_rpc(
     Ok(())
 }
 
-fn validate_rpc_map_loads<Load, GetLoad>(
+fn validate_step_state_loads(
     flow_name: &str,
-    rpc_name: &str,
+    step_name: &str,
+    options: &ErasedStepOptions,
+    persistence: &HashMap<String, PersistenceDefinition>,
+) -> SdkResult<()> {
+    validate_step_method_state_loads(
+        flow_name,
+        &format!("Step {step_name} WaitFor"),
+        &options.wait_for_load_attribute_maps,
+        &options.wait_for_load_channels,
+        &options.wait_for_load_channel_maps,
+        persistence,
+    )?;
+    validate_step_method_state_loads(
+        flow_name,
+        &format!("Step {step_name} Execute"),
+        &options.execute_load_attribute_maps,
+        &options.execute_load_channels,
+        &options.execute_load_channel_maps,
+        persistence,
+    )?;
+    Ok(())
+}
+
+fn validate_step_method_state_loads(
+    flow_name: &str,
+    source: &str,
+    attribute_maps: &[crate::AttributeMapLoad],
+    channels: &[crate::channel::ChannelLoad],
+    channel_maps: &[crate::ChannelMapLoad],
+    persistence: &HashMap<String, PersistenceDefinition>,
+) -> SdkResult<()> {
+    validate_map_loads(
+        flow_name,
+        source,
+        attribute_maps,
+        PersistenceKind::AttributeMap,
+        persistence,
+        |load| (&load.name, load.instance.as_deref()),
+    )?;
+    validate_definition_loads(
+        flow_name,
+        source,
+        channels,
+        PersistenceKind::Channel,
+        persistence,
+        |load| &load.name,
+    )?;
+    validate_map_loads(
+        flow_name,
+        source,
+        channel_maps,
+        PersistenceKind::ChannelMap,
+        persistence,
+        |load| (&load.name, load.instance.as_deref()),
+    )?;
+    Ok(())
+}
+
+fn validate_map_loads<Load, GetLoad>(
+    flow_name: &str,
+    source: &str,
     loads: &[Load],
     kind: PersistenceKind,
     persistence: &HashMap<String, PersistenceDefinition>,
@@ -416,15 +484,15 @@ where
     let mut physical_names = HashSet::new();
     for load in loads {
         let (name, instance) = get_load(load);
-        validate_rpc_load_definition(flow_name, rpc_name, name, kind, persistence)?;
+        validate_load_definition(flow_name, source, name, kind, persistence)?;
         if instance.is_some_and(str::is_empty) {
             return Err(definition_error(format!(
-                "Flow {flow_name} RPC {rpc_name} loads an empty map instance"
+                "Flow {flow_name} {source} loads an empty map instance"
             )));
         }
         if instance.is_some_and(|value| value.contains('/')) {
             return Err(definition_error(format!(
-                "Flow {flow_name} RPC {rpc_name} map instance must not contain /"
+                "Flow {flow_name} {source} map instance must not contain /"
             )));
         }
         let physical_name = match instance {
@@ -433,16 +501,16 @@ where
         };
         if !physical_names.insert(physical_name) {
             return Err(definition_error(format!(
-                "Flow {flow_name} RPC {rpc_name} has a duplicate state load"
+                "Flow {flow_name} {source} has a duplicate state load"
             )));
         }
     }
     Ok(())
 }
 
-fn validate_rpc_definition_loads<Load, GetLoad>(
+fn validate_definition_loads<Load, GetLoad>(
     flow_name: &str,
-    rpc_name: &str,
+    source: &str,
     loads: &[Load],
     kind: PersistenceKind,
     persistence: &HashMap<String, PersistenceDefinition>,
@@ -454,31 +522,31 @@ where
     let mut names = HashSet::new();
     for load in loads {
         let name = get_load(load);
-        validate_rpc_load_definition(flow_name, rpc_name, name, kind, persistence)?;
+        validate_load_definition(flow_name, source, name, kind, persistence)?;
         if !names.insert(name) {
             return Err(definition_error(format!(
-                "Flow {flow_name} RPC {rpc_name} has a duplicate state load"
+                "Flow {flow_name} {source} has a duplicate state load"
             )));
         }
     }
     Ok(())
 }
 
-fn validate_rpc_load_definition(
+fn validate_load_definition(
     flow_name: &str,
-    rpc_name: &str,
+    source: &str,
     name: &str,
     kind: PersistenceKind,
     persistence: &HashMap<String, PersistenceDefinition>,
 ) -> SdkResult<()> {
     let definition = persistence.get(name).ok_or_else(|| {
         definition_error(format!(
-            "Flow {flow_name} RPC {rpc_name} loads unregistered state: {name}"
+            "Flow {flow_name} {source} loads unregistered state: {name}"
         ))
     })?;
     if definition.kind != kind {
         return Err(definition_error(format!(
-            "Flow {flow_name} RPC {rpc_name} loads the wrong state kind: {name}"
+            "Flow {flow_name} {source} loads the wrong state kind: {name}"
         )));
     }
     Ok(())

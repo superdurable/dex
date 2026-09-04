@@ -78,10 +78,10 @@ public interface Flow<StartInput> {
      * Handles expiration of this Flow's soft timeout.
      *
      * <p>Override this method to make a positive timeout default to
-     * {@link FlowTimeoutPolicy#HANDLER}. Dex calls it at most once after the durable timeout timer
-     * completes or is skipped. The returned decision may transition to another Step, end without
-     * closing, complete, fail, or request graceful completion. The Context belongs to this
-     * invocation and must not be retained.
+     * {@link FlowTimeoutPolicy#HANDLER}. Dex starts one logical execution after the durable timeout
+     * timer completes or is skipped; configured retry attempts may invoke it more than once. The
+     * returned decision may transition to another Step, end without closing, complete, fail, or
+     * request graceful completion. The Context belongs to this invocation and must not be retained.
      *
      * @param context the timeout-handler invocation Context
      * @return the non-null decision applied with normal Step Execute semantics

@@ -67,6 +67,7 @@ func executeStart(c *flowCommand, ctx context.Context, args []string, options op
 	configSource := flags.String("config", "", "Flow configuration JSON, @file, or - for stdin")
 	retryPolicySource := flags.String("retry-policy", "", "Flow retry policy JSON, @file, or - for stdin")
 	stepOptionsSource := flags.String("step-options", "", "StepOptions protobuf JSON, @file, or - for stdin")
+	timeoutHandlerOptionsSource := flags.String("timeout-handler-options", "", "FlowTimeoutHandlerOptions protobuf JSON, @file, or - for stdin")
 	flowTimeout := flags.String("flow-timeout", "", "Flow timeout duration")
 	timeoutPolicy := flags.String("flow-timeout-policy", "", "fail, cancel, or handler")
 	idReusePolicy := flags.String("id-reuse-policy", "", "previous-failed, not-running, disallow, or terminate-running")
@@ -85,10 +86,10 @@ func executeStart(c *flowCommand, ctx context.Context, args []string, options op
 	if strings.TrimSpace(*flowType) == "" {
 		return newUsageError("flow start", fmt.Errorf("flow-type is required"))
 	}
-	if err := atMostOneStdinSource(*inputSource, *attributesSource, *configSource, *retryPolicySource, *stepOptionsSource); err != nil {
+	if err := atMostOneStdinSource(*inputSource, *attributesSource, *configSource, *retryPolicySource, *stepOptionsSource, *timeoutHandlerOptionsSource); err != nil {
 		return newUsageError("flow start", err)
 	}
-	request, err := startFlowRequest(c.stdin, flowID, *flowType, *startStepType, *inputSource, *attributesSource, *configSource, *retryPolicySource, *stepOptionsSource, *flowTimeout, *timeoutPolicy, *idReusePolicy, *startDelay, *ignoreAlreadyStarted, *requestID)
+	request, err := startFlowRequest(c.stdin, flowID, *flowType, *startStepType, *inputSource, *attributesSource, *configSource, *retryPolicySource, *stepOptionsSource, *timeoutHandlerOptionsSource, *flowTimeout, *timeoutPolicy, *idReusePolicy, *startDelay, *ignoreAlreadyStarted, *requestID)
 	if err != nil {
 		return newUsageError("flow start", err)
 	}
@@ -263,7 +264,7 @@ func executeTriggerContinueAsNew(c *flowCommand, ctx context.Context, args []str
 	})
 }
 
-func startFlowRequest(reader io.Reader, flowID string, flowType string, startStepType string, inputSource string, attributesSource string, configSource string, retryPolicySource string, stepOptionsSource string, flowTimeout string, timeoutPolicy string, idReusePolicy string, startDelay string, ignoreAlreadyStarted bool, requestID string) (*dexpb.StartFlowRequest, error) {
+func startFlowRequest(reader io.Reader, flowID string, flowType string, startStepType string, inputSource string, attributesSource string, configSource string, retryPolicySource string, stepOptionsSource string, timeoutHandlerOptionsSource string, flowTimeout string, timeoutPolicy string, idReusePolicy string, startDelay string, ignoreAlreadyStarted bool, requestID string) (*dexpb.StartFlowRequest, error) {
 	input, err := parseNaturalValue(reader, inputSource)
 	if err != nil {
 		return nil, fmt.Errorf("input: %w", err)
@@ -284,6 +285,10 @@ func startFlowRequest(reader io.Reader, flowID string, flowType string, startSte
 	if err != nil {
 		return nil, fmt.Errorf("step-options: %w", err)
 	}
+	timeoutHandlerOptions, err := parseOptionalFlowTimeoutHandlerOptions(reader, timeoutHandlerOptionsSource)
+	if err != nil {
+		return nil, fmt.Errorf("timeout-handler-options: %w", err)
+	}
 	timeoutSeconds, err := parseOptionalDurationSeconds(flowTimeout, "flow-timeout")
 	if err != nil {
 		return nil, err
@@ -294,6 +299,12 @@ func startFlowRequest(reader io.Reader, flowID string, flowType string, startSte
 	}
 	if policy != dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED && timeoutSeconds == 0 {
 		return nil, fmt.Errorf("flow-timeout-policy requires a positive flow-timeout")
+	}
+	if timeoutHandlerOptions != nil && timeoutSeconds == 0 {
+		return nil, fmt.Errorf("timeout-handler-options requires a positive flow-timeout")
+	}
+	if timeoutHandlerOptions != nil && policy != dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED && policy != dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER {
+		return nil, fmt.Errorf("timeout-handler-options requires handler flow-timeout-policy")
 	}
 	reusePolicy, err := parseIDReusePolicy(idReusePolicy)
 	if err != nil {
@@ -306,7 +317,7 @@ func startFlowRequest(reader io.Reader, flowID string, flowType string, startSte
 	if requestID == "" {
 		requestID = uuid.NewString()
 	}
-	startOptions := &dexpb.FlowStartOptions{IdReusePolicy: reusePolicy, FlowStartDelaySeconds: startDelaySeconds, RetryPolicy: retryPolicy, Attributes: attributes, FlowConfigOverride: config}
+	startOptions := &dexpb.FlowStartOptions{IdReusePolicy: reusePolicy, FlowStartDelaySeconds: startDelaySeconds, RetryPolicy: retryPolicy, Attributes: attributes, FlowConfigOverride: config, TimeoutHandlerOptions: timeoutHandlerOptions}
 	if ignoreAlreadyStarted {
 		startOptions.FlowAlreadyStartedOptions = &dexpb.FlowAlreadyStartedOptions{IgnoreAlreadyStartedError: true}
 	}
@@ -550,6 +561,21 @@ func parseOptionalStepOptions(reader io.Reader, source string) (*dexpb.StepOptio
 	options := &dexpb.StepOptions{}
 	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(data, options); err != nil {
 		return nil, fmt.Errorf("invalid StepOptions protobuf JSON: %w", err)
+	}
+	return options, nil
+}
+
+func parseOptionalFlowTimeoutHandlerOptions(reader io.Reader, source string) (*dexpb.FlowTimeoutHandlerOptions, error) {
+	if source == "" {
+		return nil, nil
+	}
+	data, err := readFlowJSON(reader, source)
+	if err != nil {
+		return nil, err
+	}
+	options := &dexpb.FlowTimeoutHandlerOptions{}
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(data, options); err != nil {
+		return nil, fmt.Errorf("invalid FlowTimeoutHandlerOptions protobuf JSON: %w", err)
 	}
 	return options, nil
 }

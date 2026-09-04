@@ -79,6 +79,21 @@ public interface FlowStartedOrContinuedHistoryEventOrBuilder extends
   io.superdurable.gen.FlowTimeoutPolicy getFlowTimeoutPolicy();
 
   /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+   * @return Whether the timeoutHandlerOptions field is set.
+   */
+  boolean hasTimeoutHandlerOptions();
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+   * @return The timeoutHandlerOptions.
+   */
+  io.superdurable.gen.FlowTimeoutHandlerOptions getTimeoutHandlerOptions();
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+   */
+  io.superdurable.gen.FlowTimeoutHandlerOptionsOrBuilder getTimeoutHandlerOptionsOrBuilder();
+
+  /**
    * <code>.dex.FlowInitialStart initial_start = 10;</code>
    * @return Whether the initialStart field is set.
    */

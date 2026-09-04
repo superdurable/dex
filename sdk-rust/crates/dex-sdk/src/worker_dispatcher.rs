@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
+use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
@@ -14,9 +15,10 @@ use std::time::Duration;
 use dex_protocol::dex::{
     AttributeWrite, ChannelCondition, ChannelMessage, CloseDecision, CloseDecisionType,
     ConditionCombination as ProtoCombination, ExecuteMethodFailurePolicy,
-    InvokeExecuteMethodOutput, InvokeExecuteMethodRequest, InvokeExecuteMethodResponse,
-    InvokeWaitForMethodOutput, InvokeWaitForMethodRequest, InvokeWaitForMethodResponse,
-    InvokeWorkerRpcRequest, InvokeWorkerRpcResponse, Kv, RetryPolicy as ProtoRetryPolicy,
+    FlowTimeoutHandlerOptions as ProtoFlowTimeoutHandlerOptions, InvokeExecuteMethodOutput,
+    InvokeExecuteMethodRequest, InvokeExecuteMethodResponse, InvokeWaitForMethodOutput,
+    InvokeWaitForMethodRequest, InvokeWaitForMethodResponse, InvokeWorkerRpcRequest,
+    InvokeWorkerRpcResponse, Kv, RetryPolicy as ProtoRetryPolicy,
     StepDecision as ProtoStepDecision, StepDurability as ProtoStepDurability,
     StepMovement as ProtoStepMovement, StepOptions as ProtoStepOptions,
     SubFlowCondition as ProtoSubFlowCondition, SubFlowOptions as ProtoSubFlowOptions,
@@ -26,6 +28,8 @@ use dex_protocol::dex::{
 };
 use tokio::sync::mpsc;
 
+use crate::attribute::AttributeMapLoad;
+use crate::channel::{ChannelLoad, ChannelMapLoad};
 use crate::context::{Context, ContextInput, InvocationCancellation, InvocationMethod};
 use crate::persistence::PersistenceKind;
 use crate::registry::{RegisteredFlow, physical_name};
@@ -37,8 +41,8 @@ use crate::value_mapper;
 use crate::wait::{Condition, ConditionKind, Wait, WaitKind};
 use crate::worker_output::{StepOutputEmitter, WorkerInvocation};
 use crate::{
-    HandlerError, HandlerResult, Registry, RetryPolicy, SdkError, StepDurability,
-    SubFlowReusePolicy, WaitForFailurePolicy,
+    FlowTimeoutHandlerOptions, HandlerError, HandlerResult, Registry, RetryPolicy, SdkError,
+    StepDurability, SubFlowReusePolicy, WaitForFailurePolicy,
 };
 
 const TIMEOUT_HANDLER_STEP_TYPE: &str = "sys:timeout_handler";
@@ -106,11 +110,11 @@ impl WorkerDispatcher {
                 attributes: request.attributes,
                 locals: Vec::new(),
                 condition_results: None,
-                channel_infos: HashMap::new(),
-                loaded_channel_messages: HashMap::new(),
-                loaded_attribute_map_instances: Vec::new(),
-                loaded_channel_names: Vec::new(),
-                loaded_channel_map_instances: Vec::new(),
+                channel_infos: request.channel_infos,
+                loaded_channel_messages: request.loaded_channel_messages,
+                loaded_attribute_map_instances: request.loaded_attribute_map_instances,
+                loaded_channel_names: request.loaded_channel_names,
+                loaded_channel_map_instances: request.loaded_channel_map_instances,
             },
             Some(output_emitter),
             cancellation,
@@ -136,6 +140,7 @@ impl WorkerDispatcher {
                 upsert_step_exe_locals: outputs.locals,
                 record_events: outputs.events,
                 publish_to_channel: outputs.publications,
+                delete_from_channel: outputs.channel_deletions,
             })
         })
         .await
@@ -172,7 +177,7 @@ impl WorkerDispatcher {
         let flow = self.registered_flow(&request.flow_type)?;
         if request.step_type == TIMEOUT_HANDLER_STEP_TYPE {
             return self
-                .invoke_timeout_handler(request, flow, cancellation)
+                .invoke_timeout_handler(request, flow, output_emitter, cancellation)
                 .await;
         }
         let step = flow
@@ -198,11 +203,11 @@ impl WorkerDispatcher {
                 attributes: request.attributes,
                 locals: request.step_exe_locals,
                 condition_results: request.condition_results,
-                channel_infos: HashMap::new(),
-                loaded_channel_messages: HashMap::new(),
-                loaded_attribute_map_instances: Vec::new(),
-                loaded_channel_names: Vec::new(),
-                loaded_channel_map_instances: Vec::new(),
+                channel_infos: request.channel_infos,
+                loaded_channel_messages: request.loaded_channel_messages,
+                loaded_attribute_map_instances: request.loaded_attribute_map_instances,
+                loaded_channel_names: request.loaded_channel_names,
+                loaded_channel_map_instances: request.loaded_channel_map_instances,
             },
             Some(output_emitter),
             cancellation,
@@ -227,6 +232,7 @@ impl WorkerDispatcher {
                 record_events: outputs.events,
                 upsert_step_exe_locals: outputs.locals,
                 publish_to_channel: outputs.publications,
+                delete_from_channel: outputs.channel_deletions,
             })
         })
         .await
@@ -236,6 +242,7 @@ impl WorkerDispatcher {
         &self,
         request: InvokeExecuteMethodRequest,
         flow: RegisteredFlow,
+        output_emitter: StepOutputEmitter,
         cancellation: InvocationCancellation,
     ) -> HandlerResult<InvokeExecuteMethodResponse> {
         if request.step_input.is_some() {
@@ -263,26 +270,29 @@ impl WorkerDispatcher {
                 attributes: request.attributes,
                 locals: request.step_exe_locals,
                 condition_results: request.condition_results,
-                channel_infos: HashMap::new(),
-                loaded_channel_messages: HashMap::new(),
-                loaded_attribute_map_instances: Vec::new(),
-                loaded_channel_names: Vec::new(),
-                loaded_channel_map_instances: Vec::new(),
+                channel_infos: request.channel_infos,
+                loaded_channel_messages: request.loaded_channel_messages,
+                loaded_attribute_map_instances: request.loaded_attribute_map_instances,
+                loaded_channel_names: request.loaded_channel_names,
+                loaded_channel_map_instances: request.loaded_channel_map_instances,
             },
-            None,
+            Some(output_emitter),
             cancellation,
         )?;
         let cancellation = context.cancellation();
         run_handler(cancellation, move || {
-            let decision = flow.handler.handle_timeout(&mut context)?;
-            let decision = map_decision(&flow, decision).map_err(|error| {
-                HandlerError::invalid_step_result(
-                    flow.name,
-                    Some(TIMEOUT_HANDLER_STEP_TYPE),
-                    "execute",
-                    error,
-                )
-            })?;
+            let handler_result = catch_handler_panic(|| {
+                let decision = flow.handler.handle_timeout(&mut context)?;
+                map_decision(&flow, decision).map_err(|error| {
+                    HandlerError::invalid_step_result(
+                        flow.name,
+                        Some(TIMEOUT_HANDLER_STEP_TYPE),
+                        "execute",
+                        error,
+                    )
+                })
+            });
+            let decision = context.finalize_step_outputs(handler_result)?;
             let outputs = context.take_outputs();
             Ok(InvokeExecuteMethodResponse {
                 local_activity_metadata: None,
@@ -291,6 +301,7 @@ impl WorkerDispatcher {
                 record_events: outputs.events,
                 upsert_step_exe_locals: outputs.locals,
                 publish_to_channel: outputs.publications,
+                delete_from_channel: outputs.channel_deletions,
             })
         })
         .await
@@ -371,16 +382,38 @@ impl WorkerDispatcher {
         &self,
         mut request: InvokeWaitForMethodRequest,
     ) -> HandlerResult<InvokeWaitForMethodRequest> {
-        let mut values = vec![request.step_input.take().unwrap_or_default()];
+        let last_heartbeat_value = request
+            .context
+            .as_mut()
+            .and_then(|context| context.last_heartbeat_value.take());
+        let has_last_heartbeat_value = last_heartbeat_value.is_some();
+        let mut values = last_heartbeat_value.into_iter().collect::<Vec<_>>();
+        values.push(request.step_input.take().unwrap_or_default());
+        let attribute_count = request.attributes.len();
         values.extend(take_entry_values(&mut request.attributes)?);
+        let channel_message_counts =
+            take_channel_message_values(&mut request.loaded_channel_messages, &mut values)?;
         let hydrated = self
             .hydrator
             .hydrate_all(values)
             .await
             .map_err(handler_error)?;
         let mut hydrated = hydrated.into_iter();
+        if has_last_heartbeat_value {
+            request
+                .context
+                .as_mut()
+                .expect("Context existed when its heartbeat value was taken")
+                .last_heartbeat_value = hydrated.next();
+        }
         request.step_input = hydrated.next();
-        restore_entry_values(&mut request.attributes, hydrated)?;
+        restore_n_entry_values(&mut request.attributes, &mut hydrated, attribute_count)?;
+        restore_channel_message_values(
+            &mut request.loaded_channel_messages,
+            channel_message_counts,
+            &mut hydrated,
+        )?;
+        require_no_hydrated_values(&mut hydrated)?;
         Ok(request)
     }
 
@@ -388,9 +421,15 @@ impl WorkerDispatcher {
         &self,
         mut request: InvokeExecuteMethodRequest,
     ) -> HandlerResult<InvokeExecuteMethodRequest> {
+        let last_heartbeat_value = request
+            .context
+            .as_mut()
+            .and_then(|context| context.last_heartbeat_value.take());
+        let has_last_heartbeat_value = last_heartbeat_value.is_some();
         let step_input = request.step_input.take();
         let has_step_input = step_input.is_some();
-        let mut values = step_input.into_iter().collect::<Vec<_>>();
+        let mut values = last_heartbeat_value.into_iter().collect::<Vec<_>>();
+        values.extend(step_input);
         let attribute_count = request.attributes.len();
         let local_count = request.step_exe_locals.len();
         values.extend(take_entry_values(&mut request.attributes)?);
@@ -432,12 +471,21 @@ impl WorkerDispatcher {
                 }
             }
         }
+        let channel_message_counts =
+            take_channel_message_values(&mut request.loaded_channel_messages, &mut values)?;
         let mut hydrated = self
             .hydrator
             .hydrate_all(values)
             .await
             .map_err(handler_error)?
             .into_iter();
+        if has_last_heartbeat_value {
+            request
+                .context
+                .as_mut()
+                .expect("Context existed when its heartbeat value was taken")
+                .last_heartbeat_value = hydrated.next();
+        }
         if has_step_input {
             request.step_input = hydrated.next();
         }
@@ -454,6 +502,12 @@ impl WorkerDispatcher {
                 }
             }
         }
+        restore_channel_message_values(
+            &mut request.loaded_channel_messages,
+            channel_message_counts,
+            &mut hydrated,
+        )?;
+        require_no_hydrated_values(&mut hydrated)?;
         Ok(request)
     }
 
@@ -464,32 +518,8 @@ impl WorkerDispatcher {
         let mut values = vec![request.input.take().unwrap_or_default()];
         let attribute_count = request.attributes.len();
         values.extend(take_entry_values(&mut request.attributes)?);
-        let mut channel_message_counts = request
-            .loaded_channel_messages
-            .iter()
-            .map(|(name, channel_values)| (name.clone(), channel_values.messages.len()))
-            .collect::<Vec<_>>();
-        channel_message_counts.sort_by(|left, right| left.0.cmp(&right.0));
-        for (name, _) in &channel_message_counts {
-            let channel_values =
-                request
-                    .loaded_channel_messages
-                    .get_mut(name)
-                    .ok_or_else(|| {
-                        HandlerError::new(
-                            "dex_sdk::HandlerError",
-                            format!("loaded Channel messages disappeared: {name}"),
-                        )
-                    })?;
-            for message in &mut channel_values.messages {
-                values.push(message.value.take().ok_or_else(|| {
-                    HandlerError::new(
-                        "dex_sdk::HandlerError",
-                        format!("Channel message {} has no Value", message.message_id),
-                    )
-                })?);
-            }
-        }
+        let channel_message_counts =
+            take_channel_message_values(&mut request.loaded_channel_messages, &mut values)?;
         let hydrated = self
             .hydrator
             .hydrate_all(values)
@@ -498,35 +528,12 @@ impl WorkerDispatcher {
         let mut hydrated = hydrated.into_iter();
         request.input = hydrated.next();
         restore_n_entry_values(&mut request.attributes, &mut hydrated, attribute_count)?;
-        for (name, message_count) in channel_message_counts {
-            let channel_values =
-                request
-                    .loaded_channel_messages
-                    .get_mut(&name)
-                    .ok_or_else(|| {
-                        HandlerError::new(
-                            "dex_sdk::HandlerError",
-                            format!("loaded Channel messages disappeared: {name}"),
-                        )
-                    })?;
-            if channel_values.messages.len() != message_count {
-                return Err(HandlerError::new(
-                    "dex_sdk::HandlerError",
-                    "hydrated Value count mismatch",
-                ));
-            }
-            for message in &mut channel_values.messages {
-                message.value = Some(hydrated.next().ok_or_else(|| {
-                    HandlerError::new("dex_sdk::HandlerError", "hydrated Value count mismatch")
-                })?);
-            }
-        }
-        if hydrated.next().is_some() {
-            return Err(HandlerError::new(
-                "dex_sdk::HandlerError",
-                "hydrated Value count mismatch",
-            ));
-        }
+        restore_channel_message_values(
+            &mut request.loaded_channel_messages,
+            channel_message_counts,
+            &mut hydrated,
+        )?;
+        require_no_hydrated_values(&mut hydrated)?;
         Ok(request)
     }
 
@@ -606,11 +613,11 @@ pub(crate) fn map_step_options(
             })?;
             Ok((
                 target.name,
-                map_step_options_without_recovery(flow.handler.step_options(target.name)?)?,
+                map_step_options_without_recovery(flow, flow.handler.step_options(target.name)?)?,
             ))
         })
         .transpose()?;
-    let mut mapped = map_step_options_without_recovery(options)?;
+    let mut mapped = map_step_options_without_recovery(flow, options)?;
     if let Some((target, target_options)) = recovery {
         mapped.execute_failure_policy = ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32;
         mapped.execute_failure_proceed_step_type = target.to_string();
@@ -620,8 +627,45 @@ pub(crate) fn map_step_options(
 }
 
 fn map_step_options_without_recovery(
+    flow: &RegisteredFlow,
     options: ErasedStepOptions,
 ) -> HandlerResult<ProtoStepOptions> {
+    let wait_for_attribute_maps = map_map_loads(
+        flow,
+        &options.wait_for_load_attribute_maps,
+        PersistenceKind::AttributeMap,
+        "WaitFor",
+    )?;
+    let wait_for_channels = map_definition_loads(
+        flow,
+        &options.wait_for_load_channels,
+        PersistenceKind::Channel,
+        "WaitFor",
+    )?;
+    let wait_for_channel_maps = map_map_loads(
+        flow,
+        &options.wait_for_load_channel_maps,
+        PersistenceKind::ChannelMap,
+        "WaitFor",
+    )?;
+    let execute_attribute_maps = map_map_loads(
+        flow,
+        &options.execute_load_attribute_maps,
+        PersistenceKind::AttributeMap,
+        "Execute",
+    )?;
+    let execute_channels = map_definition_loads(
+        flow,
+        &options.execute_load_channels,
+        PersistenceKind::Channel,
+        "Execute",
+    )?;
+    let execute_channel_maps = map_map_loads(
+        flow,
+        &options.execute_load_channel_maps,
+        PersistenceKind::ChannelMap,
+        "Execute",
+    )?;
     Ok(ProtoStepOptions {
         wait_for_timeout_seconds: optional_seconds(options.wait_for_method_timeout)?,
         execute_timeout_seconds: optional_seconds(options.execute_method_timeout)?,
@@ -648,7 +692,226 @@ fn map_step_options_without_recovery(
             .iter()
             .map(|lock| lock.physical_name())
             .collect(),
+        wait_for_load_attribute_map_instances: wait_for_attribute_maps,
+        wait_for_load_channel_names: wait_for_channels,
+        wait_for_load_channel_map_instances: wait_for_channel_maps,
+        execute_load_attribute_map_instances: execute_attribute_maps,
+        execute_load_channel_names: execute_channels,
+        execute_load_channel_map_instances: execute_channel_maps,
     })
+}
+
+pub(crate) fn map_flow_timeout_handler_options(
+    flow: &RegisteredFlow,
+    flow_timeout_seconds: i32,
+    flow_timeout_policy: i32,
+    options: Option<&FlowTimeoutHandlerOptions>,
+) -> HandlerResult<Option<ProtoFlowTimeoutHandlerOptions>> {
+    let Some(options) = options else {
+        return Ok(None);
+    };
+    if flow_timeout_seconds <= 0
+        || flow_timeout_policy != dex_protocol::dex::FlowTimeoutPolicy::Handler as i32
+    {
+        return Err(HandlerError::new(
+            "dex_sdk::HandlerError",
+            "timeout handler options require a positive timeout with Handler policy",
+        ));
+    }
+    let (failure_policy, failure_step_type, failure_step_options) =
+        if let Some(failure) = &options.failure {
+            let target = flow.steps.get(failure.step_type).ok_or_else(|| {
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!(
+                        "timeout handler failure Step is not registered: {}",
+                        failure.step_type
+                    ),
+                )
+            })?;
+            if target.input_type != TypeId::of::<()>() {
+                return Err(HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    "timeout handler failure Step input is not unit",
+                ));
+            }
+            let step_options = failure
+                .options
+                .clone()
+                .map_or_else(|| flow.handler.step_options(target.name), Ok)?;
+            (
+                ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
+                target.name.to_string(),
+                Some(map_step_options(flow, step_options)?),
+            )
+        } else {
+            (
+                ExecuteMethodFailurePolicy::Unspecified as i32,
+                String::new(),
+                None,
+            )
+        };
+    Ok(Some(ProtoFlowTimeoutHandlerOptions {
+        method_timeout_seconds: optional_seconds(options.method_timeout)?,
+        heartbeat_timeout_seconds: optional_seconds(options.heartbeat_timeout)?,
+        retry_policy: options.retry.clone().map(map_retry).transpose()?,
+        failure_policy,
+        failure_proceed_step_type: failure_step_type,
+        failure_proceed_step_options: failure_step_options,
+        durability_override: map_durability(options.durability),
+        lock_attribute_keys: map_attribute_locks(flow, &options.locks, "timeout handler")?,
+        load_attribute_map_instances: map_map_loads(
+            flow,
+            &options.load_attribute_maps,
+            PersistenceKind::AttributeMap,
+            "timeout handler",
+        )?,
+        load_channel_names: map_definition_loads(
+            flow,
+            &options.load_channels,
+            PersistenceKind::Channel,
+            "timeout handler",
+        )?,
+        load_channel_map_instances: map_map_loads(
+            flow,
+            &options.load_channel_maps,
+            PersistenceKind::ChannelMap,
+            "timeout handler",
+        )?,
+    }))
+}
+
+fn map_attribute_locks(
+    flow: &RegisteredFlow,
+    locks: &[crate::attribute::AttributeLock],
+    source: &str,
+) -> HandlerResult<Vec<String>> {
+    let mut seen = HashSet::new();
+    let mut mapped = Vec::with_capacity(locks.len());
+    for lock in locks {
+        let physical = lock.physical_name();
+        let logical = physical.split('/').next().unwrap_or(&physical);
+        let definition = flow.persistence.get(logical).ok_or_else(|| {
+            HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("{source} locks an unregistered Attribute"),
+            )
+        })?;
+        if !matches!(
+            definition.kind,
+            PersistenceKind::Attribute | PersistenceKind::AttributeMap
+        ) {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("{source} locks a non-Attribute"),
+            ));
+        }
+        if !seen.insert(physical.clone()) {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("{source} has a duplicate lock"),
+            ));
+        }
+        mapped.push(physical);
+    }
+    Ok(mapped)
+}
+
+fn map_map_loads<Load>(
+    flow: &RegisteredFlow,
+    loads: &[Load],
+    kind: PersistenceKind,
+    source: &str,
+) -> HandlerResult<Vec<String>>
+where
+    Load: MapLoad,
+{
+    let mut seen = HashSet::new();
+    let mut mapped = Vec::with_capacity(loads.len());
+    for load in loads {
+        require_load_kind(flow, load.name(), kind, source)?;
+        let physical = load.instance().map_or_else(
+            || format!("{}/", load.name()),
+            |instance| physical_name(load.name(), instance),
+        );
+        if !seen.insert(physical.clone()) {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("{source} has duplicate state load {physical}"),
+            ));
+        }
+        mapped.push(physical);
+    }
+    mapped.sort();
+    Ok(mapped)
+}
+
+trait MapLoad {
+    fn name(&self) -> &str;
+    fn instance(&self) -> Option<&str>;
+}
+
+impl MapLoad for AttributeMapLoad {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn instance(&self) -> Option<&str> {
+        self.instance.as_deref()
+    }
+}
+
+impl MapLoad for ChannelMapLoad {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn instance(&self) -> Option<&str> {
+        self.instance.as_deref()
+    }
+}
+
+fn map_definition_loads(
+    flow: &RegisteredFlow,
+    loads: &[ChannelLoad],
+    kind: PersistenceKind,
+    source: &str,
+) -> HandlerResult<Vec<String>> {
+    let mut seen = HashSet::new();
+    let mut mapped = Vec::with_capacity(loads.len());
+    for load in loads {
+        require_load_kind(flow, &load.name, kind, source)?;
+        if !seen.insert(load.name.clone()) {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("{source} has duplicate state load {}", load.name),
+            ));
+        }
+        mapped.push(load.name.clone());
+    }
+    mapped.sort();
+    Ok(mapped)
+}
+
+fn require_load_kind(
+    flow: &RegisteredFlow,
+    name: &str,
+    kind: PersistenceKind,
+    source: &str,
+) -> HandlerResult<()> {
+    let definition = flow.persistence.get(name).ok_or_else(|| {
+        HandlerError::new(
+            "dex_sdk::HandlerError",
+            format!("{source} loads unregistered state: {name}"),
+        )
+    })?;
+    if definition.kind != kind {
+        return Err(HandlerError::new(
+            "dex_sdk::HandlerError",
+            format!("{source} loads the wrong state kind: {name}"),
+        ));
+    }
+    Ok(())
 }
 
 fn map_retry(retry: RetryPolicy) -> HandlerResult<ProtoRetryPolicy> {
@@ -1048,6 +1311,12 @@ fn map_sub_flow_options(
             .map(|config| crate::client::map_flow_config(Some(config), None))
             .transpose()
             .map_err(handler_error)?,
+        timeout_handler_options: map_flow_timeout_handler_options(
+            target,
+            flow_timeout_seconds,
+            flow_timeout_policy,
+            options.timeout_handler_options.as_ref(),
+        )?,
     })
 }
 
@@ -1063,25 +1332,6 @@ fn take_entry_values(entries: &mut [Kv]) -> HandlerResult<Vec<dex_protocol::dex:
             })
         })
         .collect()
-}
-
-fn restore_entry_values(
-    entries: &mut [Kv],
-    values: impl IntoIterator<Item = dex_protocol::dex::Value>,
-) -> HandlerResult<()> {
-    let mut values = values.into_iter();
-    for entry in entries {
-        entry.value = Some(values.next().ok_or_else(|| {
-            HandlerError::new("dex_sdk::HandlerError", "hydrated Value count mismatch")
-        })?);
-    }
-    if values.next().is_some() {
-        return Err(HandlerError::new(
-            "dex_sdk::HandlerError",
-            "hydrated Value count mismatch",
-        ));
-    }
-    Ok(())
 }
 
 fn restore_n_entry_values(
@@ -1101,6 +1351,69 @@ fn restore_n_entry_values(
         })?);
     }
     Ok(())
+}
+
+fn take_channel_message_values(
+    loaded: &mut HashMap<String, dex_protocol::dex::ChannelValues>,
+    values: &mut Vec<dex_protocol::dex::Value>,
+) -> HandlerResult<Vec<(String, usize)>> {
+    let mut counts = loaded
+        .iter()
+        .map(|(name, channel_values)| (name.clone(), channel_values.messages.len()))
+        .collect::<Vec<_>>();
+    counts.sort_by(|left, right| left.0.cmp(&right.0));
+    for (name, _) in &counts {
+        let channel_values = loaded.get_mut(name).ok_or_else(|| {
+            HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("loaded Channel messages disappeared: {name}"),
+            )
+        })?;
+        for message in &mut channel_values.messages {
+            values.push(message.value.take().ok_or_else(|| {
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("Channel message {} has no Value", message.message_id),
+                )
+            })?);
+        }
+    }
+    Ok(counts)
+}
+
+fn restore_channel_message_values(
+    loaded: &mut HashMap<String, dex_protocol::dex::ChannelValues>,
+    counts: Vec<(String, usize)>,
+    values: &mut impl Iterator<Item = dex_protocol::dex::Value>,
+) -> HandlerResult<()> {
+    for (name, message_count) in counts {
+        let channel_values = loaded.get_mut(&name).ok_or_else(|| {
+            HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("loaded Channel messages disappeared: {name}"),
+            )
+        })?;
+        if channel_values.messages.len() != message_count {
+            return Err(hydrated_value_count_error());
+        }
+        for message in &mut channel_values.messages {
+            message.value = Some(values.next().ok_or_else(hydrated_value_count_error)?);
+        }
+    }
+    Ok(())
+}
+
+fn require_no_hydrated_values(
+    values: &mut impl Iterator<Item = dex_protocol::dex::Value>,
+) -> HandlerResult<()> {
+    if values.next().is_some() {
+        return Err(hydrated_value_count_error());
+    }
+    Ok(())
+}
+
+fn hydrated_value_count_error() -> HandlerError {
+    HandlerError::new("dex_sdk::HandlerError", "hydrated Value count mismatch")
 }
 
 fn require_conditions(conditions: &[Condition]) -> HandlerResult<()> {
@@ -1168,8 +1481,13 @@ fn _keep_output_types(
 
 #[cfg(test)]
 mod tests {
-    use super::map_wait;
-    use crate::{Channel, ConditionCombination, Flow, PersistenceSchema, Registry, Timer, Wait};
+    use super::{map_flow_timeout_handler_options, map_step_options, map_wait};
+    use crate::{
+        Attribute, AttributeMap, Channel, ChannelMap, ConditionCombination, Context, Flow,
+        FlowTimeoutHandler, FlowTimeoutHandlerFailure, FlowTimeoutHandlerOptions, HandlerResult,
+        PersistenceSchema, Registry, RetryPolicy, Step, StepDecision, StepDurability, StepList,
+        StepOptions, Timer, Wait,
+    };
     use std::time::Duration;
 
     struct ConditionFlow {
@@ -1181,6 +1499,54 @@ mod tests {
 
         fn persistence(&self) -> PersistenceSchema {
             PersistenceSchema::new().channel(&self.channel)
+        }
+    }
+
+    struct TimeoutRecovery;
+
+    impl Step for TimeoutRecovery {
+        type Input = ();
+
+        fn execute(
+            &self,
+            _context: &mut Context,
+            _input: Self::Input,
+        ) -> HandlerResult<StepDecision> {
+            Ok(StepDecision::dead_end())
+        }
+    }
+
+    struct LoadedOptionsFlow {
+        recovery: TimeoutRecovery,
+        status: Attribute<String>,
+        attributes: AttributeMap<String>,
+        commands: Channel<String>,
+        channels: ChannelMap<String>,
+    }
+
+    impl LoadedOptionsFlow {
+        fn handle_timeout(&self, _context: &mut Context) -> HandlerResult<StepDecision> {
+            Ok(StepDecision::dead_end())
+        }
+    }
+
+    impl Flow for LoadedOptionsFlow {
+        type StartInput = ();
+
+        fn steps(&self) -> StepList<'_, Self::StartInput> {
+            StepList::start(&self.recovery)
+        }
+
+        fn persistence(&self) -> PersistenceSchema {
+            PersistenceSchema::new()
+                .attribute(&self.status)
+                .attribute_map(&self.attributes)
+                .channel(&self.commands)
+                .channel_map(&self.channels)
+        }
+
+        fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>> {
+            Some(Self::handle_timeout)
         }
     }
 
@@ -1256,5 +1622,97 @@ mod tests {
         )
         .expect_err("empty ID must fail");
         assert!(empty.to_string().contains("empty Condition ID"));
+    }
+
+    #[test]
+    fn maps_step_and_timeout_handler_state_and_execution_options() {
+        let registry = Registry::new()
+            .register(LoadedOptionsFlow {
+                recovery: TimeoutRecovery,
+                status: Attribute::new("status"),
+                attributes: AttributeMap::new("items"),
+                commands: Channel::new("commands"),
+                channels: ChannelMap::new("commands-by-tenant"),
+            })
+            .expect("register loaded-options Flow");
+        let flow = registry
+            .flow("LoadedOptionsFlow")
+            .expect("lookup loaded-options Flow");
+        let status = Attribute::<String>::new("status");
+        let attributes = AttributeMap::<String>::new("items");
+        let commands = Channel::<String>::new("commands");
+        let channels = ChannelMap::<String>::new("commands-by-tenant");
+        let mapped_step = map_step_options(
+            flow,
+            StepOptions::<()>::new()
+                .wait_for_load_attribute_map(&attributes)
+                .wait_for_load_attribute_map_instance(attributes.load("tenant-a"))
+                .wait_for_load_channel(&commands)
+                .wait_for_load_channel_map(&channels)
+                .wait_for_load_channel_map_instance(channels.load_messages("tenant-a"))
+                .execute_load_attribute_map(&attributes)
+                .execute_load_attribute_map_instance(attributes.load("tenant-b"))
+                .execute_load_channel(&commands)
+                .execute_load_channel_map(&channels)
+                .execute_load_channel_map_instance(channels.load_messages("tenant-b"))
+                .into(),
+        )
+        .expect("map Step options");
+        assert_eq!(
+            vec!["items/", "items/tenant-a"],
+            mapped_step.wait_for_load_attribute_map_instances
+        );
+        assert_eq!(
+            vec!["commands-by-tenant/", "commands-by-tenant/tenant-b"],
+            mapped_step.execute_load_channel_map_instances
+        );
+        assert!(
+            map_step_options(
+                flow,
+                StepOptions::<()>::new()
+                    .execute_load_channel(&commands)
+                    .execute_load_channel(&commands)
+                    .into(),
+            )
+            .is_err()
+        );
+
+        let timeout_options = FlowTimeoutHandlerOptions::new()
+            .method_timeout(Duration::from_secs(10))
+            .heartbeat_timeout(Duration::from_secs(5))
+            .retry(RetryPolicy::new().maximum_attempts(3))
+            .failure(FlowTimeoutHandlerFailure::proceed_to(&TimeoutRecovery))
+            .durability(StepDurability::Async)
+            .lock(status.lock())
+            .load_attribute_map(&attributes)
+            .load_attribute_map_instance(attributes.load("tenant-a"))
+            .load_channel(&commands)
+            .load_channel_map(&channels)
+            .load_channel_map_instance(channels.load_messages("tenant-a"));
+        let mapped_timeout = map_flow_timeout_handler_options(
+            flow,
+            30,
+            dex_protocol::dex::FlowTimeoutPolicy::Handler as i32,
+            Some(&timeout_options),
+        )
+        .expect("map timeout-handler options")
+        .expect("mapped timeout-handler options");
+        assert_eq!(10, mapped_timeout.method_timeout_seconds);
+        assert_eq!(5, mapped_timeout.heartbeat_timeout_seconds);
+        assert_eq!(
+            3,
+            mapped_timeout
+                .retry_policy
+                .expect("mapped retry policy")
+                .maximum_attempts
+        );
+        assert_eq!(vec!["status"], mapped_timeout.lock_attribute_keys);
+        assert_eq!(
+            vec!["items/", "items/tenant-a"],
+            mapped_timeout.load_attribute_map_instances
+        );
+        assert_eq!("TimeoutRecovery", mapped_timeout.failure_proceed_step_type);
+        assert!(mapped_timeout.failure_proceed_step_options.is_some());
+        assert!(map_flow_timeout_handler_options(flow, 0, 0, Some(&timeout_options)).is_err());
     }
 }

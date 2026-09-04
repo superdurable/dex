@@ -95,4 +95,19 @@ public interface FlowStartOptionsOrBuilder extends
    * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
    */
   io.superdurable.gen.FlowAlreadyStartedOptionsOrBuilder getFlowAlreadyStartedOptionsOrBuilder();
+
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 7;</code>
+   * @return Whether the timeoutHandlerOptions field is set.
+   */
+  boolean hasTimeoutHandlerOptions();
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 7;</code>
+   * @return The timeoutHandlerOptions.
+   */
+  io.superdurable.gen.FlowTimeoutHandlerOptions getTimeoutHandlerOptions();
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 7;</code>
+   */
+  io.superdurable.gen.FlowTimeoutHandlerOptionsOrBuilder getTimeoutHandlerOptionsOrBuilder();
 }

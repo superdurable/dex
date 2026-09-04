@@ -13,7 +13,8 @@ import { registeredRPCs, type RegisteredRPC } from "./rpc.js";
 import { StepList, type Step, type StepClass, type StepDecision } from "./step.js";
 import { physicalMapName, requireName } from "./validation.js";
 import { Channel, ChannelMap } from "./wait.js";
-import type { Context } from "./context.js";
+import type { AsyncContext } from "./context.js";
+import type { FlowTimeoutHandlerOptions } from "./options.js";
 import type { Stream } from "./stream.js";
 
 /**
@@ -40,12 +41,13 @@ export interface Flow<StartInput = void> {
    * Handles expiration of this Flow's durable soft-timeout timer.
    *
    * When present, a positive timeout defaults to the handler policy. Dex awaits the result and
-   * applies it with normal Step Execute validation. The hook runs at most once and may transition,
-   * dead-end, complete, fail, or request graceful completion.
+   * applies it with normal Step Execute validation. One logical invocation may include retry attempts
+   * configured by {@link FlowTimeoutHandlerOptions}. The hook may transition, dead-end, complete, fail,
+   * or request graceful completion.
    * @param context - Timeout invocation Context; it must not be retained.
    * @returns A StepDecision, synchronously or asynchronously.
    */
-  handleTimeout?(context: Context): StepDecision | Promise<StepDecision>;
+  handleTimeout?(context: AsyncContext): StepDecision | Promise<StepDecision>;
 }
 
 /**
@@ -309,6 +311,9 @@ function doRegisterFlow(
       attributeIndexes.set(key, type);
     }
   }
+  for (const registeredStep of steps) {
+    validateStepStateLoads(name, registeredStep, schema);
+  }
   const rpcNames = new Set<string>();
   const attributes = new Set(schema.attributes ?? []);
   const rpcs = registeredRPCs(flow);
@@ -353,7 +358,7 @@ function validateRPCStateLoads(
   );
   validateStateLoads(
     flowName,
-    registeredRPC.name,
+    `RPC ${registeredRPC.name}`,
     "AttributeMap",
     registeredRPC.options.loadAttributeMaps ?? [],
     attributeMaps,
@@ -362,7 +367,7 @@ function validateRPCStateLoads(
   );
   validateStateLoads(
     flowName,
-    registeredRPC.name,
+    `RPC ${registeredRPC.name}`,
     "AttributeMap",
     registeredRPC.options.loadAttributeMapInstances ?? [],
     attributeMaps,
@@ -371,7 +376,7 @@ function validateRPCStateLoads(
   );
   validateStateLoads(
     flowName,
-    registeredRPC.name,
+    `RPC ${registeredRPC.name}`,
     "Channel",
     registeredRPC.options.loadChannels ?? [],
     channels,
@@ -380,7 +385,7 @@ function validateRPCStateLoads(
   );
   validateStateLoads(
     flowName,
-    registeredRPC.name,
+    `RPC ${registeredRPC.name}`,
     "ChannelMap",
     registeredRPC.options.loadChannelMaps ?? [],
     channelMaps,
@@ -389,7 +394,7 @@ function validateRPCStateLoads(
   );
   validateStateLoads(
     flowName,
-    registeredRPC.name,
+    `RPC ${registeredRPC.name}`,
     "ChannelMap",
     registeredRPC.options.loadChannelMapInstances ?? [],
     channelMaps,
@@ -398,9 +403,71 @@ function validateRPCStateLoads(
   );
 }
 
+function validateStepStateLoads(
+  flowName: string,
+  registeredStep: RegisteredStep,
+  schema: PersistenceSchema,
+): void {
+  const options = registeredStep.step.getStepOptions?.();
+  if (options === undefined) {
+    return;
+  }
+  const attributeMaps = new Set(
+    (schema.attributes ?? []).filter((definition) => definition instanceof AttributeMap),
+  );
+  const channels = new Set(
+    (schema.channels ?? []).filter((definition) => definition instanceof Channel),
+  );
+  const channelMaps = new Set(
+    (schema.channels ?? []).filter((definition) => definition instanceof ChannelMap),
+  );
+  validateMethodStateLoads(flowName, `Step ${registeredStep.name} WaitFor`, {
+    attributeMaps: options.waitForLoadAttributeMaps ?? [],
+    attributeMapInstances: options.waitForLoadAttributeMapInstances ?? [],
+    channels: options.waitForLoadChannels ?? [],
+    channelMaps: options.waitForLoadChannelMaps ?? [],
+    channelMapInstances: options.waitForLoadChannelMapInstances ?? [],
+  }, attributeMaps, channels, channelMaps);
+  validateMethodStateLoads(flowName, `Step ${registeredStep.name} Execute`, {
+    attributeMaps: options.executeLoadAttributeMaps ?? [],
+    attributeMapInstances: options.executeLoadAttributeMapInstances ?? [],
+    channels: options.executeLoadChannels ?? [],
+    channelMaps: options.executeLoadChannelMaps ?? [],
+    channelMapInstances: options.executeLoadChannelMapInstances ?? [],
+  }, attributeMaps, channels, channelMaps);
+}
+
+function validateMethodStateLoads(
+  flowName: string,
+  source: string,
+  loads: {
+    readonly attributeMaps: readonly AttributeMap<unknown>[];
+    readonly attributeMapInstances: readonly { readonly attributeMap: AttributeMap<unknown>; readonly instance: string }[];
+    readonly channels: readonly Channel<unknown>[];
+    readonly channelMaps: readonly ChannelMap<unknown>[];
+    readonly channelMapInstances: readonly { readonly channelMap: ChannelMap<unknown>; readonly instance: string }[];
+  },
+  attributeMaps: ReadonlySet<AttributeMap<unknown>>,
+  channels: ReadonlySet<Channel<unknown>>,
+  channelMaps: ReadonlySet<ChannelMap<unknown>>,
+): void {
+  validateStateLoads(flowName, source, "AttributeMap", loads.attributeMaps, attributeMaps,
+    (attributeMap) => attributeMap, (attributeMap) => `${attributeMap.name}/`);
+  validateStateLoads(flowName, source, "AttributeMap", loads.attributeMapInstances, attributeMaps,
+    (load) => load.attributeMap,
+    (load) => physicalMapName(load.attributeMap.name, load.instance));
+  validateStateLoads(flowName, source, "Channel", loads.channels, channels,
+    (channel) => channel, (channel) => channel.name);
+  validateStateLoads(flowName, source, "ChannelMap", loads.channelMaps, channelMaps,
+    (channelMap) => channelMap, (channelMap) => `${channelMap.name}/`);
+  validateStateLoads(flowName, source, "ChannelMap", loads.channelMapInstances, channelMaps,
+    (load) => load.channelMap,
+    (load) => physicalMapName(load.channelMap.name, load.instance));
+}
+
 function validateStateLoads<Load, Definition>(
   flowName: string,
-  rpcName: string,
+  source: string,
   kind: string,
   loads: readonly Load[],
   registered: ReadonlySet<Definition>,
@@ -411,13 +478,13 @@ function validateStateLoads<Load, Definition>(
   for (const load of loads) {
     if (!registered.has(definitionFor(load))) {
       throw new FlowDefinitionError(
-        `Flow ${flowName} RPC ${rpcName} loads an unregistered ${kind}`,
+        `Flow ${flowName} ${source} loads an unregistered ${kind}`,
       );
     }
     const physicalName = physicalNameFor(load);
     if (seen.has(physicalName)) {
       throw new FlowDefinitionError(
-        `Flow ${flowName} RPC ${rpcName} has duplicate ${kind} load ${physicalName}`,
+        `Flow ${flowName} ${source} has duplicate ${kind} load ${physicalName}`,
       );
     }
     seen.add(physicalName);

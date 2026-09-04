@@ -1392,6 +1392,7 @@ func testWebHistoryAndSummary(
 		FlowId:             flowID,
 		FlowType:           basic.FlowType,
 		FlowTimeoutSeconds: 60,
+		FlowTimeoutPolicy:  dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
 		StartStepType:      basic.Step1,
 		StepInput:          &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: stepInput}},
 		FlowStartOptions: &dexpb.FlowStartOptions{
@@ -1406,6 +1407,16 @@ func testWebHistoryAndSummary(
 				ContinueAsNewThreshold: ptr.Any(int32(1)),
 				StepDurability:         ptr.Any(durability),
 				WorkerTarget:           workerTarget,
+			},
+			TimeoutHandlerOptions: &dexpb.FlowTimeoutHandlerOptions{
+				MethodTimeoutSeconds:      20,
+				HeartbeatTimeoutSeconds:   10,
+				RetryPolicy:               &dexpb.RetryPolicy{MaximumAttempts: 3},
+				DurabilityOverride:        dexpb.StepDurability_STEP_DURABILITY_ASYNC,
+				LockAttributeKeys:         []string{"web-test-attribute"},
+				LoadAttributeMapInstances: []string{"web-test-map/"},
+				LoadChannelNames:          []string{"web-test-channel"},
+				LoadChannelMapInstances:   []string{"web-test-channel-map/instance"},
 			},
 		},
 	})
@@ -1436,9 +1447,13 @@ func testWebHistoryAndSummary(
 	require.Equal(t, time.Minute, flowStarted.GetFlowTimeout().AsDuration())
 	require.Equal(
 		t,
-		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL,
+		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
 		flowStarted.GetFlowTimeoutPolicy(),
 	)
+	require.Equal(t, int32(20), flowStarted.GetTimeoutHandlerOptions().GetMethodTimeoutSeconds())
+	require.Equal(t, int32(10), flowStarted.GetTimeoutHandlerOptions().GetHeartbeatTimeoutSeconds())
+	require.Equal(t, int32(3), flowStarted.GetTimeoutHandlerOptions().GetRetryPolicy().GetMaximumAttempts())
+	require.Equal(t, []string{"web-test-map/"}, flowStarted.GetTimeoutHandlerOptions().GetLoadAttributeMapInstances())
 	initialStart := flowStarted.GetInitialStart()
 	require.NotNil(t, initialStart)
 	require.NotEmpty(t, initialStart.GetStepInput().GetInternalBlobIdForStringValue())
@@ -1495,9 +1510,13 @@ func testWebHistoryAndSummary(
 	require.Equal(t, time.Minute, continuedFlowStarted.GetFlowTimeout().AsDuration())
 	require.Equal(
 		t,
-		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL,
+		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
 		continuedFlowStarted.GetFlowTimeoutPolicy(),
 	)
+	require.Equal(t, int32(20), continuedFlowStarted.GetTimeoutHandlerOptions().GetMethodTimeoutSeconds())
+	require.Equal(t, int32(10), continuedFlowStarted.GetTimeoutHandlerOptions().GetHeartbeatTimeoutSeconds())
+	require.Equal(t, int32(3), continuedFlowStarted.GetTimeoutHandlerOptions().GetRetryPolicy().GetMaximumAttempts())
+	require.Equal(t, []string{"web-test-map/"}, continuedFlowStarted.GetTimeoutHandlerOptions().GetLoadAttributeMapInstances())
 	continuedStart := continuedFlowStarted.GetContinuedStart()
 	require.NotNil(t, continuedStart)
 	require.Equal(t, startResponse.GetRunId(), continuedStart.GetPreviousRunId())

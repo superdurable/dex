@@ -130,12 +130,17 @@ func mapStartFlowOptions(
 	if err != nil {
 		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
+	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(options.TimeoutHandlerOptions)
+	if err != nil {
+		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
+	}
 	return timeout, timeoutPolicy, &dexpb.FlowStartOptions{
 		IdReusePolicy:         idReuse,
 		FlowStartDelaySeconds: startDelay,
 		RetryPolicy:           retry,
 		Attributes:            attributes,
 		FlowConfigOverride:    config,
+		TimeoutHandlerOptions: timeoutHandlerOptions,
 		FlowAlreadyStartedOptions: mapAlreadyStartedOptions(
 			options.AlreadyStarted,
 		),
@@ -231,6 +236,20 @@ func mapStepOptionsRecursive(
 	if err != nil {
 		return nil, err
 	}
+	waitForAttributeMaps, waitForChannels, waitForChannelMaps, err := validateStateLoads(
+		nil,
+		waitForStepStateLoads(options),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("dex: WaitFor state load: %w", err)
+	}
+	executeAttributeMaps, executeChannels, executeChannelMaps, err := validateStateLoads(
+		nil,
+		executeStepStateLoads(options),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("dex: Execute state load: %w", err)
+	}
 	return &dexpb.StepOptions{
 		WaitForTimeoutSeconds:            waitForMethodTimeout,
 		ExecuteTimeoutSeconds:            executeMethodTimeout,
@@ -245,7 +264,121 @@ func mapStepOptionsRecursive(
 		ExecuteDurabilityOverride:        executeDurability,
 		WaitForLockAttributeKeys:         waitForLocks,
 		ExecuteLockAttributeKeys:         executeLocks,
+		WaitForLoadAttributeMapInstances: waitForAttributeMaps,
+		WaitForLoadChannelNames:          waitForChannels,
+		WaitForLoadChannelMapInstances:   waitForChannelMaps,
+		ExecuteLoadAttributeMapInstances: executeAttributeMaps,
+		ExecuteLoadChannelNames:          executeChannels,
+		ExecuteLoadChannelMapInstances:   executeChannelMaps,
 	}, nil
+}
+
+func waitForStepStateLoads(options *StepOptions) stateLoads {
+	return stateLoads{
+		attributeMaps:         options.WaitForLoadAttributeMaps,
+		attributeMapInstances: options.WaitForLoadAttributeMapInstances,
+		channels:              options.WaitForLoadChannels,
+		channelMaps:           options.WaitForLoadChannelMaps,
+		channelMapInstances:   options.WaitForLoadChannelMapInstances,
+	}
+}
+
+func executeStepStateLoads(options *StepOptions) stateLoads {
+	return stateLoads{
+		attributeMaps:         options.ExecuteLoadAttributeMaps,
+		attributeMapInstances: options.ExecuteLoadAttributeMapInstances,
+		channels:              options.ExecuteLoadChannels,
+		channelMaps:           options.ExecuteLoadChannelMaps,
+		channelMapInstances:   options.ExecuteLoadChannelMapInstances,
+	}
+}
+
+func timeoutHandlerStateLoads(options *FlowTimeoutHandlerOptions) stateLoads {
+	return stateLoads{
+		attributeMaps:         options.LoadAttributeMaps,
+		attributeMapInstances: options.LoadAttributeMapInstances,
+		channels:              options.LoadChannels,
+		channelMaps:           options.LoadChannelMaps,
+		channelMapInstances:   options.LoadChannelMapInstances,
+	}
+}
+
+func mapFlowTimeoutHandlerOptions(
+	options *FlowTimeoutHandlerOptions,
+) (*dexpb.FlowTimeoutHandlerOptions, error) {
+	if options == nil {
+		return nil, nil
+	}
+	methodTimeout, err := durationSeconds32(options.MethodTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("dex: timeout handler method timeout: %w", err)
+	}
+	heartbeatTimeout, err := exactDurationSeconds32(options.HeartbeatTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("dex: timeout handler heartbeat timeout: %w", err)
+	}
+	retry, err := mapRetryPolicy(options.Retry)
+	if err != nil {
+		return nil, fmt.Errorf("dex: timeout handler retry: %w", err)
+	}
+	durability, err := mapStepDurability(options.Durability)
+	if err != nil {
+		return nil, err
+	}
+	locks, err := mapAttributeLocks(options.LockAttributes)
+	if err != nil {
+		return nil, err
+	}
+	attributeMaps, channels, channelMaps, err := validateStateLoads(
+		nil,
+		timeoutHandlerStateLoads(options),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("dex: timeout handler state load: %w", err)
+	}
+	failurePolicy, failureStep, failureOptions, err := mapFlowTimeoutHandlerFailure(options.Failure)
+	if err != nil {
+		return nil, err
+	}
+	return &dexpb.FlowTimeoutHandlerOptions{
+		MethodTimeoutSeconds:      methodTimeout,
+		HeartbeatTimeoutSeconds:   heartbeatTimeout,
+		RetryPolicy:               retry,
+		FailurePolicy:             failurePolicy,
+		FailureProceedStepType:    failureStep,
+		FailureProceedStepOptions: failureOptions,
+		DurabilityOverride:        durability,
+		LockAttributeKeys:         locks,
+		LoadAttributeMapInstances: attributeMaps,
+		LoadChannelNames:          channels,
+		LoadChannelMapInstances:   channelMaps,
+	}, nil
+}
+
+func mapFlowTimeoutHandlerFailure(
+	failure *FlowTimeoutHandlerFailure,
+) (dexpb.ExecuteMethodFailurePolicy, string, *dexpb.StepOptions, error) {
+	if failure == nil {
+		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
+			"", nil, nil
+	}
+	if !validStepDef(failure.step) {
+		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
+			"", nil, fmt.Errorf("dex: timeout handler failure target is invalid")
+	}
+	options, err := mapStepOptions(mergeStepOptions(failure.step.stepOptions(), failure.options))
+	if err != nil {
+		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
+			"", nil, err
+	}
+	if failure.step.skipWaitFor() {
+		if options == nil {
+			options = &dexpb.StepOptions{}
+		}
+		options.SkipWaitFor = true
+	}
+	return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
+		failure.step.stepType(), options, nil
 }
 
 func mapExecuteFailure(
@@ -624,6 +757,13 @@ func mapSubFlowOptions(
 	if err != nil {
 		return nil, err
 	}
+	if err := target.validateFlowTimeoutHandlerOptions(
+		options.Timeout,
+		timeoutPolicy,
+		options.TimeoutHandlerOptions,
+	); err != nil {
+		return nil, err
+	}
 	timeout, err := optionalDurationSeconds32(options.Timeout)
 	if err != nil {
 		return nil, fmt.Errorf("dex: SubFlow timeout: %w", err)
@@ -655,6 +795,10 @@ func mapSubFlowOptions(
 	if err != nil {
 		return nil, err
 	}
+	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(options.TimeoutHandlerOptions)
+	if err != nil {
+		return nil, err
+	}
 	return &dexpb.SubFlowOptions{
 		ReusePolicy:           reusePolicy,
 		FlowTimeoutSeconds:    timeout,
@@ -663,6 +807,7 @@ func mapSubFlowOptions(
 		RetryPolicy:           retry,
 		Attributes:            attributes,
 		FlowConfigOverride:    config,
+		TimeoutHandlerOptions: timeoutHandlerOptions,
 	}, nil
 }
 
@@ -1194,6 +1339,36 @@ func mergeStepOptions(defaults *StepOptions, overrides *StepOptions) *StepOption
 	}
 	if overrides.ExecuteLockAttributes != nil {
 		merged.ExecuteLockAttributes = overrides.ExecuteLockAttributes
+	}
+	if overrides.WaitForLoadAttributeMaps != nil {
+		merged.WaitForLoadAttributeMaps = overrides.WaitForLoadAttributeMaps
+	}
+	if overrides.WaitForLoadAttributeMapInstances != nil {
+		merged.WaitForLoadAttributeMapInstances = overrides.WaitForLoadAttributeMapInstances
+	}
+	if overrides.WaitForLoadChannels != nil {
+		merged.WaitForLoadChannels = overrides.WaitForLoadChannels
+	}
+	if overrides.WaitForLoadChannelMaps != nil {
+		merged.WaitForLoadChannelMaps = overrides.WaitForLoadChannelMaps
+	}
+	if overrides.WaitForLoadChannelMapInstances != nil {
+		merged.WaitForLoadChannelMapInstances = overrides.WaitForLoadChannelMapInstances
+	}
+	if overrides.ExecuteLoadAttributeMaps != nil {
+		merged.ExecuteLoadAttributeMaps = overrides.ExecuteLoadAttributeMaps
+	}
+	if overrides.ExecuteLoadAttributeMapInstances != nil {
+		merged.ExecuteLoadAttributeMapInstances = overrides.ExecuteLoadAttributeMapInstances
+	}
+	if overrides.ExecuteLoadChannels != nil {
+		merged.ExecuteLoadChannels = overrides.ExecuteLoadChannels
+	}
+	if overrides.ExecuteLoadChannelMaps != nil {
+		merged.ExecuteLoadChannelMaps = overrides.ExecuteLoadChannelMaps
+	}
+	if overrides.ExecuteLoadChannelMapInstances != nil {
+		merged.ExecuteLoadChannelMapInstances = overrides.ExecuteLoadChannelMapInstances
 	}
 	return &merged
 }

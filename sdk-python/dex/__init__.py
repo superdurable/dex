@@ -47,6 +47,7 @@ from dex.flow_info import (
     SearchFlowsPage,
 )
 from dex.flow_options import (
+    FlowTimeoutHandlerOptions,
     FlowTimeoutPolicy,
     IdReusePolicy,
     StartFlowOptions,
@@ -152,6 +153,7 @@ __all__ = [
     "FlowNotActiveError",
     "FlowNotFoundError",
     "FlowStatus",
+    "FlowTimeoutHandlerOptions",
     "FlowTimeoutPolicy",
     "HealthInfo",
     "IdReusePolicy",

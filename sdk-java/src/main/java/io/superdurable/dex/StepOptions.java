@@ -51,6 +51,8 @@ public final class StepOptions {
     private final StepDurability executeDurability;
     private final List<AttributeLock> waitForLocks;
     private final List<AttributeLock> executeLocks;
+    private final HandlerStateLoads waitForStateLoads;
+    private final HandlerStateLoads executeStateLoads;
 
     private StepOptions(final Builder builder) {
         this.waitForMethodTimeout = builder.waitForMethodTimeout;
@@ -64,6 +66,8 @@ public final class StepOptions {
         this.executeDurability = builder.executeDurability;
         this.waitForLocks = immutable(builder.waitForLocks);
         this.executeLocks = immutable(builder.executeLocks);
+        this.waitForStateLoads = builder.waitForStateLoads.build();
+        this.executeStateLoads = builder.executeStateLoads.build();
     }
 
     /**
@@ -119,6 +123,14 @@ public final class StepOptions {
         return executeLocks;
     }
 
+    HandlerStateLoads getWaitForStateLoads() {
+        return waitForStateLoads;
+    }
+
+    HandlerStateLoads getExecuteStateLoads() {
+        return executeStateLoads;
+    }
+
     private static List<AttributeLock> immutable(final List<AttributeLock> values) {
         return Collections.unmodifiableList(new ArrayList<AttributeLock>(values));
     }
@@ -136,6 +148,10 @@ public final class StepOptions {
         private StepDurability executeDurability = StepDurability.DEFAULT;
         private final List<AttributeLock> waitForLocks = new ArrayList<AttributeLock>();
         private final List<AttributeLock> executeLocks = new ArrayList<AttributeLock>();
+        private final HandlerStateLoads.Builder waitForStateLoads =
+                new HandlerStateLoads.Builder();
+        private final HandlerStateLoads.Builder executeStateLoads =
+                new HandlerStateLoads.Builder();
 
         private Builder() {
         }
@@ -316,6 +332,129 @@ public final class StepOptions {
          */
         public Builder addExecuteLock(final AttributeLock value) {
             executeLocks.add(value);
+            return this;
+        }
+
+        /**
+         * Loads every current instance of an AttributeMap for WaitFor.
+         *
+         * @param value an AttributeMap registered by the Step's Flow
+         * @return this builder
+         * @throws NullPointerException during mapping if {@code value} is {@code null}
+         */
+        public Builder addWaitForLoadAttributeMap(final AttributeMap<?> value) {
+            waitForStateLoads.addAttributeMap(value);
+            return this;
+        }
+
+        /**
+         * Loads one AttributeMap instance for WaitFor.
+         *
+         * @param value an AttributeMap registered by the Step's Flow
+         * @param instance the slash-free instance key
+         * @return this builder
+         */
+        public Builder addWaitForLoadAttributeMapInstance(
+                final AttributeMap<?> value,
+                final String instance) {
+            waitForStateLoads.addAttributeMapInstance(value, instance);
+            return this;
+        }
+
+        /**
+         * Loads pending messages from one Channel for WaitFor.
+         *
+         * @param value a Channel registered by the Step's Flow
+         * @return this builder
+         */
+        public Builder addWaitForLoadChannel(final Channel<?> value) {
+            waitForStateLoads.addChannel(value);
+            return this;
+        }
+
+        /**
+         * Loads pending messages from every current instance of a ChannelMap for WaitFor.
+         *
+         * @param value a ChannelMap registered by the Step's Flow
+         * @return this builder
+         */
+        public Builder addWaitForLoadChannelMap(final ChannelMap<?> value) {
+            waitForStateLoads.addChannelMap(value);
+            return this;
+        }
+
+        /**
+         * Loads pending messages from one ChannelMap instance for WaitFor.
+         *
+         * @param value a ChannelMap registered by the Step's Flow
+         * @param instance the slash-free instance key
+         * @return this builder
+         */
+        public Builder addWaitForLoadChannelMapInstance(
+                final ChannelMap<?> value,
+                final String instance) {
+            waitForStateLoads.addChannelMapInstance(value, instance);
+            return this;
+        }
+
+        /**
+         * Loads every current instance of an AttributeMap for Execute.
+         *
+         * @param value an AttributeMap registered by the Step's Flow
+         * @return this builder
+         */
+        public Builder addExecuteLoadAttributeMap(final AttributeMap<?> value) {
+            executeStateLoads.addAttributeMap(value);
+            return this;
+        }
+
+        /**
+         * Loads one AttributeMap instance for Execute.
+         *
+         * @param value an AttributeMap registered by the Step's Flow
+         * @param instance the slash-free instance key
+         * @return this builder
+         */
+        public Builder addExecuteLoadAttributeMapInstance(
+                final AttributeMap<?> value,
+                final String instance) {
+            executeStateLoads.addAttributeMapInstance(value, instance);
+            return this;
+        }
+
+        /**
+         * Loads pending messages from one Channel for Execute.
+         *
+         * @param value a Channel registered by the Step's Flow
+         * @return this builder
+         */
+        public Builder addExecuteLoadChannel(final Channel<?> value) {
+            executeStateLoads.addChannel(value);
+            return this;
+        }
+
+        /**
+         * Loads pending messages from every current ChannelMap instance for Execute.
+         *
+         * @param value a ChannelMap registered by the Step's Flow
+         * @return this builder
+         */
+        public Builder addExecuteLoadChannelMap(final ChannelMap<?> value) {
+            executeStateLoads.addChannelMap(value);
+            return this;
+        }
+
+        /**
+         * Loads pending messages from one ChannelMap instance for Execute.
+         *
+         * @param value a ChannelMap registered by the Step's Flow
+         * @param instance the slash-free instance key
+         * @return this builder
+         */
+        public Builder addExecuteLoadChannelMapInstance(
+                final ChannelMap<?> value,
+                final String instance) {
+            executeStateLoads.addChannelMapInstance(value, instance);
             return this;
         }
 

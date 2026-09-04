@@ -100,6 +100,11 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             request.context,
             self._values,
             request.attributes,
+            channel_infos=dict(request.channel_infos),
+            loaded_channel_messages=dict(request.loaded_channel_messages),
+            loaded_attribute_map_instances=request.loaded_attribute_map_instances,
+            loaded_channel_names=request.loaded_channel_names,
+            loaded_channel_map_instances=request.loaded_channel_map_instances,
             is_active=is_active,
             output_emitter=emitter,
         )
@@ -126,6 +131,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
                 upsert_step_exe_locals=list(context.local_writes.values()),
                 record_events=context.events,
                 publish_to_channel=context.publications,
+                delete_from_channel=context.channel_deletions,
             )
             waiting = self._map_wait(flow, wait)
             if waiting is not None:
@@ -153,8 +159,16 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         is_active: Callable[[], bool] | None = None,
     ) -> AsyncGenerator[pb.InvokeExecuteMethodOutput, None]:
         if original.step_type == _TIMEOUT_HANDLER_STEP_TYPE:
-            response = await self._invoke_timeout_handler_async(original)
-            yield pb.InvokeExecuteMethodOutput(result=response)
+            emitter = _AsyncStepOutputEmitter()
+            handler = asyncio.create_task(
+                self._invoke_timeout_handler_async(original, emitter, is_active)
+            )
+            try:
+                async for output in self._drain_outputs(emitter, handler):
+                    yield self._map_execute_output(output)
+                yield pb.InvokeExecuteMethodOutput(result=await handler)
+            finally:
+                await self._close_invocation(emitter, handler)
             return
         emitter = _AsyncStepOutputEmitter()
         handler = asyncio.create_task(
@@ -187,6 +201,11 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             request.attributes,
             request.step_exe_locals,
             condition_results,
+            channel_infos=dict(request.channel_infos),
+            loaded_channel_messages=dict(request.loaded_channel_messages),
+            loaded_attribute_map_instances=request.loaded_attribute_map_instances,
+            loaded_channel_names=request.loaded_channel_names,
+            loaded_channel_map_instances=request.loaded_channel_map_instances,
             is_active=is_active,
             output_emitter=emitter,
         )
@@ -214,6 +233,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
                 record_events=context.events,
                 upsert_step_exe_locals=list(context.local_writes.values()),
                 publish_to_channel=context.publications,
+                delete_from_channel=context.channel_deletions,
             )
         except InvalidStepResultError as error:
             failure = error
@@ -235,6 +255,8 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
     async def _invoke_timeout_handler_async(
         self,
         original: pb.InvokeExecuteMethodRequest,
+        emitter: _AsyncStepOutputEmitter,
+        is_active: Callable[[], bool] | None,
     ) -> pb.InvokeExecuteMethodResponse:
         request = await self._async_hydrator.execute_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
@@ -260,24 +282,55 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             request.attributes,
             request.step_exe_locals,
             condition_results,
+            channel_infos=dict(request.channel_infos),
+            loaded_channel_messages=dict(request.loaded_channel_messages),
+            loaded_attribute_map_instances=request.loaded_attribute_map_instances,
+            loaded_channel_names=request.loaded_channel_names,
+            loaded_channel_map_instances=request.loaded_channel_map_instances,
+            is_active=is_active,
+            output_emitter=emitter,
         )
-        decision: Any = flow.flow.handle_timeout(context)
-        if isawaitable(decision):
-            decision = await decision
+        response: pb.InvokeExecuteMethodResponse | None = None
+        failure: BaseException | None = None
+        cause: BaseException | None = None
         try:
+            decision: Any = flow.flow.handle_timeout(context)
+            if isgenerator(decision):
+                decision.close()
+                raise InvalidStepResultError(
+                    flow.name,
+                    _TIMEOUT_HANDLER_STEP_TYPE,
+                    "execute",
+                    "synchronous generators require Worker",
+                )
+            if isawaitable(decision):
+                decision = await decision
             if not isinstance(decision, StepDecision):
                 raise TypeError("handle_timeout must return StepDecision")
-            return pb.InvokeExecuteMethodResponse(
+            response = pb.InvokeExecuteMethodResponse(
                 step_decision=self._map_decision(flow, decision),
                 upsert_attributes=list(context.attribute_writes.values()),
                 record_events=context.events,
                 upsert_step_exe_locals=list(context.local_writes.values()),
                 publish_to_channel=context.publications,
+                delete_from_channel=context.channel_deletions,
             )
+        except InvalidStepResultError as error:
+            failure = error
         except (TypeError, ValueError) as error:
-            raise InvalidStepResultError(
+            failure = InvalidStepResultError(
                 flow.name, _TIMEOUT_HANDLER_STEP_TYPE, "execute", str(error)
-            ) from error
+            )
+            cause = error
+        except BaseException as error:
+            failure = error
+        combined = context._finalize_step_outputs(failure)
+        if combined is not None:
+            if cause is not None:
+                raise combined from cause
+            raise combined
+        assert response is not None
+        return response
 
     async def invoke_rpc(  # type: ignore[override]
         self,

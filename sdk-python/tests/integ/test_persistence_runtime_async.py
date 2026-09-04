@@ -20,8 +20,11 @@ from .set_attributes_flow import SetAttributesFlow
 from .shared import ModelInput, unique_id
 
 
-@pytest.mark.asyncio
-async def test_async_wait_for_attribute_equal() -> None:
+def test_async_wait_for_attribute_equal() -> None:
+    asyncio.run(_async_wait_for_attribute_equal())
+
+
+async def _async_wait_for_attribute_equal() -> None:
     flow = SetAttributesFlow()
     timeout = timedelta(seconds=30)
     async with AsyncDexDevTestEnvironment(flow) as environment:

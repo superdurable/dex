@@ -16,8 +16,8 @@ from datetime import timedelta
 from enum import Enum
 from typing import Any, Generator, Generic, Iterator, TypeVar
 
-from dex.attribute import AttributeLock
-from dex.channel import Channel, ChannelMap
+from dex.attribute import AttributeLock, AttributeMap, AttributeMapLoad
+from dex.channel import Channel, ChannelMap, ChannelMapLoad
 from dex.context import Context
 from dex.dexpb import dex_pb2 as pb
 from dex.wait import Wait
@@ -153,6 +153,20 @@ class StepOptions:
         execute_durability: Durability used for the ``execute`` result.
         wait_for_lock_attributes: Attribute locks held during ``wait_for``.
         execute_lock_attributes: Attribute locks held during ``execute``.
+        wait_for_load_attribute_maps: AttributeMaps fully loaded for ``wait_for``.
+        wait_for_load_attribute_map_instances: Exact AttributeMap instances loaded for
+            ``wait_for``.
+        wait_for_load_channels: Channels whose pending messages load for ``wait_for``.
+        wait_for_load_channel_maps: ChannelMaps fully loaded for ``wait_for``.
+        wait_for_load_channel_map_instances: Exact ChannelMap instances loaded for
+            ``wait_for``.
+        execute_load_attribute_maps: AttributeMaps fully loaded for ``execute``.
+        execute_load_attribute_map_instances: Exact AttributeMap instances loaded for
+            ``execute``.
+        execute_load_channels: Channels whose pending messages load for ``execute``.
+        execute_load_channel_maps: ChannelMaps fully loaded for ``execute``.
+        execute_load_channel_map_instances: Exact ChannelMap instances loaded for
+            ``execute``.
     """
 
     wait_for_method_timeout: timedelta | None = None
@@ -165,6 +179,16 @@ class StepOptions:
     execute_durability: StepDurability = StepDurability.DEFAULT
     wait_for_lock_attributes: tuple[AttributeLock, ...] = ()
     execute_lock_attributes: tuple[AttributeLock, ...] = ()
+    wait_for_load_attribute_maps: tuple[AttributeMap[Any], ...] = ()
+    wait_for_load_attribute_map_instances: tuple[AttributeMapLoad, ...] = ()
+    wait_for_load_channels: tuple[Channel[Any], ...] = ()
+    wait_for_load_channel_maps: tuple[ChannelMap[Any], ...] = ()
+    wait_for_load_channel_map_instances: tuple[ChannelMapLoad, ...] = ()
+    execute_load_attribute_maps: tuple[AttributeMap[Any], ...] = ()
+    execute_load_attribute_map_instances: tuple[AttributeMapLoad, ...] = ()
+    execute_load_channels: tuple[Channel[Any], ...] = ()
+    execute_load_channel_maps: tuple[ChannelMap[Any], ...] = ()
+    execute_load_channel_map_instances: tuple[ChannelMapLoad, ...] = ()
     _execute_failure_target: type[Step[Any]] | None = None
     _execute_failure_options: StepOptions | None = None
 

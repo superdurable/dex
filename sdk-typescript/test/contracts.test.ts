@@ -861,7 +861,7 @@ test("RPC selective state snapshots are typed and distinguish not loaded", () =>
   );
 });
 
-test("registry rejects invalid and duplicate RPC state loads", () => {
+test("registry rejects invalid and duplicate handler state loads", () => {
   const attributes = new AttributeMap("registry-items", stringCodec);
   const queued = new Channel("registry-commands", stringCodec);
   class DuplicateLoads implements Flow<void> {
@@ -882,6 +882,38 @@ test("registry rejects invalid and duplicate RPC state loads", () => {
   }
 
   assert.throws(() => new Registry([new DuplicateLoads()]), /duplicate/);
+
+  class DuplicateStep implements Step<void> {
+    public getStepType(): string {
+      return "DuplicateStep";
+    }
+
+    public getStepOptions() {
+      return { executeLoadChannels: [queued, queued] };
+    }
+
+    public execute(_context: Context, _input: void): StepDecision {
+      return { kind: "deadEnd" };
+    }
+  }
+
+  class DuplicateStepFlow implements Flow<void> {
+    private readonly start = new DuplicateStep();
+
+    public getFlowType(): string {
+      return "DuplicateStepFlow";
+    }
+
+    public getSteps(): StepList<void> {
+      return StepList.startStep(this.start);
+    }
+
+    public getPersistenceSchema() {
+      return { channels: [queued] };
+    }
+  }
+
+  assert.throws(() => new Registry([new DuplicateStepFlow()]), /duplicate/);
 });
 
 test("persistence definitions and map instances reserve slash", () => {

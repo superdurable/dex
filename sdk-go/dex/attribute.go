@@ -123,14 +123,14 @@ type AttributeMap[T any] struct {
 	syncToAttributeStore bool
 }
 
-// AttributeMapLoad selects one AttributeMap instance for an RPC invocation.
-// Create values with AttributeMap.Load and place them in InvokeOptions.LoadAttributeMapInstances.
+// AttributeMapLoad selects one AttributeMap instance for a handler invocation.
+// Create values with AttributeMap.Load and place them in the matching invocation options.
 type AttributeMapLoad struct {
 	name     string
 	instance string
 }
 
-// Load selects one slash-free logical instance for an RPC snapshot.
+// Load selects one slash-free logical instance for a handler snapshot.
 // Loading does not lock the instance or prevent concurrent changes.
 func (a AttributeMap[T]) Load(instance string) AttributeMapLoad {
 	return AttributeMapLoad{name: a.name, instance: instance}

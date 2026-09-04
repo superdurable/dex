@@ -175,7 +175,23 @@ class Client:
             raise ValueError("Flow without a start Step requires None input")
         if options.timeout is not None:
             request.flow_timeout_seconds = self._seconds32(options.timeout)
-        request.flow_timeout_policy = self._resolve_timeout_policy(registered, options)
+        timeout_policy = _resolve_flow_timeout_policy(
+            registered.name,
+            registered.has_timeout_handler,
+            options.timeout,
+            options.timeout_policy,
+        )
+        request.flow_timeout_policy = self._map_timeout_policy(timeout_policy)
+        timeout_handler_options = self._mappings.map_flow_timeout_handler_options(
+            registered,
+            options.timeout,
+            timeout_policy,
+            options.timeout_handler_options,
+        )
+        if timeout_handler_options is not None:
+            request.flow_start_options.timeout_handler_options.CopyFrom(
+                timeout_handler_options
+            )
         response = cast(
             pb.StartFlowResponse,
             self._call(self._service.StartFlow, request, "start_flow", flow_id, "none"),
@@ -1424,6 +1440,15 @@ class Client:
             options.timeout,
             options.timeout_policy,
         )
+        return {
+            FlowTimeoutPolicy.DEFAULT: pb.FLOW_TIMEOUT_POLICY_UNSPECIFIED,
+            FlowTimeoutPolicy.FAIL: pb.FLOW_TIMEOUT_POLICY_FAIL,
+            FlowTimeoutPolicy.CANCEL: pb.FLOW_TIMEOUT_POLICY_CANCEL,
+            FlowTimeoutPolicy.HANDLER: pb.FLOW_TIMEOUT_POLICY_HANDLER,
+        }[policy]
+
+    @staticmethod
+    def _map_timeout_policy(policy: FlowTimeoutPolicy) -> pb.FlowTimeoutPolicy:
         return {
             FlowTimeoutPolicy.DEFAULT: pb.FLOW_TIMEOUT_POLICY_UNSPECIFIED,
             FlowTimeoutPolicy.FAIL: pb.FLOW_TIMEOUT_POLICY_FAIL,

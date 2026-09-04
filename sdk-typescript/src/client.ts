@@ -35,6 +35,7 @@ import {
   StartFlowRequest,
   StepDurability as ProtoStepDurability,
   StepOptions as ProtoStepOptions,
+  FlowTimeoutHandlerOptions as ProtoFlowTimeoutHandlerOptions,
   StopType as ProtoStopType,
   WaitForMethodFailurePolicy,
   type FlowServiceClient as FlowServiceClientType,
@@ -72,6 +73,7 @@ import {
   type ClientOptions,
   type FlowConfig,
   type FlowInfo,
+  type FlowTimeoutHandlerOptions,
   type FlowStatus,
   type TimeTravelOptions,
   type SearchFlowEntry,
@@ -81,12 +83,13 @@ import {
   type StopFlowOptions,
   type TimerId,
 } from "./options.js";
-import { Attribute, AttributeMap, IndexType } from "./persistence.js";
+import { Attribute, AttributeMap, IndexType, type AttributeLock } from "./persistence.js";
 import type { RPCResult } from "./rpc.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
 import { physicalMapName, requireName } from "./validation.js";
+import { voidCodec } from "./codec.js";
 import { codecOrJson, decodeUnknown, decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
-import { ChannelMap, type Channel, type ChannelMessage } from "./wait.js";
+import { Channel, ChannelMap, type ChannelMessage } from "./wait.js";
 import type { Stream, StreamMessage } from "./stream.js";
 
 const defaultServerAddress = "localhost:8801";
@@ -148,15 +151,16 @@ export class Client {
   ): Promise<string> {
     const registered = registeredFlow(this.registry, flow);
     const flowTimeoutSeconds = seconds(options.timeoutMs);
+    const flowTimeoutPolicy = resolveFlowTimeoutPolicy(
+      registered,
+      flowTimeoutSeconds,
+      options.timeoutPolicy,
+    );
     const request = StartFlowRequest.create({
       flowId: requireName(flowId),
       flowType: registered.name,
       flowTimeoutSeconds,
-      flowTimeoutPolicy: resolveFlowTimeoutPolicy(
-        registered,
-        flowTimeoutSeconds,
-        options.timeoutPolicy,
-      ),
+      flowTimeoutPolicy,
       requestId: options.requestId ?? crypto.randomUUID(),
       flowStartOptions: {
         idReusePolicy: mapIdReusePolicy(options.idReusePolicy),
@@ -172,6 +176,12 @@ export class Client {
         flowAlreadyStartedOptions: {
           ignoreAlreadyStartedError: options.ignoreAlreadyStarted ?? false,
         },
+        timeoutHandlerOptions: mapFlowTimeoutHandlerOptions(
+          registered,
+          flowTimeoutSeconds,
+          flowTimeoutPolicy,
+          options.timeoutHandlerOptions,
+        ),
       },
     });
     if (registered.startStep === undefined) {
@@ -1070,6 +1080,20 @@ function mapStepOptions(
   }
   const executeFailureOptions =
     options?.executeFailure?.options ?? executeFailureDefinition?.step.getStepOptions?.();
+  const waitForLoads = mapHandlerStateLoads(flow, {
+    attributeMaps: options?.waitForLoadAttributeMaps,
+    attributeMapInstances: options?.waitForLoadAttributeMapInstances,
+    channels: options?.waitForLoadChannels,
+    channelMaps: options?.waitForLoadChannelMaps,
+    channelMapInstances: options?.waitForLoadChannelMapInstances,
+  }, "WaitFor");
+  const executeLoads = mapHandlerStateLoads(flow, {
+    attributeMaps: options?.executeLoadAttributeMaps,
+    attributeMapInstances: options?.executeLoadAttributeMapInstances,
+    channels: options?.executeLoadChannels,
+    channelMaps: options?.executeLoadChannelMaps,
+    channelMapInstances: options?.executeLoadChannelMapInstances,
+  }, "Execute");
   return ProtoStepOptions.create({
     waitForTimeoutSeconds: seconds(options?.waitForMethodTimeoutMs),
     executeTimeoutSeconds: seconds(options?.executeMethodTimeoutMs),
@@ -1104,6 +1128,175 @@ function mapStepOptions(
     executeLockAttributeKeys: (options?.executeLockAttributes ?? []).map((lock) =>
       physicalName(lock.attribute.name, lock.instance),
     ),
+    waitForLoadAttributeMapInstances: waitForLoads.attributeMaps,
+    waitForLoadChannelNames: waitForLoads.channels,
+    waitForLoadChannelMapInstances: waitForLoads.channelMaps,
+    executeLoadAttributeMapInstances: executeLoads.attributeMaps,
+    executeLoadChannelNames: executeLoads.channels,
+    executeLoadChannelMapInstances: executeLoads.channelMaps,
+  });
+}
+
+function mapFlowTimeoutHandlerOptions(
+  flow: RegisteredFlow,
+  timeoutSeconds: number,
+  timeoutPolicy: ProtoFlowTimeoutPolicy,
+  options: FlowTimeoutHandlerOptions | undefined,
+): ProtoFlowTimeoutHandlerOptions | undefined {
+  if (options === undefined) {
+    return undefined;
+  }
+  if (
+    timeoutSeconds <= 0 ||
+    timeoutPolicy !== ProtoFlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_HANDLER
+  ) {
+    throw new TypeError(
+      "timeout handler options require a positive timeout with handler policy",
+    );
+  }
+  const failureStep = options.failure?.step;
+  const failureDefinition = failureStep === undefined
+    ? undefined
+    : flow.stepsByClass.get(failureStep);
+  if (failureStep !== undefined && failureDefinition === undefined) {
+    throw new TypeError("timeout handler failure Step must belong to the Flow");
+  }
+  if (failureDefinition !== undefined && failureDefinition.step.inputCodec !== voidCodec) {
+    throw new TypeError("timeout handler failure Step must use voidCodec");
+  }
+  const loads = mapHandlerStateLoads(flow, {
+    attributeMaps: options.loadAttributeMaps,
+    attributeMapInstances: options.loadAttributeMapInstances,
+    channels: options.loadChannels,
+    channelMaps: options.loadChannelMaps,
+    channelMapInstances: options.loadChannelMapInstances,
+  }, "timeout handler");
+  return ProtoFlowTimeoutHandlerOptions.create({
+    methodTimeoutSeconds: seconds(options.methodTimeoutMs),
+    heartbeatTimeoutSeconds: heartbeatSeconds(options.heartbeatTimeoutMs),
+    retryPolicy: mapRetryPolicy(options.retry),
+    failurePolicy: failureDefinition === undefined
+      ? ExecuteMethodFailurePolicy.EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED
+      : ExecuteMethodFailurePolicy.EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
+    failureProceedStepType: failureDefinition?.name ?? "",
+    failureProceedStepOptions: failureDefinition === undefined
+      ? undefined
+      : mapStepOptions(
+          options.failure?.options ?? failureDefinition.step.getStepOptions?.(),
+          failureDefinition.step.waitFor === undefined,
+          flow,
+        ),
+    durabilityOverride: mapDurability(options.durability),
+    lockAttributeKeys: mapAttributeLocks(flow, options.lockAttributes ?? [], "timeout handler"),
+    loadAttributeMapInstances: loads.attributeMaps,
+    loadChannelNames: loads.channels,
+    loadChannelMapInstances: loads.channelMaps,
+  });
+}
+
+interface HandlerStateLoads {
+  readonly attributeMaps: readonly AttributeMap<unknown>[] | undefined;
+  readonly attributeMapInstances: readonly {
+    readonly attributeMap: AttributeMap<unknown>;
+    readonly instance: string;
+  }[] | undefined;
+  readonly channels: readonly Channel<unknown>[] | undefined;
+  readonly channelMaps: readonly ChannelMap<unknown>[] | undefined;
+  readonly channelMapInstances: readonly {
+    readonly channelMap: ChannelMap<unknown>;
+    readonly instance: string;
+  }[] | undefined;
+}
+
+function mapHandlerStateLoads(
+  flow: RegisteredFlow,
+  loads: HandlerStateLoads,
+  source: string,
+): { attributeMaps: string[]; channels: string[]; channelMaps: string[] } {
+  const attributeMaps = mapDefinitionLoads(
+    flow,
+    loads.attributeMaps ?? [],
+    AttributeMap,
+    source,
+    (definition) => `${definition.name}/`,
+  );
+  attributeMaps.push(...mapDefinitionLoads(
+    flow,
+    loads.attributeMapInstances ?? [],
+    AttributeMap,
+    source,
+    (load) => physicalName(load.attributeMap.name, load.instance),
+    (load) => load.attributeMap,
+    new Set(attributeMaps),
+  ));
+  const channels = mapDefinitionLoads(
+    flow,
+    loads.channels ?? [],
+    Channel,
+    source,
+    (definition) => definition.name,
+  );
+  const channelMaps = mapDefinitionLoads(
+    flow,
+    loads.channelMaps ?? [],
+    ChannelMap,
+    source,
+    (definition) => `${definition.name}/`,
+  );
+  channelMaps.push(...mapDefinitionLoads(
+    flow,
+    loads.channelMapInstances ?? [],
+    ChannelMap,
+    source,
+    (load) => physicalName(load.channelMap.name, load.instance),
+    (load) => load.channelMap,
+    new Set(channelMaps),
+  ));
+  return {
+    attributeMaps: attributeMaps.sort(),
+    channels: channels.sort(),
+    channelMaps: channelMaps.sort(),
+  };
+}
+
+function mapDefinitionLoads<Load, Definition extends { readonly name: string }>(
+  flow: RegisteredFlow,
+  loads: readonly Load[],
+  expected: abstract new (...arguments_: any[]) => Definition,
+  source: string,
+  physicalNameFor: (load: Load) => string,
+  definitionFor: (load: Load) => Definition = (load) => load as unknown as Definition,
+  seen = new Set<string>(),
+): string[] {
+  const mapped: string[] = [];
+  for (const load of loads) {
+    const definition = definitionFor(load);
+    if (
+      !(definition instanceof expected) ||
+      flow.persistence.get(definition.name) !== (definition as unknown)
+    ) {
+      throw new TypeError(`${source} state load does not belong to Flow ${flow.name}`);
+    }
+    const name = physicalNameFor(load);
+    if (seen.has(name)) {
+      throw new TypeError(`${source} has duplicate state load ${name}`);
+    }
+    seen.add(name);
+    mapped.push(name);
+  }
+  return mapped;
+}
+
+function mapAttributeLocks(
+  flow: RegisteredFlow,
+  locks: readonly AttributeLock[],
+  source: string,
+): string[] {
+  return locks.map((lock) => {
+    if (flow.persistence.get(lock.attribute.name) !== lock.attribute) {
+      throw new TypeError(`${source} lock does not belong to Flow ${flow.name}`);
+    }
+    return physicalName(lock.attribute.name, lock.instance);
   });
 }
 

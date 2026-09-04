@@ -557,7 +557,7 @@ func (i *Interpreter) StartEngineFlow(
 						options := step.GetStepOptions()
 						stepRequestQueue.AddSingleStepStartRequest(
 							options.GetExecuteFailureProceedStepType(),
-							step.StepInput,
+							stepFailureInput(step),
 							options.ExecuteFailureProceedStepOptions,
 							stepExeId,
 							recoveryError,
@@ -894,23 +894,39 @@ func (i *Interpreter) processStepExecution(
 		ctx = provider.WithActivityOptions(ctx, activityOptions)
 
 		lockAttributeKeys := options.GetWaitForLockAttributeKeys()
-		attributes := persistenceManager.GetAllAttributes()
-		if len(lockAttributeKeys) > 0 {
-			loadedAttributes, err := persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
-			if err != nil {
-				return nil, service.StepExecutionStatusInternalError, err
-			}
-			attributes = loadedAttributes
+		selection, err := service.ValidateAndSortStateSelections(
+			options.GetWaitForLoadAttributeMapInstances(),
+			options.GetWaitForLoadChannelNames(),
+			options.GetWaitForLoadChannelMapInstances(),
+		)
+		if err != nil {
+			return nil, service.StepExecutionStatusInternalError, err
+		}
+		attributes, err := persistenceManager.LoadSelectedAttributes(
+			ctx,
+			lockAttributeKeys,
+			selection.AttributeMapInstances,
+		)
+		if err != nil {
+			return nil, service.StepExecutionStatusInternalError, err
 		}
 
 		activityInput := &dexpb.InvokeWaitForMethodActivityInput{
 			WorkerTarget: flowConfiger.GetWorkerTarget(),
 			Request: &dexpb.InvokeWaitForMethodRequest{
-				Context:    executionContext,
-				FlowType:   basicInfo.FlowType,
-				StepType:   step.GetStepType(),
-				StepInput:  step.GetStepInput(),
-				Attributes: attributes,
+				Context:      executionContext,
+				FlowType:     basicInfo.FlowType,
+				StepType:     step.GetStepType(),
+				StepInput:    step.GetStepInput(),
+				Attributes:   attributes,
+				ChannelInfos: channelStore.GetInfos(),
+				LoadedChannelMessages: channelStore.GetLoadedMessages(
+					selection.ChannelNames,
+					selection.ChannelMapInstances,
+				),
+				LoadedAttributeMapInstances: selection.AttributeMapInstances,
+				LoadedChannelNames:          selection.ChannelNames,
+				LoadedChannelMapInstances:   selection.ChannelMapInstances,
 			},
 		}
 		var activityOutput dexpb.InvokeWaitForMethodActivityOutput
@@ -944,6 +960,7 @@ func (i *Interpreter) processStepExecution(
 			); err != nil {
 				return nil, service.StepExecutionStatusInternalError, err
 			}
+			channelStore.DeleteAll(activityOutput.Response.GetDeleteFromChannel())
 			channelStore.ProcessPublishing(activityOutput.Response.GetPublishToChannel())
 			stepExeLocals = activityOutput.Response.GetUpsertStepExeLocals()
 
@@ -1206,13 +1223,23 @@ func (i *Interpreter) invokeExecuteMethod(
 	}
 	ctx = provider.WithActivityOptions(ctx, activityOptions)
 
-	lockAttributeKeys := step.GetStepOptions().GetExecuteLockAttributeKeys()
-	attributes := persistenceManager.GetAllAttributes()
-	if len(lockAttributeKeys) > 0 {
-		attributes, err = persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
-		if err != nil {
-			return nil, service.StepExecutionStatusInternalError, err
-		}
+	options := step.GetStepOptions()
+	lockAttributeKeys := options.GetExecuteLockAttributeKeys()
+	selection, err := service.ValidateAndSortStateSelections(
+		options.GetExecuteLoadAttributeMapInstances(),
+		options.GetExecuteLoadChannelNames(),
+		options.GetExecuteLoadChannelMapInstances(),
+	)
+	if err != nil {
+		return nil, service.StepExecutionStatusInternalError, err
+	}
+	attributes, err := persistenceManager.LoadSelectedAttributes(
+		ctx,
+		lockAttributeKeys,
+		selection.AttributeMapInstances,
+	)
+	if err != nil {
+		return nil, service.StepExecutionStatusInternalError, err
 	}
 
 	continueAsNewer.RemoveStepExecutionToResume(stepExeId)
@@ -1226,6 +1253,14 @@ func (i *Interpreter) invokeExecuteMethod(
 			Attributes:       attributes,
 			StepExeLocals:    stepExeLocals,
 			ConditionResults: conditionResults,
+			ChannelInfos:     channelStore.GetInfos(),
+			LoadedChannelMessages: channelStore.GetLoadedMessages(
+				selection.ChannelNames,
+				selection.ChannelMapInstances,
+			),
+			LoadedAttributeMapInstances: selection.AttributeMapInstances,
+			LoadedChannelNames:          selection.ChannelNames,
+			LoadedChannelMapInstances:   selection.ChannelMapInstances,
 		},
 	}
 	var activityOutput dexpb.InvokeExecuteMethodActivityOutput
@@ -1259,6 +1294,7 @@ func (i *Interpreter) invokeExecuteMethod(
 	); err != nil {
 		return nil, service.StepExecutionStatusInternalError, err
 	}
+	channelStore.DeleteAll(executeResponse.GetDeleteFromChannel())
 	channelStore.ProcessPublishing(executeResponse.GetPublishToChannel())
 
 	return executeResponse.GetStepDecision(), service.StepExecutionStatusCompleted, nil
@@ -1301,6 +1337,17 @@ func shouldProceedOnExecuteMethodError(step *dexpb.StepMovement) bool {
 	return options.GetExecuteFailureProceedStepType() != "" &&
 		options.GetExecuteFailurePolicy() ==
 			dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
+}
+
+func stepFailureInput(step *dexpb.StepMovement) *dexpb.Value {
+	if step.GetStepType() != service.FlowTimeoutStepType {
+		return step.GetStepInput()
+	}
+	return &dexpb.Value{
+		Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{Encoding: "json", Payload: []byte("null")},
+		},
+	}
 }
 
 func (i *Interpreter) BlobStoreCleanup(

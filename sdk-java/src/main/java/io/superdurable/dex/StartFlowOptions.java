@@ -41,6 +41,7 @@ import java.util.Objects;
 public final class StartFlowOptions {
     private final Duration timeout;
     private final FlowTimeoutPolicy timeoutPolicy;
+    private final FlowTimeoutHandlerOptions timeoutHandlerOptions;
     private final Duration startDelay;
     private final IdReusePolicy idReusePolicy;
     private final RetryPolicy retryPolicy;
@@ -57,6 +58,7 @@ public final class StartFlowOptions {
     private StartFlowOptions(final Builder builder) {
         this.timeout = builder.timeout;
         this.timeoutPolicy = builder.timeoutPolicy;
+        this.timeoutHandlerOptions = builder.timeoutHandlerOptions;
         this.startDelay = builder.startDelay;
         this.idReusePolicy = builder.idReusePolicy;
         this.retryPolicy = builder.retryPolicy;
@@ -82,6 +84,10 @@ public final class StartFlowOptions {
 
     FlowTimeoutPolicy getTimeoutPolicy() {
         return timeoutPolicy;
+    }
+
+    FlowTimeoutHandlerOptions getTimeoutHandlerOptions() {
+        return timeoutHandlerOptions;
     }
 
     Duration getStartDelay() {
@@ -116,6 +122,7 @@ public final class StartFlowOptions {
     public static final class Builder {
         private Duration timeout;
         private FlowTimeoutPolicy timeoutPolicy = FlowTimeoutPolicy.DEFAULT;
+        private FlowTimeoutHandlerOptions timeoutHandlerOptions;
         private Duration startDelay;
         private IdReusePolicy idReusePolicy = IdReusePolicy.DEFAULT;
         private RetryPolicy retryPolicy;
@@ -151,6 +158,19 @@ public final class StartFlowOptions {
          */
         public Builder timeoutPolicy(final FlowTimeoutPolicy value) {
             timeoutPolicy = Objects.requireNonNull(value, "timeoutPolicy");
+            return this;
+        }
+
+        /**
+         * Configures timeout-handler execution and selective state loading.
+         *
+         * <p>This option requires a positive timeout and a policy resolving to HANDLER.
+         *
+         * @param value the handler options, or {@code null} for server defaults
+         * @return this builder
+         */
+        public Builder timeoutHandlerOptions(final FlowTimeoutHandlerOptions value) {
+            timeoutHandlerOptions = value;
             return this;
         }
 

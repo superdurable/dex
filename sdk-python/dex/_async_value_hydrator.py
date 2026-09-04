@@ -80,12 +80,25 @@ class AsyncValueHydrator:
         if has_heartbeat:
             values.append(request.context.last_heartbeat_value)
         values.extend(entry.value for entry in request.attributes)
+        channel_messages = [
+            message
+            for channel_values in request.loaded_channel_messages.values()
+            for message in channel_values.messages
+        ]
+        values.extend(message.value for message in channel_messages)
         hydrated = iter(await self.hydrate_all(values))
         result.step_input.CopyFrom(next(hydrated))
         if has_heartbeat:
             result.context.last_heartbeat_value.CopyFrom(next(hydrated))
-        for entry, value in zip(result.attributes, hydrated):
-            entry.value.CopyFrom(value)
+        for entry in result.attributes:
+            entry.value.CopyFrom(next(hydrated))
+        result_messages = [
+            message
+            for channel_values in result.loaded_channel_messages.values()
+            for message in channel_values.messages
+        ]
+        for message in result_messages:
+            message.value.CopyFrom(next(hydrated))
         return result
 
     async def execute_request(
@@ -101,6 +114,12 @@ class AsyncValueHydrator:
             values.append(request.context.last_heartbeat_value)
         values.extend(entry.value for entry in request.attributes)
         values.extend(entry.value for entry in request.step_exe_locals)
+        channel_messages = [
+            message
+            for channel_values in request.loaded_channel_messages.values()
+            for message in channel_values.messages
+        ]
+        values.extend(message.value for message in channel_messages)
         for channel_result in request.condition_results.channel_results:
             values.extend(channel_result.values)
         hydrated = iter(await self.hydrate_all(values))
@@ -112,6 +131,13 @@ class AsyncValueHydrator:
             entry.value.CopyFrom(next(hydrated))
         for entry in result.step_exe_locals:
             entry.value.CopyFrom(next(hydrated))
+        result_messages = [
+            message
+            for channel_values in result.loaded_channel_messages.values()
+            for message in channel_values.messages
+        ]
+        for message in result_messages:
+            message.value.CopyFrom(next(hydrated))
         for channel_result in result.condition_results.channel_results:
             for value in channel_result.values:
                 value.CopyFrom(next(hydrated))

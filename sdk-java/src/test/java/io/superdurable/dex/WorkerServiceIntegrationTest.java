@@ -183,7 +183,7 @@ final class WorkerServiceIntegrationTest {
     }
 
     @Test
-    void restoresHeartbeatDetailsAndRejectsProgressFromUnsupportedContexts() throws Exception {
+    void restoresHeartbeatDetailsAndSupportsTimeoutHandlerProgress() throws Exception {
         final BridgeFlow flow = new BridgeFlow();
         final RunningWorker running = startWorker(flow, new TestBlobCache(), null);
         try {
@@ -217,8 +217,12 @@ final class WorkerServiceIntegrationTest {
                     .build();
             final List<InvokeExecuteMethodOutput> timeoutOutputs = collectExecuteOutputs(
                     running, timeout);
-            assertEquals(1, timeoutOutputs.size());
-            assertTrue(timeoutOutputs.get(0).hasResult());
+            assertEquals(3, timeoutOutputs.size());
+            assertEquals("timeout-checkpoint",
+                    timeoutOutputs.get(0).getHeartbeat().getValue().getStringValue());
+            assertEquals("timeout-progress",
+                    timeoutOutputs.get(1).getStreamWrite().getValue().getStringValue());
+            assertTrue(timeoutOutputs.get(2).hasResult());
         } finally {
             running.close();
         }
@@ -411,6 +415,112 @@ final class WorkerServiceIntegrationTest {
         assertEquals(
                 Arrays.asList("selected-by-tenant/", channelMapName),
                 stateLoads.getChannelMaps());
+    }
+
+    @Test
+    void mapsStepAndTimeoutHandlerStateAndExecutionOptions() {
+        final Attribute<String> status = Attribute.define("loaded-status", String.class);
+        final AttributeMap<String> attributes = AttributeMap.define("loaded-items", String.class);
+        final Channel<String> commands = Channel.define("loaded-commands", String.class);
+        final ChannelMap<String> channels =
+                ChannelMap.define("loaded-commands-by-tenant", String.class);
+        final Flow<Void> flow = new Flow<Void>() {
+            private final TimeoutRecoveryStep recovery = new TimeoutRecoveryStep();
+
+            @Override
+            public String getFlowType() {
+                return "LoadedOptionsFlow";
+            }
+
+            @Override
+            public StepList<Void> getSteps() {
+                return StepList.startStep(recovery);
+            }
+
+            @Override
+            public PersistenceSchema getPersistenceSchema() {
+                return PersistenceSchema.of(status, attributes, commands, channels);
+            }
+
+            @Override
+            public StepDecision handleTimeout(final Context context) {
+                return StepDecision.deadEnd();
+            }
+        };
+        final Registry registry = new Registry(Collections.<Flow<?>>singletonList(flow));
+        final WorkerDispatcher dispatcher = new WorkerDispatcher(
+                registry,
+                new ValueMapper(new ObjectMapper()),
+                null);
+        final StepOptions stepOptions = StepOptions.newBuilder()
+                .addWaitForLoadAttributeMap(attributes)
+                .addWaitForLoadAttributeMapInstance(attributes, "tenant-a")
+                .addWaitForLoadChannel(commands)
+                .addWaitForLoadChannelMap(channels)
+                .addWaitForLoadChannelMapInstance(channels, "tenant-a")
+                .addExecuteLoadAttributeMap(attributes)
+                .addExecuteLoadAttributeMapInstance(attributes, "tenant-b")
+                .addExecuteLoadChannel(commands)
+                .addExecuteLoadChannelMap(channels)
+                .addExecuteLoadChannelMapInstance(channels, "tenant-b")
+                .build();
+        final io.superdurable.gen.StepOptions mappedStep = dispatcher.mapStepOptions(
+                registry.getFlow("LoadedOptionsFlow"),
+                stepOptions);
+        assertEquals(
+                Arrays.asList("loaded-items/", "loaded-items/tenant-a"),
+                mappedStep.getWaitForLoadAttributeMapInstancesList());
+        assertEquals(
+                Arrays.asList(
+                        "loaded-commands-by-tenant/",
+                        "loaded-commands-by-tenant/tenant-b"),
+                mappedStep.getExecuteLoadChannelMapInstancesList());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> dispatcher.mapStepOptions(
+                        registry.getFlow("LoadedOptionsFlow"),
+                        StepOptions.newBuilder()
+                                .addExecuteLoadChannel(commands)
+                                .addExecuteLoadChannel(commands)
+                                .build()));
+
+        final FlowTimeoutHandlerOptions timeoutOptions =
+                FlowTimeoutHandlerOptions.newBuilder()
+                        .methodTimeout(Duration.ofSeconds(10))
+                        .heartbeatTimeout(Duration.ofSeconds(5))
+                        .retry(RetryPolicy.newBuilder().maximumAttempts(3).build())
+                        .durability(StepDurability.ASYNC)
+                        .addLock(AttributeLock.of(status))
+                        .addLoadAttributeMap(attributes)
+                        .addLoadAttributeMapInstance(attributes, "tenant-a")
+                        .addLoadChannel(commands)
+                        .addLoadChannelMap(channels)
+                        .addLoadChannelMapInstance(channels, "tenant-a")
+                        .onFailureProceedTo(TimeoutRecoveryStep.class)
+                        .build();
+        final io.superdurable.gen.FlowTimeoutHandlerOptions mappedTimeout =
+                dispatcher.mapFlowTimeoutHandlerOptions(
+                        registry.getFlow("LoadedOptionsFlow"),
+                        Duration.ofSeconds(30),
+                        FlowTimeoutPolicy.HANDLER,
+                        timeoutOptions);
+        assertEquals(10, mappedTimeout.getMethodTimeoutSeconds());
+        assertEquals(5, mappedTimeout.getHeartbeatTimeoutSeconds());
+        assertEquals(3, mappedTimeout.getRetryPolicy().getMaximumAttempts());
+        assertEquals(Collections.singletonList("loaded-status"),
+                mappedTimeout.getLockAttributeKeysList());
+        assertEquals(
+                Arrays.asList("loaded-items/", "loaded-items/tenant-a"),
+                mappedTimeout.getLoadAttributeMapInstancesList());
+        assertEquals("TimeoutRecoveryStep", mappedTimeout.getFailureProceedStepType());
+        assertTrue(mappedTimeout.getFailureProceedStepOptions().getSkipWaitFor());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> dispatcher.mapFlowTimeoutHandlerOptions(
+                        registry.getFlow("LoadedOptionsFlow"),
+                        null,
+                        FlowTimeoutPolicy.DEFAULT,
+                        timeoutOptions));
     }
 
     @Test
@@ -1049,8 +1159,8 @@ final class WorkerServiceIntegrationTest {
 
         @Override
         public StepDecision handleTimeout(final Context context) {
-            assertThrows(IllegalStateException.class, () -> context.recordHeartbeat("invalid"));
-            assertThrows(IllegalStateException.class, () -> thinking.write(context, "invalid"));
+            context.recordHeartbeat("timeout-checkpoint");
+            thinking.write(context, "timeout-progress");
             return StepDecision.gracefulComplete("timeout");
         }
 
@@ -1280,6 +1390,18 @@ final class WorkerServiceIntegrationTest {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
+            return StepDecision.deadEnd();
+        }
+    }
+
+    private static final class TimeoutRecoveryStep implements Step<Void> {
+        @Override
+        public Class<Void> getInputType() {
+            return Void.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Void input) {
             return StepDecision.deadEnd();
         }
     }

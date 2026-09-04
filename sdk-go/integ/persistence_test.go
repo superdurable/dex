@@ -169,6 +169,12 @@ func (persistenceFirstStep) Execute(
 	return dex.GoTo(persistenceSecondStep{}, struct{}{}), nil
 }
 
+func (persistenceFirstStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		WaitForLoadAttributeMaps: []dex.AttributeDef{persistenceMap},
+	}
+}
+
 type persistenceSecondStep struct {
 	dex.StepDefaults
 }

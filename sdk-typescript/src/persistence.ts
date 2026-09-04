@@ -13,7 +13,7 @@ import type { Context } from "./context.js";
 import type { Stream } from "./stream.js";
 import { requireMapInstance, requirePersistenceDefinitionName } from "./validation.js";
 
-/** Selects one AttributeMap instance for an RPC snapshot. */
+/** Selects one AttributeMap instance for a handler snapshot. */
 export interface AttributeMapLoad {
   /** Exact AttributeMap definition registered with the Flow. */
   readonly attributeMap: AttributeMap<unknown>;
@@ -181,9 +181,9 @@ export class AttributeMap<T> {
   }
 
   /**
-   * Selects one logical instance for an RPC snapshot.
+   * Selects one logical instance for a handler snapshot.
    * @param instance - Non-empty logical map key. The SDK escapes it for the protocol.
-   * @returns An exact instance load for {@link RPCOptions.loadAttributeMapInstances}.
+   * @returns An exact instance load for RPC, Step, or timeout-handler options.
    */
   public load(instance: string): AttributeMapLoad {
     requireMapInstance(instance);

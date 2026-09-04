@@ -255,12 +255,11 @@ export class InvocationContext implements AsyncContext {
     this.requireRegistered(attribute);
     const key = definitionName(attribute, instance);
     if (
-      this.method === "rpc" &&
       attribute instanceof AttributeMap &&
       !mapInstanceLoaded(this.loadedAttributeMapInstances, attribute.name, key)
     ) {
       throw new AttributeMapNotLoadedError(
-        `AttributeMap instance was not loaded for RPC: ${key}`,
+        `AttributeMap instance was not loaded for this invocation: ${key}`,
       );
     }
     const write = this.attributeWrites.get(key)?.value;
@@ -302,9 +301,9 @@ export class InvocationContext implements AsyncContext {
 
   public attributeMapKeys(attribute: AttributeMap<unknown>): readonly string[] {
     this.requireRegistered(attribute);
-    if (this.method === "rpc" && !this.loadedAttributeMapInstances.has(`${attribute.name}/`)) {
+    if (!this.loadedAttributeMapInstances.has(`${attribute.name}/`)) {
       throw new AttributeMapNotLoadedError(
-        `all AttributeMap instances were not loaded for RPC: ${attribute.name}`,
+        `all AttributeMap instances were not loaded for this invocation: ${attribute.name}`,
       );
     }
     const prefix = `${attribute.name}/`;
@@ -334,9 +333,7 @@ export class InvocationContext implements AsyncContext {
       value: encodeValue(channel.codec, value),
       messageId: "",
     });
-    if (this.method === "rpc") {
-      this.channelInfos.set(name, { size: (this.channelInfos.get(name)?.size ?? 0) + 1 });
-    }
+    this.channelInfos.set(name, { size: (this.channelInfos.get(name)?.size ?? 0) + 1 });
   }
 
   public deleteChannelMessage(
@@ -344,9 +341,6 @@ export class InvocationContext implements AsyncContext {
     messageId: string,
     instance?: string,
   ): void {
-    if (this.method !== "rpc") {
-      throw new TypeError("Channel message deletion requires an RPC Context");
-    }
     this.requireRegistered(channel);
     const name = definitionName(channel, instance);
     this.channelDeletions.push({ channelName: name, messageId: requireName(messageId) });
@@ -368,9 +362,6 @@ export class InvocationContext implements AsyncContext {
     channel: Channel<T> | ChannelMap<T>,
     instance?: string,
   ): readonly ChannelMessage<T>[] {
-    if (this.method !== "rpc") {
-      throw new TypeError("pending Channel messages require an RPC Context");
-    }
     this.requireRegistered(channel);
     const name = definitionName(channel, instance);
     const isLoaded = channel instanceof ChannelMap
@@ -378,7 +369,7 @@ export class InvocationContext implements AsyncContext {
       : this.loadedChannelNames.has(name);
     if (!isLoaded) {
       throw new ChannelMessagesNotLoadedError(
-        `Channel messages were not loaded for RPC: ${name}`,
+        `Channel messages were not loaded for this invocation: ${name}`,
       );
     }
     return (this.loadedChannelMessages[name]?.messages ?? []).map((message) => {
@@ -394,9 +385,6 @@ export class InvocationContext implements AsyncContext {
 
   public channelMapKeys(channel: ChannelMap<unknown>): readonly string[] {
     this.requireRegistered(channel);
-    if (this.method !== "rpc") {
-      throw new TypeError("ChannelMap introspection requires an RPC invocation");
-    }
     const prefix = `${channel.name}/`;
     return [...this.channelInfos]
       .filter(([key, info]) => key.startsWith(prefix) && info.size > 0)

@@ -8,8 +8,8 @@
 
 import type { Codec } from "./codec.js";
 import type { AsyncContext, Context } from "./context.js";
-import type { AttributeLock } from "./persistence.js";
-import type { Channel, ChannelMap, Wait } from "./wait.js";
+import type { AttributeLock, AttributeMap, AttributeMapLoad } from "./persistence.js";
+import type { Channel, ChannelMap, ChannelMapLoad, Wait } from "./wait.js";
 
 /** Controls when a Step handler result is durably acknowledged. */
 export type StepDurability = "sync" | "async";
@@ -77,6 +77,26 @@ export interface StepOptions {
   readonly waitForLockAttributes?: readonly AttributeLock[];
   /** Attribute locks held during `execute`. */
   readonly executeLockAttributes?: readonly AttributeLock[];
+  /** AttributeMap definitions whose complete contents are loaded for `waitFor`. */
+  readonly waitForLoadAttributeMaps?: readonly AttributeMap<unknown>[];
+  /** Exact AttributeMap instances loaded for `waitFor`. */
+  readonly waitForLoadAttributeMapInstances?: readonly AttributeMapLoad[];
+  /** Channels whose pending messages are loaded for `waitFor`. */
+  readonly waitForLoadChannels?: readonly Channel<unknown>[];
+  /** ChannelMap definitions whose complete pending contents are loaded for `waitFor`. */
+  readonly waitForLoadChannelMaps?: readonly ChannelMap<unknown>[];
+  /** Exact ChannelMap instances whose pending messages are loaded for `waitFor`. */
+  readonly waitForLoadChannelMapInstances?: readonly ChannelMapLoad[];
+  /** AttributeMap definitions whose complete contents are loaded for `execute`. */
+  readonly executeLoadAttributeMaps?: readonly AttributeMap<unknown>[];
+  /** Exact AttributeMap instances loaded for `execute`. */
+  readonly executeLoadAttributeMapInstances?: readonly AttributeMapLoad[];
+  /** Channels whose pending messages are loaded for `execute`. */
+  readonly executeLoadChannels?: readonly Channel<unknown>[];
+  /** ChannelMap definitions whose complete pending contents are loaded for `execute`. */
+  readonly executeLoadChannelMaps?: readonly ChannelMap<unknown>[];
+  /** Exact ChannelMap instances whose pending messages are loaded for `execute`. */
+  readonly executeLoadChannelMapInstances?: readonly ChannelMapLoad[];
   /** Fallback routing after exhausted `execute` retries. */
   readonly executeFailure?: ExecuteFailure;
 }

@@ -131,7 +131,7 @@ public interface Context {
     boolean waitForMethodFailed();
 
     /**
-     * Sends a best-effort heartbeat for the current Step method attempt.
+     * Sends a best-effort heartbeat for the current Step method or Flow timeout attempt.
      *
      * <p>Dex persists a nonnull value with the activity heartbeat and supplies it to a later
      * attempt through {@link #getLastHeartbeatValue}. Passing {@code null} sends a heartbeat
@@ -151,7 +151,7 @@ public interface Context {
      * }</pre>
      *
      * @param value the checkpoint to persist, or {@code null} to send no heartbeat details
-     * @throws IllegalStateException if called from an RPC or Flow timeout handler
+     * @throws IllegalStateException if called from an RPC
      * @throws io.grpc.StatusRuntimeException if the invocation is canceled or transport fails
      * @throws io.superdurable.dex.exceptions.ValueMappingException if a nonnull value cannot be
      *     encoded
@@ -320,23 +320,23 @@ public interface Context {
     /**
      * Returns a singleton Channel's loaded pending-message snapshot in FIFO order.
      *
-     * @param channel the registered typed Channel selected by the RPC annotation
+     * @param channel the registered typed Channel selected by invocation options
      * @param <T> the Channel message type
      * @return immutable pending message IDs and decoded values
-     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the RPC did
-     *     not load its messages
+     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the invocation
+     *     did not load its messages
      */
     <T> List<ChannelMessage<T>> pendingChannelMessages(Channel<T> channel);
 
     /**
      * Returns one ChannelMap instance's loaded pending-message snapshot in FIFO order.
      *
-     * @param channel the registered typed ChannelMap selected by the RPC annotation
+     * @param channel the registered typed ChannelMap selected by invocation options
      * @param instance the logical map instance
      * @param <T> the Channel message type
      * @return immutable pending message IDs and decoded values
-     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the RPC did
-     *     not load its messages
+     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the invocation
+     *     did not load its messages
      */
     <T> List<ChannelMessage<T>> pendingChannelMessages(
             ChannelMap<T> channel, String instance);

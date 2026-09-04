@@ -6,8 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-import type { Attribute, AttributeMap } from "./persistence.js";
-import type { RetryPolicy, StepDurability } from "./step.js";
+import type { Attribute, AttributeLock, AttributeMap, AttributeMapLoad } from "./persistence.js";
+import type { RetryPolicy, StepClass, StepDurability, StepOptions } from "./step.js";
+import type { Channel, ChannelMap, ChannelMapLoad } from "./wait.js";
 import { requireMapInstance, requireName } from "./validation.js";
 
 /** Configures FlowService connectivity and default Flow routing. */
@@ -62,6 +63,54 @@ export const FlowTimeoutPolicy = Object.freeze({
 /** Represents a value from {@link FlowTimeoutPolicy}. */
 export type FlowTimeoutPolicy =
   (typeof FlowTimeoutPolicy)[keyof typeof FlowTimeoutPolicy];
+
+/** Routes exhausted Flow timeout-handler retries to an input-free Step. */
+export interface FlowTimeoutHandlerFailure {
+  /** Registered fallback Step whose input codec is {@link voidCodec}. */
+  readonly step: StepClass<void>;
+  /** Options applied when the fallback Step is scheduled. */
+  readonly options?: StepOptions;
+}
+
+/** Creates Flow timeout-handler failure routing settings. */
+export const FlowTimeoutHandlerFailure = Object.freeze({
+  /**
+   * Routes exhausted timeout-handler retries to an input-free Step.
+   * The Step receives `undefined` and reads the terminal handler failure from `Context.recoveryError`.
+   * @param step - Registered Step class with {@link voidCodec} as its input codec.
+   * @param options - Optional options for the fallback Step movement.
+   * @returns The timeout-handler failure-routing settings.
+   */
+  proceedTo(step: StepClass<void>, options?: StepOptions): FlowTimeoutHandlerFailure {
+    return { step, ...(options === undefined ? {} : { options }) };
+  },
+});
+
+/** Configures execution and selective state loading for `Flow.handleTimeout`. */
+export interface FlowTimeoutHandlerOptions {
+  /** Per-attempt handler limit in milliseconds; uses the server default when omitted. */
+  readonly methodTimeoutMs?: number;
+  /** Heartbeat timeout in milliseconds; requires whole seconds and uses the server default when omitted. */
+  readonly heartbeatTimeoutMs?: number;
+  /** Retry policy for the timeout handler's logical execution. */
+  readonly retry?: RetryPolicy;
+  /** Routing after all timeout-handler attempts fail. */
+  readonly failure?: FlowTimeoutHandlerFailure;
+  /** Durability override for the handler response. */
+  readonly durability?: StepDurability;
+  /** Attribute locks held during each timeout-handler attempt. */
+  readonly lockAttributes?: readonly AttributeLock[];
+  /** AttributeMap definitions whose complete contents are loaded for the handler. */
+  readonly loadAttributeMaps?: readonly AttributeMap<unknown>[];
+  /** Exact AttributeMap instances loaded for the handler. */
+  readonly loadAttributeMapInstances?: readonly AttributeMapLoad[];
+  /** Channels whose pending messages are loaded for the handler. */
+  readonly loadChannels?: readonly Channel<unknown>[];
+  /** ChannelMap definitions whose complete pending contents are loaded for the handler. */
+  readonly loadChannelMaps?: readonly ChannelMap<unknown>[];
+  /** Exact ChannelMap instances whose pending messages are loaded for the handler. */
+  readonly loadChannelMapInstances?: readonly ChannelMapLoad[];
+}
 
 /** Overrides mutable server behavior for one Flow execution. */
 export interface FlowConfig {
@@ -147,6 +196,8 @@ export interface StartFlowOptions {
   readonly timeoutMs?: number;
   /** Action taken when a positive timeout expires; defaults from the Flow's hook. */
   readonly timeoutPolicy?: FlowTimeoutPolicy;
+  /** Execution settings for `Flow.handleTimeout`; valid only with a positive handler-policy timeout. */
+  readonly timeoutHandlerOptions?: FlowTimeoutHandlerOptions;
   /** Delay before the starting Step becomes eligible, in milliseconds. */
   readonly startDelayMs?: number;
   /** Flow ID reuse policy; uses `DEFAULT` when omitted. */

@@ -327,6 +327,26 @@ export interface StepOptions {
   waitForLockAttributeKeys: string[];
   executeLockAttributeKeys: string[];
   heartbeatTimeoutSeconds: number;
+  waitForLoadAttributeMapInstances: string[];
+  waitForLoadChannelNames: string[];
+  waitForLoadChannelMapInstances: string[];
+  executeLoadAttributeMapInstances: string[];
+  executeLoadChannelNames: string[];
+  executeLoadChannelMapInstances: string[];
+}
+
+export interface FlowTimeoutHandlerOptions {
+  methodTimeoutSeconds: number;
+  heartbeatTimeoutSeconds: number;
+  retryPolicy: RetryPolicy | undefined;
+  failurePolicy: ExecuteMethodFailurePolicy;
+  failureProceedStepType: string;
+  failureProceedStepOptions: StepOptions | undefined;
+  durabilityOverride: StepDurability;
+  lockAttributeKeys: string[];
+  loadAttributeMapInstances: string[];
+  loadChannelNames: string[];
+  loadChannelMapInstances: string[];
 }
 
 export interface FlowAlreadyStartedOptions {
@@ -340,6 +360,7 @@ export interface FlowStartOptions {
   attributes: AttributeWrite[];
   flowConfigOverride: FlowConfig | undefined;
   flowAlreadyStartedOptions: FlowAlreadyStartedOptions | undefined;
+  timeoutHandlerOptions: FlowTimeoutHandlerOptions | undefined;
 }
 
 export interface FlowConfig {
@@ -620,6 +641,7 @@ export interface FlowStartedOrContinuedHistoryEvent {
   flowConfig: FlowConfig | undefined;
   flowTimeout: Duration | undefined;
   flowTimeoutPolicy: FlowTimeoutPolicy;
+  timeoutHandlerOptions: FlowTimeoutHandlerOptions | undefined;
   startOrContinue: { $case: "initialStart"; value: FlowInitialStart } | {
     $case: "continuedStart";
     value: FlowContinuedStart;
@@ -700,6 +722,7 @@ export interface StepWaitForCompletedOutput {
   publishToChannel: ChannelMessage[];
   recordEvents: KV[];
   upsertStepExecutionLocals: KV[];
+  deleteFromChannel: ChannelMessageDeletion[];
 }
 
 export interface StepExecuteCompletedOutput {
@@ -708,6 +731,7 @@ export interface StepExecuteCompletedOutput {
   publishToChannel: ChannelMessage[];
   recordEvents: KV[];
   upsertStepExecutionLocals: KV[];
+  deleteFromChannel: ChannelMessageDeletion[];
 }
 
 export interface StepMethodFailedOutput {
@@ -964,6 +988,21 @@ export interface InvokeWaitForMethodRequest {
   stepType: string;
   stepInput: Value | undefined;
   attributes: KV[];
+  channelInfos: { [key: string]: ChannelInfo };
+  loadedChannelMessages: { [key: string]: ChannelValues };
+  loadedAttributeMapInstances: string[];
+  loadedChannelNames: string[];
+  loadedChannelMapInstances: string[];
+}
+
+export interface InvokeWaitForMethodRequest_ChannelInfosEntry {
+  key: string;
+  value: ChannelInfo | undefined;
+}
+
+export interface InvokeWaitForMethodRequest_LoadedChannelMessagesEntry {
+  key: string;
+  value: ChannelValues | undefined;
 }
 
 export interface InvokeWaitForMethodResponse {
@@ -974,6 +1013,7 @@ export interface InvokeWaitForMethodResponse {
   upsertStepExeLocals: KV[];
   recordEvents: KV[];
   publishToChannel: ChannelMessage[];
+  deleteFromChannel: ChannelMessageDeletion[];
 }
 
 export interface StepMethodHeartbeat {
@@ -1001,6 +1041,21 @@ export interface InvokeExecuteMethodRequest {
   attributes: KV[];
   stepExeLocals: KV[];
   conditionResults: ConditionResults | undefined;
+  channelInfos: { [key: string]: ChannelInfo };
+  loadedChannelMessages: { [key: string]: ChannelValues };
+  loadedAttributeMapInstances: string[];
+  loadedChannelNames: string[];
+  loadedChannelMapInstances: string[];
+}
+
+export interface InvokeExecuteMethodRequest_ChannelInfosEntry {
+  key: string;
+  value: ChannelInfo | undefined;
+}
+
+export interface InvokeExecuteMethodRequest_LoadedChannelMessagesEntry {
+  key: string;
+  value: ChannelValues | undefined;
 }
 
 export interface InvokeExecuteMethodResponse {
@@ -1011,6 +1066,7 @@ export interface InvokeExecuteMethodResponse {
   recordEvents: KV[];
   upsertStepExeLocals: KV[];
   publishToChannel: ChannelMessage[];
+  deleteFromChannel: ChannelMessageDeletion[];
 }
 
 export interface InvokeExecuteMethodOutput {
@@ -1105,6 +1161,7 @@ export interface SubFlowOptions {
   attributes: AttributeWrite[];
   flowConfigOverride: FlowConfig | undefined;
   flowTimeoutPolicy: FlowTimeoutPolicy;
+  timeoutHandlerOptions: FlowTimeoutHandlerOptions | undefined;
 }
 
 export interface SubFlowCondition {
@@ -1265,6 +1322,7 @@ export interface InterpreterWorkflowInput {
   /** When true, ignore start_step_type / step_input / step_options / init_attributes. */
   isResumeFromContinueAsNew: boolean;
   continueAsNewInput: ContinueAsNewInput | undefined;
+  timeoutHandlerOptions: FlowTimeoutHandlerOptions | undefined;
 }
 
 export interface InterpreterWorkflowOutput {
@@ -2398,6 +2456,12 @@ function createBaseStepOptions(): StepOptions {
     waitForLockAttributeKeys: [],
     executeLockAttributeKeys: [],
     heartbeatTimeoutSeconds: 0,
+    waitForLoadAttributeMapInstances: [],
+    waitForLoadChannelNames: [],
+    waitForLoadChannelMapInstances: [],
+    executeLoadAttributeMapInstances: [],
+    executeLoadChannelNames: [],
+    executeLoadChannelMapInstances: [],
   };
 }
 
@@ -2444,6 +2508,24 @@ export const StepOptions: MessageFns<StepOptions> = {
     }
     if (message.heartbeatTimeoutSeconds !== 0) {
       writer.uint32(112).int32(message.heartbeatTimeoutSeconds);
+    }
+    for (const v of message.waitForLoadAttributeMapInstances) {
+      writer.uint32(122).string(v!);
+    }
+    for (const v of message.waitForLoadChannelNames) {
+      writer.uint32(130).string(v!);
+    }
+    for (const v of message.waitForLoadChannelMapInstances) {
+      writer.uint32(138).string(v!);
+    }
+    for (const v of message.executeLoadAttributeMapInstances) {
+      writer.uint32(146).string(v!);
+    }
+    for (const v of message.executeLoadChannelNames) {
+      writer.uint32(154).string(v!);
+    }
+    for (const v of message.executeLoadChannelMapInstances) {
+      writer.uint32(162).string(v!);
     }
     return writer;
   },
@@ -2567,6 +2649,54 @@ export const StepOptions: MessageFns<StepOptions> = {
           message.heartbeatTimeoutSeconds = reader.int32();
           continue;
         }
+        case 15: {
+          if (tag !== 122) {
+            break;
+          }
+
+          message.waitForLoadAttributeMapInstances.push(reader.string());
+          continue;
+        }
+        case 16: {
+          if (tag !== 130) {
+            break;
+          }
+
+          message.waitForLoadChannelNames.push(reader.string());
+          continue;
+        }
+        case 17: {
+          if (tag !== 138) {
+            break;
+          }
+
+          message.waitForLoadChannelMapInstances.push(reader.string());
+          continue;
+        }
+        case 18: {
+          if (tag !== 146) {
+            break;
+          }
+
+          message.executeLoadAttributeMapInstances.push(reader.string());
+          continue;
+        }
+        case 19: {
+          if (tag !== 154) {
+            break;
+          }
+
+          message.executeLoadChannelNames.push(reader.string());
+          continue;
+        }
+        case 20: {
+          if (tag !== 162) {
+            break;
+          }
+
+          message.executeLoadChannelMapInstances.push(reader.string());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2602,6 +2732,195 @@ export const StepOptions: MessageFns<StepOptions> = {
     message.waitForLockAttributeKeys = object.waitForLockAttributeKeys?.map((e) => e) || [];
     message.executeLockAttributeKeys = object.executeLockAttributeKeys?.map((e) => e) || [];
     message.heartbeatTimeoutSeconds = object.heartbeatTimeoutSeconds ?? 0;
+    message.waitForLoadAttributeMapInstances = object.waitForLoadAttributeMapInstances?.map((e) => e) || [];
+    message.waitForLoadChannelNames = object.waitForLoadChannelNames?.map((e) => e) || [];
+    message.waitForLoadChannelMapInstances = object.waitForLoadChannelMapInstances?.map((e) => e) || [];
+    message.executeLoadAttributeMapInstances = object.executeLoadAttributeMapInstances?.map((e) => e) || [];
+    message.executeLoadChannelNames = object.executeLoadChannelNames?.map((e) => e) || [];
+    message.executeLoadChannelMapInstances = object.executeLoadChannelMapInstances?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseFlowTimeoutHandlerOptions(): FlowTimeoutHandlerOptions {
+  return {
+    methodTimeoutSeconds: 0,
+    heartbeatTimeoutSeconds: 0,
+    retryPolicy: undefined,
+    failurePolicy: 0,
+    failureProceedStepType: "",
+    failureProceedStepOptions: undefined,
+    durabilityOverride: 0,
+    lockAttributeKeys: [],
+    loadAttributeMapInstances: [],
+    loadChannelNames: [],
+    loadChannelMapInstances: [],
+  };
+}
+
+export const FlowTimeoutHandlerOptions: MessageFns<FlowTimeoutHandlerOptions> = {
+  encode(message: FlowTimeoutHandlerOptions, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.methodTimeoutSeconds !== 0) {
+      writer.uint32(8).int32(message.methodTimeoutSeconds);
+    }
+    if (message.heartbeatTimeoutSeconds !== 0) {
+      writer.uint32(16).int32(message.heartbeatTimeoutSeconds);
+    }
+    if (message.retryPolicy !== undefined) {
+      RetryPolicy.encode(message.retryPolicy, writer.uint32(26).fork()).join();
+    }
+    if (message.failurePolicy !== 0) {
+      writer.uint32(32).int32(message.failurePolicy);
+    }
+    if (message.failureProceedStepType !== "") {
+      writer.uint32(42).string(message.failureProceedStepType);
+    }
+    if (message.failureProceedStepOptions !== undefined) {
+      StepOptions.encode(message.failureProceedStepOptions, writer.uint32(50).fork()).join();
+    }
+    if (message.durabilityOverride !== 0) {
+      writer.uint32(56).int32(message.durabilityOverride);
+    }
+    for (const v of message.lockAttributeKeys) {
+      writer.uint32(66).string(v!);
+    }
+    for (const v of message.loadAttributeMapInstances) {
+      writer.uint32(74).string(v!);
+    }
+    for (const v of message.loadChannelNames) {
+      writer.uint32(82).string(v!);
+    }
+    for (const v of message.loadChannelMapInstances) {
+      writer.uint32(90).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FlowTimeoutHandlerOptions {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFlowTimeoutHandlerOptions();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.methodTimeoutSeconds = reader.int32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.heartbeatTimeoutSeconds = reader.int32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.retryPolicy = RetryPolicy.decode(reader, reader.uint32());
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.failurePolicy = reader.int32() as any;
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.failureProceedStepType = reader.string();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.failureProceedStepOptions = StepOptions.decode(reader, reader.uint32());
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.durabilityOverride = reader.int32() as any;
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.lockAttributeKeys.push(reader.string());
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.loadAttributeMapInstances.push(reader.string());
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.loadChannelNames.push(reader.string());
+          continue;
+        }
+        case 11: {
+          if (tag !== 90) {
+            break;
+          }
+
+          message.loadChannelMapInstances.push(reader.string());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<FlowTimeoutHandlerOptions>, I>>(base?: I): FlowTimeoutHandlerOptions {
+    return FlowTimeoutHandlerOptions.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<FlowTimeoutHandlerOptions>, I>>(object: I): FlowTimeoutHandlerOptions {
+    const message = createBaseFlowTimeoutHandlerOptions();
+    message.methodTimeoutSeconds = object.methodTimeoutSeconds ?? 0;
+    message.heartbeatTimeoutSeconds = object.heartbeatTimeoutSeconds ?? 0;
+    message.retryPolicy = (object.retryPolicy !== undefined && object.retryPolicy !== null)
+      ? RetryPolicy.fromPartial(object.retryPolicy)
+      : undefined;
+    message.failurePolicy = object.failurePolicy ?? 0;
+    message.failureProceedStepType = object.failureProceedStepType ?? "";
+    message.failureProceedStepOptions =
+      (object.failureProceedStepOptions !== undefined && object.failureProceedStepOptions !== null)
+        ? StepOptions.fromPartial(object.failureProceedStepOptions)
+        : undefined;
+    message.durabilityOverride = object.durabilityOverride ?? 0;
+    message.lockAttributeKeys = object.lockAttributeKeys?.map((e) => e) || [];
+    message.loadAttributeMapInstances = object.loadAttributeMapInstances?.map((e) => e) || [];
+    message.loadChannelNames = object.loadChannelNames?.map((e) => e) || [];
+    message.loadChannelMapInstances = object.loadChannelMapInstances?.map((e) => e) || [];
     return message;
   },
 };
@@ -2660,6 +2979,7 @@ function createBaseFlowStartOptions(): FlowStartOptions {
     attributes: [],
     flowConfigOverride: undefined,
     flowAlreadyStartedOptions: undefined,
+    timeoutHandlerOptions: undefined,
   };
 }
 
@@ -2682,6 +3002,9 @@ export const FlowStartOptions: MessageFns<FlowStartOptions> = {
     }
     if (message.flowAlreadyStartedOptions !== undefined) {
       FlowAlreadyStartedOptions.encode(message.flowAlreadyStartedOptions, writer.uint32(50).fork()).join();
+    }
+    if (message.timeoutHandlerOptions !== undefined) {
+      FlowTimeoutHandlerOptions.encode(message.timeoutHandlerOptions, writer.uint32(58).fork()).join();
     }
     return writer;
   },
@@ -2741,6 +3064,14 @@ export const FlowStartOptions: MessageFns<FlowStartOptions> = {
           message.flowAlreadyStartedOptions = FlowAlreadyStartedOptions.decode(reader, reader.uint32());
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.timeoutHandlerOptions = FlowTimeoutHandlerOptions.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2767,6 +3098,10 @@ export const FlowStartOptions: MessageFns<FlowStartOptions> = {
     message.flowAlreadyStartedOptions =
       (object.flowAlreadyStartedOptions !== undefined && object.flowAlreadyStartedOptions !== null)
         ? FlowAlreadyStartedOptions.fromPartial(object.flowAlreadyStartedOptions)
+        : undefined;
+    message.timeoutHandlerOptions =
+      (object.timeoutHandlerOptions !== undefined && object.timeoutHandlerOptions !== null)
+        ? FlowTimeoutHandlerOptions.fromPartial(object.timeoutHandlerOptions)
         : undefined;
     return message;
   },
@@ -6016,6 +6351,7 @@ function createBaseFlowStartedOrContinuedHistoryEvent(): FlowStartedOrContinuedH
     flowConfig: undefined,
     flowTimeout: undefined,
     flowTimeoutPolicy: 0,
+    timeoutHandlerOptions: undefined,
     startOrContinue: undefined,
   };
 }
@@ -6036,6 +6372,9 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
     }
     if (message.flowTimeoutPolicy !== 0) {
       writer.uint32(40).int32(message.flowTimeoutPolicy);
+    }
+    if (message.timeoutHandlerOptions !== undefined) {
+      FlowTimeoutHandlerOptions.encode(message.timeoutHandlerOptions, writer.uint32(50).fork()).join();
     }
     switch (message.startOrContinue?.$case) {
       case "initialStart":
@@ -6095,6 +6434,14 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
           message.flowTimeoutPolicy = reader.int32() as any;
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.timeoutHandlerOptions = FlowTimeoutHandlerOptions.decode(reader, reader.uint32());
+          continue;
+        }
         case 10: {
           if (tag !== 82) {
             break;
@@ -6143,6 +6490,10 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
       ? Duration.fromPartial(object.flowTimeout)
       : undefined;
     message.flowTimeoutPolicy = object.flowTimeoutPolicy ?? 0;
+    message.timeoutHandlerOptions =
+      (object.timeoutHandlerOptions !== undefined && object.timeoutHandlerOptions !== null)
+        ? FlowTimeoutHandlerOptions.fromPartial(object.timeoutHandlerOptions)
+        : undefined;
     switch (object.startOrContinue?.$case) {
       case "initialStart": {
         if (object.startOrContinue?.value !== undefined && object.startOrContinue?.value !== null) {
@@ -7029,6 +7380,7 @@ function createBaseStepWaitForCompletedOutput(): StepWaitForCompletedOutput {
     publishToChannel: [],
     recordEvents: [],
     upsertStepExecutionLocals: [],
+    deleteFromChannel: [],
   };
 }
 
@@ -7048,6 +7400,9 @@ export const StepWaitForCompletedOutput: MessageFns<StepWaitForCompletedOutput> 
     }
     for (const v of message.upsertStepExecutionLocals) {
       KV.encode(v!, writer.uint32(42).fork()).join();
+    }
+    for (const v of message.deleteFromChannel) {
+      ChannelMessageDeletion.encode(v!, writer.uint32(50).fork()).join();
     }
     return writer;
   },
@@ -7099,6 +7454,14 @@ export const StepWaitForCompletedOutput: MessageFns<StepWaitForCompletedOutput> 
           message.upsertStepExecutionLocals.push(KV.decode(reader, reader.uint32()));
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -7120,6 +7483,7 @@ export const StepWaitForCompletedOutput: MessageFns<StepWaitForCompletedOutput> 
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
     message.upsertStepExecutionLocals = object.upsertStepExecutionLocals?.map((e) => KV.fromPartial(e)) || [];
+    message.deleteFromChannel = object.deleteFromChannel?.map((e) => ChannelMessageDeletion.fromPartial(e)) || [];
     return message;
   },
 };
@@ -7131,6 +7495,7 @@ function createBaseStepExecuteCompletedOutput(): StepExecuteCompletedOutput {
     publishToChannel: [],
     recordEvents: [],
     upsertStepExecutionLocals: [],
+    deleteFromChannel: [],
   };
 }
 
@@ -7150,6 +7515,9 @@ export const StepExecuteCompletedOutput: MessageFns<StepExecuteCompletedOutput> 
     }
     for (const v of message.upsertStepExecutionLocals) {
       KV.encode(v!, writer.uint32(42).fork()).join();
+    }
+    for (const v of message.deleteFromChannel) {
+      ChannelMessageDeletion.encode(v!, writer.uint32(50).fork()).join();
     }
     return writer;
   },
@@ -7201,6 +7569,14 @@ export const StepExecuteCompletedOutput: MessageFns<StepExecuteCompletedOutput> 
           message.upsertStepExecutionLocals.push(KV.decode(reader, reader.uint32()));
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -7222,6 +7598,7 @@ export const StepExecuteCompletedOutput: MessageFns<StepExecuteCompletedOutput> 
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
     message.upsertStepExecutionLocals = object.upsertStepExecutionLocals?.map((e) => KV.fromPartial(e)) || [];
+    message.deleteFromChannel = object.deleteFromChannel?.map((e) => ChannelMessageDeletion.fromPartial(e)) || [];
     return message;
   },
 };
@@ -9917,7 +10294,18 @@ export const ChannelInfo: MessageFns<ChannelInfo> = {
 };
 
 function createBaseInvokeWaitForMethodRequest(): InvokeWaitForMethodRequest {
-  return { context: undefined, flowType: "", stepType: "", stepInput: undefined, attributes: [] };
+  return {
+    context: undefined,
+    flowType: "",
+    stepType: "",
+    stepInput: undefined,
+    attributes: [],
+    channelInfos: {},
+    loadedChannelMessages: {},
+    loadedAttributeMapInstances: [],
+    loadedChannelNames: [],
+    loadedChannelMapInstances: [],
+  };
 }
 
 export const InvokeWaitForMethodRequest: MessageFns<InvokeWaitForMethodRequest> = {
@@ -9936,6 +10324,22 @@ export const InvokeWaitForMethodRequest: MessageFns<InvokeWaitForMethodRequest> 
     }
     for (const v of message.attributes) {
       KV.encode(v!, writer.uint32(42).fork()).join();
+    }
+    globalThis.Object.entries(message.channelInfos).forEach(([key, value]: [string, ChannelInfo]) => {
+      InvokeWaitForMethodRequest_ChannelInfosEntry.encode({ key: key as any, value }, writer.uint32(50).fork()).join();
+    });
+    globalThis.Object.entries(message.loadedChannelMessages).forEach(([key, value]: [string, ChannelValues]) => {
+      InvokeWaitForMethodRequest_LoadedChannelMessagesEntry.encode({ key: key as any, value }, writer.uint32(58).fork())
+        .join();
+    });
+    for (const v of message.loadedAttributeMapInstances) {
+      writer.uint32(66).string(v!);
+    }
+    for (const v of message.loadedChannelNames) {
+      writer.uint32(74).string(v!);
+    }
+    for (const v of message.loadedChannelMapInstances) {
+      writer.uint32(82).string(v!);
     }
     return writer;
   },
@@ -9987,6 +10391,52 @@ export const InvokeWaitForMethodRequest: MessageFns<InvokeWaitForMethodRequest> 
           message.attributes.push(KV.decode(reader, reader.uint32()));
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          const entry6 = InvokeWaitForMethodRequest_ChannelInfosEntry.decode(reader, reader.uint32());
+          if (entry6.value !== undefined) {
+            message.channelInfos[entry6.key] = entry6.value;
+          }
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          const entry7 = InvokeWaitForMethodRequest_LoadedChannelMessagesEntry.decode(reader, reader.uint32());
+          if (entry7.value !== undefined) {
+            message.loadedChannelMessages[entry7.key] = entry7.value;
+          }
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.loadedAttributeMapInstances.push(reader.string());
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.loadedChannelNames.push(reader.string());
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.loadedChannelMapInstances.push(reader.string());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -10010,6 +10460,164 @@ export const InvokeWaitForMethodRequest: MessageFns<InvokeWaitForMethodRequest> 
       ? Value.fromPartial(object.stepInput)
       : undefined;
     message.attributes = object.attributes?.map((e) => KV.fromPartial(e)) || [];
+    message.channelInfos = (globalThis.Object.entries(object.channelInfos ?? {}) as [string, ChannelInfo][]).reduce(
+      (acc: { [key: string]: ChannelInfo }, [key, value]: [string, ChannelInfo]) => {
+        if (value !== undefined) {
+          acc[key] = ChannelInfo.fromPartial(value);
+        }
+        return acc;
+      },
+      {},
+    );
+    message.loadedChannelMessages =
+      (globalThis.Object.entries(object.loadedChannelMessages ?? {}) as [string, ChannelValues][]).reduce(
+        (acc: { [key: string]: ChannelValues }, [key, value]: [string, ChannelValues]) => {
+          if (value !== undefined) {
+            acc[key] = ChannelValues.fromPartial(value);
+          }
+          return acc;
+        },
+        {},
+      );
+    message.loadedAttributeMapInstances = object.loadedAttributeMapInstances?.map((e) => e) || [];
+    message.loadedChannelNames = object.loadedChannelNames?.map((e) => e) || [];
+    message.loadedChannelMapInstances = object.loadedChannelMapInstances?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseInvokeWaitForMethodRequest_ChannelInfosEntry(): InvokeWaitForMethodRequest_ChannelInfosEntry {
+  return { key: "", value: undefined };
+}
+
+export const InvokeWaitForMethodRequest_ChannelInfosEntry: MessageFns<InvokeWaitForMethodRequest_ChannelInfosEntry> = {
+  encode(
+    message: InvokeWaitForMethodRequest_ChannelInfosEntry,
+    writer: BinaryWriter = new BinaryWriter(),
+  ): BinaryWriter {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== undefined) {
+      ChannelInfo.encode(message.value, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InvokeWaitForMethodRequest_ChannelInfosEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInvokeWaitForMethodRequest_ChannelInfosEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = ChannelInfo.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<InvokeWaitForMethodRequest_ChannelInfosEntry>, I>>(
+    base?: I,
+  ): InvokeWaitForMethodRequest_ChannelInfosEntry {
+    return InvokeWaitForMethodRequest_ChannelInfosEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InvokeWaitForMethodRequest_ChannelInfosEntry>, I>>(
+    object: I,
+  ): InvokeWaitForMethodRequest_ChannelInfosEntry {
+    const message = createBaseInvokeWaitForMethodRequest_ChannelInfosEntry();
+    message.key = object.key ?? "";
+    message.value = (object.value !== undefined && object.value !== null)
+      ? ChannelInfo.fromPartial(object.value)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseInvokeWaitForMethodRequest_LoadedChannelMessagesEntry(): InvokeWaitForMethodRequest_LoadedChannelMessagesEntry {
+  return { key: "", value: undefined };
+}
+
+export const InvokeWaitForMethodRequest_LoadedChannelMessagesEntry: MessageFns<
+  InvokeWaitForMethodRequest_LoadedChannelMessagesEntry
+> = {
+  encode(
+    message: InvokeWaitForMethodRequest_LoadedChannelMessagesEntry,
+    writer: BinaryWriter = new BinaryWriter(),
+  ): BinaryWriter {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== undefined) {
+      ChannelValues.encode(message.value, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InvokeWaitForMethodRequest_LoadedChannelMessagesEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInvokeWaitForMethodRequest_LoadedChannelMessagesEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = ChannelValues.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<InvokeWaitForMethodRequest_LoadedChannelMessagesEntry>, I>>(
+    base?: I,
+  ): InvokeWaitForMethodRequest_LoadedChannelMessagesEntry {
+    return InvokeWaitForMethodRequest_LoadedChannelMessagesEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InvokeWaitForMethodRequest_LoadedChannelMessagesEntry>, I>>(
+    object: I,
+  ): InvokeWaitForMethodRequest_LoadedChannelMessagesEntry {
+    const message = createBaseInvokeWaitForMethodRequest_LoadedChannelMessagesEntry();
+    message.key = object.key ?? "";
+    message.value = (object.value !== undefined && object.value !== null)
+      ? ChannelValues.fromPartial(object.value)
+      : undefined;
     return message;
   },
 };
@@ -10022,6 +10630,7 @@ function createBaseInvokeWaitForMethodResponse(): InvokeWaitForMethodResponse {
     upsertStepExeLocals: [],
     recordEvents: [],
     publishToChannel: [],
+    deleteFromChannel: [],
   };
 }
 
@@ -10044,6 +10653,9 @@ export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse
     }
     for (const v of message.publishToChannel) {
       ChannelMessage.encode(v!, writer.uint32(50).fork()).join();
+    }
+    for (const v of message.deleteFromChannel) {
+      ChannelMessageDeletion.encode(v!, writer.uint32(58).fork()).join();
     }
     return writer;
   },
@@ -10103,6 +10715,14 @@ export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse
           message.publishToChannel.push(ChannelMessage.decode(reader, reader.uint32()));
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -10128,6 +10748,7 @@ export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse
     message.upsertStepExeLocals = object.upsertStepExeLocals?.map((e) => KV.fromPartial(e)) || [];
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
+    message.deleteFromChannel = object.deleteFromChannel?.map((e) => ChannelMessageDeletion.fromPartial(e)) || [];
     return message;
   },
 };
@@ -10351,6 +10972,11 @@ function createBaseInvokeExecuteMethodRequest(): InvokeExecuteMethodRequest {
     attributes: [],
     stepExeLocals: [],
     conditionResults: undefined,
+    channelInfos: {},
+    loadedChannelMessages: {},
+    loadedAttributeMapInstances: [],
+    loadedChannelNames: [],
+    loadedChannelMapInstances: [],
   };
 }
 
@@ -10376,6 +11002,22 @@ export const InvokeExecuteMethodRequest: MessageFns<InvokeExecuteMethodRequest> 
     }
     if (message.conditionResults !== undefined) {
       ConditionResults.encode(message.conditionResults, writer.uint32(58).fork()).join();
+    }
+    globalThis.Object.entries(message.channelInfos).forEach(([key, value]: [string, ChannelInfo]) => {
+      InvokeExecuteMethodRequest_ChannelInfosEntry.encode({ key: key as any, value }, writer.uint32(66).fork()).join();
+    });
+    globalThis.Object.entries(message.loadedChannelMessages).forEach(([key, value]: [string, ChannelValues]) => {
+      InvokeExecuteMethodRequest_LoadedChannelMessagesEntry.encode({ key: key as any, value }, writer.uint32(74).fork())
+        .join();
+    });
+    for (const v of message.loadedAttributeMapInstances) {
+      writer.uint32(82).string(v!);
+    }
+    for (const v of message.loadedChannelNames) {
+      writer.uint32(90).string(v!);
+    }
+    for (const v of message.loadedChannelMapInstances) {
+      writer.uint32(98).string(v!);
     }
     return writer;
   },
@@ -10443,6 +11085,52 @@ export const InvokeExecuteMethodRequest: MessageFns<InvokeExecuteMethodRequest> 
           message.conditionResults = ConditionResults.decode(reader, reader.uint32());
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          const entry8 = InvokeExecuteMethodRequest_ChannelInfosEntry.decode(reader, reader.uint32());
+          if (entry8.value !== undefined) {
+            message.channelInfos[entry8.key] = entry8.value;
+          }
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          const entry9 = InvokeExecuteMethodRequest_LoadedChannelMessagesEntry.decode(reader, reader.uint32());
+          if (entry9.value !== undefined) {
+            message.loadedChannelMessages[entry9.key] = entry9.value;
+          }
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.loadedAttributeMapInstances.push(reader.string());
+          continue;
+        }
+        case 11: {
+          if (tag !== 90) {
+            break;
+          }
+
+          message.loadedChannelNames.push(reader.string());
+          continue;
+        }
+        case 12: {
+          if (tag !== 98) {
+            break;
+          }
+
+          message.loadedChannelMapInstances.push(reader.string());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -10470,6 +11158,164 @@ export const InvokeExecuteMethodRequest: MessageFns<InvokeExecuteMethodRequest> 
     message.conditionResults = (object.conditionResults !== undefined && object.conditionResults !== null)
       ? ConditionResults.fromPartial(object.conditionResults)
       : undefined;
+    message.channelInfos = (globalThis.Object.entries(object.channelInfos ?? {}) as [string, ChannelInfo][]).reduce(
+      (acc: { [key: string]: ChannelInfo }, [key, value]: [string, ChannelInfo]) => {
+        if (value !== undefined) {
+          acc[key] = ChannelInfo.fromPartial(value);
+        }
+        return acc;
+      },
+      {},
+    );
+    message.loadedChannelMessages =
+      (globalThis.Object.entries(object.loadedChannelMessages ?? {}) as [string, ChannelValues][]).reduce(
+        (acc: { [key: string]: ChannelValues }, [key, value]: [string, ChannelValues]) => {
+          if (value !== undefined) {
+            acc[key] = ChannelValues.fromPartial(value);
+          }
+          return acc;
+        },
+        {},
+      );
+    message.loadedAttributeMapInstances = object.loadedAttributeMapInstances?.map((e) => e) || [];
+    message.loadedChannelNames = object.loadedChannelNames?.map((e) => e) || [];
+    message.loadedChannelMapInstances = object.loadedChannelMapInstances?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseInvokeExecuteMethodRequest_ChannelInfosEntry(): InvokeExecuteMethodRequest_ChannelInfosEntry {
+  return { key: "", value: undefined };
+}
+
+export const InvokeExecuteMethodRequest_ChannelInfosEntry: MessageFns<InvokeExecuteMethodRequest_ChannelInfosEntry> = {
+  encode(
+    message: InvokeExecuteMethodRequest_ChannelInfosEntry,
+    writer: BinaryWriter = new BinaryWriter(),
+  ): BinaryWriter {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== undefined) {
+      ChannelInfo.encode(message.value, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InvokeExecuteMethodRequest_ChannelInfosEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInvokeExecuteMethodRequest_ChannelInfosEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = ChannelInfo.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<InvokeExecuteMethodRequest_ChannelInfosEntry>, I>>(
+    base?: I,
+  ): InvokeExecuteMethodRequest_ChannelInfosEntry {
+    return InvokeExecuteMethodRequest_ChannelInfosEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InvokeExecuteMethodRequest_ChannelInfosEntry>, I>>(
+    object: I,
+  ): InvokeExecuteMethodRequest_ChannelInfosEntry {
+    const message = createBaseInvokeExecuteMethodRequest_ChannelInfosEntry();
+    message.key = object.key ?? "";
+    message.value = (object.value !== undefined && object.value !== null)
+      ? ChannelInfo.fromPartial(object.value)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseInvokeExecuteMethodRequest_LoadedChannelMessagesEntry(): InvokeExecuteMethodRequest_LoadedChannelMessagesEntry {
+  return { key: "", value: undefined };
+}
+
+export const InvokeExecuteMethodRequest_LoadedChannelMessagesEntry: MessageFns<
+  InvokeExecuteMethodRequest_LoadedChannelMessagesEntry
+> = {
+  encode(
+    message: InvokeExecuteMethodRequest_LoadedChannelMessagesEntry,
+    writer: BinaryWriter = new BinaryWriter(),
+  ): BinaryWriter {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== undefined) {
+      ChannelValues.encode(message.value, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InvokeExecuteMethodRequest_LoadedChannelMessagesEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInvokeExecuteMethodRequest_LoadedChannelMessagesEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = ChannelValues.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<InvokeExecuteMethodRequest_LoadedChannelMessagesEntry>, I>>(
+    base?: I,
+  ): InvokeExecuteMethodRequest_LoadedChannelMessagesEntry {
+    return InvokeExecuteMethodRequest_LoadedChannelMessagesEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InvokeExecuteMethodRequest_LoadedChannelMessagesEntry>, I>>(
+    object: I,
+  ): InvokeExecuteMethodRequest_LoadedChannelMessagesEntry {
+    const message = createBaseInvokeExecuteMethodRequest_LoadedChannelMessagesEntry();
+    message.key = object.key ?? "";
+    message.value = (object.value !== undefined && object.value !== null)
+      ? ChannelValues.fromPartial(object.value)
+      : undefined;
     return message;
   },
 };
@@ -10482,6 +11328,7 @@ function createBaseInvokeExecuteMethodResponse(): InvokeExecuteMethodResponse {
     recordEvents: [],
     upsertStepExeLocals: [],
     publishToChannel: [],
+    deleteFromChannel: [],
   };
 }
 
@@ -10504,6 +11351,9 @@ export const InvokeExecuteMethodResponse: MessageFns<InvokeExecuteMethodResponse
     }
     for (const v of message.publishToChannel) {
       ChannelMessage.encode(v!, writer.uint32(50).fork()).join();
+    }
+    for (const v of message.deleteFromChannel) {
+      ChannelMessageDeletion.encode(v!, writer.uint32(58).fork()).join();
     }
     return writer;
   },
@@ -10563,6 +11413,14 @@ export const InvokeExecuteMethodResponse: MessageFns<InvokeExecuteMethodResponse
           message.publishToChannel.push(ChannelMessage.decode(reader, reader.uint32()));
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -10588,6 +11446,7 @@ export const InvokeExecuteMethodResponse: MessageFns<InvokeExecuteMethodResponse
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
     message.upsertStepExeLocals = object.upsertStepExeLocals?.map((e) => KV.fromPartial(e)) || [];
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
+    message.deleteFromChannel = object.deleteFromChannel?.map((e) => ChannelMessageDeletion.fromPartial(e)) || [];
     return message;
   },
 };
@@ -11640,6 +12499,7 @@ function createBaseSubFlowOptions(): SubFlowOptions {
     attributes: [],
     flowConfigOverride: undefined,
     flowTimeoutPolicy: 0,
+    timeoutHandlerOptions: undefined,
   };
 }
 
@@ -11665,6 +12525,9 @@ export const SubFlowOptions: MessageFns<SubFlowOptions> = {
     }
     if (message.flowTimeoutPolicy !== 0) {
       writer.uint32(56).int32(message.flowTimeoutPolicy);
+    }
+    if (message.timeoutHandlerOptions !== undefined) {
+      FlowTimeoutHandlerOptions.encode(message.timeoutHandlerOptions, writer.uint32(66).fork()).join();
     }
     return writer;
   },
@@ -11732,6 +12595,14 @@ export const SubFlowOptions: MessageFns<SubFlowOptions> = {
           message.flowTimeoutPolicy = reader.int32() as any;
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.timeoutHandlerOptions = FlowTimeoutHandlerOptions.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -11757,6 +12628,10 @@ export const SubFlowOptions: MessageFns<SubFlowOptions> = {
       ? FlowConfig.fromPartial(object.flowConfigOverride)
       : undefined;
     message.flowTimeoutPolicy = object.flowTimeoutPolicy ?? 0;
+    message.timeoutHandlerOptions =
+      (object.timeoutHandlerOptions !== undefined && object.timeoutHandlerOptions !== null)
+        ? FlowTimeoutHandlerOptions.fromPartial(object.timeoutHandlerOptions)
+        : undefined;
     return message;
   },
 };
@@ -13557,6 +14432,7 @@ function createBaseInterpreterWorkflowInput(): InterpreterWorkflowInput {
     config: undefined,
     isResumeFromContinueAsNew: false,
     continueAsNewInput: undefined,
+    timeoutHandlerOptions: undefined,
   };
 }
 
@@ -13591,6 +14467,9 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
     }
     if (message.continueAsNewInput !== undefined) {
       ContinueAsNewInput.encode(message.continueAsNewInput, writer.uint32(82).fork()).join();
+    }
+    if (message.timeoutHandlerOptions !== undefined) {
+      FlowTimeoutHandlerOptions.encode(message.timeoutHandlerOptions, writer.uint32(90).fork()).join();
     }
     return writer;
   },
@@ -13682,6 +14561,14 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
           message.continueAsNewInput = ContinueAsNewInput.decode(reader, reader.uint32());
           continue;
         }
+        case 11: {
+          if (tag !== 90) {
+            break;
+          }
+
+          message.timeoutHandlerOptions = FlowTimeoutHandlerOptions.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -13714,6 +14601,10 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
     message.continueAsNewInput = (object.continueAsNewInput !== undefined && object.continueAsNewInput !== null)
       ? ContinueAsNewInput.fromPartial(object.continueAsNewInput)
       : undefined;
+    message.timeoutHandlerOptions =
+      (object.timeoutHandlerOptions !== undefined && object.timeoutHandlerOptions !== null)
+        ? FlowTimeoutHandlerOptions.fromPartial(object.timeoutHandlerOptions)
+        : undefined;
     return message;
   },
 };

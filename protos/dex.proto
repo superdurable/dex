@@ -235,6 +235,26 @@ message StepOptions {
   repeated string wait_for_lock_attribute_keys = 12;
   repeated string execute_lock_attribute_keys = 13;
   int32 heartbeat_timeout_seconds = 14;
+  repeated string wait_for_load_attribute_map_instances = 15;
+  repeated string wait_for_load_channel_names = 16;
+  repeated string wait_for_load_channel_map_instances = 17;
+  repeated string execute_load_attribute_map_instances = 18;
+  repeated string execute_load_channel_names = 19;
+  repeated string execute_load_channel_map_instances = 20;
+}
+
+message FlowTimeoutHandlerOptions {
+  int32 method_timeout_seconds = 1;
+  int32 heartbeat_timeout_seconds = 2;
+  RetryPolicy retry_policy = 3;
+  ExecuteMethodFailurePolicy failure_policy = 4;
+  string failure_proceed_step_type = 5;
+  StepOptions failure_proceed_step_options = 6;
+  StepDurability durability_override = 7;
+  repeated string lock_attribute_keys = 8;
+  repeated string load_attribute_map_instances = 9;
+  repeated string load_channel_names = 10;
+  repeated string load_channel_map_instances = 11;
 }
 
 enum IdReusePolicy {
@@ -256,6 +276,7 @@ message FlowStartOptions {
   repeated AttributeWrite attributes = 4;
   FlowConfig flow_config_override = 5;
   FlowAlreadyStartedOptions flow_already_started_options = 6;
+  FlowTimeoutHandlerOptions timeout_handler_options = 7;
 }
 
 enum ActiveStepSearchMode {
@@ -575,6 +596,7 @@ message FlowStartedOrContinuedHistoryEvent {
   FlowConfig flow_config = 3;
   google.protobuf.Duration flow_timeout = 4;
   FlowTimeoutPolicy flow_timeout_policy = 5;
+  FlowTimeoutHandlerOptions timeout_handler_options = 6;
 
   oneof start_or_continue {
     FlowInitialStart initial_start = 10;
@@ -658,6 +680,7 @@ message StepWaitForCompletedOutput {
   repeated ChannelMessage publish_to_channel = 3;
   repeated KV record_events = 4;
   repeated KV upsert_step_execution_locals = 5;
+  repeated ChannelMessageDeletion delete_from_channel = 6;
 }
 
 message StepExecuteCompletedOutput {
@@ -666,6 +689,7 @@ message StepExecuteCompletedOutput {
   repeated ChannelMessage publish_to_channel = 3;
   repeated KV record_events = 4;
   repeated KV upsert_step_execution_locals = 5;
+  repeated ChannelMessageDeletion delete_from_channel = 6;
 }
 
 message StepMethodFailedOutput {
@@ -936,6 +960,11 @@ message InvokeWaitForMethodRequest {
   string step_type = 3;
   Value step_input = 4;
   repeated KV attributes = 5;
+  map<string, ChannelInfo> channel_infos = 6;
+  map<string, ChannelValues> loaded_channel_messages = 7;
+  repeated string loaded_attribute_map_instances = 8;
+  repeated string loaded_channel_names = 9;
+  repeated string loaded_channel_map_instances = 10;
 }
 
 message InvokeWaitForMethodResponse {
@@ -946,6 +975,7 @@ message InvokeWaitForMethodResponse {
   repeated KV upsert_step_exe_locals = 4;
   repeated KV record_events = 5;
   repeated ChannelMessage publish_to_channel = 6;
+  repeated ChannelMessageDeletion delete_from_channel = 7;
 }
 
 message StepMethodHeartbeat {
@@ -974,6 +1004,11 @@ message InvokeExecuteMethodRequest {
   repeated KV attributes = 5;
   repeated KV step_exe_locals = 6;
   ConditionResults condition_results = 7;
+  map<string, ChannelInfo> channel_infos = 8;
+  map<string, ChannelValues> loaded_channel_messages = 9;
+  repeated string loaded_attribute_map_instances = 10;
+  repeated string loaded_channel_names = 11;
+  repeated string loaded_channel_map_instances = 12;
 }
 
 message InvokeExecuteMethodResponse {
@@ -984,6 +1019,7 @@ message InvokeExecuteMethodResponse {
   repeated KV record_events = 4;
   repeated KV upsert_step_exe_locals = 5;
   repeated ChannelMessage publish_to_channel = 6;
+  repeated ChannelMessageDeletion delete_from_channel = 7;
 }
 
 message InvokeExecuteMethodOutput {
@@ -1090,6 +1126,7 @@ message SubFlowOptions {
   repeated AttributeWrite attributes = 5;
   FlowConfig flow_config_override = 6;
   FlowTimeoutPolicy flow_timeout_policy = 7;
+  FlowTimeoutHandlerOptions timeout_handler_options = 8;
 }
 
 message SubFlowCondition {
@@ -1247,6 +1284,7 @@ message InterpreterWorkflowInput {
   // When true, ignore start_step_type / step_input / step_options / init_attributes.
   bool is_resume_from_continue_as_new = 9;
   ContinueAsNewInput continue_as_new_input = 10;
+  FlowTimeoutHandlerOptions timeout_handler_options = 11;
 }
 
 message InterpreterWorkflowOutput {

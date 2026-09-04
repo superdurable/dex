@@ -23,7 +23,7 @@ var (
 	errInvalidInvocationContext = errors.New("dex: invalid invocation context")
 )
 
-// AttributeMapNotLoadedError reports an AttributeMap entry read that InvokeOptions omitted.
+// AttributeMapNotLoadedError reports an AttributeMap entry read omitted by invocation options.
 type AttributeMapNotLoadedError struct {
 	// Name is the AttributeMap name or its physical instance name.
 	Name string
@@ -31,10 +31,10 @@ type AttributeMapNotLoadedError struct {
 
 // Error describes the missing AttributeMap load.
 func (e *AttributeMapNotLoadedError) Error() string {
-	return fmt.Sprintf("dex: AttributeMap %q was not loaded for RPC", e.Name)
+	return fmt.Sprintf("dex: AttributeMap %q was not loaded for this invocation", e.Name)
 }
 
-// ChannelMessagesNotLoadedError reports a pending Channel-message read that InvokeOptions omitted.
+// ChannelMessagesNotLoadedError reports pending messages omitted by invocation options.
 type ChannelMessagesNotLoadedError struct {
 	// Name is the Channel or ChannelMap physical name.
 	Name string
@@ -42,7 +42,7 @@ type ChannelMessagesNotLoadedError struct {
 
 // Error describes the missing pending-message load.
 func (e *ChannelMessagesNotLoadedError) Error() string {
-	return fmt.Sprintf("dex: Channel messages for %q were not loaded for RPC", e.Name)
+	return fmt.Sprintf("dex: Channel messages for %q were not loaded for this invocation", e.Name)
 }
 
 // AttributeNotFoundError reports a missing invocation attribute.

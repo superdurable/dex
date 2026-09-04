@@ -25,6 +25,11 @@ type mapperStep struct {
 	name    string
 }
 
+type mapperNoneStep struct {
+	StepDefaultsNoWaitFor[None]
+	name string
+}
+
 func (step mapperStep) GetStepType() string {
 	return step.name
 }
@@ -34,6 +39,14 @@ func (step mapperStep) GetStepOptions() *StepOptions {
 }
 
 func (mapperStep) Execute(Context, int) (*StepDecision, error) {
+	return DeadEnd(), nil
+}
+
+func (step mapperNoneStep) GetStepType() string {
+	return step.name
+}
+
+func (mapperNoneStep) Execute(Context, None) (*StepDecision, error) {
 	return DeadEnd(), nil
 }
 
@@ -158,6 +171,61 @@ func TestStepDecisionAndOptionsMapping(t *testing.T) {
 
 	_, err = mapStepDecision(GoToMany())
 	require.ErrorContains(t, err, "at least one")
+
+	items := DefineAttributeMap[string]("items")
+	commands := DefineChannel[string]("commands")
+	commandsByTenant := DefineChannelMap[string]("commands-by-tenant")
+	stateOptions, err := mapStepOptions(&StepOptions{
+		WaitForLoadAttributeMaps:         []AttributeDef{items},
+		WaitForLoadAttributeMapInstances: []AttributeMapLoad{items.Load("tenant-a")},
+		WaitForLoadChannels:              []ChannelDef{commands},
+		WaitForLoadChannelMaps:           []ChannelDef{commandsByTenant},
+		WaitForLoadChannelMapInstances:   []ChannelMapLoad{commandsByTenant.LoadMessages("tenant-a")},
+		ExecuteLoadAttributeMaps:         []AttributeDef{items},
+		ExecuteLoadAttributeMapInstances: []AttributeMapLoad{items.Load("tenant-b")},
+		ExecuteLoadChannels:              []ChannelDef{commands},
+		ExecuteLoadChannelMaps:           []ChannelDef{commandsByTenant},
+		ExecuteLoadChannelMapInstances:   []ChannelMapLoad{commandsByTenant.LoadMessages("tenant-b")},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"items/", "items/tenant-a"}, stateOptions.WaitForLoadAttributeMapInstances)
+	require.Equal(t, []string{"commands"}, stateOptions.WaitForLoadChannelNames)
+	require.Equal(t, []string{"commands-by-tenant/", "commands-by-tenant/tenant-a"}, stateOptions.WaitForLoadChannelMapInstances)
+	require.Equal(t, []string{"items/", "items/tenant-b"}, stateOptions.ExecuteLoadAttributeMapInstances)
+	require.Equal(t, []string{"commands"}, stateOptions.ExecuteLoadChannelNames)
+	require.Equal(t, []string{"commands-by-tenant/", "commands-by-tenant/tenant-b"}, stateOptions.ExecuteLoadChannelMapInstances)
+}
+
+func TestFlowTimeoutHandlerOptionsMapping(t *testing.T) {
+	items := DefineAttributeMap[string]("items")
+	commands := DefineChannel[string]("commands")
+	commandsByTenant := DefineChannelMap[string]("commands-by-tenant")
+	recovery := mapperNoneStep{name: "recovery"}
+	mapped, err := mapFlowTimeoutHandlerOptions(&FlowTimeoutHandlerOptions{
+		MethodTimeout:     5 * time.Second,
+		HeartbeatTimeout:  10 * time.Second,
+		Retry:             &RetryPolicy{MaximumAttempts: 3},
+		Failure:           ProceedToOnFlowTimeoutHandlerFailure(recovery, nil),
+		Durability:        StepDurabilityAsync,
+		LoadAttributeMaps: []AttributeDef{items},
+		LoadAttributeMapInstances: []AttributeMapLoad{
+			items.Load("tenant-a"),
+		},
+		LoadChannels:    []ChannelDef{commands},
+		LoadChannelMaps: []ChannelDef{commandsByTenant},
+		LoadChannelMapInstances: []ChannelMapLoad{
+			commandsByTenant.LoadMessages("tenant-a"),
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(5), mapped.MethodTimeoutSeconds)
+	require.Equal(t, int32(10), mapped.HeartbeatTimeoutSeconds)
+	require.Equal(t, int32(3), mapped.RetryPolicy.MaximumAttempts)
+	require.Equal(t, "recovery", mapped.FailureProceedStepType)
+	require.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, mapped.DurabilityOverride)
+	require.Equal(t, []string{"items/", "items/tenant-a"}, mapped.LoadAttributeMapInstances)
+	require.Equal(t, []string{"commands"}, mapped.LoadChannelNames)
+	require.Equal(t, []string{"commands-by-tenant/", "commands-by-tenant/tenant-a"}, mapped.LoadChannelMapInstances)
 }
 
 func TestCloseDecisionMapping(t *testing.T) {
