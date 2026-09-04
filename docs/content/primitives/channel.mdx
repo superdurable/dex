@@ -38,8 +38,12 @@ class MoveMessage:
 
 
 class ChannelWaitStep(Step[int]):
-    def __init__(self, approval: Channel[str]) -> None:
+    def __init__(self, approval: Channel[str], queued: Channel[str]) -> None:
         self.approval = approval
+        self.queued = queued
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_load_channels=(self.queued,))
 
     def wait_for(self, context: Context, input: int) -> Wait:
         return Wait.any_of(
@@ -48,6 +52,10 @@ class ChannelWaitStep(Step[int]):
         )
 
     def execute(self, context: Context, input: int) -> StepDecision:
+        pending = self.queued.pending_messages(context)
+        if pending:
+            self.queued.delete(context, pending[0].message_id)
+            return graceful_complete(pending[0].value)
         if context.has_timer_fired():
             return graceful_complete("approval timed out")
         approvals = self.approval.results(context)
@@ -60,7 +68,7 @@ class ChannelFlow(Flow[int]):
     moved = Channel("Moved", str)
 
     def __init__(self) -> None:
-        self.wait_for_approval = ChannelWaitStep(self.approval)
+        self.wait_for_approval = ChannelWaitStep(self.approval, self.queued)
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.wait_for_approval)
@@ -112,6 +120,12 @@ type channelWaitStep struct {
 	dex.StepDefaults
 }
 
+func (channelWaitStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLoadChannels: []dex.ChannelDef{Queued},
+	}
+}
+
 func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	return dex.AnyOf(
 		Approval.ForOne(),
@@ -120,6 +134,16 @@ func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 }
 
 func (channelWaitStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	pending, err := Queued.PendingMessages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(pending) > 0 {
+		if err := Queued.Delete(ctx, pending[0].MessageID); err != nil {
+			return nil, err
+		}
+		return dex.GracefulComplete(pending[0].Value), nil
+	}
 	if ctx.HasTimerFired() {
 		return dex.GracefulComplete("approval timed out"), nil
 	}
@@ -207,6 +231,13 @@ public class ChannelFlow implements Flow<Integer> {
         }
 
         @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .addExecuteLoadChannel(queued)
+                    .build();
+        }
+
+        @Override
         public Wait waitFor(final Context context, final Integer input) {
             return Wait.anyOf(
                     approval.forOne(),
@@ -215,6 +246,11 @@ public class ChannelFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
+            final List<ChannelMessage<String>> pending = queued.pendingMessages(context);
+            if (!pending.isEmpty()) {
+                queued.delete(context, pending.get(0).getMessageId());
+                return StepDecision.gracefulComplete(pending.get(0).getValue());
+            }
             if (context.hasTimerFired()) {
                 return StepDecision.gracefulComplete("approval timed out");
             }
@@ -246,6 +282,10 @@ class ChannelWait implements Step<number> {
     return "ChannelWait";
   }
 
+  public getStepOptions(): StepOptions {
+    return { executeLoadChannels: [queued] };
+  }
+
   public waitFor(_context: Context, input: number): Wait {
     return Wait.anyOf(
       approval.forOne(),
@@ -254,6 +294,11 @@ class ChannelWait implements Step<number> {
   }
 
   public execute(context: Context, _input: number): StepDecision {
+    const pending = queued.pendingMessages(context);
+    if (pending.length > 0) {
+      queued.delete(context, pending[0]!.messageId);
+      return gracefulComplete(pending[0]!.value);
+    }
     if (context.hasTimerFired()) {
       return gracefulComplete("approval timed out");
     }
@@ -359,6 +404,10 @@ struct ChannelWait;
 impl Step for ChannelWait {
     type Input = i32;
 
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_load_channel(&QUEUED)
+    }
+
     fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
             APPROVAL.for_one(),
@@ -367,6 +416,11 @@ impl Step for ChannelWait {
     }
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let pending = QUEUED.pending_messages(context)?;
+        if let Some(message) = pending.first() {
+            QUEUED.delete(context, &message.message_id)?;
+            return Ok(StepDecision::graceful_complete(message.value.clone()));
+        }
         if context.has_any_timer_fired() {
             return Ok(StepDecision::graceful_complete(
                 "approval timed out".to_owned(),
@@ -411,7 +465,9 @@ Dex assigns a UUIDv7 message ID when it accepts each publication. A Client can l
 
 This is queue state, not Flow history. After a Step consumes a message, it disappears from the Channel even though the publication and consumption remain observable in Flow history until retention removes them.
 
-An RPC always receives Channel size metadata. It must explicitly load pending messages before reading their IDs or Values. Loading a Channel creates one invocation snapshot and does not consume messages. A loaded empty Channel returns an empty list; reading pending messages without loading the Channel is a usage error.
+Every Step method, timeout handler, and RPC always receives Channel size metadata. It must explicitly load pending messages before reading their IDs or Values. Deleting a message whose ID is already known does not require loading it. **StepOptions** selects state separately for **WaitFor** and **Execute**; **FlowTimeoutHandlerOptions** selects state for the timeout handler. Loading a Channel creates one invocation snapshot and does not consume messages. A loaded empty Channel returns an empty list; reading pending messages without loading the Channel is a usage error.
+
+A Step or timeout handler can stage deletion with its other side effects. Dex applies successful handler effects in this order: Attribute writes, best-effort Channel deletions, then Channel publications, followed by the Step decision. If another operation already consumed or deleted a selected message, deletion is a no-op and the remaining effects still apply. **StepDecision** describes only control flow; it does not contain deletions.
 
 <SdkTabs
 examples={{

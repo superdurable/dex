@@ -18,7 +18,12 @@ from datetime import timedelta
 
 from quart import Blueprint
 
-from dex import FlowTimeoutPolicy, StartFlowOptions
+from dex import (
+    FlowTimeoutHandlerOptions,
+    FlowTimeoutPolicy,
+    RetryPolicy,
+    StartFlowOptions,
+)
 
 from dex_examples.app import ExampleApp
 from dex_examples.shared.query import optional_query, required_query
@@ -37,6 +42,10 @@ def create_timeout_blueprint(app_state: ExampleApp) -> Blueprint:
             StartFlowOptions(
                 timeout=timedelta(minutes=1),
                 timeout_policy=FlowTimeoutPolicy.HANDLER,
+                timeout_handler_options=FlowTimeoutHandlerOptions(
+                    method_timeout=timedelta(seconds=30),
+                    retry=RetryPolicy(maximum_attempts=3),
+                ),
             ),
         )
         return f"success for workflow {flow_id}"

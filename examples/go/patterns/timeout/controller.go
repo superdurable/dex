@@ -47,6 +47,12 @@ func patternStartOptions() sdk.StartFlowOptions {
 	return sdk.StartFlowOptions{
 		Timeout:       &timeout,
 		TimeoutPolicy: sdk.TimeoutHandler,
+		TimeoutHandlerOptions: &sdk.FlowTimeoutHandlerOptions{
+			MethodTimeout: 30 * time.Second,
+			Retry: &sdk.RetryPolicy{
+				MaximumAttempts: 3,
+			},
+		},
 	}
 }
 

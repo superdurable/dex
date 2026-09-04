@@ -40,6 +40,20 @@ atomic commit and Channel deletion validation. Attribute locks add isolation
 only among cooperating Steps and RPCs using the same lock. Write-only publish
 and delete operations do not require loading.
 
+## Step and timeout-handler state loading
+
+`StepOptions` provides the same five selections independently for `wait_for` and
+`execute`: all AttributeMap instances, exact AttributeMap instances, Channels,
+all ChannelMap instances, and exact ChannelMap instances. The methods receive
+independent snapshots. Execute reads after the winning Wait consumes messages;
+retries of one logical method call reuse its first snapshot.
+
+`FlowTimeoutHandlerOptions` provides Execute-style timeouts, heartbeat detection,
+retry, durability, Attribute locks, and the same state selections. Set it on
+`StartFlowOptions` or `SubFlowOptions` only for a positive timeout using
+`FlowTimeoutPolicy::Handler`. Exhausted retries may proceed to a registered
+`Step<Input = ()>`; read the final failure with `Context::recovery_error`.
+
 [![Rust SDK CI](https://github.com/superdurable/dex/actions/workflows/sdk-rust-ci.yml/badge.svg?branch=main)](https://github.com/superdurable/dex/actions/workflows/sdk-rust-ci.yml)
 
 This workspace contains the synchronous Rust SDK, the shared DXBC BlobCache,

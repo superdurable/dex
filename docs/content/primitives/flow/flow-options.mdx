@@ -19,6 +19,7 @@ Dex allows you to customize the behavior of a Flow execution.
 |-------|------------------------------------------------------------------------|
 | **Timeout** | Flow timeout. Omit it or set zero to disable it.                       |
 | **TimeoutPolicy** | What happens when the flow timeout fires.                              |
+| **TimeoutHandlerOptions** | Execution, retry, recovery, durability, locking, and state loading for a timeout handler. |
 | **IDReusePolicy** | How to reuse existing Flow ID to start                                 |
 | **RequestID** | Idempotency key for retrying one start request.                        |
 | **AlreadyStartedOptions** | How to handle an already-started Flow.                                 |
@@ -179,9 +180,15 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 
 - **FAIL** — fail the Flow with a timeout error. **RetryPolicy** can retry it.
 - **CANCEL** — cancel the Flow. It does not retry.
-- **HANDLER** — run the Flow timeout handler once.
+- **HANDLER** — run one logical Flow timeout-handler execution.
 
 With a positive **Timeout**, a Dex SDK uses **FAIL** by default. If the Flow has a timeout handler, it uses **HANDLER** instead. **HANDLER** is invalid when the Flow has no handler. A retry starts with a new timeout budget.
+
+**TimeoutHandlerOptions** is valid only with a positive **Timeout** and a final **HANDLER** policy. It uses Execute semantics: a method timeout limits each attempt, **Retry** can run multiple attempts, **HeartbeatTimeout** detects stalled regular attempts, and **Failure** can route exhausted retries to a registered no-input Step. The recovery Step receives null or unit input and reads the final error from the handler **Context**.
+
+The handler's attempt and retry clocks begin when the soft Flow timeout fires. They may extend past the original Flow deadline. If no failure target is configured, an exhausted handler fails the Flow.
+
+Ordinary Attributes and all Channel size metadata load automatically. AttributeMap values and pending Channel messages require explicit selections in **TimeoutHandlerOptions**. The handler may stage Attribute writes, Channel deletions, and Channel publications before returning its decision. Continue-as-new and Flow retries preserve the options; a Flow retry starts a new soft-timeout budget.
 
 Set **TimeoutPolicy** to **HANDLER** to run this code when the timeout fires. This handler records why the Flow ended, then fails it with an application reason.
 

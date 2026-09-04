@@ -25,6 +25,7 @@ import io.superdurable.dex.RPC;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
+import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
@@ -82,6 +83,13 @@ public class ChannelFlow implements Flow<Integer> {
         }
 
         @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .addExecuteLoadChannel(queued)
+                    .build();
+        }
+
+        @Override
         public Wait waitFor(final Context context, final Integer input) {
             return Wait.anyOf(
                     approval.forOne(),
@@ -90,6 +98,11 @@ public class ChannelFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
+            final List<ChannelMessage<String>> pending = queued.pendingMessages(context);
+            if (!pending.isEmpty()) {
+                queued.delete(context, pending.get(0).getMessageId());
+                return StepDecision.gracefulComplete(pending.get(0).getValue());
+            }
             if (context.hasTimerFired()) {
                 return StepDecision.gracefulComplete("approval timed out");
             }

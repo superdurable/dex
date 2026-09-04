@@ -58,6 +58,25 @@ execution makes staged effects atomic and validates Channel deletions. It does
 not isolate handler reads from concurrent writers. When that isolation matters,
 all cooperating Steps and RPCs must use the same Attribute lock.
 
+`StepOptions` stores separate selection lists for WaitFor and Execute.
+`FlowTimeoutHandlerOptions` stores the same lists for the synthetic timeout
+Step. Each method still receives ordinary Attributes and every Channel's size
+metadata. WaitFor and Execute use independent snapshots; Execute loads after the
+winning Wait consumes messages. Retries reuse the first request snapshot for
+that logical method execution.
+
+WaitFor, Execute, timeout-handler, and RPC responses carry
+`ChannelMessageDeletion` side effects outside `StepDecision`. The interpreter
+commits successful responses in this order: Attribute writes, best-effort
+Channel deletions, Channel publications, then the Step decision. A missing
+message is a no-op for these handler responses.
+
+Timeout-handler options are accepted only with a positive Flow timeout and a
+resolved `HANDLER` policy. The options become Execute settings for the synthetic
+timeout Step and survive start history, continue-as-new, SubFlow start, and Flow
+retry. A no-input recovery movement carries `Context.recovery_error` after the
+handler exhausts its retry policy.
+
 ## Worker targets
 
 `WorkerTarget.address` is a plaintext gRPC target. Set `is_headless_address` for a

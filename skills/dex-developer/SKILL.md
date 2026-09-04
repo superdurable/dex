@@ -79,7 +79,7 @@ Read [large-attributes-and-locality.md](references/large-attributes-and-locality
 
 Read [ai-agents.md](references/ai-agents.md) when an Agent owns model context, calls MCP or other tools, waits for approval, compacts conversation history, or exposes a durable wait tool.
 
-For queued-message inspection, deletion, editing, steering, or an application snapshot RPC, also read [primitives.md](references/primitives.md) and [operations.md](references/operations.md). These operations apply only to pending Channel messages, not conversation history.
+For selective Step or timeout-handler state loading, Flow timeout recovery, queued-message inspection, deletion, editing, steering, or an application snapshot RPC, also read [primitives.md](references/primitives.md) and [operations.md](references/operations.md). These operations apply only to pending Channel messages, not conversation history.
 
 ## Choose proven Flow shapes
 
@@ -117,7 +117,7 @@ Before handing off application code:
 - build or type-check succeeds
 - the relevant integration scenario passes
 - every used durable primitive is registered
-- retry, timeout, duplicate request, and terminal behavior are intentional
+- retry, timeout-handler execution and recovery, duplicate request, and terminal behavior are intentional
 - heartbeat cadence, checkpoint recovery, and best-effort progress behavior are intentional
 - Worker and Client share compatible registry and payload/blob configuration
 - user-facing instructions mention only Dex components and commands

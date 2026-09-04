@@ -18,6 +18,8 @@ Use multiple next Steps for parallel work. Use cancellation deliberately when a 
 
 Step durability resolves in this order: a method override, FlowConfig, then **SYNC**. The default retry total duration is four hours. Regular attempts default to a two-hour method timeout and one-minute heartbeat timeout.
 
+Every **WaitFor** and **Execute** call receives ordinary Attributes and Channel size metadata. AttributeMap values and pending Channel messages require method-specific selections in StepOptions. Select the whole map only when the method must enumerate instances; otherwise select exact instances. WaitFor and Execute use independent snapshots. Execute loads after Wait consumption, and retries reuse the first snapshot for that logical method call. Attribute locks do not load state.
+
 A long-running regular attempt must emit an explicit heartbeat or Stream message before its heartbeat timeout. A heartbeat value is a retry checkpoint. An explicit valueless heartbeat clears the checkpoint; a Stream message preserves its current state. The local phase of **ASYNC** durability ignores heartbeats but still emits Stream messages.
 
 For an LLM call that may remain healthy without output for more than one minute, tell the application developer to raise **HeartbeatTimeout** above its one-minute default. Size it to the longest acceptable silent interval, and use the method timeout to cap the whole attempt. Do not add periodic heartbeats solely to mask provider silence; they prove only that application code is running, not that the upstream request is progressing.
@@ -30,7 +32,7 @@ Use an Attribute for durable state inside one Flow execution. Register every Att
 
 Use one Attribute when the value is cohesive and should be replaced as a unit. Use an AttributeMap when runtime-keyed instances change independently; each instance is stored separately, avoiding a rewrite of the whole collection. Use stable domain keys and delete instances that are no longer needed.
 
-RPCs receive regular Attribute values automatically. They must explicitly load AttributeMap entries. Load the whole map for broad snapshots or exact instances for known keys. AttributeMap size does not make its entries available. An explicit load controls data transfer only; it does not enable transactional execution or isolation.
+Steps, timeout handlers, and RPCs receive regular Attribute values automatically. They must explicitly load AttributeMap entries. Load the whole map for broad snapshots or exact instances for known keys. AttributeMap size does not make its entries available. An explicit load controls data transfer only; it does not enable transactional execution or isolation.
 
 Lock the exact AttributeMap instance when Steps or RPCs can race on it. Do not treat an AttributeMap index as an index over its instances: all instances share one Flow search field, later writes replace that field, and instance keys are not searchable. AttributeMap enumeration is not server-side pagination.
 
@@ -46,7 +48,9 @@ Use a ChannelMap when the same message contract is partitioned by a dynamic key.
 
 Every pending Channel message has a server-assigned message ID. List pending messages when an application needs a durable queue UI. Listing preserves FIFO order and does not consume messages. Only a pending message can be deleted; deletion after consumption returns the Channel-message-not-found error.
 
-RPCs always receive ChannelInfo sizes, so Channel size and ChannelMap keys and sizes do not require a load. Reading pending message envelopes requires an explicit Channel or ChannelMap load. Load the whole ChannelMap or exact instances according to what the handler reads. A loaded empty queue is empty; reading an unloaded queue is a usage error.
+Steps, timeout handlers, and RPCs always receive ChannelInfo sizes, so Channel size and ChannelMap keys and sizes do not require a load. Reading pending message envelopes requires an explicit Channel or ChannelMap load. Load the whole ChannelMap or exact instances according to what the handler reads. A loaded empty queue is empty; reading an unloaded queue is a usage error.
+
+Steps and timeout handlers may delete a pending message in the same response as Attribute writes, Channel publications, and a decision. A known message ID can be deleted without loading its envelope. Deletion is a response side effect, not part of the Step decision. If the message is already absent, deletion is best effort and the remaining effects still apply.
 
 A Channel queue is not conversation history. Keep consumed user and assistant messages in Attributes when the application must display or reconstruct them.
 
@@ -89,6 +93,10 @@ Docs: https://docs.superdurable.io/primitives/stream
 ## Timer
 
 Use a Timer Condition for a durable delay, reminder, deadline branch, or scheduling loop. Decide what happens if a timer is skipped and whether the business deadline should complete, cancel, fail, or route to a handler.
+
+A Flow timeout handler has Execute semantics. Configure its per-attempt timeout, heartbeat timeout, retry, failure route, durability, locks, and selective state loads through FlowTimeoutHandlerOptions on StartFlowOptions or SubFlowOptions. These options require a positive Flow timeout and the Handler policy. Handler timing starts after the soft timeout fires and may extend beyond the original deadline.
+
+Route exhausted handler retries only to a registered no-input Step. The SDK supplies null or unit input, and the recovery Step reads the final failure from Context. Without a failure target, exhausted retries fail the Flow. Continue-as-new and Flow retry preserve timeout-handler options; Flow retry starts a new soft-timeout budget.
 
 Docs: https://docs.superdurable.io/primitives/timer
 

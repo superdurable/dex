@@ -205,7 +205,10 @@ class CompactContext(Step[int]):
         self.flow = flow
 
     def get_step_options(self) -> StepOptions:
-        return MODEL_OPTIONS
+        return replace(
+            MODEL_OPTIONS,
+            execute_load_attribute_maps=(self.flow.messages,),
+        )
 
     async def execute(  # type: ignore[override]
         self,
@@ -262,7 +265,10 @@ class CallModel(Step[None]):
         self.flow = flow
 
     def get_step_options(self) -> StepOptions:
-        return MODEL_OPTIONS
+        return replace(
+            MODEL_OPTIONS,
+            execute_load_attribute_maps=(self.flow.messages,),
+        )
 
     async def execute(  # type: ignore[override]
         self,
@@ -352,6 +358,9 @@ class CallModel(Step[None]):
 class CheckSteered(Step[str]):
     def __init__(self, flow: AIAgentFlow) -> None:
         self.flow = flow
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_load_attribute_maps=(self.flow.messages,))
 
     def wait_for(self, context: Context, input: str) -> Wait:
         return Wait.until(

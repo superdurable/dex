@@ -30,6 +30,7 @@ import {
   type PersistenceSchema,
   type Step,
   type StepDecision,
+  type StepOptions,
 } from "@superdurable/dex";
 
 const approval = new Channel("Approval", stringCodec);
@@ -49,6 +50,10 @@ class ChannelWait implements Step<number> {
     return "ChannelWait";
   }
 
+  public getStepOptions(): StepOptions {
+    return { executeLoadChannels: [queued] };
+  }
+
   public waitFor(_context: Context, input: number): Wait {
     return Wait.anyOf(
       approval.forOne(),
@@ -57,6 +62,11 @@ class ChannelWait implements Step<number> {
   }
 
   public execute(context: Context, _input: number): StepDecision {
+    const pending = queued.pendingMessages(context);
+    if (pending.length > 0) {
+      queued.delete(context, pending[0]!.messageId);
+      return gracefulComplete(pending[0]!.value);
+    }
     if (context.hasTimerFired()) {
       return gracefulComplete("approval timed out");
     }

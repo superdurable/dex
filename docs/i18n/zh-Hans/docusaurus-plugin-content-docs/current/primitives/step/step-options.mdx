@@ -326,6 +326,77 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 
 Heartbeat 有助于传递 cancellation。Step invocation 只会在完成、失败或记录 heartbeat 时被 cancel。
 
+## 选择性加载状态 {#selective-state-loading}
+
+每次 **WaitFor**、**Execute** 和 timeout handler 调用都会收到所有普通 Attribute，以及每个 Channel 和 ChannelMap instance 的 size metadata。除非对应方法显式选择，否则不会加载 AttributeMap value 和 pending Channel message。
+
+**StepOptions** 为 **WaitFor** 和 **Execute** 提供独立的 selection。方法需要枚举当前 instance 时，选择整个 AttributeMap 或 ChannelMap；已经知道 key 时，只选择精确的 map instance。Attribute lock 只控制并发，不会加载 AttributeMap value。
+
+两个方法收到独立的 snapshot。获胜的 Wait condition 消费消息之后，**Execute** 才读取自己的 snapshot，因此不会再次看到已经消费的消息。同一个逻辑方法调用的 retry 会复用首次 snapshot。
+
+下面的 Step 只为 **Execute** 加载 **Queued** 的 pending message，并在同一个成功的 handler response 中删除第一条消息。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
+    go: 'examples/go/primitives/channel/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
+    typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
+    rust: 'examples/rust/src/primitives/channel/flow.rs',
+  }}>
+  <SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(execute_load_channels=(self.queued,))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (channelWaitStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLoadChannels: []dex.ChannelDef{Queued},
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .addExecuteLoadChannel(queued)
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return { executeLoadChannels: [queued] };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new().execute_load_channel(&QUEUED)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+读取未选择的 AttributeMap value 或 pending Channel message 时，SDK 会返回已有的 not-loaded error。已选择但为空的 Channel 会返回空消息列表。不加载消息 body 也仍然可以读取 size 和 map key。
+
 ## Attribute locks
 
 并发 Step 和 RPC invocation 可以读取和写入同一个 Attribute。这可能导致 race condition。要避免它，使用 Attribute lock。Dex Server 会确保同一时间只有一个 Step execution 或 RPC handling 能 acquire 这个 lock。

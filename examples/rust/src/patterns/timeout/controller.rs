@@ -52,6 +52,7 @@ async fn start(
     match run_blocking(move || {
         let flow = FlowGracefulTimeout::default();
         let input = true;
+        let timeout_handler_options = flow.timeout_handler_options();
         client
             .start_flow_with_options(
                 &flow,
@@ -59,7 +60,8 @@ async fn start(
                 input,
                 StartFlowOptions::new()
                     .timeout(Duration::from_secs(60))
-                    .timeout_policy(FlowTimeoutPolicy::Handler),
+                    .timeout_policy(FlowTimeoutPolicy::Handler)
+                    .timeout_handler_options(timeout_handler_options),
             )
             .map(|run_id| StartResponse { flow_id, run_id })
     }) {
