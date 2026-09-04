@@ -39,6 +39,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -87,8 +88,12 @@ final class WorkerDispatcher {
                 request.getAttributesList(),
                 null,
                 null,
-                null,
-                bufferedStreamScheduler);
+                request.getChannelInfosMap(),
+                bufferedStreamScheduler,
+                request.getLoadedChannelMessagesMap(),
+                request.getLoadedAttributeMapInstancesList(),
+                request.getLoadedChannelNamesList(),
+                request.getLoadedChannelMapInstancesList());
         final Object input = values.decode(request.getStepInput(), step.getStep().getInputType());
         try {
             final Wait wait = callWaitFor(step.getStep(), context, input);
@@ -97,7 +102,8 @@ final class WorkerDispatcher {
                             .addAllUpsertAttributes(context.getAttributeWrites())
                             .addAllUpsertStepExeLocals(context.getLocalWrites())
                             .addAllRecordEvents(context.getEvents())
-                            .addAllPublishToChannel(context.getPublications());
+                            .addAllPublishToChannel(context.getPublications())
+                            .addAllDeleteFromChannel(context.getChannelDeletions());
             final WaitingCondition waiting = mapWait(flow, step, wait);
             if (waiting != null) {
                 response.setWaitingCondition(waiting);
@@ -118,7 +124,7 @@ final class WorkerDispatcher {
         final InvokeExecuteMethodRequest request = hydrator.hydrate(original);
         final Registry.RegisteredFlow flow = registry.getFlow(request.getFlowType());
         if (TIMEOUT_HANDLER_STEP_TYPE.equals(request.getStepType())) {
-            return invokeTimeoutHandler(request, flow);
+            return invokeTimeoutHandler(request, flow, stepOutputEmitter);
         }
         final Registry.RegisteredStep step = flow.getStep(request.getStepType());
         final InvocationContext context = new InvocationContext(
@@ -130,8 +136,12 @@ final class WorkerDispatcher {
                 request.getAttributesList(),
                 request.getStepExeLocalsList(),
                 request.hasConditionResults() ? request.getConditionResults() : null,
-                null,
-                bufferedStreamScheduler);
+                request.getChannelInfosMap(),
+                bufferedStreamScheduler,
+                request.getLoadedChannelMessagesMap(),
+                request.getLoadedAttributeMapInstancesList(),
+                request.getLoadedChannelNamesList(),
+                request.getLoadedChannelMapInstancesList());
         final Object input = values.decode(request.getStepInput(), step.getStep().getInputType());
         try {
             final StepDecision decision = callExecute(step.getStep(), context, input);
@@ -141,6 +151,7 @@ final class WorkerDispatcher {
                     .addAllRecordEvents(context.getEvents())
                     .addAllUpsertStepExeLocals(context.getLocalWrites())
                     .addAllPublishToChannel(context.getPublications())
+                    .addAllDeleteFromChannel(context.getChannelDeletions())
                     .build();
             final Throwable finalizationFailure = context.finalizeStepOutputs(null);
             if (finalizationFailure != null) {
@@ -154,7 +165,8 @@ final class WorkerDispatcher {
 
     private InvokeExecuteMethodResponse invokeTimeoutHandler(
             final InvokeExecuteMethodRequest request,
-            final Registry.RegisteredFlow flow) {
+            final Registry.RegisteredFlow flow,
+            final StepOutputEmitter stepOutputEmitter) {
         if (request.hasStepInput()) {
             throw new InvalidStepResultException("Flow timeout handler must not receive input");
         }
@@ -167,12 +179,16 @@ final class WorkerDispatcher {
                 flow,
                 request.getContext(),
                 values,
-                null,
+                stepOutputEmitter,
                 request.getAttributesList(),
                 request.getStepExeLocalsList(),
                 request.hasConditionResults() ? request.getConditionResults() : null,
-                null,
-                bufferedStreamScheduler);
+                request.getChannelInfosMap(),
+                bufferedStreamScheduler,
+                request.getLoadedChannelMessagesMap(),
+                request.getLoadedAttributeMapInstancesList(),
+                request.getLoadedChannelNamesList(),
+                request.getLoadedChannelMapInstancesList());
         final StepDecision decision = flow.getFlow().handleTimeout(context);
         return InvokeExecuteMethodResponse.newBuilder()
                 .setStepDecision(mapDecision(
@@ -183,6 +199,7 @@ final class WorkerDispatcher {
                 .addAllRecordEvents(context.getEvents())
                 .addAllUpsertStepExeLocals(context.getLocalWrites())
                 .addAllPublishToChannel(context.getPublications())
+                .addAllDeleteFromChannel(context.getChannelDeletions())
                 .build();
     }
 
@@ -536,7 +553,154 @@ final class WorkerDispatcher {
         for (AttributeLock lock : options.getExecuteLocks()) {
             mapped.addExecuteLockAttributeKeys(mapLock(lock));
         }
+        final MappedStateLoads waitForLoads = mapHandlerStateLoads(
+                flow, options.getWaitForStateLoads(), "WaitFor");
+        mapped.addAllWaitForLoadAttributeMapInstances(waitForLoads.attributeMaps)
+                .addAllWaitForLoadChannelNames(waitForLoads.channels)
+                .addAllWaitForLoadChannelMapInstances(waitForLoads.channelMaps);
+        final MappedStateLoads executeLoads = mapHandlerStateLoads(
+                flow, options.getExecuteStateLoads(), "Execute");
+        mapped.addAllExecuteLoadAttributeMapInstances(executeLoads.attributeMaps)
+                .addAllExecuteLoadChannelNames(executeLoads.channels)
+                .addAllExecuteLoadChannelMapInstances(executeLoads.channelMaps);
         return mapped.build();
+    }
+
+    io.superdurable.gen.FlowTimeoutHandlerOptions mapFlowTimeoutHandlerOptions(
+            final Registry.RegisteredFlow flow,
+            final Duration timeout,
+            final FlowTimeoutPolicy policy,
+            final FlowTimeoutHandlerOptions options) {
+        if (options == null) {
+            return null;
+        }
+        if (timeout == null || timeout.isZero() || timeout.isNegative()
+                || policy != FlowTimeoutPolicy.HANDLER) {
+            throw new IllegalArgumentException(
+                    "timeout handler options require a positive timeout with HANDLER policy");
+        }
+        final io.superdurable.gen.FlowTimeoutHandlerOptions.Builder mapped =
+                io.superdurable.gen.FlowTimeoutHandlerOptions.newBuilder();
+        if (options.getMethodTimeout() != null) {
+            mapped.setMethodTimeoutSeconds(seconds32(options.getMethodTimeout()));
+        }
+        if (options.getHeartbeatTimeout() != null
+                && !options.getHeartbeatTimeout().isZero()) {
+            mapped.setHeartbeatTimeoutSeconds(positiveSeconds32(options.getHeartbeatTimeout()));
+        }
+        if (options.getRetry() != null) {
+            mapped.setRetryPolicy(mapRetry(options.getRetry()));
+        }
+        mapped.setDurabilityOverride(mapDurability(options.getDurability()));
+        for (AttributeLock lock : options.getLocks()) {
+            mapped.addLockAttributeKeys(mapLock(lock));
+        }
+        final MappedStateLoads stateLoads = mapHandlerStateLoads(
+                flow, options.getStateLoads(), "timeout handler");
+        mapped.addAllLoadAttributeMapInstances(stateLoads.attributeMaps)
+                .addAllLoadChannelNames(stateLoads.channels)
+                .addAllLoadChannelMapInstances(stateLoads.channelMaps);
+        if (options.getFailureTarget() != null) {
+            final FlowTimeoutHandlerOptions.FailureTarget target = options.getFailureTarget();
+            final Registry.RegisteredStep registeredTarget = flow.getStep(target.getStepClass());
+            if (registeredTarget.getStep().getInputType() != Void.class) {
+                throw new IllegalArgumentException(
+                        "timeout handler failure Step must use Void input: "
+                                + registeredTarget.getName());
+            }
+            mapped.setFailurePolicy(ExecuteMethodFailurePolicy
+                    .EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP)
+                    .setFailureProceedStepType(registeredTarget.getName());
+            final io.superdurable.gen.StepOptions targetOptions = mapStepOptions(
+                    flow,
+                    target.getOptions() == null
+                            ? registeredTarget.getStep().getStepOptions()
+                            : target.getOptions());
+            if (targetOptions != null || registeredTarget.skipsWaitFor()) {
+                final io.superdurable.gen.StepOptions.Builder mappedTarget = targetOptions == null
+                        ? io.superdurable.gen.StepOptions.newBuilder()
+                        : targetOptions.toBuilder();
+                mappedTarget.setSkipWaitFor(registeredTarget.skipsWaitFor());
+                mapped.setFailureProceedStepOptions(mappedTarget);
+            }
+        }
+        return mapped.build();
+    }
+
+    private static MappedStateLoads mapHandlerStateLoads(
+            final Registry.RegisteredFlow flow,
+            final HandlerStateLoads loads,
+            final String source) {
+        final MappedStateLoads mapped = new MappedStateLoads();
+        for (AttributeMap<?> definition : loads.getAttributeMaps()) {
+            addDefinitionLoad(flow, definition, AttributeMap.class, source,
+                    definition == null ? null : definition.getName() + "/",
+                    mapped.attributeMapNames, mapped.attributeMaps);
+        }
+        for (HandlerStateLoads.MapInstance load : loads.getAttributeMapInstances()) {
+            addMapInstanceLoad(flow, load, AttributeMap.class, source,
+                    mapped.attributeMapNames, mapped.attributeMaps);
+        }
+        for (Channel<?> definition : loads.getChannels()) {
+            addDefinitionLoad(flow, definition, Channel.class, source,
+                    definition == null ? null : definition.getName(),
+                    mapped.channelNames, mapped.channels);
+        }
+        for (ChannelMap<?> definition : loads.getChannelMaps()) {
+            addDefinitionLoad(flow, definition, ChannelMap.class, source,
+                    definition == null ? null : definition.getName() + "/",
+                    mapped.channelMapNames, mapped.channelMaps);
+        }
+        for (HandlerStateLoads.MapInstance load : loads.getChannelMapInstances()) {
+            addMapInstanceLoad(flow, load, ChannelMap.class, source,
+                    mapped.channelMapNames, mapped.channelMaps);
+        }
+        Collections.sort(mapped.attributeMaps);
+        Collections.sort(mapped.channels);
+        Collections.sort(mapped.channelMaps);
+        return mapped;
+    }
+
+    private static void addMapInstanceLoad(
+            final Registry.RegisteredFlow flow,
+            final HandlerStateLoads.MapInstance load,
+            final Class<?> expectedType,
+            final String source,
+            final Set<String> seen,
+            final List<String> output) {
+        final PersistenceDefinition definition = load.getDefinition();
+        final String physical = definition == null
+                ? null
+                : Registry.physicalName(definition.getName(), load.getInstance());
+        addDefinitionLoad(flow, definition, expectedType, source, physical, seen, output);
+    }
+
+    private static void addDefinitionLoad(
+            final Registry.RegisteredFlow flow,
+            final PersistenceDefinition definition,
+            final Class<?> expectedType,
+            final String source,
+            final String physical,
+            final Set<String> seen,
+            final List<String> output) {
+        if (definition == null || !expectedType.isInstance(definition)
+                || flow.getPersistence().get(definition.getName()) != definition) {
+            throw new IllegalArgumentException(
+                    source + " state load does not belong to Flow " + flow.getName());
+        }
+        if (!seen.add(physical)) {
+            throw new IllegalArgumentException(source + " has duplicate state load " + physical);
+        }
+        output.add(physical);
+    }
+
+    private static final class MappedStateLoads {
+        private final Set<String> attributeMapNames = new HashSet<String>();
+        private final Set<String> channelNames = new HashSet<String>();
+        private final Set<String> channelMapNames = new HashSet<String>();
+        private final List<String> attributeMaps = new ArrayList<String>();
+        private final List<String> channels = new ArrayList<String>();
+        private final List<String> channelMaps = new ArrayList<String>();
     }
 
     private static io.superdurable.gen.RetryPolicy mapRetry(final RetryPolicy retry) {
@@ -682,6 +846,15 @@ final class WorkerDispatcher {
                     target, options.getTimeout(), options.getTimeoutPolicy());
             if (timeoutPolicy != FlowTimeoutPolicy.DEFAULT) {
                 mappedOptions.setFlowTimeoutPolicy(Client.mapFlowTimeoutPolicy(timeoutPolicy));
+            }
+            final io.superdurable.gen.FlowTimeoutHandlerOptions timeoutHandlerOptions =
+                    mapFlowTimeoutHandlerOptions(
+                            target,
+                            options.getTimeout(),
+                            timeoutPolicy,
+                            options.getTimeoutHandlerOptions());
+            if (timeoutHandlerOptions != null) {
+                mappedOptions.setTimeoutHandlerOptions(timeoutHandlerOptions);
             }
             if (options.getStartDelay() != null) {
                 mappedOptions.setFlowStartDelaySeconds(seconds32(options.getStartDelay()));

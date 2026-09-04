@@ -75,7 +75,7 @@ async def _async_client_concurrent_start_and_wait() -> None:
 class AsyncTimeoutHandlerFlow(Flow[None]):
     async def handle_timeout(  # type: ignore[override]
         self,
-        context: Context,
+        context: AsyncContext,
     ) -> StepDecision:
         del context
         await asyncio.sleep(0)

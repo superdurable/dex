@@ -184,4 +184,154 @@ public interface StepOptionsOrBuilder extends
    * @return The heartbeatTimeoutSeconds.
    */
   int getHeartbeatTimeoutSeconds();
+
+  /**
+   * <code>repeated string wait_for_load_attribute_map_instances = 15;</code>
+   * @return A list containing the waitForLoadAttributeMapInstances.
+   */
+  java.util.List<java.lang.String>
+      getWaitForLoadAttributeMapInstancesList();
+  /**
+   * <code>repeated string wait_for_load_attribute_map_instances = 15;</code>
+   * @return The count of waitForLoadAttributeMapInstances.
+   */
+  int getWaitForLoadAttributeMapInstancesCount();
+  /**
+   * <code>repeated string wait_for_load_attribute_map_instances = 15;</code>
+   * @param index The index of the element to return.
+   * @return The waitForLoadAttributeMapInstances at the given index.
+   */
+  java.lang.String getWaitForLoadAttributeMapInstances(int index);
+  /**
+   * <code>repeated string wait_for_load_attribute_map_instances = 15;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the waitForLoadAttributeMapInstances at the given index.
+   */
+  com.google.protobuf.ByteString
+      getWaitForLoadAttributeMapInstancesBytes(int index);
+
+  /**
+   * <code>repeated string wait_for_load_channel_names = 16;</code>
+   * @return A list containing the waitForLoadChannelNames.
+   */
+  java.util.List<java.lang.String>
+      getWaitForLoadChannelNamesList();
+  /**
+   * <code>repeated string wait_for_load_channel_names = 16;</code>
+   * @return The count of waitForLoadChannelNames.
+   */
+  int getWaitForLoadChannelNamesCount();
+  /**
+   * <code>repeated string wait_for_load_channel_names = 16;</code>
+   * @param index The index of the element to return.
+   * @return The waitForLoadChannelNames at the given index.
+   */
+  java.lang.String getWaitForLoadChannelNames(int index);
+  /**
+   * <code>repeated string wait_for_load_channel_names = 16;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the waitForLoadChannelNames at the given index.
+   */
+  com.google.protobuf.ByteString
+      getWaitForLoadChannelNamesBytes(int index);
+
+  /**
+   * <code>repeated string wait_for_load_channel_map_instances = 17;</code>
+   * @return A list containing the waitForLoadChannelMapInstances.
+   */
+  java.util.List<java.lang.String>
+      getWaitForLoadChannelMapInstancesList();
+  /**
+   * <code>repeated string wait_for_load_channel_map_instances = 17;</code>
+   * @return The count of waitForLoadChannelMapInstances.
+   */
+  int getWaitForLoadChannelMapInstancesCount();
+  /**
+   * <code>repeated string wait_for_load_channel_map_instances = 17;</code>
+   * @param index The index of the element to return.
+   * @return The waitForLoadChannelMapInstances at the given index.
+   */
+  java.lang.String getWaitForLoadChannelMapInstances(int index);
+  /**
+   * <code>repeated string wait_for_load_channel_map_instances = 17;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the waitForLoadChannelMapInstances at the given index.
+   */
+  com.google.protobuf.ByteString
+      getWaitForLoadChannelMapInstancesBytes(int index);
+
+  /**
+   * <code>repeated string execute_load_attribute_map_instances = 18;</code>
+   * @return A list containing the executeLoadAttributeMapInstances.
+   */
+  java.util.List<java.lang.String>
+      getExecuteLoadAttributeMapInstancesList();
+  /**
+   * <code>repeated string execute_load_attribute_map_instances = 18;</code>
+   * @return The count of executeLoadAttributeMapInstances.
+   */
+  int getExecuteLoadAttributeMapInstancesCount();
+  /**
+   * <code>repeated string execute_load_attribute_map_instances = 18;</code>
+   * @param index The index of the element to return.
+   * @return The executeLoadAttributeMapInstances at the given index.
+   */
+  java.lang.String getExecuteLoadAttributeMapInstances(int index);
+  /**
+   * <code>repeated string execute_load_attribute_map_instances = 18;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the executeLoadAttributeMapInstances at the given index.
+   */
+  com.google.protobuf.ByteString
+      getExecuteLoadAttributeMapInstancesBytes(int index);
+
+  /**
+   * <code>repeated string execute_load_channel_names = 19;</code>
+   * @return A list containing the executeLoadChannelNames.
+   */
+  java.util.List<java.lang.String>
+      getExecuteLoadChannelNamesList();
+  /**
+   * <code>repeated string execute_load_channel_names = 19;</code>
+   * @return The count of executeLoadChannelNames.
+   */
+  int getExecuteLoadChannelNamesCount();
+  /**
+   * <code>repeated string execute_load_channel_names = 19;</code>
+   * @param index The index of the element to return.
+   * @return The executeLoadChannelNames at the given index.
+   */
+  java.lang.String getExecuteLoadChannelNames(int index);
+  /**
+   * <code>repeated string execute_load_channel_names = 19;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the executeLoadChannelNames at the given index.
+   */
+  com.google.protobuf.ByteString
+      getExecuteLoadChannelNamesBytes(int index);
+
+  /**
+   * <code>repeated string execute_load_channel_map_instances = 20;</code>
+   * @return A list containing the executeLoadChannelMapInstances.
+   */
+  java.util.List<java.lang.String>
+      getExecuteLoadChannelMapInstancesList();
+  /**
+   * <code>repeated string execute_load_channel_map_instances = 20;</code>
+   * @return The count of executeLoadChannelMapInstances.
+   */
+  int getExecuteLoadChannelMapInstancesCount();
+  /**
+   * <code>repeated string execute_load_channel_map_instances = 20;</code>
+   * @param index The index of the element to return.
+   * @return The executeLoadChannelMapInstances at the given index.
+   */
+  java.lang.String getExecuteLoadChannelMapInstances(int index);
+  /**
+   * <code>repeated string execute_load_channel_map_instances = 20;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the executeLoadChannelMapInstances at the given index.
+   */
+  com.google.protobuf.ByteString
+      getExecuteLoadChannelMapInstancesBytes(int index);
 }

@@ -76,10 +76,11 @@ func (b *Builder) RecordStart(
 	input *dexpb.InterpreterWorkflowInput,
 ) {
 	payload := &dexpb.FlowStartedOrContinuedHistoryEvent{
-		FlowExecutionId:   &dexpb.FlowExecutionID{FlowId: b.flowID, RunId: b.runID},
-		FlowType:          input.GetFlowType(),
-		FlowConfig:        input.GetConfig(),
-		FlowTimeoutPolicy: input.GetFlowTimeoutPolicy(),
+		FlowExecutionId:       &dexpb.FlowExecutionID{FlowId: b.flowID, RunId: b.runID},
+		FlowType:              input.GetFlowType(),
+		FlowConfig:            input.GetConfig(),
+		FlowTimeoutPolicy:     input.GetFlowTimeoutPolicy(),
+		TimeoutHandlerOptions: input.GetTimeoutHandlerOptions(),
 	}
 	if input.GetConfiguredFlowTimeoutSeconds() > 0 {
 		payload.FlowTimeout = durationpb.New(
@@ -835,6 +836,7 @@ func waitCompletedOutput(response *dexpb.InvokeWaitForMethodResponse) *dexpb.Ste
 		PublishToChannel:          response.GetPublishToChannel(),
 		RecordEvents:              response.GetRecordEvents(),
 		UpsertStepExecutionLocals: response.GetUpsertStepExeLocals(),
+		DeleteFromChannel:         response.GetDeleteFromChannel(),
 	}
 }
 
@@ -845,6 +847,7 @@ func executeCompletedOutput(response *dexpb.InvokeExecuteMethodResponse) *dexpb.
 		PublishToChannel:          response.GetPublishToChannel(),
 		RecordEvents:              response.GetRecordEvents(),
 		UpsertStepExecutionLocals: response.GetUpsertStepExeLocals(),
+		DeleteFromChannel:         response.GetDeleteFromChannel(),
 	}
 }
 

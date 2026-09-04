@@ -71,6 +71,27 @@ func ProceedToOnExecuteFailure[IN any](
 	}
 }
 
+// FlowTimeoutHandlerFailure identifies a recovery Step after a timeout handler exhausts retries.
+// Create it with ProceedToOnFlowTimeoutHandlerFailure. The target must be a Step[None]
+// registered by the timed-out Flow. The target reads the final handler error from Context.
+type FlowTimeoutHandlerFailure struct {
+	step    StepDef
+	options *StepOptions
+}
+
+// ProceedToOnFlowTimeoutHandlerFailure routes a timeout handler failure to a no-input Step.
+// options override the recovery Step configuration for this movement; nil uses registered options.
+// The recovery Step receives None and reads the final handler error from Context.
+func ProceedToOnFlowTimeoutHandlerFailure(
+	step Step[None],
+	options *StepOptions,
+) *FlowTimeoutHandlerFailure {
+	return &FlowTimeoutHandlerFailure{
+		step:    typedStepDef[None]{step: step},
+		options: options,
+	}
+}
+
 // StepOptions configures one Step's handler execution and persistence behavior.
 //
 // Zero values preserve server defaults. Regular attempts default to two hours with a one-minute
@@ -102,6 +123,56 @@ type StepOptions struct {
 	WaitForLockAttributes []AttributeLock
 	// ExecuteLockAttributes are acquired together for the Execute invocation.
 	ExecuteLockAttributes []AttributeLock
+	// WaitForLoadAttributeMaps includes every current instance of each AttributeMap in WaitFor.
+	WaitForLoadAttributeMaps []AttributeDef
+	// WaitForLoadAttributeMapInstances includes exact AttributeMap instances in WaitFor.
+	WaitForLoadAttributeMapInstances []AttributeMapLoad
+	// WaitForLoadChannels includes pending messages from selected Channels in WaitFor.
+	WaitForLoadChannels []ChannelDef
+	// WaitForLoadChannelMaps includes every current ChannelMap instance in WaitFor.
+	WaitForLoadChannelMaps []ChannelDef
+	// WaitForLoadChannelMapInstances includes exact ChannelMap instance messages in WaitFor.
+	WaitForLoadChannelMapInstances []ChannelMapLoad
+	// ExecuteLoadAttributeMaps includes every current instance of each AttributeMap in Execute.
+	ExecuteLoadAttributeMaps []AttributeDef
+	// ExecuteLoadAttributeMapInstances includes exact AttributeMap instances in Execute.
+	ExecuteLoadAttributeMapInstances []AttributeMapLoad
+	// ExecuteLoadChannels includes pending messages from selected Channels in Execute.
+	ExecuteLoadChannels []ChannelDef
+	// ExecuteLoadChannelMaps includes every current ChannelMap instance in Execute.
+	ExecuteLoadChannelMaps []ChannelDef
+	// ExecuteLoadChannelMapInstances includes exact ChannelMap instance messages in Execute.
+	ExecuteLoadChannelMapInstances []ChannelMapLoad
+}
+
+// FlowTimeoutHandlerOptions configures timeout-handler execution and state loading.
+// Zero values preserve the server's Execute defaults. Ordinary Attributes and Channel size
+// metadata are loaded automatically. AttributeMap values and pending Channel messages require
+// an explicit load selection. One logical handler execution may contain multiple retry attempts.
+type FlowTimeoutHandlerOptions struct {
+	// MethodTimeout limits one timeout-handler attempt; zero uses the server default.
+	MethodTimeout time.Duration
+	// HeartbeatTimeout detects a stalled regular timeout-handler attempt.
+	// Zero uses the server default. Positive values must be whole seconds within int32 range.
+	HeartbeatTimeout time.Duration
+	// Retry overrides the timeout-handler retry policy; nil uses server defaults.
+	Retry *RetryPolicy
+	// Failure selects a no-input recovery Step after the handler exhausts retries.
+	Failure *FlowTimeoutHandlerFailure
+	// Durability overrides persistence durability for timeout-handler writes.
+	Durability StepDurability
+	// LockAttributes are acquired together for the timeout-handler invocation.
+	LockAttributes []AttributeLock
+	// LoadAttributeMaps includes every current instance of each AttributeMap.
+	LoadAttributeMaps []AttributeDef
+	// LoadAttributeMapInstances includes exact AttributeMap instances.
+	LoadAttributeMapInstances []AttributeMapLoad
+	// LoadChannels includes pending messages from selected Channels.
+	LoadChannels []ChannelDef
+	// LoadChannelMaps includes every current ChannelMap instance.
+	LoadChannelMaps []ChannelDef
+	// LoadChannelMapInstances includes exact ChannelMap instance messages.
+	LoadChannelMapInstances []ChannelMapLoad
 }
 
 // WorkerTarget identifies the application WorkerService endpoint Dex should call.
@@ -152,6 +223,9 @@ type StartFlowOptions struct {
 	// TimeoutPolicy controls what Dex does when Timeout expires.
 	// The default uses Handler when the Flow implements FlowTimeoutHandler, otherwise Fail.
 	TimeoutPolicy FlowTimeoutPolicy
+	// TimeoutHandlerOptions configures execution when TimeoutPolicy resolves to TimeoutHandler.
+	// It requires a positive Timeout and is invalid with Fail or Cancel.
+	TimeoutHandlerOptions *FlowTimeoutHandlerOptions
 	// IDReusePolicy controls reuse of an existing Flow ID.
 	IDReusePolicy IDReusePolicy
 	// StartDelay postpones the first Step after start acceptance.
@@ -178,7 +252,7 @@ const (
 	TimeoutFail
 	// TimeoutCancel cancels the Flow without retrying it.
 	TimeoutCancel
-	// TimeoutHandler invokes FlowTimeoutHandler.HandleTimeout once.
+	// TimeoutHandler invokes FlowTimeoutHandler.HandleTimeout as one retryable logical execution.
 	TimeoutHandler
 )
 
@@ -206,6 +280,9 @@ type SubFlowOptions struct {
 	// TimeoutPolicy controls what Dex does when Timeout expires.
 	// The default uses Handler when the SubFlow implements FlowTimeoutHandler, otherwise Fail.
 	TimeoutPolicy FlowTimeoutPolicy
+	// TimeoutHandlerOptions configures execution when TimeoutPolicy resolves to TimeoutHandler.
+	// It requires a positive Timeout and is invalid with Fail or Cancel.
+	TimeoutHandlerOptions *FlowTimeoutHandlerOptions
 	// StartDelay postpones the SubFlow starting Step after start acceptance.
 	StartDelay *time.Duration
 	// RetryPolicy configures whole-Flow retries after terminal failures.

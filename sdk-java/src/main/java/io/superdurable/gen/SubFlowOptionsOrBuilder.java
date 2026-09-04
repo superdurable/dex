@@ -97,4 +97,19 @@ public interface SubFlowOptionsOrBuilder extends
    * @return The flowTimeoutPolicy.
    */
   io.superdurable.gen.FlowTimeoutPolicy getFlowTimeoutPolicy();
+
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 8;</code>
+   * @return Whether the timeoutHandlerOptions field is set.
+   */
+  boolean hasTimeoutHandlerOptions();
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 8;</code>
+   * @return The timeoutHandlerOptions.
+   */
+  io.superdurable.gen.FlowTimeoutHandlerOptions getTimeoutHandlerOptions();
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 8;</code>
+   */
+  io.superdurable.gen.FlowTimeoutHandlerOptionsOrBuilder getTimeoutHandlerOptionsOrBuilder();
 }

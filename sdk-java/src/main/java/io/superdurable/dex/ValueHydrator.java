@@ -93,6 +93,7 @@ final class ValueHydrator {
             source.add(request.getContext().getLastHeartbeatValue());
         }
         addValues(source, request.getAttributesList());
+        addChannelMessageValues(source, request.getLoadedChannelMessagesMap());
         final List<Value> hydrated = hydrateAll(source);
         int index = 0;
         final InvokeWaitForMethodRequest.Builder builder = request.toBuilder()
@@ -105,6 +106,7 @@ final class ValueHydrator {
         for (KV entry : request.getAttributesList()) {
             builder.addAttributes(entry.toBuilder().setValue(hydrated.get(index++)));
         }
+        hydrateChannelMessages(builder, request.getLoadedChannelMessagesMap(), hydrated, index);
         return builder.build();
     }
 
@@ -118,6 +120,7 @@ final class ValueHydrator {
         }
         addValues(source, request.getAttributesList());
         addValues(source, request.getStepExeLocalsList());
+        addChannelMessageValues(source, request.getLoadedChannelMessagesMap());
         if (request.hasConditionResults()) {
             for (ChannelResult result : request.getConditionResults().getChannelResultsList()) {
                 source.addAll(result.getValuesList());
@@ -141,6 +144,8 @@ final class ValueHydrator {
         for (KV entry : request.getStepExeLocalsList()) {
             builder.addStepExeLocals(entry.toBuilder().setValue(hydrated.get(index++)));
         }
+        index = hydrateChannelMessages(
+                builder, request.getLoadedChannelMessagesMap(), hydrated, index);
         if (request.hasConditionResults()) {
             final ConditionResults.Builder conditions = request.getConditionResults()
                     .toBuilder()
@@ -161,12 +166,7 @@ final class ValueHydrator {
         final List<Value> source = new ArrayList<Value>();
         source.add(request.getInput());
         addValues(source, request.getAttributesList());
-        for (ChannelValues channelValues : request.getLoadedChannelMessagesMap().values()) {
-            for (io.superdurable.gen.ChannelMessage message
-                    : channelValues.getMessagesList()) {
-                source.add(message.getValue());
-            }
-        }
+        addChannelMessageValues(source, request.getLoadedChannelMessagesMap());
         final List<Value> hydrated = hydrateAll(source);
         int index = 0;
         final InvokeWorkerRPCRequest.Builder builder = request.toBuilder()
@@ -188,6 +188,55 @@ final class ValueHydrator {
             builder.putLoadedChannelMessages(entry.getKey(), channelValues.build());
         }
         return builder.build();
+    }
+
+    private static void addChannelMessageValues(
+            final List<Value> source,
+            final Map<String, ChannelValues> loadedMessages) {
+        for (ChannelValues channelValues : loadedMessages.values()) {
+            for (io.superdurable.gen.ChannelMessage message
+                    : channelValues.getMessagesList()) {
+                source.add(message.getValue());
+            }
+        }
+    }
+
+    private static int hydrateChannelMessages(
+            final InvokeWaitForMethodRequest.Builder builder,
+            final Map<String, ChannelValues> loadedMessages,
+            final List<Value> hydrated,
+            final int startIndex) {
+        int index = startIndex;
+        builder.clearLoadedChannelMessages();
+        for (Map.Entry<String, ChannelValues> entry : loadedMessages.entrySet()) {
+            final ChannelValues.Builder channelValues = entry.getValue().toBuilder()
+                    .clearMessages();
+            for (io.superdurable.gen.ChannelMessage message
+                    : entry.getValue().getMessagesList()) {
+                channelValues.addMessages(message.toBuilder().setValue(hydrated.get(index++)));
+            }
+            builder.putLoadedChannelMessages(entry.getKey(), channelValues.build());
+        }
+        return index;
+    }
+
+    private static int hydrateChannelMessages(
+            final InvokeExecuteMethodRequest.Builder builder,
+            final Map<String, ChannelValues> loadedMessages,
+            final List<Value> hydrated,
+            final int startIndex) {
+        int index = startIndex;
+        builder.clearLoadedChannelMessages();
+        for (Map.Entry<String, ChannelValues> entry : loadedMessages.entrySet()) {
+            final ChannelValues.Builder channelValues = entry.getValue().toBuilder()
+                    .clearMessages();
+            for (io.superdurable.gen.ChannelMessage message
+                    : entry.getValue().getMessagesList()) {
+                channelValues.addMessages(message.toBuilder().setValue(hydrated.get(index++)));
+            }
+            builder.putLoadedChannelMessages(entry.getKey(), channelValues.build());
+        }
+        return index;
     }
 
     private List<Value> hydrateAll(final List<Value> values) {

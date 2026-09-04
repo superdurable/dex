@@ -12,8 +12,9 @@ use std::time::Duration;
 use crate::start_flow_options::InitialAttribute;
 use crate::wait::SubFlowDefinition;
 use crate::{
-    Attribute, AttributeMap, Condition, Context, Flow, FlowConfig, FlowResult, FlowTimeoutPolicy,
-    HandlerResult, RetryPolicy, SdkResult, Value, value_mapper,
+    Attribute, AttributeMap, Condition, Context, Flow, FlowConfig, FlowResult,
+    FlowTimeoutHandlerOptions, FlowTimeoutPolicy, HandlerResult, RetryPolicy, SdkResult, Value,
+    value_mapper,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -35,6 +36,7 @@ pub enum SubFlowReusePolicy {
 pub struct SubFlowOptions {
     pub(crate) timeout: Option<Duration>,
     pub(crate) timeout_policy: FlowTimeoutPolicy,
+    pub(crate) timeout_handler_options: Option<FlowTimeoutHandlerOptions>,
     pub(crate) start_delay: Option<Duration>,
     pub(crate) retry_policy: Option<RetryPolicy>,
     pub(crate) config_override: Option<FlowConfig>,
@@ -49,6 +51,7 @@ impl SubFlowOptions {
         Self {
             timeout: None,
             timeout_policy: FlowTimeoutPolicy::Default,
+            timeout_handler_options: None,
             start_delay: None,
             retry_policy: None,
             config_override: None,
@@ -67,6 +70,12 @@ impl SubFlowOptions {
     /// Selects what Dex does when the positive soft SubFlow timeout expires.
     pub fn timeout_policy(mut self, value: FlowTimeoutPolicy) -> Self {
         self.timeout_policy = value;
+        self
+    }
+
+    /// Configures execution and selective state loading for the target Flow's timeout handler.
+    pub fn timeout_handler_options(mut self, value: FlowTimeoutHandlerOptions) -> Self {
+        self.timeout_handler_options = Some(value);
         self
     }
 

@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use dex_sdk::{
     Attribute, AttributeIndex, AttributeMap, Context, Flow, HandlerError, HandlerResult,
-    PersistenceSchema, Registry, StartFlowOptions, Step, StepDecision, StepList, Wait,
+    PersistenceSchema, Registry, StartFlowOptions, Step, StepDecision, StepList, StepOptions, Wait,
 };
 
 use crate::support::{DexDevTestEnvironment, flow_id};
@@ -171,6 +171,10 @@ impl Step for PersistenceFirstStep {
         self.datetime.set(context, data.datetime)?;
         self.boolean.set(context, true)?;
         Ok(StepDecision::go_to(&PersistenceSecondStep::new(), ()))
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().wait_for_load_attribute_map(&self.data_map)
     }
 }
 

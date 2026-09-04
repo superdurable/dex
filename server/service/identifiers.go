@@ -53,6 +53,20 @@ func ValidateStepOptions(options *dexpb.StepOptions, minimumHeartbeatTimeout tim
 			time.Duration(heartbeatTimeout)*time.Second < minimumHeartbeatTimeout {
 			return fmt.Errorf("heartbeat timeout must be zero or at least %s", minimumHeartbeatTimeout)
 		}
+		if _, err := ValidateAndSortStateSelections(
+			current.GetWaitForLoadAttributeMapInstances(),
+			current.GetWaitForLoadChannelNames(),
+			current.GetWaitForLoadChannelMapInstances(),
+		); err != nil {
+			return fmt.Errorf("WaitFor %w", err)
+		}
+		if _, err := ValidateAndSortStateSelections(
+			current.GetExecuteLoadAttributeMapInstances(),
+			current.GetExecuteLoadChannelNames(),
+			current.GetExecuteLoadChannelMapInstances(),
+		); err != nil {
+			return fmt.Errorf("Execute %w", err)
+		}
 	}
 	return nil
 }

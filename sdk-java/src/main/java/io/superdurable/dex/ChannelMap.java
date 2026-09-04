@@ -73,9 +73,11 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     }
 
     /**
-     * Stages deletion of one pending message from a Channel-map instance in an RPC handler.
+     * Stages deletion of one pending message from a Channel-map instance.
      *
-     * @param context the RPC invocation context
+     * <p>Step and timeout-handler deletions are best-effort when the message is already absent.
+     *
+     * @param context the handler invocation context
      * @param instance the nonblank Channel-map instance
      * @param messageId the nonblank server-assigned message ID
      */
@@ -97,14 +99,14 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     /**
      * Returns one instance's loaded pending-message snapshot in FIFO order.
      *
-     * <p>Add {@code MapName/instance} to {@link RPC#loadChannelMapInstances()}.
-     * The snapshot does not change after staged publications or deletions in the same handler.
+     * <p>Select the instance in the handler's options. The snapshot does not change after staged
+     * publications or deletions in the same handler.
      *
-     * @param context the RPC invocation context
+     * @param context the handler invocation context
      * @param instance the logical ChannelMap instance
      * @return immutable pending message IDs and decoded values
-     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the RPC did
-     *     not load its messages
+     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the invocation
+     *     did not load its messages
      */
     public List<ChannelMessage<T>> pendingMessages(
             final Context context,
@@ -113,14 +115,14 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     }
 
     /**
-     * Finds one instance message in the loaded RPC snapshot.
+     * Finds one instance message in the loaded handler snapshot.
      *
-     * @param context the RPC invocation context
+     * @param context the handler invocation context
      * @param instance the logical ChannelMap instance
      * @param messageId the server-assigned message ID
      * @return the matching message, or {@code null} when absent from the snapshot
-     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the RPC did
-     *     not load its messages
+     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the invocation
+     *     did not load its messages
      */
     public ChannelMessage<T> findPendingMessage(
             final Context context,

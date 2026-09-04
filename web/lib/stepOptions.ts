@@ -32,6 +32,10 @@ function doFindSourceStepOptions(
   const stepInput = asData(event.payload.input).stepInput;
   if (!stepExecutionID || !stepType) return {};
 
+  if (stepType === 'sys:timeout_handler') {
+    return findTimeoutHandlerStepOptions(event, history);
+  }
+
   const carriedOptions = findContinuedStepOptions(
     event,
     history,
@@ -70,6 +74,28 @@ function doFindSourceStepOptions(
     }
   }
   return {};
+}
+
+function findTimeoutHandlerStepOptions(
+  event: FlowHistoryEvent,
+  history: FlowHistoryEvent[],
+): Data {
+  const startEvent = history
+    .filter((candidate) => candidate.type === 'FlowStartedOrContinued')
+    .filter((candidate) => candidate.eventId < event.eventId)
+    .sort((left, right) => right.eventId - left.eventId)
+    .find((candidate) => hasData(asData(candidate.payload.timeoutHandlerOptions)));
+  const options = asData(startEvent?.payload.timeoutHandlerOptions);
+  if (!hasData(options)) return {};
+  return {
+    executeFailurePolicy: options.failurePolicy,
+    executeFailureProceedStepType: options.failureProceedStepType,
+    executeFailureProceedStepOptions: options.failureProceedStepOptions,
+    executeLockAttributeKeys: options.lockAttributeKeys,
+    executeLoadAttributeMapInstances: options.loadAttributeMapInstances,
+    executeLoadChannelNames: options.loadChannelNames,
+    executeLoadChannelMapInstances: options.loadChannelMapInstances,
+  };
 }
 
 function findContinuedStepOptions(

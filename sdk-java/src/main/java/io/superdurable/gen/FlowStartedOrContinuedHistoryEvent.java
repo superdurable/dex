@@ -228,6 +228,32 @@ private static final long serialVersionUID = 0L;
     return result == null ? io.superdurable.gen.FlowTimeoutPolicy.UNRECOGNIZED : result;
   }
 
+  public static final int TIMEOUT_HANDLER_OPTIONS_FIELD_NUMBER = 6;
+  private io.superdurable.gen.FlowTimeoutHandlerOptions timeoutHandlerOptions_;
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+   * @return Whether the timeoutHandlerOptions field is set.
+   */
+  @java.lang.Override
+  public boolean hasTimeoutHandlerOptions() {
+    return ((bitField0_ & 0x00000008) != 0);
+  }
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+   * @return The timeoutHandlerOptions.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.FlowTimeoutHandlerOptions getTimeoutHandlerOptions() {
+    return timeoutHandlerOptions_ == null ? io.superdurable.gen.FlowTimeoutHandlerOptions.getDefaultInstance() : timeoutHandlerOptions_;
+  }
+  /**
+   * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.FlowTimeoutHandlerOptionsOrBuilder getTimeoutHandlerOptionsOrBuilder() {
+    return timeoutHandlerOptions_ == null ? io.superdurable.gen.FlowTimeoutHandlerOptions.getDefaultInstance() : timeoutHandlerOptions_;
+  }
+
   public static final int INITIAL_START_FIELD_NUMBER = 10;
   /**
    * <code>.dex.FlowInitialStart initial_start = 10;</code>
@@ -319,6 +345,9 @@ private static final long serialVersionUID = 0L;
     if (flowTimeoutPolicy_ != io.superdurable.gen.FlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_UNSPECIFIED.getNumber()) {
       output.writeEnum(5, flowTimeoutPolicy_);
     }
+    if (((bitField0_ & 0x00000008) != 0)) {
+      output.writeMessage(6, getTimeoutHandlerOptions());
+    }
     if (startOrContinueCase_ == 10) {
       output.writeMessage(10, (io.superdurable.gen.FlowInitialStart) startOrContinue_);
     }
@@ -347,6 +376,10 @@ private static final long serialVersionUID = 0L;
     if (flowTimeoutPolicy_ != io.superdurable.gen.FlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_UNSPECIFIED.getNumber()) {
       size += com.google.protobuf.CodedOutputStream
         .computeEnumSize(5, flowTimeoutPolicy_);
+    }
+    if (((bitField0_ & 0x00000008) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(6, getTimeoutHandlerOptions());
     }
     if (startOrContinueCase_ == 10) {
       size += com.google.protobuf.CodedOutputStream
@@ -398,6 +431,11 @@ private static final long serialVersionUID = 0L;
           .equals(other.getFlowTimeout())) return false;
     }
     if (flowTimeoutPolicy_ != other.flowTimeoutPolicy_) return false;
+    if (hasTimeoutHandlerOptions() != other.hasTimeoutHandlerOptions()) return false;
+    if (hasTimeoutHandlerOptions()) {
+      if (!getTimeoutHandlerOptions()
+          .equals(other.getTimeoutHandlerOptions())) return false;
+    }
     if (!getStartOrContinueCase().equals(other.getStartOrContinueCase())) return false;
     switch (startOrContinueCase_) {
       case 10:
@@ -438,6 +476,10 @@ private static final long serialVersionUID = 0L;
     }
     hash = (37 * hash) + FLOW_TIMEOUT_POLICY_FIELD_NUMBER;
     hash = (53 * hash) + flowTimeoutPolicy_;
+    if (hasTimeoutHandlerOptions()) {
+      hash = (37 * hash) + TIMEOUT_HANDLER_OPTIONS_FIELD_NUMBER;
+      hash = (53 * hash) + getTimeoutHandlerOptions().hashCode();
+    }
     switch (startOrContinueCase_) {
       case 10:
         hash = (37 * hash) + INITIAL_START_FIELD_NUMBER;
@@ -583,6 +625,7 @@ private static final long serialVersionUID = 0L;
         internalGetFlowExecutionIdFieldBuilder();
         internalGetFlowConfigFieldBuilder();
         internalGetFlowTimeoutFieldBuilder();
+        internalGetTimeoutHandlerOptionsFieldBuilder();
       }
     }
     @java.lang.Override
@@ -606,6 +649,11 @@ private static final long serialVersionUID = 0L;
         flowTimeoutBuilder_ = null;
       }
       flowTimeoutPolicy_ = 0;
+      timeoutHandlerOptions_ = null;
+      if (timeoutHandlerOptionsBuilder_ != null) {
+        timeoutHandlerOptionsBuilder_.dispose();
+        timeoutHandlerOptionsBuilder_ = null;
+      }
       if (initialStartBuilder_ != null) {
         initialStartBuilder_.clear();
       }
@@ -673,6 +721,12 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000010) != 0)) {
         result.flowTimeoutPolicy_ = flowTimeoutPolicy_;
       }
+      if (((from_bitField0_ & 0x00000020) != 0)) {
+        result.timeoutHandlerOptions_ = timeoutHandlerOptionsBuilder_ == null
+            ? timeoutHandlerOptions_
+            : timeoutHandlerOptionsBuilder_.build();
+        to_bitField0_ |= 0x00000008;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -717,6 +771,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.flowTimeoutPolicy_ != 0) {
         setFlowTimeoutPolicyValue(other.getFlowTimeoutPolicyValue());
+      }
+      if (other.hasTimeoutHandlerOptions()) {
+        mergeTimeoutHandlerOptions(other.getTimeoutHandlerOptions());
       }
       switch (other.getStartOrContinueCase()) {
         case INITIAL_START: {
@@ -788,6 +845,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000010;
               break;
             } // case 40
+            case 50: {
+              input.readMessage(
+                  internalGetTimeoutHandlerOptionsFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000020;
+              break;
+            } // case 50
             case 82: {
               input.readMessage(
                   internalGetInitialStartFieldBuilder().getBuilder(),
@@ -1319,6 +1383,127 @@ private static final long serialVersionUID = 0L;
       flowTimeoutPolicy_ = 0;
       onChanged();
       return this;
+    }
+
+    private io.superdurable.gen.FlowTimeoutHandlerOptions timeoutHandlerOptions_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.FlowTimeoutHandlerOptions, io.superdurable.gen.FlowTimeoutHandlerOptions.Builder, io.superdurable.gen.FlowTimeoutHandlerOptionsOrBuilder> timeoutHandlerOptionsBuilder_;
+    /**
+     * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+     * @return Whether the timeoutHandlerOptions field is set.
+     */
+    public boolean hasTimeoutHandlerOptions() {
+      return ((bitField0_ & 0x00000020) != 0);
+    }
+    /**
+     * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+     * @return The timeoutHandlerOptions.
+     */
+    public io.superdurable.gen.FlowTimeoutHandlerOptions getTimeoutHandlerOptions() {
+      if (timeoutHandlerOptionsBuilder_ == null) {
+        return timeoutHandlerOptions_ == null ? io.superdurable.gen.FlowTimeoutHandlerOptions.getDefaultInstance() : timeoutHandlerOptions_;
+      } else {
+        return timeoutHandlerOptionsBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+     */
+    public Builder setTimeoutHandlerOptions(io.superdurable.gen.FlowTimeoutHandlerOptions value) {
+      if (timeoutHandlerOptionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        timeoutHandlerOptions_ = value;
+      } else {
+        timeoutHandlerOptionsBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+     */
+    public Builder setTimeoutHandlerOptions(
+        io.superdurable.gen.FlowTimeoutHandlerOptions.Builder builderForValue) {
+      if (timeoutHandlerOptionsBuilder_ == null) {
+        timeoutHandlerOptions_ = builderForValue.build();
+      } else {
+        timeoutHandlerOptionsBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+     */
+    public Builder mergeTimeoutHandlerOptions(io.superdurable.gen.FlowTimeoutHandlerOptions value) {
+      if (timeoutHandlerOptionsBuilder_ == null) {
+        if (((bitField0_ & 0x00000020) != 0) &&
+          timeoutHandlerOptions_ != null &&
+          timeoutHandlerOptions_ != io.superdurable.gen.FlowTimeoutHandlerOptions.getDefaultInstance()) {
+          getTimeoutHandlerOptionsBuilder().mergeFrom(value);
+        } else {
+          timeoutHandlerOptions_ = value;
+        }
+      } else {
+        timeoutHandlerOptionsBuilder_.mergeFrom(value);
+      }
+      if (timeoutHandlerOptions_ != null) {
+        bitField0_ |= 0x00000020;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+     */
+    public Builder clearTimeoutHandlerOptions() {
+      bitField0_ = (bitField0_ & ~0x00000020);
+      timeoutHandlerOptions_ = null;
+      if (timeoutHandlerOptionsBuilder_ != null) {
+        timeoutHandlerOptionsBuilder_.dispose();
+        timeoutHandlerOptionsBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+     */
+    public io.superdurable.gen.FlowTimeoutHandlerOptions.Builder getTimeoutHandlerOptionsBuilder() {
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return internalGetTimeoutHandlerOptionsFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+     */
+    public io.superdurable.gen.FlowTimeoutHandlerOptionsOrBuilder getTimeoutHandlerOptionsOrBuilder() {
+      if (timeoutHandlerOptionsBuilder_ != null) {
+        return timeoutHandlerOptionsBuilder_.getMessageOrBuilder();
+      } else {
+        return timeoutHandlerOptions_ == null ?
+            io.superdurable.gen.FlowTimeoutHandlerOptions.getDefaultInstance() : timeoutHandlerOptions_;
+      }
+    }
+    /**
+     * <code>.dex.FlowTimeoutHandlerOptions timeout_handler_options = 6;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.FlowTimeoutHandlerOptions, io.superdurable.gen.FlowTimeoutHandlerOptions.Builder, io.superdurable.gen.FlowTimeoutHandlerOptionsOrBuilder> 
+        internalGetTimeoutHandlerOptionsFieldBuilder() {
+      if (timeoutHandlerOptionsBuilder_ == null) {
+        timeoutHandlerOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.FlowTimeoutHandlerOptions, io.superdurable.gen.FlowTimeoutHandlerOptions.Builder, io.superdurable.gen.FlowTimeoutHandlerOptionsOrBuilder>(
+                getTimeoutHandlerOptions(),
+                getParentForChildren(),
+                isClean());
+        timeoutHandlerOptions_ = null;
+      }
+      return timeoutHandlerOptionsBuilder_;
     }
 
     private com.google.protobuf.SingleFieldBuilder<

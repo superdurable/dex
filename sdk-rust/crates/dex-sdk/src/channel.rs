@@ -15,7 +15,7 @@ pub(crate) struct ChannelLoad {
     pub(crate) name: String,
 }
 
-/// Selects one ChannelMap instance's pending messages for an RPC invocation.
+/// Selects one ChannelMap instance's pending messages for a handler invocation.
 ///
 /// Create instance loads with [`ChannelMap::load_messages`], then attach them with
 /// [`Rpc::load_channel_map_instance`](crate::Rpc::load_channel_map_instance).
@@ -76,7 +76,7 @@ impl<T> Channel<T> {
         context.publish(self, value)
     }
 
-    /// Stages deletion of one pending message from an RPC handler.
+    /// Stages best-effort deletion of one pending message from a handler.
     pub fn delete(&self, context: &mut Context, message_id: &str) -> HandlerResult<()> {
         context.delete_channel_message(self, message_id)
     }
@@ -86,12 +86,12 @@ impl<T> Channel<T> {
         context.channel_size(self)
     }
 
-    /// Returns pending messages from the RPC invocation snapshot in FIFO order.
+    /// Returns loaded pending messages from the invocation snapshot in FIFO order.
     ///
     /// # Errors
     ///
-    /// Returns a [`crate::HandlerError`] when called outside an RPC, when this Channel was not
-    /// selected with [`Rpc::load_channel`](crate::Rpc::load_channel), or when decoding fails.
+    /// Returns a [`crate::HandlerError`] when this Channel was not selected by the handler options
+    /// or when decoding fails.
     pub fn pending_messages(&self, context: &Context) -> HandlerResult<Vec<ChannelMessage<T>>>
     where
         T: Value,
@@ -206,7 +206,7 @@ impl<T> ChannelMap<T> {
         }
     }
 
-    /// Selects one slash-free map `instance`'s pending messages for an RPC Context.
+    /// Selects one slash-free map `instance`'s pending messages for a handler Context.
     pub fn load_messages(&self, instance: impl Into<String>) -> ChannelMapLoad {
         ChannelMapLoad {
             name: self.name.clone(),
@@ -226,7 +226,7 @@ impl<T> ChannelMap<T> {
         context.publish_map(self, instance, value)
     }
 
-    /// Stages deletion of one pending message from a Channel-map instance in an RPC.
+    /// Stages best-effort deletion of one pending message from a Channel-map instance.
     pub fn delete(
         &self,
         context: &mut Context,
@@ -241,12 +241,12 @@ impl<T> ChannelMap<T> {
         context.channel_map_size(self, instance)
     }
 
-    /// Returns one instance's pending messages from the RPC snapshot in FIFO order.
+    /// Returns one instance's loaded pending messages in FIFO order.
     ///
     /// # Errors
     ///
-    /// Returns a [`crate::HandlerError`] when called outside an RPC, when the instance was not
-    /// selected for loading, or when a Value cannot be decoded.
+    /// Returns a [`crate::HandlerError`] when the instance was not selected by the handler options
+    /// or when a Value cannot be decoded.
     pub fn pending_messages(
         &self,
         context: &Context,
@@ -280,7 +280,7 @@ impl<T> ChannelMap<T> {
             .find(|message| message.message_id == message_id))
     }
 
-    /// Returns the number of non-empty instances visible to the current RPC.
+    /// Returns the number of non-empty instances visible to the current handler.
     pub fn map_size(&self, context: &Context) -> HandlerResult<usize> {
         Ok(self.all_instance_keys(context)?.len())
     }

@@ -166,8 +166,8 @@ impl Context {
     ///
     /// # Errors
     ///
-    /// Returns [`HandlerError`] for an RPC or Flow timeout Context, cancellation, or a closed
-    /// Worker response stream.
+    /// Returns [`HandlerError`] for an RPC Context, cancellation, or a closed Worker response
+    /// stream.
     pub fn record_heartbeat(&mut self) -> HandlerResult<()> {
         self.step_output_emitter()?.send_heartbeat(None)
     }
@@ -198,8 +198,8 @@ impl Context {
     ///
     /// # Errors
     ///
-    /// Returns [`HandlerError`] for an RPC or Flow timeout Context, encoding failure, cancellation,
-    /// or a closed Worker response stream.
+    /// Returns [`HandlerError`] for an RPC Context, encoding failure, cancellation, or a closed
+    /// Worker response stream.
     pub fn record_heartbeat_value<T: Value>(&mut self, value: T) -> HandlerResult<()> {
         let value = value_mapper::encode_handler(&value)?;
         self.step_output_emitter()?.send_heartbeat(Some(value))
@@ -446,13 +446,12 @@ impl Context {
             PersistenceKind::AttributeMap,
             Some("key-check"),
         )?;
-        if self.method == InvocationMethod::Rpc
-            && !self
-                .loaded_attribute_map_instances
-                .contains(&format!("{}/", attribute.name()))
+        if !self
+            .loaded_attribute_map_instances
+            .contains(&format!("{}/", attribute.name()))
         {
             return Err(attribute_map_not_loaded(format!(
-                "all AttributeMap instances were not loaded for RPC: {}",
+                "all AttributeMap instances were not loaded for this invocation: {}",
                 attribute.name()
             )));
         }
@@ -518,7 +517,7 @@ impl Context {
         self.channel_size_value(channel.name(), PersistenceKind::ChannelMap, Some(instance))
     }
 
-    /// Returns one singleton Channel's pending messages from the RPC snapshot.
+    /// Returns one singleton Channel's loaded pending-message snapshot.
     pub fn pending_channel_messages<T: Value>(
         &self,
         channel: &Channel<T>,
@@ -526,7 +525,7 @@ impl Context {
         self.pending_channel_messages_value(channel.name(), PersistenceKind::Channel, None)
     }
 
-    /// Returns one Channel-map instance's pending messages from the RPC snapshot.
+    /// Returns one Channel-map instance's loaded pending-message snapshot.
     pub fn pending_channel_map_messages<T: Value>(
         &self,
         channel: &ChannelMap<T>,
@@ -543,12 +542,6 @@ impl Context {
         &self,
         channel: &ChannelMap<T>,
     ) -> HandlerResult<Vec<String>> {
-        if self.method != InvocationMethod::Rpc {
-            return Err(HandlerError::new(
-                "dex_sdk::HandlerError",
-                "ChannelMap introspection requires an RPC invocation",
-            ));
-        }
         self.registered_name(
             channel.name(),
             PersistenceKind::ChannelMap,
@@ -736,14 +729,14 @@ impl Context {
         instance: Option<&str>,
     ) -> HandlerResult<Option<T>> {
         let key = self.registered_name(name, kind, instance)?;
-        if self.method == InvocationMethod::Rpc && kind == PersistenceKind::AttributeMap {
+        if kind == PersistenceKind::AttributeMap {
             let is_loaded = self
                 .loaded_attribute_map_instances
                 .contains(&format!("{name}/"))
                 || self.loaded_attribute_map_instances.contains(&key);
             if !is_loaded {
                 return Err(attribute_map_not_loaded(format!(
-                    "AttributeMap instance was not loaded for RPC: {key}"
+                    "AttributeMap instance was not loaded for this invocation: {key}"
                 )));
             }
         }
@@ -800,16 +793,14 @@ impl Context {
             value: Some(value),
             message_id: String::new(),
         });
-        if self.method == InvocationMethod::Rpc {
-            self.channel_infos
-                .entry(channel_name)
-                .and_modify(|info| info.size += 1)
-                .or_insert(ChannelInfo { size: 1 });
-        }
+        self.channel_infos
+            .entry(channel_name)
+            .and_modify(|info| info.size += 1)
+            .or_insert(ChannelInfo { size: 1 });
         Ok(())
     }
 
-    /// Stages deletion of one singleton Channel message from an RPC.
+    /// Stages best-effort deletion of one singleton Channel message.
     pub fn delete_channel_message<T>(
         &mut self,
         channel: &Channel<T>,
@@ -823,7 +814,7 @@ impl Context {
         )
     }
 
-    /// Stages deletion of one Channel-map message from an RPC.
+    /// Stages best-effort deletion of one Channel-map message.
     pub fn delete_channel_map_message<T>(
         &mut self,
         channel: &ChannelMap<T>,
@@ -845,12 +836,6 @@ impl Context {
         instance: Option<&str>,
         message_id: &str,
     ) -> HandlerResult<()> {
-        if self.method != InvocationMethod::Rpc {
-            return Err(HandlerError::new(
-                "dex_sdk::HandlerError",
-                "Channel message deletion requires an RPC Context",
-            ));
-        }
         if message_id.is_empty() {
             return Err(HandlerError::new(
                 "dex_sdk::HandlerError",
@@ -910,12 +895,6 @@ impl Context {
         kind: PersistenceKind,
         instance: Option<&str>,
     ) -> HandlerResult<Vec<ChannelMessage<T>>> {
-        if self.method != InvocationMethod::Rpc {
-            return Err(HandlerError::new(
-                "dex_sdk::HandlerError",
-                "pending Channel messages require an RPC Context",
-            ));
-        }
         let physical_name = self.registered_name(name, kind, instance)?;
         let is_loaded = match kind {
             PersistenceKind::Channel => self.loaded_channel_names.contains(&physical_name),
@@ -928,7 +907,7 @@ impl Context {
         };
         if !is_loaded {
             return Err(channel_messages_not_loaded(format!(
-                "Channel messages were not loaded for RPC: {physical_name}"
+                "Channel messages were not loaded for this invocation: {physical_name}"
             )));
         }
         self.loaded_channel_messages

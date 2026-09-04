@@ -80,8 +80,8 @@ type Flow interface {
 // returned StepDecision has the same validation and terminal behavior as a Step Execute result.
 // Context exposes the timed-out Flow execution and permits normal Attribute and Channel writes.
 //
-// HandleTimeout may return GoTo, DeadEnd, ForceComplete, ForceFail, or GracefulComplete. It runs
-// at most once for an execution, after Dex's durable timeout timer completes or is skipped.
+// HandleTimeout may return GoTo, DeadEnd, ForceComplete, ForceFail, or GracefulComplete. It starts
+// after Dex's durable timeout timer and may retry according to FlowTimeoutHandlerOptions.
 type FlowTimeoutHandler interface {
 	// HandleTimeout executes the Flow's soft-timeout hook.
 	//

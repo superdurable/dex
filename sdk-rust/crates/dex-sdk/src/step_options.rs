@@ -10,7 +10,9 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::attribute::AttributeLock;
-use crate::{RetryPolicy, Step, Value};
+use crate::attribute::AttributeMapLoad;
+use crate::channel::{ChannelLoad, ChannelMapLoad};
+use crate::{AttributeMap, Channel, ChannelMap, RetryPolicy, Step, Value};
 
 /// Configures one Step's handler execution and persistence behavior.
 ///
@@ -42,6 +44,12 @@ pub struct StepOptions<Input> {
     pub(crate) execute_durability: StepDurability,
     pub(crate) wait_for_locks: Vec<AttributeLock>,
     pub(crate) execute_locks: Vec<AttributeLock>,
+    pub(crate) wait_for_load_attribute_maps: Vec<AttributeMapLoad>,
+    pub(crate) wait_for_load_channels: Vec<ChannelLoad>,
+    pub(crate) wait_for_load_channel_maps: Vec<ChannelMapLoad>,
+    pub(crate) execute_load_attribute_maps: Vec<AttributeMapLoad>,
+    pub(crate) execute_load_channels: Vec<ChannelLoad>,
+    pub(crate) execute_load_channel_maps: Vec<ChannelMapLoad>,
     pub(crate) execute_failure_step: Option<&'static str>,
     marker: PhantomData<fn(Input)>,
 }
@@ -58,6 +66,12 @@ pub(crate) struct ErasedStepOptions {
     pub(crate) execute_durability: StepDurability,
     pub(crate) wait_for_locks: Vec<AttributeLock>,
     pub(crate) execute_locks: Vec<AttributeLock>,
+    pub(crate) wait_for_load_attribute_maps: Vec<AttributeMapLoad>,
+    pub(crate) wait_for_load_channels: Vec<ChannelLoad>,
+    pub(crate) wait_for_load_channel_maps: Vec<ChannelMapLoad>,
+    pub(crate) execute_load_attribute_maps: Vec<AttributeMapLoad>,
+    pub(crate) execute_load_channels: Vec<ChannelLoad>,
+    pub(crate) execute_load_channel_maps: Vec<ChannelMapLoad>,
     pub(crate) execute_failure_step: Option<&'static str>,
 }
 
@@ -74,6 +88,12 @@ impl<Input> From<StepOptions<Input>> for ErasedStepOptions {
             execute_durability: options.execute_durability,
             wait_for_locks: options.wait_for_locks,
             execute_locks: options.execute_locks,
+            wait_for_load_attribute_maps: options.wait_for_load_attribute_maps,
+            wait_for_load_channels: options.wait_for_load_channels,
+            wait_for_load_channel_maps: options.wait_for_load_channel_maps,
+            execute_load_attribute_maps: options.execute_load_attribute_maps,
+            execute_load_channels: options.execute_load_channels,
+            execute_load_channel_maps: options.execute_load_channel_maps,
             execute_failure_step: options.execute_failure_step,
         }
     }
@@ -93,6 +113,12 @@ impl<Input: Value> StepOptions<Input> {
             execute_durability: StepDurability::Default,
             wait_for_locks: Vec::new(),
             execute_locks: Vec::new(),
+            wait_for_load_attribute_maps: Vec::new(),
+            wait_for_load_channels: Vec::new(),
+            wait_for_load_channel_maps: Vec::new(),
+            execute_load_attribute_maps: Vec::new(),
+            execute_load_channels: Vec::new(),
+            execute_load_channel_maps: Vec::new(),
             execute_failure_step: None,
             marker: PhantomData,
         }
@@ -168,6 +194,82 @@ impl<Input: Value> StepOptions<Input> {
     /// Adds an Attribute lock held for the `execute` invocation.
     pub fn execute_lock(mut self, value: AttributeLock) -> Self {
         self.execute_locks.push(value);
+        self
+    }
+
+    /// Loads every current instance of `attribute_map` for `wait_for`.
+    pub fn wait_for_load_attribute_map<T>(mut self, attribute_map: &AttributeMap<T>) -> Self {
+        self.wait_for_load_attribute_maps.push(AttributeMapLoad {
+            name: attribute_map.name().to_owned(),
+            instance: None,
+        });
+        self
+    }
+
+    /// Loads one AttributeMap instance for `wait_for`.
+    pub fn wait_for_load_attribute_map_instance(mut self, load: AttributeMapLoad) -> Self {
+        self.wait_for_load_attribute_maps.push(load);
+        self
+    }
+
+    /// Loads one Channel's pending messages for `wait_for`.
+    pub fn wait_for_load_channel<T>(mut self, channel: &Channel<T>) -> Self {
+        self.wait_for_load_channels.push(ChannelLoad {
+            name: channel.name().to_owned(),
+        });
+        self
+    }
+
+    /// Loads every current ChannelMap instance's pending messages for `wait_for`.
+    pub fn wait_for_load_channel_map<T>(mut self, channel_map: &ChannelMap<T>) -> Self {
+        self.wait_for_load_channel_maps.push(ChannelMapLoad {
+            name: channel_map.name().to_owned(),
+            instance: None,
+        });
+        self
+    }
+
+    /// Loads one ChannelMap instance's pending messages for `wait_for`.
+    pub fn wait_for_load_channel_map_instance(mut self, load: ChannelMapLoad) -> Self {
+        self.wait_for_load_channel_maps.push(load);
+        self
+    }
+
+    /// Loads every current instance of `attribute_map` for `execute`.
+    pub fn execute_load_attribute_map<T>(mut self, attribute_map: &AttributeMap<T>) -> Self {
+        self.execute_load_attribute_maps.push(AttributeMapLoad {
+            name: attribute_map.name().to_owned(),
+            instance: None,
+        });
+        self
+    }
+
+    /// Loads one AttributeMap instance for `execute`.
+    pub fn execute_load_attribute_map_instance(mut self, load: AttributeMapLoad) -> Self {
+        self.execute_load_attribute_maps.push(load);
+        self
+    }
+
+    /// Loads one Channel's pending messages for `execute`.
+    pub fn execute_load_channel<T>(mut self, channel: &Channel<T>) -> Self {
+        self.execute_load_channels.push(ChannelLoad {
+            name: channel.name().to_owned(),
+        });
+        self
+    }
+
+    /// Loads every current ChannelMap instance's pending messages for `execute`.
+    pub fn execute_load_channel_map<T>(mut self, channel_map: &ChannelMap<T>) -> Self {
+        self.execute_load_channel_maps.push(ChannelMapLoad {
+            name: channel_map.name().to_owned(),
+            instance: None,
+        });
+        self
+    }
+
+    /// Loads one ChannelMap instance's pending messages for `execute`.
+    pub fn execute_load_channel_map_instance(mut self, load: ChannelMapLoad) -> Self {
+        self.execute_load_channel_maps.push(load);
         self
     }
 }

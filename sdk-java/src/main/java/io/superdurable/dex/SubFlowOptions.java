@@ -37,6 +37,7 @@ import java.util.Objects;
 public final class SubFlowOptions {
     private final Duration timeout;
     private final FlowTimeoutPolicy timeoutPolicy;
+    private final FlowTimeoutHandlerOptions timeoutHandlerOptions;
     private final Duration startDelay;
     private final RetryPolicy retryPolicy;
     private final List<AttributeInitialization> attributes;
@@ -47,6 +48,7 @@ public final class SubFlowOptions {
     private SubFlowOptions(final Builder builder) {
         timeout = builder.timeout;
         timeoutPolicy = builder.timeoutPolicy;
+        timeoutHandlerOptions = builder.timeoutHandlerOptions;
         startDelay = builder.startDelay;
         retryPolicy = builder.retryPolicy;
         attributes = Collections.unmodifiableList(
@@ -71,6 +73,10 @@ public final class SubFlowOptions {
 
     FlowTimeoutPolicy getTimeoutPolicy() {
         return timeoutPolicy;
+    }
+
+    FlowTimeoutHandlerOptions getTimeoutHandlerOptions() {
+        return timeoutHandlerOptions;
     }
 
     Duration getStartDelay() {
@@ -106,6 +112,7 @@ public final class SubFlowOptions {
     public static final class Builder {
         private Duration timeout;
         private FlowTimeoutPolicy timeoutPolicy = FlowTimeoutPolicy.DEFAULT;
+        private FlowTimeoutHandlerOptions timeoutHandlerOptions;
         private Duration startDelay;
         private RetryPolicy retryPolicy;
         private final List<AttributeInitialization> attributes =
@@ -142,6 +149,19 @@ public final class SubFlowOptions {
          */
         public Builder timeoutPolicy(final FlowTimeoutPolicy value) {
             timeoutPolicy = Objects.requireNonNull(value, "timeoutPolicy");
+            return this;
+        }
+
+        /**
+         * Configures timeout-handler execution and selective state loading.
+         *
+         * <p>This option requires a positive timeout and a policy resolving to HANDLER.
+         *
+         * @param value the handler options, or {@code null} for server defaults
+         * @return this builder
+         */
+        public Builder timeoutHandlerOptions(final FlowTimeoutHandlerOptions value) {
+            timeoutHandlerOptions = value;
             return this;
         }
 

@@ -84,9 +84,10 @@ func (am *PersistenceManager) GetAttributes(
 	return &dexpb.GetAttributesQueryResponse{Attributes: attributes}
 }
 
-func (am *PersistenceManager) LoadAttributes(
+func (am *PersistenceManager) LoadSelectedAttributes(
 	ctx interfaces.UnifiedContext,
 	keysToLock []string,
+	attributeMapInstances []string,
 ) ([]*dexpb.KV, error) {
 	if err := am.provider.Await(ctx, func() bool {
 		return am.CanLockKeys(keysToLock)
@@ -94,7 +95,7 @@ func (am *PersistenceManager) LoadAttributes(
 		return nil, err
 	}
 	am.lockKeys(keysToLock)
-	return am.GetAllAttributes(), nil
+	return am.GetSelectedAttributes(attributeMapInstances), nil
 }
 
 func (am *PersistenceManager) TryLoadAttributes(
@@ -116,7 +117,7 @@ func (am *PersistenceManager) TryLoadRPCAttributes(
 		return nil, false
 	}
 	am.lockKeys(keysToLock)
-	return am.GetRPCAttributes(attributeMapInstances), true
+	return am.GetSelectedAttributes(attributeMapInstances), true
 }
 
 func (am *PersistenceManager) GetAllAttributes() []*dexpb.KV {
@@ -129,8 +130,8 @@ func (am *PersistenceManager) GetAllAttributes() []*dexpb.KV {
 	return attributes
 }
 
-// GetRPCAttributes returns ordinary Attributes and requested AttributeMap entries.
-func (am *PersistenceManager) GetRPCAttributes(attributeMapInstances []string) []*dexpb.KV {
+// GetSelectedAttributes returns ordinary Attributes and selected AttributeMap entries.
+func (am *PersistenceManager) GetSelectedAttributes(attributeMapInstances []string) []*dexpb.KV {
 	allInstancePrefixes := make([]string, 0, len(attributeMapInstances))
 	exactInstances := make(map[string]struct{}, len(attributeMapInstances))
 	for _, instance := range attributeMapInstances {

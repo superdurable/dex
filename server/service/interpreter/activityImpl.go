@@ -143,6 +143,9 @@ func (a *Activities) InvokeWaitForMethod(
 			a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
 			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 		}
+		if err := blobstore.HydrateChannelValues(ctx, req.GetLoadedChannelMessages(), a.blobStore); err != nil {
+			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
+		}
 	}
 	client, callCtx, release, err := a.workerPool.Acquire(
 		ctx,
@@ -305,6 +308,9 @@ func (a *Activities) InvokeExecuteMethod(
 			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 		}
 		if err := blobstore.HydrateConditionResults(ctx, req.GetConditionResults(), a.blobStore); err != nil {
+			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
+		}
+		if err := blobstore.HydrateChannelValues(ctx, req.GetLoadedChannelMessages(), a.blobStore); err != nil {
 			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 		}
 	}
@@ -621,11 +627,16 @@ func waitForMethodRequestForAttempt(
 		panic("InvokeWaitForMethod request required")
 	}
 	return &dexpb.InvokeWaitForMethodRequest{
-		Context:    workerContextForAttempt(request.GetContext()),
-		FlowType:   request.GetFlowType(),
-		StepType:   request.GetStepType(),
-		StepInput:  request.GetStepInput(),
-		Attributes: request.GetAttributes(),
+		Context:                     workerContextForAttempt(request.GetContext()),
+		FlowType:                    request.GetFlowType(),
+		StepType:                    request.GetStepType(),
+		StepInput:                   request.GetStepInput(),
+		Attributes:                  request.GetAttributes(),
+		ChannelInfos:                request.GetChannelInfos(),
+		LoadedChannelMessages:       request.GetLoadedChannelMessages(),
+		LoadedAttributeMapInstances: request.GetLoadedAttributeMapInstances(),
+		LoadedChannelNames:          request.GetLoadedChannelNames(),
+		LoadedChannelMapInstances:   request.GetLoadedChannelMapInstances(),
 	}
 }
 
@@ -636,13 +647,18 @@ func executeMethodRequestForAttempt(
 		panic("InvokeExecuteMethod request required")
 	}
 	return &dexpb.InvokeExecuteMethodRequest{
-		Context:          workerContextForAttempt(request.GetContext()),
-		FlowType:         request.GetFlowType(),
-		StepType:         request.GetStepType(),
-		StepInput:        request.GetStepInput(),
-		Attributes:       request.GetAttributes(),
-		StepExeLocals:    request.GetStepExeLocals(),
-		ConditionResults: request.GetConditionResults(),
+		Context:                     workerContextForAttempt(request.GetContext()),
+		FlowType:                    request.GetFlowType(),
+		StepType:                    request.GetStepType(),
+		StepInput:                   request.GetStepInput(),
+		Attributes:                  request.GetAttributes(),
+		StepExeLocals:               request.GetStepExeLocals(),
+		ConditionResults:            request.GetConditionResults(),
+		ChannelInfos:                request.GetChannelInfos(),
+		LoadedChannelMessages:       request.GetLoadedChannelMessages(),
+		LoadedAttributeMapInstances: request.GetLoadedAttributeMapInstances(),
+		LoadedChannelNames:          request.GetLoadedChannelNames(),
+		LoadedChannelMapInstances:   request.GetLoadedChannelMapInstances(),
 	}
 }
 
@@ -784,6 +800,14 @@ func (a *Activities) StartSubFlow(
 	if err != nil {
 		return nil, err
 	}
+	if err := service.ValidateFlowTimeoutHandlerOptions(
+		options.GetFlowTimeoutSeconds(),
+		timeoutPolicy,
+		options.GetTimeoutHandlerOptions(),
+		a.cfg.Interpreter.InterpreterActivityConfig.EffectiveMinimumStepHeartbeatTimeout(),
+	); err != nil {
+		return nil, err
+	}
 	if options.GetFlowStartDelaySeconds() < 0 {
 		return nil, fmt.Errorf("SubFlow start delay must be non-negative")
 	}
@@ -814,6 +838,7 @@ func (a *Activities) StartSubFlow(
 		StepOptions:                  condition.GetStepOptions(),
 		InitAttributes:               options.GetAttributes(),
 		Config:                       flowConfig,
+		TimeoutHandlerOptions:        options.GetTimeoutHandlerOptions(),
 	}
 	return a.subFlowResolver.Resolve(
 		ctx, condition, subFlowID, requestID, workflowOptions, workflowInput,
@@ -1196,7 +1221,10 @@ func validateWorkerWaitForResponse(resp *dexpb.InvokeWaitForMethodResponse) erro
 	if err := workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents()); err != nil {
 		return err
 	}
-	return validateWorkerChannelMessages(resp.GetPublishToChannel())
+	if err := validateWorkerChannelMessages(resp.GetPublishToChannel()); err != nil {
+		return err
+	}
+	return validateWorkerChannelDeletions(resp.GetDeleteFromChannel())
 }
 
 func validateExecuteResponse(
@@ -1222,7 +1250,10 @@ func validateWorkerExecuteResponse(resp *dexpb.InvokeExecuteMethodResponse) erro
 	if err := workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents()); err != nil {
 		return err
 	}
-	return validateWorkerChannelMessages(resp.GetPublishToChannel())
+	if err := validateWorkerChannelMessages(resp.GetPublishToChannel()); err != nil {
+		return err
+	}
+	return validateWorkerChannelDeletions(resp.GetDeleteFromChannel())
 }
 
 func validateWorkerChannelMessages(messages []*dexpb.ChannelMessage) error {
@@ -1235,6 +1266,15 @@ func validateWorkerChannelMessages(messages []*dexpb.ChannelMessage) error {
 		}
 		if err := workerclient.RejectWorkerBlobIDs(message.GetValue()); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateWorkerChannelDeletions(deletions []*dexpb.ChannelMessageDeletion) error {
+	for index, deletion := range deletions {
+		if deletion == nil || deletion.GetChannelName() == "" || deletion.GetMessageId() == "" {
+			return fmt.Errorf("Channel deletion at index %d is invalid", index)
 		}
 	}
 	return nil
@@ -1442,9 +1482,18 @@ func validateWaitingCondition(
 			return fmt.Errorf("SubFlow condition at index %d has unstable index %d", i, subFlowCondition.GetSubFlowIndex())
 		}
 		options := subFlowCondition.GetOptions()
-		if _, err := service.ResolveFlowTimeoutPolicy(
+		resolvedTimeoutPolicy, err := service.ResolveFlowTimeoutPolicy(
 			options.GetFlowTimeoutSeconds(),
 			options.GetFlowTimeoutPolicy(),
+		)
+		if err != nil {
+			return fmt.Errorf("SubFlow condition at index %d: %w", i, err)
+		}
+		if err := service.ValidateFlowTimeoutHandlerOptions(
+			options.GetFlowTimeoutSeconds(),
+			resolvedTimeoutPolicy,
+			options.GetTimeoutHandlerOptions(),
+			minimumHeartbeatTimeout,
 		); err != nil {
 			return fmt.Errorf("SubFlow condition at index %d: %w", i, err)
 		}

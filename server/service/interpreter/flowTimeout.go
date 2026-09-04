@@ -21,6 +21,7 @@ import (
 type FlowTimeout struct {
 	policy         dexpb.FlowTimeoutPolicy
 	timeoutSeconds int32
+	handlerOptions *dexpb.FlowTimeoutHandlerOptions
 }
 
 // NewFlowTimeout validates one execution's configured timeout.
@@ -37,6 +38,7 @@ func NewFlowTimeout(input *dexpb.InterpreterWorkflowInput) *FlowTimeout {
 	return &FlowTimeout{
 		policy:         policy,
 		timeoutSeconds: timeoutSeconds,
+		handlerOptions: input.GetTimeoutHandlerOptions(),
 	}
 }
 
@@ -99,7 +101,7 @@ func (t *FlowTimeout) NewStepExecutionResumeInfo(
 		StepExecutionId: service.FlowTimeoutStepExecutionID,
 		Step: &dexpb.StepMovement{
 			StepType:                        service.FlowTimeoutStepType,
-			StepOptions:                     &dexpb.StepOptions{},
+			StepOptions:                     service.FlowTimeoutHandlerStepOptions(t.handlerOptions),
 			FromStepExecutionIdInternalOnly: service.StartingStepFromStepExecutionId,
 		},
 		WaitingCondition: t.newWaitingCondition(ctx, provider),

@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
+use std::any::TypeId;
 use std::marker::PhantomData;
 
 use dex_protocol::dex::Value as ProtoValue;
@@ -118,6 +119,7 @@ impl<'a, StartInput: Value> StepList<'a, StartInput> {
             .map(|definition| RegisteredStep {
                 name: definition.name,
                 starting: definition.starting,
+                input_type: definition.input_type,
             })
             .collect()
     }
@@ -317,12 +319,14 @@ impl StepDecision {
 pub(crate) struct RegisteredStep {
     pub(crate) name: &'static str,
     pub(crate) starting: bool,
+    pub(crate) input_type: TypeId,
 }
 
 struct StepDefinition<'a> {
     name: &'static str,
     starting: bool,
     handler: &'a dyn ErasedStep,
+    input_type: TypeId,
 }
 
 impl<'a> StepDefinition<'a> {
@@ -335,6 +339,7 @@ impl<'a> StepDefinition<'a> {
             name,
             starting,
             handler: step,
+            input_type: TypeId::of::<SomeStep::Input>(),
         }
     }
 }

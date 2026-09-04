@@ -209,15 +209,25 @@ public final class Client implements AutoCloseable {
             throw new FlowDefinitionException(
                     "Flow instance is not registered: " + flow.getFlowType());
         }
+        final FlowTimeoutPolicy timeoutPolicy = resolveTimeoutPolicy(
+                registered, startOptions.getTimeout(), startOptions.getTimeoutPolicy());
+        final FlowStartOptions.Builder flowStartOptions = mapStartOptions(startOptions).toBuilder();
+        final io.superdurable.gen.FlowTimeoutHandlerOptions timeoutHandlerOptions =
+                mappings.mapFlowTimeoutHandlerOptions(
+                        registered,
+                        startOptions.getTimeout(),
+                        timeoutPolicy,
+                        startOptions.getTimeoutHandlerOptions());
+        if (timeoutHandlerOptions != null) {
+            flowStartOptions.setTimeoutHandlerOptions(timeoutHandlerOptions);
+        }
         final StartFlowRequest.Builder request = StartFlowRequest.newBuilder()
                 .setFlowId(Attribute.requireName(flowId))
                 .setFlowType(registered.getName())
                 .setRequestId(startOptions.getRequestId() == null
                         ? UUID.randomUUID().toString()
                         : startOptions.getRequestId())
-                .setFlowStartOptions(mapStartOptions(startOptions));
-        final FlowTimeoutPolicy timeoutPolicy = resolveTimeoutPolicy(
-                registered, startOptions.getTimeout(), startOptions.getTimeoutPolicy());
+                .setFlowStartOptions(flowStartOptions);
         if (registered.getStartStep() != null) {
             final Class<?> inputType = registered.getStartStep().getStep().getInputType();
             if (input != null && !inputType.isInstance(input)) {

@@ -56,11 +56,16 @@ func waitForActivityInputWithAttemptContext(
 	return &dexpb.InvokeWaitForMethodActivityInput{
 		WorkerTarget: input.GetWorkerTarget(),
 		Request: &dexpb.InvokeWaitForMethodRequest{
-			Context:    stepActivityContextForFallback(request.GetContext(), previousAttempts, firstAttemptTimestamp),
-			FlowType:   request.GetFlowType(),
-			StepType:   request.GetStepType(),
-			StepInput:  request.GetStepInput(),
-			Attributes: request.GetAttributes(),
+			Context:                     stepActivityContextForFallback(request.GetContext(), previousAttempts, firstAttemptTimestamp),
+			FlowType:                    request.GetFlowType(),
+			StepType:                    request.GetStepType(),
+			StepInput:                   request.GetStepInput(),
+			Attributes:                  request.GetAttributes(),
+			ChannelInfos:                request.GetChannelInfos(),
+			LoadedChannelMessages:       request.GetLoadedChannelMessages(),
+			LoadedAttributeMapInstances: request.GetLoadedAttributeMapInstances(),
+			LoadedChannelNames:          request.GetLoadedChannelNames(),
+			LoadedChannelMapInstances:   request.GetLoadedChannelMapInstances(),
 		},
 	}
 }
@@ -77,13 +82,18 @@ func executeActivityInputWithAttemptContext(
 	return &dexpb.InvokeExecuteMethodActivityInput{
 		WorkerTarget: input.GetWorkerTarget(),
 		Request: &dexpb.InvokeExecuteMethodRequest{
-			Context:          stepActivityContextForFallback(request.GetContext(), previousAttempts, firstAttemptTimestamp),
-			FlowType:         request.GetFlowType(),
-			StepType:         request.GetStepType(),
-			StepInput:        request.GetStepInput(),
-			Attributes:       request.GetAttributes(),
-			StepExeLocals:    request.GetStepExeLocals(),
-			ConditionResults: request.GetConditionResults(),
+			Context:                     stepActivityContextForFallback(request.GetContext(), previousAttempts, firstAttemptTimestamp),
+			FlowType:                    request.GetFlowType(),
+			StepType:                    request.GetStepType(),
+			StepInput:                   request.GetStepInput(),
+			Attributes:                  request.GetAttributes(),
+			StepExeLocals:               request.GetStepExeLocals(),
+			ConditionResults:            request.GetConditionResults(),
+			ChannelInfos:                request.GetChannelInfos(),
+			LoadedChannelMessages:       request.GetLoadedChannelMessages(),
+			LoadedAttributeMapInstances: request.GetLoadedAttributeMapInstances(),
+			LoadedChannelNames:          request.GetLoadedChannelNames(),
+			LoadedChannelMapInstances:   request.GetLoadedChannelMapInstances(),
 		},
 	}
 }

@@ -12,7 +12,7 @@ use dex_protocol::dex::{AttributeSyncConfig, IndexConfig};
 
 use crate::{Context, HandlerError, HandlerResult, Value};
 
-/// Selects one AttributeMap instance to load for an RPC invocation.
+/// Selects one AttributeMap instance to load for a handler invocation.
 ///
 /// Create instance loads with [`AttributeMap::load`], then attach them with
 /// [`Rpc::load_attribute_map_instance`](crate::Rpc::load_attribute_map_instance).
@@ -202,7 +202,7 @@ impl<T> AttributeMap<T> {
         self
     }
 
-    /// Selects one slash-free map `instance` for loading into an RPC Context.
+    /// Selects one slash-free map `instance` for loading into a handler Context.
     ///
     /// The instance remains readable for the handler even when it is absent; absence is returned as
     /// `None`. Load the map definition when the RPC must enumerate every instance.

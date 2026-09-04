@@ -35,7 +35,7 @@ use crate::stop_flow_options::StopType;
 use crate::time_travel_options::{TimeTravelPoint, TimeTravelStepMethod};
 use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
-use crate::worker_dispatcher::map_step_options;
+use crate::worker_dispatcher::{map_flow_timeout_handler_options, map_step_options};
 use crate::{
     ActiveStepSearchMode, Attribute, AttributeMap, BlobCache, Channel, ChannelMap, ChannelMessage,
     ClientOptions, Flow, FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus,
@@ -183,7 +183,12 @@ impl Client {
             start_step_type,
             step_input,
             step_options,
-            flow_start_options: Some(self.map_start_options(registered, &options)?),
+            flow_start_options: Some(self.map_start_options(
+                registered,
+                &options,
+                flow_timeout_seconds,
+                flow_timeout_policy,
+            )?),
             request_id: options
                 .request_id
                 .clone()
@@ -1189,6 +1194,8 @@ impl Client {
         &self,
         flow: &crate::registry::RegisteredFlow,
         options: &StartFlowOptions,
+        flow_timeout_seconds: i32,
+        flow_timeout_policy: i32,
     ) -> SdkResult<FlowStartOptions> {
         let attributes = options
             .attributes
@@ -1238,6 +1245,13 @@ impl Client {
             flow_already_started_options: Some(FlowAlreadyStartedOptions {
                 ignore_already_started_error: options.ignore_already_started,
             }),
+            timeout_handler_options: map_flow_timeout_handler_options(
+                flow,
+                flow_timeout_seconds,
+                flow_timeout_policy,
+                options.timeout_handler_options.as_ref(),
+            )
+            .map_err(sdk_handler_error)?,
             ..Default::default()
         };
         Ok(flow_start_options)

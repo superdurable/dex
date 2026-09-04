@@ -496,7 +496,7 @@ func (invocation *invocationContext) getAttributeValue(
 	if err != nil {
 		return false, err
 	}
-	if isMap && invocation.method == invocationRPC && !isMapInstanceLoaded(
+	if isMap && !isMapInstanceLoaded(
 		invocation.loadedAttributeMapInstances,
 		name,
 		physical,
@@ -588,10 +588,8 @@ func (invocation *invocationContext) attributeMapKeys(name string) []string {
 	); err != nil {
 		panic(err)
 	}
-	if invocation.method == invocationRPC {
-		if _, loaded := invocation.loadedAttributeMapInstances[name+"/"]; !loaded {
-			panic(&AttributeMapNotLoadedError{Name: name})
-		}
+	if _, loaded := invocation.loadedAttributeMapInstances[name+"/"]; !loaded {
+		panic(&AttributeMapNotLoadedError{Name: name})
 	}
 	attribute, found := invocation.flow.attributes[name]
 	if !found || !attribute.isMap {
@@ -681,9 +679,7 @@ func (invocation *invocationContext) publishChannelValue(
 		ChannelName: physical,
 		Value:       encoded,
 	})
-	if invocation.method == invocationRPC {
-		invocation.channelSizes[physical]++
-	}
+	invocation.channelSizes[physical]++
 	return nil
 }
 
@@ -693,7 +689,11 @@ func (invocation *invocationContext) deleteChannelMessage(
 	isMap bool,
 	messageID string,
 ) error {
-	if err := invocation.requireActive(invocationRPC); err != nil {
+	if err := invocation.requireActive(
+		invocationWaitFor,
+		invocationExecute,
+		invocationRPC,
+	); err != nil {
 		return err
 	}
 	if messageID == "" {
@@ -722,7 +722,11 @@ func (invocation *invocationContext) channelMapSize(name string, instance string
 }
 
 func (invocation *invocationContext) channelMapKeys(name string) []string {
-	if err := invocation.requireActive(invocationRPC); err != nil {
+	if err := invocation.requireActive(
+		invocationWaitFor,
+		invocationExecute,
+		invocationRPC,
+	); err != nil {
 		panic(err)
 	}
 	channel, found := invocation.flow.channels[name]
@@ -743,7 +747,11 @@ func (invocation *invocationContext) pendingChannelMessages(
 	instance string,
 	isMap bool,
 ) ([]*dexpb.ChannelMessage, error) {
-	if err := invocation.requireActive(invocationRPC); err != nil {
+	if err := invocation.requireActive(
+		invocationWaitFor,
+		invocationExecute,
+		invocationRPC,
+	); err != nil {
 		return nil, err
 	}
 	loadedNames := invocation.loadedChannelNames

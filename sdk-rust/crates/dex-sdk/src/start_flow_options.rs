@@ -14,7 +14,7 @@ use dex_protocol::dex::{AttributeSyncConfig, IndexConfig};
 
 use crate::registry::physical_name;
 use crate::step::{ErasedValue, TypedValue};
-use crate::{Attribute, AttributeMap, FlowConfig, RetryPolicy, Value};
+use crate::{Attribute, AttributeMap, FlowConfig, FlowTimeoutHandlerOptions, RetryPolicy, Value};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Controls whether [`crate::Client::start_flow_with_options`] may reuse a Flow ID.
@@ -40,7 +40,7 @@ pub enum FlowTimeoutPolicy {
     Fail,
     /// Cancels without retrying the Flow.
     Cancel,
-    /// Invokes the registered [`crate::FlowTimeoutHandler`] once.
+    /// Invokes the registered [`crate::FlowTimeoutHandler`] as one retryable logical execution.
     Handler,
 }
 
@@ -66,6 +66,7 @@ pub enum FlowTimeoutPolicy {
 pub struct StartFlowOptions {
     pub(crate) timeout: Option<Duration>,
     pub(crate) timeout_policy: FlowTimeoutPolicy,
+    pub(crate) timeout_handler_options: Option<FlowTimeoutHandlerOptions>,
     pub(crate) start_delay: Option<Duration>,
     pub(crate) id_reuse_policy: IdReusePolicy,
     pub(crate) retry_policy: Option<RetryPolicy>,
@@ -113,6 +114,7 @@ impl StartFlowOptions {
         Self {
             timeout: None,
             timeout_policy: FlowTimeoutPolicy::Default,
+            timeout_handler_options: None,
             start_delay: None,
             id_reuse_policy: IdReusePolicy::Default,
             retry_policy: None,
@@ -134,6 +136,15 @@ impl StartFlowOptions {
     /// Handler is rejected before start when the registered Flow has no timeout handler.
     pub fn timeout_policy(mut self, value: FlowTimeoutPolicy) -> Self {
         self.timeout_policy = value;
+        self
+    }
+
+    /// Configures execution and selective state loading for the Flow timeout handler.
+    ///
+    /// Dex rejects this option unless the Flow has a positive timeout and resolves to
+    /// [`FlowTimeoutPolicy::Handler`].
+    pub fn timeout_handler_options(mut self, value: FlowTimeoutHandlerOptions) -> Self {
+        self.timeout_handler_options = Some(value);
         self
     }
 

@@ -126,4 +126,147 @@ public interface InvokeExecuteMethodRequestOrBuilder extends
    * <code>.dex.ConditionResults condition_results = 7;</code>
    */
   io.superdurable.gen.ConditionResultsOrBuilder getConditionResultsOrBuilder();
+
+  /**
+   * <code>map&lt;string, .dex.ChannelInfo&gt; channel_infos = 8;</code>
+   */
+  int getChannelInfosCount();
+  /**
+   * <code>map&lt;string, .dex.ChannelInfo&gt; channel_infos = 8;</code>
+   */
+  boolean containsChannelInfos(
+      java.lang.String key);
+  /**
+   * Use {@link #getChannelInfosMap()} instead.
+   */
+  @java.lang.Deprecated
+  java.util.Map<java.lang.String, io.superdurable.gen.ChannelInfo>
+  getChannelInfos();
+  /**
+   * <code>map&lt;string, .dex.ChannelInfo&gt; channel_infos = 8;</code>
+   */
+  java.util.Map<java.lang.String, io.superdurable.gen.ChannelInfo>
+  getChannelInfosMap();
+  /**
+   * <code>map&lt;string, .dex.ChannelInfo&gt; channel_infos = 8;</code>
+   */
+  /* nullable */
+io.superdurable.gen.ChannelInfo getChannelInfosOrDefault(
+      java.lang.String key,
+      /* nullable */
+io.superdurable.gen.ChannelInfo defaultValue);
+  /**
+   * <code>map&lt;string, .dex.ChannelInfo&gt; channel_infos = 8;</code>
+   */
+  io.superdurable.gen.ChannelInfo getChannelInfosOrThrow(
+      java.lang.String key);
+
+  /**
+   * <code>map&lt;string, .dex.ChannelValues&gt; loaded_channel_messages = 9;</code>
+   */
+  int getLoadedChannelMessagesCount();
+  /**
+   * <code>map&lt;string, .dex.ChannelValues&gt; loaded_channel_messages = 9;</code>
+   */
+  boolean containsLoadedChannelMessages(
+      java.lang.String key);
+  /**
+   * Use {@link #getLoadedChannelMessagesMap()} instead.
+   */
+  @java.lang.Deprecated
+  java.util.Map<java.lang.String, io.superdurable.gen.ChannelValues>
+  getLoadedChannelMessages();
+  /**
+   * <code>map&lt;string, .dex.ChannelValues&gt; loaded_channel_messages = 9;</code>
+   */
+  java.util.Map<java.lang.String, io.superdurable.gen.ChannelValues>
+  getLoadedChannelMessagesMap();
+  /**
+   * <code>map&lt;string, .dex.ChannelValues&gt; loaded_channel_messages = 9;</code>
+   */
+  /* nullable */
+io.superdurable.gen.ChannelValues getLoadedChannelMessagesOrDefault(
+      java.lang.String key,
+      /* nullable */
+io.superdurable.gen.ChannelValues defaultValue);
+  /**
+   * <code>map&lt;string, .dex.ChannelValues&gt; loaded_channel_messages = 9;</code>
+   */
+  io.superdurable.gen.ChannelValues getLoadedChannelMessagesOrThrow(
+      java.lang.String key);
+
+  /**
+   * <code>repeated string loaded_attribute_map_instances = 10;</code>
+   * @return A list containing the loadedAttributeMapInstances.
+   */
+  java.util.List<java.lang.String>
+      getLoadedAttributeMapInstancesList();
+  /**
+   * <code>repeated string loaded_attribute_map_instances = 10;</code>
+   * @return The count of loadedAttributeMapInstances.
+   */
+  int getLoadedAttributeMapInstancesCount();
+  /**
+   * <code>repeated string loaded_attribute_map_instances = 10;</code>
+   * @param index The index of the element to return.
+   * @return The loadedAttributeMapInstances at the given index.
+   */
+  java.lang.String getLoadedAttributeMapInstances(int index);
+  /**
+   * <code>repeated string loaded_attribute_map_instances = 10;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadedAttributeMapInstances at the given index.
+   */
+  com.google.protobuf.ByteString
+      getLoadedAttributeMapInstancesBytes(int index);
+
+  /**
+   * <code>repeated string loaded_channel_names = 11;</code>
+   * @return A list containing the loadedChannelNames.
+   */
+  java.util.List<java.lang.String>
+      getLoadedChannelNamesList();
+  /**
+   * <code>repeated string loaded_channel_names = 11;</code>
+   * @return The count of loadedChannelNames.
+   */
+  int getLoadedChannelNamesCount();
+  /**
+   * <code>repeated string loaded_channel_names = 11;</code>
+   * @param index The index of the element to return.
+   * @return The loadedChannelNames at the given index.
+   */
+  java.lang.String getLoadedChannelNames(int index);
+  /**
+   * <code>repeated string loaded_channel_names = 11;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadedChannelNames at the given index.
+   */
+  com.google.protobuf.ByteString
+      getLoadedChannelNamesBytes(int index);
+
+  /**
+   * <code>repeated string loaded_channel_map_instances = 12;</code>
+   * @return A list containing the loadedChannelMapInstances.
+   */
+  java.util.List<java.lang.String>
+      getLoadedChannelMapInstancesList();
+  /**
+   * <code>repeated string loaded_channel_map_instances = 12;</code>
+   * @return The count of loadedChannelMapInstances.
+   */
+  int getLoadedChannelMapInstancesCount();
+  /**
+   * <code>repeated string loaded_channel_map_instances = 12;</code>
+   * @param index The index of the element to return.
+   * @return The loadedChannelMapInstances at the given index.
+   */
+  java.lang.String getLoadedChannelMapInstances(int index);
+  /**
+   * <code>repeated string loaded_channel_map_instances = 12;</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the loadedChannelMapInstances at the given index.
+   */
+  com.google.protobuf.ByteString
+      getLoadedChannelMapInstancesBytes(int index);
 }

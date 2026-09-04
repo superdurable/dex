@@ -63,7 +63,7 @@ pub trait Flow: Send + Sync + 'static {
     /// Returns the optional handler invoked after this Flow's durable timeout timer expires.
     ///
     /// Returning `Some` makes a positive timeout default to [`crate::FlowTimeoutPolicy::Handler`].
-    /// The handler runs at most once and its decision uses normal Step Execute validation.
+    /// One logical execution may retry, and its decision uses normal Step Execute validation.
     fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>>
     where
         Self: Sized,

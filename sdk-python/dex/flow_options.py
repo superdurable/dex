@@ -16,9 +16,10 @@ from enum import Enum
 from typing import Any, TypeVar, overload
 
 from dex._utils import require_map_instance
-from dex.attribute import Attribute, AttributeMap
+from dex.attribute import Attribute, AttributeLock, AttributeMap, AttributeMapLoad
+from dex.channel import Channel, ChannelMap, ChannelMapLoad
 from dex.flow_config import FlowConfig
-from dex.step import RetryPolicy
+from dex.step import RetryPolicy, Step, StepDurability, StepOptions
 
 ValueT = TypeVar("ValueT")
 
@@ -48,7 +49,7 @@ class FlowTimeoutPolicy(Enum):
         DEFAULT: Invoke ``Flow.handle_timeout`` when overridden; otherwise fail.
         FAIL: Fail with ``FlowErrorType.FLOW_TIMEOUT`` and permit Flow retries.
         CANCEL: Cancel without retrying the Flow.
-        HANDLER: Invoke ``Flow.handle_timeout`` once after its durable timer fires.
+        HANDLER: Start one retryable ``Flow.handle_timeout`` execution after its timer.
     """
 
     DEFAULT = "default"
@@ -84,6 +85,67 @@ class _AttributeInitialization:
 
 
 @dataclass(frozen=True)
+class FlowTimeoutHandlerOptions:
+    """Configure timeout-handler execution and selective state loading.
+
+    Ordinary Attributes and Channel size metadata load automatically. AttributeMap
+    values and pending Channel messages require an explicit selection. One logical
+    handler execution may contain multiple retry attempts.
+
+    Attributes:
+        method_timeout: Maximum duration of one handler attempt.
+        heartbeat_timeout: Progress deadline for one regular attempt.
+        retry: Optional retry policy; ``None`` uses server defaults.
+        durability: Durability for successful handler side effects.
+        lock_attributes: Attribute locks held during the handler invocation.
+        load_attribute_maps: AttributeMaps whose current instances load.
+        load_attribute_map_instances: Exact AttributeMap instances to load.
+        load_channels: Channels whose pending messages load.
+        load_channel_maps: ChannelMaps whose current instance messages load.
+        load_channel_map_instances: Exact ChannelMap instances to load.
+
+    Examples:
+        >>> options = FlowTimeoutHandlerOptions(
+        ...     method_timeout=timedelta(seconds=30),
+        ...     retry=RetryPolicy(maximum_attempts=3),
+        ...     load_channels=(commands,),
+        ... ).on_failure_proceed_to(TimeoutRecovery)
+    """
+
+    method_timeout: timedelta | None = None
+    heartbeat_timeout: timedelta | None = None
+    retry: RetryPolicy | None = None
+    durability: StepDurability = StepDurability.DEFAULT
+    lock_attributes: tuple[AttributeLock, ...] = ()
+    load_attribute_maps: tuple[AttributeMap[Any], ...] = ()
+    load_attribute_map_instances: tuple[AttributeMapLoad, ...] = ()
+    load_channels: tuple[Channel[Any], ...] = ()
+    load_channel_maps: tuple[ChannelMap[Any], ...] = ()
+    load_channel_map_instances: tuple[ChannelMapLoad, ...] = ()
+    _failure_target: type[Step[None]] | None = None
+    _failure_options: StepOptions | None = None
+
+    def on_failure_proceed_to(
+        self,
+        step: type[Step[None]],
+        options: StepOptions | None = None,
+    ) -> FlowTimeoutHandlerOptions:
+        """Return a copy routing exhausted retries to a registered no-input Step.
+
+        The recovery Step receives ``None`` and reads the final handler failure from
+        ``Context.recovery_error``.
+
+        Args:
+            step: A Step with ``None`` input registered by the timed-out Flow.
+            options: Optional execution overrides for the recovery movement.
+
+        Returns:
+            A new options value with failure routing configured.
+        """
+        return replace(self, _failure_target=step, _failure_options=options)
+
+
+@dataclass(frozen=True)
 class StartFlowOptions:
     """Configure creation of a new Flow execution.
 
@@ -93,6 +155,7 @@ class StartFlowOptions:
     Attributes:
         timeout: Optional durable soft timeout. ``None`` or zero disables it.
         timeout_policy: Action taken when a positive timeout expires.
+        timeout_handler_options: Execute policy used when timeout policy is ``HANDLER``.
         start_delay: Optional delay before the starting Step becomes eligible.
         id_reuse_policy: Flow ID reuse policy; defaults to ``DEFAULT``.
         retry_policy: Optional Flow-level retry policy.
@@ -111,6 +174,7 @@ class StartFlowOptions:
 
     timeout: timedelta | None = None
     timeout_policy: FlowTimeoutPolicy = FlowTimeoutPolicy.DEFAULT
+    timeout_handler_options: FlowTimeoutHandlerOptions | None = None
     start_delay: timedelta | None = None
     id_reuse_policy: IdReusePolicy = IdReusePolicy.DEFAULT
     retry_policy: RetryPolicy | None = None
@@ -200,6 +264,7 @@ class SubFlowOptions:
     Attributes:
         timeout: Optional maximum SubFlow lifetime.
         timeout_policy: Action taken when a positive timeout expires.
+        timeout_handler_options: Execute policy used when timeout policy is ``HANDLER``.
         start_delay: Optional delay before its starting Step.
         retry_policy: Optional whole-Flow retry policy.
         config_override: Fields applied over the inherited parent configuration.
@@ -209,6 +274,7 @@ class SubFlowOptions:
 
     timeout: timedelta | None = None
     timeout_policy: FlowTimeoutPolicy = FlowTimeoutPolicy.DEFAULT
+    timeout_handler_options: FlowTimeoutHandlerOptions | None = None
     start_delay: timedelta | None = None
     retry_policy: RetryPolicy | None = None
     _attribute_initializations: tuple[_AttributeInitialization, ...] = ()

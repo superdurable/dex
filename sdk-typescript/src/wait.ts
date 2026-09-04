@@ -18,7 +18,7 @@ import {
   validateChannelBounds,
 } from "./validation.js";
 
-/** Selects one ChannelMap instance's pending messages for an RPC snapshot. */
+/** Selects one ChannelMap instance's pending messages for a handler snapshot. */
 export interface ChannelMapLoad {
   /** Exact ChannelMap definition registered with the Flow. */
   readonly channelMap: ChannelMap<unknown>;
@@ -127,8 +127,8 @@ export class Channel<T> {
   }
 
   /**
-   * Stages deletion of one pending message from an RPC.
-   * @param context - Current RPC Context.
+   * Stages best-effort deletion of one pending message from a handler.
+   * @param context - Current Step, timeout-handler, or RPC Context.
    * @param messageId - Non-empty server-assigned message ID.
    */
   public delete(context: Context, messageId: string): void {
@@ -146,9 +146,9 @@ export class Channel<T> {
 
   /**
    * Returns the loaded pending-message snapshot in FIFO order.
-   * @param context - Current RPC Context.
+   * @param context - Current Step, timeout-handler, or RPC Context.
    * @returns Immutable pending message IDs and decoded values.
-   * @throws {@link ChannelMessagesNotLoadedError} when the RPC did not load this Channel's messages.
+   * @throws {@link ChannelMessagesNotLoadedError} when this handler did not load the Channel's messages.
    */
   public pendingMessages(context: Context): readonly ChannelMessage<T>[] {
     return context.pendingChannelMessages(this);
@@ -156,7 +156,7 @@ export class Channel<T> {
 
   /**
    * Finds one message in the loaded pending snapshot.
-   * @param context - Current RPC Context.
+   * @param context - Current Step, timeout-handler, or RPC Context.
    * @param messageId - Server-assigned message ID.
    * @returns The matching message, or `undefined` when absent from the snapshot.
    */
@@ -265,8 +265,8 @@ export class ChannelMap<T> {
   }
 
   /**
-   * Stages deletion of one pending message from a ChannelMap instance in an RPC.
-   * @param context - Current RPC Context.
+   * Stages best-effort deletion of one pending message from a ChannelMap instance.
+   * @param context - Current Step, timeout-handler, or RPC Context.
    * @param instance - The ChannelMap instance. Slash is prohibited because it is a reserved character.
    * @param messageId - Non-empty server-assigned message ID.
    */
@@ -285,9 +285,9 @@ export class ChannelMap<T> {
   }
 
   /**
-   * Selects one instance's pending messages for an RPC snapshot.
+   * Selects one instance's pending messages for a handler snapshot.
    * @param instance - Non-empty logical instance key. The SDK escapes it for the protocol.
-   * @returns An exact instance load for {@link RPCOptions.loadChannelMapInstances}.
+   * @returns An exact instance load for RPC, Step, or timeout-handler options.
    */
   public loadMessages(instance: string): ChannelMapLoad {
     requireMapInstance(instance);
@@ -296,10 +296,10 @@ export class ChannelMap<T> {
 
   /**
    * Returns one loaded instance snapshot in FIFO order.
-   * @param context - Current RPC Context.
+   * @param context - Current Step, timeout-handler, or RPC Context.
    * @param instance - Logical ChannelMap instance.
    * @returns Immutable pending message IDs and decoded values.
-   * @throws {@link ChannelMessagesNotLoadedError} when the RPC did not load this instance's messages.
+   * @throws {@link ChannelMessagesNotLoadedError} when this handler did not load the instance's messages.
    */
   public pendingMessages(context: Context, instance: string): readonly ChannelMessage<T>[] {
     return context.pendingChannelMessages(this, instance);
@@ -307,7 +307,7 @@ export class ChannelMap<T> {
 
   /**
    * Finds one instance message in the loaded pending snapshot.
-   * @param context - Current RPC Context.
+   * @param context - Current Step, timeout-handler, or RPC Context.
    * @param instance - Logical ChannelMap instance.
    * @param messageId - Server-assigned message ID.
    * @returns The matching message, or `undefined` when absent from the snapshot.
@@ -324,9 +324,9 @@ export class ChannelMap<T> {
   }
 
   /**
-   * Returns the number of non-empty instances visible to the current RPC.
-   * @param context - Current RPC Context.
-   * @returns The number of keys after including publications buffered by this RPC.
+   * Returns the number of non-empty instances visible to the current handler.
+   * @param context - Current Step, timeout-handler, or RPC Context.
+   * @returns The number of keys after including publications buffered by this handler.
    */
   public getMapSize(context: Context): number {
     return this.getAllInstanceKeys(context).length;
@@ -334,8 +334,8 @@ export class ChannelMap<T> {
 
   /**
    * Returns decoded non-empty instance keys in ascending order.
-   * @param context - Current RPC Context.
-   * @returns Keys including publications buffered by the current RPC.
+   * @param context - Current Step, timeout-handler, or RPC Context.
+   * @returns Keys including publications buffered by the current handler.
    */
   public getAllInstanceKeys(context: Context): readonly string[] {
     return context.channelMapKeys(this as ChannelMap<unknown>);

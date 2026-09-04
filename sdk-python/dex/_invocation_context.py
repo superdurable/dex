@@ -139,7 +139,12 @@ class InvocationContext:
 
     async def heartbeat(self, value: object = _NO_HEARTBEAT_VALUE) -> None:
         if (
-            self._method not in (InvocationMethod.WAIT_FOR, InvocationMethod.EXECUTE)
+            self._method
+            not in (
+                InvocationMethod.WAIT_FOR,
+                InvocationMethod.EXECUTE,
+                InvocationMethod.TIMEOUT,
+            )
             or self._output_emitter is None
         ):
             raise ValueError("heartbeat requires an asynchronous Step Context")
@@ -226,7 +231,11 @@ class InvocationContext:
         definition: Stream[ValueT],
         value: ValueT,
     ) -> StepOutput | None:
-        if self._method not in (InvocationMethod.WAIT_FOR, InvocationMethod.EXECUTE):
+        if self._method not in (
+            InvocationMethod.WAIT_FOR,
+            InvocationMethod.EXECUTE,
+            InvocationMethod.TIMEOUT,
+        ):
             raise ValueError("Stream writes require a Step Context")
         self._require_registered(definition)
         output = _StreamStepOutput(
@@ -245,7 +254,11 @@ class InvocationContext:
         return None
 
     def _prepare_buffered_stream(self, definition: Stream[object]) -> bool:
-        if self._method not in (InvocationMethod.WAIT_FOR, InvocationMethod.EXECUTE):
+        if self._method not in (
+            InvocationMethod.WAIT_FOR,
+            InvocationMethod.EXECUTE,
+            InvocationMethod.TIMEOUT,
+        ):
             raise ValueError("Buffered Streams require a Step Context")
         self._require_registered(definition)
         return self._output_emitter is not None
@@ -357,11 +370,10 @@ class InvocationContext:
                 ),
             )
         )
-        if self._method is InvocationMethod.RPC:
-            current = self._channel_infos.get(name)
-            self._channel_infos[name] = pb.ChannelInfo(
-                size=(current.size if current is not None else 0) + 1
-            )
+        current = self._channel_infos.get(name)
+        self._channel_infos[name] = pb.ChannelInfo(
+            size=(current.size if current is not None else 0) + 1
+        )
 
     def _delete_channel_message(
         self,
@@ -369,8 +381,6 @@ class InvocationContext:
         instance: str | None,
         message_id: str,
     ) -> None:
-        if self._method is not InvocationMethod.RPC:
-            raise ValueError("Channel message deletion requires an RPC Context")
         self._require_registered(definition)
         name = self._physical_name(definition, instance)
         self.channel_deletions.append(
@@ -410,8 +420,6 @@ class InvocationContext:
         definition: ChannelMap[object],
     ) -> tuple[str, ...]:
         self._require_registered(definition)
-        if self._method is not InvocationMethod.RPC:
-            raise ValueError("ChannelMap introspection requires an RPC invocation")
         prefix = f"{definition.name}/"
         return tuple(
             sorted(
@@ -435,8 +443,6 @@ class InvocationContext:
         definition: Channel[ValueT] | ChannelMap[ValueT],
         instance: str | None,
     ) -> tuple[ChannelMessage[ValueT], ...]:
-        if self._method is not InvocationMethod.RPC:
-            raise ValueError("pending Channel messages require an RPC Context")
         self._require_registered(definition)
         if isinstance(definition, ChannelMap):
             channel_name = self._physical_name(definition, instance)
@@ -449,7 +455,7 @@ class InvocationContext:
             is_loaded = definition.name in self._loaded_channel_names
         if not is_loaded:
             raise ChannelMessagesNotLoadedError(
-                f"Channel messages were not loaded for RPC: {definition.name}"
+                f"Channel messages were not loaded for this invocation: {definition.name}"
             )
         values = self._loaded_channel_messages.get(channel_name)
         if values is None:
@@ -489,9 +495,7 @@ class InvocationContext:
         definition: Attribute[Any] | AttributeMap[Any],
         instance: str | None,
     ) -> None:
-        if self._method is not InvocationMethod.RPC or not isinstance(
-            definition, AttributeMap
-        ):
+        if not isinstance(definition, AttributeMap):
             return
         physical_name = self._physical_name(definition, instance)
         if (
@@ -499,19 +503,16 @@ class InvocationContext:
             and physical_name not in self._loaded_attribute_map_instances
         ):
             raise AttributeMapNotLoadedError(
-                f"AttributeMap instance was not loaded for RPC: {physical_name}"
+                f"AttributeMap instance was not loaded for this invocation: {physical_name}"
             )
 
     def _require_attribute_map_all_loaded(
         self,
         definition: AttributeMap[object],
     ) -> None:
-        if (
-            self._method is InvocationMethod.RPC
-            and f"{definition.name}/" not in self._loaded_attribute_map_instances
-        ):
+        if f"{definition.name}/" not in self._loaded_attribute_map_instances:
             raise AttributeMapNotLoadedError(
-                f"all AttributeMap instances were not loaded for RPC: {definition.name}"
+                f"all AttributeMap instances were not loaded for this invocation: {definition.name}"
             )
 
     def _require_registered(self, definition: _Definition) -> None:

@@ -77,9 +77,11 @@ public final class Channel<T> extends PersistenceDefinition {
     }
 
     /**
-     * Stages deletion of one pending message from an RPC handler.
+     * Stages deletion of one pending message from a Step, timeout handler, or RPC.
      *
-     * @param context the RPC invocation context
+     * <p>Step and timeout-handler deletions are best-effort when the message is already absent.
+     *
+     * @param context the handler invocation context
      * @param messageId the nonblank server-assigned message ID
      */
     public void delete(final Context context, final String messageId) {
@@ -99,26 +101,26 @@ public final class Channel<T> extends PersistenceDefinition {
     /**
      * Returns this Channel's loaded pending-message snapshot in FIFO order.
      *
-     * <p>Add this Channel name to {@link RPC#loadChannels()}. The snapshot does not change after
-     * staged publications or deletions in the same handler.
+     * <p>Select this Channel in the handler's options. The snapshot does not change after staged
+     * publications or deletions in the same handler.
      *
-     * @param context the RPC invocation context
+     * @param context the handler invocation context
      * @return immutable pending message IDs and decoded values
-     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the RPC did
-     *     not load its messages
+     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the invocation
+     *     did not load its messages
      */
     public List<ChannelMessage<T>> pendingMessages(final Context context) {
         return context.pendingChannelMessages(this);
     }
 
     /**
-     * Finds one pending message in the loaded RPC snapshot.
+     * Finds one pending message in the loaded handler snapshot.
      *
-     * @param context the RPC invocation context
+     * @param context the handler invocation context
      * @param messageId the server-assigned message ID
      * @return the matching message, or {@code null} when it is absent from the snapshot
-     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the RPC did
-     *     not load its messages
+     * @throws io.superdurable.dex.exceptions.ChannelMessagesNotLoadedException if the invocation
+     *     did not load its messages
      */
     public ChannelMessage<T> findPendingMessage(
             final Context context,

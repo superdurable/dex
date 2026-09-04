@@ -78,12 +78,8 @@ static TIMEOUT_PROGRESS: LazyLock<Stream<String>> =
 
 impl TimeoutHandlerFlow {
     fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
-        assert!(context.record_heartbeat().is_err());
-        assert!(
-            TIMEOUT_PROGRESS
-                .write(context, "invalid".to_string())
-                .is_err()
-        );
+        context.record_heartbeat()?;
+        TIMEOUT_PROGRESS.write(context, "valid".to_string())?;
         Ok(StepDecision::force_complete("expired".to_string()))
     }
 }

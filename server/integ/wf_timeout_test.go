@@ -26,6 +26,8 @@ import (
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/event"
 	"github.com/superdurable/dex/service/common/ptr"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestFlowTimeoutTemporal(t *testing.T) {
@@ -46,6 +48,10 @@ func TestFlowTimeoutTemporal(t *testing.T) {
 		doTestFlowTimeoutRetryAfterContinueAsNew(t, service.BackendTypeTemporal)
 		smallWaitForFastTest()
 		doTestFlowTimeoutHandler(t, service.BackendTypeTemporal)
+		smallWaitForFastTest()
+		doTestFlowTimeoutHandlerExecutionOptions(t, service.BackendTypeTemporal, false)
+		smallWaitForFastTest()
+		doTestFlowTimeoutHandlerExecutionOptions(t, service.BackendTypeTemporal, true)
 		smallWaitForFastTest()
 		doTestFlowTimeoutHandlerDecisions(t, service.BackendTypeTemporal)
 		smallWaitForFastTest()
@@ -76,6 +82,10 @@ func TestFlowTimeoutCadence(t *testing.T) {
 		doTestFlowTimeoutRetryAfterContinueAsNew(t, service.BackendTypeCadence)
 		smallWaitForFastTest()
 		doTestFlowTimeoutHandler(t, service.BackendTypeCadence)
+		smallWaitForFastTest()
+		doTestFlowTimeoutHandlerExecutionOptions(t, service.BackendTypeCadence, false)
+		smallWaitForFastTest()
+		doTestFlowTimeoutHandlerExecutionOptions(t, service.BackendTypeCadence, true)
 		smallWaitForFastTest()
 		doTestFlowTimeoutHandlerDecisions(t, service.BackendTypeCadence)
 		smallWaitForFastTest()
@@ -109,6 +119,42 @@ func doTestFlowTimeoutValidation(t *testing.T, backendType service.BackendType) 
 		FlowTimeoutPolicy:  dexpb.FlowTimeoutPolicy(100),
 	})
 	require.ErrorContains(t, err, "unknown flow timeout policy")
+
+	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId: "wf-timeout-options-without-timeout-" + uuid.NewString(),
+		FlowId:    "wf-timeout-options-without-timeout-" + uuid.NewString(),
+		FlowType:  signal.WorkflowType,
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			TimeoutHandlerOptions: &dexpb.FlowTimeoutHandlerOptions{},
+		},
+	})
+	require.ErrorContains(t, err, "positive timeout")
+
+	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          "wf-timeout-options-wrong-policy-" + uuid.NewString(),
+		FlowId:             "wf-timeout-options-wrong-policy-" + uuid.NewString(),
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 30,
+		FlowTimeoutPolicy:  dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL,
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			TimeoutHandlerOptions: &dexpb.FlowTimeoutHandlerOptions{},
+		},
+	})
+	require.ErrorContains(t, err, "Handler policy")
+
+	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          "wf-timeout-options-invalid-load-" + uuid.NewString(),
+		FlowId:             "wf-timeout-options-invalid-load-" + uuid.NewString(),
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 30,
+		FlowTimeoutPolicy:  dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			TimeoutHandlerOptions: &dexpb.FlowTimeoutHandlerOptions{
+				LoadChannelNames: []string{"commands", "commands"},
+			},
+		},
+	})
+	require.ErrorContains(t, err, "duplicated")
 }
 
 func doTestFlowTimeout(
@@ -386,6 +432,172 @@ func doTestFlowTimeoutHandler(t *testing.T, backendType service.BackendType) {
 	require.Equal(t, int32(1), workerHandler.timeoutExecuteCalls.Load())
 }
 
+func doTestFlowTimeoutHandlerExecutionOptions(
+	t *testing.T,
+	backendType service.BackendType,
+	shouldRecover bool,
+) {
+	t.Helper()
+	workerHandler := newSoftTimeoutExecutionOptionsHandler(shouldRecover)
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	flowID := "wf-timeout-handler-options-" + uuid.NewString()
+	if shouldRecover {
+		flowID = "wf-timeout-handler-options-recovery-" + uuid.NewString()
+	}
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 3600,
+		FlowTimeoutPolicy:  dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
+		StartStepType:      signal.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
+				{Key: "ordinary", Value: stringValue("ordinary")},
+				{Key: "timeout-map/one", Value: stringValue("one")},
+				{Key: "timeout-map/two", Value: stringValue("two")},
+			},
+			TimeoutHandlerOptions: &dexpb.FlowTimeoutHandlerOptions{
+				MethodTimeoutSeconds: 1,
+				RetryPolicy: &dexpb.RetryPolicy{
+					InitialIntervalSeconds: 1,
+					BackoffCoefficient:     1,
+					MaximumIntervalSeconds: 1,
+					MaximumAttempts:        2,
+				},
+				FailurePolicy:          dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
+				FailureProceedStepType: timeoutRecoveryStep,
+				FailureProceedStepOptions: &dexpb.StepOptions{
+					SkipWaitFor: true,
+				},
+				LoadAttributeMapInstances: []string{"timeout-map/one"},
+				LoadChannelNames:          []string{"timeout-commands"},
+				LoadChannelMapInstances:   []string{"timeout-channel-map/"},
+			},
+		}, workerTarget),
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+		FlowId: flowID,
+		RunId:  startResponse.GetRunId(),
+		Messages: []*dexpb.ChannelMessage{
+			{ChannelName: "timeout-commands", Value: stringValue("first")},
+			{ChannelName: "timeout-channel-map/one", Value: stringValue("one")},
+			{ChannelName: "timeout-channel-map/two", Value: stringValue("two")},
+		},
+	})
+	require.NoError(t, err)
+	waitForTimeoutHandlerTimer(t, ctx, runtime, flowID)
+	_, err = runtime.FlowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
+		FlowId:              flowID,
+		StepExecutionId:     service.FlowTimeoutStepExecutionID,
+		TimerConditionIndex: ptr.Any(int32(0)),
+	})
+	require.NoError(t, err)
+
+	firstRequest := receiveTimeoutExecuteRequest(t, ctx, workerHandler.executeRequests)
+	requireTimeoutHandlerState(t, firstRequest)
+	if !shouldRecover {
+		_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+			FlowId: flowID,
+			RunId:  startResponse.GetRunId(),
+			Messages: []*dexpb.ChannelMessage{{
+				ChannelName: "timeout-commands",
+				Value:       stringValue("late"),
+			}},
+		})
+		require.NoError(t, err)
+	}
+	secondRequest := receiveTimeoutExecuteRequest(t, ctx, workerHandler.executeRequests)
+	requireTimeoutHandlerState(t, secondRequest)
+	require.Equal(
+		t,
+		firstRequest.GetLoadedChannelMessages()["timeout-commands"].GetMessages()[0].GetMessageId(),
+		secondRequest.GetLoadedChannelMessages()["timeout-commands"].GetMessages()[0].GetMessageId(),
+	)
+	require.GreaterOrEqual(
+		t,
+		workerHandler.secondAttemptAt.Load()-workerHandler.firstAttemptAt.Load(),
+		int64(time.Second),
+	)
+
+	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId:          flowID,
+		RunId:           startResponse.GetRunId(),
+		NeedsResults:    true,
+		WaitTimeSeconds: 30,
+	})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, result.GetFlowStatus())
+	require.Len(t, result.GetResults(), 1)
+	if shouldRecover {
+		require.Equal(t, "recovered", result.GetResults()[0].GetCompletedStepOutput().GetStringValue())
+		recoveryRequest := receiveTimeoutExecuteRequest(t, ctx, workerHandler.recoveryRequests)
+		require.Equal(t, "json", recoveryRequest.GetStepInput().GetObjValue().GetEncoding())
+		require.Equal(t, []byte("null"), recoveryRequest.GetStepInput().GetObjValue().GetPayload())
+		require.NotNil(t, recoveryRequest.GetContext().GetRecoveryError())
+		require.Contains(t, recoveryRequest.GetContext().GetRecoveryError().GetDetail(), "retryable timeout handler failure")
+	} else {
+		require.Equal(t, "handled", result.GetResults()[0].GetCompletedStepOutput().GetStringValue())
+		requireTimeoutHandlerDeletionHistory(t, ctx, runtime, flowID, startResponse.GetRunId())
+	}
+}
+
+func receiveTimeoutExecuteRequest(
+	t *testing.T,
+	ctx context.Context,
+	requests <-chan *dexpb.InvokeExecuteMethodRequest,
+) *dexpb.InvokeExecuteMethodRequest {
+	t.Helper()
+	select {
+	case request := <-requests:
+		return request
+	case <-ctx.Done():
+		require.FailNow(t, "timeout Execute was not invoked", ctx.Err())
+		return nil
+	}
+}
+
+func requireTimeoutHandlerState(t *testing.T, request *dexpb.InvokeExecuteMethodRequest) {
+	t.Helper()
+	require.Equal(t, service.FlowTimeoutStepType, request.GetStepType())
+	require.ElementsMatch(t, []string{"ordinary", "timeout-map/one"}, attributeKeys(request.GetAttributes()))
+	require.Equal(t, []string{"timeout-map/one"}, request.GetLoadedAttributeMapInstances())
+	require.Equal(t, []string{"timeout-commands"}, request.GetLoadedChannelNames())
+	require.Equal(t, []string{"timeout-channel-map/"}, request.GetLoadedChannelMapInstances())
+	require.Len(t, request.GetLoadedChannelMessages()["timeout-commands"].GetMessages(), 1)
+	require.Len(t, request.GetLoadedChannelMessages()["timeout-channel-map/one"].GetMessages(), 1)
+	require.Len(t, request.GetLoadedChannelMessages()["timeout-channel-map/two"].GetMessages(), 1)
+	require.Equal(t, int32(1), request.GetChannelInfos()["timeout-commands"].GetSize())
+}
+
+func requireTimeoutHandlerDeletionHistory(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+	runID string,
+) {
+	t.Helper()
+	history, err := runtime.FlowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
+		FlowId: flowID,
+		RunId:  runID,
+	})
+	require.NoError(t, err)
+	for _, historyEvent := range history.GetEvents() {
+		completed := historyEvent.GetStepExecuteCompleted()
+		if completed.GetContext().GetStepType() == service.FlowTimeoutStepType {
+			require.Len(t, completed.GetOutput().GetDeleteFromChannel(), 2)
+			return
+		}
+	}
+	require.Fail(t, "timeout handler Execute history was not found")
+}
+
 func doTestFlowTimeoutHandlerDecisions(t *testing.T, backendType service.BackendType) {
 	workerHandler := &softTimeoutHandler{}
 	workerTarget := startWorker(t, workerHandler)
@@ -481,6 +693,7 @@ func doTestFlowTimeoutSubFlowReport(t *testing.T, backendType service.BackendTyp
 	for _, timeoutPolicy := range []dexpb.FlowTimeoutPolicy{
 		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL,
 		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL,
+		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
 	} {
 		flowID := "wf-timeout-subflow-report-" + timeoutPolicy.String() + "-" + uuid.NewString()
 		_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
@@ -678,6 +891,95 @@ type softTimeoutHandler struct {
 	timeoutExecuteRelease chan struct{}
 }
 
+type softTimeoutExecutionOptionsHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	shouldRecover    bool
+	executeAttempts  atomic.Int32
+	firstAttemptAt   atomic.Int64
+	secondAttemptAt  atomic.Int64
+	executeRequests  chan *dexpb.InvokeExecuteMethodRequest
+	recoveryRequests chan *dexpb.InvokeExecuteMethodRequest
+}
+
+func newSoftTimeoutExecutionOptionsHandler(shouldRecover bool) *softTimeoutExecutionOptionsHandler {
+	return &softTimeoutExecutionOptionsHandler{
+		shouldRecover:    shouldRecover,
+		executeRequests:  make(chan *dexpb.InvokeExecuteMethodRequest, 2),
+		recoveryRequests: make(chan *dexpb.InvokeExecuteMethodRequest, 1),
+	}
+}
+
+func (h *softTimeoutExecutionOptionsHandler) InvokeWaitForMethod(
+	_ context.Context,
+	_ *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	return &dexpb.InvokeWaitForMethodResponse{
+		WaitingCondition: &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions:    []*dexpb.ChannelCondition{{ChannelName: "never-published"}},
+		},
+	}, nil
+}
+
+func (h *softTimeoutExecutionOptionsHandler) InvokeExecuteMethod(
+	ctx context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if request.GetStepType() == timeoutRecoveryStep {
+		h.recoveryRequests <- request
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				CloseDecision: common.ForceCompleteDecision(stringValue("recovered")),
+			},
+		}, nil
+	}
+	if request.GetStepType() != service.FlowTimeoutStepType {
+		return nil, fmt.Errorf("unexpected Step type %q", request.GetStepType())
+	}
+	attempt := h.executeAttempts.Add(1)
+	now := time.Now().UnixNano()
+	if attempt == 1 {
+		h.firstAttemptAt.Store(now)
+	} else {
+		h.secondAttemptAt.Store(now)
+	}
+	h.executeRequests <- request
+	if h.shouldRecover {
+		return nil, timeoutHandlerRetryableError()
+	}
+	if attempt == 1 {
+		<-ctx.Done()
+		return nil, status.Error(codes.DeadlineExceeded, "timeout handler attempt timed out")
+	}
+	commands := request.GetLoadedChannelMessages()["timeout-commands"].GetMessages()
+	return &dexpb.InvokeExecuteMethodResponse{
+		StepDecision: &dexpb.StepDecision{
+			CloseDecision: common.ForceCompleteDecision(stringValue("handled")),
+		},
+		UpsertAttributes: []*dexpb.AttributeWrite{{Key: "timeout-effect", Value: stringValue("written")}},
+		DeleteFromChannel: []*dexpb.ChannelMessageDeletion{
+			{ChannelName: "timeout-commands", MessageId: commands[0].GetMessageId()},
+			{ChannelName: "timeout-commands", MessageId: "missing"},
+		},
+		PublishToChannel: []*dexpb.ChannelMessage{{
+			ChannelName: "timeout-effects",
+			Value:       stringValue("published"),
+		}},
+	}, nil
+}
+
+func timeoutHandlerRetryableError() error {
+	grpcStatus := status.New(codes.Unavailable, "timeout handler failed")
+	grpcStatus, err := grpcStatus.WithDetails(&dexpb.WorkerErrorResponse{
+		Detail:    "retryable timeout handler failure",
+		ErrorType: "TimeoutHandlerFailure",
+	})
+	if err != nil {
+		panic(err)
+	}
+	return grpcStatus.Err()
+}
+
 func (h *softTimeoutHandler) InvokeWaitForMethod(
 	_ context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
@@ -808,16 +1110,28 @@ func (h *softTimeoutSubFlowHandler) InvokeWaitForMethod(
 	switch request.GetFlowType() {
 	case timeoutSubFlowParentType:
 		timeoutPolicy := dexpb.FlowTimeoutPolicy(request.GetStepInput().GetIntValue())
+		options := &dexpb.SubFlowOptions{
+			FlowTimeoutSeconds: 1,
+			FlowTimeoutPolicy:  timeoutPolicy,
+		}
+		if timeoutPolicy == dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER {
+			options.Attributes = []*dexpb.AttributeWrite{
+				{Key: "ordinary", Value: stringValue("ordinary")},
+				{Key: "child-map/one", Value: stringValue("one")},
+				{Key: "child-map/two", Value: stringValue("two")},
+			}
+			options.TimeoutHandlerOptions = &dexpb.FlowTimeoutHandlerOptions{
+				MethodTimeoutSeconds:      7,
+				LoadAttributeMapInstances: []string{"child-map/"},
+			}
+		}
 		return &dexpb.InvokeWaitForMethodResponse{
 			WaitingCondition: &dexpb.WaitingCondition{
 				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 				SubFlowConditions: []*dexpb.SubFlowCondition{{
 					SubFlowType:   timeoutSubFlowChildType,
 					StartStepType: timeoutSubFlowChildStep,
-					Options: &dexpb.SubFlowOptions{
-						FlowTimeoutSeconds: 1,
-						FlowTimeoutPolicy:  timeoutPolicy,
-					},
+					Options:       options,
 				}},
 			},
 		}, nil
@@ -839,6 +1153,22 @@ func (h *softTimeoutSubFlowHandler) InvokeExecuteMethod(
 	_ context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if request.GetFlowType() == timeoutSubFlowChildType &&
+		request.GetStepType() == service.FlowTimeoutStepType {
+		if !strings.Contains(request.GetContext().GetFlowId(), dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER.String()) {
+			return nil, fmt.Errorf("unexpected timeout handler child Flow ID %q", request.GetContext().GetFlowId())
+		}
+		if len(request.GetAttributes()) != 3 ||
+			len(request.GetLoadedAttributeMapInstances()) != 1 ||
+			request.GetLoadedAttributeMapInstances()[0] != "child-map/" {
+			return nil, fmt.Errorf("unexpected timeout handler SubFlow state selection")
+		}
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				CloseDecision: common.ForceCompleteDecision(stringValue("handled")),
+			},
+		}, nil
+	}
 	if request.GetFlowType() != timeoutSubFlowParentType {
 		return nil, fmt.Errorf("unexpected timeout SubFlow Execute type %q", request.GetFlowType())
 	}
@@ -851,6 +1181,9 @@ func (h *softTimeoutSubFlowHandler) InvokeExecuteMethod(
 	expectedErrorType := dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT
 	if timeoutPolicy == dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL {
 		expectedStatus = dexpb.FlowStatus_FLOW_STATUS_CANCELED
+		expectedErrorType = dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED
+	} else if timeoutPolicy == dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER {
+		expectedStatus = dexpb.FlowStatus_FLOW_STATUS_COMPLETED
 		expectedErrorType = dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED
 	}
 	if results[0].GetFlowStatus() != expectedStatus ||

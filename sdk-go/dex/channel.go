@@ -29,9 +29,8 @@ type Channel[T any] struct {
 	name string
 }
 
-// ChannelMapLoad selects one ChannelMap instance for an RPC invocation.
-// Create values with ChannelMap.LoadMessages and place them in
-// InvokeOptions.LoadChannelMapInstances.
+// ChannelMapLoad selects one ChannelMap instance for a handler invocation.
+// Create values with ChannelMap.LoadMessages and place them in matching invocation options.
 type ChannelMapLoad struct {
 	name     string
 	instance string
@@ -40,7 +39,7 @@ type ChannelMapLoad struct {
 // ChannelMessage identifies one pending Channel value returned by Client.GetChannelMessages.
 //
 // MessageID is assigned by Dex when the value is published. It can be passed to
-// Client.DeleteChannelMessage or Channel.Delete from a transactional RPC.
+// Client.DeleteChannelMessage or Channel.Delete from a handler.
 type ChannelMessage[T any] struct {
 	// MessageID is the server-assigned UUIDv7 for this pending message.
 	MessageID string
@@ -73,8 +72,8 @@ func (c Channel[T]) Publish(ctx Context, value T) error {
 	return invocation.publishChannel(c.name, value)
 }
 
-// Delete stages one pending-message deletion from an RPC handler.
-// Use InvokeOptions.IsTransactional when a missing ID must abort all RPC writes.
+// Delete stages one pending-message deletion from a Step, timeout handler, or RPC.
+// Step deletions are best-effort. Use transactional RPCs when a missing ID must abort all writes.
 func (c Channel[T]) Delete(ctx Context, messageID string) error {
 	invocation, ok := ctx.(channelInvocation)
 	if !ok {
@@ -83,8 +82,8 @@ func (c Channel[T]) Delete(ctx Context, messageID string) error {
 	return invocation.deleteChannelMessage(c.name, "", false, messageID)
 }
 
-// PendingMessages returns the loaded RPC snapshot in FIFO order.
-// It returns ChannelMessagesNotLoadedError when InvokeOptions did not select this Channel.
+// PendingMessages returns the loaded handler snapshot in FIFO order.
+// It returns ChannelMessagesNotLoadedError when invocation options omitted this Channel.
 func (c Channel[T]) PendingMessages(ctx Context) ([]ChannelMessage[T], error) {
 	invocation, ok := ctx.(channelInvocation)
 	if !ok {
@@ -214,8 +213,8 @@ func (c ChannelMap[T]) Publish(ctx Context, instance string, value T) error {
 	return invocation.publishChannelMap(c.name, instance, value)
 }
 
-// Delete stages one pending-message deletion from a ChannelMap instance in an RPC handler.
-// Use InvokeOptions.IsTransactional when a missing ID must abort all RPC writes.
+// Delete stages one pending-message deletion from a ChannelMap instance.
+// Step deletions are best-effort. Use transactional RPCs when a missing ID must abort all writes.
 func (c ChannelMap[T]) Delete(ctx Context, instance string, messageID string) error {
 	invocation, ok := ctx.(channelInvocation)
 	if !ok {
@@ -224,13 +223,13 @@ func (c ChannelMap[T]) Delete(ctx Context, instance string, messageID string) er
 	return invocation.deleteChannelMessage(c.name, instance, true, messageID)
 }
 
-// LoadMessages selects pending messages from one slash-free logical instance for an RPC snapshot.
+// LoadMessages selects pending messages from one slash-free logical instance for a handler snapshot.
 func (c ChannelMap[T]) LoadMessages(instance string) ChannelMapLoad {
 	return ChannelMapLoad{name: c.name, instance: instance}
 }
 
 // PendingMessages returns one loaded instance snapshot in FIFO order.
-// It returns ChannelMessagesNotLoadedError when InvokeOptions did not select this ChannelMap.
+// It returns ChannelMessagesNotLoadedError when invocation options omitted this ChannelMap.
 func (c ChannelMap[T]) PendingMessages(
 	ctx Context,
 	instance string,
@@ -333,12 +332,12 @@ func (c ChannelMap[T]) Size(ctx Context, instance string) int {
 	return invocation.channelMapSize(c.name, instance)
 }
 
-// MapSize returns the number of non-empty Channel instances visible to the current RPC.
+// MapSize returns the number of non-empty Channel instances visible to the current handler.
 func (c ChannelMap[T]) MapSize(ctx Context) int {
 	return len(c.AllInstanceKeys(ctx))
 }
 
-// AllInstanceKeys returns non-empty Channel instance keys in ascending order for the current RPC.
+// AllInstanceKeys returns non-empty instance keys in ascending order for the current handler.
 func (c ChannelMap[T]) AllInstanceKeys(ctx Context) []string {
 	invocation, ok := ctx.(channelInvocation)
 	if !ok {

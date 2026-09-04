@@ -404,7 +404,7 @@ class FlowRetryPolicy(_message.Message):
     def __init__(self, initial_interval_seconds: _Optional[int] = ..., backoff_coefficient: _Optional[float] = ..., maximum_interval_seconds: _Optional[int] = ..., maximum_attempts: _Optional[int] = ...) -> None: ...
 
 class StepOptions(_message.Message):
-    __slots__ = ("wait_for_timeout_seconds", "execute_timeout_seconds", "wait_for_retry_policy", "execute_retry_policy", "wait_for_failure_policy", "execute_failure_policy", "execute_failure_proceed_step_type", "execute_failure_proceed_step_options", "skip_wait_for", "wait_for_durability_override", "execute_durability_override", "wait_for_lock_attribute_keys", "execute_lock_attribute_keys", "heartbeat_timeout_seconds")
+    __slots__ = ("wait_for_timeout_seconds", "execute_timeout_seconds", "wait_for_retry_policy", "execute_retry_policy", "wait_for_failure_policy", "execute_failure_policy", "execute_failure_proceed_step_type", "execute_failure_proceed_step_options", "skip_wait_for", "wait_for_durability_override", "execute_durability_override", "wait_for_lock_attribute_keys", "execute_lock_attribute_keys", "heartbeat_timeout_seconds", "wait_for_load_attribute_map_instances", "wait_for_load_channel_names", "wait_for_load_channel_map_instances", "execute_load_attribute_map_instances", "execute_load_channel_names", "execute_load_channel_map_instances")
     WAIT_FOR_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     EXECUTE_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     WAIT_FOR_RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
@@ -419,6 +419,12 @@ class StepOptions(_message.Message):
     WAIT_FOR_LOCK_ATTRIBUTE_KEYS_FIELD_NUMBER: _ClassVar[int]
     EXECUTE_LOCK_ATTRIBUTE_KEYS_FIELD_NUMBER: _ClassVar[int]
     HEARTBEAT_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    WAIT_FOR_LOAD_ATTRIBUTE_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
+    WAIT_FOR_LOAD_CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
+    WAIT_FOR_LOAD_CHANNEL_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
+    EXECUTE_LOAD_ATTRIBUTE_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
+    EXECUTE_LOAD_CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
+    EXECUTE_LOAD_CHANNEL_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
     wait_for_timeout_seconds: int
     execute_timeout_seconds: int
     wait_for_retry_policy: RetryPolicy
@@ -433,7 +439,39 @@ class StepOptions(_message.Message):
     wait_for_lock_attribute_keys: _containers.RepeatedScalarFieldContainer[str]
     execute_lock_attribute_keys: _containers.RepeatedScalarFieldContainer[str]
     heartbeat_timeout_seconds: int
-    def __init__(self, wait_for_timeout_seconds: _Optional[int] = ..., execute_timeout_seconds: _Optional[int] = ..., wait_for_retry_policy: _Optional[_Union[RetryPolicy, _Mapping]] = ..., execute_retry_policy: _Optional[_Union[RetryPolicy, _Mapping]] = ..., wait_for_failure_policy: _Optional[_Union[WaitForMethodFailurePolicy, str]] = ..., execute_failure_policy: _Optional[_Union[ExecuteMethodFailurePolicy, str]] = ..., execute_failure_proceed_step_type: _Optional[str] = ..., execute_failure_proceed_step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., skip_wait_for: _Optional[bool] = ..., wait_for_durability_override: _Optional[_Union[StepDurability, str]] = ..., execute_durability_override: _Optional[_Union[StepDurability, str]] = ..., wait_for_lock_attribute_keys: _Optional[_Iterable[str]] = ..., execute_lock_attribute_keys: _Optional[_Iterable[str]] = ..., heartbeat_timeout_seconds: _Optional[int] = ...) -> None: ...
+    wait_for_load_attribute_map_instances: _containers.RepeatedScalarFieldContainer[str]
+    wait_for_load_channel_names: _containers.RepeatedScalarFieldContainer[str]
+    wait_for_load_channel_map_instances: _containers.RepeatedScalarFieldContainer[str]
+    execute_load_attribute_map_instances: _containers.RepeatedScalarFieldContainer[str]
+    execute_load_channel_names: _containers.RepeatedScalarFieldContainer[str]
+    execute_load_channel_map_instances: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, wait_for_timeout_seconds: _Optional[int] = ..., execute_timeout_seconds: _Optional[int] = ..., wait_for_retry_policy: _Optional[_Union[RetryPolicy, _Mapping]] = ..., execute_retry_policy: _Optional[_Union[RetryPolicy, _Mapping]] = ..., wait_for_failure_policy: _Optional[_Union[WaitForMethodFailurePolicy, str]] = ..., execute_failure_policy: _Optional[_Union[ExecuteMethodFailurePolicy, str]] = ..., execute_failure_proceed_step_type: _Optional[str] = ..., execute_failure_proceed_step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., skip_wait_for: _Optional[bool] = ..., wait_for_durability_override: _Optional[_Union[StepDurability, str]] = ..., execute_durability_override: _Optional[_Union[StepDurability, str]] = ..., wait_for_lock_attribute_keys: _Optional[_Iterable[str]] = ..., execute_lock_attribute_keys: _Optional[_Iterable[str]] = ..., heartbeat_timeout_seconds: _Optional[int] = ..., wait_for_load_attribute_map_instances: _Optional[_Iterable[str]] = ..., wait_for_load_channel_names: _Optional[_Iterable[str]] = ..., wait_for_load_channel_map_instances: _Optional[_Iterable[str]] = ..., execute_load_attribute_map_instances: _Optional[_Iterable[str]] = ..., execute_load_channel_names: _Optional[_Iterable[str]] = ..., execute_load_channel_map_instances: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class FlowTimeoutHandlerOptions(_message.Message):
+    __slots__ = ("method_timeout_seconds", "heartbeat_timeout_seconds", "retry_policy", "failure_policy", "failure_proceed_step_type", "failure_proceed_step_options", "durability_override", "lock_attribute_keys", "load_attribute_map_instances", "load_channel_names", "load_channel_map_instances")
+    METHOD_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    HEARTBEAT_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_POLICY_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_PROCEED_STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_PROCEED_STEP_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    DURABILITY_OVERRIDE_FIELD_NUMBER: _ClassVar[int]
+    LOCK_ATTRIBUTE_KEYS_FIELD_NUMBER: _ClassVar[int]
+    LOAD_ATTRIBUTE_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
+    LOAD_CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
+    LOAD_CHANNEL_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
+    method_timeout_seconds: int
+    heartbeat_timeout_seconds: int
+    retry_policy: RetryPolicy
+    failure_policy: ExecuteMethodFailurePolicy
+    failure_proceed_step_type: str
+    failure_proceed_step_options: StepOptions
+    durability_override: StepDurability
+    lock_attribute_keys: _containers.RepeatedScalarFieldContainer[str]
+    load_attribute_map_instances: _containers.RepeatedScalarFieldContainer[str]
+    load_channel_names: _containers.RepeatedScalarFieldContainer[str]
+    load_channel_map_instances: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, method_timeout_seconds: _Optional[int] = ..., heartbeat_timeout_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[RetryPolicy, _Mapping]] = ..., failure_policy: _Optional[_Union[ExecuteMethodFailurePolicy, str]] = ..., failure_proceed_step_type: _Optional[str] = ..., failure_proceed_step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., durability_override: _Optional[_Union[StepDurability, str]] = ..., lock_attribute_keys: _Optional[_Iterable[str]] = ..., load_attribute_map_instances: _Optional[_Iterable[str]] = ..., load_channel_names: _Optional[_Iterable[str]] = ..., load_channel_map_instances: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class FlowAlreadyStartedOptions(_message.Message):
     __slots__ = ("ignore_already_started_error",)
@@ -442,20 +480,22 @@ class FlowAlreadyStartedOptions(_message.Message):
     def __init__(self, ignore_already_started_error: _Optional[bool] = ...) -> None: ...
 
 class FlowStartOptions(_message.Message):
-    __slots__ = ("id_reuse_policy", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override", "flow_already_started_options")
+    __slots__ = ("id_reuse_policy", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override", "flow_already_started_options", "timeout_handler_options")
     ID_REUSE_POLICY_FIELD_NUMBER: _ClassVar[int]
     FLOW_START_DELAY_SECONDS_FIELD_NUMBER: _ClassVar[int]
     RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
     ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     FLOW_CONFIG_OVERRIDE_FIELD_NUMBER: _ClassVar[int]
     FLOW_ALREADY_STARTED_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    TIMEOUT_HANDLER_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     id_reuse_policy: IdReusePolicy
     flow_start_delay_seconds: int
     retry_policy: FlowRetryPolicy
     attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     flow_config_override: FlowConfig
     flow_already_started_options: FlowAlreadyStartedOptions
-    def __init__(self, id_reuse_policy: _Optional[_Union[IdReusePolicy, str]] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_already_started_options: _Optional[_Union[FlowAlreadyStartedOptions, _Mapping]] = ...) -> None: ...
+    timeout_handler_options: FlowTimeoutHandlerOptions
+    def __init__(self, id_reuse_policy: _Optional[_Union[IdReusePolicy, str]] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_already_started_options: _Optional[_Union[FlowAlreadyStartedOptions, _Mapping]] = ..., timeout_handler_options: _Optional[_Union[FlowTimeoutHandlerOptions, _Mapping]] = ...) -> None: ...
 
 class FlowConfig(_message.Message):
     __slots__ = ("active_step_search_mode", "continue_as_new_threshold", "continue_as_new_page_size_in_bytes", "step_durability", "worker_target", "attribute_store_names")
@@ -884,12 +924,13 @@ class TimeTravelForkHistoryEvent(_message.Message):
     def __init__(self, previous_run_id: _Optional[str] = ...) -> None: ...
 
 class FlowStartedOrContinuedHistoryEvent(_message.Message):
-    __slots__ = ("flow_execution_id", "flow_type", "flow_config", "flow_timeout", "flow_timeout_policy", "initial_start", "continued_start")
+    __slots__ = ("flow_execution_id", "flow_type", "flow_config", "flow_timeout", "flow_timeout_policy", "timeout_handler_options", "initial_start", "continued_start")
     FLOW_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     FLOW_CONFIG_FIELD_NUMBER: _ClassVar[int]
     FLOW_TIMEOUT_FIELD_NUMBER: _ClassVar[int]
     FLOW_TIMEOUT_POLICY_FIELD_NUMBER: _ClassVar[int]
+    TIMEOUT_HANDLER_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     INITIAL_START_FIELD_NUMBER: _ClassVar[int]
     CONTINUED_START_FIELD_NUMBER: _ClassVar[int]
     flow_execution_id: FlowExecutionID
@@ -897,9 +938,10 @@ class FlowStartedOrContinuedHistoryEvent(_message.Message):
     flow_config: FlowConfig
     flow_timeout: _duration_pb2.Duration
     flow_timeout_policy: FlowTimeoutPolicy
+    timeout_handler_options: FlowTimeoutHandlerOptions
     initial_start: FlowInitialStart
     continued_start: FlowContinuedStart
-    def __init__(self, flow_execution_id: _Optional[_Union[FlowExecutionID, _Mapping]] = ..., flow_type: _Optional[str] = ..., flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ..., initial_start: _Optional[_Union[FlowInitialStart, _Mapping]] = ..., continued_start: _Optional[_Union[FlowContinuedStart, _Mapping]] = ...) -> None: ...
+    def __init__(self, flow_execution_id: _Optional[_Union[FlowExecutionID, _Mapping]] = ..., flow_type: _Optional[str] = ..., flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ..., timeout_handler_options: _Optional[_Union[FlowTimeoutHandlerOptions, _Mapping]] = ..., initial_start: _Optional[_Union[FlowInitialStart, _Mapping]] = ..., continued_start: _Optional[_Union[FlowContinuedStart, _Mapping]] = ...) -> None: ...
 
 class FlowInitialStart(_message.Message):
     __slots__ = ("start_step_type", "step_input", "step_options", "initial_attributes")
@@ -1017,32 +1059,36 @@ class StepMethodEventContext(_message.Message):
     def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., durability: _Optional[_Union[StepDurability, str]] = ..., final_attempt: _Optional[int] = ..., started_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., duration: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ...) -> None: ...
 
 class StepWaitForCompletedOutput(_message.Message):
-    __slots__ = ("wait_for_condition", "upsert_attributes", "publish_to_channel", "record_events", "upsert_step_execution_locals")
+    __slots__ = ("wait_for_condition", "upsert_attributes", "publish_to_channel", "record_events", "upsert_step_execution_locals", "delete_from_channel")
     WAIT_FOR_CONDITION_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     UPSERT_STEP_EXECUTION_LOCALS_FIELD_NUMBER: _ClassVar[int]
+    DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     wait_for_condition: WaitingCondition
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     upsert_step_execution_locals: _containers.RepeatedCompositeFieldContainer[KV]
-    def __init__(self, wait_for_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
+    delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
+    def __init__(self, wait_for_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ...) -> None: ...
 
 class StepExecuteCompletedOutput(_message.Message):
-    __slots__ = ("step_decision", "upsert_attributes", "publish_to_channel", "record_events", "upsert_step_execution_locals")
+    __slots__ = ("step_decision", "upsert_attributes", "publish_to_channel", "record_events", "upsert_step_execution_locals", "delete_from_channel")
     STEP_DECISION_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     UPSERT_STEP_EXECUTION_LOCALS_FIELD_NUMBER: _ClassVar[int]
+    DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     step_decision: StepDecision
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     upsert_step_execution_locals: _containers.RepeatedCompositeFieldContainer[KV]
-    def __init__(self, step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
+    delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
+    def __init__(self, step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ...) -> None: ...
 
 class StepMethodFailedOutput(_message.Message):
     __slots__ = ("failure",)
@@ -1410,34 +1456,60 @@ class ChannelInfo(_message.Message):
     def __init__(self, size: _Optional[int] = ...) -> None: ...
 
 class InvokeWaitForMethodRequest(_message.Message):
-    __slots__ = ("context", "flow_type", "step_type", "step_input", "attributes")
+    __slots__ = ("context", "flow_type", "step_type", "step_input", "attributes", "channel_infos", "loaded_channel_messages", "loaded_attribute_map_instances", "loaded_channel_names", "loaded_channel_map_instances")
+    class ChannelInfosEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: ChannelInfo
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[ChannelInfo, _Mapping]] = ...) -> None: ...
+    class LoadedChannelMessagesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: ChannelValues
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[ChannelValues, _Mapping]] = ...) -> None: ...
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
     FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
     STEP_INPUT_FIELD_NUMBER: _ClassVar[int]
     ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_INFOS_FIELD_NUMBER: _ClassVar[int]
+    LOADED_CHANNEL_MESSAGES_FIELD_NUMBER: _ClassVar[int]
+    LOADED_ATTRIBUTE_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
+    LOADED_CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
+    LOADED_CHANNEL_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
     context: Context
     flow_type: str
     step_type: str
     step_input: Value
     attributes: _containers.RepeatedCompositeFieldContainer[KV]
-    def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
+    channel_infos: _containers.MessageMap[str, ChannelInfo]
+    loaded_channel_messages: _containers.MessageMap[str, ChannelValues]
+    loaded_attribute_map_instances: _containers.RepeatedScalarFieldContainer[str]
+    loaded_channel_names: _containers.RepeatedScalarFieldContainer[str]
+    loaded_channel_map_instances: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ..., loaded_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., loaded_attribute_map_instances: _Optional[_Iterable[str]] = ..., loaded_channel_names: _Optional[_Iterable[str]] = ..., loaded_channel_map_instances: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class InvokeWaitForMethodResponse(_message.Message):
-    __slots__ = ("local_activity_metadata", "upsert_attributes", "waiting_condition", "upsert_step_exe_locals", "record_events", "publish_to_channel")
+    __slots__ = ("local_activity_metadata", "upsert_attributes", "waiting_condition", "upsert_step_exe_locals", "record_events", "publish_to_channel", "delete_from_channel")
     LOCAL_ACTIVITY_METADATA_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     WAITING_CONDITION_FIELD_NUMBER: _ClassVar[int]
     UPSERT_STEP_EXE_LOCALS_FIELD_NUMBER: _ClassVar[int]
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
+    DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     local_activity_metadata: LocalActivityMetadata
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     waiting_condition: WaitingCondition
     upsert_step_exe_locals: _containers.RepeatedCompositeFieldContainer[KV]
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
-    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
+    delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
+    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ...) -> None: ...
 
 class StepMethodHeartbeat(_message.Message):
     __slots__ = ("value",)
@@ -1466,7 +1538,21 @@ class InvokeWaitForMethodOutput(_message.Message):
     def __init__(self, heartbeat: _Optional[_Union[StepMethodHeartbeat, _Mapping]] = ..., stream_write: _Optional[_Union[StepStreamWrite, _Mapping]] = ..., result: _Optional[_Union[InvokeWaitForMethodResponse, _Mapping]] = ...) -> None: ...
 
 class InvokeExecuteMethodRequest(_message.Message):
-    __slots__ = ("context", "flow_type", "step_type", "step_input", "attributes", "step_exe_locals", "condition_results")
+    __slots__ = ("context", "flow_type", "step_type", "step_input", "attributes", "step_exe_locals", "condition_results", "channel_infos", "loaded_channel_messages", "loaded_attribute_map_instances", "loaded_channel_names", "loaded_channel_map_instances")
+    class ChannelInfosEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: ChannelInfo
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[ChannelInfo, _Mapping]] = ...) -> None: ...
+    class LoadedChannelMessagesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: ChannelValues
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[ChannelValues, _Mapping]] = ...) -> None: ...
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
     FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -1474,6 +1560,11 @@ class InvokeExecuteMethodRequest(_message.Message):
     ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     STEP_EXE_LOCALS_FIELD_NUMBER: _ClassVar[int]
     CONDITION_RESULTS_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_INFOS_FIELD_NUMBER: _ClassVar[int]
+    LOADED_CHANNEL_MESSAGES_FIELD_NUMBER: _ClassVar[int]
+    LOADED_ATTRIBUTE_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
+    LOADED_CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
+    LOADED_CHANNEL_MAP_INSTANCES_FIELD_NUMBER: _ClassVar[int]
     context: Context
     flow_type: str
     step_type: str
@@ -1481,23 +1572,30 @@ class InvokeExecuteMethodRequest(_message.Message):
     attributes: _containers.RepeatedCompositeFieldContainer[KV]
     step_exe_locals: _containers.RepeatedCompositeFieldContainer[KV]
     condition_results: ConditionResults
-    def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., condition_results: _Optional[_Union[ConditionResults, _Mapping]] = ...) -> None: ...
+    channel_infos: _containers.MessageMap[str, ChannelInfo]
+    loaded_channel_messages: _containers.MessageMap[str, ChannelValues]
+    loaded_attribute_map_instances: _containers.RepeatedScalarFieldContainer[str]
+    loaded_channel_names: _containers.RepeatedScalarFieldContainer[str]
+    loaded_channel_map_instances: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., condition_results: _Optional[_Union[ConditionResults, _Mapping]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ..., loaded_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., loaded_attribute_map_instances: _Optional[_Iterable[str]] = ..., loaded_channel_names: _Optional[_Iterable[str]] = ..., loaded_channel_map_instances: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class InvokeExecuteMethodResponse(_message.Message):
-    __slots__ = ("local_activity_metadata", "step_decision", "upsert_attributes", "record_events", "upsert_step_exe_locals", "publish_to_channel")
+    __slots__ = ("local_activity_metadata", "step_decision", "upsert_attributes", "record_events", "upsert_step_exe_locals", "publish_to_channel", "delete_from_channel")
     LOCAL_ACTIVITY_METADATA_FIELD_NUMBER: _ClassVar[int]
     STEP_DECISION_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     UPSERT_STEP_EXE_LOCALS_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
+    DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     local_activity_metadata: LocalActivityMetadata
     step_decision: StepDecision
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     upsert_step_exe_locals: _containers.RepeatedCompositeFieldContainer[KV]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
-    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
+    delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
+    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ...) -> None: ...
 
 class InvokeExecuteMethodOutput(_message.Message):
     __slots__ = ("heartbeat", "stream_write", "result")
@@ -1634,7 +1732,7 @@ class WaitingConditionState(_message.Message):
     def __init__(self, waiting_condition_type: _Optional[_Union[WaitingConditionType, str]] = ..., timer_conditions: _Optional[_Iterable[_Union[TimerCondition, _Mapping]]] = ..., channel_conditions: _Optional[_Iterable[_Union[ChannelCondition, _Mapping]]] = ..., condition_combinations: _Optional[_Iterable[_Union[ConditionCombination, _Mapping]]] = ..., sub_flow_conditions: _Optional[_Iterable[_Union[SubFlowConditionState, _Mapping]]] = ...) -> None: ...
 
 class SubFlowOptions(_message.Message):
-    __slots__ = ("reuse_policy", "flow_timeout_seconds", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override", "flow_timeout_policy")
+    __slots__ = ("reuse_policy", "flow_timeout_seconds", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override", "flow_timeout_policy", "timeout_handler_options")
     REUSE_POLICY_FIELD_NUMBER: _ClassVar[int]
     FLOW_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     FLOW_START_DELAY_SECONDS_FIELD_NUMBER: _ClassVar[int]
@@ -1642,6 +1740,7 @@ class SubFlowOptions(_message.Message):
     ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     FLOW_CONFIG_OVERRIDE_FIELD_NUMBER: _ClassVar[int]
     FLOW_TIMEOUT_POLICY_FIELD_NUMBER: _ClassVar[int]
+    TIMEOUT_HANDLER_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     reuse_policy: SubFlowReusePolicy
     flow_timeout_seconds: int
     flow_start_delay_seconds: int
@@ -1649,7 +1748,8 @@ class SubFlowOptions(_message.Message):
     attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     flow_config_override: FlowConfig
     flow_timeout_policy: FlowTimeoutPolicy
-    def __init__(self, reuse_policy: _Optional[_Union[SubFlowReusePolicy, str]] = ..., flow_timeout_seconds: _Optional[int] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ...) -> None: ...
+    timeout_handler_options: FlowTimeoutHandlerOptions
+    def __init__(self, reuse_policy: _Optional[_Union[SubFlowReusePolicy, str]] = ..., flow_timeout_seconds: _Optional[int] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ..., timeout_handler_options: _Optional[_Union[FlowTimeoutHandlerOptions, _Mapping]] = ...) -> None: ...
 
 class SubFlowCondition(_message.Message):
     __slots__ = ("condition_id", "sub_flow_type", "start_step_type", "step_input", "step_options", "options", "sub_flow_index")
@@ -1872,7 +1972,7 @@ class ContinueAsNewInput(_message.Message):
     def __init__(self, previous_internal_run_id: _Optional[str] = ...) -> None: ...
 
 class InterpreterWorkflowInput(_message.Message):
-    __slots__ = ("flow_type", "configured_flow_timeout_seconds", "flow_timeout_policy", "start_step_type", "step_input", "step_options", "init_attributes", "config", "is_resume_from_continue_as_new", "continue_as_new_input")
+    __slots__ = ("flow_type", "configured_flow_timeout_seconds", "flow_timeout_policy", "start_step_type", "step_input", "step_options", "init_attributes", "config", "is_resume_from_continue_as_new", "continue_as_new_input", "timeout_handler_options")
     FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     CONFIGURED_FLOW_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     FLOW_TIMEOUT_POLICY_FIELD_NUMBER: _ClassVar[int]
@@ -1883,6 +1983,7 @@ class InterpreterWorkflowInput(_message.Message):
     CONFIG_FIELD_NUMBER: _ClassVar[int]
     IS_RESUME_FROM_CONTINUE_AS_NEW_FIELD_NUMBER: _ClassVar[int]
     CONTINUE_AS_NEW_INPUT_FIELD_NUMBER: _ClassVar[int]
+    TIMEOUT_HANDLER_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     flow_type: str
     configured_flow_timeout_seconds: int
     flow_timeout_policy: FlowTimeoutPolicy
@@ -1893,7 +1994,8 @@ class InterpreterWorkflowInput(_message.Message):
     config: FlowConfig
     is_resume_from_continue_as_new: bool
     continue_as_new_input: ContinueAsNewInput
-    def __init__(self, flow_type: _Optional[str] = ..., configured_flow_timeout_seconds: _Optional[int] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., init_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., config: _Optional[_Union[FlowConfig, _Mapping]] = ..., is_resume_from_continue_as_new: _Optional[bool] = ..., continue_as_new_input: _Optional[_Union[ContinueAsNewInput, _Mapping]] = ...) -> None: ...
+    timeout_handler_options: FlowTimeoutHandlerOptions
+    def __init__(self, flow_type: _Optional[str] = ..., configured_flow_timeout_seconds: _Optional[int] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., init_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., config: _Optional[_Union[FlowConfig, _Mapping]] = ..., is_resume_from_continue_as_new: _Optional[bool] = ..., continue_as_new_input: _Optional[_Union[ContinueAsNewInput, _Mapping]] = ..., timeout_handler_options: _Optional[_Union[FlowTimeoutHandlerOptions, _Mapping]] = ...) -> None: ...
 
 class InterpreterWorkflowOutput(_message.Message):
     __slots__ = ("step_completion_outputs",)

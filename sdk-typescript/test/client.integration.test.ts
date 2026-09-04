@@ -16,13 +16,17 @@ import {
   Channel,
   ChannelMap,
   Client,
+  FlowTimeoutHandlerFailure,
+  FlowTimeoutPolicy,
   Registry,
   Stream,
   StepList,
   jsonCodec,
   rpc,
   stringCodec,
+  voidCodec,
   type BlobCache,
+  type AsyncContext,
   type Context,
   type Flow,
   type RPCResult,
@@ -85,15 +89,28 @@ class Start implements Step<Input> {
   }
 }
 
+class TimeoutRecovery implements Step<void> {
+  public readonly inputCodec = voidCodec;
+
+  public getStepType(): string {
+    return "TimeoutRecovery";
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    return { kind: "deadEnd" };
+  }
+}
+
 class TestFlow implements Flow<Input> {
   public readonly start = new Start();
+  public readonly timeoutRecovery = new TimeoutRecovery();
 
   public getFlowType(): string {
     return "TestFlow";
   }
 
   public getSteps() {
-    return StepList.startStep(this.start);
+    return StepList.startStep(this.start).otherSteps(this.timeoutRecovery);
   }
 
   public getPersistenceSchema() {
@@ -115,6 +132,10 @@ class TestFlow implements Flow<Input> {
   })
   public accept(_context: Context, _input: Input): RPCResult<Output> {
     return { output: { accepted: true } };
+  }
+
+  public handleTimeout(_context: AsyncContext): StepDecision {
+    return { kind: "deadEnd" };
   }
 }
 
@@ -215,7 +236,22 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     serverAddress: `127.0.0.1:${port}`,
   });
   try {
-    assert.equal(await client.startFlow(flow, "flow-1", { message: "hello" }), "run-1");
+    assert.equal(await client.startFlow(flow, "flow-1", { message: "hello" }, {
+      timeoutMs: 30_000,
+      timeoutPolicy: FlowTimeoutPolicy.HANDLER,
+      timeoutHandlerOptions: {
+        methodTimeoutMs: 10_000,
+        heartbeatTimeoutMs: 5_000,
+        retry: { maximumAttempts: 3 },
+        failure: FlowTimeoutHandlerFailure.proceedTo(TimeoutRecovery),
+        durability: "async",
+        loadAttributeMaps: [items],
+        loadAttributeMapInstances: [items.load("tenant-a")],
+        loadChannels: [queued],
+        loadChannelMaps: [byTenant],
+        loadChannelMapInstances: [byTenant.loadMessages("tenant-a")],
+      },
+    }), "run-1");
     assert.deepEqual(await client.invokeRPC(flow.accept, "flow-1", { message: "hello" }), {
       accepted: true,
     });
@@ -246,6 +282,23 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(requests.start?.flowType, "TestFlow");
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.start?.stepOptions?.heartbeatTimeoutSeconds, 2);
+    assert.equal(requests.start?.flowStartOptions?.timeoutHandlerOptions?.methodTimeoutSeconds, 10);
+    assert.equal(requests.start?.flowStartOptions?.timeoutHandlerOptions?.heartbeatTimeoutSeconds, 5);
+    assert.equal(requests.start?.flowStartOptions?.timeoutHandlerOptions?.retryPolicy?.maximumAttempts, 3);
+    assert.equal(requests.start?.flowStartOptions?.timeoutHandlerOptions?.failureProceedStepType, "TimeoutRecovery");
+    assert.equal(requests.start?.flowStartOptions?.timeoutHandlerOptions?.failureProceedStepOptions?.skipWaitFor, true);
+    assert.deepEqual(
+      requests.start?.flowStartOptions?.timeoutHandlerOptions?.loadAttributeMapInstances,
+      ["items/", "items/tenant-a"],
+    );
+    assert.deepEqual(
+      requests.start?.flowStartOptions?.timeoutHandlerOptions?.loadChannelNames,
+      ["queued"],
+    );
+    assert.deepEqual(
+      requests.start?.flowStartOptions?.timeoutHandlerOptions?.loadChannelMapInstances,
+      ["by-tenant/", "by-tenant/tenant-a"],
+    );
     assert.equal(requests.rpc?.rpcName, "accept");
     assert.deepEqual(requests.rpc?.loadAttributeMapInstances, ["items/", "items/tenant-a"]);
     assert.deepEqual(requests.rpc?.loadChannelNames, ["queued"]);
