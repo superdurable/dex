@@ -194,17 +194,11 @@ export function withoutRecoveryPaths(graph: FlowDefinitionGraph): FlowDefinition
  *   traced  the rail card, with its edges revealed only while it is selected
  */
 /**
- * What a Step is, in the reader's terms, derived only from Dex's own vocabulary.
+ * What a Step is, read from its WaitFor conditions alone.
  *
- *   gate   its WaitFor has a Channel condition, so an actor outside the Flow must publish
- *          before it proceeds. Dex already models human-in-the-loop this way; naming it
- *          adds no concept, it promotes one that was already there.
- *   batch  its WaitFor has a SubFlow condition: it fans out and waits for children.
- *   work   pure Execute, or a wait on Timers alone.
- *
- * What a graph cannot answer — whether a model or a script does the work — is deliberately
- * absent. That is an application fact, not a Dex one, and belongs in the schema's own
- * `metadata` extension point rather than in this vocabulary.
+ *   gate   a Channel condition: an actor outside the Flow must publish first
+ *   batch  a SubFlow condition: it fans out and waits for children
+ *   work   pure Execute, or a wait on Timers alone
  */
 export type StepRole = 'gate' | 'batch' | 'work';
 
@@ -262,20 +256,13 @@ function derivedWaitSentence(graph: FlowDefinitionGraph, stepID: string): string
   return clauses.join(', ') + skippable;
 }
 
-/**
- * The name to show on a card.
- *
- * Uses the FDG schema's existing per-node `metadata` rather than a new field, and falls
- * back to the durable type name, which is always present. A Step type name is part of the
- * contract of an open execution, so a display name must never replace it — only sit in
- * front of it.
- */
 /** One string out of the schema's per-node `metadata`, or empty. */
 export function metadataText(node: FlowDefinitionNode, key: string): string {
   const value = (node.metadata as Record<string, unknown> | undefined)?.[key];
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/** The card's name: authored `metadata.displayName`, else the durable type name. */
 export function displayName(node: FlowDefinitionNode): string {
   const provided = (node.metadata as { displayName?: unknown } | undefined)?.displayName;
   return typeof provided === 'string' && provided.trim() !== '' ? provided : node.name;
