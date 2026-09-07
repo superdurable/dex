@@ -18,6 +18,14 @@ export default defineConfig({
       '@': fileURLToPath(new URL('.', import.meta.url)),
     },
   },
+  optimizeDeps: {
+    // preserveSymlinks resolves the linked workspace packages through web/node_modules, so
+    // Vite would otherwise pre-bundle them and serve that bundle for the life of the
+    // process, hiding every edit to their source. Excluding them serves the source instead.
+    // Their files still sit under node_modules, which the watcher ignores, so restart the
+    // dev server after editing one.
+    exclude: ['@superdurable/flow-definition-renderer'],
+  },
   server: {
     proxy: {
       '/api': process.env.DEX_WEB_PROXY ?? 'http://127.0.0.1:8902',

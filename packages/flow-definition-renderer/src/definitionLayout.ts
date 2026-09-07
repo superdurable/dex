@@ -36,6 +36,8 @@ export interface DefinitionNodeData extends Record<string, unknown> {
   displayName?: string;
   role?: StepRole;
   waitSentence?: string;
+  inputLabel?: string;
+  outputLabel?: string;
   relatedEdges?: FlowDefinitionEdge[];
   nameByID?: Record<string, string>;
   selectionDetails?: DefinitionSelectionDetail[];
@@ -88,6 +90,10 @@ const branchGap = 42;
 const cardWidth = 288;
 const dispatchSize = 58;
 const stepTopologyRankSeparation = 168;
+// Collapsed cards are a fraction of the height of a card holding WaitFor shapes and
+// decision grids, so the gap sized for those leaves the column mostly empty and forces
+// the viewport to zoom the text away.
+const collapsedTopologyRankSeparation = 76;
 
 /**
  * Steps that exist only to absorb a failure, derived from the graph rather than named.
@@ -222,6 +228,13 @@ export function stepRole(graph: FlowDefinitionGraph, stepID: string): StepRole {
  * suffix a reader has no use for.
  */
 export function waitSentence(graph: FlowDefinitionGraph, stepID: string): string {
+  const step = graph.nodes.find((node) => node.id === stepID);
+  const authored = step ? metadataText(step, 'waitLabel') : '';
+  if (authored) return authored;
+  return derivedWaitSentence(graph, stepID);
+}
+
+function derivedWaitSentence(graph: FlowDefinitionGraph, stepID: string): string {
   const waits = graph.nodes.filter((node) => node.kind === 'wait' && node.parentId === stepID);
   const real = waits.filter((node) => node.wait?.type !== 'skipWaitImmediately');
   if (real.length === 0) return '';
@@ -257,6 +270,12 @@ export function waitSentence(graph: FlowDefinitionGraph, stepID: string): string
  * contract of an open execution, so a display name must never replace it — only sit in
  * front of it.
  */
+/** One string out of the schema's per-node `metadata`, or empty. */
+export function metadataText(node: FlowDefinitionNode, key: string): string {
+  const value = (node.metadata as Record<string, unknown> | undefined)?.[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 export function displayName(node: FlowDefinitionNode): string {
   const provided = (node.metadata as { displayName?: unknown } | undefined)?.displayName;
   return typeof provided === 'string' && provided.trim() !== '' ? provided : node.name;
@@ -338,6 +357,8 @@ export function buildDefinitionScene(
           displayName: displayName(step),
           role: stepRole(graph, step.id),
           waitSentence: waitSentence(graph, step.id),
+          inputLabel: metadataText(step, 'inputLabel'),
+          outputLabel: metadataText(step, 'outputLabel'),
           sourceTitle: sourceTitle(step.span),
         },
     } satisfies Node<DefinitionNodeData>;
@@ -537,9 +558,9 @@ function layoutStep(
     (group) => decisionDimensions(group, graph.edges, nameByID),
   );
   const unknownSection = { height: unknownDefinitions.length * 82, width: 224 };
-  const contentWidth = Math.max(268, waitSection.width, decisionSection.width, unknownSection.width);
+  const contentWidth = Math.max(336, waitSection.width, decisionSection.width, unknownSection.width);
   const width = contentWidth + stepGap * 2;
-  let cursorTop = stepHeaderHeight(step.name, width);
+  let cursorTop = stepHeaderHeight(step, width, waitSentence(graph, step.id), stepRole(graph, step.id));
   const children: Array<Node<DefinitionNodeData>> = [];
   if (waitDefinitions.length > 0) {
     const placed = placeSection(step.id, waitGroups, cursorTop, contentWidth, 'wait');
@@ -564,7 +585,7 @@ function layoutStep(
   }
   return {
     children,
-    dimensions: { height: Math.max(154, cursorTop), width },
+    dimensions: { height: Math.max(72, cursorTop), width },
   };
 }
 
@@ -759,11 +780,14 @@ function layoutStepTopology(
   definitionsByID: Map<string, FlowDefinitionNode>,
 ): Map<string, { x: number; y: number }> {
   if (steps.length === 0) return new Map();
+  const rankSeparation = [...stepLayouts.values()].some((layout) => layout.children.length > 0)
+    ? stepTopologyRankSeparation
+    : collapsedTopologyRankSeparation;
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
   dagreGraph.setGraph({
     rankdir: 'TB',
-    ranksep: stepTopologyRankSeparation,
+    ranksep: rankSeparation,
     nodesep: 104,
     marginx: 0,
     marginy: 0,
@@ -795,7 +819,7 @@ function layoutStepTopology(
     x: position.x - minimumX,
     y: position.y - minimumY,
   }]));
-  return placeStartStepFirst(graph.flow.startStepId, steps, stepLayouts, positions);
+  return placeStartStepFirst(graph.flow.startStepId, steps, stepLayouts, positions, rankSeparation);
 }
 
 function placeStartStepFirst(
@@ -803,6 +827,7 @@ function placeStartStepFirst(
   steps: FlowDefinitionNode[],
   stepLayouts: Map<string, StepLayout>,
   positions: Map<string, { x: number; y: number }>,
+  rankSeparation: number,
 ): Map<string, { x: number; y: number }> {
   if (!startStepID) return positions;
   const startPosition = positions.get(startStepID);
@@ -814,7 +839,7 @@ function placeStartStepFirst(
     const position = positions.get(step.id)!;
     return position.x + stepLayouts.get(step.id)!.dimensions.width;
   }));
-  const verticalOffset = startDimensions.height + stepTopologyRankSeparation;
+  const verticalOffset = startDimensions.height + rankSeparation;
   const reordered = new Map([...positions].map(([stepID, position]) => [stepID, stepID === startStepID
     ? { x: Math.max(0, (topologyWidth - startDimensions.width) / 2), y: 0 }
     : { x: position.x, y: position.y + verticalOffset }]));
@@ -1263,9 +1288,41 @@ function isDashed(kind: string): boolean {
   return kind.startsWith('resource_') || kind === 'wait_condition' || kind === 'subflow';
 }
 
-function stepHeaderHeight(name: string, width: number): number {
-  const availableCharacters = Math.max(24, Math.floor((width - 112) / 8));
-  return Math.max(52, 28 + wrappedLineCount(name, availableCharacters) * 20);
+/**
+ * Height of everything the Step card draws above its children: the shown name, the in/out
+ * pair, and the wait sentence. The per-line figures track styles.css; when a rule there
+ * changes font size or line height, change the matching number here.
+ */
+function stepHeaderHeight(
+  node: FlowDefinitionNode,
+  width: number,
+  sentence: string,
+  role: StepRole,
+): number {
+  // .definition-step-frame padding-top.
+  let height = 12;
+  // .definition-step-title strong: 17px on a 21px line, max-width calc(100% - 60px).
+  const titleCharacters = Math.max(18, Math.floor((width - 88) / 9));
+  height += wrappedLineCount(displayName(node), titleCharacters) * 21;
+  // .definition-step-actor, which only a gate draws.
+  if (role === 'gate') height += 21;
+  // .definition-step-io: 9px monospace on a 12px line, one line each for `in` and `out`.
+  const ioCharacters = Math.max(24, Math.floor((width - 56) / 5.4));
+  const inputLines = wrappedLineCountOrZero(metadataText(node, 'inputLabel'), ioCharacters);
+  const outputLines = wrappedLineCountOrZero(metadataText(node, 'outputLabel'), ioCharacters);
+  if (inputLines + outputLines > 0) height += 4 + (inputLines + outputLines) * 12;
+  // .definition-step-wait: 9.5px, line-height 1.4, under a dashed rule.
+  if (sentence) {
+    const waitCharacters = Math.max(28, Math.floor((width - 56) / 4.8));
+    height += 11 + wrappedLineCount(sentence, waitCharacters) * 14;
+  }
+  // .definition-step-frame padding-bottom.
+  return height + 14;
+}
+
+/** Like wrappedLineCount, but an absent string occupies no lines at all. */
+function wrappedLineCountOrZero(value: string, charactersPerLine: number): number {
+  return value ? wrappedLineCount(value, charactersPerLine) : 0;
 }
 
 function wrappedLineCount(value: string, charactersPerLine: number): number {

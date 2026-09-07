@@ -16,7 +16,14 @@ import {
 
 describe('Flow Definition Graph renderer', () => {
   it('renders semantic shapes, icons, and failure diagnostics', () => {
-    const markup = renderToStaticMarkup(<FlowDefinitionGraphView displayName="Example" graph={graph} />);
+    // Internals are hidden on open, so this asks for every layer explicitly.
+    const markup = renderToStaticMarkup(
+      <FlowDefinitionGraphView
+        displayName="Example"
+        graph={graph}
+        initialVisibility={{ waits: true, decisions: true, rpcs: true, attributes: true, channels: true }}
+      />,
+    );
 
     expect(markup).toContain('definition-flow-frame');
     expect(markup).toContain('definition-step-frame');
@@ -41,11 +48,35 @@ describe('Flow Definition Graph renderer', () => {
     expect(markup).not.toContain('title="lines ');
   });
 
-  it('keeps Streams hidden by default while resources remain visible', () => {
+  it('opens on the Steps alone, with every internal layer one click away', () => {
     const markup = renderToStaticMarkup(<FlowDefinitionGraphView displayName="Example" graph={graph} />);
 
+    // What a reader sees first: the Steps and the transitions between them.
+    expect(markup).toContain('definition-step-frame');
+    // Not the machinery inside them.
+    expect(markup).not.toContain('definition-wait-shape');
+    expect(markup).not.toContain('definition-decision-card');
+    expect(markup).not.toContain('definition-attributes-box');
+    expect(markup).not.toContain('definition-channel-pipe');
+    expect(markup).not.toContain('definition-rpc-hexagon');
+    // Hidden, not removed: each one is still a legend button.
+    for (const label of ['WaitFor', 'Decisions', 'Attributes', 'Channels', 'RPC']) {
+      expect(markup).toContain(`>${label}</button>`);
+    }
+  });
+
+  it('keeps Streams hidden even when the other internal layers are asked for', () => {
+    const markup = renderToStaticMarkup(
+      <FlowDefinitionGraphView
+        displayName="Example"
+        graph={graph}
+        initialVisibility={{ waits: true, decisions: true, rpcs: true, attributes: true, channels: true }}
+      />,
+    );
+
+    // Streams carry best-effort progress, not structure, so they stay off until asked for.
     expect(markup).not.toContain('definition-stream-node');
-    expect(markup).toContain('aria-pressed="true"');
+    expect(markup).toContain('definition-attributes-box');
     expect(markup).toContain('aria-pressed="false"');
   });
 

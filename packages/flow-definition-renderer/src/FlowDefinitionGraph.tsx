@@ -34,8 +34,10 @@ import {
   type DefinitionLayer,
   type DefinitionNodeData,
   type DefinitionSelectionDetail,
+  stepRole,
   type DefinitionVisibility,
   type RecoveryLayout,
+  type StepRole,
 } from './definitionLayout';
 
 const layerLabels: Array<[DefinitionLayer | 'diagnostics', string]> = [
@@ -53,16 +55,46 @@ const layerLabels: Array<[DefinitionLayer | 'diagnostics', string]> = [
 
 const defaultVisibility: DefinitionVisibility & { diagnostics: boolean } = {
   control: true,
-  recovery: true,
-  waits: true,
-  decisions: true,
-  rpcs: true,
-  attributes: true,
-  channels: true,
+  // Off by default: recovery edges reach backwards across the whole Flow, so they cross
+  // most of the happy path and dominate the first read. Turn the layer on to trace them.
+  recovery: false,
+  // Off by default. A reader wants to know what each stage does and where they are
+  // needed; the WaitFor shapes, decision cards and resource rails are the second click.
+  // Every one of these is still one button away in the legend.
+  waits: false,
+  decisions: false,
+  rpcs: false,
+  attributes: false,
+  channels: false,
   streams: false,
   subflows: true,
   diagnostics: true,
 };
+
+/**
+ * Why some cards are a different colour. Each entry is derived from the graph, so a Flow
+ * with no gate never shows a gate key.
+ */
+const roleKey: Array<[StepRole, string]> = [
+  ['gate', 'someone outside the Flow must act before it moves on'],
+  ['batch', 'starts a SubFlow per item and waits for them all'],
+  ['work', 'runs on its own'],
+];
+
+function StepRoleKey({ roles }: { roles: Set<StepRole> }) {
+  const shown = roleKey.filter(([role]) => roles.has(role));
+  if (shown.length < 2) return null;
+  return (
+    <dl className="definition-role-key">
+      {shown.map(([role, meaning]) => (
+        <div key={role}>
+          <dt className={`definition-role-key-swatch definition-role-key-swatch--${role}`} />
+          <dd>{meaning}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 const nodeTypes: NodeTypes = {
   definitionAttributes: AttributesNode,
@@ -85,11 +117,14 @@ const edgeTypes: EdgeTypes = { definitionEdge: DefinitionEdge };
 export function FlowDefinitionGraphView({
   displayName,
   graph,
+  initialVisibility,
 }: {
   displayName: string;
   graph: FlowDefinitionGraph;
+  /** Overrides which layers start visible. Every layer stays toggleable from the legend. */
+  initialVisibility?: Partial<DefinitionVisibility>;
 }) {
-  const [visibility, setVisibility] = useState(defaultVisibility);
+  const [visibility, setVisibility] = useState(() => ({ ...defaultVisibility, ...initialVisibility }));
   // ?recovery=steps|rail|table|traced — see RecoveryLayout. Review scaffolding: it lets
   // the three candidate placements be compared side by side on one build.
   const recoveryLayout = useMemo<RecoveryLayout>(() => {
@@ -101,6 +136,13 @@ export function FlowDefinitionGraphView({
       ? requested
       : 'steps';
   }, []);
+  const rolesInGraph = useMemo(() => {
+    const roles = new Set<StepRole>();
+    for (const node of graph.nodes) {
+      if (node.kind === 'step') roles.add(stepRole(graph, node.id));
+    }
+    return roles;
+  }, [graph]);
   const [selectedNodeID, setSelectedNodeID] = useState('');
   const [selectedEdgeID, setSelectedEdgeID] = useState('');
   const [isMiniMapExpanded, setIsMiniMapExpanded] = useState(false);
@@ -153,6 +195,7 @@ export function FlowDefinitionGraphView({
             </span>
           </div>
           <p>{graph.source.language} · {graph.source.path}</p>
+          <StepRoleKey roles={rolesInGraph} />
         </div>
         {recoveryLayout !== 'steps' ? (
           <span className="definition-preview-badge">recovery: {recoveryLayout}</span>
@@ -243,6 +286,9 @@ export function FlowDefinitionGraphView({
             <span>{selectionKind(selectedNode.data)}</span>
             <b>{selectionName(selectedNode.data)}</b>
           </div>
+          {selectionTypeName(selectedNode.data) && (
+            <code>{selectedNode.data.kind === 'step' ? 'Step type ' : ''}{selectionTypeName(selectedNode.data)}</code>
+          )}
           <code>{selectedNode.id}</code>
           {selectedNode.data.sourceTitle && <span>{selectedNode.data.sourceTitle}</span>}
           <SelectionDetails details={selectedNode.data.selectionDetails} />
@@ -301,12 +347,13 @@ function StepNode({ data }: NodeProps) {
       <div className="definition-step-title">
         <strong>{shown}</strong>
         {definition.start && <span>START</span>}
-        {role === 'gate' && <span className="definition-step-actor">SOMEONE MUST ACT</span>}
       </div>
-      {/* The type name stays on the card whenever a display name covers it: it is the
-          durable identity, the thing you pass to dexcli and name in a resume. */}
-      {shown !== definition.name && (
-        <div className="definition-step-type">{definition.name}</div>
+      {role === 'gate' && <span className="definition-step-actor">SOMEONE MUST ACT</span>}
+      {(nodeData.inputLabel || nodeData.outputLabel) && (
+        <div className="definition-step-io">
+          {nodeData.inputLabel && <span><em>in</em> {nodeData.inputLabel}</span>}
+          {nodeData.outputLabel && <span className="out"><em>out</em> {nodeData.outputLabel}</span>}
+        </div>
       )}
       {nodeData.waitSentence ? (
         <div className="definition-step-wait">{nodeData.waitSentence}</div>
@@ -673,7 +720,14 @@ function selectionKind(data: DefinitionNodeData): string {
 
 function selectionName(data: DefinitionNodeData): string {
   if (data.kind === 'attributes') return `${data.definitions?.length ?? 0} definitions`;
-  return data.definition?.name ?? data.displayName ?? data.kind;
+  return data.displayName ?? data.definition?.name ?? data.kind;
+}
+
+/** The Step type name, only when a display name is standing in front of it. */
+function selectionTypeName(data: DefinitionNodeData): string | undefined {
+  const name = data.definition?.name;
+  if (!name || name === data.displayName) return undefined;
+  return name;
 }
 
 function edgeKindLabel(edge: Edge<DefinitionEdgeData>): string {

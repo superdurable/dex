@@ -247,6 +247,9 @@
 }
 
 .definition-step-frame {
+  display: flex;
+  padding: 12px 14px 14px;
+  flex-direction: column;
   border: 2px solid #6b97ca;
   border-radius: 9px;
   background: #eaf3fd;
@@ -254,13 +257,7 @@
 }
 
 .definition-step-title {
-  position: absolute;
-  top: 0;
-  left: 0;
   display: flex;
-  width: 100%;
-  min-height: 46px;
-  padding: 7px 14px 5px;
   align-items: center;
   justify-content: center;
 }
@@ -270,7 +267,7 @@
   color: #1e2c3f;
   font-size: 17px;
   font-weight: 650;
-  line-height: 1.2;
+  line-height: 21px;
   overflow-wrap: anywhere;
   text-align: center;
 }
@@ -524,7 +521,8 @@
 }
 
 .definition-step-actor {
-  margin-left: 8px;
+  align-self: flex-start;
+  margin-top: 6px;
   padding: 1px 6px;
   border-radius: 999px;
   background: #c43b62;
@@ -534,11 +532,59 @@
   letter-spacing: 0.07em;
 }
 
-.definition-step-type {
-  margin-top: 2px;
-  color: #93a2b8;
+.definition-role-key {
+  display: grid;
+  margin: 9px 0 0;
+  gap: 3px;
+}
+
+.definition-role-key > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.definition-role-key dd {
+  margin: 0;
+  color: var(--flow-definition-muted);
+  font-size: 11px;
+}
+
+.definition-role-key-swatch {
+  width: 15px;
+  height: 11px;
+  flex: 0 0 15px;
+  border: 2px solid #6b97ca;
+  border-radius: 3px;
+  background: #eaf3fd;
+}
+
+.definition-role-key-swatch--gate {
+  border-color: #c43b62;
+  background: #fdf1f4;
+}
+
+.definition-role-key-swatch--batch {
+  border-color: #b3760f;
+  background: #fffaf0;
+}
+
+.definition-step-io {
+  display: grid;
+  gap: 1px;
+  margin-top: 4px;
+  color: #4f6178;
   font: 9px ui-monospace, Menlo, monospace;
 }
+
+.definition-step-io em {
+  display: inline-block;
+  width: 22px;
+  color: #93a2b8;
+  font-style: normal;
+}
+
+.definition-step-io .out { color: #1f6f3f; }
 
 .definition-step-wait {
   margin-top: 5px;
