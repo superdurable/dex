@@ -10,6 +10,11 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDefinitionScene,
   filterDefinitionEdgesForSelection,
+  displayName,
+  recoveryOnlySteps,
+  stepRole,
+  waitSentence,
+  withoutRecoveryPaths,
   type DefinitionVisibility,
   type FlowDefinitionGraph,
 } from '@superdurable/flow-definition-renderer';
@@ -17,7 +22,9 @@ import aiAgentGraph from '../../../docs/src/data/flow-definitions/ai-agent.json'
 
 const visible: DefinitionVisibility = {
   control: true,
+  recovery: true,
   waits: true,
+  decisions: true,
   rpcs: true,
   attributes: true,
   channels: true,
@@ -279,3 +286,172 @@ const graph: FlowDefinitionGraph = {
   ],
   diagnostics: [],
 };
+
+describe('recovery paths', () => {
+  const gate = (over: Partial<FlowDefinitionGraph> = {}): FlowDefinitionGraph => ({
+    schemaVersion: '1.0',
+    valid: true,
+    source: { language: 'python', path: 'flow.py' },
+    flow: { name: 'WithRecovery', startStepId: 'step:first' },
+    nodes: [
+      { id: 'step:first', kind: 'step', name: 'first', start: true },
+      { id: 'step:second', kind: 'step', name: 'second' },
+      { id: 'step:gate', kind: 'step', name: 'gate' },
+      { id: 'step:sink', kind: 'step', name: 'sink' },
+      {
+        id: 'decision:step:first:1:1', kind: 'decision', name: 'goTo', parentId: 'step:first',
+        decision: { type: 'goTo' },
+      },
+      {
+        id: 'decision:step:gate:2:1', kind: 'decision', name: 'goTo', parentId: 'step:gate',
+        decision: { type: 'goTo' },
+      },
+    ],
+    edges: [
+      { id: 'e1', kind: 'transition', from: 'decision:step:first:1:1', to: 'step:second' },
+      // Two Steps fail into the gate, which makes it an error-handling hub.
+      { id: 'e2', kind: 'failure_transition', from: 'step:first', to: 'step:gate' },
+      { id: 'e3', kind: 'failure_transition', from: 'step:second', to: 'step:gate' },
+      // The gate routes back into the happy path, so it is reachable by a transition too.
+      { id: 'e4', kind: 'transition', from: 'decision:step:gate:2:1', to: 'step:second' },
+      // The sink is reachable only by failing into it.
+      { id: 'e5', kind: 'failure_transition', from: 'step:second', to: 'step:sink' },
+    ],
+    diagnostics: [],
+    ...over,
+  });
+
+  it('finds a hub by its inbound failure edges, not by its name', () => {
+    expect([...recoveryOnlySteps(gate())].sort()).toEqual(['step:gate', 'step:sink']);
+  });
+
+  it('keeps a Step that only one other Step fails into, if a transition also reaches it', () => {
+    const graph = gate();
+    graph.edges = graph.edges.filter((edge) => edge.id !== 'e3');
+    graph.edges.push({ id: 'e6', kind: 'transition', from: 'decision:step:first:1:1', to: 'step:gate' });
+    expect([...recoveryOnlySteps(graph)]).toEqual(['step:sink']);
+  });
+
+  it('drops recovery Steps, their children and every exhausted-retry edge', () => {
+    const filtered = withoutRecoveryPaths(gate());
+    expect(filtered.nodes.map((node) => node.id)).toEqual([
+      'step:first',
+      'step:second',
+      'decision:step:first:1:1',
+    ]);
+    expect(filtered.edges.map((edge) => edge.id)).toEqual(['e1']);
+  });
+
+  it('still drops exhausted-retry edges when nothing else is hidden', () => {
+    const graph = gate();
+    graph.edges = [graph.edges[0], { ...graph.edges[1], to: 'step:second' }];
+    graph.nodes = graph.nodes.filter((node) => !['step:gate', 'step:sink'].includes(node.id));
+    const filtered = withoutRecoveryPaths(graph);
+    expect(filtered.nodes).toHaveLength(graph.nodes.length);
+    expect(filtered.edges.map((edge) => edge.kind)).toEqual(['transition']);
+  });
+
+  it('hides only the hubs when the Flow records no start Step', () => {
+    const graph = gate({ flow: { name: 'WithRecovery' } });
+    expect([...recoveryOnlySteps(graph)]).toEqual(['step:gate']);
+  });
+
+  it('renders fewer nodes with the layer off than with it on', () => {
+    const on = buildDefinitionScene(gate(), visible);
+    const off = buildDefinitionScene(gate(), { ...visible, recovery: false });
+    expect(off.nodes.length).toBeLessThan(on.nodes.length);
+    expect(on.nodes.some((node) => node.id === 'step:gate')).toBe(true);
+    expect(off.nodes.some((node) => node.id === 'step:gate')).toBe(false);
+  });
+});
+
+describe('decisions layer', () => {
+  it('re-sources a transition to the owning Step when the decision card is hidden', () => {
+    const withCards = buildDefinitionScene(graph, visible);
+    const collapsed = buildDefinitionScene(graph, { ...visible, decisions: false });
+    const transition = (scene: typeof withCards) =>
+      scene.edges.find((edge) => edge.id === 'transition');
+
+    // With the card shown the edge leaves the decision; with it hidden the edge has to
+    // leave the Step, or it would point at a node outside the scene and be dropped.
+    expect(transition(withCards)?.source).toBe('decision:step:start:20:1');
+    expect(transition(collapsed)?.source).toBe('step:start');
+    expect(collapsed.nodes.some((node) => node.data.kind === 'decision')).toBe(false);
+  });
+
+  it('moves the branch guard onto the edge label, simplified', () => {
+    const guarded: FlowDefinitionGraph = {
+      ...graph,
+      nodes: graph.nodes.map((node) => (
+        node.id === 'decision:step:start:20:1'
+          ? { ...node, condition: 'not (frozen.ready) and not (records != 0)' }
+          : node
+      )),
+    };
+    const collapsed = buildDefinitionScene(guarded, { ...visible, decisions: false });
+    // Only the branch's own clause, with the negation folded into the comparison.
+    expect(collapsed.edges.find((edge) => edge.id === 'transition')?.label).toBe('records == 0');
+  });
+
+  it('leaves the label alone while the decision card is visible', () => {
+    const guarded: FlowDefinitionGraph = {
+      ...graph,
+      nodes: graph.nodes.map((node) => (
+        node.id === 'decision:step:start:20:1' ? { ...node, condition: 'records == 0' } : node
+      )),
+    };
+    const shown = buildDefinitionScene(guarded, visible);
+    expect(shown.edges.find((edge) => edge.id === 'transition')?.label).toBe('');
+  });
+});
+
+describe('derived legibility', () => {
+  it('calls a Step a gate when its WaitFor holds a Channel condition', () => {
+    // Dex already models human-in-the-loop as WaitFor(Channel). Naming it adds no
+    // concept — it promotes one that was already in the graph.
+    expect(stepRole(graph, 'step:start')).toBe('gate');
+    expect(stepRole(graph, 'step:next')).toBe('work');
+  });
+
+  it('prefers a SubFlow batch over nothing, and Timers alone are not a gate', () => {
+    const timerOnly: FlowDefinitionGraph = {
+      ...graph,
+      nodes: graph.nodes.map((node) => (
+        node.id === 'wait:start:10:1'
+          ? { ...node, wait: { type: 'anyOf', conditions: [{ kind: 'timer' as const, label: '1h' }] } }
+          : node
+      )),
+    };
+    expect(stepRole(timerOnly, 'step:start')).toBe('work');
+
+    const batched: FlowDefinitionGraph = {
+      ...graph,
+      nodes: graph.nodes.map((node) => (
+        node.id === 'wait:start:10:1'
+          ? { ...node, wait: { type: 'allOf', conditions: [{ kind: 'subflow' as const, label: 'child' }] } }
+          : node
+      )),
+    };
+    expect(stepRole(batched, 'step:start')).toBe('batch');
+  });
+
+  it('writes the wait as a sentence, keeping the operator handles verbatim', () => {
+    const sentence = waitSentence(graph, 'step:start');
+    // The Channel name is what you publish to, so it survives unchanged...
+    expect(sentence).toContain('first');
+    // ...while the framework scaffolding around it does not.
+    expect(sentence).not.toContain('anyOf');
+    expect(sentence).not.toContain('.for 1');
+    expect(waitSentence(graph, 'step:next')).toBe('');
+  });
+
+  it('shows a display name from the schema metadata but never loses the type name', () => {
+    const step = graph.nodes.find((node) => node.id === 'step:start')!;
+    expect(displayName(step)).toBe(step.name);
+    expect(displayName({ ...step, metadata: { displayName: 'Rule on the difficult calls' } }))
+      .toBe('Rule on the difficult calls');
+    // An empty or non-string value must not blank the card.
+    expect(displayName({ ...step, metadata: { displayName: '  ' } })).toBe(step.name);
+    expect(displayName({ ...step, metadata: { displayName: 42 } })).toBe(step.name);
+  });
+});

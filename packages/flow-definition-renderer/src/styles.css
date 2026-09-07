@@ -131,6 +131,7 @@
   background: #64748b;
 }
 
+.definition-legend-swatch--recovery { background: var(--flow-definition-danger); }
 .definition-legend-swatch--waits { background: #d39732; }
 .definition-legend-swatch--rpcs { background: #7c3aed; }
 .definition-legend-swatch--attributes,
@@ -214,6 +215,7 @@
 .definition-channel-pipe,
 .definition-attributes-box,
 .definition-rpc-hexagon,
+.definition-recovery-handler,
 .definition-timeout-handler,
 .definition-subflow-frame,
 .definition-stream-node,
@@ -493,6 +495,113 @@
   background: #edf4fd;
   box-shadow: 0 7px 16px rgba(48, 73, 107, 0.16);
   text-align: center;
+}
+
+.definition-preview-badge {
+  align-self: center;
+  margin-right: 8px;
+  padding: 2px 8px;
+  border: 1px solid #c43b62;
+  border-radius: 999px;
+  color: #a12447;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* Colour says who has to act. A gate is a Step whose WaitFor holds a Channel condition,
+   which in Dex means an actor outside the Flow must publish before it moves — so the
+   colour is derived, not configured. */
+.definition-step-frame--gate {
+  border-color: #c43b62;
+  border-width: 2.5px;
+  background: #fdf1f4;
+}
+
+.definition-step-frame--batch {
+  border-color: #b3760f;
+  background: #fffaf0;
+}
+
+.definition-step-actor {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #c43b62;
+  color: #fff;
+  font-size: 7.5px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+}
+
+.definition-step-type {
+  margin-top: 2px;
+  color: #93a2b8;
+  font: 9px ui-monospace, Menlo, monospace;
+}
+
+.definition-step-wait {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px dashed #d5dde8;
+  color: #4f6178;
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.definition-recovery-handler {
+  display: flex;
+  padding: 12px 18px 14px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  border: 2px solid #6c83aa;
+  border-left: 8px solid #c43b62;
+  border-radius: 9px;
+  color: #263b59;
+  background: #fdf1f4;
+  box-shadow: 0 7px 16px rgba(107, 48, 68, 0.16);
+  text-align: left;
+}
+
+.definition-recovery-kicker {
+  margin-bottom: 3px;
+  color: #a12447;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.definition-recovery-handler > strong {
+  color: #253c5d;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.definition-recovery-wait {
+  margin-top: 4px;
+  color: #6b7c95;
+  font-size: 9px;
+}
+
+.definition-recovery-routes {
+  display: grid;
+  width: 100%;
+  margin-top: 7px;
+  gap: 3px;
+}
+
+.definition-recovery-routes span {
+  color: #33475f;
+  font-size: 9.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.definition-recovery-routes em {
+  color: #a12447;
+  font-style: normal;
+  font-weight: 650;
 }
 
 .definition-timeout-kicker {

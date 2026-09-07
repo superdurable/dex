@@ -17,7 +17,9 @@ import type {
 
 export type DefinitionLayer =
   | 'control'
+  | 'recovery'
   | 'waits'
+  | 'decisions'
   | 'rpcs'
   | 'attributes'
   | 'channels'
@@ -27,10 +29,13 @@ export type DefinitionLayer =
 export type DefinitionVisibility = Record<DefinitionLayer, boolean>;
 
 export interface DefinitionNodeData extends Record<string, unknown> {
-  kind: 'flow' | 'step' | 'wait' | 'dispatch' | 'decision' | 'channel' | 'attributes' | 'rpc' | 'timeout' | 'subflow' | 'stream' | 'unknown';
+  kind: 'flow' | 'step' | 'wait' | 'dispatch' | 'decision' | 'channel' | 'attributes' | 'rpc' | 'recovery' | 'timeout' | 'subflow' | 'stream' | 'unknown';
+  waits?: FlowDefinitionNode[];
   definition?: FlowDefinitionNode;
   definitions?: FlowDefinitionNode[];
   displayName?: string;
+  role?: StepRole;
+  waitSentence?: string;
   relatedEdges?: FlowDefinitionEdge[];
   nameByID?: Record<string, string>;
   selectionDetails?: DefinitionSelectionDetail[];
@@ -84,22 +89,215 @@ const cardWidth = 288;
 const dispatchSize = 58;
 const stepTopologyRankSeparation = 168;
 
-export function buildDefinitionScene(
-  graph: FlowDefinitionGraph,
-  visibility: DefinitionVisibility,
-): DefinitionScene {
+/**
+ * Steps that exist only to absorb a failure, derived from the graph rather than named.
+ *
+ * Two rules, applied in order:
+ *
+ * 1. A Step targeted by two or more `failure_transition` edges is an error-handling hub.
+ *    One Step collecting the exhausted retries of many others is what a recovery gate
+ *    looks like structurally, and its outgoing edges fan back across the whole graph —
+ *    which is what turns a readable column into hub-and-spoke.
+ * 2. Once those hubs and every `failure_transition` edge are removed, any Step no longer
+ *    reachable from the start Step was reachable only by failing into it.
+ *
+ * Neither rule looks at a name, so a Flow gets this for free without adopting a
+ * convention.
+ */
+/**
+ * Steps that collect the exhausted retries of two or more other Steps.
+ *
+ * One Step failing into a dedicated handler is an ordinary one-to-one pairing. One Step
+ * collecting many failures is an operator recovery hub: it fans back out across the whole
+ * Flow, which is what turns a readable column into hub-and-spoke.
+ */
+export function recoveryHubSteps(graph: FlowDefinitionGraph): Set<string> {
+  const failureInbound = new Map<string, number>();
+  for (const edge of graph.edges) {
+    if (edge.kind !== 'failure_transition') continue;
+    failureInbound.set(edge.to, (failureInbound.get(edge.to) ?? 0) + 1);
+  }
+  return new Set(
+    graph.nodes
+      .filter((node) => node.kind === 'step' && (failureInbound.get(node.id) ?? 0) >= 2)
+      .map((node) => node.id),
+  );
+}
+
+export function recoveryOnlySteps(graph: FlowDefinitionGraph): Set<string> {
   const definitionsByID = new Map(graph.nodes.map((node) => [node.id, node]));
+  const stepIDs = new Set(graph.nodes.filter((node) => node.kind === 'step').map((node) => node.id));
+  const owningStep = (id: string): string => {
+    const node = definitionsByID.get(id);
+    return node?.parentId ?? id;
+  };
+  const hubs = recoveryHubSteps(graph);
+
+  const forward = new Map<string, Set<string>>();
+  for (const edge of graph.edges) {
+    if (edge.kind !== 'transition') continue;
+    const source = owningStep(edge.from);
+    if (!stepIDs.has(source) || !stepIDs.has(edge.to)) continue;
+    if (!forward.has(source)) forward.set(source, new Set());
+    forward.get(source)!.add(edge.to);
+  }
+
+  const reachable = new Set<string>();
+  const start = graph.flow.startStepId;
+  const stack = start && stepIDs.has(start) ? [start] : [];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (reachable.has(current) || hubs.has(current)) continue;
+    reachable.add(current);
+    for (const next of forward.get(current) ?? []) stack.push(next);
+  }
+
+  // With no start Step recorded there is no path to reason about, so hide only the hubs.
+  if (stack.length === 0 && reachable.size === 0) return hubs;
+  return new Set([...stepIDs].filter((id) => !reachable.has(id)));
+}
+
+/** Drop recovery Steps, their child nodes, and every exhausted-retry edge. */
+export function withoutRecoveryPaths(graph: FlowDefinitionGraph): FlowDefinitionGraph {
+  const hidden = recoveryOnlySteps(graph);
+  if (hidden.size === 0) {
+    return { ...graph, edges: graph.edges.filter((edge) => edge.kind !== 'failure_transition') };
+  }
+  const removed = new Set(hidden);
+  // A Step's waits, dispatches and decisions hang off it by parentId; leaving them
+  // behind would strand them in the layout.
+  for (const node of graph.nodes) {
+    if (node.parentId && removed.has(node.parentId)) removed.add(node.id);
+  }
+  return {
+    ...graph,
+    nodes: graph.nodes.filter((node) => !removed.has(node.id)),
+    edges: graph.edges.filter(
+      (edge) =>
+        edge.kind !== 'failure_transition' && !removed.has(edge.from) && !removed.has(edge.to),
+    ),
+  };
+}
+
+/**
+ * Where a recovery hub is drawn.
+ *
+ *   steps   today's behaviour: a Step card containing a grid of decision cards
+ *   rail    one card in the side rail, beside the flow, like a timeout handler
+ *   table   the same card, left in the Step column where the hub sits in the topology
+ *   traced  the rail card, with its edges revealed only while it is selected
+ */
+/**
+ * What a Step is, in the reader's terms, derived only from Dex's own vocabulary.
+ *
+ *   gate   its WaitFor has a Channel condition, so an actor outside the Flow must publish
+ *          before it proceeds. Dex already models human-in-the-loop this way; naming it
+ *          adds no concept, it promotes one that was already there.
+ *   batch  its WaitFor has a SubFlow condition: it fans out and waits for children.
+ *   work   pure Execute, or a wait on Timers alone.
+ *
+ * What a graph cannot answer — whether a model or a script does the work — is deliberately
+ * absent. That is an application fact, not a Dex one, and belongs in the schema's own
+ * `metadata` extension point rather than in this vocabulary.
+ */
+export type StepRole = 'gate' | 'batch' | 'work';
+
+export function stepRole(graph: FlowDefinitionGraph, stepID: string): StepRole {
+  const kinds = new Set<string>();
+  for (const node of graph.nodes) {
+    if (node.kind !== 'wait' || node.parentId !== stepID) continue;
+    for (const condition of node.wait?.conditions ?? []) kinds.add(condition.kind ?? '');
+  }
+  if (kinds.has('channel')) return 'gate';
+  if (kinds.has('subflow')) return 'batch';
+  return 'work';
+}
+
+/**
+ * One plain sentence for what a Step waits on, assembled from its Conditions.
+ *
+ * Channel and Timer names stay verbatim — they are the operator's handles, and inventing
+ * prose for them would misrepresent what has to be published. What this replaces is the
+ * framework scaffolding around them: `anyOf`, `skipWaitImmediately`, and the `.for 1`
+ * suffix a reader has no use for.
+ */
+export function waitSentence(graph: FlowDefinitionGraph, stepID: string): string {
+  const waits = graph.nodes.filter((node) => node.kind === 'wait' && node.parentId === stepID);
+  const real = waits.filter((node) => node.wait?.type !== 'skipWaitImmediately');
+  if (real.length === 0) return '';
+  const channels: string[] = [];
+  const timers: string[] = [];
+  const subflows: string[] = [];
+  for (const node of real) {
+    for (const condition of node.wait?.conditions ?? []) {
+      const label = (condition.label ?? '').replace(/\.for \d+$/, '');
+      if (condition.kind === 'channel') channels.push(label);
+      else if (condition.kind === 'timer') timers.push(label);
+      else if (condition.kind === 'subflow') subflows.push(label);
+    }
+  }
+  const clauses: string[] = [];
+  if (channels.length > 0) {
+    clauses.push(`stops until a message arrives on ${[...new Set(channels)].join(' or ')}`);
+  }
+  if (subflows.length > 0) {
+    const every = real.some((node) => node.wait?.type === 'allOf');
+    clauses.push(`waits for ${every ? 'every' : 'any'} started ${[...new Set(subflows)].join(', ')}`);
+  }
+  if (timers.length > 0) clauses.push('or a timer fires and it asks again');
+  const skippable = waits.length > real.length ? ' (a branch can skip the wait)' : '';
+  return clauses.join(', ') + skippable;
+}
+
+/**
+ * The name to show on a card.
+ *
+ * Uses the FDG schema's existing per-node `metadata` rather than a new field, and falls
+ * back to the durable type name, which is always present. A Step type name is part of the
+ * contract of an open execution, so a display name must never replace it — only sit in
+ * front of it.
+ */
+export function displayName(node: FlowDefinitionNode): string {
+  const provided = (node.metadata as { displayName?: unknown } | undefined)?.displayName;
+  return typeof provided === 'string' && provided.trim() !== '' ? provided : node.name;
+}
+
+export type RecoveryLayout = 'steps' | 'rail' | 'table' | 'traced';
+
+export interface DefinitionSceneOptions {
+  recoveryLayout?: RecoveryLayout;
+}
+
+export function buildDefinitionScene(
+  rawGraph: FlowDefinitionGraph,
+  visibility: DefinitionVisibility,
+  options: DefinitionSceneOptions = {},
+): DefinitionScene {
+  // Filtered once, up front, so every later stage — step layout, topology, edges —
+  // sees one consistent graph and needs no knowledge of the toggle.
+  const graph = visibility.recovery ? rawGraph : withoutRecoveryPaths(rawGraph);
+  const definitionsByID = new Map(graph.nodes.map((node) => [node.id, node]));
+  // Computed on the FILTERED graph, so this self-disables: with recovery hidden the
+  // failure edges are already gone, no hub is detected, and none of the rail code fires.
+  const collapseHubs = options.recoveryLayout && options.recoveryLayout !== 'steps'
+    ? recoveryHubSteps(graph)
+    : new Set<string>();
+  // `table` keeps the collapsed card inside the Step column, so the hub stays in the
+  // dagre topology; `rail` and `traced` lift it out into the side rail.
+  const railHubs = options.recoveryLayout === 'table' ? new Set<string>() : collapseHubs;
   const steps = visibility.control
-    ? graph.nodes.filter((node) => node.kind === 'step').sort(byNameThenID)
+    ? graph.nodes.filter((node) => node.kind === 'step' && !railHubs.has(node.id)).sort(byNameThenID)
     : [];
   const stepLayouts = new Map(steps.map((step) => [
     step.id,
-    layoutStep(graph, step, visibility),
+    collapseHubs.has(step.id)
+      ? collapsedHubLayout(graph, step)
+      : layoutStep(graph, step, visibility),
   ]));
   const stepPositions = layoutStepTopology(graph, steps, stepLayouts, definitionsByID);
   const topologyBounds = boundsForSteps(steps, stepLayouts, stepPositions);
   const resourceNodes = layoutResources(graph, visibility);
-  const handlerNodes = layoutRPCsAndTimeoutHandlers(graph, visibility);
+  const handlerNodes = layoutRPCsAndTimeoutHandlers(graph, visibility, railHubs);
   const sideRailHeight = Math.max(
     flowHeaderHeight + 50,
     ...resourceNodes.map((node) => node.position.y + numericStyle(node, 'height')),
@@ -107,20 +305,41 @@ export function buildDefinitionScene(
   );
   const centralLeft = resourceRailWidth + 56;
   const stepsTop = flowHeaderHeight + 36;
+  const nameByID = Object.fromEntries(graph.nodes.map((node) => [node.id, node.name]));
   const stepNodes = steps.map((step) => {
     const layout = stepLayouts.get(step.id)!;
     const position = stepPositions.get(step.id) ?? { x: 0, y: 0 };
+    // In `table` placement a hub keeps its slot in the topology but renders as the
+    // collapsed recovery card, so the route list replaces the decision grid in place.
+    const isCollapsedHub = collapseHubs.has(step.id);
+    const hubDecisions = isCollapsedHub
+      ? graph.nodes.filter((node) => node.kind === 'decision' && node.parentId === step.id)
+      : [];
     return {
       id: step.id,
-      type: 'definitionStep',
+      type: isCollapsedHub ? 'definitionRecovery' : 'definitionStep',
       parentId: flowID,
       position: { x: centralLeft + position.x, y: stepsTop + position.y },
       style: layout.dimensions,
-      data: {
-        kind: 'step' as const,
-        definition: step,
-        sourceTitle: sourceTitle(step.span),
-      },
+      data: isCollapsedHub
+        ? {
+          kind: 'recovery' as const,
+          definition: step,
+          definitions: hubDecisions,
+          relatedEdges: hubDecisions.flatMap((decision) =>
+            graph.edges.filter((edge) => edge.from === decision.id)),
+          waits: graph.nodes.filter((node) => node.kind === 'wait' && node.parentId === step.id),
+          nameByID,
+          sourceTitle: sourceTitle(step.span),
+        }
+        : {
+          kind: 'step' as const,
+          definition: step,
+          displayName: displayName(step),
+          role: stepRole(graph, step.id),
+          waitSentence: waitSentence(graph, step.id),
+          sourceTitle: sourceTitle(step.span),
+        },
     } satisfies Node<DefinitionNodeData>;
   });
   const childNodes = steps.flatMap((step) => stepLayouts.get(step.id)?.children ?? []);
@@ -179,12 +398,29 @@ export function buildDefinitionScene(
       endpointMap.set(definition.id, parent.id);
     }
   }
+  for (const definition of graph.nodes) {
+    // A hub's decisions and waits collapse into its card, exactly as a timeout handler's
+    // do, so every edge that left a child now leaves the card. This holds for all three
+    // collapsed placements — only the card's position differs between them.
+    if (definition.parentId && collapseHubs.has(definition.parentId)) {
+      endpointMap.set(definition.id, definition.parentId);
+    }
+  }
   for (const node of childNodes.filter((child) => child.data.kind === 'decision')) {
     for (const definition of node.data.definitions ?? []) endpointMap.set(definition.id, node.id);
   }
+  if (!visibility.decisions) {
+    // The decision cards are gone, so a transition leaves from the Step that owned it.
+    // Without this the edge would point at a node that is not in the scene and be
+    // dropped by the visibleIDs filter below, silently losing the control flow.
+    for (const definition of graph.nodes.filter((node) => node.kind === 'decision')) {
+      const parent = definition.parentId ? definitionsByID.get(definition.parentId) : undefined;
+      if (parent?.kind === 'step') endpointMap.set(definition.id, parent.id);
+    }
+  }
   const edges = mergeGroupedTransitionEdges(graph.edges
     .filter((edge) => edge.kind !== 'cancel')
-    .map((edge) => definitionEdge(edge, endpointMap, definitionsByID, stepNodes))
+    .map((edge) => definitionEdge(edge, endpointMap, definitionsByID, stepNodes, !visibility.decisions))
     .filter((edge) => visibleIDs.has(edge.source) && visibleIDs.has(edge.target)));
   edges.push(...internalStepEdges(graph, stepLayouts, visibleIDs));
   return { nodes, edges };
@@ -194,9 +430,18 @@ export function filterDefinitionEdgesForSelection(
   edges: Array<Edge<DefinitionEdgeData>>,
   definitions: FlowDefinitionNode[],
   selectedNodeID: string,
+  // `traced` placement extends selection gating from resource relations to the hub's own
+  // control-flow edges: present, but quiet until the hub is the thing you are looking at.
+  tracedHubs: Set<string> = new Set(),
 ): Array<Edge<DefinitionEdgeData>> {
   const definitionsByID = new Map(definitions.map((definition) => [definition.id, definition]));
   return edges.filter((edge) => {
+    if (tracedHubs.size > 0) {
+      const touchesHub = tracedHubs.has(edge.source) || tracedHubs.has(edge.target);
+      if (touchesHub && !isResourceRelation(edge.data?.kind)) {
+        return tracedHubs.has(selectedNodeID);
+      }
+    }
     if (!isResourceRelation(edge.data?.kind)) return true;
     if (!selectedNodeID) return false;
     const sourceID = edge.data?.definitionSourceID ?? edge.source;
@@ -248,6 +493,25 @@ function belongsToOwner(
   return false;
 }
 
+/**
+ * A hub left in the Step column, with its decision grid replaced by the route list.
+ *
+ * No children: the routes are drawn by the card itself, so the 14 decision cards that
+ * made this Step taller than the rest of the column disappear.
+ */
+function collapsedHubLayout(graph: FlowDefinitionGraph, step: FlowDefinitionNode): StepLayout {
+  const routes = graph.edges.filter((edge) => {
+    if (edge.kind !== 'transition') return false;
+    const source = graph.nodes.find((node) => node.id === edge.from);
+    return source?.parentId === step.id;
+  }).length;
+  const waits = graph.nodes.filter((node) => node.kind === 'wait' && node.parentId === step.id).length;
+  return {
+    children: [],
+    dimensions: { height: Math.max(150, 78 + (routes + waits * 2) * 19), width: cardWidth + stepGap * 2 },
+  };
+}
+
 function layoutStep(
   graph: FlowDefinitionGraph,
   step: FlowDefinitionNode,
@@ -256,9 +520,11 @@ function layoutStep(
   const waitDefinitions = visibility.waits
     ? graph.nodes.filter((node) => node.kind === 'wait' && node.parentId === step.id).sort(bySpanThenID)
     : [];
-  const decisionDefinitions = graph.nodes
-    .filter((node) => node.kind === 'decision' && node.parentId === step.id && node.phase !== 'rpc' && node.phase !== 'timeout')
-    .sort(bySpanThenID);
+  const decisionDefinitions = visibility.decisions
+    ? graph.nodes
+        .filter((node) => node.kind === 'decision' && node.parentId === step.id && node.phase !== 'rpc' && node.phase !== 'timeout')
+        .sort(bySpanThenID)
+    : [];
   const unknownDefinitions = visibility.control
     ? graph.nodes.filter((node) => node.kind === 'unknown' && node.parentId === step.id).sort(bySpanThenID)
     : [];
@@ -632,13 +898,19 @@ function layoutResources(
 function layoutRPCsAndTimeoutHandlers(
   graph: FlowDefinitionGraph,
   visibility: DefinitionVisibility,
+  railHubs: Set<string> = new Set(),
 ): Array<Node<DefinitionNodeData>> {
   const nameByID = Object.fromEntries(graph.nodes.map((node) => [node.id, node.name]));
   let top = flowHeaderHeight + 36;
   return graph.nodes
-    .filter((node) => node.kind === 'timeout_handler' || (visibility.rpcs && node.kind === 'rpc'))
-    .sort(byNameThenID)
+    .filter((node) => railHubs.has(node.id)
+      || node.kind === 'timeout_handler'
+      || (visibility.rpcs && node.kind === 'rpc'))
+    // Hubs first, so the rail reads recovery-then-handlers.
+    .sort((left, right) => Number(!railHubs.has(left.id)) - Number(!railHubs.has(right.id))
+      || byNameThenID(left, right))
     .map((handler) => {
+      const isRecovery = railHubs.has(handler.id);
       const decisions = graph.nodes.filter((node) => node.kind === 'decision' && node.parentId === handler.id);
       const relatedEdges = decisions.flatMap((decision) => graph.edges.filter((edge) => edge.from === decision.id));
       const isTimeout = handler.kind === 'timeout_handler';
@@ -648,18 +920,31 @@ function layoutRPCsAndTimeoutHandlers(
           .reduce((count, edge) => count + wrappedLineCount(nameByID[edge.to] ?? shortID(edge.to), 24), 0);
         return total + wrappedLineCount(decision.decision?.type ?? decision.name, 24) + movementLines;
       }, 0);
-      const height = isTimeout
-        ? Math.max(104, 62 + decisionLines * 19)
-        : Math.max(68, 42 + wrappedLineCount(handler.name, 28) * 18);
+      const routeLines = decisions.reduce((total, decision) => total + relatedEdges
+        .filter((edge) => edge.from === decision.id && edge.kind === 'transition')
+        .reduce((count, edge) => count + wrappedLineCount(
+          `${guardLabel(edge, decision) || 'otherwise'} -> ${nameByID[edge.to] ?? shortID(edge.to)}`,
+          34,
+        ), 0), 0);
+      const waitLines = graph.nodes
+        .filter((node) => node.kind === 'wait' && node.parentId === handler.id)
+        .reduce((total, wait) => total + 1
+          + (wait.wait?.conditions ?? []).length, 0);
+      const height = isRecovery
+        ? Math.max(150, 78 + (routeLines + waitLines) * 19)
+        : isTimeout
+          ? Math.max(104, 62 + decisionLines * 19)
+          : Math.max(68, 42 + wrappedLineCount(handler.name, 28) * 18);
       const node: Node<DefinitionNodeData> = {
         id: handler.id,
-        type: isTimeout ? 'definitionTimeout' : 'definitionRPC',
+        type: isRecovery ? 'definitionRecovery' : isTimeout ? 'definitionTimeout' : 'definitionRPC',
         parentId: flowID,
         position: { x: -132, y: top },
         style: { height, width: 260 },
         data: {
-          kind: isTimeout ? 'timeout' : 'rpc',
+          kind: isRecovery ? 'recovery' : isTimeout ? 'timeout' : 'rpc',
           definition: handler,
+          waits: graph.nodes.filter((node) => node.kind === 'wait' && node.parentId === handler.id),
           definitions: decisions,
           relatedEdges,
           nameByID,
@@ -729,13 +1014,16 @@ function definitionEdge(
   endpointMap: Map<string, string>,
   definitionsByID: Map<string, FlowDefinitionNode>,
   stepNodes: Array<Node<DefinitionNodeData>>,
+  labelWithGuard = false,
 ): Edge<DefinitionEdgeData> {
   const source = endpointMap.get(definition.from) ?? definition.from;
   const target = endpointMap.get(definition.to) ?? definition.to;
   const sourceDefinition = definitionsByID.get(definition.from);
   const targetDefinition = definitionsByID.get(definition.to);
   const color = edgeColor(definition.kind);
-  const label = edgeLabel(definition);
+  const label = labelWithGuard
+    ? guardLabel(definition, sourceDefinition) || edgeLabel(definition)
+    : edgeLabel(definition);
   const isOuterRight = usesOuterRightRoute(definition, sourceDefinition, targetDefinition, stepNodes);
   const routedSource = isOuterRight && sourceDefinition?.kind === 'decision' && sourceDefinition.parentId
     ? sourceDefinition.parentId
@@ -911,6 +1199,47 @@ function branchEdge(source: string, target: Node<DefinitionNodeData>): Edge<Defi
         : [condition, sourceTitle(target.data.definition?.span)].filter(Boolean).join(' · '),
     },
   };
+}
+
+/**
+ * The branch's own test, for use as an edge label when the decision card is hidden.
+ *
+ * A guard arrives as every preceding branch negated and ANDed with this one, so
+ * `else: if not records` reads as `not (not records)`. Only the last clause is this
+ * branch's own, and a doubled negation is worth undoing before showing it to anyone.
+ */
+function guardLabel(
+  edge: FlowDefinitionEdge,
+  sourceDefinition: FlowDefinitionNode | undefined,
+): string {
+  if (edge.kind !== 'transition' || sourceDefinition?.kind !== 'decision') return '';
+  const condition = sourceDefinition.condition?.trim();
+  if (!condition || condition === 'otherwise') return condition === 'otherwise' ? 'otherwise' : '';
+  return simplifyGuard(condition.split(' and ').at(-1) ?? '');
+}
+
+function simplifyGuard(text: string): string {
+  let own = unwrapParentheses(text);
+  while (own.startsWith('not ')) {
+    const inner = unwrapParentheses(own.slice(4));
+    if (inner.startsWith('not ')) {
+      own = unwrapParentheses(inner.slice(4));
+      continue;
+    }
+    // `not (a != b)` reads better as `a == b`, and so on for the other comparisons.
+    const flip: Array<[string, string]> = [
+      [' != ', ' == '], [' == ', ' != '], [' > ', ' <= '], [' < ', ' >= '],
+    ];
+    const match = flip.find(([from]) => inner.includes(from));
+    return match ? inner.replace(match[0], match[1]) : `not ${inner}`;
+  }
+  return own;
+}
+
+function unwrapParentheses(text: string): string {
+  let out = text.trim();
+  while (out.startsWith('(') && out.endsWith(')')) out = out.slice(1, -1).trim();
+  return out;
 }
 
 function edgeLabel(edge: FlowDefinitionEdge): string {

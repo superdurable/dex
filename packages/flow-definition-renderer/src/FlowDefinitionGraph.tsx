@@ -27,6 +27,7 @@ import {
 import type { FlowDefinitionGraph, FlowDefinitionNode, SourceSpan } from './types';
 import {
   buildDefinitionScene,
+  recoveryHubSteps,
   filterDefinitionEdgesForSelection,
   isResourceRelation,
   type DefinitionEdgeData,
@@ -34,11 +35,14 @@ import {
   type DefinitionNodeData,
   type DefinitionSelectionDetail,
   type DefinitionVisibility,
+  type RecoveryLayout,
 } from './definitionLayout';
 
 const layerLabels: Array<[DefinitionLayer | 'diagnostics', string]> = [
   ['control', 'Control flow'],
+  ['recovery', 'Recovery paths'],
   ['waits', 'WaitFor'],
+  ['decisions', 'Decisions'],
   ['rpcs', 'RPC'],
   ['channels', 'Channels'],
   ['attributes', 'Attributes'],
@@ -49,7 +53,9 @@ const layerLabels: Array<[DefinitionLayer | 'diagnostics', string]> = [
 
 const defaultVisibility: DefinitionVisibility & { diagnostics: boolean } = {
   control: true,
+  recovery: true,
   waits: true,
+  decisions: true,
   rpcs: true,
   attributes: true,
   channels: true,
@@ -68,6 +74,7 @@ const nodeTypes: NodeTypes = {
   definitionStep: StepNode,
   definitionStream: StreamNode,
   definitionSubFlow: SubFlowNode,
+  definitionRecovery: RecoveryNode,
   definitionTimeout: TimeoutNode,
   definitionUnknown: UnknownNode,
   definitionWait: WaitNode,
@@ -83,17 +90,32 @@ export function FlowDefinitionGraphView({
   graph: FlowDefinitionGraph;
 }) {
   const [visibility, setVisibility] = useState(defaultVisibility);
+  // ?recovery=steps|rail|table|traced — see RecoveryLayout. Review scaffolding: it lets
+  // the three candidate placements be compared side by side on one build.
+  const recoveryLayout = useMemo<RecoveryLayout>(() => {
+    // Guarded: this component is also rendered to static markup in tests, where there is
+    // no window to read a query string from.
+    if (typeof window === 'undefined') return 'steps';
+    const requested = new URLSearchParams(window.location.search).get('recovery');
+    return requested === 'rail' || requested === 'table' || requested === 'traced'
+      ? requested
+      : 'steps';
+  }, []);
   const [selectedNodeID, setSelectedNodeID] = useState('');
   const [selectedEdgeID, setSelectedEdgeID] = useState('');
   const [isMiniMapExpanded, setIsMiniMapExpanded] = useState(false);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
+  const tracedHubs = useMemo(
+    () => (recoveryLayout === 'traced' ? recoveryHubSteps(graph) : new Set<string>()),
+    [graph, recoveryLayout],
+  );
   const scene = useMemo(
-    () => buildDefinitionScene(graph, visibility),
-    [graph, visibility],
+    () => buildDefinitionScene(graph, visibility, { recoveryLayout }),
+    [graph, visibility, recoveryLayout],
   );
   const selectedNode = scene.nodes.find((node) => node.id === selectedNodeID);
   const visibleEdges = useMemo(
-    () => filterDefinitionEdgesForSelection(scene.edges, graph.nodes, selectedNodeID),
+    () => filterDefinitionEdgesForSelection(scene.edges, graph.nodes, selectedNodeID, tracedHubs),
     [graph.nodes, scene.edges, selectedNodeID],
   );
   const selectedEdge = visibleEdges.find((edge) => edge.id === selectedEdgeID);
@@ -132,6 +154,9 @@ export function FlowDefinitionGraphView({
           </div>
           <p>{graph.source.language} · {graph.source.path}</p>
         </div>
+        {recoveryLayout !== 'steps' ? (
+          <span className="definition-preview-badge">recovery: {recoveryLayout}</span>
+        ) : null}
         <div className="flow-definition-legend" aria-label="Graph visibility">
           {layerLabels.map(([layer, label]) => (
             <button
@@ -261,16 +286,31 @@ function FlowNode({ data }: NodeProps) {
 }
 
 function StepNode({ data }: NodeProps) {
-  const definition = (data as DefinitionNodeData).definition!;
+  const nodeData = data as DefinitionNodeData;
+  const definition = nodeData.definition!;
+  const role = nodeData.role ?? 'work';
+  const shown = nodeData.displayName ?? definition.name;
   return (
-    <div aria-label={sourceTitle(definition)} className="definition-step-frame">
+    <div
+      aria-label={sourceTitle(definition)}
+      className={`definition-step-frame definition-step-frame--${role}`}
+    >
       <Handle id="step-target" position={Position.Top} type="target" />
       <Handle id="step-control-outer-target" position={Position.Right} style={{ top: 22 }} type="target" />
       <Handle id="step-control-outer-source" position={Position.Right} style={{ top: 'calc(100% - 22px)' }} type="source" />
       <div className="definition-step-title">
-        <strong>{definition.name}</strong>
+        <strong>{shown}</strong>
         {definition.start && <span>START</span>}
+        {role === 'gate' && <span className="definition-step-actor">SOMEONE MUST ACT</span>}
       </div>
+      {/* The type name stays on the card whenever a display name covers it: it is the
+          durable identity, the thing you pass to dexcli and name in a resume. */}
+      {shown !== definition.name && (
+        <div className="definition-step-type">{definition.name}</div>
+      )}
+      {nodeData.waitSentence ? (
+        <div className="definition-step-wait">{nodeData.waitSentence}</div>
+      ) : null}
       <Handle id="step-resource-target" position={Position.Left} type="target" />
       <Handle id="step-resource-source" position={Position.Left} type="source" />
       <Handle id="step-recovery-source" position={Position.Bottom} type="source" />
@@ -386,6 +426,61 @@ function RPCNode({ data }: NodeProps) {
       <Handle position={Position.Right} type="source" />
     </div>
   );
+}
+
+/**
+ * An operator recovery hub, drawn the way a timeout handler is: one card in the side
+ * rail listing what it does, rather than a Step containing a grid of near-identical
+ * decision cards.
+ *
+ * The lines are `guard -> destination`, not `goTo -> destination`. Every branch of a
+ * resume dispatch is a goTo, so leading with the type repeats the one word that carries
+ * no information and buries the two that do.
+ */
+function RecoveryNode({ data }: NodeProps) {
+  const definitionData = data as DefinitionNodeData;
+  const definition = definitionData.definition!;
+  const decisions = definitionData.definitions ?? [];
+  const waits = definitionData.waits ?? [];
+  const routes = decisions.flatMap((decision) => (definitionData.relatedEdges ?? [])
+    .filter((edge) => edge.from === decision.id && edge.kind === 'transition')
+    .map((edge) => ({
+      id: edge.id,
+      guard: recoveryGuard(decision),
+      target: definitionData.nameByID?.[edge.to] ?? edge.to.split(':').pop() ?? edge.to,
+    })));
+  return (
+    <div aria-label={sourceTitle(definition)} className="definition-recovery-handler">
+      <Handle position={Position.Left} type="target" />
+      <span className="definition-recovery-kicker">↩ RECOVERY</span>
+      <strong>{definition.name}</strong>
+      {waits.map((wait) => (
+        <div className="definition-recovery-wait" key={wait.id}>
+          {wait.wait?.type}
+          {(wait.wait?.conditions ?? []).map((condition) => (
+            <span key={condition.label}> · {condition.label}</span>
+          ))}
+        </div>
+      ))}
+      <div className="definition-recovery-routes">
+        {routes.map((route) => (
+          <span key={route.id}>
+            <em>{route.guard}</em> → 🧩 {route.target}
+          </span>
+        ))}
+      </div>
+      <Handle position={Position.Right} type="source" />
+    </div>
+  );
+}
+
+/** The branch's own test, or a readable stand-in when it has none. */
+function recoveryGuard(decision: FlowDefinitionNode): string {
+  const condition = decision.condition?.trim();
+  if (!condition) return 'always';
+  if (condition === 'otherwise') return 'otherwise';
+  const own = condition.split(' and ').at(-1) ?? condition;
+  return own.replace(/^not \((.*)\)$/, 'not $1');
 }
 
 function TimeoutNode({ data }: NodeProps) {
