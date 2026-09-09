@@ -326,5 +326,5 @@ binary does not read `web/`, `node_modules`, or the source tree.
   registration command.
 ## License
 
-[Super Durable Source License 1.0](LICENSE), with legacy portions under their
+[Sustainable Use License 1.0](LICENSE), with legacy portions under their
 original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).

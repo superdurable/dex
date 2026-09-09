@@ -21,7 +21,7 @@
 // Modifications Copyright (c) 2026 Super Durable, Inc.
 //
 // Modifications after the Legacy Cutoff are licensed under the
-// Super Durable Source License 1.0.
+// Sustainable Use License 1.0.
 // Legacy Materials remain under their original licenses.
 // See LICENSE and LEGACY_NOTICES.md.
 
@@ -162,7 +162,7 @@ func newHeaderTask(taskConfig *config) (*headerTask, error) {
 	for _, templateID := range []string{"new", "mixed", "third-party-mixed", "legacy-reference", "mit", "apache-2.0"} {
 		fileName := templateID + ".txt"
 		if templateID == "new" {
-			fileName = "super-durable-1.0.txt"
+			fileName = "sustainable-use-1.0.txt"
 		}
 		content, err := os.ReadFile(filepath.Join(rootDir, headersDirName, fileName))
 		if err != nil {
@@ -413,7 +413,7 @@ func (task *headerTask) validate(relativePath string, data []byte, expected expe
 	switch expected.classification {
 	case "new":
 		if strings.TrimSpace(header) != strings.TrimSpace(newHeader) {
-			return fmt.Errorf("%s must use the new Super Durable header", relativePath)
+			return fmt.Errorf("%s must use the Sustainable Use License header", relativePath)
 		}
 	case "mixed":
 		if !strings.Contains(header, mixedHeader) {

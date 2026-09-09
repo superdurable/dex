@@ -1,10 +1,10 @@
 # Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Super Durable Source License 1.0.
+# Licensed under the Sustainable Use License 1.0.
 # You may not use this file except in compliance with the License.
 # See the LICENSE file in the repository root.
 #
-# SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 from __future__ import annotations
 
@@ -141,7 +141,7 @@ class HeaderMigrator:
         self.boundary_source_map = self.find_boundary_source_map()
         self.contaminated_paths = self.find_contaminated_paths()
         self.templates = {
-            "new": read_text(HEADERS_DIR / "super-durable-1.0.txt"),
+            "new": read_text(HEADERS_DIR / "sustainable-use-1.0.txt"),
             "mixed": read_text(HEADERS_DIR / "mixed.txt"),
             "third-party-mixed": read_text(HEADERS_DIR / "third-party-mixed.txt"),
             "legacy": read_text(HEADERS_DIR / "legacy-reference.txt"),
@@ -633,7 +633,7 @@ def strip_managed_blocks(content: str, suffix: str) -> str:
 @lru_cache(maxsize=None)
 def managed_formatted_headers(suffix: str) -> tuple[str, ...]:
     names = (
-        "super-durable-1.0.txt",
+        "sustainable-use-1.0.txt",
         "mixed.txt",
         "third-party-mixed.txt",
         "legacy-reference.txt",

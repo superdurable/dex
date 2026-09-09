@@ -1,10 +1,10 @@
 // Copyright (c) 2026 Super Durable, Inc.
 //
-// Licensed under the Super Durable Source License 1.0.
+// Licensed under the Sustainable Use License 1.0.
 // You may not use this file except in compliance with the License.
 // See the LICENSE file in the repository root.
 //
-// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 package main
 
@@ -81,11 +81,11 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	require.Contains(t, string(copiedContent), "Modifications Copyright (c) 2026 Super Durable, Inc.")
 	fragmentContent, err := os.ReadFile(filepath.Join(repositoryRoot, "server/new_with_legacy_fragment.go"))
 	require.NoError(t, err)
-	require.Contains(t, string(fragmentContent), "SPDX-License-Identifier: LicenseRef-Super-Durable-1.0")
+	require.Contains(t, string(fragmentContent), "SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0")
 	require.NotContains(t, string(fragmentContent), "Modifications after the Legacy Cutoff")
 	newContent, err := os.ReadFile(filepath.Join(repositoryRoot, "sdk-rust/src/lib.rs"))
 	require.NoError(t, err)
-	require.Contains(t, string(newContent), "SPDX-License-Identifier: LicenseRef-Super-Durable-1.0")
+	require.Contains(t, string(newContent), "SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0")
 	pythonMixedContent, err := os.ReadFile(filepath.Join(repositoryRoot, "sdk-python/tests/iwfcompat/basic_flow.py"))
 	require.NoError(t, err)
 	require.Contains(t, string(pythonMixedContent), "derived from indeedeng/iwf-java-sdk")
@@ -98,7 +98,7 @@ func TestHeaderTaskUpgradesLegacyAndCreatesNewHeader(t *testing.T) {
 	require.Contains(t, string(typeScriptMixedContent), "derived from indeedeng/iwf-java-sdk")
 	typeScriptNewContent, err := os.ReadFile(filepath.Join(repositoryRoot, "sdk-typescript/src/index.ts"))
 	require.NoError(t, err)
-	require.Contains(t, string(typeScriptNewContent), "SPDX-License-Identifier: LicenseRef-Super-Durable-1.0")
+	require.Contains(t, string(typeScriptNewContent), "SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0")
 
 	verifyTask, err := newHeaderTask(&config{rootDir: repositoryRoot, verifyOnly: true})
 	require.NoError(t, err)
@@ -116,7 +116,7 @@ func copyTestTemplates(t *testing.T, repositoryRoot string) {
 		"legacy-reference.txt",
 		"mit.txt",
 		"mixed.txt",
-		"super-durable-1.0.txt",
+		"sustainable-use-1.0.txt",
 		"third-party-mixed.txt",
 	} {
 		content, err := os.ReadFile(filepath.Join(sourceDir, fileName))

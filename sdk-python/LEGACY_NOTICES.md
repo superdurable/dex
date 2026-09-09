@@ -1,6 +1,6 @@
 # Legacy and third-party notices
 
-The Super Durable Source License 1.0 applies only to material owned or
+The Sustainable Use License 1.0 applies only to material owned or
 licensable by Super Durable, Inc. It does not replace the licenses below.
 
 ## Legacy cutoff
@@ -57,5 +57,5 @@ or translations of the `indeedeng/iwf-java-sdk` integration suite at commit
 - `sdk-typescript/test/integ/`
 
 The upstream portions remain licensed under the Apache License 2.0. Super
-Durable modifications are licensed under the Super Durable Source License 1.0.
+Durable modifications are licensed under the Sustainable Use License 1.0.
 The Apache License 2.0 text is in `LICENSES/Apache-2.0.txt`.

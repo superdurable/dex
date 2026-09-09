@@ -77,7 +77,7 @@ registration, application-hosted WorkerService, and typed FlowService Client.
 
 ## License
 
-[Super Durable Source License 1.0](LICENSE), with legacy portions under their
+[Sustainable Use License 1.0](LICENSE), with legacy portions under their
 original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
 
 ## Authoring a flow

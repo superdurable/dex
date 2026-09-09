@@ -299,7 +299,7 @@ publishing {
 
                 licenses {
                     license {
-                        name = 'Super Durable Source License 1.0'
+                        name = 'Sustainable Use License 1.0'
                         url = 'https://github.com/superdurable/dex/blob/main/LICENSE'
                         distribution = 'repo'
                     }

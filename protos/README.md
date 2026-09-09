@@ -4,7 +4,7 @@ Protobuf + gRPC interface between Dex SDKs and the Dex server.
 
 - Source: [`dex.proto`](dex.proto)
 - Rename catalog: [`../docs/design/idl-renames.md`](../docs/design/idl-renames.md)
-- License: [Super Durable Source License 1.0](LICENSE), with legacy portions
+- License: [Sustainable Use License 1.0](LICENSE), with legacy portions
   under their original terms ([`LEGACY_NOTICES.md`](LEGACY_NOTICES.md))
 
 ## Services

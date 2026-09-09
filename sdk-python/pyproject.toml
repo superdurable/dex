@@ -5,7 +5,7 @@ version = "0.2.2"
 description = "Python SDK for the Dex workflow engine"
 authors = [{name = "Super Durable"}]
 readme = "README.md"
-license = "LicenseRef-Super-Durable-1.0"
+license = "LicenseRef-Sustainable-Use-1.0"
 license-files = ["LICENSE", "LEGACY_NOTICES.md", "LICENSES/**"]
 requires-python = ">=3.11"
 dependencies = [

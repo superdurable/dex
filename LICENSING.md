@@ -1,89 +1,54 @@
 # Licensing guide
 
-This guide summarizes the repository licenses. The license texts control if
-this guide conflicts with them.
+This guide explains how Super Durable applies "internal business purposes" in
+the Sustainable Use License 1.0. It does not modify or expand the license.
 
-## Core product, SDKs, and protocol
+## Covered material
 
-Super Durable changes after the Legacy Cutoff are distributed under the
-[Super Durable Source License 1.0](LICENSE). Non-production use is free.
-Production use is free while the user and its affiliates have no more than
-US$10 million in consolidated annual revenue. A user that exceeds the threshold
-has 90 days after the relevant fiscal year ends to obtain a subscription.
+The Sustainable Use License applies to material owned or licensable by Super
+Durable, Inc. Legacy and third-party materials remain under their original
+licenses. The `docs/` and `examples/` directories retain their existing
+licensing status. See [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
 
-Competitive SDKs, Dex replacements, and hosted Dex-compatible services always
-require a written commercial license. Contact licensing@superdurable.io.
+Previously released versions remain available under the terms that accompanied
+those releases.
 
-## Applications
+## Internal business purposes
 
-An application may bundle Dex SDK and protocol components when the application's
-primary purpose is its own business or end-user functionality. The developer or
-operator is responsible for satisfying the revenue rule. An end user that only
-runs the application does not need a separate Dex subscription, unless it also
-deploys Dex or uses the SDK independently.
+You may use Dex for your own internal business operations, regardless of your
+company's revenue or whether your company competes with Super Durable.
 
-Connectors, plug-ins, and adapters that interoperate with Dex are not competitive
-products merely because they use a Dex API.
+You may also use Dex as hidden backend infrastructure for a commercial product
+when the product's primary value comes from other functionality and customers
+do not receive direct access to a substantial set of Dex features.
 
-## Legacy code
+Without a commercial license, you may not white-label, host, or resell Dex, or
+build an automation platform, process platform, workflow platform, or
+software-building platform whose value derives entirely or substantially from
+Dex.
 
-Code present at the Legacy Cutoff remains under its original MIT or Apache-2.0
-terms. A modified legacy file therefore contains separately licensed portions:
-the legacy material remains under its former license and later Super Durable
-modifications use the Super Durable Source License 1.0. See
-[LEGACY_NOTICES.md](LEGACY_NOTICES.md).
+## Distribution
 
-Previously released MIT and Apache-2.0 versions remain available under their
-original terms.
+You may distribute Dex or modifications only free of charge for non-commercial
+purposes. Recipients must receive the applicable license and notices, and
+modified copies must identify that they were modified.
 
-## Exclusions
+## Consulting and support
 
-Examples keep their existing MIT or Apache-2.0 licenses. The `docs/` directory
-is not relicensed and receives no new license grant from this change.
+You may charge for consulting, installation, workflow development, or support
+services. Those services must not provide customers with hosted access to a
+substantial set of Dex features.
 
 ## Common scenarios
 
 | Scenario | Result |
 | --- | --- |
-| Internal evaluation or development | Free |
-| Production use at or below US$10M consolidated annual revenue | Free |
-| Production use above US$10M | Subscription required after the 90-day grace period |
-| Ordinary application bundling a Dex SDK | Allowed, subject to the developer/operator revenue rule |
-| End user only running that application | No separate subscription |
-| Independent Dex-compatible SDK or hosted replacement | Separate commercial license required |
+| Run Dex for internal company operations | Allowed |
+| Use Dex as a hidden backend for a distinct product feature | Allowed |
+| Build a platform whose value derives entirely or substantially from Dex | Commercial license required |
+| White-label, host, or resell Dex | Commercial license required |
+| Provide consulting or support without hosted Dex access | Allowed |
+| Redistribute Dex free of charge for a non-commercial purpose | Allowed |
+| Sell or commercially redistribute Dex or a modified version | Commercial license required |
 
-## Frequently asked questions
-
-### Is the US$10 million threshold ARR?
-
-No. The license uses consolidated annual gross revenue, not recurring revenue.
-It includes the user and its affiliates and follows the most recently completed
-fiscal year, with the rules in the license for new entities and currency
-conversion.
-
-### When does the 90-day period begin?
-
-It begins after the end of the first fiscal year for which consolidated annual
-revenue exceeds US$10 million. The same production use may continue during that
-period while the user obtains a subscription.
-
-### Can an application ship a Dex SDK or generated protocol client?
-
-Yes, when the component is embedded or bundled and the application's primary
-purpose is its own business or end-user function. The exception does not permit
-extracting or independently redistributing the SDK.
-
-### Can someone fork an SDK into a competing client?
-
-Not under the source license. Developing or distributing an independent
-Dex-compatible SDK, replacement product, or hosted service requires a separate
-commercial license regardless of revenue.
-
-### Why do some files show two sets of terms?
-
-Their cutoff content remains under its original license. Post-cutoff Super
-Durable modifications use the source license, so the file uses a mixed header
-that identifies both portions without replacing the legacy notice.
-
-This guide is not legal advice. Have counsel review the license and its
-application to a particular use.
+Contact licensing@superdurable.io for questions or commercial licensing.

@@ -124,7 +124,7 @@ Managed source files use the classifications recorded in
   matches the cutoff snapshot.
 - `mixed` preserves the original header and adds the Super Durable modification
   notice.
-- `new` uses `LicenseRef-Super-Durable-1.0`.
+- `new` uses `LicenseRef-Sustainable-Use-1.0`.
 
 `docs/` is not relicensed. Go examples retain MIT; Java and Python examples
 retain Apache-2.0. See [LICENSING.md](LICENSING.md) for the repository policy.

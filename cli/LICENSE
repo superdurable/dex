@@ -1,192 +1,105 @@
-Super Durable Source License 1.0
+# License
 
 Copyright (c) 2026 Super Durable, Inc.
 
-Acceptance
+Portions of this software are licensed as follows:
 
-This agreement governs the Software made available by Super Durable, Inc.
-("Licensor"). By copying, modifying, distributing, or using the Software, You
-accept this agreement. If You act for an entity, You represent that You have
-authority to bind that entity, and "You" means that entity.
+- Legacy Materials remain under their original licenses as described in
+  `LEGACY_NOTICES.md`.
+- Third-Party Materials remain under the licenses provided by their owners.
+- The `docs/` and `examples/` directories are not licensed under the
+  Sustainable Use License and retain their existing licensing status.
+- All other material owned or licensable by Super Durable, Inc. is available
+  under the Sustainable Use License below.
 
-License Grant
+See `LEGACY_NOTICES.md` for the applicable legacy and third-party notices.
 
-Subject to this agreement, Licensor grants You a non-exclusive, worldwide,
-non-transferable, non-sublicensable license to copy and modify the Software and
-to use it for Non-Production Use.
+## Sustainable Use License
 
-Licensor also grants You a license to make Production Use when either:
+Version 1.0
 
-1. You are a Qualified User; or
-2. You have a current Subscription authorizing that Production Use.
+### Acceptance
 
-If You cease to be a Qualified User, You may continue the same Production Use
-for ninety (90) days after the end of the first fiscal year for which Your
-Consolidated Annual Revenue exceeds the Revenue Threshold. After that grace
-period, continued Production Use requires a Subscription.
+By using the software, you agree to all of the terms and conditions below.
 
-The licenses in this section include the right to make, have made, use, sell,
-offer for sale, and import the Software only under patent claims Licensor can
-license that are necessarily infringed by the Software as provided by
-Licensor. If You bring a written patent infringement claim concerning the
-Software, this patent license terminates immediately.
+### Copyright License
 
-Applications and Client Components
+The licensor grants you a non-exclusive, royalty-free, worldwide,
+non-sublicensable, non-transferable license to use, copy, distribute, make
+available, and prepare derivative works of the software, in each case subject
+to the limitations below.
 
-While otherwise complying with this agreement, You may distribute Client
-Components, in source or object form, solely as an embedded or bundled part of
-an Application. The Application must have a primary purpose other than
-providing the Software, a Competitive Product, or a hosted Dex-compatible
-service.
+### Limitations
 
-A recipient may run an Application containing Client Components without a
-separate Subscription. This exception does not permit the recipient to extract,
-modify, redistribute, or use Client Components independently, or to deploy or
-operate other Software. A person that develops or operates an Application is
-still subject to the Production Use and Revenue Threshold requirements.
+You may use or modify the software only for your own internal business purposes
+or for non-commercial or personal use. You may distribute the software or
+provide it to others only if you do so free of charge for non-commercial
+purposes. You may not alter, remove, or obscure any licensing, copyright, or
+other notices of the licensor in the software. Any use of the licensor's
+trademarks is subject to applicable law.
 
-Competitive Use
+### Patents
 
-You may not make Competitive Use without a separate written commercial license
-from Licensor. The Revenue Threshold, Qualified User status, grace period, and
-Application exception do not authorize Competitive Use.
+The licensor grants you a license, under any patent claims the licensor can
+license, or becomes able to license, to make, have made, use, sell, offer for
+sale, import and have imported the software, in each case subject to the
+limitations and conditions in this license. This license does not cover any
+patent claims that you cause to be infringed by modifications or additions to
+the software.
 
-Source Collaboration
+If you or your company make any written claim that the software infringes or
+contributes to infringement of any patent, your patent license for the software
+granted under these terms ends immediately. If your company makes such a claim,
+your patent license ends immediately for work on behalf of your company.
 
-You may publicly host a source fork or distribute patches solely for
-evaluation, internal development, or contribution to Licensor, provided You:
+### Notices
 
-1. do not make Production Use or Competitive Use through that distribution;
-2. preserve this agreement and all copyright, attribution, and license notices;
-3. identify files You modified; and
-4. apply this agreement to Your modifications to the Software.
+You must ensure that anyone who gets a copy of any part of the software from
+you also gets a copy of these terms. If you modify the software, you must
+include in any modified copies of the software a prominent notice stating that
+you have modified the software.
 
-No other redistribution of the Software or a Modified Version is permitted
-except under the Application exception or a Subscription.
+### No Other Rights
 
-Legacy and Third-Party Materials
+These terms do not imply any licenses other than those expressly granted in
+these terms.
 
-This agreement applies only to the Software and modifications owned or
-licensable by Licensor. It does not replace or restrict any license applying to
-Legacy Materials or Third-Party Materials. Those materials remain governed by
-their respective licenses. Their notices and license texts must be preserved.
-See LEGACY_NOTICES.md and accompanying third-party notices.
+### Termination
 
-Commercial Licenses
+If you use the software in violation of these terms, such use is not licensed,
+and your license will automatically terminate. If the licensor provides you
+with a notice of your violation, and you cease all violation of this license no
+later than 30 days after you receive that notice, your license will be
+reinstated retroactively. However, if you violate these terms after such
+reinstatement, any additional violation of these terms will cause your license
+to terminate automatically and permanently.
 
-A Subscription or other written commercial agreement may grant additional
-rights. If its terms conflict with this agreement, the commercial agreement
-controls only for the Software, use, and period it expressly covers. Contact
-licensing@superdurable.io for a Subscription or Competitive Use license.
+### No Liability
 
-Restrictions and Obligations
+As far as the law allows, the software comes as is, without any warranty or
+condition, and the licensor will not be liable to you for any damages arising
+out of these terms or the use or nature of the software, under any kind of
+legal claim.
 
-You must not:
+### Definitions
 
-1. remove or obscure copyright, license, attribution, or trademark notices;
-2. represent that Licensor endorses You or Your products;
-3. use Licensor's names, marks, or logos except to accurately identify the
-   origin of the Software; or
-4. enable another person to exercise rights that this agreement does not grant.
+The "licensor" is the entity offering these terms.
 
-You are responsible for Your affiliates, contractors, and agents that use the
-Software on Your behalf. You must comply with applicable export, import, and
-sanctions laws.
+The "software" is the software the licensor makes available under these terms,
+including any portion of it.
 
-Termination
+"You" refers to the individual or entity agreeing to these terms.
 
-Your rights terminate automatically if You breach this agreement. If the breach
-is capable of cure and is neither intentional nor repeated, Your rights are
-reinstated retroactively when You cure it within fifteen (15) days after the
-breach. Intentional or repeated breaches permanently terminate Your rights
-unless Licensor agrees otherwise in writing.
+"Your company" is any legal entity, sole proprietorship, or other kind of
+organization that you work for, plus all organizations that have control over,
+are under the control of, or are under common control with that organization.
+Control means ownership of substantially all the assets of an entity, or the
+power to direct its management and policies by vote, contract, or otherwise.
+Control can be direct or indirect.
 
-No Other Rights
+"Your license" is the license granted to you for the software under these
+terms.
 
-Except for rights expressly granted here, Licensor reserves all rights. This
-agreement grants no trademark rights and does not require Licensor to provide
-support, maintenance, updates, or a Subscription.
+"Use" means anything you do with the software requiring your license.
 
-Disclaimer
-
-TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SOFTWARE IS PROVIDED "AS IS" AND
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT,
-ACCURACY, OR UNINTERRUPTED OR ERROR-FREE OPERATION.
-
-Limitation of Liability
-
-TO THE MAXIMUM EXTENT PERMITTED BY LAW, LICENSOR WILL NOT BE LIABLE FOR ANY
-INDIRECT, SPECIAL, INCIDENTAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES,
-OR FOR LOST PROFITS, REVENUE, DATA, OR BUSINESS INTERRUPTION. LICENSOR'S TOTAL
-LIABILITY ARISING FROM THIS AGREEMENT OR THE SOFTWARE WILL NOT EXCEED ONE
-HUNDRED U.S. DOLLARS (US$100), REGARDLESS OF THE LEGAL THEORY AND EVEN IF
-LICENSOR WAS ADVISED THAT SUCH DAMAGES WERE POSSIBLE.
-
-Governing Law
-
-Delaware law and applicable United States federal law govern this agreement,
-without regard to conflict-of-law rules. The state and federal courts located
-in Delaware have exclusive jurisdiction. The United Nations Convention on
-Contracts for the International Sale of Goods does not apply.
-
-Definitions
-
-"Affiliate" means an entity that directly or indirectly controls, is controlled
-by, or is under common control with You. "Control" means ownership of more than
-fifty percent (50%) of voting interests or the power to direct management.
-
-"Application" means software developed for a business or end-user purpose whose
-primary purpose is not to provide the Software or a Competitive Product.
-
-"Client Components" means the SDK and protocol-definition portions of the
-Software intended to be integrated into Applications.
-
-"Competitive Product" means software or a service whose primary purpose is to
-replace or provide substantially similar functionality to a Dex server, Dex
-SDK, Dex command-line product, Dex web product, or a hosted Dex-compatible
-service. An Application, connector, plug-in, or adapter that merely interoperates
-with Dex is not a Competitive Product.
-
-"Competitive Use" means developing, distributing, offering, or operating a
-Competitive Product for any third party.
-
-"Consolidated Annual Revenue" means the gross revenue of You and all Affiliates,
-without double counting intercompany transactions, for the most recently
-completed fiscal year, as determined under consistently applied GAAP or IFRS.
-Non-U.S.-dollar revenue is converted to U.S. dollars using the exchange rate
-used in the applicable consolidated financial statements. If You have no
-completed fiscal year, use a good-faith annualization of revenue since formation.
-
-"Legacy Cutoff" means Git commit
-1a61670238cbdc8f2a0a6dd78cc5668fb014f283 in the Software's repository.
-
-"Legacy Materials" means material contained in the complete repository snapshot
-at the Legacy Cutoff, including material reachable through either parent of that
-merge commit, and later copies or adaptations of that material, to the extent
-governed by a license other than this agreement.
-
-"Modified Version" means any modification or derivative work of the Software.
-
-"Non-Production Use" means design, prototyping, evaluation, testing, or
-development that does not serve live end users, process live business workloads,
-or support production operations.
-
-"Production Use" means any use other than Non-Production Use.
-
-"Qualified User" means You when Your Consolidated Annual Revenue does not exceed
-the Revenue Threshold and You are not making Competitive Use.
-
-"Revenue Threshold" means ten million U.S. dollars (US$10,000,000).
-
-"Software" means files in this repository that include or refer to this
-agreement, in source or object form, excluding the docs/ and examples/
-directories, Legacy Materials, and Third-Party Materials.
-
-"Subscription" means a current written commercial subscription or license from
-Licensor that authorizes the applicable Production Use.
-
-"Third-Party Materials" means material owned by a third party and provided under
-separate license terms.
-
-"You" means the individual or legal entity accepting this agreement.
+"Trademark" means trademarks, service marks, and similar rights.

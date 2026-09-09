@@ -1,10 +1,10 @@
 # Copyright (c) 2026 Super Durable, Inc.
 #
-# Licensed under the Super Durable Source License 1.0.
+# Licensed under the Sustainable Use License 1.0.
 # You may not use this file except in compliance with the License.
 # See the LICENSE file in the repository root.
 #
-# SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ class MigrationIntegrationTest(unittest.TestCase):
                 "protos/api.proto",
             ):
                 self.assertIn(
-                    "SPDX-License-Identifier: LicenseRef-Super-Durable-1.0",
+                    "SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0",
                     (root / path).read_text(),
                 )
 
@@ -106,7 +106,7 @@ class MigrationIntegrationTest(unittest.TestCase):
             "legacy-reference.txt",
             "mit.txt",
             "mixed.txt",
-            "super-durable-1.0.txt",
+            "sustainable-use-1.0.txt",
             "third-party-mixed.txt",
         ):
             shutil.copyfile(TEMPLATES_DIR / name, headers_dir / name)

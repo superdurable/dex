@@ -170,5 +170,5 @@ pending failure on its matching active Step and expands that stack by default.
 Selected event Context uses the same failure view with the stack collapsed.
 ## License
 
-[Super Durable Source License 1.0](LICENSE), with legacy portions under their
+[Sustainable Use License 1.0](LICENSE), with legacy portions under their
 original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).

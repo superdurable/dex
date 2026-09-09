@@ -1,6 +1,6 @@
 # Legacy and third-party notices
 
-The Super Durable Source License 1.0 applies only to material owned or
+The Sustainable Use License 1.0 applies only to material owned or
 licensable by Super Durable, Inc. It does not replace the licenses below.
 
 ## Legacy cutoff
