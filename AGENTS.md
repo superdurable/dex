@@ -94,6 +94,18 @@ one requires equivalent updates to all three in the same commit.
 - An explicit user request to use `temporal-developer` overrides this
   restriction.
 
+### Dex Developer Skill Routing
+
+- Before changing or reviewing `examples/**`, application code snippets in
+  product docs, or documented Flow application patterns, load the installed
+  `dex-developer` skill with `$dex-developer` and follow its routed references.
+- Do not load it for pure Server, IDL, or SDK implementation work. When a
+  change includes both an SDK API and examples, current source and API decisions
+  are authoritative; use the skill for application modeling guidance.
+- If the skill is unavailable, stop the examples or snippet portion of the
+  change and provide the installation instructions at
+  https://docs.superdurable.io/build-with-ai/dex-developer-skill.
+
 ### Regenerate the Entire Repository After Proto Changes
 
 Whenever any `.proto` file changes, run `make generated-code` from the repository

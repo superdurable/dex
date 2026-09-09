@@ -9,7 +9,9 @@ const cloud = await readFile(join(root, 'cloud', 'index.html'), 'utf8');
 const cron = await readFile(join(root, 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
 const whyDex = await readFile(join(root, 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const production = await readFile(join(root, 'production', 'index.html'), 'utf8');
+const dexDeveloperSkill = await readFile(join(root, 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
 const zhCron = await readFile(join(root, 'zh-Hans', 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
+const zhDexDeveloperSkill = await readFile(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
 const zhWhyDex = await readFile(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
 const sitemap = await readFile(join(root, 'sitemap.xml'), 'utf8');
@@ -39,6 +41,15 @@ assert.match(footer, /Process-centric apps, powered by Dex/);
 assert.doesNotMatch(footer, />Docs<|BYOC|Star Us on GitHub/);
 assert.match(home, /English/);
 assert.match(home, /中文/);
+assert.match(home, /Build with AI/);
+assert.match(home, /Dex Developer Skill/);
+
+const primitivesPosition = home.indexOf('>Primitives<');
+const buildWithAIPosition = home.indexOf('>Build with AI<');
+const designPatternsPosition = home.indexOf('>Design Patterns<');
+assert.ok(primitivesPosition >= 0);
+assert.ok(buildWithAIPosition > primitivesPosition);
+assert.ok(designPatternsPosition > buildWithAIPosition);
 
 const zhHome = await readFile(join(root, 'zh-Hans', 'index.html'), 'utf8');
 assert.match(zhHome, /English/);
@@ -57,6 +68,9 @@ assert.match(whyDex, /OrderProcessingFlow/);
 assert.match(zhWhyDex, /flow-definition-canvas/);
 assert.match(zhWhyDex, /OrderProcessingFlow/);
 assert.match(production, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/production\/"/);
+assert.match(dexDeveloperSkill, /Build Dex applications with AI/);
+assert.match(dexDeveloperSkill, /superdurable\/skill-dex-developer/);
+assert.match(zhDexDeveloperSkill, /使用 AI 构建 Dex 应用/);
 assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/subflow\/"/);
 assert.match(sitemap, /<loc>https:\/\/docs\.superdurable\.io\/production\/<\/loc>/);
 assert.doesNotMatch(sitemap, /<loc>https:\/\/docs\.superdurable\.io\/production<\/loc>/);
@@ -68,9 +82,11 @@ await Promise.all([
   access(join(root, 'primitives', 'index.html')),
   access(join(root, 'primitives', 'step', 'index.html')),
   access(join(root, 'references', 'cli', 'index.html')),
+  access(join(root, 'build-with-ai', 'dex-developer-skill', 'index.html')),
   access(join(root, 'zh-Hans', 'intro', 'what-is-durable-execution', 'index.html')),
   access(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'zh-Hans', 'quick-start', 'index.html')),
+  access(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'index.html')),
 ]);
 
 console.log('Docs shell, simplified product navigation, cloud page, and representative routes passed smoke checks.');

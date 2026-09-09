@@ -1,0 +1,102 @@
+---
+id: dex-developer-skill
+title: Dex Developer Skill
+slug: /build-with-ai/dex-developer-skill
+---
+
+# Build Dex applications with AI
+
+Dex Developer is the official coding-agent skill for Dex. It helps Codex,
+Claude Code, Cursor, and other Agent Skills clients work through the public Dex
+programming model in Python, Go, Java, TypeScript, and Rust.
+
+The skill guides application development. Dex Server, Workers, and SuperAgent
+do not load it at runtime.
+
+## What the skill helps with
+
+- Model Flows, Steps, transitions, and failure paths before implementation.
+- Choose Attributes, Channels, Streams, RPCs, Timers, and SubFlows.
+- Use version-matched SDK APIs and runnable examples.
+- Test Worker replacement, retries, durable waits, and recovery.
+- Diagnose Flow failures through read-only evidence before recovery actions.
+
+The source and releases are maintained in
+[superdurable/skill-dex-developer](https://github.com/superdurable/skill-dex-developer).
+
+## Install for Codex
+
+Add the Super Durable marketplace and install the Dex plugin:
+
+~~~bash
+codex plugin marketplace add superdurable/skill-dex-developer
+codex plugin add dex@superdurable
+~~~
+
+Start a new task, then invoke the skill explicitly when needed:
+
+~~~text
+$dex-developer Design a reliable Dex Flow for this application.
+~~~
+
+Codex can also select the skill automatically for Dex application work.
+
+## Install for Claude Code
+
+Run these commands inside Claude Code:
+
+~~~text
+/plugin marketplace add superdurable/skill-dex-developer
+/plugin install dex@superdurable
+/reload-plugins
+~~~
+
+Invoke the skill as follows:
+
+~~~text
+/dex:dex-developer
+~~~
+
+## Install for Cursor
+
+The Dex plugin follows the portable Agent Plugins standard supported by Cursor.
+Before it is listed in the public Cursor Marketplace, a team can import the
+GitHub repository into a team marketplace. An individual can install the skill
+directly:
+
+~~~bash
+npx skills add superdurable/skill-dex-developer --skill dex-developer
+~~~
+
+Invoke the installed skill manually when needed:
+
+~~~text
+/dex-developer
+~~~
+
+Cursor can also select the skill automatically from the task context.
+
+## Keep the skill current
+
+Agents use an installed or cached copy. They do not fetch the latest GitHub
+content for every prompt, and an active task keeps the version loaded when that
+task started.
+
+- In Codex, upgrade the Super Durable marketplace, reinstall the Dex plugin,
+  and start a new task.
+- In Claude Code, update the marketplace and reload plugins. Third-party
+  marketplace auto-update can be enabled in the plugin manager.
+- In Cursor, refresh or reinstall the plugin. Team marketplaces can enable Auto
+  Refresh. Reload the window after changing a local plugin.
+- For a direct Agent Skills installation, rerun the installation command.
+
+The skill release version is separate from the Dex SDK version. The skill tells
+the agent to inspect the SDK installed by the application and use matching
+runnable examples before choosing exact APIs.
+
+## Trust and permissions
+
+Install agent extensions only from sources you trust. The Dex plugin contains
+guidance files only. It declares no MCP server, hooks, credentials, or
+application runtime code. Recovery actions that mutate a running Flow still
+require explicit authorization.

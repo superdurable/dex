@@ -46,6 +46,12 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Build with AI',
+      collapsed: false,
+      items: ['build-with-ai/dex-developer-skill'],
+    },
+    {
+      type: 'category',
       label: 'Design Patterns',
       link: {type: 'doc', id: 'design-patterns/index'},
       items: [

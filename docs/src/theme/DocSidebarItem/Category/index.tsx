@@ -133,7 +133,7 @@ export default function DocSidebarItemCategory({
   const isActive = isActiveSidebarItem(item, activePath);
   const isCurrentPage = isSamePath(href, activePath);
   const {collapsed, setCollapsed} = useCollapsible({
-    initialState: () => (collapsible ? true : false),
+    initialState: () => (collapsible ? item.collapsed ?? true : false),
   });
 
   useEffect(() => {
