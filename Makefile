@@ -8,16 +8,13 @@ GENERATED_CODE_PATHS := \
 	sdk-python/dex/dexpb \
 	sdk-typescript/src/gen
 
-.PHONY: help agent-rules-check ci-runner-check copyright copyright-check generated-code generated-code-check githooks docs-prose-check docs-prose-fix
+.PHONY: help ci-runner-check copyright copyright-check generated-code generated-code-check githooks docs-prose-check docs-prose-fix
 
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'
 
 githooks: ## Install commit-msg and pre-commit hooks (Cursor co-author + docs prose)
 	bash script/install-githooks
-
-agent-rules-check: ## Verify Dex skill routing across coding-agent rules
-	bash script/check-agent-skill-routing.sh
 
 docs-prose-check: ## Fail when product-doc MDX prose uses inline backticks
 	python3 script/docs_no_inline_backticks.py
