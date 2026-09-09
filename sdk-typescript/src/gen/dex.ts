@@ -153,6 +153,17 @@ export enum FlowResetStepMethod {
   UNRECOGNIZED = -1,
 }
 
+export enum AttributeMatchOperator {
+  ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED = 0,
+  ATTRIBUTE_MATCH_OPERATOR_EQUAL = 1,
+  ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL = 2,
+  ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN = 3,
+  ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL = 4,
+  ATTRIBUTE_MATCH_OPERATOR_LESS_THAN = 5,
+  ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL = 6,
+  UNRECOGNIZED = -1,
+}
+
 export enum ErrorSubStatus {
   ERROR_SUB_STATUS_UNSPECIFIED = 0,
   ERROR_SUB_STATUS_UNCATEGORIZED = 1,
@@ -913,9 +924,8 @@ export interface WaitForStepCompletionResponse {
 
 export interface WaitForAttributeRequest {
   flowId: string;
-  runId: string;
-  condition:
-    | WaitForAttributeCondition
+  match:
+    | AttributeMatch
     | undefined;
   /** Zero/omit checks once; positive waits until match or timeout. */
   waitTimeSeconds: number;
@@ -923,13 +933,14 @@ export interface WaitForAttributeRequest {
   requestId: string;
 }
 
-export interface WaitForAttributeCondition {
-  kind: { $case: "equal"; value: WaitForAttributeEqual } | undefined;
+export interface WaitForAttributeResponse {
+  matchedValue: Value | undefined;
 }
 
-export interface WaitForAttributeEqual {
+export interface AttributeMatch {
   key: string;
-  value: Value | undefined;
+  operator: AttributeMatchOperator;
+  operand: Value | undefined;
 }
 
 export interface TriggerContinueAsNewRequest {
@@ -9502,7 +9513,7 @@ export const WaitForStepCompletionResponse: MessageFns<WaitForStepCompletionResp
 };
 
 function createBaseWaitForAttributeRequest(): WaitForAttributeRequest {
-  return { flowId: "", runId: "", condition: undefined, waitTimeSeconds: 0, requestId: "" };
+  return { flowId: "", match: undefined, waitTimeSeconds: 0, requestId: "" };
 }
 
 export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
@@ -9510,17 +9521,14 @@ export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
     if (message.flowId !== "") {
       writer.uint32(10).string(message.flowId);
     }
-    if (message.runId !== "") {
-      writer.uint32(18).string(message.runId);
-    }
-    if (message.condition !== undefined) {
-      WaitForAttributeCondition.encode(message.condition, writer.uint32(26).fork()).join();
+    if (message.match !== undefined) {
+      AttributeMatch.encode(message.match, writer.uint32(18).fork()).join();
     }
     if (message.waitTimeSeconds !== 0) {
-      writer.uint32(32).int32(message.waitTimeSeconds);
+      writer.uint32(24).int32(message.waitTimeSeconds);
     }
     if (message.requestId !== "") {
-      writer.uint32(42).string(message.requestId);
+      writer.uint32(34).string(message.requestId);
     }
     return writer;
   },
@@ -9545,27 +9553,19 @@ export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
             break;
           }
 
-          message.runId = reader.string();
+          message.match = AttributeMatch.decode(reader, reader.uint32());
           continue;
         }
         case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.condition = WaitForAttributeCondition.decode(reader, reader.uint32());
-          continue;
-        }
-        case 4: {
-          if (tag !== 32) {
+          if (tag !== 24) {
             break;
           }
 
           message.waitTimeSeconds = reader.int32();
           continue;
         }
-        case 5: {
-          if (tag !== 42) {
+        case 4: {
+          if (tag !== 34) {
             break;
           }
 
@@ -9587,9 +9587,8 @@ export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
   fromPartial<I extends Exact<DeepPartial<WaitForAttributeRequest>, I>>(object: I): WaitForAttributeRequest {
     const message = createBaseWaitForAttributeRequest();
     message.flowId = object.flowId ?? "";
-    message.runId = object.runId ?? "";
-    message.condition = (object.condition !== undefined && object.condition !== null)
-      ? WaitForAttributeCondition.fromPartial(object.condition)
+    message.match = (object.match !== undefined && object.match !== null)
+      ? AttributeMatch.fromPartial(object.match)
       : undefined;
     message.waitTimeSeconds = object.waitTimeSeconds ?? 0;
     message.requestId = object.requestId ?? "";
@@ -9597,24 +9596,22 @@ export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
   },
 };
 
-function createBaseWaitForAttributeCondition(): WaitForAttributeCondition {
-  return { kind: undefined };
+function createBaseWaitForAttributeResponse(): WaitForAttributeResponse {
+  return { matchedValue: undefined };
 }
 
-export const WaitForAttributeCondition: MessageFns<WaitForAttributeCondition> = {
-  encode(message: WaitForAttributeCondition, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    switch (message.kind?.$case) {
-      case "equal":
-        WaitForAttributeEqual.encode(message.kind.value, writer.uint32(10).fork()).join();
-        break;
+export const WaitForAttributeResponse: MessageFns<WaitForAttributeResponse> = {
+  encode(message: WaitForAttributeResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.matchedValue !== undefined) {
+      Value.encode(message.matchedValue, writer.uint32(10).fork()).join();
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): WaitForAttributeCondition {
+  decode(input: BinaryReader | Uint8Array, length?: number): WaitForAttributeResponse {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseWaitForAttributeCondition();
+    const message = createBaseWaitForAttributeResponse();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -9623,7 +9620,7 @@ export const WaitForAttributeCondition: MessageFns<WaitForAttributeCondition> = 
             break;
           }
 
-          message.kind = { $case: "equal", value: WaitForAttributeEqual.decode(reader, reader.uint32()) };
+          message.matchedValue = Value.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -9635,42 +9632,40 @@ export const WaitForAttributeCondition: MessageFns<WaitForAttributeCondition> = 
     return message;
   },
 
-  create<I extends Exact<DeepPartial<WaitForAttributeCondition>, I>>(base?: I): WaitForAttributeCondition {
-    return WaitForAttributeCondition.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<WaitForAttributeResponse>, I>>(base?: I): WaitForAttributeResponse {
+    return WaitForAttributeResponse.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<WaitForAttributeCondition>, I>>(object: I): WaitForAttributeCondition {
-    const message = createBaseWaitForAttributeCondition();
-    switch (object.kind?.$case) {
-      case "equal": {
-        if (object.kind?.value !== undefined && object.kind?.value !== null) {
-          message.kind = { $case: "equal", value: WaitForAttributeEqual.fromPartial(object.kind.value) };
-        }
-        break;
-      }
-    }
+  fromPartial<I extends Exact<DeepPartial<WaitForAttributeResponse>, I>>(object: I): WaitForAttributeResponse {
+    const message = createBaseWaitForAttributeResponse();
+    message.matchedValue = (object.matchedValue !== undefined && object.matchedValue !== null)
+      ? Value.fromPartial(object.matchedValue)
+      : undefined;
     return message;
   },
 };
 
-function createBaseWaitForAttributeEqual(): WaitForAttributeEqual {
-  return { key: "", value: undefined };
+function createBaseAttributeMatch(): AttributeMatch {
+  return { key: "", operator: 0, operand: undefined };
 }
 
-export const WaitForAttributeEqual: MessageFns<WaitForAttributeEqual> = {
-  encode(message: WaitForAttributeEqual, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const AttributeMatch: MessageFns<AttributeMatch> = {
+  encode(message: AttributeMatch, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.key !== "") {
       writer.uint32(10).string(message.key);
     }
-    if (message.value !== undefined) {
-      Value.encode(message.value, writer.uint32(18).fork()).join();
+    if (message.operator !== 0) {
+      writer.uint32(16).int32(message.operator);
+    }
+    if (message.operand !== undefined) {
+      Value.encode(message.operand, writer.uint32(26).fork()).join();
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): WaitForAttributeEqual {
+  decode(input: BinaryReader | Uint8Array, length?: number): AttributeMatch {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseWaitForAttributeEqual();
+    const message = createBaseAttributeMatch();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -9683,11 +9678,19 @@ export const WaitForAttributeEqual: MessageFns<WaitForAttributeEqual> = {
           continue;
         }
         case 2: {
-          if (tag !== 18) {
+          if (tag !== 16) {
             break;
           }
 
-          message.value = Value.decode(reader, reader.uint32());
+          message.operator = reader.int32() as any;
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.operand = Value.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -9699,13 +9702,16 @@ export const WaitForAttributeEqual: MessageFns<WaitForAttributeEqual> = {
     return message;
   },
 
-  create<I extends Exact<DeepPartial<WaitForAttributeEqual>, I>>(base?: I): WaitForAttributeEqual {
-    return WaitForAttributeEqual.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<AttributeMatch>, I>>(base?: I): AttributeMatch {
+    return AttributeMatch.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<WaitForAttributeEqual>, I>>(object: I): WaitForAttributeEqual {
-    const message = createBaseWaitForAttributeEqual();
+  fromPartial<I extends Exact<DeepPartial<AttributeMatch>, I>>(object: I): AttributeMatch {
+    const message = createBaseAttributeMatch();
     message.key = object.key ?? "";
-    message.value = (object.value !== undefined && object.value !== null) ? Value.fromPartial(object.value) : undefined;
+    message.operator = object.operator ?? 0;
+    message.operand = (object.operand !== undefined && object.operand !== null)
+      ? Value.fromPartial(object.operand)
+      : undefined;
     return message;
   },
 };
@@ -17466,8 +17472,9 @@ export const FlowServiceService = {
     requestSerialize: (value: WaitForAttributeRequest): Buffer =>
       Buffer.from(WaitForAttributeRequest.encode(value).finish()),
     requestDeserialize: (value: Buffer): WaitForAttributeRequest => WaitForAttributeRequest.decode(value),
-    responseSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
-    responseDeserialize: (value: Buffer): Empty => Empty.decode(value),
+    responseSerialize: (value: WaitForAttributeResponse): Buffer =>
+      Buffer.from(WaitForAttributeResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): WaitForAttributeResponse => WaitForAttributeResponse.decode(value),
   },
   triggerContinueAsNew: {
     path: "/dex.FlowService/TriggerContinueAsNew" as const,
@@ -17513,7 +17520,7 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   skipTimer: handleUnaryCall<SkipTimerRequest, Empty>;
   updateFlowConfig: handleUnaryCall<UpdateFlowConfigRequest, Empty>;
   waitForStepCompletion: handleUnaryCall<WaitForStepCompletionRequest, WaitForStepCompletionResponse>;
-  waitForAttribute: handleUnaryCall<WaitForAttributeRequest, Empty>;
+  waitForAttribute: handleUnaryCall<WaitForAttributeRequest, WaitForAttributeResponse>;
   triggerContinueAsNew: handleUnaryCall<TriggerContinueAsNewRequest, Empty>;
   healthCheck: handleUnaryCall<Empty, HealthInfo>;
 }
@@ -17848,18 +17855,18 @@ export interface FlowServiceClient extends Client {
   ): ClientUnaryCall;
   waitForAttribute(
     request: WaitForAttributeRequest,
-    callback: (error: ServiceError | null, response: Empty) => void,
+    callback: (error: ServiceError | null, response: WaitForAttributeResponse) => void,
   ): ClientUnaryCall;
   waitForAttribute(
     request: WaitForAttributeRequest,
     metadata: Metadata,
-    callback: (error: ServiceError | null, response: Empty) => void,
+    callback: (error: ServiceError | null, response: WaitForAttributeResponse) => void,
   ): ClientUnaryCall;
   waitForAttribute(
     request: WaitForAttributeRequest,
     metadata: Metadata,
     options: Partial<CallOptions>,
-    callback: (error: ServiceError | null, response: Empty) => void,
+    callback: (error: ServiceError | null, response: WaitForAttributeResponse) => void,
   ): ClientUnaryCall;
   triggerContinueAsNew(
     request: TriggerContinueAsNewRequest,

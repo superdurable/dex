@@ -142,7 +142,7 @@ public enum ErrorSubStatus
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(14);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(15);
   }
 
   private static final ErrorSubStatus[] VALUES = values();

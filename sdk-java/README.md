@@ -379,11 +379,13 @@ Flow ID with `SubFlow.getFlowId(context, index)` before passing it to
 stable list position, not its starting input or options. SubFlows continue when
 their parent closes.
 
-`client.waitForAttributeEqual(...)` overloads cover singleton Attributes and
-AttributeMap instances in the current run. Only String,
-boolean, integer, and floating-point wire values are accepted. Every AttributeMap
-and ChannelMap instance must be nonblank and must not contain `/`. Objects, bytes,
-and null fail locally. `AttributeMap.getMapSize/getAllInstanceKeys` reflect
+`client.waitForAttributeMatch(...)` overloads cover singleton Attributes and
+AttributeMap instances in the current run. Build a match with one of the six
+`AttributeMatch` factories. The method returns the decoded matched value.
+String and boolean support equality operators; integers and floating-point
+values support every operator. Every AttributeMap and ChannelMap instance must
+be nonblank and must not contain `/`. Objects, bytes, null, non-finite doubles,
+and invalid ordering fail locally. `AttributeMap.getMapSize/getAllInstanceKeys` reflect
 buffered sets and deletes. The corresponding `ChannelMap` methods are RPC-only,
 include buffered publishes, and omit empty instances. Returned keys are decoded
 and sorted. Conditional completion is

@@ -521,8 +521,9 @@ var _ func(
 	context.Context,
 	string,
 	dex.AttributeDef,
+	dex.AttributeMatchDef,
 	any,
-) error = (*dex.Client).WaitForAttributeEqual
+) error = (*dex.Client).WaitForAttributeMatch
 
 var _ func(
 	*dex.Client,
@@ -530,8 +531,9 @@ var _ func(
 	string,
 	dex.AttributeDef,
 	string,
+	dex.AttributeMatchDef,
 	any,
-) error = (*dex.Client).WaitForAttributeMapInstanceEqual
+) error = (*dex.Client).WaitForAttributeMapInstanceMatch
 
 var _ func(
 	*dex.Client,

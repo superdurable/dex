@@ -15,6 +15,7 @@ import pytest
 
 from dex import (
     Attribute,
+    AttributeMatch,
     FlowNotActiveError,
     FlowNotFoundError,
     LongPollTimeoutError,
@@ -101,43 +102,76 @@ def test_set_data_attributes() -> None:
         flow_id = unique_id("set-data-attributes")
         environment.client.start_flow(flow, flow_id, "start")
         with pytest.raises(LongPollTimeoutError):
-            environment.client.wait_for_attribute_equal(
-                flow_id, flow.data, "never", timedelta(seconds=1)
+            environment.client.wait_for_attribute_match(
+                flow_id,
+                flow.data,
+                AttributeMatch.equal_to("never"),
+                timedelta(seconds=1),
             )
         with ThreadPoolExecutor(max_workers=1) as executor:
             waiting = executor.submit(
-                environment.client.wait_for_attribute_equal,
+                environment.client.wait_for_attribute_match,
                 flow_id,
                 flow.data,
-                "query-start",
+                AttributeMatch.equal_to("query-start"),
                 WAIT_TIMEOUT,
             )
             environment.client.set_attribute(flow_id, flow.data, "query-start")
-            waiting.result(timeout=WAIT_TIMEOUT.total_seconds())
+            assert waiting.result(timeout=WAIT_TIMEOUT.total_seconds()) == "query-start"
         with ThreadPoolExecutor(max_workers=1) as executor:
             waiting = executor.submit(
-                environment.client.wait_for_attribute_equal,
+                environment.client.wait_for_attribute_match,
                 flow_id,
                 flow.data_map,
                 "one",
-                "mapped-value",
+                AttributeMatch.equal_to("mapped-value"),
                 WAIT_TIMEOUT,
             )
             environment.client.set_attribute(
                 flow_id, flow.data_map, "one", "mapped-value"
             )
-            waiting.result(timeout=WAIT_TIMEOUT.total_seconds())
-        with pytest.raises(ValueError, match="only string, boolean, or number values"):
-            environment.client.wait_for_attribute_equal(
-                flow_id, flow.model, ModelInput(value=8), WAIT_TIMEOUT
+            assert (
+                waiting.result(timeout=WAIT_TIMEOUT.total_seconds()) == "mapped-value"
             )
-        with pytest.raises(ValueError, match="only string, boolean, or number values"):
-            environment.client.wait_for_attribute_equal(
-                flow_id, Attribute("bytes", bytes), b"value", WAIT_TIMEOUT
+        environment.client.set_attribute(flow_id, flow.integer, 3)
+        assert (
+            environment.client.wait_for_attribute_match(
+                flow_id,
+                flow.integer,
+                AttributeMatch.greater_than(0),
+                WAIT_TIMEOUT,
             )
-        with pytest.raises(ValueError, match="only string, boolean, or number values"):
-            environment.client.wait_for_attribute_equal(
-                flow_id, Attribute("null", type(None)), None, WAIT_TIMEOUT
+            == 3
+        )
+        with pytest.raises(
+            ValueError,
+            match="supports only string, boolean, integer, or float operands",
+        ):
+            environment.client.wait_for_attribute_match(
+                flow_id,
+                flow.model,
+                AttributeMatch.equal_to(ModelInput(value=8)),
+                WAIT_TIMEOUT,
+            )
+        with pytest.raises(
+            ValueError,
+            match="supports only string, boolean, integer, or float operands",
+        ):
+            environment.client.wait_for_attribute_match(
+                flow_id,
+                Attribute("bytes", bytes),
+                AttributeMatch.equal_to(b"value"),
+                WAIT_TIMEOUT,
+            )
+        with pytest.raises(
+            ValueError,
+            match="supports only string, boolean, integer, or float operands",
+        ):
+            environment.client.wait_for_attribute_match(
+                flow_id,
+                Attribute("null", type(None)),
+                AttributeMatch.equal_to(None),
+                WAIT_TIMEOUT,
             )
         environment.client.set_attribute(flow_id, flow.model, ModelInput(value=7))
         environment.client.publish(flow_id, flow.proceed, None)

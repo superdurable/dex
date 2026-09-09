@@ -19,6 +19,7 @@ from dex.attribute import (
     AttributeMapLoad,
     IndexType,
 )
+from dex.attribute_match import AttributeMatch
 from dex.blob_cache import BlobCache, BlobCacheConfig, open_blob_cache
 from dex.channel import Channel, ChannelMap, ChannelMapLoad, ChannelMessage
 from dex.client import Client
@@ -122,6 +123,7 @@ __all__ = [
     "AttributeMap",
     "AttributeMapLoad",
     "AttributeMapNotLoadedError",
+    "AttributeMatch",
     "AsyncContext",
     "AsyncClient",
     "AsyncBufferedTextStream",

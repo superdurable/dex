@@ -160,30 +160,36 @@ func TestRPCFlow(t *testing.T) {
 	cancelShortWait()
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	shortWaitCtx, cancelShortWait = context.WithTimeout(ctx, time.Second)
-	err = integClient.WaitForAttributeEqual(
+	var matchedStatus string
+	err = integClient.WaitForAttributeMatch(
 		shortWaitCtx,
 		flowID,
 		rpcFlowStatus,
-		"never",
+		dex.AttributeMatchEqual("never"),
+		&matchedStatus,
 	)
 	cancelShortWait()
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	waitErrors := make(chan error, 2)
 	go func() {
-		waitErrors <- integClient.WaitForAttributeEqual(
+		var matched string
+		waitErrors <- integClient.WaitForAttributeMatch(
 			ctx,
 			flowID,
 			rpcFlowWaitStatus,
-			"ready",
+			dex.AttributeMatchEqual("ready"),
+			&matched,
 		)
 	}()
 	go func() {
-		waitErrors <- integClient.WaitForAttributeMapInstanceEqual(
+		var matched string
+		waitErrors <- integClient.WaitForAttributeMapInstanceMatch(
 			ctx,
 			flowID,
 			rpcFlowWaitMap,
 			"special % key",
-			"mapped",
+			dex.AttributeMatchEqual("mapped"),
+			&matched,
 		)
 	}()
 	var noOutput dex.None
@@ -197,24 +203,30 @@ func TestRPCFlow(t *testing.T) {
 	))
 	require.NoError(t, <-waitErrors)
 	require.NoError(t, <-waitErrors)
-	require.ErrorContains(t, integClient.WaitForAttributeEqual(
+	var matchedBytes []byte
+	require.ErrorContains(t, integClient.WaitForAttributeMatch(
 		ctx,
 		flowID,
 		rpcFlowBytes,
-		[]byte("value"),
-	), "only string, boolean, or number values")
-	require.ErrorContains(t, integClient.WaitForAttributeEqual(
+		dex.AttributeMatchEqual([]byte("value")),
+		&matchedBytes,
+	), "supports only string, boolean, integer, or float64 operands")
+	var matchedNull any
+	require.ErrorContains(t, integClient.WaitForAttributeMatch(
 		ctx,
 		flowID,
 		rpcFlowNull,
-		nil,
-	), "only string, boolean, or number values")
-	require.ErrorContains(t, integClient.WaitForAttributeEqual(
+		dex.AttributeMatchEqual[any](nil),
+		&matchedNull,
+	), "supports only string, boolean, integer, or float64 operands")
+	var matchedModel persistenceModel
+	require.ErrorContains(t, integClient.WaitForAttributeMatch(
 		ctx,
 		flowID,
 		persistenceData,
-		persistenceModel{},
-	), "only string, boolean, or number values")
+		dex.AttributeMatchEqual(persistenceModel{}),
+		&matchedModel,
+	), "supports only string, boolean, integer, or float64 operands")
 
 	var failedOutput int
 	err = integClient.InvokeRPC(

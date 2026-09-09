@@ -420,19 +420,16 @@ always-on, no version gate:
 
 **`WaitForAttribute` (sync update, Temporal-only):**
 - If backend is Cadence → `codes.Unimplemented`.
-- Require a condition, a non-empty key, and an explicitly present `Value`. A
-  missing value is invalid; explicit `null_value` means missing/absent.
+- Require a match, a non-empty key, a valid operator, and a scalar operand.
 - Reject negative `wait_time_seconds`; zero performs one immediate comparison, and
   a positive value is capped by `Api.MaxWaitSeconds`.
 - Else `SynchronousUpdateWorkflow(..., service.WaitForAttributeUpdateType,
-  {condition, deadline})`. The handler awaits until `WaitForAttributeEqual` matches
-  an inline typed `Value` or workflow time passes the captured deadline. It uses
-  common `Await`/`Now` and creates no durable timeout timer, so timeout alone need
-  not wake an idle workflow. Missing and `null_value` are equivalent. Compare
-  `obj_value` by exact `encoding` + serialized `payload` bytes; the server does not
-  deserialize objects for semantic equality. A stored internal blob-id arm returns
-  `FailedPrecondition`; the first implementation does not hydrate during this
-  update. Match → `Empty`; timeout → `DeadlineExceeded`.
+  {match, deadline})`. The handler awaits until the typed match succeeds or
+  workflow time passes the captured deadline. It uses common `Await`/`Now` and
+  creates no durable timeout timer, so timeout alone need not wake an idle
+  workflow. Missing Attributes never match. A stored internal blob-id arm returns
+  `FailedPrecondition`. Match returns the current value from the same update;
+  timeout returns `DeadlineExceeded`.
 - TODO: design deterministic blob hydration without introducing a lost-update
   window around the activity yield.
 - The client waits on the caller context (`handle.Get(ctx, ...)`), never

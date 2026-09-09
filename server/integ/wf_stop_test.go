@@ -186,7 +186,7 @@ func doTestInvokeRPCTerminalValidation(t *testing.T, stopType dexpb.StopType) {
 	go func() {
 		_, waitErr := runtime.FlowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 			FlowId: flowID,
-			Condition: waitForAttributeEqualCondition(
+			Match: equalAttributeMatch(
 				terminalRPCReleaseAttribute,
 				stringValue("release"),
 			),

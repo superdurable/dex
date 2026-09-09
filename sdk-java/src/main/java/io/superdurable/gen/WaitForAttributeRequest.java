@@ -29,7 +29,6 @@ private static final long serialVersionUID = 0L;
   }
   private WaitForAttributeRequest() {
     flowId_ = "";
-    runId_ = "";
     requestId_ = "";
   }
 
@@ -91,79 +90,40 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int RUN_ID_FIELD_NUMBER = 2;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object runId_ = "";
+  public static final int MATCH_FIELD_NUMBER = 2;
+  private io.superdurable.gen.AttributeMatch match_;
   /**
-   * <code>string run_id = 2;</code>
-   * @return The runId.
+   * <code>.dex.AttributeMatch match = 2;</code>
+   * @return Whether the match field is set.
    */
   @java.lang.Override
-  public java.lang.String getRunId() {
-    java.lang.Object ref = runId_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      runId_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string run_id = 2;</code>
-   * @return The bytes for runId.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getRunIdBytes() {
-    java.lang.Object ref = runId_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      runId_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int CONDITION_FIELD_NUMBER = 3;
-  private io.superdurable.gen.WaitForAttributeCondition condition_;
-  /**
-   * <code>.dex.WaitForAttributeCondition condition = 3;</code>
-   * @return Whether the condition field is set.
-   */
-  @java.lang.Override
-  public boolean hasCondition() {
+  public boolean hasMatch() {
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.WaitForAttributeCondition condition = 3;</code>
-   * @return The condition.
+   * <code>.dex.AttributeMatch match = 2;</code>
+   * @return The match.
    */
   @java.lang.Override
-  public io.superdurable.gen.WaitForAttributeCondition getCondition() {
-    return condition_ == null ? io.superdurable.gen.WaitForAttributeCondition.getDefaultInstance() : condition_;
+  public io.superdurable.gen.AttributeMatch getMatch() {
+    return match_ == null ? io.superdurable.gen.AttributeMatch.getDefaultInstance() : match_;
   }
   /**
-   * <code>.dex.WaitForAttributeCondition condition = 3;</code>
+   * <code>.dex.AttributeMatch match = 2;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.WaitForAttributeConditionOrBuilder getConditionOrBuilder() {
-    return condition_ == null ? io.superdurable.gen.WaitForAttributeCondition.getDefaultInstance() : condition_;
+  public io.superdurable.gen.AttributeMatchOrBuilder getMatchOrBuilder() {
+    return match_ == null ? io.superdurable.gen.AttributeMatch.getDefaultInstance() : match_;
   }
 
-  public static final int WAIT_TIME_SECONDS_FIELD_NUMBER = 4;
+  public static final int WAIT_TIME_SECONDS_FIELD_NUMBER = 3;
   private int waitTimeSeconds_ = 0;
   /**
    * <pre>
    * Zero/omit checks once; positive waits until match or timeout.
    * </pre>
    *
-   * <code>int32 wait_time_seconds = 4;</code>
+   * <code>int32 wait_time_seconds = 3;</code>
    * @return The waitTimeSeconds.
    */
   @java.lang.Override
@@ -171,7 +131,7 @@ private static final long serialVersionUID = 0L;
     return waitTimeSeconds_;
   }
 
-  public static final int REQUEST_ID_FIELD_NUMBER = 5;
+  public static final int REQUEST_ID_FIELD_NUMBER = 4;
   @SuppressWarnings("serial")
   private volatile java.lang.Object requestId_ = "";
   /**
@@ -179,7 +139,7 @@ private static final long serialVersionUID = 0L;
    * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
    * </pre>
    *
-   * <code>string request_id = 5;</code>
+   * <code>string request_id = 4;</code>
    * @return The requestId.
    */
   @java.lang.Override
@@ -200,7 +160,7 @@ private static final long serialVersionUID = 0L;
    * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
    * </pre>
    *
-   * <code>string request_id = 5;</code>
+   * <code>string request_id = 4;</code>
    * @return The bytes for requestId.
    */
   @java.lang.Override
@@ -235,17 +195,14 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 1, flowId_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(runId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 2, runId_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(3, getCondition());
+      output.writeMessage(2, getMatch());
     }
     if (waitTimeSeconds_ != 0) {
-      output.writeInt32(4, waitTimeSeconds_);
+      output.writeInt32(3, waitTimeSeconds_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 5, requestId_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 4, requestId_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -254,19 +211,16 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(1, flowId_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(runId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, runId_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(3, getCondition());
+        .computeMessageSize(2, getMatch());
     }
     if (waitTimeSeconds_ != 0) {
       size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(4, waitTimeSeconds_);
+        .computeInt32Size(3, waitTimeSeconds_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(5, requestId_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(4, requestId_);
     }
     return size;
   }
@@ -294,12 +248,10 @@ private static final long serialVersionUID = 0L;
 
     if (!getFlowId()
         .equals(other.getFlowId())) return false;
-    if (!getRunId()
-        .equals(other.getRunId())) return false;
-    if (hasCondition() != other.hasCondition()) return false;
-    if (hasCondition()) {
-      if (!getCondition()
-          .equals(other.getCondition())) return false;
+    if (hasMatch() != other.hasMatch()) return false;
+    if (hasMatch()) {
+      if (!getMatch()
+          .equals(other.getMatch())) return false;
     }
     if (getWaitTimeSeconds()
         != other.getWaitTimeSeconds()) return false;
@@ -318,11 +270,9 @@ private static final long serialVersionUID = 0L;
     hash = (19 * hash) + getDescriptor().hashCode();
     hash = (37 * hash) + FLOW_ID_FIELD_NUMBER;
     hash = (53 * hash) + getFlowId().hashCode();
-    hash = (37 * hash) + RUN_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getRunId().hashCode();
-    if (hasCondition()) {
-      hash = (37 * hash) + CONDITION_FIELD_NUMBER;
-      hash = (53 * hash) + getCondition().hashCode();
+    if (hasMatch()) {
+      hash = (37 * hash) + MATCH_FIELD_NUMBER;
+      hash = (53 * hash) + getMatch().hashCode();
     }
     hash = (37 * hash) + WAIT_TIME_SECONDS_FIELD_NUMBER;
     hash = (53 * hash) + getWaitTimeSeconds();
@@ -458,7 +408,7 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetConditionFieldBuilder();
+        internalGetMatchFieldBuilder();
       }
     }
     @java.lang.Override
@@ -466,11 +416,10 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       flowId_ = "";
-      runId_ = "";
-      condition_ = null;
-      if (conditionBuilder_ != null) {
-        conditionBuilder_.dispose();
-        conditionBuilder_ = null;
+      match_ = null;
+      if (matchBuilder_ != null) {
+        matchBuilder_.dispose();
+        matchBuilder_ = null;
       }
       waitTimeSeconds_ = 0;
       requestId_ = "";
@@ -510,20 +459,17 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.flowId_ = flowId_;
       }
-      if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.runId_ = runId_;
-      }
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000004) != 0)) {
-        result.condition_ = conditionBuilder_ == null
-            ? condition_
-            : conditionBuilder_.build();
+      if (((from_bitField0_ & 0x00000002) != 0)) {
+        result.match_ = matchBuilder_ == null
+            ? match_
+            : matchBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
-      if (((from_bitField0_ & 0x00000008) != 0)) {
+      if (((from_bitField0_ & 0x00000004) != 0)) {
         result.waitTimeSeconds_ = waitTimeSeconds_;
       }
-      if (((from_bitField0_ & 0x00000010) != 0)) {
+      if (((from_bitField0_ & 0x00000008) != 0)) {
         result.requestId_ = requestId_;
       }
       result.bitField0_ |= to_bitField0_;
@@ -546,20 +492,15 @@ private static final long serialVersionUID = 0L;
         bitField0_ |= 0x00000001;
         onChanged();
       }
-      if (!other.getRunId().isEmpty()) {
-        runId_ = other.runId_;
-        bitField0_ |= 0x00000002;
-        onChanged();
-      }
-      if (other.hasCondition()) {
-        mergeCondition(other.getCondition());
+      if (other.hasMatch()) {
+        mergeMatch(other.getMatch());
       }
       if (other.getWaitTimeSeconds() != 0) {
         setWaitTimeSeconds(other.getWaitTimeSeconds());
       }
       if (!other.getRequestId().isEmpty()) {
         requestId_ = other.requestId_;
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000008;
         onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
@@ -594,27 +535,22 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 10
             case 18: {
-              runId_ = input.readStringRequireUtf8();
+              input.readMessage(
+                  internalGetMatchFieldBuilder().getBuilder(),
+                  extensionRegistry);
               bitField0_ |= 0x00000002;
               break;
             } // case 18
-            case 26: {
-              input.readMessage(
-                  internalGetConditionFieldBuilder().getBuilder(),
-                  extensionRegistry);
+            case 24: {
+              waitTimeSeconds_ = input.readInt32();
               bitField0_ |= 0x00000004;
               break;
-            } // case 26
-            case 32: {
-              waitTimeSeconds_ = input.readInt32();
+            } // case 24
+            case 34: {
+              requestId_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000008;
               break;
-            } // case 32
-            case 42: {
-              requestId_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000010;
-              break;
-            } // case 42
+            } // case 34
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -704,197 +640,125 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private java.lang.Object runId_ = "";
-    /**
-     * <code>string run_id = 2;</code>
-     * @return The runId.
-     */
-    public java.lang.String getRunId() {
-      java.lang.Object ref = runId_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        runId_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string run_id = 2;</code>
-     * @return The bytes for runId.
-     */
-    public com.google.protobuf.ByteString
-        getRunIdBytes() {
-      java.lang.Object ref = runId_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        runId_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string run_id = 2;</code>
-     * @param value The runId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRunId(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      runId_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string run_id = 2;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearRunId() {
-      runId_ = getDefaultInstance().getRunId();
-      bitField0_ = (bitField0_ & ~0x00000002);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string run_id = 2;</code>
-     * @param value The bytes for runId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRunIdBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      runId_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-
-    private io.superdurable.gen.WaitForAttributeCondition condition_;
+    private io.superdurable.gen.AttributeMatch match_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WaitForAttributeCondition, io.superdurable.gen.WaitForAttributeCondition.Builder, io.superdurable.gen.WaitForAttributeConditionOrBuilder> conditionBuilder_;
+        io.superdurable.gen.AttributeMatch, io.superdurable.gen.AttributeMatch.Builder, io.superdurable.gen.AttributeMatchOrBuilder> matchBuilder_;
     /**
-     * <code>.dex.WaitForAttributeCondition condition = 3;</code>
-     * @return Whether the condition field is set.
+     * <code>.dex.AttributeMatch match = 2;</code>
+     * @return Whether the match field is set.
      */
-    public boolean hasCondition() {
-      return ((bitField0_ & 0x00000004) != 0);
+    public boolean hasMatch() {
+      return ((bitField0_ & 0x00000002) != 0);
     }
     /**
-     * <code>.dex.WaitForAttributeCondition condition = 3;</code>
-     * @return The condition.
+     * <code>.dex.AttributeMatch match = 2;</code>
+     * @return The match.
      */
-    public io.superdurable.gen.WaitForAttributeCondition getCondition() {
-      if (conditionBuilder_ == null) {
-        return condition_ == null ? io.superdurable.gen.WaitForAttributeCondition.getDefaultInstance() : condition_;
+    public io.superdurable.gen.AttributeMatch getMatch() {
+      if (matchBuilder_ == null) {
+        return match_ == null ? io.superdurable.gen.AttributeMatch.getDefaultInstance() : match_;
       } else {
-        return conditionBuilder_.getMessage();
+        return matchBuilder_.getMessage();
       }
     }
     /**
-     * <code>.dex.WaitForAttributeCondition condition = 3;</code>
+     * <code>.dex.AttributeMatch match = 2;</code>
      */
-    public Builder setCondition(io.superdurable.gen.WaitForAttributeCondition value) {
-      if (conditionBuilder_ == null) {
+    public Builder setMatch(io.superdurable.gen.AttributeMatch value) {
+      if (matchBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        condition_ = value;
+        match_ = value;
       } else {
-        conditionBuilder_.setMessage(value);
+        matchBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.WaitForAttributeCondition condition = 3;</code>
+     * <code>.dex.AttributeMatch match = 2;</code>
      */
-    public Builder setCondition(
-        io.superdurable.gen.WaitForAttributeCondition.Builder builderForValue) {
-      if (conditionBuilder_ == null) {
-        condition_ = builderForValue.build();
+    public Builder setMatch(
+        io.superdurable.gen.AttributeMatch.Builder builderForValue) {
+      if (matchBuilder_ == null) {
+        match_ = builderForValue.build();
       } else {
-        conditionBuilder_.setMessage(builderForValue.build());
+        matchBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.WaitForAttributeCondition condition = 3;</code>
+     * <code>.dex.AttributeMatch match = 2;</code>
      */
-    public Builder mergeCondition(io.superdurable.gen.WaitForAttributeCondition value) {
-      if (conditionBuilder_ == null) {
-        if (((bitField0_ & 0x00000004) != 0) &&
-          condition_ != null &&
-          condition_ != io.superdurable.gen.WaitForAttributeCondition.getDefaultInstance()) {
-          getConditionBuilder().mergeFrom(value);
+    public Builder mergeMatch(io.superdurable.gen.AttributeMatch value) {
+      if (matchBuilder_ == null) {
+        if (((bitField0_ & 0x00000002) != 0) &&
+          match_ != null &&
+          match_ != io.superdurable.gen.AttributeMatch.getDefaultInstance()) {
+          getMatchBuilder().mergeFrom(value);
         } else {
-          condition_ = value;
+          match_ = value;
         }
       } else {
-        conditionBuilder_.mergeFrom(value);
+        matchBuilder_.mergeFrom(value);
       }
-      if (condition_ != null) {
-        bitField0_ |= 0x00000004;
+      if (match_ != null) {
+        bitField0_ |= 0x00000002;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.WaitForAttributeCondition condition = 3;</code>
+     * <code>.dex.AttributeMatch match = 2;</code>
      */
-    public Builder clearCondition() {
-      bitField0_ = (bitField0_ & ~0x00000004);
-      condition_ = null;
-      if (conditionBuilder_ != null) {
-        conditionBuilder_.dispose();
-        conditionBuilder_ = null;
+    public Builder clearMatch() {
+      bitField0_ = (bitField0_ & ~0x00000002);
+      match_ = null;
+      if (matchBuilder_ != null) {
+        matchBuilder_.dispose();
+        matchBuilder_ = null;
       }
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.WaitForAttributeCondition condition = 3;</code>
+     * <code>.dex.AttributeMatch match = 2;</code>
      */
-    public io.superdurable.gen.WaitForAttributeCondition.Builder getConditionBuilder() {
-      bitField0_ |= 0x00000004;
+    public io.superdurable.gen.AttributeMatch.Builder getMatchBuilder() {
+      bitField0_ |= 0x00000002;
       onChanged();
-      return internalGetConditionFieldBuilder().getBuilder();
+      return internalGetMatchFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.WaitForAttributeCondition condition = 3;</code>
+     * <code>.dex.AttributeMatch match = 2;</code>
      */
-    public io.superdurable.gen.WaitForAttributeConditionOrBuilder getConditionOrBuilder() {
-      if (conditionBuilder_ != null) {
-        return conditionBuilder_.getMessageOrBuilder();
+    public io.superdurable.gen.AttributeMatchOrBuilder getMatchOrBuilder() {
+      if (matchBuilder_ != null) {
+        return matchBuilder_.getMessageOrBuilder();
       } else {
-        return condition_ == null ?
-            io.superdurable.gen.WaitForAttributeCondition.getDefaultInstance() : condition_;
+        return match_ == null ?
+            io.superdurable.gen.AttributeMatch.getDefaultInstance() : match_;
       }
     }
     /**
-     * <code>.dex.WaitForAttributeCondition condition = 3;</code>
+     * <code>.dex.AttributeMatch match = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WaitForAttributeCondition, io.superdurable.gen.WaitForAttributeCondition.Builder, io.superdurable.gen.WaitForAttributeConditionOrBuilder> 
-        internalGetConditionFieldBuilder() {
-      if (conditionBuilder_ == null) {
-        conditionBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.WaitForAttributeCondition, io.superdurable.gen.WaitForAttributeCondition.Builder, io.superdurable.gen.WaitForAttributeConditionOrBuilder>(
-                getCondition(),
+        io.superdurable.gen.AttributeMatch, io.superdurable.gen.AttributeMatch.Builder, io.superdurable.gen.AttributeMatchOrBuilder> 
+        internalGetMatchFieldBuilder() {
+      if (matchBuilder_ == null) {
+        matchBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.AttributeMatch, io.superdurable.gen.AttributeMatch.Builder, io.superdurable.gen.AttributeMatchOrBuilder>(
+                getMatch(),
                 getParentForChildren(),
                 isClean());
-        condition_ = null;
+        match_ = null;
       }
-      return conditionBuilder_;
+      return matchBuilder_;
     }
 
     private int waitTimeSeconds_ ;
@@ -903,7 +767,7 @@ private static final long serialVersionUID = 0L;
      * Zero/omit checks once; positive waits until match or timeout.
      * </pre>
      *
-     * <code>int32 wait_time_seconds = 4;</code>
+     * <code>int32 wait_time_seconds = 3;</code>
      * @return The waitTimeSeconds.
      */
     @java.lang.Override
@@ -915,14 +779,14 @@ private static final long serialVersionUID = 0L;
      * Zero/omit checks once; positive waits until match or timeout.
      * </pre>
      *
-     * <code>int32 wait_time_seconds = 4;</code>
+     * <code>int32 wait_time_seconds = 3;</code>
      * @param value The waitTimeSeconds to set.
      * @return This builder for chaining.
      */
     public Builder setWaitTimeSeconds(int value) {
 
       waitTimeSeconds_ = value;
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
@@ -931,11 +795,11 @@ private static final long serialVersionUID = 0L;
      * Zero/omit checks once; positive waits until match or timeout.
      * </pre>
      *
-     * <code>int32 wait_time_seconds = 4;</code>
+     * <code>int32 wait_time_seconds = 3;</code>
      * @return This builder for chaining.
      */
     public Builder clearWaitTimeSeconds() {
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000004);
       waitTimeSeconds_ = 0;
       onChanged();
       return this;
@@ -947,7 +811,7 @@ private static final long serialVersionUID = 0L;
      * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
      * </pre>
      *
-     * <code>string request_id = 5;</code>
+     * <code>string request_id = 4;</code>
      * @return The requestId.
      */
     public java.lang.String getRequestId() {
@@ -967,7 +831,7 @@ private static final long serialVersionUID = 0L;
      * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
      * </pre>
      *
-     * <code>string request_id = 5;</code>
+     * <code>string request_id = 4;</code>
      * @return The bytes for requestId.
      */
     public com.google.protobuf.ByteString
@@ -988,7 +852,7 @@ private static final long serialVersionUID = 0L;
      * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
      * </pre>
      *
-     * <code>string request_id = 5;</code>
+     * <code>string request_id = 4;</code>
      * @param value The requestId to set.
      * @return This builder for chaining.
      */
@@ -996,7 +860,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       requestId_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
@@ -1005,12 +869,12 @@ private static final long serialVersionUID = 0L;
      * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
      * </pre>
      *
-     * <code>string request_id = 5;</code>
+     * <code>string request_id = 4;</code>
      * @return This builder for chaining.
      */
     public Builder clearRequestId() {
       requestId_ = getDefaultInstance().getRequestId();
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000008);
       onChanged();
       return this;
     }
@@ -1019,7 +883,7 @@ private static final long serialVersionUID = 0L;
      * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
      * </pre>
      *
-     * <code>string request_id = 5;</code>
+     * <code>string request_id = 4;</code>
      * @param value The bytes for requestId to set.
      * @return This builder for chaining.
      */
@@ -1028,7 +892,7 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       requestId_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }

@@ -10,7 +10,7 @@
 
 from datetime import datetime, timedelta
 
-from dex import Client, StartFlowOptions
+from dex import AttributeMatch, Client, StartFlowOptions
 
 from .basic_persistence_flow import BasicPersistenceFlow
 from .set_attributes_flow import SetAttributesFlow
@@ -43,11 +43,18 @@ def compile_persistence_writes(client: Client) -> None:
     client.set_attribute("set-attributes", flow.integer, 1)
     client.set_attribute("set-attributes", flow.bool, True)
     client.set_attribute("set-attributes", flow.keywords, ("one", "two"))
-    client.wait_for_attribute_equal(
-        "set-attributes", flow.data, "value", timedelta(seconds=30)
+    matched_data: str = client.wait_for_attribute_match(
+        "set-attributes",
+        flow.data,
+        AttributeMatch.equal_to("value"),
+        timedelta(seconds=30),
     )
-    client.wait_for_attribute_equal(
-        "set-attributes", flow.data_map, "one", "value", timedelta(seconds=30)
+    matched_map: str = client.wait_for_attribute_match(
+        "set-attributes",
+        flow.data_map,
+        "one",
+        AttributeMatch.equal_to("value"),
+        timedelta(seconds=30),
     )
     output: str = client.wait_for_flow("set-attributes").single_output(str)
-    del output
+    del matched_data, matched_map, output

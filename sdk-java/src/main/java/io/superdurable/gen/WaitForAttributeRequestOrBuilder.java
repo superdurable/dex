@@ -23,38 +23,26 @@ public interface WaitForAttributeRequestOrBuilder extends
       getFlowIdBytes();
 
   /**
-   * <code>string run_id = 2;</code>
-   * @return The runId.
+   * <code>.dex.AttributeMatch match = 2;</code>
+   * @return Whether the match field is set.
    */
-  java.lang.String getRunId();
+  boolean hasMatch();
   /**
-   * <code>string run_id = 2;</code>
-   * @return The bytes for runId.
+   * <code>.dex.AttributeMatch match = 2;</code>
+   * @return The match.
    */
-  com.google.protobuf.ByteString
-      getRunIdBytes();
-
+  io.superdurable.gen.AttributeMatch getMatch();
   /**
-   * <code>.dex.WaitForAttributeCondition condition = 3;</code>
-   * @return Whether the condition field is set.
+   * <code>.dex.AttributeMatch match = 2;</code>
    */
-  boolean hasCondition();
-  /**
-   * <code>.dex.WaitForAttributeCondition condition = 3;</code>
-   * @return The condition.
-   */
-  io.superdurable.gen.WaitForAttributeCondition getCondition();
-  /**
-   * <code>.dex.WaitForAttributeCondition condition = 3;</code>
-   */
-  io.superdurable.gen.WaitForAttributeConditionOrBuilder getConditionOrBuilder();
+  io.superdurable.gen.AttributeMatchOrBuilder getMatchOrBuilder();
 
   /**
    * <pre>
    * Zero/omit checks once; positive waits until match or timeout.
    * </pre>
    *
-   * <code>int32 wait_time_seconds = 4;</code>
+   * <code>int32 wait_time_seconds = 3;</code>
    * @return The waitTimeSeconds.
    */
   int getWaitTimeSeconds();
@@ -64,7 +52,7 @@ public interface WaitForAttributeRequestOrBuilder extends
    * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
    * </pre>
    *
-   * <code>string request_id = 5;</code>
+   * <code>string request_id = 4;</code>
    * @return The requestId.
    */
   java.lang.String getRequestId();
@@ -73,7 +61,7 @@ public interface WaitForAttributeRequestOrBuilder extends
    * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
    * </pre>
    *
-   * <code>string request_id = 5;</code>
+   * <code>string request_id = 4;</code>
    * @return The bytes for requestId.
    */
   com.google.protobuf.ByteString

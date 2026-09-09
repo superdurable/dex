@@ -210,9 +210,11 @@ Do not add Condition IDs merely because a Condition is nested in one of these
 waits. Every Condition in `Wait.anyCombinationOf` needs a non-empty user ID;
 the same Condition object may be reused across combinations.
 
-`Client.waitForAttributeEqual` overloads target the current
-run and accept only string, boolean, integer, or double wire values. JSON,
-bytes, and null reject before transport. Every AttributeMap and ChannelMap
+`Client.waitForAttributeMatch` overloads target the current run and return the
+decoded matched value. Build a match with one of the six `AttributeMatch`
+factories. String and boolean support equality operators; integer and double
+support every operator. JSON, bytes, null, non-finite doubles, and invalid
+ordering reject before transport. Every AttributeMap and ChannelMap
 instance must be non-empty and must not contain `/`. `AttributeMap.getMapSize`
 and `getAllInstanceKeys` include buffered sets and deletes. The matching
 `ChannelMap` methods are RPC-only, include buffered publishes, and omit empty

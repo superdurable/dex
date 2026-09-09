@@ -92,10 +92,12 @@ Condition; a cloned Condition retains its identity and may be reused across
 combinations.
 
 Client-side map reads and writes use `get_attribute_map_instance` and
-`set_attribute_map_instance`. `Client::wait_for_attribute_equal` and
-`Client::wait_for_attribute_map_instance_equal` target the current run and
-accept only string, bool, integer, or double wire values. JSON, bytes, and null
-return a local `InvalidArgument`. Every AttributeMap and ChannelMap instance must
+`set_attribute_map_instance`. `Client::wait_for_attribute_match` and
+`Client::wait_for_attribute_map_instance_match` target the current run and
+return the decoded matched value. Build a match with one of the six
+`AttributeMatch` factories. String and bool support equality operators; integer
+and double support every operator. JSON, bytes, null, non-finite doubles, and
+invalid ordering return a local `InvalidArgument`. Every AttributeMap and ChannelMap instance must
 be non-empty and must not contain `/`. `AttributeMap::map_size/all_instance_keys` include
 buffered sets and deletes. The matching `ChannelMap` methods are RPC-only,
 include buffered publishes, and omit empty instances. Keys are decoded and

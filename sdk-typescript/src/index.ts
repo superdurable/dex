@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 export * from "./blob-cache.js";
+export * from "./attribute-match.js";
 export * from "./client.js";
 export * from "./codec.js";
 export * from "./context.js";

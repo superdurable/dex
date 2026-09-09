@@ -22,6 +22,8 @@ use serde::Deserialize;
 use serde_json::json;
 use std::time::Duration;
 
+use dex_sdk::AttributeMatch;
+
 use crate::products::engagement::flow::{
     EMPLOYER_ID, ENGAGEMENT_ACCEPT, ENGAGEMENT_DECLINE, ENGAGEMENT_DESCRIBE, ENGAGEMENT_OPT_OUT,
     EngagementFlow, EngagementRequest,
@@ -65,10 +67,10 @@ async fn start(State(client): State<SharedClient>) -> impl IntoResponse {
         };
         let employer_id = input.employer_id.clone();
         let run_id = client.start_flow(&flow, &flow_id, input)?;
-        client.wait_for_attribute_equal(
+        client.wait_for_attribute_match(
             &flow_id,
             &EMPLOYER_ID,
-            employer_id,
+            AttributeMatch::equal_to(employer_id),
             Duration::from_secs(15),
         )?;
         Ok(StartResponse { flow_id, run_id })

@@ -13,6 +13,7 @@ import test from "node:test";
 import { status } from "@grpc/grpc-js";
 
 import {
+  AttributeMatch,
   RpcLockConflictError,
   StopType,
   WorkerInvocationError,
@@ -44,6 +45,15 @@ test("locking RPC serializes concurrent increments", async () => {
     );
     const succeeded = outcomes.filter(Boolean).length;
     assert.ok(succeeded > 0);
+    assert.equal(
+      await client.waitForAttributeMatch(
+        id,
+        flow.counter,
+        AttributeMatch.greaterThan(0),
+        30_000,
+      ),
+      succeeded,
+    );
     assert.equal(await client.invokeRPC(flow.getCounter, id), succeeded);
     await client.stopFlow(id);
   });

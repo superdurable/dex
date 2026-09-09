@@ -12,6 +12,7 @@ package integ
 
 import (
 	"context"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -25,6 +26,7 @@ import (
 	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -48,6 +50,8 @@ func TestWaitForAttributeTemporal(t *testing.T) {
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestWaitForAttributeSuccess(t)
+		smallWaitForFastTest()
+		doTestWaitForAttributeOperators(t)
 		smallWaitForFastTest()
 		doTestWaitForAttributeTimeout(t)
 		smallWaitForFastTest()
@@ -117,7 +121,7 @@ func doTestWaitForAttributeBlobBacked(t *testing.T) {
 
 	_, err = flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
-		Condition: waitForAttributeEqualCondition(
+		Match: equalAttributeMatch(
 			waitForAttributeBlobKey,
 			stringValue("anything"),
 		),
@@ -155,7 +159,7 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 
 	_, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
-		Condition: waitForAttributeEqualCondition(
+		Match: equalAttributeMatch(
 			waitForAttributeKey,
 			expectedValue,
 		),
@@ -173,9 +177,9 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+	response, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
-		Condition: waitForAttributeEqualCondition(
+		Match: equalAttributeMatch(
 			waitForAttributeKey,
 			expectedValue,
 		),
@@ -183,6 +187,128 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 		RequestId:       uuid.NewString(),
 	})
 	require.NoError(t, err)
+	require.True(t, proto.Equal(expectedValue, response.GetMatchedValue()))
+
+	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
+}
+
+func doTestWaitForAttributeOperators(t *testing.T) {
+	workerTarget := startWorker(t, signal.NewHandler())
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
+	valuesByKey := map[string]*dexpb.Value{
+		"match-string":    stringValue("ready"),
+		"match-bool":      boolValue(true),
+		"match-int":       intValue(3),
+		"match-double":    doubleValue(3.5),
+		"match-object":    jsonObjValue(map[string]string{"state": "ready"}),
+		"match-nonfinite": doubleValue(math.Inf(1)),
+	}
+	writes := make([]*dexpb.AttributeWrite, 0, len(valuesByKey))
+	for key, value := range valuesByKey {
+		writes = append(writes, &dexpb.AttributeWrite{Key: key, Value: value})
+	}
+	_, err := flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId:  newRequestID(),
+		FlowId:     flowId,
+		Attributes: writes,
+	})
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name     string
+		key      string
+		operator dexpb.AttributeMatchOperator
+		operand  *dexpb.Value
+	}{
+		{name: "string equal", key: "match-string", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL, operand: stringValue("ready")},
+		{name: "string not equal", key: "match-string", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL, operand: stringValue("pending")},
+		{name: "bool equal", key: "match-bool", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL, operand: boolValue(true)},
+		{name: "bool not equal", key: "match-bool", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL, operand: boolValue(false)},
+		{name: "int equal", key: "match-int", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL, operand: intValue(3)},
+		{name: "int not equal", key: "match-int", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL, operand: intValue(2)},
+		{name: "int greater", key: "match-int", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN, operand: intValue(0)},
+		{name: "int greater equal", key: "match-int", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL, operand: intValue(3)},
+		{name: "int less", key: "match-int", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_LESS_THAN, operand: intValue(4)},
+		{name: "int less equal", key: "match-int", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL, operand: intValue(3)},
+		{name: "double equal", key: "match-double", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL, operand: doubleValue(3.5)},
+		{name: "double not equal", key: "match-double", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL, operand: doubleValue(2.5)},
+		{name: "double greater", key: "match-double", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN, operand: doubleValue(3.0)},
+		{name: "double greater equal", key: "match-double", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL, operand: doubleValue(3.5)},
+		{name: "double less", key: "match-double", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_LESS_THAN, operand: doubleValue(4.0)},
+		{name: "double less equal", key: "match-double", operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL, operand: doubleValue(3.5)},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			response, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+				FlowId:          flowId,
+				Match:           waitForAttributeMatch(testCase.key, testCase.operator, testCase.operand),
+				WaitTimeSeconds: 0,
+				RequestId:       uuid.NewString(),
+			})
+			require.NoError(t, waitErr)
+			require.True(t, proto.Equal(valuesByKey[testCase.key], response.GetMatchedValue()))
+		})
+	}
+
+	invalidMatches := []struct {
+		name  string
+		match *dexpb.AttributeMatch
+	}{
+		{name: "unspecified", match: waitForAttributeMatch("match-int", dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED, intValue(0))},
+		{name: "string ordering", match: waitForAttributeMatch("match-string", dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN, stringValue("a"))},
+		{name: "object", match: equalAttributeMatch("match-string", &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{Encoding: "json", Payload: []byte("{}")}}})},
+		{name: "null", match: equalAttributeMatch("match-string", &dexpb.Value{Kind: &dexpb.Value_NullValue{}})},
+		{name: "non-finite", match: equalAttributeMatch("match-double", doubleValue(math.Inf(1)))},
+	}
+	for _, testCase := range invalidMatches {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+				FlowId:          flowId,
+				Match:           testCase.match,
+				WaitTimeSeconds: 0,
+				RequestId:       uuid.NewString(),
+			})
+			require.Equal(t, codes.InvalidArgument, status.Code(waitErr))
+		})
+	}
+
+	invalidStoredValues := []struct {
+		name    string
+		key     string
+		operand *dexpb.Value
+	}{
+		{name: "stored object", key: "match-object", operand: stringValue("ready")},
+		{name: "stored non-finite", key: "match-nonfinite", operand: doubleValue(0)},
+	}
+	for _, testCase := range invalidStoredValues {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+				FlowId:          flowId,
+				Match:           equalAttributeMatch(testCase.key, testCase.operand),
+				WaitTimeSeconds: 0,
+				RequestId:       uuid.NewString(),
+			})
+			require.Equal(t, codes.FailedPrecondition, status.Code(waitErr))
+		})
+	}
+
+	_, err = flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+		FlowId: flowId,
+		Match: waitForAttributeMatch(
+			"match-string",
+			dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN,
+			intValue(0),
+		),
+		WaitTimeSeconds: 0,
+		RequestId:       uuid.NewString(),
+	})
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
 
 	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
 }
@@ -199,7 +325,7 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 
 	_, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
-		Condition: waitForAttributeEqualCondition(
+		Match: equalAttributeMatch(
 			waitForAttributeKey,
 			stringValue("never-set"),
 		),
@@ -233,7 +359,7 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 	go func() {
 		_, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 			FlowId: flowId,
-			Condition: waitForAttributeEqualCondition(
+			Match: equalAttributeMatch(
 				waitForAttributeKey,
 				stringValue("never-set"),
 			),
@@ -265,7 +391,7 @@ func doTestWaitForAttributeNotFound(t *testing.T) {
 
 	_, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: "wait-for-attribute-missing-" + uuid.NewString(),
-		Condition: waitForAttributeEqualCondition(
+		Match: equalAttributeMatch(
 			waitForAttributeKey,
 			stringValue("anything"),
 		),
@@ -298,7 +424,7 @@ func doTestWaitForAttributeClosed(t *testing.T) {
 
 	_, err = flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
-		Condition: waitForAttributeEqualCondition(
+		Match: equalAttributeMatch(
 			waitForAttributeKey,
 			stringValue("anything"),
 		),
@@ -330,19 +456,21 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 
 	var waitGroup sync.WaitGroup
 	errors := make([]error, 2)
+	responses := make([]*dexpb.WaitForAttributeResponse, 2)
 	for index := range errors {
 		waitGroup.Add(1)
 		go func(resultIndex int) {
 			defer waitGroup.Done()
-			_, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+			response, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 				FlowId: flowId,
-				Condition: waitForAttributeEqualCondition(
+				Match: equalAttributeMatch(
 					waitForAttributeKey,
 					expectedValue,
 				),
 				WaitTimeSeconds: 30,
 				RequestId:       requestId,
 			})
+			responses[resultIndex] = response
 			errors[resultIndex] = waitErr
 		}(index)
 	}
@@ -361,6 +489,9 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 	waitGroup.Wait()
 	for _, waitErr := range errors {
 		require.NoError(t, waitErr)
+	}
+	for _, response := range responses {
+		require.True(t, proto.Equal(expectedValue, response.GetMatchedValue()))
 	}
 	accepted, completed := countTemporalUpdateEvents(
 		t,
@@ -407,9 +538,9 @@ func doTestWaitForAttributeAcrossContinueAsNew(t *testing.T) {
 		}
 	}()
 
-	_, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+	response, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
-		Condition: waitForAttributeEqualCondition(
+		Match: equalAttributeMatch(
 			waitForAttributeKey,
 			expectedValue,
 		),
@@ -417,6 +548,7 @@ func doTestWaitForAttributeAcrossContinueAsNew(t *testing.T) {
 		RequestId:       uuid.NewString(),
 	})
 	require.NoError(t, err)
+	require.True(t, proto.Equal(expectedValue, response.GetMatchedValue()))
 
 	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
 }
@@ -443,7 +575,7 @@ func doTestWaitForAttributeCadenceUnimplemented(t *testing.T) {
 
 	_, err = flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
-		Condition: waitForAttributeEqualCondition(
+		Match: equalAttributeMatch(
 			waitForAttributeBlobKey,
 			stringValue("anything"),
 		),
@@ -458,17 +590,26 @@ func doTestWaitForAttributeCadenceUnimplemented(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func waitForAttributeEqualCondition(
+func equalAttributeMatch(
 	key string,
 	value *dexpb.Value,
-) *dexpb.WaitForAttributeCondition {
-	return &dexpb.WaitForAttributeCondition{
-		Kind: &dexpb.WaitForAttributeCondition_Equal{
-			Equal: &dexpb.WaitForAttributeEqual{
-				Key:   key,
-				Value: value,
-			},
-		},
+) *dexpb.AttributeMatch {
+	return waitForAttributeMatch(
+		key,
+		dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL,
+		value,
+	)
+}
+
+func waitForAttributeMatch(
+	key string,
+	operator dexpb.AttributeMatchOperator,
+	value *dexpb.Value,
+) *dexpb.AttributeMatch {
+	return &dexpb.AttributeMatch{
+		Key:      key,
+		Operator: operator,
+		Operand:  value,
 	}
 }
 

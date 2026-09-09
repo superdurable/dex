@@ -47,12 +47,15 @@ func TestUserOnboardingCompletesEveryTask(t *testing.T) {
 		dex.StartFlowOptions{},
 	)
 	require.NoError(t, err)
-	require.NoError(t, integClient.WaitForAttributeEqual(
+	var matchedStatus string
+	require.NoError(t, integClient.WaitForAttributeMatch(
 		ctx,
 		flowID,
 		signup.Status,
-		signup.StatusWaitingForVerification,
+		dex.AttributeMatchEqual(signup.StatusWaitingForVerification),
+		&matchedStatus,
 	))
+	require.Equal(t, signup.StatusWaitingForVerification, matchedStatus)
 
 	var output string
 	require.NoError(t, integClient.InvokeRPC(
@@ -64,12 +67,14 @@ func TestUserOnboardingCompletesEveryTask(t *testing.T) {
 		dex.InvokeOptions{},
 	))
 	require.Equal(t, "verified", output)
-	require.NoError(t, integClient.WaitForAttributeEqual(
+	require.NoError(t, integClient.WaitForAttributeMatch(
 		ctx,
 		flowID,
 		signup.Status,
-		signup.StatusWaitingForTask1,
+		dex.AttributeMatchEqual(signup.StatusWaitingForTask1),
+		&matchedStatus,
 	))
+	require.Equal(t, signup.StatusWaitingForTask1, matchedStatus)
 
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
@@ -80,12 +85,14 @@ func TestUserOnboardingCompletesEveryTask(t *testing.T) {
 		dex.InvokeOptions{},
 	))
 	require.Equal(t, "task 1 accomplished", output)
-	require.NoError(t, integClient.WaitForAttributeEqual(
+	require.NoError(t, integClient.WaitForAttributeMatch(
 		ctx,
 		flowID,
 		signup.Status,
-		signup.StatusWaitingForTask2,
+		dex.AttributeMatchEqual(signup.StatusWaitingForTask2),
+		&matchedStatus,
 	))
+	require.Equal(t, signup.StatusWaitingForTask2, matchedStatus)
 
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,

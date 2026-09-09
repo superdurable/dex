@@ -23,6 +23,7 @@ from dex._value_hydrator import ValueHydrator
 from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
 from dex.attribute import Attribute, AttributeMap, _apply_attribute_store_sync
+from dex.attribute_match import AttributeMatch, _encode_attribute_match
 from dex.blob_cache import BlobCache
 from dex.channel import Channel, ChannelMap, ChannelMessage
 from dex.client_options import ClientOptions
@@ -1039,130 +1040,138 @@ class Client:
         )
 
     @overload
-    def wait_for_attribute_equal(
+    def wait_for_attribute_match(
         self,
         flow_id: str,
         attribute: Attribute[ValueT],
-        expected: ValueT,
+        match: AttributeMatch[ValueT],
         timeout: timedelta,
-    ) -> None:
-        """Wait for a singleton Attribute in the current run to equal ``expected``.
+    ) -> ValueT:
+        """Wait for a singleton Attribute in the current run to satisfy ``match``.
 
-        The Client generates a request ID and blocks for ``timeout``. JSON,
-        bytes, and null values raise ``ValueError`` before transport. A remote
-        expiry raises ``LongPollTimeoutError``.
+        The Client generates a request ID and returns the value observed by the
+        successful wait. JSON, bytes, and null operands raise ``ValueError``
+        before transport. A remote expiry raises ``LongPollTimeoutError``.
 
         Args:
             flow_id: The non-empty active Flow ID.
             attribute: The registered singleton Attribute to observe.
-            expected: The string, bool, int, or float value to await.
+            match: The scalar predicate to await.
             timeout: The non-negative server-side wait duration.
 
+        Returns:
+            The current Attribute value that satisfied ``match``.
+
         Raises:
-            ValueError: If an identifier, timeout, or expected value is invalid.
-            LongPollTimeoutError: If equality is not observed before ``timeout``.
+            ValueError: If an identifier, timeout, or match operand is invalid.
+            LongPollTimeoutError: If the match is not observed before ``timeout``.
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
         ...
 
     @overload
-    def wait_for_attribute_equal(
+    def wait_for_attribute_match(
         self,
         flow_id: str,
         attribute: AttributeMap[ValueT],
         instance: str,
-        expected: ValueT,
+        match: AttributeMatch[ValueT],
         timeout: timedelta,
-    ) -> None:
-        """Wait for one AttributeMap instance in the current run.
+    ) -> ValueT:
+        """Wait for one AttributeMap instance in the current run to match.
 
-        ``instance`` is encoded as a map key. Primitive-value restrictions, request-ID
+        ``instance`` is encoded as a map key. Match restrictions, request-ID
         generation, timeout behavior, and service errors match
-        :meth:`wait_for_attribute_equal`.
+        :meth:`wait_for_attribute_match`.
 
         Args:
             flow_id: The non-empty active Flow ID.
             attribute: The registered AttributeMap to observe.
             instance: The map instance to observe. Slash is prohibited because it is a reserved character.
-            expected: The string, bool, int, or float value to await.
+            match: The scalar predicate to await.
             timeout: The non-negative server-side wait duration.
 
+        Returns:
+            The current AttributeMap value that satisfied ``match``.
+
         Raises:
-            ValueError: If an identifier, timeout, or expected value is invalid.
-            LongPollTimeoutError: If equality is not observed before ``timeout``.
+            ValueError: If an identifier, timeout, or match operand is invalid.
+            LongPollTimeoutError: If the match is not observed before ``timeout``.
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
         ...
 
-    def wait_for_attribute_equal(
+    def wait_for_attribute_match(
         self,
         flow_id: str,
         attribute: Attribute[Any] | AttributeMap[Any],
         *args: object,
         **kwargs: object,
-    ) -> None:
-        """Wait for a singleton Attribute or AttributeMap instance to equal a value.
+    ) -> Any:
+        """Wait for a singleton Attribute or AttributeMap instance to match.
 
-        Singleton form is ``wait_for_attribute_equal(flow_id, attribute, expected,
-        timeout)``; map form adds ``instance`` before ``expected``.
+        Singleton form is ``wait_for_attribute_match(flow_id, attribute, match,
+        timeout)``; map form adds ``instance`` before ``match``.
 
         Args:
             flow_id: The non-empty active Flow ID.
             attribute: The registered Attribute or AttributeMap to observe.
-            *args: Positional expected value and timeout, optionally preceded by a map instance.
+            *args: Positional match and timeout, optionally preceded by a map instance.
             **kwargs: The same arguments supplied by name.
+
+        Returns:
+            The current value that satisfied the match.
 
         Raises:
             TypeError: If arguments do not match the Attribute definition.
             ValueError: If an identifier, timeout, or expected value is invalid.
-            LongPollTimeoutError: If equality is not observed before the timeout.
+            LongPollTimeoutError: If the match is not observed before the timeout.
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
-        instance, expected, timeout = self._attribute_wait_arguments(
+        instance, match, timeout = self._attribute_wait_arguments(
             attribute, args, kwargs
         )
-        self._wait_for_attribute_equal(flow_id, attribute, instance, expected, timeout)
+        return self._wait_for_attribute_match(
+            flow_id, attribute, instance, match, timeout
+        )
 
-    def _wait_for_attribute_equal(
+    def _wait_for_attribute_match(
         self,
         flow_id: str,
         attribute: Attribute[Any] | AttributeMap[Any],
         instance: str | None,
-        expected: object,
+        match: object,
         timeout: timedelta,
-    ) -> None:
-        encoded = self._values.encode(
-            expected,
+    ) -> Any:
+        encoded_match = _encode_attribute_match(
+            cast(AttributeMatch[Any], match),
+            self._values,
             self._values.codec(attribute.value_type),
         )
-        if encoded.WhichOneof("kind") not in {
-            "string_value",
-            "bool_value",
-            "int_value",
-            "double_value",
-        }:
-            raise ValueError(
-                "wait_for_attribute_equal supports only string, boolean, or number values"
-            )
-        self._call(
-            self._service.WaitForAttribute,
-            pb.WaitForAttributeRequest(
-                flow_id=require_name(flow_id),
-                condition=pb.WaitForAttributeCondition(
-                    equal=pb.WaitForAttributeEqual(
-                        key=self._definition_name(attribute, instance),
-                        value=encoded,
-                    )
+        encoded_match.key = self._definition_name(attribute, instance)
+        response = cast(
+            pb.WaitForAttributeResponse,
+            self._call(
+                self._service.WaitForAttribute,
+                pb.WaitForAttributeRequest(
+                    flow_id=require_name(flow_id),
+                    match=encoded_match,
+                    wait_time_seconds=self._seconds32(timeout),
+                    request_id=str(uuid4()),
                 ),
-                wait_time_seconds=self._seconds32(timeout),
-                request_id=str(uuid4()),
+                "wait_for_attribute_match",
+                flow_id,
+                "active",
             ),
-            "wait_for_attribute_equal",
-            flow_id,
-            "active",
+        )
+        if not response.HasField("matched_value"):
+            raise ValueError("wait_for_attribute_match response is incomplete")
+        return self._values.decode(
+            response.matched_value,
+            self._values.codec(attribute.value_type),
         )
 
     def update_flow_config(self, flow_id: str, config: FlowConfig) -> None:
@@ -1406,29 +1415,29 @@ class Client:
     ) -> tuple[str | None, object, timedelta]:
         parameter_names: tuple[str, ...]
         if isinstance(definition, Attribute):
-            parameter_names = ("expected", "timeout")
+            parameter_names = ("match", "timeout")
         elif isinstance(definition, AttributeMap):
-            parameter_names = ("instance", "expected", "timeout")
+            parameter_names = ("instance", "match", "timeout")
         else:
-            raise TypeError("wait_for_attribute_equal received invalid arguments")
+            raise TypeError("wait_for_attribute_match received invalid arguments")
         if len(args) > len(parameter_names):
-            raise TypeError("wait_for_attribute_equal received invalid arguments")
+            raise TypeError("wait_for_attribute_match received invalid arguments")
         arguments = dict(zip(parameter_names, args))
         for name, value in kwargs.items():
             if name not in parameter_names or name in arguments:
-                raise TypeError("wait_for_attribute_equal received invalid arguments")
+                raise TypeError("wait_for_attribute_match received invalid arguments")
             arguments[name] = value
         if set(arguments) != set(parameter_names):
-            raise TypeError("wait_for_attribute_equal received invalid arguments")
+            raise TypeError("wait_for_attribute_match received invalid arguments")
         timeout = arguments["timeout"]
         if not isinstance(timeout, timedelta):
-            raise TypeError("wait_for_attribute_equal received invalid arguments")
+            raise TypeError("wait_for_attribute_match received invalid arguments")
         if isinstance(definition, Attribute):
-            return None, arguments["expected"], timeout
+            return None, arguments["match"], timeout
         instance = arguments["instance"]
         if not isinstance(instance, str):
-            raise TypeError("wait_for_attribute_equal received invalid arguments")
-        return instance, arguments["expected"], timeout
+            raise TypeError("wait_for_attribute_match received invalid arguments")
+        return instance, arguments["match"], timeout
 
     @staticmethod
     def _resolve_timeout_policy(

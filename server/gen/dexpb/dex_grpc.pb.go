@@ -83,7 +83,7 @@ type FlowServiceClient interface {
 	SkipTimer(ctx context.Context, in *SkipTimerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	UpdateFlowConfig(ctx context.Context, in *UpdateFlowConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	WaitForStepCompletion(ctx context.Context, in *WaitForStepCompletionRequest, opts ...grpc.CallOption) (*WaitForStepCompletionResponse, error)
-	WaitForAttribute(ctx context.Context, in *WaitForAttributeRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	WaitForAttribute(ctx context.Context, in *WaitForAttributeRequest, opts ...grpc.CallOption) (*WaitForAttributeResponse, error)
 	TriggerContinueAsNew(ctx context.Context, in *TriggerContinueAsNewRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	HealthCheck(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*HealthInfo, error)
 }
@@ -316,9 +316,9 @@ func (c *flowServiceClient) WaitForStepCompletion(ctx context.Context, in *WaitF
 	return out, nil
 }
 
-func (c *flowServiceClient) WaitForAttribute(ctx context.Context, in *WaitForAttributeRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *flowServiceClient) WaitForAttribute(ctx context.Context, in *WaitForAttributeRequest, opts ...grpc.CallOption) (*WaitForAttributeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
+	out := new(WaitForAttributeResponse)
 	err := c.cc.Invoke(ctx, FlowService_WaitForAttribute_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -374,7 +374,7 @@ type FlowServiceServer interface {
 	SkipTimer(context.Context, *SkipTimerRequest) (*emptypb.Empty, error)
 	UpdateFlowConfig(context.Context, *UpdateFlowConfigRequest) (*emptypb.Empty, error)
 	WaitForStepCompletion(context.Context, *WaitForStepCompletionRequest) (*WaitForStepCompletionResponse, error)
-	WaitForAttribute(context.Context, *WaitForAttributeRequest) (*emptypb.Empty, error)
+	WaitForAttribute(context.Context, *WaitForAttributeRequest) (*WaitForAttributeResponse, error)
 	TriggerContinueAsNew(context.Context, *TriggerContinueAsNewRequest) (*emptypb.Empty, error)
 	HealthCheck(context.Context, *emptypb.Empty) (*HealthInfo, error)
 	mustEmbedUnimplementedFlowServiceServer()
@@ -453,7 +453,7 @@ func (UnimplementedFlowServiceServer) UpdateFlowConfig(context.Context, *UpdateF
 func (UnimplementedFlowServiceServer) WaitForStepCompletion(context.Context, *WaitForStepCompletionRequest) (*WaitForStepCompletionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method WaitForStepCompletion not implemented")
 }
-func (UnimplementedFlowServiceServer) WaitForAttribute(context.Context, *WaitForAttributeRequest) (*emptypb.Empty, error) {
+func (UnimplementedFlowServiceServer) WaitForAttribute(context.Context, *WaitForAttributeRequest) (*WaitForAttributeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method WaitForAttribute not implemented")
 }
 func (UnimplementedFlowServiceServer) TriggerContinueAsNew(context.Context, *TriggerContinueAsNewRequest) (*emptypb.Empty, error) {

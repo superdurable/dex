@@ -16,6 +16,7 @@
 
 package io.superdurable.dex.integ;
 
+import io.superdurable.dex.AttributeMatch;
 import io.superdurable.dex.products.dealdsl.DealDSLFlow;
 import io.superdurable.dex.products.dealdsl.DealStart;
 import org.junit.jupiter.api.Test;
@@ -38,11 +39,11 @@ public class DealDSLIntegTest {
                 flowId,
                 DealStart.example("buyer-1"),
                 environment.startOptions());
-        environment.client().waitForAttributeEqual(
+        assertEquals("negotiating", environment.client().waitForAttributeMatch(
                 flowId,
                 flow.currentState,
-                "negotiating",
-                Duration.ofSeconds(30));
+                AttributeMatch.equalTo("negotiating"),
+                Duration.ofSeconds(30)));
         environment.client().publish(
                 flowId,
                 flow.conditionMessages,

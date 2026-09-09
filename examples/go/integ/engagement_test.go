@@ -48,12 +48,15 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, runID)
-	require.NoError(t, integClient.WaitForAttributeEqual(
+	var matchedStatus engagement.Status
+	require.NoError(t, integClient.WaitForAttributeMatch(
 		ctx,
 		flowID,
 		engagement.EngagementStatus,
-		engagement.StatusInitiated,
+		dex.AttributeMatchEqual(engagement.StatusInitiated),
+		&matchedStatus,
 	))
+	require.Equal(t, engagement.StatusInitiated, matchedStatus)
 
 	var description engagement.EngagementDescription
 	require.NoError(t, integClient.InvokeRPC(
@@ -93,12 +96,14 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		dex.InvokeOptions{},
 	))
 	require.Equal(t, engagement.StatusDeclined, status)
-	require.NoError(t, integClient.WaitForAttributeEqual(
+	require.NoError(t, integClient.WaitForAttributeMatch(
 		ctx,
 		flowID,
 		engagement.EngagementStatus,
-		engagement.StatusDeclined,
+		dex.AttributeMatchEqual(engagement.StatusDeclined),
+		&matchedStatus,
 	))
+	require.Equal(t, engagement.StatusDeclined, matchedStatus)
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,

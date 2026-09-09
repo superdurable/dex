@@ -9,6 +9,7 @@
 import { credentials, type ServiceError } from "@grpc/grpc-js";
 
 import type { BlobCache } from "./blob-cache.js";
+import { AttributeMatch } from "./attribute-match.js";
 import { mapAttributeStoreNames, mapAttributeStoreSync } from "./attribute-store-sync.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
@@ -43,6 +44,7 @@ import {
   type FlowResult as ProtoFlowResult,
   type IndexConfig,
   type WaitForStepCompletionResponse,
+  type WaitForAttributeResponse,
 } from "./gen/dex.js";
 import type { Empty } from "./gen/google/protobuf/empty.js";
 import {
@@ -917,100 +919,101 @@ export class Client {
   }
 
   /**
-   * Waits until a singleton Attribute in the current run equals the expected value.
-   * Generates a request ID and rejects JSON, bytes, and null before transport.
+   * Waits until a singleton Attribute in the current run satisfies a match.
+   * Returns the current value observed by the successful wait operation.
    * @typeParam T - Attribute value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered singleton Attribute to observe.
-   * @param expected - String, boolean, integer, or number value to await.
+   * @param match - Scalar predicate whose operand has the Attribute value type.
    * @param timeoutMs - Non-negative server-side wait duration in milliseconds.
+   * @returns The matched current Attribute value.
    */
-  public waitForAttributeEqual<T>(
+  public waitForAttributeMatch<T>(
     flowId: string,
     attribute: Attribute<T>,
-    expected: T,
+    match: AttributeMatch<T>,
     timeoutMs: number,
-  ): Promise<void>;
+  ): Promise<T>;
 
   /**
-   * Waits until one AttributeMap instance in the current run matches.
-   * Primitive-value restrictions and timeout errors match `waitForAttributeEqual`.
+   * Waits until one AttributeMap instance in the current run satisfies a match.
+   * Primitive-value restrictions and timeout errors match `waitForAttributeMatch`.
    * @typeParam T - AttributeMap value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered AttributeMap to observe.
    * @param instance - The map instance to observe. Slash is prohibited because it is a reserved character.
-   * @param expected - String, boolean, integer, or number value to await.
+   * @param match - Scalar predicate whose operand has the AttributeMap value type.
    * @param timeoutMs - Non-negative server-side wait duration in milliseconds.
+   * @returns The matched current AttributeMap value.
    */
-  public waitForAttributeEqual<T>(
+  public waitForAttributeMatch<T>(
     flowId: string,
     attribute: AttributeMap<T>,
     instance: string,
-    expected: T,
+    match: AttributeMatch<T>,
     timeoutMs: number,
-  ): Promise<void>;
+  ): Promise<T>;
 
   /**
-   * Waits until a singleton Attribute or AttributeMap instance equals the expected value.
+   * Waits until a singleton Attribute or AttributeMap instance satisfies a match.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered Attribute or AttributeMap to observe.
-   * @param args - Expected value and timeout, optionally preceded by a map instance.
+   * @param args - Match and timeout, optionally preceded by a map instance.
+   * @returns The matched current value.
    */
-  public async waitForAttributeEqual(
+  public async waitForAttributeMatch(
     flowId: string,
     attribute: Attribute<unknown> | AttributeMap<unknown>,
     ...args: unknown[]
-  ): Promise<void> {
+  ): Promise<unknown> {
     if (attribute instanceof Attribute) {
       if (args.length !== 2 || typeof args[1] !== "number") {
-        throw new TypeError("waitForAttributeEqual received invalid Attribute arguments");
+        throw new TypeError("waitForAttributeMatch received invalid Attribute arguments");
       }
-      await this.waitForAttributeValue(flowId, attribute, undefined, args[0], args[1]);
-      return;
+      return this.waitForAttributeValue(
+        flowId,
+        attribute,
+        undefined,
+        args[0] as AttributeMatch<unknown>,
+        args[1],
+      );
     }
     if (attribute instanceof AttributeMap) {
       if (args.length !== 3 || typeof args[0] !== "string" || typeof args[2] !== "number") {
-        throw new TypeError("waitForAttributeEqual received invalid AttributeMap arguments");
+        throw new TypeError("waitForAttributeMatch received invalid AttributeMap arguments");
       }
-      await this.waitForAttributeValue(flowId, attribute, args[0], args[1], args[2]);
-      return;
+      return this.waitForAttributeValue(
+        flowId,
+        attribute,
+        args[0],
+        args[1] as AttributeMatch<unknown>,
+        args[2],
+      );
     }
-    throw new TypeError("waitForAttributeEqual received an invalid Attribute definition");
+    throw new TypeError("waitForAttributeMatch received an invalid Attribute definition");
   }
 
   private async waitForAttributeValue(
     flowId: string,
     attribute: Attribute<unknown> | AttributeMap<unknown>,
     instance: string | undefined,
-    expected: unknown,
+    match: AttributeMatch<unknown>,
     timeoutMs: number,
-  ): Promise<void> {
-    const value = encodeValue(attribute.codec, expected);
-    if (
-      value.kind?.$case !== "stringValue" &&
-      value.kind?.$case !== "boolValue" &&
-      value.kind?.$case !== "intValue" &&
-      value.kind?.$case !== "doubleValue"
-    ) {
-      throw new TypeError(
-        "waitForAttributeEqual supports only string, boolean, or number values",
-      );
+  ): Promise<unknown> {
+    if (!(match instanceof AttributeMatch)) {
+      throw new TypeError("waitForAttributeMatch requires an AttributeMatch");
     }
-    await unary<Empty>(
-      { operation: "waitForAttributeEqual", flowId, requirement: "active" },
+    const encoded = match.encode(attribute.codec);
+    const response = await unary<WaitForAttributeResponse>(
+      { operation: "waitForAttributeMatch", flowId, requirement: "active" },
       (callback) =>
         this.service.waitForAttribute(
           {
             flowId: requireName(flowId),
-            runId: "",
-            condition: {
-              kind: {
-                $case: "equal",
-                value: {
-                  key: physicalName(attribute.name, instance),
-                  value,
-                },
-              },
+            match: {
+              key: physicalName(attribute.name, instance),
+              operator: encoded.operator,
+              operand: encoded.operand,
             },
             waitTimeSeconds: seconds(timeoutMs),
             requestId: crypto.randomUUID(),
@@ -1018,7 +1021,11 @@ export class Client {
           callback,
         ),
      );
-   }
+    if (response.matchedValue === undefined) {
+      throw new Error("waitForAttributeMatch response is incomplete");
+    }
+    return decodeValue(attribute.codec, response.matchedValue);
+  }
 
   /**
    * Replaces mutable configuration for an active Flow.

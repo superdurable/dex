@@ -14,6 +14,7 @@ package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.Attribute;
+import io.superdurable.dex.AttributeMatch;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
@@ -153,28 +154,28 @@ public final class PersistenceTest {
             environment.client().startFlow(SET_ATTRIBUTES_WORKFLOW, flowId, "start");
             assertThrows(
                     LongPollTimeoutException.class,
-                    () -> environment.client().waitForAttributeEqual(
+                    () -> environment.client().waitForAttributeMatch(
                             flowId,
                             SET_ATTRIBUTES_WORKFLOW.data,
-                            "never",
+                            AttributeMatch.equalTo("never"),
                             Duration.ofSeconds(1)));
-            final CompletableFuture<Void> waiting = CompletableFuture.runAsync(
-                    () -> environment.client().waitForAttributeEqual(
+            final CompletableFuture<String> waiting = CompletableFuture.supplyAsync(
+                    () -> environment.client().waitForAttributeMatch(
                             flowId,
                             SET_ATTRIBUTES_WORKFLOW.data,
-                            "query-start",
+                            AttributeMatch.equalTo("query-start"),
                             Duration.ofSeconds(30)));
             environment.client().setAttribute(
                     flowId,
                     SET_ATTRIBUTES_WORKFLOW.data,
                     "query-start");
-            waiting.get(30, TimeUnit.SECONDS);
-            final CompletableFuture<Void> waitingMap = CompletableFuture.runAsync(
-                    () -> environment.client().waitForAttributeEqual(
+            assertEquals("query-start", waiting.get(30, TimeUnit.SECONDS));
+            final CompletableFuture<String> waitingMap = CompletableFuture.supplyAsync(
+                    () -> environment.client().waitForAttributeMatch(
                             flowId,
                             SET_ATTRIBUTES_WORKFLOW.dataMap,
                             "special % key",
-                            "mapped-value",
+                            AttributeMatch.equalTo("mapped-value"),
                             Duration.ofSeconds(30)));
             environment.client().setAttribute(
                     flowId,
@@ -186,27 +187,35 @@ public final class PersistenceTest {
                     SET_ATTRIBUTES_WORKFLOW.dataMap,
                     "special % key",
                     "mapped-value");
-            waitingMap.get(30, TimeUnit.SECONDS);
+            assertEquals("mapped-value", waitingMap.get(30, TimeUnit.SECONDS));
+            environment.client().setAttribute(flowId, SET_ATTRIBUTES_WORKFLOW.integer, 3);
+            assertEquals(
+                    3,
+                    environment.client().waitForAttributeMatch(
+                            flowId,
+                            SET_ATTRIBUTES_WORKFLOW.integer,
+                            AttributeMatch.greaterThan(0),
+                            Duration.ofSeconds(30)));
             assertThrows(
                     IllegalArgumentException.class,
-                    () -> environment.client().waitForAttributeEqual(
+                    () -> environment.client().waitForAttributeMatch(
                             flowId,
                             SET_ATTRIBUTES_WORKFLOW.model,
-                            model,
+                            AttributeMatch.equalTo(model),
                             Duration.ofSeconds(30)));
             assertThrows(
                     IllegalArgumentException.class,
-                    () -> environment.client().waitForAttributeEqual(
+                    () -> environment.client().waitForAttributeMatch(
                             flowId,
                             Attribute.define("bytes", byte[].class),
-                            new byte[] {1},
+                            AttributeMatch.equalTo(new byte[] {1}),
                             Duration.ofSeconds(30)));
             assertThrows(
                     IllegalArgumentException.class,
-                    () -> environment.client().waitForAttributeEqual(
+                    () -> environment.client().waitForAttributeMatch(
                             flowId,
                             Attribute.define("null", Void.class),
-                            null,
+                            AttributeMatch.equalTo((Void) null),
                             Duration.ofSeconds(30)));
             environment.client().setAttribute(
                     flowId,
@@ -264,19 +273,19 @@ public final class PersistenceTest {
                 "set-attributes",
                 SET_ATTRIBUTES_WORKFLOW.keywords,
                 new String[] {"one", "two"});
-        client.waitForAttributeEqual(
+        final String matched = client.waitForAttributeMatch(
                 "set-attributes",
                 SET_ATTRIBUTES_WORKFLOW.data,
-                "value",
+                AttributeMatch.equalTo("value"),
                 Duration.ofSeconds(30));
-        client.waitForAttributeEqual(
+        final String matchedMap = client.waitForAttributeMatch(
                 "set-attributes",
                 SET_ATTRIBUTES_WORKFLOW.dataMap,
                 "one",
-                "value",
+                AttributeMatch.equalTo("value"),
                 Duration.ofSeconds(30));
         final String output = client.waitForFlow("set-attributes").getSingleOutput(String.class);
-        consume(output);
+        consume(matched, matchedMap, output);
     }
 
     private static void consume(final Object... values) {

@@ -24,7 +24,7 @@ from dex_examples.products.job_post.job_info import JobInfo
 from dex_examples.products.signup.signup_form import SignupForm
 from tests.integ.conftest import WAIT_TIMEOUT
 
-from dex import AsyncClient, StartFlowOptions, StepExecutionId
+from dex import AsyncClient, AttributeMatch, StartFlowOptions, StepExecutionId
 
 pytestmark = pytest.mark.integ
 
@@ -41,28 +41,37 @@ async def test_user_onboarding_completes_all_tasks(
     flow_id = new_flow_id("signup")
     form = SignupForm(flow_id, f"{flow_id}@example.com", "Test", "User")
     await client.start_flow(app.user_onboarding, flow_id, form, start_options())
-    await client.wait_for_attribute_equal(
-        flow_id,
-        app.user_onboarding.status,
-        "waiting_for_verification",
-        WAIT_TIMEOUT,
+    assert (
+        await client.wait_for_attribute_match(
+            flow_id,
+            app.user_onboarding.status,
+            AttributeMatch.equal_to("waiting_for_verification"),
+            WAIT_TIMEOUT,
+        )
+        == "waiting_for_verification"
     )
     assert await client.invoke_rpc(app.user_onboarding.verify, flow_id) == "verified"
-    await client.wait_for_attribute_equal(
-        flow_id,
-        app.user_onboarding.status,
-        "waiting_for_task_1",
-        WAIT_TIMEOUT,
+    assert (
+        await client.wait_for_attribute_match(
+            flow_id,
+            app.user_onboarding.status,
+            AttributeMatch.equal_to("waiting_for_task_1"),
+            WAIT_TIMEOUT,
+        )
+        == "waiting_for_task_1"
     )
     assert (
         await client.invoke_rpc(app.user_onboarding.accomplish_task_1, flow_id)
         == "task 1 accomplished"
     )
-    await client.wait_for_attribute_equal(
-        flow_id,
-        app.user_onboarding.status,
-        "waiting_for_task_2",
-        WAIT_TIMEOUT,
+    assert (
+        await client.wait_for_attribute_match(
+            flow_id,
+            app.user_onboarding.status,
+            AttributeMatch.equal_to("waiting_for_task_2"),
+            WAIT_TIMEOUT,
+        )
+        == "waiting_for_task_2"
     )
     assert (
         await client.invoke_rpc(app.user_onboarding.accomplish_task_2, flow_id)

@@ -13,6 +13,7 @@ import test from "node:test";
 
 import {
   Attribute,
+  AttributeMatch,
   FlowNotActiveError,
   FlowNotFoundError,
   InitialAttribute,
@@ -84,33 +85,58 @@ test("Client sets primitive, mapped, and model data attributes", async () => {
     const id = flowId("set-data-attributes");
     await client.startFlow(flow, id, "start");
     await expectError(
-      client.waitForAttributeEqual(id, flow.data, "never", 1_000),
+      client.waitForAttributeMatch(id, flow.data, AttributeMatch.equalTo("never"), 1_000),
       LongPollTimeoutError,
     );
-    const waiting = client.waitForAttributeEqual(id, flow.data, "query-start", 30_000);
+    const waiting = client.waitForAttributeMatch(
+      id,
+      flow.data,
+      AttributeMatch.equalTo("query-start"),
+      30_000,
+    );
     await client.setAttribute(id, flow.data, "query-start");
-    await waiting;
-    const waitingMap = client.waitForAttributeEqual(
+    assert.equal(await waiting, "query-start");
+    const waitingMap = client.waitForAttributeMatch(
       id,
       flow.dataMap,
       "special % key",
-      "mapped-value",
+      AttributeMatch.equalTo("mapped-value"),
       30_000,
     );
     await client.setAttribute(id, flow.dataMap, "one", "mapped-value");
     await client.setAttribute(id, flow.dataMap, "special % key", "mapped-value");
-    await waitingMap;
-    await assert.rejects(
-      client.waitForAttributeEqual(id, flow.model, { value: 8 }, 30_000),
-      /only string, boolean, or number values/,
+    assert.equal(await waitingMap, "mapped-value");
+    await client.setAttribute(id, flow.integer, 3);
+    assert.equal(
+      await client.waitForAttributeMatch(
+        id,
+        flow.integer,
+        AttributeMatch.greaterThan(0),
+        30_000,
+      ),
+      3,
     );
     await assert.rejects(
-      client.waitForAttributeEqual(id, new Attribute("bytes", bytesCodec), new Uint8Array([1]), 30_000),
-      /only string, boolean, or number values/,
+      client.waitForAttributeMatch(id, flow.model, AttributeMatch.equalTo({ value: 8 }), 30_000),
+      /supports only string, boolean, integer, or number operands/,
     );
     await assert.rejects(
-      client.waitForAttributeEqual(id, new Attribute("null", voidCodec), undefined, 30_000),
-      /only string, boolean, or number values/,
+      client.waitForAttributeMatch(
+        id,
+        new Attribute("bytes", bytesCodec),
+        AttributeMatch.equalTo(new Uint8Array([1])),
+        30_000,
+      ),
+      /supports only string, boolean, integer, or number operands/,
+    );
+    await assert.rejects(
+      client.waitForAttributeMatch(
+        id,
+        new Attribute("null", voidCodec),
+        AttributeMatch.equalTo(undefined),
+        30_000,
+      ),
+      /supports only string, boolean, integer, or number operands/,
     );
     await client.setAttribute(id, flow.model, { value: 7 });
     await client.publish(id, flow.proceed, undefined);

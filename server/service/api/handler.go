@@ -230,7 +230,7 @@ func (h *handler) WaitForStepCompletion(
 func (h *handler) WaitForAttribute(
 	ctx context.Context,
 	req *dexpb.WaitForAttributeRequest,
-) (*emptypb.Empty, error) {
+) (*dexpb.WaitForAttributeResponse, error) {
 	return h.svc.WaitForAttribute(ctx, req)
 }
 

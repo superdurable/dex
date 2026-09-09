@@ -6,13 +6,13 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf type {@code dex.WaitForAttributeEqual}
+ * Protobuf type {@code dex.AttributeMatch}
  */
 @com.google.protobuf.Generated
-public final class WaitForAttributeEqual extends
+public final class AttributeMatch extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.WaitForAttributeEqual)
-    WaitForAttributeEqualOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.AttributeMatch)
+    AttributeMatchOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -21,32 +21,33 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "WaitForAttributeEqual");
+      "AttributeMatch");
   }
-  // Use WaitForAttributeEqual.newBuilder() to construct.
-  private WaitForAttributeEqual(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use AttributeMatch.newBuilder() to construct.
+  private AttributeMatch(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private WaitForAttributeEqual() {
+  private AttributeMatch() {
     key_ = "";
+    operator_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_WaitForAttributeEqual_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_AttributeMatch_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_WaitForAttributeEqual_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_AttributeMatch_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_WaitForAttributeEqual_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_AttributeMatch_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.WaitForAttributeEqual.class, io.superdurable.gen.WaitForAttributeEqual.Builder.class);
+            io.superdurable.gen.AttributeMatch.class, io.superdurable.gen.AttributeMatch.Builder.class);
   }
 
   private int bitField0_;
@@ -89,30 +90,48 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int VALUE_FIELD_NUMBER = 2;
-  private io.superdurable.gen.Value value_;
+  public static final int OPERATOR_FIELD_NUMBER = 2;
+  private int operator_ = 0;
   /**
-   * <code>.dex.Value value = 2;</code>
-   * @return Whether the value field is set.
+   * <code>.dex.AttributeMatchOperator operator = 2;</code>
+   * @return The enum numeric value on the wire for operator.
+   */
+  @java.lang.Override public int getOperatorValue() {
+    return operator_;
+  }
+  /**
+   * <code>.dex.AttributeMatchOperator operator = 2;</code>
+   * @return The operator.
+   */
+  @java.lang.Override public io.superdurable.gen.AttributeMatchOperator getOperator() {
+    io.superdurable.gen.AttributeMatchOperator result = io.superdurable.gen.AttributeMatchOperator.forNumber(operator_);
+    return result == null ? io.superdurable.gen.AttributeMatchOperator.UNRECOGNIZED : result;
+  }
+
+  public static final int OPERAND_FIELD_NUMBER = 3;
+  private io.superdurable.gen.Value operand_;
+  /**
+   * <code>.dex.Value operand = 3;</code>
+   * @return Whether the operand field is set.
    */
   @java.lang.Override
-  public boolean hasValue() {
+  public boolean hasOperand() {
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.Value value = 2;</code>
-   * @return The value.
+   * <code>.dex.Value operand = 3;</code>
+   * @return The operand.
    */
   @java.lang.Override
-  public io.superdurable.gen.Value getValue() {
-    return value_ == null ? io.superdurable.gen.Value.getDefaultInstance() : value_;
+  public io.superdurable.gen.Value getOperand() {
+    return operand_ == null ? io.superdurable.gen.Value.getDefaultInstance() : operand_;
   }
   /**
-   * <code>.dex.Value value = 2;</code>
+   * <code>.dex.Value operand = 3;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.ValueOrBuilder getValueOrBuilder() {
-    return value_ == null ? io.superdurable.gen.Value.getDefaultInstance() : value_;
+  public io.superdurable.gen.ValueOrBuilder getOperandOrBuilder() {
+    return operand_ == null ? io.superdurable.gen.Value.getDefaultInstance() : operand_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -132,8 +151,11 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(key_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 1, key_);
     }
+    if (operator_ != io.superdurable.gen.AttributeMatchOperator.ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED.getNumber()) {
+      output.writeEnum(2, operator_);
+    }
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(2, getValue());
+      output.writeMessage(3, getOperand());
     }
     getUnknownFields().writeTo(output);
   }
@@ -142,9 +164,13 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(key_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(1, key_);
     }
+    if (operator_ != io.superdurable.gen.AttributeMatchOperator.ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(2, operator_);
+    }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(2, getValue());
+        .computeMessageSize(3, getOperand());
     }
     return size;
   }
@@ -165,17 +191,18 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.WaitForAttributeEqual)) {
+    if (!(obj instanceof io.superdurable.gen.AttributeMatch)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.WaitForAttributeEqual other = (io.superdurable.gen.WaitForAttributeEqual) obj;
+    io.superdurable.gen.AttributeMatch other = (io.superdurable.gen.AttributeMatch) obj;
 
     if (!getKey()
         .equals(other.getKey())) return false;
-    if (hasValue() != other.hasValue()) return false;
-    if (hasValue()) {
-      if (!getValue()
-          .equals(other.getValue())) return false;
+    if (operator_ != other.operator_) return false;
+    if (hasOperand() != other.hasOperand()) return false;
+    if (hasOperand()) {
+      if (!getOperand()
+          .equals(other.getOperand())) return false;
     }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
@@ -190,53 +217,55 @@ private static final long serialVersionUID = 0L;
     hash = (19 * hash) + getDescriptor().hashCode();
     hash = (37 * hash) + KEY_FIELD_NUMBER;
     hash = (53 * hash) + getKey().hashCode();
-    if (hasValue()) {
-      hash = (37 * hash) + VALUE_FIELD_NUMBER;
-      hash = (53 * hash) + getValue().hashCode();
+    hash = (37 * hash) + OPERATOR_FIELD_NUMBER;
+    hash = (53 * hash) + operator_;
+    if (hasOperand()) {
+      hash = (37 * hash) + OPERAND_FIELD_NUMBER;
+      hash = (53 * hash) + getOperand().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
   }
 
-  public static io.superdurable.gen.WaitForAttributeEqual parseFrom(
+  public static io.superdurable.gen.AttributeMatch parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.WaitForAttributeEqual parseFrom(
+  public static io.superdurable.gen.AttributeMatch parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.WaitForAttributeEqual parseFrom(
+  public static io.superdurable.gen.AttributeMatch parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.WaitForAttributeEqual parseFrom(
+  public static io.superdurable.gen.AttributeMatch parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.WaitForAttributeEqual parseFrom(byte[] data)
+  public static io.superdurable.gen.AttributeMatch parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.WaitForAttributeEqual parseFrom(
+  public static io.superdurable.gen.AttributeMatch parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.WaitForAttributeEqual parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.AttributeMatch parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.WaitForAttributeEqual parseFrom(
+  public static io.superdurable.gen.AttributeMatch parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -244,26 +273,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.WaitForAttributeEqual parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.AttributeMatch parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.WaitForAttributeEqual parseDelimitedFrom(
+  public static io.superdurable.gen.AttributeMatch parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.WaitForAttributeEqual parseFrom(
+  public static io.superdurable.gen.AttributeMatch parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.WaitForAttributeEqual parseFrom(
+  public static io.superdurable.gen.AttributeMatch parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -276,7 +305,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.WaitForAttributeEqual prototype) {
+  public static Builder newBuilder(io.superdurable.gen.AttributeMatch prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -292,26 +321,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * Protobuf type {@code dex.WaitForAttributeEqual}
+   * Protobuf type {@code dex.AttributeMatch}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.WaitForAttributeEqual)
-      io.superdurable.gen.WaitForAttributeEqualOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.AttributeMatch)
+      io.superdurable.gen.AttributeMatchOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_WaitForAttributeEqual_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_AttributeMatch_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_WaitForAttributeEqual_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_AttributeMatch_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.WaitForAttributeEqual.class, io.superdurable.gen.WaitForAttributeEqual.Builder.class);
+              io.superdurable.gen.AttributeMatch.class, io.superdurable.gen.AttributeMatch.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.WaitForAttributeEqual.newBuilder()
+    // Construct using io.superdurable.gen.AttributeMatch.newBuilder()
     private Builder() {
       maybeForceBuilderInitialization();
     }
@@ -324,7 +353,7 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetValueFieldBuilder();
+        internalGetOperandFieldBuilder();
       }
     }
     @java.lang.Override
@@ -332,10 +361,11 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       key_ = "";
-      value_ = null;
-      if (valueBuilder_ != null) {
-        valueBuilder_.dispose();
-        valueBuilder_ = null;
+      operator_ = 0;
+      operand_ = null;
+      if (operandBuilder_ != null) {
+        operandBuilder_.dispose();
+        operandBuilder_ = null;
       }
       return this;
     }
@@ -343,17 +373,17 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_WaitForAttributeEqual_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_AttributeMatch_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.WaitForAttributeEqual getDefaultInstanceForType() {
-      return io.superdurable.gen.WaitForAttributeEqual.getDefaultInstance();
+    public io.superdurable.gen.AttributeMatch getDefaultInstanceForType() {
+      return io.superdurable.gen.AttributeMatch.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.WaitForAttributeEqual build() {
-      io.superdurable.gen.WaitForAttributeEqual result = buildPartial();
+    public io.superdurable.gen.AttributeMatch build() {
+      io.superdurable.gen.AttributeMatch result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -361,23 +391,26 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.WaitForAttributeEqual buildPartial() {
-      io.superdurable.gen.WaitForAttributeEqual result = new io.superdurable.gen.WaitForAttributeEqual(this);
+    public io.superdurable.gen.AttributeMatch buildPartial() {
+      io.superdurable.gen.AttributeMatch result = new io.superdurable.gen.AttributeMatch(this);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartial0(io.superdurable.gen.WaitForAttributeEqual result) {
+    private void buildPartial0(io.superdurable.gen.AttributeMatch result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.key_ = key_;
       }
-      int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.value_ = valueBuilder_ == null
-            ? value_
-            : valueBuilder_.build();
+        result.operator_ = operator_;
+      }
+      int to_bitField0_ = 0;
+      if (((from_bitField0_ & 0x00000004) != 0)) {
+        result.operand_ = operandBuilder_ == null
+            ? operand_
+            : operandBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       result.bitField0_ |= to_bitField0_;
@@ -385,23 +418,26 @@ private static final long serialVersionUID = 0L;
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.WaitForAttributeEqual) {
-        return mergeFrom((io.superdurable.gen.WaitForAttributeEqual)other);
+      if (other instanceof io.superdurable.gen.AttributeMatch) {
+        return mergeFrom((io.superdurable.gen.AttributeMatch)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.WaitForAttributeEqual other) {
-      if (other == io.superdurable.gen.WaitForAttributeEqual.getDefaultInstance()) return this;
+    public Builder mergeFrom(io.superdurable.gen.AttributeMatch other) {
+      if (other == io.superdurable.gen.AttributeMatch.getDefaultInstance()) return this;
       if (!other.getKey().isEmpty()) {
         key_ = other.key_;
         bitField0_ |= 0x00000001;
         onChanged();
       }
-      if (other.hasValue()) {
-        mergeValue(other.getValue());
+      if (other.operator_ != 0) {
+        setOperatorValue(other.getOperatorValue());
+      }
+      if (other.hasOperand()) {
+        mergeOperand(other.getOperand());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -434,13 +470,18 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000001;
               break;
             } // case 10
-            case 18: {
-              input.readMessage(
-                  internalGetValueFieldBuilder().getBuilder(),
-                  extensionRegistry);
+            case 16: {
+              operator_ = input.readEnum();
               bitField0_ |= 0x00000002;
               break;
-            } // case 18
+            } // case 16
+            case 26: {
+              input.readMessage(
+                  internalGetOperandFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000004;
+              break;
+            } // case 26
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -530,144 +571,196 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private io.superdurable.gen.Value value_;
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> valueBuilder_;
+    private int operator_ = 0;
     /**
-     * <code>.dex.Value value = 2;</code>
-     * @return Whether the value field is set.
+     * <code>.dex.AttributeMatchOperator operator = 2;</code>
+     * @return The enum numeric value on the wire for operator.
      */
-    public boolean hasValue() {
-      return ((bitField0_ & 0x00000002) != 0);
+    @java.lang.Override public int getOperatorValue() {
+      return operator_;
     }
     /**
-     * <code>.dex.Value value = 2;</code>
-     * @return The value.
+     * <code>.dex.AttributeMatchOperator operator = 2;</code>
+     * @param value The enum numeric value on the wire for operator to set.
+     * @return This builder for chaining.
      */
-    public io.superdurable.gen.Value getValue() {
-      if (valueBuilder_ == null) {
-        return value_ == null ? io.superdurable.gen.Value.getDefaultInstance() : value_;
+    public Builder setOperatorValue(int value) {
+      operator_ = value;
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.AttributeMatchOperator operator = 2;</code>
+     * @return The operator.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.AttributeMatchOperator getOperator() {
+      io.superdurable.gen.AttributeMatchOperator result = io.superdurable.gen.AttributeMatchOperator.forNumber(operator_);
+      return result == null ? io.superdurable.gen.AttributeMatchOperator.UNRECOGNIZED : result;
+    }
+    /**
+     * <code>.dex.AttributeMatchOperator operator = 2;</code>
+     * @param value The operator to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setOperator(io.superdurable.gen.AttributeMatchOperator value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000002;
+      operator_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.AttributeMatchOperator operator = 2;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearOperator() {
+      bitField0_ = (bitField0_ & ~0x00000002);
+      operator_ = 0;
+      onChanged();
+      return this;
+    }
+
+    private io.superdurable.gen.Value operand_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> operandBuilder_;
+    /**
+     * <code>.dex.Value operand = 3;</code>
+     * @return Whether the operand field is set.
+     */
+    public boolean hasOperand() {
+      return ((bitField0_ & 0x00000004) != 0);
+    }
+    /**
+     * <code>.dex.Value operand = 3;</code>
+     * @return The operand.
+     */
+    public io.superdurable.gen.Value getOperand() {
+      if (operandBuilder_ == null) {
+        return operand_ == null ? io.superdurable.gen.Value.getDefaultInstance() : operand_;
       } else {
-        return valueBuilder_.getMessage();
+        return operandBuilder_.getMessage();
       }
     }
     /**
-     * <code>.dex.Value value = 2;</code>
+     * <code>.dex.Value operand = 3;</code>
      */
-    public Builder setValue(io.superdurable.gen.Value value) {
-      if (valueBuilder_ == null) {
+    public Builder setOperand(io.superdurable.gen.Value value) {
+      if (operandBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        value_ = value;
+        operand_ = value;
       } else {
-        valueBuilder_.setMessage(value);
+        operandBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.Value value = 2;</code>
+     * <code>.dex.Value operand = 3;</code>
      */
-    public Builder setValue(
+    public Builder setOperand(
         io.superdurable.gen.Value.Builder builderForValue) {
-      if (valueBuilder_ == null) {
-        value_ = builderForValue.build();
+      if (operandBuilder_ == null) {
+        operand_ = builderForValue.build();
       } else {
-        valueBuilder_.setMessage(builderForValue.build());
+        operandBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.Value value = 2;</code>
+     * <code>.dex.Value operand = 3;</code>
      */
-    public Builder mergeValue(io.superdurable.gen.Value value) {
-      if (valueBuilder_ == null) {
-        if (((bitField0_ & 0x00000002) != 0) &&
-          value_ != null &&
-          value_ != io.superdurable.gen.Value.getDefaultInstance()) {
-          getValueBuilder().mergeFrom(value);
+    public Builder mergeOperand(io.superdurable.gen.Value value) {
+      if (operandBuilder_ == null) {
+        if (((bitField0_ & 0x00000004) != 0) &&
+          operand_ != null &&
+          operand_ != io.superdurable.gen.Value.getDefaultInstance()) {
+          getOperandBuilder().mergeFrom(value);
         } else {
-          value_ = value;
+          operand_ = value;
         }
       } else {
-        valueBuilder_.mergeFrom(value);
+        operandBuilder_.mergeFrom(value);
       }
-      if (value_ != null) {
-        bitField0_ |= 0x00000002;
+      if (operand_ != null) {
+        bitField0_ |= 0x00000004;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.Value value = 2;</code>
+     * <code>.dex.Value operand = 3;</code>
      */
-    public Builder clearValue() {
-      bitField0_ = (bitField0_ & ~0x00000002);
-      value_ = null;
-      if (valueBuilder_ != null) {
-        valueBuilder_.dispose();
-        valueBuilder_ = null;
+    public Builder clearOperand() {
+      bitField0_ = (bitField0_ & ~0x00000004);
+      operand_ = null;
+      if (operandBuilder_ != null) {
+        operandBuilder_.dispose();
+        operandBuilder_ = null;
       }
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.Value value = 2;</code>
+     * <code>.dex.Value operand = 3;</code>
      */
-    public io.superdurable.gen.Value.Builder getValueBuilder() {
-      bitField0_ |= 0x00000002;
+    public io.superdurable.gen.Value.Builder getOperandBuilder() {
+      bitField0_ |= 0x00000004;
       onChanged();
-      return internalGetValueFieldBuilder().getBuilder();
+      return internalGetOperandFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.Value value = 2;</code>
+     * <code>.dex.Value operand = 3;</code>
      */
-    public io.superdurable.gen.ValueOrBuilder getValueOrBuilder() {
-      if (valueBuilder_ != null) {
-        return valueBuilder_.getMessageOrBuilder();
+    public io.superdurable.gen.ValueOrBuilder getOperandOrBuilder() {
+      if (operandBuilder_ != null) {
+        return operandBuilder_.getMessageOrBuilder();
       } else {
-        return value_ == null ?
-            io.superdurable.gen.Value.getDefaultInstance() : value_;
+        return operand_ == null ?
+            io.superdurable.gen.Value.getDefaultInstance() : operand_;
       }
     }
     /**
-     * <code>.dex.Value value = 2;</code>
+     * <code>.dex.Value operand = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
-        internalGetValueFieldBuilder() {
-      if (valueBuilder_ == null) {
-        valueBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+        internalGetOperandFieldBuilder() {
+      if (operandBuilder_ == null) {
+        operandBuilder_ = new com.google.protobuf.SingleFieldBuilder<
             io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>(
-                getValue(),
+                getOperand(),
                 getParentForChildren(),
                 isClean());
-        value_ = null;
+        operand_ = null;
       }
-      return valueBuilder_;
+      return operandBuilder_;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.WaitForAttributeEqual)
+    // @@protoc_insertion_point(builder_scope:dex.AttributeMatch)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.WaitForAttributeEqual)
-  private static final io.superdurable.gen.WaitForAttributeEqual DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.AttributeMatch)
+  private static final io.superdurable.gen.AttributeMatch DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.WaitForAttributeEqual();
+    DEFAULT_INSTANCE = new io.superdurable.gen.AttributeMatch();
   }
 
-  public static io.superdurable.gen.WaitForAttributeEqual getDefaultInstance() {
+  public static io.superdurable.gen.AttributeMatch getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<WaitForAttributeEqual>
-      PARSER = new com.google.protobuf.AbstractParser<WaitForAttributeEqual>() {
+  private static final com.google.protobuf.Parser<AttributeMatch>
+      PARSER = new com.google.protobuf.AbstractParser<AttributeMatch>() {
     @java.lang.Override
-    public WaitForAttributeEqual parsePartialFrom(
+    public AttributeMatch parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -686,17 +779,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<WaitForAttributeEqual> parser() {
+  public static com.google.protobuf.Parser<AttributeMatch> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<WaitForAttributeEqual> getParserForType() {
+  public com.google.protobuf.Parser<AttributeMatch> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.WaitForAttributeEqual getDefaultInstanceForType() {
+  public io.superdurable.gen.AttributeMatch getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

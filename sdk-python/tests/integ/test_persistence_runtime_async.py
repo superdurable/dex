@@ -13,52 +13,77 @@ from datetime import timedelta
 
 import pytest
 
-from dex import Attribute, LongPollTimeoutError
+from dex import Attribute, AttributeMatch, LongPollTimeoutError
 
 from .async_environment import AsyncDexDevTestEnvironment
 from .set_attributes_flow import SetAttributesFlow
 from .shared import ModelInput, unique_id
 
 
-def test_async_wait_for_attribute_equal() -> None:
-    asyncio.run(_async_wait_for_attribute_equal())
+def test_async_wait_for_attribute_match() -> None:
+    asyncio.run(_async_wait_for_attribute_match())
 
 
-async def _async_wait_for_attribute_equal() -> None:
+async def _async_wait_for_attribute_match() -> None:
     flow = SetAttributesFlow()
     timeout = timedelta(seconds=30)
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("async-wait-for-attribute")
         await environment.client.start_flow(flow, flow_id, "start")
         with pytest.raises(LongPollTimeoutError):
-            await environment.client.wait_for_attribute_equal(
-                flow_id, flow.data, "never", timedelta(seconds=1)
+            await environment.client.wait_for_attribute_match(
+                flow_id,
+                flow.data,
+                AttributeMatch.equal_to("never"),
+                timedelta(seconds=1),
             )
         waiting = asyncio.create_task(
-            environment.client.wait_for_attribute_equal(
-                flow_id, flow.data, "ready", timeout
+            environment.client.wait_for_attribute_match(
+                flow_id, flow.data, AttributeMatch.equal_to("ready"), timeout
             )
         )
         await environment.client.set_attribute(flow_id, flow.data, "ready")
-        await waiting
+        assert await waiting == "ready"
         waiting_map = asyncio.create_task(
-            environment.client.wait_for_attribute_equal(
-                flow_id, flow.data_map, "special % key", "mapped", timeout
+            environment.client.wait_for_attribute_match(
+                flow_id,
+                flow.data_map,
+                "special % key",
+                AttributeMatch.equal_to("mapped"),
+                timeout,
             )
         )
         await environment.client.set_attribute(
             flow_id, flow.data_map, "special % key", "mapped"
         )
-        await waiting_map
-        with pytest.raises(ValueError, match="only string, boolean, or number values"):
-            await environment.client.wait_for_attribute_equal(
-                flow_id, flow.model, ModelInput(value=1), timeout
+        assert await waiting_map == "mapped"
+        with pytest.raises(
+            ValueError,
+            match="supports only string, boolean, integer, or float operands",
+        ):
+            await environment.client.wait_for_attribute_match(
+                flow_id,
+                flow.model,
+                AttributeMatch.equal_to(ModelInput(value=1)),
+                timeout,
             )
-        with pytest.raises(ValueError, match="only string, boolean, or number values"):
-            await environment.client.wait_for_attribute_equal(
-                flow_id, Attribute("bytes", bytes), b"value", timeout
+        with pytest.raises(
+            ValueError,
+            match="supports only string, boolean, integer, or float operands",
+        ):
+            await environment.client.wait_for_attribute_match(
+                flow_id,
+                Attribute("bytes", bytes),
+                AttributeMatch.equal_to(b"value"),
+                timeout,
             )
-        with pytest.raises(ValueError, match="only string, boolean, or number values"):
-            await environment.client.wait_for_attribute_equal(
-                flow_id, Attribute("null", type(None)), None, timeout
+        with pytest.raises(
+            ValueError,
+            match="supports only string, boolean, integer, or float operands",
+        ):
+            await environment.client.wait_for_attribute_match(
+                flow_id,
+                Attribute("null", type(None)),
+                AttributeMatch.equal_to(None),
+                timeout,
             )

@@ -61,9 +61,9 @@ import io.superdurable.gen.UpdateFlowConfigRequest;
 import io.superdurable.gen.Value;
 import io.superdurable.gen.WaitForFlowRequest;
 import io.superdurable.gen.WaitForStepCompletionRequest;
-import io.superdurable.gen.WaitForAttributeCondition;
-import io.superdurable.gen.WaitForAttributeEqual;
+import io.superdurable.gen.AttributeMatchOperator;
 import io.superdurable.gen.WaitForAttributeRequest;
+import io.superdurable.gen.WaitForAttributeResponse;
 import io.superdurable.gen.WriteStreamRequest;
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
@@ -83,6 +83,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -989,75 +990,104 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Blocks until a singleton Attribute equals the expected value or the wait duration expires.
+     * Blocks until a singleton Attribute satisfies a scalar match or the wait expires.
      *
      * @param flowId the target Flow ID
      * @param attribute the registered Attribute definition
-     * @param expected the expected string, boolean, integer, or floating-point value
+     * @param match the scalar predicate to await
      * @param timeout the nonnegative whole-second wait duration
      * @param <T> the Attribute value type
-     * @throws IllegalArgumentException if the expected value is not a string, Boolean, or number
+     * @return the current Attribute value that satisfied the match
+     * @throws IllegalArgumentException if the match operand or operator is unsupported
      * @throws LongPollTimeoutException if the timeout expires before the value matches
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
      */
-    public <T> void waitForAttributeEqual(
+    public <T> T waitForAttributeMatch(
             final String flowId,
             final Attribute<T> attribute,
-            final T expected,
+            final AttributeMatch<T> match,
             final Duration timeout) {
-        waitForAttributeValue(flowId, attribute, null, expected, timeout);
+        return waitForAttributeValue(
+                flowId, attribute, null, attribute.getValueType(), match, timeout);
     }
 
     /**
-     * Blocks until an AttributeMap instance equals the expected value.
+     * Blocks until an AttributeMap instance satisfies a scalar match.
      *
      * @param flowId the target Flow ID
      * @param attribute the registered Attribute-map definition
      * @param instance the map instance
-     * @param expected the expected string, boolean, integer, or floating-point value
+     * @param match the scalar predicate to await
      * @param timeout the nonnegative whole-second wait duration
      * @param <T> the Attribute value type
-     * @throws IllegalArgumentException if the expected value is not a string, Boolean, or number
+     * @return the current AttributeMap value that satisfied the match
+     * @throws IllegalArgumentException if the match operand or operator is unsupported
      * @throws LongPollTimeoutException if the timeout expires before the value matches
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
      */
-    public <T> void waitForAttributeEqual(
+    public <T> T waitForAttributeMatch(
             final String flowId,
             final AttributeMap<T> attribute,
             final String instance,
-            final T expected,
+            final AttributeMatch<T> match,
             final Duration timeout) {
-        waitForAttributeValue(flowId, attribute, instance, expected, timeout);
+        return waitForAttributeValue(
+                flowId, attribute, instance, attribute.getValueType(), match, timeout);
     }
 
-    private void waitForAttributeValue(
+    private <T> T waitForAttributeValue(
             final String flowId,
             final PersistenceDefinition attribute,
             final String instance,
-            final Object expected,
+            final Class<T> valueType,
+            final AttributeMatch<T> match,
             final Duration timeout) {
-        final Value encoded = values.encode(expected);
-        if (!isPrimitiveValue(encoded)) {
-            throw new IllegalArgumentException(
-                    "waitForAttributeEqual supports only string, Boolean, or number values");
-        }
+        Objects.requireNonNull(match, "match");
+        final Value encoded = values.encode(match.getOperand());
+        validateAttributeMatch(match.getOperator(), encoded);
         final String key = instance == null
                 ? attribute.getName()
                 : Registry.physicalName(attribute.getName(), instance);
-        call(
+        final WaitForAttributeResponse response = call(
                 () -> service.waitForAttribute(WaitForAttributeRequest.newBuilder()
                         .setFlowId(flowId)
-                        .setCondition(WaitForAttributeCondition.newBuilder()
-                                .setEqual(WaitForAttributeEqual.newBuilder()
-                                        .setKey(key)
-                                        .setValue(encoded)))
+                        .setMatch(io.superdurable.gen.AttributeMatch.newBuilder()
+                                .setKey(key)
+                                .setOperator(match.getOperator())
+                                .setOperand(encoded))
                         .setWaitTimeSeconds(seconds32(timeout))
                         .setRequestId(UUID.randomUUID().toString())
                         .build()),
                 FlowTargetRequirement.ACTIVE,
                 flowId);
+        if (!response.hasMatchedValue()) {
+            throw new IllegalStateException("waitForAttributeMatch response is incomplete");
+        }
+        return values.decode(response.getMatchedValue(), valueType);
+    }
+
+    private static void validateAttributeMatch(
+            final AttributeMatchOperator operator,
+            final Value operand) {
+        if (!isPrimitiveValue(operand)) {
+            throw new IllegalArgumentException(
+                    "AttributeMatch supports only string, Boolean, integer, or floating-point operands");
+        }
+        final boolean isOrdering =
+                operator.getNumber()
+                        >= AttributeMatchOperator.ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN.getNumber();
+        if (isOrdering
+                && operand.getKindCase() != Value.KindCase.INT_VALUE
+                && operand.getKindCase() != Value.KindCase.DOUBLE_VALUE) {
+            throw new IllegalArgumentException(
+                    "AttributeMatch ordering requires an integer or floating-point operand");
+        }
+        if (operand.getKindCase() == Value.KindCase.DOUBLE_VALUE
+                && !Double.isFinite(operand.getDoubleValue())) {
+            throw new IllegalArgumentException("AttributeMatch floating-point operand must be finite");
+        }
     }
 
     private static boolean isPrimitiveValue(final Value value) {

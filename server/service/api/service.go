@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -398,7 +399,10 @@ func (s *serviceImpl) isStepExecutionCompleted(
 	return completed, nil
 }
 
-func (s *serviceImpl) WaitForAttribute(ctx context.Context, req *dexpb.WaitForAttributeRequest) (*emptypb.Empty, error) {
+func (s *serviceImpl) WaitForAttribute(
+	ctx context.Context,
+	req *dexpb.WaitForAttributeRequest,
+) (*dexpb.WaitForAttributeResponse, error) {
 	if s.client.GetBackendType() == service.BackendTypeCadence {
 		return nil, status.Errorf(codes.Unimplemented, "WaitForAttribute requires Temporal synchronous update")
 	}
@@ -408,17 +412,19 @@ func (s *serviceImpl) WaitForAttribute(ctx context.Context, req *dexpb.WaitForAt
 	if req.GetRequestId() == "" {
 		return nil, makeInvalidRequestError("request ID is required")
 	}
-	equal := req.GetCondition().GetEqual()
-	if equal == nil || equal.GetKey() == "" || equal.GetValue() == nil ||
-		equal.GetValue().GetKind() == nil {
-		return nil, makeInvalidRequestError("attribute equality key and value are required")
+	match := req.GetMatch()
+	if match == nil || match.GetOperand() == nil {
+		return nil, makeInvalidRequestError("attribute match is required")
 	}
-	if err := workerclient.RejectWorkerBlobIDs(equal.GetValue()); err != nil {
+	if err := workerclient.RejectWorkerBlobIDs(match.GetOperand()); err != nil {
+		return nil, makeInvalidRequestError(err.Error())
+	}
+	if err := validateAttributeMatch(match); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
 	waitCtx, cancel, deadline := s.waitContext(ctx, req.GetWaitTimeSeconds())
 	defer cancel()
-	var response emptypb.Empty
+	var response dexpb.WaitForAttributeResponse
 	backoff := 25 * time.Millisecond
 	originalWaitSeconds := req.GetWaitTimeSeconds()
 	for {
@@ -451,6 +457,40 @@ func (s *serviceImpl) WaitForAttribute(ctx context.Context, req *dexpb.WaitForAt
 			backoff *= 2
 		}
 	}
+}
+
+func validateAttributeMatch(match *dexpb.AttributeMatch) error {
+	if match == nil || match.GetKey() == "" || match.GetOperand() == nil ||
+		match.GetOperand().GetKind() == nil {
+		return fmt.Errorf("attribute match key, operator, and scalar operand are required")
+	}
+	if !isAttributeMatchOperator(match.GetOperator()) {
+		return fmt.Errorf("attribute match operator is invalid")
+	}
+	operand := match.GetOperand()
+	switch operand.GetKind().(type) {
+	case *dexpb.Value_StringValue, *dexpb.Value_BoolValue:
+		if isAttributeOrderingOperator(match.GetOperator()) {
+			return fmt.Errorf("attribute match ordering requires an integer or double operand")
+		}
+	case *dexpb.Value_IntValue:
+	case *dexpb.Value_DoubleValue:
+		if math.IsNaN(operand.GetDoubleValue()) || math.IsInf(operand.GetDoubleValue(), 0) {
+			return fmt.Errorf("attribute match double operand must be finite")
+		}
+	default:
+		return fmt.Errorf("attribute match supports only string, boolean, integer, or double operands")
+	}
+	return nil
+}
+
+func isAttributeMatchOperator(operator dexpb.AttributeMatchOperator) bool {
+	return operator >= dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL &&
+		operator <= dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL
+}
+
+func isAttributeOrderingOperator(operator dexpb.AttributeMatchOperator) bool {
+	return operator >= dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN
 }
 
 func (s *serviceImpl) PublishToChannel(

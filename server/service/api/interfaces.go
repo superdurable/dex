@@ -43,7 +43,10 @@ type ApiService interface {
 		context.Context,
 		*dexpb.WaitForStepCompletionRequest,
 	) (*dexpb.WaitForStepCompletionResponse, error)
-	WaitForAttribute(context.Context, *dexpb.WaitForAttributeRequest) (*emptypb.Empty, error)
+	WaitForAttribute(
+		context.Context,
+		*dexpb.WaitForAttributeRequest,
+	) (*dexpb.WaitForAttributeResponse, error)
 	TriggerContinueAsNew(context.Context, *dexpb.TriggerContinueAsNewRequest) (*emptypb.Empty, error)
 	HealthCheck(context.Context, *emptypb.Empty) (*dexpb.HealthInfo, error)
 	DumpFlowForContinueAsNew(

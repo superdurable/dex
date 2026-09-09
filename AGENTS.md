@@ -83,6 +83,21 @@ Keep the Cursor (`.cursor/rules/`), Codex (`AGENTS.md`), and Claude
 (`CLAUDE.md`) coding-agent rules synchronized. Any addition or modification to
 one requires equivalent updates to all three in the same commit.
 
+### Application-Facing Changes Require Skill Updates
+
+When adding, removing, renaming, or materially changing an application-visible
+API, primitive, feature, design pattern, or operational semantic, update
+`superdurable/skill-dex-developer` in the same work item. Pure internal
+refactors and fixes that preserve application behavior do not trigger this rule.
+
+Commit Dex first. Then advance the skill repository's `DEX_BASELINE` to that
+exact commit, refresh pinned source links, update affected core and all five
+language references, and update the version, changelog, and plugin manifests.
+Run every skill repository validator before completion.
+
+If the skill repository is unavailable or contains work that cannot be safely
+merged, do not mark the feature complete. Report the blocker explicitly.
+
 ### Temporal Skill Routing
 
 - In this repository, use the `temporal-developer` skill only when changing or

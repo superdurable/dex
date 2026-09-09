@@ -302,12 +302,16 @@ Every Condition in `AnyComboOf` must use `WithConditionID`. Reusing the same
 Condition value across combinations is supported, while duplicate IDs on
 distinct Conditions are rejected.
 
-Clients wait on singleton Attribute equality in the current run with
-`WaitForAttributeEqual` or `WaitForAttributeMapInstanceEqual`. Client-side map
-reads and writes use `GetAttributeMapInstance` and `SetAttributeMapInstance`.
-Every AttributeMap and ChannelMap instance must be non-empty and must not contain `/`.
-Expected values must encode as string, bool, integer, or double; JSON, bytes,
-and null fail before the RPC is sent.
+Clients wait on typed scalar comparisons in the current run with
+`WaitForAttributeMatch` or `WaitForAttributeMapInstanceMatch`. Build matches
+with `AttributeMatchEqual`, `AttributeMatchNotEqual`,
+`AttributeMatchGreaterThan`, `AttributeMatchGreaterThanOrEqual`,
+`AttributeMatchLessThan`, or `AttributeMatchLessThanOrEqual`. The matched value
+is decoded into the output pointer. String and bool support equality operators;
+integers and doubles support every operator. Client-side map reads and writes
+use `GetAttributeMapInstance` and `SetAttributeMapInstance`. Every AttributeMap
+and ChannelMap instance must be non-empty and must not contain `/`. Objects,
+bytes, null, non-finite doubles, and invalid ordering fail before the RPC.
 
 Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and

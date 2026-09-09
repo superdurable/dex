@@ -201,7 +201,7 @@ class FlowServiceStub:
         self.WaitForAttribute = channel.unary_unary(
                 '/dex.FlowService/WaitForAttribute',
                 request_serializer=dex__pb2.WaitForAttributeRequest.SerializeToString,
-                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                response_deserializer=dex__pb2.WaitForAttributeResponse.FromString,
                 _registered_method=True)
         self.TriggerContinueAsNew = channel.unary_unary(
                 '/dex.FlowService/TriggerContinueAsNew',
@@ -537,7 +537,7 @@ def add_FlowServiceServicer_to_server(servicer, server):
             'WaitForAttribute': grpc.unary_unary_rpc_method_handler(
                     servicer.WaitForAttribute,
                     request_deserializer=dex__pb2.WaitForAttributeRequest.FromString,
-                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+                    response_serializer=dex__pb2.WaitForAttributeResponse.SerializeToString,
             ),
             'TriggerContinueAsNew': grpc.unary_unary_rpc_method_handler(
                     servicer.TriggerContinueAsNew,
@@ -1223,7 +1223,7 @@ class FlowService:
             target,
             '/dex.FlowService/WaitForAttribute',
             dex__pb2.WaitForAttributeRequest.SerializeToString,
-            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            dex__pb2.WaitForAttributeResponse.FromString,
             options,
             channel_credentials,
             insecure,

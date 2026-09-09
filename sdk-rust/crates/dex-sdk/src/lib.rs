@@ -15,6 +15,7 @@
 #![deny(missing_docs)]
 
 mod attribute;
+mod attribute_match;
 mod channel;
 mod client;
 mod client_options;
@@ -49,6 +50,7 @@ mod worker_options;
 mod worker_output;
 
 pub use attribute::{Attribute, AttributeIndex, AttributeMap, AttributeMapLoad};
+pub use attribute_match::AttributeMatch;
 pub use channel::{Channel, ChannelGuard, ChannelMap, ChannelMapLoad, ChannelMessage};
 pub use client::Client;
 pub use client_options::ClientOptions;

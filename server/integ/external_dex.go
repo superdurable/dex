@@ -27,7 +27,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type externalDexFlowClient struct {
@@ -177,7 +176,7 @@ func (client *externalDexFlowClient) WaitForAttribute(
 	ctx context.Context,
 	request *dexpb.WaitForAttributeRequest,
 	options ...grpc.CallOption,
-) (*emptypb.Empty, error) {
+) (*dexpb.WaitForAttributeResponse, error) {
 	request.WaitTimeSeconds = client.capPositiveWaitSeconds(request.WaitTimeSeconds)
 	return client.FlowServiceClient.WaitForAttribute(ctx, request, options...)
 }

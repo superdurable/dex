@@ -230,11 +230,13 @@ func waitForOrderStatus(
 	client *dex.Client,
 	flowID string,
 ) error {
-	return client.WaitForAttributeEqual(
+	var matched string
+	return client.WaitForAttributeMatch(
 		ctx,
 		flowID,
 		OrderStatus,
-		"shipped",
+		dex.AttributeMatchEqual("shipped"),
+		&matched,
 	)
 }
 
@@ -243,12 +245,14 @@ func waitForItemQuantity(
 	client *dex.Client,
 	flowID string,
 ) error {
-	return client.WaitForAttributeMapInstanceEqual(
+	var matched int
+	return client.WaitForAttributeMapInstanceMatch(
 		ctx,
 		flowID,
 		ItemQuantities,
 		"sku-1",
-		3,
+		dex.AttributeMatchEqual(3),
+		&matched,
 	)
 }
 

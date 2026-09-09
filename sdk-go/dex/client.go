@@ -1508,59 +1508,72 @@ func (client *Client) setAttributes(
 	return translateRPCError(err, "SetAttributes", flowID, flowTargetActive)
 }
 
-// WaitForAttributeEqual blocks until a singleton Attribute equals expected.
+// WaitForAttributeMatch blocks until a singleton Attribute satisfies match.
 //
-// expected must match the registered Attribute type. A nil error means equality was observed. LongPollTimeoutError
-// means the condition was not observed and the call may be repeated. Validation,
-// serialization, inactive-Flow, context, transport, and server failures also return errors. Use
+// match must contain an operand matching the registered Attribute type. The
+// matched current value is decoded into valuePtr before this method returns.
+// valuePtr must be a non-nil pointer of the registered type. LongPollTimeoutError
+// means no match was observed and the call may be repeated. Use
 // context.WithTimeout or context.WithDeadline for a shorter Go-side wait.
-func (client *Client) WaitForAttributeEqual(
+func (client *Client) WaitForAttributeMatch(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
-	expected any,
+	match AttributeMatchDef,
+	valuePtr any,
 ) error {
-	return client.waitForAttributeEqual(
+	return client.waitForAttributeMatch(
 		ctx,
 		flowID,
 		attribute,
 		"",
 		false,
-		expected,
+		match,
+		valuePtr,
 	)
 }
 
-// WaitForAttributeMapInstanceEqual blocks until one AttributeMap instance equals expected.
+// WaitForAttributeMapInstanceMatch blocks until one AttributeMap instance satisfies match.
 //
-// instance identifies the map entry. Slash is prohibited in instance keys because it is a reserved character.
-// expected must match the registered type. A nil error means equality was observed. LongPollTimeoutError is retryable. Use context.WithTimeout or
-// context.WithDeadline for a shorter Go-side wait.
-func (client *Client) WaitForAttributeMapInstanceEqual(
+// instance identifies the map entry. Slash is prohibited because it is reserved.
+// The matched current value is decoded into valuePtr. The match operand and
+// valuePtr must use the registered AttributeMap value type. LongPollTimeoutError
+// is retryable. Use context.WithTimeout or context.WithDeadline for a shorter wait.
+func (client *Client) WaitForAttributeMapInstanceMatch(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
 	instance string,
-	expected any,
+	match AttributeMatchDef,
+	valuePtr any,
 ) error {
-	return client.waitForAttributeEqual(
+	return client.waitForAttributeMatch(
 		ctx,
 		flowID,
 		attribute,
 		instance,
 		true,
-		expected,
+		match,
+		valuePtr,
 	)
 }
 
-func (client *Client) waitForAttributeEqual(
+func (client *Client) waitForAttributeMatch(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
 	instance string,
 	isMap bool,
-	expected any,
+	match AttributeMatchDef,
+	valuePtr any,
 ) error {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
+		return err
+	}
+	if match == nil {
+		return fmt.Errorf("dex: AttributeMatch is required")
+	}
+	if _, err := decodeTarget(valuePtr); err != nil {
 		return err
 	}
 	registered, err := client.registry.resolveAttribute(attribute, isMap)
@@ -1571,23 +1584,23 @@ func (client *Client) waitForAttributeEqual(
 	if err != nil {
 		return err
 	}
-	encoded, err := encodeValue(expected)
+	encoded, err := encodeValue(match.attributeMatchOperand())
 	if err != nil {
 		return err
 	}
-	if !isPrimitiveValue(encoded) {
-		return fmt.Errorf("dex: WaitForAttributeEqual supports only string, boolean, or number values")
+	if err := validateEncodedAttributeMatch(match.attributeMatchOperator(), encoded); err != nil {
+		return err
 	}
 	requestID, err := newRequestID()
 	if err != nil {
 		return err
 	}
-	_, err = client.service.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+	response, err := client.service.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
 		FlowId: flowID,
-		Condition: &dexpb.WaitForAttributeCondition{
-			Kind: &dexpb.WaitForAttributeCondition_Equal{
-				Equal: &dexpb.WaitForAttributeEqual{Key: name, Value: encoded},
-			},
+		Match: &dexpb.AttributeMatch{
+			Key:      name,
+			Operator: match.attributeMatchOperator(),
+			Operand:  encoded,
 		},
 		WaitTimeSeconds: serverCappedLongPollSeconds,
 		RequestId:       requestID,
@@ -1595,7 +1608,10 @@ func (client *Client) waitForAttributeEqual(
 	if err != nil {
 		return translateWaitRPCError(ctx, err, "WaitForAttribute", flowID, flowTargetActive)
 	}
-	return nil
+	if response.GetMatchedValue() == nil {
+		return fmt.Errorf("dex: WaitForAttribute response is incomplete")
+	}
+	return decodeValue(response.GetMatchedValue(), valuePtr)
 }
 
 func translateWaitRPCError(

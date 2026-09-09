@@ -12,6 +12,7 @@ package interpreter
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -20,11 +21,9 @@ import (
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/event"
 	"github.com/superdurable/dex/service/common/rpc"
-	"github.com/superdurable/dex/service/common/utils"
 	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/cont"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -126,11 +125,11 @@ type stepCompletionWait struct {
 }
 
 type attributeWait struct {
-	updater  *WorkflowUpdater
-	request  *dexpb.WaitForAttributeRequest
-	deadline time.Time
-	matched  bool
-	matchErr error
+	updater      *WorkflowUpdater
+	request      *dexpb.WaitForAttributeRequest
+	deadline     time.Time
+	matchedValue *dexpb.Value
+	matchErr     error
 }
 
 func (u *WorkflowUpdater) handleWorkerRpc(
@@ -462,10 +461,10 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 	if err := u.rejectTerminalUpdate(); err != nil {
 		return err
 	}
-	if request == nil || request.GetCondition() == nil {
+	if request == nil || request.GetMatch() == nil {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
-			"attribute condition is required",
+			"attribute match is required",
 		)
 	}
 	if request.GetWaitTimeSeconds() < 0 {
@@ -474,19 +473,24 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 			"wait time must be non-negative",
 		)
 	}
-	equal, ok := request.GetCondition().GetKind().(*dexpb.WaitForAttributeCondition_Equal)
-	if !ok || equal.Equal == nil || equal.Equal.GetKey() == "" ||
-		equal.Equal.GetValue() == nil || equal.Equal.GetValue().GetKind() == nil {
+	match := request.GetMatch()
+	if match.GetKey() == "" || match.GetOperand() == nil || match.GetOperand().GetKind() == nil {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
-			"valid attribute equality is required",
+			"attribute match key, operator, and scalar operand are required",
 		)
 	}
 	// TODO: hydrate blob-backed attributes deterministically without losing concurrent writes.
-	if isBlobValue(equal.Equal.GetValue()) {
+	if isBlobValue(match.GetOperand()) {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_FAILED_PRECONDITION,
 			"blob-backed WaitForAttribute values are not supported",
+		)
+	}
+	if err := validateAttributeMatch(match); err != nil {
+		return u.provider.NewUpdateError(
+			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
+			err.Error(),
 		)
 	}
 	return nil
@@ -505,7 +509,7 @@ func (u *WorkflowUpdater) rejectTerminalUpdate() error {
 func (u *WorkflowUpdater) handleWaitForAttribute(
 	ctx interfaces.UnifiedContext,
 	request *dexpb.WaitForAttributeRequest,
-) (*emptypb.Empty, error) {
+) (*dexpb.WaitForAttributeResponse, error) {
 	u.continueAsNewer.IncreaseInflightOperation()
 	defer u.continueAsNewer.DecreaseInflightOperation()
 	wait := &attributeWait{
@@ -513,7 +517,7 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 		request:  request,
 		deadline: workflowDeadline(u.provider.Now(ctx), request.GetWaitTimeSeconds()),
 	}
-	isReady := func() bool { return wait.ready(ctx) }
+	isReady := func() bool { return wait.isReady(ctx) }
 	if !isReady() && request.GetWaitTimeSeconds() > 0 {
 		if err := u.provider.Await(ctx, isReady); err != nil {
 			return nil, err
@@ -525,8 +529,8 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 			wait.matchErr.Error(),
 		)
 	}
-	if wait.matched {
-		return &emptypb.Empty{}, nil
+	if wait.matchedValue != nil {
+		return &dexpb.WaitForAttributeResponse{MatchedValue: wait.matchedValue}, nil
 	}
 	if deadlinePassed(u.provider.Now(ctx), wait.deadline) ||
 		request.GetWaitTimeSeconds() == 0 {
@@ -541,29 +545,36 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 	)
 }
 
-func (w *attributeWait) ready(ctx interfaces.UnifiedContext) bool {
-	w.matched, w.matchErr = w.updater.attributeMatches(w.request)
-	return w.matched ||
+func (w *attributeWait) isReady(ctx interfaces.UnifiedContext) bool {
+	w.matchedValue, w.matchErr = w.updater.matchAttribute(w.request)
+	return w.matchedValue != nil ||
 		w.matchErr != nil ||
 		w.updater.continueAsNewCounter.IsThresholdMet() ||
 		deadlinePassed(w.updater.provider.Now(ctx), w.deadline)
 }
 
-func (u *WorkflowUpdater) attributeMatches(
+func (u *WorkflowUpdater) matchAttribute(
 	request *dexpb.WaitForAttributeRequest,
-) (bool, error) {
-	equal := request.GetCondition().GetEqual()
-	current, exists := u.persistenceManager.GetAttribute(equal.GetKey())
-	if utils.IsNullValue(equal.GetValue()) {
-		return !exists || utils.IsNullValue(current), nil
-	}
+) (*dexpb.Value, error) {
+	match := request.GetMatch()
+	current, exists := u.persistenceManager.GetAttribute(match.GetKey())
 	if !exists {
-		return false, nil
+		return nil, nil
 	}
 	if isBlobValue(current) {
-		return false, fmt.Errorf("stored attribute %q is blob-backed", equal.GetKey())
+		return nil, fmt.Errorf("stored attribute %q is blob-backed", match.GetKey())
 	}
-	return attributeValuesEqual(current, equal.GetValue()), nil
+	if err := validateStoredAttributeMatchValue(current); err != nil {
+		return nil, fmt.Errorf("stored attribute %q: %w", match.GetKey(), err)
+	}
+	isMatched, err := attributeValuesMatch(current, match.GetOperator(), match.GetOperand())
+	if err != nil {
+		return nil, err
+	}
+	if !isMatched {
+		return nil, nil
+	}
+	return current, nil
 }
 
 func isBlobValue(value *dexpb.Value) bool {
@@ -590,6 +601,117 @@ func deadlinePassed(now, deadline time.Time) bool {
 	return now.After(deadline)
 }
 
-func attributeValuesEqual(left, right *dexpb.Value) bool {
-	return proto.Equal(left, right)
+func validateAttributeMatch(match *dexpb.AttributeMatch) error {
+	if !isAttributeMatchOperator(match.GetOperator()) {
+		return fmt.Errorf("attribute match operator is invalid")
+	}
+	switch match.GetOperand().GetKind().(type) {
+	case *dexpb.Value_StringValue, *dexpb.Value_BoolValue:
+		if isAttributeOrderingOperator(match.GetOperator()) {
+			return fmt.Errorf("attribute match ordering requires an integer or double operand")
+		}
+	case *dexpb.Value_IntValue:
+	case *dexpb.Value_DoubleValue:
+		if !isFiniteDouble(match.GetOperand().GetDoubleValue()) {
+			return fmt.Errorf("attribute match double operand must be finite")
+		}
+	default:
+		return fmt.Errorf("attribute match supports only string, boolean, integer, or double operands")
+	}
+	return nil
+}
+
+func attributeValuesMatch(
+	current *dexpb.Value,
+	operator dexpb.AttributeMatchOperator,
+	operand *dexpb.Value,
+) (bool, error) {
+	switch operandKind := operand.GetKind().(type) {
+	case *dexpb.Value_StringValue:
+		currentKind, ok := current.GetKind().(*dexpb.Value_StringValue)
+		if !ok {
+			return false, nil
+		}
+		return equalityMatches(currentKind.StringValue == operandKind.StringValue, operator), nil
+	case *dexpb.Value_BoolValue:
+		currentKind, ok := current.GetKind().(*dexpb.Value_BoolValue)
+		if !ok {
+			return false, nil
+		}
+		return equalityMatches(currentKind.BoolValue == operandKind.BoolValue, operator), nil
+	case *dexpb.Value_IntValue:
+		currentKind, ok := current.GetKind().(*dexpb.Value_IntValue)
+		if !ok {
+			return false, nil
+		}
+		return orderedValuesMatch(currentKind.IntValue, operandKind.IntValue, operator), nil
+	case *dexpb.Value_DoubleValue:
+		currentKind, ok := current.GetKind().(*dexpb.Value_DoubleValue)
+		if !ok {
+			return false, nil
+		}
+		if !isFiniteDouble(currentKind.DoubleValue) {
+			return false, fmt.Errorf("stored double attribute is not finite")
+		}
+		return orderedValuesMatch(currentKind.DoubleValue, operandKind.DoubleValue, operator), nil
+	default:
+		return false, fmt.Errorf("attribute match operand kind is invalid")
+	}
+}
+
+func validateStoredAttributeMatchValue(value *dexpb.Value) error {
+	switch value.GetKind().(type) {
+	case *dexpb.Value_StringValue, *dexpb.Value_BoolValue, *dexpb.Value_IntValue:
+		return nil
+	case *dexpb.Value_DoubleValue:
+		if !isFiniteDouble(value.GetDoubleValue()) {
+			return fmt.Errorf("double value is not finite")
+		}
+		return nil
+	default:
+		return fmt.Errorf("value must be a string, boolean, integer, or double")
+	}
+}
+
+func equalityMatches(isEqual bool, operator dexpb.AttributeMatchOperator) bool {
+	if operator == dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL {
+		return isEqual
+	}
+	return !isEqual
+}
+
+func orderedValuesMatch[T int64 | float64](
+	current T,
+	operand T,
+	operator dexpb.AttributeMatchOperator,
+) bool {
+	switch operator {
+	case dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL:
+		return current == operand
+	case dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL:
+		return current != operand
+	case dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN:
+		return current > operand
+	case dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL:
+		return current >= operand
+	case dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_LESS_THAN:
+		return current < operand
+	case dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL:
+		return current <= operand
+	default:
+		return false
+	}
+}
+
+func isAttributeMatchOperator(operator dexpb.AttributeMatchOperator) bool {
+	return operator >= dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL &&
+		operator <= dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL
+}
+
+func isAttributeOrderingOperator(operator dexpb.AttributeMatchOperator) bool {
+	return operator >= dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN
+}
+
+func isFiniteDouble(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }

@@ -327,9 +327,11 @@ non-empty user ID; the same Condition instance may appear in multiple
 combinations.
 
 Both `Client` and `AsyncClient` provide singleton and AttributeMap-instance
-overloads of `wait_for_attribute_equal`. They target the current run and accept
-only string, bool, int, or float wire values. JSON objects, bytes, and null fail
-before transport. Every AttributeMap and ChannelMap instance must be non-empty
+overloads of `wait_for_attribute_match`. Build matches with the six
+`AttributeMatch` factories. The method targets the current run and returns the
+decoded matched value. String and bool support equality operators; int and
+float support every operator. JSON objects, bytes, null, non-finite floats, and
+invalid ordering fail before transport. Every AttributeMap and ChannelMap instance must be non-empty
 and must not contain `/`. `AttributeMap.get_map_size/get_all_instance_keys` include
 buffered sets and deletes. The matching `ChannelMap` methods are RPC-only,
 include buffered publishes, and omit empty instances. Keys are decoded and

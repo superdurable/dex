@@ -701,28 +701,28 @@ public final class FlowServiceGrpc {
   }
 
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.WaitForAttributeRequest,
-      com.google.protobuf.Empty> getWaitForAttributeMethod;
+      io.superdurable.gen.WaitForAttributeResponse> getWaitForAttributeMethod;
 
   @io.grpc.stub.annotations.RpcMethod(
       fullMethodName = SERVICE_NAME + '/' + "WaitForAttribute",
       requestType = io.superdurable.gen.WaitForAttributeRequest.class,
-      responseType = com.google.protobuf.Empty.class,
+      responseType = io.superdurable.gen.WaitForAttributeResponse.class,
       methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
   public static io.grpc.MethodDescriptor<io.superdurable.gen.WaitForAttributeRequest,
-      com.google.protobuf.Empty> getWaitForAttributeMethod() {
-    io.grpc.MethodDescriptor<io.superdurable.gen.WaitForAttributeRequest, com.google.protobuf.Empty> getWaitForAttributeMethod;
+      io.superdurable.gen.WaitForAttributeResponse> getWaitForAttributeMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.WaitForAttributeRequest, io.superdurable.gen.WaitForAttributeResponse> getWaitForAttributeMethod;
     if ((getWaitForAttributeMethod = FlowServiceGrpc.getWaitForAttributeMethod) == null) {
       synchronized (FlowServiceGrpc.class) {
         if ((getWaitForAttributeMethod = FlowServiceGrpc.getWaitForAttributeMethod) == null) {
           FlowServiceGrpc.getWaitForAttributeMethod = getWaitForAttributeMethod =
-              io.grpc.MethodDescriptor.<io.superdurable.gen.WaitForAttributeRequest, com.google.protobuf.Empty>newBuilder()
+              io.grpc.MethodDescriptor.<io.superdurable.gen.WaitForAttributeRequest, io.superdurable.gen.WaitForAttributeResponse>newBuilder()
               .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
               .setFullMethodName(generateFullMethodName(SERVICE_NAME, "WaitForAttribute"))
               .setSampledToLocalTracing(true)
               .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
                   io.superdurable.gen.WaitForAttributeRequest.getDefaultInstance()))
               .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
-                  com.google.protobuf.Empty.getDefaultInstance()))
+                  io.superdurable.gen.WaitForAttributeResponse.getDefaultInstance()))
               .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("WaitForAttribute"))
               .build();
         }
@@ -1001,7 +1001,7 @@ public final class FlowServiceGrpc {
     /**
      */
     default void waitForAttribute(io.superdurable.gen.WaitForAttributeRequest request,
-        io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
+        io.grpc.stub.StreamObserver<io.superdurable.gen.WaitForAttributeResponse> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getWaitForAttributeMethod(), responseObserver);
     }
 
@@ -1232,7 +1232,7 @@ public final class FlowServiceGrpc {
     /**
      */
     public void waitForAttribute(io.superdurable.gen.WaitForAttributeRequest request,
-        io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
+        io.grpc.stub.StreamObserver<io.superdurable.gen.WaitForAttributeResponse> responseObserver) {
       io.grpc.stub.ClientCalls.asyncUnaryCall(
           getChannel().newCall(getWaitForAttributeMethod(), getCallOptions()), request, responseObserver);
     }
@@ -1429,7 +1429,7 @@ public final class FlowServiceGrpc {
 
     /**
      */
-    public com.google.protobuf.Empty waitForAttribute(io.superdurable.gen.WaitForAttributeRequest request) {
+    public io.superdurable.gen.WaitForAttributeResponse waitForAttribute(io.superdurable.gen.WaitForAttributeRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getWaitForAttributeMethod(), getCallOptions(), request);
     }
@@ -1646,7 +1646,7 @@ public final class FlowServiceGrpc {
 
     /**
      */
-    public com.google.common.util.concurrent.ListenableFuture<com.google.protobuf.Empty> waitForAttribute(
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.WaitForAttributeResponse> waitForAttribute(
         io.superdurable.gen.WaitForAttributeRequest request) {
       return io.grpc.stub.ClientCalls.futureUnaryCall(
           getChannel().newCall(getWaitForAttributeMethod(), getCallOptions()), request);
@@ -1802,7 +1802,7 @@ public final class FlowServiceGrpc {
           break;
         case METHODID_WAIT_FOR_ATTRIBUTE:
           serviceImpl.waitForAttribute((io.superdurable.gen.WaitForAttributeRequest) request,
-              (io.grpc.stub.StreamObserver<com.google.protobuf.Empty>) responseObserver);
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.WaitForAttributeResponse>) responseObserver);
           break;
         case METHODID_TRIGGER_CONTINUE_AS_NEW:
           serviceImpl.triggerContinueAsNew((io.superdurable.gen.TriggerContinueAsNewRequest) request,
@@ -1989,7 +1989,7 @@ public final class FlowServiceGrpc {
           io.grpc.stub.ServerCalls.asyncUnaryCall(
             new MethodHandlers<
               io.superdurable.gen.WaitForAttributeRequest,
-              com.google.protobuf.Empty>(
+              io.superdurable.gen.WaitForAttributeResponse>(
                 service, METHODID_WAIT_FOR_ATTRIBUTE)))
         .addMethod(
           getTriggerContinueAsNewMethod(),

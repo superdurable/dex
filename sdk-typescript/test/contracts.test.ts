@@ -14,6 +14,7 @@ import test from "node:test";
 
 import {
   Attribute,
+  AttributeMatch,
   AttributeMap,
   AttributeMapNotLoadedError,
   Channel,
@@ -978,12 +979,17 @@ async function compileStrongTypes(client: Client): Promise<void> {
     "order-1",
     { orderId: "order-1" },
   );
-  await client.waitForAttributeEqual("order-1", status, "ready", 30_000);
-  await client.waitForAttributeEqual(
+  const matchedStatus: string = await client.waitForAttributeMatch(
+    "order-1",
+    status,
+    AttributeMatch.equalTo("ready"),
+    30_000,
+  );
+  const matchedItem: string = await client.waitForAttributeMatch(
     "order-1",
     new AttributeMap("items", stringCodec),
     "one",
-    "ready",
+    AttributeMatch.equalTo("ready"),
     30_000,
   );
   await client.writeStream("order-1", progress, "frontend/1", "starting");
@@ -991,6 +997,8 @@ async function compileStrongTypes(client: Client): Promise<void> {
   const progressValue: string = progressMessage.value;
   void runId;
   void output;
+  void matchedStatus;
+  void matchedItem;
   void progressValue;
 
   // @ts-expect-error wrong Flow input

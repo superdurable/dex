@@ -22,9 +22,8 @@ use dex_protocol::dex::{
     ReadStreamRequest, ResetFlowRequest, SearchFlowsRequest, SetAttributesRequest,
     SkipTimerRequest, StartFlowRequest, StepDurability as ProtoStepDurability, StopFlowRequest,
     StopType as ProtoStopType, TriggerContinueAsNewRequest, UpdateFlowConfigRequest,
-    WaitForAttributeCondition, WaitForAttributeEqual, WaitForAttributeRequest, WaitForFlowRequest,
-    WaitForStepCompletionRequest, WorkerTarget as ProtoWorkerTarget, WriteStreamRequest,
-    wait_for_attribute_condition,
+    WaitForAttributeRequest, WaitForFlowRequest, WaitForStepCompletionRequest,
+    WorkerTarget as ProtoWorkerTarget, WriteStreamRequest,
 };
 use tokio::runtime::Runtime;
 use tonic::transport::Endpoint;
@@ -37,9 +36,9 @@ use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
 use crate::worker_dispatcher::{map_flow_timeout_handler_options, map_step_options};
 use crate::{
-    ActiveStepSearchMode, Attribute, AttributeMap, BlobCache, Channel, ChannelMap, ChannelMessage,
-    ClientOptions, Flow, FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus,
-    FlowTimeoutPolicy, IdReusePolicy, Registry, RetryPolicy, Rpc, SdkError, SdkResult,
+    ActiveStepSearchMode, Attribute, AttributeMap, AttributeMatch, BlobCache, Channel, ChannelMap,
+    ChannelMessage, ClientOptions, Flow, FlowConfig, FlowErrorType, FlowInfo, FlowResult,
+    FlowStatus, FlowTimeoutPolicy, IdReusePolicy, Registry, RetryPolicy, Rpc, SdkError, SdkResult,
     SearchFlowEntry, SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability,
     StepExecutionId, StopFlowOptions, Stream, StreamMessage, TimeTravelOptions, TimerId, Value,
     WorkerTarget,
@@ -733,37 +732,38 @@ impl Client {
         )
     }
 
-    /// Blocks until a singleton Attribute in the current run equals `expected`.
+    /// Blocks until a singleton Attribute in the current run satisfies `attribute_match`.
     ///
-    /// String, bool, integer, and double values are supported. Object, bytes,
-    /// and null values return [`SdkError::InvalidArgument`] before transport.
-    /// A server-side expiry returns [`SdkError::LongPollTimeout`].
-    pub fn wait_for_attribute_equal<T: Value>(
+    /// Returns the current value observed by the successful wait. String and
+    /// Boolean Attributes support equality matches. Integer and floating-point
+    /// Attributes support every match. A server-side expiry returns
+    /// [`SdkError::LongPollTimeout`].
+    pub fn wait_for_attribute_match<T: Value>(
         &self,
         flow_id: &str,
         attribute: &Attribute<T>,
-        expected: T,
+        attribute_match: AttributeMatch<T>,
         timeout: Duration,
-    ) -> SdkResult<()> {
-        self.wait_for_attribute_value(flow_id, attribute.name(), &expected, timeout)
+    ) -> SdkResult<T> {
+        self.wait_for_attribute_value(flow_id, attribute.name(), &attribute_match, timeout)
     }
 
-    /// Blocks until one AttributeMap instance equals `expected`.
+    /// Blocks until one AttributeMap instance satisfies `attribute_match`.
     ///
-    /// This targets the current run and otherwise has the same primitive-value,
-    /// timeout, request-ID, and error behavior as `wait_for_attribute_equal`.
-    pub fn wait_for_attribute_map_instance_equal<T: Value>(
+    /// This targets the current run and otherwise has the same match, timeout,
+    /// request-ID, return-value, and error behavior as [`Self::wait_for_attribute_match`].
+    pub fn wait_for_attribute_map_instance_match<T: Value>(
         &self,
         flow_id: &str,
         attribute: &AttributeMap<T>,
         instance: &str,
-        expected: T,
+        attribute_match: AttributeMatch<T>,
         timeout: Duration,
-    ) -> SdkResult<()> {
+    ) -> SdkResult<T> {
         self.wait_for_attribute_value(
             flow_id,
             &map_physical_name(attribute.name(), instance)?,
-            &expected,
+            &attribute_match,
             timeout,
         )
     }
@@ -772,45 +772,37 @@ impl Client {
         &self,
         flow_id: &str,
         key: &str,
-        expected: &T,
+        attribute_match: &AttributeMatch<T>,
         timeout: Duration,
-    ) -> SdkResult<()> {
-        let value = value_mapper::encode(expected)?;
-        if !matches!(
-            value.kind,
-            Some(dex_protocol::dex::value::Kind::StringValue(_))
-                | Some(dex_protocol::dex::value::Kind::BoolValue(_))
-                | Some(dex_protocol::dex::value::Kind::IntValue(_))
-                | Some(dex_protocol::dex::value::Kind::DoubleValue(_))
-        ) {
-            return Err(invalid(
-                "wait_for_attribute_equal supports only string, boolean, or number values",
-            ));
-        }
+    ) -> SdkResult<T> {
+        let mut encoded_match = attribute_match.encode()?;
+        encoded_match.key = key.to_string();
         let wait_time_seconds = seconds32(timeout)?;
-        self.call_empty(
-            "wait_for_attribute_equal",
-            Some(flow_id),
-            FlowTargetRequirement::Active,
-            |mut service| async move {
-                service
-                    .wait_for_attribute(WaitForAttributeRequest {
-                        flow_id: flow_id.to_string(),
-                        run_id: String::new(),
-                        condition: Some(WaitForAttributeCondition {
-                            kind: Some(wait_for_attribute_condition::Kind::Equal(
-                                WaitForAttributeEqual {
-                                    key: key.to_string(),
-                                    value: Some(value),
-                                },
-                            )),
-                        }),
-                        wait_time_seconds,
-                        request_id: Uuid::new_v4().to_string(),
-                    })
-                    .await
-            },
-        )
+        let mut service = self.service.clone();
+        let response = self
+            .runtime
+            .block_on(service.wait_for_attribute(WaitForAttributeRequest {
+                flow_id: flow_id.to_string(),
+                r#match: Some(encoded_match),
+                wait_time_seconds,
+                request_id: Uuid::new_v4().to_string(),
+            }))
+            .map_err(|status| {
+                SdkError::from_status(
+                    status,
+                    "wait_for_attribute_match",
+                    Some(flow_id),
+                    FlowTargetRequirement::Active,
+                )
+            })?
+            .into_inner();
+        let matched_value = response.matched_value.ok_or_else(|| SdkError::Service {
+            service: ServiceError::local(
+                "wait_for_attribute_match",
+                "WaitForAttribute response is incomplete",
+            ),
+        })?;
+        value_mapper::decode(&matched_value)
     }
 
     /// Replaces mutable runtime configuration fields on an active Flow.

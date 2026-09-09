@@ -95,7 +95,7 @@ service FlowService {
   rpc SkipTimer(SkipTimerRequest) returns (google.protobuf.Empty);
   rpc UpdateFlowConfig(UpdateFlowConfigRequest) returns (google.protobuf.Empty);
   rpc WaitForStepCompletion(WaitForStepCompletionRequest) returns (WaitForStepCompletionResponse);
-  rpc WaitForAttribute(WaitForAttributeRequest) returns (google.protobuf.Empty);
+  rpc WaitForAttribute(WaitForAttributeRequest) returns (WaitForAttributeResponse);
   rpc TriggerContinueAsNew(TriggerContinueAsNewRequest) returns (google.protobuf.Empty);
   rpc HealthCheck(google.protobuf.Empty) returns (HealthInfo);
 }
@@ -875,23 +875,31 @@ message WaitForStepCompletionResponse {}
 
 message WaitForAttributeRequest {
   string flow_id = 1;
-  string run_id = 2;
-  WaitForAttributeCondition condition = 3;
+  AttributeMatch match = 2;
   // Zero/omit checks once; positive waits until match or timeout.
-  int32 wait_time_seconds = 4;
+  int32 wait_time_seconds = 3;
   // Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
-  string request_id = 5;
+  string request_id = 4;
 }
 
-message WaitForAttributeCondition {
-  oneof kind {
-    WaitForAttributeEqual equal = 1;
-  }
+message WaitForAttributeResponse {
+  Value matched_value = 1;
 }
 
-message WaitForAttributeEqual {
+message AttributeMatch {
   string key = 1;
-  Value value = 2;
+  AttributeMatchOperator operator = 2;
+  Value operand = 3;
+}
+
+enum AttributeMatchOperator {
+  ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED = 0;
+  ATTRIBUTE_MATCH_OPERATOR_EQUAL = 1;
+  ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL = 2;
+  ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN = 3;
+  ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL = 4;
+  ATTRIBUTE_MATCH_OPERATOR_LESS_THAN = 5;
+  ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL = 6;
 }
 
 message TriggerContinueAsNewRequest {

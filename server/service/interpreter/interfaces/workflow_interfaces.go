@@ -191,7 +191,7 @@ type (
 	WaitForStepCompletionUpdateHandler   func(ctx UnifiedContext, req *dexpb.WaitForStepCompletionRequest) (*dexpb.WaitForStepCompletionResponse, error)
 
 	WaitForAttributeUpdateValidator func(ctx UnifiedContext, req *dexpb.WaitForAttributeRequest) error
-	WaitForAttributeUpdateHandler   func(ctx UnifiedContext, req *dexpb.WaitForAttributeRequest) (*emptypb.Empty, error)
+	WaitForAttributeUpdateHandler   func(ctx UnifiedContext, req *dexpb.WaitForAttributeRequest) (*dexpb.WaitForAttributeResponse, error)
 )
 
 type ReceiveChannel interface {

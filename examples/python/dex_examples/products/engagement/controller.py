@@ -19,6 +19,8 @@ from datetime import timedelta
 
 from quart import Blueprint, Response, jsonify
 
+from dex import AttributeMatch
+
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.shared.query import (
@@ -44,10 +46,10 @@ def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
             input,
             start_options(),
         )
-        await app_state.client.wait_for_attribute_equal(
+        await app_state.client.wait_for_attribute_match(
             flow_id,
             app_state.engagement.employer_id,
-            input.employer_id,
+            AttributeMatch.equal_to(input.employer_id),
             timedelta(seconds=15),
         )
         return started_flow(flow_id, run_id)

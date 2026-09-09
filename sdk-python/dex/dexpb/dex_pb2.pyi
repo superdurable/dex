@@ -118,6 +118,16 @@ class FlowResetStepMethod(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     FLOW_RESET_STEP_METHOD_WAIT_FOR: _ClassVar[FlowResetStepMethod]
     FLOW_RESET_STEP_METHOD_EXECUTE: _ClassVar[FlowResetStepMethod]
 
+class AttributeMatchOperator(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED: _ClassVar[AttributeMatchOperator]
+    ATTRIBUTE_MATCH_OPERATOR_EQUAL: _ClassVar[AttributeMatchOperator]
+    ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL: _ClassVar[AttributeMatchOperator]
+    ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN: _ClassVar[AttributeMatchOperator]
+    ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL: _ClassVar[AttributeMatchOperator]
+    ATTRIBUTE_MATCH_OPERATOR_LESS_THAN: _ClassVar[AttributeMatchOperator]
+    ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL: _ClassVar[AttributeMatchOperator]
+
 class ErrorSubStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     ERROR_SUB_STATUS_UNSPECIFIED: _ClassVar[ErrorSubStatus]
@@ -243,6 +253,13 @@ FLOW_RESET_TYPE_STEP_EXECUTION_ID: FlowResetType
 FLOW_RESET_STEP_METHOD_UNSPECIFIED: FlowResetStepMethod
 FLOW_RESET_STEP_METHOD_WAIT_FOR: FlowResetStepMethod
 FLOW_RESET_STEP_METHOD_EXECUTE: FlowResetStepMethod
+ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED: AttributeMatchOperator
+ATTRIBUTE_MATCH_OPERATOR_EQUAL: AttributeMatchOperator
+ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL: AttributeMatchOperator
+ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN: AttributeMatchOperator
+ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL: AttributeMatchOperator
+ATTRIBUTE_MATCH_OPERATOR_LESS_THAN: AttributeMatchOperator
+ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL: AttributeMatchOperator
 ERROR_SUB_STATUS_UNSPECIFIED: ErrorSubStatus
 ERROR_SUB_STATUS_UNCATEGORIZED: ErrorSubStatus
 ERROR_SUB_STATUS_FLOW_ALREADY_STARTED: ErrorSubStatus
@@ -1348,32 +1365,32 @@ class WaitForStepCompletionResponse(_message.Message):
     def __init__(self) -> None: ...
 
 class WaitForAttributeRequest(_message.Message):
-    __slots__ = ("flow_id", "run_id", "condition", "wait_time_seconds", "request_id")
+    __slots__ = ("flow_id", "match", "wait_time_seconds", "request_id")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
-    RUN_ID_FIELD_NUMBER: _ClassVar[int]
-    CONDITION_FIELD_NUMBER: _ClassVar[int]
+    MATCH_FIELD_NUMBER: _ClassVar[int]
     WAIT_TIME_SECONDS_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
-    run_id: str
-    condition: WaitForAttributeCondition
+    match: AttributeMatch
     wait_time_seconds: int
     request_id: str
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., condition: _Optional[_Union[WaitForAttributeCondition, _Mapping]] = ..., wait_time_seconds: _Optional[int] = ..., request_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, flow_id: _Optional[str] = ..., match: _Optional[_Union[AttributeMatch, _Mapping]] = ..., wait_time_seconds: _Optional[int] = ..., request_id: _Optional[str] = ...) -> None: ...
 
-class WaitForAttributeCondition(_message.Message):
-    __slots__ = ("equal",)
-    EQUAL_FIELD_NUMBER: _ClassVar[int]
-    equal: WaitForAttributeEqual
-    def __init__(self, equal: _Optional[_Union[WaitForAttributeEqual, _Mapping]] = ...) -> None: ...
+class WaitForAttributeResponse(_message.Message):
+    __slots__ = ("matched_value",)
+    MATCHED_VALUE_FIELD_NUMBER: _ClassVar[int]
+    matched_value: Value
+    def __init__(self, matched_value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
-class WaitForAttributeEqual(_message.Message):
-    __slots__ = ("key", "value")
+class AttributeMatch(_message.Message):
+    __slots__ = ("key", "operator", "operand")
     KEY_FIELD_NUMBER: _ClassVar[int]
-    VALUE_FIELD_NUMBER: _ClassVar[int]
+    OPERATOR_FIELD_NUMBER: _ClassVar[int]
+    OPERAND_FIELD_NUMBER: _ClassVar[int]
     key: str
-    value: Value
-    def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
+    operator: AttributeMatchOperator
+    operand: Value
+    def __init__(self, key: _Optional[str] = ..., operator: _Optional[_Union[AttributeMatchOperator, str]] = ..., operand: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
 class TriggerContinueAsNewRequest(_message.Message):
     __slots__ = ("flow_id", "run_id")

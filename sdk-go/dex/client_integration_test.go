@@ -305,12 +305,14 @@ func (service *clientTestFlowService) InvokeRPC(
 func (service *clientTestFlowService) WaitForAttribute(
 	_ context.Context,
 	request *dexpb.WaitForAttributeRequest,
-) (*emptypb.Empty, error) {
+) (*dexpb.WaitForAttributeResponse, error) {
 	service.waitAttributeRequest = request
 	if request.FlowId == "inactive" {
 		return nil, clientTestMissingFlowError()
 	}
-	return &emptypb.Empty{}, nil
+	return &dexpb.WaitForAttributeResponse{
+		MatchedValue: request.GetMatch().GetOperand(),
+	}, nil
 }
 
 func (service *clientTestFlowService) StopFlow(
@@ -586,12 +588,20 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	require.Len(t, service.setRequests, 3)
 	require.True(t, service.setRequests[2].Attributes[0].GetSyncConfig().GetEnabled())
 
-	require.NoError(t, client.WaitForAttributeEqual(
+	var matchedStatus string
+	require.NoError(t, client.WaitForAttributeMatch(
 		ctx,
 		"order-1",
 		clientTestStatus,
-		"done",
+		AttributeMatchEqual("done"),
+		&matchedStatus,
 	))
+	require.Equal(t, "done", matchedStatus)
+	require.Equal(
+		t,
+		dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL,
+		service.waitAttributeRequest.GetMatch().GetOperator(),
+	)
 	_, err = uuid.Parse(service.waitAttributeRequest.RequestId)
 	require.NoError(t, err)
 	require.Equal(t, serverCappedLongPollSeconds, service.waitAttributeRequest.WaitTimeSeconds)
@@ -866,11 +876,13 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 			return client.SetAttribute(ctx, "inactive", clientTestStatus, "value")
 		}},
 		{name: "wait for attribute", call: func() error {
-			return client.WaitForAttributeEqual(
+			var matched string
+			return client.WaitForAttributeMatch(
 				ctx,
 				"inactive",
 				clientTestStatus,
-				"value",
+				AttributeMatchEqual("value"),
+				&matched,
 			)
 		}},
 		{name: "stop", call: func() error {
