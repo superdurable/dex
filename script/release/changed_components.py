@@ -65,8 +65,8 @@ COMPONENTS = (
     Component(
         "server",
         "Server",
-        "server-v",
-        ("server-v*", "server/v*"),
+        "server/v",
+        ("server/v*", "server-v*"),
         ("server", "protos"),
     ),
     Component(

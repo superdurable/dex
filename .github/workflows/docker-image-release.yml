@@ -19,10 +19,10 @@ on:
 jobs:
   docker:
     runs-on: ubuntu-latest
-    # Monorepo: only publish on server-v* release tags, or manual dispatch.
+    # Monorepo: only publish on server/v* release tags, or manual dispatch.
     if: >
       inputs.version != '' ||
-      startsWith(github.event.release.tag_name, 'server-v')
+      startsWith(github.event.release.tag_name, 'server/v')
     steps:
       - uses: actions/checkout@v7
       - name: Resolve image tag
@@ -33,7 +33,7 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           if [[ -n "${RELEASE_TAG}" ]]; then
-            image_tag="${RELEASE_TAG#server-}"
+            image_tag="${RELEASE_TAG#server/}"
           else
             image_tag="v${INPUT_VERSION#v}"
           fi

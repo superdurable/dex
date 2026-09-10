@@ -15,6 +15,7 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).with_name("changed_components.py")
+DOCKER_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/docker-image-release.yml"
 COMPONENT_KEYS = ("go", "rust", "java", "python", "typescript", "server", "cli")
 BASELINE_TAGS = (
     "sdk-go/v0.1.0",
@@ -127,8 +128,9 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "server", "cli")
         self.assertEqual(values["server_baseline"], "server/v0.1.0")
+        self.assertEqual(values["server_tag"], "server/v1.2.3")
 
-    def test_current_server_tag_is_preferred_over_historical_tag(self) -> None:
+    def test_historical_server_tag_remains_a_valid_baseline(self) -> None:
         self.change("server/main.go")
         self.git("tag", "server-v0.2.0")
         self.change("web/package.json")
@@ -170,6 +172,12 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         result, _ = self.plan()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("sdk-go/v1.2.3", result.stderr)
+
+    def test_docker_release_uses_server_path_tag(self) -> None:
+        workflow = DOCKER_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("startsWith(github.event.release.tag_name, 'server/v')", workflow)
+        self.assertIn('image_tag="${RELEASE_TAG#server/}"', workflow)
+        self.assertNotIn("server-v", workflow)
 
 
 if __name__ == "__main__":

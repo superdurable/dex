@@ -180,11 +180,11 @@ The dependency-aware paths are:
 | Server | `server/**`, `protos/**` |
 | CLI | `cli/**`, `web/**`, `packages/flow-definition-renderer/**`, `server/**`, `protos/**`, `go.work` |
 
-Server baselines may use either historical `server/vX.Y.Z` tags or current `server-vX.Y.Z` tags. New server releases always use `server-vX.Y.Z`.
+Server baselines may use either current `server/vX.Y.Z` tags or historical `server-vX.Y.Z` tags. New server releases always use `server/vX.Y.Z`.
 
 | Component | Tag format | Example | What it publishes |
 |-----------|------------|---------|-------------------|
-| Server / Docker | `server-vX.Y.Z` | `server-v1.0.0` | Docker Hub `dex-server:v1.0.0` |
+| Server / Docker | `server/vX.Y.Z` | `server/v1.0.0` | Docker Hub `dex-server:v1.0.0` |
 | Python SDK | `sdk-python/vX.Y.Z` | `sdk-python/v0.1.0` | PyPI [`dex-python-sdk`](https://pypi.org/project/dex-python-sdk/) via [`.github/workflows/sdk-python-publish.yml`](.github/workflows/sdk-python-publish.yml) (version from the tag) |
 | Java SDK | `sdk-java/vX.Y.Z` | `sdk-java/v0.0.3` | Maven Central `io.superdurable:dex-sdk` via [`.github/workflows/sdk-java-publish.yml`](.github/workflows/sdk-java-publish.yml) (version from the tag) |
 | Go SDK | `sdk-go/vX.Y.Z` | `sdk-go/v1.2.3` | Go module tag for `github.com/superdurable/dex/sdk-go` |
