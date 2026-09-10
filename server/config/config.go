@@ -80,8 +80,8 @@ const (
 	DefaultMinimumStepHeartbeatTimeout = 10 * time.Second
 	// DefaultStreamMaxMessageBytes limits each serialized Stream Value to 100 KiB.
 	DefaultStreamMaxMessageBytes int64 = 100 * 1024
-	// DefaultStreamMaxReadMessages caps one reverse Stream page at 1000 messages.
-	DefaultStreamMaxReadMessages int32 = 1000
+	// DefaultStreamMaxListMessagesPageSize caps one reverse Stream page at 1000 messages.
+	DefaultStreamMaxListMessagesPageSize int32 = 1000
 	// DefaultStreamEstimatedMessageOverheadBytes approximates backend bookkeeping per message.
 	DefaultStreamEstimatedMessageOverheadBytes int64 = 512
 	// DefaultStreamTrimTriggerPercent starts asynchronous trimming at ninety percent of capacity.
@@ -539,7 +539,7 @@ func (c StreamStoreConfig) EffectiveMaxMessageBytes() int64 {
 // EffectiveMaxReadMessages returns the configured reverse-read limit or 1000-message default.
 func (c StreamStoreConfig) EffectiveMaxReadMessages() int32 {
 	if c.MaxReadMessages == 0 {
-		return DefaultStreamMaxReadMessages
+		return DefaultStreamMaxListMessagesPageSize
 	}
 	return c.MaxReadMessages
 }
