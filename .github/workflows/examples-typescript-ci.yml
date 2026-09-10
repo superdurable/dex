@@ -15,9 +15,6 @@ on:
 permissions:
   contents: read
 
-env:
-  RUSTUP_TOOLCHAIN: "1.97.1"
-
 concurrency:
   group: examples-typescript-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -36,9 +33,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            examples/typescript/package-lock.json
-            sdk-typescript/package-lock.json
+          cache-dependency-path: examples/typescript/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Verify published SDK dependency
@@ -60,13 +55,9 @@ jobs:
             echo "examples/typescript must use published @superdurable/dex, not $resolved_source"
             exit 1
           fi
-      - name: Install Rust
-        run: rustup toolchain install 1.97.1 --profile minimal
-      - name: Install current SDK
-        run: ./install-current-sdk.sh
-      - name: Typecheck with current SDK
+      - name: Typecheck
         run: npm run typecheck
-      - name: Unit tests with current SDK
+      - name: Unit tests
         run: npm test
 
   integ:
@@ -84,7 +75,6 @@ jobs:
           cache: npm
           cache-dependency-path: |
             examples/typescript/package-lock.json
-            sdk-typescript/package-lock.json
             web/package-lock.json
       - uses: actions/setup-go@v7
         with:
@@ -95,11 +85,9 @@ jobs:
             web/go.sum
       - name: Install Temporal CLI runtime for dexcli dev
         uses: temporalio/setup-temporal@v0
-      - name: Install Rust
-        run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install dependencies
         run: npm ci
-      - name: Integration tests with dexcli dev and current SDK
+      - name: Integration tests with dexcli dev
         run: ./run-integration-tests.sh
       - name: Upload service logs
         if: always()

@@ -8,7 +8,7 @@ Use a Stream when the caller should receive a sequence of updates rather than on
 
 The **StreamFlow** sample exposes a progress Stream. Its read endpoint long-polls for up to 20 seconds, returns one message, and gives the client the token to keep. A client can issue the next read immediately after handling that message.
 
-Streams are best-effort ordered messages, not a final Flow result. Use **WaitForStepCompletion** or **WaitForAttributeMatch** when the caller needs one specific durable condition before it can proceed.
+Streams are best-effort ordered messages, not a final Flow result. Use **WaitForStepCompletion** or **WaitForAttributeEqual** when the caller needs one specific durable condition before it can proceed.
 
 ## Core implementation
 

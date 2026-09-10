@@ -1205,7 +1205,7 @@ entry methods. The Client generates one random UUID for:
 - every SetAttributes call, including the single-attribute helpers;
 - every InvokeRPC, whether it is locking or non-locking;
 - every WaitForStepCompletion call; and
-- every WaitForAttributeMatch or WaitForAttributeMapInstanceMatch call.
+- every WaitForAttributeEqual or WaitForAttributeMapInstanceEqual call.
 
 A non-nil StartFlow override must be non-empty. It may be a stable business
 identifier, supports a logical retry spanning separate Client calls, and is
@@ -1348,12 +1348,11 @@ appear in the public invocation response.
 
 ### Wait, lifecycle, and administrative operations
 
-WaitForAttributeMatch and WaitForAttributeMapInstanceMatch resolve the definition,
-encode the typed match operand, and generate one request ID. The map form
-requires an instance. The matched current value is decoded into the output
-pointer. String and bool support equality operators. Integer and double support
-all six operators. Object, bytes, null, non-finite double, and invalid ordering
-fail locally before transport.
+WaitForAttributeEqual and WaitForAttributeMapInstanceEqual resolve the definition,
+encode the expected concrete value, and generate one request ID. The map form
+requires an instance. Index configuration is irrelevant to equality. Only
+string, bool, integer, and double wire values are accepted; object, bytes, and
+null values fail locally before transport.
 
 WaitForStepCompletion requires a non-empty step type. A nil execution number
 defaults to one; a non-nil value must be positive. Its wire execution number
@@ -2412,21 +2411,19 @@ func (client *Client) SetAttributeMapInstance(
 	value any,
 ) error
 
-func (client *Client) WaitForAttributeMatch(
+func (client *Client) WaitForAttributeEqual(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
-	match AttributeMatchDef,
-	valuePtr any,
+	expected any,
 ) error
 
-func (client *Client) WaitForAttributeMapInstanceMatch(
+func (client *Client) WaitForAttributeMapInstanceEqual(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
 	instance string,
-	match AttributeMatchDef,
-	valuePtr any,
+	expected any,
 ) error
 ```
 
@@ -2475,14 +2472,14 @@ The remaining FlowService operations use non-generic public types:
 | `TriggerContinueAsNew` | `Client.TriggerContinueAsNew(ctx, flowID)` |
 | `HealthCheck` | `Client.HealthCheck(ctx)` |
 
-`WaitForAttributeMatch` compares the encoded server value and returns the value
-that satisfied the match. Waiting on a blob-backed stored value may return
-`FailedPrecondition`; SDK hydration does not change server-side wait semantics.
+`WaitForAttributeEqual` compares the encoded server value. Waiting on a
+blob-backed stored value may return `FailedPrecondition`; SDK hydration does not
+change server-side wait semantics.
 
 Request IDs:
 
 - the SDK generates one UUID per logical `SetAttributes`, `InvokeRPC`,
-  `WaitForStepCompletion`, or `WaitForAttributeMatch` call, and for StartFlow
+  `WaitForStepCompletion`, or `WaitForAttributeEqual` call, and for StartFlow
   when no override is supplied;
 - `StartFlowOptions.RequestID` may provide a non-empty business identifier;
 - no other Client option exposes a request-ID override;

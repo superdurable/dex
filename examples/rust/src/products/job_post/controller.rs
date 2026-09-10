@@ -20,15 +20,12 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use std::time::Duration;
 
-use crate::products::job_post::flow::{
-    JOB_POST_READ, JOB_POST_UPDATE, JobPost, JobPostingFlow, UPDATE_VERSION,
-};
+use crate::products::job_post::flow::{JOB_POST_READ, JOB_POST_UPDATE, JobPost, JobPostingFlow};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
 };
-use dex_sdk::{AttributeMatch, StopFlowOptions};
+use dex_sdk::StopFlowOptions;
 
 #[derive(Deserialize)]
 struct StartQuery {
@@ -48,14 +45,6 @@ struct CreateQuery {
 struct WorkflowQuery {
     #[serde(default, rename = "workflowId")]
     workflow_id: String,
-}
-
-#[derive(Deserialize)]
-struct WaitForUpdateQuery {
-    #[serde(default, rename = "workflowId")]
-    workflow_id: String,
-    #[serde(default, rename = "lastRevision")]
-    last_revision: i32,
 }
 
 #[derive(Deserialize)]
@@ -82,7 +71,6 @@ pub fn mount(client: SharedClient) -> Router {
         .route("/products/job-post/create", get(create))
         .route("/products/job-post/read", get(read))
         .route("/products/job-post/update", get(update))
-        .route("/products/job-post/wait-for-update", get(wait_for_update))
         .route("/products/job-post/delete", get(delete))
         .route("/products/job-post/search", get(search))
         .with_state(client)
@@ -169,26 +157,6 @@ async fn update(
     };
     match run_blocking(move || client.invoke_rpc(&flow_id, JOB_POST_UPDATE, replacement)) {
         Ok(_) => ok_json(json!({ "updated": true })),
-        Err(error) => map_sdk_error(error).into_response(),
-    }
-}
-
-async fn wait_for_update(
-    State(client): State<SharedClient>,
-    Query(query): Query<WaitForUpdateQuery>,
-) -> impl IntoResponse {
-    let flow_id = query.workflow_id;
-    match run_blocking(move || {
-        let revision = client.wait_for_attribute_match(
-            &flow_id,
-            &UPDATE_VERSION,
-            AttributeMatch::greater_than(query.last_revision),
-            Duration::from_secs(30),
-        )?;
-        let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, JOB_POST_READ)?;
-        Ok(json!({ "revision": revision, "jobInfo": job_info }))
-    }) {
-        Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }

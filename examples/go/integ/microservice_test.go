@@ -41,15 +41,12 @@ func TestMicroserviceStartRPCAndChannel(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, runID)
-	var matchedData string
-	require.NoError(t, integClient.WaitForAttributeMatch(
+	require.NoError(t, integClient.WaitForAttributeEqual(
 		ctx,
 		flowID,
 		microservices.Data,
-		dex.AttributeMatchEqual("initial-data"),
-		&matchedData,
+		"initial-data",
 	))
-	require.Equal(t, "initial-data", matchedData)
 
 	var oldData string
 	require.NoError(t, integClient.InvokeRPC(

@@ -49,7 +49,7 @@ It combines these design patterns:
 - [**Durable reminder**](/design-patterns/durable-timer/reminder) moves **Reminder** back to itself after each Timer fires.
 - [**Interruptible wait**](/design-patterns/interruptible) uses **AnyOf** so a Channel message can wake a Step before its Timer.
 - [**Responsive update**](/design-patterns/responsive-update) lets **Accept** and **Decline** RPCs validate and change persisted state while the Flow is waiting.
-- [**Attribute match**](/design-patterns/responsive-update/attribute-match) lets callers wait until durable state is visible.
+- [**Attribute search**](/design-patterns/responsive-update/attribute-equal) exposes status for operational search and lets the start endpoint wait until initialization is visible.
 - **Graceful completion** lets the timeout branch produce either **done** or **timeout** while the other branches finish or become dead ends.
 
 The reminder and overall timeout use separate Channels because opting out of email must not accept, decline, or finish the opportunity. Status, notes, and timestamps live in Attributes so every branch and RPC observes the same durable state.
@@ -429,4 +429,4 @@ Select the image to inspect the original 2370 × 1050 capture.
 - [Reminder](/design-patterns/durable-timer/reminder)
 - [Interruptible](/design-patterns/interruptible)
 - [Responsive update](/design-patterns/responsive-update)
-- [Attribute match](/design-patterns/responsive-update/attribute-match)
+- [Attribute equal](/design-patterns/responsive-update/attribute-equal)

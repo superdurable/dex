@@ -54,15 +54,12 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, runID)
-	var billingPeriodNumber int
-	require.NoError(t, integClient.WaitForAttributeMatch(
+	require.NoError(t, integClient.WaitForAttributeEqual(
 		ctx,
 		flowID,
 		subscription.BillingPeriodNumber,
-		dex.AttributeMatchEqual(0),
-		&billingPeriodNumber,
+		0,
 	))
-	require.Equal(t, 0, billingPeriodNumber)
 
 	var current subscription.Subscription
 	require.NoError(t, integClient.InvokeRPC(

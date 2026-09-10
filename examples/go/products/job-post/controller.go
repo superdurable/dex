@@ -22,7 +22,6 @@ package jobpost
 
 import (
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -42,7 +41,6 @@ func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *JobPostingFlow
 	group.GET("/create", controller.create)
 	group.GET("/read", controller.read)
 	group.GET("/update", controller.update)
-	group.GET("/wait-for-update", controller.waitForUpdate)
 	group.GET("/delete", controller.delete)
 	group.GET("/search", controller.search)
 }
@@ -146,44 +144,6 @@ func (controller *controller) update(request *gin.Context) {
 		UpdateInvokeOptions(),
 	)
 	httputil.Respond(request, gin.H{"updated": true, "version": version}, err)
-}
-
-func (controller *controller) waitForUpdate(request *gin.Context) {
-	flowID, found := httputil.RequiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	lastRevisionText, found := httputil.RequiredQuery(request, "lastRevision")
-	if !found {
-		return
-	}
-	lastRevision, err := strconv.Atoi(lastRevisionText)
-	if err != nil {
-		httputil.Respond(request, nil, err)
-		return
-	}
-	var revision int
-	err = controller.client.WaitForAttributeMatch(
-		request.Request.Context(),
-		flowID,
-		UpdateVersion,
-		sdk.AttributeMatchGreaterThan(lastRevision),
-		&revision,
-	)
-	if err != nil {
-		httputil.Respond(request, nil, err)
-		return
-	}
-	var jobInfo JobInfo
-	err = controller.client.InvokeRPC(
-		request.Request.Context(),
-		flowID,
-		controller.flow.Get,
-		nil,
-		&jobInfo,
-		sdk.InvokeOptions{},
-	)
-	httputil.Respond(request, gin.H{"revision": revision, "jobInfo": jobInfo}, err)
 }
 
 func (controller *controller) delete(request *gin.Context) {

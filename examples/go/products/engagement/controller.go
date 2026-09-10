@@ -65,13 +65,11 @@ func (controller *controller) start(request *gin.Context) {
 	}
 	waitContext, cancelWait := context.WithTimeout(request.Request.Context(), 15*time.Second)
 	defer cancelWait()
-	var matchedEmployerID string
-	err = controller.client.WaitForAttributeMatch(
+	err = controller.client.WaitForAttributeEqual(
 		waitContext,
 		flowID,
 		EmployerID,
-		sdk.AttributeMatchEqual(input.EmployerID),
-		&matchedEmployerID,
+		input.EmployerID,
 	)
 	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
 }

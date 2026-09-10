@@ -224,8 +224,7 @@ static TITLE: LazyLock<Attribute<String>> =
 static DESCRIPTION: LazyLock<Attribute<String>> =
     LazyLock::new(|| Attribute::new("job-post-description").indexed(AttributeIndex::full_text()));
 
-pub static UPDATE_VERSION: LazyLock<Attribute<i32>> =
-    LazyLock::new(|| Attribute::new("UpdateVersion"));
+static UPDATE_VERSION: LazyLock<Attribute<i32>> = LazyLock::new(|| Attribute::new("UpdateVersion"));
 
 static UPDATE_POSTING_LOCK: LazyLock<Attribute<()>> =
     LazyLock::new(|| Attribute::new("UpdatePostingLock"));

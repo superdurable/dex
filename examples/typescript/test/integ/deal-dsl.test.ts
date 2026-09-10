@@ -17,8 +17,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { AttributeMatch } from "@superdurable/dex";
-
 import { exampleDealStart } from "../../src/products/deal-dsl/deal-dsl-flow.js";
 import { acquireIntegEnvironment, releaseIntegEnvironment } from "./environment.js";
 
@@ -40,14 +38,11 @@ test("dealDSLCompletesAnItemPurchase", async () => {
     exampleDealStart("buyer-1"),
     environment.startOptions(),
   );
-  assert.equal(
-    await environment.client.waitForAttributeMatch(
-      flowId,
-      flow.currentState,
-      AttributeMatch.equalTo("negotiating"),
-      30_000,
-    ),
+  await environment.client.waitForAttributeEqual(
+    flowId,
+    flow.currentState,
     "negotiating",
+    30_000,
   );
   await environment.client.publish(
     flowId,

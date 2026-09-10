@@ -117,7 +117,7 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'design-patterns/responsive-update'},
           items: [
             'design-patterns/responsive-update/step-completion',
-            'design-patterns/responsive-update/attribute-match',
+            'design-patterns/responsive-update/attribute-equal',
             'design-patterns/responsive-update/stream',
           ],
         },

@@ -54,18 +54,14 @@ jobs:
               exit 1
             fi
           done
-      - name: Build and unit tests with current SDK
-        run: |
-          current_sdk_workspace="$(mktemp -d)"
-          (
-            cd "$current_sdk_workspace"
-            go work init \
-              "$GITHUB_WORKSPACE/examples/go" \
-              "$GITHUB_WORKSPACE/sdk-go" \
-              "$GITHUB_WORKSPACE/blob-cache-go"
-          )
-          GOWORK="$current_sdk_workspace/go.work" make bins
-          GOWORK="$current_sdk_workspace/go.work" make unitTests
+      - name: Build
+        env:
+          GOWORK: "off"
+        run: make bins
+      - name: Unit tests
+        env:
+          GOWORK: "off"
+        run: make unitTests
 
   e2e:
     name: End-to-end tests

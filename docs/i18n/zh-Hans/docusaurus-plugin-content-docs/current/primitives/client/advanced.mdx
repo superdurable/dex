@@ -80,74 +80,42 @@ client.wait_for_step_completion("order-123", StepExecutionId::of(&charge_order),
 
 </SdkSnippet></SdkTabs>
 
-## 等待 Attribute 匹配 {#wait-for-an-attribute-match}
+## 等待 Attribute 值 {#wait-for-an-attribute-value}
 
-**WaitForAttributeMatch** 等待 Attribute 满足类型化的 scalar 比较，并返回当前命中的值。它定位当前 active run。对于 AttributeMap，还需要传入 instance。
+**WaitForAttributeEqual** 等待 Attribute 等于一个 primitive value。它只适用于 active Flow。对于 AttributeMap，在 expected value 前面传入 instance。
 
-String 和 Boolean 支持 equal 与 not-equal。整数和浮点数还支持 greater-than、greater-than-or-equal、less-than 与 less-than-or-equal。缺失的 Attribute 永远不命中。
-
-当调用方需要在状态变化后刷新时，使用应用拥有的 revision Attribute。等待 revision 大于上次观察到的值，再调用 Describe 或 read RPC。Revision 是 watermark；快速变化可能合并为一个返回值。
-
-<SdkTabs examples={{python: 'examples/python/dex_examples/products/job-post/controller.py', go: 'examples/go/products/job-post/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/jobpost/JobPostingController.java', typescript: 'examples/typescript/src/products/job-post/controller.ts', rust: 'examples/rust/src/products/job_post/controller.rs'}}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/engagement/controller.py', go: 'examples/go/products/engagement/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/engagement/EngagementController.java', typescript: 'examples/typescript/src/products/engagement/controller.ts', rust: 'examples/rust/src/products/engagement/controller.rs'}}>
 <SdkSnippet lang="python">
 
 ```python
-revision = await app_state.client.wait_for_attribute_match(
-    flow_id,
-    app_state.job_post.update_version,
-    AttributeMatch.greater_than(required_int_query("lastRevision")),
-    timedelta(seconds=30),
-)
+await client.wait_for_attribute_equal("order-123", status, "approved", timedelta(minutes=1))
 ```
 
 </SdkSnippet><SdkSnippet lang="go">
 
 ```go
-var revision int
-err = controller.client.WaitForAttributeMatch(
-	request.Request.Context(),
-	flowID,
-	UpdateVersion,
-	sdk.AttributeMatchGreaterThan(lastRevision),
-	&revision,
-)
+err := client.WaitForAttributeEqual(ctx, "order-123", Status, "approved", sdk.WaitOptions{Timeout: time.Minute})
 ```
 
 </SdkSnippet><SdkSnippet lang="java">
 
 ```java
-final int revision = client.waitForAttributeMatch(
-        workflowId,
-        flow.updateVersion,
-        AttributeMatch.greaterThan(lastRevision),
-        Duration.ofSeconds(30));
+client.waitForAttributeEqual("order-123", status, "approved", Duration.ofMinutes(1));
 ```
 
 </SdkSnippet><SdkSnippet lang="typescript">
 
 ```typescript
-const revision = await client.waitForAttributeMatch(
-  workflowId,
-  jobPostingFlow.updateVersion,
-  AttributeMatch.greaterThan(lastRevision),
-  30_000,
-);
+await client.waitForAttributeEqual("order-123", status, "approved", 60_000);
 ```
 
 </SdkSnippet><SdkSnippet lang="rust">
 
 ```rust
-let revision = client.wait_for_attribute_match(
-    &flow_id,
-    &UPDATE_VERSION,
-    AttributeMatch::greater_than(query.last_revision),
-    Duration::from_secs(30),
-)?;
+client.wait_for_attribute_equal("order-123", &status(), "approved".to_owned(), Duration::from_secs(60))?;
 ```
 
 </SdkSnippet></SdkTabs>
-
-object、bytes、null、blob-backed、非有限浮点、跨类型比较和无效 ordering 比较会被拒绝。该等待只支持 Temporal；Cadence 返回 Unimplemented。完整 revision 模式见[等待 Attribute 匹配](/design-patterns/responsive-update/attribute-match)。
 
 ## 查看 Flow
 

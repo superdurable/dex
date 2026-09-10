@@ -26,7 +26,7 @@ env:
 
 jobs:
   quality:
-    name: Published dependency, current SDK, format, Clippy, and tests
+    name: Published SDK, format, Clippy, and tests
     runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
     timeout-minutes: 15
     defaults:
@@ -47,10 +47,10 @@ jobs:
           fi
       - name: Check formatting
         run: make fmt-check
-      - name: Run Clippy with current SDK
-        run: cargo clippy --manifest-path current-sdk/Cargo.toml --locked --all-targets -- -D warnings
-      - name: Run catalog integration tests with current SDK
-        run: cargo test --manifest-path current-sdk/Cargo.toml --locked --all-targets
+      - name: Run Clippy
+        run: make clippy
+      - name: Run catalog integration tests
+        run: make test
 
   integ:
     name: Integration tests with dexcli dev
@@ -77,7 +77,7 @@ jobs:
         uses: temporalio/setup-temporal@v0
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
-      - name: Integration tests with dexcli dev and current SDK
+      - name: Integration tests with dexcli dev
         run: ./run-integration-tests.sh
       - name: Upload service logs
         if: always()

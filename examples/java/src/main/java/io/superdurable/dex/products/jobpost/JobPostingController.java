@@ -16,7 +16,6 @@
 
 package io.superdurable.dex.products.jobpost;
 
-import io.superdurable.dex.AttributeMatch;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowConfig;
 import io.superdurable.dex.StartFlowOptions;
@@ -84,22 +83,6 @@ public class JobPostingController {
                 stub::update,
                 new JobInfo(title, description, notes));
         return ResponseEntity.ok("updated version " + version);
-    }
-
-    @GetMapping("/wait-for-update")
-    public ResponseEntity<Map<String, Object>> waitForUpdate(
-            @RequestParam final String workflowId,
-            @RequestParam final int lastRevision) {
-        final int revision = client.waitForAttributeMatch(
-                workflowId,
-                flow.updateVersion,
-                AttributeMatch.greaterThan(lastRevision),
-                Duration.ofSeconds(30));
-        final JobPostingFlow stub = client.newRpcStub(JobPostingFlow.class, workflowId);
-        final Map<String, Object> response = new LinkedHashMap<String, Object>();
-        response.put("revision", revision);
-        response.put("jobInfo", client.invokeRPC(stub::get));
-        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/delete")

@@ -16,7 +16,7 @@
 
 import { Router } from "express";
 
-import { AttributeMatch, InitialAttribute, type Client } from "@superdurable/dex";
+import { InitialAttribute, type Client } from "@superdurable/dex";
 
 import { DAY_MS } from "../../config/env.js";
 import type { JobInfo } from "./job-info.js";
@@ -69,19 +69,6 @@ export function createJobPostingRouter(client: Client): Router {
     const jobInfo: JobInfo = { title, description, notes };
     const version = await client.invokeRPC(jobPostingFlow.update, workflowId, jobInfo);
     response.send(`updated version ${version}`);
-  });
-
-  router.get("/wait-for-update", async (request, response) => {
-    const workflowId = String(request.query.workflowId ?? "");
-    const lastRevision = Number(request.query.lastRevision ?? 0);
-    const revision = await client.waitForAttributeMatch(
-      workflowId,
-      jobPostingFlow.updateVersion,
-      AttributeMatch.greaterThan(lastRevision),
-      30_000,
-    );
-    const jobInfo = await client.invokeRPC(jobPostingFlow.get, workflowId);
-    response.json({ revision, jobInfo });
   });
 
   router.get("/delete", async (request, response) => {

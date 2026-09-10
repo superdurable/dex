@@ -18,8 +18,6 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 
-import { AttributeMatch } from "@superdurable/dex";
-
 import { loadEnv } from "../../src/config/env.js";
 import { startSampleServer, type SampleServer } from "../../src/main.js";
 import { userOnboardingFlow } from "../../src/products/signup/user-signup-flow.js";
@@ -191,27 +189,27 @@ test("product user onboarding completes every task", async () => {
     await get("/products/signup/submit", { username, email: `${username}@example.com` }),
     "signup/submit",
   );
-  await server.client.waitForAttributeMatch(
+  await server.client.waitForAttributeEqual(
     username,
     userOnboardingFlow.status,
-    AttributeMatch.equalTo("waiting_for_verification"),
+    "waiting_for_verification",
     20_000,
   );
   requireOk(await get("/products/signup/verify", { username }), "signup/verify");
-  await server.client.waitForAttributeMatch(
+  await server.client.waitForAttributeEqual(
     username,
     userOnboardingFlow.status,
-    AttributeMatch.equalTo("waiting_for_task_1"),
+    "waiting_for_task_1",
     20_000,
   );
   requireOk(
     await get("/products/signup/accomplish-task-1", { username }),
     "signup/accomplish-task-1",
   );
-  await server.client.waitForAttributeMatch(
+  await server.client.waitForAttributeEqual(
     username,
     userOnboardingFlow.status,
-    AttributeMatch.equalTo("waiting_for_task_2"),
+    "waiting_for_task_2",
     20_000,
   );
   requireOk(

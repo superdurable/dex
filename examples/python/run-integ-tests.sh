@@ -119,14 +119,14 @@ if ((${#test_args[@]})); then
   pytest_args+=("${test_args[@]}")
 fi
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  uv run --frozen --with-editable "$repo_root/sdk-python" "${pytest_args[@]}"
+  uv run --frozen "${pytest_args[@]}"
 
 sync_pytest_args=(pytest -vv sync-python/sync_tests/integ)
 if ((${#test_args[@]})); then
   sync_pytest_args+=("${test_args[@]}")
 fi
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  uv run --frozen --with-editable "$repo_root/sdk-python" "${sync_pytest_args[@]}"
+  uv run --frozen "${sync_pytest_args[@]}"
 
 if $keep_running; then
   echo ""

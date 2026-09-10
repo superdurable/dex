@@ -296,7 +296,7 @@ func verifyMicroservices(ctx context.Context, client *dex.Client, stamp string) 
 	if err != nil {
 		return fail(name, "", err)
 	}
-	if err := waitForAttributeMatch(
+	if err := waitForAttributeEqual(
 		ctx, client, flowID, microservices.Data, "initial-data", 20*time.Second,
 	); err != nil {
 		return fail(name, "wait attribute", err)
@@ -338,7 +338,7 @@ func verifyEngagement(ctx context.Context, client *dex.Client, stamp string) res
 	if err != nil {
 		return fail(name, "", err)
 	}
-	if err := waitForAttributeMatch(
+	if err := waitForAttributeEqual(
 		ctx, client, flowID, engagement.EngagementStatus, engagement.StatusInitiated,
 		20*time.Second,
 	); err != nil {
@@ -400,7 +400,7 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 	if err != nil {
 		return fail(name, "", err)
 	}
-	if err := waitForAttributeMatch(
+	if err := waitForAttributeEqual(
 		ctx, client, flowID, subscription.BillingPeriodNumber, 0, 20*time.Second,
 	); err != nil {
 		return fail(name, "wait initialized", err)
@@ -460,7 +460,7 @@ func verifySignup(ctx context.Context, client *dex.Client, stamp string) result 
 	if err != nil {
 		return fail(name, "", err)
 	}
-	if err := waitForAttributeMatch(
+	if err := waitForAttributeEqual(
 		ctx, client, flowID, signup.Status, signup.StatusWaitingForVerification, 20*time.Second,
 	); err != nil {
 		return fail(name, "wait verification", err)
@@ -474,7 +474,7 @@ func verifySignup(ctx context.Context, client *dex.Client, stamp string) result 
 	if verifyOutput != "verified" {
 		return fail(name, "verify="+verifyOutput, nil)
 	}
-	if err := waitForAttributeMatch(
+	if err := waitForAttributeEqual(
 		ctx, client, flowID, signup.Status, signup.StatusWaitingForTask1, 20*time.Second,
 	); err != nil {
 		return fail(name, "wait task 1", err)
@@ -485,7 +485,7 @@ func verifySignup(ctx context.Context, client *dex.Client, stamp string) result 
 	); err != nil {
 		return fail(name, "task 1 rpc", err)
 	}
-	if err := waitForAttributeMatch(
+	if err := waitForAttributeEqual(
 		ctx, client, flowID, signup.Status, signup.StatusWaitingForTask2, 20*time.Second,
 	); err != nil {
 		return fail(name, "wait task 2", err)
@@ -1123,7 +1123,7 @@ func waitCompleted(
 	return wait, nil
 }
 
-func waitForAttributeMatch(
+func waitForAttributeEqual(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
@@ -1133,14 +1133,7 @@ func waitForAttributeMatch(
 ) error {
 	waitContext, cancelWait := context.WithTimeout(ctx, timeout)
 	defer cancelWait()
-	matchedValuePtr := reflect.New(reflect.TypeOf(value)).Interface()
-	return client.WaitForAttributeMatch(
-		waitContext,
-		flowID,
-		attribute,
-		dex.AttributeMatchEqual(value),
-		matchedValuePtr,
-	)
+	return client.WaitForAttributeEqual(waitContext, flowID, attribute, value)
 }
 
 func waitForStepCompletion(

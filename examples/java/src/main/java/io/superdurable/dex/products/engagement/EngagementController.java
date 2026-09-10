@@ -16,7 +16,6 @@
 
 package io.superdurable.dex.products.engagement;
 
-import io.superdurable.dex.AttributeMatch;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.SearchFlowsPage;
 import io.superdurable.dex.shared.ExampleFlows;
@@ -52,10 +51,10 @@ public class EngagementController {
                 "test-job-seeker-id",
                 "test-notes");
         final String runId = client.startFlow(flow, flowId, input, ExampleFlows.startOptions());
-        client.waitForAttributeMatch(
+        client.waitForAttributeEqual(
                 flowId,
                 flow.employerId,
-                AttributeMatch.equalTo(input.employerId),
+                input.employerId,
                 Duration.ofSeconds(15));
         final Map<String, String> response = new LinkedHashMap<String, String>();
         response.put("flowID", flowId);

@@ -16,7 +16,7 @@
 
 import { Router } from "express";
 
-import { AttributeMatch, type Client } from "@superdurable/dex";
+import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
 import { engagementFlow, optOutReminder } from "./engagement-flow.js";
@@ -33,10 +33,10 @@ export function createEngagementRouter(client: Client): Router {
       notes: "test-notes",
     };
     const runId = await client.startFlow(engagementFlow, flowId, input, startOptions());
-    await client.waitForAttributeMatch(
+    await client.waitForAttributeEqual(
       flowId,
       engagementFlow.employerId,
-      AttributeMatch.equalTo(input.employerId),
+      input.employerId,
       15_000,
     );
     response.json({ flowID: flowId, runID: runId });
