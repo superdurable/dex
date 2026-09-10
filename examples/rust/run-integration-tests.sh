@@ -115,9 +115,9 @@ fi
 cd "$script_dir"
 export DEXCLI_PATH="$binary_dir/dexcli"
 DEX_SERVER_ADDRESS="$dex_address" \
-  make integTests
+  cargo test --manifest-path current-sdk/Cargo.toml --locked --test dex_integration -- --ignored --test-threads=1
 DEX_SERVER_ADDRESS="$dex_address" \
-  make flowSmokeTests
+  cargo test --manifest-path current-sdk/Cargo.toml --locked --test flow_smoke -- --ignored --test-threads=1
 
 if $keep_running; then
   echo ""

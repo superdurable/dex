@@ -111,6 +111,7 @@ jobs:
             dex/_worker_dispatcher.py \
             dex/_worker_service.py \
             dex/attribute.py \
+            dex/attribute_match.py \
             dex/blob_cache.py \
             dex/channel.py \
             dex/client.py \

@@ -55,12 +55,8 @@ jobs:
             fi
           done
       - name: Build
-        env:
-          GOWORK: "off"
         run: make bins
       - name: Unit tests
-        env:
-          GOWORK: "off"
         run: make unitTests
 
   e2e:

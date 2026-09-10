@@ -38,32 +38,74 @@ class AttributeMatch(Generic[ValueT]):
 
     @classmethod
     def equal_to(cls, operand: ValueT) -> AttributeMatch[ValueT]:
-        """Return a match requiring equality with ``operand``."""
+        """Create an equality match.
+
+        Args:
+            operand: Value the Attribute must equal.
+
+        Returns:
+            A match requiring equality with ``operand``.
+        """
         return cls(pb.ATTRIBUTE_MATCH_OPERATOR_EQUAL, operand)
 
     @classmethod
     def not_equal_to(cls, operand: ValueT) -> AttributeMatch[ValueT]:
-        """Return a match requiring an existing value different from ``operand``."""
+        """Create an inequality match.
+
+        Args:
+            operand: Value the Attribute must differ from.
+
+        Returns:
+            A match requiring an existing value different from ``operand``.
+        """
         return cls(pb.ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL, operand)
 
     @classmethod
     def greater_than(cls, operand: ValueT) -> AttributeMatch[ValueT]:
-        """Return a numeric match requiring a value greater than ``operand``."""
+        """Create a numeric greater-than match.
+
+        Args:
+            operand: Numeric lower bound excluded from the match.
+
+        Returns:
+            A match requiring a value greater than ``operand``.
+        """
         return cls(pb.ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN, operand)
 
     @classmethod
     def greater_than_or_equal(cls, operand: ValueT) -> AttributeMatch[ValueT]:
-        """Return a numeric greater-than-or-equal match."""
+        """Create a numeric greater-than-or-equal match.
+
+        Args:
+            operand: Numeric lower bound included in the match.
+
+        Returns:
+            A match requiring a value greater than or equal to ``operand``.
+        """
         return cls(pb.ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL, operand)
 
     @classmethod
     def less_than(cls, operand: ValueT) -> AttributeMatch[ValueT]:
-        """Return a numeric match requiring a value less than ``operand``."""
+        """Create a numeric less-than match.
+
+        Args:
+            operand: Numeric upper bound excluded from the match.
+
+        Returns:
+            A match requiring a value less than ``operand``.
+        """
         return cls(pb.ATTRIBUTE_MATCH_OPERATOR_LESS_THAN, operand)
 
     @classmethod
     def less_than_or_equal(cls, operand: ValueT) -> AttributeMatch[ValueT]:
-        """Return a numeric less-than-or-equal match."""
+        """Create a numeric less-than-or-equal match.
+
+        Args:
+            operand: Numeric upper bound included in the match.
+
+        Returns:
+            A match requiring a value less than or equal to ``operand``.
+        """
         return cls(pb.ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL, operand)
 
 

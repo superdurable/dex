@@ -81,6 +81,8 @@ fi
   GOWORK=off go build -trimpath -o "$binary_dir/dexcli" ./cmd/dexcli
 )
 
+"$script_dir/install-current-sdk.sh"
+
 docker compose -p "$compose_project" \
   -f "$entity_store_dir/docker-compose.yml" up --detach --wait
 entity_store_started=true

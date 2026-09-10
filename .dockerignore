@@ -8,6 +8,7 @@ sdk-typescript/node_modules/
 sdk-rust/target/
 sdk-rust/coverage/
 examples/rust/target/
+examples/rust/current-sdk/target/
 sdk-typescript/dist/
 sdk-java/publication-smoke-test/target/
 sdk-typescript/coverage/

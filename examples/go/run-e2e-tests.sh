@@ -145,7 +145,7 @@ common_test_env=(
   DEX_WORKER_HOST=127.0.0.1
   GOCACHE="${GOCACHE:-$test_dir/gocache}"
   GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}"
-  GOWORK=off
+  GOWORK="$repo_root/go.work"
 )
 integ_status=0
 env "${common_test_env[@]}" \
@@ -196,7 +196,7 @@ DEX_FLOW_SERVICE_ADDRESS="$deal_dsl_dex_address" \
 DEX_WORKER_HOST=127.0.0.1 \
 GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}" \
 GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}" \
-GOWORK=off \
+GOWORK="$repo_root/go.work" \
 DEAL_DSL_POSTGRES_URL="$postgres_url" \
   go test -count=1 -race -v ./integ/dealdsl ${test_args[@]+"${test_args[@]}"} || deal_dsl_status=$?
 
