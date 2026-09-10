@@ -1,0 +1,266 @@
+---
+title: Wait for Attribute Match
+---
+
+# Wait for Attribute Match
+
+Use **WaitForAttributeMatch** when a caller needs to refresh after durable business state changes. The application owns the Attribute and its meaning. It does not observe workflow history, run IDs, or Temporal event IDs.
+
+A common pattern is an integer revision Attribute initialized to zero. Every Step and RPC that advances the represented state declares the same Attribute lock. Inside that lock, it reads the revision, adds one, writes the business state, and then writes the new revision.
+
+The caller waits for revision greater than its last observed value. The wait returns the current matched revision. The caller then invokes its Describe or read RPC to fetch the new state.
+
+Revision is a watermark, not an event stream. If state advances quickly from 0 to 1 to 2 to 3, one wait for a value greater than 0 may return 3. Callers must not expect to observe every intermediate value.
+
+## Advance revision under a lock
+
+The Job Posting example serializes its update RPC with one Attribute lock and advances **UpdateVersion** in the same invocation that writes the state.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/job-post/job_post_flow.py', go: 'examples/go/products/job-post/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/jobpost/JobPostingFlow.java', typescript: 'examples/typescript/src/products/job-post/job-post-flow.ts', rust: 'examples/rust/src/products/job_post/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(lock_attributes=(update_posting_lock.lock(),))
+def update(self, context: Context, input: JobInfo) -> RPCResult[int]:
+    version = self.update_version.get(context) + 1
+    self.title.set(context, input.title or "")
+    self.job_description.set(context, input.description or "")
+    self.last_update_time_millis.set(context, int(time.time() * 1000))
+    if input.notes is not None:
+        self.notes.set(context, input.notes)
+    self.update_version.set(context, version)
+    update = PostingUpdate(
+        version,
+        f"{context.flow_id}:{version}",
+        input,
+    )
+    self.linkedin_posting_updates.publish(context, update)
+    self.indeed_posting_updates.publish(context, update)
+    return RPCResult(version)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func UpdateInvokeOptions() dex.InvokeOptions {
+	return dex.InvokeOptions{
+		LockAttributes: []dex.AttributeLock{dex.LockAttribute(UpdatePostingLock)},
+	}
+}
+
+func (*JobPostingFlow) Update(
+	ctx dex.Context,
+	input JobInfo,
+) (*dex.RPCResult[int], error) {
+	version, err := UpdateVersion.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	version++
+	if err := Title.Set(ctx, input.Title); err != nil {
+		return nil, err
+	}
+	if err := JobDescription.Set(ctx, input.Description); err != nil {
+		return nil, err
+	}
+	if err := LastUpdateTimeMillis.Set(ctx, time.Now().UnixMilli()); err != nil {
+		return nil, err
+	}
+	if input.Notes != "" {
+		if err := Notes.Set(ctx, input.Notes); err != nil {
+			return nil, err
+		}
+	}
+	if err := UpdateVersion.Set(ctx, version); err != nil {
+		return nil, err
+	}
+	update := PostingUpdate{
+		Version:        version,
+		IdempotencyKey: fmt.Sprintf("%s:%d", ctx.FlowID(), version),
+		Posting:        input,
+	}
+	if err := LinkedInPostingUpdates.Publish(ctx, update); err != nil {
+		return nil, err
+	}
+	if err := IndeedPostingUpdates.Publish(ctx, update); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[int]{Output: version}, nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(lockAttributes = {"UpdatePostingLock"})
+public RPCResult<Integer> update(final Context context, final JobInfo input) {
+    final int version = updateVersion.get(context) + 1;
+    title.set(context, input.title);
+    jobDescription.set(context, input.description);
+    lastUpdateTimeMillis.set(context, System.currentTimeMillis());
+    if (input.notes != null) {
+        notes.set(context, input.notes);
+    }
+    updateVersion.set(context, version);
+    final PostingUpdate update = new PostingUpdate(
+            version,
+            context.getFlowId() + ":" + version,
+            input);
+    linkedInPostingUpdates.publish(context, update);
+    indeedPostingUpdates.publish(context, update);
+    return RPCResult.of(version);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+@rpc({
+  inputCodec: jobInfoCodec,
+  outputCodec: doubleCodec,
+  lockAttributes: [updatePostingLock.lock()],
+})
+public update(context: Context, input: JobInfo): RPCResult<number> {
+  const version = this.updateVersion.get(context) + 1;
+  this.title.set(context, input.title);
+  this.jobDescription.set(context, input.description);
+  this.lastUpdateTimeMillis.set(context, BigInt(Date.now()));
+  if (input.notes !== undefined && input.notes.length > 0) {
+    this.notes.set(context, input.notes);
+  }
+  this.updateVersion.set(context, version);
+  const update = {
+    version,
+    idempotencyKey: `${context.flowId}:${version}`,
+    posting: input,
+  };
+  this.linkedInPostingUpdates.publish(context, update);
+  this.indeedPostingUpdates.publish(context, update);
+  return {
+    output: version,
+  };
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+RpcList::new().function(
+    JOB_POST_UPDATE.lock(UPDATE_POSTING_LOCK.lock()),
+    Self::update,
+)
+
+let version = UPDATE_VERSION.get_required(context)? + 1;
+POST.set(context, replacement.clone())?;
+TITLE.set(context, replacement.title.clone())?;
+DESCRIPTION.set(context, replacement.description.clone())?;
+UPDATE_VERSION.set(context, version)?;
+let update = PostingUpdate {
+    version,
+    idempotency_key: format!("{}:{version}", context.flow_id()),
+    posting: replacement,
+};
+LINKEDIN_POSTING_UPDATES.publish(context, update.clone())?;
+INDEED_POSTING_UPDATES.publish(context, update)?;
+Ok(RpcResult::new(version))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Wait, then refresh
+
+The application passes only the Flow ID. After the wait returns a revision greater than the caller's watermark, it invokes the read RPC.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/job-post/controller.py', go: 'examples/go/products/job-post/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/jobpost/JobPostingController.java', typescript: 'examples/typescript/src/products/job-post/controller.ts', rust: 'examples/rust/src/products/job_post/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+revision = await app_state.client.wait_for_attribute_match(
+    flow_id,
+    app_state.job_post.update_version,
+    AttributeMatch.greater_than(required_int_query("lastRevision")),
+    timedelta(seconds=30),
+)
+job_info = await app_state.client.invoke_rpc(app_state.job_post.get, flow_id)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var revision int
+err = controller.client.WaitForAttributeMatch(
+	request.Request.Context(),
+	flowID,
+	UpdateVersion,
+	sdk.AttributeMatchGreaterThan(lastRevision),
+	&revision,
+)
+var jobInfo JobInfo
+err = controller.client.InvokeRPC(
+	request.Request.Context(),
+	flowID,
+	controller.flow.Get,
+	nil,
+	&jobInfo,
+	sdk.InvokeOptions{},
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final int revision = client.waitForAttributeMatch(
+        workflowId,
+        flow.updateVersion,
+        AttributeMatch.greaterThan(lastRevision),
+        Duration.ofSeconds(30));
+final JobPostingFlow stub = client.newRpcStub(JobPostingFlow.class, workflowId);
+final Map<String, Object> response = new LinkedHashMap<String, Object>();
+response.put("revision", revision);
+response.put("jobInfo", client.invokeRPC(stub::get));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const revision = await client.waitForAttributeMatch(
+  workflowId,
+  jobPostingFlow.updateVersion,
+  AttributeMatch.greaterThan(lastRevision),
+  30_000,
+);
+const jobInfo = await client.invokeRPC(jobPostingFlow.get, workflowId);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let revision = client.wait_for_attribute_match(
+    &flow_id,
+    &UPDATE_VERSION,
+    AttributeMatch::greater_than(query.last_revision),
+    Duration::from_secs(30),
+)?;
+let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, JOB_POST_READ)?;
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+String and Boolean Attributes support equal and not-equal matches. Integer and floating-point Attributes support all six comparison operators. Missing Attributes never match. Object, bytes, null, blob-backed, non-finite floating-point, cross-type, and invalid ordering comparisons are rejected.
+
+The wait works only with Temporal and only while the Flow is active. Continue-As-New is followed automatically. Cadence returns Unimplemented.
+
+## Related
+
+- [Attribute](/primitives/attribute)
+- [Client advanced operations](/primitives/client/advanced)

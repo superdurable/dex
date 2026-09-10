@@ -49,7 +49,7 @@ Go、Java、Python 和 TypeScript 示例实现完整的 60 天流程。基于已
 - [**持久提醒**](/design-patterns/durable-timer/reminder)在每次 Timer 触发后把 **Reminder** 移回自身。
 - [**可中断等待**](/design-patterns/interruptible)使用 **AnyOf**，让 Channel 消息可以在 Timer 之前唤醒 Step。
 - [**响应式更新**](/design-patterns/responsive-update)让 **Accept** 和 **Decline** RPC 在 Flow 等待时校验并更新持久状态。
-- [**Attribute 搜索**](/design-patterns/responsive-update/attribute-equal)让运维人员按状态搜索，也让启动端点等待初始化结果可见。
+- [**Attribute 匹配**](/design-patterns/responsive-update/attribute-match)让调用方等待 durable 状态可见。
 - **优雅完成**让超时分支输出 **done** 或 **timeout**，同时让其他分支结束或进入 dead end。
 
 提醒和整体超时使用不同的 Channel，因为退订邮件不能接受、拒绝或结束机会。状态、备注和时间戳保存在 Attribute 中，因此每个分支和 RPC 都能看到同一份持久状态。
@@ -429,4 +429,4 @@ impl Step for WaitForDecision {
 - [Reminder](/design-patterns/durable-timer/reminder)
 - [Interruptible](/design-patterns/interruptible)
 - [Responsive update](/design-patterns/responsive-update)
-- [Attribute equal](/design-patterns/responsive-update/attribute-equal)
+- [Attribute match](/design-patterns/responsive-update/attribute-match)

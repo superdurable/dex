@@ -8,7 +8,7 @@ title: 等待并流式接收更新
 
 **StreamFlow** 示例公开一个 progress Stream。它的 read endpoint 最多长轮询 20 秒，返回一条消息，并提供客户端应保存的 token。客户端处理这条消息后可以立刻发起下一次读取。
 
-Stream 是 best-effort、有序消息，而不是最终 Flow 结果。当调用方必须在继续前等待一个特定 durable 条件时，使用 **WaitForStepCompletion** 或 **WaitForAttributeEqual**。
+Stream 是 best-effort、有序消息，而不是最终 Flow 结果。当调用方必须在继续前等待一个特定 durable 条件时，使用 **WaitForStepCompletion** 或 **WaitForAttributeMatch**。
 
 ## 核心实现
 

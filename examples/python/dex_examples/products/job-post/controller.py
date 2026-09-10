@@ -18,11 +18,11 @@ import time
 from dataclasses import asdict
 from datetime import timedelta
 
-from dex import FlowConfig, StartFlowOptions
+from dex import AttributeMatch, FlowConfig, StartFlowOptions
 from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
-from dex_examples.shared.query import optional_query, required_query
+from dex_examples.shared.query import optional_query, required_int_query, required_query
 from dex_examples.products.job_post.job_info import JobInfo
 
 SEARCH_MESSAGE = (
@@ -75,6 +75,18 @@ def create_job_post_blueprint(app_state: ExampleApp) -> Blueprint:
             job_info,
         )
         return "updated"
+
+    @blueprint.get("/wait-for-update")
+    async def wait_for_update() -> Response:
+        flow_id = required_query("workflowId")
+        revision = await app_state.client.wait_for_attribute_match(
+            flow_id,
+            app_state.job_post.update_version,
+            AttributeMatch.greater_than(required_int_query("lastRevision")),
+            timedelta(seconds=30),
+        )
+        job_info = await app_state.client.invoke_rpc(app_state.job_post.get, flow_id)
+        return jsonify({"revision": revision, "jobInfo": asdict(job_info)})
 
     @blueprint.get("/delete")
     async def delete() -> str:

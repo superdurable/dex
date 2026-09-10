@@ -17,7 +17,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { stringCodec } from "@superdurable/dex";
+import { AttributeMatch, stringCodec } from "@superdurable/dex";
 
 import {
   acquireIntegEnvironment,
@@ -49,29 +49,38 @@ test("user onboarding verifies and completes both tasks", async () => {
     environment.startOptions(),
   );
 
-  await environment.client.waitForAttributeEqual(
-    flowId,
-    flow.status,
+  assert.equal(
+    await environment.client.waitForAttributeMatch(
+      flowId,
+      flow.status,
+      AttributeMatch.equalTo("waiting_for_verification"),
+      20_000,
+    ),
     "waiting_for_verification",
-    20_000,
   );
 
   assert.equal(await environment.client.invokeRPC(flow.verifySignup, flowId), "verified");
-  await environment.client.waitForAttributeEqual(
-    flowId,
-    flow.status,
+  assert.equal(
+    await environment.client.waitForAttributeMatch(
+      flowId,
+      flow.status,
+      AttributeMatch.equalTo("waiting_for_task_1"),
+      20_000,
+    ),
     "waiting_for_task_1",
-    20_000,
   );
   assert.equal(
     await environment.client.invokeRPC(flow.accomplishTask1, flowId),
     "task 1 accomplished",
   );
-  await environment.client.waitForAttributeEqual(
-    flowId,
-    flow.status,
+  assert.equal(
+    await environment.client.waitForAttributeMatch(
+      flowId,
+      flow.status,
+      AttributeMatch.equalTo("waiting_for_task_2"),
+      20_000,
+    ),
     "waiting_for_task_2",
-    20_000,
   );
   assert.equal(
     await environment.client.invokeRPC(flow.accomplishTask2, flowId),

@@ -50,8 +50,8 @@ use dex_examples_rust::products::subscription::{
     SubscriptionRequest, SubscriptionState,
 };
 use dex_sdk::{
-    BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkError, SdkResult,
-    StepExecutionId, StopFlowOptions, TimerId, Worker, WorkerOptions,
+    AttributeMatch, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkError,
+    SdkResult, StepExecutionId, StopFlowOptions, TimerId, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
 
@@ -272,10 +272,10 @@ fn deal_dsl_completes_an_item_purchase() {
         .expect("start Rust Deal DSL Flow");
     environment
         .client
-        .wait_for_attribute_equal(
+        .wait_for_attribute_match(
             &flow_id,
             &DEAL_CURRENT_STATE,
-            "negotiating".to_string(),
+            AttributeMatch::equal_to("negotiating".to_string()),
             Duration::from_secs(30),
         )
         .expect("wait for Rust Deal DSL negotiation");
@@ -624,10 +624,10 @@ fn user_onboarding_verifies_and_completes_both_tasks() {
     assert!(!run_id.is_empty());
     environment
         .client
-        .wait_for_attribute_equal(
+        .wait_for_attribute_match(
             &flow_id,
             &ONBOARDING_STATUS,
-            WAITING_FOR_VERIFICATION.to_string(),
+            AttributeMatch::equal_to(WAITING_FOR_VERIFICATION.to_string()),
             Duration::from_secs(20),
         )
         .expect("wait for email verification");
@@ -639,10 +639,10 @@ fn user_onboarding_verifies_and_completes_both_tasks() {
     assert_eq!(verified, "verified");
     environment
         .client
-        .wait_for_attribute_equal(
+        .wait_for_attribute_match(
             &flow_id,
             &ONBOARDING_STATUS,
-            WAITING_FOR_TASK_1.to_string(),
+            AttributeMatch::equal_to(WAITING_FOR_TASK_1.to_string()),
             Duration::from_secs(20),
         )
         .expect("wait for onboarding task 1");
@@ -654,10 +654,10 @@ fn user_onboarding_verifies_and_completes_both_tasks() {
     assert_eq!(task_1, "task 1 accomplished");
     environment
         .client
-        .wait_for_attribute_equal(
+        .wait_for_attribute_match(
             &flow_id,
             &ONBOARDING_STATUS,
-            WAITING_FOR_TASK_2.to_string(),
+            AttributeMatch::equal_to(WAITING_FOR_TASK_2.to_string()),
             Duration::from_secs(20),
         )
         .expect("wait for onboarding task 2");
@@ -689,10 +689,10 @@ fn microservice_swaps_data_and_completes_when_ready() {
 
     environment
         .client
-        .wait_for_attribute_equal(
+        .wait_for_attribute_match(
             &flow_id,
             &DATA,
-            "initial-data".to_string(),
+            AttributeMatch::equal_to("initial-data".to_string()),
             Duration::from_secs(20),
         )
         .expect("wait for initial Rust Microservice data");
@@ -703,10 +703,10 @@ fn microservice_swaps_data_and_completes_when_ready() {
     assert_eq!(previous, "initial-data");
     environment
         .client
-        .wait_for_attribute_equal(
+        .wait_for_attribute_match(
             &flow_id,
             &DATA,
-            "updated-data".to_string(),
+            AttributeMatch::equal_to("updated-data".to_string()),
             Duration::from_secs(20),
         )
         .expect("wait for updated Rust Microservice data");

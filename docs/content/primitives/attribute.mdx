@@ -310,7 +310,7 @@ self.progress
 
 **StartFlowOptions** can set initial Attributes when the Flow is created. Initial values and Flow creation are one operation, so the first Step sees them immediately. See [Flow options](/primitives/flow/flow-options#attributes).
 
-Clients use **GetAttributes** and **SetAttributes** with the same registered Attribute definition. A Client can also use **WaitForAttributeEqual** to wait until a singleton Attribute or one AttributeMap instance reaches a scalar value. See [Client](/primitives/client/advanced#wait-for-an-attribute-value).
+Clients use **GetAttributes** and **SetAttributes** with the same registered Attribute definition. A Client can also use **WaitForAttributeMatch** to wait until a singleton Attribute or one AttributeMap instance satisfies a scalar comparison. The call returns the matched current value. See [Client](/primitives/client/advanced#wait-for-an-attribute-match).
 
 ## Indexed Attributes {#indexed-attributes}
 
