@@ -231,6 +231,14 @@ Messages written by a Step have `#<stepExecutionID>` in
 values containing `#`. Reusing a source appends another message; source is
 metadata, not an idempotency key.
 
+`Client.ReadStream` reads forward one message at a time and can long-poll.
+`Client.ListStreamMessages` returns a non-blocking newest-first retained page.
+Pass the registered typed Stream directly, a positive page size, and an empty
+token for the first page. Pass `StreamMessagesPage.NextPageToken` unchanged to
+read older messages until it is empty. The server caps page size at 1000 by
+default. A trimmed anchor returns an empty page, and newer concurrent writes do
+not enter an existing older-page chain.
+
 ### Canceling Step executions
 
 A successful Step can cancel queued or active executions while continuing with

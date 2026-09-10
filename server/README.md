@@ -59,10 +59,12 @@ readiness, so only Stream RPCs fail when it is unavailable. Configure dedicated
 Redis memory with `maxmemory` and `noeviction` so memory pressure becomes a
 visible write error.
 
-`maxMessageBytes` limits each serialized Value to 100 KiB by default. The
-remaining settings tune approximate per-message charging, trim watermarks,
-messages removed per trim batch, and background trim concurrency. Lease settings
-apply only to the Redis backend. The checked-in development config uses memory.
+`maxMessageBytes` limits each serialized Value to 100 KiB by default.
+`maxReadMessages` limits one reverse listing page to 1000 messages by default
+and must be positive. The remaining settings tune approximate per-message
+charging, trim watermarks, messages removed per trim batch, and background trim
+concurrency. Lease settings apply only to the Redis backend. The checked-in
+development config uses memory.
 
 Capacity is not persisted by either backend. Each write supplies the limit
 shared by all Flow instances with the same Flow type and Stream name. Charged

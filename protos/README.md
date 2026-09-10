@@ -101,10 +101,19 @@ A write that would exceed the hard capacity is not appended and returns
 `ReadStream` long-polls one message after an opaque, scope-bound resume token.
 An empty token starts at the earliest retained message. A token older than the
 retained head also resumes at that head. Each response includes the message
-value, the next resume token, its Redis-derived creation time, and its source.
+value, the next resume token, its server-assigned creation time, and its source.
+
+`ListStreamMessages` returns one non-blocking, newest-first page of retained
+messages. An empty `before_page_token` starts at the retained tail. A non-empty
+token is an exclusive, scope-bound anchor for older messages. The response's
+`next_page_token` is empty on the final page. If trimming removes the anchor and
+places it before the retained head, the RPC returns an empty page instead of
+restarting from the tail. Writes appended after the first page do not enter the
+older-page chain. The required `page_size` must be positive and cannot exceed
+the server's `streamStore.maxReadMessages` limit, which defaults to 1000.
 
 Stream RPCs do not require a Flow to exist or remain active. Their availability
-depends only on the optional Redis Stream Store.
+depends only on the configured Stream Store.
 
 ## Step close decisions
 

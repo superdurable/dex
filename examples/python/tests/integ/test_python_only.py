@@ -115,6 +115,20 @@ async def test_stream_resumes_after_step_and_client_writes(
     assert client_message.value == "Preview displayed"
     assert client_message.source == "browser/complete"
 
+    newest_page = await client.list_stream_messages(flow_id, app.stream.progress, 1)
+    assert [message.value for message in newest_page.messages] == ["Preview displayed"]
+    assert newest_page.next_page_token
+
+    older_page = await client.list_stream_messages(
+        flow_id,
+        app.stream.progress,
+        1,
+        newest_page.next_page_token,
+    )
+    assert [message.value for message in older_page.messages] == [
+        "Rendering preview for invoicePreview ready for invoice"
+    ]
+
 
 async def test_resourcecontrol_enqueue(
     app: ExampleApp,

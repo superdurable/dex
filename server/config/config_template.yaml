@@ -61,6 +61,7 @@ blobStore:
 #   backend: redis
 #   redisURL: redis://redis:6379/0
 #   maxMessageBytes: 102400
+#   maxReadMessages: 1000
 #   estimatedMessageOverheadBytes: 512
 #   trimTriggerPercent: 90
 #   trimTargetPercent: 80

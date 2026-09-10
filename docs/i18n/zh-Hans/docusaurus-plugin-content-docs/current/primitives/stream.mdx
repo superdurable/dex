@@ -194,6 +194,90 @@ Go、Java、Python async、TypeScript 和 Rust 会在发送最终 result 或 err
 
 续读也是 best effort。读取太慢时，Client 可能错过已经被 trim 的消息。
 
+### 倒序分页
+
+使用 **ListStreamMessages** 可以从最新到最早查看当前保留的消息。调用不会阻塞，而是立即返回不超过指定 page size 的消息。
+
+before-page token 为空时，从当前保留的尾部开始。读取下一页时，应原样传回 next-page token；该 token 是排他锚点，并绑定到 Flow type、Flow ID 和 Stream name。next-page token 为空表示已经到达末页。
+
+<SdkTabs examples={{
+python: 'examples/python/dex_examples/primitives/stream/controller.py',
+go: 'examples/go/primitives/stream/controller.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamController.java',
+typescript: 'examples/typescript/src/primitives/stream/controller.ts',
+rust: 'examples/rust/src/primitives/stream/controller.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+        page = await app_state.client.list_stream_messages(
+            required_query("workflowId"),
+            app_state.stream.progress,
+            required_int_query("pageSize"),
+            optional_query("beforePageToken", ""),
+        )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+	var page sdk.StreamMessagesPage[string]
+	err = controller.client.ListStreamMessages(
+		request.Request.Context(),
+		flowID,
+		Progress,
+		int32(pageSize),
+		request.Query("beforePageToken"),
+		&page,
+	)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+        final StreamMessagesPage<String> page = client.listStreamMessages(
+                workflowId,
+                flow.progress,
+                pageSize,
+                beforePageToken);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+    const page = await client.listStreamMessages(
+      String(request.query.workflowId ?? ""),
+      progress,
+      Number(request.query.pageSize),
+      String(request.query.beforePageToken ?? ""),
+    );
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+        client
+            .list_stream_messages(
+                &query.workflow_id,
+                &PROGRESS,
+                query.page_size,
+                &query.before_page_token,
+            )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+倒序分页提供 best-effort retained-message snapshot，并不是 transactional snapshot。第一页之后新追加的消息不会混入这个更早消息的分页链，但 trim 可能在两次调用之间删除消息。如果 trim 后 retained head 已经越过 page anchor，Dex 会返回空页，而不会从 tail 重新开始。
+
+Server 要求 page size 为正数，并通过 **maxReadMessages** 设置上限。默认上限为 1000。
+
+需要正向逐条消费、long-poll 和续读时，请使用 **ReadStream**。需要倒序、非阻塞地分页查看当前保留消息时，请使用 **ListStreamMessages**。
+
 ### 近似容量
 
 **streamCapacityBytes** 是相同 Flow type 和 Stream name 下所有 Flow execution 共享的近似容量，不是每个 Flow ID 独立的 limit。

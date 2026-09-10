@@ -189,6 +189,14 @@ Flow timeout handlers and RPCs cannot send heartbeat or Stream progress.
 Sources are required metadata, may repeat, and may contain `#`. Read them with
 `StreamMessage.getSource()`; they do not provide deduplication.
 
+`Client.readStream` moves forward one message at a time and can long-poll.
+`Client.listStreamMessages` returns a non-blocking newest-first retained page.
+Pass the registered typed `Stream`, a positive page size, and an empty token for
+the first page. Pass `StreamMessagesPage.getNextPageToken()` unchanged to read
+older messages until it is empty. The server caps page size at 1000 by default.
+A trimmed anchor returns an empty page, and newer concurrent writes do not enter
+an existing older-page chain.
+
 ### Soft Flow timeout
 
 Override `Flow.handleTimeout` to make a positive timeout use handler policy by

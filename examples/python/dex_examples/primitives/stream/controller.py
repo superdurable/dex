@@ -20,7 +20,12 @@ from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.shared.query import optional_query, required_query, started_flow
+from dex_examples.shared.query import (
+    optional_query,
+    required_int_query,
+    required_query,
+    started_flow,
+)
 
 
 def create_stream_blueprint(app_state: ExampleApp) -> Blueprint:
@@ -60,6 +65,27 @@ def create_stream_blueprint(app_state: ExampleApp) -> Blueprint:
             resume_token=message.resume_token,
             created_time=message.created_time.isoformat(),
             source=message.source,
+        )
+
+    @blueprint.get("/list")
+    async def list_messages() -> Response:
+        page = await app_state.client.list_stream_messages(
+            required_query("workflowId"),
+            app_state.stream.progress,
+            required_int_query("pageSize"),
+            optional_query("beforePageToken", ""),
+        )
+        return jsonify(
+            messages=[
+                {
+                    "value": message.value,
+                    "resumeToken": message.resume_token,
+                    "createdTime": message.created_time.isoformat(),
+                    "source": message.source,
+                }
+                for message in page.messages
+            ],
+            nextPageToken=page.next_page_token,
         )
 
     return blueprint

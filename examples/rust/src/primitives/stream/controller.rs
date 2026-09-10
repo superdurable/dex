@@ -63,11 +63,39 @@ struct ReadResponse {
     source: String,
 }
 
+#[derive(Deserialize)]
+struct ListQuery {
+    #[serde(default, rename = "workflowId")]
+    workflow_id: String,
+    #[serde(rename = "pageSize")]
+    page_size: i32,
+    #[serde(default, rename = "beforePageToken")]
+    before_page_token: String,
+}
+
+#[derive(Serialize)]
+struct ListMessageResponse {
+    value: String,
+    #[serde(rename = "resumeToken")]
+    resume_token: String,
+    #[serde(rename = "createdTime")]
+    created_time: String,
+    source: String,
+}
+
+#[derive(Serialize)]
+struct ListResponse {
+    messages: Vec<ListMessageResponse>,
+    #[serde(rename = "nextPageToken")]
+    next_page_token: String,
+}
+
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
         .route("/primitives/stream/start", get(start))
         .route("/primitives/stream/write", get(write))
         .route("/primitives/stream/read", get(read))
+        .route("/primitives/stream/list", get(list))
         .with_state(client)
 }
 
@@ -116,6 +144,37 @@ async fn read(
                 resume_token: message.resume_token,
                 created_time: format!("{:?}", message.created_time),
                 source: message.source,
+            })
+    }) {
+        Ok(response) => ok_json(response),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn list(
+    State(client): State<SharedClient>,
+    Query(query): Query<ListQuery>,
+) -> impl IntoResponse {
+    match run_blocking(move || {
+        client
+            .list_stream_messages(
+                &query.workflow_id,
+                &PROGRESS,
+                query.page_size,
+                &query.before_page_token,
+            )
+            .map(|page| ListResponse {
+                messages: page
+                    .messages
+                    .into_iter()
+                    .map(|message| ListMessageResponse {
+                        value: message.value,
+                        resume_token: message.resume_token,
+                        created_time: format!("{:?}", message.created_time),
+                        source: message.source,
+                    })
+                    .collect(),
+                next_page_token: page.next_page_token,
             })
     }) {
         Ok(response) => ok_json(response),

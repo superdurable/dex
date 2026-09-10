@@ -18,6 +18,7 @@ package io.superdurable.dex.primitives.stream;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.StreamMessage;
+import io.superdurable.dex.StreamMessagesPage;
 import io.superdurable.dex.shared.ExampleFlows;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -75,6 +76,22 @@ public final class StreamController {
         response.put("resumeToken", message.getResumeToken());
         response.put("createdTime", message.getCreatedTime().toString());
         response.put("source", message.getSource());
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/list")
+    public ResponseEntity<Map<String, Object>> list(
+            @RequestParam final String workflowId,
+            @RequestParam final int pageSize,
+            @RequestParam(defaultValue = "") final String beforePageToken) {
+        final StreamMessagesPage<String> page = client.listStreamMessages(
+                workflowId,
+                flow.progress,
+                pageSize,
+                beforePageToken);
+        final Map<String, Object> response = new LinkedHashMap<String, Object>();
+        response.put("messages", page.getMessages());
+        response.put("nextPageToken", page.getNextPageToken());
         return ResponseEntity.ok(response);
     }
 }

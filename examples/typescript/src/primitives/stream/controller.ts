@@ -51,5 +51,15 @@ export function createStreamRouter(client: Client): Router {
     response.json(message);
   });
 
+  router.get("/list", async (request, response) => {
+    const page = await client.listStreamMessages(
+      String(request.query.workflowId ?? ""),
+      progress,
+      Number(request.query.pageSize),
+      String(request.query.beforePageToken ?? ""),
+    );
+    response.json(page);
+  });
+
   return router;
 }

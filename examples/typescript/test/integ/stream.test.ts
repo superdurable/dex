@@ -63,4 +63,18 @@ test("streamResumesAfterStepAndClientWrites", async () => {
   );
   assert.equal(clientMessage.value, "Preview displayed");
   assert.equal(clientMessage.source, "browser/complete");
+
+  const newestPage = await environment.client.listStreamMessages(flowId, progress, 1);
+  assert.deepEqual(newestPage.messages.map((message) => message.value), ["Preview displayed"]);
+  assert.ok(newestPage.nextPageToken.length > 0);
+
+  const olderPage = await environment.client.listStreamMessages(
+    flowId,
+    progress,
+    1,
+    newestPage.nextPageToken,
+  );
+  assert.deepEqual(olderPage.messages.map((message) => message.value), [
+    "Rendering preview for invoicePreview ready for invoice",
+  ]);
 });

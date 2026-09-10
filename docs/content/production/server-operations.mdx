@@ -60,6 +60,20 @@ continue to the source Blob Store. A corrupt entry is invalidated and refilled;
 initialization, recovery, and disk I/O errors are Server errors. Local Blob
 Store objects and Step-event input snapshots do not use this cache.
 
+## Stream Store
+
+Configure **streamStore** to enable best-effort [Streams](/primitives/stream).
+Use the memory backend for one local Server process. Use Redis 7 or newer when
+multiple Server processes must share retained messages. Redis requires
+**redisURL**. Keep Redis on **noeviction** so capacity pressure becomes a visible
+Stream write failure.
+
+**maxMessageBytes** defaults to 100 KiB per serialized message.
+**maxReadMessages** caps one reverse listing page, defaults to 1000, and must be
+positive. Stream capacity remains part of each registered Stream definition.
+The remaining Stream Store settings control approximate charging, trim
+watermarks, trim batches, leases, and worker concurrency.
+
 ## Custom Attribute Store
 
 Use a Custom Attribute Store when a relational projection supports operational

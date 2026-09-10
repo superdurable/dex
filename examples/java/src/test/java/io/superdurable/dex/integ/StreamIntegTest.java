@@ -17,6 +17,7 @@
 package io.superdurable.dex.integ;
 
 import io.superdurable.dex.StreamMessage;
+import io.superdurable.dex.StreamMessagesPage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -60,5 +61,24 @@ public class StreamIntegTest {
                 Duration.ofSeconds(20));
         assertEquals("Preview displayed", clientMessage.getValue());
         assertEquals("browser/complete", clientMessage.getSource());
+
+        final StreamMessagesPage<String> newestPage = environment.client().listStreamMessages(
+                flowId,
+                environment.streamFlow().progress,
+                1,
+                "");
+        assertEquals(1, newestPage.getMessages().size());
+        assertEquals("Preview displayed", newestPage.getMessages().get(0).getValue());
+        assertFalse(newestPage.getNextPageToken().isEmpty());
+
+        final StreamMessagesPage<String> olderPage = environment.client().listStreamMessages(
+                flowId,
+                environment.streamFlow().progress,
+                1,
+                newestPage.getNextPageToken());
+        assertEquals(1, olderPage.getMessages().size());
+        assertEquals(
+                "Rendering preview for invoicePreview ready for invoice",
+                olderPage.getMessages().get(0).getValue());
     }
 }

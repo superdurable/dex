@@ -75,4 +75,19 @@ func TestStreamResumesAfterStepAndClientWrites(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Preview displayed", clientValue)
 	require.Equal(t, "browser/complete", clientMessage.Source)
+
+	var newestPage dex.StreamMessagesPage[string]
+	require.NoError(t, integClient.ListStreamMessages(
+		ctx, flowID, streamprimitive.Progress, 1, "", &newestPage,
+	))
+	require.Len(t, newestPage.Messages, 1)
+	require.Equal(t, "Preview displayed", newestPage.Messages[0].Value)
+	require.NotEmpty(t, newestPage.NextPageToken)
+
+	var olderPage dex.StreamMessagesPage[string]
+	require.NoError(t, integClient.ListStreamMessages(
+		ctx, flowID, streamprimitive.Progress, 1, newestPage.NextPageToken, &olderPage,
+	))
+	require.Len(t, olderPage.Messages, 1)
+	require.Equal(t, "Rendering preview for invoicePreview ready for invoice", olderPage.Messages[0].Value)
 }

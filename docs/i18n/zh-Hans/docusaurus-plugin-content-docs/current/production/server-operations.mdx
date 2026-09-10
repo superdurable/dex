@@ -52,6 +52,18 @@ least-privilege policy。监控 write 和 read failure，并测试 credential ro
 disk I/O error 是 Server error。local Blob Store object 和 Step-event input snapshot 不使用
 此 cache。
 
+## Stream Store
+
+配置 **streamStore** 后可启用 best-effort [Stream](/primitives/stream)。单个本地 Server
+process 可以使用 memory backend。多个 Server process 需要共享 retained messages 时，
+请使用 Redis 7 或更高版本。Redis backend 需要 **redisURL**。将 Redis 配置为
+**noeviction**，使 capacity pressure 表现为可见的 Stream write failure。
+
+**maxMessageBytes** 控制每条 serialized message 的大小，默认值为 100 KiB。
+**maxReadMessages** 控制每个倒序分页的上限，默认值为 1000，并且必须为正数。Stream
+capacity 仍由各个已注册的 Stream definition 提供。其余 Stream Store 设置用于控制
+approximate charging、trim watermark、trim batch、lease 和 worker concurrency。
+
 ## Custom Attribute Store
 
 当关系型 projection 支持运维搜索或业务报表时，使用 Custom Attribute Store。请遵循

@@ -22,6 +22,7 @@ package stream
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -40,6 +41,7 @@ func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *StreamFlow) {
 	group.GET("/start", controller.start)
 	group.GET("/write", controller.write)
 	group.GET("/read", controller.read)
+	group.GET("/list", controller.list)
 }
 
 func (controller *controller) start(request *gin.Context) {
@@ -107,6 +109,48 @@ func (controller *controller) read(request *gin.Context) {
 		"createdTime": message.CreatedTime.Format(time.RFC3339Nano),
 		"source":      message.Source,
 	})
+}
+
+func (controller *controller) list(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	pageSizeText, found := httputil.RequiredQuery(request, "pageSize")
+	if !found {
+		return
+	}
+	pageSize, err := strconv.ParseInt(pageSizeText, 10, 32)
+	if err != nil {
+		request.JSON(http.StatusBadRequest, gin.H{"error": "pageSize must be a 32-bit integer"})
+		return
+	}
+	var page sdk.StreamMessagesPage[string]
+	err = controller.client.ListStreamMessages(
+		request.Request.Context(),
+		flowID,
+		Progress,
+		int32(pageSize),
+		request.Query("beforePageToken"),
+		&page,
+	)
+	if err != nil {
+		httputil.Respond(request, nil, err)
+		return
+	}
+	messages := make([]gin.H, 0, len(page.Messages))
+	for _, message := range page.Messages {
+		messages = append(messages, gin.H{
+			"value":       message.Value,
+			"resumeToken": message.ResumeToken,
+			"createdTime": message.CreatedTime.Format(time.RFC3339Nano),
+			"source":      message.Source,
+		})
+	}
+	httputil.Respond(request, gin.H{
+		"messages":      messages,
+		"nextPageToken": page.NextPageToken,
+	}, nil)
 }
 
 func primitiveStartOptions() sdk.StartFlowOptions {

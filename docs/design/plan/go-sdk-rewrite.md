@@ -831,6 +831,15 @@ a caller pointer, and returns the next token, creation time, and source. Empty
 or trimmed-away tokens resume from the retained head according to
 the server contract.
 
+`Client.ListStreamMessages` accepts the exact registered Stream, a positive
+page size, an exclusive before-page token, and a pointer to
+`StreamMessagesPage[T]`. It returns retained messages newest first without
+waiting. An empty token starts at the retained tail. The returned next-page
+token anchors the next older page and is empty at the end. A trimmed anchor
+returns an empty page instead of restarting at the tail. Messages appended
+after the first page do not enter that older-page chain. The server-configured
+page-size limit defaults to 1000.
+
 ### WaitFor response
 
 WaitFor invokes the registered typed handler unless `skipWaitFor` is true. A

@@ -263,6 +263,15 @@ message = client.read_stream(flow_id, progress)
 print(message.source)
 ```
 
+`Client.read_stream` and `AsyncClient.read_stream` move forward one message at
+a time and can long-poll. Their `list_stream_messages` methods return one
+non-blocking newest-first retained page. Pass the registered `Stream`, a
+positive page size, and an empty token for the first page. Pass
+`StreamMessagesPage.next_page_token` unchanged to read older messages until it
+is empty. The server caps page size at 1000 by default. A trimmed anchor returns
+an empty page, and newer concurrent writes do not enter an existing older-page
+chain.
+
 ### Canceling Step executions
 
 A successful Step can cancel queued or active executions while continuing with

@@ -250,6 +250,90 @@ Go, Java, Python async, TypeScript, and Rust stop the timer and flush the tail b
 
 Resume is best effort. A slow reader can miss messages trimmed before its next read.
 
+### Reverse pagination
+
+Use **ListStreamMessages** to inspect retained messages from newest to oldest. The call is non-blocking. It returns immediately with up to the requested page size.
+
+An empty before-page token starts at the retained tail. Pass the returned next-page token unchanged to read the next older page. The token is exclusive and bound to the Flow type, Flow ID, and Stream name. An empty next-page token marks the final page.
+
+<SdkTabs examples={{
+python: 'examples/python/dex_examples/primitives/stream/controller.py',
+go: 'examples/go/primitives/stream/controller.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamController.java',
+typescript: 'examples/typescript/src/primitives/stream/controller.ts',
+rust: 'examples/rust/src/primitives/stream/controller.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+        page = await app_state.client.list_stream_messages(
+            required_query("workflowId"),
+            app_state.stream.progress,
+            required_int_query("pageSize"),
+            optional_query("beforePageToken", ""),
+        )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+	var page sdk.StreamMessagesPage[string]
+	err = controller.client.ListStreamMessages(
+		request.Request.Context(),
+		flowID,
+		Progress,
+		int32(pageSize),
+		request.Query("beforePageToken"),
+		&page,
+	)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+        final StreamMessagesPage<String> page = client.listStreamMessages(
+                workflowId,
+                flow.progress,
+                pageSize,
+                beforePageToken);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+    const page = await client.listStreamMessages(
+      String(request.query.workflowId ?? ""),
+      progress,
+      Number(request.query.pageSize),
+      String(request.query.beforePageToken ?? ""),
+    );
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+        client
+            .list_stream_messages(
+                &query.workflow_id,
+                &PROGRESS,
+                query.page_size,
+                &query.before_page_token,
+            )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Listing is a best-effort retained-message snapshot, not a transactional snapshot. New messages appended after the first page do not enter that older-page chain, but trimming can remove messages between calls. If trimming moves the retained head past the page anchor, Dex returns an empty page instead of restarting from the tail.
+
+The server requires a positive page size and caps it with **maxReadMessages**. The default limit is 1000.
+
+Use **ReadStream** for forward, one-message-at-a-time consumption that can long-poll and resume. Use **ListStreamMessages** for reverse, non-blocking pagination over currently retained messages.
+
 ### Approximate capacity
 
 **streamCapacityBytes** is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.

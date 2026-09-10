@@ -435,6 +435,24 @@ fn stream_resumes_after_step_and_client_writes() {
         .expect("resume Rust Stream");
     assert_eq!(client_message.value, "Preview displayed");
     assert_eq!(client_message.source, "browser/complete");
+
+    let newest_page = environment
+        .client
+        .list_stream_messages(&flow_id, &PROGRESS, 1, "")
+        .expect("list newest Rust Stream message");
+    assert_eq!(newest_page.messages.len(), 1);
+    assert_eq!(newest_page.messages[0].value, "Preview displayed");
+    assert!(!newest_page.next_page_token.is_empty());
+
+    let older_page = environment
+        .client
+        .list_stream_messages(&flow_id, &PROGRESS, 1, &newest_page.next_page_token)
+        .expect("list older Rust Stream message");
+    assert_eq!(older_page.messages.len(), 1);
+    assert_eq!(
+        older_page.messages[0].value,
+        "Rendering preview for invoicePreview ready for invoice"
+    );
 }
 
 #[test]

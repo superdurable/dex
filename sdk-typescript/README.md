@@ -299,6 +299,14 @@ must be non-empty, may contain `#`, and may repeat; every write appends a new
 message. `Client.readStream` returns it as `StreamMessage.source`. Step writes
 use `#<stepExecutionID>` as source metadata.
 
+`Client.readStream` moves forward one message at a time and can long-poll.
+`Client.listStreamMessages` returns a non-blocking newest-first retained page.
+Pass the registered typed `Stream`, a positive page size, and an empty token for
+the first page. Pass `StreamMessagesPage.nextPageToken` unchanged to read older
+messages until it is empty. The server caps page size at 1000 by default. A
+trimmed anchor returns an empty page, and newer concurrent writes do not enter
+an existing older-page chain.
+
 Step durability defaults to the Flow configuration and then sync. Regular
 attempts default to two hours, heartbeat timeout defaults to one minute, and
 retry total duration defaults to four hours. The SDK accepts non-negative
