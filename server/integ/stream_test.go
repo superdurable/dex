@@ -647,8 +647,8 @@ func TestStreamStoreMemoryResumeTokenSurvivesProcessRestartBestEffort(t *testing
 }
 
 func TestStreamStoreBackendConfiguration(t *testing.T) {
-	require.Equal(t, int32(1000), (&config.StreamStoreConfig{}).EffectiveMaxReadMessages())
-	require.Equal(t, int32(17), (&config.StreamStoreConfig{MaxReadMessages: 17}).EffectiveMaxReadMessages())
+	require.Equal(t, int32(1000), (&config.StreamStoreConfig{}).EffectiveMaxListMessagesPageSize())
+	require.Equal(t, int32(17), (&config.StreamStoreConfig{MaxReadMessages: 17}).EffectiveMaxListMessagesPageSize())
 	disabledStore, err := streamstore.New(&config.StreamStoreConfig{}, log.NewNoop())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, disabledStore.Close()) })

@@ -196,7 +196,7 @@ func (s *Store) List(
 	if s.backend == nil {
 		return nil, false, ErrDisabled
 	}
-	if pageSize < 1 || pageSize > s.cfg.EffectiveMaxReadMessages() {
+	if pageSize < 1 || pageSize > s.cfg.EffectiveMaxListMessagesPageSize() {
 		return nil, false, ErrInvalidPageSize
 	}
 	beforeMessageID, err := decodePageToken(

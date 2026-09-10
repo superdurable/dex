@@ -536,8 +536,8 @@ func (c StreamStoreConfig) EffectiveMaxMessageBytes() int64 {
 	return c.MaxMessageBytes
 }
 
-// EffectiveMaxReadMessages returns the configured reverse-read limit or 1000-message default.
-func (c StreamStoreConfig) EffectiveMaxReadMessages() int32 {
+// EffectiveMaxListMessagesPageSize returns the configured page limit or 1000-message default.
+func (c StreamStoreConfig) EffectiveMaxListMessagesPageSize() int32 {
 	if c.MaxReadMessages == 0 {
 		return DefaultStreamMaxListMessagesPageSize
 	}
@@ -629,7 +629,7 @@ func (c StreamStoreConfig) Validate() error {
 	if c.EffectiveMaxMessageBytes() <= 0 {
 		return fmt.Errorf("stream store maxMessageBytes must be positive")
 	}
-	if c.EffectiveMaxReadMessages() <= 0 {
+	if c.EffectiveMaxListMessagesPageSize() <= 0 {
 		return fmt.Errorf("stream store maxReadMessages must be positive")
 	}
 	if c.EstimatedMessageOverheadBytes < 0 {
