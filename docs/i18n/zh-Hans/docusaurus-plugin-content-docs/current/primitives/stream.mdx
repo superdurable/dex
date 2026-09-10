@@ -194,7 +194,7 @@ Go、Java、Python async、TypeScript 和 Rust 会在发送最终 result 或 err
 
 续读也是 best effort。读取太慢时，Client 可能错过已经被 trim 的消息。
 
-### 倒序分页
+### 列出消息
 
 使用 **ListStreamMessages** 可以从最新到最早查看当前保留的消息。调用不会阻塞，而是立即返回不超过指定 page size 的消息。
 

@@ -250,7 +250,7 @@ Go, Java, Python async, TypeScript, and Rust stop the timer and flush the tail b
 
 Resume is best effort. A slow reader can miss messages trimmed before its next read.
 
-### Reverse pagination
+### Listing messages
 
 Use **ListStreamMessages** to inspect retained messages from newest to oldest. The call is non-blocking. It returns immediately with up to the requested page size.
 
