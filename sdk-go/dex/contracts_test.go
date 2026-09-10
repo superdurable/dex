@@ -557,6 +557,16 @@ var _ func(
 	*dex.Client,
 	context.Context,
 	string,
+	dex.StreamDef,
+	int32,
+	string,
+	any,
+) error = (*dex.Client).ListStreamMessages
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
 	any,
 	any,
 	any,

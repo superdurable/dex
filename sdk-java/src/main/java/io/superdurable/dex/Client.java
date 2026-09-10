@@ -48,6 +48,8 @@ import io.superdurable.gen.KV;
 import io.superdurable.gen.PublishToChannelRequest;
 import io.superdurable.gen.ReadStreamRequest;
 import io.superdurable.gen.ReadStreamResponse;
+import io.superdurable.gen.ListStreamMessagesRequest;
+import io.superdurable.gen.ListStreamMessagesResponse;
 import io.superdurable.gen.ResetFlowRequest;
 import io.superdurable.gen.SearchFlowsRequest;
 import io.superdurable.gen.SearchFlowsResponse;
@@ -750,6 +752,58 @@ public final class Client implements AutoCloseable {
                 response.getMessage().getResumeToken(),
                 instant(response.getMessage().getCreatedTime()),
                 response.getMessage().getSource());
+    }
+
+    /**
+     * Returns one newest-first page of retained Stream messages without waiting for writes.
+     *
+     * <p>An empty token starts at the retained tail. Pass the returned next-page token unchanged
+     * to read older messages. Stream trimming may remove messages between pages.
+     *
+     * @param flowId the logical Flow instance ID used as the Stream instance key
+     * @param stream the exact Stream registered in one Flow schema
+     * @param pageSize the positive maximum count within the server-configured limit
+     * @param beforePageToken the preceding page token, or empty for the first page
+     * @param <T> the Stream message type
+     * @return decoded messages in newest-first order and the next-page token
+     * @throws IllegalArgumentException if {@code pageSize} is not positive
+     * @throws FlowDefinitionException if the Stream is not registered
+     * @throws DexServiceException if Dex cannot list the Stream
+     */
+    public <T> StreamMessagesPage<T> listStreamMessages(
+            final String flowId,
+            final Stream<T> stream,
+            final int pageSize,
+            final String beforePageToken) {
+        if (pageSize < 1) {
+            throw new IllegalArgumentException("Stream page size must be positive");
+        }
+        final Registry.RegisteredFlow flow = registry.getFlow(stream);
+        final ListStreamMessagesResponse response = call(() -> service.listStreamMessages(
+                ListStreamMessagesRequest.newBuilder()
+                        .setFlowId(Attribute.requireName(flowId))
+                        .setFlowType(flow.getName())
+                        .setStreamName(stream.getStreamName())
+                        .setPageSize(pageSize)
+                        .setBeforePageToken(beforePageToken == null ? "" : beforePageToken)
+                        .build()));
+        final List<StreamMessage<T>> messages = new ArrayList<StreamMessage<T>>(
+                response.getMessagesCount());
+        for (io.superdurable.gen.StreamMessage message : response.getMessagesList()) {
+            if (!message.hasValue()
+                    || !message.hasCreatedTime()
+                    || message.getResumeToken().isEmpty()) {
+                throw new IllegalStateException("Dex returned an incomplete Stream message");
+            }
+            @SuppressWarnings("unchecked")
+            final T value = (T) values.decode(message.getValue(), stream.getValueType());
+            messages.add(new StreamMessage<T>(
+                    value,
+                    message.getResumeToken(),
+                    instant(message.getCreatedTime()),
+                    message.getSource()));
+        }
+        return new StreamMessagesPage<T>(messages, response.getNextPageToken());
     }
 
     /**

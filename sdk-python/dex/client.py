@@ -48,7 +48,7 @@ from dex.flow_result import FlowResult, flow_result_from_proto
 from dex.runtime_errors import FlowErrorType
 from dex.step import RetryPolicy, StepDurability
 from dex.step_execution import StepExecutionId, TimerId
-from dex.stream import Stream, StreamMessage
+from dex.stream import Stream, StreamMessage, StreamMessagesPage
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
@@ -765,6 +765,73 @@ class Client:
             response.message.created_time.ToDatetime(tzinfo=timezone.utc),
             response.message.source,
         )
+
+    def list_stream_messages(
+        self,
+        flow_id: str,
+        stream: Stream[ValueT],
+        page_size: int,
+        before_page_token: str = "",
+    ) -> StreamMessagesPage[ValueT]:
+        """Return one newest-first page of retained Stream messages without waiting.
+
+        An empty token starts at the retained tail. Pass the returned page token
+        unchanged to read older messages. Trimming may remove messages between pages.
+
+        Args:
+            flow_id: Logical Flow instance ID used as the Stream instance key.
+            stream: Exact Stream object registered in one Flow schema.
+            page_size: Positive maximum message count within the server-configured limit.
+            before_page_token: Opaque token from the preceding page, or ``""`` first.
+
+        Returns:
+            Decoded messages in newest-first order and the next-page token.
+
+        Raises:
+            ValueError: If ``page_size`` is not positive.
+            FlowDefinitionError: If the Stream is not registered.
+            ValueMappingError: If a retained message cannot be decoded.
+            DexServiceError: If FlowService cannot list the Stream.
+        """
+        if page_size < 1:
+            raise ValueError("Stream page size must be positive")
+        flow = self.registry._flow_for_stream(stream)
+        response = cast(
+            pb.ListStreamMessagesResponse,
+            self._call(
+                self._service.ListStreamMessages,
+                pb.ListStreamMessagesRequest(
+                    flow_id=require_name(flow_id),
+                    flow_type=flow.name,
+                    stream_name=stream.name,
+                    page_size=page_size,
+                    before_page_token=before_page_token,
+                ),
+                "list_stream_messages",
+                flow_id,
+                "none",
+            ),
+        )
+        messages: list[StreamMessage[ValueT]] = []
+        for message in response.messages:
+            if (
+                not message.HasField("value")
+                or not message.HasField("created_time")
+                or not message.resume_token
+            ):
+                raise ValueError("Dex returned an incomplete Stream message")
+            messages.append(
+                StreamMessage(
+                    self._values.decode(
+                        message.value,
+                        self._values.codec(stream.value_type),
+                    ),
+                    message.resume_token,
+                    message.created_time.ToDatetime(tzinfo=timezone.utc),
+                    message.source,
+                )
+            )
+        return StreamMessagesPage(messages, response.next_page_token)
 
     def wait_for_flow(
         self,

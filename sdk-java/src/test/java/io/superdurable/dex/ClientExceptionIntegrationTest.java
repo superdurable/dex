@@ -37,6 +37,8 @@ import io.superdurable.gen.GetFlowSummaryRequest;
 import io.superdurable.gen.GetFlowSummaryResponse;
 import io.superdurable.gen.LoadBlobsRequest;
 import io.superdurable.gen.LoadBlobsResponse;
+import io.superdurable.gen.ListStreamMessagesRequest;
+import io.superdurable.gen.ListStreamMessagesResponse;
 import io.superdurable.gen.ReadStreamRequest;
 import io.superdurable.gen.ReadStreamResponse;
 import io.superdurable.gen.StopFlowRequest;
@@ -186,6 +188,16 @@ final class ClientExceptionIntegrationTest {
         assertEquals("resume-1", message.getResumeToken());
         assertEquals(java.time.Instant.parse("2026-08-27T12:00:00Z"), message.getCreatedTime());
         assertEquals("client-1", message.getSource());
+        final StreamMessagesPage<String> page = client.listStreamMessages(
+                "flow-1", THINKING, 2, "before-page");
+        assertEquals(2, flowService.listStreamMessagesRequest.getPageSize());
+        assertEquals("before-page", flowService.listStreamMessagesRequest.getBeforePageToken());
+        assertEquals("newest", page.getMessages().get(0).getValue());
+        assertEquals("older", page.getMessages().get(1).getValue());
+        assertEquals("next-page", page.getNextPageToken());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> client.listStreamMessages("flow-1", THINKING, 0, ""));
         client.writeStream("flow-1", THINKING, "producer#partition", "allowed");
         assertEquals("producer#partition", flowService.writeStreamRequest.getSource());
     }
@@ -235,6 +247,7 @@ final class ClientExceptionIntegrationTest {
             extends FlowServiceGrpc.FlowServiceImplBase {
         private WriteStreamRequest writeStreamRequest;
         private ReadStreamRequest readStreamRequest;
+        private ListStreamMessagesRequest listStreamMessagesRequest;
 
         @Override
         public void writeStream(
@@ -257,6 +270,29 @@ final class ClientExceptionIntegrationTest {
                             .setCreatedTime(com.google.protobuf.Timestamp.newBuilder()
                                     .setSeconds(1_787_832_000L))
                             .setSource("client-1"))
+                    .build());
+            observer.onCompleted();
+        }
+
+        @Override
+        public void listStreamMessages(
+                final ListStreamMessagesRequest request,
+                final StreamObserver<ListStreamMessagesResponse> observer) {
+            listStreamMessagesRequest = request;
+            observer.onNext(ListStreamMessagesResponse.newBuilder()
+                    .addMessages(io.superdurable.gen.StreamMessage.newBuilder()
+                            .setValue(Value.newBuilder().setStringValue("newest"))
+                            .setResumeToken("resume-2")
+                            .setCreatedTime(com.google.protobuf.Timestamp.newBuilder()
+                                    .setSeconds(1_787_835_600L))
+                            .setSource("client-2"))
+                    .addMessages(io.superdurable.gen.StreamMessage.newBuilder()
+                            .setValue(Value.newBuilder().setStringValue("older"))
+                            .setResumeToken("resume-1")
+                            .setCreatedTime(com.google.protobuf.Timestamp.newBuilder()
+                                    .setSeconds(1_787_832_000L))
+                            .setSource("client-1"))
+                    .setNextPageToken("next-page")
                     .build());
             observer.onCompleted();
         }

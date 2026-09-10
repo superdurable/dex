@@ -228,7 +228,7 @@ export class BufferedTextStream implements StepOutputFinalizer {
 }
 
 /**
- * Describes one retained Stream message returned by Client.readStream.
+ * Describes one retained Stream message returned by Stream Client reads.
  * @typeParam T - Decoded application message type.
  */
 export interface StreamMessage<T> {
@@ -240,6 +240,17 @@ export interface StreamMessage<T> {
   readonly createdTime: Date;
   /** Client-supplied source or Step-generated `#stepExecutionID` source. */
   readonly source: string;
+}
+
+/**
+ * Contains one newest-first page returned by Client.listStreamMessages.
+ * @typeParam T - Decoded Stream message type.
+ */
+export interface StreamMessagesPage<T> {
+  /** Retained Stream messages in newest-first order. */
+  readonly messages: readonly StreamMessage<T>[];
+  /** Opaque token for the next older page, or an empty string on the final page. */
+  readonly nextPageToken: string;
 }
 
 function requirePositiveNumber(name: string, value: number): void {

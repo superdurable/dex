@@ -374,7 +374,7 @@ impl StepOutputFinalizer for BufferedTextStreamInner {
     }
 }
 
-/// Describes one retained Stream message returned by [`crate::Client::read_stream`].
+/// Describes one retained Stream message returned by Stream Client reads.
 #[derive(Clone, Debug)]
 pub struct StreamMessage<T> {
     /// Decoded application message.
@@ -385,4 +385,16 @@ pub struct StreamMessage<T> {
     pub created_time: SystemTime,
     /// Client-provided source or Step-generated `#stepExecutionID` source.
     pub source: String,
+}
+
+/// Contains one newest-first page returned by [`crate::Client::list_stream_messages`].
+///
+/// Pass a nonempty [`Self::next_page_token`] unchanged to the next call. Stream trimming may remove
+/// messages between pages.
+#[derive(Clone, Debug)]
+pub struct StreamMessagesPage<T> {
+    /// Retained Stream messages in newest-first order.
+    pub messages: Vec<StreamMessage<T>>,
+    /// Opaque token for the next older page, or empty on the final page.
+    pub next_page_token: String,
 }

@@ -13,6 +13,7 @@
 package io.superdurable.dex.integ;
 
 import io.superdurable.dex.StreamMessage;
+import io.superdurable.dex.StreamMessagesPage;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -66,6 +67,17 @@ public final class StreamTest {
                     .readStream(flowId, workflow.progress, client.getResumeToken(), Duration.ofSeconds(30));
             assertEquals("duplicate-retained", duplicate.getValue());
             assertEquals("client-write", duplicate.getSource());
+
+            final StreamMessagesPage<String> latest = environment.client()
+                    .listStreamMessages(flowId, workflow.progress, 2, "");
+            assertEquals("duplicate-retained", latest.getMessages().get(0).getValue());
+            assertEquals("client-progress", latest.getMessages().get(1).getValue());
+            assertFalse(latest.getNextPageToken().isEmpty());
+            final StreamMessagesPage<String> older = environment.client()
+                    .listStreamMessages(flowId, workflow.progress, 2, latest.getNextPageToken());
+            assertEquals("step-progress-2", older.getMessages().get(0).getValue());
+            assertEquals("step-progress-1", older.getMessages().get(1).getValue());
+            assertTrue(older.getNextPageToken().isEmpty());
         }
     }
 }

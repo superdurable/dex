@@ -24,6 +24,7 @@ type ApiService interface {
 	DeleteChannelMessage(context.Context, *dexpb.DeleteChannelMessageRequest) (*emptypb.Empty, error)
 	WriteStream(context.Context, *dexpb.WriteStreamRequest) (*emptypb.Empty, error)
 	ReadStream(context.Context, *dexpb.ReadStreamRequest) (*dexpb.ReadStreamResponse, error)
+	ListStreamMessages(context.Context, *dexpb.ListStreamMessagesRequest) (*dexpb.ListStreamMessagesResponse, error)
 	StopFlow(context.Context, *dexpb.StopFlowRequest) (*emptypb.Empty, error)
 	GetAttributes(context.Context, *dexpb.GetAttributesRequest) (*dexpb.GetAttributesResponse, error)
 	SetAttributes(context.Context, *dexpb.SetAttributesRequest) (*emptypb.Empty, error)

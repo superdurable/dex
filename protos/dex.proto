@@ -79,6 +79,7 @@ service FlowService {
   rpc DeleteChannelMessage(DeleteChannelMessageRequest) returns (google.protobuf.Empty);
   rpc WriteStream(WriteStreamRequest) returns (google.protobuf.Empty);
   rpc ReadStream(ReadStreamRequest) returns (ReadStreamResponse);
+  rpc ListStreamMessages(ListStreamMessagesRequest) returns (ListStreamMessagesResponse);
   rpc StopFlow(StopFlowRequest) returns (google.protobuf.Empty);
   rpc GetAttributes(GetAttributesRequest) returns (GetAttributesResponse);
   rpc SetAttributes(SetAttributesRequest) returns (google.protobuf.Empty);
@@ -390,6 +391,19 @@ message ReadStreamRequest {
 
 message ReadStreamResponse {
   StreamMessage message = 1;
+}
+
+message ListStreamMessagesRequest {
+  string flow_id = 1;
+  string flow_type = 2;
+  string stream_name = 3;
+  int32 page_size = 4;
+  string before_page_token = 5;
+}
+
+message ListStreamMessagesResponse {
+  repeated StreamMessage messages = 1;
+  string next_page_token = 2;
 }
 
 message StreamMessage {

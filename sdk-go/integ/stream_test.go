@@ -113,4 +113,33 @@ func TestStreamRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "client-progress-2", secondClientValue)
 	require.Equal(t, "client-write", secondClientMessage.Source)
+
+	var latest dex.StreamMessagesPage[string]
+	require.NoError(t, integClient.ListStreamMessages(
+		ctx,
+		flowID,
+		streamTestProgress,
+		2,
+		"",
+		&latest,
+	))
+	require.Equal(t, []string{"client-progress-2", "client-progress"}, []string{
+		latest.Messages[0].Value,
+		latest.Messages[1].Value,
+	})
+	require.NotEmpty(t, latest.NextPageToken)
+	var older dex.StreamMessagesPage[string]
+	require.NoError(t, integClient.ListStreamMessages(
+		ctx,
+		flowID,
+		streamTestProgress,
+		2,
+		latest.NextPageToken,
+		&older,
+	))
+	require.Equal(t, []string{"step-progress-2", "step-progress-1"}, []string{
+		older.Messages[0].Value,
+		older.Messages[1].Value,
+	})
+	require.Empty(t, older.NextPageToken)
 }

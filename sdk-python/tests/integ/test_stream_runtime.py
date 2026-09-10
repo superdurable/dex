@@ -56,3 +56,18 @@ def test_stream_round_trip() -> None:
         )
         assert duplicate.value == "duplicate-retained"
         assert duplicate.source == "client#write"
+
+        latest = environment.client.list_stream_messages(flow_id, flow.progress, 2)
+        assert [message.value for message in latest.messages] == [
+            "duplicate-retained",
+            "client-progress",
+        ]
+        assert latest.next_page_token
+        older = environment.client.list_stream_messages(
+            flow_id,
+            flow.progress,
+            2,
+            latest.next_page_token,
+        )
+        assert [message.value for message in older.messages] == ["step-progress"]
+        assert not older.next_page_token

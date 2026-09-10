@@ -34,6 +34,7 @@ const (
 	FlowService_DeleteChannelMessage_FullMethodName  = "/dex.FlowService/DeleteChannelMessage"
 	FlowService_WriteStream_FullMethodName           = "/dex.FlowService/WriteStream"
 	FlowService_ReadStream_FullMethodName            = "/dex.FlowService/ReadStream"
+	FlowService_ListStreamMessages_FullMethodName    = "/dex.FlowService/ListStreamMessages"
 	FlowService_StopFlow_FullMethodName              = "/dex.FlowService/StopFlow"
 	FlowService_GetAttributes_FullMethodName         = "/dex.FlowService/GetAttributes"
 	FlowService_SetAttributes_FullMethodName         = "/dex.FlowService/SetAttributes"
@@ -67,6 +68,7 @@ type FlowServiceClient interface {
 	DeleteChannelMessage(ctx context.Context, in *DeleteChannelMessageRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	WriteStream(ctx context.Context, in *WriteStreamRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ReadStream(ctx context.Context, in *ReadStreamRequest, opts ...grpc.CallOption) (*ReadStreamResponse, error)
+	ListStreamMessages(ctx context.Context, in *ListStreamMessagesRequest, opts ...grpc.CallOption) (*ListStreamMessagesResponse, error)
 	StopFlow(ctx context.Context, in *StopFlowRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetAttributes(ctx context.Context, in *GetAttributesRequest, opts ...grpc.CallOption) (*GetAttributesResponse, error)
 	SetAttributes(ctx context.Context, in *SetAttributesRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -150,6 +152,16 @@ func (c *flowServiceClient) ReadStream(ctx context.Context, in *ReadStreamReques
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ReadStreamResponse)
 	err := c.cc.Invoke(ctx, FlowService_ReadStream_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) ListStreamMessages(ctx context.Context, in *ListStreamMessagesRequest, opts ...grpc.CallOption) (*ListStreamMessagesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListStreamMessagesResponse)
+	err := c.cc.Invoke(ctx, FlowService_ListStreamMessages_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -358,6 +370,7 @@ type FlowServiceServer interface {
 	DeleteChannelMessage(context.Context, *DeleteChannelMessageRequest) (*emptypb.Empty, error)
 	WriteStream(context.Context, *WriteStreamRequest) (*emptypb.Empty, error)
 	ReadStream(context.Context, *ReadStreamRequest) (*ReadStreamResponse, error)
+	ListStreamMessages(context.Context, *ListStreamMessagesRequest) (*ListStreamMessagesResponse, error)
 	StopFlow(context.Context, *StopFlowRequest) (*emptypb.Empty, error)
 	GetAttributes(context.Context, *GetAttributesRequest) (*GetAttributesResponse, error)
 	SetAttributes(context.Context, *SetAttributesRequest) (*emptypb.Empty, error)
@@ -404,6 +417,9 @@ func (UnimplementedFlowServiceServer) WriteStream(context.Context, *WriteStreamR
 }
 func (UnimplementedFlowServiceServer) ReadStream(context.Context, *ReadStreamRequest) (*ReadStreamResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReadStream not implemented")
+}
+func (UnimplementedFlowServiceServer) ListStreamMessages(context.Context, *ListStreamMessagesRequest) (*ListStreamMessagesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListStreamMessages not implemented")
 }
 func (UnimplementedFlowServiceServer) StopFlow(context.Context, *StopFlowRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method StopFlow not implemented")
@@ -587,6 +603,24 @@ func _FlowService_ReadStream_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FlowServiceServer).ReadStream(ctx, req.(*ReadStreamRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_ListStreamMessages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListStreamMessagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).ListStreamMessages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_ListStreamMessages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).ListStreamMessages(ctx, req.(*ListStreamMessagesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -963,6 +997,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReadStream",
 			Handler:    _FlowService_ReadStream_Handler,
+		},
+		{
+			MethodName: "ListStreamMessages",
+			Handler:    _FlowService_ListStreamMessages_Handler,
 		},
 		{
 			MethodName: "StopFlow",

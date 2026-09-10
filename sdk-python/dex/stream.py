@@ -12,7 +12,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Generic, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Generic, Sequence, TypeVar, cast, overload
 
 from dex._utils import require_name
 from dex.step import StepOutput
@@ -178,6 +178,22 @@ class StreamMessage(Generic[ValueT]):
     resume_token: str
     created_time: datetime
     source: str
+
+
+@dataclass(frozen=True)
+class StreamMessagesPage(Generic[ValueT]):
+    """Contain one newest-first page of retained Stream messages.
+
+    Pass ``next_page_token`` unchanged to the next Client list call. An empty
+    token marks the final page. Stream trimming may remove messages between pages.
+
+    Attributes:
+        messages: Retained messages in newest-first order.
+        next_page_token: Opaque token for the next older page, or ``""``.
+    """
+
+    messages: Sequence[StreamMessage[ValueT]]
+    next_page_token: str
 
 
 class AsyncBufferedTextStream:

@@ -186,6 +186,57 @@ func (b *memoryBackend) Read(
 	}
 }
 
+func (b *memoryBackend) List(
+	ctx context.Context,
+	flowType string,
+	flowID string,
+	streamName string,
+	beforeMessageID string,
+	pageSize int32,
+) ([]*Message, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	if b.closed {
+		return nil, false, ErrUnavailable
+	}
+	scope := b.scopes[streamScope{flowType: flowType, streamName: streamName}]
+	if scope == nil {
+		return nil, false, nil
+	}
+	instance := scope.instances[flowID]
+	if instance == nil {
+		return nil, false, nil
+	}
+	end := len(instance.messages)
+	if beforeMessageID != "" {
+		cursorMilliseconds, cursorSequence, err := parseMessageID(beforeMessageID)
+		if err != nil {
+			panic("validated Stream page message ID was not parseable")
+		}
+		end = instance.firstAtOrAfter(cursorMilliseconds, cursorSequence)
+	}
+	start := end - int(pageSize) - 1
+	if start < 0 {
+		start = 0
+	}
+	hasMore := end-start > int(pageSize)
+	if hasMore {
+		start++
+	}
+	messages := make([]*Message, 0, end-start)
+	for index := end - 1; index >= start; index-- {
+		message, err := instance.messages[index].message()
+		if err != nil {
+			return nil, false, err
+		}
+		messages = append(messages, message)
+	}
+	return messages, hasMore, nil
+}
+
 func (b *memoryBackend) runTrimWorker() {
 	defer b.wait.Done()
 	for {
@@ -394,6 +445,14 @@ func (i *memoryInstance) after(milliseconds int64, sequence uint64) *memoryEntry
 		return nil
 	}
 	return i.messages[index]
+}
+
+func (i *memoryInstance) firstAtOrAfter(milliseconds int64, sequence uint64) int {
+	return sort.Search(len(i.messages), func(index int) bool {
+		entry := i.messages[index]
+		return entry.milliseconds > milliseconds ||
+			(entry.milliseconds == milliseconds && entry.sequence >= sequence)
+	})
 }
 
 func (e *memoryEntry) message() (*Message, error) {

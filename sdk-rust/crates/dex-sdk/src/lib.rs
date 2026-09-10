@@ -72,7 +72,9 @@ pub use step::{Step, StepDecision, StepList, StepMovement};
 pub use step_execution::StepExecutionId;
 pub use step_options::{StepDurability, StepOptions, WaitForFailurePolicy};
 pub use stop_flow_options::StopFlowOptions;
-pub use stream::{BufferedTextStream, BufferedTextStreamOptions, Stream, StreamMessage};
+pub use stream::{
+    BufferedTextStream, BufferedTextStreamOptions, Stream, StreamMessage, StreamMessagesPage,
+};
 pub use sub_flow::{SubFlow, SubFlowOptions, SubFlowReusePolicy};
 pub use time_travel_options::{TimeTravelOptions, TimeTravelStepMethod};
 pub use timer::{Timer, TimerId};

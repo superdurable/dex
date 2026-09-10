@@ -118,6 +118,11 @@ class FlowServiceStub:
                 request_serializer=dex__pb2.ReadStreamRequest.SerializeToString,
                 response_deserializer=dex__pb2.ReadStreamResponse.FromString,
                 _registered_method=True)
+        self.ListStreamMessages = channel.unary_unary(
+                '/dex.FlowService/ListStreamMessages',
+                request_serializer=dex__pb2.ListStreamMessagesRequest.SerializeToString,
+                response_deserializer=dex__pb2.ListStreamMessagesResponse.FromString,
+                _registered_method=True)
         self.StopFlow = channel.unary_unary(
                 '/dex.FlowService/StopFlow',
                 request_serializer=dex__pb2.StopFlowRequest.SerializeToString,
@@ -307,6 +312,12 @@ class FlowServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListStreamMessages(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def StopFlow(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -453,6 +464,11 @@ def add_FlowServiceServicer_to_server(servicer, server):
                     servicer.ReadStream,
                     request_deserializer=dex__pb2.ReadStreamRequest.FromString,
                     response_serializer=dex__pb2.ReadStreamResponse.SerializeToString,
+            ),
+            'ListStreamMessages': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListStreamMessages,
+                    request_deserializer=dex__pb2.ListStreamMessagesRequest.FromString,
+                    response_serializer=dex__pb2.ListStreamMessagesResponse.SerializeToString,
             ),
             'StopFlow': grpc.unary_unary_rpc_method_handler(
                     servicer.StopFlow,
@@ -765,6 +781,33 @@ class FlowService:
             '/dex.FlowService/ReadStream',
             dex__pb2.ReadStreamRequest.SerializeToString,
             dex__pb2.ReadStreamResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListStreamMessages(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/ListStreamMessages',
+            dex__pb2.ListStreamMessagesRequest.SerializeToString,
+            dex__pb2.ListStreamMessagesResponse.FromString,
             options,
             channel_credentials,
             insecure,

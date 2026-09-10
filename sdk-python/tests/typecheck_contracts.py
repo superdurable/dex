@@ -28,6 +28,7 @@ from dex import (
     StepOutput,
     Stream,
     StreamMessage,
+    StreamMessagesPage,
     Worker,
     graceful_complete,
     heartbeat,
@@ -108,6 +109,10 @@ output: Output = client.invoke_rpc(
 client.write_stream("flow-id", progress, "frontend/1", "starting")
 stream_message: StreamMessage[str] = client.read_stream("flow-id", progress)
 stream_source: str = stream_message.source
+stream_page: StreamMessagesPage[str] = client.list_stream_messages(
+    "flow-id", progress, 100
+)
+stream_page_value: str = stream_page.messages[0].value
 
 status = Attribute("status", str, sync_to_attribute_store=True)
 items = AttributeMap("items", int, sync_to_attribute_store=True)

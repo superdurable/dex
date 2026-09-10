@@ -115,6 +115,13 @@ func (h *handler) ReadStream(
 	return h.svc.ReadStream(ctx, req)
 }
 
+func (h *handler) ListStreamMessages(
+	ctx context.Context,
+	req *dexpb.ListStreamMessagesRequest,
+) (*dexpb.ListStreamMessagesResponse, error) {
+	return h.svc.ListStreamMessages(ctx, req)
+}
+
 func (h *handler) StopFlow(
 	ctx context.Context,
 	req *dexpb.StopFlowRequest,

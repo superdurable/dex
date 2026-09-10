@@ -850,6 +850,7 @@ def test_client_stream_transport_and_metadata() -> None:
         def __init__(self) -> None:
             self.write_request: pb.WriteStreamRequest | None = None
             self.read_request: pb.ReadStreamRequest | None = None
+            self.list_request: pb.ListStreamMessagesRequest | None = None
 
         def WriteStream(self, request: pb.WriteStreamRequest) -> object:
             self.write_request = request
@@ -863,6 +864,26 @@ def test_client_stream_transport_and_metadata() -> None:
             response.message.resume_token = "resume-1"
             response.message.created_time.FromDatetime(created_time)
             response.message.source = "client-1"
+            return response
+
+        def ListStreamMessages(
+            self,
+            request: pb.ListStreamMessagesRequest,
+        ) -> pb.ListStreamMessagesResponse:
+            self.list_request = request
+            response = pb.ListStreamMessagesResponse(next_page_token="next-page")
+            for value, token, source, hour in (
+                ("newest", "resume-2", "client-2", 13),
+                ("older", "resume-1", "client-1", 12),
+            ):
+                message = response.messages.add(
+                    resume_token=token,
+                    source=source,
+                )
+                message.value.string_value = value
+                message.created_time.FromDatetime(
+                    datetime(2026, 8, 27, hour, tzinfo=timezone.utc)
+                )
             return response
 
     client = Client(Registry((StreamFlow(),)), cast(BlobCache, object()))
@@ -888,6 +909,18 @@ def test_client_stream_transport_and_metadata() -> None:
         assert message.resume_token == "resume-1"
         assert message.created_time == datetime(2026, 8, 27, 12, tzinfo=timezone.utc)
         assert message.source == "client-1"
+        page = client.list_stream_messages("flow-1", thinking, 2, "before-page")
+        assert service.list_request is not None
+        assert service.list_request.page_size == 2
+        assert service.list_request.before_page_token == "before-page"
+        assert [entry.value for entry in page.messages] == ["newest", "older"]
+        assert [entry.resume_token for entry in page.messages] == [
+            "resume-2",
+            "resume-1",
+        ]
+        assert page.next_page_token == "next-page"
+        with pytest.raises(ValueError, match="page size must be positive"):
+            client.list_stream_messages("flow-1", thinking, 0)
         client.write_stream("flow-1", thinking, "allowed#source", "accepted")
         assert service.write_request.source == "allowed#source"
         with pytest.raises(ValueError, match="required"):

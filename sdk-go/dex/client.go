@@ -1237,6 +1237,111 @@ func (client *Client) ReadStream(
 	}, nil
 }
 
+// ListStreamMessages decodes one newest-first page of retained messages into pagePtr.
+//
+// pagePtr must point to StreamMessagesPage[T] for the Stream's value type. pageSize must be
+// positive and no greater than the server's configured limit. An empty beforePageToken starts at
+// the retained tail. Otherwise pass StreamMessagesPage.NextPageToken unchanged to read older
+// messages. The call does not wait for new messages. Stream trimming may remove messages between
+// pages.
+//
+//	var page dex.StreamMessagesPage[string]
+//	err := client.ListStreamMessages(ctx, "flow-1", Thinking, 100, "", &page)
+func (client *Client) ListStreamMessages(
+	ctx context.Context,
+	flowID string,
+	stream StreamDef,
+	pageSize int32,
+	beforePageToken string,
+	pagePtr any,
+) error {
+	if err := client.validateFlowCall(ctx, flowID); err != nil {
+		return err
+	}
+	if pageSize < 1 {
+		return fmt.Errorf("dex: Stream page size must be positive")
+	}
+	flow, registered, err := client.registry.resolveStream(stream)
+	if err != nil {
+		return err
+	}
+	pageTarget, messageType, valueType, err := streamMessagesPageTarget(pagePtr)
+	if err != nil {
+		return err
+	}
+	response, err := client.service.ListStreamMessages(ctx, &dexpb.ListStreamMessagesRequest{
+		FlowId:          flowID,
+		FlowType:        flow.flowType,
+		StreamName:      registered.definition.name,
+		PageSize:        pageSize,
+		BeforePageToken: beforePageToken,
+	})
+	if err != nil {
+		return translateRPCError(err, "ListStreamMessages", flowID, flowTargetNone)
+	}
+	if response == nil {
+		return fmt.Errorf("dex: ListStreamMessages response is nil")
+	}
+	valuePointers := make([]**dexpb.Value, 0, len(response.Messages))
+	for _, message := range response.Messages {
+		if message == nil || message.Value == nil || message.ResumeToken == "" ||
+			message.CreatedTime == nil {
+			return fmt.Errorf("dex: ListStreamMessages response contains an incomplete message")
+		}
+		valuePointers = append(valuePointers, &message.Value)
+	}
+	if err := client.hydrateValues(ctx, valuePointers); err != nil {
+		return err
+	}
+	messagesTarget := pageTarget.FieldByName("Messages")
+	messages := reflect.MakeSlice(messagesTarget.Type(), 0, len(response.Messages))
+	for _, message := range response.Messages {
+		if err := message.CreatedTime.CheckValid(); err != nil {
+			return fmt.Errorf("dex: ListStreamMessages created time is invalid: %w", err)
+		}
+		value, decodeErr := decodeReflectValue(message.Value, valueType)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		entry := reflect.New(messageType).Elem()
+		entry.FieldByName("Value").Set(value)
+		entry.FieldByName("ResumeToken").SetString(message.ResumeToken)
+		entry.FieldByName("CreatedTime").Set(reflect.ValueOf(message.CreatedTime.AsTime()))
+		entry.FieldByName("Source").SetString(message.Source)
+		messages = reflect.Append(messages, entry)
+	}
+	messagesTarget.Set(messages)
+	pageTarget.FieldByName("NextPageToken").SetString(response.NextPageToken)
+	return nil
+}
+
+func streamMessagesPageTarget(
+	pagePtr any,
+) (reflect.Value, reflect.Type, reflect.Type, error) {
+	if pagePtr == nil {
+		return reflect.Value{}, nil, nil, fmt.Errorf("dex: Stream page target must be a non-nil pointer")
+	}
+	target := reflect.ValueOf(pagePtr)
+	if target.Kind() != reflect.Pointer || target.IsNil() || target.Elem().Kind() != reflect.Struct {
+		return reflect.Value{}, nil, nil, fmt.Errorf("dex: Stream page target must point to StreamMessagesPage[T]")
+	}
+	pageType := target.Elem().Type()
+	if pageType.NumField() != 2 || pageType.Field(0).Name != "Messages" ||
+		pageType.Field(0).Type.Kind() != reflect.Slice ||
+		pageType.Field(1).Name != "NextPageToken" || pageType.Field(1).Type.Kind() != reflect.String {
+		return reflect.Value{}, nil, nil, fmt.Errorf("dex: Stream page target must point to StreamMessagesPage[T]")
+	}
+	messageType := pageType.Field(0).Type.Elem()
+	if messageType.Kind() != reflect.Struct || messageType.NumField() != 4 ||
+		messageType.Field(0).Name != "Value" ||
+		messageType.Field(1).Name != "ResumeToken" || messageType.Field(1).Type.Kind() != reflect.String ||
+		messageType.Field(2).Name != "CreatedTime" || messageType.Field(2).Type != reflect.TypeOf(time.Time{}) ||
+		messageType.Field(3).Name != "Source" || messageType.Field(3).Type.Kind() != reflect.String {
+		return reflect.Value{}, nil, nil, fmt.Errorf("dex: Stream page target must point to StreamMessagesPage[T]")
+	}
+	return target.Elem(), messageType, messageType.Field(0).Type, nil
+}
+
 // GetAttribute decodes a singleton Attribute from an existing Flow into valuePtr.
 //
 // valuePtr must be a non-nil pointer matching the registered Attribute value type.

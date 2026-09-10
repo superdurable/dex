@@ -18,12 +18,13 @@ use dex_protocol::dex::{
     FlowResetStepMethod, FlowResetType, FlowRetryPolicy, FlowStartOptions,
     FlowStatus as ProtoFlowStatus, FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
     GetAttributesRequest, GetChannelMessagesRequest, GetFlowSummaryRequest,
-    IdReusePolicy as ProtoIdReusePolicy, InvokeRpcRequest, PublishToChannelRequest,
-    ReadStreamRequest, ResetFlowRequest, SearchFlowsRequest, SetAttributesRequest,
-    SkipTimerRequest, StartFlowRequest, StepDurability as ProtoStepDurability, StopFlowRequest,
-    StopType as ProtoStopType, TriggerContinueAsNewRequest, UpdateFlowConfigRequest,
-    WaitForAttributeRequest, WaitForFlowRequest, WaitForStepCompletionRequest,
-    WorkerTarget as ProtoWorkerTarget, WriteStreamRequest,
+    IdReusePolicy as ProtoIdReusePolicy, InvokeRpcRequest, ListStreamMessagesRequest,
+    PublishToChannelRequest, ReadStreamRequest, ResetFlowRequest, SearchFlowsRequest,
+    SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
+    StepDurability as ProtoStepDurability, StopFlowRequest, StopType as ProtoStopType,
+    TriggerContinueAsNewRequest, UpdateFlowConfigRequest, WaitForAttributeRequest,
+    WaitForFlowRequest, WaitForStepCompletionRequest, WorkerTarget as ProtoWorkerTarget,
+    WriteStreamRequest,
 };
 use tokio::runtime::Runtime;
 use tonic::transport::Endpoint;
@@ -40,8 +41,8 @@ use crate::{
     ChannelMessage, ClientOptions, Flow, FlowConfig, FlowErrorType, FlowInfo, FlowResult,
     FlowStatus, FlowTimeoutPolicy, IdReusePolicy, Registry, RetryPolicy, Rpc, SdkError, SdkResult,
     SearchFlowEntry, SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability,
-    StepExecutionId, StopFlowOptions, Stream, StreamMessage, TimeTravelOptions, TimerId, Value,
-    WorkerTarget,
+    StepExecutionId, StopFlowOptions, Stream, StreamMessage, StreamMessagesPage, TimeTravelOptions,
+    TimerId, Value, WorkerTarget,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -440,6 +441,78 @@ impl Client {
         timeout: Duration,
     ) -> SdkResult<StreamMessage<T>> {
         self.read_stream_result(flow_id, stream, resume_token, Some(timeout))
+    }
+
+    /// Returns one newest-first page of retained Stream messages without waiting for writes.
+    ///
+    /// An empty `before_page_token` starts at the retained tail. Pass
+    /// [`StreamMessagesPage::next_page_token`] unchanged to read the next, older page. Stream
+    /// trimming may remove messages between pages.
+    ///
+    /// # Errors
+    ///
+    /// Returns InvalidArgument when `flow_id` is empty or `page_size` is not positive. Returns a
+    /// definition error for an unregistered Stream, a mapping error for an incompatible retained
+    /// value, or a FlowService error when the request fails.
+    pub fn list_stream_messages<T: Value>(
+        &self,
+        flow_id: &str,
+        stream: &Stream<T>,
+        page_size: i32,
+        before_page_token: &str,
+    ) -> SdkResult<StreamMessagesPage<T>> {
+        require_name(flow_id, "Flow ID")?;
+        if page_size < 1 {
+            return Err(invalid("Stream page size must be positive"));
+        }
+        let flow_type = self.registry.flow_for_stream(stream)?.name.to_string();
+        let request = ListStreamMessagesRequest {
+            flow_id: flow_id.to_string(),
+            flow_type,
+            stream_name: stream.name().to_string(),
+            page_size,
+            before_page_token: before_page_token.to_string(),
+        };
+        let mut service = self.service.clone();
+        let response = self.runtime.block_on(async {
+            service
+                .list_stream_messages(request)
+                .await
+                .map(|response| response.into_inner())
+                .map_err(|status| {
+                    SdkError::from_status(
+                        status,
+                        "list_stream_messages",
+                        Some(flow_id),
+                        FlowTargetRequirement::None,
+                    )
+                })
+        })?;
+        let messages = response
+            .messages
+            .into_iter()
+            .map(|message| {
+                if message.resume_token.is_empty() {
+                    return Err(invalid("ListStreamMessages returned an empty resume token"));
+                }
+                let value = message
+                    .value
+                    .ok_or_else(|| invalid("ListStreamMessages omitted a Stream message Value"))?;
+                let created_time = message.created_time.map(timestamp).ok_or_else(|| {
+                    invalid("ListStreamMessages omitted a Stream message creation time")
+                })?;
+                Ok(StreamMessage {
+                    value: value_mapper::decode(&value)?,
+                    resume_token: message.resume_token,
+                    created_time,
+                    source: message.source,
+                })
+            })
+            .collect::<SdkResult<Vec<_>>>()?;
+        Ok(StreamMessagesPage {
+            messages,
+            next_page_token: response.next_page_token,
+        })
     }
 
     /// Blocks until a Flow closes and returns its terminal result.

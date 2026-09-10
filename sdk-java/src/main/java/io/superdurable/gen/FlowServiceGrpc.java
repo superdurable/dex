@@ -204,6 +204,37 @@ public final class FlowServiceGrpc {
     return getReadStreamMethod;
   }
 
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.ListStreamMessagesRequest,
+      io.superdurable.gen.ListStreamMessagesResponse> getListStreamMessagesMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "ListStreamMessages",
+      requestType = io.superdurable.gen.ListStreamMessagesRequest.class,
+      responseType = io.superdurable.gen.ListStreamMessagesResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.ListStreamMessagesRequest,
+      io.superdurable.gen.ListStreamMessagesResponse> getListStreamMessagesMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.ListStreamMessagesRequest, io.superdurable.gen.ListStreamMessagesResponse> getListStreamMessagesMethod;
+    if ((getListStreamMessagesMethod = FlowServiceGrpc.getListStreamMessagesMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getListStreamMessagesMethod = FlowServiceGrpc.getListStreamMessagesMethod) == null) {
+          FlowServiceGrpc.getListStreamMessagesMethod = getListStreamMessagesMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.ListStreamMessagesRequest, io.superdurable.gen.ListStreamMessagesResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "ListStreamMessages"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.ListStreamMessagesRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.ListStreamMessagesResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("ListStreamMessages"))
+              .build();
+        }
+      }
+    }
+    return getListStreamMessagesMethod;
+  }
+
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.StopFlowRequest,
       com.google.protobuf.Empty> getStopFlowMethod;
 
@@ -888,6 +919,13 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    default void listStreamMessages(io.superdurable.gen.ListStreamMessagesRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.ListStreamMessagesResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getListStreamMessagesMethod(), responseObserver);
+    }
+
+    /**
+     */
     default void stopFlow(io.superdurable.gen.StopFlowRequest request,
         io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getStopFlowMethod(), responseObserver);
@@ -1099,6 +1137,14 @@ public final class FlowServiceGrpc {
         io.grpc.stub.StreamObserver<io.superdurable.gen.ReadStreamResponse> responseObserver) {
       io.grpc.stub.ClientCalls.asyncUnaryCall(
           getChannel().newCall(getReadStreamMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     */
+    public void listStreamMessages(io.superdurable.gen.ListStreamMessagesRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.ListStreamMessagesResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getListStreamMessagesMethod(), getCallOptions()), request, responseObserver);
     }
 
     /**
@@ -1317,6 +1363,13 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public io.superdurable.gen.ListStreamMessagesResponse listStreamMessages(io.superdurable.gen.ListStreamMessagesRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getListStreamMessagesMethod(), getCallOptions(), request);
+    }
+
+    /**
+     */
     public com.google.protobuf.Empty stopFlow(io.superdurable.gen.StopFlowRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getStopFlowMethod(), getCallOptions(), request);
@@ -1518,6 +1571,14 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.ListStreamMessagesResponse> listStreamMessages(
+        io.superdurable.gen.ListStreamMessagesRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getListStreamMessagesMethod(), getCallOptions()), request);
+    }
+
+    /**
+     */
     public com.google.common.util.concurrent.ListenableFuture<com.google.protobuf.Empty> stopFlow(
         io.superdurable.gen.StopFlowRequest request) {
       return io.grpc.stub.ClientCalls.futureUnaryCall(
@@ -1675,25 +1736,26 @@ public final class FlowServiceGrpc {
   private static final int METHODID_DELETE_CHANNEL_MESSAGE = 3;
   private static final int METHODID_WRITE_STREAM = 4;
   private static final int METHODID_READ_STREAM = 5;
-  private static final int METHODID_STOP_FLOW = 6;
-  private static final int METHODID_GET_ATTRIBUTES = 7;
-  private static final int METHODID_SET_ATTRIBUTES = 8;
-  private static final int METHODID_LOAD_BLOBS = 9;
-  private static final int METHODID_WAIT_FOR_FLOW = 10;
-  private static final int METHODID_SEARCH_FLOWS = 11;
-  private static final int METHODID_SYNC_ATTRIBUTE_INDEXES = 12;
-  private static final int METHODID_GET_FLOW_SUMMARY = 13;
-  private static final int METHODID_GET_HISTORY_EVENTS = 14;
-  private static final int METHODID_WAIT_FOR_HISTORY_EVENT = 15;
-  private static final int METHODID_GET_FLOW_STATE = 16;
-  private static final int METHODID_RESET_FLOW = 17;
-  private static final int METHODID_INVOKE_RPC = 18;
-  private static final int METHODID_SKIP_TIMER = 19;
-  private static final int METHODID_UPDATE_FLOW_CONFIG = 20;
-  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 21;
-  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 22;
-  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 23;
-  private static final int METHODID_HEALTH_CHECK = 24;
+  private static final int METHODID_LIST_STREAM_MESSAGES = 6;
+  private static final int METHODID_STOP_FLOW = 7;
+  private static final int METHODID_GET_ATTRIBUTES = 8;
+  private static final int METHODID_SET_ATTRIBUTES = 9;
+  private static final int METHODID_LOAD_BLOBS = 10;
+  private static final int METHODID_WAIT_FOR_FLOW = 11;
+  private static final int METHODID_SEARCH_FLOWS = 12;
+  private static final int METHODID_SYNC_ATTRIBUTE_INDEXES = 13;
+  private static final int METHODID_GET_FLOW_SUMMARY = 14;
+  private static final int METHODID_GET_HISTORY_EVENTS = 15;
+  private static final int METHODID_WAIT_FOR_HISTORY_EVENT = 16;
+  private static final int METHODID_GET_FLOW_STATE = 17;
+  private static final int METHODID_RESET_FLOW = 18;
+  private static final int METHODID_INVOKE_RPC = 19;
+  private static final int METHODID_SKIP_TIMER = 20;
+  private static final int METHODID_UPDATE_FLOW_CONFIG = 21;
+  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 22;
+  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 23;
+  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 24;
+  private static final int METHODID_HEALTH_CHECK = 25;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -1735,6 +1797,10 @@ public final class FlowServiceGrpc {
         case METHODID_READ_STREAM:
           serviceImpl.readStream((io.superdurable.gen.ReadStreamRequest) request,
               (io.grpc.stub.StreamObserver<io.superdurable.gen.ReadStreamResponse>) responseObserver);
+          break;
+        case METHODID_LIST_STREAM_MESSAGES:
+          serviceImpl.listStreamMessages((io.superdurable.gen.ListStreamMessagesRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.ListStreamMessagesResponse>) responseObserver);
           break;
         case METHODID_STOP_FLOW:
           serviceImpl.stopFlow((io.superdurable.gen.StopFlowRequest) request,
@@ -1872,6 +1938,13 @@ public final class FlowServiceGrpc {
               io.superdurable.gen.ReadStreamRequest,
               io.superdurable.gen.ReadStreamResponse>(
                 service, METHODID_READ_STREAM)))
+        .addMethod(
+          getListStreamMessagesMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.ListStreamMessagesRequest,
+              io.superdurable.gen.ListStreamMessagesResponse>(
+                service, METHODID_LIST_STREAM_MESSAGES)))
         .addMethod(
           getStopFlowMethod(),
           io.grpc.stub.ServerCalls.asyncUnaryCall(
@@ -2059,6 +2132,7 @@ public final class FlowServiceGrpc {
               .addMethod(getDeleteChannelMessageMethod())
               .addMethod(getWriteStreamMethod())
               .addMethod(getReadStreamMethod())
+              .addMethod(getListStreamMessagesMethod())
               .addMethod(getStopFlowMethod())
               .addMethod(getGetAttributesMethod())
               .addMethod(getSetAttributesMethod())

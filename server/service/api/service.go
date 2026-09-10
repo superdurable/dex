@@ -760,6 +760,50 @@ func (s *serviceImpl) ReadStream(
 	}, nil
 }
 
+func (s *serviceImpl) ListStreamMessages(
+	ctx context.Context,
+	req *dexpb.ListStreamMessagesRequest,
+) (*dexpb.ListStreamMessagesResponse, error) {
+	if req == nil || req.GetFlowId() == "" || req.GetFlowType() == "" || req.GetStreamName() == "" {
+		return nil, makeInvalidRequestError("flow ID, Flow type, and Stream name are required")
+	}
+	messages, hasMore, err := s.streamStore.List(
+		ctx,
+		req.GetFlowType(),
+		req.GetFlowId(),
+		req.GetStreamName(),
+		req.GetPageSize(),
+		req.GetBeforePageToken(),
+	)
+	if err != nil {
+		return nil, streamStoreError(err)
+	}
+	response := &dexpb.ListStreamMessagesResponse{
+		Messages: make([]*dexpb.StreamMessage, 0, len(messages)),
+	}
+	for _, message := range messages {
+		resumeToken, tokenErr := streamstore.EncodeResumeToken(
+			req.GetFlowType(),
+			req.GetFlowId(),
+			req.GetStreamName(),
+			message.MessageID,
+		)
+		if tokenErr != nil {
+			return nil, serviceerrors.Internal(tokenErr.Error()).ToGRPCError()
+		}
+		response.Messages = append(response.Messages, &dexpb.StreamMessage{
+			Value:       message.Value,
+			ResumeToken: resumeToken,
+			CreatedTime: timestamppb.New(message.CreatedTime),
+			Source:      message.Source,
+		})
+	}
+	if hasMore {
+		response.NextPageToken = response.Messages[len(response.Messages)-1].GetResumeToken()
+	}
+	return response, nil
+}
+
 func streamWriteInput(req *dexpb.WriteStreamRequest) (streamstore.WriteInput, error) {
 	if req == nil || req.GetFlowId() == "" || req.GetFlowType() == "" || req.GetStreamName() == "" {
 		return streamstore.WriteInput{}, fmt.Errorf("flow ID, Flow type, and Stream name are required")
@@ -797,7 +841,7 @@ func streamStoreError(err error) error {
 			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 			err.Error(),
 		).ToGRPCError()
-	case errors.Is(err, streamstore.ErrInvalidResumeToken):
+	case errors.Is(err, streamstore.ErrInvalidResumeToken), errors.Is(err, streamstore.ErrInvalidPageSize):
 		return makeInvalidRequestError(err.Error())
 	case errors.Is(err, streamstore.ErrWaitTimeout):
 		return serviceerrors.DeadlineExceededLongPoll(err.Error()).ToGRPCError()

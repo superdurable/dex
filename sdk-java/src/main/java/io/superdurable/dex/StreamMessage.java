@@ -13,7 +13,7 @@ package io.superdurable.dex;
 import java.time.Instant;
 
 /**
- * Describes one retained Stream message returned by {@link Client#readStream}.
+ * Describes one retained Stream message returned by Stream Client reads.
  *
  * @param <T> the decoded message type
  */

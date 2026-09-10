@@ -58,6 +58,10 @@ fn stream_definitions_and_client_calls_compile() {
             &message.resume_token,
             std::time::Duration::from_secs(2),
         )?;
+        let page: dex_sdk::StreamMessagesPage<String> =
+            client.list_stream_messages("flow-1", stream, 100, "")?;
+        let _messages: &[dex_sdk::StreamMessage<String>] = &page.messages;
+        let _next_page_token: &str = &page.next_page_token;
         Ok(())
     }
 

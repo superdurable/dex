@@ -468,6 +468,19 @@ export interface ReadStreamResponse {
   message: StreamMessage | undefined;
 }
 
+export interface ListStreamMessagesRequest {
+  flowId: string;
+  flowType: string;
+  streamName: string;
+  pageSize: number;
+  beforePageToken: string;
+}
+
+export interface ListStreamMessagesResponse {
+  messages: StreamMessage[];
+  nextPageToken: string;
+}
+
 export interface StreamMessage {
   value: Value | undefined;
   resumeToken: string;
@@ -4200,6 +4213,158 @@ export const ReadStreamResponse: MessageFns<ReadStreamResponse> = {
     message.message = (object.message !== undefined && object.message !== null)
       ? StreamMessage.fromPartial(object.message)
       : undefined;
+    return message;
+  },
+};
+
+function createBaseListStreamMessagesRequest(): ListStreamMessagesRequest {
+  return { flowId: "", flowType: "", streamName: "", pageSize: 0, beforePageToken: "" };
+}
+
+export const ListStreamMessagesRequest: MessageFns<ListStreamMessagesRequest> = {
+  encode(message: ListStreamMessagesRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.flowId !== "") {
+      writer.uint32(10).string(message.flowId);
+    }
+    if (message.flowType !== "") {
+      writer.uint32(18).string(message.flowType);
+    }
+    if (message.streamName !== "") {
+      writer.uint32(26).string(message.streamName);
+    }
+    if (message.pageSize !== 0) {
+      writer.uint32(32).int32(message.pageSize);
+    }
+    if (message.beforePageToken !== "") {
+      writer.uint32(42).string(message.beforePageToken);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListStreamMessagesRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListStreamMessagesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.flowType = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.streamName = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.pageSize = reader.int32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.beforePageToken = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ListStreamMessagesRequest>, I>>(base?: I): ListStreamMessagesRequest {
+    return ListStreamMessagesRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListStreamMessagesRequest>, I>>(object: I): ListStreamMessagesRequest {
+    const message = createBaseListStreamMessagesRequest();
+    message.flowId = object.flowId ?? "";
+    message.flowType = object.flowType ?? "";
+    message.streamName = object.streamName ?? "";
+    message.pageSize = object.pageSize ?? 0;
+    message.beforePageToken = object.beforePageToken ?? "";
+    return message;
+  },
+};
+
+function createBaseListStreamMessagesResponse(): ListStreamMessagesResponse {
+  return { messages: [], nextPageToken: "" };
+}
+
+export const ListStreamMessagesResponse: MessageFns<ListStreamMessagesResponse> = {
+  encode(message: ListStreamMessagesResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.messages) {
+      StreamMessage.encode(v!, writer.uint32(10).fork()).join();
+    }
+    if (message.nextPageToken !== "") {
+      writer.uint32(18).string(message.nextPageToken);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListStreamMessagesResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListStreamMessagesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.messages.push(StreamMessage.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.nextPageToken = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ListStreamMessagesResponse>, I>>(base?: I): ListStreamMessagesResponse {
+    return ListStreamMessagesResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListStreamMessagesResponse>, I>>(object: I): ListStreamMessagesResponse {
+    const message = createBaseListStreamMessagesResponse();
+    message.messages = object.messages?.map((e) => StreamMessage.fromPartial(e)) || [];
+    message.nextPageToken = object.nextPageToken ?? "";
     return message;
   },
 };
@@ -17308,6 +17473,17 @@ export const FlowServiceService = {
     responseSerialize: (value: ReadStreamResponse): Buffer => Buffer.from(ReadStreamResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): ReadStreamResponse => ReadStreamResponse.decode(value),
   },
+  listStreamMessages: {
+    path: "/dex.FlowService/ListStreamMessages" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ListStreamMessagesRequest): Buffer =>
+      Buffer.from(ListStreamMessagesRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ListStreamMessagesRequest => ListStreamMessagesRequest.decode(value),
+    responseSerialize: (value: ListStreamMessagesResponse): Buffer =>
+      Buffer.from(ListStreamMessagesResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ListStreamMessagesResponse => ListStreamMessagesResponse.decode(value),
+  },
   stopFlow: {
     path: "/dex.FlowService/StopFlow" as const,
     requestStream: false as const,
@@ -17504,6 +17680,7 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   deleteChannelMessage: handleUnaryCall<DeleteChannelMessageRequest, Empty>;
   writeStream: handleUnaryCall<WriteStreamRequest, Empty>;
   readStream: handleUnaryCall<ReadStreamRequest, ReadStreamResponse>;
+  listStreamMessages: handleUnaryCall<ListStreamMessagesRequest, ListStreamMessagesResponse>;
   stopFlow: handleUnaryCall<StopFlowRequest, Empty>;
   getAttributes: handleUnaryCall<GetAttributesRequest, GetAttributesResponse>;
   setAttributes: handleUnaryCall<SetAttributesRequest, Empty>;
@@ -17615,6 +17792,21 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: ReadStreamResponse) => void,
+  ): ClientUnaryCall;
+  listStreamMessages(
+    request: ListStreamMessagesRequest,
+    callback: (error: ServiceError | null, response: ListStreamMessagesResponse) => void,
+  ): ClientUnaryCall;
+  listStreamMessages(
+    request: ListStreamMessagesRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ListStreamMessagesResponse) => void,
+  ): ClientUnaryCall;
+  listStreamMessages(
+    request: ListStreamMessagesRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ListStreamMessagesResponse) => void,
   ): ClientUnaryCall;
   stopFlow(request: StopFlowRequest, callback: (error: ServiceError | null, response: Empty) => void): ClientUnaryCall;
   stopFlow(

@@ -33,6 +33,7 @@ var (
 	ErrCapacityExceeded   = errors.New("Stream capacity is exhausted; retry after background trimming")
 	ErrWaitTimeout        = errors.New("Stream read timed out")
 	ErrInvalidResumeToken = errors.New("invalid Stream resume token")
+	ErrInvalidPageSize    = errors.New("invalid Stream page size")
 	ErrUnavailable        = errors.New("Stream Store backend is unavailable")
 )
 
@@ -63,6 +64,7 @@ type backend interface {
 	Close() error
 	Write(context.Context, backendWriteInput) error
 	Read(context.Context, string, string, string, string) (*Message, error)
+	List(context.Context, string, string, string, string, int32) ([]*Message, bool, error)
 }
 
 type backendWriteInput struct {
@@ -183,6 +185,32 @@ func (s *Store) Read(
 	return s.backend.Read(ctx, flowType, flowID, streamName, messageID)
 }
 
+func (s *Store) List(
+	ctx context.Context,
+	flowType string,
+	flowID string,
+	streamName string,
+	pageSize int32,
+	encodedBeforePageToken string,
+) ([]*Message, bool, error) {
+	if s.backend == nil {
+		return nil, false, ErrDisabled
+	}
+	if pageSize < 1 || pageSize > s.cfg.EffectiveMaxReadMessages() {
+		return nil, false, ErrInvalidPageSize
+	}
+	beforeMessageID, err := decodePageToken(
+		encodedBeforePageToken,
+		flowType,
+		flowID,
+		streamName,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+	return s.backend.List(ctx, flowType, flowID, streamName, beforeMessageID, pageSize)
+}
+
 func (b *redisBackend) Close() error {
 	b.coordinator.Close()
 	return b.client.Close()
@@ -248,6 +276,50 @@ func (b *redisBackend) Read(
 		return nil, fmt.Errorf("unexpected Redis XREAD result")
 	}
 	redisMessage := result[0].Messages[0]
+	return messageFromRedis(redisMessage)
+}
+
+func (b *redisBackend) List(
+	ctx context.Context,
+	flowType string,
+	flowID string,
+	streamName string,
+	beforeMessageID string,
+	pageSize int32,
+) ([]*Message, bool, error) {
+	start := "+"
+	if beforeMessageID != "" {
+		start = "(" + beforeMessageID
+	}
+	redisMessages, err := b.client.XRevRangeN(
+		ctx,
+		streamKeys(flowType, streamName, flowID).instance,
+		start,
+		"-",
+		int64(pageSize)+1,
+	).Result()
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, false, err
+		}
+		return nil, false, fmt.Errorf("%w: list messages: %v", ErrUnavailable, err)
+	}
+	hasMore := len(redisMessages) > int(pageSize)
+	if hasMore {
+		redisMessages = redisMessages[:pageSize]
+	}
+	messages := make([]*Message, 0, len(redisMessages))
+	for _, redisMessage := range redisMessages {
+		message, messageErr := messageFromRedis(redisMessage)
+		if messageErr != nil {
+			return nil, false, messageErr
+		}
+		messages = append(messages, message)
+	}
+	return messages, hasMore, nil
+}
+
+func messageFromRedis(redisMessage redis.XMessage) (*Message, error) {
 	payload, err := redisFieldBytes(redisMessage.Values, "v")
 	if err != nil {
 		return nil, err
@@ -333,6 +405,13 @@ func decodeResumeToken(encoded string, flowType string, flowID string, streamNam
 		return "", ErrInvalidResumeToken
 	}
 	return token.MessageID, nil
+}
+
+func decodePageToken(encoded string, flowType string, flowID string, streamName string) (string, error) {
+	if encoded == "" {
+		return "", nil
+	}
+	return decodeResumeToken(encoded, flowType, flowID, streamName)
 }
 
 func createdTimeFromMessageID(messageID string) (time.Time, error) {

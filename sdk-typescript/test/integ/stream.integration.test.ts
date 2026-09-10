@@ -68,5 +68,25 @@ test("Stream messages retain duplicate sources and Step source metadata", async 
     );
     assert.equal(duplicateSource.value, "duplicate-source");
     assert.equal(duplicateSource.source, "client#write");
+
+    const latest = await client.listStreamMessages(id, flow.progress, 3);
+    assert.deepEqual(latest.messages.map((message) => message.value), [
+      "duplicate-source",
+      "client-progress",
+      "execute-progress-2",
+    ]);
+    assert.notEqual(latest.nextPageToken, "");
+    const older = await client.listStreamMessages(
+      id,
+      flow.progress,
+      3,
+      latest.nextPageToken,
+    );
+    assert.deepEqual(older.messages.map((message) => message.value), [
+      "execute-progress-1",
+      "wait-progress-2",
+      "wait-progress-1",
+    ]);
+    assert.equal(older.nextPageToken, "");
   });
 });

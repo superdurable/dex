@@ -75,3 +75,25 @@ async def _async_stream_round_trip() -> None:
         assert client.resume_token != wait.resume_token
         assert client.created_time > datetime(1970, 1, 1, tzinfo=timezone.utc)
         assert client.source == "async-client-write"
+
+        latest = await environment.client.list_stream_messages(
+            flow_id,
+            flow.progress,
+            2,
+        )
+        assert [message.value for message in latest.messages] == [
+            "async-client-progress",
+            "async-step-second",
+        ]
+        assert latest.next_page_token
+        older = await environment.client.list_stream_messages(
+            flow_id,
+            flow.progress,
+            2,
+            latest.next_page_token,
+        )
+        assert [message.value for message in older.messages] == [
+            "async-step-first",
+            "async-wait",
+        ]
+        assert not older.next_page_token

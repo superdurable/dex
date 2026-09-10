@@ -85,4 +85,35 @@ fn test_stream_round_trip() {
         assert_eq!("client#source", message.source);
         resume_token = message.resume_token;
     }
+
+    let latest = environment
+        .client
+        .list_stream_messages(&flow_id, &PROGRESS, 3, "")
+        .expect("list latest Stream messages");
+    assert_eq!(
+        vec![
+            "client-progress-again",
+            "client-progress",
+            "execute-progress-2",
+        ],
+        latest
+            .messages
+            .iter()
+            .map(|message| message.value.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert!(!latest.next_page_token.is_empty());
+    let older = environment
+        .client
+        .list_stream_messages(&flow_id, &PROGRESS, 3, &latest.next_page_token)
+        .expect("list older Stream messages");
+    assert_eq!(
+        vec!["execute-progress-1", "wait-progress-2", "wait-progress-1"],
+        older
+            .messages
+            .iter()
+            .map(|message| message.value.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert!(older.next_page_token.is_empty());
 }

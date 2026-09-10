@@ -995,11 +995,14 @@ async function compileStrongTypes(client: Client): Promise<void> {
   await client.writeStream("order-1", progress, "frontend/1", "starting");
   const progressMessage = await client.readStream("order-1", progress, "", 30_000);
   const progressValue: string = progressMessage.value;
+  const progressPage = await client.listStreamMessages("order-1", progress, 100);
+  const progressPageValue: string | undefined = progressPage.messages[0]?.value;
   void runId;
   void output;
   void matchedStatus;
   void matchedItem;
   void progressValue;
+  void progressPageValue;
 
   // @ts-expect-error wrong Flow input
   await client.startFlow(orders, "order-1", { accepted: true });

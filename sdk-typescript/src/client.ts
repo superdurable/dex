@@ -28,6 +28,7 @@ import {
   type GetChannelMessagesResponse,
   type GetFlowSummaryResponse,
   type InvokeRPCResponse,
+  type ListStreamMessagesResponse,
   type ReadStreamResponse,
   type ResetFlowResponse,
   type SearchFlowsResponse,
@@ -92,7 +93,7 @@ import { physicalMapName, requireName } from "./validation.js";
 import { voidCodec } from "./codec.js";
 import { codecOrJson, decodeUnknown, decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
 import { Channel, ChannelMap, type ChannelMessage } from "./wait.js";
-import type { Stream, StreamMessage } from "./stream.js";
+import type { Stream, StreamMessage, StreamMessagesPage } from "./stream.js";
 
 const defaultServerAddress = "localhost:8801";
 
@@ -713,6 +714,55 @@ export class Client {
       resumeToken: message.resumeToken,
       createdTime: message.createdTime,
       source: message.source,
+    };
+  }
+
+  /**
+   * Returns one newest-first page of retained Stream messages without waiting for writes.
+   *
+   * An empty token starts at the retained tail. Pass `nextPageToken` unchanged to read the next,
+   * older page. Stream trimming may remove messages between pages.
+   *
+   * @typeParam T - Stream message type.
+   * @param flowId - Logical Flow instance ID used as the Stream instance key.
+   * @param stream - Stream registered in exactly one Flow schema.
+   * @param pageSize - Positive maximum count within the server-configured limit.
+   * @param beforePageToken - Opaque token from the preceding page, or empty for the first page.
+   * @returns Decoded messages in newest-first order and the next-page token.
+   */
+  public async listStreamMessages<T>(
+    flowId: string,
+    stream: Stream<T>,
+    pageSize: number,
+    beforePageToken = "",
+  ): Promise<StreamMessagesPage<T>> {
+    if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 2_147_483_647) {
+      throw new RangeError("Stream page size must be a positive 32-bit integer");
+    }
+    const flow = registeredStream(this.registry, stream as Stream<unknown>);
+    const response = await unary<ListStreamMessagesResponse>(
+      { operation: "listStreamMessages", flowId, requirement: "none" },
+      (callback) => this.service.listStreamMessages({
+        flowId: requireName(flowId),
+        flowType: flow.name,
+        streamName: stream.name,
+        pageSize,
+        beforePageToken,
+      }, callback),
+    );
+    return {
+      messages: response.messages.map((message) => {
+        if (message.value === undefined || message.createdTime === undefined || message.resumeToken === "") {
+          throw new TypeError("Dex returned an incomplete Stream message");
+        }
+        return {
+          value: decodeValue(stream.codec, message.value),
+          resumeToken: message.resumeToken,
+          createdTime: message.createdTime,
+          source: message.source,
+        };
+      }),
+      nextPageToken: response.nextPageToken,
     };
   }
 

@@ -66,6 +66,31 @@ type StreamMessage struct {
 	Source string
 }
 
+// ListedStreamMessage contains one decoded message returned by Client.ListStreamMessages.
+//
+// Values use the Stream's registered type. ResumeToken identifies this retained message.
+// CreatedTime is assigned by the Stream Store. Source identifies the producer.
+type ListedStreamMessage[T any] struct {
+	// Value is the decoded application message.
+	Value T
+	// ResumeToken identifies this retained message.
+	ResumeToken string
+	// CreatedTime is the server-assigned creation time.
+	CreatedTime time.Time
+	// Source is client-supplied metadata or the Step's #stepExecutionID value.
+	Source string
+}
+
+// StreamMessagesPage contains one newest-first page returned by Client.ListStreamMessages.
+//
+// Pass NextPageToken unchanged as beforePageToken to read the next, older page.
+type StreamMessagesPage[T any] struct {
+	// Messages contains retained Stream messages in newest-first order.
+	Messages []ListedStreamMessage[T]
+	// NextPageToken is opaque and empty on the last page.
+	NextPageToken string
+}
+
 // Write appends value immediately from the current Step invocation.
 //
 // A Step execution may call Write any number of times. Each call sends a fire-and-forget frame on

@@ -38,6 +38,81 @@ const (
 	streamTestRedisURL = "redis://127.0.0.1:6379/15"
 )
 
+func TestStreamStoreReversePaginationRedis(t *testing.T) {
+	store, redisClient := newStreamTestStore(t)
+	streamName := "reverse-pagination-" + newRequestID()
+	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
+	testStreamStoreReversePagination(t, store, streamName)
+}
+
+func TestStreamStoreReversePaginationMemory(t *testing.T) {
+	store := newMemoryStreamTestStore(t)
+	testStreamStoreReversePagination(t, store, "memory-reverse-pagination-"+newRequestID())
+}
+
+func testStreamStoreReversePagination(t *testing.T, store *streamstore.Store, streamName string) {
+	for index := 0; index < 5; index++ {
+		input := streamInput("flow-a", streamName, index, fmt.Sprintf("value-%d", index))
+		input.StreamCapacityBytes = 1 << 20
+		require.NoError(t, store.Write(context.Background(), input))
+	}
+
+	latest, hasMore, err := store.List(
+		context.Background(), streamTestFlowType, "flow-a", streamName, 2, "",
+	)
+	require.NoError(t, err)
+	require.True(t, hasMore)
+	require.Equal(t, []string{"public-04", "public-03"}, messageKeys(latest))
+	beforeToken, err := streamstore.EncodeResumeToken(
+		streamTestFlowType, "flow-a", streamName, latest[len(latest)-1].MessageID,
+	)
+	require.NoError(t, err)
+
+	newInput := streamInput("flow-a", streamName, 5, "new-after-first-page")
+	newInput.StreamCapacityBytes = 1 << 20
+	require.NoError(t, store.Write(context.Background(), newInput))
+	older, hasMore, err := store.List(
+		context.Background(), streamTestFlowType, "flow-a", streamName, 2, beforeToken,
+	)
+	require.NoError(t, err)
+	require.True(t, hasMore)
+	require.Equal(t, []string{"public-02", "public-01"}, messageKeys(older))
+	beforeToken, err = streamstore.EncodeResumeToken(
+		streamTestFlowType, "flow-a", streamName, older[len(older)-1].MessageID,
+	)
+	require.NoError(t, err)
+
+	oldest, hasMore, err := store.List(
+		context.Background(), streamTestFlowType, "flow-a", streamName, 2, beforeToken,
+	)
+	require.NoError(t, err)
+	require.False(t, hasMore)
+	require.Equal(t, []string{"public-00"}, messageKeys(oldest))
+	empty, hasMore, err := store.List(
+		context.Background(), streamTestFlowType, "empty-flow", streamName, 2, "",
+	)
+	require.NoError(t, err)
+	require.False(t, hasMore)
+	require.Empty(t, empty)
+
+	wrongScopeToken, err := streamstore.EncodeResumeToken(
+		streamTestFlowType, "flow-b", streamName, oldest[0].MessageID,
+	)
+	require.NoError(t, err)
+	_, _, err = store.List(
+		context.Background(), streamTestFlowType, "flow-a", streamName, 2, wrongScopeToken,
+	)
+	require.ErrorIs(t, err, streamstore.ErrInvalidResumeToken)
+	_, _, err = store.List(
+		context.Background(), streamTestFlowType, "flow-a", streamName, 0, "",
+	)
+	require.ErrorIs(t, err, streamstore.ErrInvalidPageSize)
+	_, _, err = store.List(
+		context.Background(), streamTestFlowType, "flow-a", streamName, 1001, "",
+	)
+	require.ErrorIs(t, err, streamstore.ErrInvalidPageSize)
+}
+
 func TestStreamStoreGlobalFIFOResumeAndRepeatedSource(t *testing.T) {
 	store, redisClient := newStreamTestStore(t)
 	streamName := "global-fifo-" + newRequestID()
@@ -131,6 +206,12 @@ func TestStreamStoreGlobalFIFOResumeAndRepeatedSource(t *testing.T) {
 	defer cancelRead()
 	_, err = store.Read(readCtx, streamTestFlowType, "flow-a", streamName, wrongScopeToken)
 	require.ErrorIs(t, err, streamstore.ErrInvalidResumeToken)
+	trimmedPage, hasMore, err := store.List(
+		context.Background(), streamTestFlowType, "flow-a", streamName, 2, firstToken,
+	)
+	require.NoError(t, err)
+	require.False(t, hasMore)
+	require.Empty(t, trimmedPage)
 }
 
 func TestStreamStoreFlowTypesIsolateStreamScopes(t *testing.T) {
@@ -445,6 +526,11 @@ func TestStreamStoreMemoryTrimWatermarks(t *testing.T) {
 		require.NoError(t, store.Write(context.Background(), input))
 	}
 	require.Len(t, readAvailableMessages(t, store, "flow-a", streamName), 8)
+	oldestBeforeTrim := readOneMessage(t, store, "flow-a", streamName, "")
+	oldestBeforeTrimToken, err := streamstore.EncodeResumeToken(
+		streamTestFlowType, "flow-a", streamName, oldestBeforeTrim.MessageID,
+	)
+	require.NoError(t, err)
 
 	trigger := streamInput("flow-a", streamName, 8, "payload-0000")
 	trigger.StreamCapacityBytes = capacity
@@ -465,6 +551,12 @@ func TestStreamStoreMemoryTrimWatermarks(t *testing.T) {
 		"public-07",
 		"public-08",
 	}, messageKeys(readAvailableMessages(t, store, "flow-a", streamName)))
+	trimmedPage, hasMore, err := store.List(
+		context.Background(), streamTestFlowType, "flow-a", streamName, 2, oldestBeforeTrimToken,
+	)
+	require.NoError(t, err)
+	require.False(t, hasMore)
+	require.Empty(t, trimmedPage)
 }
 
 func TestStreamStoreMemoryConcurrentCapacityTriggersDoNotOverTrim(t *testing.T) {
@@ -555,6 +647,8 @@ func TestStreamStoreMemoryResumeTokenSurvivesProcessRestartBestEffort(t *testing
 }
 
 func TestStreamStoreBackendConfiguration(t *testing.T) {
+	require.Equal(t, int32(1000), (&config.StreamStoreConfig{}).EffectiveMaxReadMessages())
+	require.Equal(t, int32(17), (&config.StreamStoreConfig{MaxReadMessages: 17}).EffectiveMaxReadMessages())
 	disabledStore, err := streamstore.New(&config.StreamStoreConfig{}, log.NewNoop())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, disabledStore.Close()) })
@@ -577,6 +671,8 @@ func TestStreamStoreBackendConfiguration(t *testing.T) {
 		Backend: "unsupported",
 	}, log.NewNoop())
 	require.ErrorContains(t, err, "unsupported stream store backend")
+	_, err = streamstore.New(&config.StreamStoreConfig{MaxReadMessages: -1}, log.NewNoop())
+	require.ErrorContains(t, err, "maxReadMessages must be positive")
 }
 
 type streamingStepWorker struct {
@@ -801,6 +897,7 @@ func TestStreamAPITemporal(t *testing.T) {
 			Backend:         config.StreamStoreBackendRedis,
 			RedisURL:        streamTestRedisURL,
 			MaxMessageBytes: 64,
+			MaxReadMessages: 2,
 		},
 	})
 	flowClient := runtime.FlowClient
@@ -836,6 +933,22 @@ func TestStreamAPITemporal(t *testing.T) {
 	require.Equal(t, "client-key", response.GetMessage().GetSource())
 	require.NotEmpty(t, response.GetMessage().GetResumeToken())
 	require.WithinDuration(t, time.Now(), response.GetMessage().GetCreatedTime().AsTime(), 5*time.Second)
+	listed, err := flowClient.ListStreamMessages(ctx, &dexpb.ListStreamMessagesRequest{
+		FlowId:     flowID,
+		FlowType:   streamTestFlowType,
+		StreamName: streamName,
+		PageSize:   2,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"first"}, protoStreamValues(listed.GetMessages()))
+	require.Empty(t, listed.GetNextPageToken())
+	_, err = flowClient.ListStreamMessages(ctx, &dexpb.ListStreamMessagesRequest{
+		FlowId:     flowID,
+		FlowType:   streamTestFlowType,
+		StreamName: streamName,
+		PageSize:   3,
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
 	chargedBytes, err := redisClient.Get(context.Background(), streamTestBaseKey(streamName)+":charged").Int64()
 	require.NoError(t, err)
 	_, err = flowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{

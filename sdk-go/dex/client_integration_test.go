@@ -130,6 +130,7 @@ type clientTestFlowService struct {
 	getAttributesRequest *dexpb.GetAttributesRequest
 	writeStreamRequests  []*dexpb.WriteStreamRequest
 	readStreamRequest    *dexpb.ReadStreamRequest
+	listStreamRequest    *dexpb.ListStreamMessagesRequest
 	getMessagesRequest   *dexpb.GetChannelMessagesRequest
 	deleteMessageRequest *dexpb.DeleteChannelMessageRequest
 }
@@ -181,6 +182,38 @@ func (service *clientTestFlowService) ReadStream(
 		CreatedTime: timestamppb.New(time.Unix(123, 456)),
 		Source:      "client-1",
 	}}, nil
+}
+
+func (service *clientTestFlowService) ListStreamMessages(
+	_ context.Context,
+	request *dexpb.ListStreamMessagesRequest,
+) (*dexpb.ListStreamMessagesResponse, error) {
+	service.listStreamRequest = request
+	newest, err := encodeValue(clientTestRPCOutput{Status: "newest"})
+	if err != nil {
+		return nil, err
+	}
+	older, err := encodeValue(clientTestRPCOutput{Status: "older"})
+	if err != nil {
+		return nil, err
+	}
+	return &dexpb.ListStreamMessagesResponse{
+		Messages: []*dexpb.StreamMessage{
+			{
+				Value:       newest,
+				ResumeToken: "resume-2",
+				CreatedTime: timestamppb.New(time.Unix(124, 0)),
+				Source:      "client-2",
+			},
+			{
+				Value:       older,
+				ResumeToken: "resume-1",
+				CreatedTime: timestamppb.New(time.Unix(123, 0)),
+				Source:      "client-1",
+			},
+		},
+		NextPageToken: "next-page",
+	}, nil
 }
 
 func (service *clientTestFlowService) StartFlow(
@@ -656,6 +689,33 @@ func TestClientStreamTransportAndMetadata(t *testing.T) {
 	require.Equal(t, "client-1", message.Source)
 	require.Equal(t, "previous", service.readStreamRequest.ResumeToken)
 	require.Equal(t, serverCappedLongPollSeconds, service.readStreamRequest.WaitTimeSeconds)
+
+	var page StreamMessagesPage[clientTestRPCOutput]
+	require.NoError(t, client.ListStreamMessages(
+		ctx,
+		"order-1",
+		clientTestThinking,
+		2,
+		"before-page",
+		&page,
+	))
+	require.Equal(t, "before-page", service.listStreamRequest.BeforePageToken)
+	require.Equal(t, int32(2), service.listStreamRequest.PageSize)
+	require.Equal(t, []string{"newest", "older"}, []string{
+		page.Messages[0].Value.Status,
+		page.Messages[1].Value.Status,
+	})
+	require.Equal(t, "resume-2", page.Messages[0].ResumeToken)
+	require.Equal(t, "client-1", page.Messages[1].Source)
+	require.Equal(t, "next-page", page.NextPageToken)
+	require.ErrorContains(t, client.ListStreamMessages(
+		ctx,
+		"order-1",
+		clientTestThinking,
+		0,
+		"",
+		&page,
+	), "page size must be positive")
 }
 
 func TestClientConstructionAndLocalValidation(t *testing.T) {

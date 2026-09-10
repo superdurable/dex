@@ -666,6 +666,28 @@ class ReadStreamResponse(_message.Message):
     message: StreamMessage
     def __init__(self, message: _Optional[_Union[StreamMessage, _Mapping]] = ...) -> None: ...
 
+class ListStreamMessagesRequest(_message.Message):
+    __slots__ = ("flow_id", "flow_type", "stream_name", "page_size", "before_page_token")
+    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
+    STREAM_NAME_FIELD_NUMBER: _ClassVar[int]
+    PAGE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    BEFORE_PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    flow_id: str
+    flow_type: str
+    stream_name: str
+    page_size: int
+    before_page_token: str
+    def __init__(self, flow_id: _Optional[str] = ..., flow_type: _Optional[str] = ..., stream_name: _Optional[str] = ..., page_size: _Optional[int] = ..., before_page_token: _Optional[str] = ...) -> None: ...
+
+class ListStreamMessagesResponse(_message.Message):
+    __slots__ = ("messages", "next_page_token")
+    MESSAGES_FIELD_NUMBER: _ClassVar[int]
+    NEXT_PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    messages: _containers.RepeatedCompositeFieldContainer[StreamMessage]
+    next_page_token: str
+    def __init__(self, messages: _Optional[_Iterable[_Union[StreamMessage, _Mapping]]] = ..., next_page_token: _Optional[str] = ...) -> None: ...
+
 class StreamMessage(_message.Message):
     __slots__ = ("value", "resume_token", "created_time", "source")
     VALUE_FIELD_NUMBER: _ClassVar[int]

@@ -103,6 +103,7 @@ from dex.stream import (
     BufferedTextStream,
     Stream,
     StreamMessage,
+    StreamMessagesPage,
 )
 from dex.subflow import SubFlow
 from dex.timer import Timer
@@ -190,6 +191,7 @@ __all__ = [
     "StepOptions",
     "Stream",
     "StreamMessage",
+    "StreamMessagesPage",
     "StopFlowOptions",
     "StopType",
     "Timer",

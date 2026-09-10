@@ -44,6 +44,8 @@ import {
   type InvokeRPCResponse,
   type LoadBlobsRequest,
   type LoadBlobsResponse,
+  type ListStreamMessagesRequest,
+  type ListStreamMessagesResponse,
   type ReadStreamRequest,
   type ReadStreamResponse,
   type StartFlowRequest,
@@ -145,6 +147,7 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     rpc?: InvokeRPCRequest;
     writeStream?: WriteStreamRequest;
     readStream?: ReadStreamRequest;
+    listStreamMessages?: ListStreamMessagesRequest;
   } = {};
   const hydratedOutput = protoJson({ accepted: true });
   const server = new Server();
@@ -170,6 +173,26 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
           createdTime: new Date("2026-08-27T12:00:00.000Z"),
           source: "client-1",
         },
+      });
+    },
+    listStreamMessages(call, callback: sendUnaryData<ListStreamMessagesResponse>) {
+      requests.listStreamMessages = call.request as ListStreamMessagesRequest;
+      callback(null, {
+        messages: [
+          {
+            value: Value.create({ kind: { $case: "stringValue", value: "newest" } }),
+            resumeToken: "resume-2",
+            createdTime: new Date("2026-08-27T13:00:00.000Z"),
+            source: "client-2",
+          },
+          {
+            value: Value.create({ kind: { $case: "stringValue", value: "older" } }),
+            resumeToken: "resume-1",
+            createdTime: new Date("2026-08-27T12:00:00.000Z"),
+            source: "client-1",
+          },
+        ],
+        nextPageToken: "next-page",
       });
     },
     waitForFlow(
@@ -261,6 +284,14 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(message.resumeToken, "resume-1");
     assert.equal(message.createdTime.toISOString(), "2026-08-27T12:00:00.000Z");
     assert.equal(message.source, "client-1");
+    const page = await client.listStreamMessages("flow-1", thinking, 2, "before-page");
+    assert.deepEqual(page.messages.map((entry) => entry.value), ["newest", "older"]);
+    assert.equal(page.messages[0]?.resumeToken, "resume-2");
+    assert.equal(page.nextPageToken, "next-page");
+    await assert.rejects(
+      client.listStreamMessages("flow-1", thinking, 0),
+      /page size must be a positive 32-bit integer/,
+    );
     await client.writeStream("flow-1", thinking, "source#with-delimiter", "accepted");
     await assert.rejects(client.writeStream("flow-1", thinking, "", "ignored"), /source is required/);
     const result = await client.waitForFlow("flow-1");
@@ -317,6 +348,8 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(requests.readStream?.flowType, "TestFlow");
     assert.equal(requests.readStream?.resumeToken, "previous");
     assert.equal(requests.readStream?.waitTimeSeconds, 2);
+    assert.equal(requests.listStreamMessages?.pageSize, 2);
+    assert.equal(requests.listStreamMessages?.beforePageToken, "before-page");
     assert.equal(cache.get("blob-1") === undefined, false);
     assert.equal(cache.get("blob-2") === undefined, false);
   } finally {
