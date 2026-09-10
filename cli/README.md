@@ -194,7 +194,9 @@ Flow resource aliases and records RPC and Step Attribute locks as
 Go analysis requires a local Go toolchain and a module/package that passes type
 checking. Version 1 accepts one Flow per file. Step registration, transitions,
 waits, RPC next Steps, execute-failure recovery targets, and persistence
-resource access must be directly visible in that file. Wait conditions and
+resource access must be directly visible in that file. A resource, registered
+Step, Step handler, Flow method, or RPC declared in another file in the package
+produces a blocking diagnostic naming that file. Wait conditions and
 Execute decisions are structured node details rather than labels inferred from
 edges. Channel edges run from publishers through the Channel to consuming
 WaitFor paths. Attribute edges run from writers through the Attribute group to

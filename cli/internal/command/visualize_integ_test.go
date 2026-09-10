@@ -715,6 +715,63 @@ func TestVisualizeGoRequiresVisibleDecisionsAndTypeCheckedPackage(t *testing.T) 
 	}
 }
 
+func TestVisualizeGoRejectsDexDeclarationsOutsideFlowFile(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	directory := t.TempDir()
+	goModule := "module flowvizcrossfile\n\ngo 1.24.0\n\nrequire github.com/superdurable/dex/sdk-go v0.0.0\n\nreplace github.com/superdurable/dex/sdk-go => " + filepath.Join(repositoryRoot, "sdk-go") + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(goModule), 0o644))
+	flowSource := `package flow
+
+import "github.com/superdurable/dex/sdk-go/dex"
+
+type CrossFileFlow struct{ dex.FlowDefaults }
+
+func (*CrossFileFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(crossFileStep{})}
+}
+
+func (*CrossFileFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{Messages}}
+}
+`
+	supportSource := `package flow
+
+import "github.com/superdurable/dex/sdk-go/dex"
+
+var Messages = dex.DefineChannel[string]("Messages")
+
+type crossFileStep struct{ dex.StepDefaults }
+
+func (crossFileStep) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
+	return dex.Until(Messages.ForOne()), nil
+}
+
+func (crossFileStep) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(nil), nil
+}
+
+func (*CrossFileFlow) Submit(_ dex.Context, _ string) (*dex.RPCResult[dex.None], error) {
+	return &dex.RPCResult[dex.None]{}, nil
+}
+`
+	sourcePath := filepath.Join(directory, "flow.go")
+	require.NoError(t, os.WriteFile(sourcePath, []byte(flowSource), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(directory, "support.go"), []byte(supportSource), 0o644))
+
+	graph, err := flowviz.Analyze(context.Background(), sourcePath, flowviz.AnalyzeOptions{})
+	require.NoError(t, err)
+	require.False(t, graph.Valid)
+	codes := diagnosticCodes(graph.Diagnostics)
+	require.Contains(t, codes, "resource_outside_flow_file")
+	require.Contains(t, codes, "step_outside_flow_file")
+	require.Contains(t, codes, "rpc_outside_flow_file")
+	for _, diagnostic := range graph.Diagnostics {
+		if strings.HasSuffix(diagnostic.Code, "_outside_flow_file") {
+			require.Contains(t, diagnostic.Message, "support.go")
+		}
+	}
+}
+
 func TestVisualizeTreatsSubFlowAsAnExternalFoldedNode(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
 	directory := t.TempDir()

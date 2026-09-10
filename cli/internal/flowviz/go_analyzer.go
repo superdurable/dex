@@ -28,15 +28,33 @@ import (
 const goSDKPackage = "github.com/superdurable/dex/sdk-go/dex"
 
 type goAnalyzer struct {
-	graph        *Graph
-	file         *ast.File
-	fileSet      *token.FileSet
-	typeInfo     *types.Info
-	dexAliases   map[string]bool
-	methods      map[string]map[string]*ast.FuncDecl
-	steps        map[string]string
-	resources    map[types.Object]string
-	resourceVars map[string]string
+	graph             *Graph
+	file              *ast.File
+	packageFiles      []*ast.File
+	fileSet           *token.FileSet
+	typeInfo          *types.Info
+	sourcePath        string
+	dexAliases        map[string]bool
+	methods           map[string]map[string]*ast.FuncDecl
+	externalMethods   map[string]map[string]*goExternalMethod
+	externalResources map[types.Object]goExternalResource
+	externalTypes     map[string]string
+	externalSteps     map[string]bool
+	reportedExternal  map[string]bool
+	steps             map[string]string
+	resources         map[types.Object]string
+	resourceVars      map[string]string
+}
+
+type goExternalMethod struct {
+	declaration *ast.FuncDecl
+	filename    string
+}
+
+type goExternalResource struct {
+	kind     string
+	name     string
+	filename string
 }
 
 type goTransition struct {
@@ -96,31 +114,49 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte) (*Graph, e
 	for _, packageError := range selectedPackage.Errors {
 		graph.AddDiagnostic("error", "go_type_check_failed", packageError.Msg, nil)
 	}
-	analyzer := newGoAnalyzer(graph, selectedFile, selectedPackage.Fset, selectedPackage.TypesInfo)
+	analyzer := newGoAnalyzer(graph, selectedFile, selectedPackage.Syntax, selectedPackage.Fset, selectedPackage.TypesInfo, sourcePath)
 	analyzer.Analyze()
 	return graph, nil
 }
 
-func newGoAnalyzer(graph *Graph, file *ast.File, fileSet *token.FileSet, typeInfo *types.Info) *goAnalyzer {
+func newGoAnalyzer(
+	graph *Graph,
+	file *ast.File,
+	packageFiles []*ast.File,
+	fileSet *token.FileSet,
+	typeInfo *types.Info,
+	sourcePath string,
+) *goAnalyzer {
 	if typeInfo == nil {
 		typeInfo = &types.Info{}
 	}
+	if len(packageFiles) == 0 {
+		packageFiles = []*ast.File{file}
+	}
 	return &goAnalyzer{
-		graph:        graph,
-		file:         file,
-		fileSet:      fileSet,
-		typeInfo:     typeInfo,
-		dexAliases:   make(map[string]bool),
-		methods:      make(map[string]map[string]*ast.FuncDecl),
-		steps:        make(map[string]string),
-		resources:    make(map[types.Object]string),
-		resourceVars: make(map[string]string),
+		graph:             graph,
+		file:              file,
+		packageFiles:      packageFiles,
+		fileSet:           fileSet,
+		typeInfo:          typeInfo,
+		sourcePath:        filepath.Clean(sourcePath),
+		dexAliases:        make(map[string]bool),
+		methods:           make(map[string]map[string]*ast.FuncDecl),
+		externalMethods:   make(map[string]map[string]*goExternalMethod),
+		externalResources: make(map[types.Object]goExternalResource),
+		externalTypes:     make(map[string]string),
+		externalSteps:     make(map[string]bool),
+		reportedExternal:  make(map[string]bool),
+		steps:             make(map[string]string),
+		resources:         make(map[types.Object]string),
+		resourceVars:      make(map[string]string),
 	}
 }
 
 func (analyzer *goAnalyzer) Analyze() {
 	analyzer.indexImportsAndMethods()
 	analyzer.analyzeResources()
+	analyzer.diagnoseExternalResourceReferences()
 	flowMethods := analyzer.findFlowMethods()
 	if len(flowMethods) == 0 {
 		analyzer.graph.AddDiagnostic("error", "flow_not_found", "source must define exactly one Flow with GetSteps", nil)
@@ -135,6 +171,7 @@ func (analyzer *goAnalyzer) Analyze() {
 	}
 	getSteps := flowMethods[0]
 	flowName := receiverTypeName(getSteps)
+	analyzer.diagnoseExternalFlowDeclarations(flowName)
 	analyzer.graph.Flow = Flow{Name: analyzer.customTypeName(flowName, "GetFlowType"), Span: analyzer.span(getSteps)}
 	analyzer.analyzeStepRegistration(getSteps)
 	for stepType, nodeID := range analyzer.steps {
@@ -155,20 +192,102 @@ func (analyzer *goAnalyzer) indexImportsAndMethods() {
 		}
 		analyzer.dexAliases[alias] = true
 	}
-	for _, declaration := range analyzer.file.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil {
-			continue
+	for _, file := range analyzer.packageFiles {
+		for _, declaration := range file.Decls {
+			switch current := declaration.(type) {
+			case *ast.FuncDecl:
+				analyzer.indexMethod(file, current)
+			case *ast.GenDecl:
+				analyzer.indexExternalTypesAndResources(file, current)
+			}
 		}
-		receiver := receiverTypeName(function)
-		if receiver == "" {
-			continue
-		}
+	}
+}
+
+func (analyzer *goAnalyzer) indexMethod(file *ast.File, function *ast.FuncDecl) {
+	if function.Recv == nil {
+		return
+	}
+	receiver := receiverTypeName(function)
+	if receiver == "" {
+		return
+	}
+	if file == analyzer.file {
 		if analyzer.methods[receiver] == nil {
 			analyzer.methods[receiver] = make(map[string]*ast.FuncDecl)
 		}
 		analyzer.methods[receiver][function.Name.Name] = function
+		return
 	}
+	if analyzer.externalMethods[receiver] == nil {
+		analyzer.externalMethods[receiver] = make(map[string]*goExternalMethod)
+	}
+	analyzer.externalMethods[receiver][function.Name.Name] = &goExternalMethod{
+		declaration: function,
+		filename:    analyzer.nodeFilename(function),
+	}
+}
+
+func (analyzer *goAnalyzer) indexExternalTypesAndResources(file *ast.File, declaration *ast.GenDecl) {
+	if file == analyzer.file {
+		return
+	}
+	for _, specification := range declaration.Specs {
+		valueSpec, isValue := specification.(*ast.ValueSpec)
+		if declaration.Tok == token.VAR && isValue {
+			analyzer.indexExternalResources(valueSpec)
+			continue
+		}
+		typeSpec, isType := specification.(*ast.TypeSpec)
+		if declaration.Tok == token.TYPE && isType {
+			analyzer.externalTypes[typeSpec.Name.Name] = analyzer.nodeFilename(typeSpec)
+		}
+	}
+}
+
+func (analyzer *goAnalyzer) indexExternalResources(valueSpec *ast.ValueSpec) {
+	for index, name := range valueSpec.Names {
+		if index >= len(valueSpec.Values) {
+			continue
+		}
+		call, ok := valueSpec.Values[index].(*ast.CallExpr)
+		if !ok {
+			continue
+		}
+		kind := goResourceKind(analyzer.callName(call))
+		if kind == "" {
+			continue
+		}
+		object := analyzer.typeInfo.Defs[name]
+		if object == nil {
+			continue
+		}
+		analyzer.externalResources[object] = goExternalResource{
+			kind:     kind,
+			name:     name.Name,
+			filename: analyzer.nodeFilename(valueSpec),
+		}
+	}
+}
+
+func (analyzer *goAnalyzer) diagnoseExternalResourceReferences() {
+	ast.Inspect(analyzer.file, func(current ast.Node) bool {
+		identifier, ok := current.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		object := analyzer.typeInfo.Uses[identifier]
+		resource, isExternal := analyzer.externalResources[object]
+		if !isExternal {
+			return true
+		}
+		key := "resource:" + resource.kind + ":" + resource.name
+		kindName := strings.ToUpper(resource.kind[:1]) + resource.kind[1:]
+		message := fmt.Sprintf("%s %s is declared in %s; Dex resources must be declared in %s",
+			kindName, resource.name, analyzer.displayFilename(resource.filename), filepath.Base(analyzer.sourcePath))
+		analyzer.addExternalDiagnostic(key, "resource_outside_flow_file", message, analyzer.span(identifier))
+		return true
+	})
 }
 
 func (analyzer *goAnalyzer) analyzeResources() {
@@ -264,6 +383,12 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 			analyzer.addDynamicTargetDiagnostic("registered Step type must be static", call.Args[0])
 			return false
 		}
+		if filename := analyzer.externalTypes[stepType]; filename != "" {
+			analyzer.externalSteps[stepType] = true
+			message := fmt.Sprintf("Step %s is declared in %s; registered Steps must be declared in %s",
+				stepType, analyzer.displayFilename(filename), filepath.Base(analyzer.sourcePath))
+			analyzer.addExternalDiagnostic("step:"+stepType, "step_outside_flow_file", message, analyzer.span(call.Args[0]))
+		}
 		stepName := analyzer.customTypeName(stepType, "GetStepType")
 		nodeID := "step:" + stepType
 		isStart := callName == "DefineStartStep"
@@ -299,8 +424,23 @@ func (analyzer *goAnalyzer) hasStaticEmptyStepRegistration(getSteps *ast.FuncDec
 }
 
 func (analyzer *goAnalyzer) analyzeStep(stepType string, nodeID string) {
+	if analyzer.externalSteps[stepType] {
+		return
+	}
 	stepMethods := analyzer.methods[stepType]
+	for _, methodName := range []string{"Execute", "WaitFor", "GetStepOptions", "GetStepType"} {
+		externalMethod := analyzer.externalMethods[stepType][methodName]
+		if externalMethod == nil {
+			continue
+		}
+		message := fmt.Sprintf("Step %s.%s is declared in %s; Step handlers must be declared in %s",
+			stepType, methodName, analyzer.displayFilename(externalMethod.filename), filepath.Base(analyzer.sourcePath))
+		analyzer.addExternalDiagnostic("step-method:"+stepType+":"+methodName, "step_outside_flow_file", message, nil)
+	}
 	if stepMethods == nil || stepMethods["Execute"] == nil {
+		if analyzer.externalMethods[stepType]["Execute"] != nil {
+			return
+		}
 		analyzer.graph.AddDiagnostic("error", "step_handler_not_in_file", fmt.Sprintf("Step %s Execute must be defined in the source file", stepType), nil)
 		return
 	}
@@ -338,6 +478,28 @@ func (analyzer *goAnalyzer) analyzeFlowHandlers(flowType string) {
 			analyzer.graph.AddNode(Node{ID: nodeID, Kind: "rpc", Name: name, Span: analyzer.span(method)})
 			analyzer.analyzeDecisionHandler(nodeID, method, "rpc")
 			analyzer.analyzeResourceAccess(nodeID, method, "rpc")
+		}
+	}
+}
+
+func (analyzer *goAnalyzer) diagnoseExternalFlowDeclarations(flowType string) {
+	if filename := analyzer.externalTypes[flowType]; filename != "" {
+		message := fmt.Sprintf("Flow %s is declared in %s; the Flow type must be declared in %s",
+			flowType, analyzer.displayFilename(filename), filepath.Base(analyzer.sourcePath))
+		analyzer.addExternalDiagnostic("flow:"+flowType, "flow_outside_flow_file", message, nil)
+	}
+	for name, method := range analyzer.externalMethods[flowType] {
+		if ast.IsExported(name) && analyzer.isRPCMethod(method.declaration) {
+			message := fmt.Sprintf("RPC %s is declared in %s; Flow RPCs must be declared in %s",
+				name, analyzer.displayFilename(method.filename), filepath.Base(analyzer.sourcePath))
+			analyzer.addExternalDiagnostic("rpc:"+flowType+":"+name, "rpc_outside_flow_file", message, nil)
+			continue
+		}
+		switch name {
+		case "GetPersistenceSchema", "GetFlowType", "GetFlowOptions", "GetFlowConfig", "HandleTimeout":
+			message := fmt.Sprintf("Flow method %s is declared in %s; Dex Flow methods must be declared in %s",
+				name, analyzer.displayFilename(method.filename), filepath.Base(analyzer.sourcePath))
+			analyzer.addExternalDiagnostic("flow-method:"+flowType+":"+name, "flow_method_outside_flow_file", message, nil)
 		}
 	}
 }
@@ -1091,6 +1253,28 @@ func (analyzer *goAnalyzer) expressionString(expression ast.Expr) string {
 		return "condition"
 	}
 	return output.String()
+}
+
+func (analyzer *goAnalyzer) nodeFilename(node ast.Node) string {
+	if node == nil {
+		return ""
+	}
+	return filepath.Clean(analyzer.fileSet.Position(node.Pos()).Filename)
+}
+
+func (analyzer *goAnalyzer) displayFilename(filename string) string {
+	if filepath.Dir(filename) == filepath.Dir(analyzer.sourcePath) {
+		return filepath.Base(filename)
+	}
+	return filepath.ToSlash(filename)
+}
+
+func (analyzer *goAnalyzer) addExternalDiagnostic(key string, code string, message string, span *Span) {
+	if analyzer.reportedExternal[key] {
+		return
+	}
+	analyzer.reportedExternal[key] = true
+	analyzer.graph.AddDiagnostic("error", code, message, span)
 }
 
 func (analyzer *goAnalyzer) span(node ast.Node) *Span {
