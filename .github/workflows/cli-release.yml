@@ -9,6 +9,11 @@ on:
         description: CLI semantic version without the v prefix
         required: true
         type: string
+      publish:
+        description: Upload release assets and publish the Homebrew formula
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       version:
@@ -22,8 +27,7 @@ permissions:
 jobs:
   release:
     if: >
-      github.event_name == 'workflow_call' ||
-      github.event_name == 'workflow_dispatch' ||
+      inputs.version != '' ||
       startsWith(github.event.release.tag_name, 'cli-v')
     runs-on: ubuntu-latest
     steps:
@@ -43,16 +47,21 @@ jobs:
       - name: Resolve version
         id: version
         shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_call" ]; then
-            version="v${{ inputs.version }}"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            version="${{ inputs.version }}"
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            version="${RELEASE_TAG#cli-}"
           else
-            version="${GITHUB_REF_NAME#cli-}"
+            version="v${INPUT_VERSION#v}"
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=cli-$version" >> "$GITHUB_OUTPUT"
+          if [[ ! "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "Invalid CLI release version: ${version}" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=cli-${version}" >> "${GITHUB_OUTPUT}"
       - name: Build embedded Web assets
         working-directory: web
         run: |
@@ -102,19 +111,19 @@ jobs:
             -e "s/@LINUX_AMD64_SHA256@/${linux_amd64}/g" \
             homebrew/dexcli.rb.tmpl > dist/dexcli.rb
       - name: Upload release assets
-        if: github.event_name == 'release' || github.event_name == 'workflow_call'
+        if: github.event_name == 'release' || inputs.publish == true
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload '${{ steps.version.outputs.tag }}' cli/dist/* --clobber
       - name: Checkout Homebrew tap
-        if: github.event_name == 'release' || github.event_name == 'workflow_call'
+        if: github.event_name == 'release' || inputs.publish == true
         uses: actions/checkout@v7
         with:
           repository: superdurable/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
       - name: Publish Homebrew formula
-        if: github.event_name == 'release' || github.event_name == 'workflow_call'
+        if: github.event_name == 'release' || inputs.publish == true
         env:
           VERSION: ${{ steps.version.outputs.version }}
         shell: bash
@@ -131,7 +140,7 @@ jobs:
           git commit -m "dexcli ${VERSION#v}"
           git push
       - name: Upload manual artifacts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.publish != true
         uses: actions/upload-artifact@v6
         with:
           name: dexcli-${{ steps.version.outputs.version }}

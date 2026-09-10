@@ -21,22 +21,27 @@ jobs:
     runs-on: ubuntu-latest
     # Monorepo: only publish on server-v* release tags, or manual dispatch.
     if: >
-      github.event_name == 'workflow_call' ||
-      github.event_name == 'workflow_dispatch' ||
+      inputs.version != '' ||
       startsWith(github.event.release.tag_name, 'server-v')
     steps:
       - uses: actions/checkout@v7
       - name: Resolve image tag
         id: meta
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_call" ]; then
-            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            image_tag="${RELEASE_TAG#server-}"
           else
-            # server-v1.2.3 -> v1.2.3
-            echo "tag=${GITHUB_REF_NAME#server-}" >> "$GITHUB_OUTPUT"
+            image_tag="v${INPUT_VERSION#v}"
           fi
+          if [[ ! "${image_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "Invalid Docker image version: ${image_tag}" >&2
+            exit 1
+          fi
+          echo "tag=${image_tag}" >> "${GITHUB_OUTPUT}"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx

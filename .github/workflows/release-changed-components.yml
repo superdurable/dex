@@ -180,6 +180,7 @@ jobs:
     uses: ./.github/workflows/cli-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      publish: true
     secrets: inherit
 
   complete:
