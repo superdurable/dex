@@ -6,19 +6,25 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use dex_sdk::{
     Channel, ConditionCombination, Context, Flow, HandlerError, HandlerResult, PersistenceSchema,
-    Registry, SdkError, Step, StepDecision, StepExecutionId, StepList, StepMovement, Timer,
-    TimerId, Wait,
+    Registry, Rpc, RpcList, SdkError, Step, StepDecision, StepExecutionId, StepList, StepMovement,
+    Timer, TimerId, Wait,
 };
 
 use crate::support::{DexDevTestEnvironment, flow_id};
 
+static INTER_STEP_FIRST: LazyLock<Channel<i32>> =
+    LazyLock::new(|| Channel::new("inter-step-first"));
+static INTER_STEP_SECOND: LazyLock<Channel<i32>> =
+    LazyLock::new(|| Channel::new("inter-step-second"));
+static FIRST: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("first"));
+static SECOND: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("second"));
+
 struct InterStepChannelWorkflow {
-    first: Channel<i32>,
-    second: Channel<i32>,
     start: InterStepChannelStart,
     consumer: InterStepChannelConsumer,
     publisher: InterStepChannelPublisher,
@@ -26,19 +32,10 @@ struct InterStepChannelWorkflow {
 
 impl InterStepChannelWorkflow {
     fn new() -> Self {
-        let first = Channel::new("inter-step-first");
-        let second = Channel::new("inter-step-second");
         Self {
             start: InterStepChannelStart,
-            consumer: InterStepChannelConsumer {
-                first: first.clone(),
-                second: second.clone(),
-            },
-            publisher: InterStepChannelPublisher {
-                second: second.clone(),
-            },
-            first,
-            second,
+            consumer: InterStepChannelConsumer,
+            publisher: InterStepChannelPublisher,
         }
     }
 }
@@ -54,8 +51,8 @@ impl Flow for InterStepChannelWorkflow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .channel(&self.first)
-            .channel(&self.second)
+            .channel(&INTER_STEP_FIRST)
+            .channel(&INTER_STEP_SECOND)
     }
 }
 
@@ -66,38 +63,27 @@ impl Step for InterStepChannelStart {
 
     fn execute(&self, _context: &mut Context, (): ()) -> HandlerResult<StepDecision> {
         Ok(StepDecision::go_to_many([
-            StepMovement::to(
-                &InterStepChannelConsumer {
-                    first: Channel::new("inter-step-first"),
-                    second: Channel::new("inter-step-second"),
-                },
-                (),
-            ),
-            StepMovement::to(
-                &InterStepChannelPublisher {
-                    second: Channel::new("inter-step-second"),
-                },
-                2,
-            ),
+            StepMovement::to(&InterStepChannelConsumer, ()),
+            StepMovement::to(&InterStepChannelPublisher, 2),
         ]))
     }
 }
 
-struct InterStepChannelConsumer {
-    first: Channel<i32>,
-    second: Channel<i32>,
-}
+struct InterStepChannelConsumer;
 
 impl Step for InterStepChannelConsumer {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, (): ()) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([self.first.for_one(), self.second.for_one()]))
+        Ok(Wait::any_of([
+            INTER_STEP_FIRST.for_one(),
+            INTER_STEP_SECOND.for_one(),
+        ]))
     }
 
     fn execute(&self, context: &mut Context, (): ()) -> HandlerResult<StepDecision> {
-        let first = self.first.condition_results(context)?;
-        let second = self.second.condition_results(context)?;
+        let first = INTER_STEP_FIRST.condition_results(context)?;
+        let second = INTER_STEP_SECOND.condition_results(context)?;
         if !first.is_empty() || second != [2] {
             return Err(HandlerError::new(
                 "ChannelsFailure",
@@ -108,15 +94,13 @@ impl Step for InterStepChannelConsumer {
     }
 }
 
-struct InterStepChannelPublisher {
-    second: Channel<i32>,
-}
+struct InterStepChannelPublisher;
 
 impl Step for InterStepChannelPublisher {
     type Input = i32;
 
     fn wait_for(&self, context: &mut Context, input: i32) -> HandlerResult<Wait> {
-        self.second.publish(context, input)?;
+        INTER_STEP_SECOND.publish(context, input)?;
         Ok(Wait::skip_immediately())
     }
 
@@ -126,28 +110,27 @@ impl Step for InterStepChannelPublisher {
 }
 
 struct ChannelWorkflow {
-    first: Channel<i32>,
-    second: Channel<i32>,
     start: ChannelFirstStep,
     finish: ChannelSecondStep,
 }
 
 impl ChannelWorkflow {
+    const PUBLISH_FIRST: Rpc<i32, ()> = Rpc::new("publish_first");
+    const PUBLISH_SECOND: Rpc<i32, ()> = Rpc::new("publish_second");
+
     fn new() -> Self {
-        let first = Channel::new("first");
-        let second = Channel::new("second");
         Self {
-            start: ChannelFirstStep {
-                first: first.clone(),
-                second: second.clone(),
-            },
-            finish: ChannelSecondStep {
-                first: first.clone(),
-                second: second.clone(),
-            },
-            first,
-            second,
+            start: ChannelFirstStep,
+            finish: ChannelSecondStep,
         }
+    }
+
+    fn publish_first(&self, context: &mut Context, input: i32) -> HandlerResult<()> {
+        FIRST.publish(context, input)
+    }
+
+    fn publish_second(&self, context: &mut Context, input: i32) -> HandlerResult<()> {
+        SECOND.publish(context, input)
     }
 }
 
@@ -159,54 +142,46 @@ impl Flow for ChannelWorkflow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new()
-            .channel(&self.first)
-            .channel(&self.second)
+        PersistenceSchema::new().channel(&FIRST).channel(&SECOND)
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new()
+            .procedure(Self::PUBLISH_FIRST, Self::publish_first)
+            .procedure(Self::PUBLISH_SECOND, Self::publish_second)
     }
 }
 
-struct ChannelFirstStep {
-    first: Channel<i32>,
-    second: Channel<i32>,
-}
+struct ChannelFirstStep;
 
 impl Step for ChannelFirstStep {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, (): ()) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([self.first.for_one(), self.second.for_one()]))
+        Ok(Wait::any_of([FIRST.for_one(), SECOND.for_one()]))
     }
 
     fn execute(&self, context: &mut Context, (): ()) -> HandlerResult<StepDecision> {
-        let first = self.first.condition_results(context)?;
-        let second = self.second.condition_results(context)?;
+        let first = FIRST.condition_results(context)?;
+        let second = SECOND.condition_results(context)?;
         if !first.is_empty() || second != [10] {
             return Err(HandlerError::new(
                 "ChannelsFailure",
                 format!("unexpected first-step channel results: first={first:?} second={second:?}"),
             ));
         }
-        Ok(StepDecision::go_to(
-            &ChannelSecondStep {
-                first: self.first.clone(),
-                second: self.second.clone(),
-            },
-            (),
-        ))
+        Ok(StepDecision::go_to(&ChannelSecondStep, ()))
     }
 }
 
-struct ChannelSecondStep {
-    first: Channel<i32>,
-    second: Channel<i32>,
-}
+struct ChannelSecondStep;
 
 impl Step for ChannelSecondStep {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, (): ()) -> HandlerResult<Wait> {
         Ok(Wait::any_combination_of([ConditionCombination::all_of([
-            self.first.for_one().with_id("first"),
+            FIRST.for_one().with_id("first"),
             Timer::by_duration(Duration::from_secs(24 * 60 * 60)).with_id("finish-timer"),
         ])]))
     }
@@ -218,8 +193,8 @@ impl Step for ChannelSecondStep {
                 "skipped timer was not reported as fired",
             ));
         }
-        let first = self.first.condition_results(context)?;
-        let second = self.second.condition_results(context)?;
+        let first = FIRST.condition_results(context)?;
+        let second = SECOND.condition_results(context)?;
         if first != [100] || !second.is_empty() {
             return Err(HandlerError::new(
                 "ChannelsFailure",
@@ -299,7 +274,7 @@ fn channel_contract_reports_results_and_skipped_timer_by_index() {
         .expect("start Go channel compatibility Flow");
     environment
         .client
-        .publish(&flow_id, &workflow.second, 10)
+        .invoke_rpc(&flow_id, ChannelWorkflow::PUBLISH_SECOND, 10)
         .expect("publish second-channel message");
     environment
         .client
@@ -311,7 +286,7 @@ fn channel_contract_reports_results_and_skipped_timer_by_index() {
         .expect("wait for first channel Step");
     environment
         .client
-        .publish(&flow_id, &workflow.first, 100)
+        .invoke_rpc(&flow_id, ChannelWorkflow::PUBLISH_FIRST, 100)
         .expect("publish first-channel message");
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
@@ -339,7 +314,7 @@ fn channel_contract_reports_results_and_skipped_timer_by_index() {
     );
     let missing = environment
         .client
-        .publish(&missing_flow_id, &workflow.first, 100)
+        .invoke_rpc(&missing_flow_id, ChannelWorkflow::PUBLISH_FIRST, 100)
         .expect_err("publishing to a missing Flow must fail");
     assert!(matches!(missing, SdkError::FlowNotActive { .. }));
 }

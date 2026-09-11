@@ -77,4 +77,9 @@ export class ConditionalCompleteFlow implements Flow<boolean> {
   public publishToInternalChannel(context: Context): void {
     this.internal.publish(context, undefined);
   }
+
+  @rpc()
+  public publishSignal(context: Context): void {
+    this.signal.publish(context, undefined);
+  }
 }

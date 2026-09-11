@@ -24,6 +24,7 @@ from dex import (
     StepList,
     Wait,
     graceful_complete,
+    rpc,
 )
 
 from .shared import ModelInput
@@ -102,3 +103,37 @@ class SetAttributesFlow(Flow[str]):
             self.datetime,
             self.proceed,
         )
+
+    @rpc
+    def set_indexed(self, context: Context) -> None:
+        self.keyword.set(context, "keyword-1")
+        self.text.set(context, "text-1")
+        self.decimal.set(context, 1.0)
+        self.integer.set(context, 1)
+        self.bool.set(context, True)
+        self.keywords.set(context, ("keyword-1", "keyword-2"))
+        self.datetime.set(context, datetime.fromisoformat("2024-11-13T00:00:01.731+00:00"))
+
+    @rpc
+    def set_data(self, context: Context, input: str) -> None:
+        self.data.set(context, input)
+
+    @rpc
+    def set_map_one(self, context: Context, input: str) -> None:
+        self.data_map.set(context, "one", input)
+
+    @rpc
+    def set_map_special(self, context: Context, input: str) -> None:
+        self.data_map.set(context, "special % key", input)
+
+    @rpc
+    def set_integer(self, context: Context, input: int) -> None:
+        self.integer.set(context, input)
+
+    @rpc
+    def set_model(self, context: Context, input: ModelInput) -> None:
+        self.model.set(context, input)
+
+    @rpc
+    def complete(self, context: Context) -> None:
+        self.proceed.publish(context, None)

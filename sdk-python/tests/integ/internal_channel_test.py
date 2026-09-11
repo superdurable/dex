@@ -23,6 +23,7 @@ def compile_basic_internal_channel(client: Client) -> None:
 def compile_waiting_internal_channel(client: Client) -> None:
     flow = WaitingInternalChannelFlow()
     client.start_flow(flow, "waiting-internal", 1)
-    client.publish("waiting-internal", flow.channel, 2, 3)
+    client.invoke_rpc(flow.publish, "waiting-internal", 2)
+    client.invoke_rpc(flow.publish, "waiting-internal", 3)
     output: int = client.wait_for_flow("waiting-internal").single_output(int)
     del output

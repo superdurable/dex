@@ -11,7 +11,8 @@
 use std::sync::LazyLock;
 
 use dex_sdk::{
-    Channel, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Wait,
+    Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
+    StepList, Wait,
 };
 
 pub(crate) static CHANNEL: LazyLock<Channel<i32>> =
@@ -22,8 +23,14 @@ pub(crate) struct InternalChannelWaitingWorkflow {
 }
 
 impl InternalChannelWaitingWorkflow {
+    pub(crate) const PUBLISH: Rpc<i32, ()> = Rpc::new("publish");
+
     pub(crate) fn new() -> Self {
         Self { start: WaitingStep }
+    }
+
+    fn publish(&self, context: &mut Context, input: i32) -> HandlerResult<()> {
+        CHANNEL.publish(context, input)
     }
 }
 
@@ -36,6 +43,10 @@ impl Flow for InternalChannelWaitingWorkflow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new().channel(&CHANNEL)
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new().procedure(Self::PUBLISH, Self::publish)
     }
 }
 

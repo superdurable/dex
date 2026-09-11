@@ -66,3 +66,7 @@ class ConditionalCompleteFlow(Flow[bool]):
     @rpc
     def publish_to_internal_channel(self, context: Context) -> None:
         self.internal.publish(context, None)
+
+    @rpc
+    def publish_signal(self, context: Context) -> None:
+        self.signal.publish(context, None)

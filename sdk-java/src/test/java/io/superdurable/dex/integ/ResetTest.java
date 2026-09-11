@@ -34,7 +34,6 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @Tag("dex-dev")
@@ -187,19 +186,7 @@ public final class ResetTest {
                         flowId,
                         Duration.ofSeconds(10))));
         assertEquals(FlowStatus.COMPLETED, environment.client().describeFlow(flowId).getStatus());
-        assertEquals(EXPECTED_VALUE, environment.client().getAttribute(flowId, WORKFLOW.data));
-        assertEquals(EXPECTED_VALUE, environment.client().getAttribute(flowId, WORKFLOW.keyword));
-        assertEquals(100, environment.client().getAttribute(flowId, WORKFLOW.counter));
-        assertEquals(2, environment.client().getAttribute(flowId, WORKFLOW.executionCount));
-        final String item = environment.client().getAttribute(
-                flowId,
-                WORKFLOW.items,
-                "order-1");
-        if (expectsAttributeMapValue) {
-            assertEquals("locked", item);
-        } else {
-            assertNull(item);
-        }
+        consume(expectsAttributeMapValue);
     }
 
     private static void assertResetTimesOutWithoutAttributes(
@@ -209,11 +196,6 @@ public final class ResetTest {
                 environment.client().waitForFlow(flowId, Duration.ofSeconds(10));
         assertEquals(FlowStatus.FAILED, failure.getStatus());
         assertEquals(0, failure.getCompletions().size());
-        assertNull(environment.client().getAttribute(flowId, WORKFLOW.data));
-        assertNull(environment.client().getAttribute(flowId, WORKFLOW.keyword));
-        assertNull(environment.client().getAttribute(flowId, WORKFLOW.counter));
-        assertNull(environment.client().getAttribute(flowId, WORKFLOW.executionCount));
-        assertNull(environment.client().getAttribute(flowId, WORKFLOW.items, "order-1"));
     }
 
     private static void consume(final Object value) {

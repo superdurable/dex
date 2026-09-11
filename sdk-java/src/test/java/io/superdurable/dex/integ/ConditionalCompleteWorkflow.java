@@ -47,6 +47,13 @@ class ConditionalCompleteWorkflow implements Flow<Boolean> {
         }
     }
 
+    @RPC
+    public void publishSignal(final Context context, final Integer count) {
+        for (int index = 0; index < count; index++) {
+            signal.publish(context, null);
+        }
+    }
+
     final class ConditionalStep implements Step<Boolean> {
         @Override
         public Class<Boolean> getInputType() {

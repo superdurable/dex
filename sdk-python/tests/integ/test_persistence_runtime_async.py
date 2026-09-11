@@ -42,7 +42,7 @@ async def _async_wait_for_attribute_match() -> None:
                 flow_id, flow.data, AttributeMatch.equal_to("ready"), timeout
             )
         )
-        await environment.client.set_attribute(flow_id, flow.data, "ready")
+        await environment.client.invoke_rpc(flow.set_data, flow_id, "ready")
         assert await waiting == "ready"
         waiting_map = asyncio.create_task(
             environment.client.wait_for_attribute_match(
@@ -53,9 +53,7 @@ async def _async_wait_for_attribute_match() -> None:
                 timeout,
             )
         )
-        await environment.client.set_attribute(
-            flow_id, flow.data_map, "special % key", "mapped"
-        )
+        await environment.client.invoke_rpc(flow.set_map_special, flow_id, "mapped")
         assert await waiting_map == "mapped"
         with pytest.raises(
             ValueError,

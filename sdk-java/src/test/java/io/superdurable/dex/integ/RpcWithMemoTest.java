@@ -139,10 +139,6 @@ public final class RpcWithMemoTest {
             final String flowId,
             final String expectedValue) {
         assertEquals(2, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
-        assertEquals(expectedValue, environment.client().getAttribute(flowId, WORKFLOW.data));
-        assertEquals(expectedValue, environment.client().getAttribute(flowId, WORKFLOW.keyword));
-        assertEquals(
-                Math.toIntExact(RpcWorkflow.RPC_OUTPUT),
-                environment.client().getAttribute(flowId, WORKFLOW.integer));
+        consume(expectedValue);
     }
 }

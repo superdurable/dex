@@ -14,6 +14,7 @@ import {
   Wait,
   doubleCodec,
   gracefulComplete,
+  rpc,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -54,5 +55,10 @@ export class WaitingInternalChannelFlow implements Flow<number> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return { channels: [this.channel] };
+  }
+
+  @rpc({ inputCodec: doubleCodec })
+  public publish(context: Context, input: number): void {
+    this.channel.publish(context, input);
   }
 }

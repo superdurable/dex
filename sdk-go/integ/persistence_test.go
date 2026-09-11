@@ -264,32 +264,9 @@ func TestPersistenceFlow(t *testing.T) {
 	require.NoError(t, err)
 	result := waitForFlow(t, flowID, true)
 	require.Equal(t, dex.FlowCompleted, result.Status)
-
-	var data persistenceModel
-	found, err := integClient.GetAttribute(ctx, flowID, persistenceData, &data)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, input, data)
-	var item int
-	found, err = integClient.GetAttributeMapInstance(ctx, flowID, persistenceMap, "one", &item)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, 11, item)
-	values, err := integClient.GetAttributes(
-		ctx,
-		flowID,
-		persistenceText,
-		persistenceKeyword,
-		persistenceSearchText,
-		persistenceBool,
-		persistenceInt,
-		persistenceDouble,
-	)
-	require.NoError(t, err)
-	require.Len(t, values, 6)
-	var text string
-	require.NoError(t, values[persistenceText.AttributeName()].Decode(&text))
-	require.Equal(t, "a string", text)
+	var output string
+	require.NoError(t, result.DecodeSingleOutput(&output))
+	require.Equal(t, "done", output)
 
 	var searchPage dex.SearchFlowsPage
 	require.Eventually(t, func() bool {

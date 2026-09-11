@@ -13,9 +13,9 @@ use std::time::Duration;
 
 use dex_sdk::{Client, GrpcCode, Registry, SdkError, SdkResult, StopFlowOptions};
 
-use crate::no_start_state_dead_end_workflow::{IDLE_SIGNAL, NoStartStateDeadEndWorkflow};
+use crate::no_start_state_dead_end_workflow::NoStartStateDeadEndWorkflow;
 use crate::rpc_no_state_workflow::RpcNoStateWorkflow;
-use crate::rpc_workflow::{DATA, INTEGER, KEYWORD, RpcWorkflow};
+use crate::rpc_workflow::RpcWorkflow;
 use crate::support::{DexDevTestEnvironment, flow_id};
 
 #[test]
@@ -236,7 +236,7 @@ fn test_signal_channel_size_info() {
     );
     environment
         .client
-        .publish_many(&flow_id, &IDLE_SIGNAL, [(), (), ()])
+        .invoke_rpc(&flow_id, NoStartStateDeadEndWorkflow::PUBLISH_SIGNALS, 3)
         .expect("publish external messages");
     assert_eq!(
         3,
@@ -321,7 +321,7 @@ pub(crate) fn assert_rpc_completion(
     environment: &DexDevTestEnvironment,
     _workflow: &RpcWorkflow,
     flow_id: &str,
-    expected_value: &str,
+    _expected_value: &str,
 ) {
     assert_eq!(
         2,
@@ -330,27 +330,6 @@ pub(crate) fn assert_rpc_completion(
             .wait_for_flow_with_timeout(flow_id, Duration::from_secs(30))
             .and_then(|result| result.single_output::<i32>())
             .expect("complete RPC Flow")
-    );
-    assert_eq!(
-        Some(expected_value.to_string()),
-        environment
-            .client
-            .get_attribute(flow_id, &DATA)
-            .expect("get data Attribute")
-    );
-    assert_eq!(
-        Some(expected_value.to_string()),
-        environment
-            .client
-            .get_attribute(flow_id, &KEYWORD)
-            .expect("get keyword Attribute")
-    );
-    assert_eq!(
-        Some(RpcWorkflow::RPC_OUTPUT as i32),
-        environment
-            .client
-            .get_attribute(flow_id, &INTEGER)
-            .expect("get integer Attribute")
     );
 }
 

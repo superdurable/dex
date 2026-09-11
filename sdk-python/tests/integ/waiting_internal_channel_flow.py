@@ -18,6 +18,7 @@ from dex import (
     StepList,
     Wait,
     graceful_complete,
+    rpc,
 )
 
 
@@ -43,3 +44,7 @@ class WaitingInternalChannelFlow(Flow[int]):
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.channel)
+
+    @rpc
+    def publish(self, context: Context, input: int) -> None:
+        self.channel.publish(context, input)

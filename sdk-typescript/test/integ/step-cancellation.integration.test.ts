@@ -65,7 +65,6 @@ for (const scenario of cancellationScenarios) {
         scenario === "local-execute" || scenario === "local-timeout-fallback" ? 2 : 1,
       );
       assert.equal(flow.recoveryRan, false);
-      assert.equal(await client.getAttribute(id, flow.lateWrite), undefined);
     });
   });
 }

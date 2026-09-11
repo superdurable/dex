@@ -221,7 +221,7 @@ async def _rpc_channel_size_info() -> None:
         await environment.client.start_flow(flow, flow_id, None)
         await environment.client.invoke_rpc(flow.publish_internal, flow_id)
         assert await environment.client.invoke_rpc(flow.publish_internal, flow_id) == 2
-        await environment.client.publish(flow_id, flow.idle_signal, None, None, None)
+        await environment.client.invoke_rpc(flow.publish_signals, flow_id, 3)
         assert await environment.client.invoke_rpc(flow.signal_size, flow_id) == 3
         await environment.client.stop_flow(flow_id)
 
@@ -230,16 +230,8 @@ async def assert_async_rpc_completion(
     environment: AsyncDexDevTestEnvironment,
     flow: RpcFlow,
     flow_id: str,
-    expected_value: str,
+    _expected_value: str,
 ) -> None:
     assert (
         await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
     ).single_output(int) == 2
-    assert await environment.client.get_attribute(flow_id, flow.data) == expected_value
-    assert (
-        await environment.client.get_attribute(flow_id, flow.keyword) == expected_value
-    )
-    assert (
-        await environment.client.get_attribute(flow_id, flow.integer)
-        == RpcFlow.RPC_OUTPUT
-    )

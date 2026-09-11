@@ -26,6 +26,7 @@ pub(crate) struct ConditionalCompleteWorkflow {
 
 impl ConditionalCompleteWorkflow {
     pub(crate) const PUBLISH_TO_INTERNAL: Rpc<i32, ()> = Rpc::new("publish_to_internal_channel");
+    pub(crate) const PUBLISH_SIGNAL: Rpc<i32, ()> = Rpc::new("publish_signal");
 
     pub(crate) fn new() -> Self {
         Self {
@@ -36,6 +37,13 @@ impl ConditionalCompleteWorkflow {
     fn publish_to_internal_channel(&self, context: &mut Context, count: i32) -> HandlerResult<()> {
         for _ in 0..count {
             INTERNAL.publish(context, ())?;
+        }
+        Ok(())
+    }
+
+    fn publish_signal(&self, context: &mut Context, count: i32) -> HandlerResult<()> {
+        for _ in 0..count {
+            SIGNAL.publish(context, ())?;
         }
         Ok(())
     }
@@ -56,7 +64,9 @@ impl Flow for ConditionalCompleteWorkflow {
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure(Self::PUBLISH_TO_INTERNAL, Self::publish_to_internal_channel)
+        RpcList::new()
+            .procedure(Self::PUBLISH_TO_INTERNAL, Self::publish_to_internal_channel)
+            .procedure(Self::PUBLISH_SIGNAL, Self::publish_signal)
     }
 }
 

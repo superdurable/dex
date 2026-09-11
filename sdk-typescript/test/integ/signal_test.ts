@@ -15,10 +15,10 @@ import * as flows from "./iwf_flows.js";
 export async function compileSignalsAndTimerSkip(client: Client): Promise<void> {
   const flow = flows.SIGNAL;
   await client.startFlow(flow, "signal", 0);
-  await client.publish("signal", flow.first, 1);
-  await client.publish("signal", flow.second, 2);
-  await client.publish("signal", flow.third, undefined);
-  await client.publish("signal", flow.signalMap, "one", 5);
+  await client.invokeRPC(flow.publishFirst, "signal", 1);
+  await client.invokeRPC(flow.publishSecond, "signal", 2);
+  await client.invokeRPC(flow.publishThird, "signal");
+  await client.invokeRPC(flow.publishMapped, "signal", 5);
   await client.skipTimer(
     "signal",
     StepExecutionId.of("SignalCombinationStep"),

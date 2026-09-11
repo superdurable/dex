@@ -14,13 +14,11 @@ use std::time::{Duration, SystemTime};
 use dex_protocol::dex::flow_service_client::FlowServiceClient;
 use dex_protocol::dex::{
     ActiveStepSearchMode as ProtoSearchMode, AttributeStoreNames, AttributeWrite,
-    DeleteChannelMessageRequest, FlowAlreadyStartedOptions, FlowConfig as ProtoFlowConfig,
-    FlowResetStepMethod, FlowResetType, FlowRetryPolicy, FlowStartOptions,
-    FlowStatus as ProtoFlowStatus, FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
-    GetAttributesRequest, GetChannelMessagesRequest, GetFlowSummaryRequest,
+    FlowAlreadyStartedOptions, FlowConfig as ProtoFlowConfig, FlowResetStepMethod, FlowResetType,
+    FlowRetryPolicy, FlowStartOptions, FlowStatus as ProtoFlowStatus,
+    FlowTimeoutPolicy as ProtoFlowTimeoutPolicy, GetFlowSummaryRequest,
     IdReusePolicy as ProtoIdReusePolicy, InvokeRpcRequest, ListStreamMessagesRequest,
-    PublishToChannelRequest, ReadStreamRequest, ResetFlowRequest, SearchFlowsRequest,
-    SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
+    ReadStreamRequest, ResetFlowRequest, SearchFlowsRequest, SkipTimerRequest, StartFlowRequest,
     StepDurability as ProtoStepDurability, StopFlowRequest, StopType as ProtoStopType,
     TriggerContinueAsNewRequest, UpdateFlowConfigRequest, WaitForAttributeRequest,
     WaitForFlowRequest, WaitForStepCompletionRequest, WorkerTarget as ProtoWorkerTarget,
@@ -37,12 +35,11 @@ use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
 use crate::worker_dispatcher::{map_flow_timeout_handler_options, map_step_options};
 use crate::{
-    ActiveStepSearchMode, Attribute, AttributeMap, AttributeMatch, BlobCache, Channel, ChannelMap,
-    ChannelMessage, ClientOptions, Flow, FlowConfig, FlowErrorType, FlowInfo, FlowResult,
-    FlowStatus, FlowTimeoutPolicy, IdReusePolicy, Registry, RetryPolicy, Rpc, SdkError, SdkResult,
-    SearchFlowEntry, SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability,
-    StepExecutionId, StopFlowOptions, Stream, StreamMessage, StreamMessagesPage, TimeTravelOptions,
-    TimerId, Value, WorkerTarget,
+    ActiveStepSearchMode, Attribute, AttributeMap, AttributeMatch, BlobCache, ClientOptions, Flow,
+    FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus, FlowTimeoutPolicy, IdReusePolicy,
+    Registry, RetryPolicy, Rpc, SdkError, SdkResult, SearchFlowEntry, SearchFlowsPage,
+    StartFlowOptions, StepCompletion, StepDurability, StepExecutionId, StopFlowOptions, Stream,
+    StreamMessage, StreamMessagesPage, TimeTravelOptions, TimerId, Value, WorkerTarget,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -235,149 +232,6 @@ impl Client {
         rpc: Rpc<(), Output>,
     ) -> SdkResult<Output> {
         self.do_invoke_rpc(flow_id, rpc.name(), &())
-    }
-
-    /// Reads one Attribute from the current run.
-    ///
-    /// Returns `Ok(None)` when no value is stored.
-    pub fn get_attribute<T: Value>(
-        &self,
-        flow_id: &str,
-        attribute: &Attribute<T>,
-    ) -> SdkResult<Option<T>> {
-        self.get_attribute_value(flow_id, attribute.name())
-    }
-
-    /// Reads one Attribute-map instance from the current run.
-    ///
-    /// Returns `Ok(None)` when the instance is absent.
-    pub fn get_attribute_map_instance<T: Value>(
-        &self,
-        flow_id: &str,
-        attribute: &AttributeMap<T>,
-        instance: &str,
-    ) -> SdkResult<Option<T>> {
-        self.get_attribute_value(flow_id, &map_physical_name(attribute.name(), instance)?)
-    }
-
-    /// Writes one Attribute on an active Flow.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SdkError::FlowNotActive`], a value-mapping error, or a service failure.
-    pub fn set_attribute<T: Value>(
-        &self,
-        flow_id: &str,
-        attribute: &Attribute<T>,
-        value: T,
-    ) -> SdkResult<()> {
-        self.set_attribute_value(
-            flow_id,
-            attribute.name(),
-            &value,
-            attribute.index().map(|index| index.proto_config(false)),
-            attribute.sync_config(),
-        )
-    }
-
-    /// Writes one Attribute-map instance on an active Flow.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SdkError::FlowNotActive`], a value-mapping error, or a service failure.
-    pub fn set_attribute_map_instance<T: Value>(
-        &self,
-        flow_id: &str,
-        attribute: &AttributeMap<T>,
-        instance: &str,
-        value: T,
-    ) -> SdkResult<()> {
-        self.set_attribute_value(
-            flow_id,
-            &map_physical_name(attribute.name(), instance)?,
-            &value,
-            attribute.index().map(|index| index.proto_config(true)),
-            attribute.sync_config(),
-        )
-    }
-
-    /// Publishes one typed message to a Channel on an active Flow.
-    pub fn publish<T: Value>(
-        &self,
-        flow_id: &str,
-        channel: &Channel<T>,
-        value: T,
-    ) -> SdkResult<()> {
-        self.publish_values(flow_id, channel.name(), [value])
-    }
-
-    /// Publishes an ordered batch of typed messages to one Channel atomically.
-    pub fn publish_many<T: Value>(
-        &self,
-        flow_id: &str,
-        channel: &Channel<T>,
-        values: impl IntoIterator<Item = T>,
-    ) -> SdkResult<()> {
-        self.publish_values(flow_id, channel.name(), values)
-    }
-
-    /// Publishes an ordered batch to one Channel-map instance atomically.
-    pub fn publish_map<T: Value>(
-        &self,
-        flow_id: &str,
-        channel: &ChannelMap<T>,
-        instance: &str,
-        values: impl IntoIterator<Item = T>,
-    ) -> SdkResult<()> {
-        self.publish_values(
-            flow_id,
-            &map_physical_name(channel.name(), instance)?,
-            values,
-        )
-    }
-
-    /// Returns every pending singleton Channel message in FIFO order.
-    pub fn get_channel_messages<T: Value>(
-        &self,
-        flow_id: &str,
-        channel: &Channel<T>,
-    ) -> SdkResult<Vec<ChannelMessage<T>>> {
-        self.get_channel_messages_value(flow_id, channel.name())
-    }
-
-    /// Returns every pending message for one Channel-map instance in FIFO order.
-    pub fn get_channel_map_messages<T: Value>(
-        &self,
-        flow_id: &str,
-        channel: &ChannelMap<T>,
-        instance: &str,
-    ) -> SdkResult<Vec<ChannelMessage<T>>> {
-        self.get_channel_messages_value(flow_id, &map_physical_name(channel.name(), instance)?)
-    }
-
-    /// Deletes one pending singleton Channel message by server-assigned ID.
-    pub fn delete_channel_message<T>(
-        &self,
-        flow_id: &str,
-        channel: &Channel<T>,
-        message_id: &str,
-    ) -> SdkResult<()> {
-        self.delete_channel_message_value(flow_id, channel.name(), message_id)
-    }
-
-    /// Deletes one pending message from a Channel-map instance by server-assigned ID.
-    pub fn delete_channel_map_message<T>(
-        &self,
-        flow_id: &str,
-        channel: &ChannelMap<T>,
-        instance: &str,
-        message_id: &str,
-    ) -> SdkResult<()> {
-        self.delete_channel_message_value(
-            flow_id,
-            &map_physical_name(channel.name(), instance)?,
-            message_id,
-        )
     }
 
     /// Appends one typed best-effort Stream message with source metadata.
@@ -984,167 +838,6 @@ impl Client {
         let output = output.ok_or_else(|| invalid("InvokeRPC omitted output"))?;
         let output = self.runtime.block_on(self.hydrator.hydrate(output))?;
         value_mapper::decode(&output)
-    }
-
-    fn get_attribute_value<T: Value>(&self, flow_id: &str, key: &str) -> SdkResult<Option<T>> {
-        let mut service = self.service.clone();
-        let response = self.runtime.block_on(async {
-            service
-                .get_attributes(GetAttributesRequest {
-                    flow_id: flow_id.to_string(),
-                    run_id: String::new(),
-                    keys: vec![key.to_string()],
-                    all_keys: false,
-                })
-                .await
-                .map(|response| response.into_inner())
-                .map_err(|status| {
-                    SdkError::from_status(
-                        status,
-                        "get_attribute",
-                        Some(flow_id),
-                        FlowTargetRequirement::Existing,
-                    )
-                })
-        })?;
-        let Some(entry) = response.attributes.into_iter().next() else {
-            return Ok(None);
-        };
-        let value = entry
-            .value
-            .ok_or_else(|| invalid("GetAttributes returned an empty Value"))?;
-        let value = self.runtime.block_on(self.hydrator.hydrate(value))?;
-        value_mapper::decode(&value).map(Some)
-    }
-
-    fn set_attribute_value<T: Value>(
-        &self,
-        flow_id: &str,
-        key: &str,
-        value: &T,
-        index_config: Option<dex_protocol::dex::IndexConfig>,
-        sync_config: Option<dex_protocol::dex::AttributeSyncConfig>,
-    ) -> SdkResult<()> {
-        let write = AttributeWrite {
-            key: key.to_string(),
-            value: Some(value_mapper::encode(value)?),
-            index_config,
-            sync_config,
-        };
-        self.call_empty(
-            "set_attribute",
-            Some(flow_id),
-            FlowTargetRequirement::Active,
-            |mut service| async move {
-                service
-                    .set_attributes(SetAttributesRequest {
-                        flow_id: flow_id.to_string(),
-                        run_id: String::new(),
-                        attributes: vec![write],
-                        request_id: Uuid::new_v4().to_string(),
-                    })
-                    .await
-            },
-        )
-    }
-
-    fn publish_values<T: Value>(
-        &self,
-        flow_id: &str,
-        channel_name: &str,
-        values: impl IntoIterator<Item = T>,
-    ) -> SdkResult<()> {
-        let messages = values
-            .into_iter()
-            .map(|value| {
-                Ok(dex_protocol::dex::ChannelMessage {
-                    channel_name: channel_name.to_string(),
-                    value: Some(value_mapper::encode(&value)?),
-                    message_id: String::new(),
-                })
-            })
-            .collect::<SdkResult<Vec<_>>>()?;
-        self.call_empty(
-            "publish",
-            Some(flow_id),
-            FlowTargetRequirement::Active,
-            |mut service| async move {
-                service
-                    .publish_to_channel(PublishToChannelRequest {
-                        flow_id: flow_id.to_string(),
-                        run_id: String::new(),
-                        messages,
-                    })
-                    .await
-            },
-        )
-    }
-
-    fn get_channel_messages_value<T: Value>(
-        &self,
-        flow_id: &str,
-        channel_name: &str,
-    ) -> SdkResult<Vec<ChannelMessage<T>>> {
-        let mut service = self.service.clone();
-        let response = self.runtime.block_on(async {
-            service
-                .get_channel_messages(GetChannelMessagesRequest {
-                    flow_id: flow_id.to_string(),
-                    run_id: String::new(),
-                    channel_name: channel_name.to_string(),
-                })
-                .await
-                .map(|response| response.into_inner())
-                .map_err(|status| {
-                    SdkError::from_status(
-                        status,
-                        "get_channel_messages",
-                        Some(flow_id),
-                        FlowTargetRequirement::Existing,
-                    )
-                })
-        })?;
-        response
-            .messages
-            .into_iter()
-            .map(|message| {
-                let value = message
-                    .value
-                    .ok_or_else(|| invalid("GetChannelMessages returned an empty Value"))?;
-                let value = self.runtime.block_on(self.hydrator.hydrate(value))?;
-                Ok(ChannelMessage {
-                    message_id: message.message_id,
-                    value: value_mapper::decode(&value)?,
-                })
-            })
-            .collect()
-    }
-
-    fn delete_channel_message_value(
-        &self,
-        flow_id: &str,
-        channel_name: &str,
-        message_id: &str,
-    ) -> SdkResult<()> {
-        if message_id.is_empty() {
-            return Err(invalid("Channel message ID must not be empty"));
-        }
-        self.call_empty(
-            "delete_channel_message",
-            Some(flow_id),
-            FlowTargetRequirement::Active,
-            |mut service| async move {
-                service
-                    .delete_channel_message(DeleteChannelMessageRequest {
-                        flow_id: flow_id.to_string(),
-                        run_id: String::new(),
-                        channel_name: channel_name.to_string(),
-                        message_id: message_id.to_string(),
-                        request_id: Uuid::new_v4().to_string(),
-                    })
-                    .await
-            },
-        )
     }
 
     fn read_stream_result<T: Value>(

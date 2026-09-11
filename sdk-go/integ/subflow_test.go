@@ -376,21 +376,9 @@ func TestSubFlowPartialResultsSurviveContinueAsNewWithoutRestart(t *testing.T) {
 		}},
 	)
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		var runID string
-		found, getErr := integClient.GetAttribute(
-			integrationContext(t), completedID, subFlowRunID, &runID,
-		)
-		return getErr == nil && found
-	}, 30*time.Second, 20*time.Millisecond)
-	completedRunID := getSubFlowRunID(t, completedID)
+	completedRunID := awaitSubFlowRunID(t, completedID, "")
 	require.NoError(t, integClient.TriggerContinueAsNew(integrationContext(t), flowID))
-	require.NoError(t, integClient.SkipTimer(
-		integrationContext(t),
-		delayedID,
-		dex.StepExecutionID{StepType: dex.GetFinalStepType(subFlowTimerStep{})},
-		dex.TimerID{ConditionID: "test-timer-id"},
-	))
+	skipSubFlowTimer(t, delayedID)
 	var output string
 	require.NoError(t, waitForFlow(t, flowID, true).DecodeSingleOutput(&output))
 	parts := strings.Split(output, "|")
@@ -437,43 +425,55 @@ func assertSubFlowRunningReuse[Input any](
 		activeRunID = awaitSubFlowRunID(t, childID, firstRunID)
 	}
 	require.Equal(t, expectsRestart, activeRunID != firstRunID)
-	require.NoError(t, integClient.SkipTimer(
-		integrationContext(t),
-		childID,
-		dex.StepExecutionID{StepType: dex.GetFinalStepType(subFlowTimerStep{})},
-		dex.TimerID{ConditionID: "test-timer-id"},
-	))
+	skipSubFlowTimer(t, childID)
 	var output string
 	require.NoError(t, waitForFlow(t, flowID, true).DecodeSingleOutput(&output))
 	require.Equal(t, []string{childID, "completed"}, strings.Split(output, "|"))
+}
+
+func skipSubFlowTimer(t *testing.T, flowID string) {
+	t.Helper()
+	var skipErr error
+	require.Eventually(t, func() bool {
+		skipErr = integClient.SkipTimer(
+			integrationContext(t),
+			flowID,
+			dex.StepExecutionID{StepType: dex.GetFinalStepType(subFlowTimerStep{})},
+			dex.TimerID{ConditionID: "test-timer-id"},
+		)
+		return skipErr == nil
+	}, 30*time.Second, 20*time.Millisecond)
+	require.NoError(t, skipErr)
 }
 
 func awaitSubFlowRunID(t *testing.T, flowID, excluded string) string {
 	t.Helper()
 	var runID string
 	require.Eventually(t, func() bool {
-		var current string
-		found, err := integClient.GetAttribute(
-			integrationContext(t), flowID, subFlowRunID, &current,
+		searchPage, err := integClient.SearchFlows(
+			integrationContext(t),
+			fmt.Sprintf("WorkflowId = '%s'", flowID),
+			100,
+			"",
 		)
-		if err != nil || !found || current == excluded {
+		if err != nil {
 			return false
 		}
-		runID = current
-		return true
+		var latestStartedAt time.Time
+		for _, entry := range searchPage.Flows {
+			if entry.FlowID == flowID && entry.RunID != excluded && entry.StartedAt.After(latestStartedAt) {
+				runID = entry.RunID
+				latestStartedAt = entry.StartedAt
+			}
+		}
+		return runID != ""
 	}, 30*time.Second, 20*time.Millisecond)
 	return runID
 }
 
 func getSubFlowRunID(t *testing.T, flowID string) string {
 	t.Helper()
-	var runID string
-	found, err := integClient.GetAttribute(
-		integrationContext(t), flowID, subFlowRunID, &runID,
-	)
-	require.NoError(t, err)
-	require.True(t, found)
-	return runID
+	return awaitSubFlowRunID(t, flowID, "")
 }
 
 func subFlowID[Input any](parentFlowID string, parentStep dex.Step[Input], index int) string {

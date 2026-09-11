@@ -30,6 +30,11 @@ type channelFlow struct {
 	dex.FlowDefaults
 }
 
+type channelPublishInput struct {
+	Channel string
+	Value   int
+}
+
 func (channelFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(channelFlowFirstStep{}),
@@ -42,6 +47,20 @@ func (channelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 		channelFlowFirst,
 		channelFlowSecond,
 	}}
+}
+
+func (channelFlow) Publish(
+	ctx dex.Context,
+	input channelPublishInput,
+) (*dex.RPCResult[dex.None], error) {
+	channel := channelFlowFirst
+	if input.Channel == "second" {
+		channel = channelFlowSecond
+	}
+	if err := channel.Publish(ctx, input.Value); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
 }
 
 type channelFlowFirstStep struct {
@@ -135,6 +154,8 @@ func runChannelFlow(
 	second dex.ChannelDef,
 ) {
 	t.Helper()
+	_ = first
+	_ = second
 	ctx := integrationContext(t)
 	flowID := newFlowID(t, "channel")
 	_, err := integClient.StartFlow(
@@ -153,11 +174,14 @@ func runChannelFlow(
 	)
 	cancelWait()
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.NoError(t, integClient.PublishToChannel(
+	var noOutput dex.None
+	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		second,
-		10,
+		channelFlow{}.Publish,
+		channelPublishInput{Channel: "second", Value: 10},
+		&noOutput,
+		dex.InvokeOptions{},
 	))
 	waitCtx, cancelWait = context.WithTimeout(ctx, 20*time.Second)
 	require.NoError(t, integClient.WaitForStepCompletion(
@@ -166,11 +190,13 @@ func runChannelFlow(
 		dex.StepExecutionID{StepType: dex.GetFinalStepType(channelFlowFirstStep{})},
 	))
 	cancelWait()
-	require.NoError(t, integClient.PublishToChannel(
+	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		first,
-		100,
+		channelFlow{}.Publish,
+		channelPublishInput{Channel: "first", Value: 100},
+		&noOutput,
+		dex.InvokeOptions{},
 	))
 	require.Eventually(t, func() bool {
 		err = integClient.SkipTimer(
@@ -189,11 +215,13 @@ func runChannelFlow(
 	require.NoError(t, result.Completions[0].Output.Decode(&output))
 	require.Equal(t, 100, output)
 
-	err = integClient.PublishToChannel(
+	err = integClient.InvokeRPC(
 		ctx,
 		newFlowID(t, "missing-channel-flow"),
-		first,
-		100,
+		channelFlow{}.Publish,
+		channelPublishInput{Channel: "first", Value: 100},
+		&noOutput,
+		dex.InvokeOptions{},
 	)
 	var inactive *dex.FlowNotActiveError
 	require.ErrorAs(t, err, &inactive)

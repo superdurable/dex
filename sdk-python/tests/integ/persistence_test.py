@@ -8,7 +8,7 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from dex import AttributeMatch, Client, StartFlowOptions
 
@@ -24,25 +24,16 @@ def compile_persistence_reads(client: Client) -> None:
         .with_attribute(flow.data_map, "one", "initial-map")
     )
     client.start_flow(flow, "persistence", "input", options)
-    data: str = client.get_attribute("persistence", flow.data)
-    integer: int = client.get_attribute("persistence", flow.integer)
-    datetime_value: datetime = client.get_attribute(
-        "persistence",
-        flow.datetime,
-    )
-    del data, integer, datetime_value
+    output: str = client.wait_for_flow("persistence").single_output(str)
+    del output
 
 
 def compile_persistence_writes(client: Client) -> None:
     flow = SetAttributesFlow()
     client.start_flow(flow, "set-attributes", "input")
-    client.set_attribute("set-attributes", flow.data, "value")
-    client.set_attribute("set-attributes", flow.data_map, "one", "value")
-    client.set_attribute("set-attributes", flow.keyword, "keyword")
-    client.set_attribute("set-attributes", flow.decimal, 1.5)
-    client.set_attribute("set-attributes", flow.integer, 1)
-    client.set_attribute("set-attributes", flow.bool, True)
-    client.set_attribute("set-attributes", flow.keywords, ("one", "two"))
+    client.invoke_rpc(flow.set_data, "set-attributes", "value")
+    client.invoke_rpc(flow.set_map_one, "set-attributes", "value")
+    client.invoke_rpc(flow.set_indexed, "set-attributes")
     matched_data: str = client.wait_for_attribute_match(
         "set-attributes",
         flow.data,
@@ -56,5 +47,6 @@ def compile_persistence_writes(client: Client) -> None:
         AttributeMatch.equal_to("value"),
         timedelta(seconds=30),
     )
+    client.invoke_rpc(flow.complete, "set-attributes")
     output: str = client.wait_for_flow("set-attributes").single_output(str)
     del matched_data, matched_map, output

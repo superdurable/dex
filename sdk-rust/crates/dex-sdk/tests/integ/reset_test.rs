@@ -15,7 +15,7 @@ use dex_sdk::{
     TimeTravelStepMethod,
 };
 
-use crate::reset_workflow::{COUNTER, DATA, EXECUTION_COUNT, KEYWORD, ResetWorkflow};
+use crate::reset_workflow::ResetWorkflow;
 use crate::support::{DexDevTestEnvironment, flow_id};
 
 #[test]
@@ -70,7 +70,7 @@ fn run_reset_scenario(locking: bool, skip_writes: bool) {
             .invoke_rpc_without_input(&flow_id, ResetWorkflow::WITHOUT_LOCKING)
             .expect("invoke non-locking RPC");
     }
-    assert_completed_with_attributes(&environment, &workflow, &flow_id, locking);
+    assert_completed_with_attributes(&environment, &flow_id);
     let reset_run_id = environment
         .client
         .time_travel(
@@ -81,9 +81,9 @@ fn run_reset_scenario(locking: bool, skip_writes: bool) {
         )
         .expect("reset Flow");
     if skip_writes {
-        assert_reset_times_out_without_attributes(&environment, &workflow, &flow_id, &reset_run_id);
+        assert_reset_times_out_without_attributes(&environment, &flow_id, &reset_run_id);
     } else {
-        assert_completed_with_attributes(&environment, &workflow, &flow_id, locking);
+        assert_completed_with_attributes(&environment, &flow_id);
         assert_eq!(
             reset_run_id,
             environment
@@ -95,12 +95,7 @@ fn run_reset_scenario(locking: bool, skip_writes: bool) {
     }
 }
 
-fn assert_completed_with_attributes(
-    environment: &DexDevTestEnvironment,
-    workflow: &ResetWorkflow,
-    flow_id: &str,
-    expects_attribute_map_value: bool,
-) {
+fn assert_completed_with_attributes(environment: &DexDevTestEnvironment, flow_id: &str) {
     let result = environment
         .client
         .wait_for_flow_with_timeout(flow_id, Duration::from_secs(10))
@@ -125,48 +120,10 @@ fn assert_completed_with_attributes(
             .expect("describe completed reset Flow")
             .status
     );
-    assert_eq!(
-        Some(ResetWorkflow::EXPECTED_VALUE.to_string()),
-        environment
-            .client
-            .get_attribute(flow_id, &DATA)
-            .expect("get reset data Attribute")
-    );
-    assert_eq!(
-        Some(ResetWorkflow::EXPECTED_VALUE.to_string()),
-        environment
-            .client
-            .get_attribute(flow_id, &KEYWORD)
-            .expect("get reset keyword Attribute")
-    );
-    assert_eq!(
-        Some(100),
-        environment
-            .client
-            .get_attribute(flow_id, &COUNTER)
-            .expect("get reset counter Attribute")
-    );
-    assert_eq!(
-        Some(2),
-        environment
-            .client
-            .get_attribute(flow_id, &EXECUTION_COUNT)
-            .expect("get reset execution-count Attribute")
-    );
-    let item = environment
-        .client
-        .get_attribute_map_instance(flow_id, &workflow.items, "order-1")
-        .expect("get reset AttributeMap entry");
-    if expects_attribute_map_value {
-        assert_eq!(Some("locked".to_string()), item);
-    } else {
-        assert_eq!(None, item);
-    }
 }
 
 fn assert_reset_times_out_without_attributes(
     environment: &DexDevTestEnvironment,
-    workflow: &ResetWorkflow,
     flow_id: &str,
     _reset_run_id: &str,
 ) {
@@ -176,41 +133,6 @@ fn assert_reset_times_out_without_attributes(
         .expect("wait for failed Flow result");
     assert_eq!(FlowStatus::Failed, result.status());
     assert_eq!(0, result.completions().len());
-    assert_eq!(
-        None,
-        environment
-            .client
-            .get_attribute(flow_id, &DATA)
-            .expect("get cleared reset data Attribute")
-    );
-    assert_eq!(
-        None,
-        environment
-            .client
-            .get_attribute(flow_id, &KEYWORD)
-            .expect("get cleared reset keyword Attribute")
-    );
-    assert_eq!(
-        None,
-        environment
-            .client
-            .get_attribute(flow_id, &COUNTER)
-            .expect("get cleared reset counter Attribute")
-    );
-    assert_eq!(
-        None,
-        environment
-            .client
-            .get_attribute(flow_id, &EXECUTION_COUNT)
-            .expect("get cleared reset execution-count Attribute")
-    );
-    assert_eq!(
-        None,
-        environment
-            .client
-            .get_attribute_map_instance(flow_id, &workflow.items, "order-1")
-            .expect("get cleared reset AttributeMap entry")
-    );
 }
 
 #[allow(dead_code)]

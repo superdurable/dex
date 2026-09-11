@@ -24,6 +24,7 @@ from dex import (
     Wait,
     go_to,
     graceful_complete,
+    rpc,
 )
 
 
@@ -114,3 +115,19 @@ class SignalFlow(Flow[int]):
             self.third,
             self.signal_map,
         )
+
+    @rpc
+    def publish_first(self, context: Context, input: int) -> None:
+        self.first.publish(context, input)
+
+    @rpc
+    def publish_second(self, context: Context, input: int) -> None:
+        self.second.publish(context, input)
+
+    @rpc
+    def publish_third(self, context: Context) -> None:
+        self.third.publish(context, None)
+
+    @rpc
+    def publish_mapped(self, context: Context, input: int) -> None:
+        self.signal_map.publish(context, "one", input)

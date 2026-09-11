@@ -15,7 +15,6 @@ package io.superdurable.dex.integ;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.TimerId;
-import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -42,27 +41,30 @@ public final class SignalTest {
                 WORKFLOW)) {
             final String flowId = "basic-signal-" + UUID.randomUUID();
             environment.client().startFlow(WORKFLOW, flowId, 1);
-            environment.client().publish(flowId, WORKFLOW.first, 2, 3, 5);
-            environment.client().publish(flowId, WORKFLOW.third, (Void) null);
-            environment.client().publish(flowId, WORKFLOW.signalMap, "one", 4);
+            final SignalWorkflow stub = environment.client().newRpcStub(
+                    SignalWorkflow.class,
+                    flowId);
+            environment.client().invokeRPC(stub::publishFirst, 2);
+            environment.client().invokeRPC(stub::publishFirst, 3);
+            environment.client().invokeRPC(stub::publishFirst, 5);
+            environment.client().invokeRPC(stub::publishThird);
+            environment.client().invokeRPC(stub::publishMapped, 4);
             IntegrationTestWaits.skipTimerWhenRegistered(
                     environment.client(),
                     flowId,
                     StepExecutionId.of("SignalCombinationStep"),
                     TimerId.byConditionId("test-timer-id"));
             assertEquals(6, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
-            assertThrows(
-                    FlowNotActiveException.class,
-                    () -> environment.client().publish(flowId, WORKFLOW.first, 8));
         }
     }
 
     void compileSignalsAndTimerSkip(final Client client) {
         client.startFlow(WORKFLOW, "signal", 0);
-        client.publish("signal", WORKFLOW.first, 1);
-        client.publish("signal", WORKFLOW.second, 2);
-        client.publish("signal", WORKFLOW.third, (Void) null);
-        client.publish("signal", WORKFLOW.signalMap, "one", 5);
+        final SignalWorkflow stub = client.newRpcStub(SignalWorkflow.class, "signal");
+        client.invokeRPC(stub::publishFirst, 1);
+        client.invokeRPC(stub::publishSecond, 2);
+        client.invokeRPC(stub::publishThird);
+        client.invokeRPC(stub::publishMapped, 5);
         client.skipTimer(
                 "signal",
                 StepExecutionId.of("SignalCombinationStep"),

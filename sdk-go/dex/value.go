@@ -37,8 +37,8 @@ var (
 
 // Value is an opaque Dex value. Decoded string values contain valid UTF-8.
 //
-// Values returned by bulk Client reads are already hydrated. Use Decode with the
-// same Go type used by the matching Attribute. Primitive
+// Values returned by Client metadata reads are already hydrated. Use Decode with
+// the same Go type used by the matching Attribute. Primitive
 // values preserve their wire kind; structs, maps, and non-byte slices use JSON;
 // byte slices use the raw-bytes encoding.
 type Value struct {
@@ -51,12 +51,12 @@ type Value struct {
 // replaces the pointed-to value on success and returns a ValueMappingError for an
 // incompatible target, malformed payload, unsupported encoding, or numeric overflow.
 //
-//	values, err := client.GetAttributes(ctx, flowID, statusAttribute)
+//	page, err := client.SearchFlows(ctx, "CustomKeywordField = 'ready'", 1, "")
 //	if err != nil {
 //		return err
 //	}
 //	var status string
-//	err = values[statusAttribute.AttributeName()].Decode(&status)
+//	err = page.Flows[0].IndexedAttributes["CustomKeywordField"].Decode(&status)
 func (value Value) Decode(valuePtr any) error {
 	return decodeValue(value.value, valuePtr)
 }

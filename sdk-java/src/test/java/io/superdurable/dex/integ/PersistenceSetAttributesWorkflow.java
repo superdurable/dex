@@ -19,6 +19,7 @@ import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
+import io.superdurable.dex.RPC;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -26,7 +27,7 @@ import io.superdurable.dex.Wait;
 
 import java.time.Instant;
 
-final class PersistenceSetAttributesWorkflow implements Flow<String> {
+class PersistenceSetAttributesWorkflow implements Flow<String> {
     final Attribute<String> data = Attribute.define("data", String.class);
     final AttributeMap<String> dataMap = AttributeMap.define("data-map", String.class);
     final Attribute<PersistenceWorkflow.ModelInput> model = Attribute.define(
@@ -82,6 +83,49 @@ final class PersistenceSetAttributesWorkflow implements Flow<String> {
                 keywords,
                 datetime,
                 proceed);
+    }
+
+    @RPC
+    public void setIndexed(final Context context) {
+        keyword.set(context, "keyword-1");
+        text.set(context, "text-1");
+        decimal.set(context, 1.0);
+        integer.set(context, 1);
+        bool.set(context, true);
+        keywords.set(context, new String[]{"keyword-1", "keyword-2"});
+        datetime.set(context, Instant.parse("2024-11-13T00:00:01.731Z"));
+    }
+
+    @RPC
+    public void setData(final Context context, final String input) {
+        data.set(context, input);
+    }
+
+    @RPC
+    public void setMapOne(final Context context, final String input) {
+        dataMap.set(context, "one", input);
+    }
+
+    @RPC
+    public void setMapSpecial(final Context context, final String input) {
+        dataMap.set(context, "special % key", input);
+    }
+
+    @RPC
+    public void setInteger(final Context context, final Integer input) {
+        integer.set(context, input);
+    }
+
+    @RPC
+    public void setModel(
+            final Context context,
+            final PersistenceWorkflow.ModelInput input) {
+        model.set(context, input);
+    }
+
+    @RPC
+    public void complete(final Context context) {
+        proceed.publish(context, null);
     }
 
     final class CompleteStep implements Step<String> {

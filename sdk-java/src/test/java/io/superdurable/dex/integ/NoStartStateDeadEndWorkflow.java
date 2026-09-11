@@ -52,6 +52,13 @@ class NoStartStateDeadEndWorkflow implements Flow<Void> {
     }
 
     @RPC
+    public void publishSignals(final Context context, final Integer count) {
+        for (int index = 0; index < count; index++) {
+            idleSignal.publish(context, null);
+        }
+    }
+
+    @RPC
     public RPCResult<Long> invoke(final Context context, final String input) {
         if (context.getFlowId().isEmpty() || context.getRunId().isEmpty()) {
             throw new IllegalStateException("invalid RPC context");

@@ -63,7 +63,7 @@ adding aliases.
 - RPC may trigger next-step movements, but the current server rejects a close
   decision returned by RPC.
 - Channel sizes are supplied only to Worker RPC invocations.
-- StartFlow, SetAttributes, InvokeRPC, WaitForStepCompletion, and
+- StartFlow, InvokeRPC, WaitForStepCompletion, and
   WaitForAttribute require a request ID. The SDK generates it, except that
   StartFlow may use a caller-supplied business identifier. Locking RPC and the
   two wait operations use that ID as a Temporal synchronous-update ID.
@@ -1022,7 +1022,7 @@ known inconsistencies:
 1. `StartFlowOptions.Timeout == nil` maps to zero seconds. FlowService accepts
    zero as no Dex soft Flow timeout and rejects only negative values. Positive
    values continue to round up to whole seconds.
-2. The current server requires `request_id` for StartFlow, SetAttributes, every
+2. The current server requires `request_id` for StartFlow, every
    InvokeRPC, WaitForStepCompletion, and WaitForAttribute. Only StartFlow
    exposes an override because its request ID may be a business identifier.
    IDs for every other operation are generated and remain internal.
@@ -1200,9 +1200,8 @@ use `*dex.ValueMappingError`. Only errors received from FlowService become
 
 The Client builds each protobuf request once. gRPC's pre-commit transparent
 retry therefore reuses the same request and request ID. Phase 5 does not add a
-semantic retry loop after a request may have reached application logic:
-PublishToChannel and signal-backed mutations are not deduplicated by the
-server. A new public method call gets a new generated ID, except when the caller
+semantic retry loop after a request may have reached application logic. A new
+public method call gets a new generated ID, except when the caller
 reuses `StartFlowOptions.RequestID` intentionally.
 
 ### Request ID ownership
@@ -1211,7 +1210,6 @@ Request ID generation moves out of the Phase 2 pure mappers and into the Client
 entry methods. The Client generates one random UUID for:
 
 - StartFlow, unless `StartFlowOptions.RequestID` is non-nil;
-- every SetAttributes call, including the single-attribute helpers;
 - every InvokeRPC, whether it is locking or non-locking;
 - every WaitForStepCompletion call; and
 - every WaitForAttributeMatch or WaitForAttributeMapInstanceMatch call.
@@ -1222,8 +1220,7 @@ the only public request-ID override. Normal application code may instead leave
 it nil for an SDK-generated UUID. Other Client option types do not expose a
 request-ID field.
 
-SetAttributes uses the ID for external-value offload ownership. InvokeRPC always
-uses it for external-value ownership; Temporal Update paths also use it as the
+InvokeRPC uses the ID for external-value ownership; Temporal Update paths also use it as the
 `InvokeRpc` Update ID. The two wait methods use it as their Temporal update ID.
 The ID is not exposed in results.
 
@@ -1293,40 +1290,15 @@ runID, err := client.StartFlow(
 )
 ```
 
-### Channels and external attributes
+### Flow state I/O
 
-PublishToChannel accepts only a static `ChannelDef`; PublishToChannelMap accepts
-only a map definition plus a non-empty instance. The Client resolves the
-physical channel name through the definition, encodes every value before the
-RPC, and preserves variadic order. Zero values are a successful local no-op.
-One failed encoding prevents the complete publish.
+The Client does not expose direct Attribute, AttributeMap, Channel, or ChannelMap
+reads and writes. Applications define typed Flow RPCs for state snapshots,
+mutations, message publication, pending-message reads, and deletion. RPC handlers
+use the registered persistence definitions and can request transactional locks.
 
-GetAttribute and SetAttribute accept only a static definition. Their map
-counterparts accept only a map definition and derive the physical key from the
-instance. A static/map mismatch or empty definition name is rejected locally.
-FlowService remains authoritative for whether that physical key belongs to the
-target flow.
-
-GetAttribute validates `valuePtr` before the RPC. A missing response entry
-returns `found=false` without decoding. A present entry is hydrated and decoded
-into the pointer. The Client rejects duplicate response keys and unexpected
-keys.
-
-GetAttributes is the heterogeneous static-attribute batch API. It rejects map
-definitions because a map definition alone does not identify a physical
-instance. It preserves request order on the wire and returns opaque Values
-keyed by concrete attribute name. An empty list returns an empty map without an
-RPC.
-
-SetAttribute and SetAttributeMapInstance use the definition's registered index config.
-SetAttributes validates and encodes every `AttributeWrite`, rejects duplicate
-physical keys, generates one request ID, and sends one batch. An empty batch is
-a successful local no-op. Encoding completes before the RPC, so no partial
-batch is sent.
-
-Phase 5 does not add public attribute deletion or all-attribute query methods.
-Those operations require a separate public API decision rather than raw proto
-escape hatches.
+WaitForAttributeMatch and WaitForAttributeMapInstanceMatch remain blocking
+observation APIs. They do not provide general snapshot reads or mutations.
 
 ### RPC invocation
 
@@ -1422,7 +1394,6 @@ Each public response collects all Value pointers in deterministic response
 order and calls `HydrateValuesInPlace` once:
 
 - InvokeRPC: output;
-- GetAttribute/GetAttributes: attribute values;
 - WaitForFlow: step completion outputs; and
 - SearchFlows: every entry's Indexed Attributes.
 
@@ -1527,18 +1498,14 @@ FlowService. These exercise transport branches that do not need Temporal:
    methods; starting/no-start flows, nil/incompatible input, step defaults,
    optional durations, initial attributes, Client WorkerTarget injection,
    per-call precedence and omission, and request-ID override/generation.
-3. Static/map channel publishing, batch order, empty no-op, invalid definitions,
-   invalid UTF-8, raw bytes, and all-or-nothing request assembly.
-4. Static/map attribute get/set, batch ordering, missing values, duplicate keys,
-   index config, decode failures, and SetAttributes request IDs.
-5. Direct bound RPC identity, IN/OUT validation, locking and non-locking request
+3. Direct bound RPC identity, IN/OUT validation, locking and non-locking request
    IDs, lock mapping, output hydration, and Worker error conversion.
-6. Wait time rounding, immediate checks, default execution number, existing
+4. Wait time rounding, immediate checks, default execution number, existing
    SkipTimer mapping, time-travel-mode validation, cancel default, config updates,
    SearchFlows metadata, and HealthCheck.
-7. gRPC status with and without Dex details, caller cancellation, long-poll
+5. gRPC status with and without Dex details, caller cancellation, long-poll
    timeout, malformed responses, and local errors that remain unwrapped.
-8. Client response hydration with cache hit, miss, corrupt entry, duplicate blob
+6. Client response hydration with cache hit, miss, corrupt entry, duplicate blob
    ID, missing result, wrong kind, LoadBlobs status, and no-blob fast path.
 
 The rewritten `sdk-go/integ` suite migrates the former iWF Go SDK scenarios:
@@ -2367,21 +2334,6 @@ func (client *Client) StartFlow(
 	options StartFlowOptions,
 ) (runID string, err error)
 
-func (client *Client) PublishToChannel(
-	ctx context.Context,
-	flowID string,
-	channel ChannelDef,
-	values ...any,
-) error
-
-func (client *Client) PublishToChannelMap(
-	ctx context.Context,
-	flowID string,
-	channel ChannelDef,
-	instance string,
-	values ...any,
-) error
-
 func (client *Client) InvokeRPC(
 	ctx context.Context,
 	flowID string,
@@ -2389,36 +2341,6 @@ func (client *Client) InvokeRPC(
 	input any,
 	outputPtr any,
 	options InvokeOptions,
-) error
-
-func (client *Client) GetAttribute(
-	ctx context.Context,
-	flowID string,
-	attribute AttributeDef,
-	valuePtr any,
-) (found bool, err error)
-
-func (client *Client) GetAttributeMapInstance(
-	ctx context.Context,
-	flowID string,
-	attribute AttributeDef,
-	instance string,
-	valuePtr any,
-) (found bool, err error)
-
-func (client *Client) SetAttribute(
-	ctx context.Context,
-	flowID string,
-	attribute AttributeDef,
-	value any,
-) error
-
-func (client *Client) SetAttributeMapInstance(
-	ctx context.Context,
-	flowID string,
-	attribute AttributeDef,
-	instance string,
-	value any,
 ) error
 
 func (client *Client) WaitForAttributeMatch(
@@ -2442,33 +2364,9 @@ func (client *Client) WaitForAttributeMapInstanceMatch(
 `StartFlow` sends `input` to the Flow's starting step. Phase 3 registration
 resolves that step and validates its handler signature. `InvokeRPC` accepts an
 application RPC value as `any`. `valuePtr` and `outputPtr` must be non-nil
-pointers. Attribute and channel methods accept generic definitions through
-`AttributeDef` and `ChannelDef`. Map methods take their definition and instance
-separately; physical key construction remains internal. Client methods target
+pointers. Client methods target
 the current run for a flow ID; they do not take a `runID` argument.
 `StartFlow` still returns the created run ID.
-
-Batch attribute methods are also non-generic:
-
-```go
-type AttributeWrite struct {
-	Name  string
-	Value any
-	Index *AttributeIndex
-}
-
-func (client *Client) GetAttributes(
-	ctx context.Context,
-	flowID string,
-	attributes ...AttributeDef,
-) (map[string]Value, error)
-
-func (client *Client) SetAttributes(
-	ctx context.Context,
-	flowID string,
-	writes ...AttributeWrite,
-) error
-```
 
 The remaining FlowService operations use non-generic public types:
 
@@ -2490,7 +2388,7 @@ that satisfied the match. Waiting on a blob-backed stored value may return
 
 Request IDs:
 
-- the SDK generates one UUID per logical `SetAttributes`, `InvokeRPC`,
+- the SDK generates one UUID per logical `InvokeRPC`,
   `WaitForStepCompletion`, or `WaitForAttributeMatch` call, and for StartFlow
   when no override is supplied;
 - `StartFlowOptions.RequestID` may provide a non-empty business identifier;
@@ -2829,8 +2727,8 @@ metadata.
 `WaitForFlow` returns `FlowResult` for every terminal status. Transport,
 long-poll, hydration, and invalid-input failures remain errors.
 
-GetAttribute, GetAttributes, WaitForFlow, and TimeTravel require an existing
-Flow. Mutations, RPC, publish, stop, timer, config, and step or attribute wait
+WaitForFlow and TimeTravel require an existing Flow. RPC, stop, timer, config,
+and step or attribute wait
 operations require an active Flow. The shared server `FLOW_NOT_EXISTS`
 sub-status maps to the corresponding concrete error using that endpoint
 requirement.

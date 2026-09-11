@@ -1,10 +1,10 @@
 # dex-sdk (Java)
 
-## Pending Channel messages
+## Flow state I/O
 
-`Client.getChannelMessages` returns typed `ChannelMessage<T>` values in FIFO
-order. `Client.deleteChannelMessage` deletes a still-pending ID and throws
-`ChannelMessageNotFoundException` if it has already been consumed or deleted.
+Applications read and write Flow state through typed RPCs. The Client does not
+expose direct Attribute reads or writes, Channel publication, or pending-message
+mutation. This keeps each external state transition behind a Flow-owned method.
 
 An RPC can stage `channel.delete(context, messageId)`. Annotate it with
 `@RPC(isTransactional = true)` when a missing ID must abort every other RPC
@@ -420,9 +420,9 @@ try {
 ```
 
 `FlowNotFoundException` is returned by read and history operations such as
-`describeFlow`, `getAttribute`, `waitForFlow`, and `timeTravel`. These operations
+`describeFlow`, `waitForFlow`, and `timeTravel`. These operations
 can read a closed Flow, so failure means no matching execution was found.
-`FlowNotActiveException` is returned by RPC, publish, mutation, stop, timer,
+`FlowNotActiveException` is returned by RPC, stop, timer,
 configuration, and step-wait operations that require an open Flow.
 
 `FlowAlreadyStartedException` identifies duplicate starts.

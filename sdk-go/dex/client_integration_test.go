@@ -114,8 +114,6 @@ func (clientNoStartFlow) GetPersistenceSchema() PersistenceSchema {
 type clientTestFlowService struct {
 	dexpb.UnimplementedFlowServiceServer
 	startRequest         *dexpb.StartFlowRequest
-	publishRequest       *dexpb.PublishToChannelRequest
-	setRequests          []*dexpb.SetAttributesRequest
 	invokeRequest        *dexpb.InvokeRPCRequest
 	waitAttributeRequest *dexpb.WaitForAttributeRequest
 	stopRequest          *dexpb.StopFlowRequest
@@ -127,36 +125,9 @@ type clientTestFlowService struct {
 	updateConfigRequest  *dexpb.UpdateFlowConfigRequest
 	waitStepRequest      *dexpb.WaitForStepCompletionRequest
 	continueAsNewRequest *dexpb.TriggerContinueAsNewRequest
-	getAttributesRequest *dexpb.GetAttributesRequest
 	writeStreamRequests  []*dexpb.WriteStreamRequest
 	readStreamRequest    *dexpb.ReadStreamRequest
 	listStreamRequest    *dexpb.ListStreamMessagesRequest
-	getMessagesRequest   *dexpb.GetChannelMessagesRequest
-	deleteMessageRequest *dexpb.DeleteChannelMessageRequest
-}
-
-func (service *clientTestFlowService) GetChannelMessages(
-	_ context.Context,
-	request *dexpb.GetChannelMessagesRequest,
-) (*dexpb.GetChannelMessagesResponse, error) {
-	service.getMessagesRequest = request
-	value, err := encodeValue("queued")
-	if err != nil {
-		return nil, err
-	}
-	return &dexpb.GetChannelMessagesResponse{Messages: []*dexpb.ChannelMessage{{
-		ChannelName: request.ChannelName,
-		MessageId:   "0198-message",
-		Value:       value,
-	}}}, nil
-}
-
-func (service *clientTestFlowService) DeleteChannelMessage(
-	_ context.Context,
-	request *dexpb.DeleteChannelMessageRequest,
-) (*emptypb.Empty, error) {
-	service.deleteMessageRequest = request
-	return &emptypb.Empty{}, nil
 }
 
 func (service *clientTestFlowService) WriteStream(
@@ -230,49 +201,6 @@ func (service *clientTestFlowService) StartFlow(
 		)
 	}
 	return &dexpb.StartFlowResponse{RunId: "run-1"}, nil
-}
-
-func (service *clientTestFlowService) PublishToChannel(
-	_ context.Context,
-	request *dexpb.PublishToChannelRequest,
-) (*emptypb.Empty, error) {
-	service.publishRequest = request
-	if request.FlowId == "inactive" {
-		return nil, clientTestMissingFlowError()
-	}
-	return &emptypb.Empty{}, nil
-}
-
-func (service *clientTestFlowService) GetAttributes(
-	_ context.Context,
-	request *dexpb.GetAttributesRequest,
-) (*dexpb.GetAttributesResponse, error) {
-	service.getAttributesRequest = request
-	if request.FlowId == "missing-read" {
-		return nil, clientTestMissingFlowError()
-	}
-	attributes := make([]*dexpb.KV, 0, len(request.Keys))
-	for _, key := range request.Keys {
-		var value *dexpb.Value
-		if key == "status" {
-			value = &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "ready"}}
-		} else {
-			value = &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: 3}}
-		}
-		attributes = append(attributes, &dexpb.KV{Key: key, Value: value})
-	}
-	return &dexpb.GetAttributesResponse{Attributes: attributes}, nil
-}
-
-func (service *clientTestFlowService) SetAttributes(
-	_ context.Context,
-	request *dexpb.SetAttributesRequest,
-) (*emptypb.Empty, error) {
-	service.setRequests = append(service.setRequests, request)
-	if request.FlowId == "inactive" {
-		return nil, clientTestMissingFlowError()
-	}
-	return &emptypb.Empty{}, nil
 }
 
 func (service *clientTestFlowService) LoadBlobs(
@@ -578,49 +506,6 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	require.Equal(t, "worker.test:8803", service.startRequest.FlowStartOptions.FlowConfigOverride.WorkerTarget.Address)
 	require.True(t, service.startRequest.FlowStartOptions.Attributes[0].GetSyncConfig().GetEnabled())
 
-	require.NoError(t, client.PublishToChannel(ctx, "order-1", clientTestCommands, "approve", "ship"))
-	require.Len(t, service.publishRequest.Messages, 2)
-	require.NoError(t, client.PublishToChannelMap(ctx, "order-1", clientTestByOrder, "order-1", "pack"))
-	require.Equal(t, "commands-by-order/order-1", service.publishRequest.Messages[0].ChannelName)
-	var pending []ChannelMessage[string]
-	require.NoError(t, client.GetChannelMessages(ctx, "order-1", clientTestCommands, &pending))
-	require.Equal(t, []ChannelMessage[string]{{MessageID: "0198-message", Value: "queued"}}, pending)
-	require.NoError(t, client.DeleteChannelMessage(ctx, "order-1", clientTestCommands, pending[0].MessageID))
-	require.Equal(t, "0198-message", service.deleteMessageRequest.MessageId)
-
-	var status string
-	found, err := client.GetAttribute(ctx, "order-1", clientTestStatus, &status)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, "ready", status)
-	var quantity int
-	found, err = client.GetAttributeMapInstance(ctx, "order-1", clientTestItems, "sku-1", &quantity)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, 3, quantity)
-
-	require.NoError(t, client.SetAttribute(ctx, "order-1", clientTestStatus, "done"))
-	require.NoError(t, client.SetAttributeMapInstance(ctx, "order-1", clientTestItems, "sku-1", 4))
-	require.Len(t, service.setRequests, 2)
-	require.True(t, service.setRequests[0].Attributes[0].GetSyncConfig().GetEnabled())
-	require.Nil(t, service.setRequests[1].Attributes[0].SyncConfig)
-	require.NotEqual(t, service.setRequests[0].RequestId, service.setRequests[1].RequestId)
-	for _, request := range service.setRequests {
-		_, err := uuid.Parse(request.RequestId)
-		require.NoError(t, err)
-	}
-
-	values, err := client.GetAttributes(ctx, "order-1", clientTestStatus)
-	require.NoError(t, err)
-	require.Contains(t, values, "status")
-	require.NoError(t, client.SetAttributes(ctx, "order-1", AttributeWrite{
-		Name:                 "status",
-		Value:                "batched",
-		SyncToAttributeStore: true,
-	}))
-	require.Len(t, service.setRequests, 3)
-	require.True(t, service.setRequests[2].Attributes[0].GetSyncConfig().GetEnabled())
-
 	var matchedStatus string
 	require.NoError(t, client.WaitForAttributeMatch(
 		ctx,
@@ -915,11 +800,7 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 	require.ErrorAs(t, err, &duplicate)
 	require.Equal(t, "duplicate", duplicate.FlowID)
 
-	var value string
-	_, err = client.GetAttribute(ctx, "missing-read", clientTestStatus, &value)
 	var missing *FlowNotFoundError
-	require.ErrorAs(t, err, &missing)
-	require.Equal(t, "GetAttribute", missing.Op)
 	_, err = client.WaitForFlow(ctx, "missing-read", WaitForFlowOptions{})
 	require.ErrorAs(t, err, &missing)
 	_, err = client.TimeTravel(ctx, "missing-read", TimeTravelOptions{Type: TimeTravelToBeginning})
@@ -929,12 +810,6 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{name: "publish", call: func() error {
-			return client.PublishToChannel(ctx, "inactive", clientTestCommands, "value")
-		}},
-		{name: "set attribute", call: func() error {
-			return client.SetAttribute(ctx, "inactive", clientTestStatus, "value")
-		}},
 		{name: "wait for attribute", call: func() error {
 			var matched string
 			return client.WaitForAttributeMatch(

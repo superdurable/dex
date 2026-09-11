@@ -1,10 +1,10 @@
 # Dex SDK for TypeScript
 
-## Pending Channel messages
+## Flow state I/O
 
-`Client.getChannelMessages` returns typed `ChannelMessage<T>` envelopes in FIFO
-order. `Client.deleteChannelMessage` deletes a still-pending ID and rejects with
-`ChannelMessageNotFoundError` after consumption or another deletion.
+Applications read and write Flow state through typed RPCs. The Client does not
+expose direct Attribute reads or writes, Channel publication, or pending-message
+mutation. This keeps each external state transition behind a Flow-owned method.
 
 An RPC can stage `channel.delete(context, messageId)`. Set the decorator option
 `isTransactional: true` when a missing ID must abort all other RPC writes.
@@ -355,7 +355,7 @@ Flow config, Condition ID, and reuse. Parent completion does not cancel an unfin
 ## Errors
 
 Client calls reject with concrete `DexServiceError` subclasses. Existing-Flow
-reads (`getAttribute`, `describeFlow`, `waitForFlow`, and `timeTravel`) use
+reads (`describeFlow`, `waitForFlow`, and `timeTravel`) use
 `FlowNotFoundError`; operations that require a running Flow use
 `FlowNotActiveError`. Start conflicts, worker failures, RPC lock contention,
 and long-poll timeouts use `FlowAlreadyStartedError`,
@@ -363,7 +363,7 @@ and long-poll timeouts use `FlowAlreadyStartedError`,
 
 ```typescript
 try {
-  await client.publish(flowId, orders.approved, orderId);
+  await client.invokeRPC(orders.updateOrder, flowId, update);
 } catch (error) {
   if (error instanceof FlowNotActiveError) {
     // The Flow is missing or already closed.

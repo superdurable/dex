@@ -20,7 +20,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -52,10 +51,11 @@ public final class InternalChannelTest {
                 WAITING_WORKFLOW)) {
             final String flowId = "waiting-internal-" + UUID.randomUUID();
             environment.client().startFlow(WAITING_WORKFLOW, flowId, 1);
-            environment.client().publish(
-                    flowId,
-                    WAITING_WORKFLOW.channel,
-                    Arrays.asList(2, 3));
+            final InternalChannelWaitingWorkflow stub = environment.client().newRpcStub(
+                    InternalChannelWaitingWorkflow.class,
+                    flowId);
+            environment.client().invokeRPC(stub::publish, 2);
+            environment.client().invokeRPC(stub::publish, 3);
             assertEquals(6, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
@@ -68,10 +68,11 @@ public final class InternalChannelTest {
 
     void compileWaitingInternalChannel(final Client client) {
         client.startFlow(WAITING_WORKFLOW, "waiting-internal", 1);
-        client.publish(
-                "waiting-internal",
-                WAITING_WORKFLOW.channel,
-                Arrays.asList(2, 3));
+        final InternalChannelWaitingWorkflow stub = client.newRpcStub(
+                InternalChannelWaitingWorkflow.class,
+                "waiting-internal");
+        client.invokeRPC(stub::publish, 2);
+        client.invokeRPC(stub::publish, 3);
         final Integer output = client.waitForFlow("waiting-internal").getSingleOutput(Integer.class);
         consume(output);
     }

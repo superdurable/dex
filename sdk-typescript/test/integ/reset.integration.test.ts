@@ -48,9 +48,6 @@ for (const locking of [true, false]) {
       const failure = await client.waitForFlow(id, 10_000);
       assert.equal(failure.status, "failed");
       assert.equal(failure.completions.length, 0);
-      assert.equal(await client.getAttribute(id, flow.data), undefined);
-      assert.equal(await client.getAttribute(id, flow.keyword), undefined);
-      assert.equal(await client.getAttribute(id, flow.counter), undefined);
     });
   });
 }
@@ -73,7 +70,4 @@ async function assertCompletedWithAttributes(
 ): Promise<void> {
   assert.equal(await client.waitForFlow(id, 10_000).then((result) => result.singleOutput(stringCodec)), "lock complete");
   assert.equal((await client.describeFlow(id)).status, "completed");
-  assert.equal(await client.getAttribute(id, flow.data), "random-string");
-  assert.equal(await client.getAttribute(id, flow.keyword), "random-string");
-  assert.equal(await client.getAttribute(id, flow.counter), 100);
 }

@@ -1,10 +1,10 @@
 # Dex Rust SDK
 
-## Pending Channel messages
+## Flow state I/O
 
-`Client::get_channel_messages` and `Client::get_channel_map_messages` return typed
-`ChannelMessage<T>` envelopes in FIFO order. Deleting an already-consumed ID
-returns `SdkError::ChannelMessageNotFound`.
+Applications read and write Flow state through typed RPCs. The Client does not
+expose direct Attribute reads or writes, Channel publication, or pending-message
+mutation. This keeps each external state transition behind a Flow-owned method.
 
 An RPC can stage `channel.delete(context, message_id)`. Define it with
 `Rpc::is_transactional()` when a missing ID must abort all other RPC writes.
@@ -91,8 +91,7 @@ of these waits. `Wait::any_combination_of` requires a non-empty user ID on every
 Condition; a cloned Condition retains its identity and may be reused across
 combinations.
 
-Client-side map reads and writes use `get_attribute_map_instance` and
-`set_attribute_map_instance`. `Client::wait_for_attribute_match` and
+`Client::wait_for_attribute_match` and
 `Client::wait_for_attribute_map_instance_match` target the current run and
 return the decoded matched value. Build a match with one of the six
 `AttributeMatch` factories. String and bool support equality operators; integer
@@ -146,7 +145,7 @@ fn execute(&self, context: &mut Context, _input: ChargeInput) -> HandlerResult<S
 `SubFlowOptions` configures timing, timeout policy, retry, initial target Attributes,
 Flow config, Condition ID, and reuse. Parent completion does not cancel an unfinished SubFlow.
 
-Existing-Flow reads (`get_attribute`, `describe_flow`, `wait_for_flow`, and
+Existing-Flow reads (`describe_flow`, `wait_for_flow`, and
 `time_travel`) use `FlowNotFound`; operations requiring a running Flow use
 `FlowNotActive`. Each remote variant owns a `ServiceError`, available through
 `SdkError::service_error()`, with gRPC code, Dex sub-status, detail, operation,
@@ -154,7 +153,7 @@ Flow ID, and the original `tonic::Status` source. `WorkerInvocation` also owns
 a `WorkerError` with the original worker code, type, and detail.
 
 ```rust
-match client.publish(flow_id, &orders.approved, order_id) {
+match client.invoke_rpc(flow_id, Orders::UPDATE, update) {
     Err(SdkError::FlowNotActive { service }) => {
         eprintln!("{} failed for {:?}", service.operation(), service.flow_id());
     }

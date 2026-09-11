@@ -9,15 +9,13 @@
 # See LICENSE and LEGACY_NOTICES.md.
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 import pytest
 
 from dex import (
     Attribute,
     AttributeMatch,
-    FlowNotActiveError,
-    FlowNotFoundError,
     LongPollTimeoutError,
     StartFlowOptions,
 )
@@ -38,62 +36,25 @@ def test_persistence_reads_and_step_execution_local() -> None:
         .with_attribute(flow.data_map, "one", "initial")
     )
     with DexDevTestEnvironment(flow) as environment:
-        with pytest.raises(FlowNotFoundError):
-            environment.client.get_attribute(unique_id("missing"), flow.data)
         flow_id = unique_id("persistence")
         environment.client.start_flow(flow, flow_id, "input", options)
         assert (
             environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str)
             == "input"
         )
-        assert environment.client.get_attribute(flow_id, flow.data) == "input"
-        assert environment.client.get_attribute(flow_id, flow.initial) == "initial"
-        assert environment.client.get_attribute(flow_id, flow.data_map, "one") is None
-        assert environment.client.get_attribute(flow_id, flow.keyword) == "input"
-        assert environment.client.get_attribute(flow_id, flow.integer) == 1
-        assert environment.client.get_attribute(flow_id, flow.datetime) == datetime(
-            2023, 4, 17, 21, 17, 49, tzinfo=timezone.utc
-        )
-        assert environment.client.get_attribute(flow_id, flow.model).value == 0
-        with pytest.raises(FlowNotActiveError):
-            environment.client.set_attribute(flow_id, flow.data, "closed")
 
 
 def test_set_indexed_attributes() -> None:
     flow = SetAttributesFlow()
-    keywords = ("keyword-1", "keyword-2")
-    timestamp = datetime(
-        2024,
-        11,
-        13,
-        0,
-        0,
-        1,
-        731455,
-        tzinfo=timezone.utc,
-    )
     with DexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("set-indexed-attributes")
         environment.client.start_flow(flow, flow_id, "start")
-        environment.client.set_attribute(flow_id, flow.keyword, "keyword-1")
-        environment.client.set_attribute(flow_id, flow.text, "text-1")
-        environment.client.set_attribute(flow_id, flow.decimal, 1.0)
-        environment.client.set_attribute(flow_id, flow.integer, 1)
-        environment.client.set_attribute(flow_id, flow.bool, True)
-        environment.client.set_attribute(flow_id, flow.keywords, keywords)
-        environment.client.set_attribute(flow_id, flow.datetime, timestamp)
-        environment.client.publish(flow_id, flow.proceed, None)
+        environment.client.invoke_rpc(flow.set_indexed, flow_id)
+        environment.client.invoke_rpc(flow.complete, flow_id)
         assert (
             environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str)
             == "test-result"
         )
-        assert environment.client.get_attribute(flow_id, flow.keyword) == "keyword-1"
-        assert environment.client.get_attribute(flow_id, flow.text) == "text-1"
-        assert environment.client.get_attribute(flow_id, flow.decimal) == 1.0
-        assert environment.client.get_attribute(flow_id, flow.integer) == 1
-        assert environment.client.get_attribute(flow_id, flow.bool) is True
-        assert environment.client.get_attribute(flow_id, flow.keywords) == keywords
-        assert environment.client.get_attribute(flow_id, flow.datetime) == timestamp
 
 
 def test_set_data_attributes() -> None:
@@ -116,7 +77,7 @@ def test_set_data_attributes() -> None:
                 AttributeMatch.equal_to("query-start"),
                 WAIT_TIMEOUT,
             )
-            environment.client.set_attribute(flow_id, flow.data, "query-start")
+            environment.client.invoke_rpc(flow.set_data, flow_id, "query-start")
             assert waiting.result(timeout=WAIT_TIMEOUT.total_seconds()) == "query-start"
         with ThreadPoolExecutor(max_workers=1) as executor:
             waiting = executor.submit(
@@ -127,13 +88,11 @@ def test_set_data_attributes() -> None:
                 AttributeMatch.equal_to("mapped-value"),
                 WAIT_TIMEOUT,
             )
-            environment.client.set_attribute(
-                flow_id, flow.data_map, "one", "mapped-value"
-            )
+            environment.client.invoke_rpc(flow.set_map_one, flow_id, "mapped-value")
             assert (
                 waiting.result(timeout=WAIT_TIMEOUT.total_seconds()) == "mapped-value"
             )
-        environment.client.set_attribute(flow_id, flow.integer, 3)
+        environment.client.invoke_rpc(flow.set_integer, flow_id, 3)
         assert (
             environment.client.wait_for_attribute_match(
                 flow_id,
@@ -173,14 +132,9 @@ def test_set_data_attributes() -> None:
                 AttributeMatch.equal_to(None),
                 WAIT_TIMEOUT,
             )
-        environment.client.set_attribute(flow_id, flow.model, ModelInput(value=7))
-        environment.client.publish(flow_id, flow.proceed, None)
+        environment.client.invoke_rpc(flow.set_model, flow_id, ModelInput(value=7))
+        environment.client.invoke_rpc(flow.complete, flow_id)
         assert (
             environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str)
             == "test-result"
         )
-        assert environment.client.get_attribute(flow_id, flow.data) == "query-start"
-        assert environment.client.get_attribute(flow_id, flow.data_map, "one") == (
-            "mapped-value"
-        )
-        assert environment.client.get_attribute(flow_id, flow.model).value == 7

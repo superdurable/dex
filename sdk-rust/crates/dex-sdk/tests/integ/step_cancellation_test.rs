@@ -16,7 +16,7 @@ use dex_sdk::{Registry, StepExecutionId};
 
 use crate::step_cancellation_workflow::{
     CancellationBlockingExecute, CancellationBlockingWaitFor, CancellationScenario,
-    CancellationState, LATE_WRITE, StepCancellationWorkflow,
+    CancellationState, StepCancellationWorkflow,
 };
 use crate::support::{DexDevTestEnvironment, flow_id};
 
@@ -113,11 +113,4 @@ fn run_scenario(scenario: CancellationScenario) {
         scenario.name()
     );
     assert!(!state.recovery_ran.load(Ordering::SeqCst));
-    assert_eq!(
-        None,
-        environment
-            .client
-            .get_attribute::<String>(&flow_id, &LATE_WRITE)
-            .expect("read late Attribute")
-    );
 }

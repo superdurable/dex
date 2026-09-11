@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use dex_sdk::{Client, Registry, SdkResult};
 
-use crate::internal_channel_waiting_workflow::{CHANNEL, InternalChannelWaitingWorkflow};
+use crate::internal_channel_waiting_workflow::InternalChannelWaitingWorkflow;
 use crate::internal_channel_workflow::InternalChannelWorkflow;
 use crate::support::{DexDevTestEnvironment, flow_id};
 
@@ -51,8 +51,12 @@ fn test_waiting_internal_channel() {
         .expect("start waiting-channel Flow");
     environment
         .client
-        .publish_many(&flow_id, &CHANNEL, [2, 3])
-        .expect("publish waiting-channel messages");
+        .invoke_rpc(&flow_id, InternalChannelWaitingWorkflow::PUBLISH, 2)
+        .expect("publish first waiting-channel message");
+    environment
+        .client
+        .invoke_rpc(&flow_id, InternalChannelWaitingWorkflow::PUBLISH, 3)
+        .expect("publish second waiting-channel message");
     assert_eq!(
         6,
         environment
@@ -69,7 +73,16 @@ fn compile_internal_channels(client: &Client) -> SdkResult<()> {
     let _: i32 = client.wait_for_flow("basic-internal")?.single_output()?;
     let workflow = InternalChannelWaitingWorkflow::new();
     client.start_flow(&workflow, "waiting-internal", 1)?;
-    client.publish_many("waiting-internal", &CHANNEL, [2, 3])?;
+    client.invoke_rpc(
+        "waiting-internal",
+        InternalChannelWaitingWorkflow::PUBLISH,
+        2,
+    )?;
+    client.invoke_rpc(
+        "waiting-internal",
+        InternalChannelWaitingWorkflow::PUBLISH,
+        3,
+    )?;
     let _: i32 = client.wait_for_flow("waiting-internal")?.single_output()?;
     Ok(())
 }

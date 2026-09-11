@@ -17,6 +17,7 @@ import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
+import io.superdurable.dex.RPC;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepDurability;
@@ -33,7 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-final class StepCancellationWorkflow implements Flow<Void> {
+class StepCancellationWorkflow implements Flow<Void> {
     enum Scenario {
         HEARTBEAT_EXECUTE,
         HEARTBEAT_WAIT_FOR,
@@ -115,6 +116,21 @@ final class StepCancellationWorkflow implements Flow<Void> {
                 selectorWinnerRelease,
                 selectorWaitingRelease,
                 selectorFinalRelease);
+    }
+
+    @RPC
+    public void releaseSelectorWinner(final Context context) {
+        selectorWinnerRelease.publish(context, null);
+    }
+
+    @RPC
+    public void releaseSelectorWaiting(final Context context) {
+        selectorWaitingRelease.publish(context, null);
+    }
+
+    @RPC
+    public void releaseSelectorFinal(final Context context) {
+        selectorFinalRelease.publish(context, null);
     }
 
     String canceledStepType() {

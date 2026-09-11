@@ -81,4 +81,3 @@ async def _run_step_cancellation(scenario: CancellationScenario) -> None:
         )
         assert flow.blocking_invocations == expected_invocations
         assert not flow.recovery_ran
-        assert await environment.client.get_attribute(flow_id, flow.late_write) is None

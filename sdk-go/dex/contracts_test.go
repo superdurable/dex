@@ -291,19 +291,6 @@ func TestPublicContractsCompile(t *testing.T) {
 	if !errors.As(err, &definition) {
 		t.Fatalf("unregistered Flow error is not FlowDefinitionError: %v", err)
 	}
-	unregisteredAttribute := dex.DefineAttribute[string]("unregistered")
-	err = client.SetAttribute(
-		context.Background(),
-		"flow-id",
-		unregisteredAttribute,
-		"value",
-	)
-	if !errors.As(err, &definition) {
-		t.Fatalf("unregistered attribute error is not FlowDefinitionError: %v", err)
-	}
-	if definition.Definition != `attribute "unregistered"` {
-		t.Fatalf("unregistered attribute context is missing: %#v", definition)
-	}
 	if err := client.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -464,57 +451,6 @@ var _ func(
 	any,
 	dex.StartFlowOptions,
 ) (string, error) = (*dex.Client).StartFlow
-
-var _ func(
-	*dex.Client,
-	context.Context,
-	string,
-	dex.ChannelDef,
-	...any,
-) error = (*dex.Client).PublishToChannel
-
-var _ func(
-	*dex.Client,
-	context.Context,
-	string,
-	dex.ChannelDef,
-	string,
-	...any,
-) error = (*dex.Client).PublishToChannelMap
-
-var _ func(
-	*dex.Client,
-	context.Context,
-	string,
-	dex.AttributeDef,
-	any,
-) (bool, error) = (*dex.Client).GetAttribute
-
-var _ func(
-	*dex.Client,
-	context.Context,
-	string,
-	dex.AttributeDef,
-	string,
-	any,
-) (bool, error) = (*dex.Client).GetAttributeMapInstance
-
-var _ func(
-	*dex.Client,
-	context.Context,
-	string,
-	dex.AttributeDef,
-	any,
-) error = (*dex.Client).SetAttribute
-
-var _ func(
-	*dex.Client,
-	context.Context,
-	string,
-	dex.AttributeDef,
-	string,
-	any,
-) error = (*dex.Client).SetAttributeMapInstance
 
 var _ func(
 	*dex.Client,

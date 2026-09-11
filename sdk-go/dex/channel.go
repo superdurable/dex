@@ -36,10 +36,9 @@ type ChannelMapLoad struct {
 	instance string
 }
 
-// ChannelMessage identifies one pending Channel value returned by Client.GetChannelMessages.
+// ChannelMessage identifies one pending Channel value loaded into a handler.
 //
-// MessageID is assigned by Dex when the value is published. It can be passed to
-// Client.DeleteChannelMessage or Channel.Delete from a handler.
+// MessageID is assigned by Dex when the value is published. It can be passed to Channel.Delete.
 type ChannelMessage[T any] struct {
 	// MessageID is the server-assigned UUIDv7 for this pending message.
 	MessageID string

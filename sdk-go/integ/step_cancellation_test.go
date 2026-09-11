@@ -9,7 +9,7 @@
 package integ
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -347,9 +347,16 @@ func (cancellationFinalStep) WaitFor(
 }
 
 func (cancellationFinalStep) Execute(
-	_ dex.Context,
+	ctx dex.Context,
 	scenario cancellationScenario,
 ) (*dex.StepDecision, error) {
+	if scenario != cancelGlobalSelector && scenario != cancelSiblingSelector {
+		_, err := cancellationLateWrite.Get(ctx)
+		var notFound *dex.AttributeNotFoundError
+		if !errors.As(err, &notFound) {
+			return nil, fmt.Errorf("canceled execution committed its late write: %w", err)
+		}
+	}
 	return dex.GracefulComplete(string(scenario)), nil
 }
 
@@ -524,15 +531,6 @@ func runCancellationScenario(t *testing.T, scenario cancellationScenario) {
 			expectedInvocations = 2
 		}
 		require.Equal(t, expectedInvocations, state.blockingInvocations.Load())
-		var late string
-		found, getErr := integClient.GetAttribute(
-			context.Background(),
-			flowID,
-			cancellationLateWrite,
-			&late,
-		)
-		require.NoError(t, getErr)
-		require.False(t, found)
 	}
 }
 

@@ -53,12 +53,6 @@ public final class StateOptionsTest {
             final int parallelism = 20;
             environment.client().startFlow(LOCKING_WORKFLOW, flowId, parallelism);
             assertEquals("20:20", environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(String.class));
-            assertEquals(
-                    parallelism,
-                    environment.client().getAttribute(flowId, LOCKING_WORKFLOW.waitForCount));
-            assertEquals(
-                    parallelism,
-                    environment.client().getAttribute(flowId, LOCKING_WORKFLOW.executeCount));
         }
     }
 

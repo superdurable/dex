@@ -56,22 +56,6 @@ func mapInitialAttributes(
 	return mapped, nil
 }
 
-func mapAttributeWrite(write AttributeWrite) (*dexpb.AttributeWrite, error) {
-	if write.Name == "" {
-		return nil, fmt.Errorf("dex: attribute write name must not be empty")
-	}
-	value, indexConfig, err := encodeAttributeValue(write.Value, write.Index)
-	if err != nil {
-		return nil, err
-	}
-	return &dexpb.AttributeWrite{
-		Key:         write.Name,
-		Value:       value,
-		IndexConfig: indexConfig,
-		SyncConfig:  mapAttributeSyncConfig(write.SyncToAttributeStore),
-	}, nil
-}
-
 func mapAttributeDelete(
 	name string,
 	index *AttributeIndex,

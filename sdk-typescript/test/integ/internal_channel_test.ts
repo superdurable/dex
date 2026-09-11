@@ -21,7 +21,8 @@ export async function compileBasicInternalChannel(client: Client): Promise<void>
 export async function compileWaitingInternalChannel(client: Client): Promise<void> {
   const flow = flows.WAITING_INTERNAL;
   await client.startFlow(flow, "waiting-internal", 1);
-  await client.publish("waiting-internal", flow.channel, 2, 3);
+  await client.invokeRPC(flow.publish, "waiting-internal", 2);
+  await client.invokeRPC(flow.publish, "waiting-internal", 3);
   const output: number = await client.waitForFlow("waiting-internal").then((result) => result.singleOutput(doubleCodec));
   void output;
 }

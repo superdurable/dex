@@ -27,6 +27,7 @@ pub(crate) struct NoStartStateDeadEndWorkflow {
 impl NoStartStateDeadEndWorkflow {
     pub(crate) const SIGNAL_SIZE: Rpc<(), usize> = Rpc::new("signal_size");
     pub(crate) const PUBLISH_INTERNAL: Rpc<(), usize> = Rpc::new("publish_internal");
+    pub(crate) const PUBLISH_SIGNALS: Rpc<i32, ()> = Rpc::new("publish_signals");
     pub(crate) const INVOKE: Rpc<String, i64> = Rpc::new("invoke");
 
     pub(crate) fn new() -> Self {
@@ -43,6 +44,13 @@ impl NoStartStateDeadEndWorkflow {
     fn publish_internal(&self, context: &mut Context) -> HandlerResult<RpcResult<usize>> {
         IDLE_INTERNAL.publish(context, ())?;
         Ok(RpcResult::new(IDLE_INTERNAL.size(context)?))
+    }
+
+    fn publish_signals(&self, context: &mut Context, count: i32) -> HandlerResult<()> {
+        for _ in 0..count {
+            IDLE_SIGNAL.publish(context, ())?;
+        }
+        Ok(())
     }
 
     fn invoke(&self, context: &mut Context, _input: String) -> HandlerResult<RpcResult<i64>> {
@@ -73,6 +81,7 @@ impl Flow for NoStartStateDeadEndWorkflow {
         RpcList::new()
             .function_without_input(Self::SIGNAL_SIZE, Self::signal_size)
             .function_without_input(Self::PUBLISH_INTERNAL, Self::publish_internal)
+            .procedure(Self::PUBLISH_SIGNALS, Self::publish_signals)
             .function(Self::INVOKE, Self::invoke)
     }
 }

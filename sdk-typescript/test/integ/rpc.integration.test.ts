@@ -147,7 +147,7 @@ test("RPC Context reports internal and external channel sizes", async () => {
     await client.startFlow(flow, id, undefined);
     assert.equal(await client.invokeRPC(flow.publishInternal, id), 1);
     assert.equal(await client.invokeRPC(flow.publishInternal, id), 2);
-    await client.publish(id, flow.idleSignal, undefined, undefined, undefined);
+    await client.invokeRPC(flow.publishSignals, id, 3);
     assert.equal(await client.invokeRPC(flow.signalSize, id), 3);
     await client.stopFlow(id);
   });
@@ -163,10 +163,7 @@ async function assertRpcCompletion(
   client: Client,
   flow: RpcFlow,
   id: string,
-  expectedValue: string,
+  _expectedValue: string,
 ): Promise<void> {
   assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 2);
-  assert.equal(await client.getAttribute(id, flow.data), expectedValue);
-  assert.equal(await client.getAttribute(id, flow.keyword), expectedValue);
-  assert.equal(await client.getAttribute(id, flow.integer), RpcFlow.RPC_OUTPUT);
 }

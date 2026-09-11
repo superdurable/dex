@@ -25,7 +25,6 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("dex-dev")
@@ -70,7 +69,6 @@ public final class StepCancellationTest {
             assertTrue(workflow.didContextReportCancellation());
             assertEquals(2, workflow.blockingExecuteInvocations());
             assertFalse(workflow.wasRecoveryRun());
-            assertNull(environment.client().getAttribute(flowId, workflow.lateWrite));
         }
     }
 
@@ -95,7 +93,6 @@ public final class StepCancellationTest {
             assertTrue(workflow.wasHandlerInterrupted());
             assertTrue(workflow.didContextReportCancellation());
             assertFalse(workflow.wasRecoveryRun());
-            assertNull(environment.client().getAttribute(flowId, workflow.lateWrite));
         }
     }
 
@@ -118,7 +115,6 @@ public final class StepCancellationTest {
             assertTrue(workflow.awaitLateHandlerReturn(CANCELLATION_TIMEOUT));
             assertEquals(1, workflow.blockingExecuteInvocations());
             assertFalse(workflow.wasRecoveryRun());
-            assertNull(environment.client().getAttribute(flowId, workflow.lateWrite));
         }
     }
 
@@ -131,7 +127,10 @@ public final class StepCancellationTest {
                 workflow)) {
             final String flowId = start(environment, workflow, "cancel-global");
             assertTrue(workflow.awaitSelectorWaits(START_TIMEOUT));
-            environment.client().publish(flowId, workflow.selectorWinnerRelease, (Void) null);
+            final StepCancellationWorkflow stub = environment.client().newRpcStub(
+                    StepCancellationWorkflow.class,
+                    flowId);
+            environment.client().invokeRPC(stub::releaseSelectorWinner);
             assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.GLOBAL_SELECTOR);
             assertFalse(workflow.wasFirstSelectorExecuted());
             assertFalse(workflow.wasSecondSelectorExecuted());
@@ -147,14 +146,17 @@ public final class StepCancellationTest {
                 workflow)) {
             final String flowId = start(environment, workflow, "cancel-sibling");
             assertTrue(workflow.awaitSelectorWaits(START_TIMEOUT));
-            environment.client().publish(flowId, workflow.selectorWinnerRelease, (Void) null);
+            final StepCancellationWorkflow stub = environment.client().newRpcStub(
+                    StepCancellationWorkflow.class,
+                    flowId);
+            environment.client().invokeRPC(stub::releaseSelectorWinner);
             environment.client().waitForStepCompletion(
                     flowId,
                     StepExecutionId.of(workflow.selectorWinnerStepType()),
                     CANCELLATION_TIMEOUT);
-            environment.client().publish(flowId, workflow.selectorWaitingRelease, (Void) null);
+            environment.client().invokeRPC(stub::releaseSelectorWaiting);
             assertTrue(workflow.awaitSecondSelectorExecution(CANCELLATION_TIMEOUT));
-            environment.client().publish(flowId, workflow.selectorFinalRelease, (Void) null);
+            environment.client().invokeRPC(stub::releaseSelectorFinal);
             assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.SIBLING_SELECTOR);
             assertFalse(workflow.wasFirstSelectorExecuted());
             assertTrue(workflow.wasSecondSelectorExecuted());
@@ -179,7 +181,6 @@ public final class StepCancellationTest {
             assertTrue(workflow.wasHandlerInterrupted());
             assertTrue(workflow.didContextReportCancellation());
             assertFalse(workflow.wasRecoveryRun());
-            assertNull(environment.client().getAttribute(flowId, workflow.lateWrite));
         }
     }
 

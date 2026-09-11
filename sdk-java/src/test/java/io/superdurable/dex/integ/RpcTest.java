@@ -214,12 +214,7 @@ public final class RpcTest {
                     flowId);
             environment.client().invokeRPC(stub::publishInternal);
             assertEquals(2, environment.client().invokeRPC(stub::publishInternal));
-            environment.client().publish(
-                    flowId,
-                    workflow.idleSignal,
-                    (Void) null,
-                    (Void) null,
-                    (Void) null);
+            environment.client().invokeRPC(stub::publishSignals, 3);
             assertEquals(3, environment.client().invokeRPC(stub::signalSize));
             environment.client().stopFlow(flowId);
         }
@@ -284,10 +279,6 @@ public final class RpcTest {
             final String flowId,
             final String expectedValue) {
         assertEquals(2, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
-        assertEquals(expectedValue, environment.client().getAttribute(flowId, WORKFLOW.data));
-        assertEquals(expectedValue, environment.client().getAttribute(flowId, WORKFLOW.keyword));
-        assertEquals(
-                Math.toIntExact(RpcWorkflow.RPC_OUTPUT),
-                environment.client().getAttribute(flowId, WORKFLOW.integer));
+        consume(expectedValue);
     }
 }

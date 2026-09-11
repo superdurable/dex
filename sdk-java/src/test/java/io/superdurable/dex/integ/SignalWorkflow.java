@@ -18,6 +18,7 @@ import io.superdurable.dex.ConditionCombination;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
+import io.superdurable.dex.RPC;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
@@ -26,7 +27,7 @@ import io.superdurable.dex.Wait;
 
 import java.time.Duration;
 
-final class SignalWorkflow implements Flow<Integer> {
+class SignalWorkflow implements Flow<Integer> {
     final Channel<Integer> first = Channel.define("signal-1", Integer.class);
     final Channel<Integer> second = Channel.define("signal-2", Integer.class);
     final Channel<Void> third = Channel.define("signal-3", Void.class);
@@ -42,6 +43,26 @@ final class SignalWorkflow implements Flow<Integer> {
     @Override
     public PersistenceSchema getPersistenceSchema() {
         return PersistenceSchema.of(first, second, third, signalMap);
+    }
+
+    @RPC
+    public void publishFirst(final Context context, final Integer input) {
+        first.publish(context, input);
+    }
+
+    @RPC
+    public void publishSecond(final Context context, final Integer input) {
+        second.publish(context, input);
+    }
+
+    @RPC
+    public void publishThird(final Context context) {
+        third.publish(context, null);
+    }
+
+    @RPC
+    public void publishMapped(final Context context, final Integer input) {
+        signalMap.publish(context, "one", input);
     }
 
     final class SignalFirstStep implements Step<Integer> {

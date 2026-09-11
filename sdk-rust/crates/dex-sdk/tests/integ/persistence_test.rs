@@ -8,7 +8,7 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use dex_sdk::{Attribute, AttributeMatch, Client, Registry, SdkError, SdkResult, StartFlowOptions};
 
@@ -24,12 +24,6 @@ fn test_persistence_reads() {
     let environment =
         DexDevTestEnvironment::start(Registry::new().register(PersistenceWorkflow::new()));
     let workflow = PersistenceWorkflow::new();
-    assert!(matches!(
-        environment
-            .client
-            .get_attribute(&flow_id("missing"), &persistence::DATA),
-        Err(SdkError::FlowNotFound { .. })
-    ));
     let flow_id = flow_id("persistence");
     let options = StartFlowOptions::new()
         .initial_attribute(&persistence::INITIAL, "initial".to_string())
@@ -46,61 +40,6 @@ fn test_persistence_reads() {
             .and_then(|result| result.single_output::<String>())
             .expect("complete persistence Flow")
     );
-    assert_eq!(
-        Some("input".to_string()),
-        environment
-            .client
-            .get_attribute(&flow_id, &persistence::DATA)
-            .expect("get data Attribute")
-    );
-    assert_eq!(
-        Some("initial".to_string()),
-        environment
-            .client
-            .get_attribute(&flow_id, &persistence::INITIAL)
-            .expect("get initial Attribute")
-    );
-    assert_eq!(
-        None,
-        environment
-            .client
-            .get_attribute_map_instance(&flow_id, &workflow.data_map, "one")
-            .expect("get deleted AttributeMap entry")
-    );
-    assert_eq!(
-        Some("input".to_string()),
-        environment
-            .client
-            .get_attribute(&flow_id, &persistence::KEYWORD)
-            .expect("get keyword Attribute")
-    );
-    assert_eq!(
-        Some(1),
-        environment
-            .client
-            .get_attribute(&flow_id, &persistence::INTEGER)
-            .expect("get integer Attribute")
-    );
-    assert_eq!(
-        Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_681_766_269)),
-        environment
-            .client
-            .get_attribute(&flow_id, &persistence::DATETIME)
-            .expect("get datetime Attribute")
-    );
-    assert_eq!(
-        Some(PersistenceModel { value: 0 }),
-        environment
-            .client
-            .get_attribute(&flow_id, &persistence::MODEL)
-            .expect("get model Attribute")
-    );
-    assert!(matches!(
-        environment
-            .client
-            .set_attribute(&flow_id, &persistence::DATA, "closed".to_string()),
-        Err(SdkError::FlowNotActive { .. })
-    ));
 }
 
 #[test]
@@ -111,44 +50,18 @@ fn test_set_indexed_attributes() {
     );
     let workflow = PersistenceSetAttributesWorkflow::new();
     let flow_id = flow_id("set-indexed-attributes");
-    let keywords = vec!["keyword-1".to_string(), "keyword-2".to_string()];
-    let datetime = SystemTime::UNIX_EPOCH + Duration::new(1_731_456_001, 731_455_544);
     environment
         .client
         .start_flow(&workflow, &flow_id, "start".to_string())
         .expect("start set-indexed-attributes Flow");
     environment
         .client
-        .set_attribute(&flow_id, &set_attributes::KEYWORD, "keyword-1".to_string())
-        .expect("set keyword Attribute");
+        .invoke_rpc_without_input::<()>(&flow_id, PersistenceSetAttributesWorkflow::SET_INDEXED)
+        .expect("set indexed Attributes through RPC");
     environment
         .client
-        .set_attribute(&flow_id, &set_attributes::FULL_TEXT, "text-1".to_string())
-        .expect("set full-text Attribute");
-    environment
-        .client
-        .set_attribute(&flow_id, &set_attributes::DECIMAL, 1.0)
-        .expect("set double Attribute");
-    environment
-        .client
-        .set_attribute(&flow_id, &set_attributes::INTEGER, 1)
-        .expect("set integer Attribute");
-    environment
-        .client
-        .set_attribute(&flow_id, &set_attributes::BOOLEAN, true)
-        .expect("set boolean Attribute");
-    environment
-        .client
-        .set_attribute(&flow_id, &set_attributes::KEYWORDS, keywords.clone())
-        .expect("set keyword-array Attribute");
-    environment
-        .client
-        .set_attribute(&flow_id, &set_attributes::DATETIME, datetime)
-        .expect("set datetime Attribute");
-    environment
-        .client
-        .publish(&flow_id, &set_attributes::PROCEED, ())
-        .expect("publish proceed message");
+        .invoke_rpc_without_input::<()>(&flow_id, PersistenceSetAttributesWorkflow::COMPLETE)
+        .expect("complete through RPC");
     assert_eq!(
         "test-result",
         environment
@@ -156,55 +69,6 @@ fn test_set_indexed_attributes() {
             .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
             .and_then(|result| result.single_output::<String>())
             .expect("complete set-indexed-attributes Flow")
-    );
-    assert_eq!(
-        Some("keyword-1".to_string()),
-        environment
-            .client
-            .get_attribute(&flow_id, &set_attributes::KEYWORD)
-            .expect("get keyword Attribute")
-    );
-    assert_eq!(
-        Some("text-1".to_string()),
-        environment
-            .client
-            .get_attribute(&flow_id, &set_attributes::FULL_TEXT)
-            .expect("get full-text Attribute")
-    );
-    assert_eq!(
-        Some(1.0),
-        environment
-            .client
-            .get_attribute(&flow_id, &set_attributes::DECIMAL)
-            .expect("get double Attribute")
-    );
-    assert_eq!(
-        Some(1),
-        environment
-            .client
-            .get_attribute(&flow_id, &set_attributes::INTEGER)
-            .expect("get integer Attribute")
-    );
-    assert_eq!(
-        Some(true),
-        environment
-            .client
-            .get_attribute(&flow_id, &set_attributes::BOOLEAN)
-            .expect("get boolean Attribute")
-    );
-    assert_eq!(
-        Some(keywords),
-        environment
-            .client
-            .get_attribute(&flow_id, &set_attributes::KEYWORDS)
-            .expect("get keyword-array Attribute")
-    );
-    assert_eq!(
-        Some(datetime),
-        environment
-            .client
-            .get_attribute(&flow_id, &set_attributes::DATETIME)
-            .expect("get datetime Attribute")
     );
 }
 
@@ -240,7 +104,11 @@ fn test_set_data_attributes() {
         });
         environment
             .client
-            .set_attribute(&flow_id, &set_attributes::DATA, "query-start".to_string())
+            .invoke_rpc(
+                &flow_id,
+                PersistenceSetAttributesWorkflow::SET_DATA,
+                "query-start".to_string(),
+            )
             .expect("set data Attribute");
         let matched = waiting
             .join()
@@ -252,7 +120,7 @@ fn test_set_data_attributes() {
         let waiting = scope.spawn(|| {
             environment.client.wait_for_attribute_map_instance_match(
                 &flow_id,
-                &workflow.data_map,
+                &set_attributes::DATA_MAP,
                 "special % key",
                 AttributeMatch::equal_to("mapped-value".to_string()),
                 Duration::from_secs(30),
@@ -260,10 +128,9 @@ fn test_set_data_attributes() {
         });
         environment
             .client
-            .set_attribute_map_instance(
+            .invoke_rpc(
                 &flow_id,
-                &workflow.data_map,
-                "special % key",
+                PersistenceSetAttributesWorkflow::SET_MAP_SPECIAL,
                 "mapped-value".to_string(),
             )
             .expect("set special AttributeMap entry");
@@ -275,7 +142,7 @@ fn test_set_data_attributes() {
     });
     environment
         .client
-        .set_attribute(&flow_id, &set_attributes::INTEGER, 3)
+        .invoke_rpc(&flow_id, PersistenceSetAttributesWorkflow::SET_INTEGER, 3)
         .expect("set revision Attribute");
     assert_eq!(
         3,
@@ -318,25 +185,24 @@ fn test_set_data_attributes() {
     ));
     environment
         .client
-        .set_attribute_map_instance(
+        .invoke_rpc(
             &flow_id,
-            &workflow.data_map,
-            "one",
+            PersistenceSetAttributesWorkflow::SET_MAP_ONE,
             "mapped-value".to_string(),
         )
         .expect("set AttributeMap entry");
     environment
         .client
-        .set_attribute(
+        .invoke_rpc(
             &flow_id,
-            &set_attributes::MODEL,
+            PersistenceSetAttributesWorkflow::SET_MODEL,
             PersistenceModel { value: 7 },
         )
         .expect("set model Attribute");
     environment
         .client
-        .publish(&flow_id, &set_attributes::PROCEED, ())
-        .expect("publish proceed message");
+        .invoke_rpc_without_input::<()>(&flow_id, PersistenceSetAttributesWorkflow::COMPLETE)
+        .expect("complete through RPC");
     assert_eq!(
         "test-result",
         environment
@@ -344,27 +210,6 @@ fn test_set_data_attributes() {
             .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
             .and_then(|result| result.single_output::<String>())
             .expect("complete set-data-attributes Flow")
-    );
-    assert_eq!(
-        Some("query-start".to_string()),
-        environment
-            .client
-            .get_attribute(&flow_id, &set_attributes::DATA)
-            .expect("get data Attribute")
-    );
-    assert_eq!(
-        Some("mapped-value".to_string()),
-        environment
-            .client
-            .get_attribute_map_instance(&flow_id, &workflow.data_map, "one")
-            .expect("get AttributeMap entry")
-    );
-    assert_eq!(
-        Some(PersistenceModel { value: 7 }),
-        environment
-            .client
-            .get_attribute(&flow_id, &set_attributes::MODEL)
-            .expect("get model Attribute")
     );
 }
 
@@ -375,11 +220,7 @@ fn compile_persistence_reads(client: &Client) -> SdkResult<()> {
         .initial_attribute(&persistence::INITIAL, "initial".to_string())
         .initial_attribute_map(&workflow.data_map, "one", "initial".to_string());
     client.start_flow_with_options(&workflow, "persistence", "input".to_string(), options)?;
-    let _: Option<String> = client.get_attribute("persistence", &persistence::DATA)?;
-    let _: Option<String> =
-        client.get_attribute_map_instance("persistence", &workflow.data_map, "one")?;
-    let _: Option<i32> = client.get_attribute("persistence", &persistence::INTEGER)?;
-    let _: Option<SystemTime> = client.get_attribute("persistence", &persistence::DATETIME)?;
+    let _: String = client.wait_for_flow("persistence")?.single_output()?;
     Ok(())
 }
 
@@ -387,25 +228,19 @@ fn compile_persistence_reads(client: &Client) -> SdkResult<()> {
 fn compile_persistence_writes(client: &Client) -> SdkResult<()> {
     let workflow = PersistenceSetAttributesWorkflow::new();
     client.start_flow(&workflow, "set-attributes", "input".to_string())?;
-    client.set_attribute("set-attributes", &set_attributes::DATA, "value".to_string())?;
-    client.set_attribute_map_instance(
+    client.invoke_rpc(
         "set-attributes",
-        &workflow.data_map,
-        "one",
+        PersistenceSetAttributesWorkflow::SET_DATA,
         "value".to_string(),
     )?;
-    client.set_attribute(
+    client.invoke_rpc(
         "set-attributes",
-        &set_attributes::KEYWORD,
-        "keyword".to_string(),
+        PersistenceSetAttributesWorkflow::SET_MAP_ONE,
+        "value".to_string(),
     )?;
-    client.set_attribute("set-attributes", &set_attributes::DECIMAL, 1.5)?;
-    client.set_attribute("set-attributes", &set_attributes::INTEGER, 1)?;
-    client.set_attribute("set-attributes", &set_attributes::BOOLEAN, true)?;
-    client.set_attribute(
+    client.invoke_rpc_without_input::<()>(
         "set-attributes",
-        &set_attributes::KEYWORDS,
-        vec!["one".to_string(), "two".to_string()],
+        PersistenceSetAttributesWorkflow::SET_INDEXED,
     )?;
     let _: String = client.wait_for_attribute_match(
         "set-attributes",
@@ -415,10 +250,14 @@ fn compile_persistence_writes(client: &Client) -> SdkResult<()> {
     )?;
     let _: String = client.wait_for_attribute_map_instance_match(
         "set-attributes",
-        &workflow.data_map,
+        &set_attributes::DATA_MAP,
         "one",
         AttributeMatch::equal_to("value".to_string()),
         Duration::from_secs(30),
+    )?;
+    client.invoke_rpc_without_input::<()>(
+        "set-attributes",
+        PersistenceSetAttributesWorkflow::COMPLETE,
     )?;
     let _: String = client.wait_for_flow("set-attributes")?.single_output()?;
     Ok(())

@@ -18,6 +18,7 @@ import {
   doubleCodec,
   goTo,
   gracefulComplete,
+  rpc,
   voidCodec,
   type Context,
   type Flow,
@@ -119,5 +120,25 @@ export class SignalFlow implements Flow<number> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return { channels: [this.first, this.second, this.third, this.signalMap] };
+  }
+
+  @rpc({ inputCodec: doubleCodec })
+  public publishFirst(context: Context, input: number): void {
+    this.first.publish(context, input);
+  }
+
+  @rpc({ inputCodec: doubleCodec })
+  public publishSecond(context: Context, input: number): void {
+    this.second.publish(context, input);
+  }
+
+  @rpc()
+  public publishThird(context: Context): void {
+    this.third.publish(context, undefined);
+  }
+
+  @rpc({ inputCodec: doubleCodec })
+  public publishMapped(context: Context, input: number): void {
+    this.signalMap.publish(context, "one", input);
   }
 }

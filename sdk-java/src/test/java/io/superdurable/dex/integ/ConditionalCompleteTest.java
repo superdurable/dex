@@ -39,12 +39,10 @@ public final class ConditionalCompleteTest {
                 WORKFLOW)) {
             final String flowId = "conditional-signal-" + UUID.randomUUID();
             environment.client().startFlow(WORKFLOW, flowId, true);
-            environment.client().publish(
-                    flowId,
-                    WORKFLOW.signal,
-                    (Void) null,
-                    (Void) null,
-                    (Void) null);
+            final ConditionalCompleteWorkflow stub = environment.client().newRpcStub(
+                    ConditionalCompleteWorkflow.class,
+                    flowId);
+            environment.client().invokeRPC(stub::publishSignal, 3);
             assertEquals(3, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
@@ -66,12 +64,10 @@ public final class ConditionalCompleteTest {
 
     void compileSignalChannel(final Client client) {
         client.startFlow(WORKFLOW, "conditional-signal", true);
-        client.publish(
-                "conditional-signal",
-                WORKFLOW.signal,
-                (Void) null,
-                (Void) null,
-                (Void) null);
+        final ConditionalCompleteWorkflow stub = client.newRpcStub(
+                ConditionalCompleteWorkflow.class,
+                "conditional-signal");
+        client.invokeRPC(stub::publishSignal, 3);
         final Integer output = client.waitForFlow("conditional-signal").getSingleOutput(Integer.class);
         consume(output);
     }

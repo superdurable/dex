@@ -308,20 +308,6 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	require.Nil(t, empty.FlowConfigOverride)
 }
 
-func TestAttributeWriteSyncMapping(t *testing.T) {
-	synced, err := mapAttributeWrite(AttributeWrite{
-		Name:                 "status",
-		Value:                "ready",
-		SyncToAttributeStore: true,
-	})
-	require.NoError(t, err)
-	require.True(t, synced.GetSyncConfig().GetEnabled())
-
-	plain, err := mapAttributeWrite(AttributeWrite{Name: "status", Value: "ready"})
-	require.NoError(t, err)
-	require.Nil(t, plain.SyncConfig)
-}
-
 func TestClientOptionMapping(t *testing.T) {
 	attribute := DefineAttribute[string]("status")
 	_, locks, err := mapInvokeOptions(InvokeOptions{

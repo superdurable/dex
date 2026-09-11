@@ -94,11 +94,8 @@ def assert_rpc_completion(
     environment: DexDevTestEnvironment,
     flow: RpcFlow,
     flow_id: str,
-    expected_value: str,
+    _expected_value: str,
 ) -> None:
     assert (
         environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(int) == 2
     )
-    assert environment.client.get_attribute(flow_id, flow.data) == expected_value
-    assert environment.client.get_attribute(flow_id, flow.keyword) == expected_value
-    assert environment.client.get_attribute(flow_id, flow.integer) == RpcFlow.RPC_OUTPUT

@@ -79,6 +79,13 @@ export class DeadEndFlow implements Flow {
     return { output: this.idleInternal.size(context) };
   }
 
+  @rpc({ inputCodec: doubleCodec })
+  public publishSignals(context: Context, count: number): void {
+    for (let index = 0; index < count; index += 1) {
+      this.idleSignal.publish(context, undefined);
+    }
+  }
+
   @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
   public invoke(context: Context, _input: string): RPCResult<number> {
     if (context.flowId === "" || context.runId === "") {

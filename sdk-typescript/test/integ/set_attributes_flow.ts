@@ -20,6 +20,7 @@ import {
   voidCodec,
   Wait,
   gracefulComplete,
+  rpc,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -99,5 +100,46 @@ export class SetAttributesFlow implements Flow<string> {
       ],
       channels: [this.proceed],
     };
+  }
+
+  @rpc()
+  public setIndexed(context: Context): void {
+    this.keyword.set(context, "keyword-1");
+    this.text.set(context, "text-1");
+    this.decimal.set(context, 1);
+    this.integer.set(context, 1);
+    this.bool.set(context, true);
+    this.keywords.set(context, ["keyword-1", "keyword-2"]);
+    this.datetime.set(context, new Date("2024-11-13T00:00:01.731Z"));
+  }
+
+  @rpc({ inputCodec: stringCodec })
+  public setData(context: Context, input: string): void {
+    this.data.set(context, input);
+  }
+
+  @rpc({ inputCodec: stringCodec })
+  public setMapOne(context: Context, input: string): void {
+    this.dataMap.set(context, "one", input);
+  }
+
+  @rpc({ inputCodec: stringCodec })
+  public setMapSpecial(context: Context, input: string): void {
+    this.dataMap.set(context, "special % key", input);
+  }
+
+  @rpc({ inputCodec: doubleCodec })
+  public setInteger(context: Context, input: number): void {
+    this.integer.set(context, input);
+  }
+
+  @rpc({ inputCodec: modelInputCodec })
+  public setModel(context: Context, input: ModelInput): void {
+    this.model.set(context, input);
+  }
+
+  @rpc()
+  public complete(context: Context): void {
+    this.proceed.publish(context, undefined);
   }
 }

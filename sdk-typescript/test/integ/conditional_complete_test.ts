@@ -15,7 +15,7 @@ import * as flows from "./iwf_flows.js";
 export async function compileSignalChannel(client: Client): Promise<void> {
   const flow = flows.CONDITIONAL_COMPLETE;
   await client.startFlow(flow, "conditional-signal", true);
-  await client.publish("conditional-signal", flow.signal, undefined);
+  await client.invokeRPC(flow.publishSignal, "conditional-signal");
   const output: number = await client.waitForFlow("conditional-signal").then((result) => result.singleOutput(doubleCodec));
   void output;
 }

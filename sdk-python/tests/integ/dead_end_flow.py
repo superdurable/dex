@@ -61,6 +61,11 @@ class DeadEndFlow(Flow[None]):
         return RPCResult(self.idle_internal.size(context))
 
     @rpc
+    def publish_signals(self, context: Context, input: int) -> None:
+        for _ in range(input):
+            self.idle_signal.publish(context, None)
+
+    @rpc
     def invoke(self, context: Context, input: str) -> RPCResult[int]:
         del input
         if not context.flow_id or not context.run_id:

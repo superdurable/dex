@@ -1,11 +1,10 @@
 # Dex Go SDK
 
-## Pending Channel messages
+## Flow state I/O
 
-`Client.GetChannelMessages` and `Client.GetChannelMapMessages` decode the current
-FIFO queue into a pointer to `[]dex.ChannelMessage[T]`. Delete a still-pending ID
-with `DeleteChannelMessage` or `DeleteChannelMapMessage`; a race with consumption
-returns `ChannelMessageNotFoundError`.
+Applications read and write Flow state through typed RPCs. The Client does not
+expose direct Attribute reads or writes, Channel publication, or pending-message
+mutation. This keeps each external state transition behind a Flow-owned method.
 
 An RPC can stage `channel.Delete(ctx, messageID)`. Set
 `dex.InvokeOptions{IsTransactional: true}` when a missing ID must abort every
@@ -316,9 +315,8 @@ with `AttributeMatchEqual`, `AttributeMatchNotEqual`,
 `AttributeMatchGreaterThan`, `AttributeMatchGreaterThanOrEqual`,
 `AttributeMatchLessThan`, or `AttributeMatchLessThanOrEqual`. The matched value
 is decoded into the output pointer. String and bool support equality operators;
-integers and doubles support every operator. Client-side map reads and writes
-use `GetAttributeMapInstance` and `SetAttributeMapInstance`. Every AttributeMap
-and ChannelMap instance must be non-empty and must not contain `/`. Objects,
+integers and doubles support every operator. Every AttributeMap and ChannelMap
+instance must be non-empty and must not contain `/`. Objects,
 bytes, null, non-finite doubles, and invalid ordering fail before the RPC.
 
 Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
@@ -503,7 +501,7 @@ StartFlow uses the starting step retained by Registry. Its input must match
 that step's input type, and its step options come from the registered Step.
 Flows without a starting step require nil input.
 
-The SDK generates request IDs for StartFlow, SetAttributes, InvokeRPC, and both
+The SDK generates request IDs for StartFlow, InvokeRPC, and both
 wait-update APIs. Only `StartFlowOptions.RequestID` is public because it may be
 a stable business identifier spanning separate calls.
 
@@ -529,8 +527,7 @@ if errors.As(err, &inactive) {
 ```
 
 `FlowNotFoundError` is returned by reads requiring an existing Flow, including
-GetAttribute, GetAttributes, WaitForFlow, and TimeTravel. Mutations, RPCs,
-publishes, timer operations, and step or attribute waits return
+WaitForFlow and TimeTravel. RPCs, timer operations, and step or attribute waits return
 `FlowNotActiveError` when no active Flow is available.
 
 Duplicate starts return `FlowAlreadyStartedError`. Server long polls return

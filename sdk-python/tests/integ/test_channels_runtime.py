@@ -13,7 +13,7 @@ from datetime import timedelta
 
 import pytest
 
-from dex import DexServiceError, FlowNotActiveError, StepExecutionId, TimerId
+from dex import DexServiceError, StepExecutionId, TimerId
 
 from .async_environment import AsyncDexDevTestEnvironment
 from .basic_internal_channel_flow import BasicInternalChannelFlow
@@ -34,7 +34,7 @@ async def _conditional_complete_with_signal_channel() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("conditional-signal")
         await environment.client.start_flow(flow, flow_id, True)
-        await environment.client.publish(flow_id, flow.signal, None)
+        await environment.client.invoke_rpc(flow.publish_signal, flow_id)
         assert (
             await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         ).single_output(int) == 1
@@ -78,7 +78,8 @@ async def _waiting_internal_channel() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("waiting-internal")
         await environment.client.start_flow(flow, flow_id, 1)
-        await environment.client.publish(flow_id, flow.channel, 2, 3)
+        await environment.client.invoke_rpc(flow.publish, flow_id, 2)
+        await environment.client.invoke_rpc(flow.publish, flow_id, 3)
         assert (
             await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         ).single_output(int) == 6
@@ -93,15 +94,15 @@ async def _signal_conditions_and_timer_skip() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("basic-signal")
         await environment.client.start_flow(flow, flow_id, 1)
-        await environment.client.publish(flow_id, flow.first, 2, 3, 5)
-        await environment.client.publish(flow_id, flow.third, None)
-        await environment.client.publish(flow_id, flow.signal_map, "one", 4)
+        await environment.client.invoke_rpc(flow.publish_first, flow_id, 2)
+        await environment.client.invoke_rpc(flow.publish_first, flow_id, 3)
+        await environment.client.invoke_rpc(flow.publish_first, flow_id, 5)
+        await environment.client.invoke_rpc(flow.publish_third, flow_id)
+        await environment.client.invoke_rpc(flow.publish_mapped, flow_id, 4)
         await _skip_signal_timer_when_pending(environment, flow_id)
         assert (
             await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         ).single_output(int) == 6
-        with pytest.raises(FlowNotActiveError):
-            await environment.client.publish(flow_id, flow.first, 8)
 
 
 async def _skip_signal_timer_when_pending(

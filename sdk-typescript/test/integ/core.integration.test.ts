@@ -13,7 +13,6 @@ import test from "node:test";
 
 import {
   FlowErrorType,
-  FlowNotActiveError,
   StepExecutionId,
   TimerId,
   doubleCodec,
@@ -58,7 +57,7 @@ for (const useSignal of [true, false]) {
       const id = flowId(`conditional-${useSignal ? "signal" : "internal"}`);
       await client.startFlow(flow, id, useSignal);
       if (useSignal) {
-        await client.publish(id, flow.signal, undefined);
+        await client.invokeRPC(flow.publishSignal, id);
       } else {
         await client.invokeRPC(flow.publishToInternalChannel, id);
       }
@@ -81,7 +80,8 @@ test("external messages satisfy an internal waiting channel", async () => {
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("waiting-internal");
     await client.startFlow(flow, id, 1);
-    await client.publish(id, flow.channel, 2, 3);
+    await client.invokeRPC(flow.publish, id, 2);
+    await client.invokeRPC(flow.publish, id, 3);
     assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 6);
   });
 });
@@ -121,9 +121,11 @@ test("signals, mapped signals, and skipped timer form one combination", async ()
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("basic-signal");
     await client.startFlow(flow, id, 1);
-    await client.publish(id, flow.first, 2, 3, 5);
-    await client.publish(id, flow.third, undefined);
-    await client.publish(id, flow.signalMap, "one", 4);
+    await client.invokeRPC(flow.publishFirst, id, 2);
+    await client.invokeRPC(flow.publishFirst, id, 3);
+    await client.invokeRPC(flow.publishFirst, id, 5);
+    await client.invokeRPC(flow.publishThird, id);
+    await client.invokeRPC(flow.publishMapped, id, 4);
     await skipTimerWhenPending(
       client,
       id,
@@ -131,7 +133,6 @@ test("signals, mapped signals, and skipped timer form one combination", async ()
       TimerId.byConditionId("test-timer-id"),
     );
     assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 6);
-    await expectError(client.publish(id, flow.first, 8), FlowNotActiveError);
   });
 });
 

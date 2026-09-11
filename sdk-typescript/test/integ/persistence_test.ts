@@ -20,24 +20,17 @@ export async function compilePersistenceReads(client: Client): Promise<void> {
   await client.startFlow(flow, "persistence", "input", {
     attributes: [InitialAttribute.of(flow.initial, "initial")],
   });
-  const data: string | undefined = await client.getAttribute("persistence", flow.data);
-  const integer: number | undefined = await client.getAttribute("persistence", flow.integer);
-  const datetime: Date | undefined = await client.getAttribute("persistence", flow.datetime);
-  void data;
-  void integer;
-  void datetime;
+  const output: string = await client.waitForFlow("persistence").then((result) => result.singleOutput(stringCodec));
+  void output;
 }
 
 export async function compilePersistenceWrites(client: Client): Promise<void> {
   const flow = flows.SET_ATTRIBUTES;
   await client.startFlow(flow, "set-attributes", "input");
-  await client.setAttribute("set-attributes", flow.data, "value");
-  await client.setAttribute("set-attributes", flow.dataMap, "one", "value");
-  await client.setAttribute("set-attributes", flow.keyword, "keyword");
-  await client.setAttribute("set-attributes", flow.decimal, 1.5);
-  await client.setAttribute("set-attributes", flow.integer, 1);
-  await client.setAttribute("set-attributes", flow.bool, true);
-  await client.setAttribute("set-attributes", flow.keywords, ["one", "two"]);
+  await client.invokeRPC(flow.setData, "set-attributes", "value");
+  await client.invokeRPC(flow.setMapOne, "set-attributes", "value");
+  await client.invokeRPC(flow.setIndexed, "set-attributes");
+  await client.invokeRPC(flow.complete, "set-attributes");
   const output: string = await client.waitForFlow("set-attributes").then((result) => result.singleOutput(stringCodec));
   void output;
 }

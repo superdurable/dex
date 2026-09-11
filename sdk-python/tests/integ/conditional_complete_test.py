@@ -16,7 +16,7 @@ from .conditional_complete_flow import ConditionalCompleteFlow
 def compile_signal_channel(client: Client) -> None:
     flow = ConditionalCompleteFlow()
     client.start_flow(flow, "conditional-signal", True)
-    client.publish("conditional-signal", flow.signal, None)
+    client.invoke_rpc(flow.publish_signal, "conditional-signal")
     output: int = client.wait_for_flow("conditional-signal").single_output(int)
     del output
 

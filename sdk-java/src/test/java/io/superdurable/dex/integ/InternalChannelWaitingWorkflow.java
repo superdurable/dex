@@ -16,12 +16,13 @@ import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
+import io.superdurable.dex.RPC;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.Wait;
 
-final class InternalChannelWaitingWorkflow implements Flow<Integer> {
+class InternalChannelWaitingWorkflow implements Flow<Integer> {
     final Channel<Integer> channel = Channel.define("waiting-channel", Integer.class);
     private final InternalChannelWaitingStep start = new InternalChannelWaitingStep(channel);
 
@@ -33,6 +34,11 @@ final class InternalChannelWaitingWorkflow implements Flow<Integer> {
     @Override
     public PersistenceSchema getPersistenceSchema() {
         return PersistenceSchema.of(channel);
+    }
+
+    @RPC
+    public void publish(final Context context, final Integer input) {
+        channel.publish(context, input);
     }
 }
 

@@ -31,6 +31,9 @@ func (OrderFlow) UpdateOrder(
 	ctx dex.Context,
 	input UpdateOrderInput,
 ) (*dex.RPCResult[UpdateOrderOutput], error) {
+	if err := OrderStatus.Set(ctx, input.Status); err != nil {
+		return nil, err
+	}
 	return &dex.RPCResult[UpdateOrderOutput]{
 		Output: UpdateOrderOutput{Status: input.Status},
 	}, nil
@@ -87,33 +90,6 @@ func startOrder(
 	)
 }
 
-func publishCommand(
-	ctx context.Context,
-	client *dex.Client,
-	flowID string,
-) error {
-	return client.PublishToChannel(
-		ctx,
-		flowID,
-		Commands,
-		Command{Name: "approve"},
-	)
-}
-
-func publishOrderCommand(
-	ctx context.Context,
-	client *dex.Client,
-	flowID string,
-) error {
-	return client.PublishToChannelMap(
-		ctx,
-		flowID,
-		CommandsByOrder,
-		flowID,
-		Command{Name: "ship"},
-	)
-}
-
 func writeOrderProgress(
 	ctx context.Context,
 	client *dex.Client,
@@ -167,64 +143,6 @@ func invokeUpdateOrder(
 	return output, err
 }
 
-func getOrderStatus(
-	ctx context.Context,
-	client *dex.Client,
-	flowID string,
-) (string, bool, error) {
-	var status string
-	found, err := client.GetAttribute(
-		ctx,
-		flowID,
-		OrderStatus,
-		&status,
-	)
-	return status, found, err
-}
-
-func getItemQuantity(
-	ctx context.Context,
-	client *dex.Client,
-	flowID string,
-) (int, bool, error) {
-	var quantity int
-	found, err := client.GetAttributeMapInstance(
-		ctx,
-		flowID,
-		ItemQuantities,
-		"sku-1",
-		&quantity,
-	)
-	return quantity, found, err
-}
-
-func setOrderStatus(
-	ctx context.Context,
-	client *dex.Client,
-	flowID string,
-) error {
-	return client.SetAttribute(
-		ctx,
-		flowID,
-		OrderStatus,
-		"shipped",
-	)
-}
-
-func setItemQuantity(
-	ctx context.Context,
-	client *dex.Client,
-	flowID string,
-) error {
-	return client.SetAttributeMapInstance(
-		ctx,
-		flowID,
-		ItemQuantities,
-		"sku-1",
-		3,
-	)
-}
-
 func waitForOrderStatus(
 	ctx context.Context,
 	client *dex.Client,
@@ -253,34 +171,6 @@ func waitForItemQuantity(
 		"sku-1",
 		dex.AttributeMatchEqual(3),
 		&matched,
-	)
-}
-
-func getOrderAttributes(
-	ctx context.Context,
-	client *dex.Client,
-	flowID string,
-) (map[string]dex.Value, error) {
-	return client.GetAttributes(
-		ctx,
-		flowID,
-		OrderStatus,
-	)
-}
-
-func setOrderAttributes(
-	ctx context.Context,
-	client *dex.Client,
-	flowID string,
-) error {
-	return client.SetAttributes(
-		ctx,
-		flowID,
-		dex.AttributeWrite{
-			Name:  OrderStatus.AttributeName(),
-			Value: "processing",
-			Index: ptr.Any(dex.AttributeIndex{Type: dex.IndexKeyword}),
-		},
 	)
 }
 

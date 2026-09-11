@@ -1,13 +1,12 @@
 
 # Dex SDK for Python
 
-## Pending Channel messages
+## Flow state I/O
 
-`Client.get_channel_messages(flow_id, channel)` returns typed `ChannelMessage`
-envelopes in FIFO order. Each envelope contains the decoded value and the UUIDv7
-assigned by Dex. `Client.delete_channel_message` deletes only a still-pending
-message and raises `ChannelMessageNotFoundError` after consumption or another
-deletion.
+Applications read and write Flow state through typed RPCs. Client and AsyncClient
+do not expose direct Attribute reads or writes, Channel publication, or
+pending-message mutation. This keeps each external state transition behind a
+Flow-owned method.
 
 RPC handlers can stage `channel.delete(context, message_id)`. Declare the RPC as
 `@rpc(is_transactional=True)` when a missing message must abort its other writes.
@@ -385,14 +384,14 @@ SubFlow.
 ### Errors
 
 Client calls raise concrete `DexServiceError` subclasses. Existing-Flow reads
-(`get_attribute`, `describe_flow`, `wait_for_flow`, and `time_travel`) raise
+(`describe_flow`, `wait_for_flow`, and `time_travel`) raise
 `FlowNotFoundError` when the Flow does not exist. Mutations, RPCs, timer/Step
 waits, config updates, and continue-as-new triggers raise
 `FlowNotActiveError` when no running Flow can accept the operation.
 
 ```python
 try:
-    client.publish(flow_id, orders.approved, order_id)
+    client.invoke_rpc(orders.update_order, order_id, update)
 except dex.FlowNotActiveError:
     # The Flow is missing or already closed.
     pass

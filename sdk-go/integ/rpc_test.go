@@ -268,17 +268,6 @@ func TestRPCFlow(t *testing.T) {
 	require.NoError(t, result.Completions[0].Output.Decode(&flowOutput))
 	require.Equal(t, 3, flowOutput)
 
-	var status string
-	found, err := integClient.GetAttribute(ctx, flowID, rpcFlowStatus, &status)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, "invoked", status)
-
-	err = integClient.SetAttribute(ctx, flowID, rpcFlowStatus, "closed")
-	var inactive *dex.FlowNotActiveError
-	require.ErrorAs(t, err, &inactive)
-	err = integClient.PublishToChannel(ctx, flowID, rpcFlowChannel, 4)
-	require.ErrorAs(t, err, &inactive)
 	err = integClient.InvokeRPC(
 		ctx,
 		flowID,
@@ -287,5 +276,6 @@ func TestRPCFlow(t *testing.T) {
 		&output,
 		dex.InvokeOptions{},
 	)
+	var inactive *dex.FlowNotActiveError
 	require.ErrorAs(t, err, &inactive)
 }

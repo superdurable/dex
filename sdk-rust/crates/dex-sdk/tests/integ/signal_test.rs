@@ -10,9 +10,9 @@
 
 use std::time::Duration;
 
-use dex_sdk::{Client, GrpcCode, Registry, SdkError, SdkResult, StepExecutionId, TimerId};
+use dex_sdk::{Client, Registry, SdkResult, StepExecutionId, TimerId};
 
-use crate::signal_workflow::{FIRST, SignalWorkflow, THIRD};
+use crate::signal_workflow::SignalWorkflow;
 use crate::support::{DexDevTestEnvironment, flow_id, skip_timer_when_pending};
 
 #[test]
@@ -27,15 +27,23 @@ fn test_basic_signal_workflow() {
         .expect("start signal Flow");
     environment
         .client
-        .publish_many(&flow_id, &FIRST, [2, 3, 5])
-        .expect("publish first signals");
+        .invoke_rpc(&flow_id, SignalWorkflow::PUBLISH_FIRST, 2)
+        .expect("publish first signal");
     environment
         .client
-        .publish(&flow_id, &THIRD, ())
+        .invoke_rpc(&flow_id, SignalWorkflow::PUBLISH_FIRST, 3)
+        .expect("publish second signal");
+    environment
+        .client
+        .invoke_rpc(&flow_id, SignalWorkflow::PUBLISH_FIRST, 5)
+        .expect("publish third signal");
+    environment
+        .client
+        .invoke_rpc_without_input::<()>(&flow_id, SignalWorkflow::PUBLISH_THIRD)
         .expect("publish null signal");
     environment
         .client
-        .publish_map(&flow_id, &workflow.signal_map, "one", [4])
+        .invoke_rpc(&flow_id, SignalWorkflow::PUBLISH_MAPPED, 4)
         .expect("publish mapped signal");
     skip_timer_when_pending(
         &environment.client,
@@ -51,25 +59,17 @@ fn test_basic_signal_workflow() {
             .and_then(|result| result.single_output::<i32>())
             .expect("complete signal Flow")
     );
-    match environment
-        .client
-        .publish(&flow_id, &FIRST, 8)
-        .expect_err("publishing to a closed Flow must fail")
-    {
-        SdkError::FlowNotActive { service } => {
-            assert_eq!(GrpcCode::NotFound, service.code())
-        }
-        error => panic!("expected FlowNotActive, got {error:?}"),
-    }
 }
 
 #[allow(dead_code)]
 fn compile_signals_and_timer_skip(client: &Client) -> SdkResult<()> {
     let workflow = SignalWorkflow::new();
     client.start_flow(&workflow, "signal", 1)?;
-    client.publish_many("signal", &FIRST, [2, 3, 5])?;
-    client.publish("signal", &THIRD, ())?;
-    client.publish_map("signal", &workflow.signal_map, "one", [4])?;
+    client.invoke_rpc("signal", SignalWorkflow::PUBLISH_FIRST, 2)?;
+    client.invoke_rpc("signal", SignalWorkflow::PUBLISH_FIRST, 3)?;
+    client.invoke_rpc("signal", SignalWorkflow::PUBLISH_FIRST, 5)?;
+    client.invoke_rpc_without_input::<()>("signal", SignalWorkflow::PUBLISH_THIRD)?;
+    client.invoke_rpc("signal", SignalWorkflow::PUBLISH_MAPPED, 4)?;
     client.skip_timer(
         "signal",
         StepExecutionId::of(&workflow.combination),

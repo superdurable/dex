@@ -39,7 +39,6 @@ import io.superdurable.dex.Stream;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.WorkerOptions;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
-import io.superdurable.dex.exceptions.ValueMappingException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -177,9 +176,6 @@ public class UserContractsTest {
                 FlowDefinitionException.class,
                 () -> client.startFlow(new OrderFlow(), "unregistered", new OrderInput()));
         Assertions.assertTrue(unregistered.getMessage().contains("OrderFlow"));
-        Assertions.assertThrows(
-                ValueMappingException.class,
-                () -> setNonFiniteAttribute(client));
     }
 
     @Test
@@ -249,11 +245,6 @@ public class UserContractsTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static void startWithWrongInput(final Client client) {
         client.startFlow((Flow) ORDERS, "order-1", "wrong input");
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static void setNonFiniteAttribute(final Client client) {
-        client.setAttribute("order-1", (Attribute) STATUS, Double.NaN);
     }
 
     @SuppressWarnings("unused")

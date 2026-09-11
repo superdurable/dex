@@ -14,29 +14,46 @@ use std::sync::LazyLock;
 
 use dex_sdk::{
     Channel, ChannelMap, ConditionCombination, Context, Flow, HandlerError, HandlerResult,
-    PersistenceSchema, Step, StepDecision, StepList, Timer, Wait,
+    PersistenceSchema, Rpc, RpcList, Step, StepDecision, StepList, Timer, Wait,
 };
 
 pub(crate) static SECOND: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("signal-2"));
 pub(crate) static THIRD: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("signal-3"));
 pub(crate) static FIRST: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("signal-1"));
+static SIGNAL_MAP: LazyLock<ChannelMap<i32>> = LazyLock::new(|| ChannelMap::new("signal-map"));
 
 pub(crate) struct SignalWorkflow {
-    pub(crate) signal_map: ChannelMap<i32>,
     start: FirstStep,
     pub(crate) combination: CombinationStep,
 }
 
 impl SignalWorkflow {
+    pub(crate) const PUBLISH_FIRST: Rpc<i32, ()> = Rpc::new("publish_first");
+    pub(crate) const PUBLISH_SECOND: Rpc<i32, ()> = Rpc::new("publish_second");
+    pub(crate) const PUBLISH_THIRD: Rpc<(), ()> = Rpc::new("publish_third");
+    pub(crate) const PUBLISH_MAPPED: Rpc<i32, ()> = Rpc::new("publish_mapped");
+
     pub(crate) fn new() -> Self {
-        let signal_map = ChannelMap::new("signal-map");
         Self {
             start: FirstStep,
-            combination: CombinationStep {
-                signal_map: signal_map.clone(),
-            },
-            signal_map,
+            combination: CombinationStep,
         }
+    }
+
+    fn publish_first(&self, context: &mut Context, input: i32) -> HandlerResult<()> {
+        FIRST.publish(context, input)
+    }
+
+    fn publish_second(&self, context: &mut Context, input: i32) -> HandlerResult<()> {
+        SECOND.publish(context, input)
+    }
+
+    fn publish_third(&self, context: &mut Context) -> HandlerResult<()> {
+        THIRD.publish(context, ())
+    }
+
+    fn publish_mapped(&self, context: &mut Context, input: i32) -> HandlerResult<()> {
+        SIGNAL_MAP.publish(context, "one", input)
     }
 }
 
@@ -52,7 +69,15 @@ impl Flow for SignalWorkflow {
             .channel(&FIRST)
             .channel(&SECOND)
             .channel(&THIRD)
-            .channel_map(&self.signal_map)
+            .channel_map(&SIGNAL_MAP)
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new()
+            .procedure(Self::PUBLISH_FIRST, Self::publish_first)
+            .procedure(Self::PUBLISH_SECOND, Self::publish_second)
+            .procedure_without_input(Self::PUBLISH_THIRD, Self::publish_third)
+            .procedure(Self::PUBLISH_MAPPED, Self::publish_mapped)
     }
 }
 
@@ -76,18 +101,11 @@ impl Step for FirstStep {
             ));
         }
         let value = FIRST.condition_results(context)?[0];
-        Ok(StepDecision::go_to(
-            &CombinationStep {
-                signal_map: ChannelMap::new("signal-map"),
-            },
-            input + value,
-        ))
+        Ok(StepDecision::go_to(&CombinationStep, input + value))
     }
 }
 
-pub(crate) struct CombinationStep {
-    signal_map: ChannelMap<i32>,
-}
+pub(crate) struct CombinationStep;
 
 impl Step for CombinationStep {
     type Input = i32;
@@ -96,7 +114,7 @@ impl Step for CombinationStep {
         Ok(Wait::any_combination_of([ConditionCombination::all_of([
             FIRST.for_one().with_id("signal-1"),
             THIRD.for_one().with_id("signal-3"),
-            self.signal_map.for_one("one").with_id("signal-map"),
+            SIGNAL_MAP.for_one("one").with_id("signal-map"),
             Timer::by_duration(Duration::from_secs(365 * 24 * 60 * 60)).with_id("test-timer-id"),
         ])]))
     }
@@ -114,7 +132,7 @@ impl Step for CombinationStep {
                 "null signal was not received",
             ));
         }
-        if self.signal_map.condition_results(context, "one")?.len() != 1 {
+        if SIGNAL_MAP.condition_results(context, "one")?.len() != 1 {
             return Err(HandlerError::new(
                 "SignalFailure",
                 "mapped signal was not received",
