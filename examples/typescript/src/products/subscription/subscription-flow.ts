@@ -92,7 +92,7 @@ export class SubscriptionFlow implements Flow<Customer> {
   }
 
   @rpc({ outputCodec: customerCodec })
-  public customer(context: Context): RPCResult<Customer> {
+  public getCustomer(context: Context): RPCResult<Customer> {
     return { output: this.customerDetails.get(context) };
   }
 

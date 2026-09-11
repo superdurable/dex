@@ -52,7 +52,7 @@ func TestChannelMessageCanBeMovedByID(t *testing.T) {
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		registry.Channel.QueuedMessages,
+		registry.Channel.GetQueuedMessages,
 		nil,
 		&pending,
 		dex.InvokeOptions{LoadChannels: []dex.ChannelDef{channelprimitive.Queued}},
@@ -82,7 +82,7 @@ func TestChannelMessageCanBeMovedByID(t *testing.T) {
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		registry.Channel.MovedMessages,
+		registry.Channel.GetMovedMessages,
 		nil,
 		&moved,
 		dex.InvokeOptions{LoadChannels: []dex.ChannelDef{channelprimitive.Moved}},
@@ -103,7 +103,7 @@ func TestChannelMessageCanBeMovedByID(t *testing.T) {
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		registry.Channel.MovedMessages,
+		registry.Channel.GetMovedMessages,
 		nil,
 		&moved,
 		dex.InvokeOptions{LoadChannels: []dex.ChannelDef{channelprimitive.Moved}},

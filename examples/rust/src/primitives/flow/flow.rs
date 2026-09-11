@@ -19,7 +19,7 @@ use dex_sdk::{
     RpcList, RpcResult, Step, StepDecision, StepList, Wait,
 };
 
-pub const DESCRIBE: Rpc<(), String> = Rpc::new("Describe");
+pub const DESCRIBE: Rpc<(), String> = Rpc::new("DescribeFlow");
 
 pub(crate) static STATUS: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("status"));
 

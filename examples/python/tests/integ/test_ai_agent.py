@@ -196,7 +196,7 @@ async def test_ai_agent_requests_and_resumes_from_durable_user_input(
 
     await wait_until("AI Agent user input request", is_waiting_for_input, WAIT_TIMEOUT)
     history = await client.invoke_rpc(
-        app.ai_agent.history,
+        app.ai_agent.get_history,
         flow_id,
         HistoryRequest(limit=200),
     )
@@ -236,7 +236,7 @@ async def test_ai_agent_requests_and_resumes_from_durable_user_input(
     description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
     assert description.pending_user_input_prompt is None
     resumed_history = await client.invoke_rpc(
-        app.ai_agent.history,
+        app.ai_agent.get_history,
         flow_id,
         HistoryRequest(limit=200),
     )
@@ -268,7 +268,7 @@ async def test_ai_agent_closes_remaining_tool_calls_before_waiting_for_input(
 
     await wait_until("AI Agent multi-call input request", is_waiting_for_input)
     history = await client.invoke_rpc(
-        app.ai_agent.history,
+        app.ai_agent.get_history,
         flow_id,
         HistoryRequest(limit=200),
     )
@@ -427,7 +427,7 @@ async def test_ai_agent_draft_blocks_business_tools_until_execution(
     await _wait_for_content(client, app, flow_id, "unknown_or_disabled_tool")
 
     page = await client.invoke_rpc(
-        app.ai_agent.history,
+        app.ai_agent.get_history,
         flow_id,
         HistoryRequest(limit=100),
     )
@@ -502,7 +502,7 @@ async def test_ai_agent_waiting_does_not_mark_an_incomplete_plan_completed(
     assert description.plan is not None
     assert description.plan["status"] == "active"
     page = await client.invoke_rpc(
-        app.ai_agent.history,
+        app.ai_agent.get_history,
         flow_id,
         HistoryRequest(limit=100),
     )
@@ -608,7 +608,7 @@ async def test_ai_agent_compacts_before_enforcing_message_retention(
 
     description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
     page = await client.invoke_rpc(
-        app.ai_agent.history,
+        app.ai_agent.get_history,
         flow_id,
         HistoryRequest(limit=20),
     )
@@ -659,7 +659,7 @@ async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
 
     await wait_until("AI Agent durable wait", is_waiting_for_timer, WAIT_TIMEOUT)
     await _send(client, app, flow_id, "replace the current objective")
-    snapshot = await client.invoke_rpc(app.ai_agent.snapshot, flow_id)
+    snapshot = await client.invoke_rpc(app.ai_agent.get_snapshot, flow_id)
     assert [item.value.content for item in snapshot.queued] == [
         "replace the current objective"
     ]
@@ -685,10 +685,10 @@ async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
         flow_id,
         "Local demo response: replace the current objective",
     )
-    snapshot = await client.invoke_rpc(app.ai_agent.snapshot, flow_id)
+    snapshot = await client.invoke_rpc(app.ai_agent.get_snapshot, flow_id)
     assert not snapshot.queued
     history = await client.invoke_rpc(
-        app.ai_agent.history,
+        app.ai_agent.get_history,
         flow_id,
         HistoryRequest(limit=100),
     )
@@ -720,7 +720,7 @@ async def test_ai_agent_consumes_steered_messages_as_a_batch(
     await wait_until("AI Agent durable wait", is_waiting_for_timer, WAIT_TIMEOUT)
     await _send(client, app, flow_id, "first replacement objective")
     await _send(client, app, flow_id, "final replacement objective")
-    snapshot = await client.invoke_rpc(app.ai_agent.snapshot, flow_id)
+    snapshot = await client.invoke_rpc(app.ai_agent.get_snapshot, flow_id)
     assert [message.value.content for message in snapshot.queued] == [
         "first replacement objective",
         "final replacement objective",
@@ -733,7 +733,7 @@ async def test_ai_agent_consumes_steered_messages_as_a_batch(
             flow_id,
             [message_ids[0], "missing-message"],
         )
-    snapshot = await client.invoke_rpc(app.ai_agent.snapshot, flow_id)
+    snapshot = await client.invoke_rpc(app.ai_agent.get_snapshot, flow_id)
     assert [message.message_id for message in snapshot.queued] == message_ids
     assert snapshot.steered == []
 
@@ -750,7 +750,7 @@ async def test_ai_agent_consumes_steered_messages_as_a_batch(
         "Local demo response: final replacement objective",
     )
     history = await client.invoke_rpc(
-        app.ai_agent.history,
+        app.ai_agent.get_history,
         flow_id,
         HistoryRequest(limit=100),
     )
@@ -763,7 +763,7 @@ async def test_ai_agent_consumes_steered_messages_as_a_batch(
         "first replacement objective",
         "final replacement objective",
     ]
-    snapshot = await client.invoke_rpc(app.ai_agent.snapshot, flow_id)
+    snapshot = await client.invoke_rpc(app.ai_agent.get_snapshot, flow_id)
     assert not snapshot.steered
 
 
@@ -789,7 +789,7 @@ async def _wait_for_content(
 ) -> None:
     async def contains_content() -> bool:
         page = await client.invoke_rpc(
-            app.ai_agent.history,
+            app.ai_agent.get_history,
             flow_id,
             HistoryRequest(limit=100),
         )

@@ -83,6 +83,8 @@ class DrainingExternalChannelFlow(Flow[str]):
         return PersistenceSchema.of(self.queue_channel)
 
     @rpc
-    def example_rpc(self, context: Context, input: str) -> RPCResult[str]:
+    def publish_external_channel_message(
+        self, context: Context, input: str
+    ) -> RPCResult[str]:
         self.queue_channel.publish(context, input)
         return RPCResult(input)

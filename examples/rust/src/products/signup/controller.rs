@@ -21,7 +21,8 @@ use axum::{
 use serde::Deserialize;
 
 use crate::products::signup::flow::{
-    ONBOARDING_TASK_1, ONBOARDING_TASK_2, ONBOARDING_VERIFY, UserOnboardingFlow,
+    ACCOMPLISH_ONBOARDING_TASK_1, ACCOMPLISH_ONBOARDING_TASK_2, UserOnboardingFlow,
+    VERIFY_ONBOARDING,
 };
 use crate::server::helpers::{
     SharedClient, StartResponse, is_already_started, map_sdk_error, new_flow_id, ok_json, ok_text,
@@ -104,7 +105,7 @@ async fn verify(
     Query(query): Query<OnboardingActionQuery>,
 ) -> impl IntoResponse {
     let username = query.username;
-    match run_blocking(move || client.invoke_rpc_without_input(&username, ONBOARDING_VERIFY)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&username, VERIFY_ONBOARDING)) {
         Ok(output) => ok_text(output),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -115,7 +116,9 @@ async fn accomplish_task_1(
     Query(query): Query<OnboardingActionQuery>,
 ) -> impl IntoResponse {
     let username = query.username;
-    match run_blocking(move || client.invoke_rpc_without_input(&username, ONBOARDING_TASK_1)) {
+    match run_blocking(move || {
+        client.invoke_rpc_without_input(&username, ACCOMPLISH_ONBOARDING_TASK_1)
+    }) {
         Ok(output) => ok_text(output),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -126,7 +129,9 @@ async fn accomplish_task_2(
     Query(query): Query<OnboardingActionQuery>,
 ) -> impl IntoResponse {
     let username = query.username;
-    match run_blocking(move || client.invoke_rpc_without_input(&username, ONBOARDING_TASK_2)) {
+    match run_blocking(move || {
+        client.invoke_rpc_without_input(&username, ACCOMPLISH_ONBOARDING_TASK_2)
+    }) {
         Ok(output) => ok_text(output),
         Err(error) => map_sdk_error(error).into_response(),
     }

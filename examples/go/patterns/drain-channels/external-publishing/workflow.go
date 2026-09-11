@@ -51,7 +51,7 @@ func (*DrainingExternalChannelFlow) GetPersistenceSchema() dex.PersistenceSchema
 	}
 }
 
-func (*DrainingExternalChannelFlow) ExampleRPC(
+func (*DrainingExternalChannelFlow) PublishExternalChannelMessage(
 	ctx dex.Context,
 	input string,
 ) (*dex.RPCResult[string], error) {

@@ -34,7 +34,7 @@ def create_draining_channel_blueprint(app_state: ExampleApp) -> Blueprint:
         flow_id = required_query("workflowId")
         try:
             await app_state.client.invoke_rpc(
-                app_state.drain_external.example_rpc,
+                app_state.drain_external.publish_external_channel_message,
                 flow_id,
                 "message from start-or-publish endpoint",
             )

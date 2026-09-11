@@ -22,7 +22,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::products::microservices::flow::{
-    ORCHESTRATION_READY, ORCHESTRATION_SWAP, OrchestrationFlow,
+    OrchestrationFlow, SIGNAL_ORCHESTRATION_READY, SWAP_ORCHESTRATION_DATA,
 };
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
@@ -77,7 +77,7 @@ async fn swap(
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
     let data = query.data;
-    match run_blocking(move || client.invoke_rpc(&flow_id, ORCHESTRATION_SWAP, data)) {
+    match run_blocking(move || client.invoke_rpc(&flow_id, SWAP_ORCHESTRATION_DATA, data)) {
         Ok(previous) => ok_text(previous),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -88,7 +88,9 @@ async fn signal(
     Query(query): Query<StartQuery>,
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, ORCHESTRATION_READY)) {
+    match run_blocking(move || {
+        client.invoke_rpc_without_input(&flow_id, SIGNAL_ORCHESTRATION_READY)
+    }) {
         Ok(()) => ok_json(json!({})),
         Err(error) => map_sdk_error(error).into_response(),
     }

@@ -516,7 +516,7 @@ async def test_ai_agent_http_queue_can_delete_and_steer(
 
     async def steer_was_applied() -> bool:
         history = await example_app.client.invoke_rpc(
-            example_app.ai_agent.history,
+            example_app.ai_agent.get_history,
             flow_id,
             HistoryRequest(limit=50),
         )

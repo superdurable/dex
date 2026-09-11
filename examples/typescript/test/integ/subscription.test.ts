@@ -60,7 +60,7 @@ test("subscriptionStartRpcAndChannels", async () => {
   assert.ok(runId.length > 0);
 
   await awaitCondition(
-    () => environment.client.invokeRPC(flow.customer, flowId),
+    () => environment.client.invokeRPC(flow.getCustomer, flowId),
     (details) =>
       details !== undefined &&
       details.id === flowId &&

@@ -38,9 +38,9 @@ use dex_sdk::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const SUBSCRIPTION_DESCRIBE: Rpc<(), SubscriptionState> = Rpc::new("SubscriptionDescribe");
-pub const SUBSCRIPTION_UPDATE_CHARGE: Rpc<i64, ()> = Rpc::new("SubscriptionUpdateCharge");
-pub const SUBSCRIPTION_CANCEL: Rpc<(), ()> = Rpc::new("SubscriptionCancel");
+pub const DESCRIBE_SUBSCRIPTION: Rpc<(), SubscriptionState> = Rpc::new("DescribeSubscription");
+pub const UPDATE_SUBSCRIPTION_CHARGE: Rpc<i64, ()> = Rpc::new("UpdateSubscriptionCharge");
+pub const CANCEL_SUBSCRIPTION: Rpc<(), ()> = Rpc::new("CancelSubscription");
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SubscriptionRequest {
@@ -94,9 +94,9 @@ impl Flow for SubscriptionFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function_without_input(SUBSCRIPTION_DESCRIBE, Self::describe)
-            .procedure(SUBSCRIPTION_UPDATE_CHARGE, Self::update_charge)
-            .procedure_without_input(SUBSCRIPTION_CANCEL, Self::cancel)
+            .function_without_input(DESCRIBE_SUBSCRIPTION, Self::describe)
+            .procedure(UPDATE_SUBSCRIPTION_CHARGE, Self::update_charge)
+            .procedure_without_input(CANCEL_SUBSCRIPTION, Self::cancel)
     }
 }
 

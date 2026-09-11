@@ -55,7 +55,7 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
-		controller.flow.ExampleRPC,
+		controller.flow.PublishExternalChannelMessage,
 		"message from start-or-publish endpoint",
 		&output,
 		sdk.InvokeOptions{},

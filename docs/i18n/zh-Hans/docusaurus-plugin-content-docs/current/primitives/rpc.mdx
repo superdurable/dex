@@ -156,7 +156,7 @@ const result = await client.invokeRPC(flow.trigger, flowId, message);
   <SdkSnippet lang="rust">
 
 ```rust
-let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
+let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 ```
 
 </SdkSnippet>
@@ -253,9 +253,9 @@ public move(context: Context, message: MoveMessage): void {
 ```rust
 fn rpcs(&self) -> RpcList<Self> {
     RpcList::new()
-        .procedure_without_input(CHANNEL_APPROVE, Self::approve)
+        .procedure_without_input(APPROVE_CHANNEL, Self::approve)
         .procedure(
-            CHANNEL_MOVE.is_transactional().load_channel(&QUEUED),
+            MOVE_CHANNEL_MESSAGE.is_transactional().load_channel(&QUEUED),
             Self::move_message,
         )
 }
@@ -313,7 +313,7 @@ sdk.InvokeOptions{Timeout: 30 * time.Second}
 <SdkSnippet lang="rust">
 
 ```rust
-RpcList::new().function(RPC_TRIGGER.timeout(Duration::from_secs(30)), Self::trigger)
+RpcList::new().function(TRIGGER_RPC.timeout(Duration::from_secs(30)), Self::trigger)
 ```
 
 </SdkSnippet>

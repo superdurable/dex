@@ -22,12 +22,12 @@ use dex_sdk::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const CHANNEL_APPROVE: Rpc<(), ()> = Rpc::new("ChannelApprove");
-pub const CHANNEL_ENQUEUE: Rpc<String, ()> = Rpc::new("ChannelEnqueue");
-pub const CHANNEL_QUEUED_MESSAGES: Rpc<(), Vec<PendingMessage>> = Rpc::new("ChannelQueuedMessages");
-pub const CHANNEL_DELETE_QUEUED: Rpc<MoveMessage, ()> = Rpc::new("ChannelDeleteQueued");
-pub const CHANNEL_MOVED_MESSAGES: Rpc<(), Vec<PendingMessage>> = Rpc::new("ChannelMovedMessages");
-pub const CHANNEL_MOVE: Rpc<MoveMessage, ()> = Rpc::new("ChannelMove");
+pub const APPROVE_CHANNEL: Rpc<(), ()> = Rpc::new("ApproveChannel");
+pub const ENQUEUE_CHANNEL_MESSAGE: Rpc<String, ()> = Rpc::new("EnqueueChannelMessage");
+pub const GET_QUEUED_MESSAGES: Rpc<(), Vec<PendingMessage>> = Rpc::new("GetQueuedMessages");
+pub const DELETE_QUEUED_MESSAGE: Rpc<MoveMessage, ()> = Rpc::new("DeleteQueuedMessage");
+pub const GET_MOVED_MESSAGES: Rpc<(), Vec<PendingMessage>> = Rpc::new("GetMovedMessages");
+pub const MOVE_CHANNEL_MESSAGE: Rpc<MoveMessage, ()> = Rpc::new("MoveChannelMessage");
 
 static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
 pub static QUEUED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Queued"));
@@ -59,7 +59,7 @@ impl ChannelFlow {
         QUEUED.publish(context, value)
     }
 
-    fn queued_messages(
+    fn get_queued_messages(
         &self,
         context: &mut Context,
     ) -> HandlerResult<RpcResult<Vec<PendingMessage>>> {
@@ -78,7 +78,7 @@ impl ChannelFlow {
         QUEUED.delete(context, &message.message_id)
     }
 
-    fn moved_messages(
+    fn get_moved_messages(
         &self,
         context: &mut Context,
     ) -> HandlerResult<RpcResult<Vec<PendingMessage>>> {
@@ -119,24 +119,26 @@ impl Flow for ChannelFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .procedure_without_input(CHANNEL_APPROVE, Self::approve)
-            .procedure(CHANNEL_ENQUEUE, Self::enqueue)
+            .procedure_without_input(APPROVE_CHANNEL, Self::approve)
+            .procedure(ENQUEUE_CHANNEL_MESSAGE, Self::enqueue)
             .function_without_input(
-                CHANNEL_QUEUED_MESSAGES.load_channel(&QUEUED),
-                Self::queued_messages,
+                GET_QUEUED_MESSAGES.load_channel(&QUEUED),
+                Self::get_queued_messages,
             )
             .procedure(
-                CHANNEL_DELETE_QUEUED
+                DELETE_QUEUED_MESSAGE
                     .is_transactional()
                     .load_channel(&QUEUED),
                 Self::delete_queued,
             )
             .function_without_input(
-                CHANNEL_MOVED_MESSAGES.load_channel(&MOVED),
-                Self::moved_messages,
+                GET_MOVED_MESSAGES.load_channel(&MOVED),
+                Self::get_moved_messages,
             )
             .procedure(
-                CHANNEL_MOVE.is_transactional().load_channel(&QUEUED),
+                MOVE_CHANNEL_MESSAGE
+                    .is_transactional()
+                    .load_channel(&QUEUED),
                 Self::move_message,
             )
     }

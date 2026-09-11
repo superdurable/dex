@@ -343,8 +343,8 @@ export class ChannelFlow implements Flow<number> {
   <SdkSnippet lang="rust">
 
 ```rust
-pub const CHANNEL_APPROVE: Rpc<(), ()> = Rpc::new("ChannelApprove");
-pub const CHANNEL_MOVE: Rpc<MoveMessage, ()> = Rpc::new("ChannelMove");
+pub const APPROVE_CHANNEL: Rpc<(), ()> = Rpc::new("ApproveChannel");
+pub const MOVE_CHANNEL_MESSAGE: Rpc<MoveMessage, ()> = Rpc::new("MoveChannelMessage");
 
 static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
 pub static QUEUED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Queued"));
@@ -391,9 +391,9 @@ impl Flow for ChannelFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .procedure_without_input(CHANNEL_APPROVE, Self::approve)
+            .procedure_without_input(APPROVE_CHANNEL, Self::approve)
             .procedure(
-                CHANNEL_MOVE.is_transactional().load_channel(&QUEUED),
+                MOVE_CHANNEL_MESSAGE.is_transactional().load_channel(&QUEUED),
                 Self::move_message,
             )
     }

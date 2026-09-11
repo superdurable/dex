@@ -45,7 +45,7 @@ test("channel message can be moved by ID", async () => {
   await environment.client.invokeRPC(environment.channelFlow.enqueue, flowId, "move me");
 
   const pending = await environment.client.invokeRPC(
-    environment.channelFlow.queuedMessages,
+    environment.channelFlow.getQueuedMessages,
     flowId,
   );
   assert.deepEqual(pending.map((message) => message.value), ["delete me", "move me"]);
@@ -58,7 +58,7 @@ test("channel message can be moved by ID", async () => {
   const move = { messageId: pending[1]!.messageId };
   await environment.client.invokeRPC(environment.channelFlow.move, flowId, move);
   assert.deepEqual(
-    (await environment.client.invokeRPC(environment.channelFlow.movedMessages, flowId)).map(
+    (await environment.client.invokeRPC(environment.channelFlow.getMovedMessages, flowId)).map(
       (message) => message.value,
     ),
     ["move me"],
@@ -69,7 +69,7 @@ test("channel message can be moved by ID", async () => {
     ChannelMessageNotFoundError,
   );
   assert.deepEqual(
-    (await environment.client.invokeRPC(environment.channelFlow.movedMessages, flowId)).map(
+    (await environment.client.invokeRPC(environment.channelFlow.getMovedMessages, flowId)).map(
       (message) => message.value,
     ),
     ["move me"],

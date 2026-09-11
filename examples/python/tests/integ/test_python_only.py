@@ -58,7 +58,7 @@ async def test_channel_pending_messages_can_be_deleted_and_moved(
     await client.invoke_rpc(app.channel.enqueue, flow_id, "delete me")
     await client.invoke_rpc(app.channel.enqueue, flow_id, "move me")
 
-    pending = await client.invoke_rpc(app.channel.queued_messages, flow_id)
+    pending = await client.invoke_rpc(app.channel.get_queued_messages, flow_id)
     assert [message.value for message in pending] == ["delete me", "move me"]
 
     await client.invoke_rpc(
@@ -69,13 +69,13 @@ async def test_channel_pending_messages_can_be_deleted_and_moved(
     move_message = MoveMessage(pending[1].message_id)
     await client.invoke_rpc(app.channel.move, flow_id, move_message)
 
-    assert not await client.invoke_rpc(app.channel.queued_messages, flow_id)
-    moved = await client.invoke_rpc(app.channel.moved_messages, flow_id)
+    assert not await client.invoke_rpc(app.channel.get_queued_messages, flow_id)
+    moved = await client.invoke_rpc(app.channel.get_moved_messages, flow_id)
     assert [message.value for message in moved] == ["move me"]
 
     with pytest.raises(ChannelMessageNotFoundError):
         await client.invoke_rpc(app.channel.move, flow_id, move_message)
-    moved_after_failure = await client.invoke_rpc(app.channel.moved_messages, flow_id)
+    moved_after_failure = await client.invoke_rpc(app.channel.get_moved_messages, flow_id)
     assert [message.value for message in moved_after_failure] == ["move me"]
 
     await client.invoke_rpc(app.channel.approve, flow_id)
@@ -191,7 +191,7 @@ async def test_ai_agent_conversation_and_durable_wait(
 
     async def has_reply() -> bool:
         history = await client.invoke_rpc(
-            app.ai_agent.history,
+            app.ai_agent.get_history,
             flow_id,
             HistoryRequest(limit=10),
         )
@@ -206,7 +206,7 @@ async def test_ai_agent_conversation_and_durable_wait(
 
     async def timer_completed() -> bool:
         history = await client.invoke_rpc(
-            app.ai_agent.history,
+            app.ai_agent.get_history,
             flow_id,
             HistoryRequest(limit=20),
         )

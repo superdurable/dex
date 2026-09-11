@@ -22,7 +22,7 @@ use dex_sdk::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const INTERRUPTIBLE_INTERRUPT: Rpc<(), ()> = Rpc::new("InterruptibleInterrupt");
+pub const INTERRUPT_EXECUTION: Rpc<(), ()> = Rpc::new("InterruptExecution");
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct WorkJobParametersInput {
@@ -57,7 +57,7 @@ impl Flow for InterruptibleFlow {
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure_without_input(INTERRUPTIBLE_INTERRUPT, Self::interrupt)
+        RpcList::new().procedure_without_input(INTERRUPT_EXECUTION, Self::interrupt)
     }
 }
 

@@ -57,7 +57,7 @@ public class SubscriptionIntegTest {
         final SubscriptionFlow stub =
                 environment.client().newRpcStub(SubscriptionFlow.class, flowId);
         environment.awaitCondition(
-                () -> environment.client().invokeRPC(stub::customer),
+                () -> environment.client().invokeRPC(stub::getCustomer),
                 details -> details != null
                         && flowId.equals(details.id)
                         && details.subscription != null

@@ -71,7 +71,7 @@ public final class ChannelController {
     public ResponseEntity<List<ChannelFlow.PendingMessage>> messages(
             @RequestParam final String workflowId) {
         final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
-        return ResponseEntity.ok(client.invokeRPC(stub::queuedMessages).messages);
+        return ResponseEntity.ok(client.invokeRPC(stub::getQueuedMessages).messages);
     }
 
     @GetMapping("/delete")

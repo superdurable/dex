@@ -355,7 +355,7 @@ class UpdateLinkedInPosting implements Step<void> {
 <SdkSnippet lang="rust">
 
 ```rust
-pub const JOB_POST_UPDATE: Rpc<JobPost, i32> = Rpc::new("JobPostUpdate");
+pub const UPDATE_JOB_POST: Rpc<JobPost, i32> = Rpc::new("UpdateJobPost");
 
 #[derive(Default)]
 pub struct JobPostingFlow {
@@ -395,7 +395,7 @@ impl Flow for JobPostingFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new().function(
-            JOB_POST_UPDATE.lock(UPDATE_POSTING_LOCK.lock()),
+            UPDATE_JOB_POST.lock(UPDATE_POSTING_LOCK.lock()),
             Self::update,
         )
     }

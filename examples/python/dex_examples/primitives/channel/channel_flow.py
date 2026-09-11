@@ -96,7 +96,7 @@ class ChannelFlow(Flow[int]):
         self.queued.publish(context, input)
 
     @rpc(load_channels=(queued,))
-    def queued_messages(
+    def get_queued_messages(
         self, context: Context
     ) -> RPCResult[list[PendingMessage]]:
         return RPCResult(
@@ -109,7 +109,7 @@ class ChannelFlow(Flow[int]):
         self.queued.delete(context, input.message_id)
 
     @rpc(load_channels=(moved,))
-    def moved_messages(
+    def get_moved_messages(
         self, context: Context
     ) -> RPCResult[list[PendingMessage]]:
         return RPCResult(

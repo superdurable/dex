@@ -21,7 +21,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::patterns::drain_channels::flow::{
-    DrainInternalChannelFlow, DrainingExternalChannelFlow, EXAMPLE_RPC,
+    DrainInternalChannelFlow, DrainingExternalChannelFlow, PUBLISH_EXTERNAL_CHANNEL_MESSAGE,
 };
 use crate::server::helpers::{
     SharedClient, is_missing_or_inactive, map_sdk_error, new_flow_id, ok_text, run_blocking,
@@ -77,7 +77,7 @@ async fn start_or_publish(
         let flow = DrainingExternalChannelFlow::default();
         match client.invoke_rpc(
             &flow_id,
-            EXAMPLE_RPC,
+            PUBLISH_EXTERNAL_CHANNEL_MESSAGE,
             "message from start-or-publish endpoint".to_string(),
         ) {
             Ok(_) => Ok("Published to the Flow".to_string()),

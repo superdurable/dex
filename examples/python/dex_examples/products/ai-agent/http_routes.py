@@ -217,7 +217,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         flow_id = required_query("workflowId")
         try:
             agent_snapshot = await app_state.client.invoke_rpc(
-                app_state.ai_agent.snapshot,
+                app_state.ai_agent.get_snapshot,
                 flow_id,
             )
         except FlowNotActiveError:

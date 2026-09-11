@@ -42,8 +42,8 @@ def test_channel_flow_registers_its_channel_and_rpc() -> None:
         "delete_queued",
         "enqueue",
         "move",
-        "moved_messages",
-        "queued_messages",
+        "get_moved_messages",
+        "get_queued_messages",
     }
     assert registered.rpcs["move"].options.is_transactional
     assert flow.approval.name == ChannelFlow.approval.name

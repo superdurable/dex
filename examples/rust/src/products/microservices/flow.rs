@@ -35,8 +35,8 @@ use dex_sdk::{
     Step, StepDecision, StepList, StepMovement, Timer, Wait,
 };
 
-pub const ORCHESTRATION_SWAP: Rpc<String, String> = Rpc::new("OrchestrationSwap");
-pub const ORCHESTRATION_READY: Rpc<(), ()> = Rpc::new("OrchestrationReady");
+pub const SWAP_ORCHESTRATION_DATA: Rpc<String, String> = Rpc::new("SwapOrchestrationData");
+pub const SIGNAL_ORCHESTRATION_READY: Rpc<(), ()> = Rpc::new("SignalOrchestrationReady");
 pub static DATA: LazyLock<Attribute<String>> =
     LazyLock::new(|| Attribute::new("orchestration-data"));
 pub static READY: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("orchestration-ready"));
@@ -56,7 +56,7 @@ impl OrchestrationFlow {
         Ok(RpcResult::new(previous))
     }
 
-    fn ready(&self, context: &mut Context) -> HandlerResult<()> {
+    fn signal_ready(&self, context: &mut Context) -> HandlerResult<()> {
         READY.publish(context, ())
     }
 }
@@ -77,8 +77,8 @@ impl Flow for OrchestrationFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function(ORCHESTRATION_SWAP, Self::swap)
-            .procedure_without_input(ORCHESTRATION_READY, Self::ready)
+            .function(SWAP_ORCHESTRATION_DATA, Self::swap)
+            .procedure_without_input(SIGNAL_ORCHESTRATION_READY, Self::signal_ready)
     }
 }
 

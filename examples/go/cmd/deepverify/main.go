@@ -988,7 +988,7 @@ func verifyDrainingChannel(ctx context.Context, client *dex.Client, stamp string
 	if err := client.InvokeRPC(
 		ctx,
 		flowID,
-		registry.DrainExternal.ExampleRPC,
+		registry.DrainExternal.PublishExternalChannelMessage,
 		"second message",
 		&output,
 		dex.InvokeOptions{},

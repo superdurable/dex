@@ -20,7 +20,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::interruptible::flow::{INTERRUPTIBLE_INTERRUPT, InterruptibleFlow};
+use crate::patterns::interruptible::flow::{INTERRUPT_EXECUTION, InterruptibleFlow};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
 };
@@ -63,7 +63,7 @@ async fn cancel(
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, INTERRUPTIBLE_INTERRUPT)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, INTERRUPT_EXECUTION)) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }

@@ -358,9 +358,9 @@ impl Flow for UserOnboardingFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function_without_input(ONBOARDING_VERIFY, Self::verify)
-            .function_without_input(ONBOARDING_TASK_1, Self::accomplish_task_1)
-            .function_without_input(ONBOARDING_TASK_2, Self::accomplish_task_2)
+            .function_without_input(VERIFY_ONBOARDING, Self::verify)
+            .function_without_input(ACCOMPLISH_ONBOARDING_TASK_1, Self::accomplish_task_1)
+            .function_without_input(ACCOMPLISH_ONBOARDING_TASK_2, Self::accomplish_task_2)
     }
 }
 ```

@@ -79,7 +79,7 @@ public class SubscriptionFlow implements Flow<Customer> {
     }
 
     @RPC
-    public RPCResult<Customer> customer(final Context context) {
+    public RPCResult<Customer> getCustomer(final Context context) {
         return RPCResult.of(customerDetails.get(context));
     }
 

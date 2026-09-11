@@ -46,7 +46,7 @@ export function createChannelRouter(client: Client): Router {
 
   router.get("/messages", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
-    response.json(await client.invokeRPC(channelFlow.queuedMessages, workflowId));
+    response.json(await client.invokeRPC(channelFlow.getQueuedMessages, workflowId));
   });
 
   router.get("/delete", async (request, response) => {

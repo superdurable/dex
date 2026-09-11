@@ -43,10 +43,10 @@
       }
     },
     {
-      "id": "decision-dispatch:rpc:history",
+      "id": "decision-dispatch:rpc:get_history",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "rpc:history",
+      "parentId": "rpc:get_history",
       "phase": "rpc",
       "span": {
         "startLine": 1325,
@@ -274,10 +274,10 @@
       }
     },
     {
-      "id": "decision:rpc:history:1328:20",
+      "id": "decision:rpc:get_history:1328:20",
       "kind": "decision",
       "name": "rpcResult",
-      "parentId": "rpc:history",
+      "parentId": "rpc:get_history",
       "condition": "state is None",
       "phase": "rpc",
       "span": {
@@ -291,10 +291,10 @@
       }
     },
     {
-      "id": "decision:rpc:history:1340:16",
+      "id": "decision:rpc:get_history:1340:16",
       "kind": "decision",
       "name": "rpcResult",
-      "parentId": "rpc:history",
+      "parentId": "rpc:get_history",
       "condition": "not (state is None)",
       "phase": "rpc",
       "span": {
@@ -302,6 +302,22 @@
         "startColumn": 16,
         "endLine": 1340,
         "endColumn": 61
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:get_snapshot:1362:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:get_snapshot",
+      "phase": "rpc",
+      "span": {
+        "startLine": 1362,
+        "startColumn": 16,
+        "endLine": 1376,
+        "endColumn": 10
       },
       "decision": {
         "type": "rpcResult"
@@ -336,22 +352,6 @@
         "startColumn": 16,
         "endLine": 1237,
         "endColumn": 31
-      },
-      "decision": {
-        "type": "rpcResult"
-      }
-    },
-    {
-      "id": "decision:rpc:snapshot:1362:16",
-      "kind": "decision",
-      "name": "rpcResult",
-      "parentId": "rpc:snapshot",
-      "phase": "rpc",
-      "span": {
-        "startLine": 1362,
-        "startColumn": 16,
-        "endLine": 1376,
-        "endColumn": 10
       },
       "decision": {
         "type": "rpcResult"
@@ -1344,14 +1344,25 @@
       }
     },
     {
-      "id": "rpc:history",
+      "id": "rpc:get_history",
       "kind": "rpc",
-      "name": "history",
+      "name": "get_history",
       "span": {
         "startLine": 1325,
         "startColumn": 5,
         "endLine": 1340,
         "endColumn": 61
+      }
+    },
+    {
+      "id": "rpc:get_snapshot",
+      "kind": "rpc",
+      "name": "get_snapshot",
+      "span": {
+        "startLine": 1350,
+        "startColumn": 5,
+        "endLine": 1376,
+        "endColumn": 10
       }
     },
     {
@@ -1363,17 +1374,6 @@
         "startColumn": 5,
         "endLine": 1237,
         "endColumn": 31
-      }
-    },
-    {
-      "id": "rpc:snapshot",
-      "kind": "rpc",
-      "name": "snapshot",
-      "span": {
-        "startLine": 1350,
-        "startColumn": 5,
-        "endLine": 1376,
-        "endColumn": 10
       }
     },
     {
@@ -2332,7 +2332,7 @@
       "id": "edge:0046",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.messages",
-      "to": "rpc:history",
+      "to": "rpc:get_history",
       "label": "get",
       "span": {
         "startLine": 1337,
@@ -2348,7 +2348,7 @@
       "id": "edge:0047",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.messages",
-      "to": "rpc:snapshot",
+      "to": "rpc:get_snapshot",
       "label": "get",
       "span": {
         "startLine": 1358,
@@ -2428,7 +2428,7 @@
       "id": "edge:0052",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.state",
-      "to": "rpc:history",
+      "to": "rpc:get_history",
       "label": "get",
       "span": {
         "startLine": 1326,
@@ -2444,7 +2444,7 @@
       "id": "edge:0053",
       "kind": "resource_read",
       "from": "resource:attribute:AIAgentFlow.state",
-      "to": "rpc:snapshot",
+      "to": "rpc:get_snapshot",
       "label": "get",
       "span": {
         "startLine": 1351,
@@ -2585,7 +2585,7 @@
       "id": "edge:0062",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.queued_user_messages",
-      "to": "rpc:snapshot",
+      "to": "rpc:get_snapshot",
       "label": "pending_messages",
       "span": {
         "startLine": 1369,
@@ -2691,7 +2691,7 @@
       "id": "edge:0069",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.steered_user_messages",
-      "to": "rpc:snapshot",
+      "to": "rpc:get_snapshot",
       "label": "pending_messages",
       "span": {
         "startLine": 1373,

@@ -25,8 +25,8 @@ use std::time::Duration;
 use dex_sdk::AttributeMatch;
 
 use crate::products::engagement::flow::{
-    EMPLOYER_ID, ENGAGEMENT_ACCEPT, ENGAGEMENT_DECLINE, ENGAGEMENT_DESCRIBE, ENGAGEMENT_OPT_OUT,
-    EngagementFlow, EngagementRequest,
+    ACCEPT_ENGAGEMENT, DECLINE_ENGAGEMENT, DESCRIBE_ENGAGEMENT, EMPLOYER_ID, EngagementFlow,
+    EngagementRequest, OPT_OUT_ENGAGEMENT,
 };
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
@@ -85,7 +85,7 @@ async fn describe(
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, ENGAGEMENT_DESCRIBE)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, DESCRIBE_ENGAGEMENT)) {
         Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -96,7 +96,7 @@ async fn optout(
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, ENGAGEMENT_OPT_OUT)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, OPT_OUT_ENGAGEMENT)) {
         Ok(()) => ok_json(json!({})),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -108,7 +108,7 @@ async fn decline(
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
     let notes = query.notes;
-    match run_blocking(move || client.invoke_rpc(&flow_id, ENGAGEMENT_DECLINE, notes)) {
+    match run_blocking(move || client.invoke_rpc(&flow_id, DECLINE_ENGAGEMENT, notes)) {
         Ok(()) => ok_json(json!({})),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -120,7 +120,7 @@ async fn accept(
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
     let notes = query.notes;
-    match run_blocking(move || client.invoke_rpc(&flow_id, ENGAGEMENT_ACCEPT, notes)) {
+    match run_blocking(move || client.invoke_rpc(&flow_id, ACCEPT_ENGAGEMENT, notes)) {
         Ok(()) => ok_json(json!({})),
         Err(error) => map_sdk_error(error).into_response(),
     }

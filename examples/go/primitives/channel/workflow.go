@@ -106,7 +106,7 @@ func (*ChannelFlow) Enqueue(ctx dex.Context, value string) (*dex.RPCResult[dex.N
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-func (*ChannelFlow) QueuedMessages(
+func (*ChannelFlow) GetQueuedMessages(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[[]dex.ChannelMessage[string]], error) {
@@ -127,7 +127,7 @@ func (*ChannelFlow) DeleteQueued(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-func (*ChannelFlow) MovedMessages(
+func (*ChannelFlow) GetMovedMessages(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[[]dex.ChannelMessage[string]], error) {

@@ -87,7 +87,7 @@ func (*SubscriptionFlow) Describe(
 	return &dex.RPCResult[Subscription]{Output: customer.Subscription}, nil
 }
 
-func (*SubscriptionFlow) Customer(
+func (*SubscriptionFlow) GetCustomer(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[Customer], error) {

@@ -22,8 +22,8 @@ use dex_sdk::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const WAIT_TYPES_SIGNAL_A: Rpc<(), ()> = Rpc::new("WaitTypesSignalA");
-pub const WAIT_TYPES_SIGNAL_B: Rpc<(), ()> = Rpc::new("WaitTypesSignalB");
+pub const SIGNAL_A: Rpc<(), ()> = Rpc::new("SignalWaitTypeA");
+pub const SIGNAL_B: Rpc<(), ()> = Rpc::new("SignalWaitTypeB");
 
 static SIGNAL_A_CHANNEL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("SignalA"));
 
@@ -65,8 +65,8 @@ impl Flow for WaitTypesFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .procedure_without_input(WAIT_TYPES_SIGNAL_A, Self::signal_a)
-            .procedure_without_input(WAIT_TYPES_SIGNAL_B, Self::signal_b)
+            .procedure_without_input(SIGNAL_A, Self::signal_a)
+            .procedure_without_input(SIGNAL_B, Self::signal_b)
     }
 }
 

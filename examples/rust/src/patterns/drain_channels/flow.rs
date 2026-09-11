@@ -132,7 +132,8 @@ impl Step for Finalize {
     }
 }
 
-pub const EXAMPLE_RPC: Rpc<String, String> = Rpc::new("exampleRPC");
+pub const PUBLISH_EXTERNAL_CHANNEL_MESSAGE: Rpc<String, String> =
+    Rpc::new("PublishExternalChannelMessage");
 
 #[derive(Default)]
 pub struct DrainingExternalChannelFlow {
@@ -140,7 +141,7 @@ pub struct DrainingExternalChannelFlow {
 }
 
 impl DrainingExternalChannelFlow {
-    fn example_rpc(
+    fn publish_external_channel_message(
         &self,
         context: &mut Context,
         input: String,
@@ -162,7 +163,10 @@ impl Flow for DrainingExternalChannelFlow {
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().function(EXAMPLE_RPC, Self::example_rpc)
+        RpcList::new().function(
+            PUBLISH_EXTERNAL_CHANNEL_MESSAGE,
+            Self::publish_external_channel_message,
+        )
     }
 }
 

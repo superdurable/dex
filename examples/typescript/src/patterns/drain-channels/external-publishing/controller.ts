@@ -30,7 +30,7 @@ export function createDrainingChannelRouter(client: Client): Router {
     let message: string;
     try {
       await client.invokeRPC(
-        drainingExternalChannelFlow.exampleRPC,
+        drainingExternalChannelFlow.publishExternalChannelMessage,
         workflowId,
         "message from start-or-publish endpoint",
       );

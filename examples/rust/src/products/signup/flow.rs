@@ -35,9 +35,9 @@ use dex_sdk::{
     Step, StepDecision, StepList, Timer, Wait,
 };
 
-pub const ONBOARDING_VERIFY: Rpc<(), String> = Rpc::new("OnboardingVerify");
-pub const ONBOARDING_TASK_1: Rpc<(), String> = Rpc::new("OnboardingTask1");
-pub const ONBOARDING_TASK_2: Rpc<(), String> = Rpc::new("OnboardingTask2");
+pub const VERIFY_ONBOARDING: Rpc<(), String> = Rpc::new("VerifyOnboarding");
+pub const ACCOMPLISH_ONBOARDING_TASK_1: Rpc<(), String> = Rpc::new("AccomplishOnboardingTask1");
+pub const ACCOMPLISH_ONBOARDING_TASK_2: Rpc<(), String> = Rpc::new("AccomplishOnboardingTask2");
 
 pub const WAITING_FOR_VERIFICATION: &str = "waiting_for_verification";
 pub const WAITING_FOR_TASK_1: &str = "waiting_for_task_1";
@@ -98,9 +98,9 @@ impl Flow for UserOnboardingFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function_without_input(ONBOARDING_VERIFY, Self::verify)
-            .function_without_input(ONBOARDING_TASK_1, Self::accomplish_task_1)
-            .function_without_input(ONBOARDING_TASK_2, Self::accomplish_task_2)
+            .function_without_input(VERIFY_ONBOARDING, Self::verify)
+            .function_without_input(ACCOMPLISH_ONBOARDING_TASK_1, Self::accomplish_task_1)
+            .function_without_input(ACCOMPLISH_ONBOARDING_TASK_2, Self::accomplish_task_2)
     }
 }
 

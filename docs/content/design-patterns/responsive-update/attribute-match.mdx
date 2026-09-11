@@ -150,7 +150,7 @@ public update(context: Context, input: JobInfo): RPCResult<number> {
 
 ```rust
 RpcList::new().function(
-    JOB_POST_UPDATE.lock(UPDATE_POSTING_LOCK.lock()),
+    UPDATE_JOB_POST.lock(UPDATE_POSTING_LOCK.lock()),
     Self::update,
 )
 
@@ -250,7 +250,7 @@ let revision = client.wait_for_attribute_match(
     AttributeMatch::greater_than(query.last_revision),
     Duration::from_secs(30),
 )?;
-let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, JOB_POST_READ)?;
+let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, GET_JOB_POST)?;
 ```
 
 </SdkSnippet>

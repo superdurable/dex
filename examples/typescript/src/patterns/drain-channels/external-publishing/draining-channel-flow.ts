@@ -95,7 +95,7 @@ export class DrainingExternalChannelFlow implements Flow<string | undefined> {
   }
 
   @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
-  public exampleRPC(context: Context, input: string): RPCResult<string> {
+  public publishExternalChannelMessage(context: Context, input: string): RPCResult<string> {
     queueChannel.publish(context, input);
     return { output: input };
   }

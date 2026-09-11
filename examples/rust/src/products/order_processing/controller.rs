@@ -25,7 +25,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::products::order_processing::flow::{
-    Charge, ORDER_APPROVE, ORDER_DESCRIBE, OrderProcessingFlow, OrderRequest,
+    APPROVE_ORDER, Charge, DESCRIBE_ORDER, OrderProcessingFlow, OrderRequest,
 };
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
@@ -92,7 +92,7 @@ async fn approve(
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
     let notes = query.notes;
-    match run_blocking(move || state.client.invoke_rpc(&flow_id, ORDER_APPROVE, notes)) {
+    match run_blocking(move || state.client.invoke_rpc(&flow_id, APPROVE_ORDER, notes)) {
         Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -106,7 +106,7 @@ async fn describe(
     match run_blocking(move || {
         state
             .client
-            .invoke_rpc_without_input(&flow_id, ORDER_DESCRIBE)
+            .invoke_rpc_without_input(&flow_id, DESCRIBE_ORDER)
             .map(|status| json!({ "flowID": flow_id, "status": status }))
     }) {
         Ok(value) => ok_json(value),

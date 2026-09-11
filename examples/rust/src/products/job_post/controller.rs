@@ -23,7 +23,7 @@ use serde_json::json;
 use std::time::Duration;
 
 use crate::products::job_post::flow::{
-    JOB_POST_READ, JOB_POST_UPDATE, JobPost, JobPostingFlow, UPDATE_VERSION,
+    GET_JOB_POST, JobPost, JobPostingFlow, UPDATE_JOB_POST, UPDATE_VERSION,
 };
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
@@ -145,7 +145,7 @@ async fn read(
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, JOB_POST_READ)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, GET_JOB_POST)) {
         Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -167,7 +167,7 @@ async fn update(
         notes,
         deleted: false,
     };
-    match run_blocking(move || client.invoke_rpc(&flow_id, JOB_POST_UPDATE, replacement)) {
+    match run_blocking(move || client.invoke_rpc(&flow_id, UPDATE_JOB_POST, replacement)) {
         Ok(_) => ok_json(json!({ "updated": true })),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -185,7 +185,7 @@ async fn wait_for_update(
             AttributeMatch::greater_than(query.last_revision),
             Duration::from_secs(30),
         )?;
-        let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, JOB_POST_READ)?;
+        let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, GET_JOB_POST)?;
         Ok(json!({ "revision": revision, "jobInfo": job_info }))
     }) {
         Ok(value) => ok_json(value),

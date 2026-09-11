@@ -51,7 +51,8 @@ public class DrainingExternalChannelFlow implements Flow<String> {
     }
 
     @RPC
-    public RPCResult<String> exampleRPC(final Context context, final String input) {
+    public RPCResult<String> publishExternalChannelMessage(
+            final Context context, final String input) {
         queueChannel.publish(context, input);
         return RPCResult.of(input);
     }

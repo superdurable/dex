@@ -22,8 +22,8 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::products::subscription::flow::{
-    SUBSCRIPTION_CANCEL, SUBSCRIPTION_DESCRIBE, SUBSCRIPTION_UPDATE_CHARGE, SubscriptionFlow,
-    SubscriptionRequest,
+    CANCEL_SUBSCRIPTION, DESCRIBE_SUBSCRIPTION, SubscriptionFlow, SubscriptionRequest,
+    UPDATE_SUBSCRIPTION_CHARGE,
 };
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
@@ -91,7 +91,7 @@ async fn cancel(
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, SUBSCRIPTION_CANCEL)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, CANCEL_SUBSCRIPTION)) {
         Ok(()) => ok_json(json!({})),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -103,7 +103,7 @@ async fn update_charge(
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
     let amount = query.new_charge_amount;
-    match run_blocking(move || client.invoke_rpc(&flow_id, SUBSCRIPTION_UPDATE_CHARGE, amount)) {
+    match run_blocking(move || client.invoke_rpc(&flow_id, UPDATE_SUBSCRIPTION_CHARGE, amount)) {
         Ok(()) => ok_json(json!({})),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -114,7 +114,7 @@ async fn describe(
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, SUBSCRIPTION_DESCRIBE)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, DESCRIBE_SUBSCRIPTION)) {
         Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),
     }

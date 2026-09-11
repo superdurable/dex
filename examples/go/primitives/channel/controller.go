@@ -120,7 +120,7 @@ func (controller *controller) messages(request *gin.Context) {
 	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
-		controller.flow.QueuedMessages,
+		controller.flow.GetQueuedMessages,
 		nil,
 		&messages,
 		sdk.InvokeOptions{LoadChannels: []sdk.ChannelDef{Queued}},

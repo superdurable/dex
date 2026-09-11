@@ -140,7 +140,7 @@ function partition(request: string, partitions: number): number {
 
 ```rust
 fn enqueue_request(client: &Client, parent_id: &str, request: String) -> HandlerResult<bool> {
-    match client.invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, request.clone()) {
+    match client.invoke_rpc(parent_id, SEND_SHORT_LIVE_REQUEST, request.clone()) {
         Ok(accepted) => Ok(accepted),
         Err(SdkError::FlowNotFound { .. } | SdkError::FlowNotActive { .. }) => {
             let parent = AdvancedShortLiveParentFlow::default();

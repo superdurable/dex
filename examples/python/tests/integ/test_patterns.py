@@ -106,7 +106,7 @@ async def test_draining_channel_for_external_publishing(
     )
     assert run_id
     await client.invoke_rpc(
-        app.drain_external.example_rpc,
+        app.drain_external.publish_external_channel_message,
         flow_id,
         "message from test",
     )

@@ -379,10 +379,10 @@ impl Flow for EngagementFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function_without_input(ENGAGEMENT_DESCRIBE, Self::describe)
-            .procedure(ENGAGEMENT_ACCEPT, Self::accept)
-            .procedure(ENGAGEMENT_DECLINE, Self::decline)
-            .procedure_without_input(ENGAGEMENT_OPT_OUT, Self::opt_out)
+            .function_without_input(DESCRIBE_ENGAGEMENT, Self::describe)
+            .procedure(ACCEPT_ENGAGEMENT, Self::accept)
+            .procedure(DECLINE_ENGAGEMENT, Self::decline)
+            .procedure_without_input(OPT_OUT_ENGAGEMENT, Self::opt_out)
     }
 }
 ```

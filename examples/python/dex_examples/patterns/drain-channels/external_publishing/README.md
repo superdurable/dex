@@ -34,4 +34,4 @@ looks empty" and "flow closes".
 ## Usage
 
 Start the flow with a first message, then publish more values to
-`queueChannel` through the Flow's `example_rpc` RPC.
+`queueChannel` through the Flow's `publish_external_channel_message` RPC.

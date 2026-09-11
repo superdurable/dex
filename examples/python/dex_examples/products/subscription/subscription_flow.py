@@ -217,7 +217,7 @@ class SubscriptionFlow(Flow[Customer]):
         return RPCResult(self.customer_details.get(context).subscription)
 
     @rpc
-    def customer(self, context: Context) -> RPCResult[Customer]:
+    def get_customer(self, context: Context) -> RPCResult[Customer]:
         return RPCResult(self.customer_details.get(context))
 
     @rpc

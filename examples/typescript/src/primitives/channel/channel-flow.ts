@@ -108,7 +108,7 @@ export class ChannelFlow implements Flow<number> {
   }
 
   @rpc({ loadChannels: [queued], outputCodec: pendingMessagesCodec })
-  public queuedMessages(context: Context): RPCResult<readonly PendingMessage[]> {
+  public getQueuedMessages(context: Context): RPCResult<readonly PendingMessage[]> {
     return { output: queued.pendingMessages(context) };
   }
 
@@ -118,7 +118,7 @@ export class ChannelFlow implements Flow<number> {
   }
 
   @rpc({ loadChannels: [moved], outputCodec: pendingMessagesCodec })
-  public movedMessages(context: Context): RPCResult<readonly PendingMessage[]> {
+  public getMovedMessages(context: Context): RPCResult<readonly PendingMessage[]> {
     return { output: moved.pendingMessages(context) };
   }
 

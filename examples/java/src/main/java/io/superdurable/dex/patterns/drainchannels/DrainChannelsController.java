@@ -60,7 +60,9 @@ public class DrainChannelsController {
             final DrainingExternalChannelFlow stub = client.newRpcStub(
                     DrainingExternalChannelFlow.class,
                     workflowId);
-            client.invokeRPC(stub::exampleRPC, "message from start-or-publish endpoint");
+            client.invokeRPC(
+                    stub::publishExternalChannelMessage,
+                    "message from start-or-publish endpoint");
             response = "Published to the Flow";
         } catch (final FlowNotActiveException inactive) {
             final String runId = client.startFlow(

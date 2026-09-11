@@ -30,22 +30,6 @@
       }
     },
     {
-      "id": "decision:rpc:customer:221:16",
-      "kind": "decision",
-      "name": "rpcResult",
-      "parentId": "rpc:customer",
-      "phase": "rpc",
-      "span": {
-        "startLine": 221,
-        "startColumn": 16,
-        "endLine": 221,
-        "endColumn": 61
-      },
-      "decision": {
-        "type": "rpcResult"
-      }
-    },
-    {
       "id": "decision:rpc:describe:217:16",
       "kind": "decision",
       "name": "rpcResult",
@@ -56,6 +40,22 @@
         "startColumn": 16,
         "endLine": 217,
         "endColumn": 74
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:get_customer:221:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:get_customer",
+      "phase": "rpc",
+      "span": {
+        "startLine": 221,
+        "startColumn": 16,
+        "endLine": 221,
+        "endColumn": 61
       },
       "decision": {
         "type": "rpcResult"
@@ -227,17 +227,6 @@
       }
     },
     {
-      "id": "rpc:customer",
-      "kind": "rpc",
-      "name": "customer",
-      "span": {
-        "startLine": 220,
-        "startColumn": 5,
-        "endLine": 221,
-        "endColumn": 61
-      }
-    },
-    {
       "id": "rpc:describe",
       "kind": "rpc",
       "name": "describe",
@@ -246,6 +235,17 @@
         "startColumn": 5,
         "endLine": 217,
         "endColumn": 74
+      }
+    },
+    {
+      "id": "rpc:get_customer",
+      "kind": "rpc",
+      "name": "get_customer",
+      "span": {
+        "startLine": 220,
+        "startColumn": 5,
+        "endLine": 221,
+        "endColumn": 61
       }
     },
     {
@@ -568,12 +568,12 @@
       "id": "edge:0008",
       "kind": "resource_read",
       "from": "resource:attribute:SubscriptionFlow.customer_details",
-      "to": "rpc:customer",
+      "to": "rpc:describe",
       "label": "get",
       "span": {
-        "startLine": 221,
+        "startLine": 217,
         "startColumn": 26,
-        "endLine": 221,
+        "endLine": 217,
         "endColumn": 60
       },
       "metadata": {
@@ -584,12 +584,12 @@
       "id": "edge:0009",
       "kind": "resource_read",
       "from": "resource:attribute:SubscriptionFlow.customer_details",
-      "to": "rpc:describe",
+      "to": "rpc:get_customer",
       "label": "get",
       "span": {
-        "startLine": 217,
+        "startLine": 221,
         "startColumn": 26,
-        "endLine": 217,
+        "endLine": 221,
         "endColumn": 60
       },
       "metadata": {

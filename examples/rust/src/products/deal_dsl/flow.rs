@@ -69,8 +69,8 @@ pub struct ConditionMessage {
     pub values: BTreeMap<String, String>,
 }
 
-pub const DEAL_SEND_CONDITION_MESSAGE: Rpc<ConditionMessage, ()> =
-    Rpc::new("DealSendConditionMessage");
+pub const SEND_DEAL_CONDITION_MESSAGE: Rpc<ConditionMessage, ()> =
+    Rpc::new("SendDealConditionMessage");
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StateStepInput {
@@ -124,7 +124,7 @@ impl Flow for DealDSLFlow {
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure(DEAL_SEND_CONDITION_MESSAGE, Self::send_condition_message)
+        RpcList::new().procedure(SEND_DEAL_CONDITION_MESSAGE, Self::send_condition_message)
     }
 }
 

@@ -19,7 +19,7 @@ use dex_sdk::{
     PersistenceSchema, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, StepOptions, Wait,
 };
 
-const UPDATE_STATUS: Rpc<String, String> = Rpc::new("UpdateStatus");
+const UPDATE_STATUS: Rpc<String, String> = Rpc::new("UpdateAttributeStatus");
 
 static STATUS: LazyLock<Attribute<String>> = LazyLock::new(|| {
     Attribute::new("primitive-attribute-status")

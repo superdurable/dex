@@ -56,7 +56,7 @@ def create_channel_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/messages")
     async def messages() -> Response:
         pending = await app_state.client.invoke_rpc(
-            app_state.channel.queued_messages,
+            app_state.channel.get_queued_messages,
             required_query("workflowId"),
         )
         return jsonify(

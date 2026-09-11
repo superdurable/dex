@@ -127,7 +127,7 @@ func (*DealDSLFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	}
 }
 
-func (*DealDSLFlow) Snapshot(
+func (*DealDSLFlow) GetSnapshot(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[DealStateSnapshot], error) {

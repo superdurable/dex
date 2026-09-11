@@ -24,8 +24,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::shared::MyDependencyService;
 
-pub const ORDER_APPROVE: Rpc<String, String> = Rpc::new("OrderApprove");
-pub const ORDER_DESCRIBE: Rpc<(), String> = Rpc::new("OrderDescribe");
+pub const APPROVE_ORDER: Rpc<String, String> = Rpc::new("ApproveOrder");
+pub const DESCRIBE_ORDER: Rpc<(), String> = Rpc::new("DescribeOrder");
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct OrderRequest {
@@ -94,8 +94,8 @@ impl Flow for OrderProcessingFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function(ORDER_APPROVE, Self::approve)
-            .function_without_input(ORDER_DESCRIBE, Self::describe)
+            .function(APPROVE_ORDER, Self::approve)
+            .function_without_input(DESCRIBE_ORDER, Self::describe)
     }
 }
 

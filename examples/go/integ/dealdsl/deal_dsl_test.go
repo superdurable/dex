@@ -256,7 +256,7 @@ func assertProcessDefinitionSnapshot(
 	err := integClient.InvokeRPC(
 		integrationContext(t),
 		flowID,
-		dealDSLFlow.Snapshot,
+		dealDSLFlow.GetSnapshot,
 		nil,
 		&snapshot,
 		dex.InvokeOptions{},

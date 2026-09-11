@@ -11,21 +11,21 @@
     "span": {
       "startLine": 71,
       "startColumn": 1,
-      "endLine": 88,
+      "endLine": 90,
       "endColumn": 32
     }
   },
   "nodes": [
     {
-      "id": "decision:rpc:example_rpc:88:16",
+      "id": "decision:rpc:publish_external_channel_message:90:16",
       "kind": "decision",
       "name": "rpcResult",
-      "parentId": "rpc:example_rpc",
+      "parentId": "rpc:publish_external_channel_message",
       "phase": "rpc",
       "span": {
-        "startLine": 88,
+        "startLine": 90,
         "startColumn": 16,
-        "endLine": 88,
+        "endLine": 90,
         "endColumn": 32
       },
       "decision": {
@@ -66,13 +66,13 @@
       }
     },
     {
-      "id": "rpc:example_rpc",
+      "id": "rpc:publish_external_channel_message",
       "kind": "rpc",
-      "name": "example_rpc",
+      "name": "publish_external_channel_message",
       "span": {
         "startLine": 86,
         "startColumn": 5,
-        "endLine": 88,
+        "endLine": 90,
         "endColumn": 32
       }
     },
@@ -197,13 +197,13 @@
     {
       "id": "edge:0004",
       "kind": "resource_publish",
-      "from": "rpc:example_rpc",
+      "from": "rpc:publish_external_channel_message",
       "to": "resource:channel:DrainingExternalChannelFlow.queue_channel",
       "label": "publish",
       "span": {
-        "startLine": 87,
+        "startLine": 89,
         "startColumn": 9,
-        "endLine": 87,
+        "endLine": 89,
         "endColumn": 51
       },
       "metadata": {

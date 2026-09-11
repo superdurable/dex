@@ -39,9 +39,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::shared::MyDependencyService;
 
-pub const JOB_POST_READ: Rpc<(), JobPost> = Rpc::new("JobPostRead");
-pub const JOB_POST_UPDATE: Rpc<JobPost, i32> = Rpc::new("JobPostUpdate");
-pub const JOB_POST_DELETE: Rpc<String, ()> = Rpc::new("JobPostDelete");
+pub const GET_JOB_POST: Rpc<(), JobPost> = Rpc::new("GetJobPost");
+pub const UPDATE_JOB_POST: Rpc<JobPost, i32> = Rpc::new("UpdateJobPost");
+pub const DELETE_JOB_POST: Rpc<String, ()> = Rpc::new("DeleteJobPost");
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JobPost {
@@ -66,11 +66,15 @@ pub struct JobPostingFlow {
 }
 
 impl JobPostingFlow {
-    fn read(&self, context: &mut Context) -> HandlerResult<RpcResult<JobPost>> {
+    fn get_job_post(&self, context: &mut Context) -> HandlerResult<RpcResult<JobPost>> {
         Ok(RpcResult::new(POST.get_required(context)?))
     }
 
-    fn update(&self, context: &mut Context, replacement: JobPost) -> HandlerResult<RpcResult<i32>> {
+    fn update_job_post(
+        &self,
+        context: &mut Context,
+        replacement: JobPost,
+    ) -> HandlerResult<RpcResult<i32>> {
         let version = UPDATE_VERSION.get_required(context)? + 1;
         POST.set(context, replacement.clone())?;
         TITLE.set(context, replacement.title.clone())?;
@@ -86,7 +90,7 @@ impl JobPostingFlow {
         Ok(RpcResult::new(version))
     }
 
-    fn delete(&self, context: &mut Context, notes: String) -> HandlerResult<()> {
+    fn delete_job_post(&self, context: &mut Context, notes: String) -> HandlerResult<()> {
         let mut current = POST.get_required(context)?;
         current.deleted = true;
         current.notes = notes;
@@ -116,12 +120,12 @@ impl Flow for JobPostingFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function_without_input(JOB_POST_READ, Self::read)
+            .function_without_input(GET_JOB_POST, Self::get_job_post)
             .function(
-                JOB_POST_UPDATE.lock(UPDATE_POSTING_LOCK.lock()),
-                Self::update,
+                UPDATE_JOB_POST.lock(UPDATE_POSTING_LOCK.lock()),
+                Self::update_job_post,
             )
-            .procedure(JOB_POST_DELETE, Self::delete)
+            .procedure(DELETE_JOB_POST, Self::delete_job_post)
     }
 }
 

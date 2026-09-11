@@ -38,10 +38,10 @@ use dex_sdk::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const ENGAGEMENT_DESCRIBE: Rpc<(), EngagementStatus> = Rpc::new("EngagementDescribe");
-pub const ENGAGEMENT_ACCEPT: Rpc<String, ()> = Rpc::new("EngagementAccept");
-pub const ENGAGEMENT_DECLINE: Rpc<String, ()> = Rpc::new("EngagementDecline");
-pub const ENGAGEMENT_OPT_OUT: Rpc<(), ()> = Rpc::new("EngagementOptOut");
+pub const DESCRIBE_ENGAGEMENT: Rpc<(), EngagementStatus> = Rpc::new("DescribeEngagement");
+pub const ACCEPT_ENGAGEMENT: Rpc<String, ()> = Rpc::new("AcceptEngagement");
+pub const DECLINE_ENGAGEMENT: Rpc<String, ()> = Rpc::new("DeclineEngagement");
+pub const OPT_OUT_ENGAGEMENT: Rpc<(), ()> = Rpc::new("OptOutOfEngagement");
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EngagementRequest {
@@ -116,10 +116,10 @@ impl Flow for EngagementFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function_without_input(ENGAGEMENT_DESCRIBE, Self::describe)
-            .procedure(ENGAGEMENT_ACCEPT, Self::accept)
-            .procedure(ENGAGEMENT_DECLINE, Self::decline)
-            .procedure_without_input(ENGAGEMENT_OPT_OUT, Self::opt_out)
+            .function_without_input(DESCRIBE_ENGAGEMENT, Self::describe)
+            .procedure(ACCEPT_ENGAGEMENT, Self::accept)
+            .procedure(DECLINE_ENGAGEMENT, Self::decline)
+            .procedure_without_input(OPT_OUT_ENGAGEMENT, Self::opt_out)
     }
 }
 

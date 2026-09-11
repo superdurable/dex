@@ -21,7 +21,7 @@ use dex_sdk::{
     Step, StepDecision, StepList, StepMovement, Wait,
 };
 
-pub const RPC_TRIGGER: Rpc<String, String> = Rpc::new("RpcTrigger");
+pub const TRIGGER_RPC: Rpc<String, String> = Rpc::new("TriggerRPC");
 
 static EXAMPLE_CH: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("rpc-internal"));
 
@@ -58,7 +58,7 @@ impl Flow for RpcFlow {
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().function(RPC_TRIGGER.timeout(Duration::from_secs(30)), Self::trigger)
+        RpcList::new().function(TRIGGER_RPC.timeout(Duration::from_secs(30)), Self::trigger)
     }
 }
 

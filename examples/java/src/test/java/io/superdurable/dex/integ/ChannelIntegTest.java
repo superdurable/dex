@@ -39,7 +39,7 @@ public class ChannelIntegTest {
         environment.client().invokeRPC(stub::enqueue, "move me");
 
         final List<ChannelFlow.PendingMessage> pending =
-                environment.client().invokeRPC(stub::queuedMessages).messages;
+                environment.client().invokeRPC(stub::getQueuedMessages).messages;
         assertEquals(List.of("delete me", "move me"), pending.stream()
                 .map(message -> message.value)
                 .toList());
@@ -49,7 +49,7 @@ public class ChannelIntegTest {
 
         final ChannelFlow.MoveMessage move = new ChannelFlow.MoveMessage(pending.get(1).messageId);
         environment.client().invokeRPC(stub::move, move);
-        assertEquals(List.of("move me"), environment.client().invokeRPC(stub::movedMessages).messages
+        assertEquals(List.of("move me"), environment.client().invokeRPC(stub::getMovedMessages).messages
                 .stream()
                 .map(message -> message.value)
                 .toList());
@@ -57,7 +57,7 @@ public class ChannelIntegTest {
         assertThrows(
                 ChannelMessageNotFoundException.class,
                 () -> environment.client().invokeRPC(stub::move, move));
-        assertEquals(List.of("move me"), environment.client().invokeRPC(stub::movedMessages).messages
+        assertEquals(List.of("move me"), environment.client().invokeRPC(stub::getMovedMessages).messages
                 .stream()
                 .map(message -> message.value)
                 .toList());

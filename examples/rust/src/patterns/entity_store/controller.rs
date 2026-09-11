@@ -22,7 +22,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::patterns::entity_store::flow::{
-    USER_PROFILE_CLEAR, USER_PROFILE_READ, USER_PROFILE_UPDATE, UserProfile, UserProfileFlow,
+    CLEAR_USER_PROFILE, GET_USER_PROFILE, UPDATE_USER_PROFILE, UserProfile, UserProfileFlow,
     UserProfileMetadata,
 };
 use crate::server::helpers::{
@@ -122,7 +122,7 @@ async fn update_profile(
 ) -> impl IntoResponse {
     let user_id = request.user_id;
     let profile = request.profile;
-    match run_blocking(move || client.invoke_rpc(&user_id, USER_PROFILE_UPDATE, profile)) {
+    match run_blocking(move || client.invoke_rpc(&user_id, UPDATE_USER_PROFILE, profile)) {
         Ok(()) => ok_text("Updated user profile"),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -133,7 +133,7 @@ async fn get_profile(
     Query(query): Query<ProfileQuery>,
 ) -> impl IntoResponse {
     let user_id = query.user_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&user_id, USER_PROFILE_READ)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&user_id, GET_USER_PROFILE)) {
         Ok(profile) => ok_json(profile),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -144,7 +144,7 @@ async fn clear_profile(
     Query(query): Query<ProfileQuery>,
 ) -> impl IntoResponse {
     let user_id = query.user_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&user_id, USER_PROFILE_CLEAR)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&user_id, CLEAR_USER_PROFILE)) {
         Ok(()) => ok_text("Cleared user profile"),
         Err(error) => map_sdk_error(error).into_response(),
     }

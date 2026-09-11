@@ -22,9 +22,9 @@ use dex_sdk::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const USER_PROFILE_READ: Rpc<(), UserProfile> = Rpc::new("UserProfileRead");
-pub const USER_PROFILE_UPDATE: Rpc<UserProfile, ()> = Rpc::new("UserProfileUpdate");
-pub const USER_PROFILE_CLEAR: Rpc<(), ()> = Rpc::new("UserProfileClear");
+pub const GET_USER_PROFILE: Rpc<(), UserProfile> = Rpc::new("GetUserProfile");
+pub const UPDATE_USER_PROFILE: Rpc<UserProfile, ()> = Rpc::new("UpdateUserProfile");
+pub const CLEAR_USER_PROFILE: Rpc<(), ()> = Rpc::new("ClearUserProfile");
 
 pub const STORE_NAME: &str = "entityStore";
 
@@ -67,7 +67,7 @@ impl UserProfileFlow {
             .initial_attribute(&METADATA, profile.metadata.clone())
     }
 
-    fn read(&self, context: &mut Context) -> HandlerResult<RpcResult<UserProfile>> {
+    fn get_profile(&self, context: &mut Context) -> HandlerResult<RpcResult<UserProfile>> {
         Ok(RpcResult::new(UserProfile {
             display_name: DISPLAY_NAME.get_required(context)?,
             email: EMAIL.get_required(context)?,
@@ -121,9 +121,9 @@ impl Flow for UserProfileFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function_without_input(USER_PROFILE_READ, Self::read)
-            .procedure(USER_PROFILE_UPDATE, Self::update)
-            .procedure_without_input(USER_PROFILE_CLEAR, Self::clear)
+            .function_without_input(GET_USER_PROFILE, Self::get_profile)
+            .procedure(UPDATE_USER_PROFILE, Self::update)
+            .procedure_without_input(CLEAR_USER_PROFILE, Self::clear)
     }
 }
 

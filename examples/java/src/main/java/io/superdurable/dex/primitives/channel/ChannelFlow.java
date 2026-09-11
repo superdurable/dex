@@ -97,7 +97,7 @@ public class ChannelFlow implements Flow<Integer> {
     }
 
     @RPC(loadChannels = {"Queued"})
-    public RPCResult<PendingMessages> queuedMessages(final Context context) {
+    public RPCResult<PendingMessages> getQueuedMessages(final Context context) {
         return RPCResult.of(new PendingMessages(toPendingMessages(queued, context)));
     }
 
@@ -107,7 +107,7 @@ public class ChannelFlow implements Flow<Integer> {
     }
 
     @RPC(loadChannels = {"Moved"})
-    public RPCResult<PendingMessages> movedMessages(final Context context) {
+    public RPCResult<PendingMessages> getMovedMessages(final Context context) {
         return RPCResult.of(new PendingMessages(toPendingMessages(moved, context)));
     }
 

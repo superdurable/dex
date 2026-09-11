@@ -1322,7 +1322,7 @@ class AIAgentFlow(Flow[AgentConfig]):
         return RPCResult(True)
 
     @rpc(load_attribute_maps=(messages,))
-    def history(self, context: Context, input: HistoryRequest) -> RPCResult[HistoryPage]:
+    def get_history(self, context: Context, input: HistoryRequest) -> RPCResult[HistoryPage]:
         state = self.state.get(context)
         if state is None:
             return RPCResult(HistoryPage([], None))
@@ -1347,7 +1347,7 @@ class AIAgentFlow(Flow[AgentConfig]):
         load_attribute_maps=(messages,),
         load_channels=(queued_user_messages, steered_user_messages),
     )
-    def snapshot(self, context: Context) -> RPCResult[AgentSnapshot]:
+    def get_snapshot(self, context: Context) -> RPCResult[AgentSnapshot]:
         state = self.state.get(context)
         messages: list[SequencedMessage] = []
         if state is not None:

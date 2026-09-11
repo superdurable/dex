@@ -222,8 +222,8 @@ impl Step for WaitSubFlowsStep {
     }
 }
 
-pub const LONG_LIVE_SEND_REQUEST: Rpc<String, bool> = Rpc::new("SendRequest");
-pub const LONG_LIVE_STOP: Rpc<(), ()> = Rpc::new("Stop");
+pub const SEND_LONG_LIVE_REQUEST: Rpc<String, bool> = Rpc::new("SendLongLiveRequest");
+pub const STOP_LONG_LIVE_FLOW: Rpc<(), ()> = Rpc::new("StopLongLiveFlow");
 
 #[derive(Default)]
 pub struct AdvancedLongLiveParentFlow {
@@ -268,8 +268,8 @@ impl Flow for AdvancedLongLiveParentFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function(LONG_LIVE_SEND_REQUEST, Self::send_request)
-            .function_without_input(LONG_LIVE_STOP, Self::stop)
+            .function(SEND_LONG_LIVE_REQUEST, Self::send_request)
+            .function_without_input(STOP_LONG_LIVE_FLOW, Self::stop)
     }
 }
 
@@ -348,7 +348,7 @@ impl Step for LongLiveHandleSubFlowStep {
     }
 }
 
-pub const SHORT_LIVE_SEND_REQUEST: Rpc<String, bool> = Rpc::new("SendRequest");
+pub const SEND_SHORT_LIVE_REQUEST: Rpc<String, bool> = Rpc::new("SendShortLiveRequest");
 
 #[derive(Default)]
 pub struct AdvancedShortLiveParentFlow {
@@ -387,7 +387,7 @@ impl Flow for AdvancedShortLiveParentFlow {
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().function(SHORT_LIVE_SEND_REQUEST, Self::send_request)
+        RpcList::new().function(SEND_SHORT_LIVE_REQUEST, Self::send_request)
     }
 }
 
@@ -536,7 +536,7 @@ impl Step for SubmitStep {
 }
 
 fn enqueue_request(client: &Client, parent_id: &str, request: String) -> HandlerResult<bool> {
-    match client.invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, request.clone()) {
+    match client.invoke_rpc(parent_id, SEND_SHORT_LIVE_REQUEST, request.clone()) {
         Ok(accepted) => Ok(accepted),
         Err(SdkError::FlowNotFound { .. } | SdkError::FlowNotActive { .. }) => {
             let parent = AdvancedShortLiveParentFlow::default();

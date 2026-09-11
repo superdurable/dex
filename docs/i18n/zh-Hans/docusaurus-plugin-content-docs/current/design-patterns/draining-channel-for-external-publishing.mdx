@@ -74,7 +74,9 @@ class DrainingExternalChannelFlow(Flow[str]):
         return PersistenceSchema.of(self.queue_channel)
 
     @rpc
-    def example_rpc(self, context: Context, input: str) -> RPCResult[str]:
+    def publish_external_channel_message(
+        self, context: Context, input: str
+    ) -> RPCResult[str]:
         self.queue_channel.publish(context, input)
         return RPCResult(input)
 ```
@@ -107,7 +109,7 @@ func (*DrainingExternalChannelFlow) GetPersistenceSchema() dex.PersistenceSchema
 	}
 }
 
-func (*DrainingExternalChannelFlow) ExampleRPC(
+func (*DrainingExternalChannelFlow) PublishExternalChannelMessage(
 	ctx dex.Context,
 	input string,
 ) (*dex.RPCResult[string], error) {
@@ -177,7 +179,8 @@ public class DrainingExternalChannelFlow implements Flow<String> {
     }
 
     @RPC
-    public RPCResult<String> exampleRPC(final Context context, final String input) {
+    public RPCResult<String> publishExternalChannelMessage(
+            final Context context, final String input) {
         queueChannel.publish(context, input);
         return RPCResult.of(input);
     }
@@ -296,7 +299,7 @@ export class DrainingExternalChannelFlow implements Flow<string | undefined> {
   }
 
   @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
-  public exampleRPC(context: Context, input: string): RPCResult<string> {
+  public publishExternalChannelMessage(context: Context, input: string): RPCResult<string> {
     queueChannel.publish(context, input);
     return { output: input };
   }
@@ -307,7 +310,8 @@ export class DrainingExternalChannelFlow implements Flow<string | undefined> {
 <SdkSnippet lang="rust">
 
 ```rust
-pub const EXAMPLE_RPC: Rpc<String, String> = Rpc::new("exampleRPC");
+pub const PUBLISH_EXTERNAL_CHANNEL_MESSAGE: Rpc<String, String> =
+    Rpc::new("PublishExternalChannelMessage");
 
 #[derive(Default)]
 pub struct DrainingExternalChannelFlow {
@@ -315,7 +319,7 @@ pub struct DrainingExternalChannelFlow {
 }
 
 impl DrainingExternalChannelFlow {
-    fn example_rpc(
+    fn publish_external_channel_message(
         &self,
         context: &mut Context,
         input: String,
@@ -337,7 +341,10 @@ impl Flow for DrainingExternalChannelFlow {
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().function(EXAMPLE_RPC, Self::example_rpc)
+        RpcList::new().function(
+            PUBLISH_EXTERNAL_CHANNEL_MESSAGE,
+            Self::publish_external_channel_message,
+        )
     }
 }
 
@@ -390,7 +397,7 @@ async def start_or_publish_draining_channel() -> str:
     flow_id = required_query("workflowId")
     try:
         await app_state.client.invoke_rpc(
-            app_state.drain_external.example_rpc,
+            app_state.drain_external.publish_external_channel_message,
             flow_id,
             "message from start-or-publish endpoint",
         )
@@ -418,7 +425,7 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
-		controller.flow.ExampleRPC,
+		controller.flow.PublishExternalChannelMessage,
 		"message from start-or-publish endpoint",
 		&output,
 		sdk.InvokeOptions{},
@@ -458,7 +465,9 @@ ResponseEntity<String> startDrainingChannel(@RequestParam final String workflowI
         final DrainingExternalChannelFlow stub = client.newRpcStub(
                 DrainingExternalChannelFlow.class,
                 workflowId);
-        client.invokeRPC(stub::exampleRPC, "message from start-or-publish endpoint");
+        client.invokeRPC(
+                stub::publishExternalChannelMessage,
+                "message from start-or-publish endpoint");
         response = "Published to the Flow";
     } catch (final FlowNotActiveException inactive) {
         final String runId = client.startFlow(
@@ -481,7 +490,7 @@ router.get("/start-or-publish", async (request, response) => {
   let message: string;
   try {
     await client.invokeRPC(
-      drainingExternalChannelFlow.exampleRPC,
+      drainingExternalChannelFlow.publishExternalChannelMessage,
       workflowId,
       "message from start-or-publish endpoint",
     );
@@ -511,7 +520,7 @@ match run_blocking(move || {
     let flow = DrainingExternalChannelFlow::default();
     match client.invoke_rpc(
         &flow_id,
-        EXAMPLE_RPC,
+        PUBLISH_EXTERNAL_CHANNEL_MESSAGE,
         "message from start-or-publish endpoint".to_string(),
     ) {
         Ok(_) => Ok("Published to the Flow".to_string()),

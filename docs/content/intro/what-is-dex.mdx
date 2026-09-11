@@ -628,8 +628,8 @@ impl Flow for OrderProcessingFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function(ORDER_APPROVE, Self::approve)
-            .function_without_input(ORDER_DESCRIBE, Self::describe)
+            .function(APPROVE_ORDER, Self::approve)
+            .function_without_input(DESCRIBE_ORDER, Self::describe)
     }
 }
 

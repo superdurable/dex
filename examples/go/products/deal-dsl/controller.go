@@ -380,7 +380,7 @@ func (controller *controller) dealStateSnapshot(
 	err := controller.client.InvokeRPC(
 		ctx,
 		entry.FlowID,
-		controller.flow.Snapshot,
+		controller.flow.GetSnapshot,
 		nil,
 		&snapshot,
 		sdk.InvokeOptions{},

@@ -20,9 +20,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::primitives::wait_types::flow::{
-    WAIT_TYPES_SIGNAL_A, WAIT_TYPES_SIGNAL_B, WaitTypesFlow, WaitTypesInput,
-};
+use crate::primitives::wait_types::flow::{SIGNAL_A, SIGNAL_B, WaitTypesFlow, WaitTypesInput};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, ok_json, ok_text, run_blocking,
 };
@@ -80,7 +78,7 @@ async fn signal_a(
     Query(query): Query<SignalQuery>,
 ) -> impl IntoResponse {
     let workflow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&workflow_id, WAIT_TYPES_SIGNAL_A)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&workflow_id, SIGNAL_A)) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -91,7 +89,7 @@ async fn signal_b(
     Query(query): Query<SignalQuery>,
 ) -> impl IntoResponse {
     let workflow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&workflow_id, WAIT_TYPES_SIGNAL_B)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&workflow_id, SIGNAL_B)) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }

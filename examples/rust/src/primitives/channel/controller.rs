@@ -21,8 +21,8 @@ use axum::{
 use serde::Deserialize;
 
 use crate::primitives::channel::flow::{
-    CHANNEL_APPROVE, CHANNEL_DELETE_QUEUED, CHANNEL_ENQUEUE, CHANNEL_MOVE, CHANNEL_QUEUED_MESSAGES,
-    ChannelFlow, MoveMessage,
+    APPROVE_CHANNEL, ChannelFlow, DELETE_QUEUED_MESSAGE, ENQUEUE_CHANNEL_MESSAGE,
+    GET_QUEUED_MESSAGES, MOVE_CHANNEL_MESSAGE, MoveMessage,
 };
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, ok_json, ok_text, run_blocking,
@@ -91,7 +91,7 @@ async fn approve(
     Query(query): Query<ApproveQuery>,
 ) -> impl IntoResponse {
     let workflow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&workflow_id, CHANNEL_APPROVE)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&workflow_id, APPROVE_CHANNEL)) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -101,8 +101,9 @@ async fn enqueue(
     State(client): State<SharedClient>,
     Query(query): Query<ValueQuery>,
 ) -> impl IntoResponse {
-    match run_blocking(move || client.invoke_rpc(&query.workflow_id, CHANNEL_ENQUEUE, query.value))
-    {
+    match run_blocking(move || {
+        client.invoke_rpc(&query.workflow_id, ENQUEUE_CHANNEL_MESSAGE, query.value)
+    }) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -113,7 +114,7 @@ async fn messages(
     Query(query): Query<ApproveQuery>,
 ) -> impl IntoResponse {
     match run_blocking(move || {
-        client.invoke_rpc_without_input(&query.workflow_id, CHANNEL_QUEUED_MESSAGES)
+        client.invoke_rpc_without_input(&query.workflow_id, GET_QUEUED_MESSAGES)
     }) {
         Ok(messages) => ok_json(messages),
         Err(error) => map_sdk_error(error).into_response(),
@@ -127,7 +128,7 @@ async fn delete_message(
     match run_blocking(move || {
         client.invoke_rpc(
             &query.workflow_id,
-            CHANNEL_DELETE_QUEUED,
+            DELETE_QUEUED_MESSAGE,
             MoveMessage {
                 message_id: query.message_id,
             },
@@ -145,7 +146,7 @@ async fn move_message(
     match run_blocking(move || {
         client.invoke_rpc(
             &query.workflow_id,
-            CHANNEL_MOVE,
+            MOVE_CHANNEL_MESSAGE,
             MoveMessage {
                 message_id: query.message_id,
             },

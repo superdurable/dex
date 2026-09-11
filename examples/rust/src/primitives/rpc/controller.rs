@@ -20,7 +20,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::primitives::rpc::flow::{RPC_TRIGGER, RpcFlow};
+use crate::primitives::rpc::flow::{RpcFlow, TRIGGER_RPC};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, ok_json, ok_text, run_blocking,
 };
@@ -68,7 +68,7 @@ async fn trigger(
 ) -> impl IntoResponse {
     let workflow_id = query.workflow_id;
     let message = query.message;
-    match run_blocking(move || client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)) {
+    match run_blocking(move || client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)) {
         Ok(result) => ok_text(result),
         Err(error) => map_sdk_error(error).into_response(),
     }
