@@ -32,6 +32,7 @@ from dex import (
     force_fail,
     go_to,
     graceful_complete,
+    rpc,
 )
 
 
@@ -89,3 +90,7 @@ class ManualRecoveryFlow(Flow[bool]):
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.retry_channel, self.skip_channel)
+
+    @rpc
+    def retry(self, context: Context) -> None:
+        self.retry_channel.publish(context, None)

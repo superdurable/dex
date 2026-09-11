@@ -23,6 +23,7 @@ import {
   forceFail,
   goTo,
   gracefulComplete,
+  rpc,
   voidCodec,
   type Context,
   type Flow,
@@ -102,6 +103,11 @@ export class ManualRecoveryFlow implements Flow<boolean> {
     return {
       channels: [retryChannel, skipChannel],
     };
+  }
+
+  @rpc()
+  public retry(context: Context): void {
+    retryChannel.publish(context, undefined);
   }
 }
 

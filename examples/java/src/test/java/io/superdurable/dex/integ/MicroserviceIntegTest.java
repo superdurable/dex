@@ -49,7 +49,7 @@ public class MicroserviceIntegTest {
         final String oldData = environment.client().invokeRPC(stub::swap, "updated-data");
         assertEquals("initial-data", oldData);
 
-        environment.client().publish(flowId, flow.ready, (Void) null);
+        environment.client().invokeRPC(stub::signalReady);
 
         final String output = environment.client().waitForFlow(flowId, Duration.ofSeconds(45)).getSingleOutput(String.class);
         assertEquals("updated-data", output);

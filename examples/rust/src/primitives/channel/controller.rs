@@ -18,10 +18,11 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::primitives::channel::flow::{
-    CHANNEL_APPROVE, CHANNEL_MOVE, ChannelFlow, MoveMessage, QUEUED,
+    CHANNEL_APPROVE, CHANNEL_DELETE_QUEUED, CHANNEL_ENQUEUE, CHANNEL_MOVE, CHANNEL_QUEUED_MESSAGES,
+    ChannelFlow, MoveMessage,
 };
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, ok_json, ok_text, run_blocking,
@@ -55,13 +56,6 @@ struct MessageQuery {
     workflow_id: String,
     #[serde(default, rename = "messageId")]
     message_id: String,
-}
-
-#[derive(Serialize)]
-struct PendingMessage {
-    #[serde(rename = "messageID")]
-    message_id: String,
-    value: String,
 }
 
 pub fn mount(client: SharedClient) -> Router {
@@ -107,7 +101,8 @@ async fn enqueue(
     State(client): State<SharedClient>,
     Query(query): Query<ValueQuery>,
 ) -> impl IntoResponse {
-    match run_blocking(move || client.publish(&query.workflow_id, &QUEUED, query.value)) {
+    match run_blocking(move || client.invoke_rpc(&query.workflow_id, CHANNEL_ENQUEUE, query.value))
+    {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -117,16 +112,10 @@ async fn messages(
     State(client): State<SharedClient>,
     Query(query): Query<ApproveQuery>,
 ) -> impl IntoResponse {
-    match run_blocking(move || client.get_channel_messages(&query.workflow_id, &QUEUED)) {
-        Ok(messages) => ok_json(
-            messages
-                .into_iter()
-                .map(|message| PendingMessage {
-                    message_id: message.message_id,
-                    value: message.value,
-                })
-                .collect::<Vec<_>>(),
-        ),
+    match run_blocking(move || {
+        client.invoke_rpc_without_input(&query.workflow_id, CHANNEL_QUEUED_MESSAGES)
+    }) {
+        Ok(messages) => ok_json(messages),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
@@ -136,7 +125,13 @@ async fn delete_message(
     Query(query): Query<MessageQuery>,
 ) -> impl IntoResponse {
     match run_blocking(move || {
-        client.delete_channel_message(&query.workflow_id, &QUEUED, &query.message_id)
+        client.invoke_rpc(
+            &query.workflow_id,
+            CHANNEL_DELETE_QUEUED,
+            MoveMessage {
+                message_id: query.message_id,
+            },
+        )
     }) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),

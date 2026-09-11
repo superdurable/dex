@@ -34,6 +34,7 @@ from dex import (
     go_to,
     go_to_many,
     graceful_complete,
+    rpc,
 )
 
 CRON_SCHEDULE_FLOW_ID = "cron-schedule-sample"
@@ -147,3 +148,8 @@ class CronScheduleFlow(Flow[CronScheduleInput]):
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.trigger, self.skip)
+
+    @rpc
+    def trigger_now(self, context: Context, count: int) -> None:
+        for _ in range(count):
+            self.trigger.publish(context, None)

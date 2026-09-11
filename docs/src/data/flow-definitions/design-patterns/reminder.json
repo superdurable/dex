@@ -9,10 +9,10 @@
     "name": "ReminderFlow",
     "startStepId": "step:ReminderStep",
     "span": {
-      "startLine": 60,
+      "startLine": 61,
       "startColumn": 1,
-      "endLine": 72,
-      "endColumn": 50
+      "endLine": 77,
+      "endColumn": 44
     }
   },
   "nodes": [
@@ -23,23 +23,23 @@
       "parentId": "step:ReminderStep",
       "phase": "execute",
       "span": {
-        "startLine": 53,
+        "startLine": 54,
         "startColumn": 5,
-        "endLine": 57,
+        "endLine": 58,
         "endColumn": 41
       }
     },
     {
-      "id": "decision:step:ReminderStep:55:20",
+      "id": "decision:step:ReminderStep:56:20",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:ReminderStep",
       "condition": "not context.has_timer_fired()",
       "phase": "execute",
       "span": {
-        "startLine": 55,
+        "startLine": 56,
         "startColumn": 20,
-        "endLine": 55,
+        "endLine": 56,
         "endColumn": 39
       },
       "decision": {
@@ -47,16 +47,16 @@
       }
     },
     {
-      "id": "decision:step:ReminderStep:57:16",
+      "id": "decision:step:ReminderStep:58:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:ReminderStep",
       "condition": "not (not context.has_timer_fired())",
       "phase": "execute",
       "span": {
-        "startLine": 57,
+        "startLine": 58,
         "startColumn": 16,
-        "endLine": 57,
+        "endLine": 58,
         "endColumn": 41
       },
       "decision": {
@@ -68,13 +68,24 @@
       "kind": "channel",
       "name": "OptOut",
       "span": {
-        "startLine": 63,
+        "startLine": 64,
         "startColumn": 5,
-        "endLine": 63,
+        "endLine": 64,
         "endColumn": 51
       },
       "resource": {
         "valueType": "None"
+      }
+    },
+    {
+      "id": "rpc:opt_out_reminders",
+      "kind": "rpc",
+      "name": "opt_out_reminders",
+      "span": {
+        "startLine": 76,
+        "startColumn": 5,
+        "endLine": 77,
+        "endColumn": 44
       }
     },
     {
@@ -84,22 +95,22 @@
       "phase": "wait_for+execute",
       "start": true,
       "span": {
-        "startLine": 69,
+        "startLine": 70,
         "startColumn": 36,
-        "endLine": 69,
+        "endLine": 70,
         "endColumn": 54
       }
     },
     {
-      "id": "wait:ReminderStep:48:16:0",
+      "id": "wait:ReminderStep:49:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:ReminderStep",
       "phase": "wait_for",
       "span": {
-        "startLine": 48,
+        "startLine": 49,
         "startColumn": 16,
-        "endLine": 51,
+        "endLine": 52,
         "endColumn": 10
       },
       "wait": {
@@ -110,9 +121,9 @@
             "label": "REMINDER_INTERVAL timer",
             "expression": "REMINDER_INTERVAL",
             "span": {
-              "startLine": 49,
+              "startLine": 50,
               "startColumn": 13,
-              "endLine": 49,
+              "endLine": 50,
               "endColumn": 49
             }
           },
@@ -121,9 +132,9 @@
             "label": "OptOut.for 1",
             "resourceId": "resource:channel:ReminderFlow.opt_out",
             "span": {
-              "startLine": 50,
+              "startLine": 51,
               "startColumn": 13,
-              "endLine": 50,
+              "endLine": 51,
               "endColumn": 35
             }
           }
@@ -135,13 +146,13 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:ReminderStep:57:16",
+      "from": "decision:step:ReminderStep:58:16",
       "to": "step:ReminderStep",
       "label": "go_to",
       "span": {
-        "startLine": 57,
+        "startLine": 58,
         "startColumn": 16,
-        "endLine": 57,
+        "endLine": 58,
         "endColumn": 41
       }
     },
@@ -149,13 +160,29 @@
       "id": "edge:0002",
       "kind": "wait_condition",
       "from": "resource:channel:ReminderFlow.opt_out",
-      "to": "wait:ReminderStep:48:16:0",
+      "to": "wait:ReminderStep:49:16:0",
       "label": "OptOut.for 1",
       "span": {
-        "startLine": 50,
+        "startLine": 51,
         "startColumn": 13,
-        "endLine": 50,
+        "endLine": 51,
         "endColumn": 35
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "resource_publish",
+      "from": "rpc:opt_out_reminders",
+      "to": "resource:channel:ReminderFlow.opt_out",
+      "label": "publish",
+      "span": {
+        "startLine": 77,
+        "startColumn": 9,
+        "endLine": 77,
+        "endColumn": 44
+      },
+      "metadata": {
+        "phase": "rpc"
       }
     }
   ],

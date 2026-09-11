@@ -1,6 +1,6 @@
 # Dex Go examples
 
-These examples target `github.com/superdurable/dex/sdk-go v0.5.0`.
+These examples target `github.com/superdurable/dex/sdk-go v0.6.1`.
 
 `dex.None` marks a nil-only Step, RPC, or Channel payload. Calls pass `nil`.
 

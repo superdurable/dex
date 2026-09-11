@@ -33,9 +33,9 @@ def create_draining_channel_blueprint(app_state: ExampleApp) -> Blueprint:
     async def start_or_publish_draining_channel() -> str:
         flow_id = required_query("workflowId")
         try:
-            await app_state.client.publish(
+            await app_state.client.invoke_rpc(
+                app_state.drain_external.example_rpc,
                 flow_id,
-                app_state.drain_external.queue_channel,
                 "message from start-or-publish endpoint",
             )
         except FlowNotActiveError:

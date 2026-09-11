@@ -11,8 +11,8 @@
     "span": {
       "startLine": 110,
       "startColumn": 1,
-      "endLine": 135,
-      "endColumn": 35
+      "endLine": 143,
+      "endColumn": 49
     }
   },
   "nodes": [
@@ -27,6 +27,22 @@
         "startColumn": 5,
         "endLine": 75,
         "endColumn": 40
+      }
+    },
+    {
+      "id": "decision:rpc:get_data:143:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:get_data",
+      "phase": "rpc",
+      "span": {
+        "startLine": 143,
+        "startColumn": 16,
+        "endLine": 143,
+        "endColumn": 49
+      },
+      "decision": {
+        "type": "rpcResult"
       }
     },
     {
@@ -153,6 +169,28 @@
       },
       "resource": {
         "valueType": "None"
+      }
+    },
+    {
+      "id": "rpc:get_data",
+      "kind": "rpc",
+      "name": "get_data",
+      "span": {
+        "startLine": 142,
+        "startColumn": 5,
+        "endLine": 143,
+        "endColumn": 49
+      }
+    },
+    {
+      "id": "rpc:signal_ready",
+      "kind": "rpc",
+      "name": "signal_ready",
+      "span": {
+        "startLine": 138,
+        "startColumn": 5,
+        "endLine": 139,
+        "endColumn": 42
       }
     },
     {
@@ -300,6 +338,22 @@
       "id": "edge:0004",
       "kind": "resource_read",
       "from": "resource:attribute:OrchestrationFlow.data",
+      "to": "rpc:get_data",
+      "label": "get",
+      "span": {
+        "startLine": 143,
+        "startColumn": 26,
+        "endLine": 143,
+        "endColumn": 48
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "resource_read",
+      "from": "resource:attribute:OrchestrationFlow.data",
       "to": "rpc:swap",
       "label": "get",
       "span": {
@@ -313,7 +367,7 @@
       }
     },
     {
-      "id": "edge:0005",
+      "id": "edge:0006",
       "kind": "resource_read",
       "from": "resource:attribute:OrchestrationFlow.data",
       "to": "step:CallAPI2",
@@ -329,7 +383,7 @@
       }
     },
     {
-      "id": "edge:0006",
+      "id": "edge:0007",
       "kind": "resource_read",
       "from": "resource:attribute:OrchestrationFlow.data",
       "to": "step:CallAPI3",
@@ -345,7 +399,7 @@
       }
     },
     {
-      "id": "edge:0007",
+      "id": "edge:0008",
       "kind": "resource_read",
       "from": "resource:attribute:OrchestrationFlow.data",
       "to": "step:CallAPI4",
@@ -361,7 +415,7 @@
       }
     },
     {
-      "id": "edge:0008",
+      "id": "edge:0009",
       "kind": "wait_condition",
       "from": "resource:channel:OrchestrationFlow.ready",
       "to": "wait:CallAPI3:65:16:0",
@@ -374,7 +428,23 @@
       }
     },
     {
-      "id": "edge:0009",
+      "id": "edge:0010",
+      "kind": "resource_publish",
+      "from": "rpc:signal_ready",
+      "to": "resource:channel:OrchestrationFlow.ready",
+      "label": "publish",
+      "span": {
+        "startLine": 139,
+        "startColumn": 9,
+        "endLine": 139,
+        "endColumn": 42
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0011",
       "kind": "resource_write",
       "from": "rpc:swap",
       "to": "resource:attribute:OrchestrationFlow.data",
@@ -390,7 +460,7 @@
       }
     },
     {
-      "id": "edge:0010",
+      "id": "edge:0012",
       "kind": "resource_write",
       "from": "step:CallAPI1",
       "to": "resource:attribute:OrchestrationFlow.data",

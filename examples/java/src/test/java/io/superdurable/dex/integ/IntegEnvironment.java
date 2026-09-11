@@ -251,11 +251,11 @@ final class IntegEnvironment implements AutoCloseable {
             final io.superdurable.dex.Attribute<T> attribute,
             final T expected,
             final Duration timeout) throws InterruptedException {
-        return awaitCondition(
-                () -> client.getAttribute(flowId, attribute),
-                expected::equals,
-                timeout,
-                "attribute did not become " + expected);
+        return client.waitForAttributeMatch(
+                flowId,
+                attribute,
+                io.superdurable.dex.AttributeMatch.equalTo(expected),
+                timeout);
     }
 
     <T> T awaitCondition(

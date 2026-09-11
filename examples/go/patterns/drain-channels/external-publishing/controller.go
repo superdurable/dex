@@ -51,11 +51,14 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 	if !found {
 		return
 	}
-	err := controller.client.PublishToChannel(
+	var output string
+	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
-		QueueChannel,
+		controller.flow.ExampleRPC,
 		"message from start-or-publish endpoint",
+		&output,
+		sdk.InvokeOptions{},
 	)
 	if err == nil {
 		httputil.RespondString(request, "Published to the Flow", nil)

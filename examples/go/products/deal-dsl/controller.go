@@ -327,54 +327,7 @@ func (controller *controller) projectDealExecution(
 	ctx context.Context,
 	entry sdk.SearchFlowEntry,
 ) (DealExecution, error) {
-	values, err := controller.client.GetAttributes(
-		ctx,
-		entry.FlowID,
-		ProcessID,
-		ItemID,
-		ProcessDefinition,
-		BuyerID,
-		CurrentState,
-		CurrentActionIndexToExecute,
-		PendingPreConditionState,
-		PendingPreConditionName,
-		StateData,
-	)
-	if err != nil {
-		return DealExecution{}, err
-	}
-	processID, err := decodeRequiredAttribute(values, ProcessID)
-	if err != nil {
-		return DealExecution{}, err
-	}
-	processDefinition, err := decodeRequiredAttribute(values, ProcessDefinition)
-	if err != nil {
-		return DealExecution{}, err
-	}
-	buyerID, err := decodeRequiredAttribute(values, BuyerID)
-	if err != nil {
-		return DealExecution{}, err
-	}
-	stateData, err := decodeRequiredAttribute(values, StateData)
-	if err != nil {
-		return DealExecution{}, err
-	}
-	currentState, err := decodeOptionalAttribute(values, CurrentState)
-	if err != nil {
-		return DealExecution{}, err
-	}
-	currentActionIndex, err := decodeOptionalAttribute(
-		values,
-		CurrentActionIndexToExecute,
-	)
-	if err != nil {
-		return DealExecution{}, err
-	}
-	pendingState, err := decodeOptionalAttribute(values, PendingPreConditionState)
-	if err != nil {
-		return DealExecution{}, err
-	}
-	pendingName, err := decodeOptionalAttribute(values, PendingPreConditionName)
+	snapshot, err := controller.dealStateSnapshot(ctx, entry)
 	if err != nil {
 		return DealExecution{}, err
 	}
@@ -389,20 +342,50 @@ func (controller *controller) projectDealExecution(
 	return DealExecution{
 		FlowID:                   entry.FlowID,
 		RunID:                    entry.RunID,
-		ProcessID:                processID,
-		ItemID:                   processDefinition.ItemID,
-		ItemName:                 processDefinition.ItemName,
-		ProcessDefinition:        processDefinition,
-		BuyerID:                  buyerID,
-		CurrentState:             currentState,
-		CurrentActionIndex:       currentActionIndex,
-		PendingPreConditionState: pendingState,
-		PendingPreConditionName:  pendingName,
-		StateData:                stateData,
+		ProcessID:                snapshot.ProcessID,
+		ItemID:                   snapshot.ProcessDefinition.ItemID,
+		ItemName:                 snapshot.ProcessDefinition.ItemName,
+		ProcessDefinition:        snapshot.ProcessDefinition,
+		BuyerID:                  snapshot.BuyerID,
+		CurrentState:             snapshot.CurrentState,
+		CurrentActionIndex:       snapshot.CurrentActionIndex,
+		PendingPreConditionState: snapshot.PendingPreConditionState,
+		PendingPreConditionName:  snapshot.PendingPreConditionName,
+		StateData:                snapshot.StateData,
 		Status:                   status,
 		StartedAt:                entry.StartedAt,
 		ClosedAt:                 closedAt,
 	}, nil
+}
+
+func (controller *controller) dealStateSnapshot(
+	ctx context.Context,
+	entry sdk.SearchFlowEntry,
+) (DealStateSnapshot, error) {
+	var snapshot DealStateSnapshot
+	if entry.Status != sdk.FlowRunning {
+		result, err := controller.client.WaitForFlow(
+			ctx,
+			entry.FlowID,
+			sdk.WaitForFlowOptions{NeedsResults: true},
+		)
+		if err != nil {
+			return snapshot, err
+		}
+		if err := result.DecodeSingleOutput(&snapshot); err != nil {
+			return snapshot, err
+		}
+		return snapshot, nil
+	}
+	err := controller.client.InvokeRPC(
+		ctx,
+		entry.FlowID,
+		controller.flow.Snapshot,
+		nil,
+		&snapshot,
+		sdk.InvokeOptions{},
+	)
+	return snapshot, err
 }
 
 func executionSearchQuery(processID string, buyerID string) string {
@@ -431,80 +414,18 @@ func (controller *controller) sendChannelMessage(request *gin.Context) {
 	}
 	flowID := request.Param("flowID")
 	conditionName := request.Param("conditionName")
-	requestContext := request.Request.Context()
-	var process DealProcess
-	found, err := controller.client.GetAttribute(
-		requestContext,
+	if err := controller.client.InvokeRPC(
+		request.Request.Context(),
 		flowID,
-		ProcessDefinition,
-		&process,
-	)
-	if err != nil {
-		controller.respondError(request, err)
-		return
-	}
-	if !found {
-		controller.respondError(request, ErrExecutionNotFound)
-		return
-	}
-	if !process.HasCondition(conditionName) {
-		request.JSON(
-			http.StatusBadRequest,
-			gin.H{"error": "condition is not defined by this deal process"},
-		)
-		return
-	}
-	if err := controller.client.PublishToChannelMap(
-		requestContext,
-		flowID,
-		ConditionMessages,
-		conditionName,
-		message.Data,
+		controller.flow.SendConditionMessage,
+		ConditionMessage{ConditionName: conditionName, Data: message.Data},
+		nil,
+		sdk.InvokeOptions{},
 	); err != nil {
 		controller.respondError(request, err)
 		return
 	}
 	request.JSON(http.StatusAccepted, gin.H{"flowID": flowID, "conditionName": conditionName})
-}
-
-func decodeRequiredAttribute[T any](
-	values map[string]sdk.Value,
-	attribute sdk.Attribute[T],
-) (T, error) {
-	value, found, err := decodeAttribute(values, attribute)
-	if err != nil {
-		return value, err
-	}
-	if !found {
-		return value, fmt.Errorf("attribute %q is missing", attribute.AttributeName())
-	}
-	return value, nil
-}
-
-func decodeOptionalAttribute[T any](
-	values map[string]sdk.Value,
-	attribute sdk.Attribute[T],
-) (T, error) {
-	value, _, err := decodeAttribute(values, attribute)
-	return value, err
-}
-
-func decodeAttribute[T any](
-	values map[string]sdk.Value,
-	attribute sdk.Attribute[T],
-) (value T, found bool, err error) {
-	encoded, found := values[attribute.AttributeName()]
-	if !found {
-		return value, false, nil
-	}
-	if err := encoded.Decode(&value); err != nil {
-		return value, false, fmt.Errorf(
-			"decode attribute %q: %w",
-			attribute.AttributeName(),
-			err,
-		)
-	}
-	return value, true, nil
 }
 
 func flowStatus(status sdk.FlowStatus) (string, error) {

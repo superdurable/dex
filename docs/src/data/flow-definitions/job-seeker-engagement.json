@@ -11,7 +11,7 @@
     "span": {
       "startLine": 130,
       "startColumn": 1,
-      "endLine": 219,
+      "endLine": 223,
       "endColumn": 47
     }
   },
@@ -30,15 +30,15 @@
       }
     },
     {
-      "id": "decision:rpc:accept:198:16",
+      "id": "decision:rpc:accept:202:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:accept",
       "phase": "rpc",
       "span": {
-        "startLine": 198,
+        "startLine": 202,
         "startColumn": 16,
-        "endLine": 203,
+        "endLine": 207,
         "endColumn": 10
       },
       "decision": {
@@ -46,15 +46,15 @@
       }
     },
     {
-      "id": "decision:rpc:decline:181:16",
+      "id": "decision:rpc:decline:185:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:decline",
       "phase": "rpc",
       "span": {
-        "startLine": 181,
+        "startLine": 185,
         "startColumn": 16,
-        "endLine": 186,
+        "endLine": 190,
         "endColumn": 10
       },
       "decision": {
@@ -279,9 +279,9 @@
       "kind": "rpc",
       "name": "accept",
       "span": {
-        "startLine": 189,
+        "startLine": 193,
         "startColumn": 5,
-        "endLine": 203,
+        "endLine": 207,
         "endColumn": 10
       }
     },
@@ -290,9 +290,9 @@
       "kind": "rpc",
       "name": "decline",
       "span": {
-        "startLine": 173,
+        "startLine": 177,
         "startColumn": 5,
-        "endLine": 186,
+        "endLine": 190,
         "endColumn": 10
       }
     },
@@ -305,6 +305,17 @@
         "startColumn": 5,
         "endLine": 170,
         "endColumn": 60
+      }
+    },
+    {
+      "id": "rpc:opt_out",
+      "kind": "rpc",
+      "name": "opt_out",
+      "span": {
+        "startLine": 173,
+        "startColumn": 5,
+        "endLine": 174,
+        "endColumn": 53
       }
     },
     {
@@ -441,26 +452,26 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:rpc:accept:198:16",
+      "from": "decision:rpc:accept:202:16",
       "to": "step:NotifyExternalSystem",
       "label": "fan-out",
       "span": {
-        "startLine": 201,
+        "startLine": 205,
         "startColumn": 17,
-        "endLine": 201,
+        "endLine": 205,
         "endColumn": 71
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:rpc:decline:181:16",
+      "from": "decision:rpc:decline:185:16",
       "to": "step:NotifyExternalSystem",
       "label": "fan-out",
       "span": {
-        "startLine": 184,
+        "startLine": 188,
         "startColumn": 17,
-        "endLine": 184,
+        "endLine": 188,
         "endColumn": 71
       }
     },
@@ -539,9 +550,9 @@
       "to": "rpc:accept",
       "label": "get",
       "span": {
-        "startLine": 190,
+        "startLine": 194,
         "startColumn": 18,
-        "endLine": 190,
+        "endLine": 194,
         "endColumn": 53
       },
       "metadata": {
@@ -555,9 +566,9 @@
       "to": "rpc:decline",
       "label": "get",
       "span": {
-        "startLine": 174,
+        "startLine": 178,
         "startColumn": 18,
-        "endLine": 174,
+        "endLine": 178,
         "endColumn": 53
       },
       "metadata": {
@@ -661,9 +672,9 @@
       "to": "resource:channel:EngagementFlow.complete_process",
       "label": "publish",
       "span": {
-        "startLine": 197,
+        "startLine": 201,
         "startColumn": 9,
-        "endLine": 197,
+        "endLine": 201,
         "endColumn": 53
       },
       "metadata": {
@@ -672,6 +683,22 @@
     },
     {
       "id": "edge:0017",
+      "kind": "resource_publish",
+      "from": "rpc:opt_out",
+      "to": "resource:channel:EngagementFlow.opt_out_reminder",
+      "label": "publish",
+      "span": {
+        "startLine": 174,
+        "startColumn": 9,
+        "endLine": 174,
+        "endColumn": 53
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0018",
       "kind": "resource_write",
       "from": "step:Initialize",
       "to": "resource:attribute:EngagementFlow.employer_id",
@@ -687,7 +714,7 @@
       }
     },
     {
-      "id": "edge:0018",
+      "id": "edge:0019",
       "kind": "resource_write",
       "from": "step:Initialize",
       "to": "resource:attribute:EngagementFlow.engagement_status",
@@ -703,7 +730,7 @@
       }
     },
     {
-      "id": "edge:0019",
+      "id": "edge:0020",
       "kind": "resource_write",
       "from": "step:Initialize",
       "to": "resource:attribute:EngagementFlow.job_seeker_id",
@@ -719,7 +746,7 @@
       }
     },
     {
-      "id": "edge:0020",
+      "id": "edge:0021",
       "kind": "resource_write",
       "from": "step:Initialize",
       "to": "resource:attribute:EngagementFlow.last_update_timestamp",
@@ -735,7 +762,7 @@
       }
     },
     {
-      "id": "edge:0021",
+      "id": "edge:0022",
       "kind": "resource_write",
       "from": "step:Initialize",
       "to": "resource:attribute:EngagementFlow.notes",

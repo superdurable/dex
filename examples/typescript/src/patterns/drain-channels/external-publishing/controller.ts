@@ -20,7 +20,7 @@ import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../../config/env.js";
 import { isFlowMissingOrInactive } from "../../../service-errors.js";
-import { drainingExternalChannelFlow, queueChannel } from "./draining-channel-flow.js";
+import { drainingExternalChannelFlow } from "./draining-channel-flow.js";
 
 export function createDrainingChannelRouter(client: Client): Router {
   const router = Router();
@@ -29,9 +29,9 @@ export function createDrainingChannelRouter(client: Client): Router {
     const workflowId = String(request.query.workflowId ?? "");
     let message: string;
     try {
-      await client.publish(
+      await client.invokeRPC(
+        drainingExternalChannelFlow.exampleRPC,
         workflowId,
-        queueChannel,
         "message from start-or-publish endpoint",
       );
       message = "Published to the Flow";

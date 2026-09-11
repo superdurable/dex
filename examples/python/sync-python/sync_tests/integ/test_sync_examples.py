@@ -29,11 +29,10 @@ from sync_examples.config import DEFAULT_TIMEOUT, start_options
 from sync_examples.wait import (
     WAIT_TIMEOUT,
     flow_status_or_none,
-    wait_for_attribute,
     wait_until,
 )
 
-from dex import Client, FlowStatus, IdReusePolicy, StartFlowOptions
+from dex import AttributeMatch, Client, FlowStatus, IdReusePolicy, StartFlowOptions
 
 pytestmark = pytest.mark.integ
 
@@ -74,7 +73,12 @@ def test_engagement_accept_completes(
         EngagementInput("test-employer-id", "test-job-seeker-id", "test-notes"),
         start_options(),
     )
-    wait_for_attribute(client, flow_id, EngagementFlow.engagement_status)
+    client.wait_for_attribute_match(
+        flow_id,
+        EngagementFlow.employer_id,
+        AttributeMatch.equal_to("test-employer-id"),
+        WAIT_TIMEOUT,
+    )
     description = client.invoke_rpc(app.engagement.describe, flow_id)
     assert description.employer_id == "test-employer-id"
     assert description.current_status == Status.INITIATED
@@ -103,14 +107,15 @@ def test_subscription_describe_and_cancel(
         ),
     )
     client.start_flow(app.subscription, flow_id, customer, start_options())
-    wait_for_attribute(
-        client,
+    client.wait_for_attribute_match(
         flow_id,
-        SubscriptionFlow.customer_details,
+        SubscriptionFlow.billing_period_number,
+        AttributeMatch.greater_than_or_equal(0),
+        WAIT_TIMEOUT,
     )
     subscription = client.invoke_rpc(app.subscription.describe, flow_id)
     assert subscription.billing_period_charge == 100
-    client.publish(flow_id, app.subscription.cancel_subscription, None)
+    client.invoke_rpc(app.subscription.cancel_subscription_rpc, flow_id)
     assert (
         client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str)
         == "subscription canceled"

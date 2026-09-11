@@ -1,15 +1,10 @@
 name: Publish TypeScript SDK to npm
+run-name: Publish TypeScript SDK ${{ inputs.version || github.event.release.tag_name }}
 
 on:
   release:
     types: [published]
   workflow_dispatch:
-    inputs:
-      version:
-        description: TypeScript SDK release version
-        required: true
-        type: string
-  workflow_call:
     inputs:
       version:
         description: TypeScript SDK release version
@@ -28,7 +23,6 @@ jobs:
   native:
     name: Native ${{ matrix.platform }}
     if: >
-      github.event_name == 'workflow_call' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.release.tag_name, 'sdk-typescript/v')
     strategy:
@@ -79,7 +73,6 @@ jobs:
     name: Publish @superdurable/dex
     needs: native
     if: >
-      github.event_name == 'workflow_call' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.release.tag_name, 'sdk-typescript/v')
     runs-on: ubuntu-latest

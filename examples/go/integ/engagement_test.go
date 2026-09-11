@@ -68,11 +68,13 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		dex.InvokeOptions{},
 	))
 	require.Equal(t, engagement.StatusInitiated, description.CurrentStatus)
-	require.NoError(t, integClient.PublishToChannel(
+	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		engagement.OptOutReminder,
+		registry.Engagement.OptOut,
 		nil,
+		nil,
+		dex.InvokeOptions{},
 	))
 	require.Eventually(t, func() bool {
 		err = integClient.InvokeRPC(

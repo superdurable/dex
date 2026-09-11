@@ -18,7 +18,10 @@ import pytest
 from dex import AsyncClient, AttributeMatch
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.products.deal_dsl.deal_dsl_flow import example_deal_start
+from dex_examples.products.deal_dsl.deal_dsl_flow import (
+    ConditionMessage,
+    example_deal_start,
+)
 from tests.integ.conftest import WAIT_TIMEOUT
 
 pytestmark = pytest.mark.integ
@@ -45,11 +48,10 @@ async def test_deal_dsl_completes_an_item_purchase(
         )
         == "negotiating"
     )
-    await client.publish(
+    await client.invoke_rpc(
+        app.deal_dsl.send_condition_message,
         flow_id,
-        app.deal_dsl.condition_messages,
-        "buyer-decision",
-        {"accepted": "true"},
+        ConditionMessage("buyer-decision", {"accepted": "true"}),
     )
     result = (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
         dict[str, str]

@@ -21,6 +21,7 @@ import {
   Wait,
   goTo,
   gracefulComplete,
+  rpc,
   voidCodec,
   type Context,
   type Flow,
@@ -78,6 +79,11 @@ export class ReminderFlow implements Flow<void> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return { channels: [optOut] };
+  }
+
+  @rpc()
+  public optOutReminders(context: Context): void {
+    optOut.publish(context, undefined);
   }
 }
 

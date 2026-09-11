@@ -22,6 +22,7 @@ import {
   goTo,
   gracefulComplete,
   jsonCodec,
+  rpc,
   stringCodec,
   type Context,
   type Flow,
@@ -67,6 +68,11 @@ export interface DealStart {
   readonly buyerId: string;
 }
 
+export interface ConditionMessage {
+  readonly conditionName: string;
+  readonly values: Readonly<Record<string, string>>;
+}
+
 interface StateStepInput {
   readonly stateName: string;
 }
@@ -80,6 +86,7 @@ const dealStartCodec = jsonCodec<DealStart>();
 const stateDataCodec = jsonCodec<Record<string, string>>();
 const stateStepInputCodec = jsonCodec<StateStepInput>();
 const actionStepInputCodec = jsonCodec<ActionStepInput>();
+const conditionMessageCodec = jsonCodec<ConditionMessage>();
 
 export class DealDSLFlow implements Flow<DealStart> {
   public readonly definition = new Attribute("DealDefinition", dealDefinitionCodec);
@@ -121,6 +128,11 @@ export class DealDSLFlow implements Flow<DealStart> {
       ],
       channels: [this.conditionMessages],
     };
+  }
+
+  @rpc({ inputCodec: conditionMessageCodec })
+  public sendConditionMessage(context: Context, message: ConditionMessage): void {
+    this.conditionMessages.publish(context, message.conditionName, message.values);
   }
 
   public state(context: Context, stateName: string): DealState {

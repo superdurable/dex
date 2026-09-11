@@ -93,6 +93,18 @@ func (*CronScheduleFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Channels: []dex.ChannelDef{Trigger, Skip}}
 }
 
+func (*CronScheduleFlow) TriggerNow(
+	ctx dex.Context,
+	count int,
+) (*dex.RPCResult[dex.None], error) {
+	for range count {
+		if err := Trigger.Publish(ctx, nil); err != nil {
+			return nil, err
+		}
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
 type startCronSchedule struct {
 	dex.StepDefaultsNoWaitFor[CronScheduleInput]
 }

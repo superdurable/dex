@@ -76,11 +76,13 @@ func (controller *controller) signal(request *gin.Context) {
 	if !found {
 		return
 	}
-	err := controller.client.PublishToChannel(
+	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
-		Ready,
+		controller.flow.SignalReady,
 		nil,
+		nil,
+		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, struct{}{}, err)
 }

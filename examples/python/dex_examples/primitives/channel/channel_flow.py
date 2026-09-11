@@ -24,6 +24,7 @@ from dex import (
     Context,
     Flow,
     PersistenceSchema,
+    RPCResult,
     Step,
     StepDecision,
     StepList,
@@ -39,6 +40,12 @@ from dex import (
 @dataclass(frozen=True)
 class MoveMessage:
     message_id: str
+
+
+@dataclass(frozen=True)
+class PendingMessage:
+    message_id: str
+    value: str
 
 
 class ChannelWaitStep(Step[int]):
@@ -83,6 +90,32 @@ class ChannelFlow(Flow[int]):
     @rpc
     def approve(self, context: Context) -> None:
         self.approval.publish(context, "approved")
+
+    @rpc
+    def enqueue(self, context: Context, input: str) -> None:
+        self.queued.publish(context, input)
+
+    @rpc(load_channels=(queued,))
+    def queued_messages(
+        self, context: Context
+    ) -> RPCResult[list[PendingMessage]]:
+        return RPCResult(
+            [PendingMessage(message.message_id, message.value)
+             for message in self.queued.pending_messages(context)]
+        )
+
+    @rpc(is_transactional=True, load_channels=(queued,))
+    def delete_queued(self, context: Context, input: MoveMessage) -> None:
+        self.queued.delete(context, input.message_id)
+
+    @rpc(load_channels=(moved,))
+    def moved_messages(
+        self, context: Context
+    ) -> RPCResult[list[PendingMessage]]:
+        return RPCResult(
+            [PendingMessage(message.message_id, message.value)
+             for message in self.moved.pending_messages(context)]
+        )
 
     @rpc(is_transactional=True, load_channels=(queued,))
     def move(self, context: Context, input: MoveMessage) -> None:

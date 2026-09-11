@@ -49,10 +49,9 @@ def create_microservice_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.get("/signal")
     async def signal() -> Response:
-        await app_state.client.publish(
+        await app_state.client.invoke_rpc(
+            app_state.orchestration.signal_ready,
             required_query("workflowId"),
-            app_state.orchestration.ready,
-            None,
         )
         return accepted()
 

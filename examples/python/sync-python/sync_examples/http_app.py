@@ -189,10 +189,9 @@ def _subscription(app_state: SyncExampleApp) -> Blueprint:
 
     @blueprint.get("/cancel")
     def cancel() -> str:
-        app_state.client.publish(
+        app_state.client.invoke_rpc(
+            app_state.subscription.cancel_subscription_rpc,
             required_query("workflowId"),
-            app_state.subscription.cancel_subscription,
-            None,
         )
         return "accepted"
 

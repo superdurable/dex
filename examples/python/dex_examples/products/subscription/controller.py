@@ -59,18 +59,17 @@ def create_subscription_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.get("/cancel")
     async def cancel() -> Response:
-        await app_state.client.publish(
+        await app_state.client.invoke_rpc(
+            app_state.subscription.cancel_subscription_rpc,
             required_query("workflowId"),
-            app_state.subscription.cancel_subscription,
-            None,
         )
         return accepted()
 
     @blueprint.get("/updateChargeAmount")
     async def update_charge_amount() -> Response:
-        await app_state.client.publish(
+        await app_state.client.invoke_rpc(
+            app_state.subscription.update_charge,
             required_query("workflowId"),
-            app_state.subscription.update_charge_amount,
             required_int_query("newChargeAmount"),
         )
         return accepted()

@@ -28,6 +28,7 @@ import {
   type Context,
   type Flow,
   type PersistenceSchema,
+  type RPCResult,
   type Step,
   type StepDecision,
   type StepOptions,
@@ -41,7 +42,13 @@ export interface MoveMessage {
   readonly messageId: string;
 }
 
+export interface PendingMessage {
+  readonly messageId: string;
+  readonly value: string;
+}
+
 const moveMessageCodec = jsonCodec<MoveMessage>();
+const pendingMessagesCodec = jsonCodec<readonly PendingMessage[]>();
 
 class ChannelWait implements Step<number> {
   public readonly inputCodec = doubleCodec;
@@ -93,6 +100,26 @@ export class ChannelFlow implements Flow<number> {
   @rpc()
   public approve(context: Context): void {
     approval.publish(context, "approved");
+  }
+
+  @rpc({ inputCodec: stringCodec })
+  public enqueue(context: Context, value: string): void {
+    queued.publish(context, value);
+  }
+
+  @rpc({ loadChannels: [queued], outputCodec: pendingMessagesCodec })
+  public queuedMessages(context: Context): RPCResult<readonly PendingMessage[]> {
+    return { output: queued.pendingMessages(context) };
+  }
+
+  @rpc({ isTransactional: true, loadChannels: [queued], inputCodec: moveMessageCodec })
+  public deleteQueued(context: Context, message: MoveMessage): void {
+    queued.delete(context, message.messageId);
+  }
+
+  @rpc({ loadChannels: [moved], outputCodec: pendingMessagesCodec })
+  public movedMessages(context: Context): RPCResult<readonly PendingMessage[]> {
+    return { output: moved.pendingMessages(context) };
   }
 
   @rpc({ isTransactional: true, loadChannels: [queued], inputCodec: moveMessageCodec })

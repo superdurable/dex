@@ -77,13 +77,12 @@ func (controller *controller) signalA(request *gin.Context) {
 	if !found {
 		return
 	}
-	var none sdk.None
 	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
 		controller.flow.SignalA,
 		nil,
-		&none,
+		nil,
 		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "done", err)
@@ -94,13 +93,12 @@ func (controller *controller) signalB(request *gin.Context) {
 	if !found {
 		return
 	}
-	var none sdk.None
 	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
 		controller.flow.SignalB,
 		nil,
-		&none,
+		nil,
 		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "done", err)

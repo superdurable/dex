@@ -20,7 +20,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::reminders::flow::{OPT_OUT, ReminderFlow};
+use crate::patterns::reminders::flow::{OPT_OUT_REMINDERS, ReminderFlow};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
 };
@@ -64,7 +64,7 @@ async fn optout(
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
-    match run_blocking(move || client.publish(&flow_id, &OPT_OUT, ())) {
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, OPT_OUT_REMINDERS)) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }

@@ -39,10 +39,9 @@ def create_reminders_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.get("/optout")
     async def opt_out_reminder() -> str:
-        await app_state.client.publish(
+        await app_state.client.invoke_rpc(
+            app_state.reminder.opt_out_reminders,
             required_query("workflowId"),
-            app_state.reminder.opt_out,
-            None,
         )
         return "done"
 

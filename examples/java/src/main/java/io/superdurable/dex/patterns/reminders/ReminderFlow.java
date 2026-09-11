@@ -20,6 +20,7 @@ import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
+import io.superdurable.dex.RPC;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -51,6 +52,11 @@ public class ReminderFlow implements Flow<Void> {
     @Override
     public PersistenceSchema getPersistenceSchema() {
         return PersistenceSchema.of(optOut);
+    }
+
+    @RPC
+    public void optOut(final Context context) {
+        optOut.publish(context, null);
     }
 
     final class ReminderStep implements Step<Void> {

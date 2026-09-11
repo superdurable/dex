@@ -19,7 +19,6 @@ import test from "node:test";
 
 import { ChannelMessageNotFoundError } from "@superdurable/dex";
 
-import { moved, queued } from "../../src/primitives/channel/channel-flow.js";
 import {
   acquireIntegEnvironment,
   releaseIntegEnvironment,
@@ -42,17 +41,26 @@ test("channel message can be moved by ID", async () => {
     30,
     environment.startOptions(),
   );
-  await environment.client.publish(flowId, queued, "delete me");
-  await environment.client.publish(flowId, queued, "move me");
+  await environment.client.invokeRPC(environment.channelFlow.enqueue, flowId, "delete me");
+  await environment.client.invokeRPC(environment.channelFlow.enqueue, flowId, "move me");
 
-  const pending = await environment.client.getChannelMessages(flowId, queued);
+  const pending = await environment.client.invokeRPC(
+    environment.channelFlow.queuedMessages,
+    flowId,
+  );
   assert.deepEqual(pending.map((message) => message.value), ["delete me", "move me"]);
-  await environment.client.deleteChannelMessage(flowId, queued, pending[0]!.messageId);
+  await environment.client.invokeRPC(
+    environment.channelFlow.deleteQueued,
+    flowId,
+    { messageId: pending[0]!.messageId },
+  );
 
   const move = { messageId: pending[1]!.messageId };
   await environment.client.invokeRPC(environment.channelFlow.move, flowId, move);
   assert.deepEqual(
-    (await environment.client.getChannelMessages(flowId, moved)).map((message) => message.value),
+    (await environment.client.invokeRPC(environment.channelFlow.movedMessages, flowId)).map(
+      (message) => message.value,
+    ),
     ["move me"],
   );
 
@@ -61,7 +69,9 @@ test("channel message can be moved by ID", async () => {
     ChannelMessageNotFoundError,
   );
   assert.deepEqual(
-    (await environment.client.getChannelMessages(flowId, moved)).map((message) => message.value),
+    (await environment.client.invokeRPC(environment.channelFlow.movedMessages, flowId)).map(
+      (message) => message.value,
+    ),
     ["move me"],
   );
 

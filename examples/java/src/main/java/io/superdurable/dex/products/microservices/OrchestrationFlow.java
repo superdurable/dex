@@ -66,6 +66,16 @@ public class OrchestrationFlow implements Flow<String> {
         return RPCResult.of(oldData);
     }
 
+    @RPC
+    public void signalReady(final Context context) {
+        ready.publish(context, null);
+    }
+
+    @RPC
+    public RPCResult<String> getData(final Context context) {
+        return RPCResult.of(data.get(context));
+    }
+
     final class CallAPI1 implements Step<String> {
         @Override
         public Class<String> getInputType() {

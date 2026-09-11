@@ -51,15 +51,15 @@ public class EngagementIntegTest {
 
         environment.awaitAttribute(
                 flowId,
-                flow.engagementStatus,
-                Status.INITIATED,
+                flow.employerId,
+                "employer-ci",
                 Duration.ofSeconds(20));
 
         final EngagementFlow stub = environment.client().newRpcStub(EngagementFlow.class, flowId);
         final EngagementDescription description = environment.client().invokeRPC(stub::describe);
         assertEquals(Status.INITIATED, description.currentStatus);
 
-        environment.client().publish(flowId, flow.optOutReminder, (Void) null);
+        environment.client().invokeRPC(stub::optOut);
         environment.awaitCondition(
                 () -> environment.client().invokeRPC(stub::describe),
                 current -> current.notes.contains("user opted out of reminders"),
@@ -70,22 +70,18 @@ public class EngagementIntegTest {
                 stub::decline,
                 "declined in integration test");
         assertEquals(Status.DECLINED, declined);
-        environment.awaitAttribute(
-                flowId,
-                flow.engagementStatus,
-                Status.DECLINED,
-                Duration.ofSeconds(20));
+        environment.awaitCondition(
+                () -> environment.client().invokeRPC(stub::describe),
+                current -> current.currentStatus == Status.DECLINED,
+                Duration.ofSeconds(20),
+                "engagement status did not become declined");
 
         final Status accepted = environment.client().invokeRPC(
                 stub::accept,
                 "accepted in integration test");
         assertEquals(Status.ACCEPTED, accepted);
 
-        environment.awaitAttribute(
-                flowId,
-                flow.engagementStatus,
-                Status.ACCEPTED,
-                Duration.ofSeconds(20));
+        assertEquals(Status.ACCEPTED, environment.client().invokeRPC(stub::describe).currentStatus);
 
         final String output = environment.client().waitForFlow(flowId, Duration.ofSeconds(45)).getSingleOutput(String.class);
         assertEquals("done", output);

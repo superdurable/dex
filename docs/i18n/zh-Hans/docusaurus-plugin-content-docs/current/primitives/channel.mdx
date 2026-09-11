@@ -8,7 +8,7 @@ import ChannelScopeDiagram from '@site/src/components/primitives/channel/Channel
 
 # Channel
 
-**Channel** 是一条单个 Flow execution 内部 durable 的 first-in, first-out (FIFO) 队列。Step、RPC 与 Client 都能往里面追加有类型的消息。Step 通过在 **WaitFor** 里返回 Channel condition 来消费消息。
+**Channel** 是一条单个 Flow execution 内部 durable 的 first-in, first-out (FIFO) 队列。Step 与 RPC 能往里面追加有类型的消息。Step 通过在 **WaitFor** 里返回 Channel condition 来消费消息。
 
 Channel 会按到达顺序保留消息。一条消息只能被一个匹配的 wait 消费一次，不会复制给其他 waiting Step。
 
@@ -20,7 +20,7 @@ Channel 只属于一个 Flow execution。消息不会跨 Flow execution。
 
 Channel 有稳定的名字和消息类型。先定义它，再加到 Flow 的 persistence schema。
 
-下面的例子有一个 **Approval** Channel。start Step 等一条 approval 或一个 Timer。**approve** RPC 发布 approval 消息。这个 Flow 也可以通过 Client 的 **PublishToChannel** API 直接接收消息。
+下面的例子有一个 **Approval** Channel。start Step 等一条 approval 或一个 Timer。**approve** RPC 发布 approval 消息。应用通过 **enqueue** RPC 发布另一条 queued message。
 
 <SdkTabs
 examples={{
@@ -456,13 +456,13 @@ Timer 分支会先返回，不会读取 Channel 结果。approval 胜出时，Ch
 
 在 Step 或 RPC 内，用 handler 的 **Context** 调 Channel 的 publish method。Dex 会在接受这个 handler result 时追加消息。
 
-Worker 外的代码可以用 Client **PublishToChannel** API 直接发布。Client 只能往 active Flow 发布；批量发布的值保持传入顺序。见 [Client](/primitives/client/basic#publish-to-a-channel)。
+Worker 外的代码调用 Flow RPC，由 handler 使用 **Context** 发布。这样 Flow 就能统一处理 validation、authorization、lock 和相关状态变更。
 
 消息可以先于 Step 的 wait 到达。Dex Server 会把它保留在 Channel 里，直到之后的 wait 消费它。
 
 ## 管理 pending message {#manage-pending-messages}
 
-Dex 接受每次 publication 时都会分配一个 UUIDv7 message ID。Client 可以按 FIFO 顺序列出所有 pending message，也可以用 ID 删除其中一条。List 不会消费 message。只有仍然 pending 的 message 才能删除；如果并发 Step 已经消费它，或者另一个请求已经删除它，API 会返回 Channel-message-not-found error。
+Dex 接受每次 publication 时都会分配一个 UUIDv7 message ID。RPC 可以按 FIFO 顺序列出所有 pending message，也可以用 ID 删除其中一条。List 不会消费 message。只有仍然 pending 的 message 才能删除；如果并发 Step 已经消费它，或者另一个请求已经删除它，API 会返回 Channel-message-not-found error。
 
 这是 queue state，不是 Flow history。Step 消费 message 后，它会从 Channel 消失，但 publication 与 consumption 仍可在 Flow history 中观察，直到 retention 将它们清理。
 
@@ -483,9 +483,9 @@ rust: 'examples/rust/src/primitives/channel/controller.rs',
 ```python
 @blueprint.get("/messages")
 async def messages() -> Response:
-    pending = await app_state.client.get_channel_messages(
+    pending = await app_state.client.invoke_rpc(
+        app_state.channel.queued_messages,
         required_query("workflowId"),
-        app_state.channel.queued,
     )
     return jsonify(
         [
@@ -500,11 +500,13 @@ async def messages() -> Response:
 
 ```go
 var messages []sdk.ChannelMessage[string]
-err := controller.client.GetChannelMessages(
+err := controller.client.InvokeRPC(
 	request.Request.Context(),
 	flowID,
-	Queued,
+	controller.flow.QueuedMessages,
+	nil,
 	&messages,
+	sdk.InvokeOptions{LoadChannels: []sdk.ChannelDef{Queued}},
 )
 httputil.Respond(request, messages, err)
 ```
@@ -513,30 +515,25 @@ httputil.Respond(request, messages, err)
 <SdkSnippet lang="java">
 
 ```java
-return ResponseEntity.ok(client.getChannelMessages(workflowId, flow.queued));
+final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
+return ResponseEntity.ok(client.invokeRPC(stub::queuedMessages).messages);
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```typescript
-response.json(await client.getChannelMessages(workflowId, queued));
+response.json(await client.invokeRPC(channelFlow.queuedMessages, workflowId));
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
 
 ```rust
-match run_blocking(move || client.get_channel_messages(&query.workflow_id, &QUEUED)) {
-    Ok(messages) => ok_json(
-        messages
-            .into_iter()
-            .map(|message| PendingMessage {
-                message_id: message.message_id,
-                value: message.value,
-            })
-            .collect::<Vec<_>>(),
-    ),
+match run_blocking(move || {
+    client.invoke_rpc_without_input(&query.workflow_id, CHANNEL_QUEUED_MESSAGES)
+}) {
+    Ok(messages) => ok_json(messages),
     Err(error) => map_sdk_error(error).into_response(),
 }
 ```

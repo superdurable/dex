@@ -1,6 +1,6 @@
 {
   "name": "@superdurable/dex",
-  "version": "0.2.2",
+  "version": "0.6.0",
   "description": "TypeScript SDK for the Dex durable workflow engine",
   "license": "LicenseRef-Sustainable-Use-1.0",
   "repository": {

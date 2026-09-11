@@ -85,6 +85,11 @@ public class EngagementFlow implements Flow<EngagementInput> {
     }
 
     @RPC
+    public void optOut(final Context context) {
+        optOutReminder.publish(context, null);
+    }
+
+    @RPC
     public RPCResult<Status> decline(final Context context, final String note) {
         final Status status = engagementStatus.get(context);
         if (status != Status.INITIATED) {

@@ -210,7 +210,7 @@ err := controller.client.InvokeRPC(
 	flowID,
 	controller.flow.Move,
 	MoveMessage{MessageID: messageID},
-	&none,
+	nil,
 	sdk.InvokeOptions{
 		IsTransactional: true,
 		LoadChannels:   []sdk.ChannelDef{Queued},

@@ -17,7 +17,6 @@
 package io.superdurable.dex.primitives.channel;
 
 import io.superdurable.dex.Client;
-import io.superdurable.dex.ChannelMessage;
 import io.superdurable.dex.shared.ExampleFlows;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -63,21 +62,24 @@ public final class ChannelController {
     public ResponseEntity<String> enqueue(
             @RequestParam final String workflowId,
             @RequestParam final String value) {
-        client.publish(workflowId, flow.queued, value);
+        final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
+        client.invokeRPC(stub::enqueue, value);
         return ResponseEntity.ok("done");
     }
 
     @GetMapping("/messages")
-    public ResponseEntity<List<ChannelMessage<String>>> messages(
+    public ResponseEntity<List<ChannelFlow.PendingMessage>> messages(
             @RequestParam final String workflowId) {
-        return ResponseEntity.ok(client.getChannelMessages(workflowId, flow.queued));
+        final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
+        return ResponseEntity.ok(client.invokeRPC(stub::queuedMessages).messages);
     }
 
     @GetMapping("/delete")
     public ResponseEntity<String> delete(
             @RequestParam final String workflowId,
             @RequestParam final String messageId) {
-        client.deleteChannelMessage(workflowId, flow.queued, messageId);
+        final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
+        client.invokeRPC(stub::deleteQueued, new ChannelFlow.MoveMessage(messageId));
         return ResponseEntity.ok("done");
     }
 

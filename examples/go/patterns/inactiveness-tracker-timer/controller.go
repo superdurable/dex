@@ -65,13 +65,12 @@ func (controller *controller) recordActivity(request *gin.Context) {
 	if !found {
 		return
 	}
-	var none sdk.None
 	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
 		controller.flow.RecordActivity,
 		nil,
-		&none,
+		nil,
 		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "activity recorded", err)

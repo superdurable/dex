@@ -11,7 +11,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/drai
 
 ## 问题与做法
 
-当一条 Flow 要处理 Worker 外部发来的消息，并且消息可能突发到来时，使用这个模式。Client 可以通过 **PublishToChannel** 直接追加消息，或者使用 RPC。关键要求是在 Channel 为空时完成 Flow，从而尽可能让 Flow 保持短生命周期。有新消息到来时，Flow 会重新启动。
+当一条 Flow 要处理 Worker 外部发来的消息，并且消息可能突发到来时，使用这个模式。Client 调用 RPC，由 RPC 把每条消息追加到 Channel。关键要求是在 Channel 为空时完成 Flow，从而尽可能让 Flow 保持短生命周期。有新消息到来时，Flow 会重新启动。
 
 这个 decision 会在记录下一步动作时原子地检查 Channel。Channel 为空时完成 Flow；Channel 中还有排队消息，或有消息已从该 Channel 消费并提交给尚未完成 **Execute** 处理的 Step 时，Dex 会走 fallback movement 回到 **ProcessMessage**。前一次 execution 完成后，下一个请求会使用相同的 Flow ID 启动新的 Flow execution，并将消息作为启动输入。
 
@@ -379,7 +379,7 @@ impl Step for DrainChannel {
 
 ## Controller
 
-Controller 会先向活跃 Flow 发布消息。发布操作表明 Flow 不活跃时，Controller 会使用该消息作为输入启动新的 Flow；其他错误会返回给调用方。
+Controller 会先调用活跃 Flow 的发布 RPC。调用表明 Flow 不活跃时，Controller 会使用该消息作为输入启动新的 Flow；其他错误会返回给调用方。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/controller.py', go: 'examples/go/patterns/drain-channels/external-publishing/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/DrainChannelsController.java', typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/controller.ts', rust: 'examples/rust/src/patterns/drain_channels/controller.rs'}}>
 <SdkSnippet lang="python">
@@ -389,9 +389,9 @@ Controller 会先向活跃 Flow 发布消息。发布操作表明 Flow 不活跃
 async def start_or_publish_draining_channel() -> str:
     flow_id = required_query("workflowId")
     try:
-        await app_state.client.publish(
+        await app_state.client.invoke_rpc(
+            app_state.drain_external.example_rpc,
             flow_id,
-            app_state.drain_external.queue_channel,
             "message from start-or-publish endpoint",
         )
     except FlowNotActiveError:
@@ -414,11 +414,14 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 	if !found {
 		return
 	}
-	err := controller.client.PublishToChannel(
+	var output string
+	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
-		QueueChannel,
+		controller.flow.ExampleRPC,
 		"message from start-or-publish endpoint",
+		&output,
+		sdk.InvokeOptions{},
 	)
 	if err == nil {
 		httputil.RespondString(request, "Published to the Flow", nil)
@@ -452,10 +455,10 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 ResponseEntity<String> startDrainingChannel(@RequestParam final String workflowId) {
     String response;
     try {
-        client.publish(
-                workflowId,
-                drainingExternalChannelFlow.queueChannel,
-                "message from start-or-publish endpoint");
+        final DrainingExternalChannelFlow stub = client.newRpcStub(
+                DrainingExternalChannelFlow.class,
+                workflowId);
+        client.invokeRPC(stub::exampleRPC, "message from start-or-publish endpoint");
         response = "Published to the Flow";
     } catch (final FlowNotActiveException inactive) {
         final String runId = client.startFlow(
@@ -477,9 +480,9 @@ router.get("/start-or-publish", async (request, response) => {
   const workflowId = String(request.query.workflowId ?? "");
   let message: string;
   try {
-    await client.publish(
+    await client.invokeRPC(
+      drainingExternalChannelFlow.exampleRPC,
       workflowId,
-      queueChannel,
       "message from start-or-publish endpoint",
     );
     message = "Published to the Flow";
@@ -506,12 +509,12 @@ router.get("/start-or-publish", async (request, response) => {
 ```rust
 match run_blocking(move || {
     let flow = DrainingExternalChannelFlow::default();
-    match client.publish(
+    match client.invoke_rpc(
         &flow_id,
-        &external_queue(),
+        EXAMPLE_RPC,
         "message from start-or-publish endpoint".to_string(),
     ) {
-        Ok(()) => Ok("Published to the Flow".to_string()),
+        Ok(_) => Ok("Published to the Flow".to_string()),
         Err(error) if is_missing_or_inactive(&error) => client
             .start_flow(&flow, &flow_id, "first message from start-or-publish".to_string())
             .map(|run_id| format!("Started the workflow with runId {run_id}")),
@@ -529,5 +532,5 @@ match run_blocking(move || {
 ## 相关内容
 
 - [Channel](/primitives/channel)
-- [Client 发布](/primitives/client/basic#publish-to-a-channel)
+- [RPC](/primitives/rpc)
 - [GitHub 上的示例](https://github.com/superdurable/dex/tree/main/examples)

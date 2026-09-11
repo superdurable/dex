@@ -42,6 +42,7 @@ import (
 
 var (
 	integClient   *dex.Client
+	dealDSLFlow   *dealdsl.DealDSLFlow
 	dealDSLAPIURL string
 	dealDSLDB     *pgxpool.Pool
 	flowCounter   atomic.Int64
@@ -64,6 +65,7 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 		return nil, err
 	}
 	dealFlow := dealdsl.NewDealDSLFlow(nil)
+	dealDSLFlow = dealFlow
 	flowRegistry, err := dex.NewRegistry([]dex.Flow{dealFlow})
 	if err != nil {
 		database.Close()

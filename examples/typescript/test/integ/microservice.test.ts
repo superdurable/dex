@@ -17,13 +17,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { stringCodec } from "@superdurable/dex";
-
-import { ready } from "../../src/products/microservices/orchestration-flow.js";
+import { AttributeMatch, stringCodec } from "@superdurable/dex";
 
 import {
   acquireIntegEnvironment,
-  awaitCondition,
   releaseIntegEnvironment,
 } from "./environment.js";
 
@@ -47,17 +44,17 @@ test("microserviceStartRpcAndChannel", async () => {
   );
   assert.ok(runId.length > 0);
 
-  await awaitCondition(
-    () => environment.client.getAttribute(flowId, flow.data),
-    (value) => value === "initial-data",
+  await environment.client.waitForAttributeMatch(
+    flowId,
+    flow.data,
+    AttributeMatch.equalTo("initial-data"),
     20_000,
-    "data attribute not ready",
   );
 
   const previous = await environment.client.invokeRPC(flow.swap, flowId, "updated-data");
   assert.equal(previous, "initial-data");
 
-  await environment.client.publish(flowId, ready, undefined);
+  await environment.client.invokeRPC(flow.signalReady, flowId);
   const output = await environment.client.waitForFlow(flowId, 45_000).then((result) =>
     result.singleOutput(stringCodec),
   );

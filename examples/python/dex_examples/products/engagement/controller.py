@@ -64,10 +64,9 @@ def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.get("/optout")
     async def opt_out() -> Response:
-        await app_state.client.publish(
+        await app_state.client.invoke_rpc(
+            app_state.engagement.opt_out,
             required_query("workflowId"),
-            app_state.engagement.opt_out_reminder,
-            None,
         )
         return accepted()
 

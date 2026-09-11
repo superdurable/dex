@@ -11,7 +11,7 @@
     "span": {
       "startLine": 731,
       "startColumn": 1,
-      "endLine": 1429,
+      "endLine": 1438,
       "endColumn": 10
     }
   },
@@ -23,9 +23,9 @@
       "parentId": "rpc:approve_tool",
       "phase": "rpc",
       "span": {
-        "startLine": 1260,
+        "startLine": 1269,
         "startColumn": 5,
-        "endLine": 1276,
+        "endLine": 1285,
         "endColumn": 31
       }
     },
@@ -36,9 +36,9 @@
       "parentId": "rpc:execute_plan",
       "phase": "rpc",
       "span": {
-        "startLine": 1279,
+        "startLine": 1288,
         "startColumn": 5,
-        "endLine": 1307,
+        "endLine": 1316,
         "endColumn": 31
       }
     },
@@ -49,9 +49,9 @@
       "parentId": "rpc:history",
       "phase": "rpc",
       "span": {
-        "startLine": 1310,
+        "startLine": 1319,
         "startColumn": 5,
-        "endLine": 1325,
+        "endLine": 1334,
         "endColumn": 61
       }
     },
@@ -173,16 +173,16 @@
       }
     },
     {
-      "id": "decision:rpc:approve_tool:1268:20",
+      "id": "decision:rpc:approve_tool:1277:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:approve_tool",
       "condition": "exception",
       "phase": "rpc",
       "span": {
-        "startLine": 1268,
+        "startLine": 1277,
         "startColumn": 20,
-        "endLine": 1268,
+        "endLine": 1277,
         "endColumn": 36
       },
       "decision": {
@@ -190,16 +190,16 @@
       }
     },
     {
-      "id": "decision:rpc:approve_tool:1270:20",
+      "id": "decision:rpc:approve_tool:1279:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:approve_tool",
       "condition": "pending.call_id != input.call_id",
       "phase": "rpc",
       "span": {
-        "startLine": 1270,
+        "startLine": 1279,
         "startColumn": 20,
-        "endLine": 1270,
+        "endLine": 1279,
         "endColumn": 36
       },
       "decision": {
@@ -207,16 +207,16 @@
       }
     },
     {
-      "id": "decision:rpc:approve_tool:1276:16",
+      "id": "decision:rpc:approve_tool:1285:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:approve_tool",
       "condition": "not (pending.call_id != input.call_id)",
       "phase": "rpc",
       "span": {
-        "startLine": 1276,
+        "startLine": 1285,
         "startColumn": 16,
-        "endLine": 1276,
+        "endLine": 1285,
         "endColumn": 31
       },
       "decision": {
@@ -224,15 +224,15 @@
       }
     },
     {
-      "id": "decision:rpc:describe:1329:16",
+      "id": "decision:rpc:describe:1338:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:describe",
       "phase": "rpc",
       "span": {
-        "startLine": 1329,
+        "startLine": 1338,
         "startColumn": 16,
-        "endLine": 1329,
+        "endLine": 1338,
         "endColumn": 53
       },
       "decision": {
@@ -240,16 +240,16 @@
       }
     },
     {
-      "id": "decision:rpc:execute_plan:1297:20",
+      "id": "decision:rpc:execute_plan:1306:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:execute_plan",
       "condition": "state is None or plan is None or state.status != STATUS_WAITING or (state.pending_plan_execution_revision is not None) or (_optional_attribute(self.pending_user_input, context) is not None) or (self.queued_user_messages.size(context) \u003e 0) or (self.steered_user_messages.size(context) \u003e 0) or (plan.revision != input.revision) or (plan.status not in {PLAN_DRAFT, PLAN_ACTIVE})",
       "phase": "rpc",
       "span": {
-        "startLine": 1297,
+        "startLine": 1306,
         "startColumn": 20,
-        "endLine": 1297,
+        "endLine": 1306,
         "endColumn": 36
       },
       "decision": {
@@ -257,16 +257,16 @@
       }
     },
     {
-      "id": "decision:rpc:execute_plan:1307:16",
+      "id": "decision:rpc:execute_plan:1316:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:execute_plan",
       "condition": "not (state is None or plan is None or state.status != STATUS_WAITING or (state.pending_plan_execution_revision is not None) or (_optional_attribute(self.pending_user_input, context) is not None) or (self.queued_user_messages.size(context) \u003e 0) or (self.steered_user_messages.size(context) \u003e 0) or (plan.revision != input.revision) or (plan.status not in {PLAN_DRAFT, PLAN_ACTIVE}))",
       "phase": "rpc",
       "span": {
-        "startLine": 1307,
+        "startLine": 1316,
         "startColumn": 16,
-        "endLine": 1307,
+        "endLine": 1316,
         "endColumn": 31
       },
       "decision": {
@@ -274,16 +274,16 @@
       }
     },
     {
-      "id": "decision:rpc:history:1313:20",
+      "id": "decision:rpc:history:1322:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:history",
       "condition": "state is None",
       "phase": "rpc",
       "span": {
-        "startLine": 1313,
+        "startLine": 1322,
         "startColumn": 20,
-        "endLine": 1313,
+        "endLine": 1322,
         "endColumn": 52
       },
       "decision": {
@@ -291,16 +291,16 @@
       }
     },
     {
-      "id": "decision:rpc:history:1325:16",
+      "id": "decision:rpc:history:1334:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:history",
       "condition": "not (state is None)",
       "phase": "rpc",
       "span": {
-        "startLine": 1325,
+        "startLine": 1334,
         "startColumn": 16,
-        "endLine": 1325,
+        "endLine": 1334,
         "endColumn": 61
       },
       "decision": {
@@ -342,15 +342,15 @@
       }
     },
     {
-      "id": "decision:rpc:snapshot:1347:16",
+      "id": "decision:rpc:snapshot:1356:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:snapshot",
       "phase": "rpc",
       "span": {
-        "startLine": 1347,
+        "startLine": 1356,
         "startColumn": 16,
-        "endLine": 1361,
+        "endLine": 1370,
         "endColumn": 10
       },
       "decision": {
@@ -1304,10 +1304,21 @@
       "kind": "rpc",
       "name": "approve_tool",
       "span": {
+        "startLine": 1269,
+        "startColumn": 5,
+        "endLine": 1285,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "rpc:delete_queued_message",
+      "kind": "rpc",
+      "name": "delete_queued_message",
+      "span": {
         "startLine": 1260,
         "startColumn": 5,
-        "endLine": 1276,
-        "endColumn": 31
+        "endLine": 1261,
+        "endColumn": 62
       }
     },
     {
@@ -1315,9 +1326,9 @@
       "kind": "rpc",
       "name": "describe",
       "span": {
-        "startLine": 1328,
+        "startLine": 1337,
         "startColumn": 5,
-        "endLine": 1329,
+        "endLine": 1338,
         "endColumn": 53
       }
     },
@@ -1326,9 +1337,9 @@
       "kind": "rpc",
       "name": "execute_plan",
       "span": {
-        "startLine": 1279,
+        "startLine": 1288,
         "startColumn": 5,
-        "endLine": 1307,
+        "endLine": 1316,
         "endColumn": 31
       }
     },
@@ -1337,9 +1348,9 @@
       "kind": "rpc",
       "name": "history",
       "span": {
-        "startLine": 1310,
+        "startLine": 1319,
         "startColumn": 5,
-        "endLine": 1325,
+        "endLine": 1334,
         "endColumn": 61
       }
     },
@@ -1359,9 +1370,9 @@
       "kind": "rpc",
       "name": "snapshot",
       "span": {
-        "startLine": 1335,
+        "startLine": 1344,
         "startColumn": 5,
-        "endLine": 1361,
+        "endLine": 1370,
         "endColumn": 10
       }
     },
@@ -1374,6 +1385,17 @@
         "startColumn": 5,
         "endLine": 1257,
         "endColumn": 31
+      }
+    },
+    {
+      "id": "rpc:steer_messages",
+      "kind": "rpc",
+      "name": "steer_messages",
+      "span": {
+        "startLine": 1264,
+        "startColumn": 5,
+        "endLine": 1266,
+        "endColumn": 65
       }
     },
     {
@@ -2313,9 +2335,9 @@
       "to": "rpc:history",
       "label": "get",
       "span": {
-        "startLine": 1322,
+        "startLine": 1331,
         "startColumn": 23,
-        "endLine": 1322,
+        "endLine": 1331,
         "endColumn": 74
       },
       "metadata": {
@@ -2329,9 +2351,9 @@
       "to": "rpc:snapshot",
       "label": "get",
       "span": {
-        "startLine": 1343,
+        "startLine": 1352,
         "startColumn": 27,
-        "endLine": 1343,
+        "endLine": 1352,
         "endColumn": 78
       },
       "metadata": {
@@ -2345,9 +2367,9 @@
       "to": "rpc:approve_tool",
       "label": "get",
       "span": {
-        "startLine": 1266,
+        "startLine": 1275,
         "startColumn": 23,
-        "endLine": 1266,
+        "endLine": 1275,
         "endColumn": 57
       },
       "metadata": {
@@ -2393,9 +2415,9 @@
       "to": "rpc:execute_plan",
       "label": "get",
       "span": {
-        "startLine": 1284,
+        "startLine": 1293,
         "startColumn": 17,
-        "endLine": 1284,
+        "endLine": 1293,
         "endColumn": 40
       },
       "metadata": {
@@ -2409,9 +2431,9 @@
       "to": "rpc:history",
       "label": "get",
       "span": {
-        "startLine": 1311,
+        "startLine": 1320,
         "startColumn": 17,
-        "endLine": 1311,
+        "endLine": 1320,
         "endColumn": 40
       },
       "metadata": {
@@ -2425,9 +2447,9 @@
       "to": "rpc:snapshot",
       "label": "get",
       "span": {
-        "startLine": 1336,
+        "startLine": 1345,
         "startColumn": 17,
-        "endLine": 1336,
+        "endLine": 1345,
         "endColumn": 40
       },
       "metadata": {
@@ -2531,13 +2553,13 @@
       "id": "edge:0060",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.queued_user_messages",
-      "to": "rpc:execute_plan",
-      "label": "size",
+      "to": "rpc:delete_queued_message",
+      "label": "load_channels",
       "span": {
-        "startLine": 1292,
-        "startColumn": 16,
-        "endLine": 1292,
-        "endColumn": 55
+        "startLine": 1259,
+        "startColumn": 48,
+        "endLine": 1259,
+        "endColumn": 68
       },
       "metadata": {
         "phase": "rpc"
@@ -2547,13 +2569,13 @@
       "id": "edge:0061",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.queued_user_messages",
-      "to": "rpc:snapshot",
-      "label": "pending_messages",
+      "to": "rpc:execute_plan",
+      "label": "size",
       "span": {
-        "startLine": 1354,
-        "startColumn": 36,
-        "endLine": 1354,
-        "endColumn": 87
+        "startLine": 1301,
+        "startColumn": 16,
+        "endLine": 1301,
+        "endColumn": 55
       },
       "metadata": {
         "phase": "rpc"
@@ -2561,6 +2583,22 @@
     },
     {
       "id": "edge:0062",
+      "kind": "resource_read",
+      "from": "resource:channel:AIAgentFlow.queued_user_messages",
+      "to": "rpc:snapshot",
+      "label": "pending_messages",
+      "span": {
+        "startLine": 1363,
+        "startColumn": 36,
+        "endLine": 1363,
+        "endColumn": 87
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0063",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.queued_user_messages",
       "to": "rpc:steer_message",
@@ -2576,7 +2614,7 @@
       }
     },
     {
-      "id": "edge:0063",
+      "id": "edge:0064",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.queued_user_messages",
       "to": "step:AwaitUser",
@@ -2592,7 +2630,7 @@
       }
     },
     {
-      "id": "edge:0064",
+      "id": "edge:0065",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.queued_user_messages",
       "to": "wait:AwaitUser:141:20:0",
@@ -2605,7 +2643,7 @@
       }
     },
     {
-      "id": "edge:0065",
+      "id": "edge:0066",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.queued_user_messages",
       "to": "wait:AwaitUser:148:16:1",
@@ -2618,15 +2656,15 @@
       }
     },
     {
-      "id": "edge:0066",
+      "id": "edge:0067",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.steered_user_messages",
       "to": "rpc:execute_plan",
       "label": "size",
       "span": {
-        "startLine": 1293,
+        "startLine": 1302,
         "startColumn": 16,
-        "endLine": 1293,
+        "endLine": 1302,
         "endColumn": 56
       },
       "metadata": {
@@ -2634,15 +2672,15 @@
       }
     },
     {
-      "id": "edge:0067",
+      "id": "edge:0068",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.steered_user_messages",
       "to": "rpc:snapshot",
       "label": "pending_messages",
       "span": {
-        "startLine": 1358,
+        "startLine": 1367,
         "startColumn": 36,
-        "endLine": 1358,
+        "endLine": 1367,
         "endColumn": 88
       },
       "metadata": {
@@ -2650,7 +2688,7 @@
       }
     },
     {
-      "id": "edge:0068",
+      "id": "edge:0069",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.steered_user_messages",
       "to": "step:AwaitToolApproval",
@@ -2666,7 +2704,7 @@
       }
     },
     {
-      "id": "edge:0069",
+      "id": "edge:0070",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.steered_user_messages",
       "to": "step:AwaitUser",
@@ -2682,7 +2720,7 @@
       }
     },
     {
-      "id": "edge:0070",
+      "id": "edge:0071",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.steered_user_messages",
       "to": "step:CheckSteered",
@@ -2698,7 +2736,7 @@
       }
     },
     {
-      "id": "edge:0071",
+      "id": "edge:0072",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.steered_user_messages",
       "to": "step:DurableWait",
@@ -2714,7 +2752,7 @@
       }
     },
     {
-      "id": "edge:0072",
+      "id": "edge:0073",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.steered_user_messages",
       "to": "wait:AwaitToolApproval:580:16:0",
@@ -2727,7 +2765,7 @@
       }
     },
     {
-      "id": "edge:0073",
+      "id": "edge:0074",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.steered_user_messages",
       "to": "wait:AwaitUser:141:20:0",
@@ -2740,7 +2778,7 @@
       }
     },
     {
-      "id": "edge:0074",
+      "id": "edge:0075",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.steered_user_messages",
       "to": "wait:AwaitUser:148:16:1",
@@ -2753,7 +2791,7 @@
       }
     },
     {
-      "id": "edge:0075",
+      "id": "edge:0076",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.steered_user_messages",
       "to": "wait:CheckSteered:366:16:0",
@@ -2766,7 +2804,7 @@
       }
     },
     {
-      "id": "edge:0076",
+      "id": "edge:0077",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.steered_user_messages",
       "to": "wait:DurableWait:681:16:0",
@@ -2779,7 +2817,7 @@
       }
     },
     {
-      "id": "edge:0077",
+      "id": "edge:0078",
       "kind": "resource_read",
       "from": "resource:channel:AIAgentFlow.tool_approvals",
       "to": "step:AwaitToolApproval",
@@ -2795,7 +2833,7 @@
       }
     },
     {
-      "id": "edge:0078",
+      "id": "edge:0079",
       "kind": "wait_condition",
       "from": "resource:channel:AIAgentFlow.tool_approvals",
       "to": "wait:AwaitToolApproval:580:16:0",
@@ -2808,31 +2846,15 @@
       }
     },
     {
-      "id": "edge:0079",
+      "id": "edge:0080",
       "kind": "resource_publish",
       "from": "rpc:approve_tool",
       "to": "resource:channel:AIAgentFlow.tool_approvals",
       "label": "publish",
       "span": {
-        "startLine": 1271,
+        "startLine": 1280,
         "startColumn": 9,
-        "endLine": 1275,
-        "endColumn": 10
-      },
-      "metadata": {
-        "phase": "rpc"
-      }
-    },
-    {
-      "id": "edge:0080",
-      "kind": "resource_write",
-      "from": "rpc:execute_plan",
-      "to": "resource:attribute:AIAgentFlow.state",
-      "label": "set",
-      "span": {
-        "startLine": 1298,
-        "startColumn": 9,
-        "endLine": 1301,
+        "endLine": 1284,
         "endColumn": 10
       },
       "metadata": {
@@ -2841,15 +2863,15 @@
     },
     {
       "id": "edge:0081",
-      "kind": "resource_publish",
-      "from": "rpc:execute_plan",
-      "to": "resource:channel:AIAgentFlow.plan_executions",
-      "label": "publish",
+      "kind": "resource_write",
+      "from": "rpc:delete_queued_message",
+      "to": "resource:channel:AIAgentFlow.queued_user_messages",
+      "label": "delete",
       "span": {
-        "startLine": 1302,
+        "startLine": 1261,
         "startColumn": 9,
-        "endLine": 1306,
-        "endColumn": 10
+        "endLine": 1261,
+        "endColumn": 62
       },
       "metadata": {
         "phase": "rpc"
@@ -2857,6 +2879,38 @@
     },
     {
       "id": "edge:0082",
+      "kind": "resource_write",
+      "from": "rpc:execute_plan",
+      "to": "resource:attribute:AIAgentFlow.state",
+      "label": "set",
+      "span": {
+        "startLine": 1307,
+        "startColumn": 9,
+        "endLine": 1310,
+        "endColumn": 10
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0083",
+      "kind": "resource_publish",
+      "from": "rpc:execute_plan",
+      "to": "resource:channel:AIAgentFlow.plan_executions",
+      "label": "publish",
+      "span": {
+        "startLine": 1311,
+        "startColumn": 9,
+        "endLine": 1315,
+        "endColumn": 10
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0084",
       "kind": "resource_publish",
       "from": "rpc:send_message",
       "to": "resource:channel:AIAgentFlow.queued_user_messages",
@@ -2872,7 +2926,7 @@
       }
     },
     {
-      "id": "edge:0083",
+      "id": "edge:0085",
       "kind": "resource_write",
       "from": "rpc:steer_message",
       "to": "resource:channel:AIAgentFlow.queued_user_messages",
@@ -2888,7 +2942,7 @@
       }
     },
     {
-      "id": "edge:0084",
+      "id": "edge:0086",
       "kind": "resource_publish",
       "from": "rpc:steer_message",
       "to": "resource:channel:AIAgentFlow.steered_user_messages",
@@ -2904,7 +2958,23 @@
       }
     },
     {
-      "id": "edge:0085",
+      "id": "edge:0087",
+      "kind": "resource_publish",
+      "from": "rpc:steer_messages",
+      "to": "resource:channel:AIAgentFlow.steered_user_messages",
+      "label": "publish",
+      "span": {
+        "startLine": 1266,
+        "startColumn": 13,
+        "endLine": 1266,
+        "endColumn": 65
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0088",
       "kind": "resource_write",
       "from": "step:AwaitToolApproval",
       "to": "resource:attribute:AIAgentFlow.pending_approval",
@@ -2920,7 +2990,7 @@
       }
     },
     {
-      "id": "edge:0086",
+      "id": "edge:0089",
       "kind": "resource_write",
       "from": "step:AwaitUser",
       "to": "resource:attribute:AIAgentFlow.plan",
@@ -2936,7 +3006,7 @@
       }
     },
     {
-      "id": "edge:0087",
+      "id": "edge:0090",
       "kind": "resource_write",
       "from": "step:AwaitUser",
       "to": "resource:attribute:AIAgentFlow.state",
@@ -2952,7 +3022,7 @@
       }
     },
     {
-      "id": "edge:0088",
+      "id": "edge:0091",
       "kind": "resource_write",
       "from": "step:AwaitUser",
       "to": "resource:stream:AIAgentFlow.agent_activity",
@@ -2971,7 +3041,7 @@
       }
     },
     {
-      "id": "edge:0089",
+      "id": "edge:0092",
       "kind": "resource_write",
       "from": "step:CallModel",
       "to": "resource:attribute:AIAgentFlow.state",
@@ -2987,7 +3057,7 @@
       }
     },
     {
-      "id": "edge:0090",
+      "id": "edge:0093",
       "kind": "resource_write",
       "from": "step:CallModel",
       "to": "resource:stream:AIAgentFlow.agent_activity",
@@ -3006,7 +3076,7 @@
       }
     },
     {
-      "id": "edge:0091",
+      "id": "edge:0094",
       "kind": "resource_write",
       "from": "step:CallModel",
       "to": "resource:stream:AIAgentFlow.assistant_text",
@@ -3025,7 +3095,7 @@
       }
     },
     {
-      "id": "edge:0092",
+      "id": "edge:0095",
       "kind": "resource_write",
       "from": "step:CallModel",
       "to": "resource:stream:AIAgentFlow.reasoning_summary",
@@ -3044,7 +3114,7 @@
       }
     },
     {
-      "id": "edge:0093",
+      "id": "edge:0096",
       "kind": "resource_write",
       "from": "step:CompactContext",
       "to": "resource:attribute:AIAgentFlow.state",
@@ -3060,7 +3130,7 @@
       }
     },
     {
-      "id": "edge:0094",
+      "id": "edge:0097",
       "kind": "resource_write",
       "from": "step:CompactContext",
       "to": "resource:attribute:AIAgentFlow.summary",
@@ -3076,7 +3146,7 @@
       }
     },
     {
-      "id": "edge:0095",
+      "id": "edge:0098",
       "kind": "resource_write",
       "from": "step:CompactContext",
       "to": "resource:stream:AIAgentFlow.agent_activity",
@@ -3095,7 +3165,7 @@
       }
     },
     {
-      "id": "edge:0096",
+      "id": "edge:0099",
       "kind": "resource_write",
       "from": "step:DurableWait",
       "to": "resource:attribute:AIAgentFlow.pending_timer",
@@ -3111,7 +3181,7 @@
       }
     },
     {
-      "id": "edge:0097",
+      "id": "edge:0100",
       "kind": "resource_write",
       "from": "step:ExecuteTool",
       "to": "resource:stream:AIAgentFlow.agent_activity",
@@ -3130,7 +3200,7 @@
       }
     },
     {
-      "id": "edge:0098",
+      "id": "edge:0101",
       "kind": "resource_write",
       "from": "step:Init",
       "to": "resource:attribute:AIAgentFlow.config",
@@ -3146,7 +3216,7 @@
       }
     },
     {
-      "id": "edge:0099",
+      "id": "edge:0102",
       "kind": "resource_write",
       "from": "step:Init",
       "to": "resource:attribute:AIAgentFlow.state",
@@ -3162,7 +3232,7 @@
       }
     },
     {
-      "id": "edge:0100",
+      "id": "edge:0103",
       "kind": "resource_write",
       "from": "step:RouteTool",
       "to": "resource:attribute:AIAgentFlow.pending_approval",
@@ -3178,7 +3248,7 @@
       }
     },
     {
-      "id": "edge:0101",
+      "id": "edge:0104",
       "kind": "resource_write",
       "from": "step:RouteTool",
       "to": "resource:attribute:AIAgentFlow.pending_timer",
@@ -3194,7 +3264,7 @@
       }
     },
     {
-      "id": "edge:0102",
+      "id": "edge:0105",
       "kind": "resource_write",
       "from": "step:RouteTool",
       "to": "resource:attribute:AIAgentFlow.pending_user_input",
@@ -3210,7 +3280,7 @@
       }
     },
     {
-      "id": "edge:0103",
+      "id": "edge:0106",
       "kind": "resource_write",
       "from": "step:RouteTool",
       "to": "resource:stream:AIAgentFlow.agent_activity",

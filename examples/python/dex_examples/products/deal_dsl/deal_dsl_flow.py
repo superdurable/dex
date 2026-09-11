@@ -20,12 +20,14 @@ from dex import (
     Context,
     Flow,
     PersistenceSchema,
+    RPCResult,
     Step,
     StepDecision,
     StepList,
     Wait,
     go_to,
     graceful_complete,
+    rpc,
 )
 
 
@@ -133,6 +135,12 @@ class DealStart:
 @dataclass(frozen=True)
 class StateStepInput:
     state_name: str
+
+
+@dataclass(frozen=True)
+class ConditionMessage:
+    condition_name: str
+    values: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -254,6 +262,14 @@ class DealDSLFlow(Flow[DealStart]):
             self.pending_condition,
             self.condition_messages,
         )
+
+    @rpc
+    def send_condition_message(
+        self,
+        context: Context,
+        input: ConditionMessage,
+    ) -> None:
+        self.condition_messages.publish(context, input.condition_name, input.values)
 
     def merge_condition(self, context: Context, condition_name: str) -> None:
         messages = self.condition_messages.results(context, condition_name)

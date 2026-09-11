@@ -15,8 +15,8 @@
 use std::{collections::BTreeMap, sync::LazyLock};
 
 use dex_sdk::{
-    Attribute, ChannelMap, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Step,
-    StepDecision, StepList, Wait,
+    Attribute, ChannelMap, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Rpc,
+    RpcList, Step, StepDecision, StepList, Wait,
 };
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +64,15 @@ pub struct DealStart {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ConditionMessage {
+    pub condition_name: String,
+    pub values: BTreeMap<String, String>,
+}
+
+pub const DEAL_SEND_CONDITION_MESSAGE: Rpc<ConditionMessage, ()> =
+    Rpc::new("DealSendConditionMessage");
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StateStepInput {
     pub state_name: String,
 }
@@ -80,6 +89,16 @@ pub struct DealDSLFlow {
     wait_for_condition: WaitForDealCondition,
     execute_action: ExecuteDealAction,
     evaluate_transition: EvaluateDealTransition,
+}
+
+impl DealDSLFlow {
+    fn send_condition_message(
+        &self,
+        context: &mut Context,
+        message: ConditionMessage,
+    ) -> HandlerResult<()> {
+        DEAL_CONDITION_MESSAGES.publish(context, &message.condition_name, message.values)
+    }
 }
 
 impl Flow for DealDSLFlow {
@@ -102,6 +121,10 @@ impl Flow for DealDSLFlow {
             .attribute(&DEAL_CURRENT_STATE)
             .attribute(&DEAL_PENDING_CONDITION)
             .channel_map(&DEAL_CONDITION_MESSAGES)
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new().procedure(DEAL_SEND_CONDITION_MESSAGE, Self::send_condition_message)
     }
 }
 

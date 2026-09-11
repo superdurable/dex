@@ -58,6 +58,26 @@ func (*ManualRecoveryFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	}
 }
 
+func (*ManualRecoveryFlow) Retry(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[dex.None], error) {
+	if err := RetryChannel.Publish(ctx, nil); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+func (*ManualRecoveryFlow) Skip(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[dex.None], error) {
+	if err := SkipChannel.Publish(ctx, nil); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
 type doWorkStep struct {
 	dex.StepDefaultsNoWaitFor[bool]
 }

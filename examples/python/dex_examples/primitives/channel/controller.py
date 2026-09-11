@@ -46,18 +46,18 @@ def create_channel_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.get("/enqueue")
     async def enqueue() -> str:
-        await app_state.client.publish(
+        await app_state.client.invoke_rpc(
+            app_state.channel.enqueue,
             required_query("workflowId"),
-            app_state.channel.queued,
             required_query("value"),
         )
         return "done"
 
     @blueprint.get("/messages")
     async def messages() -> Response:
-        pending = await app_state.client.get_channel_messages(
+        pending = await app_state.client.invoke_rpc(
+            app_state.channel.queued_messages,
             required_query("workflowId"),
-            app_state.channel.queued,
         )
         return jsonify(
             [
@@ -68,10 +68,10 @@ def create_channel_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.get("/delete")
     async def delete() -> str:
-        await app_state.client.delete_channel_message(
+        await app_state.client.invoke_rpc(
+            app_state.channel.delete_queued,
             required_query("workflowId"),
-            app_state.channel.queued,
-            required_query("messageId"),
+            MoveMessage(required_query("messageId")),
         )
         return "done"
 

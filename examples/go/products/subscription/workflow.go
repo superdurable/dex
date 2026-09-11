@@ -87,6 +87,37 @@ func (*SubscriptionFlow) Describe(
 	return &dex.RPCResult[Subscription]{Output: customer.Subscription}, nil
 }
 
+func (*SubscriptionFlow) Customer(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[Customer], error) {
+	customer, err := CustomerDetails.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[Customer]{Output: customer}, nil
+}
+
+func (*SubscriptionFlow) Cancel(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[dex.None], error) {
+	if err := CancelSubscription.Publish(ctx, nil); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+func (*SubscriptionFlow) UpdateCharge(
+	ctx dex.Context,
+	amount int,
+) (*dex.RPCResult[dex.None], error) {
+	if err := UpdateChargeAmount.Publish(ctx, amount); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
 type initializeStep struct {
 	dex.StepDefaultsNoWaitFor[Customer]
 }

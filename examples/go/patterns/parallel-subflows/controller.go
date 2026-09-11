@@ -112,9 +112,8 @@ func (controller *controller) stopLongLive(request *gin.Context) {
 	if !found {
 		return
 	}
-	var output dex.None
 	err := controller.client.InvokeRPC(
-		request.Request.Context(), flowID, controller.longLive.Stop, nil, &output, dex.InvokeOptions{},
+		request.Request.Context(), flowID, controller.longLive.Stop, nil, nil, dex.InvokeOptions{},
 	)
 	httputil.RespondString(request, "stopping", err)
 }

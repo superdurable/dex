@@ -50,6 +50,16 @@ func (*ReminderFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Channels: []dex.ChannelDef{OptOut}}
 }
 
+func (*ReminderFlow) OptOutReminders(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[dex.None], error) {
+	if err := OptOut.Publish(ctx, nil); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
 type reminderStep struct {
 	dex.StepDefaults
 	service patternsservice.ServiceDependency

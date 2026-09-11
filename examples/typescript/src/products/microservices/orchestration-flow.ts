@@ -79,6 +79,16 @@ export class OrchestrationFlow implements Flow<string> {
     this.data.set(context, newData);
     return { output: oldData };
   }
+
+  @rpc()
+  public signalReady(context: Context): void {
+    ready.publish(context, undefined);
+  }
+
+  @rpc({ outputCodec: stringCodec })
+  public getData(context: Context): RPCResult<string> {
+    return { output: this.data.get(context) };
+  }
 }
 
 class CallAPI1 implements Step<string> {

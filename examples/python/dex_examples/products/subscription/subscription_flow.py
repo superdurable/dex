@@ -91,7 +91,6 @@ class Trial(Step[None]):
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        self.billing_period_number.set(context, 0)
         return go_to(ChargeCurrentBill, None)
 
 
@@ -140,17 +139,20 @@ class Initialize(Step[Customer]):
     def __init__(
         self,
         customer_details: Attribute[Customer],
+        billing_period_number: Attribute[int],
         trial: Trial,
         cancel: Cancel,
         update_charge_amount: UpdateChargeAmount,
     ) -> None:
         self.customer_details = customer_details
+        self.billing_period_number = billing_period_number
         self.trial = trial
         self.cancel = cancel
         self.update_charge_amount = update_charge_amount
 
     def execute(self, context: Context, input: Customer) -> StepDecision:
         self.customer_details.set(context, input)
+        self.billing_period_number.set(context, 0)
         return go_to_many(
             StepMovement.of(Trial, None),
             StepMovement.of(Cancel, None),
@@ -188,6 +190,7 @@ class SubscriptionFlow(Flow[Customer]):
         )
         self.initialize = Initialize(
             self.customer_details,
+            self.billing_period_number,
             self.trial,
             self.cancel,
             self.update_charge_amount_step,
@@ -212,3 +215,15 @@ class SubscriptionFlow(Flow[Customer]):
     @rpc
     def describe(self, context: Context) -> RPCResult[Subscription]:
         return RPCResult(self.customer_details.get(context).subscription)
+
+    @rpc
+    def customer(self, context: Context) -> RPCResult[Customer]:
+        return RPCResult(self.customer_details.get(context))
+
+    @rpc
+    def cancel_subscription_rpc(self, context: Context) -> None:
+        self.cancel_subscription.publish(context, None)
+
+    @rpc
+    def update_charge(self, context: Context, amount: int) -> None:
+        self.update_charge_amount.publish(context, amount)

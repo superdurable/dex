@@ -102,11 +102,7 @@ test("cron schedule starter starts one finite flow", async () => {
     "../../src/patterns/cron/cron-schedule-flow.js"
   );
   await startCronSchedule(server.client);
-  await server.client.publish(
-    CRON_SCHEDULE_FLOW_ID,
-    cronScheduleFlow.trigger,
-    ...Array<void>(10).fill(undefined),
-  );
+  await server.client.invokeRPC(cronScheduleFlow.triggerNow, CRON_SCHEDULE_FLOW_ID, 10);
   const result = await server.client.waitForFlow(CRON_SCHEDULE_FLOW_ID, 45_000);
   assert.equal(result.status, "completed");
 });

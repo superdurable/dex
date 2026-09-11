@@ -133,3 +133,11 @@ class OrchestrationFlow(Flow[str]):
         old_data = self.data.get(context)
         self.data.set(context, new_data)
         return RPCResult(old_data)
+
+    @rpc
+    def signal_ready(self, context: Context) -> None:
+        self.ready.publish(context, None)
+
+    @rpc
+    def get_data(self, context: Context) -> RPCResult[str]:
+        return RPCResult(self.data.get(context))

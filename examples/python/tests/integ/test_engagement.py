@@ -22,9 +22,9 @@ from dex_examples.config import start_options
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.engagement.engagement_input import EngagementInput
 from dex_examples.products.engagement.status import Status
-from tests.integ.conftest import WAIT_TIMEOUT, wait_for_attribute, wait_until
+from tests.integ.conftest import WAIT_TIMEOUT, wait_until
 
-from dex import AsyncClient
+from dex import AsyncClient, AttributeMatch
 
 pytestmark = pytest.mark.integ
 
@@ -42,7 +42,12 @@ async def test_engagement_accept_completes_the_flow(
         start_options(),
     )
 
-    await wait_for_attribute(client, flow_id, EngagementFlow.engagement_status)
+    await client.wait_for_attribute_match(
+        flow_id,
+        EngagementFlow.employer_id,
+        AttributeMatch.equal_to("test-employer-id"),
+        WAIT_TIMEOUT,
+    )
     description = await client.invoke_rpc(app.engagement.describe, flow_id)
     assert description.employer_id == "test-employer-id"
     assert description.job_seeker_id == "test-job-seeker-id"
@@ -69,16 +74,20 @@ async def test_engagement_decline_then_accept(
         start_options(),
     )
 
-    await wait_for_attribute(client, flow_id, EngagementFlow.engagement_status)
+    await client.wait_for_attribute_match(
+        flow_id,
+        EngagementFlow.employer_id,
+        AttributeMatch.equal_to("test-employer-id"),
+        WAIT_TIMEOUT,
+    )
     assert await client.invoke_rpc(app.engagement.decline, flow_id, "not now") is (
         Status.DECLINED
     )
 
     async def engagement_is_declined() -> bool:
         return (
-            await client.get_attribute(flow_id, EngagementFlow.engagement_status)
-            is Status.DECLINED
-        )
+            await client.invoke_rpc(app.engagement.describe, flow_id)
+        ).current_status == Status.DECLINED
 
     await wait_until("the engagement to become declined", engagement_is_declined)
     assert await client.invoke_rpc(
@@ -105,8 +114,13 @@ async def test_engagement_opt_out_of_reminders(
         start_options(),
     )
 
-    await wait_for_attribute(client, flow_id, EngagementFlow.engagement_status)
-    await client.publish(flow_id, app.engagement.opt_out_reminder, None)
+    await client.wait_for_attribute_match(
+        flow_id,
+        EngagementFlow.employer_id,
+        AttributeMatch.equal_to("test-employer-id"),
+        WAIT_TIMEOUT,
+    )
+    await client.invoke_rpc(app.engagement.opt_out, flow_id)
 
     # Opting out ends the reminder loop but leaves the engagement open.
     async def reminder_is_stopped() -> bool:

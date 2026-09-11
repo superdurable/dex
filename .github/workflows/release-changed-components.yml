@@ -159,10 +159,47 @@ jobs:
     name: Publish TypeScript SDK
     needs: [plan, create-releases]
     if: needs.plan.outputs.typescript == 'true'
-    uses: ./.github/workflows/sdk-typescript-publish.yml
-    with:
-      version: ${{ needs.plan.outputs.version }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch trusted npm publisher
+        id: dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          title="Publish TypeScript SDK ${RELEASE_VERSION}"
+          gh workflow run sdk-typescript-publish.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main \
+            -f "version=${RELEASE_VERSION}"
+          for _ in {1..30}; do
+            run_id="$({
+              gh run list \
+                --repo "${GITHUB_REPOSITORY}" \
+                --workflow sdk-typescript-publish.yml \
+                --event workflow_dispatch \
+                --branch main \
+                --limit 20 \
+                --json databaseId,displayTitle
+            } | jq -r --arg title "${title}" \
+              '.[] | select(.displayTitle == $title) | .databaseId' | head -n 1)"
+            if [[ -n "${run_id}" ]]; then
+              echo "run_id=${run_id}" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Dispatched npm publisher run was not found" >&2
+          exit 1
+      - name: Wait for npm publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: gh run watch "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" --exit-status
 
   publish-server:
     name: Publish server

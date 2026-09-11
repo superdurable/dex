@@ -43,13 +43,13 @@ from dex_examples.patterns.wait_for_step_completion.job_seeker_data import (
 from tests.integ.conftest import (
     LONG_WAIT_TIMEOUT,
     WAIT_TIMEOUT,
-    attribute_or_none,
     flow_status_or_none,
     wait_until,
 )
 
 from dex import (
     AsyncClient,
+    AttributeMatch,
     FlowConfig,
     FlowStatus,
     IdReusePolicy,
@@ -72,7 +72,7 @@ async def test_cron_schedule_completes(
         CronScheduleInput(Interval(1, IntervalUnit.MINUTE), 2),
         StartFlowOptions(),
     )
-    await client.publish(flow_id, app.cron_schedule.trigger, None, None)
+    await client.invoke_rpc(app.cron_schedule.trigger_now, flow_id, 2)
     result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
     assert result.status == FlowStatus.COMPLETED
 
@@ -105,9 +105,9 @@ async def test_draining_channel_for_external_publishing(
         start_options(),
     )
     assert run_id
-    await client.publish(
+    await client.invoke_rpc(
+        app.drain_external.example_rpc,
         flow_id,
-        app.drain_external.queue_channel,
         "message from test",
     )
 
@@ -138,7 +138,7 @@ async def test_manual_recovery_retry_completes(
 ) -> None:
     flow_id = new_flow_id("manual-recovery")
     await client.start_flow(app.manual_recovery, flow_id, True, start_options())
-    await client.publish(flow_id, app.manual_recovery.retry_channel, None)
+    await client.invoke_rpc(app.manual_recovery.retry, flow_id)
     output = (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(str)
     assert output == "work completed"
 
@@ -202,7 +202,7 @@ async def test_reminder_opt_out(
 ) -> None:
     flow_id = new_flow_id("reminder")
     await client.start_flow(app.reminder, flow_id, None, start_options())
-    await client.publish(flow_id, app.reminder.opt_out, None)
+    await client.invoke_rpc(app.reminder.opt_out_reminders, flow_id)
     await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
 
@@ -240,16 +240,12 @@ async def test_long_lived_parallel_subflows_stop(
         start_options(),
     )
 
-    async def initialized() -> bool:
-        return (
-            await attribute_or_none(
-                client,
-                flow_id,
-                AdvancedLongLiveParentFlow.stopped,
-            )
-        ) is not None
-
-    await wait_until("the long-lived parent to initialize", initialized)
+    await client.wait_for_attribute_match(
+        flow_id,
+        AdvancedLongLiveParentFlow.stopped,
+        AttributeMatch.equal_to(False),
+        WAIT_TIMEOUT,
+    )
     await client.invoke_rpc(app.long_live_subflows.stop, flow_id, None)
     result = await client.wait_for_flow(flow_id, LONG_WAIT_TIMEOUT)
     assert result.status == FlowStatus.COMPLETED

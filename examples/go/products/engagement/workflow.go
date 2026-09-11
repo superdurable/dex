@@ -88,6 +88,16 @@ func (*EngagementFlow) Describe(
 	return &dex.RPCResult[EngagementDescription]{Output: description}, nil
 }
 
+func (*EngagementFlow) OptOut(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[dex.None], error) {
+	if err := OptOutReminder.Publish(ctx, nil); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
 func (*EngagementFlow) Decline(
 	ctx dex.Context,
 	note string,

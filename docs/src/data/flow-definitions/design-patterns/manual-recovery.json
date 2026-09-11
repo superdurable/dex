@@ -9,10 +9,10 @@
     "name": "ManualRecoveryFlow",
     "startStepId": "step:DoWorkStep",
     "span": {
-      "startLine": 76,
+      "startLine": 77,
       "startColumn": 1,
-      "endLine": 91,
-      "endColumn": 75
+      "endLine": 96,
+      "endColumn": 50
     }
   },
   "nodes": [
@@ -23,22 +23,22 @@
       "parentId": "step:ManualStep",
       "phase": "execute",
       "span": {
-        "startLine": 70,
+        "startLine": 71,
         "startColumn": 5,
-        "endLine": 73,
+        "endLine": 74,
         "endColumn": 53
       }
     },
     {
-      "id": "decision:step:DoWorkStep:52:16",
+      "id": "decision:step:DoWorkStep:53:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:DoWorkStep",
       "phase": "execute",
       "span": {
-        "startLine": 52,
+        "startLine": 53,
         "startColumn": 16,
-        "endLine": 52,
+        "endLine": 53,
         "endColumn": 51
       },
       "decision": {
@@ -46,16 +46,16 @@
       }
     },
     {
-      "id": "decision:step:ManualStep:72:20",
+      "id": "decision:step:ManualStep:73:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:ManualStep",
       "condition": "self.retry_channel.results(context)",
       "phase": "execute",
       "span": {
-        "startLine": 72,
+        "startLine": 73,
         "startColumn": 20,
-        "endLine": 72,
+        "endLine": 73,
         "endColumn": 44
       },
       "decision": {
@@ -63,16 +63,16 @@
       }
     },
     {
-      "id": "decision:step:ManualStep:73:16",
+      "id": "decision:step:ManualStep:74:16",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:ManualStep",
       "condition": "not (self.retry_channel.results(context))",
       "phase": "execute",
       "span": {
-        "startLine": 73,
+        "startLine": 74,
         "startColumn": 16,
-        "endLine": 73,
+        "endLine": 74,
         "endColumn": 53
       },
       "decision": {
@@ -84,9 +84,9 @@
       "kind": "channel",
       "name": "manual-recovery-retry",
       "span": {
-        "startLine": 80,
+        "startLine": 81,
         "startColumn": 5,
-        "endLine": 80,
+        "endLine": 81,
         "endColumn": 61
       },
       "resource": {
@@ -98,13 +98,24 @@
       "kind": "channel",
       "name": "manual-recovery-skip",
       "span": {
-        "startLine": 81,
+        "startLine": 82,
         "startColumn": 5,
-        "endLine": 81,
+        "endLine": 82,
         "endColumn": 59
       },
       "resource": {
         "valueType": "None"
+      }
+    },
+    {
+      "id": "rpc:retry",
+      "kind": "rpc",
+      "name": "retry",
+      "span": {
+        "startLine": 95,
+        "startColumn": 5,
+        "endLine": 96,
+        "endColumn": 50
       }
     },
     {
@@ -114,9 +125,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 88,
+        "startLine": 89,
         "startColumn": 36,
-        "endLine": 88,
+        "endLine": 89,
         "endColumn": 53
       }
     },
@@ -126,22 +137,22 @@
       "name": "ManualStep",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 88,
+        "startLine": 89,
         "startColumn": 67,
-        "endLine": 88,
+        "endLine": 89,
         "endColumn": 83
       }
     },
     {
-      "id": "wait:ManualStep:65:16:0",
+      "id": "wait:ManualStep:66:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:ManualStep",
       "phase": "wait_for",
       "span": {
-        "startLine": 65,
+        "startLine": 66,
         "startColumn": 16,
-        "endLine": 68,
+        "endLine": 69,
         "endColumn": 10
       },
       "wait": {
@@ -152,9 +163,9 @@
             "label": "manual-recovery-retry.for 1",
             "resourceId": "resource:channel:ManualRecoveryFlow.retry_channel",
             "span": {
-              "startLine": 66,
+              "startLine": 67,
               "startColumn": 13,
-              "endLine": 66,
+              "endLine": 67,
               "endColumn": 41
             }
           },
@@ -163,9 +174,9 @@
             "label": "manual-recovery-skip.for 1",
             "resourceId": "resource:channel:ManualRecoveryFlow.skip_channel",
             "span": {
-              "startLine": 67,
+              "startLine": 68,
               "startColumn": 13,
-              "endLine": 67,
+              "endLine": 68,
               "endColumn": 40
             }
           }
@@ -177,13 +188,13 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:ManualStep:72:20",
+      "from": "decision:step:ManualStep:73:20",
       "to": "step:DoWorkStep",
       "label": "go_to",
       "span": {
-        "startLine": 72,
+        "startLine": 73,
         "startColumn": 20,
-        "endLine": 72,
+        "endLine": 73,
         "endColumn": 44
       }
     },
@@ -194,9 +205,9 @@
       "to": "step:ManualStep",
       "label": "results",
       "span": {
-        "startLine": 71,
+        "startLine": 72,
         "startColumn": 12,
-        "endLine": 71,
+        "endLine": 72,
         "endColumn": 47
       },
       "metadata": {
@@ -207,12 +218,12 @@
       "id": "edge:0003",
       "kind": "wait_condition",
       "from": "resource:channel:ManualRecoveryFlow.retry_channel",
-      "to": "wait:ManualStep:65:16:0",
+      "to": "wait:ManualStep:66:16:0",
       "label": "manual-recovery-retry.for 1",
       "span": {
-        "startLine": 66,
+        "startLine": 67,
         "startColumn": 13,
-        "endLine": 66,
+        "endLine": 67,
         "endColumn": 41
       }
     },
@@ -220,25 +231,41 @@
       "id": "edge:0004",
       "kind": "wait_condition",
       "from": "resource:channel:ManualRecoveryFlow.skip_channel",
-      "to": "wait:ManualStep:65:16:0",
+      "to": "wait:ManualStep:66:16:0",
       "label": "manual-recovery-skip.for 1",
       "span": {
-        "startLine": 67,
+        "startLine": 68,
         "startColumn": 13,
-        "endLine": 67,
+        "endLine": 68,
         "endColumn": 40
       }
     },
     {
       "id": "edge:0005",
+      "kind": "resource_publish",
+      "from": "rpc:retry",
+      "to": "resource:channel:ManualRecoveryFlow.retry_channel",
+      "label": "publish",
+      "span": {
+        "startLine": 96,
+        "startColumn": 9,
+        "endLine": 96,
+        "endColumn": 50
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0006",
       "kind": "failure_transition",
       "from": "step:DoWorkStep",
       "to": "step:ManualStep",
       "label": "Execute failure",
       "span": {
-        "startLine": 40,
+        "startLine": 41,
         "startColumn": 16,
-        "endLine": 47,
+        "endLine": 48,
         "endColumn": 52
       },
       "metadata": {

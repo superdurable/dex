@@ -7,7 +7,7 @@ import ChannelScopeDiagram from '@site/src/components/primitives/channel/Channel
 
 # Channel
 
-**Channel** is a durable first-in, first-out (FIFO) queue inside one Flow execution. Steps, RPCs, and Clients append typed messages. A Step consumes messages by returning a Channel condition from **WaitFor**.
+**Channel** is a durable first-in, first-out (FIFO) queue inside one Flow execution. Steps and RPCs append typed messages. A Step consumes messages by returning a Channel condition from **WaitFor**.
 
 A Channel keeps messages in arrival order. A message can be consumed by one matching wait, once. It is not copied to other waiting Steps.
 
@@ -19,7 +19,7 @@ A Channel is scoped to one Flow execution. Messages never cross between Flow exe
 
 A Channel has a stable name and a message type. Define it and add it to the Flow persistence schema.
 
-This example has an **Approval** Channel. Its start Step waits for either one approval or a Timer. The **approve** RPC publishes the approval message. The same Flow can also receive a message directly through the Client **PublishToChannel** API.
+This example has an **Approval** Channel. Its start Step waits for either one approval or a Timer. The **approve** RPC publishes the approval message. The **enqueue** RPC lets applications publish another queued message.
 
 <SdkTabs
 examples={{
@@ -455,13 +455,13 @@ Returning a Channel condition from **WaitFor** waits for the Channel. When the c
 
 Inside a Step or RPC, call the Channel publish method with the handler **Context**. Dex appends the message when it accepts that handler result.
 
-Code outside a Worker can publish directly through the Client **PublishToChannel** API. A client publishes to an active Flow, and a batch keeps the order in which its values were supplied. See [Client](/primitives/client/basic#publish-to-a-channel).
+Code outside a Worker invokes a Flow RPC that publishes with the handler **Context**. This makes the Flow the boundary for validation, authorization, locking, and related state changes.
 
 Messages can arrive before a Step starts waiting. Dex Server keeps them in the Channel until a later wait consumes them.
 
 ## Manage pending messages {#manage-pending-messages}
 
-Dex assigns a UUIDv7 message ID when it accepts each publication. A Client can list every pending message in FIFO order and delete one by ID. Listing does not consume messages. Only a message that is still pending can be deleted; a concurrent Step consumption or deletion returns the Channel-message-not-found error.
+Dex assigns a UUIDv7 message ID when it accepts each publication. An RPC can list every pending message in FIFO order and delete one by ID. Listing does not consume messages. Only a message that is still pending can be deleted; a concurrent Step consumption or deletion returns the Channel-message-not-found error.
 
 This is queue state, not Flow history. After a Step consumes a message, it disappears from the Channel even though the publication and consumption remain observable in Flow history until retention removes them.
 
@@ -482,9 +482,9 @@ rust: 'examples/rust/src/primitives/channel/controller.rs',
 ```python
 @blueprint.get("/messages")
 async def messages() -> Response:
-    pending = await app_state.client.get_channel_messages(
+    pending = await app_state.client.invoke_rpc(
+        app_state.channel.queued_messages,
         required_query("workflowId"),
-        app_state.channel.queued,
     )
     return jsonify(
         [
@@ -499,11 +499,13 @@ async def messages() -> Response:
 
 ```go
 var messages []sdk.ChannelMessage[string]
-err := controller.client.GetChannelMessages(
+err := controller.client.InvokeRPC(
 	request.Request.Context(),
 	flowID,
-	Queued,
+	controller.flow.QueuedMessages,
+	nil,
 	&messages,
+	sdk.InvokeOptions{LoadChannels: []sdk.ChannelDef{Queued}},
 )
 httputil.Respond(request, messages, err)
 ```
@@ -512,30 +514,25 @@ httputil.Respond(request, messages, err)
 <SdkSnippet lang="java">
 
 ```java
-return ResponseEntity.ok(client.getChannelMessages(workflowId, flow.queued));
+final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
+return ResponseEntity.ok(client.invokeRPC(stub::queuedMessages).messages);
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```typescript
-response.json(await client.getChannelMessages(workflowId, queued));
+response.json(await client.invokeRPC(channelFlow.queuedMessages, workflowId));
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
 
 ```rust
-match run_blocking(move || client.get_channel_messages(&query.workflow_id, &QUEUED)) {
-    Ok(messages) => ok_json(
-        messages
-            .into_iter()
-            .map(|message| PendingMessage {
-                message_id: message.message_id,
-                value: message.value,
-            })
-            .collect::<Vec<_>>(),
-    ),
+match run_blocking(move || {
+    client.invoke_rpc_without_input(&query.workflow_id, CHANNEL_QUEUED_MESSAGES)
+}) {
+    Ok(messages) => ok_json(messages),
     Err(error) => map_sdk_error(error).into_response(),
 }
 ```

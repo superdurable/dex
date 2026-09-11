@@ -156,7 +156,7 @@ func (shipStep) WaitFor(
 ) (*dex.Wait, error) {
 	return dex.AnyOf(
 		SellerOK.ForOne(),
-		dex.Timer(24 * time.Hour),
+		dex.Timer(24*time.Hour),
 	), nil
 }
 

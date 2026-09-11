@@ -17,9 +17,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { stringCodec } from "@superdurable/dex";
-
-import { optOutReminder } from "../../src/products/engagement/engagement-flow.js";
+import { AttributeMatch, stringCodec } from "@superdurable/dex";
 
 import {
   acquireIntegEnvironment,
@@ -51,17 +49,17 @@ test("engagementStartChannelRpcAndStatus", async () => {
   );
   assert.ok(runId.length > 0);
 
-  await awaitCondition(
-    () => environment.client.getAttribute(flowId, flow.engagementStatus),
-    (status) => status === "Initiated",
+  await environment.client.waitForAttributeMatch(
+    flowId,
+    flow.employerId,
+    AttributeMatch.equalTo("employer-ci"),
     20_000,
-    "engagement status not Initiated",
   );
 
   const description = await environment.client.invokeRPC(flow.describe, flowId);
   assert.equal((description as { currentStatus: string }).currentStatus, "Initiated");
 
-  await environment.client.publish(flowId, optOutReminder, undefined);
+  await environment.client.invokeRPC(flow.optOut, flowId);
   await awaitCondition(
     () => environment.client.invokeRPC(flow.describe, flowId),
     (current) => current.notes.includes("user opted out of reminders"),
@@ -76,10 +74,10 @@ test("engagementStartChannelRpcAndStatus", async () => {
   assert.equal(declined, "Declined");
 
   await awaitCondition(
-    () => environment.client.getAttribute(flowId, flow.engagementStatus),
-    (status) => status === "Declined",
+    () => environment.client.invokeRPC(flow.describe, flowId),
+    (current) => current.currentStatus === "Declined",
     20_000,
-    "engagement status not Declined",
+    "engagement status did not become declined",
   );
 
   const accepted = await environment.client.invokeRPC(
@@ -89,12 +87,8 @@ test("engagementStartChannelRpcAndStatus", async () => {
   );
   assert.equal(accepted, "Accepted");
 
-  await awaitCondition(
-    () => environment.client.getAttribute(flowId, flow.engagementStatus),
-    (status) => status === "Accepted",
-    20_000,
-    "engagement status not Accepted",
-  );
+  const acceptedDescription = await environment.client.invokeRPC(flow.describe, flowId);
+  assert.equal(acceptedDescription.currentStatus, "Accepted");
 
   const output = await environment.client.waitForFlow(flowId, 45_000).then((result) =>
     result.singleOutput(stringCodec),

@@ -34,13 +34,9 @@ import (
 
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/examples/go/patterns/cron"
-	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
-	"github.com/superdurable/dex/examples/go/patterns/interruptible"
-	"github.com/superdurable/dex/examples/go/patterns/intervention"
 	parallelsubflows "github.com/superdurable/dex/examples/go/patterns/parallel-subflows"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
-	"github.com/superdurable/dex/examples/go/patterns/reminders"
 	"github.com/superdurable/dex/examples/go/patterns/wait-for-step-completion"
 	"github.com/superdurable/dex/examples/go/products/engagement"
 	"github.com/superdurable/dex/examples/go/products/job-post"
@@ -310,7 +306,9 @@ func verifyMicroservices(ctx context.Context, client *dex.Client, stamp string) 
 	if oldData != "initial-data" {
 		return fail(name, "swap returned "+oldData, nil)
 	}
-	if err := client.PublishToChannel(ctx, flowID, microservices.Ready, nil); err != nil {
+	if err := client.InvokeRPC(
+		ctx, flowID, registry.Microservices.SignalReady, nil, nil, dex.InvokeOptions{},
+	); err != nil {
 		return fail(name, "publish ready", err)
 	}
 	wait, err := waitCompleted(ctx, client, flowID, 45*time.Second)
@@ -353,7 +351,9 @@ func verifyEngagement(ctx context.Context, client *dex.Client, stamp string) res
 	if description.CurrentStatus != engagement.StatusInitiated {
 		return fail(name, "status="+string(description.CurrentStatus), nil)
 	}
-	if err := client.PublishToChannel(ctx, flowID, engagement.OptOutReminder, nil); err != nil {
+	if err := client.InvokeRPC(
+		ctx, flowID, registry.Engagement.OptOut, nil, nil, dex.InvokeOptions{},
+	); err != nil {
 		return fail(name, "opt-out reminder", err)
 	}
 	var status engagement.Status
@@ -414,7 +414,9 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 	if current.BillingPeriodCharge != 100 {
 		return fail(name, fmt.Sprintf("charge=%d", current.BillingPeriodCharge), nil)
 	}
-	if err := client.PublishToChannel(ctx, flowID, subscription.UpdateChargeAmount, 250); err != nil {
+	if err := client.InvokeRPC(
+		ctx, flowID, registry.Subscription.UpdateCharge, 250, nil, dex.InvokeOptions{},
+	); err != nil {
 		return fail(name, "update charge", err)
 	}
 	deadline := time.Now().Add(20 * time.Second)
@@ -430,7 +432,9 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	if err := client.PublishToChannel(ctx, flowID, subscription.CancelSubscription, nil); err != nil {
+	if err := client.InvokeRPC(
+		ctx, flowID, registry.Subscription.Cancel, nil, nil, dex.InvokeOptions{},
+	); err != nil {
 		return fail(name, "cancel", err)
 	}
 	wait, err := waitCompleted(ctx, client, flowID, 45*time.Second)
@@ -500,11 +504,8 @@ func verifySignup(ctx context.Context, client *dex.Client, stamp string) result 
 	if err != nil {
 		return fail(name, "", err)
 	}
-	_ = wait
-	var status string
-	found, err := client.GetAttribute(ctx, flowID, signup.Status, &status)
-	if err != nil || !found || status != signup.StatusCompleted {
-		return fail(name, fmt.Sprintf("status found=%v value=%s", found, status), err)
+	if wait.Status != dex.FlowCompleted {
+		return fail(name, fmt.Sprintf("status=%v", wait.Status), nil)
 	}
 	return pass(name, "verified + task 1 + task 2 + completed")
 }
@@ -544,11 +545,10 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 	if info.Title != "DeepVerify Engineer" || info.Description != "Build Dex examples" {
 		return fail(name, fmt.Sprintf("get=%+v", info), nil)
 	}
-	var none dex.None
 	if err := client.InvokeRPC(
 		ctx, flowID, registry.JobPosting.Update,
 		jobpost.JobInfo{Title: "Senior DeepVerify", Description: "More depth", Notes: "n1"},
-		&none, jobpost.UpdateInvokeOptions(),
+		nil, jobpost.UpdateInvokeOptions(),
 	); err != nil {
 		return fail(name, "update", err)
 	}
@@ -601,9 +601,8 @@ func startInactivenessTrackerPath(
 		return "", err
 	}
 	time.Sleep(2 * time.Second)
-	var none dex.None
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.InactivenessTracker.RecordActivity, nil, &none, dex.InvokeOptions{},
+		ctx, flowID, registry.InactivenessTracker.RecordActivity, nil, nil, dex.InvokeOptions{},
 	); err != nil {
 		return "", err
 	}
@@ -668,22 +667,27 @@ func verifyInterruptible(ctx context.Context, client *dex.Client, stamp string) 
 		return fail(name, "", err)
 	}
 	time.Sleep(500 * time.Millisecond)
-	var none dex.None
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Interruptible.Interrupt, nil, &none, dex.InvokeOptions{},
+		ctx, flowID, registry.Interruptible.Interrupt, nil, nil, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "interrupt rpc", err)
 	}
-	if _, err := waitCompleted(ctx, client, flowID, 60*time.Second); err != nil {
-		return fail(name, "", err)
-	}
 	var signal string
-	found, err := client.GetAttribute(ctx, flowID, interruptible.InterruptSignal, &signal)
-	if err != nil {
+	if err := client.InvokeRPC(
+		ctx,
+		flowID,
+		registry.Interruptible.GetInterruptSignal,
+		nil,
+		&signal,
+		dex.InvokeOptions{},
+	); err != nil {
 		return fail(name, "get interrupt signal", err)
 	}
-	if !found || signal != "cancel" {
-		return fail(name, fmt.Sprintf("signal found=%v value=%s", found, signal), nil)
+	if signal != "cancel" {
+		return fail(name, "signal="+signal, nil)
+	}
+	if _, err := waitCompleted(ctx, client, flowID, 60*time.Second); err != nil {
+		return fail(name, "", err)
 	}
 	return pass(name, "Interrupt RPC set cancel; flow completed")
 }
@@ -696,7 +700,9 @@ func verifyReminder(ctx context.Context, client *dex.Client, stamp string) resul
 		return fail(name, "", err)
 	}
 	time.Sleep(6 * time.Second) // allow at least one reminder timer tick
-	if err := client.PublishToChannel(ctx, flowID, reminders.OptOut, nil); err != nil {
+	if err := client.InvokeRPC(
+		ctx, flowID, registry.Reminder.OptOutReminders, nil, nil, dex.InvokeOptions{},
+	); err != nil {
 		return fail(name, "opt out", err)
 	}
 	if _, err := waitCompleted(ctx, client, flowID, 45*time.Second); err != nil {
@@ -732,7 +738,6 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 	if _, err := client.StartFlow(ctx, registry.UserProfile, flowID, nil, options); err != nil {
 		return fail(name, "start", err)
 	}
-	var none dex.None
 	if err := client.InvokeRPC(
 		ctx, flowID, registry.UserProfile.UpdateProfile,
 		entitystore.UserProfile{
@@ -747,7 +752,7 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 				Tags:   []string{"example", "enterprise"},
 			},
 		},
-		&none, dex.InvokeOptions{},
+		nil, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "update", err)
 	}
@@ -767,7 +772,7 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 		return fail(name, fmt.Sprintf("unexpected profile: %+v", got), nil)
 	}
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.UserProfile.ClearProfile, nil, &none, dex.InvokeOptions{},
+		ctx, flowID, registry.UserProfile.ClearProfile, nil, nil, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "clear", err)
 	}
@@ -783,8 +788,8 @@ func verifyManualRecoveryRetry(ctx context.Context, client *dex.Client, stamp st
 	if err != nil {
 		return fail(name, "start", err)
 	}
-	if err := client.PublishToChannel(
-		ctx, flowID, intervention.RetryChannel, nil,
+	if err := client.InvokeRPC(
+		ctx, flowID, registry.ManualRecovery.Retry, nil, nil, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "publish retry", err)
 	}
@@ -811,8 +816,8 @@ func verifyManualRecoverySkip(ctx context.Context, client *dex.Client, stamp str
 	if err != nil {
 		return fail(name, "start", err)
 	}
-	if err := client.PublishToChannel(
-		ctx, flowID, intervention.SkipChannel, nil,
+	if err := client.InvokeRPC(
+		ctx, flowID, registry.ManualRecovery.Skip, nil, nil, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "publish skip", err)
 	}
@@ -931,8 +936,7 @@ func verifyParallelSubFlowsLongLived(ctx context.Context, client *dex.Client, st
 	if err != nil {
 		return fail(name, "start", err)
 	}
-	var output dex.None
-	if err := client.InvokeRPC(ctx, flowID, registry.LongLiveSubFlows.Stop, nil, &output, dex.InvokeOptions{}); err != nil {
+	if err := client.InvokeRPC(ctx, flowID, registry.LongLiveSubFlows.Stop, nil, nil, dex.InvokeOptions{}); err != nil {
 		return fail(name, "stop", err)
 	}
 	if _, err := waitCompleted(ctx, client, flowID, 90*time.Second); err != nil {
@@ -980,8 +984,14 @@ func verifyDrainingChannel(ctx context.Context, client *dex.Client, stamp string
 		return fail(name, "", err)
 	}
 	time.Sleep(1 * time.Second)
-	if err := client.PublishToChannel(
-		ctx, flowID, drainexternal.QueueChannel, "second message",
+	var output string
+	if err := client.InvokeRPC(
+		ctx,
+		flowID,
+		registry.DrainExternal.ExampleRPC,
+		"second message",
+		&output,
+		dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "second message", err)
 	}
@@ -1092,7 +1102,10 @@ func verifyCronSchedule(ctx context.Context, client *dex.Client) result {
 	if err != nil {
 		return fail(name, "start "+flowID, err)
 	}
-	if err := client.PublishToChannel(ctx, flowID, cron.Trigger, nil, nil); err != nil {
+	triggerCount := 2
+	if err := client.InvokeRPC(
+		ctx, flowID, registry.CronSchedule.TriggerNow, &triggerCount, nil, dex.InvokeOptions{},
+	); err != nil {
 		return fail(name, "trigger "+flowID, err)
 	}
 	wait, err := waitForFlow(ctx, client, flowID, true, 30*time.Second)

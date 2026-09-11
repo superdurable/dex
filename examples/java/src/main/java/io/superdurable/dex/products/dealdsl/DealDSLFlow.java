@@ -21,6 +21,7 @@ import io.superdurable.dex.ChannelMap;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
+import io.superdurable.dex.RPC;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -33,6 +34,21 @@ import java.util.Map;
 
 @Component
 public class DealDSLFlow implements Flow<DealStart> {
+    public static final class ConditionMessage {
+        public String conditionName;
+        public Map<String, String> data;
+
+        public ConditionMessage() {
+        }
+
+        public ConditionMessage(
+                final String conditionName,
+                final Map<String, String> data) {
+            this.conditionName = conditionName;
+            this.data = data;
+        }
+    }
+
     public final Attribute<DealDefinition> definition =
             Attribute.define("DealDefinition", DealDefinition.class);
     public final Attribute<Map> stateData = Attribute.define("DealStateData", Map.class);
@@ -68,6 +84,13 @@ public class DealDSLFlow implements Flow<DealStart> {
                 currentState,
                 pendingCondition,
                 conditionMessages);
+    }
+
+    @RPC
+    public void sendConditionMessage(
+            final Context context,
+            final ConditionMessage message) {
+        conditionMessages.publish(context, message.conditionName, message.data);
     }
 
     @SuppressWarnings("unchecked")

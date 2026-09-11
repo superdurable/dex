@@ -17,12 +17,16 @@ use std::time::Duration;
 use std::sync::LazyLock;
 
 use dex_sdk::{
-    Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
-    StepList, StepOptions, Timer, Wait,
+    Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult, Step,
+    StepDecision, StepList, StepOptions, Timer, Wait,
 };
 use serde::{Deserialize, Serialize};
 
 pub const CHANNEL_APPROVE: Rpc<(), ()> = Rpc::new("ChannelApprove");
+pub const CHANNEL_ENQUEUE: Rpc<String, ()> = Rpc::new("ChannelEnqueue");
+pub const CHANNEL_QUEUED_MESSAGES: Rpc<(), Vec<PendingMessage>> = Rpc::new("ChannelQueuedMessages");
+pub const CHANNEL_DELETE_QUEUED: Rpc<MoveMessage, ()> = Rpc::new("ChannelDeleteQueued");
+pub const CHANNEL_MOVED_MESSAGES: Rpc<(), Vec<PendingMessage>> = Rpc::new("ChannelMovedMessages");
 pub const CHANNEL_MOVE: Rpc<MoveMessage, ()> = Rpc::new("ChannelMove");
 
 static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
@@ -34,6 +38,13 @@ pub struct MoveMessage {
     pub message_id: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PendingMessage {
+    #[serde(rename = "messageID")]
+    pub message_id: String,
+    pub value: String,
+}
+
 #[derive(Default)]
 pub struct ChannelFlow {
     wait: ChannelWait,
@@ -42,6 +53,44 @@ pub struct ChannelFlow {
 impl ChannelFlow {
     fn approve(&self, context: &mut Context) -> HandlerResult<()> {
         APPROVAL.publish(context, "approved".to_string())
+    }
+
+    fn enqueue(&self, context: &mut Context, value: String) -> HandlerResult<()> {
+        QUEUED.publish(context, value)
+    }
+
+    fn queued_messages(
+        &self,
+        context: &mut Context,
+    ) -> HandlerResult<RpcResult<Vec<PendingMessage>>> {
+        let messages = QUEUED
+            .pending_messages(context)?
+            .into_iter()
+            .map(|message| PendingMessage {
+                message_id: message.message_id,
+                value: message.value,
+            })
+            .collect();
+        Ok(RpcResult::new(messages))
+    }
+
+    fn delete_queued(&self, context: &mut Context, message: MoveMessage) -> HandlerResult<()> {
+        QUEUED.delete(context, &message.message_id)
+    }
+
+    fn moved_messages(
+        &self,
+        context: &mut Context,
+    ) -> HandlerResult<RpcResult<Vec<PendingMessage>>> {
+        let messages = MOVED
+            .pending_messages(context)?
+            .into_iter()
+            .map(|message| PendingMessage {
+                message_id: message.message_id,
+                value: message.value,
+            })
+            .collect();
+        Ok(RpcResult::new(messages))
     }
 
     fn move_message(&self, context: &mut Context, message: MoveMessage) -> HandlerResult<()> {
@@ -71,6 +120,21 @@ impl Flow for ChannelFlow {
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
             .procedure_without_input(CHANNEL_APPROVE, Self::approve)
+            .procedure(CHANNEL_ENQUEUE, Self::enqueue)
+            .function_without_input(
+                CHANNEL_QUEUED_MESSAGES.load_channel(&QUEUED),
+                Self::queued_messages,
+            )
+            .procedure(
+                CHANNEL_DELETE_QUEUED
+                    .is_transactional()
+                    .load_channel(&QUEUED),
+                Self::delete_queued,
+            )
+            .function_without_input(
+                CHANNEL_MOVED_MESSAGES.load_channel(&MOVED),
+                Self::moved_messages,
+            )
             .procedure(
                 CHANNEL_MOVE.is_transactional().load_channel(&QUEUED),
                 Self::move_message,

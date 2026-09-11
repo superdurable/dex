@@ -106,6 +106,11 @@ export class EngagementFlow implements Flow<EngagementInput> {
     return { output: this.describeEngagement(context) };
   }
 
+  @rpc()
+  public optOut(context: Context): void {
+    optOutReminder.publish(context, undefined);
+  }
+
   @rpc({ inputCodec: stringCodec })
   public decline(context: Context, note: string): RPCResult<Status> {
     const status = this.engagementStatus.get(context);

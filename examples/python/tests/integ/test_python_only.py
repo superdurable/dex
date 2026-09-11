@@ -55,27 +55,27 @@ async def test_channel_pending_messages_can_be_deleted_and_moved(
 ) -> None:
     flow_id = new_flow_id("channel-queue")
     await client.start_flow(app.channel, flow_id, 30, start_options())
-    await client.publish(flow_id, app.channel.queued, "delete me")
-    await client.publish(flow_id, app.channel.queued, "move me")
+    await client.invoke_rpc(app.channel.enqueue, flow_id, "delete me")
+    await client.invoke_rpc(app.channel.enqueue, flow_id, "move me")
 
-    pending = await client.get_channel_messages(flow_id, app.channel.queued)
+    pending = await client.invoke_rpc(app.channel.queued_messages, flow_id)
     assert [message.value for message in pending] == ["delete me", "move me"]
 
-    await client.delete_channel_message(
+    await client.invoke_rpc(
+        app.channel.delete_queued,
         flow_id,
-        app.channel.queued,
-        pending[0].message_id,
+        MoveMessage(pending[0].message_id),
     )
     move_message = MoveMessage(pending[1].message_id)
     await client.invoke_rpc(app.channel.move, flow_id, move_message)
 
-    assert not await client.get_channel_messages(flow_id, app.channel.queued)
-    moved = await client.get_channel_messages(flow_id, app.channel.moved)
+    assert not await client.invoke_rpc(app.channel.queued_messages, flow_id)
+    moved = await client.invoke_rpc(app.channel.moved_messages, flow_id)
     assert [message.value for message in moved] == ["move me"]
 
     with pytest.raises(ChannelMessageNotFoundError):
         await client.invoke_rpc(app.channel.move, flow_id, move_message)
-    moved_after_failure = await client.get_channel_messages(flow_id, app.channel.moved)
+    moved_after_failure = await client.invoke_rpc(app.channel.moved_messages, flow_id)
     assert [message.value for message in moved_after_failure] == ["move me"]
 
     await client.invoke_rpc(app.channel.approve, flow_id)

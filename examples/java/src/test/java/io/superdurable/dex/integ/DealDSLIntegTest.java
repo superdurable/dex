@@ -44,11 +44,12 @@ public class DealDSLIntegTest {
                 flow.currentState,
                 AttributeMatch.equalTo("negotiating"),
                 Duration.ofSeconds(30)));
-        environment.client().publish(
-                flowId,
-                flow.conditionMessages,
-                "buyer-decision",
-                Map.of("accepted", "true"));
+        final DealDSLFlow stub = environment.client().newRpcStub(DealDSLFlow.class, flowId);
+        environment.client().invokeRPC(
+                stub::sendConditionMessage,
+                new DealDSLFlow.ConditionMessage(
+                        "buyer-decision",
+                        Map.of("accepted", "true")));
         final Map result = environment.client()
                 .waitForFlow(flowId, Duration.ofSeconds(30))
                 .getSingleOutput(Map.class);

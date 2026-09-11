@@ -21,11 +21,13 @@ import {
   Timer,
   Wait,
   deadEnd,
+  doubleCodec,
   forceFail,
   goTo,
   goToMany,
   gracefulComplete,
   jsonCodec,
+  rpc,
   stringCodec,
   voidCodec,
   type Context,
@@ -175,6 +177,13 @@ export class CronScheduleFlow implements Flow<CronScheduleInput> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return { channels: [this.trigger, this.skip] };
+  }
+
+  @rpc({ inputCodec: doubleCodec })
+  public triggerNow(context: Context, count: number): void {
+    for (let index = 0; index < count; index++) {
+      this.trigger.publish(context, undefined);
+    }
   }
 }
 

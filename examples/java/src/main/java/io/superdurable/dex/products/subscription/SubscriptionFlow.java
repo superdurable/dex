@@ -78,6 +78,21 @@ public class SubscriptionFlow implements Flow<Customer> {
         return RPCResult.of(customerDetails.get(context).subscription);
     }
 
+    @RPC
+    public RPCResult<Customer> customer(final Context context) {
+        return RPCResult.of(customerDetails.get(context));
+    }
+
+    @RPC
+    public void cancel(final Context context) {
+        cancelSubscription.publish(context, null);
+    }
+
+    @RPC
+    public void updateCharge(final Context context, final Integer amount) {
+        updateChargeAmount.publish(context, amount);
+    }
+
     final class Initialize implements Step<Customer> {
         @Override
         public Class<Customer> getInputType() {
@@ -87,6 +102,7 @@ public class SubscriptionFlow implements Flow<Customer> {
         @Override
         public StepDecision execute(final Context context, final Customer customer) {
             customerDetails.set(context, customer);
+            billingPeriodNumber.set(context, 0);
             return StepDecision.goToMany(
                     StepMovement.of(Trial.class, null),
                     StepMovement.of(Cancel.class, null),
@@ -109,7 +125,6 @@ public class SubscriptionFlow implements Flow<Customer> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            billingPeriodNumber.set(context, 0);
             return StepDecision.goTo(ChargeCurrentBill.class, null);
         }
     }

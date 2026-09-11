@@ -252,42 +252,20 @@ func assertProcessDefinitionSnapshot(
 	process dealdsl.DealProcess,
 ) {
 	t.Helper()
-	var snapshot dealdsl.DealProcess
-	found, err := integClient.GetAttribute(
+	var snapshot dealdsl.DealStateSnapshot
+	err := integClient.InvokeRPC(
 		integrationContext(t),
 		flowID,
-		dealdsl.ProcessDefinition,
+		dealDSLFlow.Snapshot,
+		nil,
 		&snapshot,
+		dex.InvokeOptions{},
 	)
 	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, process, snapshot)
-
-	values, err := integClient.GetAttributes(
-		integrationContext(t),
-		flowID,
-		dealdsl.StateData,
-		dealdsl.ProcessDefinition,
-		dealdsl.ProcessID,
-		dealdsl.ItemID,
-		dealdsl.BuyerID,
-		dealdsl.CurrentState,
-		dealdsl.CurrentActionIndexToExecute,
-		dealdsl.PendingPreConditionState,
-		dealdsl.PendingPreConditionName,
-	)
-	require.NoError(t, err)
-	for _, key := range []string{
-		"stateData",
-		"processDefinition",
-		"processID",
-		"itemID",
-		"buyerID",
-		"currentState",
-		"currentActionIndexToExecute",
-	} {
-		require.Contains(t, values, key)
-	}
+	require.Equal(t, process, snapshot.ProcessDefinition)
+	require.Equal(t, process.ProcessID, snapshot.ProcessID)
+	require.Equal(t, process.ItemID, snapshot.ItemID)
+	require.NotNil(t, snapshot.StateData)
 }
 
 func updateStoredProcessDefinition(t *testing.T, processID string) {

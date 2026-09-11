@@ -57,10 +57,10 @@ public class DrainChannelsController {
     ResponseEntity<String> startDrainingChannel(@RequestParam final String workflowId) {
         String response;
         try {
-            client.publish(
-                    workflowId,
-                    drainingExternalChannelFlow.queueChannel,
-                    "message from start-or-publish endpoint");
+            final DrainingExternalChannelFlow stub = client.newRpcStub(
+                    DrainingExternalChannelFlow.class,
+                    workflowId);
+            client.invokeRPC(stub::exampleRPC, "message from start-or-publish endpoint");
             response = "Published to the Flow";
         } catch (final FlowNotActiveException inactive) {
             final String runId = client.startFlow(

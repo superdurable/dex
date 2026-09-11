@@ -73,7 +73,8 @@ public class EngagementController {
     @GetMapping("/optout")
     public ResponseEntity<Map<String, Object>> optOut(
             @RequestParam final String workflowId) {
-        client.publish(workflowId, flow.optOutReminder, (Void) null);
+        final EngagementFlow stub = client.newRpcStub(EngagementFlow.class, workflowId);
+        client.invokeRPC(stub::optOut);
         return ResponseEntity.ok(Collections.<String, Object>emptyMap());
     }
 

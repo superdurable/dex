@@ -15,5 +15,6 @@
 mod flow;
 
 pub use flow::{
-    DEAL_CONDITION_MESSAGES, DEAL_CURRENT_STATE, DealDSLFlow, DealStart, example_deal_start,
+    ConditionMessage, DEAL_CURRENT_STATE, DEAL_SEND_CONDITION_MESSAGE, DealDSLFlow, DealStart,
+    example_deal_start,
 };

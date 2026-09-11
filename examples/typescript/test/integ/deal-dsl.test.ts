@@ -49,11 +49,10 @@ test("dealDSLCompletesAnItemPurchase", async () => {
     ),
     "negotiating",
   );
-  await environment.client.publish(
+  await environment.client.invokeRPC(
+    flow.sendConditionMessage,
     flowId,
-    flow.conditionMessages,
-    "buyer-decision",
-    { accepted: "true" },
+    { conditionName: "buyer-decision", values: { accepted: "true" } },
   );
   const result = await environment.client.waitForFlow(flowId, 30_000);
   const output = result.singleOutput<Record<string, string>>(flow.stateData.codec);

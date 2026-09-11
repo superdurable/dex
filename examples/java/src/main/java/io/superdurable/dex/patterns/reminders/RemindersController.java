@@ -44,7 +44,8 @@ public class RemindersController {
 
     @GetMapping("/optout")
     public ResponseEntity<String> optout(@RequestParam final String workflowId) {
-        client.publish(workflowId, reminderFlow.optOut, (Void) null);
+        final ReminderFlow stub = client.newRpcStub(ReminderFlow.class, workflowId);
+        client.invokeRPC(stub::optOut);
         return ResponseEntity.ok("done");
     }
 }

@@ -10,7 +10,7 @@ Process externally published Channel messages, then close the short-lived Flow w
 
 ## Problem and approach
 
-Use this pattern when a Flow handles messages from outside the Worker with potential bursts. A Client can append directly through **PublishToChannel** or potentially use an RPC. The key requirement is to complete the Flow when the Channel is empty, so the Flow stays as short as possible. The Flow restarts when new messages arrive.
+Use this pattern when a Flow handles messages from outside the Worker with potential bursts. A Client invokes an RPC that appends each message to the Channel. The key requirement is to complete the Flow when the Channel is empty, so the Flow stays as short as possible. The Flow restarts when new messages arrive.
 
 The decision atomically checks the Channel while it records the next action. An empty Channel completes the Flow. A Channel with queued messages, or one with messages committed to a Step that has not finished processing **Execute**, takes the fallback movement back to **ProcessMessage**. After completion, the next request starts a new Flow execution with the same Flow ID and passes the message as the start input.
 
@@ -378,7 +378,7 @@ impl Step for DrainChannel {
 
 ## Controller
 
-The controller first publishes to the active Flow. When publishing reports that the Flow is inactive, it starts a new Flow with the message as its input. Other errors are returned to the caller.
+The controller first invokes the publishing RPC on the active Flow. When invocation reports that the Flow is inactive, it starts a new Flow with the message as its input. Other errors are returned to the caller.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/controller.py', go: 'examples/go/patterns/drain-channels/external-publishing/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/DrainChannelsController.java', typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/controller.ts', rust: 'examples/rust/src/patterns/drain_channels/controller.rs'}}>
 <SdkSnippet lang="python">
@@ -388,9 +388,9 @@ The controller first publishes to the active Flow. When publishing reports that 
 async def start_or_publish_draining_channel() -> str:
     flow_id = required_query("workflowId")
     try:
-        await app_state.client.publish(
+        await app_state.client.invoke_rpc(
+            app_state.drain_external.example_rpc,
             flow_id,
-            app_state.drain_external.queue_channel,
             "message from start-or-publish endpoint",
         )
     except FlowNotActiveError:
@@ -413,11 +413,14 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 	if !found {
 		return
 	}
-	err := controller.client.PublishToChannel(
+	var output string
+	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
-		QueueChannel,
+		controller.flow.ExampleRPC,
 		"message from start-or-publish endpoint",
+		&output,
+		sdk.InvokeOptions{},
 	)
 	if err == nil {
 		httputil.RespondString(request, "Published to the Flow", nil)
@@ -451,10 +454,10 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 ResponseEntity<String> startDrainingChannel(@RequestParam final String workflowId) {
     String response;
     try {
-        client.publish(
-                workflowId,
-                drainingExternalChannelFlow.queueChannel,
-                "message from start-or-publish endpoint");
+        final DrainingExternalChannelFlow stub = client.newRpcStub(
+                DrainingExternalChannelFlow.class,
+                workflowId);
+        client.invokeRPC(stub::exampleRPC, "message from start-or-publish endpoint");
         response = "Published to the Flow";
     } catch (final FlowNotActiveException inactive) {
         final String runId = client.startFlow(
@@ -476,9 +479,9 @@ router.get("/start-or-publish", async (request, response) => {
   const workflowId = String(request.query.workflowId ?? "");
   let message: string;
   try {
-    await client.publish(
+    await client.invokeRPC(
+      drainingExternalChannelFlow.exampleRPC,
       workflowId,
-      queueChannel,
       "message from start-or-publish endpoint",
     );
     message = "Published to the Flow";
@@ -505,12 +508,12 @@ router.get("/start-or-publish", async (request, response) => {
 ```rust
 match run_blocking(move || {
     let flow = DrainingExternalChannelFlow::default();
-    match client.publish(
+    match client.invoke_rpc(
         &flow_id,
-        &external_queue(),
+        EXAMPLE_RPC,
         "message from start-or-publish endpoint".to_string(),
     ) {
-        Ok(()) => Ok("Published to the Flow".to_string()),
+        Ok(_) => Ok("Published to the Flow".to_string()),
         Err(error) if is_missing_or_inactive(&error) => client
             .start_flow(&flow, &flow_id, "first message from start-or-publish".to_string())
             .map(|run_id| format!("Started the workflow with runId {run_id}")),
@@ -528,5 +531,5 @@ match run_blocking(move || {
 ## Related
 
 - [Channel](/primitives/channel)
-- [Client publishing](/primitives/client/basic#publish-to-a-channel)
+- [RPC](/primitives/rpc)
 - [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

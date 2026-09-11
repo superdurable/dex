@@ -66,7 +66,8 @@ public class MicroserviceController {
     @GetMapping("/signal")
     public ResponseEntity<Map<String, Object>> signal(
             @RequestParam final String workflowId) {
-        client.publish(workflowId, flow.ready, (Void) null);
+        final OrchestrationFlow stub = client.newRpcStub(OrchestrationFlow.class, workflowId);
+        client.invokeRPC(stub::signalReady);
         return ResponseEntity.ok(Collections.<String, Object>emptyMap());
     }
 }

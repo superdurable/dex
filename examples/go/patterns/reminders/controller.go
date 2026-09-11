@@ -63,11 +63,13 @@ func (controller *controller) optOut(request *gin.Context) {
 	if !found {
 		return
 	}
-	err := controller.client.PublishToChannel(
+	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
-		OptOut,
+		controller.flow.OptOutReminders,
 		nil,
+		nil,
+		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "done", err)
 }

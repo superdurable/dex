@@ -659,21 +659,14 @@ async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
 
     await wait_until("AI Agent durable wait", is_waiting_for_timer, WAIT_TIMEOUT)
     await _send(client, app, flow_id, "replace the current objective")
-    pending = await client.get_channel_messages(
-        flow_id,
-        app.ai_agent.queued_user_messages,
-    )
-    assert [message.value.content for message in pending] == [
-        "replace the current objective"
-    ]
     snapshot = await client.invoke_rpc(app.ai_agent.snapshot, flow_id)
-    assert snapshot.description.status == "waiting_for_timer"
     assert [item.value.content for item in snapshot.queued] == [
         "replace the current objective"
     ]
+    assert snapshot.description.status == "waiting_for_timer"
     assert snapshot.steered == []
 
-    message = pending[0]
+    message = snapshot.queued[0]
     assert await client.invoke_rpc(
         app.ai_agent.steer_message,
         flow_id,
@@ -692,10 +685,8 @@ async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
         flow_id,
         "Local demo response: replace the current objective",
     )
-    assert not await client.get_channel_messages(
-        flow_id,
-        app.ai_agent.queued_user_messages,
-    )
+    snapshot = await client.invoke_rpc(app.ai_agent.snapshot, flow_id)
+    assert not snapshot.queued
     history = await client.invoke_rpc(
         app.ai_agent.history,
         flow_id,
@@ -727,11 +718,13 @@ async def test_ai_agent_consumes_steered_messages_as_a_batch(
         return description.status == "waiting_for_timer"
 
     await wait_until("AI Agent durable wait", is_waiting_for_timer, WAIT_TIMEOUT)
-    await client.publish(
+    await client.invoke_rpc(
+        app.ai_agent.steer_messages,
         flow_id,
-        app.ai_agent.steered_user_messages,
-        UserMessage("first replacement objective"),
-        UserMessage("final replacement objective"),
+        [
+            UserMessage("first replacement objective"),
+            UserMessage("final replacement objective"),
+        ],
     )
 
     await _wait_for_content(
@@ -754,10 +747,8 @@ async def test_ai_agent_consumes_steered_messages_as_a_batch(
         "first replacement objective",
         "final replacement objective",
     ]
-    assert not await client.get_channel_messages(
-        flow_id,
-        app.ai_agent.steered_user_messages,
-    )
+    snapshot = await client.invoke_rpc(app.ai_agent.snapshot, flow_id)
+    assert not snapshot.steered
 
 
 async def _send(

@@ -33,7 +33,7 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from dex import AsyncClient, Attribute, DexServiceError, FlowNotFoundError, FlowStatus
+from dex import AsyncClient, DexServiceError, FlowNotFoundError, FlowStatus
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import ExamplesConfig
@@ -148,29 +148,6 @@ async def wait_until(
         if asyncio.get_running_loop().time() >= deadline:
             raise AssertionError(f"timed out waiting for {description}")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
-
-
-async def wait_for_attribute(
-    client: AsyncClient,
-    flow_id: str,
-    attribute: Attribute[Any],
-    timeout: timedelta = WAIT_TIMEOUT,
-) -> Any:
-    """Returns the Attribute value once the Flow has written something to it."""
-    return await wait_until(
-        f"attribute {attribute.name} on {flow_id}",
-        lambda: attribute_or_none(client, flow_id, attribute),
-        timeout,
-    )
-
-
-async def attribute_or_none(
-    client: AsyncClient, flow_id: str, attribute: Attribute[Any]
-) -> Any:
-    try:
-        return await client.get_attribute(flow_id, attribute)
-    except FlowNotFoundError:
-        return None
 
 
 async def flow_status_or_none(client: AsyncClient, flow_id: str) -> FlowStatus | None:

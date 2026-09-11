@@ -170,6 +170,10 @@ class EngagementFlow(Flow[EngagementInput]):
         return RPCResult(self.describe_engagement(context))
 
     @rpc
+    def opt_out(self, context: Context) -> None:
+        self.opt_out_reminder.publish(context, None)
+
+    @rpc
     def decline(self, context: Context, note: str) -> RPCResult[Status]:
         status = self.engagement_status.get(context)
         if status is not Status.INITIATED:

@@ -28,6 +28,7 @@ from dex import (
     Wait,
     go_to,
     graceful_complete,
+    rpc,
 )
 
 from dex_examples.patterns.shared.service_dependency import ServiceDependency
@@ -70,3 +71,7 @@ class ReminderFlow(Flow[None]):
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.opt_out)
+
+    @rpc
+    def opt_out_reminders(self, context: Context) -> None:
+        self.opt_out.publish(context, None)

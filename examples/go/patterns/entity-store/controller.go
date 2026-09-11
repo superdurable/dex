@@ -73,13 +73,12 @@ func (controller *controller) updateProfile(request *gin.Context) {
 	if !found {
 		return
 	}
-	var none sdk.None
 	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		profileRequest.UserID,
 		controller.flow.UpdateProfile,
 		profileRequest.UserProfile,
-		&none,
+		nil,
 		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "Updated user profile", err)
@@ -111,13 +110,12 @@ func (controller *controller) clearProfile(request *gin.Context) {
 	if !found {
 		return
 	}
-	var none sdk.None
 	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		userID,
 		controller.flow.ClearProfile,
 		nil,
-		&none,
+		nil,
 		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "Cleared user profile", err)

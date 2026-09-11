@@ -65,7 +65,8 @@ public class SubscriptionController {
     @GetMapping("/cancel")
     public ResponseEntity<Map<String, Object>> cancel(
             @RequestParam final String workflowId) {
-        client.publish(workflowId, flow.cancelSubscription, (Void) null);
+        final SubscriptionFlow stub = client.newRpcStub(SubscriptionFlow.class, workflowId);
+        client.invokeRPC(stub::cancel);
         return ResponseEntity.ok(Collections.<String, Object>emptyMap());
     }
 
@@ -73,7 +74,8 @@ public class SubscriptionController {
     public ResponseEntity<Map<String, Object>> updateChargeAmount(
             @RequestParam final String workflowId,
             @RequestParam final int newChargeAmount) {
-        client.publish(workflowId, flow.updateChargeAmount, newChargeAmount);
+        final SubscriptionFlow stub = client.newRpcStub(SubscriptionFlow.class, workflowId);
+        client.invokeRPC(stub::updateCharge, newChargeAmount);
         return ResponseEntity.ok(Collections.<String, Object>emptyMap());
     }
 

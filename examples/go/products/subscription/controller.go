@@ -66,11 +66,13 @@ func (controller *controller) cancel(request *gin.Context) {
 	if !found {
 		return
 	}
-	err := controller.client.PublishToChannel(
+	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
-		CancelSubscription,
+		controller.flow.Cancel,
 		nil,
+		nil,
+		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, struct{}{}, err)
 }
@@ -85,11 +87,13 @@ func (controller *controller) updateChargeAmount(request *gin.Context) {
 		request.JSON(http.StatusBadRequest, gin.H{"error": "newChargeAmount must be an integer"})
 		return
 	}
-	err = controller.client.PublishToChannel(
+	err = controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
-		UpdateChargeAmount,
+		controller.flow.UpdateCharge,
 		amount,
+		nil,
+		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, struct{}{}, err)
 }

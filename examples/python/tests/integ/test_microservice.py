@@ -20,9 +20,9 @@ import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.products.microservices.orchestration_flow import OrchestrationFlow
-from tests.integ.conftest import WAIT_TIMEOUT, attribute_or_none, wait_until
+from tests.integ.conftest import WAIT_TIMEOUT
 
-from dex import AsyncClient
+from dex import AsyncClient, AttributeMatch
 
 pytestmark = pytest.mark.integ
 
@@ -37,14 +37,13 @@ async def test_orchestration_completes_when_ready_is_published(
     flow_id = new_flow_id("microservice")
     await client.start_flow(app.orchestration, flow_id, INITIAL_DATA, start_options())
 
-    async def data_ready() -> bool:
-        return (
-            await attribute_or_none(client, flow_id, OrchestrationFlow.data)
-            == INITIAL_DATA
-        )
-
-    await wait_until("CallAPI1 to publish the shared data attribute", data_ready)
-    await client.publish(flow_id, app.orchestration.ready, None)
+    await client.wait_for_attribute_match(
+        flow_id,
+        OrchestrationFlow.data,
+        AttributeMatch.equal_to(INITIAL_DATA),
+        WAIT_TIMEOUT,
+    )
+    await client.invoke_rpc(app.orchestration.signal_ready, flow_id)
 
     assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
         str
@@ -59,18 +58,17 @@ async def test_orchestration_swap_replaces_the_data_before_completion(
     flow_id = new_flow_id("microservice")
     await client.start_flow(app.orchestration, flow_id, INITIAL_DATA, start_options())
 
-    async def data_ready() -> bool:
-        return (
-            await attribute_or_none(client, flow_id, OrchestrationFlow.data)
-            == INITIAL_DATA
-        )
-
-    await wait_until("CallAPI1 to publish the shared data attribute", data_ready)
+    await client.wait_for_attribute_match(
+        flow_id,
+        OrchestrationFlow.data,
+        AttributeMatch.equal_to(INITIAL_DATA),
+        WAIT_TIMEOUT,
+    )
     assert await client.invoke_rpc(app.orchestration.swap, flow_id, "swapped data") == (
         INITIAL_DATA
     )
 
-    await client.publish(flow_id, app.orchestration.ready, None)
+    await client.invoke_rpc(app.orchestration.signal_ready, flow_id)
     assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
         str
     ) == "swapped data"

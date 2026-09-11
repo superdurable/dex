@@ -19,7 +19,7 @@ import { Router } from "express";
 import { AttributeMatch, type Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { engagementFlow, optOutReminder } from "./engagement-flow.js";
+import { engagementFlow } from "./engagement-flow.js";
 import type { EngagementInput } from "./models.js";
 
 export function createEngagementRouter(client: Client): Router {
@@ -53,7 +53,7 @@ export function createEngagementRouter(client: Client): Router {
 
   router.get("/optout", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
-    await client.publish(workflowId, optOutReminder, undefined);
+    await client.invokeRPC(engagementFlow.optOut, workflowId);
     response.json({});
   });
 

@@ -54,8 +54,10 @@ public class SubscriptionIntegTest {
         assertNotNull(runId);
         assertFalse(runId.isEmpty());
 
+        final SubscriptionFlow stub =
+                environment.client().newRpcStub(SubscriptionFlow.class, flowId);
         environment.awaitCondition(
-                () -> environment.client().getAttribute(flowId, flow.customerDetails),
+                () -> environment.client().invokeRPC(stub::customer),
                 details -> details != null
                         && flowId.equals(details.id)
                         && details.subscription != null
@@ -63,12 +65,10 @@ public class SubscriptionIntegTest {
                 Duration.ofSeconds(20),
                 "customer details not ready");
 
-        final SubscriptionFlow stub =
-                environment.client().newRpcStub(SubscriptionFlow.class, flowId);
         final Subscription current = environment.client().invokeRPC(stub::describe);
         assertEquals(100, current.billingPeriodCharge);
 
-        environment.client().publish(flowId, flow.updateChargeAmount, 250);
+        environment.client().invokeRPC(stub::updateCharge, 250);
         environment.awaitCondition(
                 () -> environment.client().invokeRPC(stub::describe),
                 subscription -> subscription != null
@@ -76,7 +76,7 @@ public class SubscriptionIntegTest {
                 Duration.ofSeconds(20),
                 "Describe charge amount did not update");
 
-        environment.client().publish(flowId, flow.cancelSubscription, (Void) null);
+        environment.client().invokeRPC(stub::cancel);
 
         final String output = environment.client().waitForFlow(flowId, Duration.ofSeconds(45)).getSingleOutput(String.class);
         assertEquals("subscription canceled", output);

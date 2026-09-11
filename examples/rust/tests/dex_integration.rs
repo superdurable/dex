@@ -21,11 +21,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use dex_examples_rust::create_example_registry;
 use dex_examples_rust::patterns::recovery::FailureRecoveryFlow;
 use dex_examples_rust::primitives::channel::flow::{
-    CHANNEL_APPROVE, CHANNEL_MOVE, ChannelFlow, MOVED, MoveMessage, QUEUED,
+    CHANNEL_APPROVE, CHANNEL_DELETE_QUEUED, CHANNEL_ENQUEUE, CHANNEL_MOVE, CHANNEL_MOVED_MESSAGES,
+    CHANNEL_QUEUED_MESSAGES, ChannelFlow, MoveMessage,
 };
 use dex_examples_rust::primitives::stream::flow::{PROGRESS, StreamFlow};
 use dex_examples_rust::products::deal_dsl::{
-    DEAL_CONDITION_MESSAGES, DEAL_CURRENT_STATE, DealDSLFlow, example_deal_start,
+    ConditionMessage, DEAL_CURRENT_STATE, DEAL_SEND_CONDITION_MESSAGE, DealDSLFlow,
+    example_deal_start,
 };
 use dex_examples_rust::products::engagement::{
     ENGAGEMENT_ACCEPT, ENGAGEMENT_DESCRIBE, EngagementFlow, EngagementRequest, EngagementStatus,
@@ -168,16 +170,16 @@ fn channel_message_can_be_moved_by_id() {
         .expect("start Rust Channel Flow");
     environment
         .client
-        .publish(&flow_id, &QUEUED, "delete me".to_string())
+        .invoke_rpc(&flow_id, CHANNEL_ENQUEUE, "delete me".to_string())
         .expect("publish first queued message");
     environment
         .client
-        .publish(&flow_id, &QUEUED, "move me".to_string())
+        .invoke_rpc(&flow_id, CHANNEL_ENQUEUE, "move me".to_string())
         .expect("publish second queued message");
 
     let pending = environment
         .client
-        .get_channel_messages(&flow_id, &QUEUED)
+        .invoke_rpc_without_input(&flow_id, CHANNEL_QUEUED_MESSAGES)
         .expect("list queued messages");
     assert_eq!(
         pending
@@ -188,7 +190,13 @@ fn channel_message_can_be_moved_by_id() {
     );
     environment
         .client
-        .delete_channel_message(&flow_id, &QUEUED, &pending[0].message_id)
+        .invoke_rpc(
+            &flow_id,
+            CHANNEL_DELETE_QUEUED,
+            MoveMessage {
+                message_id: pending[0].message_id.clone(),
+            },
+        )
         .expect("delete first queued message");
 
     let move_message = MoveMessage {
@@ -200,7 +208,7 @@ fn channel_message_can_be_moved_by_id() {
         .expect("move queued message");
     let moved = environment
         .client
-        .get_channel_messages(&flow_id, &MOVED)
+        .invoke_rpc_without_input(&flow_id, CHANNEL_MOVED_MESSAGES)
         .expect("list moved messages");
     assert_eq!(moved[0].value, "move me");
 
@@ -213,7 +221,7 @@ fn channel_message_can_be_moved_by_id() {
     assert_eq!(
         environment
             .client
-            .get_channel_messages(&flow_id, &MOVED)
+            .invoke_rpc_without_input(&flow_id, CHANNEL_MOVED_MESSAGES)
             .expect("list moved messages after failed retry")
             .len(),
         1
@@ -281,14 +289,13 @@ fn deal_dsl_completes_an_item_purchase() {
         .expect("wait for Rust Deal DSL negotiation");
     environment
         .client
-        .publish_map(
+        .invoke_rpc(
             &flow_id,
-            &DEAL_CONDITION_MESSAGES,
-            "buyer-decision",
-            [BTreeMap::from([(
-                "accepted".to_string(),
-                "true".to_string(),
-            )])],
+            DEAL_SEND_CONDITION_MESSAGE,
+            ConditionMessage {
+                condition_name: "buyer-decision".to_string(),
+                values: BTreeMap::from([("accepted".to_string(), "true".to_string())]),
+            },
         )
         .expect("accept Rust Deal DSL item purchase");
     let output: BTreeMap<String, String> = environment

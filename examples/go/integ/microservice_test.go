@@ -61,11 +61,13 @@ func TestMicroserviceStartRPCAndChannel(t *testing.T) {
 		dex.InvokeOptions{},
 	))
 	require.Equal(t, "initial-data", oldData)
-	require.NoError(t, integClient.PublishToChannel(
+	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		microservices.Ready,
+		registry.Microservices.SignalReady,
 		nil,
+		nil,
+		dex.InvokeOptions{},
 	))
 
 	result := waitForFlow(t, flowID)

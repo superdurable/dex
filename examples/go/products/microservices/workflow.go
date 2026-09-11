@@ -71,6 +71,27 @@ func (*OrchestrationFlow) Swap(
 	return &dex.RPCResult[string]{Output: oldData}, nil
 }
 
+func (*OrchestrationFlow) SignalReady(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[dex.None], error) {
+	if err := Ready.Publish(ctx, nil); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+func (*OrchestrationFlow) GetData(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[string], error) {
+	data, err := Data.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: data}, nil
+}
+
 type callAPI1Step struct {
 	dex.StepDefaultsNoWaitFor[string]
 	service service.MyService

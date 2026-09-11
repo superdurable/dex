@@ -68,6 +68,17 @@ func (*InterruptibleFlow) Interrupt(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
+func (*InterruptibleFlow) GetInterruptSignal(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[string], error) {
+	signal, err := InterruptSignal.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: signal}, nil
+}
+
 type initStep struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 }

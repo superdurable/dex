@@ -22,9 +22,9 @@ from dex_examples.config import start_options
 from dex_examples.products.subscription.customer import Customer
 from dex_examples.products.subscription.subscription import Subscription
 from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
-from tests.integ.conftest import WAIT_TIMEOUT, wait_for_attribute, wait_until
+from tests.integ.conftest import WAIT_TIMEOUT, wait_until
 
-from dex import AsyncClient
+from dex import AsyncClient, AttributeMatch
 
 pytestmark = pytest.mark.integ
 
@@ -73,16 +73,17 @@ async def test_subscription_describe_returns_the_stored_plan(
         start_options(),
     )
 
-    await wait_for_attribute(
-        client,
+    await client.wait_for_attribute_match(
         flow_id,
-        SubscriptionFlow.customer_details,
+        SubscriptionFlow.billing_period_number,
+        AttributeMatch.greater_than_or_equal(0),
+        WAIT_TIMEOUT,
     )
     subscription = await client.invoke_rpc(app.subscription.describe, flow_id)
     assert subscription.trial_period_seconds == LONG_TRIAL_SECONDS
     assert subscription.billing_period_charge == 100
 
-    await client.publish(flow_id, app.subscription.cancel_subscription, None)
+    await client.invoke_rpc(app.subscription.cancel_subscription_rpc, flow_id)
     assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
         str
     ) == "subscription canceled"
@@ -101,12 +102,13 @@ async def test_subscription_update_charge_amount(
         start_options(),
     )
 
-    await wait_for_attribute(
-        client,
+    await client.wait_for_attribute_match(
         flow_id,
-        SubscriptionFlow.customer_details,
+        SubscriptionFlow.billing_period_number,
+        AttributeMatch.greater_than_or_equal(0),
+        WAIT_TIMEOUT,
     )
-    await client.publish(flow_id, app.subscription.update_charge_amount, 250)
+    await client.invoke_rpc(app.subscription.update_charge, flow_id, 250)
 
     async def charge_updated() -> bool:
         subscription = await client.invoke_rpc(app.subscription.describe, flow_id)
@@ -114,7 +116,7 @@ async def test_subscription_update_charge_amount(
 
     await wait_until("the new charge amount to be applied", charge_updated)
 
-    await client.publish(flow_id, app.subscription.cancel_subscription, None)
+    await client.invoke_rpc(app.subscription.cancel_subscription_rpc, flow_id)
     assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
         str
     ) == "subscription canceled"

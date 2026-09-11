@@ -19,7 +19,7 @@ from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
-from dex import Attribute, Client, FlowNotFoundError, FlowStatus
+from dex import Client, FlowNotFoundError, FlowStatus
 
 WAIT_TIMEOUT = timedelta(seconds=45)
 POLL_INTERVAL_SECONDS = 0.5
@@ -38,26 +38,6 @@ def wait_until(
         if time.monotonic() >= deadline:
             raise AssertionError(f"timed out waiting for {description}")
         time.sleep(POLL_INTERVAL_SECONDS)
-
-
-def wait_for_attribute(
-    client: Client,
-    flow_id: str,
-    attribute: Attribute[Any],
-    timeout: timedelta = WAIT_TIMEOUT,
-) -> Any:
-    return wait_until(
-        f"attribute {attribute.name} on {flow_id}",
-        lambda: attribute_or_none(client, flow_id, attribute),
-        timeout,
-    )
-
-
-def attribute_or_none(client: Client, flow_id: str, attribute: Attribute[Any]) -> Any:
-    try:
-        return client.get_attribute(flow_id, attribute)
-    except FlowNotFoundError:
-        return None
 
 
 def flow_status_or_none(client: Client, flow_id: str) -> FlowStatus | None:

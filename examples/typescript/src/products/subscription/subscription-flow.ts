@@ -90,6 +90,21 @@ export class SubscriptionFlow implements Flow<Customer> {
   public describe(context: Context): RPCResult<Subscription> {
     return { output: this.customerDetails.get(context).subscription };
   }
+
+  @rpc({ outputCodec: customerCodec })
+  public customer(context: Context): RPCResult<Customer> {
+    return { output: this.customerDetails.get(context) };
+  }
+
+  @rpc()
+  public cancelSubscription(context: Context): void {
+    cancelSubscription.publish(context, undefined);
+  }
+
+  @rpc({ inputCodec: doubleCodec })
+  public updateCharge(context: Context, amount: number): void {
+    updateChargeAmount.publish(context, amount);
+  }
 }
 
 class Initialize implements Step<Customer> {
@@ -101,6 +116,7 @@ class Initialize implements Step<Customer> {
 
   public execute(context: Context, customer: Customer): StepDecision {
     this.flow.customerDetails.set(context, customer);
+    this.flow.billingPeriodNumber.set(context, 0);
     return goToMany(
       StepMovement.of(Trial, undefined),
       StepMovement.of(Cancel, undefined),
@@ -123,7 +139,6 @@ class Trial implements Step<void> {
   }
 
   public execute(context: Context, _input: void): StepDecision {
-    this.flow.billingPeriodNumber.set(context, 0);
     return goTo(ChargeCurrentBill, undefined);
   }
 }

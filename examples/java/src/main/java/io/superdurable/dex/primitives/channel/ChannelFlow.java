@@ -22,6 +22,7 @@ import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
+import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -46,6 +47,30 @@ public class ChannelFlow implements Flow<Integer> {
         }
     }
 
+    public static final class PendingMessage {
+        public String messageId;
+        public String value;
+
+        public PendingMessage() {
+        }
+
+        public PendingMessage(final String messageId, final String value) {
+            this.messageId = messageId;
+            this.value = value;
+        }
+    }
+
+    public static final class PendingMessages {
+        public List<PendingMessage> messages;
+
+        public PendingMessages() {
+        }
+
+        public PendingMessages(final List<PendingMessage> messages) {
+            this.messages = messages;
+        }
+    }
+
     public final Channel<String> approval = Channel.define("Approval", String.class);
     public final Channel<String> queued = Channel.define("Queued", String.class);
     public final Channel<String> moved = Channel.define("Moved", String.class);
@@ -66,6 +91,26 @@ public class ChannelFlow implements Flow<Integer> {
         approval.publish(context, "approved");
     }
 
+    @RPC
+    public void enqueue(final Context context, final String value) {
+        queued.publish(context, value);
+    }
+
+    @RPC(loadChannels = {"Queued"})
+    public RPCResult<PendingMessages> queuedMessages(final Context context) {
+        return RPCResult.of(new PendingMessages(toPendingMessages(queued, context)));
+    }
+
+    @RPC(isTransactional = true, loadChannels = {"Queued"})
+    public void deleteQueued(final Context context, final MoveMessage message) {
+        queued.delete(context, message.messageId);
+    }
+
+    @RPC(loadChannels = {"Moved"})
+    public RPCResult<PendingMessages> movedMessages(final Context context) {
+        return RPCResult.of(new PendingMessages(toPendingMessages(moved, context)));
+    }
+
     @RPC(isTransactional = true, loadChannels = {"Queued"})
     public void move(final Context context, final MoveMessage message) {
         final ChannelMessage<String> messageToMove =
@@ -74,6 +119,14 @@ public class ChannelFlow implements Flow<Integer> {
         if (messageToMove != null) {
             moved.publish(context, messageToMove.getValue());
         }
+    }
+
+    private List<PendingMessage> toPendingMessages(
+            final Channel<String> channel,
+            final Context context) {
+        return channel.pendingMessages(context).stream()
+                .map(message -> new PendingMessage(message.getMessageId(), message.getValue()))
+                .toList();
     }
 
     final class ChannelWaitStep implements Step<Integer> {

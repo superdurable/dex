@@ -99,6 +99,45 @@ func (*ChannelFlow) Approve(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.Non
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
+func (*ChannelFlow) Enqueue(ctx dex.Context, value string) (*dex.RPCResult[dex.None], error) {
+	if err := Queued.Publish(ctx, value); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+func (*ChannelFlow) QueuedMessages(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[[]dex.ChannelMessage[string]], error) {
+	messages, err := Queued.PendingMessages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[[]dex.ChannelMessage[string]]{Output: messages}, nil
+}
+
+func (*ChannelFlow) DeleteQueued(
+	ctx dex.Context,
+	message MoveMessage,
+) (*dex.RPCResult[dex.None], error) {
+	if err := Queued.Delete(ctx, message.MessageID); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+func (*ChannelFlow) MovedMessages(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[[]dex.ChannelMessage[string]], error) {
+	messages, err := Moved.PendingMessages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[[]dex.ChannelMessage[string]]{Output: messages}, nil
+}
+
 func (*ChannelFlow) Move(ctx dex.Context, message MoveMessage) (*dex.RPCResult[dex.None], error) {
 	messageToMove, found, err := Queued.FindPendingMessage(ctx, message.MessageID)
 	if err != nil {

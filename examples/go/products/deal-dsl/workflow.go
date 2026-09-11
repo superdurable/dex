@@ -21,6 +21,7 @@
 package dealdsl
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/superdurable/dex/sdk-go/dex"
@@ -77,6 +78,23 @@ type DealDSLFlow struct {
 	actions *actionRegistry
 }
 
+type DealStateSnapshot struct {
+	StateData                map[string]string `json:"stateData"`
+	ProcessDefinition        DealProcess       `json:"processDefinition"`
+	ProcessID                string            `json:"processID"`
+	ItemID                   string            `json:"itemID"`
+	BuyerID                  string            `json:"buyerID"`
+	CurrentState             string            `json:"currentState"`
+	CurrentActionIndex       int               `json:"currentActionIndex"`
+	PendingPreConditionState string            `json:"pendingPreConditionState"`
+	PendingPreConditionName  string            `json:"pendingPreConditionName"`
+}
+
+type ConditionMessage struct {
+	ConditionName string            `json:"conditionName"`
+	Data          map[string]string `json:"data"`
+}
+
 func NewDealDSLFlow(logger dex.Logger) *DealDSLFlow {
 	return &DealDSLFlow{
 		actions: newActionRegistry(logger),
@@ -107,6 +125,96 @@ func (*DealDSLFlow) GetPersistenceSchema() dex.PersistenceSchema {
 		},
 		Channels: []dex.ChannelDef{ConditionMessages},
 	}
+}
+
+func (*DealDSLFlow) Snapshot(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[DealStateSnapshot], error) {
+	snapshot, err := readDealStateSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[DealStateSnapshot]{Output: snapshot}, nil
+}
+
+func (*DealDSLFlow) SendConditionMessage(
+	ctx dex.Context,
+	message ConditionMessage,
+) (*dex.RPCResult[dex.None], error) {
+	process, err := ProcessDefinition.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !process.HasCondition(message.ConditionName) {
+		return nil, fmt.Errorf("condition %q is not defined by this deal process", message.ConditionName)
+	}
+	if err := ConditionMessages.Publish(ctx, message.ConditionName, message.Data); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+func readDealStateSnapshot(ctx dex.Context) (DealStateSnapshot, error) {
+	stateData, err := StateData.Get(ctx)
+	if err != nil {
+		return DealStateSnapshot{}, err
+	}
+	processDefinition, err := ProcessDefinition.Get(ctx)
+	if err != nil {
+		return DealStateSnapshot{}, err
+	}
+	processID, err := ProcessID.Get(ctx)
+	if err != nil {
+		return DealStateSnapshot{}, err
+	}
+	itemID, err := ItemID.Get(ctx)
+	if err != nil {
+		return DealStateSnapshot{}, err
+	}
+	buyerID, err := BuyerID.Get(ctx)
+	if err != nil {
+		return DealStateSnapshot{}, err
+	}
+	currentState, err := optionalAttribute(ctx, CurrentState)
+	if err != nil {
+		return DealStateSnapshot{}, err
+	}
+	currentActionIndex, err := optionalAttribute(ctx, CurrentActionIndexToExecute)
+	if err != nil {
+		return DealStateSnapshot{}, err
+	}
+	pendingState, err := optionalAttribute(ctx, PendingPreConditionState)
+	if err != nil {
+		return DealStateSnapshot{}, err
+	}
+	pendingName, err := optionalAttribute(ctx, PendingPreConditionName)
+	if err != nil {
+		return DealStateSnapshot{}, err
+	}
+	return DealStateSnapshot{
+		StateData:                stateData,
+		ProcessDefinition:        processDefinition,
+		ProcessID:                processID,
+		ItemID:                   itemID,
+		BuyerID:                  buyerID,
+		CurrentState:             currentState,
+		CurrentActionIndex:       currentActionIndex,
+		PendingPreConditionState: pendingState,
+		PendingPreConditionName:  pendingName,
+	}, nil
+}
+
+func optionalAttribute[T any](ctx dex.Context, attribute dex.Attribute[T]) (T, error) {
+	value, err := attribute.Get(ctx)
+	if err == nil {
+		return value, nil
+	}
+	var missing *dex.AttributeNotFoundError
+	if errors.As(err, &missing) {
+		return value, nil
+	}
+	return value, err
 }
 
 type initializeStep struct {
@@ -342,11 +450,11 @@ func (step postConditionStep) Execute(
 		return nil, err
 	}
 	if state.PostCondition == nil {
-		stateData, err := StateData.Get(ctx)
+		snapshot, err := readDealStateSnapshot(ctx)
 		if err != nil {
 			return nil, err
 		}
-		return dex.GracefulComplete(stateData), nil
+		return dex.GracefulComplete(snapshot), nil
 	}
 	if state.PostCondition.WaitFor != nil {
 		updates, resultErr := conditionUpdates(ctx, state.PostCondition.WaitFor.Name)

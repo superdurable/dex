@@ -16,15 +16,22 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use dex_sdk::{
-    Channel, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Timer,
-    Wait,
+    Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
+    StepList, Timer, Wait,
 };
 
 pub static OPT_OUT: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("OptOut"));
+pub const OPT_OUT_REMINDERS: Rpc<(), ()> = Rpc::new("OptOutReminders");
 
 #[derive(Default)]
 pub struct ReminderFlow {
     reminder_step: ReminderStep,
+}
+
+impl ReminderFlow {
+    fn opt_out(&self, context: &mut Context) -> HandlerResult<()> {
+        OPT_OUT.publish(context, ())
+    }
 }
 
 impl Flow for ReminderFlow {
@@ -36,6 +43,10 @@ impl Flow for ReminderFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new().channel(&OPT_OUT)
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new().procedure_without_input(OPT_OUT_REMINDERS, Self::opt_out)
     }
 }
 
