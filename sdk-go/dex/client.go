@@ -1244,9 +1244,10 @@ func isPrimitiveValue(value *dexpb.Value) bool {
 // InvokeRPC synchronously invokes a registered RPC on an active Flow.
 //
 // rpc identifies an RPC definition belonging to the Flow type, input must match its
-// input type, and outputPtr must be a non-nil pointer to its output type. options
-// controls timeout and Attribute locks. InvokeRPC blocks until the handler returns,
-// the timeout expires, or ctx is canceled, then decodes the result into outputPtr.
+// input type, and outputPtr may be nil to discard the RPC output. Otherwise outputPtr
+// must be a non-nil pointer to the RPC output type. options controls timeout and
+// Attribute locks. InvokeRPC blocks until the handler returns, the timeout expires,
+// or ctx is canceled, then decodes the result into outputPtr when one is provided.
 // It may return validation, serialization, lock-conflict, worker, inactive-Flow,
 // context, hydration, transport, or server errors. outputPtr is not owned by Dex.
 //
@@ -1274,6 +1275,9 @@ func (client *Client) InvokeRPC(
 			input,
 			registered.input,
 		)
+	}
+	if outputPtr == nil {
+		outputPtr = reflect.New(registered.output).Interface()
 	}
 	outputTarget, err := decodeTarget(outputPtr)
 	if err != nil {

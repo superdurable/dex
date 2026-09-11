@@ -103,6 +103,13 @@ func (clientTestFlow) Update(
 	return &RPCResult[clientTestRPCOutput]{Output: clientTestRPCOutput{}}, nil
 }
 
+func (clientTestFlow) NoOutput(
+	Context,
+	None,
+) (*RPCResult[None], error) {
+	return &RPCResult[None]{}, nil
+}
+
 func (clientNoStartFlow) GetSteps() []StepDef {
 	return nil
 }
@@ -256,7 +263,11 @@ func (service *clientTestFlowService) InvokeRPC(
 	if request.FlowId == "inactive" {
 		return nil, clientTestMissingFlowError()
 	}
-	output, err := encodeValue(clientTestRPCOutput{Status: "updated"})
+	outputValue := any(clientTestRPCOutput{Status: "updated"})
+	if request.RpcName == "NoOutput" {
+		outputValue = nil
+	}
+	output, err := encodeValue(outputValue)
 	if err != nil {
 		return nil, err
 	}
@@ -657,6 +668,25 @@ func TestClientConstructionAndLocalValidation(t *testing.T) {
 func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	client, service := newClientIntegration(t)
 	ctx := context.Background()
+	require.NoError(t, client.InvokeRPC(
+		ctx,
+		"none-output",
+		clientTestFlow{}.NoOutput,
+		nil,
+		nil,
+		InvokeOptions{},
+	))
+	require.Equal(t, "NoOutput", service.invokeRequest.RpcName)
+	require.NoError(t, client.InvokeRPC(
+		ctx,
+		"discard-output",
+		clientTestFlow{}.Update,
+		clientTestRPCInput{Status: "discarded"},
+		nil,
+		InvokeOptions{},
+	))
+	require.Equal(t, "Update", service.invokeRequest.RpcName)
+
 	var output clientTestRPCOutput
 	err := client.InvokeRPC(
 		ctx,
