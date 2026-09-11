@@ -469,78 +469,93 @@ Every Step method, timeout handler, and RPC always receives Channel size metadat
 
 A Step or timeout handler can stage deletion with its other side effects. Dex applies successful handler effects in this order: Attribute writes, best-effort Channel deletions, then Channel publications, followed by the Step decision. If another operation already consumed or deleted a selected message, deletion is a no-op and the remaining effects still apply. **StepDecision** describes only control flow; it does not contain deletions.
 
+An RPC can combine deletion with other durable writes. The move example loads **Queued**, finds the original Value by message ID, then stages its deletion and republishes that Value. The caller sends only the ID. Enable transactional execution when a missing message must abort every write; see [Transactional reads and writes](/primitives/rpc#transactional-reads-and-writes).
+
 <SdkTabs
 examples={{
-python: 'examples/python/dex_examples/primitives/channel/controller.py',
-go: 'examples/go/primitives/channel/controller.go',
-java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelController.java',
-typescript: 'examples/typescript/src/primitives/channel/controller.ts',
-rust: 'examples/rust/src/primitives/channel/controller.rs',
+python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
+go: 'examples/go/primitives/channel/workflow.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
+typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
+rust: 'examples/rust/src/primitives/channel/flow.rs',
 }}>
 <SdkSnippet lang="python">
 
 ```python
-@blueprint.get("/messages")
-async def messages() -> Response:
-    pending = await app_state.client.invoke_rpc(
-        app_state.channel.queued_messages,
-        required_query("workflowId"),
-    )
-    return jsonify(
-        [
-            {"messageID": message.message_id, "value": message.value}
-            for message in pending
-        ]
-    )
+@rpc(is_transactional=True, load_channels=(queued,))
+def move(self, context: Context, input: MoveMessage) -> None:
+    message = self.queued.find_pending_message(context, input.message_id)
+    self.queued.delete(context, input.message_id)
+    if message is not None:
+        self.moved.publish(context, message.value)
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
-var messages []sdk.ChannelMessage[string]
-err := controller.client.InvokeRPC(
-	request.Request.Context(),
-	flowID,
-	controller.flow.QueuedMessages,
-	nil,
-	&messages,
-	sdk.InvokeOptions{LoadChannels: []sdk.ChannelDef{Queued}},
-)
-httputil.Respond(request, messages, err)
+func (*ChannelFlow) Move(ctx dex.Context, message MoveMessage) (*dex.RPCResult[dex.None], error) {
+	messageToMove, found, err := Queued.FindPendingMessage(ctx, message.MessageID)
+	if err != nil {
+		return nil, err
+	}
+	if err := Queued.Delete(ctx, message.MessageID); err != nil {
+		return nil, err
+	}
+	if found {
+		if err := Moved.Publish(ctx, messageToMove.Value); err != nil {
+			return nil, err
+		}
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="java">
 
 ```java
-final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
-return ResponseEntity.ok(client.invokeRPC(stub::queuedMessages).messages);
+@RPC(isTransactional = true, loadChannels = {"Queued"})
+public void move(final Context context, final MoveMessage message) {
+    final ChannelMessage<String> messageToMove =
+            queued.findPendingMessage(context, message.messageId);
+    queued.delete(context, message.messageId);
+    if (messageToMove != null) {
+        moved.publish(context, messageToMove.getValue());
+    }
+}
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```typescript
-response.json(await client.invokeRPC(channelFlow.queuedMessages, workflowId));
+@rpc({ isTransactional: true, loadChannels: [queued], inputCodec: moveMessageCodec })
+public move(context: Context, message: MoveMessage): void {
+  const messageToMove = queued.findPendingMessage(context, message.messageId);
+  queued.delete(context, message.messageId);
+  if (messageToMove !== undefined) {
+    moved.publish(context, messageToMove.value);
+  }
+}
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
 
 ```rust
-match run_blocking(move || {
-    client.invoke_rpc_without_input(&query.workflow_id, CHANNEL_QUEUED_MESSAGES)
-}) {
-    Ok(messages) => ok_json(messages),
-    Err(error) => map_sdk_error(error).into_response(),
+fn move_message(&self, context: &mut Context, message: MoveMessage) -> HandlerResult<()> {
+    let message_to_move = QUEUED.find_pending_message(context, &message.message_id)?;
+    QUEUED.delete(context, &message.message_id)?;
+    if let Some(message_to_move) = message_to_move {
+        MOVED.publish(context, message_to_move.value)?;
+    }
+    Ok(())
 }
 ```
 
 </SdkSnippet>
 </SdkTabs>
-
-An RPC can combine deletion with other durable writes. The move example loads **Queued**, finds the original Value by message ID, then stages its deletion and republishes that Value. The caller sends only the ID. Enable transactional execution when a missing message must abort every write; see [Transactional reads and writes](/primitives/rpc#transactional-reads-and-writes).
 
 ## ChannelMap {#channelmap}
 

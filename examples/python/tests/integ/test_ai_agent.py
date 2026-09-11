@@ -718,13 +718,29 @@ async def test_ai_agent_consumes_steered_messages_as_a_batch(
         return description.status == "waiting_for_timer"
 
     await wait_until("AI Agent durable wait", is_waiting_for_timer, WAIT_TIMEOUT)
+    await _send(client, app, flow_id, "first replacement objective")
+    await _send(client, app, flow_id, "final replacement objective")
+    snapshot = await client.invoke_rpc(app.ai_agent.snapshot, flow_id)
+    assert [message.value.content for message in snapshot.queued] == [
+        "first replacement objective",
+        "final replacement objective",
+    ]
+    message_ids = [message.message_id for message in snapshot.queued]
+
+    with pytest.raises(ChannelMessageNotFoundError):
+        await client.invoke_rpc(
+            app.ai_agent.steer_messages,
+            flow_id,
+            [message_ids[0], "missing-message"],
+        )
+    snapshot = await client.invoke_rpc(app.ai_agent.snapshot, flow_id)
+    assert [message.message_id for message in snapshot.queued] == message_ids
+    assert snapshot.steered == []
+
     await client.invoke_rpc(
         app.ai_agent.steer_messages,
         flow_id,
-        [
-            UserMessage("first replacement objective"),
-            UserMessage("final replacement objective"),
-        ],
+        message_ids,
     )
 
     await _wait_for_content(

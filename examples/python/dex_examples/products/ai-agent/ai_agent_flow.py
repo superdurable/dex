@@ -1260,10 +1260,16 @@ class AIAgentFlow(Flow[AgentConfig]):
     def delete_queued_message(self, context: Context, message_id: str) -> None:
         self.queued_user_messages.delete(context, message_id)
 
-    @rpc(is_transactional=True)
-    def steer_messages(self, context: Context, messages: list[UserMessage]) -> None:
-        for message in messages:
-            self.steered_user_messages.publish(context, message)
+    @rpc(is_transactional=True, load_channels=(queued_user_messages,))
+    def steer_messages(self, context: Context, message_ids: list[str]) -> None:
+        for message_id in message_ids:
+            message = self.queued_user_messages.find_pending_message(
+                context,
+                message_id,
+            )
+            self.queued_user_messages.delete(context, message_id)
+            if message is not None:
+                self.steered_user_messages.publish(context, message.value)
 
     @rpc
     def approve_tool(
