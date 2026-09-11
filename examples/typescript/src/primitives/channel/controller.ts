@@ -33,14 +33,14 @@ export function createChannelRouter(client: Client): Router {
 
   router.get("/approve", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
-    await client.invokeRPC(channelFlow.approve, workflowId);
+    await client.invokeRPC(channelFlow.publishApprovalMessage, workflowId);
     response.send("done");
   });
 
   router.get("/enqueue", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const value = String(request.query.value ?? "");
-    await client.invokeRPC(channelFlow.enqueue, workflowId, value);
+    await client.invokeRPC(channelFlow.enqueueChannelMessage, workflowId, value);
     response.send("done");
   });
 
@@ -52,14 +52,18 @@ export function createChannelRouter(client: Client): Router {
   router.get("/delete", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const messageId = String(request.query.messageId ?? "");
-    await client.invokeRPC(channelFlow.deleteQueued, workflowId, { messageId });
+    await client.invokeRPC(channelFlow.deleteQueuedMessage, workflowId, { messageId });
     response.send("done");
   });
 
   router.get("/move", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const messageId = String(request.query.messageId ?? "");
-    await client.invokeRPC(channelFlow.move, workflowId, { messageId });
+    await client.invokeRPC(
+      channelFlow.moveQueuedMessageToPrioritizedMessages,
+      workflowId,
+      { messageId },
+    );
     response.send("done");
   });
 

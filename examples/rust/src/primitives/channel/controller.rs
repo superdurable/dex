@@ -21,8 +21,8 @@ use axum::{
 use serde::Deserialize;
 
 use crate::primitives::channel::flow::{
-    APPROVE_CHANNEL, ChannelFlow, DELETE_QUEUED_MESSAGE, ENQUEUE_CHANNEL_MESSAGE,
-    GET_QUEUED_MESSAGES, MOVE_CHANNEL_MESSAGE, MoveMessage,
+    ChannelFlow, DELETE_QUEUED_MESSAGE, ENQUEUE_CHANNEL_MESSAGE, GET_QUEUED_MESSAGES,
+    MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES, PUBLISH_APPROVAL_MESSAGE, QueuedMessageReference,
 };
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, ok_json, ok_text, run_blocking,
@@ -91,7 +91,9 @@ async fn approve(
     Query(query): Query<ApproveQuery>,
 ) -> impl IntoResponse {
     let workflow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&workflow_id, APPROVE_CHANNEL)) {
+    match run_blocking(move || {
+        client.invoke_rpc_without_input(&workflow_id, PUBLISH_APPROVAL_MESSAGE)
+    }) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -129,7 +131,7 @@ async fn delete_message(
         client.invoke_rpc(
             &query.workflow_id,
             DELETE_QUEUED_MESSAGE,
-            MoveMessage {
+            QueuedMessageReference {
                 message_id: query.message_id,
             },
         )
@@ -146,8 +148,8 @@ async fn move_message(
     match run_blocking(move || {
         client.invoke_rpc(
             &query.workflow_id,
-            MOVE_CHANNEL_MESSAGE,
-            MoveMessage {
+            MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES,
+            QueuedMessageReference {
                 message_id: query.message_id,
             },
         )

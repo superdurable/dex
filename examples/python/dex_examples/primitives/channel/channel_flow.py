@@ -38,7 +38,7 @@ from dex import (
 
 
 @dataclass(frozen=True)
-class MoveMessage:
+class QueuedMessageReference:
     message_id: str
 
 
@@ -49,77 +49,93 @@ class PendingMessage:
 
 
 class ChannelWaitStep(Step[int]):
-    def __init__(self, approval: Channel[str], queued: Channel[str]) -> None:
-        self.approval = approval
-        self.queued = queued
+    def __init__(
+        self,
+        approval_messages: Channel[str],
+        queued_messages: Channel[str],
+    ) -> None:
+        self.approval_messages = approval_messages
+        self.queued_messages = queued_messages
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(execute_load_channels=(self.queued,))
+        return StepOptions(execute_load_channels=(self.queued_messages,))
 
     def wait_for(self, context: Context, input: int) -> Wait:
         return Wait.any_of(
-            self.approval.for_one(),
+            self.approval_messages.for_one(),
             Timer.by_duration(timedelta(seconds=input)),
         )
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        pending = self.queued.pending_messages(context)
-        if pending:
-            self.queued.delete(context, pending[0].message_id)
-            return graceful_complete(pending[0].value)
+        pending_queued_messages = self.queued_messages.pending_messages(context)
+        if pending_queued_messages:
+            self.queued_messages.delete(context, pending_queued_messages[0].message_id)
+            return graceful_complete(pending_queued_messages[0].value)
         if context.has_timer_fired():
             return graceful_complete("approval timed out")
-        approvals = self.approval.results(context)
-        return graceful_complete(approvals[0])
+        approval_message_values = self.approval_messages.results(context)
+        return graceful_complete(approval_message_values[0])
 
 
 class ChannelFlow(Flow[int]):
-    approval = Channel("Approval", str)
-    queued = Channel("Queued", str)
-    moved = Channel("Moved", str)
+    approval_messages = Channel("ApprovalMessages", str)
+    queued_messages = Channel("QueuedMessages", str)
+    prioritized_messages = Channel("PrioritizedMessages", str)
 
     def __init__(self) -> None:
-        self.wait_for_approval = ChannelWaitStep(self.approval, self.queued)
+        self.wait_for_approval = ChannelWaitStep(
+            self.approval_messages, self.queued_messages
+        )
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.wait_for_approval)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.approval, self.queued, self.moved)
+        return PersistenceSchema.of(
+            self.approval_messages,
+            self.queued_messages,
+            self.prioritized_messages,
+        )
 
     @rpc
-    def approve(self, context: Context) -> None:
-        self.approval.publish(context, "approved")
+    def publish_approval_message(self, context: Context) -> None:
+        self.approval_messages.publish(context, "approved")
 
     @rpc
-    def enqueue(self, context: Context, input: str) -> None:
-        self.queued.publish(context, input)
+    def enqueue_channel_message(self, context: Context, input: str) -> None:
+        self.queued_messages.publish(context, input)
 
-    @rpc(load_channels=(queued,))
+    @rpc(load_channels=(queued_messages,))
     def get_queued_messages(
         self, context: Context
     ) -> RPCResult[list[PendingMessage]]:
         return RPCResult(
             [PendingMessage(message.message_id, message.value)
-             for message in self.queued.pending_messages(context)]
+             for message in self.queued_messages.pending_messages(context)]
         )
 
-    @rpc(is_transactional=True, load_channels=(queued,))
-    def delete_queued(self, context: Context, input: MoveMessage) -> None:
-        self.queued.delete(context, input.message_id)
+    @rpc(is_transactional=True, load_channels=(queued_messages,))
+    def delete_queued_message(
+        self, context: Context, queued_message: QueuedMessageReference
+    ) -> None:
+        self.queued_messages.delete(context, queued_message.message_id)
 
-    @rpc(load_channels=(moved,))
-    def get_moved_messages(
+    @rpc(load_channels=(prioritized_messages,))
+    def get_prioritized_messages(
         self, context: Context
     ) -> RPCResult[list[PendingMessage]]:
         return RPCResult(
             [PendingMessage(message.message_id, message.value)
-             for message in self.moved.pending_messages(context)]
+             for message in self.prioritized_messages.pending_messages(context)]
         )
 
-    @rpc(is_transactional=True, load_channels=(queued,))
-    def move(self, context: Context, input: MoveMessage) -> None:
-        message = self.queued.find_pending_message(context, input.message_id)
-        self.queued.delete(context, input.message_id)
-        if message is not None:
-            self.moved.publish(context, message.value)
+    @rpc(is_transactional=True, load_channels=(queued_messages,))
+    def move_queued_message_to_prioritized_messages(
+        self, context: Context, queued_message: QueuedMessageReference
+    ) -> None:
+        message_to_prioritize = self.queued_messages.find_pending_message(
+            context, queued_message.message_id
+        )
+        self.queued_messages.delete(context, queued_message.message_id)
+        if message_to_prioritize is not None:
+            self.prioritized_messages.publish(context, message_to_prioritize.value)

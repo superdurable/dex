@@ -36,13 +36,13 @@ import java.util.List;
 
 @Component
 public class ChannelFlow implements Flow<Integer> {
-    public static final class MoveMessage {
+    public static final class QueuedMessageReference {
         public String messageId;
 
-        public MoveMessage() {
+        public QueuedMessageReference() {
         }
 
-        public MoveMessage(final String messageId) {
+        public QueuedMessageReference(final String messageId) {
             this.messageId = messageId;
         }
     }
@@ -71,9 +71,11 @@ public class ChannelFlow implements Flow<Integer> {
         }
     }
 
-    public final Channel<String> approval = Channel.define("Approval", String.class);
-    public final Channel<String> queued = Channel.define("Queued", String.class);
-    public final Channel<String> moved = Channel.define("Moved", String.class);
+    public final Channel<String> approvalMessages =
+            Channel.define("ApprovalMessages", String.class);
+    public final Channel<String> queuedMessages = Channel.define("QueuedMessages", String.class);
+    public final Channel<String> prioritizedMessages =
+            Channel.define("PrioritizedMessages", String.class);
     private final ChannelWaitStep waitForApproval = new ChannelWaitStep();
 
     @Override
@@ -83,41 +85,45 @@ public class ChannelFlow implements Flow<Integer> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(approval, queued, moved);
+        return PersistenceSchema.of(approvalMessages, queuedMessages, prioritizedMessages);
     }
 
     @RPC
-    public void approve(final Context context) {
-        approval.publish(context, "approved");
+    public void publishApprovalMessage(final Context context) {
+        approvalMessages.publish(context, "approved");
     }
 
     @RPC
-    public void enqueue(final Context context, final String value) {
-        queued.publish(context, value);
+    public void enqueueChannelMessage(final Context context, final String value) {
+        queuedMessages.publish(context, value);
     }
 
-    @RPC(loadChannels = {"Queued"})
+    @RPC(loadChannels = {"QueuedMessages"})
     public RPCResult<PendingMessages> getQueuedMessages(final Context context) {
-        return RPCResult.of(new PendingMessages(toPendingMessages(queued, context)));
+        return RPCResult.of(new PendingMessages(toPendingMessages(queuedMessages, context)));
     }
 
-    @RPC(isTransactional = true, loadChannels = {"Queued"})
-    public void deleteQueued(final Context context, final MoveMessage message) {
-        queued.delete(context, message.messageId);
+    @RPC(isTransactional = true, loadChannels = {"QueuedMessages"})
+    public void deleteQueuedMessage(
+            final Context context,
+            final QueuedMessageReference queuedMessageReference) {
+        queuedMessages.delete(context, queuedMessageReference.messageId);
     }
 
-    @RPC(loadChannels = {"Moved"})
-    public RPCResult<PendingMessages> getMovedMessages(final Context context) {
-        return RPCResult.of(new PendingMessages(toPendingMessages(moved, context)));
+    @RPC(loadChannels = {"PrioritizedMessages"})
+    public RPCResult<PendingMessages> getPrioritizedMessages(final Context context) {
+        return RPCResult.of(new PendingMessages(toPendingMessages(prioritizedMessages, context)));
     }
 
-    @RPC(isTransactional = true, loadChannels = {"Queued"})
-    public void move(final Context context, final MoveMessage message) {
-        final ChannelMessage<String> messageToMove =
-                queued.findPendingMessage(context, message.messageId);
-        queued.delete(context, message.messageId);
-        if (messageToMove != null) {
-            moved.publish(context, messageToMove.getValue());
+    @RPC(isTransactional = true, loadChannels = {"QueuedMessages"})
+    public void moveQueuedMessageToPrioritizedMessages(
+            final Context context,
+            final QueuedMessageReference queuedMessageReference) {
+        final ChannelMessage<String> messageToPrioritize =
+                queuedMessages.findPendingMessage(context, queuedMessageReference.messageId);
+        queuedMessages.delete(context, queuedMessageReference.messageId);
+        if (messageToPrioritize != null) {
+            prioritizedMessages.publish(context, messageToPrioritize.getValue());
         }
     }
 
@@ -138,29 +144,31 @@ public class ChannelFlow implements Flow<Integer> {
         @Override
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
-                    .addExecuteLoadChannel(queued)
+                    .addExecuteLoadChannel(queuedMessages)
                     .build();
         }
 
         @Override
         public Wait waitFor(final Context context, final Integer input) {
             return Wait.anyOf(
-                    approval.forOne(),
+                    approvalMessages.forOne(),
                     Timer.byDuration(Duration.ofSeconds(input)));
         }
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            final List<ChannelMessage<String>> pending = queued.pendingMessages(context);
-            if (!pending.isEmpty()) {
-                queued.delete(context, pending.get(0).getMessageId());
-                return StepDecision.gracefulComplete(pending.get(0).getValue());
+            final List<ChannelMessage<String>> pendingQueuedMessages =
+                    queuedMessages.pendingMessages(context);
+            if (!pendingQueuedMessages.isEmpty()) {
+                queuedMessages.delete(context, pendingQueuedMessages.get(0).getMessageId());
+                return StepDecision.gracefulComplete(pendingQueuedMessages.get(0).getValue());
             }
             if (context.hasTimerFired()) {
                 return StepDecision.gracefulComplete("approval timed out");
             }
-            final List<String> approvals = approval.getConditionResults(context);
-            return StepDecision.gracefulComplete(approvals.get(0));
+            final List<String> approvalMessageValues =
+                    approvalMessages.getConditionResults(context);
+            return StepDecision.gracefulComplete(approvalMessageValues.get(0));
         }
     }
 }

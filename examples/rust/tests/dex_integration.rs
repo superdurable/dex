@@ -21,8 +21,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use dex_examples_rust::create_example_registry;
 use dex_examples_rust::patterns::recovery::FailureRecoveryFlow;
 use dex_examples_rust::primitives::channel::flow::{
-    APPROVE_CHANNEL, ChannelFlow, DELETE_QUEUED_MESSAGE, ENQUEUE_CHANNEL_MESSAGE,
-    GET_MOVED_MESSAGES, GET_QUEUED_MESSAGES, MOVE_CHANNEL_MESSAGE, MoveMessage,
+    ChannelFlow, DELETE_QUEUED_MESSAGE, ENQUEUE_CHANNEL_MESSAGE, GET_PRIORITIZED_MESSAGES,
+    GET_QUEUED_MESSAGES, MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES, PUBLISH_APPROVAL_MESSAGE,
+    QueuedMessageReference,
 };
 use dex_examples_rust::primitives::stream::flow::{PROGRESS, StreamFlow};
 use dex_examples_rust::products::deal_dsl::{
@@ -194,43 +195,49 @@ fn channel_message_can_be_moved_by_id() {
         .invoke_rpc(
             &flow_id,
             DELETE_QUEUED_MESSAGE,
-            MoveMessage {
+            QueuedMessageReference {
                 message_id: pending[0].message_id.clone(),
             },
         )
         .expect("delete first queued message");
 
-    let move_message = MoveMessage {
+    let queued_message = QueuedMessageReference {
         message_id: pending[1].message_id.clone(),
     };
     environment
         .client
-        .invoke_rpc(&flow_id, MOVE_CHANNEL_MESSAGE, move_message.clone())
+        .invoke_rpc(
+            &flow_id,
+            MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES,
+            queued_message.clone(),
+        )
         .expect("move queued message");
-    let moved = environment
+    let prioritized_messages = environment
         .client
-        .invoke_rpc_without_input(&flow_id, GET_MOVED_MESSAGES)
-        .expect("list moved messages");
-    assert_eq!(moved[0].value, "move me");
+        .invoke_rpc_without_input(&flow_id, GET_PRIORITIZED_MESSAGES)
+        .expect("list prioritized messages");
+    assert_eq!(prioritized_messages[0].value, "move me");
 
     assert!(matches!(
-        environment
-            .client
-            .invoke_rpc(&flow_id, MOVE_CHANNEL_MESSAGE, move_message),
+        environment.client.invoke_rpc(
+            &flow_id,
+            MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES,
+            queued_message,
+        ),
         Err(SdkError::ChannelMessageNotFound { .. })
     ));
     assert_eq!(
         environment
             .client
-            .invoke_rpc_without_input(&flow_id, GET_MOVED_MESSAGES)
-            .expect("list moved messages after failed retry")
+            .invoke_rpc_without_input(&flow_id, GET_PRIORITIZED_MESSAGES)
+            .expect("list prioritized messages after failed retry")
             .len(),
         1
     );
 
     environment
         .client
-        .invoke_rpc_without_input(&flow_id, APPROVE_CHANNEL)
+        .invoke_rpc_without_input(&flow_id, PUBLISH_APPROVAL_MESSAGE)
         .expect("approve Channel Flow");
 }
 

@@ -44,7 +44,7 @@ def test_channel_approve_completes(
 ) -> None:
     flow_id = new_flow_id("sync-channel")
     client.start_flow(app.channel, flow_id, 5, start_options())
-    client.invoke_rpc(app.channel.approve, flow_id)
+    client.invoke_rpc(app.channel.publish_approval_message, flow_id)
     assert client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str) == "approved"
 
 

@@ -38,12 +38,14 @@ def test_channel_flow_registers_its_channel_and_rpc() -> None:
     registered = registry._flow_for_instance(flow)
 
     assert {rpc.name for rpc in registered.rpcs.values()} == {
-        "approve",
-        "delete_queued",
-        "enqueue",
-        "move",
-        "get_moved_messages",
+        "delete_queued_message",
+        "enqueue_channel_message",
+        "get_prioritized_messages",
         "get_queued_messages",
+        "move_queued_message_to_prioritized_messages",
+        "publish_approval_message",
     }
-    assert registered.rpcs["move"].options.is_transactional
-    assert flow.approval.name == ChannelFlow.approval.name
+    assert registered.rpcs[
+        "move_queued_message_to_prioritized_messages"
+    ].options.is_transactional
+    assert flow.approval_messages.name == ChannelFlow.approval_messages.name

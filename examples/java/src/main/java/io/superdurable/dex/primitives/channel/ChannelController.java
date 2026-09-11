@@ -54,7 +54,7 @@ public final class ChannelController {
     @GetMapping("/approve")
     public ResponseEntity<String> approve(@RequestParam final String workflowId) {
         final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
-        client.invokeRPC(stub::approve);
+        client.invokeRPC(stub::publishApprovalMessage);
         return ResponseEntity.ok("done");
     }
 
@@ -63,7 +63,7 @@ public final class ChannelController {
             @RequestParam final String workflowId,
             @RequestParam final String value) {
         final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
-        client.invokeRPC(stub::enqueue, value);
+        client.invokeRPC(stub::enqueueChannelMessage, value);
         return ResponseEntity.ok("done");
     }
 
@@ -79,7 +79,9 @@ public final class ChannelController {
             @RequestParam final String workflowId,
             @RequestParam final String messageId) {
         final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
-        client.invokeRPC(stub::deleteQueued, new ChannelFlow.MoveMessage(messageId));
+        client.invokeRPC(
+                stub::deleteQueuedMessage,
+                new ChannelFlow.QueuedMessageReference(messageId));
         return ResponseEntity.ok("done");
     }
 
@@ -88,7 +90,9 @@ public final class ChannelController {
             @RequestParam final String workflowId,
             @RequestParam final String messageId) {
         final ChannelFlow stub = client.newRpcStub(ChannelFlow.class, workflowId);
-        client.invokeRPC(stub::move, new ChannelFlow.MoveMessage(messageId));
+        client.invokeRPC(
+                stub::moveQueuedMessageToPrioritizedMessages,
+                new ChannelFlow.QueuedMessageReference(messageId));
         return ResponseEntity.ok("done");
     }
 }

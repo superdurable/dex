@@ -87,7 +87,7 @@ def _channel(app_state: SyncExampleApp) -> Blueprint:
     @blueprint.get("/approve")
     def approve() -> str:
         app_state.client.invoke_rpc(
-            app_state.channel.approve,
+            app_state.channel.publish_approval_message,
             required_query("workflowId"),
         )
         return "done"

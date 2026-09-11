@@ -35,8 +35,8 @@ public class ChannelIntegTest {
         final String flowId = environment.newFlowId("channel-message");
         environment.client().startFlow(flow, flowId, 30, environment.startOptions());
         final ChannelFlow stub = environment.client().newRpcStub(ChannelFlow.class, flowId);
-        environment.client().invokeRPC(stub::enqueue, "delete me");
-        environment.client().invokeRPC(stub::enqueue, "move me");
+        environment.client().invokeRPC(stub::enqueueChannelMessage, "delete me");
+        environment.client().invokeRPC(stub::enqueueChannelMessage, "move me");
 
         final List<ChannelFlow.PendingMessage> pending =
                 environment.client().invokeRPC(stub::getQueuedMessages).messages;
@@ -44,24 +44,29 @@ public class ChannelIntegTest {
                 .map(message -> message.value)
                 .toList());
         environment.client().invokeRPC(
-                stub::deleteQueued,
-                new ChannelFlow.MoveMessage(pending.get(0).messageId));
+                stub::deleteQueuedMessage,
+                new ChannelFlow.QueuedMessageReference(pending.get(0).messageId));
 
-        final ChannelFlow.MoveMessage move = new ChannelFlow.MoveMessage(pending.get(1).messageId);
-        environment.client().invokeRPC(stub::move, move);
-        assertEquals(List.of("move me"), environment.client().invokeRPC(stub::getMovedMessages).messages
+        final ChannelFlow.QueuedMessageReference queuedMessage =
+                new ChannelFlow.QueuedMessageReference(pending.get(1).messageId);
+        environment.client().invokeRPC(stub::moveQueuedMessageToPrioritizedMessages, queuedMessage);
+        assertEquals(List.of("move me"), environment.client()
+                .invokeRPC(stub::getPrioritizedMessages).messages
                 .stream()
                 .map(message -> message.value)
                 .toList());
 
         assertThrows(
                 ChannelMessageNotFoundException.class,
-                () -> environment.client().invokeRPC(stub::move, move));
-        assertEquals(List.of("move me"), environment.client().invokeRPC(stub::getMovedMessages).messages
+                () -> environment.client().invokeRPC(
+                        stub::moveQueuedMessageToPrioritizedMessages,
+                        queuedMessage));
+        assertEquals(List.of("move me"), environment.client()
+                .invokeRPC(stub::getPrioritizedMessages).messages
                 .stream()
                 .map(message -> message.value)
                 .toList());
 
-        environment.client().invokeRPC(stub::approve);
+        environment.client().invokeRPC(stub::publishApprovalMessage);
     }
 }

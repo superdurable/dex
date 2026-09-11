@@ -27,16 +27,16 @@ import (
 )
 
 var (
-	Approval = dex.DefineChannel[string]("Approval")
-	Queued   = dex.DefineChannel[string]("Queued")
-	Moved    = dex.DefineChannel[string]("Moved")
+	ApprovalMessages    = dex.DefineChannel[string]("ApprovalMessages")
+	QueuedMessages      = dex.DefineChannel[string]("QueuedMessages")
+	PrioritizedMessages = dex.DefineChannel[string]("PrioritizedMessages")
 )
 
 type ChannelFlow struct {
 	dex.FlowDefaults
 }
 
-type MoveMessage struct {
+type QueuedMessageReference struct {
 	MessageID string `json:"messageId"`
 }
 
@@ -50,7 +50,7 @@ func (*ChannelFlow) GetSteps() []dex.StepDef {
 
 func (*ChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Channels: []dex.ChannelDef{Approval, Queued, Moved},
+		Channels: []dex.ChannelDef{ApprovalMessages, QueuedMessages, PrioritizedMessages},
 	}
 }
 
@@ -60,47 +60,47 @@ type channelWaitStep struct {
 
 func (channelWaitStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
-		ExecuteLoadChannels: []dex.ChannelDef{Queued},
+		ExecuteLoadChannels: []dex.ChannelDef{QueuedMessages},
 	}
 }
 
 func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	return dex.AnyOf(
-		Approval.ForOne(),
+		ApprovalMessages.ForOne(),
 		dex.Timer(time.Duration(input)*time.Second),
 	), nil
 }
 
 func (channelWaitStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	pending, err := Queued.PendingMessages(ctx)
+	pendingQueuedMessages, err := QueuedMessages.PendingMessages(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if len(pending) > 0 {
-		if err := Queued.Delete(ctx, pending[0].MessageID); err != nil {
+	if len(pendingQueuedMessages) > 0 {
+		if err := QueuedMessages.Delete(ctx, pendingQueuedMessages[0].MessageID); err != nil {
 			return nil, err
 		}
-		return dex.GracefulComplete(pending[0].Value), nil
+		return dex.GracefulComplete(pendingQueuedMessages[0].Value), nil
 	}
 	if ctx.HasTimerFired() {
 		return dex.GracefulComplete("approval timed out"), nil
 	}
-	results, err := Approval.GetConditionResults(ctx)
+	approvalMessageValues, err := ApprovalMessages.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return dex.GracefulComplete(results[0]), nil
+	return dex.GracefulComplete(approvalMessageValues[0]), nil
 }
 
-func (*ChannelFlow) Approve(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
-	if err := Approval.Publish(ctx, "approved"); err != nil {
+func (*ChannelFlow) PublishApprovalMessage(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
+	if err := ApprovalMessages.Publish(ctx, "approved"); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-func (*ChannelFlow) Enqueue(ctx dex.Context, value string) (*dex.RPCResult[dex.None], error) {
-	if err := Queued.Publish(ctx, value); err != nil {
+func (*ChannelFlow) EnqueueChannelMessage(ctx dex.Context, value string) (*dex.RPCResult[dex.None], error) {
+	if err := QueuedMessages.Publish(ctx, value); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
@@ -110,44 +110,47 @@ func (*ChannelFlow) GetQueuedMessages(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[[]dex.ChannelMessage[string]], error) {
-	messages, err := Queued.PendingMessages(ctx)
+	messages, err := QueuedMessages.PendingMessages(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[[]dex.ChannelMessage[string]]{Output: messages}, nil
 }
 
-func (*ChannelFlow) DeleteQueued(
+func (*ChannelFlow) DeleteQueuedMessage(
 	ctx dex.Context,
-	message MoveMessage,
+	queuedMessageReference QueuedMessageReference,
 ) (*dex.RPCResult[dex.None], error) {
-	if err := Queued.Delete(ctx, message.MessageID); err != nil {
+	if err := QueuedMessages.Delete(ctx, queuedMessageReference.MessageID); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-func (*ChannelFlow) GetMovedMessages(
+func (*ChannelFlow) GetPrioritizedMessages(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[[]dex.ChannelMessage[string]], error) {
-	messages, err := Moved.PendingMessages(ctx)
+	messages, err := PrioritizedMessages.PendingMessages(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[[]dex.ChannelMessage[string]]{Output: messages}, nil
 }
 
-func (*ChannelFlow) Move(ctx dex.Context, message MoveMessage) (*dex.RPCResult[dex.None], error) {
-	messageToMove, found, err := Queued.FindPendingMessage(ctx, message.MessageID)
+func (*ChannelFlow) MoveQueuedMessageToPrioritizedMessages(
+	ctx dex.Context,
+	queuedMessageReference QueuedMessageReference,
+) (*dex.RPCResult[dex.None], error) {
+	messageToPrioritize, found, err := QueuedMessages.FindPendingMessage(ctx, queuedMessageReference.MessageID)
 	if err != nil {
 		return nil, err
 	}
-	if err := Queued.Delete(ctx, message.MessageID); err != nil {
+	if err := QueuedMessages.Delete(ctx, queuedMessageReference.MessageID); err != nil {
 		return nil, err
 	}
 	if found {
-		if err := Moved.Publish(ctx, messageToMove.Value); err != nil {
+		if err := PrioritizedMessages.Publish(ctx, messageToPrioritize.Value); err != nil {
 			return nil, err
 		}
 	}

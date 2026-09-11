@@ -193,12 +193,16 @@ Caller 只传 pending message ID。RPC 加载 source Channel，从 snapshot 读�
 <SdkSnippet lang="python">
 
 ```python
-@rpc(is_transactional=True, load_channels=(queued,))
-def move(self, context: Context, input: MoveMessage) -> None:
-    message = self.queued.find_pending_message(context, input.message_id)
-    self.queued.delete(context, input.message_id)
-    if message is not None:
-        self.moved.publish(context, message.value)
+@rpc(is_transactional=True, load_channels=(queued_messages,))
+def move_queued_message_to_prioritized_messages(
+    self, context: Context, queued_message: QueuedMessageReference
+) -> None:
+    message_to_prioritize = self.queued_messages.find_pending_message(
+        context, queued_message.message_id
+    )
+    self.queued_messages.delete(context, queued_message.message_id)
+    if message_to_prioritize is not None:
+        self.prioritized_messages.publish(context, message_to_prioritize.value)
 ```
 
 </SdkSnippet>
@@ -208,12 +212,12 @@ def move(self, context: Context, input: MoveMessage) -> None:
 err := controller.client.InvokeRPC(
 	request.Request.Context(),
 	flowID,
-	controller.flow.Move,
-	MoveMessage{MessageID: messageID},
+	controller.flow.MoveQueuedMessageToPrioritizedMessages,
+	QueuedMessageReference{MessageID: messageID},
 	nil,
 	sdk.InvokeOptions{
 		IsTransactional: true,
-		LoadChannels:   []sdk.ChannelDef{Queued},
+		LoadChannels:    []sdk.ChannelDef{QueuedMessages},
 	},
 )
 ```
@@ -222,13 +226,15 @@ err := controller.client.InvokeRPC(
 <SdkSnippet lang="java">
 
 ```java
-@RPC(isTransactional = true, loadChannels = {"Queued"})
-public void move(final Context context, final MoveMessage message) {
-    final ChannelMessage<String> messageToMove =
-            queued.findPendingMessage(context, message.messageId);
-    queued.delete(context, message.messageId);
-    if (messageToMove != null) {
-        moved.publish(context, messageToMove.getValue());
+@RPC(isTransactional = true, loadChannels = {"QueuedMessages"})
+public void moveQueuedMessageToPrioritizedMessages(
+        final Context context,
+        final QueuedMessageReference queuedMessageReference) {
+    final ChannelMessage<String> messageToPrioritize =
+            queuedMessages.findPendingMessage(context, queuedMessageReference.messageId);
+    queuedMessages.delete(context, queuedMessageReference.messageId);
+    if (messageToPrioritize != null) {
+        prioritizedMessages.publish(context, messageToPrioritize.getValue());
     }
 }
 ```
@@ -237,12 +243,22 @@ public void move(final Context context, final MoveMessage message) {
 <SdkSnippet lang="typescript">
 
 ```typescript
-@rpc({ isTransactional: true, loadChannels: [queued], inputCodec: moveMessageCodec })
-public move(context: Context, message: MoveMessage): void {
-  const messageToMove = queued.findPendingMessage(context, message.messageId);
-  queued.delete(context, message.messageId);
-  if (messageToMove !== undefined) {
-    moved.publish(context, messageToMove.value);
+@rpc({
+  isTransactional: true,
+  loadChannels: [queuedMessages],
+  inputCodec: queuedMessageReferenceCodec,
+})
+public moveQueuedMessageToPrioritizedMessages(
+  context: Context,
+  queuedMessage: QueuedMessageReference,
+): void {
+  const messageToPrioritize = queuedMessages.findPendingMessage(
+    context,
+    queuedMessage.messageId,
+  );
+  queuedMessages.delete(context, queuedMessage.messageId);
+  if (messageToPrioritize !== undefined) {
+    prioritizedMessages.publish(context, messageToPrioritize.value);
   }
 }
 ```
@@ -253,10 +269,12 @@ public move(context: Context, message: MoveMessage): void {
 ```rust
 fn rpcs(&self) -> RpcList<Self> {
     RpcList::new()
-        .procedure_without_input(APPROVE_CHANNEL, Self::approve)
+        .procedure_without_input(PUBLISH_APPROVAL_MESSAGE, Self::publish_approval_message)
         .procedure(
-            MOVE_CHANNEL_MESSAGE.is_transactional().load_channel(&QUEUED),
-            Self::move_message,
+            MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES
+                .is_transactional()
+                .load_channel(&QUEUED_MESSAGES),
+            Self::move_queued_message_to_prioritized_messages,
         )
 }
 ```

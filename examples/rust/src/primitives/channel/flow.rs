@@ -22,19 +22,24 @@ use dex_sdk::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const APPROVE_CHANNEL: Rpc<(), ()> = Rpc::new("ApproveChannel");
+pub const PUBLISH_APPROVAL_MESSAGE: Rpc<(), ()> = Rpc::new("PublishApprovalMessage");
 pub const ENQUEUE_CHANNEL_MESSAGE: Rpc<String, ()> = Rpc::new("EnqueueChannelMessage");
 pub const GET_QUEUED_MESSAGES: Rpc<(), Vec<PendingMessage>> = Rpc::new("GetQueuedMessages");
-pub const DELETE_QUEUED_MESSAGE: Rpc<MoveMessage, ()> = Rpc::new("DeleteQueuedMessage");
-pub const GET_MOVED_MESSAGES: Rpc<(), Vec<PendingMessage>> = Rpc::new("GetMovedMessages");
-pub const MOVE_CHANNEL_MESSAGE: Rpc<MoveMessage, ()> = Rpc::new("MoveChannelMessage");
+pub const DELETE_QUEUED_MESSAGE: Rpc<QueuedMessageReference, ()> = Rpc::new("DeleteQueuedMessage");
+pub const GET_PRIORITIZED_MESSAGES: Rpc<(), Vec<PendingMessage>> =
+    Rpc::new("GetPrioritizedMessages");
+pub const MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES: Rpc<QueuedMessageReference, ()> =
+    Rpc::new("MoveQueuedMessageToPrioritizedMessages");
 
-static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
-pub static QUEUED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Queued"));
-pub static MOVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Moved"));
+static APPROVAL_MESSAGES: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("ApprovalMessages"));
+pub static QUEUED_MESSAGES: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("QueuedMessages"));
+pub static PRIORITIZED_MESSAGES: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("PrioritizedMessages"));
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct MoveMessage {
+pub struct QueuedMessageReference {
     pub message_id: String,
 }
 
@@ -51,19 +56,19 @@ pub struct ChannelFlow {
 }
 
 impl ChannelFlow {
-    fn approve(&self, context: &mut Context) -> HandlerResult<()> {
-        APPROVAL.publish(context, "approved".to_string())
+    fn publish_approval_message(&self, context: &mut Context) -> HandlerResult<()> {
+        APPROVAL_MESSAGES.publish(context, "approved".to_string())
     }
 
-    fn enqueue(&self, context: &mut Context, value: String) -> HandlerResult<()> {
-        QUEUED.publish(context, value)
+    fn enqueue_channel_message(&self, context: &mut Context, value: String) -> HandlerResult<()> {
+        QUEUED_MESSAGES.publish(context, value)
     }
 
     fn get_queued_messages(
         &self,
         context: &mut Context,
     ) -> HandlerResult<RpcResult<Vec<PendingMessage>>> {
-        let messages = QUEUED
+        let messages = QUEUED_MESSAGES
             .pending_messages(context)?
             .into_iter()
             .map(|message| PendingMessage {
@@ -74,15 +79,19 @@ impl ChannelFlow {
         Ok(RpcResult::new(messages))
     }
 
-    fn delete_queued(&self, context: &mut Context, message: MoveMessage) -> HandlerResult<()> {
-        QUEUED.delete(context, &message.message_id)
+    fn delete_queued_message(
+        &self,
+        context: &mut Context,
+        queued_message: QueuedMessageReference,
+    ) -> HandlerResult<()> {
+        QUEUED_MESSAGES.delete(context, &queued_message.message_id)
     }
 
-    fn get_moved_messages(
+    fn get_prioritized_messages(
         &self,
         context: &mut Context,
     ) -> HandlerResult<RpcResult<Vec<PendingMessage>>> {
-        let messages = MOVED
+        let messages = PRIORITIZED_MESSAGES
             .pending_messages(context)?
             .into_iter()
             .map(|message| PendingMessage {
@@ -93,11 +102,16 @@ impl ChannelFlow {
         Ok(RpcResult::new(messages))
     }
 
-    fn move_message(&self, context: &mut Context, message: MoveMessage) -> HandlerResult<()> {
-        let message_to_move = QUEUED.find_pending_message(context, &message.message_id)?;
-        QUEUED.delete(context, &message.message_id)?;
-        if let Some(message_to_move) = message_to_move {
-            MOVED.publish(context, message_to_move.value)?;
+    fn move_queued_message_to_prioritized_messages(
+        &self,
+        context: &mut Context,
+        queued_message: QueuedMessageReference,
+    ) -> HandlerResult<()> {
+        let message_to_prioritize =
+            QUEUED_MESSAGES.find_pending_message(context, &queued_message.message_id)?;
+        QUEUED_MESSAGES.delete(context, &queued_message.message_id)?;
+        if let Some(message_to_prioritize) = message_to_prioritize {
+            PRIORITIZED_MESSAGES.publish(context, message_to_prioritize.value)?;
         }
         Ok(())
     }
@@ -112,34 +126,34 @@ impl Flow for ChannelFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .channel(&APPROVAL)
-            .channel(&QUEUED)
-            .channel(&MOVED)
+            .channel(&APPROVAL_MESSAGES)
+            .channel(&QUEUED_MESSAGES)
+            .channel(&PRIORITIZED_MESSAGES)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .procedure_without_input(APPROVE_CHANNEL, Self::approve)
-            .procedure(ENQUEUE_CHANNEL_MESSAGE, Self::enqueue)
+            .procedure_without_input(PUBLISH_APPROVAL_MESSAGE, Self::publish_approval_message)
+            .procedure(ENQUEUE_CHANNEL_MESSAGE, Self::enqueue_channel_message)
             .function_without_input(
-                GET_QUEUED_MESSAGES.load_channel(&QUEUED),
+                GET_QUEUED_MESSAGES.load_channel(&QUEUED_MESSAGES),
                 Self::get_queued_messages,
             )
             .procedure(
                 DELETE_QUEUED_MESSAGE
                     .is_transactional()
-                    .load_channel(&QUEUED),
-                Self::delete_queued,
+                    .load_channel(&QUEUED_MESSAGES),
+                Self::delete_queued_message,
             )
             .function_without_input(
-                GET_MOVED_MESSAGES.load_channel(&MOVED),
-                Self::get_moved_messages,
+                GET_PRIORITIZED_MESSAGES.load_channel(&PRIORITIZED_MESSAGES),
+                Self::get_prioritized_messages,
             )
             .procedure(
-                MOVE_CHANNEL_MESSAGE
+                MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES
                     .is_transactional()
-                    .load_channel(&QUEUED),
-                Self::move_message,
+                    .load_channel(&QUEUED_MESSAGES),
+                Self::move_queued_message_to_prioritized_messages,
             )
     }
 }
@@ -151,28 +165,32 @@ impl Step for ChannelWait {
     type Input = i32;
 
     fn options(&self) -> StepOptions<Self::Input> {
-        StepOptions::new().execute_load_channel(&QUEUED)
+        StepOptions::new().execute_load_channel(&QUEUED_MESSAGES)
     }
 
     fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
-            APPROVAL.for_one(),
+            APPROVAL_MESSAGES.for_one(),
             Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
         ]))
     }
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        let pending = QUEUED.pending_messages(context)?;
-        if let Some(message) = pending.first() {
-            QUEUED.delete(context, &message.message_id)?;
-            return Ok(StepDecision::graceful_complete(message.value.clone()));
+        let pending_queued_messages = QUEUED_MESSAGES.pending_messages(context)?;
+        if let Some(queued_message) = pending_queued_messages.first() {
+            QUEUED_MESSAGES.delete(context, &queued_message.message_id)?;
+            return Ok(StepDecision::graceful_complete(
+                queued_message.value.clone(),
+            ));
         }
         if context.has_any_timer_fired() {
             return Ok(StepDecision::graceful_complete(
                 "approval timed out".to_owned(),
             ));
         }
-        let approvals = APPROVAL.condition_results(context)?;
-        Ok(StepDecision::graceful_complete(approvals[0].clone()))
+        let approval_message_values = APPROVAL_MESSAGES.condition_results(context)?;
+        Ok(StepDecision::graceful_complete(
+            approval_message_values[0].clone(),
+        ))
     }
 }

@@ -21,7 +21,7 @@ from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.patterns.resource_control.controller_flow import SPOT_INSTANCE_IDS
 from dex_examples.patterns.resource_control.request import Request
-from dex_examples.primitives.channel.channel_flow import MoveMessage
+from dex_examples.primitives.channel.channel_flow import QueuedMessageReference
 from dex_examples.products.ai_agent.ai_agent_flow import STATUS_WAITING
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
@@ -42,7 +42,7 @@ async def test_channel_approve_completes(
 ) -> None:
     flow_id = new_flow_id("channel")
     await client.start_flow(app.channel, flow_id, 5, start_options())
-    await client.invoke_rpc(app.channel.approve, flow_id)
+    await client.invoke_rpc(app.channel.publish_approval_message, flow_id)
     assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
         str
     ) == "approved"
@@ -55,30 +55,42 @@ async def test_channel_pending_messages_can_be_deleted_and_moved(
 ) -> None:
     flow_id = new_flow_id("channel-queue")
     await client.start_flow(app.channel, flow_id, 30, start_options())
-    await client.invoke_rpc(app.channel.enqueue, flow_id, "delete me")
-    await client.invoke_rpc(app.channel.enqueue, flow_id, "move me")
+    await client.invoke_rpc(app.channel.enqueue_channel_message, flow_id, "delete me")
+    await client.invoke_rpc(app.channel.enqueue_channel_message, flow_id, "move me")
 
     pending = await client.invoke_rpc(app.channel.get_queued_messages, flow_id)
     assert [message.value for message in pending] == ["delete me", "move me"]
 
     await client.invoke_rpc(
-        app.channel.delete_queued,
+        app.channel.delete_queued_message,
         flow_id,
-        MoveMessage(pending[0].message_id),
+        QueuedMessageReference(pending[0].message_id),
     )
-    move_message = MoveMessage(pending[1].message_id)
-    await client.invoke_rpc(app.channel.move, flow_id, move_message)
+    queued_message = QueuedMessageReference(pending[1].message_id)
+    await client.invoke_rpc(
+        app.channel.move_queued_message_to_prioritized_messages,
+        flow_id,
+        queued_message,
+    )
 
     assert not await client.invoke_rpc(app.channel.get_queued_messages, flow_id)
-    moved = await client.invoke_rpc(app.channel.get_moved_messages, flow_id)
-    assert [message.value for message in moved] == ["move me"]
+    prioritized_messages = await client.invoke_rpc(
+        app.channel.get_prioritized_messages, flow_id
+    )
+    assert [message.value for message in prioritized_messages] == ["move me"]
 
     with pytest.raises(ChannelMessageNotFoundError):
-        await client.invoke_rpc(app.channel.move, flow_id, move_message)
-    moved_after_failure = await client.invoke_rpc(app.channel.get_moved_messages, flow_id)
-    assert [message.value for message in moved_after_failure] == ["move me"]
+        await client.invoke_rpc(
+            app.channel.move_queued_message_to_prioritized_messages,
+            flow_id,
+            queued_message,
+        )
+    prioritized_messages_after_failure = await client.invoke_rpc(
+        app.channel.get_prioritized_messages, flow_id
+    )
+    assert [message.value for message in prioritized_messages_after_failure] == ["move me"]
 
-    await client.invoke_rpc(app.channel.approve, flow_id)
+    await client.invoke_rpc(app.channel.publish_approval_message, flow_id)
     assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
         str
     ) == "approved"

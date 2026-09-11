@@ -18,7 +18,7 @@ from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.primitives.channel.channel_flow import MoveMessage
+from dex_examples.primitives.channel.channel_flow import QueuedMessageReference
 from dex_examples.shared.query import required_int_query, required_query, started_flow
 
 
@@ -39,7 +39,7 @@ def create_channel_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/approve")
     async def approve() -> str:
         await app_state.client.invoke_rpc(
-            app_state.channel.approve,
+            app_state.channel.publish_approval_message,
             required_query("workflowId"),
         )
         return "done"
@@ -47,7 +47,7 @@ def create_channel_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/enqueue")
     async def enqueue() -> str:
         await app_state.client.invoke_rpc(
-            app_state.channel.enqueue,
+            app_state.channel.enqueue_channel_message,
             required_query("workflowId"),
             required_query("value"),
         )
@@ -69,9 +69,9 @@ def create_channel_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/delete")
     async def delete() -> str:
         await app_state.client.invoke_rpc(
-            app_state.channel.delete_queued,
+            app_state.channel.delete_queued_message,
             required_query("workflowId"),
-            MoveMessage(required_query("messageId")),
+            QueuedMessageReference(required_query("messageId")),
         )
         return "done"
 
@@ -80,9 +80,9 @@ def create_channel_blueprint(app_state: ExampleApp) -> Blueprint:
         flow_id = required_query("workflowId")
         message_id = required_query("messageId")
         await app_state.client.invoke_rpc(
-            app_state.channel.move,
+            app_state.channel.move_queued_message_to_prioritized_messages,
             flow_id,
-            MoveMessage(message_id),
+            QueuedMessageReference(message_id),
         )
         return "done"
 
