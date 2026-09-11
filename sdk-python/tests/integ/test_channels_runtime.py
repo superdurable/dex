@@ -11,8 +11,6 @@
 import asyncio
 from datetime import timedelta
 
-import pytest
-
 from dex import DexServiceError, StepExecutionId, TimerId
 
 from .async_environment import AsyncDexDevTestEnvironment

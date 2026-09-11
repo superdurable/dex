@@ -112,7 +112,9 @@ class SetAttributesFlow(Flow[str]):
         self.integer.set(context, 1)
         self.bool.set(context, True)
         self.keywords.set(context, ("keyword-1", "keyword-2"))
-        self.datetime.set(context, datetime.fromisoformat("2024-11-13T00:00:01.731+00:00"))
+        self.datetime.set(
+            context, datetime.fromisoformat("2024-11-13T00:00:01.731+00:00")
+        )
 
     @rpc
     def set_data(self, context: Context, input: str) -> None:
