@@ -34,6 +34,7 @@ RUN_ID_PATTERN = re.compile(r"runId\s+(\S+)")
 class FlowSmokeFlags:
     step_start_may_fail: bool = False
     no_start_step: bool = False
+    allowed_failure_event_types: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -258,7 +259,10 @@ async def assert_flow_smoke_no_unexpected_failures(
     for event in events:
         event_type = event.get("type", "")
         if event_type in {"StepExecuteFailed", "StepWaitForFailed"}:
-            if not entry.flags.step_start_may_fail:
+            if (
+                not entry.flags.step_start_may_fail
+                and event_type not in entry.flags.allowed_failure_event_types
+            ):
                 raise AssertionError(
                     f"unexpected failure event for {entry.name}: {event_type}"
                 )

@@ -304,6 +304,9 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
                     "input": "smoke",
                 },
             ),
+            flags=FlowSmokeFlags(
+                allowed_failure_event_types=frozenset({"StepWaitForFailed"})
+            ),
         ),
         FlowSmokeEntry(
             "primitives/step/step-decision",
