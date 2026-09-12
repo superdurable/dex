@@ -87,22 +87,26 @@ jobs:
             --network testing-network \
             -p 18801:8801 -p 18802:8802 \
             dex-server-image-test
+          api_response_file="$(mktemp)"
           for attempt in {1..120}; do
-            if nc -z 127.0.0.1 18801 && curl --fail --silent http://127.0.0.1:18802/healthz >/dev/null; then
+            if nc -z 127.0.0.1 18801 \
+              && curl --fail --silent http://127.0.0.1:18802/healthz >/dev/null \
+              && curl --fail --silent --max-time 5 \
+                --header 'Content-Type: application/json' \
+                --data '{"pageSize":1}' \
+                http://127.0.0.1:18802/api/flows/search >"${api_response_file}" \
+              && grep --quiet '"flows"' "${api_response_file}"; then
               break
             fi
             if [[ "${attempt}" = "120" ]]; then
               docker logs dex-server-default
+              cat "${api_response_file}"
               exit 1
             fi
             sleep 1
           done
           test "$(docker top dex-server-default | grep -c '/dex/dex-server')" -eq 1
           curl --fail --silent http://127.0.0.1:18802/ | grep --quiet '<div id="root"></div>'
-          curl --fail --silent \
-            --header 'Content-Type: application/json' \
-            --data '{"pageSize":1}' \
-            http://127.0.0.1:18802/api/flows/search | grep --quiet '"flows"'
 
           docker rm -f dex-server-default >/dev/null
           docker run -d --name dex-server-web-only \
