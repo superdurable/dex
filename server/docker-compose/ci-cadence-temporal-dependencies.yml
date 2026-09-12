@@ -168,7 +168,7 @@ services:
     entrypoint: sh -c "/etc/cadence/init-ci-cadence.sh"
   minio:
     container_name: minio
-    image: minio/minio:${MINIO_VERSION:-latest}
+    image: quay.io/minio/minio:${MINIO_VERSION:-latest}
     ports:
       - "9000:9000"
       - "9001:9001"
