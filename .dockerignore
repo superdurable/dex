@@ -1,4 +1,7 @@
 cli/dexcli
+server/dex-server
+web/node_modules/
+web/assets/dist/
 web/large-step-graph
 web/fan-out-90
 examples/go/dex-samples

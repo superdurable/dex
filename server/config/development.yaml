@@ -27,6 +27,10 @@ api:
     backoffCoefficient: 2
     maximumInterval: 1s
     totalDuration: 5s
+web:
+  bindAddress: 0.0.0.0
+  port: 8802
+  flowServiceTarget: localhost:8801
 interpreter:
   attributeIndexSyncTimeout: 2m
   interpreterActivityConfig:
@@ -37,8 +41,6 @@ interpreter:
     prometheus:
       listenAddress: 0.0.0.0:8890
       timerType: histogram
-  defaultWorkflowConfig:
-    continueAsNewThreshold: 100
 blobStore:
   enabled: true
   thresholdInBytes: 1024 # 1 KiB

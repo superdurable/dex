@@ -21,9 +21,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/superdurable/dex/cmd/server/dex"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/bootstrap"
 	"github.com/superdurable/dex/service/common/ptr"
 	"go.temporal.io/sdk/client"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
@@ -95,7 +95,7 @@ func TestMain(m *testing.M) {
 
 	if *cadenceIntegTest {
 		for i := 0; i < *dependencyWaitSeconds; i++ {
-			_, _, _, err = dex.BuildCadenceServiceClient(dex.DefaultCadenceHostPort)
+			_, _, _, err = bootstrap.BuildCadenceServiceClient(bootstrap.DefaultCadenceHostPort)
 			if err != nil {
 				fmt.Println("wait for Cadence to be up...last err: ", err)
 				time.Sleep(time.Second)
@@ -110,11 +110,11 @@ func TestMain(m *testing.M) {
 
 		var closeFunc func()
 		var serviceClient workflowserviceclient.Interface
-		serviceClient, _, closeFunc, err = dex.BuildCadenceServiceClient(dex.DefaultCadenceHostPort)
+		serviceClient, _, closeFunc, err = bootstrap.BuildCadenceServiceClient(bootstrap.DefaultCadenceHostPort)
 		for i := 0; i < *dependencyWaitSeconds; i++ {
 			ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
 			_, err = serviceClient.DescribeDomain(ctx, &shared.DescribeDomainRequest{
-				Name: ptr.Any(dex.DefaultCadenceDomain),
+				Name: ptr.Any(bootstrap.DefaultCadenceDomain),
 			})
 			if err != nil {
 				fmt.Println("wait for Cadence domain to be ready...", err)

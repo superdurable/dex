@@ -29,30 +29,50 @@ package dex
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
-	"os/signal"
+	"net/http"
 	"strings"
-	"syscall"
 
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/bootstrap"
-	adminv1 "github.com/uber/cadence-idl/go/proto/admin/v1"
+	dexweb "github.com/superdurable/dex/web"
+	"github.com/superdurable/dex/web/assets"
 	"github.com/urfave/cli"
-	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
-	"go.uber.org/cadence/client"
-	"go.uber.org/cadence/encoded"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-const serviceAPI = "api"
-const serviceInterpreter = "interpreter"
+const (
+	serviceWeb         = "web"
+	serviceAPI         = "api"
+	serviceInterpreter = "interpreter"
+)
 
-const DefaultCadenceDomain = bootstrap.DefaultCadenceDomain
-const DefaultCadenceHostPort = bootstrap.DefaultCadenceHostPort
+type serviceSelection struct {
+	isWebEnabled         bool
+	isAPIEnabled         bool
+	isInterpreterEnabled bool
+}
+
+type componentExit struct {
+	name string
+	err  error
+}
+
+type application struct {
+	dexRuntime     *bootstrap.Runtime
+	webServer      *dexweb.Server
+	webConnection  *grpc.ClientConn
+	componentCount int
+}
 
 // BuildCLI is the main entry point for the dex server
-func BuildCLI() *cli.App {
+func BuildCLI(ctx context.Context) *cli.App {
+	if ctx == nil {
+		panic("Dex Server context must not be nil")
+	}
 	app := cli.NewApp()
 	app.Name = "dex service"
 	app.Usage = "dex service"
@@ -71,18 +91,20 @@ func BuildCLI() *cli.App {
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "services",
-					Value: fmt.Sprintf("%s, %s", serviceAPI, serviceInterpreter),
-					Usage: "start services/components in this project",
+					Value: strings.Join([]string{serviceWeb, serviceAPI, serviceInterpreter}, ", "),
+					Usage: "start Dex components: web, api, interpreter",
 				},
 			},
-			Usage:  "start dex notification service",
-			Action: start,
+			Usage: "start Dex Server",
+			Action: func(cliContext *cli.Context) error {
+				return start(ctx, cliContext)
+			},
 		},
 	}
 	return app
 }
 
-func start(cliContext *cli.Context) error {
+func start(ctx context.Context, cliContext *cli.Context) error {
 	cfg, err := config.NewConfig(cliContext.GlobalString("config"))
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -91,53 +113,165 @@ func start(cliContext *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	dexRuntime, err := bootstrap.New(cfg, &bootstrap.Options{Services: services})
+	serverApplication, err := newApplication(cfg, services)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := signal.NotifyContext(
-		context.Background(),
-		os.Interrupt,
-		syscall.SIGTERM,
-		syscall.SIGHUP,
-	)
-	defer cancel()
-	return dexRuntime.Run(ctx)
+	return serverApplication.Run(ctx)
 }
 
-func getServices(cliContext *cli.Context) (bootstrap.Services, error) {
+func newApplication(cfg *config.Config, services serviceSelection) (*application, error) {
+	if cfg == nil {
+		panic("Dex Server config must not be nil")
+	}
+	serverApplication := &application{}
+	if services.isWebEnabled {
+		connection, err := grpc.NewClient(
+			cfg.GetWebFlowServiceTargetWithDefault(),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(
+				grpc.MaxCallRecvMsgSize(cfg.Api.EffectiveGrpcMaxMessageBytes()),
+				grpc.MaxCallSendMsgSize(cfg.Api.EffectiveGrpcMaxMessageBytes()),
+			),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create Dex Web FlowService client: %w", err)
+		}
+		webServer, err := dexweb.NewServer(
+			&dexweb.Config{
+				BindAddress:            cfg.Web.EffectiveBindAddress(),
+				Port:                   cfg.Web.EffectivePort(),
+				FlowRenderingDirectory: cfg.Web.FlowRenderingDirectory,
+			},
+			dexpb.NewFlowServiceClient(connection),
+			assets.Files,
+		)
+		if err != nil {
+			if closeErr := connection.Close(); closeErr != nil {
+				return nil, errors.Join(err, fmt.Errorf("close Dex Web FlowService connection: %w", closeErr))
+			}
+			return nil, err
+		}
+		serverApplication.webConnection = connection
+		serverApplication.webServer = webServer
+		serverApplication.componentCount++
+	}
+	if services.isAPIEnabled || services.isInterpreterEnabled {
+		dexRuntime, err := bootstrap.New(cfg, &bootstrap.Options{Services: bootstrap.Services{
+			API:         services.isAPIEnabled,
+			Interpreter: services.isInterpreterEnabled,
+		}})
+		if err != nil {
+			return nil, errors.Join(err, serverApplication.closeWebConnection())
+		}
+		serverApplication.dexRuntime = dexRuntime
+		serverApplication.componentCount++
+	}
+	return serverApplication, nil
+}
+
+func (a *application) Run(ctx context.Context) error {
+	if ctx == nil {
+		panic("Dex Server context must not be nil")
+	}
+	runCtx, cancelRun := context.WithCancel(ctx)
+	componentExits := make(chan componentExit, a.componentCount)
+	if a.dexRuntime != nil {
+		go func() {
+			componentExits <- componentExit{name: "Dex API/Interpreter", err: a.dexRuntime.Run(runCtx)}
+		}()
+	}
+	if a.webServer != nil {
+		go func() {
+			componentExits <- componentExit{name: "Dex Web", err: a.webServer.Run()}
+		}()
+	}
+
+	select {
+	case <-ctx.Done():
+		return a.shutdown(runCtx, cancelRun, componentExits, a.componentCount, nil)
+	case exited := <-componentExits:
+		runErr := unexpectedComponentExit(exited)
+		return a.shutdown(runCtx, cancelRun, componentExits, a.componentCount-1, runErr)
+	}
+}
+
+func (a *application) shutdown(
+	runCtx context.Context,
+	cancelRun context.CancelFunc,
+	componentExits <-chan componentExit,
+	remainingComponents int,
+	runErr error,
+) error {
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(runCtx), bootstrap.DefaultShutdownTimeout)
+	defer cancelShutdown()
+	if a.webServer != nil {
+		if err := a.webServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			runErr = errors.Join(runErr, fmt.Errorf("stop Dex Web: %w", err))
+		}
+	}
+	cancelRun()
+	for remainingComponents > 0 {
+		select {
+		case exited := <-componentExits:
+			remainingComponents--
+			if !isExpectedShutdown(exited.err) {
+				runErr = errors.Join(runErr, fmt.Errorf("stop %s: %w", exited.name, exited.err))
+			}
+		case <-shutdownCtx.Done():
+			if a.dexRuntime != nil {
+				a.dexRuntime.Close()
+			}
+			return errors.Join(
+				runErr,
+				a.closeWebConnection(),
+				fmt.Errorf("stop Dex Server components: %w", shutdownCtx.Err()),
+			)
+		}
+	}
+	return errors.Join(runErr, a.closeWebConnection())
+}
+
+func (a *application) closeWebConnection() error {
+	if a.webConnection == nil {
+		return nil
+	}
+	err := a.webConnection.Close()
+	a.webConnection = nil
+	if err != nil {
+		return fmt.Errorf("close Dex Web FlowService connection: %w", err)
+	}
+	return nil
+}
+
+func unexpectedComponentExit(exited componentExit) error {
+	if exited.err == nil || isExpectedShutdown(exited.err) {
+		return fmt.Errorf("%s stopped unexpectedly", exited.name)
+	}
+	return fmt.Errorf("%s stopped unexpectedly: %w", exited.name, exited.err)
+}
+
+func isExpectedShutdown(err error) bool {
+	return err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, grpc.ErrServerStopped)
+}
+
+func getServices(cliContext *cli.Context) (serviceSelection, error) {
 	value := strings.TrimSpace(cliContext.String("services"))
 	if value == "" {
-		return bootstrap.Services{}, fmt.Errorf("no services specified for starting")
+		return serviceSelection{}, fmt.Errorf("no services specified for starting")
 	}
-	var services bootstrap.Services
+	var services serviceSelection
 	for _, token := range strings.Split(value, ",") {
 		switch strings.TrimSpace(token) {
+		case serviceWeb:
+			services.isWebEnabled = true
 		case serviceAPI:
-			services.API = true
+			services.isAPIEnabled = true
 		case serviceInterpreter:
-			services.Interpreter = true
+			services.isInterpreterEnabled = true
 		default:
-			return bootstrap.Services{}, fmt.Errorf("invalid service %q", token)
+			return serviceSelection{}, fmt.Errorf("invalid service %q", token)
 		}
 	}
 	return services, nil
-}
-
-func BuildCadenceClient(
-	serviceClient workflowserviceclient.Interface,
-	domain string,
-	dataConverter encoded.DataConverter,
-) (client.Client, error) {
-	return bootstrap.BuildCadenceClient(serviceClient, domain, dataConverter)
-}
-
-func BuildCadenceServiceClient(
-	hostPort string,
-) (workflowserviceclient.Interface, adminv1.AdminAPIYARPCClient, func(), error) {
-	return bootstrap.BuildCadenceServiceClient(hostPort)
-}
-
-func CreateS3Client(cfg config.Config, ctx context.Context) (*s3.Client, error) {
-	return bootstrap.CreateS3Client(ctx, &cfg)
 }

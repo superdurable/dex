@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - "server/**"
+      - "web/**"
+      - "packages/flow-definition-renderer/**"
+      - "go.work"
+      - ".dockerignore"
       - ".github/workflows/docker-image-latest.yml"
   workflow_dispatch:
 
@@ -25,7 +29,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
-          context: ./server
+          context: .
+          file: ./server/Dockerfile
           push: true
           platforms: linux/arm64,linux/amd64
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/dex-server:latest

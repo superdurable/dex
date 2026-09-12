@@ -48,6 +48,23 @@ with `dexcli visualize SOURCE --json --out ./build/flow-definitions/name` and re
 Dex after changing the files. Invalid JSON, unsupported schema versions, or a
 non-directory path stop startup with an error.
 
+## Run through the Dex Server image
+
+The `dex-server` Docker image embeds these production assets and starts Dex Web,
+API, and Interpreter in one process by default. It listens for Web traffic on
+port 8802 and FlowService traffic on port 8801.
+
+Run only Web when it needs to scale independently:
+
+```bash
+docker run IMAGE --services web
+```
+
+Set `web.flowServiceTarget` in the mounted server YAML to the API service
+address. Web starts even when that upstream is unavailable. `/healthz` reports
+the Web process itself; `/api/*` returns an upstream error until FlowService is
+available.
+
 To populate Web with a 90-execution Flow containing serial, fan-out, and fan-in
 sections, run the [Large Step Graph demo](./demo/large-step-graph).
 To exercise the widest layout, run the [90-way fan-out demo](./demo/fan-out-90),

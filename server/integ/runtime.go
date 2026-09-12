@@ -21,11 +21,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/dex/cmd/server/dex"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/api"
+	"github.com/superdurable/dex/service/bootstrap"
 	uclient "github.com/superdurable/dex/service/client"
 	cadenceapi "github.com/superdurable/dex/service/client/cadence"
 	temporalapi "github.com/superdurable/dex/service/client/temporal"
@@ -254,7 +254,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 	t.Cleanup(workerPool.Close)
 	logger, err := loggerimpl.NewDevelopment()
 	require.NoError(t, err)
-	s3Client, err := dex.CreateS3Client(cfg, context.Background())
+	s3Client, err := bootstrap.CreateS3Client(context.Background(), &cfg)
 	require.NoError(t, err)
 	attributeStore, err := attributestore.NewManager(context.Background(), &cfg.AttributeStore, logger)
 	require.NoError(t, err)
@@ -305,27 +305,27 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			metricsHandler,
 		)
 	case service.BackendTypeCadence:
-		serviceClient, adminClient, closeServiceClient, err := dex.BuildCadenceServiceClient(
-			dex.DefaultCadenceHostPort,
+		serviceClient, adminClient, closeServiceClient, err := bootstrap.BuildCadenceServiceClient(
+			bootstrap.DefaultCadenceHostPort,
 		)
 		require.NoError(t, err)
 		dataConverter := dexconverter.NewCadenceDataConverter()
-		cadenceClient, err := dex.BuildCadenceClient(
+		cadenceClient, err := bootstrap.BuildCadenceClient(
 			serviceClient,
-			dex.DefaultCadenceDomain,
+			bootstrap.DefaultCadenceDomain,
 			dataConverter,
 		)
 		require.NoError(t, err)
 		store, err = blobstore.NewBlobStore(
 			s3Client,
-			dex.DefaultCadenceDomain,
+			bootstrap.DefaultCadenceDomain,
 			&cfg.BlobStore,
 			logger,
 			client.MetricsNopHandler,
 		)
 		require.NoError(t, err)
 		unifiedClient = cadenceapi.NewCadenceClient(
-			dex.DefaultCadenceDomain,
+			bootstrap.DefaultCadenceDomain,
 			cadenceClient,
 			serviceClient,
 			adminClient,
@@ -337,7 +337,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 		worker = cadence.NewInterpreterWorker(
 			&cfg,
 			serviceClient,
-			dex.DefaultCadenceDomain,
+			bootstrap.DefaultCadenceDomain,
 			service.TaskQueue,
 			closeServiceClient,
 			dataConverter,

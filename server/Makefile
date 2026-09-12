@@ -138,9 +138,10 @@ BINS =
 BINS += dex-server
 dex-server:
 	@echo "compiling dex-server with OS: $(GOOS), ARCH: $(GOARCH)"
-	@go build -o $@ cmd/server/main.go
+	@cd ../web && npm ci && npm run build
+	@cd cmd/server && go build -o ../../dex-server .
 
-.PHONY: bins release clean replayTests integrationCoverage prepareIntegrationCoverage streamIntegTests streamBenchmarks
+.PHONY: bins release clean replayTests integrationCoverage prepareIntegrationCoverage serverCommandIntegTests streamIntegTests streamBenchmarks
 
 idl-code-gen: # regenerate protobuf stubs from protos/dex.proto into server + SDKs
 	$(MAKE) -C ../protos proto
@@ -149,6 +150,10 @@ idl-code-gen-server: # server rewrite: regenerate only server/gen/dexpb (leave S
 	$(MAKE) -C ../protos proto-server-go
 
 bins: $(BINS)
+
+serverCommandIntegTests:
+	@cd ../web && npm ci && npm run build
+	@cd cmd/server && go test -tags=integration ./... -count=1 -v
 
 clean: ## Clean binaries and build folder
 	rm -f $(BINS)
@@ -241,7 +246,7 @@ integTestsNoSearch: prepareIntegrationCoverage
 	$Q go test $(integrationCoverageFlags) -v ./integ -search=false -timeout 20m $(integrationCoverageArgs)
 
 unitTests:
-	@GOWORK=off go test -v $$(GOWORK=off go list ./service/... | grep -v ./service/common/blobstore)
+	@GOWORK=off go test -v ./config $$(GOWORK=off go list ./service/... | grep -v ./service/common/blobstore)
 	@GOWORK=off go test -v ./service/common/blobstore -run '^TestDeterministicBlobUUID'
 
 # Requires SQL dependencies and covers both workflow backends in dedicated CI.

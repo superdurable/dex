@@ -6,8 +6,7 @@ See [Design doc](https://docs.google.com/document/d/1BpJuHf67ibaOWmN_uWw_pbrBVyb
 
 Here is the repository layout if you are interested to learn about it:
 
-* `cmd/` the code to bootstrap the server -- loading config and connect to Cadence/Temporal service, and start Dex API
-  and interpreter service
+* `cmd/server/` is the standalone server composition module. It loads YAML and starts Dex Web, API, and Interpreter.
 * `config/` the config to start the server, and also config template to start the Docker image
 * `docker-compose/` Compose files for server integration-test dependencies
 * `gen/dexpb/` the generated protobuf/gRPC stubs from [`protos/dex.proto`](../protos/dex.proto)
@@ -141,18 +140,29 @@ representation and `TEXT` uses String.
 ## Run the standalone server
 
 The standalone server binary supports full Temporal and Cadence YAML
-configuration through the same `service/bootstrap` package.
+configuration. It starts Dex Web, API, and Interpreter in one process by
+default. Select any non-empty component combination with `--services`:
+
+```shell
+./dex-server start --services web
+./dex-server start --services api
+./dex-server start --services interpreter
+./dex-server start --services web,api
+```
+
+Web-only mode does not connect to Temporal or Cadence. Configure its remote API
+with `web.flowServiceTarget`. An empty target uses `localhost:<api.port>`.
 
 The first step you may want to explore is to run it locally!
 
 To run the server with Temporal
-* If you are in an IDE, you can run the main function in `./cmd/main.go` with argument `start`.
-* Or in terminal `go run cmd/server/main.go start`
+* If you are in an IDE, run the main function in `./cmd/server` with argument `start`.
+* Or in terminal `cd cmd/server && go run . start`
 * Or build the binary and run it by `make bins` and then run `./dex-server start`
 
 To run with Cadence, make sure you specify the cadence config `--config config/development_cadence.yaml start`:
-* In an IDE, you can run the main function in `./cmd/main.go` with argument ` --config config/development_cadence.yaml start`.
-* Or in terminal `go run cmd/server/main.go --config config/development_cadence.yaml start`
+* In an IDE, run the main function in `./cmd/server` with argument `--config ../../config/development_cadence.yaml start`.
+* Or in terminal `cd cmd/server && go run . --config ../../config/development_cadence.yaml start`
 * Or build the binary and run it by`make bins` and then run `./dex-server --config config/development_cadence.yaml start`
 
 ## Run the integration tests

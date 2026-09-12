@@ -23,6 +23,10 @@ api:
     backoffCoefficient: 2
     maximumInterval: 1s
     totalDuration: 5s
+web:
+  bindAddress: 0.0.0.0
+  port: 8802
+  flowServiceTarget: localhost:8801
 interpreter:
   attributeIndexSyncTimeout: 2m
   interpreterActivityConfig:
@@ -33,8 +37,6 @@ interpreter:
     hostPort: 127.0.0.1:7833
     domain: default
     adminSecurityToken: ""
-  defaultWorkflowConfig:
-    continueAsNewThreshold: 100
 blobStore:
   enabled: true
   thresholdInBytes: 1024

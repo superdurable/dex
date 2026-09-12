@@ -48,6 +48,10 @@ const (
 const (
 	// DefaultApiPort is the default FlowService/InternalService gRPC bind port.
 	DefaultApiPort = 8801
+	// DefaultWebBindAddress exposes Dex Web on every interface.
+	DefaultWebBindAddress = "0.0.0.0"
+	// DefaultWebPort is the default Dex Web HTTP bind port.
+	DefaultWebPort = 8802
 	// DefaultMaxWaitSeconds caps WaitForFlow / WaitForStepCompletion / WaitForAttribute when MaxWaitSeconds is 0.
 	DefaultMaxWaitSeconds int64 = 60
 	// DefaultGrpcMaxMessageBytes is 16 MiB so that large attributes can be transported.
@@ -156,6 +160,8 @@ type (
 		Log Logger `yaml:"log"`
 		// Api is the public FlowService and internal InternalService gRPC server config.
 		Api ApiConfig `yaml:"api"`
+		// Web configures the Dex Web HTTP server and its FlowService connection.
+		Web WebConfig `yaml:"web"`
 		// Worker configures shared WorkerService clients. Immutable after startup.
 		Worker WorkerConfig `yaml:"worker"`
 		// Interpreter selects Temporal or Cadence and worker activity settings. Exactly one of Temporal/Cadence must be set.
@@ -296,6 +302,17 @@ type (
 		QueryWorkflowFailedRetryPolicy *RetryPolicy `yaml:"queryWorkflowFailedRetryPolicy"`
 		// InvokeRPCContinuedAsNewErrorRetryPolicy retries transient InvokeRPC failures across current-run changes. Nil or zero fields default to 100ms initial, 2x backoff, 1s maximum, and 5s total duration.
 		InvokeRPCContinuedAsNewErrorRetryPolicy *RetryPolicy `yaml:"invokeRPCContinuedAsNewErrorRetryPolicy"`
+	}
+
+	WebConfig struct {
+		// BindAddress is the Dex Web HTTP bind address. Default 0.0.0.0. Immutable after startup.
+		BindAddress string `yaml:"bindAddress"`
+		// Port is the Dex Web HTTP bind port. Default 8802. Immutable after startup.
+		Port int `yaml:"port"`
+		// FlowServiceTarget is the plaintext FlowService gRPC target. Default localhost:<api.port>. Immutable after startup.
+		FlowServiceTarget string `yaml:"flowServiceTarget"`
+		// FlowRenderingDirectory supplies Flow Definition Graph JSON files. Default empty disables static definitions. Immutable after startup.
+		FlowRenderingDirectory string `yaml:"flowRenderingDirectory"`
 	}
 
 	WorkerConfig struct {
@@ -509,6 +526,34 @@ func (c Config) GetInternalServiceTargetWithDefault() string {
 		port = DefaultApiPort
 	}
 	return fmt.Sprintf("localhost:%v", port)
+}
+
+// GetWebFlowServiceTargetWithDefault returns the plaintext FlowService target used by Dex Web.
+func (c Config) GetWebFlowServiceTargetWithDefault() string {
+	if c.Web.FlowServiceTarget != "" {
+		return c.Web.FlowServiceTarget
+	}
+	port := c.Api.Port
+	if port == 0 {
+		port = DefaultApiPort
+	}
+	return fmt.Sprintf("localhost:%v", port)
+}
+
+// EffectiveBindAddress returns the configured Dex Web bind address or 0.0.0.0.
+func (c WebConfig) EffectiveBindAddress() string {
+	if c.BindAddress == "" {
+		return DefaultWebBindAddress
+	}
+	return c.BindAddress
+}
+
+// EffectivePort returns the configured Dex Web port or 8802.
+func (c WebConfig) EffectivePort() int {
+	if c.Port == 0 {
+		return DefaultWebPort
+	}
+	return c.Port
 }
 
 // EffectiveMaxWaitSeconds returns the wait cap: DefaultMaxWaitSeconds when MaxWaitSeconds is 0.

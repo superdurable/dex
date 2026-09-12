@@ -5,6 +5,7 @@ use (
 	./examples/go
 	./sdk-go
 	./server
+	./server/cmd/server
 	./web
 )
 

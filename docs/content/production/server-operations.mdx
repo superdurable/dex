@@ -36,6 +36,29 @@ Worker release can change Flow behavior; use the versioning process in
 [Application operation](/production/application-operations#versioning-flow-code)
 before retiring a definition.
 
+## Server components
+
+The dex-server image starts Dex Web, API, and Interpreter in one process by
+default. The container listens on port 8801 for FlowService and port 8802 for
+Dex Web. Publishing either port remains an explicit deployment decision.
+
+Use the **services** startup option to run any non-empty combination. Separate
+components when they need different replica counts or resource limits:
+
+~~~bash
+dex-server start --services web
+dex-server start --services api
+dex-server start --services interpreter
+dex-server start --services web,api
+~~~
+
+An Interpreter-only deployment must set
+**interpreter.interpreterActivityConfig.internalServiceTarget** to the API
+service. A Web-only deployment does not connect to Temporal or Cadence. It
+starts before its API upstream is available, so **/healthz** reports only Web
+process health. Web API requests return an upstream error until FlowService is
+available.
+
 ## Configuration
 
 Server configuration is YAML and typed Go configuration. The production
@@ -45,6 +68,21 @@ not in an application image.
 
 The Blob Store section is named **blobStore**. Its entries use
 **BlobStoreConfigEntry**. The former **externalStorage** key is not accepted.
+
+Configure the Web listener and API upstream in the **web** section:
+
+~~~yaml
+web:
+  bindAddress: 0.0.0.0
+  port: 8802
+  flowServiceTarget: dex-api:8801
+  flowRenderingDirectory: ""
+~~~
+
+The bind address defaults to all interfaces and the port defaults to 8802. An
+empty **flowServiceTarget** uses localhost and the configured API port. The Web
+connection is plaintext gRPC and uses **api.grpcMaxMessageBytes**, so keep it on
+a trusted network path.
 
 ## Blob Store
 

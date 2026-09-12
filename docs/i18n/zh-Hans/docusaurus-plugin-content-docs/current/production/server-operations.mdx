@@ -32,6 +32,28 @@ dexcli dev
 定义前，使用[应用运维](/production/application-operations#versioning-flow-code)中的
 版本控制流程。
 
+## Server 组件
+
+dex-server 镜像默认在同一个 process 中启动 Dex Web、API 和 Interpreter。容器在 8801
+端口提供 FlowService，在 8802 端口提供 Dex Web。是否发布任一端口仍由 deployment
+显式决定。
+
+使用 **services** 启动选项运行任意非空组件组合。当组件需要不同的 replica 数量或
+resource limit 时，将它们分开部署：
+
+~~~bash
+dex-server start --services web
+dex-server start --services api
+dex-server start --services interpreter
+dex-server start --services web,api
+~~~
+
+仅部署 Interpreter 时，必须将
+**interpreter.interpreterActivityConfig.internalServiceTarget** 设置为 API service。
+仅部署 Web 时不会连接 Temporal 或 Cadence。Web 会在 API upstream 可用前启动，因此
+**/healthz** 只报告 Web process 的健康状态。在 FlowService 可用前，Web API request
+会返回 upstream error。
+
 ## 配置
 
 Server 配置是 YAML 和有类型的 Go 配置。生产配置不同于 **dexcli dev** 接受的有限 flag。
@@ -39,6 +61,21 @@ Server 配置是 YAML 和有类型的 Go 配置。生产配置不同于 **dexcli
 
 Blob Store section 名为 **blobStore**。其中的 entry 使用 **BlobStoreConfigEntry**。
 旧的 **externalStorage** key 不被接受。
+
+在 **web** section 中配置 Web listener 和 API upstream：
+
+~~~yaml
+web:
+  bindAddress: 0.0.0.0
+  port: 8802
+  flowServiceTarget: dex-api:8801
+  flowRenderingDirectory: ""
+~~~
+
+bind address 默认监听所有 interface，port 默认是 8802。空的
+**flowServiceTarget** 使用 localhost 和已配置的 API port。Web connection 使用
+plaintext gRPC，并复用 **api.grpcMaxMessageBytes**，因此应将其限制在可信
+network path 内。
 
 ## Blob Store
 

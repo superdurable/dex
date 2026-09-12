@@ -25,6 +25,11 @@ api:
     backoffCoefficient: 2
     maximumInterval: 1s
     totalDuration: 5s
+web:
+  bindAddress: 0.0.0.0
+  port: 8802
+  flowServiceTarget: localhost:8801
+  flowRenderingDirectory: ""
 worker:
   # Refresh individual endpoints behind headless WorkerService DNS.
   headlessAddressRefreshInterval: 60s
@@ -40,8 +45,6 @@ interpreter:
   interpreterActivityConfig:
     # Minimum explicit Step heartbeat timeout. Zero uses 10s.
     minimumStepHeartbeatTimeout: 10s
-  defaultWorkflowConfig:
-    continueAsNewThreshold: 100
   temporal:
     hostPort: "temporal:7233"
     namespace: "default"

@@ -45,6 +45,7 @@ jobs:
           cache-dependency-path: |
             web/go.sum
             server/go.sum
+            server/cmd/server/go.sum
       - name: Install
         run: npm ci
       - name: Check
@@ -55,3 +56,65 @@ jobs:
         env:
           GOWORK: "off"
         run: go test ./...
+      - name: Dex Server Web integration tests
+        working-directory: server
+        env:
+          GOWORK: "off"
+        run: make serverCommandIntegTests
+
+  docker-image:
+    name: Dex Server image
+    needs: check
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: docker build -f server/Dockerfile -t dex-server-image-test .
+      - name: Start Temporal dependencies
+        run: docker compose -p dex-server-image-test -f server/docker-compose/ci-temporal-dependencies.yml up -d
+      - name: Test default and Web-only modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker rm -f dex-server-default dex-server-web-only >/dev/null 2>&1 || true
+            docker compose -p dex-server-image-test -f server/docker-compose/ci-temporal-dependencies.yml down -v >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker run -d --name dex-server-default \
+            --network testing-network \
+            -p 18801:8801 -p 18802:8802 \
+            dex-server-image-test
+          for attempt in {1..120}; do
+            if nc -z 127.0.0.1 18801 && curl --fail --silent http://127.0.0.1:18802/healthz >/dev/null; then
+              break
+            fi
+            if [[ "${attempt}" = "120" ]]; then
+              docker logs dex-server-default
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$(docker top dex-server-default | grep -c '/dex/dex-server')" -eq 1
+          curl --fail --silent http://127.0.0.1:18802/ | grep --quiet '<div id="root"></div>'
+          curl --fail --silent \
+            --header 'Content-Type: application/json' \
+            --data '{"pageSize":1}' \
+            http://127.0.0.1:18802/api/flows/search | grep --quiet '"flows"'
+
+          docker rm -f dex-server-default >/dev/null
+          docker run -d --name dex-server-web-only \
+            -p 18802:8802 \
+            dex-server-image-test --services=web
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18802/healthz >/dev/null; then
+              break
+            fi
+            if [[ "${attempt}" = "30" ]]; then
+              docker logs dex-server-web-only
+              exit 1
+            fi
+            sleep 1
+          done
