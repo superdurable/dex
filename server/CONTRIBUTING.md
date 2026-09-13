@@ -121,6 +121,13 @@ and add visibility indexes. Dex Server synchronizes `FlowType` and
 The default deadline is two minutes and is configurable with
 `interpreter.attributeIndexSyncTimeout`.
 
+Temporal Cloud API-key clients cannot use the Operator Service search-attribute
+APIs. Provision `FlowType` and `DexParentFlowID` as Keyword indexes and
+`ActiveStepTypes` as a KeywordList index through the Temporal Cloud control
+plane. Provision every indexed application Attribute the same way, then set
+`interpreter.attributeIndexesManagedExternally: true`. Dex still validates
+each declaration but does not discover, create, or verify backend indexes.
+
 ### External Cadence service
 
 1. You can run a local Cadence server following the [instructions](https://github.com/uber/cadence/tree/master/docker)

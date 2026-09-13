@@ -75,6 +75,9 @@ func (s *Synchronizer) Sync(ctx context.Context, requested map[string]dexpb.Inde
 	if len(requested) == 0 {
 		return nil
 	}
+	if s.cfg.AttributeIndexesManagedExternally {
+		return nil
+	}
 	syncCtx, cancel := context.WithTimeout(ctx, s.cfg.EffectiveAttributeIndexSyncTimeout())
 	defer cancel()
 	select {
