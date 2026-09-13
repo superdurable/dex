@@ -71,6 +71,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build image
         run: docker build -f server/Dockerfile -t dex-server-image-test .
+      - name: Verify system CA bundle
+        run: docker run --rm --entrypoint test dex-server-image-test -s /etc/ssl/certs/ca-certificates.crt
       - name: Start Temporal dependencies
         run: docker compose -p dex-server-image-test -f server/docker-compose/ci-temporal-dependencies.yml up -d
       - name: Test default and Web-only modes

@@ -25,7 +25,7 @@ ENV TEMPORAL_SERVICE_NAME=''
 ENV CADENCE_SERVICE_NAME=''
 
 RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y netcat-traditional \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates netcat-traditional \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
