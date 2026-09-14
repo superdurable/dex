@@ -104,7 +104,7 @@ proto-typescript: ensure-protoc ensure-typescript-tools
 	npm --prefix ../sdk-typescript run generate:proto
 
 codec-server:
-	go run ./codec-server
+	cd ../cli && GOWORK=off go run ./cmd/dexcli codec-server
 
 codec-server-test:
 	go test ./codec-server/...

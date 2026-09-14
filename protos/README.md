@@ -13,15 +13,18 @@ Dex stores its internal Temporal payloads as binary protobuf. Run the local
 Codec Server to display those payloads as ProtoJSON in Temporal Cloud:
 
 ```bash
-make -C protos codec-server
+dexcli codec-server
 ```
 
 The server listens on `http://127.0.0.1:8888` and accepts only loopback
 addresses. Pass a different loopback address when needed:
 
 ```bash
-go run ./protos/codec-server --address 127.0.0.1:8889
+dexcli codec-server --address 127.0.0.1:8889
 ```
+
+When developing from this repository, use
+`go run ./cli/cmd/dexcli codec-server` or `make -C protos codec-server`.
 
 In the Temporal Cloud Workflows page, select **Configure Codec Server**. Choose
 **Use my browser setting and ignore Namespace-level setting**, then enter

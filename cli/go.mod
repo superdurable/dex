@@ -6,6 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.11.1
 	github.com/superdurable/dex v0.0.0
+	github.com/superdurable/dex/protos/codec-server v0.0.0
 	github.com/superdurable/dex/web v0.0.0
 	go.temporal.io/sdk v1.47.1-superdurable.2
 	golang.org/x/tools v0.44.0
@@ -110,6 +111,8 @@ require (
 )
 
 replace github.com/superdurable/dex => ../server
+
+replace github.com/superdurable/dex/protos/codec-server => ../protos/codec-server
 
 replace github.com/superdurable/dex/web => ../web
 

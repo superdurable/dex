@@ -6,14 +6,19 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-package main
+package codecserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/gen/dexpb"
@@ -22,6 +27,41 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestExecuteStartsAndStopsCodecServer(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	address := listener.Addr().String()
+	require.NoError(t, listener.Close())
+
+	shutdownContext, cancelShutdown := context.WithCancel(context.Background())
+	defer cancelShutdown()
+	resultChannel := make(chan error, 1)
+	var stdout strings.Builder
+	go func() {
+		resultChannel <- Execute(shutdownContext, []string{"--address", address}, &stdout, io.Discard)
+	}()
+
+	httpClient := &http.Client{Timeout: 250 * time.Millisecond}
+	require.Eventually(t, func() bool {
+		response, requestErr := httpClient.Get("http://" + address + "/healthz")
+		if requestErr != nil {
+			return false
+		}
+		closeErr := response.Body.Close()
+		return closeErr == nil && response.StatusCode == http.StatusOK
+	}, 5*time.Second, 20*time.Millisecond)
+
+	cancelShutdown()
+	select {
+	case executeErr := <-resultChannel:
+		require.NoError(t, executeErr)
+	case <-time.After(5 * time.Second):
+		t.Fatal("codec server did not stop")
+	}
+	require.Contains(t, stdout.String(), "Temporal protobuf Codec Server listening")
+	require.Contains(t, stdout.String(), "Temporal protobuf Codec Server stopped")
+}
 
 func TestCodecHTTPHandlerDecodesAndEncodesDexProtobuf(t *testing.T) {
 	codecServerHandler := newCodecServerHTTPHandler()

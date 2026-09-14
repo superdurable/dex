@@ -19,6 +19,7 @@ import (
 
 	"github.com/superdurable/dex/cli/internal/command"
 	"github.com/superdurable/dex/cli/internal/dev"
+	"github.com/superdurable/dex/protos/codec-server"
 )
 
 var (
@@ -44,6 +45,8 @@ func run(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "dev":
 		return dev.Execute(ctx, args[1:], os.Stdout, os.Stderr, version)
+	case "codec-server":
+		return codecserver.Execute(ctx, args[1:], os.Stdout, os.Stderr)
 	case "version", "--version", "-v":
 		fmt.Fprintf(os.Stdout, "dexcli %s (commit %s, built %s)\n", version, commit, date)
 		return nil
@@ -60,6 +63,7 @@ func printUsage(output *os.File) {
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Commands:")
 	fmt.Fprintln(output, "  dev       Start a local Dex development environment")
+	fmt.Fprintln(output, "  codec-server Start a local Temporal Cloud protobuf Codec Server")
 	fmt.Fprintln(output, "  health    Check Dex FlowService health")
 	fmt.Fprintln(output, "  visualize Render a static Flow graph from Go or Python source")
 	fmt.Fprintln(output, "  flow      Search, inspect, watch, stop, or reset Flows")

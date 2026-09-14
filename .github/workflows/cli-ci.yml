@@ -86,3 +86,4 @@ jobs:
         run: |
           env PATH="$(go env GOROOT)/bin:/usr/bin:/bin" ./dexcli version
           env PATH="$(go env GOROOT)/bin:/usr/bin:/bin" ./dexcli dev --help
+          env PATH="$(go env GOROOT)/bin:/usr/bin:/bin" ./dexcli codec-server --help

@@ -6,19 +6,17 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-package main
+package codecserver
 
 import (
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"go.temporal.io/sdk/converter"
@@ -41,21 +39,19 @@ type codecServerConfig struct {
 	address string
 }
 
-func main() {
-	shutdownContext, stopWaitingForShutdown := signal.NotifyContext(
-		context.Background(),
-		os.Interrupt,
-		syscall.SIGTERM,
-	)
-	defer stopWaitingForShutdown()
-
-	if err := runCodecServer(shutdownContext, os.Args[1:]); err != nil {
-		log.Fatal(err)
+// Execute runs the local Temporal protobuf Codec Server until the context ends.
+func Execute(shutdownContext context.Context, arguments []string, stdout io.Writer, stderr io.Writer) error {
+	if stdout == nil {
+		panic("codec server stdout must not be nil")
 	}
-}
+	if stderr == nil {
+		panic("codec server stderr must not be nil")
+	}
 
-func runCodecServer(shutdownContext context.Context, arguments []string) error {
-	codecServerConfig, err := parseCodecServerConfig(arguments)
+	codecServerConfig, err := parseCodecServerConfig(arguments, stderr)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -78,7 +74,7 @@ func runCodecServer(shutdownContext context.Context, arguments []string) error {
 		serveErrorChannel <- codecHTTPServer.Serve(listener)
 	}()
 
-	log.Printf("Temporal protobuf Codec Server listening at http://%s", listener.Addr())
+	fmt.Fprintf(stdout, "Temporal protobuf Codec Server listening at http://%s\n", listener.Addr())
 	select {
 	case serveErr := <-serveErrorChannel:
 		if errors.Is(serveErr, http.ErrServerClosed) {
@@ -93,15 +89,16 @@ func runCodecServer(shutdownContext context.Context, arguments []string) error {
 	if err := codecHTTPServer.Shutdown(shutdownTimeoutContext); err != nil {
 		return fmt.Errorf("shut down codec server: %w", err)
 	}
-	log.Print("Temporal protobuf Codec Server stopped")
+	fmt.Fprintln(stdout, "Temporal protobuf Codec Server stopped")
 	return nil
 }
 
-func parseCodecServerConfig(arguments []string) (codecServerConfig, error) {
-	flagSet := flag.NewFlagSet("temporal-protobuf-codec-server", flag.ContinueOnError)
+func parseCodecServerConfig(arguments []string, stderr io.Writer) (codecServerConfig, error) {
+	flagSet := flag.NewFlagSet("dexcli codec-server", flag.ContinueOnError)
+	flagSet.SetOutput(stderr)
 	address := flagSet.String("address", defaultAddress, "loopback address to listen on")
 	if err := flagSet.Parse(arguments); err != nil {
-		return codecServerConfig{}, fmt.Errorf("parse flags: %w", err)
+		return codecServerConfig{}, err
 	}
 	if flagSet.NArg() != 0 {
 		return codecServerConfig{}, fmt.Errorf("unexpected arguments: %v", flagSet.Args())
@@ -155,7 +152,8 @@ func withTemporalCloudCORS(nextHandler http.Handler) http.Handler {
 			responseWriter.Header().Set(corsAllowedHeadersHeader, corsAllowedHeaders)
 		}
 		if request.Method == http.MethodOptions {
-			if requestedMethod := request.Header.Get(corsRequestedMethodHeader); requestedMethod != "" && requestedMethod != http.MethodPost && requestedMethod != http.MethodGet {
+			requestedMethod := request.Header.Get(corsRequestedMethodHeader)
+			if requestedMethod != "" && requestedMethod != http.MethodPost && requestedMethod != http.MethodGet {
 				http.Error(responseWriter, "requested method is not allowed", http.StatusForbidden)
 				return
 			}
