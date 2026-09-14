@@ -41,7 +41,15 @@ import java.util.logging.Logger;
 
 final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
     private static final Logger LOGGER = Logger.getLogger(JavaWorkerService.class.getName());
-    private static final int MAX_STACK_TRACE_BYTES = 16 * 1024;
+    static final int MAX_WORKER_ERROR_DETAIL_BYTES = 1024;
+    static final int MAX_WORKER_ERROR_TYPE_BYTES = 256;
+    static final int MAX_WORKER_STACK_TRACE_BYTES = 4 * 1024;
+    static final byte[] ERROR_DETAIL_TRUNCATION_MARKER =
+            "\n... error detail truncated by Dex Java SDK ..."
+                    .getBytes(StandardCharsets.UTF_8);
+    private static final byte[] ERROR_TYPE_TRUNCATION_MARKER =
+            "\n... error type truncated by Dex Java SDK ..."
+                    .getBytes(StandardCharsets.UTF_8);
     private static final byte[] STACK_TRACE_TRUNCATION_MARKER =
             "\n... stack trace truncated by Dex Java SDK ..."
                     .getBytes(StandardCharsets.UTF_8);
@@ -130,12 +138,17 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
                 ? (RetryAfterException) failure
                 : null;
         final Throwable reportedFailure = retryAfter == null ? failure : retryAfter.getCause();
-        final String message = reportedFailure.getMessage() == null
+        final String message = truncateUtf8(reportedFailure.getMessage() == null
                 ? reportedFailure.toString()
-                : reportedFailure.getMessage();
+                : reportedFailure.getMessage(),
+                MAX_WORKER_ERROR_DETAIL_BYTES,
+                ERROR_DETAIL_TRUNCATION_MARKER);
         final WorkerErrorResponse.Builder details = WorkerErrorResponse.newBuilder()
                 .setDetail(message)
-                .setErrorType(reportedFailure.getClass().getName())
+                .setErrorType(truncateUtf8(
+                        reportedFailure.getClass().getName(),
+                        MAX_WORKER_ERROR_TYPE_BYTES,
+                        ERROR_TYPE_TRUNCATION_MARKER))
                 .setStackTrace(stackTrace(reportedFailure));
         if (retryAfter != null) {
             details.setRetryAfterSeconds((int) retryAfter.getRetryAfter().getSeconds());
@@ -153,20 +166,26 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
         final PrintWriter writer = new PrintWriter(buffer);
         failure.printStackTrace(writer);
         writer.flush();
-        return truncateStackTrace(buffer.toString());
+        return truncateUtf8(
+                buffer.toString(),
+                MAX_WORKER_STACK_TRACE_BYTES,
+                STACK_TRACE_TRUNCATION_MARKER);
     }
 
-    private static String truncateStackTrace(final String value) {
+    private static String truncateUtf8(
+            final String value,
+            final int maximumBytes,
+            final byte[] truncationMarker) {
         final byte[] encoded = value.getBytes(StandardCharsets.UTF_8);
-        if (encoded.length <= MAX_STACK_TRACE_BYTES) {
+        if (encoded.length <= maximumBytes) {
             return value;
         }
-        int prefixLength = MAX_STACK_TRACE_BYTES - STACK_TRACE_TRUNCATION_MARKER.length;
+        int prefixLength = maximumBytes - truncationMarker.length;
         while (prefixLength > 0 && (encoded[prefixLength] & 0xc0) == 0x80) {
             prefixLength--;
         }
         return new String(encoded, 0, prefixLength, StandardCharsets.UTF_8)
-                + new String(STACK_TRACE_TRUNCATION_MARKER, StandardCharsets.UTF_8);
+                + new String(truncationMarker, StandardCharsets.UTF_8);
     }
 
     private static <Response> void emit(

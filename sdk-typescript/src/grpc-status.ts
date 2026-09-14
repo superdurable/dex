@@ -29,6 +29,12 @@ import {
 import { RetryAfterError } from "./retry-after.js";
 
 const statusDetailsKey = "grpc-status-details-bin";
+const maxWorkerErrorDetailBytes = 1024;
+const maxWorkerErrorTypeBytes = 256;
+const maxWorkerStackTraceBytes = 4 * 1024;
+const errorDetailTruncationMarker = Buffer.from("\n... error detail truncated by Dex TypeScript SDK ...");
+const errorTypeTruncationMarker = Buffer.from("\n... error type truncated by Dex TypeScript SDK ...");
+const stackTraceTruncationMarker = Buffer.from("\n... stack trace truncated by Dex TypeScript SDK ...");
 
 interface AnyDetail {
   readonly typeUrl: string;
@@ -43,11 +49,23 @@ export function workerServiceError(failure: unknown): GrpcServiceError {
       : failure instanceof Error
         ? failure
         : new Error(String(failure));
-  const detail = cause.message || cause.name;
+  const detail = truncateWorkerFailureField(
+    cause.message || cause.name,
+    maxWorkerErrorDetailBytes,
+    errorDetailTruncationMarker,
+  );
   const worker = WorkerErrorResponse.encode({
     detail,
-    errorType: cause.name,
-    stackTrace: cause.stack ?? "",
+    errorType: truncateWorkerFailureField(
+      cause.name,
+      maxWorkerErrorTypeBytes,
+      errorTypeTruncationMarker,
+    ),
+    stackTrace: truncateWorkerFailureField(
+      cause.stack ?? "",
+      maxWorkerStackTraceBytes,
+      stackTraceTruncationMarker,
+    ),
     retryAfterSeconds: retryAfterError?.afterSeconds ?? 0,
   }).finish();
   const metadata = new Metadata();
@@ -64,6 +82,22 @@ export function workerServiceError(failure: unknown): GrpcServiceError {
     details: detail,
     metadata,
   });
+}
+
+function truncateWorkerFailureField(
+  value: string,
+  maximumBytes: number,
+  truncationMarker: Uint8Array,
+): string {
+  const encoded = Buffer.from(value);
+  if (encoded.length <= maximumBytes) {
+    return value;
+  }
+  let prefixLength = maximumBytes - truncationMarker.length;
+  while (prefixLength > 0 && (encoded[prefixLength]! & 0xc0) === 0x80) {
+    prefixLength -= 1;
+  }
+  return Buffer.concat([encoded.subarray(0, prefixLength), truncationMarker]).toString("utf8");
 }
 
 export type FlowTargetRequirement = "none" | "existing" | "active";

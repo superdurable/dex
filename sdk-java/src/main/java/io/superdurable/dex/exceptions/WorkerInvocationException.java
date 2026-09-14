@@ -73,7 +73,7 @@ public final class WorkerInvocationException extends DexServiceException {
      * Returns the original worker-side stack trace.
      *
      * <p>Java Workers include the exception's causes and suppressed exceptions. The serialized
-     * value is limited to 16 KiB and ends with a truncation marker when the full trace is larger.
+     * value is limited to 4 KiB and ends with a truncation marker when the full trace is larger.
      * Other Worker SDKs may return an empty string when they do not provide stack traces.
      *
      * @return the worker stack trace, or an empty string when unavailable

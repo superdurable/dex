@@ -22,9 +22,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const maxWorkerStackTraceBytes = 16 * 1024
+const (
+	maxWorkerErrorDetailBytes = 1024
+	maxWorkerErrorTypeBytes   = 256
+	maxWorkerStackTraceBytes  = 4 * 1024
+)
 
-var stackTraceTruncationMarker = []byte("\n... stack trace truncated by Dex Go SDK ...")
+var (
+	errorDetailTruncationMarker = []byte("\n... error detail truncated by Dex Go SDK ...")
+	errorTypeTruncationMarker   = []byte("\n... error type truncated by Dex Go SDK ...")
+	stackTraceTruncationMarker  = []byte("\n... stack trace truncated by Dex Go SDK ...")
+)
 
 type workerFailure struct {
 	code  codes.Code
@@ -125,14 +133,14 @@ func workerStatusError(
 	detail string,
 ) error {
 	workerError := &dexpb.WorkerErrorResponse{
-		Detail:     detail,
-		ErrorType:  errorType,
-		StackTrace: truncateStackTrace(stackTrace),
+		Detail:     truncateWorkerFailureField(detail, maxWorkerErrorDetailBytes, errorDetailTruncationMarker),
+		ErrorType:  truncateWorkerFailureField(errorType, maxWorkerErrorTypeBytes, errorTypeTruncationMarker),
+		StackTrace: truncateWorkerFailureField(stackTrace, maxWorkerStackTraceBytes, stackTraceTruncationMarker),
 	}
 	if retryAfter != nil {
 		workerError.RetryAfterSeconds = int32(retryAfter.After / time.Second)
 	}
-	rpcStatus := status.New(code, detail)
+	rpcStatus := status.New(code, workerError.GetDetail())
 	withDetails, err := rpcStatus.WithDetails(workerError)
 	if err != nil {
 		logger.Error("attach Worker error details", "error", err)
@@ -155,14 +163,14 @@ func stackTraceFromPanic(recovered any) string {
 	return fmt.Sprintf("panic: %v\n%s", recovered, debug.Stack())
 }
 
-func truncateStackTrace(value string) string {
+func truncateWorkerFailureField(value string, maximumBytes int, truncationMarker []byte) string {
 	encoded := []byte(value)
-	if len(encoded) <= maxWorkerStackTraceBytes {
+	if len(encoded) <= maximumBytes {
 		return value
 	}
-	prefixLength := maxWorkerStackTraceBytes - len(stackTraceTruncationMarker)
+	prefixLength := maximumBytes - len(truncationMarker)
 	for prefixLength > 0 && encoded[prefixLength]&0xc0 == 0x80 {
 		prefixLength--
 	}
-	return string(encoded[:prefixLength]) + string(stackTraceTruncationMarker)
+	return string(encoded[:prefixLength]) + string(truncationMarker)
 }

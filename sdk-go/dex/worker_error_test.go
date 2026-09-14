@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type testLogger struct{}
@@ -132,12 +134,83 @@ func TestFinishWorkerCallPrefersOriginStackInsideRetryAfter(t *testing.T) {
 
 func TestTruncateStackTrace(t *testing.T) {
 	large := strings.Repeat("x", maxWorkerStackTraceBytes+100)
-	truncated := truncateStackTrace(large)
-	if len(truncated) > maxWorkerStackTraceBytes+len(stackTraceTruncationMarker)+10 {
+	truncated := truncateWorkerFailureField(large, maxWorkerStackTraceBytes, stackTraceTruncationMarker)
+	if len(truncated) > maxWorkerStackTraceBytes {
 		t.Fatalf("truncated length %d exceeds limit", len(truncated))
 	}
 	if !strings.Contains(truncated, string(stackTraceTruncationMarker)) {
 		t.Fatal("expected truncation marker")
+	}
+}
+
+func TestFinishWorkerCallBoundsLargeWorkerFailureFields(t *testing.T) {
+	large := strings.Repeat("世界", maxWorkerStackTraceBytes)
+	err := finishWorkerCall(testLogger{}, nil, ErrorWithStack(errors.New(large)))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	rpcStatus, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status, got %T", err)
+	}
+	workerError, ok := rpcStatus.Details()[0].(*dexpb.WorkerErrorResponse)
+	if !ok {
+		t.Fatalf("expected WorkerErrorResponse, got %T", rpcStatus.Details()[0])
+	}
+	if len(workerError.GetDetail()) > maxWorkerErrorDetailBytes {
+		t.Fatalf("detail length %d exceeds limit", len(workerError.GetDetail()))
+	}
+	if !strings.Contains(workerError.GetDetail(), string(errorDetailTruncationMarker)) {
+		t.Fatal("expected detail truncation marker")
+	}
+	if len(workerError.GetStackTrace()) > maxWorkerStackTraceBytes {
+		t.Fatalf("stack trace length %d exceeds limit", len(workerError.GetStackTrace()))
+	}
+	if !strings.Contains(workerError.GetStackTrace(), string(stackTraceTruncationMarker)) {
+		t.Fatal("expected stack trace truncation marker")
+	}
+	if len(workerError.GetErrorType()) > maxWorkerErrorTypeBytes {
+		t.Fatalf("error type length %d exceeds limit", len(workerError.GetErrorType()))
+	}
+	if rpcStatus.Message() != workerError.GetDetail() {
+		t.Fatalf("status message %q does not match bounded detail", rpcStatus.Message())
+	}
+	if size := proto.Size(rpcStatus.Proto()); size >= 7*1024 {
+		t.Fatalf("encoded worker status size %d exceeds 7 KiB budget", size)
+	}
+	if strings.Contains(workerError.GetDetail(), "\ufffd") || strings.Contains(workerError.GetStackTrace(), "\ufffd") {
+		t.Fatal("expected UTF-8 boundaries to remain intact")
+	}
+}
+
+func TestWorkerStatusErrorBoundsLargeErrorTypeAtUTF8Boundary(t *testing.T) {
+	largeType := strings.Repeat("世界", maxWorkerErrorTypeBytes)
+	err := workerStatusError(
+		testLogger{},
+		codes.Unknown,
+		errors.New("boom"),
+		largeType,
+		"stack",
+		nil,
+		"boom",
+	)
+	rpcStatus, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status, got %T", err)
+	}
+	workerError, ok := rpcStatus.Details()[0].(*dexpb.WorkerErrorResponse)
+	if !ok {
+		t.Fatalf("expected WorkerErrorResponse, got %T", rpcStatus.Details()[0])
+	}
+	if len(workerError.GetErrorType()) > maxWorkerErrorTypeBytes {
+		t.Fatalf("error type length %d exceeds limit", len(workerError.GetErrorType()))
+	}
+	if !strings.Contains(workerError.GetErrorType(), string(errorTypeTruncationMarker)) {
+		t.Fatal("expected error type truncation marker")
+	}
+	if strings.Contains(workerError.GetErrorType(), "\ufffd") {
+		t.Fatal("expected UTF-8 boundary to remain intact")
 	}
 }
 

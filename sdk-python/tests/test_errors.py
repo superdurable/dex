@@ -23,7 +23,13 @@ from dex import (
     WorkerInvocationError,
     retry_after,
 )
-from dex._grpc_errors import translate_rpc_error
+from dex._grpc_errors import (
+    MAX_WORKER_ERROR_DETAIL_BYTES,
+    MAX_WORKER_ERROR_TYPE_BYTES,
+    MAX_WORKER_STACK_TRACE_BYTES,
+    _worker_error_status,
+    translate_rpc_error,
+)
 from dex.dexpb import dex_pb2 as pb
 
 
@@ -102,6 +108,29 @@ def test_retry_after_is_available_from_the_sdk_package() -> None:
     assert isinstance(result, RetryAfterError)
     assert result.after_seconds == 1
     assert result.cause is cause
+
+
+def test_worker_error_status_bounds_all_text_fields_at_utf8_boundaries() -> None:
+    oversized_error = type("世界" * MAX_WORKER_ERROR_TYPE_BYTES, (Exception,), {})
+    try:
+        raise oversized_error("世界" * MAX_WORKER_STACK_TRACE_BYTES)
+    except oversized_error as failure:
+        status = _worker_error_status(failure)
+    worker = pb.WorkerErrorResponse()
+    assert status.details[0].Unpack(worker)
+
+    assert len(worker.detail.encode()) <= MAX_WORKER_ERROR_DETAIL_BYTES
+    assert len(worker.error_type.encode()) <= MAX_WORKER_ERROR_TYPE_BYTES
+    assert len(worker.stack_trace.encode()) <= MAX_WORKER_STACK_TRACE_BYTES
+    assert worker.detail.endswith("... error detail truncated by Dex Python SDK ...")
+    assert worker.error_type.endswith("... error type truncated by Dex Python SDK ...")
+    assert worker.stack_trace.endswith(
+        "... stack trace truncated by Dex Python SDK ..."
+    )
+    assert status.message == worker.detail
+    assert status.ByteSize() < 7 * 1024
+    assert "\ufffd" not in worker.detail
+    assert "\ufffd" not in worker.stack_trace
 
 
 def test_missing_and_malformed_details_use_generic_fallback() -> None:

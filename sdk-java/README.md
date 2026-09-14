@@ -307,9 +307,10 @@ diagnostic statuses do not change Step retry or failure policies. Capacity and
 other Worker transport failures retain their own SDK-selected statuses.
 
 Java Worker errors include the original exception type, detail, and stack trace,
-including causes and suppressed exceptions. Dex persists at most 16 KiB of the
-UTF-8 stack and appends a truncation marker without splitting a character. The
-Worker log keeps the complete local stack.
+including causes and suppressed exceptions. To keep the encoded worker failure
+within transport limits, Dex persists at most 256 bytes of type, 1 KiB of detail,
+and 4 KiB of UTF-8 stack trace. Each truncated field receives a marker without
+splitting a character. The Worker log keeps the complete local stack.
 
 Failure-policy recovery exposes the previous method error through
 `context.getRecoveryError()`. Wait-for recovery passes the error directly to

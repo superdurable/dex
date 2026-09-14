@@ -31,9 +31,13 @@ use crate::worker_dispatcher::WorkerDispatcher;
 use crate::worker_output::WorkerResponseStream;
 use crate::{BlobCache, HandlerError, Registry, SdkError, SdkResult, WorkerOptions, WorkerTarget};
 
-// Keep worker error status small enough for default gRPC trailer limits after
+// Keep the complete worker error status below default gRPC trailer limits after
 // the server wraps WorkerErrorResponse in ServiceErrorResponse.
+const MAX_WORKER_ERROR_DETAIL_BYTES: usize = 1024;
+const MAX_WORKER_ERROR_TYPE_BYTES: usize = 256;
 const MAX_WORKER_STACK_TRACE_BYTES: usize = 4 * 1024;
+const ERROR_DETAIL_TRUNCATION_MARKER: &str = "\n... error detail truncated by Dex Rust SDK ...";
+const ERROR_TYPE_TRUNCATION_MARKER: &str = "\n... error type truncated by Dex Rust SDK ...";
 const STACK_TRACE_TRUNCATION_MARKER: &str = "\n... stack trace truncated by Dex Rust SDK ...";
 
 const CREATED: u8 = 0;
@@ -252,11 +256,24 @@ struct GoogleRpcStatus {
 }
 
 fn worker_status(error: HandlerError) -> Status {
-    let message = error.to_string();
-    let stack_trace = truncate_stack_trace(&format!("{message}\n{}", error.stack_trace()));
+    let message = truncate_worker_failure_field(
+        &error.to_string(),
+        MAX_WORKER_ERROR_DETAIL_BYTES,
+        ERROR_DETAIL_TRUNCATION_MARKER,
+    );
+    let error_type = truncate_worker_failure_field(
+        error.error_type(),
+        MAX_WORKER_ERROR_TYPE_BYTES,
+        ERROR_TYPE_TRUNCATION_MARKER,
+    );
+    let stack_trace = truncate_worker_failure_field(
+        &format!("{message}\n{}", error.stack_trace()),
+        MAX_WORKER_STACK_TRACE_BYTES,
+        STACK_TRACE_TRUNCATION_MARKER,
+    );
     let worker_error = WorkerErrorResponse {
         detail: message.clone(),
-        error_type: error.error_type().to_string(),
+        error_type,
         stack_trace,
         retry_after_seconds: error.retry_after_seconds(),
     };
@@ -271,20 +288,74 @@ fn worker_status(error: HandlerError) -> Status {
     Status::with_details(Code::Unknown, message, status.encode_to_vec().into())
 }
 
-fn truncate_stack_trace(value: &str) -> String {
+fn truncate_worker_failure_field(
+    value: &str,
+    maximum_bytes: usize,
+    truncation_marker: &str,
+) -> String {
     let encoded = value.as_bytes();
-    if encoded.len() <= MAX_WORKER_STACK_TRACE_BYTES {
+    if encoded.len() <= maximum_bytes {
         return value.to_string();
     }
-    let mut prefix_length = MAX_WORKER_STACK_TRACE_BYTES - STACK_TRACE_TRUNCATION_MARKER.len();
+    let mut prefix_length = maximum_bytes - truncation_marker.len();
     while prefix_length > 0 && encoded[prefix_length] & 0xc0 == 0x80 {
         prefix_length -= 1;
     }
     format!(
         "{}{}",
-        String::from_utf8_lossy(&encoded[..prefix_length]),
-        STACK_TRACE_TRUNCATION_MARKER
+        std::str::from_utf8(&encoded[..prefix_length]).expect("UTF-8 boundary"),
+        truncation_marker
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_status_bounds_all_text_fields_at_utf8_boundaries() {
+        let error = HandlerError::new(
+            "世界".repeat(MAX_WORKER_ERROR_TYPE_BYTES),
+            "世界".repeat(MAX_WORKER_STACK_TRACE_BYTES),
+        );
+
+        let status = worker_status(error);
+        let rpc_status = GoogleRpcStatus::decode(status.details()).expect("decode status");
+        let worker = WorkerErrorResponse::decode(rpc_status.details[0].value.as_slice())
+            .expect("decode worker error");
+
+        assert!(worker.detail.len() <= MAX_WORKER_ERROR_DETAIL_BYTES);
+        assert!(worker.error_type.len() <= MAX_WORKER_ERROR_TYPE_BYTES);
+        assert!(worker.stack_trace.len() <= MAX_WORKER_STACK_TRACE_BYTES);
+        assert!(
+            worker
+                .detail
+                .ends_with("... error detail truncated by Dex Rust SDK ...")
+        );
+        assert!(
+            worker
+                .error_type
+                .ends_with("... error type truncated by Dex Rust SDK ...")
+        );
+        assert_eq!(rpc_status.message, worker.detail);
+        assert!(status.details().len() < 7 * 1024);
+        assert!(!worker.detail.contains('\u{fffd}'));
+        assert!(!worker.error_type.contains('\u{fffd}'));
+        assert!(!worker.stack_trace.contains('\u{fffd}'));
+    }
+
+    #[test]
+    fn truncation_preserves_utf8_boundaries_and_markers() {
+        let truncated = truncate_worker_failure_field(
+            &"世界".repeat(MAX_WORKER_STACK_TRACE_BYTES),
+            MAX_WORKER_STACK_TRACE_BYTES,
+            STACK_TRACE_TRUNCATION_MARKER,
+        );
+
+        assert!(truncated.len() <= MAX_WORKER_STACK_TRACE_BYTES);
+        assert!(truncated.ends_with("... stack trace truncated by Dex Rust SDK ..."));
+        assert!(!truncated.contains('\u{fffd}'));
+    }
 }
 
 fn endpoint_address(address: &str) -> String {

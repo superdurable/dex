@@ -32,7 +32,11 @@ from dex.runtime_errors import (
 
 FlowTargetRequirement = Literal["none", "existing", "active"]
 
-MAX_WORKER_STACK_TRACE_BYTES = 16 * 1024
+MAX_WORKER_ERROR_DETAIL_BYTES = 1024
+MAX_WORKER_ERROR_TYPE_BYTES = 256
+MAX_WORKER_STACK_TRACE_BYTES = 4 * 1024
+_ERROR_DETAIL_TRUNCATION_MARKER = b"\n... error detail truncated by Dex Python SDK ..."
+_ERROR_TYPE_TRUNCATION_MARKER = b"\n... error type truncated by Dex Python SDK ..."
 _STACK_TRACE_TRUNCATION_MARKER = b"\n... stack trace truncated by Dex Python SDK ..."
 
 
@@ -179,11 +183,19 @@ def _worker_error_status(error: BaseException) -> status_pb2.Status:
         retry_after_error = error
         reported = error.cause
 
-    message = str(reported) or type(reported).__name__
+    message = _truncate_worker_failure_field(
+        str(reported) or type(reported).__name__,
+        MAX_WORKER_ERROR_DETAIL_BYTES,
+        _ERROR_DETAIL_TRUNCATION_MARKER,
+    )
     stack_trace_source = error if retry_after_error is not None else reported
     worker_error = pb.WorkerErrorResponse(
         detail=message,
-        error_type=f"{type(reported).__module__}.{type(reported).__qualname__}",
+        error_type=_truncate_worker_failure_field(
+            f"{type(reported).__module__}.{type(reported).__qualname__}",
+            MAX_WORKER_ERROR_TYPE_BYTES,
+            _ERROR_TYPE_TRUNCATION_MARKER,
+        ),
         stack_trace=_worker_stack_trace(stack_trace_source),
     )
     if retry_after_error is not None:
@@ -201,16 +213,25 @@ def _worker_stack_trace(error: BaseException) -> str:
     if error.__traceback__ is None:
         return ""
     lines = traceback.format_exception(type(error), error, error.__traceback__)
-    encoded = "".join(lines).encode()
-    if len(encoded) <= MAX_WORKER_STACK_TRACE_BYTES:
-        return encoded.decode()
-    prefix_length = MAX_WORKER_STACK_TRACE_BYTES - len(_STACK_TRACE_TRUNCATION_MARKER)
+    return _truncate_worker_failure_field(
+        "".join(lines),
+        MAX_WORKER_STACK_TRACE_BYTES,
+        _STACK_TRACE_TRUNCATION_MARKER,
+    )
+
+
+def _truncate_worker_failure_field(
+    value: str,
+    maximum_bytes: int,
+    truncation_marker: bytes,
+) -> str:
+    encoded = value.encode()
+    if len(encoded) <= maximum_bytes:
+        return value
+    prefix_length = maximum_bytes - len(truncation_marker)
     while prefix_length > 0 and (encoded[prefix_length] & 0xC0) == 0x80:
         prefix_length -= 1
-    return (
-        encoded[:prefix_length].decode(errors="replace")
-        + _STACK_TRACE_TRUNCATION_MARKER.decode()
-    )
+    return encoded[:prefix_length].decode() + truncation_marker.decode()
 
 
 def _map_sub_status(value: int) -> ErrorSubStatus:

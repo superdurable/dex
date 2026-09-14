@@ -680,7 +680,35 @@ final class WorkerServiceIntegrationTest {
                     .unpack(WorkerErrorResponse.class);
             assertTrue(details.getStackTrace().endsWith(
                     "... stack trace truncated by Dex Java SDK ..."));
-            assertTrue(details.getStackTrace().getBytes(StandardCharsets.UTF_8).length <= 16 * 1024);
+            assertTrue(details.getStackTrace().getBytes(StandardCharsets.UTF_8).length
+                    <= JavaWorkerService.MAX_WORKER_STACK_TRACE_BYTES);
+            assertFalse(details.getStackTrace().contains("\ufffd"));
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
+    void boundsPersistedWorkerFailureFieldsAtUtf8Boundaries() throws Exception {
+        final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
+        try {
+            final StatusRuntimeException failure = assertThrows(
+                    StatusRuntimeException.class,
+                    () -> invokeExecute(running, executeRequest(concrete("large-message"))));
+            final com.google.rpc.Status status = StatusProto.fromThrowable(failure);
+            final WorkerErrorResponse details = status.getDetails(0)
+                    .unpack(WorkerErrorResponse.class);
+            assertTrue(details.getDetail().endsWith(
+                    "... error detail truncated by Dex Java SDK ..."));
+            assertTrue(details.getDetail().getBytes(StandardCharsets.UTF_8).length
+                    <= JavaWorkerService.MAX_WORKER_ERROR_DETAIL_BYTES);
+            assertTrue(details.getStackTrace().endsWith(
+                    "... stack trace truncated by Dex Java SDK ..."));
+            assertTrue(details.getStackTrace().getBytes(StandardCharsets.UTF_8).length
+                    <= JavaWorkerService.MAX_WORKER_STACK_TRACE_BYTES);
+            assertEquals(details.getDetail(), status.getMessage());
+            assertTrue(status.getSerializedSize() < 7 * 1024);
+            assertFalse(details.getDetail().contains("\ufffd"));
             assertFalse(details.getStackTrace().contains("\ufffd"));
         } finally {
             running.close();
@@ -1079,6 +1107,14 @@ final class WorkerServiceIntegrationTest {
         return failure;
     }
 
+    private static BridgeFailureException largeMessageFailure() {
+        final StringBuilder message = new StringBuilder();
+        for (int index = 0; index < 16 * 1024; index++) {
+            message.append("世界");
+        }
+        return new BridgeFailureException(message.toString());
+    }
+
     @SuppressWarnings("unchecked")
     private static <Failure extends Throwable> void throwUnchecked(
             final Throwable failure) throws Failure {
@@ -1325,6 +1361,9 @@ final class WorkerServiceIntegrationTest {
             }
             if ("large".equals(input)) {
                 throw largeFailure();
+            }
+            if ("large-message".equals(input)) {
+                throw largeMessageFailure();
             }
             if ("invalid".equals(input)) {
                 return StepDecision.goToMany();
