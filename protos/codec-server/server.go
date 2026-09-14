@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	defaultAddress            = "127.0.0.1:8888"
+	defaultAddress            = "127.0.0.1:8804"
 	temporalCloudWebOrigin    = "https://cloud.temporal.io"
 	serverReadHeaderTimeout   = 5 * time.Second
 	serverShutdownTimeout     = 5 * time.Second

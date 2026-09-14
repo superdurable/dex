@@ -16,11 +16,11 @@ Codec Server to display those payloads as ProtoJSON in Temporal Cloud:
 dexcli codec-server
 ```
 
-The server listens on `http://127.0.0.1:8888` and accepts only loopback
+The server listens on `http://127.0.0.1:8804` and accepts only loopback
 addresses. Pass a different loopback address when needed:
 
 ```bash
-dexcli codec-server --address 127.0.0.1:8889
+dexcli codec-server --address 127.0.0.1:8805
 ```
 
 When developing from this repository, use
@@ -28,7 +28,7 @@ When developing from this repository, use
 
 In the Temporal Cloud Workflows page, select **Configure Codec Server**. Choose
 **Use my browser setting and ignore Namespace-level setting**, then enter
-`http://127.0.0.1:8888`. Leave **Pass access token** and **Include cross-origin
+`http://127.0.0.1:8804`. Leave **Pass access token** and **Include cross-origin
 credentials** disabled. If Chrome requests Local Network Access, allow it for
 `https://cloud.temporal.io`.
 

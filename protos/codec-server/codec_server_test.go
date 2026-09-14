@@ -208,12 +208,18 @@ func TestHealthCheck(t *testing.T) {
 }
 
 func TestValidateLoopbackAddress(t *testing.T) {
-	require.NoError(t, validateLoopbackAddress("127.0.0.1:8888"))
-	require.NoError(t, validateLoopbackAddress("[::1]:8888"))
-	require.NoError(t, validateLoopbackAddress("localhost:8888"))
-	require.Error(t, validateLoopbackAddress("0.0.0.0:8888"))
-	require.Error(t, validateLoopbackAddress("192.0.2.1:8888"))
-	require.Error(t, validateLoopbackAddress(":8888"))
+	require.NoError(t, validateLoopbackAddress("127.0.0.1:8804"))
+	require.NoError(t, validateLoopbackAddress("[::1]:8804"))
+	require.NoError(t, validateLoopbackAddress("localhost:8804"))
+	require.Error(t, validateLoopbackAddress("0.0.0.0:8804"))
+	require.Error(t, validateLoopbackAddress("192.0.2.1:8804"))
+	require.Error(t, validateLoopbackAddress(":8804"))
+}
+
+func TestParseCodecServerConfigUsesDefaultAddress(t *testing.T) {
+	codecServerConfig, err := parseCodecServerConfig(nil, io.Discard)
+	require.NoError(t, err)
+	require.Equal(t, "127.0.0.1:8804", codecServerConfig.address)
 }
 
 func postPayloads(
