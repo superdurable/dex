@@ -114,7 +114,7 @@ def test_worker_error_status_bounds_all_text_fields_at_utf8_boundaries() -> None
     oversized_error = type("世界" * MAX_WORKER_ERROR_TYPE_BYTES, (Exception,), {})
     try:
         raise oversized_error("世界" * MAX_WORKER_STACK_TRACE_BYTES)
-    except oversized_error as failure:
+    except Exception as failure:
         status = _worker_error_status(failure)
     worker = pb.WorkerErrorResponse()
     assert status.details[0].Unpack(worker)

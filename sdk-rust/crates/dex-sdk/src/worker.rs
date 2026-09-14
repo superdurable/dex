@@ -308,6 +308,20 @@ fn truncate_worker_failure_field(
     )
 }
 
+fn endpoint_address(address: &str) -> String {
+    if address.contains("://") {
+        address.to_string()
+    } else {
+        format!("http://{address}")
+    }
+}
+
+fn service_error(error: impl std::fmt::Display) -> SdkError {
+    SdkError::Service {
+        service: crate::ServiceError::local("worker", error.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,19 +369,5 @@ mod tests {
         assert!(truncated.len() <= MAX_WORKER_STACK_TRACE_BYTES);
         assert!(truncated.ends_with("... stack trace truncated by Dex Rust SDK ..."));
         assert!(!truncated.contains('\u{fffd}'));
-    }
-}
-
-fn endpoint_address(address: &str) -> String {
-    if address.contains("://") {
-        address.to_string()
-    } else {
-        format!("http://{address}")
-    }
-}
-
-fn service_error(error: impl std::fmt::Display) -> SdkError {
-    SdkError::Service {
-        service: crate::ServiceError::local("worker", error.to_string()),
     }
 }
