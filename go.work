@@ -3,6 +3,7 @@ go 1.26.0
 use (
 	./cli
 	./examples/go
+	./protos/codec-server
 	./sdk-go
 	./server
 	./server/cmd/server

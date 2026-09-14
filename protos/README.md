@@ -7,6 +7,38 @@ Protobuf + gRPC interface between Dex SDKs and the Dex server.
 - License: [Sustainable Use License 1.0](LICENSE), with legacy portions
   under their original terms ([`LEGACY_NOTICES.md`](LEGACY_NOTICES.md))
 
+## View Temporal protobuf payloads locally
+
+Dex stores its internal Temporal payloads as binary protobuf. Run the local
+Codec Server to display those payloads as ProtoJSON in Temporal Cloud:
+
+```bash
+make -C protos codec-server
+```
+
+The server listens on `http://127.0.0.1:8888` and accepts only loopback
+addresses. Pass a different loopback address when needed:
+
+```bash
+go run ./protos/codec-server --address 127.0.0.1:8889
+```
+
+In the Temporal Cloud Workflows page, select **Configure Codec Server**. Choose
+**Use my browser setting and ignore Namespace-level setting**, then enter
+`http://127.0.0.1:8888`. Leave **Pass access token** and **Include cross-origin
+credentials** disabled. If Chrome requests Local Network Access, allow it for
+`https://cloud.temporal.io`.
+
+The browser calls the local server directly. Each user must run their own copy.
+The server allows only the Temporal Cloud UI origin, does not authenticate
+requests, and must not be exposed beyond the local machine. Stop it with
+`Ctrl-C`.
+
+The `/decode` endpoint converts known Dex `binary/protobuf` payloads to
+`json/protobuf`. The `/encode` endpoint performs the reverse conversion when
+the input includes a known Dex `messageType`. Other payloads pass through
+unchanged.
+
 ## Services
 
 - **FlowService** — hosted by the server; SDKs call these RPCs
