@@ -150,19 +150,21 @@ final class ClientExceptionIntegrationTest {
         client.waitForStepCompletion(
                 "step-reattach",
                 StepExecutionId.of("WaitingStep", 1),
-                WaitForStepCompletionOptions.newBuilder()
-                        .requestId("step-reattach-request")
-                        .build());
+                WaitForStepCompletionOptions.newBuilder().build());
         assertEquals(2, flowService.stepReattachCalls.get());
         assertEquals(
-                Arrays.asList("step-reattach-request", "step-reattach-request"),
+                Arrays.asList(
+                        "wait-for-step-completion:WaitingStep-1",
+                        "wait-for-step-completion:WaitingStep-1"),
                 flowService.stepReattachRequestIds);
         assertThrows(
                 IllegalArgumentException.class,
                 () -> client.waitForStepCompletion(
                         "missing-request-id",
                         StepExecutionId.of("WaitingStep", 1),
-                        WaitForStepCompletionOptions.newBuilder().build()));
+                        WaitForStepCompletionOptions.newBuilder()
+                                .maximumWaitTime(Duration.ofSeconds(1))
+                                .build()));
     }
 
     @Test

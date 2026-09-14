@@ -14,7 +14,9 @@ import java.time.Duration;
 
 /**
  * Configures one durable Step completion wait.
- * The Request ID is caller-owned and required. Reuse it only for the same logical Step execution.
+ * An infinite wait derives a stable Request ID from its Step execution when none is supplied.
+ * A positive maximum wait time requires a caller-owned Request ID.
+ * Reuse a caller-owned ID only for the same logical Step wait.
  * The maximum wait time defaults to zero, which waits indefinitely.
  * An abandoned infinite wait remains in flight until it completes or the Flow closes.
  */
@@ -29,7 +31,7 @@ public final class WaitForStepCompletionOptions {
 
     /**
      * Creates an empty builder.
-     * The Client requires a Request ID when the wait begins.
+     * The Client derives a stable Request ID for the default infinite wait.
      *
      * @return a new builder
      */
@@ -54,7 +56,8 @@ public final class WaitForStepCompletionOptions {
         }
 
         /**
-         * Sets the required caller-owned idempotency key for this logical Step wait.
+         * Overrides the stable Request ID derived for an infinite Step wait.
+         * A positive maximum wait time requires this value.
          *
          * @param value the non-empty Request ID
          * @return this builder

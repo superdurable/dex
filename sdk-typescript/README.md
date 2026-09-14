@@ -221,11 +221,14 @@ and `getAllInstanceKeys` include buffered sets and deletes. The matching
 instances. Keys are decoded and sorted. Use
 `forceCompleteIfChannelsEmpty(...)` for conditional completion.
 
-Attribute waits and `waitForStepCompletion` require a caller-owned `requestId`
-in their dedicated options interface. Reuse it only for retries of the same
-logical wait. The Client automatically reattaches transport long polls with
-that ID. `maximumWaitTimeMs` is the total handler budget across reattachments;
-omit it or use zero to wait indefinitely. A positive budget expiry throws
+Attribute waits require a caller-owned `requestId`. An infinite
+`waitForStepCompletion` derives `wait-for-step-completion:<StepExecutionId>`
+when `requestId` is omitted; a positive `maximumWaitTimeMs` requires a
+caller-owned ID. Reuse a caller-owned ID only for retries of the same logical
+wait. The Client automatically reattaches transport long polls with the
+effective ID. `maximumWaitTimeMs` is the total handler budget across
+reattachments; omit it or use zero to wait indefinitely. A positive budget
+expiry throws
 `WaitHandlerTimeoutError`. An abandoned infinite wait remains accepted and
 counts against Temporal's in-flight Update limit until it completes or the Flow
 closes.

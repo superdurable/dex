@@ -1201,7 +1201,7 @@ use `*dex.ValueMappingError`. Only errors received from FlowService become
 The Client builds each non-wait protobuf request once. gRPC's pre-commit
 transparent retry therefore reuses the same request and request ID. Durable
 Step and Attribute waits automatically reattach after a transport long-poll
-timeout. Every reattachment uses the caller-owned Request ID and the remaining
+timeout. Every reattachment uses the effective Request ID and the remaining
 total handler budget.
 
 ### Request ID ownership
@@ -1214,14 +1214,17 @@ entry methods. The Client generates one random UUID for:
 
 A non-nil StartFlow override must be non-empty. It may be a stable business
 identifier, supports a logical retry spanning separate Client calls, and is
-the only public request-ID override. Normal application code may instead leave
-it nil for an SDK-generated UUID.
+the StartFlow request-ID override. Normal application code may instead leave it
+nil for an SDK-generated UUID.
 
-`WaitForStepCompletionOptions.RequestID` and
-`WaitForAttributeOptions.RequestID` are required caller-owned keys. Reuse one
-only for the same logical Step execution or Attribute predicate. The Client
-uses it for every automatic long-poll reattachment and as the Temporal Update
-ID. A new logical wait uses a new Request ID.
+`WaitForAttributeOptions.RequestID` is a required caller-owned key. An infinite
+Step completion wait derives
+`wait-for-step-completion:<StepExecutionID>` when
+`WaitForStepCompletionOptions.RequestID` is empty. A positive handler budget
+requires a caller-owned Request ID. Reuse a caller-owned ID only for the same
+logical Step execution or Attribute predicate. The Client uses the effective
+ID for every automatic long-poll reattachment and as the Temporal Update ID. A
+new finite wait or Attribute predicate uses a new Request ID.
 
 InvokeRPC uses the ID for external-value ownership; Temporal Update paths also use it as the
 `InvokeRpc` Update ID. The two wait methods use it as their Temporal update ID.
@@ -2402,7 +2405,10 @@ Request IDs:
 - the SDK generates one UUID per logical `InvokeRPC` call, and for StartFlow
   when no override is supplied;
 - `StartFlowOptions.RequestID` may provide a non-empty business identifier;
-- both durable wait option types require a caller-owned Request ID;
+- Attribute waits and finite Step completion waits require a caller-owned
+  Request ID;
+- infinite Step completion waits derive a namespaced ID from the Step execution
+  when none is supplied;
 - automatic wait reattachments reuse it; and
 - every Temporal RPC Update and durable wait uses its request ID as a Temporal Update ID.
 

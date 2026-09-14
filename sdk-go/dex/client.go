@@ -840,8 +840,10 @@ func (client *Client) UpdateFlowConfig(
 //
 // stepExecution identifies the Step type and execution number; nil means execution
 // one. A nil error means the requested execution completed, but this method does not return its output.
-// options must contain a caller-owned RequestID. The Client automatically reattaches transport
-// long polls with that ID. MaximumWaitTime is the total handler budget; zero waits indefinitely.
+// An infinite wait derives a stable RequestID from the Step execution when options.RequestID is
+// empty. A positive MaximumWaitTime requires a caller-owned RequestID. The Client automatically
+// reattaches transport long polls with the effective ID. MaximumWaitTime is the total handler budget;
+// zero waits indefinitely.
 // A positive budget expiry returns WaitHandlerTimeoutError. Invalid identifiers, inactive Flows,
 // context, transport, and server errors are also returned.
 func (client *Client) WaitForStepCompletion(
@@ -857,7 +859,8 @@ func (client *Client) WaitForStepCompletion(
 	if err != nil {
 		return err
 	}
-	waitBudget, err := newClientWaitBudget(options.RequestID, options.MaximumWaitTime)
+	requestID := effectiveStepCompletionWaitRequestID(stepExecution.StepType, executionNumber, options)
+	waitBudget, err := newClientWaitBudget(requestID, options.MaximumWaitTime)
 	if err != nil {
 		return err
 	}
@@ -873,7 +876,7 @@ func (client *Client) WaitForStepCompletion(
 				StepType:            stepExecution.StepType,
 				StepExecutionNumber: strconv.FormatInt(int64(executionNumber), 10),
 				WaitTimeSeconds:     handlerWaitTimeoutSeconds,
-				RequestId:           options.RequestID,
+				RequestId:           requestID,
 			},
 		)
 		if err == nil {
@@ -885,6 +888,17 @@ func (client *Client) WaitForStepCompletion(
 			return translated
 		}
 	}
+}
+
+func effectiveStepCompletionWaitRequestID(
+	stepType string,
+	executionNumber int32,
+	options WaitForStepCompletionOptions,
+) string {
+	if options.RequestID != "" || options.MaximumWaitTime != 0 {
+		return options.RequestID
+	}
+	return "wait-for-step-completion:" + stepType + "-" + strconv.FormatInt(int64(executionNumber), 10)
 }
 
 // TriggerContinueAsNew asks an active Flow to roll its history into a new run.

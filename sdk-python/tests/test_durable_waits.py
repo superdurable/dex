@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import Any, cast
 
 import grpc
@@ -76,6 +77,32 @@ class AsyncWaitService:
         return pb.WaitForAttributeResponse(matched_value=pb.Value(int_value=7))
 
 
+class SyncStepWaitService:
+    def __init__(self) -> None:
+        self.requests: list[pb.WaitForStepCompletionRequest] = []
+
+    def WaitForStepCompletion(  # noqa: N802
+        self, request: pb.WaitForStepCompletionRequest
+    ) -> pb.WaitForStepCompletionResponse:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            raise _long_poll_timeout()
+        return pb.WaitForStepCompletionResponse()
+
+
+class AsyncStepWaitService:
+    def __init__(self) -> None:
+        self.requests: list[pb.WaitForStepCompletionRequest] = []
+
+    async def WaitForStepCompletion(  # noqa: N802
+        self, request: pb.WaitForStepCompletionRequest
+    ) -> pb.WaitForStepCompletionResponse:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            raise _long_poll_timeout()
+        return pb.WaitForStepCompletionResponse()
+
+
 def test_sync_attribute_wait_reattaches_and_returns_matched_value() -> None:
     service = SyncWaitService()
     client = Client(Registry(()), MemoryBlobCache(), ClientOptions("unused:1"))
@@ -122,14 +149,54 @@ async def _test_async_attribute_wait_reattaches_and_returns_matched_value() -> N
         await client.close()
 
 
-def test_wait_request_id_is_required() -> None:
+def test_step_wait_derives_stable_request_id_for_infinite_wait() -> None:
+    service = SyncStepWaitService()
+    client = Client(Registry(()), MemoryBlobCache(), ClientOptions("unused:1"))
+    client._service = cast(Any, service)
+    try:
+        client.wait_for_step_completion(
+            "flow-1",
+            StepExecutionId("Step", 2),
+            WaitForStepCompletionOptions(),
+        )
+        assert [request.request_id for request in service.requests] == [
+            "wait-for-step-completion:Step-2",
+            "wait-for-step-completion:Step-2",
+        ]
+    finally:
+        client.close()
+
+
+def test_async_step_wait_derives_stable_request_id_for_infinite_wait() -> None:
+    asyncio.run(_test_async_step_wait_derives_stable_request_id_for_infinite_wait())
+
+
+async def _test_async_step_wait_derives_stable_request_id_for_infinite_wait() -> None:
+    service = AsyncStepWaitService()
+    client = AsyncClient(Registry(()), MemoryBlobCache(), ClientOptions("unused:1"))
+    client._service = cast(Any, service)
+    try:
+        await client.wait_for_step_completion(
+            "flow-1",
+            StepExecutionId("Step", 2),
+            WaitForStepCompletionOptions(),
+        )
+        assert [request.request_id for request in service.requests] == [
+            "wait-for-step-completion:Step-2",
+            "wait-for-step-completion:Step-2",
+        ]
+    finally:
+        await client.close()
+
+
+def test_finite_step_wait_request_id_is_required() -> None:
     client = Client(Registry(()), MemoryBlobCache(), ClientOptions("unused:1"))
     try:
         with pytest.raises(ValueError, match="request ID is required"):
             client.wait_for_step_completion(
                 "flow-1",
                 StepExecutionId("Step", 1),
-                WaitForStepCompletionOptions(),
+                WaitForStepCompletionOptions(maximum_wait_time=timedelta(seconds=1)),
             )
     finally:
         client.close()

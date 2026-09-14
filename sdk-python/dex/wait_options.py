@@ -22,12 +22,14 @@ from dex.runtime_errors import ErrorSubStatus, WaitHandlerTimeoutError
 class WaitForStepCompletionOptions:
     """Configure one durable Step completion wait.
 
-    ``request_id`` is required when the Client call begins. Reuse it only for
-    the same logical wait. A zero ``maximum_wait_time`` waits indefinitely.
+    An infinite wait derives a stable Request ID from its Step execution when
+    ``request_id`` is empty. A positive ``maximum_wait_time`` requires a
+    caller-owned Request ID. Reuse it only for the same logical wait.
+    A zero ``maximum_wait_time`` waits indefinitely.
     An abandoned infinite wait remains in flight until completion or Flow closure.
 
     Attributes:
-        request_id: The caller-owned idempotency key for this logical Step wait.
+        request_id: An optional override for the infinite wait's stable ID.
         maximum_wait_time: The total handler budget. Zero waits indefinitely.
     """
 
@@ -74,3 +76,13 @@ class _ClientWaitBudget:
                 flow_id,
             )
         return ceil(remaining)
+
+
+def _effective_step_completion_wait_request_id(
+    step_type: str,
+    execution_number: int,
+    options: WaitForStepCompletionOptions,
+) -> str:
+    if options.request_id or options.maximum_wait_time != timedelta(0):
+        return options.request_id
+    return f"wait-for-step-completion:{step_type}-{execution_number}"

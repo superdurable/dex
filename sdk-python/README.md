@@ -345,11 +345,13 @@ buffered sets and deletes. The matching `ChannelMap` methods are RPC-only,
 include buffered publishes, and omit empty instances. Keys are decoded and
 sorted. Use `force_complete_if_channels_empty(...)` for conditional completion.
 
-Attribute waits and `wait_for_step_completion` require a caller-owned request
-ID in their dedicated options dataclass. Reuse it only for retries of the same
-logical wait. The Client automatically reattaches transport long polls with
-that ID. `maximum_wait_time` is the total handler budget across reattachments;
-zero waits indefinitely. A positive budget expiry raises
+Attribute waits require a caller-owned request ID. An infinite
+`wait_for_step_completion` derives `wait-for-step-completion:<StepExecutionId>`
+when its request ID is empty; a positive `maximum_wait_time` requires a
+caller-owned ID. Reuse a caller-owned ID only for retries of the same logical
+wait. The Client automatically reattaches transport long polls with the
+effective ID. `maximum_wait_time` is the total handler budget across
+reattachments; zero waits indefinitely. A positive budget expiry raises
 `WaitHandlerTimeoutError`. An abandoned infinite wait remains accepted and
 counts against Temporal's in-flight Update limit until it completes or the Flow
 closes.

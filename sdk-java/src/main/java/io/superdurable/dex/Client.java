@@ -760,12 +760,14 @@ public final class Client implements AutoCloseable {
 
     /**
      * Blocks until a specific Step execution completes or its total handler budget expires.
-     * Transport long polls automatically reattach with the same caller-owned Request ID.
+     * An infinite wait derives a stable Request ID from the Step execution when none is supplied.
+     * A positive handler budget requires a caller-owned Request ID.
+     * Transport long polls automatically reattach with the effective ID.
      *
      * @param flowId the target Flow ID
      * @param stepExecutionId the Step execution to observe
-     * @param options the required Request ID and total handler wait budget
-     * @throws IllegalArgumentException if the Request ID is empty or the wait budget is unsupported
+     * @param options the optional Request ID override and total handler wait budget
+     * @throws IllegalArgumentException if a finite wait lacks a Request ID or the budget is unsupported
      * @throws WaitHandlerTimeoutException if a positive handler budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
@@ -774,8 +776,9 @@ public final class Client implements AutoCloseable {
             final String flowId,
             final StepExecutionId stepExecutionId,
             final WaitForStepCompletionOptions options) {
+        final String requestId = effectiveStepCompletionWaitRequestId(stepExecutionId, options);
         final ClientWaitBudget waitBudget = new ClientWaitBudget(
-                options.getRequestId(), options.getMaximumWaitTime());
+                requestId, options.getMaximumWaitTime());
         while (true) {
             try {
                 final int remainingSeconds = waitBudget.remainingSeconds();
@@ -785,7 +788,7 @@ public final class Client implements AutoCloseable {
                         .setStepExecutionNumber(
                                 Integer.toString(stepExecutionId.getExecutionNumber()))
                         .setWaitTimeSeconds(remainingSeconds)
-                        .setRequestId(options.getRequestId())
+                        .setRequestId(requestId)
                         .build()),
                         FlowTargetRequirement.ACTIVE,
                         flowId);
@@ -794,6 +797,21 @@ public final class Client implements AutoCloseable {
                 // Reattach to the same durable Update with the same Request ID.
             }
         }
+    }
+
+    private static String effectiveStepCompletionWaitRequestId(
+            final StepExecutionId stepExecutionId,
+            final WaitForStepCompletionOptions options) {
+        if (options.getRequestId() != null && !options.getRequestId().isEmpty()) {
+            return options.getRequestId();
+        }
+        if (!Duration.ZERO.equals(options.getMaximumWaitTime())) {
+            return options.getRequestId();
+        }
+        return "wait-for-step-completion:"
+                + stepExecutionId.getStepType()
+                + "-"
+                + stepExecutionId.getExecutionNumber();
     }
 
     /**

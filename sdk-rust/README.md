@@ -103,11 +103,14 @@ include buffered publishes, and omit empty instances. Keys are decoded and
 sorted. Conditional completion is
 `StepDecision::force_complete_if_channels_empty`.
 
-Attribute waits and `Client::wait_for_step_completion` require a caller-owned
-Request ID in their dedicated options type. Reuse it only for retries of the
-same logical wait. The Client automatically reattaches transport long polls
-with that ID. `maximum_wait_time` is the total handler budget across
-reattachments; zero waits indefinitely. A positive budget expiry returns
+Attribute waits require a caller-owned Request ID. An infinite
+`Client::wait_for_step_completion` derives
+`wait-for-step-completion:<StepExecutionId>` when its Request ID is empty; a
+positive `maximum_wait_time` requires a caller-owned ID. Reuse a caller-owned
+ID only for retries of the same logical wait. The Client automatically
+reattaches transport long polls with the effective ID. `maximum_wait_time` is
+the total handler budget across reattachments; zero waits indefinitely. A
+positive budget expiry returns
 `SdkError::WaitHandlerTimeout`. An abandoned infinite wait remains accepted and
 counts against Temporal's in-flight Update limit until it completes or the Flow
 closes.

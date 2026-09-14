@@ -973,6 +973,17 @@ func TestClientDurableWaitReattachment(t *testing.T) {
 	for _, request := range service.waitStepRequests {
 		require.Equal(t, stepOptions.RequestID, request.RequestId)
 	}
+	service.waitStepRequests = nil
+	require.NoError(t, client.WaitForStepCompletion(
+		ctx,
+		"reattach-step",
+		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
+		WaitForStepCompletionOptions{},
+	))
+	require.Len(t, service.waitStepRequests, 2)
+	for _, request := range service.waitStepRequests {
+		require.Equal(t, "wait-for-step-completion:dex.clientTestStep-1", request.RequestId)
+	}
 
 	var matched string
 	attributeOptions := WaitForAttributeOptions{RequestID: "reattach-attribute-request"}
@@ -994,7 +1005,7 @@ func TestClientDurableWaitReattachment(t *testing.T) {
 		ctx,
 		"missing-request-id",
 		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
-		WaitForStepCompletionOptions{},
+		WaitForStepCompletionOptions{MaximumWaitTime: time.Second},
 	), "request ID is required")
 }
 

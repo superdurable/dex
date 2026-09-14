@@ -319,11 +319,13 @@ integers and doubles support every operator. Every AttributeMap and ChannelMap
 instance must be non-empty and must not contain `/`. Objects,
 bytes, null, non-finite doubles, and invalid ordering fail before the RPC.
 
-Both Attribute waits and `WaitForStepCompletion` require a caller-owned request
-ID in their dedicated options type. Reuse that ID only for retries of the same
-logical wait. The Client automatically reattaches transport long polls with the
-same ID. `MaximumWaitTime` is the total handler budget across reattachments;
-zero waits indefinitely. A positive budget expiry returns
+Attribute waits require a caller-owned request ID. An infinite
+`WaitForStepCompletion` derives `wait-for-step-completion:<StepExecutionID>`
+when its request ID is empty; a positive `MaximumWaitTime` requires a
+caller-owned ID. Reuse a caller-owned ID only for retries of the same logical
+wait. The Client automatically reattaches transport long polls with the
+effective ID. `MaximumWaitTime` is the total handler budget across
+reattachments; zero waits indefinitely. A positive budget expiry returns
 `*dex.WaitHandlerTimeoutError`. An abandoned infinite wait remains accepted and
 counts against Temporal's in-flight Update limit until it matches or the Flow
 closes.

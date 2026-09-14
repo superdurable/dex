@@ -632,10 +632,12 @@ export class Client {
 
   /**
    * Waits until one Step execution completes or its total handler budget expires.
-   * Transport long polls automatically reattach with the same caller-owned Request ID.
+   * An infinite wait derives a stable Request ID from the Step execution when none is supplied.
+   * A positive handler budget requires a caller-owned Request ID. Transport long polls
+   * automatically reattach with the effective ID.
    * @param flowId - Non-empty active Flow ID.
    * @param stepExecutionId - Step type and positive execution number.
-   * @param options - Required Request ID and total handler wait budget.
+   * @param options - Optional Request ID override and total handler wait budget.
    * @throws {@link WaitHandlerTimeoutError} when a positive handler budget expires first.
    */
   public async waitForStepCompletion(
@@ -643,7 +645,8 @@ export class Client {
     stepExecutionId: StepExecutionId,
     options: WaitForStepCompletionOptions,
   ): Promise<void> {
-    const waitBudget = new ClientWaitBudget(options.requestId, options.maximumWaitTimeMs);
+    const requestId = effectiveStepCompletionWaitRequestId(stepExecutionId, options);
+    const waitBudget = new ClientWaitBudget(requestId, options.maximumWaitTimeMs);
     while (true) {
       try {
         await unary<WaitForStepCompletionResponse>(
@@ -654,7 +657,7 @@ export class Client {
               stepType: stepExecutionId.stepType,
               stepExecutionNumber: String(stepExecutionId.number ?? 1),
               waitTimeSeconds: waitBudget.remainingSeconds("waitForStepCompletion", flowId),
-              requestId: options.requestId,
+              requestId,
             },
             callback,
           ),
@@ -1284,6 +1287,16 @@ function seconds(milliseconds: number | undefined): number {
 
 function isWaitForAttributeOptions(value: unknown): value is WaitForAttributeOptions {
   return typeof value === "object" && value !== null && "requestId" in value;
+}
+
+function effectiveStepCompletionWaitRequestId(
+  stepExecutionId: StepExecutionId,
+  options: WaitForStepCompletionOptions,
+): string {
+  if (options.requestId || (options.maximumWaitTimeMs ?? 0) !== 0) {
+    return options.requestId ?? "";
+  }
+  return `wait-for-step-completion:${stepExecutionId.stepType}-${stepExecutionId.number ?? 1}`;
 }
 
 class ClientWaitBudget {

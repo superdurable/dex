@@ -53,6 +53,7 @@ from dex.wait_options import (
     WaitForAttributeOptions,
     WaitForStepCompletionOptions,
     _ClientWaitBudget,
+    _effective_step_completion_wait_request_id,
 )
 
 InputT = TypeVar("InputT")
@@ -729,13 +730,14 @@ class Client:
     ) -> None:
         """Block until one Step execution completes or its handler budget expires.
 
-        Transport long polls automatically reattach with the same caller-owned
-        Request ID.
+        An infinite wait derives a stable Request ID from the Step execution
+        when none is supplied. A positive handler budget requires a caller-owned
+        Request ID. Transport long polls automatically reattach with the effective ID.
 
         Args:
             flow_id: The non-empty active Flow ID.
             step_execution_id: The Step type and positive execution number.
-            options: The required Request ID and total handler wait budget.
+            options: The optional Request ID override and total handler wait budget.
 
         Raises:
             ValueError: If the Request ID or handler wait budget is invalid.
@@ -743,7 +745,12 @@ class Client:
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
-        wait_budget = _ClientWaitBudget(options.request_id, options.maximum_wait_time)
+        request_id = _effective_step_completion_wait_request_id(
+            step_execution_id.step_type,
+            step_execution_id.number,
+            options,
+        )
+        wait_budget = _ClientWaitBudget(request_id, options.maximum_wait_time)
         while True:
             try:
                 self._call(
@@ -755,7 +762,7 @@ class Client:
                         wait_time_seconds=wait_budget.remaining_seconds(
                             "wait_for_step_completion", flow_id
                         ),
-                        request_id=options.request_id,
+                        request_id=request_id,
                     ),
                     "wait_for_step_completion",
                     flow_id,

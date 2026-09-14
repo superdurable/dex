@@ -374,14 +374,14 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
       requests.waitForAttribute.map((request) => request.requestId),
       [attributeOptions.requestId, attributeOptions.requestId],
     );
-    const stepOptions = { requestId: "wait-start" };
+    const stepOptions = {};
     await client.waitForStepCompletion("flow-1", { stepType: "Start", number: 1 }, stepOptions);
     assert.deepEqual(
       requests.waitForStepCompletion.map((request) => request.requestId),
-      [stepOptions.requestId, stepOptions.requestId],
+      ["wait-for-step-completion:Start-1", "wait-for-step-completion:Start-1"],
     );
     await assert.rejects(
-      client.waitForStepCompletion("flow-1", { stepType: "Start" }, { requestId: "" }),
+      client.waitForStepCompletion("flow-1", { stepType: "Start" }, { maximumWaitTimeMs: 1_000 }),
       /request ID is required/,
     );
     assert.equal(requests.start?.flowType, "TestFlow");
