@@ -62,10 +62,11 @@ from dex.flow_options import (
 )
 from dex.flow_result import FlowResult, StepCompletion
 from dex.runtime_errors import (
+    AttributeMapNotLoadedError,
+    ChannelMessageNotFoundError,
+    ChannelMessagesNotLoadedError,
     DexServiceError,
     ErrorSubStatus,
-    AttributeMapNotLoadedError,
-    ChannelMessagesNotLoadedError,
     FlowAlreadyStartedError,
     FlowDefinitionError,
     FlowErrorType,
@@ -73,9 +74,9 @@ from dex.runtime_errors import (
     FlowNotFoundError,
     InvalidStepResultError,
     LongPollTimeoutError,
-    ChannelMessageNotFoundError,
     RpcLockConflictError,
     ValueMappingError,
+    WaitHandlerTimeoutError,
     WorkerInvocationError,
 )
 from dex.step import (
@@ -108,6 +109,7 @@ from dex.stream import (
 from dex.subflow import SubFlow
 from dex.timer import Timer
 from dex.wait import Wait
+from dex.wait_options import WaitForAttributeOptions, WaitForStepCompletionOptions
 from dex.worker import Worker
 from dex.worker_options import WorkerOptions, WorkerTarget
 
@@ -164,6 +166,7 @@ __all__ = [
     "IndexType",
     "JsonCodec",
     "LongPollTimeoutError",
+    "WaitHandlerTimeoutError",
     "PersistenceSchema",
     "RPCResult",
     "RecoveryErrorInfo",
@@ -205,6 +208,8 @@ __all__ = [
     "WorkerInvocationError",
     "WorkerOptions",
     "WorkerTarget",
+    "WaitForAttributeOptions",
+    "WaitForStepCompletionOptions",
     "dead_end",
     "force_complete",
     "force_complete_if_channels_empty",

@@ -210,6 +210,15 @@ func DeadlineExceededLongPoll(details string) *ErrorAndStatus {
 	return NewErrorAndStatus(codes.DeadlineExceeded, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT, details)
 }
 
+// DeadlineExceededWaitHandler is returned when a durable wait handler reaches its caller-supplied deadline.
+func DeadlineExceededWaitHandler(details string) *ErrorAndStatus {
+	return NewErrorAndStatus(
+		codes.DeadlineExceeded,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT,
+		details,
+	)
+}
+
 // Internal is a convenience for unexpected failures.
 func Internal(details string) *ErrorAndStatus {
 	return NewErrorAndStatus(codes.Internal, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED, details)

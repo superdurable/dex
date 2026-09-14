@@ -13,7 +13,12 @@ from datetime import timedelta
 
 import pytest
 
-from dex import Attribute, AttributeMatch, LongPollTimeoutError
+from dex import (
+    Attribute,
+    AttributeMatch,
+    WaitForAttributeOptions,
+    WaitHandlerTimeoutError,
+)
 
 from .async_environment import AsyncDexDevTestEnvironment
 from .set_attributes_flow import SetAttributesFlow
@@ -30,16 +35,19 @@ async def _async_wait_for_attribute_match() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("async-wait-for-attribute")
         await environment.client.start_flow(flow, flow_id, "start")
-        with pytest.raises(LongPollTimeoutError):
+        with pytest.raises(WaitHandlerTimeoutError):
             await environment.client.wait_for_attribute_match(
                 flow_id,
                 flow.data,
                 AttributeMatch.equal_to("never"),
-                timedelta(seconds=1),
+                WaitForAttributeOptions(f"{flow_id}-never", timedelta(seconds=1)),
             )
         waiting = asyncio.create_task(
             environment.client.wait_for_attribute_match(
-                flow_id, flow.data, AttributeMatch.equal_to("ready"), timeout
+                flow_id,
+                flow.data,
+                AttributeMatch.equal_to("ready"),
+                WaitForAttributeOptions(f"{flow_id}-data", timeout),
             )
         )
         await environment.client.invoke_rpc(flow.set_data, flow_id, "ready")
@@ -50,7 +58,7 @@ async def _async_wait_for_attribute_match() -> None:
                 flow.data_map,
                 "special % key",
                 AttributeMatch.equal_to("mapped"),
-                timeout,
+                WaitForAttributeOptions(f"{flow_id}-map", timeout),
             )
         )
         await environment.client.invoke_rpc(flow.set_map_special, flow_id, "mapped")
@@ -63,7 +71,7 @@ async def _async_wait_for_attribute_match() -> None:
                 flow_id,
                 flow.model,
                 AttributeMatch.equal_to(ModelInput(value=1)),
-                timeout,
+                WaitForAttributeOptions(f"{flow_id}-model", timeout),
             )
         with pytest.raises(
             ValueError,
@@ -73,7 +81,7 @@ async def _async_wait_for_attribute_match() -> None:
                 flow_id,
                 Attribute("bytes", bytes),
                 AttributeMatch.equal_to(b"value"),
-                timeout,
+                WaitForAttributeOptions(f"{flow_id}-bytes", timeout),
             )
         with pytest.raises(
             ValueError,
@@ -83,5 +91,5 @@ async def _async_wait_for_attribute_match() -> None:
                 flow_id,
                 Attribute("null", type(None)),
                 AttributeMatch.equal_to(None),
-                timeout,
+                WaitForAttributeOptions(f"{flow_id}-null", timeout),
             )

@@ -180,6 +180,10 @@ private static final long serialVersionUID = 0L;
   public static final int WAIT_TIME_SECONDS_FIELD_NUMBER = 5;
   private int waitTimeSeconds_ = 0;
   /**
+   * <pre>
+   * Zero waits indefinitely; positive values bound the Temporal Update handler.
+   * </pre>
+   *
    * <code>int32 wait_time_seconds = 5;</code>
    * @return The waitTimeSeconds.
    */
@@ -193,7 +197,7 @@ private static final long serialVersionUID = 0L;
   private volatile java.lang.Object requestId_ = "";
   /**
    * <pre>
-   * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
    * </pre>
    *
    * <code>string request_id = 6;</code>
@@ -214,7 +218,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
    * </pre>
    *
    * <code>string request_id = 6;</code>
@@ -866,6 +870,10 @@ private static final long serialVersionUID = 0L;
 
     private int waitTimeSeconds_ ;
     /**
+     * <pre>
+     * Zero waits indefinitely; positive values bound the Temporal Update handler.
+     * </pre>
+     *
      * <code>int32 wait_time_seconds = 5;</code>
      * @return The waitTimeSeconds.
      */
@@ -874,6 +882,10 @@ private static final long serialVersionUID = 0L;
       return waitTimeSeconds_;
     }
     /**
+     * <pre>
+     * Zero waits indefinitely; positive values bound the Temporal Update handler.
+     * </pre>
+     *
      * <code>int32 wait_time_seconds = 5;</code>
      * @param value The waitTimeSeconds to set.
      * @return This builder for chaining.
@@ -886,6 +898,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Zero waits indefinitely; positive values bound the Temporal Update handler.
+     * </pre>
+     *
      * <code>int32 wait_time_seconds = 5;</code>
      * @return This builder for chaining.
      */
@@ -899,7 +915,7 @@ private static final long serialVersionUID = 0L;
     private java.lang.Object requestId_ = "";
     /**
      * <pre>
-     * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
      * </pre>
      *
      * <code>string request_id = 6;</code>
@@ -919,7 +935,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
      * </pre>
      *
      * <code>string request_id = 6;</code>
@@ -940,7 +956,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
      * </pre>
      *
      * <code>string request_id = 6;</code>
@@ -957,7 +973,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
      * </pre>
      *
      * <code>string request_id = 6;</code>
@@ -971,7 +987,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
      * </pre>
      *
      * <code>string request_id = 6;</code>

@@ -27,6 +27,7 @@ import io.superdurable.dex.StepCompletion;
 import io.superdurable.dex.TimerId;
 import io.superdurable.dex.FlowResult;
 import io.superdurable.dex.WorkerTarget;
+import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
@@ -404,14 +405,14 @@ public final class BasicTest {
             environment.client().waitForStepCompletion(
                     flowId,
                     StepExecutionId.of("BasicSecondStep"),
-                    Duration.ofSeconds(30));
+                    stepWaitOptions(flowId, "first", Duration.ofSeconds(30)));
             assertEquals(7, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
             assertThrows(
                     FlowNotActiveException.class,
                     () -> environment.client().waitForStepCompletion(
                             flowId,
                             StepExecutionId.of("BasicSecondStep", 2),
-                            Duration.ofSeconds(1)));
+                            stepWaitOptions(flowId, "second", Duration.ofSeconds(1))));
         }
     }
 
@@ -489,11 +490,21 @@ public final class BasicTest {
         client.waitForStepCompletion(
                 "basic",
                 StepExecutionId.of("BasicSecondStep"),
-                Duration.ofSeconds(5));
+                stepWaitOptions("basic", "second", Duration.ofSeconds(5)));
         consume(info);
     }
 
     private static void consume(final Object value) {
+    }
+
+    private static WaitForStepCompletionOptions stepWaitOptions(
+            final String flowId,
+            final String suffix,
+            final Duration maximumWaitTime) {
+        return WaitForStepCompletionOptions.newBuilder()
+                .requestId(flowId + "-wait-" + suffix)
+                .maximumWaitTime(maximumWaitTime)
+                .build();
     }
 
     private void assertRunningSubFlowReuseAcrossReset(

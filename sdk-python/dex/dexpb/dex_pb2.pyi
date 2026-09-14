@@ -137,6 +137,7 @@ class ErrorSubStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ERROR_SUB_STATUS_WORKER_API_ERROR: _ClassVar[ErrorSubStatus]
     ERROR_SUB_STATUS_LONG_POLL_TIME_OUT: _ClassVar[ErrorSubStatus]
     ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND: _ClassVar[ErrorSubStatus]
+    ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT: _ClassVar[ErrorSubStatus]
 
 class CloseDecisionType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -267,6 +268,7 @@ ERROR_SUB_STATUS_FLOW_NOT_EXISTS: ErrorSubStatus
 ERROR_SUB_STATUS_WORKER_API_ERROR: ErrorSubStatus
 ERROR_SUB_STATUS_LONG_POLL_TIME_OUT: ErrorSubStatus
 ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND: ErrorSubStatus
+ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT: ErrorSubStatus
 CLOSE_DECISION_TYPE_UNSPECIFIED: CloseDecisionType
 CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY: CloseDecisionType
 CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE: CloseDecisionType

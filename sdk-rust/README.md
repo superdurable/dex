@@ -103,6 +103,15 @@ include buffered publishes, and omit empty instances. Keys are decoded and
 sorted. Conditional completion is
 `StepDecision::force_complete_if_channels_empty`.
 
+Attribute waits and `Client::wait_for_step_completion` require a caller-owned
+Request ID in their dedicated options type. Reuse it only for retries of the
+same logical wait. The Client automatically reattaches transport long polls
+with that ID. `maximum_wait_time` is the total handler budget across
+reattachments; zero waits indefinitely. A positive budget expiry returns
+`SdkError::WaitHandlerTimeout`. An abandoned infinite wait remains accepted and
+counts against Temporal's in-flight Update limit until it completes or the Flow
+closes.
+
 `Client::wait_for_flow` and `wait_for_flow_with_timeout` return a
 `FlowResult` after hydrating every output-bearing completion. Use the
 strict helper for a single-output Flow:

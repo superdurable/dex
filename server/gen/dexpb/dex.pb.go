@@ -860,6 +860,7 @@ const (
 	ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR          ErrorSubStatus = 4
 	ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT        ErrorSubStatus = 5
 	ErrorSubStatus_ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND ErrorSubStatus = 6
+	ErrorSubStatus_ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT     ErrorSubStatus = 7
 )
 
 // Enum value maps for ErrorSubStatus.
@@ -872,6 +873,7 @@ var (
 		4: "ERROR_SUB_STATUS_WORKER_API_ERROR",
 		5: "ERROR_SUB_STATUS_LONG_POLL_TIME_OUT",
 		6: "ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND",
+		7: "ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT",
 	}
 	ErrorSubStatus_value = map[string]int32{
 		"ERROR_SUB_STATUS_UNSPECIFIED":               0,
@@ -881,6 +883,7 @@ var (
 		"ERROR_SUB_STATUS_WORKER_API_ERROR":          4,
 		"ERROR_SUB_STATUS_LONG_POLL_TIME_OUT":        5,
 		"ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND": 6,
+		"ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT":     7,
 	}
 )
 
@@ -7417,8 +7420,9 @@ type WaitForStepCompletionRequest struct {
 	// Identifies a step execution by type and its per-type execution number.
 	StepType            string `protobuf:"bytes,2,opt,name=step_type,json=stepType,proto3" json:"step_type,omitempty"`
 	StepExecutionNumber string `protobuf:"bytes,3,opt,name=step_execution_number,json=stepExecutionNumber,proto3" json:"step_execution_number,omitempty"`
-	WaitTimeSeconds     int32  `protobuf:"varint,5,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
-	// Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+	// Zero waits indefinitely; positive values bound the Temporal Update handler.
+	WaitTimeSeconds int32 `protobuf:"varint,5,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
+	// Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
 	RequestId     string `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7529,9 +7533,9 @@ type WaitForAttributeRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	FlowId string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
 	Match  *AttributeMatch        `protobuf:"bytes,2,opt,name=match,proto3" json:"match,omitempty"`
-	// Zero/omit checks once; positive waits until match or timeout.
+	// Zero waits indefinitely; positive values bound the Temporal Update handler.
 	WaitTimeSeconds int32 `protobuf:"varint,3,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
-	// Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+	// Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
 	RequestId     string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -13853,7 +13857,7 @@ const file_dex_proto_rawDesc = "" +
 	"%ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN\x10\x03\x122\n" +
 	".ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL\x10\x04\x12&\n" +
 	"\"ATTRIBUTE_MATCH_OPERATOR_LESS_THAN\x10\x05\x12/\n" +
-	"+ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL\x10\x06*\xa7\x02\n" +
+	"+ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL\x10\x06*\xd3\x02\n" +
 	"\x0eErrorSubStatus\x12 \n" +
 	"\x1cERROR_SUB_STATUS_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eERROR_SUB_STATUS_UNCATEGORIZED\x10\x01\x12)\n" +
@@ -13861,7 +13865,8 @@ const file_dex_proto_rawDesc = "" +
 	" ERROR_SUB_STATUS_FLOW_NOT_EXISTS\x10\x03\x12%\n" +
 	"!ERROR_SUB_STATUS_WORKER_API_ERROR\x10\x04\x12'\n" +
 	"#ERROR_SUB_STATUS_LONG_POLL_TIME_OUT\x10\x05\x12.\n" +
-	"*ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND\x10\x06*\x8b\x02\n" +
+	"*ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND\x10\x06\x12*\n" +
+	"&ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT\x10\a*\x8b\x02\n" +
 	"\x11CloseDecisionType\x12#\n" +
 	"\x1fCLOSE_DECISION_TYPE_UNSPECIFIED\x10\x00\x128\n" +
 	"4CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY\x10\x01\x12)\n" +

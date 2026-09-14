@@ -187,7 +187,10 @@ test("timer completes within the expected wall-clock interval", async () => {
     const id = flowId("basic-timer");
     const startedAt = performance.now();
     await client.startFlow(flow, id, 5);
-    await client.waitForStepCompletion(id, StepExecutionId.of("TimerStep"), 10_000);
+    await client.waitForStepCompletion(id, StepExecutionId.of("TimerStep"), {
+      requestId: `${id}-wait-timer`,
+      maximumWaitTimeMs: 10_000,
+    });
     await client.waitForFlow(id);
     const elapsedMs = performance.now() - startedAt;
     assert.ok(elapsedMs >= 4_000 && elapsedMs <= 7_000, `actual duration: ${elapsedMs}`);

@@ -1,0 +1,76 @@
+# Copyright (c) 2026 Super Durable, Inc.
+#
+# Licensed under the Sustainable Use License 1.0.
+# You may not use this file except in compliance with the License.
+# See the LICENSE file in the repository root.
+#
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import timedelta
+from math import ceil
+from time import monotonic
+
+import grpc
+
+from dex.runtime_errors import ErrorSubStatus, WaitHandlerTimeoutError
+
+
+@dataclass(frozen=True)
+class WaitForStepCompletionOptions:
+    """Configure one durable Step completion wait.
+
+    ``request_id`` is required when the Client call begins. Reuse it only for
+    the same logical wait. A zero ``maximum_wait_time`` waits indefinitely.
+    An abandoned infinite wait remains in flight until completion or Flow closure.
+
+    Attributes:
+        request_id: The caller-owned idempotency key for this logical Step wait.
+        maximum_wait_time: The total handler budget. Zero waits indefinitely.
+    """
+
+    request_id: str = ""
+    maximum_wait_time: timedelta = timedelta(0)
+
+
+@dataclass(frozen=True)
+class WaitForAttributeOptions:
+    """Configure one durable Attribute match wait.
+
+    ``request_id`` is required when the Client call begins. Reuse it only for
+    the same logical predicate. A zero ``maximum_wait_time`` waits indefinitely.
+    An abandoned infinite wait remains in flight until a match or Flow closure.
+
+    Attributes:
+        request_id: The caller-owned idempotency key for this logical predicate.
+        maximum_wait_time: The total handler budget. Zero waits indefinitely.
+    """
+
+    request_id: str = ""
+    maximum_wait_time: timedelta = timedelta(0)
+
+
+class _ClientWaitBudget:
+    def __init__(self, request_id: str, maximum_wait_time: timedelta) -> None:
+        if not request_id:
+            raise ValueError("wait request ID is required")
+        seconds = maximum_wait_time.total_seconds()
+        if seconds < 0 or not seconds.is_integer() or seconds > 2_147_483_647:
+            raise ValueError("duration must be whole seconds within int32")
+        self._deadline = monotonic() + seconds if seconds else None
+
+    def remaining_seconds(self, operation: str, flow_id: str) -> int:
+        if self._deadline is None:
+            return 0
+        remaining = self._deadline - monotonic()
+        if remaining <= 0:
+            raise WaitHandlerTimeoutError(
+                grpc.StatusCode.DEADLINE_EXCEEDED,
+                ErrorSubStatus.WAIT_HANDLER_TIMEOUT,
+                "wait handler timed out",
+                operation,
+                flow_id,
+            )
+        return ceil(remaining)

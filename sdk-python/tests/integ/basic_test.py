@@ -18,6 +18,7 @@ from dex import (
     IdReusePolicy,
     StartFlowOptions,
     StepExecutionId,
+    WaitForStepCompletionOptions,
     WorkerTarget,
 )
 
@@ -68,6 +69,6 @@ def compile_describe_and_step_wait(client: Client) -> None:
     client.wait_for_step_completion(
         "basic",
         StepExecutionId("BasicSecondStep"),
-        timedelta(seconds=5),
+        WaitForStepCompletionOptions("wait-basic-second-step", timedelta(seconds=5)),
     )
     del info

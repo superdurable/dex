@@ -167,7 +167,7 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 		FlowId:              flowId,
 		StepType:            wait_for_state_completion.State1,
 		StepExecutionNumber: "999",
-		WaitTimeSeconds:     0,
+		WaitTimeSeconds:     1,
 		RequestId:           uuid.NewString(),
 	})
 	require.Error(t, err)
@@ -175,7 +175,7 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 	errResp := grpcServiceErrorResponse(t, err)
 	require.Equal(
 		t,
-		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT,
 		errResp.GetSubStatus(),
 	)
 	require.Equal(t, "step completion wait timed out", errResp.GetDetail())

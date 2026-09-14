@@ -30,7 +30,10 @@ for (const scenario of cancellationScenarios) {
         const selected = scenario === "heartbeat-wait-for"
           ? flow.blockingWaitFor
           : flow.blockingExecute;
-        await client.waitForStepCompletion(id, StepExecutionId.of(selected.getStepType()), 30_000);
+        await client.waitForStepCompletion(id, StepExecutionId.of(selected.getStepType()), {
+          requestId: `${id}-wait-selected-step`,
+          maximumWaitTimeMs: 30_000,
+        });
       }
 
       assert.equal(

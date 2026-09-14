@@ -11,7 +11,12 @@
 from datetime import timedelta
 from time import monotonic
 
-from dex import FlowConfig, StartFlowOptions, StepExecutionId
+from dex import (
+    FlowConfig,
+    StartFlowOptions,
+    StepExecutionId,
+    WaitForStepCompletionOptions,
+)
 
 from .environment import DexDevTestEnvironment
 from .execute_only_flow import ExecuteOnlyFlow
@@ -93,7 +98,9 @@ def test_timer_duration_and_step_completion() -> None:
         environment.client.wait_for_step_completion(
             flow_id,
             StepExecutionId("TimerStep"),
-            timedelta(seconds=10),
+            WaitForStepCompletionOptions(
+                f"{flow_id}-wait-timer", timedelta(seconds=10)
+            ),
         )
         environment.client.wait_for_flow(flow_id)
         elapsed = monotonic() - started_at

@@ -119,7 +119,7 @@ func NewWorkflowUpdater(
 type stepCompletionWait struct {
 	updater             *WorkflowUpdater
 	request             *dexpb.WaitForStepCompletionRequest
-	deadline            time.Time
+	timeout             interfaces.Future
 	stepExecutionNumber int32
 	matched             bool
 }
@@ -127,7 +127,7 @@ type stepCompletionWait struct {
 type attributeWait struct {
 	updater      *WorkflowUpdater
 	request      *dexpb.WaitForAttributeRequest
-	deadline     time.Time
+	timeout      interfaces.Future
 	matchedValue *dexpb.Value
 	matchErr     error
 }
@@ -408,14 +408,16 @@ func (u *WorkflowUpdater) handleWaitForStepCompletion(
 			err.Error(),
 		)
 	}
+	timeout, cancelTimeout := u.newWaitHandlerTimeout(ctx, request.GetWaitTimeSeconds())
+	defer cancelTimeout()
 	wait := &stepCompletionWait{
 		updater:             u,
 		request:             request,
-		deadline:            workflowDeadline(u.provider.Now(ctx), request.GetWaitTimeSeconds()),
+		timeout:             timeout,
 		stepExecutionNumber: stepExecutionNumber,
 	}
-	isReady := func() bool { return wait.ready(ctx) }
-	if !isReady() && request.GetWaitTimeSeconds() > 0 {
+	isReady := func() bool { return wait.ready() }
+	if !isReady() {
 		if err := u.provider.Await(ctx, isReady); err != nil {
 			return nil, err
 		}
@@ -423,8 +425,7 @@ func (u *WorkflowUpdater) handleWaitForStepCompletion(
 	if wait.matched {
 		return &dexpb.WaitForStepCompletionResponse{}, nil
 	}
-	if deadlinePassed(u.provider.Now(ctx), wait.deadline) ||
-		request.GetWaitTimeSeconds() == 0 {
+	if wait.hasTimedOut() {
 		return nil, u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED,
 			"step completion wait timed out",
@@ -436,14 +437,19 @@ func (u *WorkflowUpdater) handleWaitForStepCompletion(
 	)
 }
 
-func (w *stepCompletionWait) ready(ctx interfaces.UnifiedContext) bool {
+func (w *stepCompletionWait) ready() bool {
 	w.matched = w.updater.stepExecutionCounter.IsStepExecutionCompleted(
 		w.request.GetStepType(),
 		w.stepExecutionNumber,
 	)
 	return w.matched ||
+		w.updater.terminalCoordinator.HasStartedFinalizing() ||
 		w.updater.continueAsNewCounter.IsThresholdMet() ||
-		deadlinePassed(w.updater.provider.Now(ctx), w.deadline)
+		w.hasTimedOut()
+}
+
+func (w *stepCompletionWait) hasTimedOut() bool {
+	return w.timeout != nil && w.timeout.IsReady()
 }
 
 func parseWaitForStepExecutionNumber(value string) (int32, error) {
@@ -512,13 +518,15 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 ) (*dexpb.WaitForAttributeResponse, error) {
 	u.continueAsNewer.IncreaseInflightOperation()
 	defer u.continueAsNewer.DecreaseInflightOperation()
+	timeout, cancelTimeout := u.newWaitHandlerTimeout(ctx, request.GetWaitTimeSeconds())
+	defer cancelTimeout()
 	wait := &attributeWait{
-		updater:  u,
-		request:  request,
-		deadline: workflowDeadline(u.provider.Now(ctx), request.GetWaitTimeSeconds()),
+		updater: u,
+		request: request,
+		timeout: timeout,
 	}
-	isReady := func() bool { return wait.isReady(ctx) }
-	if !isReady() && request.GetWaitTimeSeconds() > 0 {
+	isReady := func() bool { return wait.isReady() }
+	if !isReady() {
 		if err := u.provider.Await(ctx, isReady); err != nil {
 			return nil, err
 		}
@@ -532,8 +540,7 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 	if wait.matchedValue != nil {
 		return &dexpb.WaitForAttributeResponse{MatchedValue: wait.matchedValue}, nil
 	}
-	if deadlinePassed(u.provider.Now(ctx), wait.deadline) ||
-		request.GetWaitTimeSeconds() == 0 {
+	if wait.hasTimedOut() {
 		return nil, u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED,
 			"attribute wait timed out",
@@ -545,12 +552,17 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 	)
 }
 
-func (w *attributeWait) isReady(ctx interfaces.UnifiedContext) bool {
+func (w *attributeWait) isReady() bool {
 	w.matchedValue, w.matchErr = w.updater.matchAttribute(w.request)
 	return w.matchedValue != nil ||
 		w.matchErr != nil ||
+		w.updater.terminalCoordinator.HasStartedFinalizing() ||
 		w.updater.continueAsNewCounter.IsThresholdMet() ||
-		deadlinePassed(w.updater.provider.Now(ctx), w.deadline)
+		w.hasTimedOut()
+}
+
+func (w *attributeWait) hasTimedOut() bool {
+	return w.timeout != nil && w.timeout.IsReady()
 }
 
 func (u *WorkflowUpdater) matchAttribute(
@@ -590,15 +602,18 @@ func isBlobValue(value *dexpb.Value) bool {
 	}
 }
 
-func workflowDeadline(start time.Time, timeoutSeconds int32) time.Time {
-	if timeoutSeconds <= 0 {
-		return start
+func (u *WorkflowUpdater) newWaitHandlerTimeout(
+	ctx interfaces.UnifiedContext,
+	timeoutSeconds int32,
+) (interfaces.Future, func()) {
+	if timeoutSeconds == 0 {
+		return nil, func() {}
 	}
-	return start.Add(time.Duration(timeoutSeconds) * time.Second)
-}
-
-func deadlinePassed(now, deadline time.Time) bool {
-	return now.After(deadline)
+	timerContext, cancelTimeout := u.provider.WithCancel(ctx)
+	return u.provider.NewTimer(
+		timerContext,
+		time.Duration(timeoutSeconds)*time.Second,
+	), cancelTimeout
 }
 
 func validateAttributeMatch(match *dexpb.AttributeMatch) error {

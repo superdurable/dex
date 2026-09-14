@@ -53,7 +53,7 @@ export async function compileDescribeAndStepWait(client: Client): Promise<void> 
   await client.waitForStepCompletion(
     "basic",
     StepExecutionId.of("BasicSecondStep"),
-    5_000,
+    { requestId: "wait-basic-second-step", maximumWaitTimeMs: 5_000 },
   );
   void info;
 }

@@ -24,6 +24,7 @@ class ErrorSubStatus(Enum):
         WORKER_API_ERROR: An application Worker rejected or failed an invocation.
         LONG_POLL_TIMEOUT: A wait ended without observing its condition.
         CHANNEL_MESSAGE_NOT_FOUND: A pending Channel message ID no longer exists.
+        WAIT_HANDLER_TIMEOUT: A durable wait reached its total handler budget.
     """
 
     UNCATEGORIZED = "uncategorized"
@@ -32,6 +33,7 @@ class ErrorSubStatus(Enum):
     WORKER_API_ERROR = "worker_api_error"
     LONG_POLL_TIMEOUT = "long_poll_timeout"
     CHANNEL_MESSAGE_NOT_FOUND = "channel_message_not_found"
+    WAIT_HANDLER_TIMEOUT = "wait_handler_timeout"
 
 
 class FlowErrorType(Enum):
@@ -159,6 +161,12 @@ class RpcLockConflictError(DexServiceError):
 
 class LongPollTimeoutError(DexServiceError):
     """Indicate that a retryable long poll ended before its condition was observed."""
+
+    pass
+
+
+class WaitHandlerTimeoutError(DexServiceError):
+    """Indicate that a durable wait reached its caller-defined total budget."""
 
     pass
 

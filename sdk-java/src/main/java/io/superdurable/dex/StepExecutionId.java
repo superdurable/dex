@@ -18,7 +18,13 @@ package io.superdurable.dex;
  *
  * <pre>{@code
  * StepExecutionId execution = StepExecutionId.of("ChargeCard", 2);
- * client.waitForStepCompletion("order-123", execution, Duration.ofSeconds(30));
+ * client.waitForStepCompletion(
+ *         "order-123",
+ *         execution,
+ *         WaitForStepCompletionOptions.newBuilder()
+ *                 .requestId("wait-order-123-charge-2")
+ *                 .maximumWaitTime(Duration.ofSeconds(30))
+ *                 .build());
  * }</pre>
  */
 public final class StepExecutionId {

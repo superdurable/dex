@@ -14,6 +14,7 @@ package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.StepExecutionId;
+import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,7 @@ public final class TimerTest {
             environment.client().waitForStepCompletion(
                     flowId,
                     StepExecutionId.of("TimerStep"),
-                    Duration.ofSeconds(10));
+                    waitOptions(flowId, Duration.ofSeconds(10)));
             environment.client().waitForFlow(flowId);
             final long elapsedMillis = Duration.ofNanos(
                     System.nanoTime() - startedAt).toMillis();
@@ -58,7 +59,16 @@ public final class TimerTest {
         client.waitForStepCompletion(
                 "timer",
                 StepExecutionId.of("TimerStep"),
-                Duration.ofSeconds(10));
+                waitOptions("timer", Duration.ofSeconds(10)));
         client.waitForFlow("timer");
+    }
+
+    private static WaitForStepCompletionOptions waitOptions(
+            final String flowId,
+            final Duration maximumWaitTime) {
+        return WaitForStepCompletionOptions.newBuilder()
+                .requestId(flowId + "-wait-timer")
+                .maximumWaitTime(maximumWaitTime)
+                .build();
     }
 }

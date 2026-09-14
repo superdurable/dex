@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -496,6 +497,7 @@ func runCancellationScenario(t *testing.T, scenario cancellationScenario) {
 			integrationContext(t),
 			flowID,
 			dex.StepExecutionID{StepType: stepType},
+			dex.WaitForStepCompletionOptions{RequestID: uuid.NewString()},
 		))
 	}
 

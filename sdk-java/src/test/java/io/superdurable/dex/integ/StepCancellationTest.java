@@ -14,6 +14,7 @@ package io.superdurable.dex.integ;
 
 import io.superdurable.dex.FlowResult;
 import io.superdurable.dex.StepExecutionId;
+import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -62,7 +63,7 @@ public final class StepCancellationTest {
             environment.client().waitForStepCompletion(
                     flowId,
                     StepExecutionId.of(workflow.canceledStepType()),
-                    FLOW_TIMEOUT);
+                    waitOptions(flowId, "local", FLOW_TIMEOUT));
             assertTrue(workflow.awaitCancellation(FLOW_TIMEOUT));
             assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.LOCAL_EXECUTE);
             assertTrue(workflow.wasHandlerInterrupted());
@@ -84,7 +85,7 @@ public final class StepCancellationTest {
             environment.client().waitForStepCompletion(
                     flowId,
                     StepExecutionId.of(workflow.canceledStepType()),
-                    FLOW_TIMEOUT);
+                    waitOptions(flowId, "local-fallback", FLOW_TIMEOUT));
             assertCompleted(
                     environment,
                     flowId,
@@ -108,7 +109,7 @@ public final class StepCancellationTest {
             environment.client().waitForStepCompletion(
                     flowId,
                     StepExecutionId.of(workflow.canceledStepType()),
-                    CANCELLATION_TIMEOUT);
+                    waitOptions(flowId, "no-heartbeat", CANCELLATION_TIMEOUT));
             assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.NO_HEARTBEAT);
             assertFalse(workflow.hasLateHandlerReturned());
             assertFalse(workflow.wasHandlerInterrupted());
@@ -153,7 +154,7 @@ public final class StepCancellationTest {
             environment.client().waitForStepCompletion(
                     flowId,
                     StepExecutionId.of(workflow.selectorWinnerStepType()),
-                    CANCELLATION_TIMEOUT);
+                    waitOptions(flowId, "selector", CANCELLATION_TIMEOUT));
             environment.client().invokeRPC(stub::releaseSelectorWaiting);
             assertTrue(workflow.awaitSecondSelectorExecution(CANCELLATION_TIMEOUT));
             environment.client().invokeRPC(stub::releaseSelectorFinal);
@@ -175,7 +176,7 @@ public final class StepCancellationTest {
             environment.client().waitForStepCompletion(
                     flowId,
                     StepExecutionId.of(workflow.canceledStepType()),
-                    cancellationTimeout);
+                    waitOptions(flowId, scenario.name(), cancellationTimeout));
             assertTrue(workflow.awaitCancellation(cancellationTimeout));
             assertCompleted(environment, flowId, scenario);
             assertTrue(workflow.wasHandlerInterrupted());
@@ -191,6 +192,16 @@ public final class StepCancellationTest {
         final String flowId = prefix + "-" + UUID.randomUUID();
         environment.client().startFlow(workflow, flowId, null);
         return flowId;
+    }
+
+    private static WaitForStepCompletionOptions waitOptions(
+            final String flowId,
+            final String suffix,
+            final Duration maximumWaitTime) {
+        return WaitForStepCompletionOptions.newBuilder()
+                .requestId(flowId + "-wait-" + suffix)
+                .maximumWaitTime(maximumWaitTime)
+                .build();
     }
 
     private static void assertCompleted(

@@ -10,7 +10,7 @@
 
 use std::time::{Duration, Instant};
 
-use dex_sdk::{Client, Registry, SdkResult, StepExecutionId};
+use dex_sdk::{Client, Registry, SdkResult, StepExecutionId, WaitForStepCompletionOptions};
 
 use crate::support::{DexDevTestEnvironment, flow_id};
 use crate::timer_workflow::TimerWorkflow;
@@ -31,7 +31,9 @@ fn test_basic_timer_workflow() {
         .wait_for_step_completion(
             &flow_id,
             StepExecutionId::of(&workflow.start),
-            Duration::from_secs(10),
+            WaitForStepCompletionOptions::new()
+                .request_id(format!("{flow_id}-wait-timer"))
+                .maximum_wait_time(Duration::from_secs(10)),
         )
         .expect("wait for Timer Step");
     environment
@@ -52,7 +54,9 @@ fn compile_timer_and_step_wait(client: &Client) -> SdkResult<()> {
     client.wait_for_step_completion(
         "timer",
         StepExecutionId::of(&workflow.start),
-        Duration::from_secs(10),
+        WaitForStepCompletionOptions::new()
+            .request_id("wait-timer-step")
+            .maximum_wait_time(Duration::from_secs(10)),
     )?;
     let _ = client.wait_for_flow("timer")?;
     Ok(())

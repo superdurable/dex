@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
@@ -155,6 +156,7 @@ func waitForOrderStatus(
 		OrderStatus,
 		dex.AttributeMatchEqual("shipped"),
 		&matched,
+		dex.WaitForAttributeOptions{RequestID: uuid.NewString(), MaximumWaitTime: time.Minute},
 	)
 }
 
@@ -171,6 +173,7 @@ func waitForItemQuantity(
 		"sku-1",
 		dex.AttributeMatchEqual(3),
 		&matched,
+		dex.WaitForAttributeOptions{RequestID: uuid.NewString(), MaximumWaitTime: time.Minute},
 	)
 }
 
@@ -275,6 +278,7 @@ func waitForOrderStep(
 		dex.StepExecutionID{
 			StepType: dex.GetFinalStepType(WaitForCommand),
 		},
+		dex.WaitForStepCompletionOptions{RequestID: uuid.NewString(), MaximumWaitTime: time.Minute},
 	)
 }
 

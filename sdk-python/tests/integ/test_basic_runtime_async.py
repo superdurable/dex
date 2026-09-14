@@ -25,6 +25,7 @@ from dex import (
     StartFlowOptions,
     StepExecutionId,
     ValueMappingError,
+    WaitForStepCompletionOptions,
 )
 
 from .abnormal_exit_flow import AbnormalExitFlow
@@ -197,7 +198,7 @@ async def _wait_for_step_completion() -> None:
         await environment.client.wait_for_step_completion(
             flow_id,
             StepExecutionId("BasicSecondStep"),
-            WAIT_TIMEOUT,
+            WaitForStepCompletionOptions(f"{flow_id}-wait-second-step", WAIT_TIMEOUT),
         )
         assert (
             await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)

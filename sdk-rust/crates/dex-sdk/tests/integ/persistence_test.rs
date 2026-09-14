@@ -10,7 +10,10 @@
 
 use std::time::Duration;
 
-use dex_sdk::{Attribute, AttributeMatch, Client, Registry, SdkError, SdkResult, StartFlowOptions};
+use dex_sdk::{
+    Attribute, AttributeMatch, Client, Registry, SdkError, SdkResult, StartFlowOptions,
+    WaitForAttributeOptions,
+};
 
 use crate::persistence_set_attributes_workflow::{
     self as set_attributes, PersistenceSetAttributesWorkflow,
@@ -89,9 +92,9 @@ fn test_set_data_attributes() {
             &flow_id,
             &set_attributes::DATA,
             AttributeMatch::equal_to("never".to_string()),
-            Duration::from_secs(1),
+            wait_options(&flow_id, "never", 1),
         ),
-        Err(SdkError::LongPollTimeout { .. })
+        Err(SdkError::WaitHandlerTimeout { .. })
     ));
     std::thread::scope(|scope| {
         let waiting = scope.spawn(|| {
@@ -99,7 +102,7 @@ fn test_set_data_attributes() {
                 &flow_id,
                 &set_attributes::DATA,
                 AttributeMatch::equal_to("query-start".to_string()),
-                Duration::from_secs(30),
+                wait_options(&flow_id, "data", 30),
             )
         });
         environment
@@ -123,7 +126,7 @@ fn test_set_data_attributes() {
                 &set_attributes::DATA_MAP,
                 "special % key",
                 AttributeMatch::equal_to("mapped-value".to_string()),
-                Duration::from_secs(30),
+                wait_options(&flow_id, "map", 30),
             )
         });
         environment
@@ -152,7 +155,7 @@ fn test_set_data_attributes() {
                 &flow_id,
                 &set_attributes::INTEGER,
                 AttributeMatch::greater_than(0),
-                Duration::from_secs(30),
+                wait_options(&flow_id, "integer", 30),
             )
             .expect("wait for revision Attribute")
     );
@@ -161,7 +164,7 @@ fn test_set_data_attributes() {
             &flow_id,
             &set_attributes::MODEL,
             AttributeMatch::equal_to(PersistenceModel { value: 8 }),
-            Duration::from_secs(30),
+            wait_options(&flow_id, "model", 30),
         ),
         Err(SdkError::InvalidArgument { .. })
     ));
@@ -170,7 +173,7 @@ fn test_set_data_attributes() {
             &flow_id,
             &Attribute::<Vec<u8>>::new("bytes"),
             AttributeMatch::equal_to(vec![1]),
-            Duration::from_secs(30),
+            wait_options(&flow_id, "bytes", 30),
         ),
         Err(SdkError::InvalidArgument { .. })
     ));
@@ -179,7 +182,7 @@ fn test_set_data_attributes() {
             &flow_id,
             &Attribute::<()>::new("null"),
             AttributeMatch::equal_to(()),
-            Duration::from_secs(30),
+            wait_options(&flow_id, "null", 30),
         ),
         Err(SdkError::InvalidArgument { .. })
     ));
@@ -246,14 +249,14 @@ fn compile_persistence_writes(client: &Client) -> SdkResult<()> {
         "set-attributes",
         &set_attributes::DATA,
         AttributeMatch::equal_to("value".to_string()),
-        Duration::from_secs(30),
+        wait_options("set-attributes", "data", 30),
     )?;
     let _: String = client.wait_for_attribute_map_instance_match(
         "set-attributes",
         &set_attributes::DATA_MAP,
         "one",
         AttributeMatch::equal_to("value".to_string()),
-        Duration::from_secs(30),
+        wait_options("set-attributes", "map", 30),
     )?;
     client.invoke_rpc_without_input::<()>(
         "set-attributes",
@@ -261,4 +264,10 @@ fn compile_persistence_writes(client: &Client) -> SdkResult<()> {
     )?;
     let _: String = client.wait_for_flow("set-attributes")?.single_output()?;
     Ok(())
+}
+
+fn wait_options(flow_id: &str, suffix: &str, seconds: u64) -> WaitForAttributeOptions {
+    WaitForAttributeOptions::new()
+        .request_id(format!("{flow_id}-wait-{suffix}"))
+        .maximum_wait_time(Duration::from_secs(seconds))
 }

@@ -10,7 +10,7 @@
 
 from datetime import timedelta
 
-from dex import Client, StepExecutionId
+from dex import Client, StepExecutionId, WaitForStepCompletionOptions
 
 from .timer_flow import TimerFlow
 
@@ -20,6 +20,6 @@ def compile_timer_and_step_wait(client: Client) -> None:
     client.wait_for_step_completion(
         "timer",
         StepExecutionId("TimerStep"),
-        timedelta(seconds=10),
+        WaitForStepCompletionOptions("wait-timer-step", timedelta(seconds=10)),
     )
     client.wait_for_flow("timer")

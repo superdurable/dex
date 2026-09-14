@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
@@ -171,6 +172,7 @@ func runChannelFlow(
 		waitCtx,
 		flowID,
 		dex.StepExecutionID{StepType: dex.GetFinalStepType(channelFlowFirstStep{})},
+		dex.WaitForStepCompletionOptions{RequestID: uuid.NewString()},
 	)
 	cancelWait()
 	require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -188,6 +190,7 @@ func runChannelFlow(
 		waitCtx,
 		flowID,
 		dex.StepExecutionID{StepType: dex.GetFinalStepType(channelFlowFirstStep{})},
+		dex.WaitForStepCompletionOptions{RequestID: uuid.NewString()},
 	))
 	cancelWait()
 	require.NoError(t, integClient.InvokeRPC(

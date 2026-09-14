@@ -319,6 +319,15 @@ integers and doubles support every operator. Every AttributeMap and ChannelMap
 instance must be non-empty and must not contain `/`. Objects,
 bytes, null, non-finite doubles, and invalid ordering fail before the RPC.
 
+Both Attribute waits and `WaitForStepCompletion` require a caller-owned request
+ID in their dedicated options type. Reuse that ID only for retries of the same
+logical wait. The Client automatically reattaches transport long polls with the
+same ID. `MaximumWaitTime` is the total handler budget across reattachments;
+zero waits indefinitely. A positive budget expiry returns
+`*dex.WaitHandlerTimeoutError`. An abandoned infinite wait remains accepted and
+counts against Temporal's in-flight Update limit until it matches or the Flow
+closes.
+
 Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and
 include buffered publishes, but omit empty instances. Keys are decoded and
@@ -501,9 +510,10 @@ StartFlow uses the starting step retained by Registry. Its input must match
 that step's input type, and its step options come from the registered Step.
 Flows without a starting step require nil input.
 
-The SDK generates request IDs for StartFlow, InvokeRPC, and both
-wait-update APIs. Only `StartFlowOptions.RequestID` is public because it may be
-a stable business identifier spanning separate calls.
+The SDK generates request IDs for StartFlow and InvokeRPC. A
+`StartFlowOptions.RequestID` may provide a stable business identifier spanning
+separate calls. Durable wait request IDs are required and caller-owned through
+their dedicated options types.
 
 Client is safe for concurrent calls. `Close` is idempotent and closes only its
 owned gRPC connection. Calls after Close return a local error.
@@ -584,9 +594,10 @@ seconds are preserved. Numeric strings are not treated as Unix nanoseconds.
 Initial indexed values are validated by `dex.InitialAttribute` and
 `dex.InitialAttributeMapValue`.
 
-The SDK generates a UUID for every request-ID-bearing call.
-`StartFlowOptions.RequestID` may override the generated start ID. Retries reuse
-the selected UUID.
+The SDK generates UUIDs for StartFlow and InvokeRPC.
+`StartFlowOptions.RequestID` may override the generated start ID. Durable waits
+require caller-owned request IDs. Automatic reattachments reuse the selected
+ID.
 
 Large string and object values may be returned as blob references. Worker
 inputs and Client results hydrate before handler or application decode. Decode

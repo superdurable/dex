@@ -23,6 +23,7 @@ import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
+import io.superdurable.dex.exceptions.WaitHandlerTimeoutException;
 import io.superdurable.gen.ServiceErrorResponse;
 
 final class GrpcExceptionTranslator {
@@ -68,6 +69,8 @@ final class GrpcExceptionTranslator {
                 return new LongPollTimeoutException(code, detail, flowId, exception);
             case CHANNEL_MESSAGE_NOT_FOUND:
                 return new ChannelMessageNotFoundException(code, detail, exception);
+            case WAIT_HANDLER_TIMEOUT:
+                return new WaitHandlerTimeoutException(code, detail, exception);
             default:
                 return new DexServiceException(code, subStatus, detail, exception);
         }
@@ -166,6 +169,8 @@ final class GrpcExceptionTranslator {
                 return ErrorSubStatus.LONG_POLL_TIMEOUT;
             case ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND:
                 return ErrorSubStatus.CHANNEL_MESSAGE_NOT_FOUND;
+            case ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT:
+                return ErrorSubStatus.WAIT_HANDLER_TIMEOUT;
             default:
                 return ErrorSubStatus.UNCATEGORIZED;
         }

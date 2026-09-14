@@ -28,6 +28,7 @@ import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
+import io.superdurable.dex.exceptions.WaitHandlerTimeoutException;
 import io.superdurable.gen.AttributeSyncConfig;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.FlowAlreadyStartedOptions;
@@ -758,44 +759,55 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Blocks until a specific Step execution completes or the wait duration expires.
+     * Blocks until a specific Step execution completes or its total handler budget expires.
+     * Transport long polls automatically reattach with the same caller-owned Request ID.
      *
      * @param flowId the target Flow ID
      * @param stepExecutionId the Step execution to observe
-     * @param timeout the nonnegative whole-second wait duration
-     * @throws IllegalArgumentException if {@code timeout} is not a supported whole-second duration
-     * @throws LongPollTimeoutException if {@code timeout} expires before the Step completes
+     * @param options the required Request ID and total handler wait budget
+     * @throws IllegalArgumentException if the Request ID is empty or the wait budget is unsupported
+     * @throws WaitHandlerTimeoutException if a positive handler budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
      */
     public void waitForStepCompletion(
             final String flowId,
             final StepExecutionId stepExecutionId,
-            final Duration timeout) {
-        call(
-                () -> service.waitForStepCompletion(WaitForStepCompletionRequest.newBuilder()
+            final WaitForStepCompletionOptions options) {
+        final ClientWaitBudget waitBudget = new ClientWaitBudget(
+                options.getRequestId(), options.getMaximumWaitTime());
+        while (true) {
+            try {
+                final int remainingSeconds = waitBudget.remainingSeconds();
+                call(() -> service.waitForStepCompletion(WaitForStepCompletionRequest.newBuilder()
                         .setFlowId(flowId)
                         .setStepType(stepExecutionId.getStepType())
                         .setStepExecutionNumber(
                                 Integer.toString(stepExecutionId.getExecutionNumber()))
-                        .setWaitTimeSeconds(seconds32(timeout))
-                        .setRequestId(UUID.randomUUID().toString())
+                        .setWaitTimeSeconds(remainingSeconds)
+                        .setRequestId(options.getRequestId())
                         .build()),
-                FlowTargetRequirement.ACTIVE,
-                flowId);
+                        FlowTargetRequirement.ACTIVE,
+                        flowId);
+                return;
+            } catch (LongPollTimeoutException timeout) {
+                // Reattach to the same durable Update with the same Request ID.
+            }
+        }
     }
 
     /**
-     * Blocks until a singleton Attribute satisfies a scalar match or the wait expires.
+     * Blocks until a singleton Attribute satisfies a scalar match or its handler budget expires.
+     * Transport long polls automatically reattach with the same caller-owned Request ID.
      *
      * @param flowId the target Flow ID
      * @param attribute the registered Attribute definition
      * @param match the scalar predicate to await
-     * @param timeout the nonnegative whole-second wait duration
+     * @param options the required Request ID and total handler wait budget
      * @param <T> the Attribute value type
      * @return the current Attribute value that satisfied the match
-     * @throws IllegalArgumentException if the match operand or operator is unsupported
-     * @throws LongPollTimeoutException if the timeout expires before the value matches
+     * @throws IllegalArgumentException if the Request ID, budget, match operand, or operator is invalid
+     * @throws WaitHandlerTimeoutException if a positive handler budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
      */
@@ -803,9 +815,9 @@ public final class Client implements AutoCloseable {
             final String flowId,
             final Attribute<T> attribute,
             final AttributeMatch<T> match,
-            final Duration timeout) {
+            final WaitForAttributeOptions options) {
         return waitForAttributeValue(
-                flowId, attribute, null, attribute.getValueType(), match, timeout);
+                flowId, attribute, null, attribute.getValueType(), match, options);
     }
 
     /**
@@ -815,11 +827,11 @@ public final class Client implements AutoCloseable {
      * @param attribute the registered Attribute-map definition
      * @param instance the map instance
      * @param match the scalar predicate to await
-     * @param timeout the nonnegative whole-second wait duration
+     * @param options the required Request ID and total handler wait budget
      * @param <T> the Attribute value type
      * @return the current AttributeMap value that satisfied the match
-     * @throws IllegalArgumentException if the match operand or operator is unsupported
-     * @throws LongPollTimeoutException if the timeout expires before the value matches
+     * @throws IllegalArgumentException if the Request ID, budget, match operand, or operator is invalid
+     * @throws WaitHandlerTimeoutException if a positive handler budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
      */
@@ -828,9 +840,9 @@ public final class Client implements AutoCloseable {
             final AttributeMap<T> attribute,
             final String instance,
             final AttributeMatch<T> match,
-            final Duration timeout) {
+            final WaitForAttributeOptions options) {
         return waitForAttributeValue(
-                flowId, attribute, instance, attribute.getValueType(), match, timeout);
+                flowId, attribute, instance, attribute.getValueType(), match, options);
     }
 
     private <T> T waitForAttributeValue(
@@ -839,29 +851,38 @@ public final class Client implements AutoCloseable {
             final String instance,
             final Class<T> valueType,
             final AttributeMatch<T> match,
-            final Duration timeout) {
+            final WaitForAttributeOptions options) {
         Objects.requireNonNull(match, "match");
         final Value encoded = values.encode(match.getOperand());
         validateAttributeMatch(match.getOperator(), encoded);
         final String key = instance == null
                 ? attribute.getName()
                 : Registry.physicalName(attribute.getName(), instance);
-        final WaitForAttributeResponse response = call(
-                () -> service.waitForAttribute(WaitForAttributeRequest.newBuilder()
+        final ClientWaitBudget waitBudget = new ClientWaitBudget(
+                options.getRequestId(), options.getMaximumWaitTime());
+        while (true) {
+            try {
+                final int remainingSeconds = waitBudget.remainingSeconds();
+                final WaitForAttributeResponse response = call(
+                        () -> service.waitForAttribute(WaitForAttributeRequest.newBuilder()
                         .setFlowId(flowId)
                         .setMatch(io.superdurable.gen.AttributeMatch.newBuilder()
                                 .setKey(key)
                                 .setOperator(match.getOperator())
                                 .setOperand(encoded))
-                        .setWaitTimeSeconds(seconds32(timeout))
-                        .setRequestId(UUID.randomUUID().toString())
+                        .setWaitTimeSeconds(remainingSeconds)
+                        .setRequestId(options.getRequestId())
                         .build()),
-                FlowTargetRequirement.ACTIVE,
-                flowId);
-        if (!response.hasMatchedValue()) {
-            throw new IllegalStateException("waitForAttributeMatch response is incomplete");
+                        FlowTargetRequirement.ACTIVE,
+                        flowId);
+                if (!response.hasMatchedValue()) {
+                    throw new IllegalStateException("waitForAttributeMatch response is incomplete");
+                }
+                return values.decode(response.getMatchedValue(), valueType);
+            } catch (LongPollTimeoutException timeout) {
+                // Reattach to the same durable Update with the same Request ID.
+            }
         }
-        return values.decode(response.getMatchedValue(), valueType);
     }
 
     private static void validateAttributeMatch(
@@ -1107,6 +1128,37 @@ public final class Client implements AutoCloseable {
             throw new IllegalArgumentException("Duration must be whole seconds within int32");
         }
         return (int) duration.getSeconds();
+    }
+
+    private static final class ClientWaitBudget {
+        private final long deadlineNanos;
+
+        private ClientWaitBudget(final String requestId, final Duration maximumWaitTime) {
+            if (requestId == null || requestId.isEmpty()) {
+                throw new IllegalArgumentException("wait request ID is required");
+            }
+            final int maximumWaitSeconds = seconds32(maximumWaitTime);
+            deadlineNanos = maximumWaitSeconds == 0
+                    ? 0
+                    : System.nanoTime() + maximumWaitTime.toNanos();
+        }
+
+        private int remainingSeconds() {
+            if (deadlineNanos == 0) {
+                return 0;
+            }
+            final long remainingNanos = deadlineNanos - System.nanoTime();
+            if (remainingNanos <= 0) {
+                throw new WaitHandlerTimeoutException(
+                        io.grpc.Status.Code.DEADLINE_EXCEEDED,
+                        "wait handler timed out",
+                        null);
+            }
+            return (int) Math.min(
+                    Integer.MAX_VALUE,
+                    (remainingNanos + TimeUnit.SECONDS.toNanos(1) - 1)
+                            / TimeUnit.SECONDS.toNanos(1));
+        }
     }
 
     private static Instant instant(final Timestamp timestamp) {

@@ -39,6 +39,10 @@ public enum ErrorSubStatus
    * <code>ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND = 6;</code>
    */
   ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND(6),
+  /**
+   * <code>ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT = 7;</code>
+   */
+  ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT(7),
   UNRECOGNIZED(-1),
   ;
 
@@ -79,6 +83,10 @@ public enum ErrorSubStatus
    * <code>ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND = 6;</code>
    */
   public static final int ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND_VALUE = 6;
+  /**
+   * <code>ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT = 7;</code>
+   */
+  public static final int ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT_VALUE = 7;
 
 
   public final int getNumber() {
@@ -112,6 +120,7 @@ public enum ErrorSubStatus
       case 4: return ERROR_SUB_STATUS_WORKER_API_ERROR;
       case 5: return ERROR_SUB_STATUS_LONG_POLL_TIME_OUT;
       case 6: return ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND;
+      case 7: return ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT;
       default: return null;
     }
   }

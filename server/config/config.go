@@ -52,7 +52,7 @@ const (
 	DefaultWebBindAddress = "0.0.0.0"
 	// DefaultWebPort is the default Dex Web HTTP bind port.
 	DefaultWebPort = 8802
-	// DefaultMaxWaitSeconds caps WaitForFlow / WaitForStepCompletion / WaitForAttribute when MaxWaitSeconds is 0.
+	// DefaultMaxWaitSeconds caps transport long polls when MaxWaitSeconds is 0.
 	DefaultMaxWaitSeconds int64 = 60
 	// DefaultGrpcMaxMessageBytes is 16 MiB so that large attributes can be transported.
 	DefaultGrpcMaxMessageBytes = 16 * 1024 * 1024
@@ -290,7 +290,7 @@ type (
 	ApiConfig struct {
 		// Port is the TCP port for FlowService and InternalService (plaintext gRPC). Default 8801. Bind is 0.0.0.0:Port; SDKs/integ and the interpreter CAN activity dial this port.
 		Port int `yaml:"port"`
-		// MaxWaitSeconds caps WaitForFlow, WaitForStepCompletion, and WaitForAttribute. Zero uses DefaultMaxWaitSeconds (60). Positive values are the cap. Negatives are invalid.
+		// MaxWaitSeconds caps transport long polls. Zero uses DefaultMaxWaitSeconds (60). Positive values are the cap. Negatives are invalid. It does not limit Temporal Update handlers.
 		MaxWaitSeconds int64 `yaml:"maxWaitSeconds"`
 		// GrpcMaxMessageBytes is MaxRecv/MaxSend for FlowService, InternalService, and WorkerService clients. Default 16 MiB. Must be positive and larger than continue-as-new page size plus overhead.
 		GrpcMaxMessageBytes int `yaml:"grpcMaxMessageBytes"`
@@ -559,7 +559,7 @@ func (c WebConfig) EffectivePort() int {
 	return c.Port
 }
 
-// EffectiveMaxWaitSeconds returns the wait cap: DefaultMaxWaitSeconds when MaxWaitSeconds is 0.
+// EffectiveMaxWaitSeconds returns the transport long-poll cap: DefaultMaxWaitSeconds when MaxWaitSeconds is 0.
 // Callers must reject negative MaxWaitSeconds before invoking this.
 func (c ApiConfig) EffectiveMaxWaitSeconds() int64 {
 	if c.MaxWaitSeconds == 0 {

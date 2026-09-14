@@ -55,6 +55,10 @@ public interface WaitForStepCompletionRequestOrBuilder extends
       getStepExecutionNumberBytes();
 
   /**
+   * <pre>
+   * Zero waits indefinitely; positive values bound the Temporal Update handler.
+   * </pre>
+   *
    * <code>int32 wait_time_seconds = 5;</code>
    * @return The waitTimeSeconds.
    */
@@ -62,7 +66,7 @@ public interface WaitForStepCompletionRequestOrBuilder extends
 
   /**
    * <pre>
-   * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
    * </pre>
    *
    * <code>string request_id = 6;</code>
@@ -71,7 +75,7 @@ public interface WaitForStepCompletionRequestOrBuilder extends
   java.lang.String getRequestId();
   /**
    * <pre>
-   * Required per-call UUID is SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
    * </pre>
    *
    * <code>string request_id = 6;</code>

@@ -1198,11 +1198,11 @@ Local validation errors remain ordinary Go errors. Encoding and decoding errors
 use `*dex.ValueMappingError`. Only errors received from FlowService become
 `*dex.ServiceError` or a concrete service error wrapping it.
 
-The Client builds each protobuf request once. gRPC's pre-commit transparent
-retry therefore reuses the same request and request ID. Phase 5 does not add a
-semantic retry loop after a request may have reached application logic. A new
-public method call gets a new generated ID, except when the caller
-reuses `StartFlowOptions.RequestID` intentionally.
+The Client builds each non-wait protobuf request once. gRPC's pre-commit
+transparent retry therefore reuses the same request and request ID. Durable
+Step and Attribute waits automatically reattach after a transport long-poll
+timeout. Every reattachment uses the caller-owned Request ID and the remaining
+total handler budget.
 
 ### Request ID ownership
 
@@ -1210,15 +1210,18 @@ Request ID generation moves out of the Phase 2 pure mappers and into the Client
 entry methods. The Client generates one random UUID for:
 
 - StartFlow, unless `StartFlowOptions.RequestID` is non-nil;
-- every InvokeRPC, whether it is locking or non-locking;
-- every WaitForStepCompletion call; and
-- every WaitForAttributeMatch or WaitForAttributeMapInstanceMatch call.
+- every InvokeRPC, whether it is locking or non-locking.
 
 A non-nil StartFlow override must be non-empty. It may be a stable business
 identifier, supports a logical retry spanning separate Client calls, and is
 the only public request-ID override. Normal application code may instead leave
-it nil for an SDK-generated UUID. Other Client option types do not expose a
-request-ID field.
+it nil for an SDK-generated UUID.
+
+`WaitForStepCompletionOptions.RequestID` and
+`WaitForAttributeOptions.RequestID` are required caller-owned keys. Reuse one
+only for the same logical Step execution or Attribute predicate. The Client
+uses it for every automatic long-poll reattachment and as the Temporal Update
+ID. A new logical wait uses a new Request ID.
 
 InvokeRPC uses the ID for external-value ownership; Temporal Update paths also use it as the
 `InvokeRpc` Update ID. The two wait methods use it as their Temporal update ID.
@@ -1330,7 +1333,7 @@ appear in the public invocation response.
 ### Wait, lifecycle, and administrative operations
 
 WaitForAttributeMatch and WaitForAttributeMapInstanceMatch resolve the definition,
-encode the typed match operand, and generate one request ID. The map form
+encode the typed match operand, and require one caller-owned request ID. The map form
 requires an instance. The matched current value is decoded into the output
 pointer. String and bool support equality operators. Integer and double support
 all six operators. Object, bytes, null, non-finite double, and invalid ordering
@@ -1338,10 +1341,16 @@ fail locally before transport.
 
 WaitForStepCompletion requires a non-empty step type. A nil execution number
 defaults to one; a non-nil value must be positive. Its wire execution number
-remains decimal text because that is the server contract. Go wait methods send
-the largest protocol duration so the server applies its configured long-poll
-cap. `context.Context` remains the only caller-controlled deadline and
-cancellation mechanism.
+remains decimal text because that is the server contract. Both wait option
+types require a non-empty Request ID. `MaximumWaitTime` is the total Temporal
+Update handler budget across transport long polls and Continue-as-New. Zero
+waits indefinitely; positive values must be whole seconds within int32 range.
+The Client retries `*dex.LongPollTimeoutError` internally with the same Request
+ID and remaining budget. Budget expiry returns
+`*dex.WaitHandlerTimeoutError`. `context.Context` remains an independent local
+cancellation mechanism. An abandoned infinite wait remains an accepted Update
+until its condition is met or the Flow closes, so it continues to count against
+Temporal's in-flight Update limit.
 
 WaitForFlow uses the same server-capped duration. A successful response maps
 status and error metadata, then hydrates every requested completion output
@@ -2349,6 +2358,7 @@ func (client *Client) WaitForAttributeMatch(
 	attribute AttributeDef,
 	match AttributeMatchDef,
 	valuePtr any,
+	options WaitForAttributeOptions,
 ) error
 
 func (client *Client) WaitForAttributeMapInstanceMatch(
@@ -2358,6 +2368,7 @@ func (client *Client) WaitForAttributeMapInstanceMatch(
 	instance string,
 	match AttributeMatchDef,
 	valuePtr any,
+	options WaitForAttributeOptions,
 ) error
 ```
 
@@ -2378,7 +2389,7 @@ The remaining FlowService operations use non-generic public types:
 | `TimeTravel` | `Client.TimeTravel(ctx, flowID, TimeTravelOptions)` |
 | `SkipTimer` | `Client.SkipTimer(ctx, flowID, StepExecutionID, TimerID)` |
 | `UpdateFlowConfig` | `Client.UpdateFlowConfig(ctx, flowID, FlowConfig)` |
-| `WaitForStepCompletion` | `Client.WaitForStepCompletion(ctx, flowID, StepExecutionID)` |
+| `WaitForStepCompletion` | `Client.WaitForStepCompletion(ctx, flowID, StepExecutionID, WaitForStepCompletionOptions)` |
 | `TriggerContinueAsNew` | `Client.TriggerContinueAsNew(ctx, flowID)` |
 | `HealthCheck` | `Client.HealthCheck(ctx)` |
 
@@ -2388,13 +2399,12 @@ that satisfied the match. Waiting on a blob-backed stored value may return
 
 Request IDs:
 
-- the SDK generates one UUID per logical `InvokeRPC`,
-  `WaitForStepCompletion`, or `WaitForAttributeMatch` call, and for StartFlow
+- the SDK generates one UUID per logical `InvokeRPC` call, and for StartFlow
   when no override is supplied;
 - `StartFlowOptions.RequestID` may provide a non-empty business identifier;
-- no other Client option exposes a request-ID override;
-- transparent retries reuse it; and
-- every Temporal RPC Update and the two wait operations use it as a Temporal update ID.
+- both durable wait option types require a caller-owned Request ID;
+- automatic wait reattachments reuse it; and
+- every Temporal RPC Update and durable wait uses its request ID as a Temporal Update ID.
 
 ### Client result structs
 

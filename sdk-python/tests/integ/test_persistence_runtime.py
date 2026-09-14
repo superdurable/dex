@@ -16,8 +16,9 @@ import pytest
 from dex import (
     Attribute,
     AttributeMatch,
-    LongPollTimeoutError,
     StartFlowOptions,
+    WaitForAttributeOptions,
+    WaitHandlerTimeoutError,
 )
 
 from .basic_persistence_flow import BasicPersistenceFlow
@@ -62,12 +63,12 @@ def test_set_data_attributes() -> None:
     with DexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("set-data-attributes")
         environment.client.start_flow(flow, flow_id, "start")
-        with pytest.raises(LongPollTimeoutError):
+        with pytest.raises(WaitHandlerTimeoutError):
             environment.client.wait_for_attribute_match(
                 flow_id,
                 flow.data,
                 AttributeMatch.equal_to("never"),
-                timedelta(seconds=1),
+                WaitForAttributeOptions(f"{flow_id}-never", timedelta(seconds=1)),
             )
         with ThreadPoolExecutor(max_workers=1) as executor:
             waiting = executor.submit(
@@ -75,7 +76,7 @@ def test_set_data_attributes() -> None:
                 flow_id,
                 flow.data,
                 AttributeMatch.equal_to("query-start"),
-                WAIT_TIMEOUT,
+                WaitForAttributeOptions(f"{flow_id}-data", WAIT_TIMEOUT),
             )
             environment.client.invoke_rpc(flow.set_data, flow_id, "query-start")
             assert waiting.result(timeout=WAIT_TIMEOUT.total_seconds()) == "query-start"
@@ -86,7 +87,7 @@ def test_set_data_attributes() -> None:
                 flow.data_map,
                 "one",
                 AttributeMatch.equal_to("mapped-value"),
-                WAIT_TIMEOUT,
+                WaitForAttributeOptions(f"{flow_id}-map", WAIT_TIMEOUT),
             )
             environment.client.invoke_rpc(flow.set_map_one, flow_id, "mapped-value")
             assert (
@@ -98,7 +99,7 @@ def test_set_data_attributes() -> None:
                 flow_id,
                 flow.integer,
                 AttributeMatch.greater_than(0),
-                WAIT_TIMEOUT,
+                WaitForAttributeOptions(f"{flow_id}-integer", WAIT_TIMEOUT),
             )
             == 3
         )
@@ -110,7 +111,7 @@ def test_set_data_attributes() -> None:
                 flow_id,
                 flow.model,
                 AttributeMatch.equal_to(ModelInput(value=8)),
-                WAIT_TIMEOUT,
+                WaitForAttributeOptions(f"{flow_id}-model", WAIT_TIMEOUT),
             )
         with pytest.raises(
             ValueError,
@@ -120,7 +121,7 @@ def test_set_data_attributes() -> None:
                 flow_id,
                 Attribute("bytes", bytes),
                 AttributeMatch.equal_to(b"value"),
-                WAIT_TIMEOUT,
+                WaitForAttributeOptions(f"{flow_id}-bytes", WAIT_TIMEOUT),
             )
         with pytest.raises(
             ValueError,
@@ -130,7 +131,7 @@ def test_set_data_attributes() -> None:
                 flow_id,
                 Attribute("null", type(None)),
                 AttributeMatch.equal_to(None),
-                WAIT_TIMEOUT,
+                WaitForAttributeOptions(f"{flow_id}-null", WAIT_TIMEOUT),
             )
         environment.client.invoke_rpc(flow.set_model, flow_id, ModelInput(value=7))
         environment.client.invoke_rpc(flow.complete, flow_id)

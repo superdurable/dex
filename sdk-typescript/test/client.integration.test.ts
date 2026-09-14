@@ -9,9 +9,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { Server, ServerCredentials, type sendUnaryData } from "@grpc/grpc-js";
+import { BinaryWriter } from "@bufbuild/protobuf/wire";
+import {
+  Metadata,
+  Server,
+  ServerCredentials,
+  status,
+  type ServiceError,
+  type sendUnaryData,
+} from "@grpc/grpc-js";
 
 import {
+  Attribute,
+  AttributeMatch,
   AttributeMap,
   Channel,
   ChannelMap,
@@ -21,6 +31,7 @@ import {
   Registry,
   Stream,
   StepList,
+  doubleCodec,
   jsonCodec,
   rpc,
   stringCodec,
@@ -38,6 +49,8 @@ import {
   FlowErrorType as ProtoFlowErrorType,
   type FlowResult as ProtoFlowResult,
   FlowStatus,
+  ErrorSubStatus,
+  ServiceErrorResponse,
   Value,
   type FlowServiceServer,
   type InvokeRPCRequest,
@@ -50,7 +63,11 @@ import {
   type ReadStreamResponse,
   type StartFlowRequest,
   type StartFlowResponse,
+  type WaitForAttributeRequest,
+  type WaitForAttributeResponse,
   type WaitForFlowRequest,
+  type WaitForStepCompletionRequest,
+  type WaitForStepCompletionResponse,
   type WriteStreamRequest,
 } from "../src/gen/dex.js";
 
@@ -74,6 +91,7 @@ const thinking = new Stream("thinking", stringCodec, 1_048_576);
 const items = new AttributeMap("items", stringCodec);
 const queued = new Channel("queued", stringCodec);
 const byTenant = new ChannelMap("by-tenant", stringCodec);
+const revision = new Attribute("revision", doubleCodec);
 
 class Start implements Step<Input> {
   public readonly inputCodec = inputCodec;
@@ -117,7 +135,7 @@ class TestFlow implements Flow<Input> {
 
   public getPersistenceSchema() {
     return {
-      attributes: [items],
+      attributes: [revision, items],
       channels: [queued, byTenant],
       streams: [thinking],
     };
@@ -148,7 +166,9 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     writeStream?: WriteStreamRequest;
     readStream?: ReadStreamRequest;
     listStreamMessages?: ListStreamMessagesRequest;
-  } = {};
+    waitForAttribute: WaitForAttributeRequest[];
+    waitForStepCompletion: WaitForStepCompletionRequest[];
+  } = { waitForAttribute: [], waitForStepCompletion: [] };
   const hydratedOutput = protoJson({ accepted: true });
   const server = new Server();
   server.addService(FlowServiceService, {
@@ -250,6 +270,36 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
         closeTime: new Date(2_000),
       });
     },
+    waitForAttribute(
+      call: { request: WaitForAttributeRequest },
+      callback: sendUnaryData<WaitForAttributeResponse>,
+    ) {
+      requests.waitForAttribute.push(call.request);
+      if (requests.waitForAttribute.length === 1) {
+        callback(serviceError(
+          status.DEADLINE_EXCEEDED,
+          ErrorSubStatus.ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+        ));
+        return;
+      }
+      callback(null, {
+        matchedValue: Value.create({ kind: { $case: "doubleValue", value: 7 } }),
+      });
+    },
+    waitForStepCompletion(
+      call: { request: WaitForStepCompletionRequest },
+      callback: sendUnaryData<WaitForStepCompletionResponse>,
+    ) {
+      requests.waitForStepCompletion.push(call.request);
+      if (requests.waitForStepCompletion.length === 1) {
+        callback(serviceError(
+          status.DEADLINE_EXCEEDED,
+          ErrorSubStatus.ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+        ));
+        return;
+      }
+      callback(null, {});
+    },
   } as Partial<FlowServiceServer> as FlowServiceServer);
 
   const port = await bind(server);
@@ -310,6 +360,30 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(failed.status, "failed");
     assert.equal(failed.completions[1]?.stepExecutionId, "Finish-2");
     assert.equal(failed.completions[1]?.decode(stringCodec), "done");
+    const attributeOptions = { requestId: "wait-revision" };
+    assert.equal(
+      await client.waitForAttributeMatch(
+        "flow-1",
+        revision,
+        AttributeMatch.greaterThan(5),
+        attributeOptions,
+      ),
+      7,
+    );
+    assert.deepEqual(
+      requests.waitForAttribute.map((request) => request.requestId),
+      [attributeOptions.requestId, attributeOptions.requestId],
+    );
+    const stepOptions = { requestId: "wait-start" };
+    await client.waitForStepCompletion("flow-1", { stepType: "Start", number: 1 }, stepOptions);
+    assert.deepEqual(
+      requests.waitForStepCompletion.map((request) => request.requestId),
+      [stepOptions.requestId, stepOptions.requestId],
+    );
+    await assert.rejects(
+      client.waitForStepCompletion("flow-1", { stepType: "Start" }, { requestId: "" }),
+      /request ID is required/,
+    );
     assert.equal(requests.start?.flowType, "TestFlow");
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.start?.stepOptions?.heartbeatTimeoutSeconds, 2);
@@ -388,6 +462,29 @@ function protoJson(value: unknown): Value {
       $case: "objValue",
       value: { encoding: "json", payload: new TextEncoder().encode(JSON.stringify(value)) },
     },
+  });
+}
+
+function serviceError(code: status, subStatus: ErrorSubStatus): ServiceError {
+  const response = ServiceErrorResponse.encode({
+    detail: "long poll timed out",
+    subStatus,
+    originalWorkerErrorDetail: "",
+    originalWorkerErrorType: "",
+    originalWorkerErrorStatus: 0,
+    originalWorkerErrorStackTrace: "",
+  }).finish();
+  const writer = new BinaryWriter();
+  writer.uint32(26).fork();
+  writer.uint32(10).string("type.googleapis.com/dex.ServiceErrorResponse");
+  writer.uint32(18).bytes(response);
+  writer.join();
+  const metadata = new Metadata();
+  metadata.set("grpc-status-details-bin", Buffer.from(writer.finish()));
+  return Object.assign(new Error("long poll timed out"), {
+    code,
+    details: "long poll timed out",
+    metadata,
   });
 }
 

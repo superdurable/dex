@@ -16,9 +16,9 @@ import io.superdurable.gen.AttributeMatchOperator;
  * Describes a scalar Attribute predicate.
  *
  * <p>Create a match with a static factory and pass it to {@link
- * Client#waitForAttributeMatch(String, Attribute, AttributeMatch, java.time.Duration)}. String and
- * Boolean Attributes support equality operators. Integer and floating-point Attributes support
- * every operator. A missing Attribute never matches.
+ * Client#waitForAttributeMatch(String, Attribute, AttributeMatch, WaitForAttributeOptions)}.
+ * String and Boolean Attributes support equality operators. Integer and floating-point Attributes
+ * support every operator. A missing Attribute never matches.
  *
  * <pre>{@code
  * AttributeMatch<Long> changed = AttributeMatch.greaterThan(3L);

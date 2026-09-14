@@ -28,6 +28,7 @@ import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
+import io.superdurable.dex.exceptions.WaitHandlerTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
 import io.superdurable.gen.ServiceErrorResponse;
@@ -53,11 +54,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -124,21 +129,40 @@ final class ClientExceptionIntegrationTest {
     }
 
     @Test
-    void mapsLongPollTimeoutAcrossWaitOperations() {
+    void mapsWaitTimeoutsAndReattaches() {
         final LongPollTimeoutException flowTimeout = assertThrows(
                 LongPollTimeoutException.class,
                 () -> client.waitForFlow("timeout", Duration.ofSeconds(1)).getSingleOutput(Void.class));
         assertEquals("timeout", flowTimeout.getFlowId());
         assertEquals(Status.Code.DEADLINE_EXCEEDED, flowTimeout.getCode());
 
-        final LongPollTimeoutException stepTimeout = assertThrows(
-                LongPollTimeoutException.class,
+        final WaitHandlerTimeoutException stepTimeout = assertThrows(
+                WaitHandlerTimeoutException.class,
                 () -> client.waitForStepCompletion(
                         "step-timeout",
                         StepExecutionId.of("WaitingStep", 1),
-                        Duration.ofSeconds(1)));
-        assertEquals("step-timeout", stepTimeout.getFlowId());
+                        WaitForStepCompletionOptions.newBuilder()
+                                .requestId("step-timeout-request")
+                                .maximumWaitTime(Duration.ofSeconds(1))
+                                .build()));
         assertEquals(Status.Code.DEADLINE_EXCEEDED, stepTimeout.getCode());
+
+        client.waitForStepCompletion(
+                "step-reattach",
+                StepExecutionId.of("WaitingStep", 1),
+                WaitForStepCompletionOptions.newBuilder()
+                        .requestId("step-reattach-request")
+                        .build());
+        assertEquals(2, flowService.stepReattachCalls.get());
+        assertEquals(
+                Arrays.asList("step-reattach-request", "step-reattach-request"),
+                flowService.stepReattachRequestIds);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> client.waitForStepCompletion(
+                        "missing-request-id",
+                        StepExecutionId.of("WaitingStep", 1),
+                        WaitForStepCompletionOptions.newBuilder().build()));
     }
 
     @Test
@@ -245,6 +269,8 @@ final class ClientExceptionIntegrationTest {
 
     private static final class ErrorFlowService
             extends FlowServiceGrpc.FlowServiceImplBase {
+        private final AtomicInteger stepReattachCalls = new AtomicInteger();
+        private final List<String> stepReattachRequestIds = new ArrayList<>();
         private WriteStreamRequest writeStreamRequest;
         private ReadStreamRequest readStreamRequest;
         private ListStreamMessagesRequest listStreamMessagesRequest;
@@ -442,10 +468,26 @@ final class ClientExceptionIntegrationTest {
         public void waitForStepCompletion(
                 final WaitForStepCompletionRequest request,
                 final StreamObserver<WaitForStepCompletionResponse> observer) {
-            observer.onError(error(
-                    Status.Code.DEADLINE_EXCEEDED,
-                    io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
-                    "long poll timed out"));
+            if (request.getFlowId().equals("step-reattach")) {
+                stepReattachRequestIds.add(request.getRequestId());
+            }
+            if (request.getFlowId().equals("step-reattach")
+                    && stepReattachCalls.getAndIncrement() == 0) {
+                observer.onError(error(
+                        Status.Code.DEADLINE_EXCEEDED,
+                        io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+                        "long poll timed out"));
+                return;
+            }
+            if (request.getFlowId().equals("step-timeout")) {
+                observer.onError(error(
+                        Status.Code.DEADLINE_EXCEEDED,
+                        io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT,
+                        "wait handler timed out"));
+                return;
+            }
+            observer.onNext(WaitForStepCompletionResponse.getDefaultInstance());
+            observer.onCompleted();
         }
     }
 

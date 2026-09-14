@@ -16,7 +16,8 @@ import io.superdurable.dex.Client;
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeMatch;
 import io.superdurable.dex.StartFlowOptions;
-import io.superdurable.dex.exceptions.LongPollTimeoutException;
+import io.superdurable.dex.WaitForAttributeOptions;
+import io.superdurable.dex.exceptions.WaitHandlerTimeoutException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -85,18 +86,18 @@ public final class PersistenceTest {
                     PersistenceSetAttributesWorkflow.class,
                     flowId);
             assertThrows(
-                    LongPollTimeoutException.class,
+                    WaitHandlerTimeoutException.class,
                     () -> environment.client().waitForAttributeMatch(
                             flowId,
                             SET_ATTRIBUTES_WORKFLOW.data,
                             AttributeMatch.equalTo("never"),
-                            Duration.ofSeconds(1)));
+                            waitOptions(flowId, "never", Duration.ofSeconds(1))));
             final CompletableFuture<String> waiting = CompletableFuture.supplyAsync(
                     () -> environment.client().waitForAttributeMatch(
                             flowId,
                             SET_ATTRIBUTES_WORKFLOW.data,
                             AttributeMatch.equalTo("query-start"),
-                            Duration.ofSeconds(30)));
+                            waitOptions(flowId, "data", Duration.ofSeconds(30))));
             environment.client().invokeRPC(stub::setData, "query-start");
             assertEquals("query-start", waiting.get(30, TimeUnit.SECONDS));
             final CompletableFuture<String> waitingMap = CompletableFuture.supplyAsync(
@@ -105,7 +106,7 @@ public final class PersistenceTest {
                             SET_ATTRIBUTES_WORKFLOW.dataMap,
                             "special % key",
                             AttributeMatch.equalTo("mapped-value"),
-                            Duration.ofSeconds(30)));
+                            waitOptions(flowId, "map", Duration.ofSeconds(30))));
             environment.client().invokeRPC(stub::setMapOne, "mapped-value");
             environment.client().invokeRPC(stub::setMapSpecial, "mapped-value");
             assertEquals("mapped-value", waitingMap.get(30, TimeUnit.SECONDS));
@@ -116,28 +117,28 @@ public final class PersistenceTest {
                             flowId,
                             SET_ATTRIBUTES_WORKFLOW.integer,
                             AttributeMatch.greaterThan(0),
-                            Duration.ofSeconds(30)));
+                            waitOptions(flowId, "integer", Duration.ofSeconds(30))));
             assertThrows(
                     IllegalArgumentException.class,
                     () -> environment.client().waitForAttributeMatch(
                             flowId,
                             SET_ATTRIBUTES_WORKFLOW.model,
                             AttributeMatch.equalTo(model),
-                            Duration.ofSeconds(30)));
+                            waitOptions(flowId, "model", Duration.ofSeconds(30))));
             assertThrows(
                     IllegalArgumentException.class,
                     () -> environment.client().waitForAttributeMatch(
                             flowId,
                             Attribute.define("bytes", byte[].class),
                             AttributeMatch.equalTo(new byte[] {1}),
-                            Duration.ofSeconds(30)));
+                            waitOptions(flowId, "bytes", Duration.ofSeconds(30))));
             assertThrows(
                     IllegalArgumentException.class,
                     () -> environment.client().waitForAttributeMatch(
                             flowId,
                             Attribute.define("null", Void.class),
                             AttributeMatch.equalTo((Void) null),
-                            Duration.ofSeconds(30)));
+                            waitOptions(flowId, "null", Duration.ofSeconds(30))));
             environment.client().invokeRPC(stub::setModel, model);
             environment.client().invokeRPC(stub::complete);
 
@@ -167,18 +168,28 @@ public final class PersistenceTest {
                 "set-attributes",
                 SET_ATTRIBUTES_WORKFLOW.data,
                 AttributeMatch.equalTo("value"),
-                Duration.ofSeconds(30));
+                waitOptions("set-attributes", "data", Duration.ofSeconds(30)));
         client.invokeRPC(stub::complete);
         final String matchedMap = client.waitForAttributeMatch(
                 "set-attributes",
                 SET_ATTRIBUTES_WORKFLOW.dataMap,
                 "one",
                 AttributeMatch.equalTo("value"),
-                Duration.ofSeconds(30));
+                waitOptions("set-attributes", "map", Duration.ofSeconds(30)));
         final String output = client.waitForFlow("set-attributes").getSingleOutput(String.class);
         consume(matched, matchedMap, output);
     }
 
     private static void consume(final Object... values) {
+    }
+
+    private static WaitForAttributeOptions waitOptions(
+            final String flowId,
+            final String suffix,
+            final Duration maximumWaitTime) {
+        return WaitForAttributeOptions.newBuilder()
+                .requestId(flowId + "-wait-" + suffix)
+                .maximumWaitTime(maximumWaitTime)
+                .build();
     }
 }

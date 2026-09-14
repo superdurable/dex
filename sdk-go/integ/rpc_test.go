@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -167,6 +168,7 @@ func TestRPCFlow(t *testing.T) {
 		rpcFlowStatus,
 		dex.AttributeMatchEqual("never"),
 		&matchedStatus,
+		dex.WaitForAttributeOptions{RequestID: uuid.NewString()},
 	)
 	cancelShortWait()
 	require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -179,6 +181,7 @@ func TestRPCFlow(t *testing.T) {
 			rpcFlowWaitStatus,
 			dex.AttributeMatchEqual("ready"),
 			&matched,
+			dex.WaitForAttributeOptions{RequestID: uuid.NewString()},
 		)
 	}()
 	go func() {
@@ -190,6 +193,7 @@ func TestRPCFlow(t *testing.T) {
 			"special % key",
 			dex.AttributeMatchEqual("mapped"),
 			&matched,
+			dex.WaitForAttributeOptions{RequestID: uuid.NewString()},
 		)
 	}()
 	var noOutput dex.None
@@ -210,6 +214,7 @@ func TestRPCFlow(t *testing.T) {
 		rpcFlowBytes,
 		dex.AttributeMatchEqual([]byte("value")),
 		&matchedBytes,
+		dex.WaitForAttributeOptions{RequestID: uuid.NewString()},
 	), "supports only string, boolean, integer, or float64 operands")
 	var matchedNull any
 	require.ErrorContains(t, integClient.WaitForAttributeMatch(
@@ -218,6 +223,7 @@ func TestRPCFlow(t *testing.T) {
 		rpcFlowNull,
 		dex.AttributeMatchEqual[any](nil),
 		&matchedNull,
+		dex.WaitForAttributeOptions{RequestID: uuid.NewString()},
 	), "supports only string, boolean, integer, or float64 operands")
 	var matchedModel persistenceModel
 	require.ErrorContains(t, integClient.WaitForAttributeMatch(
@@ -226,6 +232,7 @@ func TestRPCFlow(t *testing.T) {
 		persistenceData,
 		dex.AttributeMatchEqual(persistenceModel{}),
 		&matchedModel,
+		dex.WaitForAttributeOptions{RequestID: uuid.NewString()},
 	), "supports only string, boolean, integer, or float64 operands")
 
 	var failedOutput int

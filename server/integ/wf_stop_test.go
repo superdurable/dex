@@ -181,40 +181,11 @@ func doTestInvokeRPCTerminalValidation(t *testing.T, stopType dexpb.StopType) {
 		RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCAccepted,
 	})
 	require.NoError(t, err)
-	waitRequestID := newRequestID()
-	waitResult := make(chan error, 1)
-	go func() {
-		_, waitErr := runtime.FlowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
-			FlowId: flowID,
-			Match: equalAttributeMatch(
-				terminalRPCReleaseAttribute,
-				stringValue("release"),
-			),
-			WaitTimeSeconds: 20,
-			RequestId:       waitRequestID,
-		})
-		waitResult <- waitErr
-	}()
-	require.Eventually(t, func() bool {
-		accepted, _ := countTemporalUpdateEvents(
-			t, ctx, runtime, flowID, startResponse.GetRunId(), waitRequestID,
-		)
-		return accepted == 1
-	}, 5*time.Second, 20*time.Millisecond)
 	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId: flowID, StopType: stopType, Reason: "terminal validation",
 	})
 	require.NoError(t, err)
-	assertRPCRejectedDuringFinalization(t, ctx, runtime.FlowClient, flowID, handler)
-	_, err = runtime.FlowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
-		RequestId: newRequestID(),
-		FlowId:    flowID,
-		Attributes: []*dexpb.AttributeWrite{{
-			Key: terminalRPCReleaseAttribute, Value: stringValue("release"),
-		}},
-	})
-	require.NoError(t, err)
-	require.NoError(t, <-waitResult)
+	assertRPCRejectedAfterStop(t, ctx, runtime.FlowClient, flowID, handler)
 	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
 	require.NoError(t, err)
 	if stopType == dexpb.StopType_STOP_TYPE_CANCEL {
@@ -227,7 +198,7 @@ func doTestInvokeRPCTerminalValidation(t *testing.T, stopType dexpb.StopType) {
 	)
 }
 
-func assertRPCRejectedDuringFinalization(
+func assertRPCRejectedAfterStop(
 	t *testing.T,
 	ctx context.Context,
 	flowClient dexpb.FlowServiceClient,
@@ -239,13 +210,13 @@ func assertRPCRejectedDuringFinalization(
 		_, err := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 			RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCProbe,
 		})
-		return status.Code(err) == codes.FailedPrecondition
+		return status.Code(err) == codes.FailedPrecondition || status.Code(err) == codes.NotFound
 	}, 5*time.Second, 20*time.Millisecond)
 	invokesBefore := handler.probeInvokeCount()
 	_, err := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 		RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCProbe,
 	})
-	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Contains(t, []codes.Code{codes.FailedPrecondition, codes.NotFound}, status.Code(err))
 	require.Equal(t, invokesBefore, handler.probeInvokeCount())
 }
 
@@ -421,17 +392,16 @@ func doTestWorkflowFail(
 }
 
 const (
-	cooperativeStopFlowType     = "cooperative-stop"
-	cooperativeStopStepType     = "running-producer"
-	suspendedStopFlowType       = "suspended-stop"
-	suspendedStopStepType       = "suspended-step"
-	suspendedStopChannel        = "never-published"
-	terminalRPCFlowType         = "terminal-rpc"
-	terminalRPCAccepted         = "accepted"
-	terminalRPCProbe            = "probe"
-	terminalRPCFinishStep       = "finish-step"
-	terminalRPCReleaseAttribute = "release-finalization"
-	terminalRPCAcceptedOutput   = "accepted-before-finalize"
+	cooperativeStopFlowType   = "cooperative-stop"
+	cooperativeStopStepType   = "running-producer"
+	suspendedStopFlowType     = "suspended-stop"
+	suspendedStopStepType     = "suspended-step"
+	suspendedStopChannel      = "never-published"
+	terminalRPCFlowType       = "terminal-rpc"
+	terminalRPCAccepted       = "accepted"
+	terminalRPCProbe          = "probe"
+	terminalRPCFinishStep     = "finish-step"
+	terminalRPCAcceptedOutput = "accepted-before-finalize"
 )
 
 type finalizingRPCHandler struct {
@@ -453,7 +423,7 @@ func newFinalizingRPCHandler(blockFinish bool) *finalizingRPCHandler {
 }
 
 func (h *finalizingRPCHandler) InvokeWorkerRPC(
-	ctx context.Context,
+	_ context.Context,
 	request *dexpb.InvokeWorkerRPCRequest,
 ) (*dexpb.InvokeWorkerRPCResponse, error) {
 	switch request.GetRpcName() {

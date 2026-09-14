@@ -50,7 +50,9 @@ fn run_scenario(scenario: CancellationScenario) {
                 .wait_for_step_completion(
                     &flow_id,
                     StepExecutionId::of(&CancellationBlockingWaitFor(Arc::clone(&state))),
-                    Duration::from_secs(30),
+                    dex_sdk::WaitForStepCompletionOptions::new()
+                        .request_id(format!("{flow_id}-wait-canceled-wait-for"))
+                        .maximum_wait_time(Duration::from_secs(30)),
                 )
                 .expect("wait for canceled WaitFor Step");
         } else {
@@ -61,7 +63,9 @@ fn run_scenario(scenario: CancellationScenario) {
                     StepExecutionId::of(&CancellationBlockingExecute {
                         state: Arc::clone(&state),
                     }),
-                    Duration::from_secs(30),
+                    dex_sdk::WaitForStepCompletionOptions::new()
+                        .request_id(format!("{flow_id}-wait-canceled-execute"))
+                        .maximum_wait_time(Duration::from_secs(30)),
                 )
                 .expect("wait for canceled Execute Step");
         }

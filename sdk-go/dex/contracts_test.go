@@ -459,6 +459,7 @@ var _ func(
 	dex.AttributeDef,
 	dex.AttributeMatchDef,
 	any,
+	dex.WaitForAttributeOptions,
 ) error = (*dex.Client).WaitForAttributeMatch
 
 var _ func(
@@ -469,7 +470,16 @@ var _ func(
 	string,
 	dex.AttributeMatchDef,
 	any,
+	dex.WaitForAttributeOptions,
 ) error = (*dex.Client).WaitForAttributeMapInstanceMatch
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
+	dex.StepExecutionID,
+	dex.WaitForStepCompletionOptions,
+) error = (*dex.Client).WaitForStepCompletion
 
 var _ func(
 	*dex.Client,

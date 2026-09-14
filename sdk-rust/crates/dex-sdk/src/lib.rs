@@ -44,6 +44,7 @@ mod value;
 mod value_hydrator;
 mod value_mapper;
 mod wait;
+mod wait_options;
 mod worker;
 mod worker_dispatcher;
 mod worker_options;
@@ -81,6 +82,7 @@ pub use timer::{Timer, TimerId};
 pub use tonic::Code as GrpcCode;
 pub use value::Value;
 pub use wait::{Condition, ConditionCombination, Wait};
+pub use wait_options::{WaitForAttributeOptions, WaitForStepCompletionOptions};
 pub use worker::Worker;
 pub use worker_options::{WorkerOptions, WorkerTarget};
 

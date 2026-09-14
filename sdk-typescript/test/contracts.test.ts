@@ -983,14 +983,14 @@ async function compileStrongTypes(client: Client): Promise<void> {
     "order-1",
     status,
     AttributeMatch.equalTo("ready"),
-    30_000,
+    { requestId: "wait-order-status", maximumWaitTimeMs: 30_000 },
   );
   const matchedItem: string = await client.waitForAttributeMatch(
     "order-1",
     new AttributeMap("items", stringCodec),
     "one",
     AttributeMatch.equalTo("ready"),
-    30_000,
+    { requestId: "wait-order-item", maximumWaitTimeMs: 30_000 },
   );
   await client.writeStream("order-1", progress, "frontend/1", "starting");
   const progressMessage = await client.readStream("order-1", progress, "", 30_000);

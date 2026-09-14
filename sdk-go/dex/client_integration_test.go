@@ -120,21 +120,23 @@ func (clientNoStartFlow) GetPersistenceSchema() PersistenceSchema {
 
 type clientTestFlowService struct {
 	dexpb.UnimplementedFlowServiceServer
-	startRequest         *dexpb.StartFlowRequest
-	invokeRequest        *dexpb.InvokeRPCRequest
-	waitAttributeRequest *dexpb.WaitForAttributeRequest
-	stopRequest          *dexpb.StopFlowRequest
-	waitFlowRequest      *dexpb.WaitForFlowRequest
-	flowSummaryRequest   *dexpb.GetFlowSummaryRequest
-	searchRequest        *dexpb.SearchFlowsRequest
-	resetRequest         *dexpb.ResetFlowRequest
-	skipTimerRequest     *dexpb.SkipTimerRequest
-	updateConfigRequest  *dexpb.UpdateFlowConfigRequest
-	waitStepRequest      *dexpb.WaitForStepCompletionRequest
-	continueAsNewRequest *dexpb.TriggerContinueAsNewRequest
-	writeStreamRequests  []*dexpb.WriteStreamRequest
-	readStreamRequest    *dexpb.ReadStreamRequest
-	listStreamRequest    *dexpb.ListStreamMessagesRequest
+	startRequest          *dexpb.StartFlowRequest
+	invokeRequest         *dexpb.InvokeRPCRequest
+	waitAttributeRequest  *dexpb.WaitForAttributeRequest
+	waitAttributeRequests []*dexpb.WaitForAttributeRequest
+	stopRequest           *dexpb.StopFlowRequest
+	waitFlowRequest       *dexpb.WaitForFlowRequest
+	flowSummaryRequest    *dexpb.GetFlowSummaryRequest
+	searchRequest         *dexpb.SearchFlowsRequest
+	resetRequest          *dexpb.ResetFlowRequest
+	skipTimerRequest      *dexpb.SkipTimerRequest
+	updateConfigRequest   *dexpb.UpdateFlowConfigRequest
+	waitStepRequest       *dexpb.WaitForStepCompletionRequest
+	waitStepRequests      []*dexpb.WaitForStepCompletionRequest
+	continueAsNewRequest  *dexpb.TriggerContinueAsNewRequest
+	writeStreamRequests   []*dexpb.WriteStreamRequest
+	readStreamRequest     *dexpb.ReadStreamRequest
+	listStreamRequest     *dexpb.ListStreamMessagesRequest
 }
 
 func (service *clientTestFlowService) WriteStream(
@@ -279,8 +281,17 @@ func (service *clientTestFlowService) WaitForAttribute(
 	request *dexpb.WaitForAttributeRequest,
 ) (*dexpb.WaitForAttributeResponse, error) {
 	service.waitAttributeRequest = request
+	service.waitAttributeRequests = append(service.waitAttributeRequests, request)
 	if request.FlowId == "inactive" {
 		return nil, clientTestMissingFlowError()
+	}
+	if request.FlowId == "reattach-attribute" && len(service.waitAttributeRequests) == 1 {
+		return nil, clientTestServiceError(
+			codes.DeadlineExceeded,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+			"long poll timed out",
+			nil,
+		)
 	}
 	return &dexpb.WaitForAttributeResponse{
 		MatchedValue: request.GetMatch().GetOperand(),
@@ -441,8 +452,17 @@ func (service *clientTestFlowService) WaitForStepCompletion(
 	request *dexpb.WaitForStepCompletionRequest,
 ) (*dexpb.WaitForStepCompletionResponse, error) {
 	service.waitStepRequest = request
+	service.waitStepRequests = append(service.waitStepRequests, request)
 	if request.FlowId == "inactive" {
 		return nil, clientTestMissingFlowError()
+	}
+	if request.FlowId == "reattach-step" && len(service.waitStepRequests) == 1 {
+		return nil, clientTestServiceError(
+			codes.DeadlineExceeded,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+			"long poll timed out",
+			nil,
+		)
 	}
 	return &dexpb.WaitForStepCompletionResponse{}, nil
 }
@@ -524,6 +544,7 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 		clientTestStatus,
 		AttributeMatchEqual("done"),
 		&matchedStatus,
+		WaitForAttributeOptions{RequestID: "wait-order-status"},
 	))
 	require.Equal(t, "done", matchedStatus)
 	require.Equal(
@@ -531,9 +552,8 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 		dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL,
 		service.waitAttributeRequest.GetMatch().GetOperator(),
 	)
-	_, err = uuid.Parse(service.waitAttributeRequest.RequestId)
-	require.NoError(t, err)
-	require.Equal(t, serverCappedLongPollSeconds, service.waitAttributeRequest.WaitTimeSeconds)
+	require.Equal(t, "wait-order-status", service.waitAttributeRequest.RequestId)
+	require.Zero(t, service.waitAttributeRequest.WaitTimeSeconds)
 }
 
 func TestClientStreamTransportAndMetadata(t *testing.T) {
@@ -792,11 +812,11 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 		ctx,
 		"order-1",
 		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
+		WaitForStepCompletionOptions{RequestID: "wait-order-step"},
 	))
 	require.Equal(t, "1", service.waitStepRequest.StepExecutionNumber)
-	require.Equal(t, serverCappedLongPollSeconds, service.waitStepRequest.WaitTimeSeconds)
-	_, err = uuid.Parse(service.waitStepRequest.RequestId)
-	require.NoError(t, err)
+	require.Zero(t, service.waitStepRequest.WaitTimeSeconds)
+	require.Equal(t, "wait-order-step", service.waitStepRequest.RequestId)
 	require.NoError(t, client.TriggerContinueAsNew(ctx, "order-1"))
 	require.Equal(t, "order-1", service.continueAsNewRequest.FlowId)
 	health, err := client.HealthCheck(ctx)
@@ -848,6 +868,7 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 				clientTestStatus,
 				AttributeMatchEqual("value"),
 				&matched,
+				WaitForAttributeOptions{RequestID: "inactive-attribute"},
 			)
 		}},
 		{name: "stop", call: func() error {
@@ -869,6 +890,7 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 				ctx,
 				"inactive",
 				StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
+				WaitForStepCompletionOptions{RequestID: "inactive-step"},
 			)
 		}},
 		{name: "continue as new", call: func() error {
@@ -935,6 +957,45 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 	var partial string
 	require.NoError(t, uncompleted.Completions[0].Output.Decode(&partial))
 	require.Equal(t, "partial", partial)
+}
+
+func TestClientDurableWaitReattachment(t *testing.T) {
+	client, service := newClientIntegration(t)
+	ctx := context.Background()
+	stepOptions := WaitForStepCompletionOptions{RequestID: "reattach-step-request"}
+	require.NoError(t, client.WaitForStepCompletion(
+		ctx,
+		"reattach-step",
+		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
+		stepOptions,
+	))
+	require.Len(t, service.waitStepRequests, 2)
+	for _, request := range service.waitStepRequests {
+		require.Equal(t, stepOptions.RequestID, request.RequestId)
+	}
+
+	var matched string
+	attributeOptions := WaitForAttributeOptions{RequestID: "reattach-attribute-request"}
+	require.NoError(t, client.WaitForAttributeMatch(
+		ctx,
+		"reattach-attribute",
+		clientTestStatus,
+		AttributeMatchEqual("ready"),
+		&matched,
+		attributeOptions,
+	))
+	require.Equal(t, "ready", matched)
+	require.Len(t, service.waitAttributeRequests, 2)
+	for _, request := range service.waitAttributeRequests {
+		require.Equal(t, attributeOptions.RequestID, request.RequestId)
+	}
+
+	require.ErrorContains(t, client.WaitForStepCompletion(
+		ctx,
+		"missing-request-id",
+		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
+		WaitForStepCompletionOptions{},
+	), "request ID is required")
 }
 
 func newClientIntegration(t *testing.T) (*Client, *clientTestFlowService) {

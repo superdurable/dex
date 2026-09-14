@@ -835,17 +835,20 @@ func (client *Client) UpdateFlowConfig(
 	return translateRPCError(err, "UpdateFlowConfig", flowID, flowTargetActive)
 }
 
-// WaitForStepCompletion blocks until a Step execution completes or ctx ends.
+// WaitForStepCompletion blocks until a Step execution completes, the handler budget expires,
+// or ctx ends.
 //
 // stepExecution identifies the Step type and execution number; nil means execution
 // one. A nil error means the requested execution completed, but this method does not return its output.
-// LongPollTimeoutError is retryable by calling the method again. Invalid identifiers,
-// inactive Flows, context, transport, and server errors are also returned. Use context.WithTimeout
-// or context.WithDeadline for a shorter Go-side wait.
+// options must contain a caller-owned RequestID. The Client automatically reattaches transport
+// long polls with that ID. MaximumWaitTime is the total handler budget; zero waits indefinitely.
+// A positive budget expiry returns WaitHandlerTimeoutError. Invalid identifiers, inactive Flows,
+// context, transport, and server errors are also returned.
 func (client *Client) WaitForStepCompletion(
 	ctx context.Context,
 	flowID string,
 	stepExecution StepExecutionID,
+	options WaitForStepCompletionOptions,
 ) error {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return err
@@ -854,24 +857,34 @@ func (client *Client) WaitForStepCompletion(
 	if err != nil {
 		return err
 	}
-	requestID, err := newRequestID()
+	waitBudget, err := newClientWaitBudget(options.RequestID, options.MaximumWaitTime)
 	if err != nil {
 		return err
 	}
-	_, err = client.service.WaitForStepCompletion(
-		ctx,
-		&dexpb.WaitForStepCompletionRequest{
-			FlowId:              flowID,
-			StepType:            stepExecution.StepType,
-			StepExecutionNumber: strconv.FormatInt(int64(executionNumber), 10),
-			WaitTimeSeconds:     serverCappedLongPollSeconds,
-			RequestId:           requestID,
-		},
-	)
-	if err != nil {
-		return translateWaitRPCError(ctx, err, "WaitForStepCompletion", flowID, flowTargetActive)
+	for {
+		handlerWaitTimeoutSeconds, err := waitBudget.remainingSeconds()
+		if err != nil {
+			return newWaitHandlerTimeoutError("WaitForStepCompletion", flowID)
+		}
+		_, err = client.service.WaitForStepCompletion(
+			ctx,
+			&dexpb.WaitForStepCompletionRequest{
+				FlowId:              flowID,
+				StepType:            stepExecution.StepType,
+				StepExecutionNumber: strconv.FormatInt(int64(executionNumber), 10),
+				WaitTimeSeconds:     handlerWaitTimeoutSeconds,
+				RequestId:           options.RequestID,
+			},
+		)
+		if err == nil {
+			return nil
+		}
+		translated := translateWaitRPCError(ctx, err, "WaitForStepCompletion", flowID, flowTargetActive)
+		var longPollTimeout *LongPollTimeoutError
+		if !errors.As(translated, &longPollTimeout) {
+			return translated
+		}
 	}
-	return nil
 }
 
 // TriggerContinueAsNew asks an active Flow to roll its history into a new run.
@@ -1108,15 +1121,17 @@ func streamMessagesPageTarget(
 //
 // match must contain an operand matching the registered Attribute type. The
 // matched current value is decoded into valuePtr before this method returns.
-// valuePtr must be a non-nil pointer of the registered type. LongPollTimeoutError
-// means no match was observed and the call may be repeated. Use
-// context.WithTimeout or context.WithDeadline for a shorter Go-side wait.
+// valuePtr must be a non-nil pointer of the registered type. options must contain a caller-owned
+// RequestID. The Client automatically reattaches transport long polls with that ID.
+// MaximumWaitTime is the total handler budget; zero waits indefinitely. A positive budget expiry
+// returns WaitHandlerTimeoutError. Use context.WithTimeout or context.WithDeadline to cancel locally.
 func (client *Client) WaitForAttributeMatch(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
 	match AttributeMatchDef,
 	valuePtr any,
+	options WaitForAttributeOptions,
 ) error {
 	return client.waitForAttributeMatch(
 		ctx,
@@ -1126,6 +1141,7 @@ func (client *Client) WaitForAttributeMatch(
 		false,
 		match,
 		valuePtr,
+		options,
 	)
 }
 
@@ -1133,8 +1149,8 @@ func (client *Client) WaitForAttributeMatch(
 //
 // instance identifies the map entry. Slash is prohibited because it is reserved.
 // The matched current value is decoded into valuePtr. The match operand and
-// valuePtr must use the registered AttributeMap value type. LongPollTimeoutError
-// is retryable. Use context.WithTimeout or context.WithDeadline for a shorter wait.
+// valuePtr must use the registered AttributeMap value type. options has the same required RequestID,
+// automatic reattachment, handler-budget, and error behavior as WaitForAttributeMatch.
 func (client *Client) WaitForAttributeMapInstanceMatch(
 	ctx context.Context,
 	flowID string,
@@ -1142,6 +1158,7 @@ func (client *Client) WaitForAttributeMapInstanceMatch(
 	instance string,
 	match AttributeMatchDef,
 	valuePtr any,
+	options WaitForAttributeOptions,
 ) error {
 	return client.waitForAttributeMatch(
 		ctx,
@@ -1151,6 +1168,7 @@ func (client *Client) WaitForAttributeMapInstanceMatch(
 		true,
 		match,
 		valuePtr,
+		options,
 	)
 }
 
@@ -1162,6 +1180,7 @@ func (client *Client) waitForAttributeMatch(
 	isMap bool,
 	match AttributeMatchDef,
 	valuePtr any,
+	options WaitForAttributeOptions,
 ) error {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return err
@@ -1187,27 +1206,78 @@ func (client *Client) waitForAttributeMatch(
 	if err := validateEncodedAttributeMatch(match.attributeMatchOperator(), encoded); err != nil {
 		return err
 	}
-	requestID, err := newRequestID()
+	waitBudget, err := newClientWaitBudget(options.RequestID, options.MaximumWaitTime)
 	if err != nil {
 		return err
 	}
-	response, err := client.service.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
-		FlowId: flowID,
-		Match: &dexpb.AttributeMatch{
-			Key:      name,
-			Operator: match.attributeMatchOperator(),
-			Operand:  encoded,
-		},
-		WaitTimeSeconds: serverCappedLongPollSeconds,
-		RequestId:       requestID,
-	})
-	if err != nil {
-		return translateWaitRPCError(ctx, err, "WaitForAttribute", flowID, flowTargetActive)
+	for {
+		handlerWaitTimeoutSeconds, err := waitBudget.remainingSeconds()
+		if err != nil {
+			return newWaitHandlerTimeoutError("WaitForAttribute", flowID)
+		}
+		response, waitErr := client.service.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+			FlowId: flowID,
+			Match: &dexpb.AttributeMatch{
+				Key:      name,
+				Operator: match.attributeMatchOperator(),
+				Operand:  encoded,
+			},
+			WaitTimeSeconds: handlerWaitTimeoutSeconds,
+			RequestId:       options.RequestID,
+		})
+		if waitErr == nil {
+			if response.GetMatchedValue() == nil {
+				return fmt.Errorf("dex: WaitForAttribute response is incomplete")
+			}
+			return decodeValue(response.GetMatchedValue(), valuePtr)
+		}
+		translated := translateWaitRPCError(ctx, waitErr, "WaitForAttribute", flowID, flowTargetActive)
+		var longPollTimeout *LongPollTimeoutError
+		if !errors.As(translated, &longPollTimeout) {
+			return translated
+		}
 	}
-	if response.GetMatchedValue() == nil {
-		return fmt.Errorf("dex: WaitForAttribute response is incomplete")
+}
+
+type clientWaitBudget struct {
+	deadline time.Time
+}
+
+func newClientWaitBudget(requestID string, maximumWaitTime time.Duration) (*clientWaitBudget, error) {
+	if requestID == "" {
+		return nil, fmt.Errorf("dex: wait request ID is required")
 	}
-	return decodeValue(response.GetMatchedValue(), valuePtr)
+	if _, err := exactDurationSeconds32(maximumWaitTime); err != nil {
+		return nil, err
+	}
+	waitBudget := &clientWaitBudget{}
+	if maximumWaitTime > 0 {
+		waitBudget.deadline = time.Now().Add(maximumWaitTime)
+	}
+	return waitBudget, nil
+}
+
+func (b *clientWaitBudget) remainingSeconds() (int32, error) {
+	if b.deadline.IsZero() {
+		return 0, nil
+	}
+	remaining := time.Until(b.deadline)
+	if remaining <= 0 {
+		return 0, context.DeadlineExceeded
+	}
+	seconds := (remaining + time.Second - 1) / time.Second
+	return int32(seconds), nil
+}
+
+func newWaitHandlerTimeoutError(operation string, flowID string) error {
+	serviceError := &ServiceError{
+		Op:        operation,
+		FlowID:    flowID,
+		Code:      codes.DeadlineExceeded,
+		SubStatus: ErrorSubStatusWaitHandlerTimeout,
+		Detail:    "wait handler timed out",
+	}
+	return &WaitHandlerTimeoutError{ServiceError: serviceError}
 }
 
 func translateWaitRPCError(

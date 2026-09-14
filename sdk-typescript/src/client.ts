@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { credentials, type ServiceError } from "@grpc/grpc-js";
+import { credentials, status, type ServiceError } from "@grpc/grpc-js";
 
 import type { BlobCache } from "./blob-cache.js";
 import { AttributeMatch } from "./attribute-match.js";
@@ -47,7 +47,10 @@ import {
 } from "./gen/dex.js";
 import type { Empty } from "./gen/google/protobuf/empty.js";
 import {
+  ErrorSubStatus,
   FlowErrorType,
+  LongPollTimeoutError,
+  WaitHandlerTimeoutError,
   ValueMappingError,
   type FlowErrorType as FlowErrorTypeValue,
 } from "./errors.js";
@@ -83,6 +86,8 @@ import {
   type StepExecutionId,
   type StopFlowOptions,
   type TimerId,
+  type WaitForAttributeOptions,
+  type WaitForStepCompletionOptions,
 } from "./options.js";
 import { Attribute, AttributeMap, IndexType, type AttributeLock } from "./persistence.js";
 import type { RPCResult } from "./rpc.js";
@@ -626,59 +631,70 @@ export class Client {
   }
 
   /**
-   * Long-polls until one Step execution completes.
+   * Waits until one Step execution completes or its total handler budget expires.
+   * Transport long polls automatically reattach with the same caller-owned Request ID.
    * @param flowId - Non-empty active Flow ID.
    * @param stepExecutionId - Step type and positive execution number.
-   * @param timeoutMs - Non-negative server-side wait duration in milliseconds.
-   * @throws {@link LongPollTimeoutError} when completion is not observed in time.
+   * @param options - Required Request ID and total handler wait budget.
+   * @throws {@link WaitHandlerTimeoutError} when a positive handler budget expires first.
    */
   public async waitForStepCompletion(
     flowId: string,
     stepExecutionId: StepExecutionId,
-    timeoutMs: number,
+    options: WaitForStepCompletionOptions,
   ): Promise<void> {
-    await unary<WaitForStepCompletionResponse>(
-      { operation: "waitForStepCompletion", flowId, requirement: "active" },
-      (callback) =>
-      this.service.waitForStepCompletion(
-        {
-          flowId: requireName(flowId),
-          stepType: stepExecutionId.stepType,
-          stepExecutionNumber: String(stepExecutionId.number ?? 1),
-          waitTimeSeconds: seconds(timeoutMs),
-          requestId: crypto.randomUUID(),
-        },
-        callback,
-      ),
-    );
+    const waitBudget = new ClientWaitBudget(options.requestId, options.maximumWaitTimeMs);
+    while (true) {
+      try {
+        await unary<WaitForStepCompletionResponse>(
+          { operation: "waitForStepCompletion", flowId, requirement: "active" },
+          (callback) => this.service.waitForStepCompletion(
+            {
+              flowId: requireName(flowId),
+              stepType: stepExecutionId.stepType,
+              stepExecutionNumber: String(stepExecutionId.number ?? 1),
+              waitTimeSeconds: waitBudget.remainingSeconds("waitForStepCompletion", flowId),
+              requestId: options.requestId,
+            },
+            callback,
+          ),
+        );
+        return;
+      } catch (error) {
+        if (!(error instanceof LongPollTimeoutError)) {
+          throw error;
+        }
+      }
+    }
   }
 
   /**
    * Waits until a singleton Attribute in the current run satisfies a match.
    * Returns the current value observed by the successful wait operation.
+   * Transport long polls automatically reattach with the same caller-owned Request ID.
    * @typeParam T - Attribute value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered singleton Attribute to observe.
    * @param match - Scalar predicate whose operand has the Attribute value type.
-   * @param timeoutMs - Non-negative server-side wait duration in milliseconds.
+   * @param options - Required Request ID and total handler wait budget.
    * @returns The matched current Attribute value.
    */
   public waitForAttributeMatch<T>(
     flowId: string,
     attribute: Attribute<T>,
     match: AttributeMatch<T>,
-    timeoutMs: number,
+    options: WaitForAttributeOptions,
   ): Promise<T>;
 
   /**
    * Waits until one AttributeMap instance in the current run satisfies a match.
-   * Primitive-value restrictions and timeout errors match `waitForAttributeMatch`.
+   * Primitive-value restrictions, options, and timeout errors match `waitForAttributeMatch`.
    * @typeParam T - AttributeMap value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered AttributeMap to observe.
    * @param instance - The map instance to observe. Slash is prohibited because it is a reserved character.
    * @param match - Scalar predicate whose operand has the AttributeMap value type.
-   * @param timeoutMs - Non-negative server-side wait duration in milliseconds.
+   * @param options - Required Request ID and total handler wait budget.
    * @returns The matched current AttributeMap value.
    */
   public waitForAttributeMatch<T>(
@@ -686,14 +702,14 @@ export class Client {
     attribute: AttributeMap<T>,
     instance: string,
     match: AttributeMatch<T>,
-    timeoutMs: number,
+    options: WaitForAttributeOptions,
   ): Promise<T>;
 
   /**
    * Waits until a singleton Attribute or AttributeMap instance satisfies a match.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered Attribute or AttributeMap to observe.
-   * @param args - Match and timeout, optionally preceded by a map instance.
+   * @param args - Match and options, optionally preceded by a map instance.
    * @returns The matched current value.
    */
   public async waitForAttributeMatch(
@@ -702,7 +718,7 @@ export class Client {
     ...args: unknown[]
   ): Promise<unknown> {
     if (attribute instanceof Attribute) {
-      if (args.length !== 2 || typeof args[1] !== "number") {
+      if (args.length !== 2 || !isWaitForAttributeOptions(args[1])) {
         throw new TypeError("waitForAttributeMatch received invalid Attribute arguments");
       }
       return this.waitForAttributeValue(
@@ -714,7 +730,7 @@ export class Client {
       );
     }
     if (attribute instanceof AttributeMap) {
-      if (args.length !== 3 || typeof args[0] !== "string" || typeof args[2] !== "number") {
+      if (args.length !== 3 || typeof args[0] !== "string" || !isWaitForAttributeOptions(args[2])) {
         throw new TypeError("waitForAttributeMatch received invalid AttributeMap arguments");
       }
       return this.waitForAttributeValue(
@@ -733,33 +749,41 @@ export class Client {
     attribute: Attribute<unknown> | AttributeMap<unknown>,
     instance: string | undefined,
     match: AttributeMatch<unknown>,
-    timeoutMs: number,
+    options: WaitForAttributeOptions,
   ): Promise<unknown> {
     if (!(match instanceof AttributeMatch)) {
       throw new TypeError("waitForAttributeMatch requires an AttributeMatch");
     }
     const encoded = match.encode(attribute.codec);
-    const response = await unary<WaitForAttributeResponse>(
-      { operation: "waitForAttributeMatch", flowId, requirement: "active" },
-      (callback) =>
-        this.service.waitForAttribute(
-          {
-            flowId: requireName(flowId),
-            match: {
-              key: physicalName(attribute.name, instance),
-              operator: encoded.operator,
-              operand: encoded.operand,
+    const waitBudget = new ClientWaitBudget(options.requestId, options.maximumWaitTimeMs);
+    while (true) {
+      try {
+        const response = await unary<WaitForAttributeResponse>(
+          { operation: "waitForAttributeMatch", flowId, requirement: "active" },
+          (callback) => this.service.waitForAttribute(
+            {
+              flowId: requireName(flowId),
+              match: {
+                key: physicalName(attribute.name, instance),
+                operator: encoded.operator,
+                operand: encoded.operand,
+              },
+              waitTimeSeconds: waitBudget.remainingSeconds("waitForAttributeMatch", flowId),
+              requestId: options.requestId,
             },
-            waitTimeSeconds: seconds(timeoutMs),
-            requestId: crypto.randomUUID(),
-          },
-          callback,
-        ),
-     );
-    if (response.matchedValue === undefined) {
-      throw new Error("waitForAttributeMatch response is incomplete");
+            callback,
+          ),
+        );
+        if (response.matchedValue === undefined) {
+          throw new Error("waitForAttributeMatch response is incomplete");
+        }
+        return decodeValue(attribute.codec, response.matchedValue);
+      } catch (error) {
+        if (!(error instanceof LongPollTimeoutError)) {
+          throw error;
+        }
+      }
     }
-    return decodeValue(attribute.codec, response.matchedValue);
   }
 
   /**
@@ -1256,6 +1280,42 @@ function seconds(milliseconds: number | undefined): number {
     throw new RangeError("duration must be a non-negative whole number of seconds");
   }
   return milliseconds / 1_000;
+}
+
+function isWaitForAttributeOptions(value: unknown): value is WaitForAttributeOptions {
+  return typeof value === "object" && value !== null && "requestId" in value;
+}
+
+class ClientWaitBudget {
+  private readonly deadlineMs: number | undefined;
+
+  public constructor(requestId: string, maximumWaitTimeMs: number | undefined) {
+    if (!requestId) {
+      throw new TypeError("wait request ID is required");
+    }
+    const maximumWaitSeconds = seconds(maximumWaitTimeMs);
+    if (maximumWaitSeconds > 2_147_483_647) {
+      throw new RangeError("duration exceeds the int32 seconds range");
+    }
+    this.deadlineMs = maximumWaitSeconds === 0 ? undefined : performance.now() + maximumWaitSeconds * 1_000;
+  }
+
+  public remainingSeconds(operation: string, flowId: string): number {
+    if (this.deadlineMs === undefined) {
+      return 0;
+    }
+    const remainingMs = this.deadlineMs - performance.now();
+    if (remainingMs <= 0) {
+      throw new WaitHandlerTimeoutError(
+        status.DEADLINE_EXCEEDED,
+        ErrorSubStatus.WAIT_HANDLER_TIMEOUT,
+        "wait handler timed out",
+        operation,
+        flowId,
+      );
+    }
+    return Math.ceil(remainingMs / 1_000);
+  }
 }
 
 function heartbeatSeconds(milliseconds: number | undefined): number {

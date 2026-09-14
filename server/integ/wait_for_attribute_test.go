@@ -55,6 +55,8 @@ func TestWaitForAttributeTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestWaitForAttributeTimeout(t)
 		smallWaitForFastTest()
+		doTestWaitForAttributeTransportTimeoutAndReattach(t)
+		smallWaitForFastTest()
 		doTestWaitForAttributeCancel(t)
 		smallWaitForFastTest()
 		doTestWaitForAttributeNotFound(t)
@@ -189,6 +191,55 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, proto.Equal(expectedValue, response.GetMatchedValue()))
 
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowId,
+		Attributes: []*dexpb.AttributeWrite{
+			{Key: waitForAttributeKey, Value: intValue(1)},
+		},
+	})
+	require.NoError(t, err)
+	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
+	require.NoError(t, err)
+	nonEqualRequestID := uuid.NewString()
+	nonEqualResponse := make(chan *dexpb.WaitForAttributeResponse, 1)
+	nonEqualError := make(chan error, 1)
+	go func() {
+		matchedResponse, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+			FlowId: flowId,
+			Match: waitForAttributeMatch(
+				waitForAttributeKey,
+				dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN,
+				intValue(5),
+			),
+			WaitTimeSeconds: 0,
+			RequestId:       nonEqualRequestID,
+		})
+		nonEqualResponse <- matchedResponse
+		nonEqualError <- waitErr
+	}()
+	require.Eventually(t, func() bool {
+		accepted, _ := countTemporalUpdateEvents(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			description.RunId,
+			nonEqualRequestID,
+		)
+		return accepted == 1
+	}, 5*time.Second, 50*time.Millisecond)
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowId,
+		Attributes: []*dexpb.AttributeWrite{
+			{Key: waitForAttributeKey, Value: intValue(7)},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, <-nonEqualError)
+	require.True(t, proto.Equal(intValue(7), (<-nonEqualResponse).GetMatchedValue()))
+
 	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
 }
 
@@ -305,10 +356,15 @@ func doTestWaitForAttributeOperators(t *testing.T) {
 			dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN,
 			intValue(0),
 		),
-		WaitTimeSeconds: 0,
+		WaitTimeSeconds: 1,
 		RequestId:       uuid.NewString(),
 	})
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	require.Equal(
+		t,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT,
+		grpcServiceErrorResponse(t, err).GetSubStatus(),
+	)
 
 	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
 }
@@ -329,7 +385,7 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 			waitForAttributeKey,
 			stringValue("never-set"),
 		),
-		WaitTimeSeconds: 0,
+		WaitTimeSeconds: 1,
 		RequestId:       uuid.NewString(),
 	})
 	require.Error(t, err)
@@ -337,11 +393,75 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 	errResp := grpcServiceErrorResponse(t, err)
 	require.Equal(
 		t,
-		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT,
 		errResp.GetSubStatus(),
 	)
 	require.Equal(t, "attribute wait timed out", errResp.GetDetail())
 
+	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
+}
+
+func doTestWaitForAttributeTransportTimeoutAndReattach(t *testing.T) {
+	workerTarget := startWorker(t, signal.NewHandler())
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType:    service.BackendTypeTemporal,
+		MaxWaitSeconds: 1,
+	})
+	flowClient := runtime.FlowClient
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
+	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
+	require.NoError(t, err)
+	requestID := uuid.NewString()
+	expectedValue := stringValue("reattached")
+	waitRequest := &dexpb.WaitForAttributeRequest{
+		FlowId: flowId,
+		Match: equalAttributeMatch(
+			waitForAttributeKey,
+			expectedValue,
+		),
+		WaitTimeSeconds: 5,
+		RequestId:       requestID,
+	}
+	_, err = flowClient.WaitForAttribute(ctx, waitRequest)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	require.Equal(
+		t,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+		grpcServiceErrorResponse(t, err).GetSubStatus(),
+	)
+	accepted, completed := countTemporalUpdateEvents(
+		t,
+		ctx,
+		runtime,
+		flowId,
+		description.RunId,
+		requestID,
+	)
+	require.Equal(t, 1, accepted)
+	require.Zero(t, completed)
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowId,
+		Attributes: []*dexpb.AttributeWrite{
+			{Key: waitForAttributeKey, Value: expectedValue},
+		},
+	})
+	require.NoError(t, err)
+	response, err := flowClient.WaitForAttribute(ctx, waitRequest)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(expectedValue, response.GetMatchedValue()))
+	accepted, completed = countTemporalUpdateEvents(
+		t,
+		ctx,
+		runtime,
+		flowId,
+		description.RunId,
+		requestID,
+	)
+	require.Equal(t, 1, accepted)
+	require.Equal(t, 1, completed)
 	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
 }
 
@@ -354,6 +474,9 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 	defer cancel()
 
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
+	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
+	require.NoError(t, err)
+	requestID := uuid.NewString()
 
 	done := make(chan error, 1)
 	go func() {
@@ -364,12 +487,22 @@ func doTestWaitForAttributeCancel(t *testing.T) {
 				stringValue("never-set"),
 			),
 			WaitTimeSeconds: 30,
-			RequestId:       uuid.NewString(),
+			RequestId:       requestID,
 		})
 		done <- waitErr
 	}()
 
-	time.Sleep(500 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		accepted, _ := countTemporalUpdateEvents(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			description.RunId,
+			requestID,
+		)
+		return accepted == 1
+	}, 5*time.Second, 50*time.Millisecond)
 	cancel()
 
 	select {
@@ -475,7 +608,17 @@ func doTestWaitForAttributeConcurrent(t *testing.T) {
 		}(index)
 	}
 
-	time.Sleep(500 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		accepted, _ := countTemporalUpdateEvents(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			description.RunId,
+			requestId,
+		)
+		return accepted == 1
+	}, 5*time.Second, 50*time.Millisecond)
 
 	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		RequestId: newRequestID(),
@@ -523,31 +666,45 @@ func doTestWaitForAttributeAcrossContinueAsNew(t *testing.T) {
 		minimumContinueAsNewSyncDurabilityConfig(),
 	)
 	expectedValue := stringValue("wait-for-attribute-can")
-
+	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
+	require.NoError(t, err)
+	requestID := uuid.NewString()
+	responseChannel := make(chan *dexpb.WaitForAttributeResponse, 1)
+	errorChannel := make(chan error, 1)
 	go func() {
-		time.Sleep(500 * time.Millisecond)
-		_, setErr := flowClient.SetAttributes(context.Background(), &dexpb.SetAttributesRequest{
-			RequestId: newRequestID(),
-			FlowId:    flowId,
-			Attributes: []*dexpb.AttributeWrite{
-				{Key: waitForAttributeKey, Value: expectedValue},
-			},
+		response, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+			FlowId: flowId,
+			Match: equalAttributeMatch(
+				waitForAttributeKey,
+				expectedValue,
+			),
+			WaitTimeSeconds: 30,
+			RequestId:       requestID,
 		})
-		if setErr != nil {
-			t.Logf("Warning: failed to set attribute during CAN wait: %v", setErr)
-		}
+		responseChannel <- response
+		errorChannel <- waitErr
 	}()
-
-	response, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
-		FlowId: flowId,
-		Match: equalAttributeMatch(
-			waitForAttributeKey,
-			expectedValue,
-		),
-		WaitTimeSeconds: 30,
-		RequestId:       uuid.NewString(),
+	require.Eventually(t, func() bool {
+		accepted, _ := countTemporalUpdateEvents(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			description.RunId,
+			requestID,
+		)
+		return accepted == 1
+	}, 5*time.Second, 50*time.Millisecond)
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowId,
+		Attributes: []*dexpb.AttributeWrite{
+			{Key: waitForAttributeKey, Value: expectedValue},
+		},
 	})
 	require.NoError(t, err)
+	require.NoError(t, <-errorChannel)
+	response := <-responseChannel
 	require.True(t, proto.Equal(expectedValue, response.GetMatchedValue()))
 
 	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)

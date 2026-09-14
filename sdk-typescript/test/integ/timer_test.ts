@@ -14,6 +14,9 @@ import * as flows from "./iwf_flows.js";
 
 export async function compileTimerAndStepWait(client: Client): Promise<void> {
   await client.startFlow(flows.TIMER, "timer", 1);
-  await client.waitForStepCompletion("timer", StepExecutionId.of("TimerStep"), 10_000);
+  await client.waitForStepCompletion("timer", StepExecutionId.of("TimerStep"), {
+    requestId: "wait-timer-step",
+    maximumWaitTimeMs: 10_000,
+  });
   await client.waitForFlow("timer");
 }

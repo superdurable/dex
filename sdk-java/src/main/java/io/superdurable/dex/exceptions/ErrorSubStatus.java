@@ -34,5 +34,8 @@ public enum ErrorSubStatus {
     LONG_POLL_TIMEOUT,
 
     /** Indicates that a pending Channel message ID no longer exists. */
-    CHANNEL_MESSAGE_NOT_FOUND
+    CHANNEL_MESSAGE_NOT_FOUND,
+
+    /** Indicates that a durable wait handler reached its total wait budget. */
+    WAIT_HANDLER_TIMEOUT
 }

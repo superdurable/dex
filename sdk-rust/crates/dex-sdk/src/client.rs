@@ -33,13 +33,15 @@ use crate::stop_flow_options::StopType;
 use crate::time_travel_options::{TimeTravelPoint, TimeTravelStepMethod};
 use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
+use crate::wait_options::ClientWaitBudget;
 use crate::worker_dispatcher::{map_flow_timeout_handler_options, map_step_options};
 use crate::{
     ActiveStepSearchMode, Attribute, AttributeMap, AttributeMatch, BlobCache, ClientOptions, Flow,
     FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus, FlowTimeoutPolicy, IdReusePolicy,
     Registry, RetryPolicy, Rpc, SdkError, SdkResult, SearchFlowEntry, SearchFlowsPage,
     StartFlowOptions, StepCompletion, StepDurability, StepExecutionId, StopFlowOptions, Stream,
-    StreamMessage, StreamMessagesPage, TimeTravelOptions, TimerId, Value, WorkerTarget,
+    StreamMessage, StreamMessagesPage, TimeTravelOptions, TimerId, Value, WaitForAttributeOptions,
+    WaitForStepCompletionOptions, WorkerTarget,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -628,56 +630,71 @@ impl Client {
         )
     }
 
-    /// Blocks until one Step execution completes or `timeout` elapses.
+    /// Blocks until one Step execution completes or its total handler budget expires.
+    ///
+    /// Transport long polls automatically reattach with the same caller-owned Request ID.
     ///
     /// # Errors
     ///
-    /// Returns [`SdkError::LongPollTimeout`] on timeout, FlowNotActive when appropriate, or another
-    /// service error. Successful completion returns `()` and does not decode Step output.
+    /// Returns [`SdkError::WaitHandlerTimeout`] when a positive handler budget expires,
+    /// FlowNotActive when appropriate, or another service error. Successful completion returns
+    /// `()` and does not decode Step output.
     pub fn wait_for_step_completion(
         &self,
         flow_id: &str,
         step_execution: StepExecutionId,
-        timeout: Duration,
+        options: WaitForStepCompletionOptions,
     ) -> SdkResult<()> {
-        let wait_time_seconds = seconds32(timeout)?;
-        self.call_empty(
-            "wait_for_step_completion",
-            Some(flow_id),
-            FlowTargetRequirement::Active,
-            |mut service| async move {
-                service
-                    .wait_for_step_completion(WaitForStepCompletionRequest {
-                        flow_id: flow_id.to_string(),
-                        step_type: step_execution.step_type.to_string(),
-                        step_execution_number: step_execution.execution_number.to_string(),
-                        wait_time_seconds,
-                        request_id: Uuid::new_v4().to_string(),
-                    })
-                    .await
-            },
-        )
+        let wait_budget = ClientWaitBudget::new(&options.request_id, options.maximum_wait_time)?;
+        loop {
+            let wait_time_seconds =
+                wait_budget.remaining_seconds("wait_for_step_completion", flow_id)?;
+            let request_flow_id = flow_id.to_string();
+            let request_step_type = step_execution.step_type.to_string();
+            let request_step_execution_number = step_execution.execution_number.to_string();
+            let request_id = options.request_id.clone();
+            let result = self.call_empty(
+                "wait_for_step_completion",
+                Some(flow_id),
+                FlowTargetRequirement::Active,
+                |mut service| async move {
+                    service
+                        .wait_for_step_completion(WaitForStepCompletionRequest {
+                            flow_id: request_flow_id,
+                            step_type: request_step_type,
+                            step_execution_number: request_step_execution_number,
+                            wait_time_seconds,
+                            request_id,
+                        })
+                        .await
+                },
+            );
+            if !matches!(result, Err(SdkError::LongPollTimeout { .. })) {
+                return result;
+            }
+        }
     }
 
     /// Blocks until a singleton Attribute in the current run satisfies `attribute_match`.
     ///
-    /// Returns the current value observed by the successful wait. String and
+    /// Returns the current value observed by the successful wait. Transport long polls
+    /// automatically reattach with the same caller-owned Request ID. String and
     /// Boolean Attributes support equality matches. Integer and floating-point
-    /// Attributes support every match. A server-side expiry returns
-    /// [`SdkError::LongPollTimeout`].
+    /// Attributes support every match. A positive handler-budget expiry returns
+    /// [`SdkError::WaitHandlerTimeout`].
     pub fn wait_for_attribute_match<T: Value>(
         &self,
         flow_id: &str,
         attribute: &Attribute<T>,
         attribute_match: AttributeMatch<T>,
-        timeout: Duration,
+        options: WaitForAttributeOptions,
     ) -> SdkResult<T> {
-        self.wait_for_attribute_value(flow_id, attribute.name(), &attribute_match, timeout)
+        self.wait_for_attribute_value(flow_id, attribute.name(), &attribute_match, options)
     }
 
     /// Blocks until one AttributeMap instance satisfies `attribute_match`.
     ///
-    /// This targets the current run and otherwise has the same match, timeout,
+    /// This targets the current run and otherwise has the same match, handler-budget,
     /// request-ID, return-value, and error behavior as [`Self::wait_for_attribute_match`].
     pub fn wait_for_attribute_map_instance_match<T: Value>(
         &self,
@@ -685,13 +702,13 @@ impl Client {
         attribute: &AttributeMap<T>,
         instance: &str,
         attribute_match: AttributeMatch<T>,
-        timeout: Duration,
+        options: WaitForAttributeOptions,
     ) -> SdkResult<T> {
         self.wait_for_attribute_value(
             flow_id,
             &map_physical_name(attribute.name(), instance)?,
             &attribute_match,
-            timeout,
+            options,
         )
     }
 
@@ -700,29 +717,37 @@ impl Client {
         flow_id: &str,
         key: &str,
         attribute_match: &AttributeMatch<T>,
-        timeout: Duration,
+        options: WaitForAttributeOptions,
     ) -> SdkResult<T> {
         let mut encoded_match = attribute_match.encode()?;
         encoded_match.key = key.to_string();
-        let wait_time_seconds = seconds32(timeout)?;
-        let mut service = self.service.clone();
-        let response = self
-            .runtime
-            .block_on(service.wait_for_attribute(WaitForAttributeRequest {
-                flow_id: flow_id.to_string(),
-                r#match: Some(encoded_match),
-                wait_time_seconds,
-                request_id: Uuid::new_v4().to_string(),
-            }))
-            .map_err(|status| {
-                SdkError::from_status(
-                    status,
-                    "wait_for_attribute_match",
-                    Some(flow_id),
-                    FlowTargetRequirement::Active,
-                )
-            })?
-            .into_inner();
+        let wait_budget = ClientWaitBudget::new(&options.request_id, options.maximum_wait_time)?;
+        let response = loop {
+            let wait_time_seconds =
+                wait_budget.remaining_seconds("wait_for_attribute_match", flow_id)?;
+            let mut service = self.service.clone();
+            let result = self
+                .runtime
+                .block_on(service.wait_for_attribute(WaitForAttributeRequest {
+                    flow_id: flow_id.to_string(),
+                    r#match: Some(encoded_match.clone()),
+                    wait_time_seconds,
+                    request_id: options.request_id.clone(),
+                }))
+                .map_err(|status| {
+                    SdkError::from_status(
+                        status,
+                        "wait_for_attribute_match",
+                        Some(flow_id),
+                        FlowTargetRequirement::Active,
+                    )
+                });
+            match result {
+                Ok(response) => break response.into_inner(),
+                Err(SdkError::LongPollTimeout { .. }) => continue,
+                Err(error) => return Err(error),
+            }
+        };
         let matched_value = response.matched_value.ok_or_else(|| SdkError::Service {
             service: ServiceError::local(
                 "wait_for_attribute_match",
@@ -1220,7 +1245,7 @@ fn optional_seconds(duration: Option<Duration>) -> SdkResult<i32> {
         .map(Option::unwrap_or_default)
 }
 
-fn seconds32(duration: Duration) -> SdkResult<i32> {
+pub(crate) fn seconds32(duration: Duration) -> SdkResult<i32> {
     if duration.subsec_nanos() != 0 {
         return Err(invalid("Duration must use whole seconds"));
     }
@@ -1252,7 +1277,7 @@ fn sdk_handler_error(error: impl std::fmt::Display) -> SdkError {
     invalid(error.to_string())
 }
 
-fn invalid(message: impl Into<String>) -> SdkError {
+pub(crate) fn invalid(message: impl Into<String>) -> SdkError {
     SdkError::InvalidArgument {
         message: message.into(),
     }

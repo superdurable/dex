@@ -38,6 +38,7 @@ type DexServiceTestConfig struct {
 	IncludeRPCInputOutputIntoHistory       bool
 	UseTemporalSynchronousUpdateForAllRPCs bool
 	TemporalMetricsHandler                 client.MetricsHandler
+	MaxWaitSeconds                         int64
 	// LazyLoading overrides BlobStore.LazyLoading.
 	// Nil uses EffectiveLazyLoading default (true).
 	LazyLoading *bool
@@ -49,9 +50,13 @@ func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config 
 	if blobStoreEnabled && testCfg.S3TestThreshold == 0 && testCfg.LocalBlobDirectory == "" {
 		testCfg.LocalBlobDirectory = t.TempDir()
 	}
+	maxWaitSeconds := testCfg.MaxWaitSeconds
+	if maxWaitSeconds == 0 {
+		maxWaitSeconds = 12
+	}
 	cfg := config.Config{
 		Api: config.ApiConfig{
-			MaxWaitSeconds:                         12, // use 12 so that we can test it in the waiting test
+			MaxWaitSeconds:                         maxWaitSeconds,
 			IncludeRPCInputOutputIntoHistory:       testCfg.IncludeRPCInputOutputIntoHistory,
 			UseTemporalSynchronousUpdateForAllRPCs: testCfg.UseTemporalSynchronousUpdateForAllRPCs,
 			QueryWorkflowFailedRetryPolicy: &config.RetryPolicy{

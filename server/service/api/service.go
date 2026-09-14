@@ -314,13 +314,19 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 	if err != nil || stepExecutionNumber <= 0 {
 		return nil, makeInvalidRequestError("step execution number must be a positive integer")
 	}
-	waitCtx, cancel, deadline := s.waitContext(ctx, req.GetWaitTimeSeconds())
+	waitCtx, cancel := s.waitContext(ctx)
 	defer cancel()
+	handlerDeadline := waitHandlerDeadline(req.GetWaitTimeSeconds())
 	var response dexpb.WaitForStepCompletionResponse
 	backoff := 25 * time.Millisecond
-	originalWaitSeconds := req.GetWaitTimeSeconds()
 	for {
-		req.WaitTimeSeconds = remainingWaitSeconds(deadline, req.GetWaitTimeSeconds())
+		remainingSeconds, hasTimeRemaining := remainingWaitHandlerSeconds(handlerDeadline)
+		if !hasTimeRemaining {
+			return nil, serviceerrors.DeadlineExceededWaitHandler(
+				"step completion wait handler timed out",
+			).ToGRPCError()
+		}
+		req.WaitTimeSeconds = remainingSeconds
 		err := s.client.SynchronousUpdateWorkflow(
 			waitCtx,
 			&response,
@@ -355,12 +361,7 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 		if !s.isWaitForStepCompletionUpdateTransitionError(err) {
 			return nil, s.handleError(err)
 		}
-		if originalWaitSeconds == 0 {
-			return nil, serviceerrors.DeadlineExceededLongPoll(
-				"continue-as-new exhausted the immediate-check budget",
-			).ToGRPCError()
-		}
-		if err := waitForCANRetry(waitCtx, deadline, backoff); err != nil {
+		if err := waitForCANRetry(waitCtx, backoff); err != nil {
 			return nil, waitContextStatus(err)
 		}
 		if backoff < time.Second {
@@ -422,13 +423,19 @@ func (s *serviceImpl) WaitForAttribute(
 	if err := validateAttributeMatch(match); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
-	waitCtx, cancel, deadline := s.waitContext(ctx, req.GetWaitTimeSeconds())
+	waitCtx, cancel := s.waitContext(ctx)
 	defer cancel()
+	handlerDeadline := waitHandlerDeadline(req.GetWaitTimeSeconds())
 	var response dexpb.WaitForAttributeResponse
 	backoff := 25 * time.Millisecond
-	originalWaitSeconds := req.GetWaitTimeSeconds()
 	for {
-		req.WaitTimeSeconds = remainingWaitSeconds(deadline, req.GetWaitTimeSeconds())
+		remainingSeconds, hasTimeRemaining := remainingWaitHandlerSeconds(handlerDeadline)
+		if !hasTimeRemaining {
+			return nil, serviceerrors.DeadlineExceededWaitHandler(
+				"attribute wait handler timed out",
+			).ToGRPCError()
+		}
+		req.WaitTimeSeconds = remainingSeconds
 		err := s.client.SynchronousUpdateWorkflow(
 			waitCtx,
 			&response,
@@ -445,12 +452,7 @@ func (s *serviceImpl) WaitForAttribute(
 			updateType != dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED {
 			return nil, s.handleError(err)
 		}
-		if originalWaitSeconds == 0 {
-			return nil, serviceerrors.DeadlineExceededLongPoll(
-				"continue-as-new exhausted the immediate-check budget",
-			).ToGRPCError()
-		}
-		if err := waitForCANRetry(waitCtx, deadline, backoff); err != nil {
+		if err := waitForCANRetry(waitCtx, backoff); err != nil {
 			return nil, waitContextStatus(err)
 		}
 		if backoff < time.Second {
@@ -1693,52 +1695,38 @@ func (s *serviceImpl) HealthCheck(ctx context.Context, _ *emptypb.Empty) (*dexpb
 	}, nil
 }
 
-func (s *serviceImpl) waitContext(
-	parent context.Context,
-	requestedSeconds int32,
-) (context.Context, context.CancelFunc, time.Time) {
-	if requestedSeconds == 0 {
-		ctx, cancel := context.WithCancel(parent)
-		return ctx, cancel, time.Time{}
-	}
-	effectiveSeconds := int64(requestedSeconds)
-	if maximum := s.apiCfg.EffectiveMaxWaitSeconds(); effectiveSeconds > maximum {
-		effectiveSeconds = maximum
-	}
-	deadline := time.Now().Add(time.Duration(effectiveSeconds) * time.Second)
+func (s *serviceImpl) waitContext(parent context.Context) (context.Context, context.CancelFunc) {
+	deadline := time.Now().Add(time.Duration(s.apiCfg.EffectiveMaxWaitSeconds()) * time.Second)
 	if parentDeadline, ok := parent.Deadline(); ok && parentDeadline.Before(deadline) {
 		deadline = parentDeadline
 	}
 	ctx, cancel := context.WithDeadline(parent, deadline)
-	return ctx, cancel, deadline
+	return ctx, cancel
 }
 
-func remainingWaitSeconds(deadline time.Time, originalSeconds int32) int32 {
+func waitHandlerDeadline(requestedSeconds int32) time.Time {
+	if requestedSeconds == 0 {
+		return time.Time{}
+	}
+	return time.Now().Add(time.Duration(requestedSeconds) * time.Second)
+}
+
+func remainingWaitHandlerSeconds(deadline time.Time) (int32, bool) {
 	if deadline.IsZero() {
-		return originalSeconds
+		return 0, true
 	}
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
-		return 0
+		return 0, false
 	}
 	seconds := (remaining + time.Second - 1) / time.Second
-	return int32(seconds)
+	return int32(seconds), true
 }
 
 func waitForCANRetry(
 	ctx context.Context,
-	deadline time.Time,
 	backoff time.Duration,
 ) error {
-	if !deadline.IsZero() {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return context.DeadlineExceeded
-		}
-		if backoff > remaining {
-			backoff = remaining
-		}
-	}
 	timer := time.NewTimer(backoff)
 	defer timer.Stop()
 	select {
@@ -1777,7 +1765,7 @@ func (s *serviceImpl) handleError(err error) error {
 				details,
 			).ToGRPCError()
 		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED:
-			return serviceerrors.DeadlineExceededLongPoll(details).ToGRPCError()
+			return serviceerrors.DeadlineExceededWaitHandler(details).ToGRPCError()
 		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE:
 			return serviceerrors.AbortedLockFailure(details).ToGRPCError()
 		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_SERVER_INTERNAL:

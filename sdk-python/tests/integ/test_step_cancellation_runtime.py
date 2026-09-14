@@ -15,7 +15,7 @@ from datetime import timedelta
 
 import pytest
 
-from dex import StepExecutionId
+from dex import StepExecutionId, WaitForStepCompletionOptions
 
 from .async_environment import AsyncDexDevTestEnvironment
 from .shared import unique_id
@@ -48,7 +48,9 @@ async def _run_step_cancellation(scenario: CancellationScenario) -> None:
             await environment.client.wait_for_step_completion(
                 flow_id,
                 StepExecutionId(selected.get_step_type()),
-                timedelta(seconds=30),
+                WaitForStepCompletionOptions(
+                    f"{flow_id}-wait-selected-step", timedelta(seconds=30)
+                ),
             )
 
         result = await environment.client.wait_for_flow(flow_id, timedelta(seconds=30))

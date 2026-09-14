@@ -262,6 +262,12 @@ type LongPollTimeoutError struct {
 	*ServiceError
 }
 
+// WaitHandlerTimeoutError reports that a durable wait handler reached its deadline.
+type WaitHandlerTimeoutError struct {
+	// ServiceError contains the timed-out wait metadata.
+	*ServiceError
+}
+
 // ChannelMessageNotFoundError reports a pending message ID that no longer exists.
 type ChannelMessageNotFoundError struct {
 	// ServiceError contains the failed deletion metadata.
@@ -275,6 +281,11 @@ func (e *ChannelMessageNotFoundError) Unwrap() error {
 
 // Unwrap returns the shared service failure.
 func (e *LongPollTimeoutError) Unwrap() error {
+	return e.ServiceError
+}
+
+// Unwrap returns the shared service failure.
+func (e *WaitHandlerTimeoutError) Unwrap() error {
 	return e.ServiceError
 }
 
@@ -304,6 +315,8 @@ const (
 	ErrorSubStatusLongPollTimeout
 	// ErrorSubStatusChannelMessageNotFound identifies a pending message that no longer exists.
 	ErrorSubStatusChannelMessageNotFound
+	// ErrorSubStatusWaitHandlerTimeout identifies a durable wait handler deadline.
+	ErrorSubStatusWaitHandlerTimeout
 )
 
 type flowTargetRequirement uint8
@@ -379,6 +392,8 @@ func translateRPCError(
 		}
 	case ErrorSubStatusLongPollTimeout:
 		return &LongPollTimeoutError{ServiceError: serviceError}
+	case ErrorSubStatusWaitHandlerTimeout:
+		return &WaitHandlerTimeoutError{ServiceError: serviceError}
 	case ErrorSubStatusChannelMessageNotFound:
 		return &ChannelMessageNotFoundError{ServiceError: serviceError}
 	default:
@@ -411,6 +426,8 @@ func mapErrorSubStatus(subStatus dexpb.ErrorSubStatus) ErrorSubStatus {
 		return ErrorSubStatusLongPollTimeout
 	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND:
 		return ErrorSubStatusChannelMessageNotFound
+	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT:
+		return ErrorSubStatusWaitHandlerTimeout
 	default:
 		return ErrorSubStatusUncategorized
 	}

@@ -168,7 +168,6 @@ func (client *externalDexFlowClient) WaitForStepCompletion(
 	request *dexpb.WaitForStepCompletionRequest,
 	options ...grpc.CallOption,
 ) (*dexpb.WaitForStepCompletionResponse, error) {
-	request.WaitTimeSeconds = client.capPositiveWaitSeconds(request.WaitTimeSeconds)
 	return client.FlowServiceClient.WaitForStepCompletion(ctx, request, options...)
 }
 
@@ -177,15 +176,7 @@ func (client *externalDexFlowClient) WaitForAttribute(
 	request *dexpb.WaitForAttributeRequest,
 	options ...grpc.CallOption,
 ) (*dexpb.WaitForAttributeResponse, error) {
-	request.WaitTimeSeconds = client.capPositiveWaitSeconds(request.WaitTimeSeconds)
 	return client.FlowServiceClient.WaitForAttribute(ctx, request, options...)
-}
-
-func (client *externalDexFlowClient) capPositiveWaitSeconds(waitSeconds int32) int32 {
-	if waitSeconds > client.maxWaitSeconds {
-		return client.maxWaitSeconds
-	}
-	return waitSeconds
 }
 
 func externalDexUnsupportedReason(testConfig DexServiceTestConfig) string {

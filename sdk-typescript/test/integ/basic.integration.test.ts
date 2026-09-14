@@ -147,7 +147,10 @@ test("waitForStepCompletion observes the requested Step", async () => {
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("wait-step");
     await client.startFlow(flow, id, 5);
-    await client.waitForStepCompletion(id, StepExecutionId.of("BasicSecondStep"), 30_000);
+    await client.waitForStepCompletion(id, StepExecutionId.of("BasicSecondStep"), {
+      requestId: `${id}-wait-second-step`,
+      maximumWaitTimeMs: 30_000,
+    });
     assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 7);
   });
 });
