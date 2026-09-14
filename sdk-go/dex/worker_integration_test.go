@@ -79,6 +79,10 @@ func (workerWaitingStep) WaitFor(
 	ctx Context,
 	input workerTestInput,
 ) (*Wait, error) {
+	if input.Mode == "channel-size" &&
+		(workerTestCommands.Size(ctx) != 2 || workerTestByOrder.Size(ctx, input.OrderID) != 1) {
+		return nil, errors.New("WaitFor channel size snapshot is invalid")
+	}
 	if err := workerTestStatus.Set(ctx, "waiting"); err != nil {
 		return nil, err
 	}
@@ -170,6 +174,10 @@ func (workerWaitingStep) Execute(
 	ctx Context,
 	input workerTestInput,
 ) (*StepDecision, error) {
+	if input.Mode == "channel-size" &&
+		(workerTestCommands.Size(ctx) != 2 || workerTestByOrder.Size(ctx, input.OrderID) != 1) {
+		return nil, errors.New("Execute channel size snapshot is invalid")
+	}
 	if input.Mode == "empty" {
 		return nil, nil
 	}
@@ -448,6 +456,22 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	}
 	comboResponse := invokeWaitForResult(t, client, comboRequest)
 	require.Len(t, comboResponse.WaitingCondition.ConditionCombinations, 1)
+
+	channelSizeInput := workerTestInput{OrderID: "order-1", Mode: "channel-size"}
+	channelSizeWaitRequest := &dexpb.InvokeWaitForMethodRequest{
+		Context:   workerStepContext(),
+		FlowType:  GetFinalFlowType(workerFlow),
+		StepType:  GetFinalStepType(workerTestWait),
+		StepInput: mustEncodeWorkerTestValue(t, channelSizeInput),
+		ChannelInfos: map[string]*dexpb.ChannelInfo{
+			"commands":                  {Size: 2},
+			"commands-by-order/order-1": {Size: 1},
+		},
+	}
+	invokeWaitForResult(t, client, channelSizeWaitRequest)
+	channelSizeExecuteRequest := workerExecuteRequest(t, channelSizeInput)
+	channelSizeExecuteRequest.ChannelInfos = channelSizeWaitRequest.ChannelInfos
+	invokeExecuteResult(t, client, channelSizeExecuteRequest)
 
 	executeResponse := invokeExecuteResult(t, client,
 		workerExecuteRequest(t, waitInput),

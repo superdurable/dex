@@ -822,7 +822,7 @@ func (invocation *invocationContext) channelSizeValue(
 	instance string,
 	isMap bool,
 ) int {
-	if err := invocation.requireActive(invocationRPC); err != nil {
+	if err := invocation.requireActive(invocationWaitFor, invocationExecute, invocationRPC); err != nil {
 		panic(err)
 	}
 	physical, err := invocation.resolveChannel(name, instance, isMap)
