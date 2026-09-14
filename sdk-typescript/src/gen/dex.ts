@@ -930,7 +930,10 @@ export interface WaitForStepCompletionRequest {
   stepExecutionNumber: string;
   /** Zero waits indefinitely; positive values bound the Temporal Update handler. */
   waitTimeSeconds: number;
-  /** Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update. */
+  /**
+   * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+   * Reusing a handler-timed-out logical key advances an increasing -N generation.
+   */
   requestId: string;
 }
 
@@ -944,7 +947,10 @@ export interface WaitForAttributeRequest {
     | undefined;
   /** Zero waits indefinitely; positive values bound the Temporal Update handler. */
   waitTimeSeconds: number;
-  /** Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update. */
+  /**
+   * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+   * Reusing a handler-timed-out logical key advances an increasing -N generation.
+   */
   requestId: string;
 }
 

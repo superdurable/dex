@@ -632,9 +632,8 @@ export class Client {
 
   /**
    * Waits until one Step execution completes or its total handler budget expires.
-   * An infinite wait derives a stable Request ID from the Step execution when none is supplied.
-   * A positive handler budget requires a caller-owned Request ID. Transport long polls
-   * automatically reattach with the effective ID.
+   * The server derives a stable Request ID from the Step execution when none is supplied.
+   * Transport long polls automatically reattach to the same logical wait.
    * @param flowId - Non-empty active Flow ID.
    * @param stepExecutionId - Step type and positive execution number.
    * @param options - Optional Request ID override and total handler wait budget.
@@ -645,8 +644,7 @@ export class Client {
     stepExecutionId: StepExecutionId,
     options: WaitForStepCompletionOptions,
   ): Promise<void> {
-    const requestId = effectiveStepCompletionWaitRequestId(stepExecutionId, options);
-    const waitBudget = new ClientWaitBudget(requestId, options.maximumWaitTimeMs);
+    const waitBudget = new ClientWaitBudget(options.maximumWaitTimeMs);
     while (true) {
       try {
         await unary<WaitForStepCompletionResponse>(
@@ -657,7 +655,7 @@ export class Client {
               stepType: stepExecutionId.stepType,
               stepExecutionNumber: String(stepExecutionId.number ?? 1),
               waitTimeSeconds: waitBudget.remainingSeconds("waitForStepCompletion", flowId),
-              requestId,
+              requestId: options.requestId ?? "",
             },
             callback,
           ),
@@ -674,12 +672,13 @@ export class Client {
   /**
    * Waits until a singleton Attribute in the current run satisfies a match.
    * Returns the current value observed by the successful wait operation.
-   * Transport long polls automatically reattach with the same caller-owned Request ID.
+   * The server derives a stable Request ID from the condition when none is supplied.
+   * Transport long polls automatically reattach to the same logical wait.
    * @typeParam T - Attribute value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered singleton Attribute to observe.
    * @param match - Scalar predicate whose operand has the Attribute value type.
-   * @param options - Required Request ID and total handler wait budget.
+   * @param options - Optional Request ID override and total handler wait budget.
    * @returns The matched current Attribute value.
    */
   public waitForAttributeMatch<T>(
@@ -697,7 +696,7 @@ export class Client {
    * @param attribute - Registered AttributeMap to observe.
    * @param instance - The map instance to observe. Slash is prohibited because it is a reserved character.
    * @param match - Scalar predicate whose operand has the AttributeMap value type.
-   * @param options - Required Request ID and total handler wait budget.
+   * @param options - Optional Request ID override and total handler wait budget.
    * @returns The matched current AttributeMap value.
    */
   public waitForAttributeMatch<T>(
@@ -758,7 +757,7 @@ export class Client {
       throw new TypeError("waitForAttributeMatch requires an AttributeMatch");
     }
     const encoded = match.encode(attribute.codec);
-    const waitBudget = new ClientWaitBudget(options.requestId, options.maximumWaitTimeMs);
+    const waitBudget = new ClientWaitBudget(options.maximumWaitTimeMs);
     while (true) {
       try {
         const response = await unary<WaitForAttributeResponse>(
@@ -772,7 +771,7 @@ export class Client {
                 operand: encoded.operand,
               },
               waitTimeSeconds: waitBudget.remainingSeconds("waitForAttributeMatch", flowId),
-              requestId: options.requestId,
+              requestId: options.requestId ?? "",
             },
             callback,
           ),
@@ -1286,26 +1285,13 @@ function seconds(milliseconds: number | undefined): number {
 }
 
 function isWaitForAttributeOptions(value: unknown): value is WaitForAttributeOptions {
-  return typeof value === "object" && value !== null && "requestId" in value;
-}
-
-function effectiveStepCompletionWaitRequestId(
-  stepExecutionId: StepExecutionId,
-  options: WaitForStepCompletionOptions,
-): string {
-  if (options.requestId || (options.maximumWaitTimeMs ?? 0) !== 0) {
-    return options.requestId ?? "";
-  }
-  return `wait-for-step-completion:${stepExecutionId.stepType}-${stepExecutionId.number ?? 1}`;
+  return typeof value === "object" && value !== null;
 }
 
 class ClientWaitBudget {
   private readonly deadlineMs: number | undefined;
 
-  public constructor(requestId: string, maximumWaitTimeMs: number | undefined) {
-    if (!requestId) {
-      throw new TypeError("wait request ID is required");
-    }
+  public constructor(maximumWaitTimeMs: number | undefined) {
     const maximumWaitSeconds = seconds(maximumWaitTimeMs);
     if (maximumWaitSeconds > 2_147_483_647) {
       throw new RangeError("duration exceeds the int32 seconds range");

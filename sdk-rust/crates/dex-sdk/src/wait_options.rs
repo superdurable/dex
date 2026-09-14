@@ -13,8 +13,7 @@ use crate::{SdkError, SdkResult};
 #[derive(Clone, Debug, Default)]
 /// Configures one durable Step completion wait.
 ///
-/// An infinite wait derives a stable Request ID from its Step execution when none is supplied.
-/// A positive maximum wait time requires a caller-owned Request ID.
+/// The server derives a stable Request ID from the Step execution when none is supplied.
 /// An abandoned infinite wait remains in flight until completion or Flow closure.
 pub struct WaitForStepCompletionOptions {
     pub(crate) request_id: String,
@@ -22,14 +21,12 @@ pub struct WaitForStepCompletionOptions {
 }
 
 impl WaitForStepCompletionOptions {
-    /// Creates an infinite wait that derives a stable Request ID from its Step execution.
+    /// Creates an infinite wait that uses the server-derived stable Request ID.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Overrides the stable Request ID derived for an infinite Step wait.
-    ///
-    /// A positive maximum wait time requires this value.
+    /// Overrides the stable Request ID derived from the Step execution.
     pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
         self.request_id = request_id.into();
         self
@@ -45,6 +42,7 @@ impl WaitForStepCompletionOptions {
 #[derive(Clone, Debug, Default)]
 /// Configures one durable Attribute match wait.
 ///
+/// The server derives a stable Request ID from the Attribute condition when none is supplied.
 /// An abandoned infinite wait remains in flight until a match or Flow closure.
 pub struct WaitForAttributeOptions {
     pub(crate) request_id: String,
@@ -52,12 +50,12 @@ pub struct WaitForAttributeOptions {
 }
 
 impl WaitForAttributeOptions {
-    /// Creates empty options. The Client requires a Request ID when the wait begins.
+    /// Creates an infinite wait that uses the server-derived stable Request ID.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Sets the caller-owned idempotency key for this logical predicate.
+    /// Overrides the stable Request ID derived from the Attribute condition.
     pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
         self.request_id = request_id.into();
         self
@@ -75,10 +73,7 @@ pub(crate) struct ClientWaitBudget {
 }
 
 impl ClientWaitBudget {
-    pub(crate) fn new(request_id: &str, maximum_wait_time: Duration) -> SdkResult<Self> {
-        if request_id.is_empty() {
-            return Err(crate::client::invalid("wait request ID is required"));
-        }
+    pub(crate) fn new(maximum_wait_time: Duration) -> SdkResult<Self> {
         crate::client::seconds32(maximum_wait_time)?;
         Ok(Self {
             deadline: (!maximum_wait_time.is_zero()).then(|| Instant::now() + maximum_wait_time),

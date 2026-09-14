@@ -15,8 +15,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,7 +49,11 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const defaultHistoryPageSize = 100
+const (
+	defaultHistoryPageSize                 = 100
+	waitForStepCompletionUpdateIDNamespace = "wait-for-step-completion:"
+	waitForAttributeUpdateIDNamespace      = "wait-for-attribute:"
+)
 
 type serviceImpl struct {
 	client             uclient.UnifiedClient
@@ -300,9 +306,6 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 	if req == nil || req.GetFlowId() == "" || req.GetWaitTimeSeconds() < 0 {
 		return nil, makeInvalidRequestError("valid flow ID and non-negative wait time are required")
 	}
-	if req.GetRequestId() == "" {
-		return nil, makeInvalidRequestError("request ID is required")
-	}
 	if req.GetStepType() == "" || req.GetStepExecutionNumber() == "" {
 		return nil, makeInvalidRequestError("step type and step execution number are required")
 	}
@@ -317,13 +320,15 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 	waitCtx, cancel := s.waitContext(ctx)
 	defer cancel()
 	handlerDeadline := waitHandlerDeadline(req.GetWaitTimeSeconds())
+	baseUpdateID := waitForStepCompletionUpdateID(req)
+	updateIDGeneration := 0
 	var response dexpb.WaitForStepCompletionResponse
 	backoff := 25 * time.Millisecond
 	for {
 		remainingSeconds, hasTimeRemaining := remainingWaitHandlerSeconds(handlerDeadline)
 		if !hasTimeRemaining {
 			return nil, serviceerrors.DeadlineExceededWaitHandler(
-				"step completion wait handler timed out",
+				"step completion wait timed out",
 			).ToGRPCError()
 		}
 		req.WaitTimeSeconds = remainingSeconds
@@ -332,12 +337,16 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 			&response,
 			req.GetFlowId(),
 			"",
-			req.GetRequestId(),
+			waitUpdateID(baseUpdateID, updateIDGeneration),
 			service.WaitForStepCompletionUpdateType,
 			req,
 		)
 		if err == nil {
 			return &response, nil
+		}
+		if isWaitHandlerTimeoutUpdateError(s.client, err) {
+			updateIDGeneration++
+			continue
 		}
 		if s.client.IsNotFoundError(err) {
 			completed, queryErr := s.isStepExecutionCompleted(
@@ -368,6 +377,13 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 			backoff *= 2
 		}
 	}
+}
+
+func waitForStepCompletionUpdateID(request *dexpb.WaitForStepCompletionRequest) string {
+	if request.GetRequestId() != "" {
+		return request.GetRequestId()
+	}
+	return waitForStepCompletionUpdateIDNamespace + request.GetStepType() + "-" + request.GetStepExecutionNumber()
 }
 
 func (s *serviceImpl) isWaitForStepCompletionUpdateTransitionError(err error) bool {
@@ -410,9 +426,6 @@ func (s *serviceImpl) WaitForAttribute(
 	if req == nil || req.GetFlowId() == "" || req.GetWaitTimeSeconds() < 0 {
 		return nil, makeInvalidRequestError("valid flow ID and non-negative wait time are required")
 	}
-	if req.GetRequestId() == "" {
-		return nil, makeInvalidRequestError("request ID is required")
-	}
 	match := req.GetMatch()
 	if match == nil || match.GetOperand() == nil {
 		return nil, makeInvalidRequestError("attribute match is required")
@@ -426,13 +439,15 @@ func (s *serviceImpl) WaitForAttribute(
 	waitCtx, cancel := s.waitContext(ctx)
 	defer cancel()
 	handlerDeadline := waitHandlerDeadline(req.GetWaitTimeSeconds())
+	baseUpdateID := waitForAttributeUpdateID(req)
+	updateIDGeneration := 0
 	var response dexpb.WaitForAttributeResponse
 	backoff := 25 * time.Millisecond
 	for {
 		remainingSeconds, hasTimeRemaining := remainingWaitHandlerSeconds(handlerDeadline)
 		if !hasTimeRemaining {
 			return nil, serviceerrors.DeadlineExceededWaitHandler(
-				"attribute wait handler timed out",
+				"attribute wait timed out",
 			).ToGRPCError()
 		}
 		req.WaitTimeSeconds = remainingSeconds
@@ -441,12 +456,16 @@ func (s *serviceImpl) WaitForAttribute(
 			&response,
 			req.GetFlowId(),
 			"",
-			req.GetRequestId(),
+			waitUpdateID(baseUpdateID, updateIDGeneration),
 			service.WaitForAttributeUpdateType,
 			req,
 		)
 		if err == nil {
 			return &response, nil
+		}
+		if isWaitHandlerTimeoutUpdateError(s.client, err) {
+			updateIDGeneration++
+			continue
 		}
 		if updateType, ok := s.client.GetIfUpdateError(err, nil); !ok ||
 			updateType != dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED {
@@ -459,6 +478,67 @@ func (s *serviceImpl) WaitForAttribute(
 			backoff *= 2
 		}
 	}
+}
+
+func waitForAttributeUpdateID(request *dexpb.WaitForAttributeRequest) string {
+	if request.GetRequestId() != "" {
+		return request.GetRequestId()
+	}
+	return waitForAttributeUpdateIDNamespace + attributeMatchCondition(request.GetMatch())
+}
+
+func attributeMatchCondition(match *dexpb.AttributeMatch) string {
+	return url.QueryEscape(match.GetKey()) + attributeMatchOperatorSymbol(match.GetOperator()) + attributeMatchOperand(match.GetOperand())
+}
+
+func attributeMatchOperatorSymbol(operator dexpb.AttributeMatchOperator) string {
+	switch operator {
+	case dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL:
+		return "=="
+	case dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_NOT_EQUAL:
+		return "!="
+	case dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN:
+		return ">"
+	case dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL:
+		return ">="
+	case dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_LESS_THAN:
+		return "<"
+	case dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL:
+		return "<="
+	default:
+		panic("validated Attribute match has an invalid operator")
+	}
+}
+
+func attributeMatchOperand(operand *dexpb.Value) string {
+	switch value := operand.GetKind().(type) {
+	case *dexpb.Value_StringValue:
+		return strconv.Quote(value.StringValue)
+	case *dexpb.Value_IntValue:
+		return strconv.FormatInt(value.IntValue, 10)
+	case *dexpb.Value_DoubleValue:
+		formatted := strconv.FormatFloat(value.DoubleValue, 'g', -1, 64)
+		if !strings.ContainsAny(formatted, ".eE") {
+			formatted += ".0"
+		}
+		return formatted
+	case *dexpb.Value_BoolValue:
+		return strconv.FormatBool(value.BoolValue)
+	default:
+		panic("validated Attribute match has an invalid operand")
+	}
+}
+
+func waitUpdateID(baseUpdateID string, generation int) string {
+	if generation == 0 {
+		return baseUpdateID
+	}
+	return baseUpdateID + "-" + strconv.Itoa(generation)
+}
+
+func isWaitHandlerTimeoutUpdateError(client uclient.UnifiedClient, err error) bool {
+	updateType, isUpdateError := client.GetIfUpdateError(err, nil)
+	return isUpdateError && updateType == dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED
 }
 
 func validateAttributeMatch(match *dexpb.AttributeMatch) error {

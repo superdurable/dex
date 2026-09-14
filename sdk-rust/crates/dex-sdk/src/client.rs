@@ -632,9 +632,8 @@ impl Client {
 
     /// Blocks until one Step execution completes or its total handler budget expires.
     ///
-    /// An infinite wait derives a stable Request ID from the Step execution when none is supplied.
-    /// A positive handler budget requires a caller-owned Request ID. Transport long polls
-    /// automatically reattach with the effective ID.
+    /// The server derives a stable Request ID from the Step execution when none is supplied.
+    /// Transport long polls automatically reattach to the same logical wait.
     ///
     /// # Errors
     ///
@@ -647,15 +646,14 @@ impl Client {
         step_execution: StepExecutionId,
         options: WaitForStepCompletionOptions,
     ) -> SdkResult<()> {
-        let request_id = effective_step_completion_wait_request_id(&step_execution, &options);
-        let wait_budget = ClientWaitBudget::new(&request_id, options.maximum_wait_time)?;
+        let wait_budget = ClientWaitBudget::new(options.maximum_wait_time)?;
         loop {
             let wait_time_seconds =
                 wait_budget.remaining_seconds("wait_for_step_completion", flow_id)?;
             let request_flow_id = flow_id.to_string();
             let request_step_type = step_execution.step_type.to_string();
             let request_step_execution_number = step_execution.execution_number.to_string();
-            let request_id = request_id.clone();
+            let request_id = options.request_id.clone();
             let result = self.call_empty(
                 "wait_for_step_completion",
                 Some(flow_id),
@@ -680,8 +678,8 @@ impl Client {
 
     /// Blocks until a singleton Attribute in the current run satisfies `attribute_match`.
     ///
-    /// Returns the current value observed by the successful wait. Transport long polls
-    /// automatically reattach with the same caller-owned Request ID. String and
+    /// Returns the current value observed by the successful wait. The server derives a stable
+    /// Request ID from the condition when none is supplied. String and
     /// Boolean Attributes support equality matches. Integer and floating-point
     /// Attributes support every match. A positive handler-budget expiry returns
     /// [`SdkError::WaitHandlerTimeout`].
@@ -724,7 +722,7 @@ impl Client {
     ) -> SdkResult<T> {
         let mut encoded_match = attribute_match.encode()?;
         encoded_match.key = key.to_string();
-        let wait_budget = ClientWaitBudget::new(&options.request_id, options.maximum_wait_time)?;
+        let wait_budget = ClientWaitBudget::new(options.maximum_wait_time)?;
         let response = loop {
             let wait_time_seconds =
                 wait_budget.remaining_seconds("wait_for_attribute_match", flow_id)?;
@@ -1278,19 +1276,6 @@ fn map_physical_name(name: &str, instance: &str) -> SdkResult<String> {
 
 fn sdk_handler_error(error: impl std::fmt::Display) -> SdkError {
     invalid(error.to_string())
-}
-
-fn effective_step_completion_wait_request_id(
-    step_execution: &StepExecutionId,
-    options: &WaitForStepCompletionOptions,
-) -> String {
-    if !options.request_id.is_empty() || !options.maximum_wait_time.is_zero() {
-        return options.request_id.clone();
-    }
-    format!(
-        "wait-for-step-completion:{}-{}",
-        step_execution.step_type, step_execution.execution_number
-    )
 }
 
 pub(crate) fn invalid(message: impl Into<String>) -> SdkError {

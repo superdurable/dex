@@ -63,10 +63,11 @@ adding aliases.
 - RPC may trigger next-step movements, but the current server rejects a close
   decision returned by RPC.
 - Channel sizes are supplied only to Worker RPC invocations.
-- StartFlow, InvokeRPC, WaitForStepCompletion, and
-  WaitForAttribute require a request ID. The SDK generates it, except that
-  StartFlow may use a caller-supplied business identifier. Locking RPC and the
-  two wait operations use that ID as a Temporal synchronous-update ID.
+- StartFlow and InvokeRPC require a request ID. The SDK generates it, except
+  that StartFlow may use a caller-supplied business identifier. Durable Step
+  and Attribute waits accept an optional override; otherwise the server derives
+  a stable logical ID. Locking RPC and durable waits use these IDs as Temporal
+  synchronous-update IDs.
 - `WorkerTarget` belongs to `FlowConfig` and may describe a normal or headless
   plaintext gRPC target. `ClientOptions` may provide its StartFlow default.
 - Large string/object `Value` arms may contain blob IDs. Phase 4 wires the
@@ -1022,10 +1023,11 @@ known inconsistencies:
 1. `StartFlowOptions.Timeout == nil` maps to zero seconds. FlowService accepts
    zero as no Dex soft Flow timeout and rejects only negative values. Positive
    values continue to round up to whole seconds.
-2. The current server requires `request_id` for StartFlow, every
-   InvokeRPC, WaitForStepCompletion, and WaitForAttribute. Only StartFlow
-   exposes an override because its request ID may be a business identifier.
-   IDs for every other operation are generated and remain internal.
+2. The current server requires `request_id` for StartFlow and every InvokeRPC.
+   Only StartFlow exposes an override because its request ID may be a business
+   identifier. IDs for InvokeRPC are generated and remain internal. Durable
+   Step and Attribute waits accept optional overrides and otherwise derive IDs
+   on the server.
 3. `StepExecutionID.ExecutionNumber` remains optional. Nil means execution one.
    SkipTimer keeps the existing proto and server contract; the Client formats
    the effective step execution ID before sending it.
@@ -1182,7 +1184,7 @@ Every public method follows the same transport boundary:
    definition before issuing an RPC;
 2. validate and encode all request values without mutating caller-owned
    options;
-3. select or generate any required request ID once;
+3. select or generate any client-owned request ID once;
 4. assemble one generated request with an empty `run_id`;
 5. call the generated FlowService stub with the caller's context;
 6. translate a gRPC failure using the endpoint's Flow requirement;
@@ -1201,8 +1203,8 @@ use `*dex.ValueMappingError`. Only errors received from FlowService become
 The Client builds each non-wait protobuf request once. gRPC's pre-commit
 transparent retry therefore reuses the same request and request ID. Durable
 Step and Attribute waits automatically reattach after a transport long-poll
-timeout. Every reattachment uses the effective Request ID and the remaining
-total handler budget.
+timeout. Every reattachment sends the same logical wait and the remaining total
+handler budget, allowing the server to reuse its selected Update ID.
 
 ### Request ID ownership
 
@@ -1217,18 +1219,17 @@ identifier, supports a logical retry spanning separate Client calls, and is
 the StartFlow request-ID override. Normal application code may instead leave it
 nil for an SDK-generated UUID.
 
-`WaitForAttributeOptions.RequestID` is a required caller-owned key. An infinite
-Step completion wait derives
-`wait-for-step-completion:<StepExecutionID>` when
-`WaitForStepCompletionOptions.RequestID` is empty. A positive handler budget
-requires a caller-owned Request ID. Reuse a caller-owned ID only for the same
-logical Step execution or Attribute predicate. The Client uses the effective
-ID for every automatic long-poll reattachment and as the Temporal Update ID. A
-new finite wait or Attribute predicate uses a new Request ID.
+Request IDs are optional for Step completion and Attribute waits. When omitted,
+the server derives a namespaced stable ID from the Step execution or encoded
+Attribute condition. Reuse an override only for the same logical Step execution
+or Attribute predicate. The Client preserves the logical ID across automatic
+long-poll reattachments. When a previous Update using that ID completed with a
+handler timeout, the server appends an increasing `-N` suffix until it can start
+a new Update.
 
-InvokeRPC uses the ID for external-value ownership; Temporal Update paths also use it as the
-`InvokeRpc` Update ID. The two wait methods use it as their Temporal update ID.
-The ID is not exposed in results.
+InvokeRPC uses the ID for external-value ownership and as the `InvokeRpc`
+Temporal Update ID. Durable waits use their server-selected generation ID. The
+ID is not exposed in results.
 
 ### StartFlow assembly
 
@@ -1335,9 +1336,9 @@ appear in the public invocation response.
 
 ### Wait, lifecycle, and administrative operations
 
-WaitForAttributeMatch and WaitForAttributeMapInstanceMatch resolve the definition,
-encode the typed match operand, and require one caller-owned request ID. The map form
-requires an instance. The matched current value is decoded into the output
+WaitForAttributeMatch and WaitForAttributeMapInstanceMatch resolve the definition
+and encode the typed match operand. The map form requires an instance. The
+matched current value is decoded into the output
 pointer. String and bool support equality operators. Integer and double support
 all six operators. Object, bytes, null, non-finite double, and invalid ordering
 fail locally before transport.
@@ -1345,11 +1346,13 @@ fail locally before transport.
 WaitForStepCompletion requires a non-empty step type. A nil execution number
 defaults to one; a non-nil value must be positive. Its wire execution number
 remains decimal text because that is the server contract. Both wait option
-types require a non-empty Request ID. `MaximumWaitTime` is the total Temporal
-Update handler budget across transport long polls and Continue-as-New. Zero
-waits indefinitely; positive values must be whole seconds within int32 range.
-The Client retries `*dex.LongPollTimeoutError` internally with the same Request
-ID and remaining budget. Budget expiry returns
+types accept an optional Request ID override. Otherwise the server derives a
+stable logical ID from the Step execution or Attribute condition.
+`MaximumWaitTime` is the total Temporal Update handler budget across transport
+long polls and Continue-as-New. Zero waits indefinitely; positive values must
+be whole seconds within int32 range. The Client retries
+`*dex.LongPollTimeoutError` internally with the same logical wait and remaining
+budget. Budget expiry returns
 `*dex.WaitHandlerTimeoutError`. `context.Context` remains an independent local
 cancellation mechanism. An abandoned infinite wait remains an accepted Update
 until its condition is met or the Flow closes, so it continues to count against
@@ -1490,7 +1493,8 @@ Those surfaces require separate product and security design.
 3. Starting-step input/options, definitions, values, enums, durations, and
    results cross the boundary through the Phase 2 codec and Phase 3 metadata.
 4. Required request IDs are selected once per logical call and reused by any
-   transparent retry; only StartFlow accepts a caller-supplied value.
+   transparent retry. StartFlow and durable waits accept caller-supplied
+   overrides.
 5. Blob-backed Client and Worker values hydrate privately through LoadBlobs and
    their shared cache before application decode.
 6. Remote failures preserve Dex and Worker details; local misuse remains a
@@ -2405,11 +2409,11 @@ Request IDs:
 - the SDK generates one UUID per logical `InvokeRPC` call, and for StartFlow
   when no override is supplied;
 - `StartFlowOptions.RequestID` may provide a non-empty business identifier;
-- Attribute waits and finite Step completion waits require a caller-owned
-  Request ID;
-- infinite Step completion waits derive a namespaced ID from the Step execution
-  when none is supplied;
-- automatic wait reattachments reuse it; and
+- Step completion and Attribute wait Request IDs are optional overrides;
+- the server derives a namespaced ID from the Step execution or Attribute
+  condition when none is supplied;
+- automatic wait reattachments reuse the logical ID, and handler-timeout reuse
+  advances an `-N` suffix; and
 - every Temporal RPC Update and durable wait uses its request ID as a Temporal Update ID.
 
 ### Client result structs

@@ -21,7 +21,7 @@ export interface ClientOptions {
 
 /** Configures one durable Step completion wait. An abandoned infinite wait remains in flight until completion or Flow closure. */
 export interface WaitForStepCompletionOptions {
-  /** Overrides the stable Request ID derived for an infinite wait. Required for a positive wait budget. */
+  /** Overrides the stable Request ID that the server derives from the Step execution. */
   readonly requestId?: string;
   /** Total handler wait budget in milliseconds. Omit or use zero to wait indefinitely. */
   readonly maximumWaitTimeMs?: number;
@@ -29,8 +29,8 @@ export interface WaitForStepCompletionOptions {
 
 /** Configures one durable Attribute match wait. An abandoned infinite wait remains in flight until a match or Flow closure. */
 export interface WaitForAttributeOptions {
-  /** Caller-owned idempotency key. Reuse it only for the same logical predicate. */
-  readonly requestId: string;
+  /** Overrides the stable Request ID that the server derives from the Attribute condition. */
+  readonly requestId?: string;
   /** Total handler wait budget in milliseconds. Omit or use zero to wait indefinitely. */
   readonly maximumWaitTimeMs?: number;
 }

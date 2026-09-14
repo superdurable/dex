@@ -22,14 +22,13 @@ from dex.runtime_errors import ErrorSubStatus, WaitHandlerTimeoutError
 class WaitForStepCompletionOptions:
     """Configure one durable Step completion wait.
 
-    An infinite wait derives a stable Request ID from its Step execution when
-    ``request_id`` is empty. A positive ``maximum_wait_time`` requires a
-    caller-owned Request ID. Reuse it only for the same logical wait.
+    The server derives a stable Request ID from the Step execution when
+    ``request_id`` is empty. Reuse an override only for the same logical wait.
     A zero ``maximum_wait_time`` waits indefinitely.
     An abandoned infinite wait remains in flight until completion or Flow closure.
 
     Attributes:
-        request_id: An optional override for the infinite wait's stable ID.
+        request_id: An optional override for the server-derived stable ID.
         maximum_wait_time: The total handler budget. Zero waits indefinitely.
     """
 
@@ -41,12 +40,13 @@ class WaitForStepCompletionOptions:
 class WaitForAttributeOptions:
     """Configure one durable Attribute match wait.
 
-    ``request_id`` is required when the Client call begins. Reuse it only for
-    the same logical predicate. A zero ``maximum_wait_time`` waits indefinitely.
+    The server derives a stable Request ID from the Attribute condition when
+    ``request_id`` is empty. Reuse an override only for the same logical predicate.
+    A zero ``maximum_wait_time`` waits indefinitely.
     An abandoned infinite wait remains in flight until a match or Flow closure.
 
     Attributes:
-        request_id: The caller-owned idempotency key for this logical predicate.
+        request_id: An optional override for the server-derived stable ID.
         maximum_wait_time: The total handler budget. Zero waits indefinitely.
     """
 
@@ -55,9 +55,7 @@ class WaitForAttributeOptions:
 
 
 class _ClientWaitBudget:
-    def __init__(self, request_id: str, maximum_wait_time: timedelta) -> None:
-        if not request_id:
-            raise ValueError("wait request ID is required")
+    def __init__(self, maximum_wait_time: timedelta) -> None:
         seconds = maximum_wait_time.total_seconds()
         if seconds < 0 or not seconds.is_integer() or seconds > 2_147_483_647:
             raise ValueError("duration must be whole seconds within int32")
@@ -76,13 +74,3 @@ class _ClientWaitBudget:
                 flow_id,
             )
         return ceil(remaining)
-
-
-def _effective_step_completion_wait_request_id(
-    step_type: str,
-    execution_number: int,
-    options: WaitForStepCompletionOptions,
-) -> str:
-    if options.request_id or options.maximum_wait_time != timedelta(0):
-        return options.request_id
-    return f"wait-for-step-completion:{step_type}-{execution_number}"

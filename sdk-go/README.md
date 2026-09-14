@@ -319,16 +319,16 @@ integers and doubles support every operator. Every AttributeMap and ChannelMap
 instance must be non-empty and must not contain `/`. Objects,
 bytes, null, non-finite doubles, and invalid ordering fail before the RPC.
 
-Attribute waits require a caller-owned request ID. An infinite
-`WaitForStepCompletion` derives `wait-for-step-completion:<StepExecutionID>`
-when its request ID is empty; a positive `MaximumWaitTime` requires a
-caller-owned ID. Reuse a caller-owned ID only for retries of the same logical
-wait. The Client automatically reattaches transport long polls with the
-effective ID. `MaximumWaitTime` is the total handler budget across
-reattachments; zero waits indefinitely. A positive budget expiry returns
-`*dex.WaitHandlerTimeoutError`. An abandoned infinite wait remains accepted and
-counts against Temporal's in-flight Update limit until it matches or the Flow
-closes.
+Request IDs are optional for both durable waits. When omitted, the server
+derives a namespaced stable ID from the Step execution or Attribute condition,
+such as `wait-for-attribute:myInt>10`. Reuse an override only for the same
+logical wait. The Client automatically reattaches transport long polls. If an
+earlier Update with that ID exhausted its handler budget, the server appends an
+increasing `-N` suffix and starts a new Update. `MaximumWaitTime` is optional
+and is the total handler budget across reattachments; zero waits indefinitely.
+A positive budget expiry returns `*dex.WaitHandlerTimeoutError`. An abandoned
+infinite wait remains accepted and counts against Temporal's in-flight Update
+limit until it matches or the Flow closes.
 
 Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and
@@ -514,8 +514,8 @@ Flows without a starting step require nil input.
 
 The SDK generates request IDs for StartFlow and InvokeRPC. A
 `StartFlowOptions.RequestID` may provide a stable business identifier spanning
-separate calls. Durable wait request IDs are required and caller-owned through
-their dedicated options types.
+separate calls. Durable wait request IDs are optional overrides of server-derived
+stable IDs.
 
 Client is safe for concurrent calls. `Close` is idempotent and closes only its
 owned gRPC connection. Calls after Close return a local error.
@@ -598,8 +598,8 @@ Initial indexed values are validated by `dex.InitialAttribute` and
 
 The SDK generates UUIDs for StartFlow and InvokeRPC.
 `StartFlowOptions.RequestID` may override the generated start ID. Durable waits
-require caller-owned request IDs. Automatic reattachments reuse the selected
-ID.
+use server-derived IDs unless the caller supplies an override. Automatic
+reattachments reuse the selected logical ID.
 
 Large string and object values may be returned as blob references. Worker
 inputs and Client results hydrate before handler or application decode. Decode

@@ -159,18 +159,7 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
 	expectedValue := stringValue("wait-for-attribute-success")
 
-	_, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
-		FlowId: flowId,
-		Match: equalAttributeMatch(
-			waitForAttributeKey,
-			expectedValue,
-		),
-		WaitTimeSeconds: 0,
-	})
-	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	require.Equal(t, "request ID is required", grpcServiceErrorResponse(t, err).GetDetail())
-
-	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+	_, err := flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		RequestId: newRequestID(),
 		FlowId:    flowId,
 		Attributes: []*dexpb.AttributeWrite{
@@ -186,7 +175,6 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 			expectedValue,
 		),
 		WaitTimeSeconds: 10,
-		RequestId:       uuid.NewString(),
 	})
 	require.NoError(t, err)
 	require.True(t, proto.Equal(expectedValue, response.GetMatchedValue()))
@@ -201,7 +189,7 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 	require.NoError(t, err)
 	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
 	require.NoError(t, err)
-	nonEqualRequestID := uuid.NewString()
+	nonEqualRequestID := "wait-for-attribute:" + waitForAttributeKey + ">5"
 	nonEqualResponse := make(chan *dexpb.WaitForAttributeResponse, 1)
 	nonEqualError := make(chan error, 1)
 	go func() {
@@ -213,7 +201,6 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 				intValue(5),
 			),
 			WaitTimeSeconds: 0,
-			RequestId:       nonEqualRequestID,
 		})
 		nonEqualResponse <- matchedResponse
 		nonEqualError <- waitErr
@@ -378,16 +365,19 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 	defer cancel()
 
 	flowId := startParkedWaitForAttributeFlow(t, ctx, flowClient, workerTarget, nil)
+	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
+	require.NoError(t, err)
+	defaultUpdateID := "wait-for-attribute:" + waitForAttributeKey + "==\"never-set\""
 
-	_, err := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+	waitRequest := &dexpb.WaitForAttributeRequest{
 		FlowId: flowId,
 		Match: equalAttributeMatch(
 			waitForAttributeKey,
 			stringValue("never-set"),
 		),
 		WaitTimeSeconds: 1,
-		RequestId:       uuid.NewString(),
-	})
+	}
+	_, err = flowClient.WaitForAttribute(ctx, waitRequest)
 	require.Error(t, err)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
 	errResp := grpcServiceErrorResponse(t, err)
@@ -397,6 +387,39 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 		errResp.GetSubStatus(),
 	)
 	require.Equal(t, "attribute wait timed out", errResp.GetDetail())
+	accepted, completed := countTemporalUpdateEvents(
+		t,
+		ctx,
+		runtime,
+		flowId,
+		description.RunId,
+		defaultUpdateID,
+	)
+	require.Equal(t, 1, accepted)
+	require.Equal(t, 1, completed)
+
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowId,
+		Attributes: []*dexpb.AttributeWrite{
+			{Key: waitForAttributeKey, Value: stringValue("never-set")},
+		},
+	})
+	require.NoError(t, err)
+	waitRequest.WaitTimeSeconds = 5
+	response, err := flowClient.WaitForAttribute(ctx, waitRequest)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(stringValue("never-set"), response.GetMatchedValue()))
+	accepted, completed = countTemporalUpdateEvents(
+		t,
+		ctx,
+		runtime,
+		flowId,
+		description.RunId,
+		defaultUpdateID+"-1",
+	)
+	require.Equal(t, 1, accepted)
+	require.Equal(t, 1, completed)
 
 	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
 }

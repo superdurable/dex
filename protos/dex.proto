@@ -882,7 +882,8 @@ message WaitForStepCompletionRequest {
   string step_execution_number = 3;
   // Zero waits indefinitely; positive values bound the Temporal Update handler.
   int32 wait_time_seconds = 5;
-  // Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
+  // Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+  // Reusing a handler-timed-out logical key advances an increasing -N generation.
   string request_id = 6;
 }
 
@@ -893,7 +894,8 @@ message WaitForAttributeRequest {
   AttributeMatch match = 2;
   // Zero waits indefinitely; positive values bound the Temporal Update handler.
   int32 wait_time_seconds = 3;
-  // Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
+  // Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+  // Reusing a handler-timed-out logical key advances an increasing -N generation.
   string request_id = 4;
 }
 

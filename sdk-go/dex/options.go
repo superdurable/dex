@@ -364,20 +364,18 @@ type WaitForFlowOptions struct {
 
 // WaitForStepCompletionOptions configures one durable Step completion wait.
 //
-// RequestID is optional for an infinite wait. When empty and MaximumWaitTime is
-// zero, the Client derives a stable ID from the Step execution. A positive
-// MaximumWaitTime requires a caller-owned RequestID. Reuse a caller-owned ID
-// only when retrying the same Step completion wait. MaximumWaitTime bounds the
-// Temporal Update handler across transport retries and Continue-As-New. Zero
-// waits indefinitely. Positive values must be whole seconds within int32 range.
+// When RequestID is empty, the server derives a stable ID from the Step
+// execution. Reuse an override only when retrying the same Step completion
+// wait. MaximumWaitTime bounds the Temporal Update handler across transport
+// retries and Continue-As-New. Zero waits indefinitely. Positive values must
+// be whole seconds within int32 range.
 // An abandoned infinite wait remains in flight until it matches or the Flow closes.
 //
 //	options := dex.WaitForStepCompletionOptions{
-//		RequestID:       "wait-charge-order-42",
 //		MaximumWaitTime: time.Hour,
 //	}
 type WaitForStepCompletionOptions struct {
-	// RequestID overrides the stable ID derived for an infinite wait.
+	// RequestID overrides the stable ID derived from the Step execution.
 	RequestID string
 	// MaximumWaitTime bounds the handler lifetime. Zero waits indefinitely.
 	MaximumWaitTime time.Duration
@@ -385,18 +383,18 @@ type WaitForStepCompletionOptions struct {
 
 // WaitForAttributeOptions configures one durable Attribute match wait.
 //
-// RequestID must be a non-empty caller-owned idempotency key. Reuse it when
-// retrying the same Attribute match. MaximumWaitTime bounds the Temporal Update
-// handler across transport retries and Continue-As-New. Zero waits indefinitely.
-// Positive values must be whole seconds within int32 range.
+// When RequestID is empty, the server derives a stable ID from the Attribute
+// condition. Reuse an override only when retrying the same Attribute match.
+// MaximumWaitTime bounds the Temporal Update handler across transport retries
+// and Continue-As-New. Zero waits indefinitely. Positive values must be whole
+// seconds within int32 range.
 // An abandoned infinite wait remains in flight until it matches or the Flow closes.
 //
 //	options := dex.WaitForAttributeOptions{
-//		RequestID:       "wait-order-revision-42",
 //		MaximumWaitTime: time.Hour,
 //	}
 type WaitForAttributeOptions struct {
-	// RequestID identifies one logical Attribute match wait and is required.
+	// RequestID overrides the stable ID derived from the Attribute condition.
 	RequestID string
 	// MaximumWaitTime bounds the handler lifetime. Zero waits indefinitely.
 	MaximumWaitTime time.Duration

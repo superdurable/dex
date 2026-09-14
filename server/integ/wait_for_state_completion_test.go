@@ -370,7 +370,6 @@ func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 		StepType:            wait_for_state_completion.State2,
 		StepExecutionNumber: "1",
 		WaitTimeSeconds:     30,
-		RequestId:           uuid.NewString(),
 	}
 
 	var waitGroup sync.WaitGroup
@@ -394,7 +393,7 @@ func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 		runtime,
 		flowId,
 		startResponse.GetRunId(),
-		waitRequest.GetRequestId(),
+		"wait-for-step-completion:"+wait_for_state_completion.State2+"-1",
 	)
 	require.Equal(t, 1, accepted)
 	require.Equal(t, 1, completed)
@@ -426,16 +425,6 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
-
-	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-		FlowId:              flowId,
-		StepType:            wait_for_state_completion.State2,
-		StepExecutionNumber: "1",
-		WaitTimeSeconds:     1,
-	})
-	require.Error(t, err)
-	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	require.Equal(t, "request ID is required", grpcServiceErrorResponse(t, err).GetDetail())
 
 	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 		FlowId:              flowId,

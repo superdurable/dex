@@ -262,15 +262,14 @@ fn test_workflow_wait_for_step_completion() {
             dex_sdk::WaitForStepCompletionOptions::new(),
         )
         .expect("wait for second Step");
-    let missing_request_id = environment.client.wait_for_step_completion(
-        &flow_id,
-        StepExecutionId::of(&workflow.second),
-        dex_sdk::WaitForStepCompletionOptions::new().maximum_wait_time(Duration::from_secs(30)),
-    );
-    assert!(matches!(
-        missing_request_id,
-        Err(dex_sdk::SdkError::InvalidArgument { .. })
-    ));
+    environment
+        .client
+        .wait_for_step_completion(
+            &flow_id,
+            StepExecutionId::of(&workflow.second),
+            dex_sdk::WaitForStepCompletionOptions::new().maximum_wait_time(Duration::from_secs(30)),
+        )
+        .expect("reuse server-derived Step wait ID");
     assert_eq!(
         7,
         environment

@@ -982,11 +982,11 @@ func TestClientDurableWaitReattachment(t *testing.T) {
 	))
 	require.Len(t, service.waitStepRequests, 2)
 	for _, request := range service.waitStepRequests {
-		require.Equal(t, "wait-for-step-completion:dex.clientTestStep-1", request.RequestId)
+		require.Empty(t, request.RequestId)
 	}
 
 	var matched string
-	attributeOptions := WaitForAttributeOptions{RequestID: "reattach-attribute-request"}
+	attributeOptions := WaitForAttributeOptions{}
 	require.NoError(t, client.WaitForAttributeMatch(
 		ctx,
 		"reattach-attribute",
@@ -998,15 +998,16 @@ func TestClientDurableWaitReattachment(t *testing.T) {
 	require.Equal(t, "ready", matched)
 	require.Len(t, service.waitAttributeRequests, 2)
 	for _, request := range service.waitAttributeRequests {
-		require.Equal(t, attributeOptions.RequestID, request.RequestId)
+		require.Empty(t, request.RequestId)
 	}
 
-	require.ErrorContains(t, client.WaitForStepCompletion(
+	require.NoError(t, client.WaitForStepCompletion(
 		ctx,
 		"missing-request-id",
 		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
 		WaitForStepCompletionOptions{MaximumWaitTime: time.Second},
-	), "request ID is required")
+	))
+	require.Empty(t, service.waitStepRequest.RequestId)
 }
 
 func newClientIntegration(t *testing.T) (*Client, *clientTestFlowService) {

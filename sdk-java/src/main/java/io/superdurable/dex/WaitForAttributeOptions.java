@@ -14,7 +14,8 @@ import java.time.Duration;
 
 /**
  * Configures one durable Attribute match wait.
- * The Request ID is caller-owned and required. Reuse it only for the same logical predicate.
+ * The server derives a stable Request ID from the Attribute condition when none is supplied.
+ * Reuse an override only for the same logical predicate.
  * The maximum wait time defaults to zero, which waits indefinitely.
  * An abandoned infinite wait remains in flight until it matches or the Flow closes.
  */
@@ -29,7 +30,7 @@ public final class WaitForAttributeOptions {
 
     /**
      * Creates an empty builder.
-     * The Client requires a Request ID when the wait begins.
+     * The server derives a stable Request ID when none is configured.
      *
      * @return a new builder
      */
@@ -54,9 +55,9 @@ public final class WaitForAttributeOptions {
         }
 
         /**
-         * Sets the required caller-owned idempotency key for this logical predicate.
+         * Overrides the stable Request ID derived from the Attribute condition.
          *
-         * @param value the non-empty Request ID
+         * @param value the non-empty Request ID override
          * @return this builder
          */
         public Builder requestId(final String value) {
@@ -76,7 +77,7 @@ public final class WaitForAttributeOptions {
         }
 
         /**
-         * Builds the options. The Client validates the Request ID and duration at call time.
+         * Builds the options. The Client validates the duration at call time.
          *
          * @return immutable Attribute wait options
          */

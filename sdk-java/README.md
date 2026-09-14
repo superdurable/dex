@@ -400,17 +400,16 @@ include buffered publishes, and omit empty instances. Returned keys are decoded
 and sorted. Conditional completion is
 `StepDecision.forceCompleteIfChannelsEmpty(...)`.
 
-Attribute waits require a caller-owned request ID. An infinite
-`client.waitForStepCompletion(...)` derives
-`wait-for-step-completion:<StepExecutionId>` when its request ID is empty; a
-positive maximum wait time requires a caller-owned ID. Reuse a caller-owned ID
-only for retries of the same logical wait. The Client automatically reattaches
-transport long polls with the effective ID. The maximum wait time is the total
-handler budget across reattachments; zero waits indefinitely. A positive
-budget expiry throws
-`WaitHandlerTimeoutException`. An abandoned infinite wait remains accepted and
-counts against Temporal's in-flight Update limit until it completes or the Flow
-closes.
+Request IDs are optional for both durable waits. When omitted, the server
+derives a namespaced stable ID from the Step execution or Attribute condition,
+such as `wait-for-attribute:myInt>10`. Reuse an override only for the same
+logical wait. The Client automatically reattaches transport long polls. If an
+earlier Update with that ID exhausted its handler budget, the server appends an
+increasing `-N` suffix and starts a new Update. The maximum wait time is optional
+and is the total handler budget across reattachments; zero waits indefinitely.
+A positive budget expiry throws `WaitHandlerTimeoutException`. An abandoned
+infinite wait remains accepted and counts against Temporal's in-flight Update
+limit until it completes or the Flow closes.
 
 ## Exceptions
 

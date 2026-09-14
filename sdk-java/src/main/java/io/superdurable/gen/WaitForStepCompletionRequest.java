@@ -197,7 +197,8 @@ private static final long serialVersionUID = 0L;
   private volatile java.lang.Object requestId_ = "";
   /**
    * <pre>
-   * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
+   * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+   * Reusing a handler-timed-out logical key advances an increasing -N generation.
    * </pre>
    *
    * <code>string request_id = 6;</code>
@@ -218,7 +219,8 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
+   * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+   * Reusing a handler-timed-out logical key advances an increasing -N generation.
    * </pre>
    *
    * <code>string request_id = 6;</code>
@@ -915,7 +917,8 @@ private static final long serialVersionUID = 0L;
     private java.lang.Object requestId_ = "";
     /**
      * <pre>
-     * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
+     * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+     * Reusing a handler-timed-out logical key advances an increasing -N generation.
      * </pre>
      *
      * <code>string request_id = 6;</code>
@@ -935,7 +938,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
+     * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+     * Reusing a handler-timed-out logical key advances an increasing -N generation.
      * </pre>
      *
      * <code>string request_id = 6;</code>
@@ -956,7 +960,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
+     * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+     * Reusing a handler-timed-out logical key advances an increasing -N generation.
      * </pre>
      *
      * <code>string request_id = 6;</code>
@@ -973,7 +978,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
+     * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+     * Reusing a handler-timed-out logical key advances an increasing -N generation.
      * </pre>
      *
      * <code>string request_id = 6;</code>
@@ -987,7 +993,8 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
+     * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+     * Reusing a handler-timed-out logical key advances an increasing -N generation.
      * </pre>
      *
      * <code>string request_id = 6;</code>

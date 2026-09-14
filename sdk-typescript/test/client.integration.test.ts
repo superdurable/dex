@@ -360,7 +360,7 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(failed.status, "failed");
     assert.equal(failed.completions[1]?.stepExecutionId, "Finish-2");
     assert.equal(failed.completions[1]?.decode(stringCodec), "done");
-    const attributeOptions = { requestId: "wait-revision" };
+    const attributeOptions = {};
     assert.equal(
       await client.waitForAttributeMatch(
         "flow-1",
@@ -372,18 +372,20 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     );
     assert.deepEqual(
       requests.waitForAttribute.map((request) => request.requestId),
-      [attributeOptions.requestId, attributeOptions.requestId],
+      ["", ""],
     );
     const stepOptions = {};
     await client.waitForStepCompletion("flow-1", { stepType: "Start", number: 1 }, stepOptions);
     assert.deepEqual(
       requests.waitForStepCompletion.map((request) => request.requestId),
-      ["wait-for-step-completion:Start-1", "wait-for-step-completion:Start-1"],
+      ["", ""],
     );
-    await assert.rejects(
-      client.waitForStepCompletion("flow-1", { stepType: "Start" }, { maximumWaitTimeMs: 1_000 }),
-      /request ID is required/,
+    await client.waitForStepCompletion(
+      "flow-1",
+      { stepType: "Start" },
+      { maximumWaitTimeMs: 1_000 },
     );
+    assert.equal(requests.waitForStepCompletion.at(-1)?.requestId, "");
     assert.equal(requests.start?.flowType, "TestFlow");
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.start?.stepOptions?.heartbeatTimeoutSeconds, 2);

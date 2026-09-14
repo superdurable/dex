@@ -760,14 +760,13 @@ public final class Client implements AutoCloseable {
 
     /**
      * Blocks until a specific Step execution completes or its total handler budget expires.
-     * An infinite wait derives a stable Request ID from the Step execution when none is supplied.
-     * A positive handler budget requires a caller-owned Request ID.
-     * Transport long polls automatically reattach with the effective ID.
+     * The server derives a stable Request ID from the Step execution when none is supplied.
+     * Transport long polls automatically reattach to the same logical wait.
      *
      * @param flowId the target Flow ID
      * @param stepExecutionId the Step execution to observe
      * @param options the optional Request ID override and total handler wait budget
-     * @throws IllegalArgumentException if a finite wait lacks a Request ID or the budget is unsupported
+     * @throws IllegalArgumentException if the budget is unsupported
      * @throws WaitHandlerTimeoutException if a positive handler budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
@@ -776,9 +775,7 @@ public final class Client implements AutoCloseable {
             final String flowId,
             final StepExecutionId stepExecutionId,
             final WaitForStepCompletionOptions options) {
-        final String requestId = effectiveStepCompletionWaitRequestId(stepExecutionId, options);
-        final ClientWaitBudget waitBudget = new ClientWaitBudget(
-                requestId, options.getMaximumWaitTime());
+        final ClientWaitBudget waitBudget = new ClientWaitBudget(options.getMaximumWaitTime());
         while (true) {
             try {
                 final int remainingSeconds = waitBudget.remainingSeconds();
@@ -788,43 +785,29 @@ public final class Client implements AutoCloseable {
                         .setStepExecutionNumber(
                                 Integer.toString(stepExecutionId.getExecutionNumber()))
                         .setWaitTimeSeconds(remainingSeconds)
-                        .setRequestId(requestId)
+                        .setRequestId(options.getRequestId() == null ? "" : options.getRequestId())
                         .build()),
                         FlowTargetRequirement.ACTIVE,
                         flowId);
                 return;
             } catch (LongPollTimeoutException timeout) {
-                // Reattach to the same durable Update with the same Request ID.
+                // Reattach to the same logical wait.
             }
         }
     }
 
-    private static String effectiveStepCompletionWaitRequestId(
-            final StepExecutionId stepExecutionId,
-            final WaitForStepCompletionOptions options) {
-        if (options.getRequestId() != null && !options.getRequestId().isEmpty()) {
-            return options.getRequestId();
-        }
-        if (!Duration.ZERO.equals(options.getMaximumWaitTime())) {
-            return options.getRequestId();
-        }
-        return "wait-for-step-completion:"
-                + stepExecutionId.getStepType()
-                + "-"
-                + stepExecutionId.getExecutionNumber();
-    }
-
     /**
      * Blocks until a singleton Attribute satisfies a scalar match or its handler budget expires.
-     * Transport long polls automatically reattach with the same caller-owned Request ID.
+     * The server derives a stable Request ID from the condition when none is supplied.
+     * Transport long polls automatically reattach to the same logical wait.
      *
      * @param flowId the target Flow ID
      * @param attribute the registered Attribute definition
      * @param match the scalar predicate to await
-     * @param options the required Request ID and total handler wait budget
+     * @param options the optional Request ID override and total handler wait budget
      * @param <T> the Attribute value type
      * @return the current Attribute value that satisfied the match
-     * @throws IllegalArgumentException if the Request ID, budget, match operand, or operator is invalid
+     * @throws IllegalArgumentException if the budget, match operand, or operator is invalid
      * @throws WaitHandlerTimeoutException if a positive handler budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
@@ -845,10 +828,10 @@ public final class Client implements AutoCloseable {
      * @param attribute the registered Attribute-map definition
      * @param instance the map instance
      * @param match the scalar predicate to await
-     * @param options the required Request ID and total handler wait budget
+     * @param options the optional Request ID override and total handler wait budget
      * @param <T> the Attribute value type
      * @return the current AttributeMap value that satisfied the match
-     * @throws IllegalArgumentException if the Request ID, budget, match operand, or operator is invalid
+     * @throws IllegalArgumentException if the budget, match operand, or operator is invalid
      * @throws WaitHandlerTimeoutException if a positive handler budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
@@ -876,8 +859,7 @@ public final class Client implements AutoCloseable {
         final String key = instance == null
                 ? attribute.getName()
                 : Registry.physicalName(attribute.getName(), instance);
-        final ClientWaitBudget waitBudget = new ClientWaitBudget(
-                options.getRequestId(), options.getMaximumWaitTime());
+        final ClientWaitBudget waitBudget = new ClientWaitBudget(options.getMaximumWaitTime());
         while (true) {
             try {
                 final int remainingSeconds = waitBudget.remainingSeconds();
@@ -889,7 +871,7 @@ public final class Client implements AutoCloseable {
                                 .setOperator(match.getOperator())
                                 .setOperand(encoded))
                         .setWaitTimeSeconds(remainingSeconds)
-                        .setRequestId(options.getRequestId())
+                        .setRequestId(options.getRequestId() == null ? "" : options.getRequestId())
                         .build()),
                         FlowTargetRequirement.ACTIVE,
                         flowId);
@@ -898,7 +880,7 @@ public final class Client implements AutoCloseable {
                 }
                 return values.decode(response.getMatchedValue(), valueType);
             } catch (LongPollTimeoutException timeout) {
-                // Reattach to the same durable Update with the same Request ID.
+                // Reattach to the same logical wait.
             }
         }
     }
@@ -1151,10 +1133,7 @@ public final class Client implements AutoCloseable {
     private static final class ClientWaitBudget {
         private final long deadlineNanos;
 
-        private ClientWaitBudget(final String requestId, final Duration maximumWaitTime) {
-            if (requestId == null || requestId.isEmpty()) {
-                throw new IllegalArgumentException("wait request ID is required");
-            }
+        private ClientWaitBudget(final Duration maximumWaitTime) {
             final int maximumWaitSeconds = seconds32(maximumWaitTime);
             deadlineNanos = maximumWaitSeconds == 0
                     ? 0

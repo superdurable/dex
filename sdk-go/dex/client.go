@@ -840,10 +840,9 @@ func (client *Client) UpdateFlowConfig(
 //
 // stepExecution identifies the Step type and execution number; nil means execution
 // one. A nil error means the requested execution completed, but this method does not return its output.
-// An infinite wait derives a stable RequestID from the Step execution when options.RequestID is
-// empty. A positive MaximumWaitTime requires a caller-owned RequestID. The Client automatically
-// reattaches transport long polls with the effective ID. MaximumWaitTime is the total handler budget;
-// zero waits indefinitely.
+// When options.RequestID is empty, the server derives a stable RequestID from the Step execution.
+// The Client automatically reattaches transport long polls with the same logical wait.
+// MaximumWaitTime is the total handler budget; zero waits indefinitely.
 // A positive budget expiry returns WaitHandlerTimeoutError. Invalid identifiers, inactive Flows,
 // context, transport, and server errors are also returned.
 func (client *Client) WaitForStepCompletion(
@@ -859,8 +858,7 @@ func (client *Client) WaitForStepCompletion(
 	if err != nil {
 		return err
 	}
-	requestID := effectiveStepCompletionWaitRequestID(stepExecution.StepType, executionNumber, options)
-	waitBudget, err := newClientWaitBudget(requestID, options.MaximumWaitTime)
+	waitBudget, err := newClientWaitBudget(options.MaximumWaitTime)
 	if err != nil {
 		return err
 	}
@@ -876,7 +874,7 @@ func (client *Client) WaitForStepCompletion(
 				StepType:            stepExecution.StepType,
 				StepExecutionNumber: strconv.FormatInt(int64(executionNumber), 10),
 				WaitTimeSeconds:     handlerWaitTimeoutSeconds,
-				RequestId:           requestID,
+				RequestId:           options.RequestID,
 			},
 		)
 		if err == nil {
@@ -888,17 +886,6 @@ func (client *Client) WaitForStepCompletion(
 			return translated
 		}
 	}
-}
-
-func effectiveStepCompletionWaitRequestID(
-	stepType string,
-	executionNumber int32,
-	options WaitForStepCompletionOptions,
-) string {
-	if options.RequestID != "" || options.MaximumWaitTime != 0 {
-		return options.RequestID
-	}
-	return "wait-for-step-completion:" + stepType + "-" + strconv.FormatInt(int64(executionNumber), 10)
 }
 
 // TriggerContinueAsNew asks an active Flow to roll its history into a new run.
@@ -1135,8 +1122,8 @@ func streamMessagesPageTarget(
 //
 // match must contain an operand matching the registered Attribute type. The
 // matched current value is decoded into valuePtr before this method returns.
-// valuePtr must be a non-nil pointer of the registered type. options must contain a caller-owned
-// RequestID. The Client automatically reattaches transport long polls with that ID.
+// valuePtr must be a non-nil pointer of the registered type. When options.RequestID is empty, the
+// server derives one from the Attribute condition. Transport long-poll retries reattach to it.
 // MaximumWaitTime is the total handler budget; zero waits indefinitely. A positive budget expiry
 // returns WaitHandlerTimeoutError. Use context.WithTimeout or context.WithDeadline to cancel locally.
 func (client *Client) WaitForAttributeMatch(
@@ -1220,7 +1207,7 @@ func (client *Client) waitForAttributeMatch(
 	if err := validateEncodedAttributeMatch(match.attributeMatchOperator(), encoded); err != nil {
 		return err
 	}
-	waitBudget, err := newClientWaitBudget(options.RequestID, options.MaximumWaitTime)
+	waitBudget, err := newClientWaitBudget(options.MaximumWaitTime)
 	if err != nil {
 		return err
 	}
@@ -1257,10 +1244,7 @@ type clientWaitBudget struct {
 	deadline time.Time
 }
 
-func newClientWaitBudget(requestID string, maximumWaitTime time.Duration) (*clientWaitBudget, error) {
-	if requestID == "" {
-		return nil, fmt.Errorf("dex: wait request ID is required")
-	}
+func newClientWaitBudget(maximumWaitTime time.Duration) (*clientWaitBudget, error) {
 	if _, err := exactDurationSeconds32(maximumWaitTime); err != nil {
 		return nil, err
 	}

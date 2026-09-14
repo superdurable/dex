@@ -53,7 +53,6 @@ from dex.wait_options import (
     WaitForAttributeOptions,
     WaitForStepCompletionOptions,
     _ClientWaitBudget,
-    _effective_step_completion_wait_request_id,
 )
 
 InputT = TypeVar("InputT")
@@ -730,9 +729,8 @@ class Client:
     ) -> None:
         """Block until one Step execution completes or its handler budget expires.
 
-        An infinite wait derives a stable Request ID from the Step execution
-        when none is supplied. A positive handler budget requires a caller-owned
-        Request ID. Transport long polls automatically reattach with the effective ID.
+        The server derives a stable Request ID from the Step execution when none
+        is supplied. Transport long polls automatically reattach to the same wait.
 
         Args:
             flow_id: The non-empty active Flow ID.
@@ -745,12 +743,7 @@ class Client:
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
-        request_id = _effective_step_completion_wait_request_id(
-            step_execution_id.step_type,
-            step_execution_id.number,
-            options,
-        )
-        wait_budget = _ClientWaitBudget(request_id, options.maximum_wait_time)
+        wait_budget = _ClientWaitBudget(options.maximum_wait_time)
         while True:
             try:
                 self._call(
@@ -762,7 +755,7 @@ class Client:
                         wait_time_seconds=wait_budget.remaining_seconds(
                             "wait_for_step_completion", flow_id
                         ),
-                        request_id=request_id,
+                        request_id=options.request_id,
                     ),
                     "wait_for_step_completion",
                     flow_id,
@@ -782,15 +775,15 @@ class Client:
     ) -> ValueT:
         """Wait for a singleton Attribute in the current run to satisfy ``match``.
 
-        The Client returns the value observed by the successful wait. Transport
-        long polls automatically reattach with the caller-owned Request ID.
+        The Client returns the value observed by the successful wait. The server
+        derives a stable Request ID from the condition when none is supplied.
         JSON, bytes, and null operands raise ``ValueError`` before transport.
 
         Args:
             flow_id: The non-empty active Flow ID.
             attribute: The registered singleton Attribute to observe.
             match: The scalar predicate to await.
-            options: The required Request ID and total handler wait budget.
+            options: The optional Request ID override and total handler wait budget.
 
         Returns:
             The current Attribute value that satisfied ``match``.
@@ -823,7 +816,7 @@ class Client:
             attribute: The registered AttributeMap to observe.
             instance: The map instance to observe. Slash is prohibited because it is a reserved character.
             match: The scalar predicate to await.
-            options: The required Request ID and total handler wait budget.
+            options: The optional Request ID override and total handler wait budget.
 
         Returns:
             The current AttributeMap value that satisfied ``match``.
@@ -885,7 +878,7 @@ class Client:
             self._values.codec(attribute.value_type),
         )
         encoded_match.key = self._definition_name(attribute, instance)
-        wait_budget = _ClientWaitBudget(options.request_id, options.maximum_wait_time)
+        wait_budget = _ClientWaitBudget(options.maximum_wait_time)
         while True:
             try:
                 response = cast(

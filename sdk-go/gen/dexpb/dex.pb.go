@@ -7422,7 +7422,8 @@ type WaitForStepCompletionRequest struct {
 	StepExecutionNumber string `protobuf:"bytes,3,opt,name=step_execution_number,json=stepExecutionNumber,proto3" json:"step_execution_number,omitempty"`
 	// Zero waits indefinitely; positive values bound the Temporal Update handler.
 	WaitTimeSeconds int32 `protobuf:"varint,5,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
-	// Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
+	// Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+	// Reusing a handler-timed-out logical key advances an increasing -N generation.
 	RequestId     string `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7535,7 +7536,8 @@ type WaitForAttributeRequest struct {
 	Match  *AttributeMatch        `protobuf:"bytes,2,opt,name=match,proto3" json:"match,omitempty"`
 	// Zero waits indefinitely; positive values bound the Temporal Update handler.
 	WaitTimeSeconds int32 `protobuf:"varint,3,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
-	// Required caller-owned idempotency key. Identical retries reuse the run-scoped Temporal Update.
+	// Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+	// Reusing a handler-timed-out logical key advances an increasing -N generation.
 	RequestId     string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
