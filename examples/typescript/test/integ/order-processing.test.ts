@@ -52,7 +52,7 @@ test("orderProcessingHappyPath", async () => {
   await environment.client.waitForStepCompletion(
     flowId,
     StepExecutionId.of("ChargeStep"),
-    30_000,
+    { maximumWaitTimeMs: 30_000 },
   );
   assert.equal(
     await environment.client.invokeRPC(environment.orderProcessingFlow.approve, flowId, ""),
@@ -82,7 +82,7 @@ test("orderProcessingReminderThenShip", async () => {
   await environment.client.waitForStepCompletion(
     flowId,
     StepExecutionId.of("ChargeStep"),
-    30_000,
+    { maximumWaitTimeMs: 30_000 },
   );
   await awaitCondition(
     async () => {
@@ -104,7 +104,7 @@ test("orderProcessingReminderThenShip", async () => {
   await environment.client.waitForStepCompletion(
     flowId,
     StepExecutionId.of("ShipStep"),
-    30_000,
+    { maximumWaitTimeMs: 30_000 },
   );
   assert.equal(
     await environment.client.invokeRPC(environment.orderProcessingFlow.approve, flowId, ""),
@@ -134,7 +134,7 @@ test("orderProcessingShipFailureRefunds", async () => {
   await environment.client.waitForStepCompletion(
     flowId,
     StepExecutionId.of("ChargeStep"),
-    30_000,
+    { maximumWaitTimeMs: 30_000 },
   );
   assert.equal(
     await environment.client.invokeRPC(environment.orderProcessingFlow.approve, flowId, ""),

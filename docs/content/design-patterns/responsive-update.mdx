@@ -14,6 +14,21 @@ Choose the boundary deliberately:
 
 The first two waits observe durable state. They are appropriate for a client-visible boundary, not a substitute for an application timeout or a final Flow result. Streams carry ordered incremental messages; clients keep the latest resume token and use it on the next read.
 
+## Choose the durable handler lifetime
+
+For Step and Attribute waits, Dex derives a logical Temporal Update ID from the Step execution or the complete Attribute condition. Calls for the same logical wait on one active Flow reattach to the accepted Update. This identity survives transport long polls and Continue-As-New, so normal callers do not need to provide a Request ID.
+
+**MaximumWaitTime** controls the lifetime of the accepted durable Update handler. It is separate from a caller context, HTTP deadline, or transport long-poll timeout. Ending a local call does not cancel a handler that Temporal has already accepted.
+
+| **MaximumWaitTime** | Use it when | Resource behavior |
+| --- | --- | --- |
+| 0 | Recommended for ordinary waits. A Flow has only a few distinct waits that should remain durable until they complete or match. | Each distinct accepted wait occupies one in-flight Update slot. Reattachments to the same logical wait reuse it. |
+| Positive | One Flow may accumulate abandoned callers, dynamic predicates, many concurrent consumers, or conditions that may never match. | The handler eventually expires and releases its in-flight slot. If the caller keeps waiting, Dex creates the next -N Update generation. |
+
+Do not choose a short positive value as a routine request timeout. Every generation after expiry is another accepted Update and history entry. It may also be another Temporal Cloud Action. Temporal Cloud de-duplicates repeated Updates only when they use the same Update ID.
+
+Temporal's current self-hosted defaults allow 10 in-flight and 2,000 total Updates per Workflow Execution. These limits are configurable and deployment-specific, not Dex guarantees. See [Temporal's self-hosted defaults](https://docs.temporal.io/production-deployment/self-hosted-guide/defaults) and [Temporal Cloud Action accounting](https://docs.temporal.io/cloud/actions).
+
 ## Related
 
 - [Client](/primitives/client)

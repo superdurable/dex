@@ -762,6 +762,10 @@ public final class Client implements AutoCloseable {
      * Blocks until a specific Step execution completes or its total handler budget expires.
      * The server derives a stable Request ID from the Step execution when none is supplied.
      * Transport long polls automatically reattach to the same logical wait.
+     * Leave the maximum wait time at zero for ordinary infinite waits.
+     * A positive value releases per-Flow in-flight Update capacity for abandoned waits.
+     * The handler budget spans Continue-as-New and is distinct from the calling thread's lifetime.
+     * Retrying after expiry creates a new Update generation.
      *
      * @param flowId the target Flow ID
      * @param stepExecutionId the Step execution to observe
@@ -800,6 +804,10 @@ public final class Client implements AutoCloseable {
      * Blocks until a singleton Attribute satisfies a scalar match or its handler budget expires.
      * The server derives a stable Request ID from the condition when none is supplied.
      * Transport long polls automatically reattach to the same logical wait.
+     * Leave the maximum wait time at zero for ordinary infinite waits.
+     * A positive value releases per-Flow in-flight Update capacity for rarely matching waits.
+     * The handler budget spans Continue-as-New and is distinct from the calling thread's lifetime.
+     * Retrying after expiry creates a new Update generation.
      *
      * @param flowId the target Flow ID
      * @param attribute the registered Attribute definition

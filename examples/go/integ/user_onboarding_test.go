@@ -54,6 +54,7 @@ func TestUserOnboardingCompletesEveryTask(t *testing.T) {
 		signup.Status,
 		dex.AttributeMatchEqual(signup.StatusWaitingForVerification),
 		&matchedStatus,
+		dex.WaitForAttributeOptions{},
 	))
 	require.Equal(t, signup.StatusWaitingForVerification, matchedStatus)
 
@@ -73,6 +74,7 @@ func TestUserOnboardingCompletesEveryTask(t *testing.T) {
 		signup.Status,
 		dex.AttributeMatchEqual(signup.StatusWaitingForTask1),
 		&matchedStatus,
+		dex.WaitForAttributeOptions{},
 	))
 	require.Equal(t, signup.StatusWaitingForTask1, matchedStatus)
 
@@ -91,6 +93,7 @@ func TestUserOnboardingCompletesEveryTask(t *testing.T) {
 		signup.Status,
 		dex.AttributeMatchEqual(signup.StatusWaitingForTask2),
 		&matchedStatus,
+		dex.WaitForAttributeOptions{},
 	))
 	require.Equal(t, signup.StatusWaitingForTask2, matchedStatus)
 

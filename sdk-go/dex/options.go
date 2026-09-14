@@ -366,10 +366,11 @@ type WaitForFlowOptions struct {
 //
 // When RequestID is empty, the server derives a stable ID from the Step
 // execution. Reuse an override only when retrying the same Step completion
-// wait. MaximumWaitTime bounds the Temporal Update handler across transport
-// retries and Continue-As-New. Zero waits indefinitely. Positive values must
-// be whole seconds within int32 range.
-// An abandoned infinite wait remains in flight until it matches or the Flow closes.
+// wait. MaximumWaitTime bounds the accepted Temporal Update handler across
+// transport reattachments and Continue-As-New. Leave it zero for ordinary
+// waits. Use a positive value only to release per-Flow in-flight Update
+// capacity for abandoned or rarely completing waits. It must be a whole-second
+// duration within int32 range. Retrying after expiry creates a new Update generation.
 //
 //	options := dex.WaitForStepCompletionOptions{
 //		MaximumWaitTime: time.Hour,
@@ -377,7 +378,8 @@ type WaitForFlowOptions struct {
 type WaitForStepCompletionOptions struct {
 	// RequestID overrides the stable ID derived from the Step execution.
 	RequestID string
-	// MaximumWaitTime bounds the handler lifetime. Zero waits indefinitely.
+	// MaximumWaitTime bounds the accepted handler lifetime. Zero waits indefinitely and is recommended for ordinary waits.
+	// A positive value releases per-Flow in-flight capacity; retrying after expiry creates a new Update generation.
 	MaximumWaitTime time.Duration
 }
 
@@ -385,10 +387,11 @@ type WaitForStepCompletionOptions struct {
 //
 // When RequestID is empty, the server derives a stable ID from the Attribute
 // condition. Reuse an override only when retrying the same Attribute match.
-// MaximumWaitTime bounds the Temporal Update handler across transport retries
-// and Continue-As-New. Zero waits indefinitely. Positive values must be whole
-// seconds within int32 range.
-// An abandoned infinite wait remains in flight until it matches or the Flow closes.
+// MaximumWaitTime bounds the accepted Temporal Update handler across transport
+// reattachments and Continue-As-New. Leave it zero for ordinary waits. Use a
+// positive value only to release per-Flow in-flight Update capacity for
+// abandoned or rarely matching waits. It must be a whole-second duration
+// within int32 range. Retrying after expiry creates a new Update generation.
 //
 //	options := dex.WaitForAttributeOptions{
 //		MaximumWaitTime: time.Hour,
@@ -396,7 +399,8 @@ type WaitForStepCompletionOptions struct {
 type WaitForAttributeOptions struct {
 	// RequestID overrides the stable ID derived from the Attribute condition.
 	RequestID string
-	// MaximumWaitTime bounds the handler lifetime. Zero waits indefinitely.
+	// MaximumWaitTime bounds the accepted handler lifetime. Zero waits indefinitely and is recommended for ordinary waits.
+	// A positive value releases per-Flow in-flight capacity; retrying after expiry creates a new Update generation.
 	MaximumWaitTime time.Duration
 }
 

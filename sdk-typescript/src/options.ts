@@ -19,19 +19,33 @@ export interface ClientOptions {
   readonly workerTarget?: WorkerTarget;
 }
 
-/** Configures one durable Step completion wait. An abandoned infinite wait remains in flight until completion or Flow closure. */
+/**
+ * Configures one durable Step completion wait.
+ * The server derives a stable Request ID from the Step execution when none is supplied.
+ * Leave the maximum wait time at zero for ordinary infinite waits.
+ * A positive value releases per-Flow in-flight Update capacity for abandoned or rarely completing waits.
+ * It spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+ * Retrying after expiry creates a new Update generation.
+ */
 export interface WaitForStepCompletionOptions {
   /** Overrides the stable Request ID that the server derives from the Step execution. */
   readonly requestId?: string;
-  /** Total handler wait budget in milliseconds. Omit or use zero to wait indefinitely. */
+  /** Accepted handler lifetime in milliseconds. Omit or use zero for the recommended ordinary infinite wait. */
   readonly maximumWaitTimeMs?: number;
 }
 
-/** Configures one durable Attribute match wait. An abandoned infinite wait remains in flight until a match or Flow closure. */
+/**
+ * Configures one durable Attribute match wait.
+ * The server derives a stable Request ID from the Attribute condition when none is supplied.
+ * Leave the maximum wait time at zero for ordinary infinite waits.
+ * A positive value releases per-Flow in-flight Update capacity for abandoned or rarely matching waits.
+ * It spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+ * Retrying after expiry creates a new Update generation.
+ */
 export interface WaitForAttributeOptions {
   /** Overrides the stable Request ID that the server derives from the Attribute condition. */
   readonly requestId?: string;
-  /** Total handler wait budget in milliseconds. Omit or use zero to wait indefinitely. */
+  /** Accepted handler lifetime in milliseconds. Omit or use zero for the recommended ordinary infinite wait. */
   readonly maximumWaitTimeMs?: number;
 }
 

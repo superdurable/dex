@@ -15,11 +15,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import timedelta
 
 from quart import Blueprint, Response, jsonify
 
-from dex import AttributeMatch
+from dex import AttributeMatch, WaitForAttributeOptions
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -50,7 +49,7 @@ def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
             flow_id,
             app_state.engagement.employer_id,
             AttributeMatch.equal_to(input.employer_id),
-            timedelta(seconds=15),
+            WaitForAttributeOptions(),
         )
         return started_flow(flow_id, run_id)
 

@@ -68,6 +68,7 @@ func (controller *controller) start(request *gin.Context) {
 		waitContext,
 		flowID,
 		sdk.StepExecutionID{StepType: ChargeStepType},
+		sdk.WaitForStepCompletionOptions{},
 	)
 	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
 }

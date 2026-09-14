@@ -842,9 +842,12 @@ func (client *Client) UpdateFlowConfig(
 // one. A nil error means the requested execution completed, but this method does not return its output.
 // When options.RequestID is empty, the server derives a stable RequestID from the Step execution.
 // The Client automatically reattaches transport long polls with the same logical wait.
-// MaximumWaitTime is the total handler budget; zero waits indefinitely.
-// A positive budget expiry returns WaitHandlerTimeoutError. Invalid identifiers, inactive Flows,
-// context, transport, and server errors are also returned.
+// Leave MaximumWaitTime zero for an ordinary infinite wait. A positive value is a per-Flow
+// in-flight Update capacity safeguard for abandoned or rarely completing waits. It spans
+// transport reattachments and Continue-As-New. It is distinct from ctx: ending ctx after
+// acceptance does not cancel the durable handler. Retrying after a positive budget expires
+// creates a new Update generation and returns WaitHandlerTimeoutError. Invalid identifiers,
+// inactive Flows, context, transport, and server errors are also returned.
 func (client *Client) WaitForStepCompletion(
 	ctx context.Context,
 	flowID string,
@@ -1124,8 +1127,11 @@ func streamMessagesPageTarget(
 // matched current value is decoded into valuePtr before this method returns.
 // valuePtr must be a non-nil pointer of the registered type. When options.RequestID is empty, the
 // server derives one from the Attribute condition. Transport long-poll retries reattach to it.
-// MaximumWaitTime is the total handler budget; zero waits indefinitely. A positive budget expiry
-// returns WaitHandlerTimeoutError. Use context.WithTimeout or context.WithDeadline to cancel locally.
+// Leave MaximumWaitTime zero for an ordinary infinite wait. A positive value is a per-Flow
+// in-flight Update capacity safeguard for abandoned or rarely matching waits. It spans transport
+// reattachments and Continue-As-New. It is distinct from ctx: ending ctx after acceptance does not
+// cancel the durable handler. Retrying after a positive budget expires creates a new Update generation
+// and returns WaitHandlerTimeoutError. Use context.WithTimeout or context.WithDeadline to cancel locally.
 func (client *Client) WaitForAttributeMatch(
 	ctx context.Context,
 	flowID string,

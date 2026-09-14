@@ -24,12 +24,17 @@ class WaitForStepCompletionOptions:
 
     The server derives a stable Request ID from the Step execution when
     ``request_id`` is empty. Reuse an override only for the same logical wait.
-    A zero ``maximum_wait_time`` waits indefinitely.
-    An abandoned infinite wait remains in flight until completion or Flow closure.
+    Leave ``maximum_wait_time`` at zero for ordinary infinite waits. A positive
+    value releases per-Flow in-flight Update capacity for abandoned or rarely
+    completing waits. It spans transport reattachments and Continue-as-New,
+    unlike a caller or transport deadline. Retrying after expiry creates a new
+    Update generation.
 
     Attributes:
         request_id: An optional override for the server-derived stable ID.
-        maximum_wait_time: The total handler budget. Zero waits indefinitely.
+        maximum_wait_time: The accepted handler lifetime. Zero waits indefinitely
+            and is recommended for ordinary waits. A positive value releases
+            per-Flow in-flight capacity.
     """
 
     request_id: str = ""
@@ -42,12 +47,17 @@ class WaitForAttributeOptions:
 
     The server derives a stable Request ID from the Attribute condition when
     ``request_id`` is empty. Reuse an override only for the same logical predicate.
-    A zero ``maximum_wait_time`` waits indefinitely.
-    An abandoned infinite wait remains in flight until a match or Flow closure.
+    Leave ``maximum_wait_time`` at zero for ordinary infinite waits. A positive
+    value releases per-Flow in-flight Update capacity for abandoned or rarely
+    matching waits. It spans transport reattachments and Continue-as-New,
+    unlike a caller or transport deadline. Retrying after expiry creates a new
+    Update generation.
 
     Attributes:
         request_id: An optional override for the server-derived stable ID.
-        maximum_wait_time: The total handler budget. Zero waits indefinitely.
+        maximum_wait_time: The accepted handler lifetime. Zero waits indefinitely
+            and is recommended for ordinary waits. A positive value releases
+            per-Flow in-flight capacity.
     """
 
     request_id: str = ""

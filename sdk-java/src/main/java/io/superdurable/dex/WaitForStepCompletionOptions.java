@@ -16,8 +16,10 @@ import java.time.Duration;
  * Configures one durable Step completion wait.
  * The server derives a stable Request ID from the Step execution when none is supplied.
  * Reuse an override only for the same logical Step wait.
- * The maximum wait time defaults to zero, which waits indefinitely.
- * An abandoned infinite wait remains in flight until it completes or the Flow closes.
+ * Leave the maximum wait time at its zero default for ordinary infinite waits.
+ * A positive value releases per-Flow in-flight Update capacity for abandoned or rarely completing waits.
+ * It spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+ * Retrying after expiry creates a new Update generation.
  */
 public final class WaitForStepCompletionOptions {
     private final String requestId;
@@ -66,7 +68,9 @@ public final class WaitForStepCompletionOptions {
         }
 
         /**
-         * Sets the total handler wait budget. Zero waits indefinitely.
+         * Limits how long the accepted Temporal Update handler remains in flight.
+         * Zero waits indefinitely and is recommended for ordinary waits.
+         * A positive value releases per-Flow in-flight capacity, but retrying after expiry creates a new Update generation.
          *
          * @param value a nonnegative whole-second duration within the protocol range
          * @return this builder

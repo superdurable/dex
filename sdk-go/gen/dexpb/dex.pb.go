@@ -7420,7 +7420,11 @@ type WaitForStepCompletionRequest struct {
 	// Identifies a step execution by type and its per-type execution number.
 	StepType            string `protobuf:"bytes,2,opt,name=step_type,json=stepType,proto3" json:"step_type,omitempty"`
 	StepExecutionNumber string `protobuf:"bytes,3,opt,name=step_execution_number,json=stepExecutionNumber,proto3" json:"step_execution_number,omitempty"`
-	// Zero waits indefinitely; positive values bound the Temporal Update handler.
+	// Limits how long one accepted Temporal Update handler remains in flight.
+	// Zero is recommended for ordinary waits and waits indefinitely.
+	// A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
+	// The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+	// Retrying after expiry creates a new -N Update generation.
 	WaitTimeSeconds int32 `protobuf:"varint,5,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
 	// Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
 	// Reusing a handler-timed-out logical key advances an increasing -N generation.
@@ -7534,7 +7538,11 @@ type WaitForAttributeRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	FlowId string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
 	Match  *AttributeMatch        `protobuf:"bytes,2,opt,name=match,proto3" json:"match,omitempty"`
-	// Zero waits indefinitely; positive values bound the Temporal Update handler.
+	// Limits how long one accepted Temporal Update handler remains in flight.
+	// Zero is recommended for ordinary waits and waits indefinitely.
+	// A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
+	// The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+	// Retrying after expiry creates a new -N Update generation.
 	WaitTimeSeconds int32 `protobuf:"varint,3,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
 	// Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
 	// Reusing a handler-timed-out logical key advances an increasing -N generation.

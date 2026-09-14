@@ -15,7 +15,7 @@
 from typing import Callable
 
 import pytest
-from dex import AsyncClient, AttributeMatch
+from dex import AsyncClient, AttributeMatch, WaitForAttributeOptions
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.products.deal_dsl.deal_dsl_flow import (
@@ -44,7 +44,7 @@ async def test_deal_dsl_completes_an_item_purchase(
             flow_id,
             app.deal_dsl.current_state,
             AttributeMatch.equal_to("negotiating"),
-            WAIT_TIMEOUT,
+            WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
         )
         == "negotiating"
     )

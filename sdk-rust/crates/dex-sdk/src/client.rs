@@ -634,6 +634,9 @@ impl Client {
     ///
     /// The server derives a stable Request ID from the Step execution when none is supplied.
     /// Transport long polls automatically reattach to the same logical wait.
+    /// Leave the maximum wait time at zero for ordinary infinite waits. A positive value releases
+    /// per-Flow in-flight Update capacity for abandoned waits. The budget spans Continue-as-New and
+    /// is distinct from the caller's lifetime. Retrying after expiry creates a new Update generation.
     ///
     /// # Errors
     ///
@@ -679,7 +682,11 @@ impl Client {
     /// Blocks until a singleton Attribute in the current run satisfies `attribute_match`.
     ///
     /// Returns the current value observed by the successful wait. The server derives a stable
-    /// Request ID from the condition when none is supplied. String and
+    /// Request ID from the condition when none is supplied. Leave the maximum wait time at zero for
+    /// ordinary infinite waits. A positive value releases per-Flow in-flight Update capacity for
+    /// rarely matching waits. The budget spans transport reattachments and Continue-as-New, and is
+    /// distinct from the caller's lifetime. Retrying after expiry creates a new Update generation.
+    /// String and
     /// Boolean Attributes support equality matches. Integer and floating-point
     /// Attributes support every match. A positive handler-budget expiry returns
     /// [`SdkError::WaitHandlerTimeout`].

@@ -78,7 +78,7 @@ export function createJobPostingRouter(client: Client): Router {
       workflowId,
       jobPostingFlow.updateVersion,
       AttributeMatch.greaterThan(lastRevision),
-      30_000,
+      {},
     );
     const jobInfo = await client.invokeRPC(jobPostingFlow.get, workflowId);
     response.json({ revision, jobInfo });

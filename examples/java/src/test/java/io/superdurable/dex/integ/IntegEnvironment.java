@@ -25,6 +25,7 @@ import io.superdurable.dex.Registry;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.Worker;
 import io.superdurable.dex.WorkerOptions;
+import io.superdurable.dex.WaitForAttributeOptions;
 import io.superdurable.dex.shared.MyDependencyService;
 import io.superdurable.dex.products.engagement.EngagementFlow;
 import io.superdurable.dex.products.dealdsl.DealDSLFlow;
@@ -255,7 +256,7 @@ final class IntegEnvironment implements AutoCloseable {
                 flowId,
                 attribute,
                 io.superdurable.dex.AttributeMatch.equalTo(expected),
-                timeout);
+                WaitForAttributeOptions.newBuilder().maximumWaitTime(timeout).build());
     }
 
     <T> T awaitCondition(

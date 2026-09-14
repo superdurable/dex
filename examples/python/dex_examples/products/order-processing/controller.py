@@ -14,9 +14,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
-
-from dex import StepExecutionId
+from dex import StepExecutionId, WaitForStepCompletionOptions
 from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
@@ -30,7 +28,6 @@ from dex_examples.shared.query import (
 from dex_examples.products.order_processing.order_request import OrderRequest
 
 CHARGE_STEP = StepExecutionId("ChargeStep")
-CHARGE_WAIT_TIMEOUT = timedelta(minutes=5)
 
 
 def create_order_processing_blueprint(app_state: ExampleApp) -> Blueprint:
@@ -59,7 +56,7 @@ def create_order_processing_blueprint(app_state: ExampleApp) -> Blueprint:
         await app_state.client.wait_for_step_completion(
             flow_id,
             CHARGE_STEP,
-            CHARGE_WAIT_TIMEOUT,
+            WaitForStepCompletionOptions(),
         )
         return started_flow(flow_id, run_id)
 

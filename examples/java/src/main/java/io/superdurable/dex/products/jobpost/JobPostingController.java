@@ -20,6 +20,7 @@ import io.superdurable.dex.AttributeMatch;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowConfig;
 import io.superdurable.dex.StartFlowOptions;
+import io.superdurable.dex.WaitForAttributeOptions;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -94,7 +95,7 @@ public class JobPostingController {
                 workflowId,
                 flow.updateVersion,
                 AttributeMatch.greaterThan(lastRevision),
-                Duration.ofSeconds(30));
+                WaitForAttributeOptions.newBuilder().build());
         final JobPostingFlow stub = client.newRpcStub(JobPostingFlow.class, workflowId);
         final Map<String, Object> response = new LinkedHashMap<String, Object>();
         response.put("revision", revision);

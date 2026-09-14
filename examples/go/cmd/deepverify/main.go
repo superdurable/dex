@@ -1153,6 +1153,7 @@ func waitForAttributeMatch(
 		attribute,
 		dex.AttributeMatchEqual(value),
 		matchedValuePtr,
+		dex.WaitForAttributeOptions{},
 	)
 }
 
@@ -1165,7 +1166,12 @@ func waitForStepCompletion(
 ) error {
 	waitContext, cancelWait := context.WithTimeout(ctx, timeout)
 	defer cancelWait()
-	return client.WaitForStepCompletion(waitContext, flowID, stepExecutionID)
+	return client.WaitForStepCompletion(
+		waitContext,
+		flowID,
+		stepExecutionID,
+		dex.WaitForStepCompletionOptions{},
+	)
 }
 
 func waitForFlow(

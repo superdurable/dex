@@ -169,6 +169,7 @@ func (controller *controller) waitForUpdate(request *gin.Context) {
 		UpdateVersion,
 		sdk.AttributeMatchGreaterThan(lastRevision),
 		&revision,
+		sdk.WaitForAttributeOptions{},
 	)
 	if err != nil {
 		httputil.Respond(request, nil, err)

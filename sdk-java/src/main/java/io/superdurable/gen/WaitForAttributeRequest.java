@@ -120,7 +120,11 @@ private static final long serialVersionUID = 0L;
   private int waitTimeSeconds_ = 0;
   /**
    * <pre>
-   * Zero waits indefinitely; positive values bound the Temporal Update handler.
+   * Limits how long one accepted Temporal Update handler remains in flight.
+   * Zero is recommended for ordinary waits and waits indefinitely.
+   * A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
+   * The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+   * Retrying after expiry creates a new -N Update generation.
    * </pre>
    *
    * <code>int32 wait_time_seconds = 3;</code>
@@ -766,7 +770,11 @@ private static final long serialVersionUID = 0L;
     private int waitTimeSeconds_ ;
     /**
      * <pre>
-     * Zero waits indefinitely; positive values bound the Temporal Update handler.
+     * Limits how long one accepted Temporal Update handler remains in flight.
+     * Zero is recommended for ordinary waits and waits indefinitely.
+     * A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
+     * The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+     * Retrying after expiry creates a new -N Update generation.
      * </pre>
      *
      * <code>int32 wait_time_seconds = 3;</code>
@@ -778,7 +786,11 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Zero waits indefinitely; positive values bound the Temporal Update handler.
+     * Limits how long one accepted Temporal Update handler remains in flight.
+     * Zero is recommended for ordinary waits and waits indefinitely.
+     * A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
+     * The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+     * Retrying after expiry creates a new -N Update generation.
      * </pre>
      *
      * <code>int32 wait_time_seconds = 3;</code>
@@ -794,7 +806,11 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Zero waits indefinitely; positive values bound the Temporal Update handler.
+     * Limits how long one accepted Temporal Update handler remains in flight.
+     * Zero is recommended for ordinary waits and waits indefinitely.
+     * A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
+     * The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+     * Retrying after expiry creates a new -N Update generation.
      * </pre>
      *
      * <code>int32 wait_time_seconds = 3;</code>

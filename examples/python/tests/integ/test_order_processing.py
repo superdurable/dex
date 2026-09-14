@@ -25,7 +25,7 @@ from dex_examples.config import start_options
 from dex_examples.products.order_processing.order_request import OrderRequest
 from tests.integ.conftest import WAIT_TIMEOUT
 
-from dex import AsyncClient, StepExecutionId, TimerId
+from dex import AsyncClient, StepExecutionId, TimerId, WaitForStepCompletionOptions
 
 pytestmark = pytest.mark.integ
 
@@ -59,7 +59,11 @@ async def test_order_processing_happy_path(
     flow_id = new_flow_id("order-processing")
     request = OrderRequest(flow_id, "buyer@example.com", "customer-1", 42)
     await client.start_flow(app.order_processing, flow_id, request, start_options())
-    await client.wait_for_step_completion(flow_id, CHARGE_STEP, WAIT_TIMEOUT)
+    await client.wait_for_step_completion(
+        flow_id,
+        CHARGE_STEP,
+        WaitForStepCompletionOptions(maximum_wait_time=WAIT_TIMEOUT),
+    )
     assert await client.invoke_rpc(app.order_processing.approve, flow_id, "") == "ok"
     output = (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(str)
     assert output == f"shipped:{flow_id}"
@@ -73,9 +77,17 @@ async def test_order_processing_reminder_then_ship(
     flow_id = new_flow_id("order-processing-reminder")
     request = OrderRequest(flow_id, "buyer@example.com", "customer-1", 42)
     await client.start_flow(app.order_processing, flow_id, request, start_options())
-    await client.wait_for_step_completion(flow_id, CHARGE_STEP, WAIT_TIMEOUT)
+    await client.wait_for_step_completion(
+        flow_id,
+        CHARGE_STEP,
+        WaitForStepCompletionOptions(maximum_wait_time=WAIT_TIMEOUT),
+    )
     await _skip_ship_timer(client, flow_id)
-    await client.wait_for_step_completion(flow_id, SHIP_STEP, WAIT_TIMEOUT)
+    await client.wait_for_step_completion(
+        flow_id,
+        SHIP_STEP,
+        WaitForStepCompletionOptions(maximum_wait_time=WAIT_TIMEOUT),
+    )
     assert await client.invoke_rpc(app.order_processing.approve, flow_id, "") == "ok"
     output = (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(str)
     assert output == f"shipped:{flow_id}"
@@ -89,7 +101,11 @@ async def test_order_processing_ship_failure_refunds(
     flow_id = new_flow_id("order-processing-refund")
     request = OrderRequest(flow_id, "buyer@example.com", "customer-1", 42, True)
     await client.start_flow(app.order_processing, flow_id, request, start_options())
-    await client.wait_for_step_completion(flow_id, CHARGE_STEP, WAIT_TIMEOUT)
+    await client.wait_for_step_completion(
+        flow_id,
+        CHARGE_STEP,
+        WaitForStepCompletionOptions(maximum_wait_time=WAIT_TIMEOUT),
+    )
     assert await client.invoke_rpc(app.order_processing.approve, flow_id, "") == "ok"
     output = (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(str)
     assert output == f"refunded:{flow_id}"

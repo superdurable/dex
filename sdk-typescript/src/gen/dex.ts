@@ -928,7 +928,13 @@ export interface WaitForStepCompletionRequest {
   /** Identifies a step execution by type and its per-type execution number. */
   stepType: string;
   stepExecutionNumber: string;
-  /** Zero waits indefinitely; positive values bound the Temporal Update handler. */
+  /**
+   * Limits how long one accepted Temporal Update handler remains in flight.
+   * Zero is recommended for ordinary waits and waits indefinitely.
+   * A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
+   * The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+   * Retrying after expiry creates a new -N Update generation.
+   */
   waitTimeSeconds: number;
   /**
    * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
@@ -945,7 +951,13 @@ export interface WaitForAttributeRequest {
   match:
     | AttributeMatch
     | undefined;
-  /** Zero waits indefinitely; positive values bound the Temporal Update handler. */
+  /**
+   * Limits how long one accepted Temporal Update handler remains in flight.
+   * Zero is recommended for ordinary waits and waits indefinitely.
+   * A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
+   * The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+   * Retrying after expiry creates a new -N Update generation.
+   */
   waitTimeSeconds: number;
   /**
    * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.

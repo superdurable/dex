@@ -22,7 +22,7 @@ from dex_examples.config import start_options
 from dex_examples.products.microservices.orchestration_flow import OrchestrationFlow
 from tests.integ.conftest import WAIT_TIMEOUT
 
-from dex import AsyncClient, AttributeMatch
+from dex import AsyncClient, AttributeMatch, WaitForAttributeOptions
 
 pytestmark = pytest.mark.integ
 
@@ -41,7 +41,7 @@ async def test_orchestration_completes_when_ready_is_published(
         flow_id,
         OrchestrationFlow.data,
         AttributeMatch.equal_to(INITIAL_DATA),
-        WAIT_TIMEOUT,
+        WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     await client.invoke_rpc(app.orchestration.signal_ready, flow_id)
 
@@ -62,7 +62,7 @@ async def test_orchestration_swap_replaces_the_data_before_completion(
         flow_id,
         OrchestrationFlow.data,
         AttributeMatch.equal_to(INITIAL_DATA),
-        WAIT_TIMEOUT,
+        WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     assert await client.invoke_rpc(app.orchestration.swap, flow_id, "swapped data") == (
         INITIAL_DATA

@@ -18,6 +18,7 @@ package io.superdurable.dex.integ;
 
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepExecutionId;
+import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.products.jobpost.JobInfo;
 import io.superdurable.dex.products.jobpost.JobPostingFlow;
 import org.junit.jupiter.api.Test;
@@ -45,7 +46,7 @@ public class JobPostingIntegTest {
         environment.client().waitForStepCompletion(
                 flowId,
                 StepExecutionId.of("InitStep", 1),
-                Duration.ofSeconds(30));
+                waitOptions());
 
         final JobPostingFlow stub = environment.client().newRpcStub(JobPostingFlow.class, flowId);
         final JobInfo updated = new JobInfo(
@@ -61,16 +62,22 @@ public class JobPostingIntegTest {
         environment.client().waitForStepCompletion(
                 flowId,
                 StepExecutionId.of("UpdateLinkedInPosting", 2),
-                Duration.ofSeconds(30));
+                waitOptions());
         environment.client().waitForStepCompletion(
                 flowId,
                 StepExecutionId.of("UpdateIndeedPosting", 2),
-                Duration.ofSeconds(30));
+                waitOptions());
 
         final JobInfo actual = environment.client().invokeRPC(stub::get);
         assertEquals(newest.title, actual.title);
         assertEquals(newest.description, actual.description);
         assertEquals(newest.notes, actual.notes);
         environment.client().stopFlow(flowId);
+    }
+
+    private static WaitForStepCompletionOptions waitOptions() {
+        return WaitForStepCompletionOptions.newBuilder()
+                .maximumWaitTime(Duration.ofSeconds(30))
+                .build();
     }
 }

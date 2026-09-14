@@ -55,7 +55,8 @@ use dex_examples_rust::products::subscription::{
 };
 use dex_sdk::{
     AttributeMatch, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkError,
-    SdkResult, StepExecutionId, StopFlowOptions, TimerId, Worker, WorkerOptions,
+    SdkResult, StepExecutionId, StopFlowOptions, TimerId, WaitForAttributeOptions,
+    WaitForStepCompletionOptions, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
 
@@ -292,7 +293,7 @@ fn deal_dsl_completes_an_item_purchase() {
             &flow_id,
             &DEAL_CURRENT_STATE,
             AttributeMatch::equal_to("negotiating".to_string()),
-            Duration::from_secs(30),
+            attribute_wait_options(30),
         )
         .expect("wait for Rust Deal DSL negotiation");
     environment
@@ -339,11 +340,7 @@ fn job_posting_update_reaches_both_job_boards() {
         .expect("start Rust Job Posting Flow");
     environment
         .client
-        .wait_for_step_completion(
-            &flow_id,
-            StepExecutionId::of(&Init),
-            Duration::from_secs(30),
-        )
+        .wait_for_step_completion(&flow_id, StepExecutionId::of(&Init), step_wait_options(30))
         .expect("wait for Rust Job Posting Create Step");
     assert_eq!(
         environment
@@ -384,7 +381,7 @@ fn job_posting_update_reaches_both_job_boards() {
         .wait_for_step_completion(
             &flow_id,
             StepExecutionId::of(&UpdateLinkedInPosting::default()).execution_number(2),
-            Duration::from_secs(30),
+            step_wait_options(30),
         )
         .expect("wait for Rust LinkedIn posting update");
     environment
@@ -392,7 +389,7 @@ fn job_posting_update_reaches_both_job_boards() {
         .wait_for_step_completion(
             &flow_id,
             StepExecutionId::of(&UpdateIndeedPosting::default()).execution_number(2),
-            Duration::from_secs(30),
+            step_wait_options(30),
         )
         .expect("wait for Rust Indeed posting update");
     assert_eq!(
@@ -481,7 +478,7 @@ fn order_processing_happy_path() {
         .wait_for_step_completion(
             &flow_id,
             StepExecutionId::of(&Charge::default()),
-            Duration::from_secs(30),
+            step_wait_options(30),
         )
         .expect("wait for Rust Order Processing ChargeStep");
     let approved: String = environment
@@ -509,7 +506,7 @@ fn order_processing_reminder_then_ship() {
         .wait_for_step_completion(
             &flow_id,
             StepExecutionId::of(&Charge::default()),
-            Duration::from_secs(30),
+            step_wait_options(30),
         )
         .expect("wait for Rust Order Processing ChargeStep");
     skip_seller_reminder(&environment, &flow_id);
@@ -518,7 +515,7 @@ fn order_processing_reminder_then_ship() {
         .wait_for_step_completion(
             &flow_id,
             StepExecutionId::of(&Ship::default()),
-            Duration::from_secs(30),
+            step_wait_options(30),
         )
         .expect("wait for Rust Order Processing reminder ShipStep");
     let approved: String = environment
@@ -546,7 +543,7 @@ fn order_processing_ship_failure_refunds() {
         .wait_for_step_completion(
             &flow_id,
             StepExecutionId::of(&Charge::default()),
-            Duration::from_secs(30),
+            step_wait_options(30),
         )
         .expect("wait for Rust Order Processing ChargeStep");
     let approved: String = environment
@@ -661,7 +658,7 @@ fn user_onboarding_verifies_and_completes_both_tasks() {
             &flow_id,
             &ONBOARDING_STATUS,
             AttributeMatch::equal_to(WAITING_FOR_VERIFICATION.to_string()),
-            Duration::from_secs(20),
+            attribute_wait_options(20),
         )
         .expect("wait for email verification");
 
@@ -676,7 +673,7 @@ fn user_onboarding_verifies_and_completes_both_tasks() {
             &flow_id,
             &ONBOARDING_STATUS,
             AttributeMatch::equal_to(WAITING_FOR_TASK_1.to_string()),
-            Duration::from_secs(20),
+            attribute_wait_options(20),
         )
         .expect("wait for onboarding task 1");
 
@@ -691,7 +688,7 @@ fn user_onboarding_verifies_and_completes_both_tasks() {
             &flow_id,
             &ONBOARDING_STATUS,
             AttributeMatch::equal_to(WAITING_FOR_TASK_2.to_string()),
-            Duration::from_secs(20),
+            attribute_wait_options(20),
         )
         .expect("wait for onboarding task 2");
 
@@ -726,7 +723,7 @@ fn microservice_swaps_data_and_completes_when_ready() {
             &flow_id,
             &DATA,
             AttributeMatch::equal_to("initial-data".to_string()),
-            Duration::from_secs(20),
+            attribute_wait_options(20),
         )
         .expect("wait for initial Rust Microservice data");
     let previous = environment
@@ -744,7 +741,7 @@ fn microservice_swaps_data_and_completes_when_ready() {
             &flow_id,
             &DATA,
             AttributeMatch::equal_to("updated-data".to_string()),
-            Duration::from_secs(20),
+            attribute_wait_options(20),
         )
         .expect("wait for updated Rust Microservice data");
     environment
@@ -831,6 +828,14 @@ fn failure_recovery_retries_and_compensates() {
             .status,
         FlowStatus::Completed
     );
+}
+
+fn attribute_wait_options(seconds: u64) -> WaitForAttributeOptions {
+    WaitForAttributeOptions::new().maximum_wait_time(Duration::from_secs(seconds))
+}
+
+fn step_wait_options(seconds: u64) -> WaitForStepCompletionOptions {
+    WaitForStepCompletionOptions::new().maximum_wait_time(Duration::from_secs(seconds))
 }
 
 fn unique_flow_id(prefix: &str) -> String {

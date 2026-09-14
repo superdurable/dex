@@ -18,7 +18,7 @@ import time
 from dataclasses import asdict
 from datetime import timedelta
 
-from dex import AttributeMatch, FlowConfig, StartFlowOptions
+from dex import AttributeMatch, FlowConfig, StartFlowOptions, WaitForAttributeOptions
 from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
@@ -83,7 +83,7 @@ def create_job_post_blueprint(app_state: ExampleApp) -> Blueprint:
             flow_id,
             app_state.job_post.update_version,
             AttributeMatch.greater_than(required_int_query("lastRevision")),
-            timedelta(seconds=30),
+            WaitForAttributeOptions(),
         )
         job_info = await app_state.client.invoke_rpc(app_state.job_post.get, flow_id)
         return jsonify({"revision": revision, "jobInfo": asdict(job_info)})

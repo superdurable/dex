@@ -55,6 +55,7 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		engagement.EngagementStatus,
 		dex.AttributeMatchEqual(engagement.StatusInitiated),
 		&matchedStatus,
+		dex.WaitForAttributeOptions{},
 	))
 	require.Equal(t, engagement.StatusInitiated, matchedStatus)
 
@@ -104,6 +105,7 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		engagement.EngagementStatus,
 		dex.AttributeMatchEqual(engagement.StatusDeclined),
 		&matchedStatus,
+		dex.WaitForAttributeOptions{},
 	))
 	require.Equal(t, engagement.StatusDeclined, matchedStatus)
 	require.NoError(t, integClient.InvokeRPC(

@@ -17,6 +17,7 @@
 package io.superdurable.dex.integ;
 
 import io.superdurable.dex.AttributeMatch;
+import io.superdurable.dex.WaitForAttributeOptions;
 import io.superdurable.dex.products.dealdsl.DealDSLFlow;
 import io.superdurable.dex.products.dealdsl.DealStart;
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,9 @@ public class DealDSLIntegTest {
                 flowId,
                 flow.currentState,
                 AttributeMatch.equalTo("negotiating"),
-                Duration.ofSeconds(30)));
+                WaitForAttributeOptions.newBuilder()
+                        .maximumWaitTime(Duration.ofSeconds(30))
+                        .build()));
         final DealDSLFlow stub = environment.client().newRpcStub(DealDSLFlow.class, flowId);
         environment.client().invokeRPC(
                 stub::sendConditionMessage,

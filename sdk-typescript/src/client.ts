@@ -634,6 +634,10 @@ export class Client {
    * Waits until one Step execution completes or its total handler budget expires.
    * The server derives a stable Request ID from the Step execution when none is supplied.
    * Transport long polls automatically reattach to the same logical wait.
+   * Leave the maximum wait time at zero for ordinary infinite waits.
+   * A positive value releases per-Flow in-flight Update capacity for abandoned waits.
+   * The budget spans Continue-as-New and is distinct from the caller's lifetime.
+   * Retrying after expiry creates a new Update generation.
    * @param flowId - Non-empty active Flow ID.
    * @param stepExecutionId - Step type and positive execution number.
    * @param options - Optional Request ID override and total handler wait budget.
@@ -674,6 +678,10 @@ export class Client {
    * Returns the current value observed by the successful wait operation.
    * The server derives a stable Request ID from the condition when none is supplied.
    * Transport long polls automatically reattach to the same logical wait.
+   * Leave the maximum wait time at zero for ordinary infinite waits.
+   * A positive value releases per-Flow in-flight Update capacity for rarely matching waits.
+   * The budget spans Continue-as-New and is distinct from the caller's lifetime.
+   * Retrying after expiry creates a new Update generation.
    * @typeParam T - Attribute value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered singleton Attribute to observe.

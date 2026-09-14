@@ -48,6 +48,7 @@ func TestMicroserviceStartRPCAndChannel(t *testing.T) {
 		microservices.Data,
 		dex.AttributeMatchEqual("initial-data"),
 		&matchedData,
+		dex.WaitForAttributeOptions{},
 	))
 	require.Equal(t, "initial-data", matchedData)
 

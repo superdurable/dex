@@ -24,7 +24,7 @@ from dex_examples.products.subscription.subscription import Subscription
 from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
 from tests.integ.conftest import WAIT_TIMEOUT, wait_until
 
-from dex import AsyncClient, AttributeMatch
+from dex import AsyncClient, AttributeMatch, WaitForAttributeOptions
 
 pytestmark = pytest.mark.integ
 
@@ -77,7 +77,7 @@ async def test_subscription_describe_returns_the_stored_plan(
         flow_id,
         SubscriptionFlow.billing_period_number,
         AttributeMatch.greater_than_or_equal(0),
-        WAIT_TIMEOUT,
+        WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     subscription = await client.invoke_rpc(app.subscription.describe, flow_id)
     assert subscription.trial_period_seconds == LONG_TRIAL_SECONDS
@@ -106,7 +106,7 @@ async def test_subscription_update_charge_amount(
         flow_id,
         SubscriptionFlow.billing_period_number,
         AttributeMatch.greater_than_or_equal(0),
-        WAIT_TIMEOUT,
+        WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     await client.invoke_rpc(app.subscription.update_charge, flow_id, 250)
 

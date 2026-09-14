@@ -55,6 +55,8 @@ from dex import (
     IdReusePolicy,
     StartFlowOptions,
     StepExecutionId,
+    WaitForAttributeOptions,
+    WaitForStepCompletionOptions,
 )
 
 pytestmark = pytest.mark.integ
@@ -244,7 +246,7 @@ async def test_long_lived_parallel_subflows_stop(
         flow_id,
         AdvancedLongLiveParentFlow.stopped,
         AttributeMatch.equal_to(False),
-        WAIT_TIMEOUT,
+        WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     await client.invoke_rpc(app.long_live_subflows.stop, flow_id, None)
     result = await client.wait_for_flow(flow_id, LONG_WAIT_TIMEOUT)
@@ -331,7 +333,7 @@ async def test_wait_for_step_completion(
     await client.wait_for_step_completion(
         flow_id,
         StepExecutionId("PersistData"),
-        timedelta(minutes=1),
+        WaitForStepCompletionOptions(maximum_wait_time=timedelta(minutes=1)),
     )
     data = await client.invoke_rpc(
         app.wait_for_step_completion.get_job_seeker_data, flow_id

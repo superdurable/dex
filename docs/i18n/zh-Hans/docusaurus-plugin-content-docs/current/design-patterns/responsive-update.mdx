@@ -14,6 +14,21 @@ title: 响应式更新
 
 前两种等待观察 durable 状态。它们适合定义客户端可见的边界，而不是代替应用超时或最终 Flow 结果。Stream 承载有序的增量消息；客户端保存最新的 resume token，并在下一次读取时带上它。
 
+## 选择 durable handler 的生命周期
+
+对于 Step 和 Attribute 等待，Dex 会从 Step execution 或完整的 Attribute 条件派生逻辑 Temporal Update ID。同一 active Flow 上相同的逻辑等待会重新附着到已接受的 Update。该标识跨 transport long poll 和 Continue-As-New 保持不变，因此普通调用方不需要提供 Request ID。
+
+**MaximumWaitTime** 控制已接受的 durable Update handler 的生命周期。它不同于调用方 context、HTTP deadline 或 transport long-poll timeout。结束本地调用不会取消 Temporal 已接受的 handler。
+
+| **MaximumWaitTime** | 适用场景 | 资源行为 |
+| --- | --- | --- |
+| 0 | 推荐用于普通等待。一个 Flow 只有少量不同的等待，并且它们应一直保持 durable，直到完成或命中。 | 每个不同的已接受等待占用一个 in-flight Update slot。重新附着到相同逻辑等待会复用该 slot。 |
+| 正值 | 一个 Flow 可能积累被放弃的调用方、动态 predicate、大量并发 consumer，或永远不会命中的条件。 | handler 最终过期并释放其 in-flight slot。如果调用方继续等待，Dex 会创建下一个 -N Update generation。 |
+
+不要把很短的正值当作常规 request timeout。每个过期后的 generation 都是另一个已接受的 Update 和 history entry，也可能是另一个 Temporal Cloud Action。只有重复的 Update 使用相同 Update ID 时，Temporal Cloud 才会去重。
+
+Temporal 当前的 self-hosted 默认值是每个 Workflow Execution 最多 10 个 in-flight Update、总计 2,000 个 Update。这些限制可以配置，并取决于具体部署，不是 Dex 的保证。请参阅 [Temporal self-hosted 默认值](https://docs.temporal.io/production-deployment/self-hosted-guide/defaults)和 [Temporal Cloud Action 计费规则](https://docs.temporal.io/cloud/actions)。
+
 ## 相关内容
 
 - [Client](/primitives/client)

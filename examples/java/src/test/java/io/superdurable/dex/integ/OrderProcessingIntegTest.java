@@ -18,6 +18,7 @@ package io.superdurable.dex.integ;
 
 import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.TimerId;
+import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.products.orderprocessing.OrderProcessingFlow;
 import io.superdurable.dex.products.orderprocessing.OrderRequest;
 import org.junit.jupiter.api.Test;
@@ -45,7 +46,7 @@ public class OrderProcessingIntegTest {
         environment.client().waitForStepCompletion(
                 flowId,
                 StepExecutionId.of("ChargeStep"),
-                Duration.ofSeconds(30));
+                waitOptions());
         assertEquals("ok", environment.client().invokeRPC(
                 environment.client().newRpcStub(OrderProcessingFlow.class, flowId)::approve,
                 ""));
@@ -67,7 +68,7 @@ public class OrderProcessingIntegTest {
         environment.client().waitForStepCompletion(
                 flowId,
                 StepExecutionId.of("ChargeStep"),
-                Duration.ofSeconds(30));
+                waitOptions());
         environment.awaitCondition(
                 () -> {
                     try {
@@ -86,7 +87,7 @@ public class OrderProcessingIntegTest {
         environment.client().waitForStepCompletion(
                 flowId,
                 StepExecutionId.of("ShipStep"),
-                Duration.ofSeconds(30));
+                waitOptions());
         assertEquals("ok", environment.client().invokeRPC(
                 environment.client().newRpcStub(OrderProcessingFlow.class, flowId)::approve,
                 ""));
@@ -108,7 +109,7 @@ public class OrderProcessingIntegTest {
         environment.client().waitForStepCompletion(
                 flowId,
                 StepExecutionId.of("ChargeStep"),
-                Duration.ofSeconds(30));
+                waitOptions());
         assertEquals("ok", environment.client().invokeRPC(
                 environment.client().newRpcStub(OrderProcessingFlow.class, flowId)::approve,
                 ""));
@@ -116,5 +117,11 @@ public class OrderProcessingIntegTest {
                 .waitForFlow(flowId, Duration.ofSeconds(45))
                 .getSingleOutput(String.class);
         assertEquals("refunded:" + flowId, output);
+    }
+
+    private static WaitForStepCompletionOptions waitOptions() {
+        return WaitForStepCompletionOptions.newBuilder()
+                .maximumWaitTime(Duration.ofSeconds(30))
+                .build();
     }
 }

@@ -8,6 +8,8 @@ title: 等待 Step 完成
 
 **WaitForStepCompletionFlow** 示例会在 **PersistData** 中持久化记录，再启动 **BackgroundWork**。它的 controller 在查询已持久化记录前等待 **PersistData**。只有当一个 Step 已提交了使响应有效的状态后，才应把它选作这个边界。
 
+Dex 会从 Step execution 派生 Request ID，因此等待同一里程碑的调用方会共享一个已接受的 durable Update。普通的无限 handler 等待应让 **MaximumWaitTime** 保持为 0。本地 HTTP 或 client deadline 仍可限制一次响应的时长，而不会取消该已接受的 handler。只有当一个 Flow 可能积累被放弃或很少完成的 Step 等待时，才设置正值。过期会释放 in-flight slot，但继续等待会创建新的 -N Update generation。容量和成本的取舍请参阅[选择 durable handler 的生命周期](/design-patterns/responsive-update#选择-durable-handler-的生命周期)。
+
 ## 核心实现
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/wait-for-step-completion/controller.py', go: 'examples/go/patterns/wait-for-step-completion/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/waitforstepcompletion/WaitForStepCompletionController.java', typescript: 'examples/typescript/src/patterns/wait-for-step-completion/controller.ts', rust: 'examples/rust/src/patterns/wait_for_step_completion/controller.rs'}}>
@@ -30,7 +32,7 @@ func (controller *controller) start(request *gin.Context) {
 	waitContext, cancelWait := context.WithTimeout(request.Request.Context(), 5*time.Minute)
 	defer cancelWait()
 	err = controller.client.WaitForStepCompletion(
-		waitContext, flowID, sdk.StepExecutionID{StepType: "PersistData"},
+		waitContext, flowID, sdk.StepExecutionID{StepType: "PersistData"}, sdk.WaitForStepCompletionOptions{},
 	)
 	if err != nil {
 		httputil.RespondString(request, "", err)
@@ -72,7 +74,7 @@ async def start_wait_for_step_completion() -> str:
     await app_state.client.wait_for_step_completion(
         flow_id,
         PERSIST_DATA_STEP,
-        PERSIST_DATA_TIMEOUT,
+        WaitForStepCompletionOptions(),
     )
     persisted = await app_state.client.invoke_rpc(
         app_state.wait_for_step_completion.get_job_seeker_data,
@@ -99,7 +101,7 @@ ResponseEntity<String> startWaitForStepCompletion(@RequestParam final String wor
     client.waitForStepCompletion(
             workflowId,
             StepExecutionId.of("PersistData"),
-            Duration.ofMinutes(5));
+            WaitForStepCompletionOptions.newBuilder().build());
     final WaitForStepCompletionFlow stub =
             client.newRpcStub(WaitForStepCompletionFlow.class, workflowId);
     final JobSeekerData persistedData = client.invokeRPC(stub::getJobSeekerData);
@@ -125,7 +127,7 @@ router.get("/start", async (request, response) => {
   await client.waitForStepCompletion(
     workflowId,
     StepExecutionId.of("PersistData"),
-    15_000,
+    {},
   );
   const persistedData = await client.invokeRPC(
     waitForStepCompletionFlow.getJobSeekerData,
@@ -160,7 +162,7 @@ async fn start(
         client.wait_for_step_completion(
             &flow_id,
             WaitForStepCompletionFlow::persisted_step(),
-            Duration::from_secs(300),
+            WaitForStepCompletionOptions::new(),
         )?;
         Ok(StartResponse { flow_id, run_id })
     }) {

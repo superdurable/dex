@@ -45,7 +45,7 @@ test("dealDSLCompletesAnItemPurchase", async () => {
       flowId,
       flow.currentState,
       AttributeMatch.equalTo("negotiating"),
-      30_000,
+      { maximumWaitTimeMs: 30_000 },
     ),
     "negotiating",
   );

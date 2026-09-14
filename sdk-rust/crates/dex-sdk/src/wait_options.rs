@@ -14,7 +14,10 @@ use crate::{SdkError, SdkResult};
 /// Configures one durable Step completion wait.
 ///
 /// The server derives a stable Request ID from the Step execution when none is supplied.
-/// An abandoned infinite wait remains in flight until completion or Flow closure.
+/// Leave the maximum wait time at zero for ordinary infinite waits. A positive value releases
+/// per-Flow in-flight Update capacity for abandoned or rarely completing waits. It spans transport
+/// reattachments and Continue-as-New, unlike a caller or transport deadline. Retrying after expiry
+/// creates a new Update generation.
 pub struct WaitForStepCompletionOptions {
     pub(crate) request_id: String,
     pub(crate) maximum_wait_time: Duration,
@@ -32,7 +35,9 @@ impl WaitForStepCompletionOptions {
         self
     }
 
-    /// Sets the total handler wait budget. Zero waits indefinitely.
+    /// Sets the accepted handler lifetime. Zero waits indefinitely and is recommended for ordinary waits.
+    ///
+    /// A positive value releases per-Flow in-flight capacity, but retrying after expiry creates a new Update generation.
     pub fn maximum_wait_time(mut self, maximum_wait_time: Duration) -> Self {
         self.maximum_wait_time = maximum_wait_time;
         self
@@ -43,7 +48,10 @@ impl WaitForStepCompletionOptions {
 /// Configures one durable Attribute match wait.
 ///
 /// The server derives a stable Request ID from the Attribute condition when none is supplied.
-/// An abandoned infinite wait remains in flight until a match or Flow closure.
+/// Leave the maximum wait time at zero for ordinary infinite waits. A positive value releases
+/// per-Flow in-flight Update capacity for abandoned or rarely matching waits. It spans transport
+/// reattachments and Continue-as-New, unlike a caller or transport deadline. Retrying after expiry
+/// creates a new Update generation.
 pub struct WaitForAttributeOptions {
     pub(crate) request_id: String,
     pub(crate) maximum_wait_time: Duration,
@@ -61,7 +69,9 @@ impl WaitForAttributeOptions {
         self
     }
 
-    /// Sets the total handler wait budget. Zero waits indefinitely.
+    /// Sets the accepted handler lifetime. Zero waits indefinitely and is recommended for ordinary waits.
+    ///
+    /// A positive value releases per-Flow in-flight capacity, but retrying after expiry creates a new Update generation.
     pub fn maximum_wait_time(mut self, maximum_wait_time: Duration) -> Self {
         self.maximum_wait_time = maximum_wait_time;
         self

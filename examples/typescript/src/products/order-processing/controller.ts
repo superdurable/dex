@@ -41,7 +41,7 @@ export function createOrderProcessingRouter(
     await client.waitForStepCompletion(
       flowId,
       StepExecutionId.of("ChargeStep"),
-      5 * 60 * 1000,
+      {},
     );
     response.json({ flowID: flowId, runID: runId });
   });

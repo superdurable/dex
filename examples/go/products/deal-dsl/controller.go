@@ -224,6 +224,7 @@ func (controller *controller) startDealExecution(request *gin.Context) {
 		waitContext,
 		flowID,
 		sdk.StepExecutionID{StepType: initializeStepType},
+		sdk.WaitForStepCompletionOptions{},
 	); err != nil {
 		controller.respondError(request, err)
 		return

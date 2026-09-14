@@ -61,6 +61,7 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 		subscription.BillingPeriodNumber,
 		dex.AttributeMatchEqual(0),
 		&billingPeriodNumber,
+		dex.WaitForAttributeOptions{},
 	))
 	require.Equal(t, 0, billingPeriodNumber)
 

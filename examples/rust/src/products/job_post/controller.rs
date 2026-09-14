@@ -20,7 +20,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use std::time::Duration;
 
 use crate::products::job_post::flow::{
     GET_JOB_POST, JobPost, JobPostingFlow, UPDATE_JOB_POST, UPDATE_VERSION,
@@ -28,7 +27,7 @@ use crate::products::job_post::flow::{
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
 };
-use dex_sdk::{AttributeMatch, StopFlowOptions};
+use dex_sdk::{AttributeMatch, StopFlowOptions, WaitForAttributeOptions};
 
 #[derive(Deserialize)]
 struct StartQuery {
@@ -183,7 +182,7 @@ async fn wait_for_update(
             &flow_id,
             &UPDATE_VERSION,
             AttributeMatch::greater_than(query.last_revision),
-            Duration::from_secs(30),
+            WaitForAttributeOptions::new(),
         )?;
         let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, GET_JOB_POST)?;
         Ok(json!({ "revision": revision, "jobInfo": job_info }))

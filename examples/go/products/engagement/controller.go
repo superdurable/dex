@@ -72,6 +72,7 @@ func (controller *controller) start(request *gin.Context) {
 		EmployerID,
 		sdk.AttributeMatchEqual(input.EmployerID),
 		&matchedEmployerID,
+		sdk.WaitForAttributeOptions{},
 	)
 	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
 }

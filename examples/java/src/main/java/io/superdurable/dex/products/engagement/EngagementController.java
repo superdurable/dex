@@ -19,6 +19,7 @@ package io.superdurable.dex.products.engagement;
 import io.superdurable.dex.AttributeMatch;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.SearchFlowsPage;
+import io.superdurable.dex.WaitForAttributeOptions;
 import io.superdurable.dex.shared.ExampleFlows;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,7 +27,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -56,7 +56,7 @@ public class EngagementController {
                 flowId,
                 flow.employerId,
                 AttributeMatch.equalTo(input.employerId),
-                Duration.ofSeconds(15));
+                WaitForAttributeOptions.newBuilder().build());
         final Map<String, String> response = new LinkedHashMap<String, String>();
         response.put("flowID", flowId);
         response.put("runID", runId);

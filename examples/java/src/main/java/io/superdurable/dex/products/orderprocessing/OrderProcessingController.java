@@ -18,6 +18,7 @@ package io.superdurable.dex.products.orderprocessing;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.StepExecutionId;
+import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.shared.ExampleFlows;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,7 +26,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -56,7 +56,7 @@ public class OrderProcessingController {
         client.waitForStepCompletion(
                 flowId,
                 StepExecutionId.of("ChargeStep"),
-                Duration.ofMinutes(5));
+                WaitForStepCompletionOptions.newBuilder().build());
         final Map<String, String> response = new LinkedHashMap<String, String>();
         response.put("flowID", flowId);
         response.put("runID", runId);

@@ -39,7 +39,11 @@ public interface WaitForAttributeRequestOrBuilder extends
 
   /**
    * <pre>
-   * Zero waits indefinitely; positive values bound the Temporal Update handler.
+   * Limits how long one accepted Temporal Update handler remains in flight.
+   * Zero is recommended for ordinary waits and waits indefinitely.
+   * A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
+   * The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+   * Retrying after expiry creates a new -N Update generation.
    * </pre>
    *
    * <code>int32 wait_time_seconds = 3;</code>

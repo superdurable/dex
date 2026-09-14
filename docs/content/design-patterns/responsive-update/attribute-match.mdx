@@ -12,6 +12,8 @@ The caller waits for revision greater than its last observed value. The wait ret
 
 Revision is a watermark, not an event stream. If state advances quickly from 0 to 1 to 2 to 3, one wait for a value greater than 0 may return 3. Callers must not expect to observe every intermediate value.
 
+Dex derives the Request ID from the complete Attribute condition. Repeating the same condition on one active Flow shares one accepted durable Update, including across Continue-As-New. Leave **MaximumWaitTime** at 0 for ordinary waits. Consider a positive value only when dynamic predicates, many concurrent consumers, abandoned callers, or conditions that may never match could consume the Flow's in-flight capacity. An expiry releases the slot, but continued waiting creates a new -N Update generation. See [Choose the durable handler lifetime](/design-patterns/responsive-update#choose-the-durable-handler-lifetime) for the capacity and cost tradeoff.
+
 ## Advance revision under a lock
 
 The Job Posting example serializes its update RPC with one Attribute lock and advances **UpdateVersion** in the same invocation that writes the state.
@@ -184,7 +186,7 @@ revision = await app_state.client.wait_for_attribute_match(
     flow_id,
     app_state.job_post.update_version,
     AttributeMatch.greater_than(required_int_query("lastRevision")),
-    timedelta(seconds=30),
+    WaitForAttributeOptions(),
 )
 job_info = await app_state.client.invoke_rpc(app_state.job_post.get, flow_id)
 ```
@@ -200,6 +202,7 @@ err = controller.client.WaitForAttributeMatch(
 	UpdateVersion,
 	sdk.AttributeMatchGreaterThan(lastRevision),
 	&revision,
+	sdk.WaitForAttributeOptions{},
 )
 var jobInfo JobInfo
 err = controller.client.InvokeRPC(
@@ -220,7 +223,7 @@ final int revision = client.waitForAttributeMatch(
         workflowId,
         flow.updateVersion,
         AttributeMatch.greaterThan(lastRevision),
-        Duration.ofSeconds(30));
+        WaitForAttributeOptions.newBuilder().build());
 final JobPostingFlow stub = client.newRpcStub(JobPostingFlow.class, workflowId);
 final Map<String, Object> response = new LinkedHashMap<String, Object>();
 response.put("revision", revision);
@@ -235,7 +238,7 @@ const revision = await client.waitForAttributeMatch(
   workflowId,
   jobPostingFlow.updateVersion,
   AttributeMatch.greaterThan(lastRevision),
-  30_000,
+  {},
 );
 const jobInfo = await client.invokeRPC(jobPostingFlow.get, workflowId);
 ```
@@ -248,7 +251,7 @@ let revision = client.wait_for_attribute_match(
     &flow_id,
     &UPDATE_VERSION,
     AttributeMatch::greater_than(query.last_revision),
-    Duration::from_secs(30),
+    WaitForAttributeOptions::new(),
 )?;
 let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, GET_JOB_POST)?;
 ```

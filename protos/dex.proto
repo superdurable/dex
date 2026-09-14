@@ -880,7 +880,11 @@ message WaitForStepCompletionRequest {
   // Identifies a step execution by type and its per-type execution number.
   string step_type = 2;
   string step_execution_number = 3;
-  // Zero waits indefinitely; positive values bound the Temporal Update handler.
+  // Limits how long one accepted Temporal Update handler remains in flight.
+  // Zero is recommended for ordinary waits and waits indefinitely.
+  // A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
+  // The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+  // Retrying after expiry creates a new -N Update generation.
   int32 wait_time_seconds = 5;
   // Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
   // Reusing a handler-timed-out logical key advances an increasing -N generation.
@@ -892,7 +896,11 @@ message WaitForStepCompletionResponse {}
 message WaitForAttributeRequest {
   string flow_id = 1;
   AttributeMatch match = 2;
-  // Zero waits indefinitely; positive values bound the Temporal Update handler.
+  // Limits how long one accepted Temporal Update handler remains in flight.
+  // Zero is recommended for ordinary waits and waits indefinitely.
+  // A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
+  // The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
+  // Retrying after expiry creates a new -N Update generation.
   int32 wait_time_seconds = 3;
   // Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
   // Reusing a handler-timed-out logical key advances an increasing -N generation.

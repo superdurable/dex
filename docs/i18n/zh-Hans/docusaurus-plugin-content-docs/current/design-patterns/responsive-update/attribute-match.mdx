@@ -12,6 +12,8 @@ title: 等待 Attribute 匹配
 
 Revision 是 watermark，不是事件流。如果状态快速地从 0 变成 1、2、3，一次等待大于 0 的调用可能直接返回 3。调用方不能假设会观察到每个中间值。
 
+Dex 会从完整的 Attribute 条件派生 Request ID。在同一 active Flow 上重复相同条件会共享一个已接受的 durable Update，包括跨 Continue-As-New 的情况。普通等待应让 **MaximumWaitTime** 保持为 0。只有当动态 predicate、大量并发 consumer、被放弃的调用方或永远不会命中的条件可能耗尽该 Flow 的 in-flight 容量时，才考虑正值。过期会释放 slot，但继续等待会创建新的 -N Update generation。容量和成本的取舍请参阅[选择 durable handler 的生命周期](/design-patterns/responsive-update#选择-durable-handler-的生命周期)。
+
 ## 在锁内推进 revision
 
 Job Posting 示例使用同一个 Attribute lock 串行化 update RPC，并在写入状态的同一次 invocation 中推进 **UpdateVersion**。
@@ -184,7 +186,7 @@ revision = await app_state.client.wait_for_attribute_match(
     flow_id,
     app_state.job_post.update_version,
     AttributeMatch.greater_than(required_int_query("lastRevision")),
-    timedelta(seconds=30),
+    WaitForAttributeOptions(),
 )
 job_info = await app_state.client.invoke_rpc(app_state.job_post.get, flow_id)
 ```
@@ -200,6 +202,7 @@ err = controller.client.WaitForAttributeMatch(
 	UpdateVersion,
 	sdk.AttributeMatchGreaterThan(lastRevision),
 	&revision,
+	sdk.WaitForAttributeOptions{},
 )
 var jobInfo JobInfo
 err = controller.client.InvokeRPC(
@@ -220,7 +223,7 @@ final int revision = client.waitForAttributeMatch(
         workflowId,
         flow.updateVersion,
         AttributeMatch.greaterThan(lastRevision),
-        Duration.ofSeconds(30));
+        WaitForAttributeOptions.newBuilder().build());
 final JobPostingFlow stub = client.newRpcStub(JobPostingFlow.class, workflowId);
 final Map<String, Object> response = new LinkedHashMap<String, Object>();
 response.put("revision", revision);
@@ -235,7 +238,7 @@ const revision = await client.waitForAttributeMatch(
   workflowId,
   jobPostingFlow.updateVersion,
   AttributeMatch.greaterThan(lastRevision),
-  30_000,
+  {},
 );
 const jobInfo = await client.invokeRPC(jobPostingFlow.get, workflowId);
 ```
@@ -248,7 +251,7 @@ let revision = client.wait_for_attribute_match(
     &flow_id,
     &UPDATE_VERSION,
     AttributeMatch::greater_than(query.last_revision),
-    Duration::from_secs(30),
+    WaitForAttributeOptions::new(),
 )?;
 let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, GET_JOB_POST)?;
 ```

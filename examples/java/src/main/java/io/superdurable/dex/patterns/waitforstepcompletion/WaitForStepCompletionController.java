@@ -20,14 +20,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.StepExecutionId;
+import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.shared.ExampleFlows;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.time.Duration;
 
 @RestController
 @RequestMapping("/patterns/wait-for-step-completion")
@@ -55,7 +54,7 @@ public class WaitForStepCompletionController {
         client.waitForStepCompletion(
                 workflowId,
                 StepExecutionId.of("PersistData"),
-                Duration.ofMinutes(5));
+                WaitForStepCompletionOptions.newBuilder().build());
         final WaitForStepCompletionFlow stub =
                 client.newRpcStub(WaitForStepCompletionFlow.class, workflowId);
         final JobSeekerData persistedData = client.invokeRPC(stub::getJobSeekerData);

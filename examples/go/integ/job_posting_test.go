@@ -48,6 +48,7 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 		ctx,
 		flowID,
 		dex.StepExecutionID{StepType: "InitStep"},
+		dex.WaitForStepCompletionOptions{},
 	))
 
 	updated := jobpost.JobInfo{
@@ -86,6 +87,7 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 			StepType:        jobpost.UpdateLinkedInPostingStepType,
 			ExecutionNumber: ptr.Any(int32(2)),
 		},
+		dex.WaitForStepCompletionOptions{},
 	))
 	require.NoError(t, integClient.WaitForStepCompletion(
 		ctx,
@@ -94,6 +96,7 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 			StepType:        jobpost.UpdateIndeedPostingStepType,
 			ExecutionNumber: ptr.Any(int32(2)),
 		},
+		dex.WaitForStepCompletionOptions{},
 	))
 
 	var actual jobpost.JobInfo

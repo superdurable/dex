@@ -32,7 +32,14 @@ from sync_examples.wait import (
     wait_until,
 )
 
-from dex import AttributeMatch, Client, FlowStatus, IdReusePolicy, StartFlowOptions
+from dex import (
+    AttributeMatch,
+    Client,
+    FlowStatus,
+    IdReusePolicy,
+    StartFlowOptions,
+    WaitForAttributeOptions,
+)
 
 pytestmark = pytest.mark.integ
 
@@ -77,7 +84,7 @@ def test_engagement_accept_completes(
         flow_id,
         EngagementFlow.employer_id,
         AttributeMatch.equal_to("test-employer-id"),
-        WAIT_TIMEOUT,
+        WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     description = client.invoke_rpc(app.engagement.describe, flow_id)
     assert description.employer_id == "test-employer-id"
@@ -111,7 +118,7 @@ def test_subscription_describe_and_cancel(
         flow_id,
         SubscriptionFlow.billing_period_number,
         AttributeMatch.greater_than_or_equal(0),
-        WAIT_TIMEOUT,
+        WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     subscription = client.invoke_rpc(app.subscription.describe, flow_id)
     assert subscription.billing_period_charge == 100

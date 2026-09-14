@@ -24,7 +24,7 @@ from dex_examples.products.engagement.engagement_input import EngagementInput
 from dex_examples.products.engagement.status import Status
 from tests.integ.conftest import WAIT_TIMEOUT, wait_until
 
-from dex import AsyncClient, AttributeMatch
+from dex import AsyncClient, AttributeMatch, WaitForAttributeOptions
 
 pytestmark = pytest.mark.integ
 
@@ -46,7 +46,7 @@ async def test_engagement_accept_completes_the_flow(
         flow_id,
         EngagementFlow.employer_id,
         AttributeMatch.equal_to("test-employer-id"),
-        WAIT_TIMEOUT,
+        WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     description = await client.invoke_rpc(app.engagement.describe, flow_id)
     assert description.employer_id == "test-employer-id"
@@ -78,7 +78,7 @@ async def test_engagement_decline_then_accept(
         flow_id,
         EngagementFlow.employer_id,
         AttributeMatch.equal_to("test-employer-id"),
-        WAIT_TIMEOUT,
+        WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     assert await client.invoke_rpc(app.engagement.decline, flow_id, "not now") is (
         Status.DECLINED
@@ -118,7 +118,7 @@ async def test_engagement_opt_out_of_reminders(
         flow_id,
         EngagementFlow.employer_id,
         AttributeMatch.equal_to("test-employer-id"),
-        WAIT_TIMEOUT,
+        WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     await client.invoke_rpc(app.engagement.opt_out, flow_id)
 

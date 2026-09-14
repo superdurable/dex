@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
-
 use axum::{
     Router,
     extract::{Query, State},
     response::IntoResponse,
     routing::get,
 };
-use dex_sdk::StepExecutionId;
+use dex_sdk::{StepExecutionId, WaitForStepCompletionOptions};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -77,7 +75,7 @@ async fn start(
         client.wait_for_step_completion(
             &flow_id,
             StepExecutionId::of(&Charge::default()),
-            Duration::from_secs(300),
+            WaitForStepCompletionOptions::new(),
         )?;
         Ok(StartResponse { flow_id, run_id })
     }) {

@@ -70,6 +70,7 @@ func (controller *controller) start(request *gin.Context) {
 		waitContext,
 		flowID,
 		sdk.StepExecutionID{StepType: "PersistData"},
+		sdk.WaitForStepCompletionOptions{},
 	)
 	if err != nil {
 		httputil.RespondString(request, "", err)
