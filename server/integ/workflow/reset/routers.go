@@ -106,7 +106,7 @@ func (h *handler) InvokeExecuteMethod(
 			updatedInput := &dexpb.Value{
 				Kind: &dexpb.Value_ObjValue{
 					ObjValue: &dexpb.EncodedObject{
-						Encoding: "json",
+						Encoding: "j",
 						Payload:  []byte(fmt.Sprintf("%v", counter+1)),
 					},
 				},
@@ -143,7 +143,7 @@ func stepInputString(stepInput *dexpb.Value) string {
 		return stringValue.StringValue
 	}
 	if objValue, ok := stepInput.Kind.(*dexpb.Value_ObjValue); ok {
-		if objValue.ObjValue.GetEncoding() == "json" {
+		if objValue.ObjValue.GetEncoding() == "j" {
 			return string(objValue.ObjValue.GetPayload())
 		}
 	}

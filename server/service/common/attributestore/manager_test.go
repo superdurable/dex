@@ -63,9 +63,9 @@ func TestColumnConversionBoundaries(t *testing.T) {
 	require.ErrorContains(t, err, "bool")
 
 	jsonColumn := columnSchema{dataType: "jsonb"}
-	_, err = jsonColumn.convert(objectValue("json", `{"valid":true}`), config.AttributeStoreTypePostgres)
+	_, err = jsonColumn.convert(objectValue("j", `{"valid":true}`), config.AttributeStoreTypePostgres)
 	require.NoError(t, err)
-	_, err = jsonColumn.convert(objectValue("json", `{invalid`), config.AttributeStoreTypePostgres)
+	_, err = jsonColumn.convert(objectValue("j", `{invalid`), config.AttributeStoreTypePostgres)
 	require.ErrorContains(t, err, "invalid")
 
 	postgresDatetime := columnSchema{dataType: "timestamp with time zone"}
@@ -76,13 +76,13 @@ func TestColumnConversionBoundaries(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, time.Date(2026, 8, 11, 15, 30, 0, 123456789, time.UTC), datetime)
 	datetime, err = postgresDatetime.convert(
-		objectValue("json", `"2026-08-11T15:30:00Z"`),
+		objectValue("j", `"2026-08-11T15:30:00Z"`),
 		config.AttributeStoreTypePostgres,
 	)
 	require.NoError(t, err)
 	require.Equal(t, time.Date(2026, 8, 11, 15, 30, 0, 0, time.UTC), datetime)
 	datetime, err = postgresDatetime.convert(
-		objectValue("json", `1786462200.123456789`),
+		objectValue("j", `1786462200.123456789`),
 		config.AttributeStoreTypePostgres,
 	)
 	require.NoError(t, err)

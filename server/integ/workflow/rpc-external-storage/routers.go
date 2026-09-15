@@ -96,7 +96,7 @@ func (h *handler) InvokeWorkerRPC(
 	}
 
 	h.testData.Store(request.GetRpcName()+"-raw-input", request.GetInput())
-	resolvedInput, err := common.LoadBlobsValue(ctx, h.flowClient, request.GetInput())
+	resolvedInput, err := common.LoadBlobsValue(ctx, h.flowClient, flowContext.GetFlowId(), request.GetInput())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "LoadBlobs for RPC input: %v", err)
 	}
@@ -107,7 +107,7 @@ func (h *handler) InvokeWorkerRPC(
 		if attribute.GetValue().GetKind() == nil {
 			return nil, status.Error(codes.InvalidArgument, "RPC attribute value kind is required")
 		}
-		resolved, err := common.LoadBlobsValue(ctx, h.flowClient, attribute.GetValue())
+		resolved, err := common.LoadBlobsValue(ctx, h.flowClient, flowContext.GetFlowId(), attribute.GetValue())
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "LoadBlobs for %s: %v", attribute.GetKey(), err)
 		}
@@ -122,7 +122,9 @@ func (h *handler) InvokeWorkerRPC(
 	for channelName, values := range request.GetLoadedChannelMessages() {
 		resolvedMessages := make([]*dexpb.ChannelMessage, 0, len(values.GetMessages()))
 		for _, message := range values.GetMessages() {
-			resolved, loadErr := common.LoadBlobsValue(ctx, h.flowClient, message.GetValue())
+			resolved, loadErr := common.LoadBlobsValue(
+				ctx, h.flowClient, flowContext.GetFlowId(), message.GetValue(),
+			)
 			if loadErr != nil {
 				return nil, status.Errorf(codes.Internal, "LoadBlobs for %s: %v", channelName, loadErr)
 			}
@@ -240,7 +242,7 @@ func jsonStringValue(value string) *dexpb.Value {
 	return &dexpb.Value{
 		Kind: &dexpb.Value_ObjValue{
 			ObjValue: &dexpb.EncodedObject{
-				Encoding: "json",
+				Encoding: "j",
 				Payload:  payload,
 			},
 		},

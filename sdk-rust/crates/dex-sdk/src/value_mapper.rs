@@ -65,7 +65,7 @@ fn encode_json(json: JsonValue) -> SdkResult<ProtoValue> {
             }
         }
         other => value::Kind::ObjValue(EncodedObject {
-            encoding: "json".to_string(),
+            encoding: "j".to_string(),
             payload: serde_json::to_vec(&other).map_err(mapping_error)?,
         }),
     };
@@ -81,19 +81,17 @@ fn decode_json(input: &ProtoValue) -> SdkResult<JsonValue> {
         }
         Some(value::Kind::DoubleValue(_)) => Err(value_error("non-finite numbers are unsupported")),
         Some(value::Kind::BoolValue(value)) => Ok(JsonValue::Bool(*value)),
-        Some(value::Kind::ObjValue(object)) if object.encoding == "json" => {
+        Some(value::Kind::ObjValue(object)) if object.encoding == "j" => {
             serde_json::from_slice(&object.payload).map_err(mapping_error)
         }
-        Some(value::Kind::ObjValue(object)) if object.encoding == "rawbytes" => {
-            Ok(JsonValue::Array(
-                object
-                    .payload
-                    .iter()
-                    .copied()
-                    .map(JsonValue::from)
-                    .collect(),
-            ))
-        }
+        Some(value::Kind::ObjValue(object)) if object.encoding == "r" => Ok(JsonValue::Array(
+            object
+                .payload
+                .iter()
+                .copied()
+                .map(JsonValue::from)
+                .collect(),
+        )),
         Some(value::Kind::ObjValue(object)) => Err(value_error(format!(
             "unsupported object encoding {}",
             object.encoding
@@ -121,4 +119,29 @@ fn value_error(message: impl Into<String>) -> SdkError {
 
 fn handler_mapping_error(error: SdkError) -> HandlerError {
     HandlerError::from_error(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uses_compact_object_encoding_wire_values() {
+        let encoded_json = encode(&vec![1, 2, 3]).expect("encode JSON");
+        let Some(value::Kind::ObjValue(encoded_json)) = encoded_json.kind else {
+            panic!("expected encoded object");
+        };
+        assert_eq!(encoded_json.encoding, "j");
+
+        let encoded_bytes = ProtoValue {
+            kind: Some(value::Kind::ObjValue(EncodedObject {
+                encoding: "r".to_string(),
+                payload: vec![1, 2, 3],
+            })),
+        };
+        assert_eq!(
+            decode::<Vec<u8>>(&encoded_bytes).expect("decode bytes"),
+            vec![1, 2, 3]
+        );
+    }
 }

@@ -566,9 +566,12 @@ argument and context errors remain ordinary Go errors.
 Strings, booleans, signed integers, representable unsigned integers, and
 floating-point values use native Dex value arms. Strings must contain valid
 UTF-8; use `[]byte` for arbitrary binary data. Byte slices use an object arm
-with encoding `"rawbytes"` and store the bytes directly without base64.
+with wire encoding `"r"` and store the bytes directly without base64.
 Structs, maps, other slices, arrays, and JSON-compatible values use an object
-arm with encoding `"json"`.
+arm with wire encoding `"j"`.
+
+Internal Blob references are opaque. Hydration sends the owning Flow ID with
+each reference, and the local cache is isolated by `(flowID, blobRef)`.
 
 Returned dynamic values remain opaque until decoded:
 

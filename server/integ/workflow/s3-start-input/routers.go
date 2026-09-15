@@ -64,7 +64,9 @@ func (h *handler) InvokeWaitForMethod(
 
 	if request.GetFlowType() == WorkflowType && request.GetStepType() == State1 {
 		h.incrementInvokeHistory(State1 + "_waitFor")
-		resolved, err := common.LoadBlobsValue(ctx, h.flowClient, request.GetStepInput())
+		resolved, err := common.LoadBlobsValue(
+			ctx, h.flowClient, stepContext.GetFlowId(), request.GetStepInput(),
+		)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "LoadBlobs step input: %v", err)
 		}
@@ -94,7 +96,9 @@ func (h *handler) InvokeExecuteMethod(
 	}
 
 	h.incrementInvokeHistory(request.GetStepType() + "_execute")
-	resolved, err := common.LoadBlobsValue(ctx, h.flowClient, request.GetStepInput())
+	resolved, err := common.LoadBlobsValue(
+		ctx, h.flowClient, stepContext.GetFlowId(), request.GetStepInput(),
+	)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "LoadBlobs step input: %v", err)
 	}

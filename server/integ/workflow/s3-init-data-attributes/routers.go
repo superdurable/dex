@@ -91,7 +91,9 @@ func (h *handler) InvokeWaitForMethod(
 
 	if stepType == State1 {
 		h.invokeHistory.Store(stepType+"_waitFor_input", request.GetStepInput())
-		if err := h.validateInitialAttributes(ctx, request.GetAttributes(), "S1 WaitUntil", "S1_waitFor"); err != nil {
+		if err := h.validateInitialAttributes(
+			ctx, request.GetContext().GetFlowId(), request.GetAttributes(), "S1 WaitUntil", "S1_waitFor",
+		); err != nil {
 			return nil, err
 		}
 		return &dexpb.InvokeWaitForMethodResponse{}, nil
@@ -141,7 +143,9 @@ func (h *handler) InvokeExecuteMethod(
 
 	if stepType == State2 {
 		h.invokeHistory.Store(stepType+"_execute_input", request.GetStepInput())
-		if err := h.validateInitialAttributes(ctx, request.GetAttributes(), "S2 Execute", "S2_execute"); err != nil {
+		if err := h.validateInitialAttributes(
+			ctx, request.GetContext().GetFlowId(), request.GetAttributes(), "S2 Execute", "S2_execute",
+		); err != nil {
 			return nil, err
 		}
 		return &dexpb.InvokeExecuteMethodResponse{
@@ -183,7 +187,11 @@ func (h *handler) incrementInvokeHistory(key string) {
 }
 
 func (h *handler) validateInitialAttributes(
-	ctx context.Context, attributes []*dexpb.KV, logPrefix, storePrefix string,
+	ctx context.Context,
+	flowID string,
+	attributes []*dexpb.KV,
+	logPrefix string,
+	storePrefix string,
 ) error {
 	log.Printf("%s: Received %d data attributes, validating they match initial values", logPrefix, len(attributes))
 
@@ -193,7 +201,7 @@ func (h *handler) validateInitialAttributes(
 	validationErrors := []string{}
 
 	for _, attribute := range attributes {
-		receivedData, err := common.ObjPayloadString(ctx, h.flowClient, attribute.GetValue())
+		receivedData, err := common.ObjPayloadString(ctx, h.flowClient, flowID, attribute.GetValue())
 		if err != nil {
 			return status.Errorf(codes.Internal, "LoadBlobs for %s: %v", attribute.GetKey(), err)
 		}
@@ -265,7 +273,7 @@ func jsonObjValue(payload string) *dexpb.Value {
 	return &dexpb.Value{
 		Kind: &dexpb.Value_ObjValue{
 			ObjValue: &dexpb.EncodedObject{
-				Encoding: "json",
+				Encoding: "j",
 				Payload:  []byte(payload),
 			},
 		},

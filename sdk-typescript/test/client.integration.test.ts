@@ -251,7 +251,9 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
       });
     },
     loadBlobs(call, callback: sendUnaryData<LoadBlobsResponse>) {
-      assert.equal((call.request as LoadBlobsRequest).values.length, 2);
+      const entries = (call.request as LoadBlobsRequest).entries;
+      assert.ok(entries.length > 0);
+      assert.ok(entries.every((entry) => entry.flowId.length > 0));
       callback(null, {
         values: {
           "blob-1": hydratedOutput,
@@ -426,8 +428,8 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(requests.readStream?.waitTimeSeconds, 2);
     assert.equal(requests.listStreamMessages?.pageSize, 2);
     assert.equal(requests.listStreamMessages?.beforePageToken, "before-page");
-    assert.equal(cache.get("blob-1") === undefined, false);
-    assert.equal(cache.get("blob-2") === undefined, false);
+    assert.equal(cache.get("6:flow-1blob-1") === undefined, false);
+    assert.equal(cache.get("6:flow-1blob-2") === undefined, false);
   } finally {
     await client.close();
     await shutdown(server);
@@ -462,7 +464,7 @@ function protoJson(value: unknown): Value {
   return Value.create({
     kind: {
       $case: "objValue",
-      value: { encoding: "json", payload: new TextEncoder().encode(JSON.stringify(value)) },
+      value: { encoding: "j", payload: new TextEncoder().encode(JSON.stringify(value)) },
     },
   });
 }

@@ -11,7 +11,7 @@ use std::str;
 
 use dex_blob_cache::BlobCache;
 use dex_protocol::dex::flow_service_client::FlowServiceClient;
-use dex_protocol::dex::{EncodedObject, LoadBlobsRequest, Value, value};
+use dex_protocol::dex::{EncodedObject, LoadBlobRequestEntry, LoadBlobsRequest, Value, value};
 use prost::Message;
 use tonic::transport::Channel;
 
@@ -32,16 +32,39 @@ impl ValueHydrator {
         Self { service, cache }
     }
 
-    pub(crate) async fn hydrate(&self, value: Value) -> SdkResult<Value> {
-        let mut values = self.hydrate_all(vec![value]).await?;
+    pub(crate) async fn hydrate(&self, flow_id: &str, value: Value) -> SdkResult<Value> {
+        let mut values = self.hydrate_all(flow_id, vec![value]).await?;
         Ok(values.remove(0))
     }
 
-    pub(crate) async fn hydrate_all(&self, values: Vec<Value>) -> SdkResult<Vec<Value>> {
-        let mut hydrated = values;
+    pub(crate) async fn hydrate_all(
+        &self,
+        flow_id: &str,
+        values: Vec<Value>,
+    ) -> SdkResult<Vec<Value>> {
+        self.hydrate_for_flows(
+            values
+                .into_iter()
+                .map(|value| (flow_id.to_string(), value))
+                .collect(),
+        )
+        .await
+    }
+
+    pub(crate) async fn hydrate_for_flows(
+        &self,
+        flow_values: Vec<(String, Value)>,
+    ) -> SdkResult<Vec<Value>> {
+        let mut hydrated = flow_values
+            .iter()
+            .map(|(_, value)| value.clone())
+            .collect::<Vec<_>>();
         let mut pending: HashMap<BlobKey, Vec<usize>> = HashMap::new();
-        for (index, value) in hydrated.iter().enumerate() {
-            if let Some(key) = BlobKey::from_value(value)? {
+        for (index, (flow_id, value)) in flow_values.iter().enumerate() {
+            if flow_id.is_empty() {
+                return Err(mapping_error("Flow ID is required"));
+            }
+            if let Some(key) = BlobKey::from_value(flow_id, value)? {
                 pending.entry(key).or_default().push(index);
             } else {
                 validate_concrete(value)?;
@@ -60,7 +83,13 @@ impl ValueHydrator {
         }
         if !misses.is_empty() {
             let request = LoadBlobsRequest {
-                values: misses.iter().map(BlobKey::request_value).collect(),
+                entries: misses
+                    .iter()
+                    .map(|key| LoadBlobRequestEntry {
+                        flow_id: key.flow_id.clone(),
+                        blob_value: Some(key.request_value()),
+                    })
+                    .collect(),
             };
             let response = self
                 .service
@@ -96,7 +125,7 @@ impl ValueHydrator {
     }
 
     fn read_cache(&self, key: &BlobKey) -> SdkResult<Option<Value>> {
-        let payload = self.cache.get(&key.id).map_err(cache_error)?;
+        let payload = self.cache.get(&key.cache_key()).map_err(cache_error)?;
         let Some(payload) = payload else {
             return Ok(None);
         };
@@ -123,25 +152,30 @@ impl ValueHydrator {
             Some(value::Kind::StringValue(text)) if !key.object => text.as_bytes().to_vec(),
             _ => return Err(mapping_error("hydrated blob has the wrong kind")),
         };
-        self.cache.put(&key.id, &payload).map_err(cache_error)?;
+        self.cache
+            .put(&key.cache_key(), &payload)
+            .map_err(cache_error)?;
         Ok(())
     }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct BlobKey {
+    flow_id: String,
     id: String,
     object: bool,
 }
 
 impl BlobKey {
-    fn from_value(value: &Value) -> SdkResult<Option<Self>> {
+    fn from_value(flow_id: &str, value: &Value) -> SdkResult<Option<Self>> {
         let key = match value.kind.as_ref() {
             Some(value::Kind::InternalBlobIdForStringValue(id)) => Self {
+                flow_id: flow_id.to_string(),
                 id: require_blob_id(id)?,
                 object: false,
             },
             Some(value::Kind::InternalBlobIdForObjValue(id)) => Self {
+                flow_id: flow_id.to_string(),
                 id: require_blob_id(id)?,
                 object: true,
             },
@@ -159,6 +193,10 @@ impl BlobKey {
                 value::Kind::InternalBlobIdForStringValue(self.id.clone())
             }),
         }
+    }
+
+    fn cache_key(&self) -> String {
+        format!("{}:{}{}", self.flow_id.len(), self.flow_id, self.id)
     }
 
     fn validate_hydrated(&self, value: &Value) -> SdkResult<()> {
@@ -179,9 +217,7 @@ fn validate_concrete(value: &Value) -> SdkResult<()> {
         Some(value::Kind::DoubleValue(_)) => {
             Err(mapping_error("non-finite numbers are unsupported"))
         }
-        Some(value::Kind::ObjValue(object))
-            if object.encoding == "json" || object.encoding == "rawbytes" =>
-        {
+        Some(value::Kind::ObjValue(object)) if object.encoding == "j" || object.encoding == "r" => {
             Ok(())
         }
         Some(value::Kind::ObjValue(object)) => Err(mapping_error(format!(

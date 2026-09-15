@@ -159,6 +159,7 @@ func doTestSubFlowCondition(
 	completedOutput, err := common.LoadBlobsValue(
 		ctx,
 		flowClient,
+		parentFlowID,
 		firstResult.GetResults()[0].GetCompletedStepOutput(),
 	)
 	require.NoError(t, err)

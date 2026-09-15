@@ -535,6 +535,12 @@ def test_builtin_codecs_enforce_wire_types_and_ranges() -> None:
         INT64.decode(STRING.encode("42"))
 
 
+def test_object_codecs_use_compact_wire_encodings() -> None:
+    values = ValueMapper(CodecRegistry())
+    assert values.encode_dynamic({"order_id": "order-1"}).obj_value.encoding == "j"
+    assert values.encode_dynamic(b"payload").obj_value.encoding == "r"
+
+
 def test_fluent_wait_factories_validate_channel_bounds() -> None:
     wait = Wait.until(Timer.by_duration(timedelta(seconds=1)))
     assert len(wait.conditions) == 1

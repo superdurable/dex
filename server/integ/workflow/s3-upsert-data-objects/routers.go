@@ -88,7 +88,9 @@ func (h *handler) InvokeWaitForMethod(
 	}
 
 	if stepType == State2 {
-		if err := h.validateUpsertedAttributes(ctx, request.GetAttributes()); err != nil {
+		if err := h.validateUpsertedAttributes(
+			ctx, request.GetContext().GetFlowId(), request.GetAttributes(),
+		); err != nil {
 			return nil, err
 		}
 		return &dexpb.InvokeWaitForMethodResponse{}, nil
@@ -185,7 +187,11 @@ func (h *handler) incrementInvokeHistory(key string) {
 	h.invokeHistory.Store(key, int64(1))
 }
 
-func (h *handler) validateUpsertedAttributes(ctx context.Context, attributes []*dexpb.KV) error {
+func (h *handler) validateUpsertedAttributes(
+	ctx context.Context,
+	flowID string,
+	attributes []*dexpb.KV,
+) error {
 	log.Printf("S2 WaitUntil: Received %d data objects, validating they match upserted values", len(attributes))
 
 	foundLargeObj1 := false
@@ -193,7 +199,7 @@ func (h *handler) validateUpsertedAttributes(ctx context.Context, attributes []*
 	foundSmallObj3 := false
 
 	for _, attribute := range attributes {
-		receivedData, err := common.ObjPayloadString(ctx, h.flowClient, attribute.GetValue())
+		receivedData, err := common.ObjPayloadString(ctx, h.flowClient, flowID, attribute.GetValue())
 		if err != nil {
 			return status.Errorf(codes.Internal, "LoadBlobs for %s: %v", attribute.GetKey(), err)
 		}
@@ -257,7 +263,7 @@ func jsonObjValue(payload string) *dexpb.Value {
 	return &dexpb.Value{
 		Kind: &dexpb.Value_ObjValue{
 			ObjValue: &dexpb.EncodedObject{
-				Encoding: "json",
+				Encoding: "j",
 				Payload:  []byte(payload),
 			},
 		},

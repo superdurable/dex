@@ -92,7 +92,7 @@ func (service *workerService) invokeWaitForMethod(
 	}
 	if err := service.hydrator.HydrateValuesInPlace(
 		output.stream.Context(),
-		waitForRequestValuePointers(request),
+		valuePointersForFlow(request.GetContext().GetFlowId(), waitForRequestValuePointers(request)),
 	); err != nil {
 		return err
 	}
@@ -188,7 +188,9 @@ func (service *workerService) invokeExecuteMethod(
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
 	}
-	if err := service.hydrator.HydrateValuesInPlace(output.stream.Context(), valuePointers); err != nil {
+	if err := service.hydrator.HydrateValuesInPlace(
+		output.stream.Context(), valuePointersForFlow(request.GetContext().GetFlowId(), valuePointers),
+	); err != nil {
 		return err
 	}
 	input, err := decodeHandlerInput(request.StepInput, step.inputType)
@@ -271,7 +273,9 @@ func (service *workerService) invokeTimeoutHandler(
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
 	}
-	if err := service.hydrator.HydrateValuesInPlace(output.stream.Context(), valuePointers); err != nil {
+	if err := service.hydrator.HydrateValuesInPlace(
+		output.stream.Context(), valuePointersForFlow(request.GetContext().GetFlowId(), valuePointers),
+	); err != nil {
 		return err
 	}
 	invocation, err := newInvocationContext(
@@ -354,7 +358,7 @@ func (service *workerService) invokeWorkerRPC(
 	}
 	if err := service.hydrator.HydrateValuesInPlace(
 		ctx,
-		rpcRequestValuePointers(request),
+		valuePointersForFlow(request.GetContext().GetFlowId(), rpcRequestValuePointers(request)),
 	); err != nil {
 		return nil, err
 	}

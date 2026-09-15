@@ -101,7 +101,7 @@ func (c *flowCommand) channelMessages(ctx context.Context, args []string, option
 		if callErr != nil {
 			return newOperationError("flow channel-messages", callErr)
 		}
-		mapped, warnings, mapErr := naturalMessage(callCtx, client.service, response, options.noHydrate)
+		mapped, warnings, mapErr := naturalMessage(callCtx, client.service, flowID, response, options.noHydrate)
 		if mapErr != nil {
 			return newOperationError("flow channel-messages", mapErr)
 		}
@@ -177,7 +177,7 @@ func (c *flowCommand) search(ctx context.Context, args []string, options options
 				return newOperationError("flow search", err)
 			}
 			for _, entry := range response.GetFlowRuns() {
-				mapped, warnings, mapErr := naturalMessage(callCtx, client.service, entry, options.noHydrate)
+				mapped, warnings, mapErr := naturalMessage(callCtx, client.service, entry.GetFlowId(), entry, options.noHydrate)
 				if mapErr != nil {
 					return newOperationError("flow search", mapErr)
 				}
@@ -242,7 +242,7 @@ func (c *flowCommand) state(ctx context.Context, args []string, options options)
 		if callErr != nil {
 			return newOperationError("flow state", callErr)
 		}
-		mapped, warnings, mapErr := naturalMessage(callCtx, client.service, response, options.noHydrate)
+		mapped, warnings, mapErr := naturalMessage(callCtx, client.service, flowID, response, options.noHydrate)
 		if mapErr != nil {
 			return newOperationError("flow state", mapErr)
 		}

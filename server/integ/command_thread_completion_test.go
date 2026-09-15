@@ -237,7 +237,7 @@ func doTestCommandThreadCompletion(
 			expected := &dexpb.Value{
 				Kind: &dexpb.Value_ObjValue{
 					ObjValue: &dexpb.EncodedObject{
-						Encoding: "json",
+						Encoding: "j",
 						Payload:  []byte("channel-data"),
 					},
 				},

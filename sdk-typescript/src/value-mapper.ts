@@ -28,7 +28,7 @@ const textDecoder = new TextDecoder();
 
 export function encodeValue<T>(codec: Codec<T>, value: T): ProtoValue {
   if (value === undefined || value === null) {
-    return objectValue("json", textEncoder.encode("null"));
+    return objectValue("j", textEncoder.encode("null"));
   }
   let encoded: CodecValue;
   try {
@@ -46,15 +46,15 @@ export function encodeValue<T>(codec: Codec<T>, value: T): ProtoValue {
     case "double":
       return ProtoValue.create({ kind: { $case: "doubleValue", value: encoded.data } });
     case "bytes":
-      return objectValue("rawbytes", encoded.data);
+      return objectValue("r", encoded.data);
     case "json":
-      return objectValue("json", textEncoder.encode(encoded.data));
+      return objectValue("j", textEncoder.encode(encoded.data));
   }
 }
 
 export function encodeUnknown(value: unknown): ProtoValue {
   if (value === undefined || value === null) {
-    return objectValue("json", textEncoder.encode("null"));
+    return objectValue("j", textEncoder.encode("null"));
   }
   if (typeof value === "string") {
     return ProtoValue.create({ kind: { $case: "stringValue", value } });
@@ -72,7 +72,7 @@ export function encodeUnknown(value: unknown): ProtoValue {
     return ProtoValue.create({ kind: { $case: "doubleValue", value } });
   }
   if (value instanceof Uint8Array) {
-    return objectValue("rawbytes", value);
+    return objectValue("r", value);
   }
   let json: string | undefined;
   try {
@@ -83,13 +83,13 @@ export function encodeUnknown(value: unknown): ProtoValue {
   if (json === undefined) {
     throw new ValueMappingError("encode", "value cannot be encoded as JSON");
   }
-  return objectValue("json", textEncoder.encode(json));
+  return objectValue("j", textEncoder.encode(json));
 }
 
 export function decodeValue<T>(codec: Codec<T>, value: ProtoValue): T {
   if (
     value.kind?.$case === "objValue" &&
-    value.kind.value.encoding === "json" &&
+    value.kind.value.encoding === "j" &&
     textDecoder.decode(value.kind.value.payload) === "null"
   ) {
     return undefined as T;
@@ -117,10 +117,10 @@ export function decodeUnknown(value: ProtoValue): unknown {
       return kind.value;
     case "objValue": {
       const object = kind.value;
-      if (object.encoding === "rawbytes") {
+      if (object.encoding === "r") {
         return object.payload;
       }
-      if (object.encoding === "json") {
+      if (object.encoding === "j") {
         try {
           return JSON.parse(textDecoder.decode(object.payload));
         } catch (failure) {
@@ -149,7 +149,10 @@ export class ValueHydrator {
     private readonly blobCache: BlobCache,
   ) {}
 
-  public async hydrate(value: ProtoValue | undefined): Promise<ProtoValue> {
+  public async hydrate(flowId: string, value: ProtoValue | undefined): Promise<ProtoValue> {
+    if (flowId.length === 0) {
+      throw new ValueMappingError("hydrate", "Flow ID is required");
+    }
     if (value?.kind === undefined) {
       throw new ValueMappingError("hydrate", "Value has no concrete kind");
     }
@@ -157,22 +160,29 @@ export class ValueHydrator {
     if (blobId === undefined) {
       return value;
     }
-    const cached = this.blobCache.get(blobId);
+    const cacheKey = flowBlobCacheKey(flowId, blobId);
+    const cached = this.blobCache.get(cacheKey);
     if (cached !== undefined) {
       return ProtoValue.decode(cached);
     }
     const response = await unary<LoadBlobsResponse>((callback) =>
-      this.service.loadBlobs({ values: [value] }, callback),
+      this.service.loadBlobs({ entries: [{ flowId, blobValue: value }] }, callback),
     );
     const hydrated = response.values[blobId];
     if (hydrated?.kind === undefined || blobIdOf(hydrated) !== undefined) {
       throw new ValueMappingError("hydrate", `Dex did not hydrate blob ${blobId}`);
     }
-    this.blobCache.put(blobId, ProtoValue.encode(hydrated).finish());
+    this.blobCache.put(cacheKey, ProtoValue.encode(hydrated).finish());
     return hydrated;
   }
 
-  public async hydrateAll(values: readonly (ProtoValue | undefined)[]): Promise<ProtoValue[]> {
+  public async hydrateAll(
+    flowId: string,
+    values: readonly (ProtoValue | undefined)[],
+  ): Promise<ProtoValue[]> {
+    if (flowId.length === 0) {
+      throw new ValueMappingError("hydrate", "Flow ID is required");
+    }
     const hydrated: Array<ProtoValue | undefined> = new Array(values.length);
     const missing = new Map<string, { value: ProtoValue; indexes: number[] }>();
     for (let index = 0; index < values.length; index += 1) {
@@ -185,7 +195,7 @@ export class ValueHydrator {
         hydrated[index] = value;
         continue;
       }
-      const cached = this.blobCache.get(blobId);
+      const cached = this.blobCache.get(flowBlobCacheKey(flowId, blobId));
       if (cached !== undefined) {
         hydrated[index] = ProtoValue.decode(cached);
         continue;
@@ -200,7 +210,12 @@ export class ValueHydrator {
     if (missing.size > 0) {
       const response = await unary<LoadBlobsResponse>((callback) =>
         this.service.loadBlobs(
-          { values: [...missing.values()].map((pending) => pending.value) },
+          {
+            entries: [...missing.values()].map((pending) => ({
+              flowId,
+              blobValue: pending.value,
+            })),
+          },
           callback,
         ),
       );
@@ -209,7 +224,7 @@ export class ValueHydrator {
         if (value?.kind === undefined || blobIdOf(value) !== undefined) {
           throw new ValueMappingError("hydrate", `Dex did not hydrate blob ${blobId}`);
         }
-        this.blobCache.put(blobId, ProtoValue.encode(value).finish());
+        this.blobCache.put(flowBlobCacheKey(flowId, blobId), ProtoValue.encode(value).finish());
         for (const index of pending.indexes) {
           hydrated[index] = value;
         }
@@ -245,10 +260,10 @@ function toCodecValue(value: ProtoValue): CodecValue {
     case "doubleValue":
       return { kind: "double", data: kind.value };
     case "objValue":
-      if (kind.value.encoding === "rawbytes") {
+      if (kind.value.encoding === "r") {
         return { kind: "bytes", data: kind.value.payload };
       }
-      if (kind.value.encoding === "json") {
+      if (kind.value.encoding === "j") {
         return { kind: "json", data: textDecoder.decode(kind.value.payload) };
       }
       throw new ValueMappingError("decode", `unsupported object encoding ${kind.value.encoding}`);
@@ -268,6 +283,10 @@ function blobIdOf(value: ProtoValue): string | undefined {
     return value.kind.value;
   }
   return undefined;
+}
+
+function flowBlobCacheKey(flowId: string, blobId: string): string {
+  return `${flowId.length}:${flowId}${blobId}`;
 }
 
 function unary<Response>(

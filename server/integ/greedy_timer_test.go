@@ -97,7 +97,7 @@ func doTestGreedyTimerFlowCustomConfig(
 		FlowTimeoutSeconds: 300,
 
 		StartStepType: greedy_timer.ScheduleTimerState,
-		StepInput:     encodedObjectValue("json", inputData),
+		StepInput:     encodedObjectValue("j", inputData),
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 		}, workerTarget),
@@ -159,7 +159,7 @@ func scheduleTimerAndAssertExpectedScheduled(
 		RequestId:      newRequestID(),
 		FlowId:         flowId,
 		RpcName:        greedy_timer.SubmitDurationsRPC,
-		Input:          encodedObjectValue("json", inputData),
+		Input:          encodedObjectValue("j", inputData),
 		TimeoutSeconds: 2,
 	})
 	require.NoError(t, err)

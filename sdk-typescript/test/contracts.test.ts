@@ -30,6 +30,7 @@ import {
   Timer,
   ValueMappingError,
   Wait,
+  bytesCodec,
   gracefulComplete,
   int64Codec,
   jsonCodec,
@@ -212,9 +213,11 @@ test("omitted codecs use identity JSON rather than scalar wire kinds", () => {
   assert.deepEqual(identity.decode(identity.encode(order)), order);
   const jsonString = encodeValue(codecOrJson(), "hello");
   assert.equal(jsonString.kind?.$case, "objValue");
-  assert.equal(jsonString.kind?.$case === "objValue" ? jsonString.kind.value.encoding : "", "json");
+  assert.equal(jsonString.kind?.$case === "objValue" ? jsonString.kind.value.encoding : "", "j");
   const scalarString = encodeValue(stringCodec, "hello");
   assert.equal(scalarString.kind?.$case, "stringValue");
+  const rawBytes = encodeValue(bytesCodec, new Uint8Array([1, 2, 3]));
+  assert.equal(rawBytes.kind?.$case === "objValue" ? rawBytes.kind.value.encoding : "", "r");
 });
 
 test("object Step and RPC omit codecs and still encode JSON", async () => {
@@ -250,7 +253,7 @@ test("object Step and RPC omit codecs and still encode JSON", async () => {
 
   const flow = new JsonFlow();
   const hydrator = {
-    hydrateAll: async (values: readonly unknown[]) => values,
+    hydrateAll: async (_flowId: string, values: readonly unknown[]) => values,
   } as unknown as ValueHydrator;
   const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
   const executed = await dispatcher.invokeExecute(
@@ -363,7 +366,7 @@ test("invalid Step results include Flow and Step context", async () => {
 
   const flow = new InvalidFlow();
   const hydrator = {
-    hydrateAll: async (values: readonly unknown[]) => values,
+    hydrateAll: async (_flowId: string, values: readonly unknown[]) => values,
   } as unknown as ValueHydrator;
   const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
   const invocation = dispatcher.invokeExecute(
@@ -437,7 +440,7 @@ test("Worker maps only user-provided Condition IDs", async () => {
   }
   const flow = new ConditionFlow();
   const hydrator = {
-    hydrateAll: async (values: readonly unknown[]) => values,
+    hydrateAll: async (_flowId: string, values: readonly unknown[]) => values,
   } as unknown as ValueHydrator;
   const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
   const invoke = (input: string) =>
@@ -515,7 +518,7 @@ test("Step Stream writes emit every message on the active invocation", async () 
   };
   const flow = new StreamFlow();
   const hydrator = {
-    hydrateAll: async (values: readonly unknown[]) => values,
+    hydrateAll: async (_flowId: string, values: readonly unknown[]) => values,
   } as unknown as ValueHydrator;
   const registry = new Registry([flow]);
   const dispatcher = new WorkerDispatcher(registry, hydrator);
@@ -629,7 +632,9 @@ test("buffered text Stream flushes on timer and before the final result", async 
   const flow = new BufferedFlow();
   const dispatcher = new WorkerDispatcher(
     new Registry([flow]),
-    { hydrateAll: async (values: readonly unknown[]) => values } as unknown as ValueHydrator,
+    {
+      hydrateAll: async (_flowId: string, values: readonly unknown[]) => values,
+    } as unknown as ValueHydrator,
   );
   await dispatcher.invokeExecute(
     InvokeExecuteMethodRequest.create({
@@ -695,7 +700,7 @@ test("Async Step Context preserves heartbeat Value presence and codecs", async (
   };
   const flow = new HeartbeatFlow();
   const hydrator = {
-    hydrateAll: async (values: readonly unknown[]) => values,
+    hydrateAll: async (_flowId: string, values: readonly unknown[]) => values,
   } as unknown as ValueHydrator;
   const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
   const invoke = async (input: string, lastHeartbeatValue?: Value): Promise<void> => {

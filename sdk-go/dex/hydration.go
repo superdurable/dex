@@ -22,7 +22,12 @@ import (
 )
 
 type valueHydrator interface {
-	HydrateValuesInPlace(context.Context, []**dexpb.Value) error
+	HydrateValuesInPlace(context.Context, []flowValuePointer) error
+}
+
+type flowValuePointer struct {
+	flowID       string
+	valuePointer **dexpb.Value
 }
 
 type valueHydratorImpl struct {
@@ -37,6 +42,7 @@ type blobIDDef struct {
 }
 
 type pendingBlob struct {
+	flowID        string
 	blobID        blobIDDef
 	blobIDValue   *dexpb.Value
 	hydratedValue *dexpb.Value
@@ -63,11 +69,19 @@ func newValueHydrator(
 
 func (hydrator *valueHydratorImpl) HydrateValuesInPlace(
 	ctx context.Context,
-	valuePointers []**dexpb.Value,
+	flowValuePointers []flowValuePointer,
 ) error {
-	pendingBlobs := make([]*pendingBlob, 0, len(valuePointers))
-	pendingBlobsByID := make(map[blobIDDef]*pendingBlob, len(valuePointers))
-	for index, valuePointer := range valuePointers {
+	type flowBlobID struct {
+		flowID string
+		blobID blobIDDef
+	}
+	pendingBlobs := make([]*pendingBlob, 0, len(flowValuePointers))
+	pendingBlobsByID := make(map[flowBlobID]*pendingBlob, len(flowValuePointers))
+	for index, target := range flowValuePointers {
+		valuePointer := target.valuePointer
+		if target.flowID == "" {
+			return newWorkerFailure(codes.InvalidArgument, fmt.Errorf("dex: Flow ID at index %d is empty", index))
+		}
 		if valuePointer == nil {
 			return newWorkerFailure(
 				codes.InvalidArgument,
@@ -84,13 +98,15 @@ func (hydrator *valueHydratorImpl) HydrateValuesInPlace(
 			}
 			continue
 		}
-		pending, found := pendingBlobsByID[blobID]
+		key := flowBlobID{flowID: target.flowID, blobID: blobID}
+		pending, found := pendingBlobsByID[key]
 		if !found {
 			pending = &pendingBlob{
+				flowID:      target.flowID,
 				blobID:      blobID,
 				blobIDValue: *valuePointer,
 			}
-			pendingBlobsByID[blobID] = pending
+			pendingBlobsByID[key] = pending
 			pendingBlobs = append(pendingBlobs, pending)
 		}
 		pending.valuePointers = append(pending.valuePointers, valuePointer)
@@ -116,7 +132,7 @@ func (hydrator *valueHydratorImpl) hydrateBlobValues(
 ) error {
 	misses := make([]*pendingBlob, 0, len(pendingBlobs))
 	for _, pending := range pendingBlobs {
-		cached, found := hydrator.loadCached(pending.blobIDValue, pending.blobID)
+		cached, found := hydrator.loadCached(pending.flowID, pending.blobIDValue, pending.blobID)
 		if found {
 			pending.hydratedValue = cached
 			continue
@@ -129,13 +145,15 @@ func (hydrator *valueHydratorImpl) hydrateBlobValues(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	missValues := make([]*dexpb.Value, 0, len(misses))
+	entries := make([]*dexpb.LoadBlobRequestEntry, 0, len(misses))
 	for _, miss := range misses {
-		missValues = append(missValues, miss.blobIDValue)
+		entries = append(entries, &dexpb.LoadBlobRequestEntry{
+			FlowId:    miss.flowID,
+			BlobValue: miss.blobIDValue,
+		})
 	}
-
 	response, err := hydrator.client.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{
-		Values: missValues,
+		Entries: entries,
 	})
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -164,16 +182,18 @@ func (hydrator *valueHydratorImpl) hydrateBlobValues(
 			return newWorkerFailure(codes.Internal, err)
 		}
 		miss.hydratedValue = concrete
-		hydrator.storeCached(miss.blobIDValue, miss.blobID, concrete)
+		hydrator.storeCached(miss.flowID, miss.blobIDValue, miss.blobID, concrete)
 	}
 	return nil
 }
 
 func (hydrator *valueHydratorImpl) loadCached(
+	flowID string,
 	request *dexpb.Value,
 	blobID blobIDDef,
 ) (*dexpb.Value, bool) {
-	payload, found, err := hydrator.cache.Get(blobID.value)
+	cacheKey := flowBlobCacheKey(flowID, blobID.value)
+	payload, found, err := hydrator.cache.Get(cacheKey)
 	if err != nil {
 		hydrator.logger.Warn("read blob cache", "blob_id", blobID.value, "error", err)
 		return nil, false
@@ -186,7 +206,7 @@ func (hydrator *valueHydratorImpl) loadCached(
 		return value, true
 	}
 	hydrator.logger.Warn("decode blob cache", "blob_id", blobID.value, "error", err)
-	if deleteErr := hydrator.cache.Delete(blobID.value); deleteErr != nil {
+	if deleteErr := hydrator.cache.Delete(cacheKey); deleteErr != nil {
 		hydrator.logger.Warn(
 			"delete blob cache entry",
 			"blob_id", blobID.value,
@@ -197,6 +217,7 @@ func (hydrator *valueHydratorImpl) loadCached(
 }
 
 func (hydrator *valueHydratorImpl) storeCached(
+	flowID string,
 	request *dexpb.Value,
 	blobID blobIDDef,
 	concrete *dexpb.Value,
@@ -206,7 +227,7 @@ func (hydrator *valueHydratorImpl) storeCached(
 		hydrator.logger.Warn("encode blob cache", "blob_id", blobID.value, "error", err)
 		return
 	}
-	cached, err := hydrator.cache.Put(blobID.value, payload)
+	cached, err := hydrator.cache.Put(flowBlobCacheKey(flowID, blobID.value), payload)
 	if err != nil {
 		hydrator.logger.Warn("write blob cache", "blob_id", blobID.value, "error", err)
 		return
@@ -214,6 +235,18 @@ func (hydrator *valueHydratorImpl) storeCached(
 	if !cached {
 		hydrator.logger.Debug("blob cache rejected entry", "blob_id", blobID.value)
 	}
+}
+
+func flowBlobCacheKey(flowID string, blobID string) string {
+	return fmt.Sprintf("%d:%s%s", len(flowID), flowID, blobID)
+}
+
+func valuePointersForFlow(flowID string, valuePointers []**dexpb.Value) []flowValuePointer {
+	targets := make([]flowValuePointer, 0, len(valuePointers))
+	for _, valuePointer := range valuePointers {
+		targets = append(targets, flowValuePointer{flowID: flowID, valuePointer: valuePointer})
+	}
+	return targets
 }
 
 func marshalBlobCachePayload(

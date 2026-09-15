@@ -32,6 +32,7 @@ type testFlowService struct {
 
 	mu                   sync.Mutex
 	loadCalls            int
+	loadRequest          *dexpb.LoadBlobsRequest
 	startCalls           int
 	stopCalls            int
 	streamWriteCalls     int
@@ -85,11 +86,12 @@ func (s *testFlowService) SearchFlows(
 }
 
 func (s *testFlowService) LoadBlobs(
-	context.Context,
-	*dexpb.LoadBlobsRequest,
+	_ context.Context,
+	request *dexpb.LoadBlobsRequest,
 ) (*dexpb.LoadBlobsResponse, error) {
 	s.mu.Lock()
 	s.loadCalls++
+	s.loadRequest = request
 	s.mu.Unlock()
 	return &dexpb.LoadBlobsResponse{Values: map[string]*dexpb.Value{
 		"blob-1": {Kind: &dexpb.Value_StringValue{StringValue: "hydrated"}},
@@ -282,6 +284,10 @@ func TestSearchHydratesByDefaultAndCanReturnReferences(t *testing.T) {
 	defer service.mu.Unlock()
 	if service.loadCalls != 1 {
 		t.Fatalf("expected one hydration call, got %d", service.loadCalls)
+	}
+	if len(service.loadRequest.GetEntries()) != 1 ||
+		service.loadRequest.GetEntries()[0].GetFlowId() != "flow-1" {
+		t.Fatalf("unexpected hydration request: %#v", service.loadRequest)
 	}
 }
 

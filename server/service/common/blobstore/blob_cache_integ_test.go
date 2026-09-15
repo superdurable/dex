@@ -40,29 +40,32 @@ func TestS3AttributeBlobCacheIntegration(t *testing.T) {
 
 	t.Run("write through serves data after source deletion", func(t *testing.T) {
 		payload := []byte("write-through payload")
+		flowID := uniqueCacheWorkflowID("write-through")
 		storeID, path, err := store.WriteObject(
 			ctx,
-			uniqueCacheWorkflowID("write-through"),
+			flowID,
 			"write-through",
 			payload,
 		)
 		require.NoError(t, err)
-		deleteS3Object(t, ctx, store, path)
-		loaded, err := store.ReadObject(ctx, storeID, path)
+		deleteS3ValueObject(t, ctx, store, flowID, path)
+		loaded, err := store.ReadObject(ctx, storeID, flowID, path)
 		require.NoError(t, err)
 		require.Equal(t, payload, loaded)
 	})
 
 	t.Run("read miss fills cache", func(t *testing.T) {
 		payload := []byte("read-fill payload")
-		path := time.Now().UTC().Format("20060102") + "$" +
-			uniqueCacheWorkflowID("read-fill") + "/manual"
+		flowID := uniqueCacheWorkflowID("read-fill")
+		locator := time.Now().UTC().Format("20060102") + "/0000000000"
+		path, err := ValueObjectPath(flowID, locator)
+		require.NoError(t, err)
 		require.NoError(t, store.writeObject(ctx, store.activeStorage, path, payload))
-		loaded, err := store.ReadObject(ctx, testStorageId, path)
+		loaded, err := store.ReadObject(ctx, testStorageId, flowID, locator)
 		require.NoError(t, err)
 		require.Equal(t, payload, loaded)
 		deleteS3Object(t, ctx, store, path)
-		loaded, err = store.ReadObject(ctx, testStorageId, path)
+		loaded, err = store.ReadObject(ctx, testStorageId, flowID, locator)
 		require.NoError(t, err)
 		require.Equal(t, payload, loaded)
 	})
@@ -103,41 +106,44 @@ func TestS3AttributeBlobCacheIntegration(t *testing.T) {
 
 	t.Run("workflow deletion preserves cache", func(t *testing.T) {
 		payload := []byte("retained cache payload")
+		flowID := uniqueCacheWorkflowID("delete")
 		storeID, path, err := store.WriteObject(
 			ctx,
-			uniqueCacheWorkflowID("delete"),
+			flowID,
 			"delete",
 			payload,
 		)
 		require.NoError(t, err)
-		workflowPath := strings.SplitN(path, "/", 2)[0]
+		workflowPath := strings.SplitN(mustValueObjectPath(t, flowID, path), "/", 2)[0]
 		require.NoError(t, store.DeleteWorkflowObjects(ctx, storeID, workflowPath))
-		loaded, err := store.ReadObject(ctx, storeID, path)
+		loaded, err := store.ReadObject(ctx, storeID, flowID, path)
 		require.NoError(t, err)
 		require.Equal(t, payload, loaded)
 	})
 
 	t.Run("corruption invalidates and refills from source", func(t *testing.T) {
 		payload := []byte("corruption payload")
+		flowID := uniqueCacheWorkflowID("corrupt")
 		storeID, path, err := store.WriteObject(
 			ctx,
-			uniqueCacheWorkflowID("corrupt"),
+			flowID,
 			"corrupt",
 			payload,
 		)
 		require.NoError(t, err)
-		cachePath := attributeCachePath(cacheDirectory, store.attributeCacheKey(storeID, path))
+		physicalPath := mustValueObjectPath(t, flowID, path)
+		cachePath := attributeCachePath(cacheDirectory, store.attributeCacheKey(storeID, physicalPath))
 		file, err := os.OpenFile(cachePath, os.O_WRONLY, 0)
 		require.NoError(t, err)
 		_, err = file.WriteAt([]byte{0xff}, 24)
 		require.NoError(t, err)
 		require.NoError(t, file.Close())
 
-		loaded, err := store.ReadObject(ctx, storeID, path)
+		loaded, err := store.ReadObject(ctx, storeID, flowID, path)
 		require.NoError(t, err)
 		require.Equal(t, payload, loaded)
-		deleteS3Object(t, ctx, store, path)
-		loaded, err = store.ReadObject(ctx, storeID, path)
+		deleteS3Object(t, ctx, store, physicalPath)
+		loaded, err = store.ReadObject(ctx, storeID, flowID, path)
 		require.NoError(t, err)
 		require.Equal(t, payload, loaded)
 	})
@@ -153,20 +159,33 @@ func TestS3AttributeBlobCacheOversizedBypass(t *testing.T) {
 	}).(*blobStoreImpl)
 	ctx := context.Background()
 	payload := make([]byte, 128)
+	flowID := uniqueCacheWorkflowID("oversized")
 	storeID, path, err := store.WriteObject(
 		ctx,
-		uniqueCacheWorkflowID("oversized"),
+		flowID,
 		"oversized",
 		payload,
 	)
 	require.NoError(t, err)
-	deleteS3Object(t, ctx, store, path)
-	_, err = store.ReadObject(ctx, storeID, path)
+	deleteS3ValueObject(t, ctx, store, flowID, path)
+	_, err = store.ReadObject(ctx, storeID, flowID, path)
 	require.Error(t, err)
 }
 
 func uniqueCacheWorkflowID(prefix string) string {
 	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+}
+
+func deleteS3ValueObject(t *testing.T, ctx context.Context, store *blobStoreImpl, flowID string, locator string) {
+	t.Helper()
+	deleteS3Object(t, ctx, store, mustValueObjectPath(t, flowID, locator))
+}
+
+func mustValueObjectPath(t *testing.T, flowID string, locator string) string {
+	t.Helper()
+	path, err := ValueObjectPath(flowID, locator)
+	require.NoError(t, err)
+	return path
 }
 
 func deleteS3Object(t *testing.T, ctx context.Context, store *blobStoreImpl, path string) {

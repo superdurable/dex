@@ -28,6 +28,7 @@ type blobReference struct {
 func naturalMessage(
 	ctx context.Context,
 	client dexpb.FlowServiceClient,
+	flowID string,
 	message proto.Message,
 	noHydrate bool,
 ) (map[string]any, []string, error) {
@@ -40,7 +41,7 @@ func naturalMessage(
 	if noHydrate || len(references) == 0 {
 		return naturalValue(raw, nil, false).(map[string]any), nil, nil
 	}
-	replacements, warnings := hydrateBlobReferences(ctx, client, references)
+	replacements, warnings := hydrateBlobReferences(ctx, client, flowID, references)
 	return naturalValue(raw, replacements, true).(map[string]any), warnings, nil
 }
 
@@ -76,9 +77,10 @@ func collectBlobReferences(value any, references map[string]blobReference) {
 func hydrateBlobReferences(
 	ctx context.Context,
 	client dexpb.FlowServiceClient,
+	flowID string,
 	references map[string]blobReference,
 ) (map[string]any, []string) {
-	values := make([]*dexpb.Value, 0, len(references))
+	entries := make([]*dexpb.LoadBlobRequestEntry, 0, len(references))
 	for _, reference := range references {
 		value := &dexpb.Value{}
 		if reference.kind == "string" {
@@ -90,9 +92,9 @@ func hydrateBlobReferences(
 				InternalBlobIdForObjValue: reference.id,
 			}
 		}
-		values = append(values, value)
+		entries = append(entries, &dexpb.LoadBlobRequestEntry{FlowId: flowID, BlobValue: value})
 	}
-	response, err := client.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{Values: values})
+	response, err := client.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{Entries: entries})
 	if err != nil {
 		return nil, []string{fmt.Sprintf("stored values unavailable: %v", err)}
 	}
@@ -206,7 +208,7 @@ func decodedObject(value map[string]any) any {
 	if current, ok := value["payload"].(string); ok {
 		payload = current
 	}
-	if encoding == "json" {
+	if encoding == "j" {
 		decoded, err := base64.StdEncoding.DecodeString(payload)
 		if err == nil {
 			var mapped any

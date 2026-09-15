@@ -21,8 +21,8 @@ from dex.codec import Codec, CodecRegistry, Value, WireKind
 from dex.dexpb import dex_pb2 as pb
 from dex.runtime_errors import ValueMappingError
 
-_JSON_ENCODING = "json"
-_RAW_BYTES_ENCODING = "rawbytes"
+_JSON_ENCODING = "j"
+_RAW_BYTES_ENCODING = "r"
 
 
 class ValueMapper:

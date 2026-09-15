@@ -295,6 +295,7 @@ func TestWebServerLoadsBlobs(t *testing.T) {
 	harness := newHarness(t, service)
 
 	blobResponse := postJSON(t, harness.http.URL+"/api/blobs/load", `{
+        "flowId": "flow-1",
         "values": [
           {"id":"string-id","kind":"string"},
           {"id":"object-id","kind":"object"},
@@ -317,9 +318,11 @@ func TestWebServerLoadsBlobs(t *testing.T) {
 		t.Fatalf("unexpected object blob: %+v", blobResult.Values)
 	}
 	loadRequest := <-service.loadBlobsRequests
-	if len(loadRequest.GetValues()) != 2 ||
-		loadRequest.GetValues()[0].GetInternalBlobIdForStringValue() != "string-id" ||
-		loadRequest.GetValues()[1].GetInternalBlobIdForObjValue() != "object-id" {
+	if len(loadRequest.GetEntries()) != 2 ||
+		loadRequest.GetEntries()[0].GetFlowId() != "flow-1" ||
+		loadRequest.GetEntries()[0].GetBlobValue().GetInternalBlobIdForStringValue() != "string-id" ||
+		loadRequest.GetEntries()[1].GetFlowId() != "flow-1" ||
+		loadRequest.GetEntries()[1].GetBlobValue().GetInternalBlobIdForObjValue() != "object-id" {
 		t.Fatalf("unexpected LoadBlobs request: %+v", loadRequest)
 	}
 
@@ -329,7 +332,7 @@ func TestWebServerLoadsBlobs(t *testing.T) {
 	errorResponse := postJSON(
 		t,
 		errorHarness.http.URL+"/api/blobs/load",
-		`{"values":[{"id":"string-id","kind":"string"}]}`,
+		`{"flowId":"flow-1","values":[{"id":"string-id","kind":"string"}]}`,
 	)
 	defer errorResponse.Body.Close()
 	if errorResponse.StatusCode != http.StatusBadGateway {
@@ -488,7 +491,7 @@ func (s *flowService) LoadBlobs(
 	return &dexpb.LoadBlobsResponse{Values: map[string]*dexpb.Value{
 		"string-id": {Kind: &dexpb.Value_StringValue{StringValue: "loaded string"}},
 		"object-id": {Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
-			Encoding: "json",
+			Encoding: "j",
 			Payload:  []byte(`{"answer":42}`),
 		}}},
 	}}, nil

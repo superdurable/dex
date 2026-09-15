@@ -114,7 +114,7 @@ func (h *handler) InvokeWorkerRPC(
 	}
 
 	inputObj := request.GetInput().GetObjValue()
-	if inputObj == nil || inputObj.GetEncoding() != "json" {
+	if inputObj == nil || inputObj.GetEncoding() != "j" {
 		return nil, status.Error(codes.InvalidArgument, "input is incorrect")
 	}
 	inputPayload := string(inputObj.GetPayload())
@@ -418,7 +418,7 @@ func jsonObjValue(payload string) *dexpb.Value {
 	return &dexpb.Value{
 		Kind: &dexpb.Value_ObjValue{
 			ObjValue: &dexpb.EncodedObject{
-				Encoding: "json",
+				Encoding: "j",
 				Payload:  []byte(payload),
 			},
 		},

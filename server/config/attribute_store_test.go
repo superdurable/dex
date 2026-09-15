@@ -60,8 +60,19 @@ func TestBlobStoreDefaults(t *testing.T) {
 	cfg, err := NewConfig(path)
 	require.NoError(t, err)
 	require.True(t, cfg.BlobStore.EffectiveEnabled())
-	require.Equal(t, 1024, cfg.BlobStore.EffectiveThresholdInBytes())
+	require.Equal(t, 100, cfg.BlobStore.EffectiveThresholdInBytes())
+	require.Equal(t, DefaultBlobStoreObjectIDLength, cfg.BlobStore.EffectiveObjectIDLength())
 	require.Equal(t, 100*time.Millisecond, cfg.AttributeStore.EffectiveSyncRetryPolicy().InitialInterval)
+}
+
+func TestBlobStoreObjectIDLengthValidation(t *testing.T) {
+	for _, objectIDLength := range []int{0, 10, 12, 16, 22, 50} {
+		require.NoError(t, (BlobStoreConfig{ObjectIDLength: objectIDLength}).Validate())
+	}
+	for _, objectIDLength := range []int{-1, 1, 9, 51} {
+		err := (BlobStoreConfig{ObjectIDLength: objectIDLength}).Validate()
+		require.ErrorContains(t, err, "objectIdLength")
+	}
 }
 
 func TestExternalStorageConfigKeyIsRejected(t *testing.T) {

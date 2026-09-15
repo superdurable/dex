@@ -46,6 +46,7 @@ type blobReference struct {
 }
 
 type loadBlobsRequest struct {
+	FlowID string          `json:"flowId"`
 	Values []blobReference `json:"values"`
 }
 

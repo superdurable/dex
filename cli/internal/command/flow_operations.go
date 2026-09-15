@@ -44,7 +44,7 @@ func loadHistory(
 			return nil, err
 		}
 		for _, event := range response.GetEvents() {
-			mapped, valueWarnings, mapErr := naturalMessage(ctx, client, event, noHydrate)
+			mapped, valueWarnings, mapErr := naturalMessage(ctx, client, flowID, event, noHydrate)
 			if mapErr != nil {
 				return nil, mapErr
 			}
@@ -179,7 +179,7 @@ func executeInspect(c *flowCommand, ctx context.Context, args []string, options 
 			if stateErr != nil {
 				return newOperationError("flow inspect", stateErr)
 			}
-			state, warnings, mapErr := naturalMessage(callCtx, client.service, stateResponse, options.noHydrate)
+			state, warnings, mapErr := naturalMessage(callCtx, client.service, flowID, stateResponse, options.noHydrate)
 			if mapErr != nil {
 				return newOperationError("flow inspect", mapErr)
 			}
@@ -242,7 +242,7 @@ func watchRun(
 			return newOperationError("flow watch", pageErr)
 		}
 		for _, event := range page.GetEvents() {
-			mapped, warnings, mapErr := naturalMessage(ctx, client, event, options.noHydrate)
+			mapped, warnings, mapErr := naturalMessage(ctx, client, flowID, event, options.noHydrate)
 			if mapErr != nil {
 				return newOperationError("flow watch", mapErr)
 			}
@@ -287,7 +287,7 @@ func watchRun(
 			if stateErr != nil {
 				return newOperationError("flow watch", stateErr)
 			}
-			state, warnings, mapErr := naturalMessage(ctx, client, stateResponse, options.noHydrate)
+			state, warnings, mapErr := naturalMessage(ctx, client, flowID, stateResponse, options.noHydrate)
 			if mapErr != nil {
 				return newOperationError("flow watch", mapErr)
 			}

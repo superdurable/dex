@@ -11,29 +11,47 @@
 package blobstore
 
 import (
+	"regexp"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeterministicBlobUUIDStableVector(t *testing.T) {
-	objectID, err := deterministicBlobUUID("run-123activity-456", []byte("payload"))
+func TestDeterministicBlobObjectIDStableVector(t *testing.T) {
+	objectID, err := deterministicBlobObjectID("run-123activity-456", []byte("payload"), 10)
 	require.NoError(t, err)
-	require.Equal(t, "d3333fb9-f46d-8815-8359-9892fd394a6e", objectID.String())
+	require.Equal(t, "8d1zvkzfui", objectID)
 }
 
-func TestDeterministicBlobUUIDVersionAndVariant(t *testing.T) {
-	objectID, err := deterministicBlobUUID("request", []byte("payload"))
-	require.NoError(t, err)
-	require.Equal(t, uuid.Version(8), objectID.Version())
-	require.Equal(t, uuid.RFC4122, objectID.Variant())
+func TestDeterministicBlobObjectIDLengthsAndAlphabet(t *testing.T) {
+	for _, objectIDLength := range []int{10, 12, 16, 22, 50} {
+		objectID, err := deterministicBlobObjectID("request", []byte("payload"), objectIDLength)
+		require.NoError(t, err)
+		require.Len(t, objectID, objectIDLength)
+		require.True(t, regexp.MustCompile(`^[0-9a-z]+$`).MatchString(objectID))
+	}
 }
 
-func TestDeterministicBlobUUIDFramesComponents(t *testing.T) {
-	firstID, err := deterministicBlobUUID("ab", []byte("c"))
+func TestDeterministicBlobObjectIDFramesComponents(t *testing.T) {
+	firstID, err := deterministicBlobObjectID("ab", []byte("c"), 10)
 	require.NoError(t, err)
-	secondID, err := deterministicBlobUUID("a", []byte("bc"))
+	secondID, err := deterministicBlobObjectID("a", []byte("bc"), 10)
 	require.NoError(t, err)
 	require.NotEqual(t, firstID, secondID)
+}
+
+func TestDeterministicBlobObjectIDValuePathUsesContextualFlow(t *testing.T) {
+	path, err := ValueObjectPath("flow/one", "20260913/0abcde1234")
+	require.NoError(t, err)
+	require.Equal(t, "20260913$Zmxvdy9vbmU/0abcde1234", path)
+
+	for _, locator := range []string{
+		"20260913/abcdefghi",
+		"20260913/ABCDEF1234",
+		"20260913/abcdef1234/extra",
+		"20261340/abcdef1234",
+	} {
+		_, err := ValueObjectPath("flow", locator)
+		require.Error(t, err)
+	}
 }

@@ -300,7 +300,7 @@ func doTestWaitForAttributeOperators(t *testing.T) {
 	}{
 		{name: "unspecified", match: waitForAttributeMatch("match-int", dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_UNSPECIFIED, intValue(0))},
 		{name: "string ordering", match: waitForAttributeMatch("match-string", dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN, stringValue("a"))},
-		{name: "object", match: equalAttributeMatch("match-string", &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{Encoding: "json", Payload: []byte("{}")}}})},
+		{name: "object", match: equalAttributeMatch("match-string", &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{Encoding: "j", Payload: []byte("{}")}}})},
 		{name: "null", match: equalAttributeMatch("match-string", &dexpb.Value{Kind: &dexpb.Value_NullValue{}})},
 		{name: "non-finite", match: equalAttributeMatch("match-double", doubleValue(math.Inf(1)))},
 	}

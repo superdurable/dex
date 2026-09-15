@@ -84,7 +84,8 @@ class WaitForFlowService(dex_pb2_grpc.FlowServiceServicer):
     ) -> pb.LoadBlobsResponse:
         del context
         values: dict[str, pb.Value] = {}
-        for value in request.values:
+        for entry in request.entries:
+            value = entry.blob_value
             blob_id = value.WhichOneof("kind")
             if blob_id == "internal_blob_id_for_string_value":
                 key = value.internal_blob_id_for_string_value
@@ -92,7 +93,7 @@ class WaitForFlowService(dex_pb2_grpc.FlowServiceServicer):
             elif blob_id == "internal_blob_id_for_obj_value":
                 key = value.internal_blob_id_for_obj_value
                 values[key] = pb.Value(
-                    obj_value=pb.EncodedObject(encoding="rawbytes", payload=b"done")
+                    obj_value=pb.EncodedObject(encoding="r", payload=b"done")
                 )
             else:
                 raise AssertionError("unexpected LoadBlobs value")

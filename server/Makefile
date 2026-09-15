@@ -247,7 +247,7 @@ integTestsNoSearch: prepareIntegrationCoverage
 
 unitTests:
 	@GOWORK=off go test -v ./config $$(GOWORK=off go list ./service/... | grep -v ./service/common/blobstore)
-	@GOWORK=off go test -v ./service/common/blobstore -run '^TestDeterministicBlobUUID'
+	@GOWORK=off go test -v ./service/common/blobstore -run '^TestDeterministicBlobObjectID'
 
 # Requires SQL dependencies and covers both workflow backends in dedicated CI.
 attributeStoreIntegTests: prepareIntegrationCoverage

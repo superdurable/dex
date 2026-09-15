@@ -11,15 +11,18 @@
 package blobstore
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"github.com/superdurable/dex/service/common/ptr"
 	"go.temporal.io/sdk/client"
@@ -42,10 +45,11 @@ func TestLocalBlobStoreIntegration(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	ctx := context.Background()
 
-	storeID, objectPath, err := store.WriteObject(ctx, "legacy-flow", "invocation", []byte("value"))
+	valueFlowID := "value-flow"
+	storeID, objectPath, err := store.WriteObject(ctx, valueFlowID, "invocation", []byte("value"))
 	require.NoError(t, err)
 	require.Equal(t, "local", storeID)
-	loaded, err := store.ReadObject(ctx, storeID, objectPath)
+	loaded, err := store.ReadObject(ctx, storeID, valueFlowID, objectPath)
 	require.NoError(t, err)
 	require.Equal(t, []byte("value"), loaded)
 
@@ -111,4 +115,60 @@ func TestLocalBlobStoreIntegration(t *testing.T) {
 func TestLocalBlobStoreRejectsEscapingPaths(t *testing.T) {
 	_, err := localObjectPath(t.TempDir(), "../../outside")
 	require.Error(t, err)
+}
+
+func TestLocalBlobStoreTransfersCrossFlowOwnership(t *testing.T) {
+	root := t.TempDir()
+	logger, err := loggerimpl.NewDevelopment()
+	require.NoError(t, err)
+	store, err := NewBlobStore(nil, "local-namespace", &config.BlobStoreConfig{
+		Enabled: ptr.Any(true),
+		SupportedStorages: []config.BlobStoreConfigEntry{{
+			Status:         config.StorageStatusActive,
+			StorageId:      "local",
+			StorageType:    config.StorageTypeLocal,
+			LocalDirectory: root,
+		}},
+	}, logger, client.MetricsNopHandler)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	ctx := context.Background()
+	sourceFlowID := "source-flow"
+	destinationFlowID := "destination-flow"
+	threshold := config.DefaultBlobStoreThresholdInBytes
+	payload := bytes.Repeat([]byte("x"), threshold+1)
+	value := &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+		Encoding: "j",
+		Payload:  payload,
+	}}}
+	require.NoError(t, OffloadLargeValue(ctx, value, sourceFlowID, "invocation", threshold, store, true))
+	sourceRef := value.GetInternalBlobIdForObjValue()
+	require.Regexp(t, regexp.MustCompile(`^local\|[0-9]{8}/[0-9a-z]{10}\|j$`), sourceRef)
+
+	require.NoError(t, TransferValueBlobOwnership(
+		ctx, value, sourceFlowID, destinationFlowID, "invocation", threshold, store, true,
+	))
+	require.Equal(t, sourceRef, value.GetInternalBlobIdForObjValue())
+	require.Equal(t, int64(1), mustCountFlowObjects(t, ctx, store, sourceFlowID))
+	require.Equal(t, int64(1), mustCountFlowObjects(t, ctx, store, destinationFlowID))
+
+	date := strings.SplitN(strings.SplitN(sourceRef, "|", 3)[1], "/", 2)[0]
+	require.NoError(t, store.DeleteWorkflowObjects(
+		ctx, "local", date+"$"+encodePathPart(sourceFlowID),
+	))
+	require.NoError(t, HydrateValue(ctx, destinationFlowID, value, store))
+	require.Equal(t, "j", value.GetObjValue().GetEncoding())
+	require.Equal(t, payload, value.GetObjValue().GetPayload())
+
+	inline := &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: string(bytes.Repeat([]byte("y"), threshold))}}
+	require.NoError(t, OffloadLargeValue(ctx, inline, destinationFlowID, "inline", threshold, store, true))
+	require.NotEmpty(t, inline.GetStringValue())
+}
+
+func mustCountFlowObjects(t *testing.T, ctx context.Context, store BlobStore, flowID string) int64 {
+	t.Helper()
+	count, err := store.CountWorkflowObjectsForTesting(ctx, flowID)
+	require.NoError(t, err)
+	return count
 }

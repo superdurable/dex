@@ -193,9 +193,14 @@ func (client *Client) validateFlowCall(ctx context.Context, flowID string) error
 
 func (client *Client) hydrateValues(
 	ctx context.Context,
+	flowID string,
 	valuePointers []**dexpb.Value,
 ) error {
-	if err := client.hydrator.HydrateValuesInPlace(ctx, valuePointers); err != nil {
+	return client.hydrateFlowValues(ctx, valuePointersForFlow(flowID, valuePointers))
+}
+
+func (client *Client) hydrateFlowValues(ctx context.Context, targets []flowValuePointer) error {
+	if err := client.hydrator.HydrateValuesInPlace(ctx, targets); err != nil {
 		var failure *workerFailure
 		if errors.As(err, &failure) {
 			return translateRPCError(failure.cause, "LoadBlobs", "", flowTargetNone)
@@ -643,7 +648,7 @@ func (client *Client) WaitForFlow(
 			flowTargetExisting,
 		)
 	}
-	if err := client.hydrateValues(ctx, waitForFlowValuePointers(response)); err != nil {
+	if err := client.hydrateValues(ctx, flowID, waitForFlowValuePointers(response)); err != nil {
 		return FlowResult{}, err
 	}
 	result, err := mapFlowResult(response)
@@ -690,24 +695,27 @@ func (client *Client) SearchFlows(
 	if err != nil {
 		return SearchFlowsPage{}, translateRPCError(err, "SearchFlows", "", flowTargetNone)
 	}
-	if err := client.hydrateValues(ctx, searchFlowValuePointers(response)); err != nil {
+	if err := client.hydrateFlowValues(ctx, searchFlowValuePointers(response)); err != nil {
 		return SearchFlowsPage{}, err
 	}
 	return mapSearchFlowsPage(response)
 }
 
-func searchFlowValuePointers(response *dexpb.SearchFlowsResponse) []**dexpb.Value {
+func searchFlowValuePointers(response *dexpb.SearchFlowsResponse) []flowValuePointer {
 	if response == nil {
 		return nil
 	}
-	var pointers []**dexpb.Value
+	var pointers []flowValuePointer
 	for _, flow := range response.FlowRuns {
 		if flow == nil {
 			continue
 		}
 		for _, attribute := range flow.IndexedAttributes {
 			if attribute != nil {
-				pointers = append(pointers, &attribute.Value)
+				pointers = append(pointers, flowValuePointer{
+					flowID:       flow.GetFlowId(),
+					valuePointer: &attribute.Value,
+				})
 			}
 		}
 	}
@@ -1069,7 +1077,7 @@ func (client *Client) ListStreamMessages(
 		}
 		valuePointers = append(valuePointers, &message.Value)
 	}
-	if err := client.hydrateValues(ctx, valuePointers); err != nil {
+	if err := client.hydrateValues(ctx, flowID, valuePointers); err != nil {
 		return err
 	}
 	messagesTarget := pageTarget.FieldByName("Messages")
@@ -1406,6 +1414,7 @@ func (client *Client) InvokeRPC(
 	}
 	if err := client.hydrateValues(
 		ctx,
+		flowID,
 		[]**dexpb.Value{&response.Output},
 	); err != nil {
 		return err

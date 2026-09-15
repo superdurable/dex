@@ -12,6 +12,7 @@ package integ
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -127,7 +128,11 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 	todayPrefix := time.Now().UTC().Format("20060102")
 	foundCount := 0
 	for _, flowId := range flowIds {
-		expectedPath := fmt.Sprintf("%s$%s", todayPrefix, flowId)
+		expectedPath := fmt.Sprintf(
+			"%s$%s",
+			todayPrefix,
+			base64.RawURLEncoding.EncodeToString([]byte(flowId)),
+		)
 		for _, path := range allWorkflowPaths {
 			if path == expectedPath {
 				foundCount++

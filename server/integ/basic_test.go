@@ -101,7 +101,7 @@ func doTestBasicFlow(
 	flowInput := &dexpb.Value{
 		Kind: &dexpb.Value_ObjValue{
 			ObjValue: &dexpb.EncodedObject{
-				Encoding: "json",
+				Encoding: "j",
 				Payload:  []byte("test data"),
 			},
 		},

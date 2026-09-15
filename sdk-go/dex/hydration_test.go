@@ -24,7 +24,7 @@ import (
 
 type fakeHydrationFlowServiceClient struct {
 	dexpb.FlowServiceClient
-	requests []*dexpb.Value
+	requests []*dexpb.LoadBlobRequestEntry
 	values   map[string]*dexpb.Value
 	err      error
 }
@@ -34,7 +34,7 @@ func (client *fakeHydrationFlowServiceClient) LoadBlobs(
 	request *dexpb.LoadBlobsRequest,
 	_ ...grpc.CallOption,
 ) (*dexpb.LoadBlobsResponse, error) {
-	client.requests = request.Values
+	client.requests = request.Entries
 	if client.err != nil {
 		return nil, client.err
 	}
@@ -69,7 +69,7 @@ func TestHydrateValuesDeduplicatesAndPreservesOrder(t *testing.T) {
 
 	err := hydrator.HydrateValuesInPlace(
 		context.Background(),
-		valuePointers(values),
+		valuePointers("flow-1", values),
 	)
 	require.NoError(t, err)
 	require.Len(t, client.requests, 2)
@@ -97,7 +97,7 @@ func TestHydrateValuesValidatesResponses(t *testing.T) {
 		cache,
 		nil,
 	).HydrateValuesInPlace(
-		context.Background(), valuePointers(values),
+		context.Background(), valuePointers("flow-1", values),
 	)
 	require.ErrorContains(t, err, "omitted blob")
 	require.Same(t, stringBlob, values[0])
@@ -110,7 +110,7 @@ func TestHydrateValuesValidatesResponses(t *testing.T) {
 		cache,
 		nil,
 	).HydrateValuesInPlace(
-		context.Background(), valuePointers(values),
+		context.Background(), valuePointers("flow-1", values),
 	)
 	require.ErrorContains(t, err, "hydrated to")
 	require.Same(t, stringBlob, values[0])
@@ -121,7 +121,7 @@ func TestHydrateValuesValidatesResponses(t *testing.T) {
 		cache,
 		nil,
 	).HydrateValuesInPlace(
-		context.Background(), valuePointers(values),
+		context.Background(), valuePointers("flow-1", values),
 	)
 	require.ErrorContains(t, err, "load failed")
 	require.Same(t, stringBlob, values[0])
@@ -166,10 +166,10 @@ func TestBlobCachePayloadRoundTrip(t *testing.T) {
 	require.True(t, proto.Equal(objectValue.GetObjValue(), decoded.GetObjValue()))
 }
 
-func valuePointers(values []*dexpb.Value) []**dexpb.Value {
-	pointers := make([]**dexpb.Value, len(values))
+func valuePointers(flowID string, values []*dexpb.Value) []flowValuePointer {
+	pointers := make([]flowValuePointer, len(values))
 	for index := range values {
-		pointers[index] = &values[index]
+		pointers[index] = flowValuePointer{flowID: flowID, valuePointer: &values[index]}
 	}
 	return pointers
 }

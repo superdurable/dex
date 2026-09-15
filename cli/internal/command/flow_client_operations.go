@@ -126,7 +126,7 @@ func executeWait(c *flowCommand, ctx context.Context, args []string, options opt
 		if callErr != nil {
 			return newOperationError("flow wait", callErr)
 		}
-		mapped, warnings, mapErr := naturalMessage(callCtx, client.service, response, options.noHydrate)
+		mapped, warnings, mapErr := naturalMessage(callCtx, client.service, flowID, response, options.noHydrate)
 		if mapErr != nil {
 			return newOperationError("flow wait", mapErr)
 		}
@@ -385,7 +385,7 @@ func jsonObjectValue(value any) (*dexpb.Value, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode JSON value: %w", err)
 	}
-	return &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{Encoding: "json", Payload: payload}}}, nil
+	return &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{Encoding: "j", Payload: payload}}}, nil
 }
 
 func parseInitialAttributes(reader io.Reader, source string) ([]*dexpb.AttributeWrite, error) {

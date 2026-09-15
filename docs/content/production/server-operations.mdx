@@ -91,6 +91,67 @@ Use separate credentials and least-privilege policies for each environment.
 Monitor write and read failures, then test a recovery procedure that can still
 read existing objects after a credential rotation.
 
+Dex keeps payloads through 100 bytes inline by default. A 101-byte string or
+encoded object is offloaded. Set
+**blobStore.thresholdInBytes** to override the default. The comparison uses only
+the payload size, not the resulting reference size.
+
+~~~yaml
+blobStore:
+  thresholdInBytes: 100
+  objectIdLength: 10
+  supportedStorages:
+    - status: active
+      storageId: p1
+      storageType: s3
+~~~
+
+Keep **storageId** short because every offloaded value stores it in durable
+history. For example, use **p1** instead of **production1** when the shorter name
+is still operationally clear.
+
+Blob references are opaque application values. Their wire forms are:
+
+~~~text
+String: <storageId>|<YYYYMMDD>/<objectId>
+Object: <storageId>|<YYYYMMDD>/<objectId>|<encoding>
+~~~
+
+The standard encodings are **j** for JSON and **r** for raw bytes. Custom
+encodings pass through unchanged. The reference keeps the storage ID and UTC
+write date, but omits the Flow ID. Dex obtains the owning Flow ID from trusted
+request or Worker context. The physical object path is:
+
+~~~text
+<namespace>/v2/<YYYYMMDD>$<base64url(flowId)>/<objectId>
+~~~
+
+Internal references belong to exactly one Flow. Dex rehydrates and rewrites a
+reference before it crosses a Flow boundary. The destination receives an
+inline value or a new object under its own Flow prefix. Deleting the source
+Flow therefore cannot corrupt the destination Flow. Public APIs reject
+client-supplied internal references.
+
+Object IDs use deterministic lowercase Base36 characters. Retries with the
+same invocation ID and payload overwrite the same object instead of creating
+duplicates. Dex does not perform a read-before-write, conditional create, or
+collision retry. **blobStore.objectIdLength** defaults to 10 and accepts values
+from 10 through 50. Every Server writing the same Blob Store namespace must use
+the same value, and the setting must not change while those Servers are
+running. Readers accept every supported length, so a deployment can increase
+the configured length during a coordinated restart.
+
+Ten Base36 characters provide about 51.7 bits. Within one Flow and one UTC day,
+the approximate probability of at least one collision is 1.4 × 10⁻⁸ for 10,000
+objects, 1.4 × 10⁻⁶ for 100,000 objects, and 1.4 × 10⁻⁴ for 1,000,000 objects.
+Use 10 for ordinary deployments. Use 12 or 16 for high-throughput Flows. A
+length of 50 can represent the full SHA-256 value.
+
+Cleanup keeps the UTC date at the start of each Flow prefix. It lists prefixes
+in lexical pages, describes the encoded Flow and optional Run, and deletes the
+whole prefix only after the execution no longer exists. Continue listing with
+the returned continuation token; no manifest is involved.
+
 The optional **blobStore.blobCache** caches S3-backed Attribute objects. A
 non-empty **directory** enables it and must belong to one Server process. Its
 default budget is 1 GiB. Oversized or rejected objects bypass the cache and

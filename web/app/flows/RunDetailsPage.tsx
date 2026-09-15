@@ -186,13 +186,13 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     try {
       const rawState = await readResponseJSON<FlowState>(await fetch(stateURL, { cache: 'no-store' }));
       setState(rawState);
-      const hydrated = await hydrateBlobs(rawState, blobCache.current);
+      const hydrated = await hydrateBlobs(flowId, rawState, blobCache.current);
       setState(hydrated.value);
       if (hydrated.error) addDataWarning(hydrated.error);
     } catch (stateError) {
       setError(stateError instanceof Error ? stateError.message : 'State query failed');
     }
-  }, [addDataWarning, stateURL]);
+  }, [addDataWarning, flowId, stateURL]);
 
   const deleteChannelMessage = useCallback(async (channelName: string, messageId: string) => {
     if (!summary) return;
@@ -217,7 +217,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       || hydratingEventIDs.current.has(event.eventId)) return;
     hydratingEventIDs.current.add(event.eventId);
     try {
-      const hydrated = await hydrateBlobs(event, blobCache.current);
+      const hydrated = await hydrateBlobs(flowId, event, blobCache.current);
       setHydratedEvents((current) => ({ ...current, [event.eventId]: hydrated.value }));
       hydratedEventIDs.current.add(event.eventId);
       if (hydrated.error) addDataWarning(hydrated.error);
@@ -226,7 +226,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     } finally {
       hydratingEventIDs.current.delete(event.eventId);
     }
-  }, [addDataWarning]);
+  }, [addDataWarning, flowId]);
 
   const loadSummary = useCallback(async () => {
     const value = await readResponseJSON<FlowSummary>(await fetch(summaryURL, { cache: 'no-store' }));

@@ -27,8 +27,8 @@ type BlobReferenceValue = {
 
 const unavailableValue = { __dexStoredValueUnavailable: true } as const;
 
-export function blobCacheKey(reference: BlobReference): string {
-  return `${reference.kind}:${reference.id}`;
+export function blobCacheKey(flowId: string, reference: BlobReference): string {
+  return `${flowId.length}:${flowId}${blobReferenceKey(reference)}`;
 }
 
 export function isBlobReferenceValue(value: unknown): value is BlobReferenceValue {
@@ -56,37 +56,43 @@ export function collectBlobReferences(value: unknown): BlobReference[] {
 }
 
 export async function hydrateBlobs<T>(
+  flowId: string,
   value: T,
   cache: Map<string, unknown>,
   signal?: AbortSignal,
   fetcher: typeof fetch = fetch,
 ): Promise<BlobHydrationResult<T>> {
   const references = collectBlobReferences(value);
-  const missing = references.filter((reference) => !cache.has(blobCacheKey(reference)));
+  const missing = references.filter((reference) => !cache.has(blobCacheKey(flowId, reference)));
   if (missing.length === 0) {
-    return { value: replaceBlobReferences(value, cache, false) as T };
+    return { value: replaceBlobReferences(flowId, value, cache, false) as T };
   }
   try {
     const response = await fetcher('/api/blobs/load', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ values: missing }),
+      body: JSON.stringify({ flowId, values: missing }),
       cache: 'no-store',
       signal,
     });
     const result = await readResponseJSON<{ values?: Record<string, unknown> }>(response);
     for (const [key, resolved] of Object.entries(result.values ?? {})) {
-      cache.set(key, resolved);
+      const separator = key.indexOf(':');
+      if (separator < 0) continue;
+      cache.set(blobCacheKey(flowId, {
+        kind: key.slice(0, separator) as BlobKind,
+        id: key.slice(separator + 1),
+      }), resolved);
     }
-    const unresolved = missing.some((reference) => !cache.has(blobCacheKey(reference)));
+    const unresolved = missing.some((reference) => !cache.has(blobCacheKey(flowId, reference)));
     return {
-      value: replaceBlobReferences(value, cache, true) as T,
+      value: replaceBlobReferences(flowId, value, cache, true) as T,
       ...(unresolved ? { error: VALUE_BLOB_UNAVAILABLE } : {}),
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     return {
-      value: replaceBlobReferences(value, cache, true) as T,
+      value: replaceBlobReferences(flowId, value, cache, true) as T,
       error: VALUE_BLOB_UNAVAILABLE,
     };
   }
@@ -95,7 +101,7 @@ export async function hydrateBlobs<T>(
 function collect(value: unknown, references: Map<string, BlobReference>) {
   if (isBlobReferenceValue(value)) {
     const reference = value.__dexBlobReference;
-    references.set(blobCacheKey(reference), reference);
+    references.set(blobReferenceKey(reference), reference);
     return;
   }
   if (Array.isArray(value)) {
@@ -108,25 +114,30 @@ function collect(value: unknown, references: Map<string, BlobReference>) {
 }
 
 function replaceBlobReferences(
+  flowId: string,
   value: unknown,
   cache: Map<string, unknown>,
   unavailableWhenMissing: boolean,
 ): unknown {
   if (isBlobReferenceValue(value)) {
-    const key = blobCacheKey(value.__dexBlobReference);
+    const key = blobCacheKey(flowId, value.__dexBlobReference);
     if (cache.has(key)) return cache.get(key);
     return unavailableWhenMissing ? unavailableValue : value;
   }
   if (Array.isArray(value)) {
-    return value.map((entry) => replaceBlobReferences(entry, cache, unavailableWhenMissing));
+    return value.map((entry) => replaceBlobReferences(flowId, entry, cache, unavailableWhenMissing));
   }
   if (isRecord(value)) {
     return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
       key,
-      replaceBlobReferences(entry, cache, unavailableWhenMissing),
+      replaceBlobReferences(flowId, entry, cache, unavailableWhenMissing),
     ]));
   }
   return value;
+}
+
+function blobReferenceKey(reference: BlobReference): string {
+  return `${reference.kind}:${reference.id}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

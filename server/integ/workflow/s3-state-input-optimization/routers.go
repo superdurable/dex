@@ -86,7 +86,9 @@ func (h *handler) InvokeWaitForMethod(
 	}
 
 	h.incrementInvokeHistory(stepType + "_waitFor")
-	if err := h.storeStepInputData(ctx, stepType, request.GetStepInput()); err != nil {
+	if err := h.storeStepInputData(
+		ctx, request.GetContext().GetFlowId(), stepType, request.GetStepInput(),
+	); err != nil {
 		return nil, err
 	}
 
@@ -176,8 +178,13 @@ func (h *handler) incrementInvokeHistory(key string) {
 	h.invokeHistory.Store(key, int64(1))
 }
 
-func (h *handler) storeStepInputData(ctx context.Context, stepType string, stepInput *dexpb.Value) error {
-	inputData, err := common.ObjPayloadString(ctx, h.flowClient, stepInput)
+func (h *handler) storeStepInputData(
+	ctx context.Context,
+	flowID string,
+	stepType string,
+	stepInput *dexpb.Value,
+) error {
+	inputData, err := common.ObjPayloadString(ctx, h.flowClient, flowID, stepInput)
 	if err != nil {
 		return status.Errorf(codes.Internal, "LoadBlobs step input: %v", err)
 	}

@@ -116,7 +116,7 @@ func doTestParallelFlow(
 			CompletedStepType:        parallel.State13,
 			CompletedStepExecutionId: parallel.State13 + "-1",
 			CompletedStepOutput: encodedObjectValue(
-				"json",
+				"j",
 				[]byte("from "+parallel.State13),
 			),
 		},
@@ -124,7 +124,7 @@ func doTestParallelFlow(
 			CompletedStepType:        parallel.State111,
 			CompletedStepExecutionId: parallel.State111 + "-1",
 			CompletedStepOutput: encodedObjectValue(
-				"json",
+				"j",
 				[]byte("from "+parallel.State111),
 			),
 		},
@@ -132,7 +132,7 @@ func doTestParallelFlow(
 			CompletedStepType:        parallel.State112,
 			CompletedStepExecutionId: parallel.State112 + "-1",
 			CompletedStepOutput: encodedObjectValue(
-				"json",
+				"j",
 				[]byte("from "+parallel.State112),
 			),
 		},
@@ -140,7 +140,7 @@ func doTestParallelFlow(
 			CompletedStepType:        parallel.State121,
 			CompletedStepExecutionId: parallel.State121 + "-1",
 			CompletedStepOutput: encodedObjectValue(
-				"json",
+				"j",
 				[]byte("from "+parallel.State121),
 			),
 		},
@@ -148,7 +148,7 @@ func doTestParallelFlow(
 			CompletedStepType:        parallel.State122,
 			CompletedStepExecutionId: parallel.State122 + "-1",
 			CompletedStepOutput: encodedObjectValue(
-				"json",
+				"j",
 				[]byte("from "+parallel.State122),
 			),
 		},

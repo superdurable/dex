@@ -28,8 +28,8 @@ import java.io.IOException;
 import java.time.Instant;
 
 final class ValueMapper {
-    private static final String JSON = "json";
-    private static final String RAW_BYTES = "rawbytes";
+    private static final String JSON = "j";
+    private static final String RAW_BYTES = "r";
 
     private final ObjectMapper objectMapper;
 

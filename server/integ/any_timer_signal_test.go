@@ -139,7 +139,7 @@ func doTestAnyTimerSignalFlow(
 	require.NoError(t, err)
 
 	time.Sleep(3 * time.Second)
-	signalValue := encodedObjectValue("json", []byte("test-data-1"))
+	signalValue := encodedObjectValue("j", []byte("test-data-1"))
 	_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 		FlowId: flowId,
 		Messages: []*dexpb.ChannelMessage{

@@ -20,6 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass
 class _PendingBlob:
+    flow_id: str
     blob_id: str
     is_object: bool
     request: pb.Value
@@ -36,21 +37,31 @@ class ValueHydrator:
         self._service = service
         self._cache = cache
 
-    def hydrate(self, value: pb.Value) -> pb.Value:
-        return self.hydrate_all([value])[0]
+    def hydrate(self, flow_id: str, value: pb.Value) -> pb.Value:
+        return self.hydrate_all(flow_id, [value])[0]
 
-    def hydrate_all(self, values: list[pb.Value]) -> list[pb.Value]:
+    def hydrate_all(self, flow_id: str, values: list[pb.Value]) -> list[pb.Value]:
+        return self.hydrate_all_for_flows([(flow_id, value) for value in values])
+
+    def hydrate_all_for_flows(
+        self,
+        flow_values: list[tuple[str, pb.Value]],
+    ) -> list[pb.Value]:
+        values = [value for _, value in flow_values]
         hydrated = list(values)
-        pending: dict[tuple[str, bool], _PendingBlob] = {}
-        for index, value in enumerate(values):
+        pending: dict[tuple[str, str, bool], _PendingBlob] = {}
+        for index, (flow_id, value) in enumerate(flow_values):
+            if not flow_id:
+                raise ValueError(f"Flow ID at index {index} is required")
             key = self._blob_key(value)
             if key is None:
                 self._validate_concrete(value)
                 continue
-            blob = pending.get(key)
+            flow_blob_key = (flow_id, key[0], key[1])
+            blob = pending.get(flow_blob_key)
             if blob is None:
-                blob = _PendingBlob(key[0], key[1], value)
-                pending[key] = blob
+                blob = _PendingBlob(flow_id, key[0], key[1], value)
+                pending[flow_blob_key] = blob
             blob.indexes.append(index)
 
         misses: list[_PendingBlob] = []
@@ -86,7 +97,7 @@ class ValueHydrator:
             for message in channel_values.messages
         ]
         values.extend(message.value for message in channel_messages)
-        hydrated = iter(self.hydrate_all(values))
+        hydrated = iter(self.hydrate_all(request.context.flow_id, values))
         result.step_input.CopyFrom(next(hydrated))
         if has_heartbeat:
             result.context.last_heartbeat_value.CopyFrom(next(hydrated))
@@ -126,7 +137,7 @@ class ValueHydrator:
             values.extend(
                 completion.completed_step_output for completion in flow_result.results
             )
-        hydrated = iter(self.hydrate_all(values))
+        hydrated = iter(self.hydrate_all(request.context.flow_id, values))
         if has_step_input:
             result.step_input.CopyFrom(next(hydrated))
         if has_heartbeat:
@@ -163,7 +174,7 @@ class ValueHydrator:
             for message in channel_values.messages
         ]
         values.extend(message.value for message in channel_messages)
-        hydrated = self.hydrate_all(values)
+        hydrated = self.hydrate_all(request.context.flow_id, values)
         result.input.CopyFrom(hydrated[0])
         hydrated_entries = iter(hydrated[1:])
         for entry in result.attributes:
@@ -179,10 +190,11 @@ class ValueHydrator:
 
     def step_outputs(
         self,
+        flow_id: str,
         outputs: list[pb.StepCompletionOutput],
     ) -> list[pb.StepCompletionOutput]:
         values = [output.completed_step_output for output in outputs]
-        hydrated = self.hydrate_all(values)
+        hydrated = self.hydrate_all(flow_id, values)
         results: list[pb.StepCompletionOutput] = []
         for output, value in zip(outputs, hydrated):
             result = pb.StepCompletionOutput()
@@ -195,7 +207,15 @@ class ValueHydrator:
         if not misses:
             return
         response = self._service.LoadBlobs(
-            pb.LoadBlobsRequest(values=[miss.request for miss in misses])
+            pb.LoadBlobsRequest(
+                entries=[
+                    pb.LoadBlobRequestEntry(
+                        flow_id=miss.flow_id,
+                        blob_value=miss.request,
+                    )
+                    for miss in misses
+                ]
+            )
         )
         for miss in misses:
             concrete = response.values.get(miss.blob_id)
@@ -207,7 +227,7 @@ class ValueHydrator:
 
     def _read_cache(self, blob: _PendingBlob) -> pb.Value | None:
         try:
-            payload = self._cache.get(blob.blob_id)
+            payload = self._cache.get(self._cache_key(blob))
             if payload is None:
                 return None
             if blob.is_object:
@@ -219,7 +239,7 @@ class ValueHydrator:
         except Exception:
             _LOGGER.warning("cannot read cached blob %s", blob.blob_id, exc_info=True)
             try:
-                self._cache.delete(blob.blob_id)
+                self._cache.delete(self._cache_key(blob))
             except Exception:
                 _LOGGER.warning(
                     "cannot delete cached blob %s",
@@ -235,7 +255,7 @@ class ValueHydrator:
                 if blob.is_object
                 else concrete.string_value.encode("utf-8")
             )
-            self._cache.put(blob.blob_id, payload)
+            self._cache.put(self._cache_key(blob), payload)
         except Exception:
             _LOGGER.warning("cannot cache blob %s", blob.blob_id, exc_info=True)
 
@@ -253,6 +273,10 @@ class ValueHydrator:
                 raise ValueError("blob ID is required")
             return blob_id, True
         return None
+
+    @staticmethod
+    def _cache_key(blob: _PendingBlob) -> str:
+        return f"{len(blob.flow_id)}:{blob.flow_id}{blob.blob_id}"
 
     @staticmethod
     def _validate_hydrated(blob: _PendingBlob, value: pb.Value) -> None:
@@ -275,7 +299,7 @@ class ValueHydrator:
                 raise ValueError("non-finite numbers are unsupported")
             return
         if kind == "obj_value":
-            if value.obj_value.encoding not in ("json", "rawbytes"):
+            if value.obj_value.encoding not in ("j", "r"):
                 raise ValueError(
                     f"unsupported object encoding {value.obj_value.encoding}"
                 )

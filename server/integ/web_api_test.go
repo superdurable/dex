@@ -12,6 +12,7 @@ package integ
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1005,7 +1006,7 @@ func testWebParallelAttributeSnapshots(t *testing.T, backendType service.Backend
 		require.Equal(t, "snapshot", executeEvent.GetInput().GetAttributes()[0].GetKey())
 		values = append(values, executeEvent.GetInput().GetAttributes()[0].GetValue())
 	}
-	loadedValues := loadWebBlobValues(t, ctx, runtime.FlowClient, values)
+	loadedValues := loadWebBlobValues(t, ctx, runtime.FlowClient, flowID, values)
 	for _, executeEvent := range executeEvents {
 		require.Equal(
 			t,
@@ -1240,7 +1241,7 @@ func testWebConditionResults(
 	for _, channelResult := range executeInput.GetConditionResults().GetChannelResults() {
 		values = append(values, channelResult.GetValues()...)
 	}
-	loadedValues := loadWebBlobValues(t, ctx, runtime.FlowClient, values)
+	loadedValues := loadWebBlobValues(t, ctx, runtime.FlowClient, flowID, values)
 	require.Equal(
 		t,
 		largeWebTestValue("condition-step-input"),
@@ -1399,7 +1400,7 @@ func testWebHistoryAndSummary(
 			Attributes: []*dexpb.AttributeWrite{{
 				Key: "web-test-attribute",
 				Value: &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
-					Encoding: "json",
+					Encoding: "j",
 					Payload:  attributePayload,
 				}}},
 			}},
@@ -1459,10 +1460,13 @@ func testWebHistoryAndSummary(
 	require.NotEmpty(t, initialStart.GetStepInput().GetInternalBlobIdForStringValue())
 	require.Len(t, initialStart.GetInitialAttributes(), 1)
 	require.NotEmpty(t, initialStart.GetInitialAttributes()[0].GetValue().GetInternalBlobIdForObjValue())
-	loadedStartValues, err := runtime.FlowClient.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{Values: []*dexpb.Value{
-		initialStart.GetStepInput(),
-		initialStart.GetInitialAttributes()[0].GetValue(),
-	}})
+	loadedStartValues, err := runtime.FlowClient.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{Entries: blobRequestEntries(
+		flowID,
+		[]*dexpb.Value{
+			initialStart.GetStepInput(),
+			initialStart.GetInitialAttributes()[0].GetValue(),
+		},
+	)})
 	require.NoError(t, err)
 	require.Equal(t, stepInput, loadedStartValues.GetValues()[initialStart.GetStepInput().GetInternalBlobIdForStringValue()].GetStringValue())
 	require.Equal(t, attributePayload, loadedStartValues.GetValues()[initialStart.GetInitialAttributes()[0].GetValue().GetInternalBlobIdForObjValue()].GetObjValue().GetPayload())
@@ -1481,6 +1485,7 @@ func testWebHistoryAndSummary(
 		t,
 		ctx,
 		runtime.FlowClient,
+		flowID,
 		firstStep.GetInput().GetStepInput(),
 		firstStep.GetInput().GetAttributes(),
 		stepInput,
@@ -1490,6 +1495,7 @@ func testWebHistoryAndSummary(
 		t,
 		ctx,
 		runtime.FlowClient,
+		flowID,
 		firstExecute.GetInput().GetStepInput(),
 		firstExecute.GetInput().GetAttributes(),
 		stepInput,
@@ -1534,6 +1540,7 @@ func testWebHistoryAndSummary(
 		t,
 		ctx,
 		runtime.FlowClient,
+		flowID,
 		continuedStep.GetInput().GetStepInput(),
 		continuedStep.GetInput().GetAttributes(),
 		stepInput,
@@ -1543,6 +1550,7 @@ func testWebHistoryAndSummary(
 		t,
 		ctx,
 		runtime.FlowClient,
+		flowID,
 		continuedExecute.GetInput().GetStepInput(),
 		continuedExecute.GetInput().GetAttributes(),
 		stepInput,
@@ -1553,7 +1561,7 @@ func testWebHistoryAndSummary(
 	require.NotEmpty(t, closeOutput.GetInternalBlobIdForStringValue())
 	loadedCloseOutput, err := runtime.FlowClient.LoadBlobs(
 		ctx,
-		&dexpb.LoadBlobsRequest{Values: []*dexpb.Value{closeOutput}},
+		&dexpb.LoadBlobsRequest{Entries: blobRequestEntries(flowID, []*dexpb.Value{closeOutput})},
 	)
 	require.NoError(t, err)
 	require.Equal(
@@ -1568,12 +1576,12 @@ func testWebHistoryAndSummary(
 	)[1]
 	partiallyLoaded, err := runtime.FlowClient.LoadBlobs(
 		ctx,
-		&dexpb.LoadBlobsRequest{Values: []*dexpb.Value{
+		&dexpb.LoadBlobsRequest{Entries: blobRequestEntries(flowID, []*dexpb.Value{
 			closeOutput,
 			{Kind: &dexpb.Value_InternalBlobIdForStringValue{
 				InternalBlobIdForStringValue: unknownStoreBlobID,
 			}},
-		}},
+		})},
 	)
 	require.NoError(t, err)
 	require.Len(t, partiallyLoaded.GetValues(), 1)
@@ -1593,15 +1601,19 @@ func testWebHistoryAndSummary(
 	if durability == dexpb.StepDurability_STEP_DURABILITY_ASYNC && lazyLoading && *dexServerAddress == "" {
 		stepInputBlobID := firstStep.GetInput().GetStepInput().GetInternalBlobIdForStringValue()
 		require.NotEmpty(t, stepInputBlobID)
-		stepInputObjectPath := strings.SplitN(stepInputBlobID, "|", 2)[1]
-		require.NoError(t, os.Remove(filepath.Join(blobDirectory, "default", stepInputObjectPath)))
+		stepInputLocator := strings.SplitN(stepInputBlobID, "|", 2)[1]
+		locatorParts := strings.SplitN(stepInputLocator, "/", 2)
+		stepInputObjectPath := locatorParts[0] + "$" + encodeWebPathPart(flowID) + "/" + locatorParts[1]
+		require.NoError(t, os.Remove(filepath.Join(blobDirectory, "default", "v2", stepInputObjectPath)))
 		valueMissingEvents, _ := getAllWebHistoryEvents(
 			t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
 		)
 		require.False(t, firstStepEvent(valueMissingEvents).GetInput().GetUnavailable())
 		missingValue, loadErr := runtime.FlowClient.LoadBlobs(
 			ctx,
-			&dexpb.LoadBlobsRequest{Values: []*dexpb.Value{firstStep.GetInput().GetStepInput()}},
+			&dexpb.LoadBlobsRequest{Entries: blobRequestEntries(
+				flowID, []*dexpb.Value{firstStep.GetInput().GetStepInput()},
+			)},
 		)
 		require.NoError(t, loadErr)
 		require.Empty(t, missingValue.GetValues())
@@ -1609,7 +1621,7 @@ func testWebHistoryAndSummary(
 		require.NoError(t, os.RemoveAll(blobDirectory))
 		unavailableBlobs, loadErr := runtime.FlowClient.LoadBlobs(
 			ctx,
-			&dexpb.LoadBlobsRequest{Values: []*dexpb.Value{closeOutput}},
+			&dexpb.LoadBlobsRequest{Entries: blobRequestEntries(flowID, []*dexpb.Value{closeOutput})},
 		)
 		require.NoError(t, loadErr)
 		require.Empty(t, unavailableBlobs.GetValues())
@@ -1697,7 +1709,7 @@ func testWebCurrentState(t *testing.T, backendType service.BackendType, lazyLoad
 	for _, result := range channelResults {
 		values = append(values, result.GetValues()...)
 	}
-	loadedValues := loadWebBlobValues(t, ctx, runtime.FlowClient, values)
+	loadedValues := loadWebBlobValues(t, ctx, runtime.FlowClient, flowID, values)
 	for index, result := range channelResults {
 		require.Equal(t, signal.SignalName, result.GetChannelName())
 		require.Equal(t, dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED, result.GetConditionStatus())
@@ -1708,7 +1720,7 @@ func testWebCurrentState(t *testing.T, backendType service.BackendType, lazyLoad
 			resolvedWebStringValue(result.GetValues()[0], loadedValues),
 		)
 	}
-	assertExternalChannelValuesLoad(t, ctx, runtime.FlowClient, events)
+	assertExternalChannelValuesLoad(t, ctx, runtime.FlowClient, flowID, events)
 }
 
 func testWebSetAttributesHistory(t *testing.T, backendType service.BackendType) {
@@ -1921,6 +1933,7 @@ func assertStepMethodRequestValues(
 	t *testing.T,
 	ctx context.Context,
 	flowClient dexpb.FlowServiceClient,
+	flowID string,
 	stepInput *dexpb.Value,
 	attributes []*dexpb.KV,
 	expectedInput string,
@@ -1933,6 +1946,7 @@ func assertStepMethodRequestValues(
 		t,
 		ctx,
 		flowClient,
+		flowID,
 		[]*dexpb.Value{stepInput, attributes[0].GetValue()},
 	)
 	require.Equal(t, expectedInput, resolvedWebStringValue(stepInput, loadedValues))
@@ -1947,6 +1961,7 @@ func loadWebBlobValues(
 	t *testing.T,
 	ctx context.Context,
 	flowClient dexpb.FlowServiceClient,
+	flowID string,
 	values []*dexpb.Value,
 ) map[string]*dexpb.Value {
 	t.Helper()
@@ -1968,10 +1983,24 @@ func loadWebBlobValues(
 	if len(blobValues) == 0 {
 		return nil
 	}
-	response, err := flowClient.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{Values: blobValues})
+	response, err := flowClient.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{
+		Entries: blobRequestEntries(flowID, blobValues),
+	})
 	require.NoError(t, err)
 	require.Len(t, response.GetValues(), len(blobValues))
 	return response.GetValues()
+}
+
+func blobRequestEntries(flowID string, values []*dexpb.Value) []*dexpb.LoadBlobRequestEntry {
+	entries := make([]*dexpb.LoadBlobRequestEntry, 0, len(values))
+	for _, value := range values {
+		entries = append(entries, &dexpb.LoadBlobRequestEntry{FlowId: flowID, BlobValue: value})
+	}
+	return entries
+}
+
+func encodeWebPathPart(value string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(value))
 }
 
 func resolvedWebStringValue(value *dexpb.Value, loadedValues map[string]*dexpb.Value) string {
@@ -1985,6 +2014,7 @@ func assertExternalChannelValuesLoad(
 	t *testing.T,
 	ctx context.Context,
 	flowClient dexpb.FlowServiceClient,
+	flowID string,
 	events []*dexpb.FlowHistoryEvent,
 ) {
 	t.Helper()
@@ -1998,7 +2028,9 @@ func assertExternalChannelValuesLoad(
 	for _, value := range values {
 		require.NotEmpty(t, value.GetInternalBlobIdForStringValue())
 	}
-	response, err := flowClient.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{Values: values})
+	response, err := flowClient.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{
+		Entries: blobRequestEntries(flowID, values),
+	})
 	require.NoError(t, err)
 	for index, value := range values {
 		loaded := response.GetValues()[value.GetInternalBlobIdForStringValue()]

@@ -141,10 +141,10 @@ func offloadValue(
 	}
 }
 
-// HydrateValues replaces internal_blob_id_for_* arms with concrete string/object values.
-func HydrateValues(ctx context.Context, values []*dexpb.Value, blobStore BlobStore) error {
+// HydrateFlowValues replaces Blob references with values owned by flowID.
+func HydrateFlowValues(ctx context.Context, flowID string, values []*dexpb.Value, blobStore BlobStore) error {
 	for _, value := range values {
-		if err := HydrateValue(ctx, value, blobStore); err != nil {
+		if err := HydrateValue(ctx, flowID, value, blobStore); err != nil {
 			return err
 		}
 	}
@@ -152,12 +152,17 @@ func HydrateValues(ctx context.Context, values []*dexpb.Value, blobStore BlobSto
 }
 
 // HydrateAttributeWrites hydrates Value arms on AttributeWrites / KVs.
-func HydrateAttributeWrites(ctx context.Context, writes []*dexpb.AttributeWrite, blobStore BlobStore) error {
+func HydrateAttributeWrites(
+	ctx context.Context,
+	flowID string,
+	writes []*dexpb.AttributeWrite,
+	blobStore BlobStore,
+) error {
 	for _, write := range writes {
 		if write == nil {
 			continue
 		}
-		if err := HydrateValue(ctx, write.GetValue(), blobStore); err != nil {
+		if err := HydrateValue(ctx, flowID, write.GetValue(), blobStore); err != nil {
 			return err
 		}
 	}
@@ -165,12 +170,12 @@ func HydrateAttributeWrites(ctx context.Context, writes []*dexpb.AttributeWrite,
 }
 
 // HydrateKVs hydrates Value arms on KV pairs.
-func HydrateKVs(ctx context.Context, kvs []*dexpb.KV, blobStore BlobStore) error {
+func HydrateKVs(ctx context.Context, flowID string, kvs []*dexpb.KV, blobStore BlobStore) error {
 	for _, kv := range kvs {
 		if kv == nil {
 			continue
 		}
-		if err := HydrateValue(ctx, kv.GetValue(), blobStore); err != nil {
+		if err := HydrateValue(ctx, flowID, kv.GetValue(), blobStore); err != nil {
 			return err
 		}
 	}
@@ -180,6 +185,7 @@ func HydrateKVs(ctx context.Context, kvs []*dexpb.KV, blobStore BlobStore) error
 // HydrateChannelValues hydrates every pending Channel message Value.
 func HydrateChannelValues(
 	ctx context.Context,
+	flowID string,
 	channels map[string]*dexpb.ChannelValues,
 	blobStore BlobStore,
 ) error {
@@ -191,7 +197,7 @@ func HydrateChannelValues(
 			if message == nil {
 				continue
 			}
-			if err := HydrateValue(ctx, message.GetValue(), blobStore); err != nil {
+			if err := HydrateValue(ctx, flowID, message.GetValue(), blobStore); err != nil {
 				return err
 			}
 		}
@@ -201,19 +207,20 @@ func HydrateChannelValues(
 
 func HydrateConditionResults(
 	ctx context.Context,
+	flowID string,
 	results *dexpb.ConditionResults,
 	blobStore BlobStore,
 ) error {
 	for _, result := range results.GetChannelResults() {
-		if err := HydrateValues(ctx, result.GetValues(), blobStore); err != nil {
+		if err := HydrateFlowValues(ctx, flowID, result.GetValues(), blobStore); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// HydrateValue hydrates a single Value in place.
-func HydrateValue(ctx context.Context, value *dexpb.Value, blobStore BlobStore) error {
+// HydrateValue hydrates a Flow-owned Value in place.
+func HydrateValue(ctx context.Context, flowID string, value *dexpb.Value, blobStore BlobStore) error {
 	if value == nil {
 		return nil
 	}
@@ -223,7 +230,7 @@ func HydrateValue(ctx context.Context, value *dexpb.Value, blobStore BlobStore) 
 		if err != nil {
 			return err
 		}
-		data, err := blobStore.ReadObject(ctx, storeId, path)
+		data, err := blobStore.ReadObject(ctx, storeId, flowID, path)
 		if err != nil {
 			return err
 		}
@@ -234,7 +241,7 @@ func HydrateValue(ctx context.Context, value *dexpb.Value, blobStore BlobStore) 
 		if err != nil {
 			return err
 		}
-		data, err := blobStore.ReadObject(ctx, storeId, path)
+		data, err := blobStore.ReadObject(ctx, storeId, flowID, path)
 		if err != nil {
 			return err
 		}
@@ -245,6 +252,92 @@ func HydrateValue(ctx context.Context, value *dexpb.Value, blobStore BlobStore) 
 		return nil
 	default:
 		return nil
+	}
+}
+
+// TransferValueBlobOwnership ensures value is inline or owned by destinationFlowID.
+func TransferValueBlobOwnership(
+	ctx context.Context,
+	value *dexpb.Value,
+	sourceFlowID string,
+	destinationFlowID string,
+	invocationID string,
+	threshold int,
+	blobStore BlobStore,
+	enabled bool,
+) error {
+	if value == nil {
+		return nil
+	}
+	if destinationFlowID == "" {
+		return fmt.Errorf("destination Flow ID is required to transfer Blob ownership")
+	}
+	_, isBlobReference, err := blobIDFromValue(value)
+	if err != nil {
+		return err
+	}
+	if isBlobReference {
+		if sourceFlowID == "" {
+			return fmt.Errorf("source Flow ID is required to transfer Blob ownership")
+		}
+		if sourceFlowID == destinationFlowID {
+			return nil
+		}
+		if err := HydrateValue(ctx, sourceFlowID, value, blobStore); err != nil {
+			return err
+		}
+	}
+	return OffloadLargeValue(ctx, value, destinationFlowID, invocationID, threshold, blobStore, enabled)
+}
+
+// TransferFlowResultBlobOwnership transfers every completed Step output in result.
+func TransferFlowResultBlobOwnership(
+	ctx context.Context,
+	result *dexpb.FlowResult,
+	sourceFlowID string,
+	destinationFlowID string,
+	invocationID string,
+	threshold int,
+	blobStore BlobStore,
+	enabled bool,
+) error {
+	if result == nil {
+		return nil
+	}
+	for _, completion := range result.GetResults() {
+		if completion == nil {
+			continue
+		}
+		if err := TransferValueBlobOwnership(
+			ctx,
+			completion.GetCompletedStepOutput(),
+			sourceFlowID,
+			destinationFlowID,
+			invocationID,
+			threshold,
+			blobStore,
+			enabled,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func blobIDFromValue(value *dexpb.Value) (string, bool, error) {
+	switch kind := value.GetKind().(type) {
+	case *dexpb.Value_InternalBlobIdForStringValue:
+		if kind.InternalBlobIdForStringValue == "" {
+			return "", false, fmt.Errorf("Blob ID is required")
+		}
+		return kind.InternalBlobIdForStringValue, true, nil
+	case *dexpb.Value_InternalBlobIdForObjValue:
+		if kind.InternalBlobIdForObjValue == "" {
+			return "", false, fmt.Errorf("Blob ID is required")
+		}
+		return kind.InternalBlobIdForObjValue, true, nil
+	default:
+		return "", false, nil
 	}
 }
 

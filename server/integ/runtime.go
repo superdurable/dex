@@ -599,7 +599,7 @@ func jsonObjValue(payload any) *dexpb.Value {
 	return &dexpb.Value{
 		Kind: &dexpb.Value_ObjValue{
 			ObjValue: &dexpb.EncodedObject{
-				Encoding: "json",
+				Encoding: "j",
 				Payload:  bytes,
 			},
 		},
@@ -632,7 +632,7 @@ func objJSONValue(payload string) *dexpb.Value {
 	return &dexpb.Value{
 		Kind: &dexpb.Value_ObjValue{
 			ObjValue: &dexpb.EncodedObject{
-				Encoding: "json",
+				Encoding: "j",
 				Payload:  []byte(payload),
 			},
 		},

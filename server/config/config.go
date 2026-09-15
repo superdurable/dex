@@ -68,8 +68,14 @@ const (
 	DefaultWorkerServiceRequestMaxAttempts = 3
 	// DefaultBlobCacheMaxBytes caps the Server Attribute blob cache at one GiB.
 	DefaultBlobCacheMaxBytes int64 = 1 << 30
-	// DefaultBlobStoreThresholdInBytes offloads Attribute payloads larger than one KiB.
-	DefaultBlobStoreThresholdInBytes = 1 << 10
+	// DefaultBlobStoreThresholdInBytes offloads payloads larger than 100 bytes.
+	DefaultBlobStoreThresholdInBytes = 100
+	// DefaultBlobStoreObjectIDLength is the default Base36 object identifier length.
+	DefaultBlobStoreObjectIDLength = 10
+	// MinimumBlobStoreObjectIDLength is the shortest supported Base36 object identifier.
+	MinimumBlobStoreObjectIDLength = 10
+	// MaximumBlobStoreObjectIDLength is the longest supported Base36 object identifier.
+	MaximumBlobStoreObjectIDLength = 50
 	// DefaultAttributeStoreSchemaSyncInterval refreshes table schemas every minute before jitter.
 	DefaultAttributeStoreSchemaSyncInterval = time.Minute
 	// DefaultAttributeStoreSyncBatchSize caps items in one Attribute Store upsert.
@@ -212,8 +218,10 @@ type (
 		// So that worker & server can minimize the data transfer, and worker can cache the values if needed.
 		// Default true when omitted (nil).
 		LazyLoading *bool `yaml:"lazyLoading"`
-		// ThresholdInBytes triggers blob offload above this payload size. Default 1024. Zero uses the default.
+		// ThresholdInBytes triggers blob offload above this payload size. Default 100. Zero uses the default.
 		ThresholdInBytes int `yaml:"thresholdInBytes"`
+		// ObjectIDLength sets deterministic lowercase Base36 Blob object IDs. Default 10. Valid range 10-50; zero uses the default. Immutable after startup and identical across Servers sharing a namespace.
+		ObjectIDLength int `yaml:"objectIdLength"`
 		// SupportedStorages lists blob backends. Exactly one may have Status active for writes; others are read-only.
 		SupportedStorages []BlobStoreConfigEntry `yaml:"supportedStorages"`
 		// HistoryRetentionInDays must match the Temporal/Cadence history retention. Default 0; configure it explicitly.
@@ -725,12 +733,33 @@ func (c BlobStoreConfig) EffectiveEnabled() bool {
 	return *c.Enabled
 }
 
-// EffectiveThresholdInBytes returns the offload threshold or its one-KiB default.
+// EffectiveThresholdInBytes returns the offload threshold or its 100-byte default.
 func (c BlobStoreConfig) EffectiveThresholdInBytes() int {
 	if c.ThresholdInBytes == 0 {
 		return DefaultBlobStoreThresholdInBytes
 	}
 	return c.ThresholdInBytes
+}
+
+// EffectiveObjectIDLength returns the configured Blob object ID length or its default.
+func (c BlobStoreConfig) EffectiveObjectIDLength() int {
+	if c.ObjectIDLength == 0 {
+		return DefaultBlobStoreObjectIDLength
+	}
+	return c.ObjectIDLength
+}
+
+// Validate checks Blob Store identifier and cache settings.
+func (c BlobStoreConfig) Validate() error {
+	objectIDLength := c.EffectiveObjectIDLength()
+	if objectIDLength < MinimumBlobStoreObjectIDLength || objectIDLength > MaximumBlobStoreObjectIDLength {
+		return fmt.Errorf(
+			"blobStore objectIdLength must be between %d and %d",
+			MinimumBlobStoreObjectIDLength,
+			MaximumBlobStoreObjectIDLength,
+		)
+	}
+	return c.BlobCache.Validate()
 }
 
 // EffectiveMaxBytes returns the configured cache budget or its one-GiB default.

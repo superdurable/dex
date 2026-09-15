@@ -49,12 +49,12 @@ const (
 )
 
 var TestVal1 = &dexpb.EncodedObject{
-	Encoding: "json",
+	Encoding: "j",
 	Payload:  []byte("test-value1"),
 }
 
 var TestVal2 = &dexpb.EncodedObject{
-	Encoding: "json",
+	Encoding: "j",
 	Payload:  []byte("test-value2"),
 }
 

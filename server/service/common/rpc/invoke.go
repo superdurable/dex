@@ -42,11 +42,12 @@ func InvokeWorkerRpc(
 
 	workerInput := req.GetInput()
 	if !blobStoreCfg.EffectiveLazyLoading() {
-		if err := blobstore.HydrateKVs(ctx, rpcPrep.GetAttributes(), blobStore); err != nil {
+		if err := blobstore.HydrateKVs(ctx, req.GetFlowId(), rpcPrep.GetAttributes(), blobStore); err != nil {
 			return nil, err
 		}
 		if err := blobstore.HydrateChannelValues(
 			ctx,
+			req.GetFlowId(),
 			rpcPrep.GetLoadedChannelMessages(),
 			blobStore,
 		); err != nil {
@@ -59,7 +60,7 @@ func InvokeWorkerRpc(
 			// want it to be hydrated.
 			workerInput = &dexpb.Value{Kind: workerInput.GetKind()}
 		}
-		if err := blobstore.HydrateValue(ctx, workerInput, blobStore); err != nil {
+		if err := blobstore.HydrateValue(ctx, req.GetFlowId(), workerInput, blobStore); err != nil {
 			return nil, err
 		}
 	}

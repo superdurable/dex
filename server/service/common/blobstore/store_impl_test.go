@@ -188,7 +188,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Read it back
-		retrievedData, err := blobStore.ReadObject(ctx, storeId, path)
+		retrievedData, err := blobStore.ReadObject(ctx, storeId, workflowId1, path)
 		assert.NoError(t, err)
 		assert.Equal(t, []byte(testData), retrievedData)
 	})
@@ -223,8 +223,8 @@ func TestBlobStoreIntegration(t *testing.T) {
 
 		// Verify workflow paths contain expected patterns
 		todayPrefix := time.Now().UTC().Format("20060102")
-		expectedPath1 := fmt.Sprintf("%s$%s", todayPrefix, workflowId1)
-		expectedPath2 := fmt.Sprintf("%s$%s", todayPrefix, workflowId2)
+		expectedPath1 := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart(workflowId1))
+		expectedPath2 := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart(workflowId2))
 
 		foundPath1 := false
 		foundPath2 := false
@@ -274,7 +274,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 
 		// Delete all objects for the workflow
 		todayPrefix := time.Now().UTC().Format("20060102")
-		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, deleteTestWorkflowId)
+		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart(deleteTestWorkflowId))
 		err = blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath)
 		assert.NoError(t, err)
 
@@ -308,7 +308,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 
 		// Delete all objects for the workflow
 		todayPrefix := time.Now().UTC().Format("20060102")
-		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, multiDeleteWorkflowId)
+		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart(multiDeleteWorkflowId))
 		err = blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath)
 		assert.NoError(t, err)
 
@@ -321,7 +321,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 	t.Run("DeleteWorkflowObjectsNonExistent", func(t *testing.T) {
 		// Try to delete objects for a workflow that doesn't exist
 		todayPrefix := time.Now().UTC().Format("20060102")
-		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, "non-existent-workflow")
+		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart("non-existent-workflow"))
 		err := blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath)
 		assert.NoError(t, err) // Should succeed even if no objects to delete
 	})
@@ -336,7 +336,9 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Contains(t, err.Error(), "store not found")
 
 		// Test reading with invalid store ID
-		_, err = blobStore.ReadObject(ctx, "invalid-store-id", "some-path")
+		_, err = blobStore.ReadObject(
+			ctx, "invalid-store-id", "flow", time.Now().UTC().Format("20060102")+"/0000000000",
+		)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "store not found")
 
@@ -346,7 +348,9 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Contains(t, err.Error(), "store not found")
 
 		// Test reading a non-existent key from a valid store triggers the new error wrapping
-		_, err = blobStore.ReadObject(ctx, testStorageId, "nonexistent/path/that/does/not/exist")
+		_, err = blobStore.ReadObject(
+			ctx, testStorageId, "flow", time.Now().UTC().Format("20060102")+"/0000000000",
+		)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read object")
 	})
@@ -399,9 +403,9 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.NoError(t, err)
 		err = OffloadLargeValue(ctx, objectValue, workflowID, "round-trip", 1, blobStore, true)
 		assert.NoError(t, err)
-		err = HydrateValue(ctx, stringValue, blobStore)
+		err = HydrateValue(ctx, workflowID, stringValue, blobStore)
 		assert.NoError(t, err)
-		err = HydrateValue(ctx, objectValue, blobStore)
+		err = HydrateValue(ctx, workflowID, objectValue, blobStore)
 		assert.NoError(t, err)
 
 		assert.Equal(t, "large string value", stringValue.GetStringValue())

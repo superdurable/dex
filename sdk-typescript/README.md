@@ -409,6 +409,10 @@ continue importing only from `@superdurable/dex`.
 - `blob-cache.ts`: DXBC BlobCache contract and Node-API binding loader
 - `gen/`: checked-in protobuf and grpc-js bindings
 
+Serialized object values use wire encoding `j` for JSON and `r` for raw bytes.
+Internal Blob references are opaque. Hydration sends the owning Flow ID with
+each reference, and the cache is isolated by `(flowId, blobRef)`.
+
 Run `npm run build:native` once to stage the DXBC Node addon for the current
 platform, then `npm test` for runtime contracts, `npm run typecheck` for strict
 static contracts, and `npm run docs:check` for public API documentation. The

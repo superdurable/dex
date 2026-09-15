@@ -336,6 +336,10 @@ retaining protocol presence.
 The shared cache keeps opaque payload bytes on disk and uses Stretto only for
 metadata admission and eviction:
 
+Serialized object values use wire encoding `j` for JSON and `r` for raw bytes.
+Internal Blob references are opaque. Hydration sends the owning Flow ID with
+each reference, and SDK cache keys are isolated by `(flow_id, blob_ref)`.
+
 ```rust
 use dex_blob_cache::{BlobCache, BlobCacheConfig};
 

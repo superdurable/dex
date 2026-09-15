@@ -83,7 +83,7 @@ func doTestFlowWithHeaders(
 	defer cancel()
 
 	flowId := headers.WorkflowType + "-" + uuid.NewString()
-	stepInput := encodedObjectValue("json", []byte("test data"))
+	stepInput := encodedObjectValue("j", []byte("test data"))
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
 		FlowId:             flowId,

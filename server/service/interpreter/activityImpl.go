@@ -101,7 +101,7 @@ func (a *Activities) SyncAttributeBatch(
 		if item == nil {
 			continue
 		}
-		if err := blobstore.HydrateValue(ctx, item.GetValue(), a.blobStore); err != nil {
+		if err := blobstore.HydrateValue(ctx, input.GetFlowId(), item.GetValue(), a.blobStore); err != nil {
 			return fmt.Errorf("hydrate Attribute Store item: %w", err)
 		}
 	}
@@ -143,7 +143,9 @@ func (a *Activities) InvokeWaitForMethod(
 			a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
 			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 		}
-		if err := blobstore.HydrateChannelValues(ctx, req.GetLoadedChannelMessages(), a.blobStore); err != nil {
+		if err := blobstore.HydrateChannelValues(
+			ctx, req.GetContext().GetFlowId(), req.GetLoadedChannelMessages(), a.blobStore,
+		); err != nil {
 			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 		}
 	}
@@ -236,15 +238,16 @@ func (a *Activities) offloadSubFlowStartInputs(
 	conditions []*dexpb.SubFlowCondition,
 ) error {
 	for index, condition := range conditions {
-		_, subFlowID, requestID, err := a.subFlowStartIdentity(
+		parentFlowID, subFlowID, requestID, err := a.subFlowStartIdentity(
 			ctx, stepExecutionID, int32(index),
 		)
 		if err != nil {
 			return err
 		}
-		if err := blobstore.OffloadLargeValue(
+		if err := blobstore.TransferValueBlobOwnership(
 			ctx,
 			condition.GetStepInput(),
+			parentFlowID,
 			subFlowID,
 			requestID,
 			a.cfg.BlobStore.EffectiveThresholdInBytes(),
@@ -253,16 +256,22 @@ func (a *Activities) offloadSubFlowStartInputs(
 		); err != nil {
 			return err
 		}
-		if err := blobstore.OffloadLargeAttributeWrites(
-			ctx,
-			condition.GetOptions().GetAttributes(),
-			subFlowID,
-			requestID,
-			a.cfg.BlobStore.EffectiveThresholdInBytes(),
-			a.blobStore,
-			a.cfg.BlobStore.EffectiveEnabled(),
-		); err != nil {
-			return err
+		for _, attribute := range condition.GetOptions().GetAttributes() {
+			if attribute == nil {
+				continue
+			}
+			if err := blobstore.TransferValueBlobOwnership(
+				ctx,
+				attribute.GetValue(),
+				parentFlowID,
+				subFlowID,
+				requestID,
+				a.cfg.BlobStore.EffectiveThresholdInBytes(),
+				a.blobStore,
+				a.cfg.BlobStore.EffectiveEnabled(),
+			); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -304,13 +313,17 @@ func (a *Activities) InvokeExecuteMethod(
 			a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
 			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 		}
-		if err := blobstore.HydrateKVs(ctx, req.GetStepExeLocals(), a.blobStore); err != nil {
+		if err := blobstore.HydrateKVs(ctx, req.GetContext().GetFlowId(), req.GetStepExeLocals(), a.blobStore); err != nil {
 			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 		}
-		if err := blobstore.HydrateConditionResults(ctx, req.GetConditionResults(), a.blobStore); err != nil {
+		if err := blobstore.HydrateConditionResults(
+			ctx, req.GetContext().GetFlowId(), req.GetConditionResults(), a.blobStore,
+		); err != nil {
 			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 		}
-		if err := blobstore.HydrateChannelValues(ctx, req.GetLoadedChannelMessages(), a.blobStore); err != nil {
+		if err := blobstore.HydrateChannelValues(
+			ctx, req.GetContext().GetFlowId(), req.GetLoadedChannelMessages(), a.blobStore,
+		); err != nil {
 			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 		}
 	}
@@ -840,9 +853,25 @@ func (a *Activities) StartSubFlow(
 		Config:                       flowConfig,
 		TimeoutHandlerOptions:        options.GetTimeoutHandlerOptions(),
 	}
-	return a.subFlowResolver.Resolve(
+	output, err := a.subFlowResolver.Resolve(
 		ctx, condition, subFlowID, requestID, workflowOptions, workflowInput,
 	)
+	if err != nil {
+		return nil, err
+	}
+	if err := blobstore.TransferFlowResultBlobOwnership(
+		ctx,
+		output.GetImmediateFlowResult(),
+		subFlowID,
+		parentFlowID,
+		requestID,
+		a.cfg.BlobStore.EffectiveThresholdInBytes(),
+		a.blobStore,
+		a.cfg.BlobStore.EffectiveEnabled(),
+	); err != nil {
+		return nil, fmt.Errorf("transfer immediate SubFlow result Blob ownership: %w", err)
+	}
+	return output, nil
 }
 
 func (a *Activities) subFlowStartIdentity(
@@ -878,8 +907,21 @@ func (a *Activities) ReportSubFlowCompletion(
 	if result == nil || request.GetSubFlowId() != activityInfo.WorkflowExecution.ID {
 		return nil, fmt.Errorf("SubFlow completion result does not match the reporting workflow")
 	}
+	destinationRequest := copySubFlowCompletionRequestForBlobOwnershipTransfer(request)
+	if err := blobstore.TransferFlowResultBlobOwnership(
+		ctx,
+		destinationRequest.GetFlowResult(),
+		activityInfo.WorkflowExecution.ID,
+		parentFlowID,
+		activityInvocationId(activityInfo),
+		a.cfg.BlobStore.EffectiveThresholdInBytes(),
+		a.blobStore,
+		a.cfg.BlobStore.EffectiveEnabled(),
+	); err != nil {
+		return nil, fmt.Errorf("transfer SubFlow completion Blob ownership: %w", err)
+	}
 	err := a.unifiedClient.SignalWorkflow(
-		ctx, parentFlowID, "", service.SubFlowCompletionSignalChannelName, request,
+		ctx, parentFlowID, "", service.SubFlowCompletionSignalChannelName, destinationRequest,
 	)
 	if err == nil {
 		return &dexpb.ReportSubFlowCompletionActivityOutput{
@@ -892,6 +934,37 @@ func (a *Activities) ReportSubFlowCompletion(
 		}, nil
 	}
 	return nil, fmt.Errorf("report SubFlow completion: %w", err)
+}
+
+func copySubFlowCompletionRequestForBlobOwnershipTransfer(
+	request *dexpb.SubFlowCompletionSignalRequest,
+) *dexpb.SubFlowCompletionSignalRequest {
+	result := request.GetFlowResult()
+	copiedResult := &dexpb.FlowResult{
+		FlowStatus:   result.GetFlowStatus(),
+		ErrorType:    result.GetErrorType(),
+		ErrorMessage: result.GetErrorMessage(),
+		Results:      make([]*dexpb.StepCompletionOutput, 0, len(result.GetResults())),
+	}
+	for _, completion := range result.GetResults() {
+		if completion == nil {
+			copiedResult.Results = append(copiedResult.Results, nil)
+			continue
+		}
+		var copiedValue *dexpb.Value
+		if completion.GetCompletedStepOutput() != nil {
+			copiedValue = &dexpb.Value{Kind: completion.GetCompletedStepOutput().GetKind()}
+		}
+		copiedResult.Results = append(copiedResult.Results, &dexpb.StepCompletionOutput{
+			CompletedStepType:        completion.GetCompletedStepType(),
+			CompletedStepExecutionId: completion.GetCompletedStepExecutionId(),
+			CompletedStepOutput:      copiedValue,
+		})
+	}
+	return &dexpb.SubFlowCompletionSignalRequest{
+		SubFlowId:  request.GetSubFlowId(),
+		FlowResult: copiedResult,
+	}
 }
 
 func buildSubFlowConfig(parent, override *dexpb.FlowConfig) (*dexpb.FlowConfig, error) {
@@ -1016,10 +1089,12 @@ func (a *Activities) CleanupBlobsAfterAllRunsDeleted(
 func (a *Activities) hydrateWorkerRequestValues(
 	ctx context.Context, stepInput *dexpb.Value, attributes []*dexpb.KV,
 ) error {
-	if err := blobstore.HydrateValue(ctx, stepInput, a.blobStore); err != nil {
+	activityInfo := a.activityProvider.GetActivityInfo(ctx)
+	flowID := activityInfo.WorkflowExecution.ID
+	if err := blobstore.HydrateValue(ctx, flowID, stepInput, a.blobStore); err != nil {
 		return err
 	}
-	return blobstore.HydrateKVs(ctx, attributes, a.blobStore)
+	return blobstore.HydrateKVs(ctx, flowID, attributes, a.blobStore)
 }
 
 func (a *Activities) offloadWorkerAttributeWrites(

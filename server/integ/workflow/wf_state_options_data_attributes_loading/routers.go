@@ -234,7 +234,7 @@ func dataObjectWrite(key, payload string) *dexpb.AttributeWrite {
 		Value: &dexpb.Value{
 			Kind: &dexpb.Value_ObjValue{
 				ObjValue: &dexpb.EncodedObject{
-					Encoding: "json",
+					Encoding: "j",
 					Payload:  []byte(payload),
 				},
 			},

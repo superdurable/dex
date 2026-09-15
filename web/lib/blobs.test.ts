@@ -45,8 +45,10 @@ describe('blob hydration', () => {
   it('batches replacements and reuses cached values', async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {
+        flowId: string;
         values: Array<{ id: string; kind: string }>;
       };
+      expect(body.flowId).toBe('flow-1');
       expect(body.values).toEqual([
         { id: 'input', kind: 'object' },
         { id: 'attribute', kind: 'string' },
@@ -67,13 +69,13 @@ describe('blob hydration', () => {
       },
     };
 
-    const first = await hydrateBlobs(source, cache, undefined, fetcher as typeof fetch);
+    const first = await hydrateBlobs('flow-1', source, cache, undefined, fetcher as typeof fetch);
     expect(first.value).toEqual({
       stepInput: { order: 42 },
       attributes: [{ value: 'ready' }],
       conditionResults: { channelResults: [{ values: [{ order: 42 }] }] },
     });
-    await hydrateBlobs(source, cache, undefined, fetcher as typeof fetch);
+    await hydrateBlobs('flow-1', source, cache, undefined, fetcher as typeof fetch);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
@@ -83,6 +85,7 @@ describe('blob hydration', () => {
       { status: 502 },
     ));
     const result = await hydrateBlobs(
+      'flow-1',
       { stepInput: reference('secret-object-id', 'object') },
       new Map(),
       undefined,

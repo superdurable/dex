@@ -203,7 +203,7 @@ func MapCadenceSearchAttributeFieldsToKVs(searchAttributes *shared.SearchAttribu
 	for _, key := range keys {
 		result = append(result, &dexpb.KV{
 			Key:   key,
-			Value: jsonPayloadToBestEffortValue(searchAttributes.GetIndexedFields()[key], "json"),
+			Value: jsonPayloadToBestEffortValue(searchAttributes.GetIndexedFields()[key], "j"),
 		})
 	}
 	return result
@@ -423,7 +423,7 @@ func backendObjectToValue(object interface{}, indexType dexpb.IndexType, cadence
 		return &dexpb.Value{
 			Kind: &dexpb.Value_ObjValue{
 				ObjValue: &dexpb.EncodedObject{
-					Encoding: "json",
+					Encoding: "j",
 					Payload:  payload,
 				},
 			},
