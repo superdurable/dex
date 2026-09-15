@@ -91,6 +91,11 @@ class Wait:
         Conditions do not need condition IDs. Read Channel results from the
         Channel definition and inspect Timer outcomes through ``Context``.
 
+        Among ready Conditions, Dex selects the first in canonical order:
+        Timers, Channels, then SubFlows, preserving argument order within each
+        kind. An unready Condition does not block a later ready Condition. To
+        wait for strict priority, return only the higher-priority Condition.
+
         Channel consumption is not greedy across alternatives. Dex consumes
         messages only from the selected Channel Condition; other ready Channel
         Conditions consume nothing.
@@ -99,7 +104,7 @@ class Wait:
             *conditions: Alternative readiness Conditions.
 
         Returns:
-            An any-of Wait with Conditions in argument order.
+            An any-of Wait containing the alternative Conditions.
         """
         return Wait(WaitKind.ANY_OF, conditions)
 

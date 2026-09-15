@@ -479,6 +479,10 @@ export const Wait = Object.freeze({
    * Conditions do not need condition IDs. Read Channel results from the Channel
    * definition and inspect Timer outcomes through `Context`.
    *
+   * Among ready conditions, Dex selects the first in canonical order: Timers, Channels, then
+   * SubFlows, preserving argument order within each kind. An unready condition does not block a
+   * later ready condition. To wait for strict priority, return only the higher-priority condition.
+   *
    * Channel consumption is not greedy across alternatives: only the selected condition consumes.
    * Other ready Channel conditions consume nothing.
    * @param conditions - Alternative readiness conditions.

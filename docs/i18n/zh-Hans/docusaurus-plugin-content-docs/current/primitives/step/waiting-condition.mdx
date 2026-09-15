@@ -19,6 +19,14 @@ WaitFor 完成后，Execute 可读取满足 Wait 的内容。对 [Channel](/prim
 
 **AnyOf** 的各备选条件之间不会 greedy 地消费 Channel。Dex 只消费被选中用来满足 Wait 的 Channel condition。即使其他 Channel condition 也已满足，它们也不会消费消息，消息会继续留在队列中。
 
+当多个 **AnyOf** 备选条件在同一次求值中均已满足时，Dex 按规范顺序选择第一个可行候选：
+先按声明顺序检查 Timer condition，再按声明顺序检查 Channel condition，最后按声明顺序检查
+SubFlow condition。前面尚未满足的 condition 不会阻塞后面已满足的 condition。因此，混合类型的
+condition 不共享一个全局调用参数顺序。
+
+**AnyOf** 表达当前备选条件之间的竞速。如果严格优先级要求继续等待高优先级输入，请只返回该
+condition，等它解决后再开放其他条件。
+
 ### Channel 结果
 
 <SdkTabs

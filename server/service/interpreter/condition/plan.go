@@ -113,7 +113,7 @@ func buildTriggerCandidates(
 	case dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED:
 		// ANY has one candidate per condition.
 		//
-		// Canonical order: timers by declaration, then channels by declaration.
+		// Canonical order: timers, channels, then SubFlows; declaration order within each kind.
 		candidates := make([]triggerCandidate, 0, len(timers)+len(channels)+len(subFlows))
 		for i := range timers {
 			candidates = append(candidates, triggerCandidate{timerIndexes: []int{i}})

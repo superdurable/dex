@@ -64,6 +64,11 @@ impl Wait {
 
     /// Waits until at least one condition is satisfied. Conditions do not need IDs.
     ///
+    /// Among ready conditions, Dex selects the first in canonical order: Timers, Channels, then
+    /// SubFlows, preserving iterator order within each kind. An unready condition does not block a
+    /// later ready condition. To wait for strict priority, return only the higher-priority
+    /// condition.
+    ///
     /// Channel consumption is not greedy across alternatives. Only the selected Channel condition
     /// consumes messages; other ready Channel conditions consume nothing.
     pub fn any_of(conditions: impl IntoIterator<Item = Condition>) -> Self {

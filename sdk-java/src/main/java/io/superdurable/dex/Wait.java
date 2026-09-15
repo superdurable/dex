@@ -98,6 +98,11 @@ public final class Wait {
      * <p>Conditions do not need condition IDs. Read Channel results from the Channel definition
      * and inspect Timer outcomes through {@link Context}.
      *
+     * <p>Among ready conditions, Dex selects the first in canonical order: Timers, Channels, then
+     * SubFlows, preserving argument order within each kind. An unready condition does not block a
+     * later ready condition. To wait for strict priority, return only the higher-priority
+     * condition.
+     *
      * <p>Channel consumption is not greedy across alternatives. Dex consumes messages only from
      * the selected Channel condition; other ready Channel conditions consume nothing.
      *

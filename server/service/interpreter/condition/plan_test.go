@@ -134,16 +134,50 @@ func TestPlan_ALL_ZeroToAllStealsNothingWhenMinimumTight(t *testing.T) {
 }
 
 func TestPlan_ANY_FirstFeasibleInDeclarationOrder(t *testing.T) {
-	// c1 needs 5 (unmet), c2 needs 1 (met) -> ANY picks c2.
-	waitingCondition := wcAny(
-		chCond("c1", "chA", ptr.Any(int32(5)), ptr.Any(int32(5))),
-		chCond("c2", "chB", nil, nil),
-	)
-	plan, ok := Plan(waitingCondition, ChannelAvailability{"chA": 1, "chB": 2}, nil, nil)
-	require.True(t, ok)
-	counts := consumeByConditionIndex(plan)
-	assert.Contains(t, counts, 1)
-	assert.NotContains(t, counts, 0)
+	t.Run("first ready Channel wins", func(t *testing.T) {
+		waitingCondition := wcAny(
+			chCond("c1", "chA", nil, nil),
+			chCond("c2", "chB", nil, nil),
+		)
+		plan, ok := Plan(waitingCondition, ChannelAvailability{"chA": 1, "chB": 2}, nil, nil)
+		require.True(t, ok)
+		counts := consumeByConditionIndex(plan)
+		assert.Contains(t, counts, 0)
+		assert.NotContains(t, counts, 1)
+	})
+
+	t.Run("unready Channel does not block later ready Channel", func(t *testing.T) {
+		waitingCondition := wcAny(
+			chCond("c1", "chA", ptr.Any(int32(5)), ptr.Any(int32(5))),
+			chCond("c2", "chB", nil, nil),
+		)
+		plan, ok := Plan(waitingCondition, ChannelAvailability{"chA": 1, "chB": 2}, nil, nil)
+		require.True(t, ok)
+		counts := consumeByConditionIndex(plan)
+		assert.Contains(t, counts, 1)
+		assert.NotContains(t, counts, 0)
+	})
+}
+
+func TestBuildTriggerCandidates_ANY_CanonicalKindOrder(t *testing.T) {
+	waitingCondition := &dexpb.WaitingConditionState{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+		TimerConditions:      []*dexpb.TimerCondition{timerCond("t1"), timerCond("t2")},
+		ChannelConditions: []*dexpb.ChannelCondition{
+			chCond("c1", "chA", nil, nil),
+			chCond("c2", "chB", nil, nil),
+		},
+		SubFlowConditions: []*dexpb.SubFlowConditionState{{ConditionId: "s1"}, {ConditionId: "s2"}},
+	}
+
+	assert.Equal(t, []triggerCandidate{
+		{timerIndexes: []int{0}},
+		{timerIndexes: []int{1}},
+		{channelIndexes: []int{0}},
+		{channelIndexes: []int{1}},
+		{subFlowIndexes: []int{0}},
+		{subFlowIndexes: []int{1}},
+	}, buildTriggerCandidates(waitingCondition))
 }
 
 func TestPlan_ANY_TimerCandidate(t *testing.T) {

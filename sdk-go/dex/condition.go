@@ -49,6 +49,9 @@ func AllOf(conditions ...Condition) *Wait {
 
 // AnyOf waits until at least one condition is satisfied.
 // Conditions do not need IDs.
+// Among ready conditions, Dex selects the first in canonical order: Timers, Channels, then
+// SubFlows, preserving declaration order within each kind. An unready condition does not block
+// a later ready condition. Return only the higher-priority condition to wait for strict priority.
 // It consumes messages only from the selected Channel condition, not other ready alternatives.
 func AnyOf(conditions ...Condition) *Wait {
 	return &Wait{kind: waitAnyOf, conditions: conditions}

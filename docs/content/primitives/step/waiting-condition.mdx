@@ -21,6 +21,17 @@ After WaitFor completes, Execute can read what satisfied the Wait. For a [Channe
 
 Channel consumption is not greedy across **AnyOf** alternatives. Dex consumes messages only from the Channel condition selected to satisfy the Wait. Other Channel conditions consume nothing even if they are also ready, so their messages remain queued.
 
+When several **AnyOf** alternatives are ready in one evaluation, Dex selects
+the first feasible candidate in canonical order: Timer conditions in declaration
+order, then Channel conditions in declaration order, then SubFlow conditions in
+declaration order. An earlier condition that is not ready does not block a later
+ready condition. Mixed condition kinds therefore do not share one global call
+argument order.
+
+Use **AnyOf** for a race among the current alternatives. For strict priority
+that must keep waiting for a higher-priority input, return only that condition
+until it is resolved.
+
 ### Channel results
 
 <SdkTabs
