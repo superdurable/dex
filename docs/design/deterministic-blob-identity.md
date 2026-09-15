@@ -18,8 +18,7 @@ For `StartFlow`, the server stores the request ID in workflow memo. When
 `ignore_already_started_error` is enabled, an AlreadyStarted error is ignored
 only when the running workflow has the same request ID.
 
-`FlowAlreadyStartedOptions.request_id` is removed and its field number and name
-are reserved.
+`FlowAlreadyStartedOptions.request_id` is removed without a compatibility field.
 
 ## Blob object ID
 
@@ -29,7 +28,7 @@ Blob object names use a configurable deterministic lowercase Base36 ID:
 digest = SHA-256(lengthPrefixed(
   "dex-blob-v2",
   invocationID,
-  payload,
+  storedBytes,
 ))
 objectID = fixedWidthBase36(digest mod 36^objectIdLength)
 ```
@@ -39,16 +38,20 @@ alphabet is `0123456789abcdefghijklmnopqrstuvwxyz`. The configured length defaul
 to 10 and accepts 10 through 50. All Servers writing the same namespace use the
 same immutable value.
 
-Durable History stores a compact locator without the Flow ID:
+String blobs store their UTF-8 bytes. Object blobs store a deterministic protobuf
+serialization of the complete `EncodedObject`, including its encoding and
+payload. The offload threshold still compares the original payload length.
+
+Durable History stores a compact locator without the Flow ID or encoding:
 
 ```text
-<storageId>|<yyyyMMdd>/<objectID>[|<encoding>]
+<storageId>|<yyMMdd>/<objectID>
 ```
 
 The Server combines the locator with the contextual Flow ID:
 
 ```text
-<namespace>/v2/<yyyyMMdd>$<base64url(flowID)>/<objectID>
+<namespace>/<yyMMdd>$<base64url(flowID)>/<objectID>
 ```
 
 Activity writes use the workflow run ID plus activity ID as `invocationID`.
@@ -64,7 +67,8 @@ boundary, the Server reads it with the source Flow ID and writes any still-large
 value under the destination Flow ID. This makes cleanup of the source Flow safe.
 
 The date prefix uses the server's UTC date when the object is written. A retry
-crossing a UTC date boundary can create another path.
+crossing a UTC date boundary can create another path. Its two-digit year covers
+2000 through 2099.
 
 S3 bucket versioning must remain disabled. Otherwise, repeated writes to one
 deterministic key retain hidden object versions.

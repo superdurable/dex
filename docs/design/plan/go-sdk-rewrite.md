@@ -134,8 +134,8 @@ remains internal.
 | unsigned integers up to `math.MaxInt64` | `int_value` |
 | float32 and float64 | `double_value` |
 | bool and named bools | `bool_value` |
-| `[]byte` and named byte slices | `obj_value`, encoding `"r"` |
-| all other JSON-compatible values | `obj_value`, encoding `"j"` |
+| `[]byte` and named byte slices | `obj_value`, encoding `"raw"` |
+| all other JSON-compatible values | `obj_value`, encoding `"json"` |
 
 Strings with invalid UTF-8 return an encoding error; arbitrary binary data uses
 `[]byte`. Raw-byte object payloads contain the bytes directly without JSON or

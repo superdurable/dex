@@ -273,7 +273,7 @@ func jsonObjValue(payload string) *dexpb.Value {
 	return &dexpb.Value{
 		Kind: &dexpb.Value_ObjValue{
 			ObjValue: &dexpb.EncodedObject{
-				Encoding: "j",
+				Encoding: "json",
 				Payload:  []byte(payload),
 			},
 		},

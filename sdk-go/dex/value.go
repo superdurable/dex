@@ -24,8 +24,8 @@ import (
 )
 
 const (
-	jsonEncoding     = "j"
-	rawBytesEncoding = "r"
+	jsonEncoding     = "json"
+	rawBytesEncoding = "raw"
 	dateTimeFormat   = time.RFC3339Nano
 )
 

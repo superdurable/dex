@@ -455,7 +455,7 @@ final class ClientExceptionIntegrationTest {
                             value.getInternalBlobIdForObjValue(),
                             Value.newBuilder()
                                     .setObjValue(EncodedObject.newBuilder()
-                                            .setEncoding("r")
+                                            .setEncoding("raw")
                                             .setPayload(ByteString.copyFromUtf8("done")))
                                     .build());
                 }

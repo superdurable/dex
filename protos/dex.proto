@@ -132,7 +132,7 @@ message Value {
 }
 
 message EncodedObject {
-  // "j" is JSON and "r" is raw bytes. Other values are passed through.
+  // "json" is JSON and "raw" is raw bytes. Other values are passed through.
   string encoding = 1;
   bytes payload = 2;
 }

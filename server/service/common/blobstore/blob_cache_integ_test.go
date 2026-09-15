@@ -57,7 +57,7 @@ func TestS3AttributeBlobCacheIntegration(t *testing.T) {
 	t.Run("read miss fills cache", func(t *testing.T) {
 		payload := []byte("read-fill payload")
 		flowID := uniqueCacheWorkflowID("read-fill")
-		locator := time.Now().UTC().Format("20060102") + "/0000000000"
+		locator := formatBlobDate(time.Now()) + "/0000000000"
 		path, err := ValueObjectPath(flowID, locator)
 		require.NoError(t, err)
 		require.NoError(t, store.writeObject(ctx, store.activeStorage, path, payload))

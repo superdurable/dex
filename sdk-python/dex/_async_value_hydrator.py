@@ -305,7 +305,7 @@ class AsyncValueHydrator:
                 raise ValueError("non-finite numbers are unsupported")
             return
         if kind == "obj_value":
-            if value.obj_value.encoding not in ("j", "r"):
+            if value.obj_value.encoding not in ("json", "raw"):
                 raise ValueError(
                     f"unsupported object encoding {value.obj_value.encoding}"
                 )

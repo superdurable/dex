@@ -297,7 +297,7 @@ to hydrate blob-backed values through Dex FlowService. `workerTarget` is the
 address advertised in Flow configuration; when omitted, Worker derives it from
 the bind address and exposes it through `worker.getWorkerTarget()`.
 
-Serialized object values use wire encoding `j` for JSON and `r` for raw bytes.
+Serialized object values use wire encoding `json` for JSON and `raw` for raw bytes.
 Internal Blob references are opaque. Hydration sends the owning Flow ID with
 each reference, and the local cache is isolated by `(flowId, blobRef)`.
 

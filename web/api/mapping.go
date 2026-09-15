@@ -191,7 +191,7 @@ func dexValue(value *dexpb.Value) interface{} {
 	case *dexpb.Value_NullValue:
 		return nil
 	case *dexpb.Value_ObjValue:
-		if kind.ObjValue.GetEncoding() == "j" {
+		if kind.ObjValue.GetEncoding() == "json" {
 			var decoded interface{}
 			if err := json.Unmarshal(kind.ObjValue.GetPayload(), &decoded); err == nil {
 				return decoded

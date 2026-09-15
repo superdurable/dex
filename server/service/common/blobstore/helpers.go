@@ -13,8 +13,10 @@ package blobstore
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/superdurable/dex/gen/dexpb"
+	"google.golang.org/protobuf/proto"
 )
 
 // OffloadLargeAttributeWrites replaces oversized string/object Value arms with server-minted blob ids.
@@ -122,18 +124,22 @@ func offloadValue(
 		if err != nil {
 			return err
 		}
-		blobId := formatStringBlobId(storeId, path)
+		blobId := formatBlobID(storeId, path)
 		value.Kind = &dexpb.Value_InternalBlobIdForStringValue{InternalBlobIdForStringValue: blobId}
 		return nil
 	case *dexpb.Value_ObjValue:
 		if kind.ObjValue == nil || len(kind.ObjValue.GetPayload()) <= threshold {
 			return nil
 		}
-		storeId, path, err := blobStore.WriteObject(ctx, flowId, invocationId, kind.ObjValue.GetPayload())
+		encodedObject, err := proto.MarshalOptions{Deterministic: true}.Marshal(kind.ObjValue)
+		if err != nil {
+			return fmt.Errorf("marshal EncodedObject: %w", err)
+		}
+		storeId, path, err := blobStore.WriteObject(ctx, flowId, invocationId, encodedObject)
 		if err != nil {
 			return err
 		}
-		blobId := formatObjBlobId(storeId, path, kind.ObjValue.GetEncoding())
+		blobId := formatBlobID(storeId, path)
 		value.Kind = &dexpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: blobId}
 		return nil
 	default:
@@ -226,7 +232,7 @@ func HydrateValue(ctx context.Context, flowID string, value *dexpb.Value, blobSt
 	}
 	switch kind := value.GetKind().(type) {
 	case *dexpb.Value_InternalBlobIdForStringValue:
-		storeId, path, _, err := parseBlobId(kind.InternalBlobIdForStringValue)
+		storeId, path, err := parseBlobID(kind.InternalBlobIdForStringValue)
 		if err != nil {
 			return err
 		}
@@ -237,7 +243,7 @@ func HydrateValue(ctx context.Context, flowID string, value *dexpb.Value, blobSt
 		value.Kind = &dexpb.Value_StringValue{StringValue: string(data)}
 		return nil
 	case *dexpb.Value_InternalBlobIdForObjValue:
-		storeId, path, encoding, err := parseBlobId(kind.InternalBlobIdForObjValue)
+		storeId, path, err := parseBlobID(kind.InternalBlobIdForObjValue)
 		if err != nil {
 			return err
 		}
@@ -245,10 +251,11 @@ func HydrateValue(ctx context.Context, flowID string, value *dexpb.Value, blobSt
 		if err != nil {
 			return err
 		}
-		value.Kind = &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
-			Encoding: encoding,
-			Payload:  data,
-		}}
+		encodedObject := &dexpb.EncodedObject{}
+		if err := proto.Unmarshal(data, encodedObject); err != nil {
+			return fmt.Errorf("unmarshal EncodedObject: %w", err)
+		}
+		value.Kind = &dexpb.Value_ObjValue{ObjValue: encodedObject}
 		return nil
 	default:
 		return nil
@@ -341,36 +348,14 @@ func blobIDFromValue(value *dexpb.Value) (string, bool, error) {
 	}
 }
 
-func formatStringBlobId(storeId, path string) string {
+func formatBlobID(storeId, path string) string {
 	return storeId + "|" + path
 }
 
-func formatObjBlobId(storeId, path, encoding string) string {
-	return storeId + "|" + path + "|" + encoding
-}
-
-func parseBlobId(blobId string) (storeId, path, encoding string, err error) {
-	first := -1
-	for i := 0; i < len(blobId); i++ {
-		if blobId[i] == '|' {
-			first = i
-			break
-		}
+func parseBlobID(blobID string) (storeID, path string, err error) {
+	storeID, path, found := strings.Cut(blobID, "|")
+	if !found || storeID == "" || path == "" || strings.Contains(path, "|") {
+		return "", "", fmt.Errorf("invalid Blob ID %q", blobID)
 	}
-	if first < 0 {
-		return "", "", "", fmt.Errorf("invalid blob id %q", blobId)
-	}
-	storeId = blobId[:first]
-	rest := blobId[first+1:]
-	second := -1
-	for i := 0; i < len(rest); i++ {
-		if rest[i] == '|' {
-			second = i
-			break
-		}
-	}
-	if second < 0 {
-		return storeId, rest, "", nil
-	}
-	return storeId, rest[:second], rest[second+1:], nil
+	return storeID, path, nil
 }

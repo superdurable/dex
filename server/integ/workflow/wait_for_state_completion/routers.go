@@ -162,7 +162,7 @@ func stepInputString(stepInput *dexpb.Value) string {
 		return stringValue.StringValue
 	}
 	if objValue, ok := stepInput.Kind.(*dexpb.Value_ObjValue); ok {
-		if objValue.ObjValue.GetEncoding() == "j" {
+		if objValue.ObjValue.GetEncoding() == "json" {
 			return string(objValue.ObjValue.GetPayload())
 		}
 	}

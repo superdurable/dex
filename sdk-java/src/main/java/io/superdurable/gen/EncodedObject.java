@@ -55,7 +55,7 @@ private static final long serialVersionUID = 0L;
   private volatile java.lang.Object encoding_ = "";
   /**
    * <pre>
-   * "j" is JSON and "r" is raw bytes. Other values are passed through.
+   * "json" is JSON and "raw" is raw bytes. Other values are passed through.
    * </pre>
    *
    * <code>string encoding = 1;</code>
@@ -76,7 +76,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * "j" is JSON and "r" is raw bytes. Other values are passed through.
+   * "json" is JSON and "raw" is raw bytes. Other values are passed through.
    * </pre>
    *
    * <code>string encoding = 1;</code>
@@ -432,7 +432,7 @@ private static final long serialVersionUID = 0L;
     private java.lang.Object encoding_ = "";
     /**
      * <pre>
-     * "j" is JSON and "r" is raw bytes. Other values are passed through.
+     * "json" is JSON and "raw" is raw bytes. Other values are passed through.
      * </pre>
      *
      * <code>string encoding = 1;</code>
@@ -452,7 +452,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * "j" is JSON and "r" is raw bytes. Other values are passed through.
+     * "json" is JSON and "raw" is raw bytes. Other values are passed through.
      * </pre>
      *
      * <code>string encoding = 1;</code>
@@ -473,7 +473,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * "j" is JSON and "r" is raw bytes. Other values are passed through.
+     * "json" is JSON and "raw" is raw bytes. Other values are passed through.
      * </pre>
      *
      * <code>string encoding = 1;</code>
@@ -490,7 +490,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * "j" is JSON and "r" is raw bytes. Other values are passed through.
+     * "json" is JSON and "raw" is raw bytes. Other values are passed through.
      * </pre>
      *
      * <code>string encoding = 1;</code>
@@ -504,7 +504,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * "j" is JSON and "r" is raw bytes. Other values are passed through.
+     * "json" is JSON and "raw" is raw bytes. Other values are passed through.
      * </pre>
      *
      * <code>string encoding = 1;</code>

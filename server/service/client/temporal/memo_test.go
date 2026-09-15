@@ -74,7 +74,7 @@ func TestGetMemoAndDecryptIfNeeded(t *testing.T) {
 	client := &temporalClient{dataConverter: cryptoConverter, memoEncryption: true}
 
 	encoded := &dexpb.EncodedObject{
-		Encoding: "j",
+		Encoding: "json",
 		Payload:  []byte("TestValue"),
 	}
 	expected := &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: encoded}}

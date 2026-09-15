@@ -222,7 +222,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.True(t, len(output.WorkflowPaths) >= 2)
 
 		// Verify workflow paths contain expected patterns
-		todayPrefix := time.Now().UTC().Format("20060102")
+		todayPrefix := formatBlobDate(time.Now())
 		expectedPath1 := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart(workflowId1))
 		expectedPath2 := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart(workflowId2))
 
@@ -273,7 +273,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Equal(t, int64(3), count)
 
 		// Delete all objects for the workflow
-		todayPrefix := time.Now().UTC().Format("20060102")
+		todayPrefix := formatBlobDate(time.Now())
 		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart(deleteTestWorkflowId))
 		err = blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath)
 		assert.NoError(t, err)
@@ -307,7 +307,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Equal(t, int64(numObjects), count)
 
 		// Delete all objects for the workflow
-		todayPrefix := time.Now().UTC().Format("20060102")
+		todayPrefix := formatBlobDate(time.Now())
 		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart(multiDeleteWorkflowId))
 		err = blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath)
 		assert.NoError(t, err)
@@ -320,7 +320,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 
 	t.Run("DeleteWorkflowObjectsNonExistent", func(t *testing.T) {
 		// Try to delete objects for a workflow that doesn't exist
-		todayPrefix := time.Now().UTC().Format("20060102")
+		todayPrefix := formatBlobDate(time.Now())
 		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart("non-existent-workflow"))
 		err := blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath)
 		assert.NoError(t, err) // Should succeed even if no objects to delete
@@ -337,7 +337,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 
 		// Test reading with invalid store ID
 		_, err = blobStore.ReadObject(
-			ctx, "invalid-store-id", "flow", time.Now().UTC().Format("20060102")+"/0000000000",
+			ctx, "invalid-store-id", "flow", formatBlobDate(time.Now())+"/0000000000",
 		)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "store not found")
@@ -349,7 +349,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 
 		// Test reading a non-existent key from a valid store triggers the new error wrapping
 		_, err = blobStore.ReadObject(
-			ctx, testStorageId, "flow", time.Now().UTC().Format("20060102")+"/0000000000",
+			ctx, testStorageId, "flow", formatBlobDate(time.Now())+"/0000000000",
 		)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read object")

@@ -45,20 +45,20 @@ func ExtractWorkflowId(workflowPath string) (string, error) {
 	return flowID, nil
 }
 
-func ExtractYyyymmddToUnixSeconds(workflowPath string) (int64, bool) {
-	// yyyymmdd$encodedFlowId
-	yyyymmdd, err := ExtractYyyymmdd(workflowPath)
+func ExtractYymmddToUnixSeconds(workflowPath string) (int64, bool) {
+	// yymmdd$encodedFlowId
+	yymmdd, err := ExtractYymmdd(workflowPath)
 	if err != nil {
 		return 0, false
 	}
-	parsedTime, err := time.Parse("20060102", yyyymmdd)
+	parsedTime, err := parseBlobDate(yymmdd)
 	if err != nil {
 		panic(err)
 	}
 	return parsedTime.Unix(), true
 }
 
-func ExtractYyyymmdd(workflowPath string) (string, error) {
+func ExtractYymmdd(workflowPath string) (string, error) {
 	parts := strings.Split(workflowPath, "$")
 	if len(parts) != 2 {
 		return "", fmt.Errorf("invalid workflow path: %s", workflowPath)
@@ -77,7 +77,7 @@ func ParseWorkflowPath(workflowPath string) (WorkflowPath, error) {
 	if len(parts) != 2 && len(parts) != 3 {
 		return WorkflowPath{}, fmt.Errorf("invalid workflow path: %s", workflowPath)
 	}
-	if _, err := time.Parse("20060102", parts[0]); err != nil {
+	if _, err := parseBlobDate(parts[0]); err != nil {
 		return WorkflowPath{}, fmt.Errorf("invalid workflow path date: %w", err)
 	}
 	flowID, err := decodePathPart(parts[1])
@@ -102,7 +102,7 @@ func StepEventInputPath(
 	method string,
 ) string {
 	workflowPath := strings.Join([]string{
-		runStarted.UTC().Format("20060102"),
+		formatBlobDate(runStarted),
 		encodePathPart(flowID),
 		encodePathPart(runID),
 	}, "$")
@@ -117,7 +117,7 @@ func ValueObjectPath(flowID string, locator string) (string, error) {
 	if len(parts) != 2 {
 		return "", fmt.Errorf("invalid Blob locator %q", locator)
 	}
-	if _, err := time.Parse("20060102", parts[0]); err != nil {
+	if _, err := parseBlobDate(parts[0]); err != nil {
 		return "", fmt.Errorf("invalid Blob locator date: %w", err)
 	}
 	objectID := parts[1]
@@ -144,6 +144,14 @@ func decodePathPart(value string) (string, error) {
 	return string(decoded), nil
 }
 
+func formatBlobDate(timestamp time.Time) string {
+	return timestamp.UTC().Format("060102")
+}
+
+func parseBlobDate(value string) (time.Time, error) {
+	return time.Parse("20060102", "20"+value)
+}
+
 type BlobStore interface {
 	Close() error
 	// WriteObject stores data under the Flow-owned path and returns its compact locator.
@@ -168,11 +176,10 @@ type BlobStore interface {
 		method string,
 	) ([]byte, bool, error)
 	// DeleteWorkflowObjects will delete all the objects of the workflowId
-	// workflowPath is yyyymmdd$encodedFlowId, where yymmdd is needed to compose the path
+	// workflowPath is yymmdd$encodedFlowId, where yymmdd is needed to compose the path
 	DeleteWorkflowObjects(ctx context.Context, storeId, workflowPath string) error
-	// ListWorkflowPaths will list the workflowPaths ( yyyymmdd$encodedFlowId ) as CommonPrefixes from S3
+	// ListWorkflowPaths will list the workflowPaths ( yymmdd$encodedFlowId ) as CommonPrefixes from S3
 	// It uses of delimiter "/" before the object ID to get all the CommonPrefixes
-	// StartAfterYyyymmdd is the yyyymmdd to exclude the date when listing
 	ListWorkflowPaths(ctx context.Context, input ListObjectPathsInput) (*ListObjectPathsOutput, error)
 	// CountWorkflowObjectsForTesting is for testing ONLY.
 	// count the number of S3 objects for this workflowId

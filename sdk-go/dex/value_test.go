@@ -34,8 +34,8 @@ type codecInterface interface {
 }
 
 func TestValueCodecNativeAndJSONRoundTrips(t *testing.T) {
-	require.Equal(t, "j", jsonEncoding)
-	require.Equal(t, "r", rawBytesEncoding)
+	require.Equal(t, "json", jsonEncoding)
+	require.Equal(t, "raw", rawBytesEncoding)
 
 	testCases := []struct {
 		name   string

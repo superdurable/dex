@@ -1400,7 +1400,7 @@ func testWebHistoryAndSummary(
 			Attributes: []*dexpb.AttributeWrite{{
 				Key: "web-test-attribute",
 				Value: &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
-					Encoding: "j",
+					Encoding: "json",
 					Payload:  attributePayload,
 				}}},
 			}},

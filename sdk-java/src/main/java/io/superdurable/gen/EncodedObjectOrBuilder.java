@@ -12,7 +12,7 @@ public interface EncodedObjectOrBuilder extends
 
   /**
    * <pre>
-   * "j" is JSON and "r" is raw bytes. Other values are passed through.
+   * "json" is JSON and "raw" is raw bytes. Other values are passed through.
    * </pre>
    *
    * <code>string encoding = 1;</code>
@@ -21,7 +21,7 @@ public interface EncodedObjectOrBuilder extends
   java.lang.String getEncoding();
   /**
    * <pre>
-   * "j" is JSON and "r" is raw bytes. Other values are passed through.
+   * "json" is JSON and "raw" is raw bytes. Other values are passed through.
    * </pre>
    *
    * <code>string encoding = 1;</code>

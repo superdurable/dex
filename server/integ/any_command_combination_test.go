@@ -99,7 +99,7 @@ func doTestAnyCommandCombinationFlow(
 	})
 	require.NoError(t, err)
 
-	signalValue := encodedObjectValue("j", []byte("test-data-1"))
+	signalValue := encodedObjectValue("json", []byte("test-data-1"))
 	publishSignal := func() {
 		_, publishErr := flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 			FlowId: flowId,

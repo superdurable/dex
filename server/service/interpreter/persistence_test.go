@@ -83,7 +83,7 @@ func TestPersistenceBatchSerializedEquality(t *testing.T) {
 	object := &dexpb.AttributeWrite{
 		Key: "object",
 		Value: &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
-			Encoding: "j",
+			Encoding: "json",
 			Payload:  []byte(`{"value":1}`),
 		}}},
 	}
@@ -93,7 +93,7 @@ func TestPersistenceBatchSerializedEquality(t *testing.T) {
 	equalSerializedObject := &dexpb.AttributeWrite{
 		Key: "object",
 		Value: &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
-			Encoding: "j",
+			Encoding: "json",
 			Payload:  []byte(`{"value":1}`),
 		}}},
 	}

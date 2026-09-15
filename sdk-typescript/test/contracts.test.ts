@@ -213,11 +213,11 @@ test("omitted codecs use identity JSON rather than scalar wire kinds", () => {
   assert.deepEqual(identity.decode(identity.encode(order)), order);
   const jsonString = encodeValue(codecOrJson(), "hello");
   assert.equal(jsonString.kind?.$case, "objValue");
-  assert.equal(jsonString.kind?.$case === "objValue" ? jsonString.kind.value.encoding : "", "j");
+  assert.equal(jsonString.kind?.$case === "objValue" ? jsonString.kind.value.encoding : "", "json");
   const scalarString = encodeValue(stringCodec, "hello");
   assert.equal(scalarString.kind?.$case, "stringValue");
   const rawBytes = encodeValue(bytesCodec, new Uint8Array([1, 2, 3]));
-  assert.equal(rawBytes.kind?.$case === "objValue" ? rawBytes.kind.value.encoding : "", "r");
+  assert.equal(rawBytes.kind?.$case === "objValue" ? rawBytes.kind.value.encoding : "", "raw");
 });
 
 test("object Step and RPC omit codecs and still encode JSON", async () => {

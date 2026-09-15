@@ -385,7 +385,7 @@ func jsonObjectValue(value any) (*dexpb.Value, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode JSON value: %w", err)
 	}
-	return &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{Encoding: "j", Payload: payload}}}, nil
+	return &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{Encoding: "json", Payload: payload}}}, nil
 }
 
 func parseInitialAttributes(reader io.Reader, source string) ([]*dexpb.AttributeWrite, error) {

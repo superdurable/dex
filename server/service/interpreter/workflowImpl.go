@@ -1345,7 +1345,7 @@ func stepFailureInput(step *dexpb.StepMovement) *dexpb.Value {
 	}
 	return &dexpb.Value{
 		Kind: &dexpb.Value_ObjValue{
-			ObjValue: &dexpb.EncodedObject{Encoding: "j", Payload: []byte("null")},
+			ObjValue: &dexpb.EncodedObject{Encoding: "json", Payload: []byte("null")},
 		},
 	}
 }

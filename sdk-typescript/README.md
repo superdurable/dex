@@ -409,7 +409,7 @@ continue importing only from `@superdurable/dex`.
 - `blob-cache.ts`: DXBC BlobCache contract and Node-API binding loader
 - `gen/`: checked-in protobuf and grpc-js bindings
 
-Serialized object values use wire encoding `j` for JSON and `r` for raw bytes.
+Serialized object values use wire encoding `json` for JSON and `raw` for raw bytes.
 Internal Blob references are opaque. Hydration sends the owning Flow ID with
 each reference, and the cache is isolated by `(flowId, blobRef)`.
 

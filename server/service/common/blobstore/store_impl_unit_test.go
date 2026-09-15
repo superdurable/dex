@@ -41,15 +41,16 @@ func TestDeterministicBlobObjectIDFramesComponents(t *testing.T) {
 }
 
 func TestDeterministicBlobObjectIDValuePathUsesContextualFlow(t *testing.T) {
-	path, err := ValueObjectPath("flow/one", "20260913/0abcde1234")
+	path, err := ValueObjectPath("flow/one", "260913/0abcde1234")
 	require.NoError(t, err)
-	require.Equal(t, "20260913$Zmxvdy9vbmU/0abcde1234", path)
+	require.Equal(t, "260913$Zmxvdy9vbmU/0abcde1234", path)
 
 	for _, locator := range []string{
-		"20260913/abcdefghi",
-		"20260913/ABCDEF1234",
-		"20260913/abcdef1234/extra",
-		"20261340/abcdef1234",
+		"260913/abcdefghi",
+		"260913/ABCDEF1234",
+		"260913/abcdef1234/extra",
+		"261340/abcdef1234",
+		"20260913/abcdef1234",
 	} {
 		_, err := ValueObjectPath("flow", locator)
 		require.Error(t, err)

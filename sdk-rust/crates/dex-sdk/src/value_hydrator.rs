@@ -217,7 +217,7 @@ fn validate_concrete(value: &Value) -> SdkResult<()> {
         Some(value::Kind::DoubleValue(_)) => {
             Err(mapping_error("non-finite numbers are unsupported"))
         }
-        Some(value::Kind::ObjValue(object)) if object.encoding == "j" || object.encoding == "r" => {
+        Some(value::Kind::ObjValue(object)) if object.encoding == "json" || object.encoding == "raw" => {
             Ok(())
         }
         Some(value::Kind::ObjValue(object)) => Err(mapping_error(format!(

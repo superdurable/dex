@@ -12,7 +12,7 @@ Content-Type: application/json
   "dexWorkerUrl": "http://localhost:8080",
   "startStateId": "test_state_1",
   "stateInput": {
-    "encoding": "j",
+    "encoding": "json",
     "data": "\"a string\""
   }
 }

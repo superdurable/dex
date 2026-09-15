@@ -51,7 +51,7 @@ const (
 )
 
 var testChannelValue = &dexpb.EncodedObject{
-	Encoding: "j",
+	Encoding: "json",
 	Payload:  []byte("channel-data"),
 }
 

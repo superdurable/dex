@@ -208,7 +208,7 @@ func decodedObject(value map[string]any) any {
 	if current, ok := value["payload"].(string); ok {
 		payload = current
 	}
-	if encoding == "j" {
+	if encoding == "json" {
 		decoded, err := base64.StdEncoding.DecodeString(payload)
 		if err == nil {
 			var mapped any

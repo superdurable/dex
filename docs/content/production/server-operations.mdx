@@ -113,18 +113,23 @@ is still operationally clear.
 Blob references are opaque application values. Their wire forms are:
 
 ~~~text
-String: <storageId>|<YYYYMMDD>/<objectId>
-Object: <storageId>|<YYYYMMDD>/<objectId>|<encoding>
+String: <storageId>|<YYMMDD>/<objectId>
+Object: <storageId>|<YYMMDD>/<objectId>
+
+Example: p1|260913/ab3de7kp2x
 ~~~
 
-The standard encodings are **j** for JSON and **r** for raw bytes. Custom
-encodings pass through unchanged. The reference keeps the storage ID and UTC
-write date, but omits the Flow ID. Dex obtains the owning Flow ID from trusted
-request or Worker context. The physical object path is:
+The Value arm distinguishes String and Object references. An Object Blob stores
+the complete **EncodedObject**, including its **json**, **raw**, or custom
+encoding. The reference keeps the storage ID and UTC write date, but omits the
+Flow ID and encoding. Dex obtains the owning Flow ID from trusted request or
+Worker context. The physical object path is:
 
 ~~~text
-<namespace>/v2/<YYYYMMDD>$<base64url(flowId)>/<objectId>
+<namespace>/<YYMMDD>$<base64url(flowId)>/<objectId>
 ~~~
+
+The two-digit year represents 2000 through 2099.
 
 Internal references belong to exactly one Flow. Dex rehydrates and rewrites a
 reference before it crosses a Flow boundary. The destination receives an
@@ -133,9 +138,10 @@ Flow therefore cannot corrupt the destination Flow. Public APIs reject
 client-supplied internal references.
 
 Object IDs use deterministic lowercase Base36 characters. Retries with the
-same invocation ID and payload overwrite the same object instead of creating
-duplicates. Dex does not perform a read-before-write, conditional create, or
-collision retry. **blobStore.objectIdLength** defaults to 10 and accepts values
+same invocation ID and stored bytes overwrite the same object instead of
+creating duplicates. Object stored bytes include the encoding. Dex does not
+perform a read-before-write, conditional create, or collision retry.
+**blobStore.objectIdLength** defaults to 10 and accepts values
 from 10 through 50. Every Server writing the same Blob Store namespace must use
 the same value, and the setting must not change while those Servers are
 running. Readers accept every supported length, so a deployment can increase

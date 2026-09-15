@@ -125,7 +125,7 @@ func TestMapCadenceSearchAttributeFieldsToKVs(t *testing.T) {
 	actual := MapCadenceSearchAttributeFieldsToKVs(searchAttributes)
 	require.Len(t, actual, 5)
 	require.Equal(t, "Array", actual[0].GetKey())
-	require.Equal(t, "j", actual[0].GetValue().GetObjValue().GetEncoding())
+	require.Equal(t, "json", actual[0].GetValue().GetObjValue().GetEncoding())
 	require.Equal(t, []byte(`["a","b"]`), actual[0].GetValue().GetObjValue().GetPayload())
 	require.Equal(t, true, actual[1].GetValue().GetBoolValue())
 	require.Equal(t, 0.5, actual[2].GetValue().GetDoubleValue())

@@ -256,7 +256,7 @@ export interface Value {
 }
 
 export interface EncodedObject {
-  /** "j" is JSON and "r" is raw bytes. Other values are passed through. */
+  /** "json" is JSON and "raw" is raw bytes. Other values are passed through. */
   encoding: string;
   payload: Uint8Array;
 }

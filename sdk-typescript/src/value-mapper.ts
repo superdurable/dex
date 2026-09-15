@@ -28,7 +28,7 @@ const textDecoder = new TextDecoder();
 
 export function encodeValue<T>(codec: Codec<T>, value: T): ProtoValue {
   if (value === undefined || value === null) {
-    return objectValue("j", textEncoder.encode("null"));
+    return objectValue("json", textEncoder.encode("null"));
   }
   let encoded: CodecValue;
   try {
@@ -46,15 +46,15 @@ export function encodeValue<T>(codec: Codec<T>, value: T): ProtoValue {
     case "double":
       return ProtoValue.create({ kind: { $case: "doubleValue", value: encoded.data } });
     case "bytes":
-      return objectValue("r", encoded.data);
+      return objectValue("raw", encoded.data);
     case "json":
-      return objectValue("j", textEncoder.encode(encoded.data));
+      return objectValue("json", textEncoder.encode(encoded.data));
   }
 }
 
 export function encodeUnknown(value: unknown): ProtoValue {
   if (value === undefined || value === null) {
-    return objectValue("j", textEncoder.encode("null"));
+    return objectValue("json", textEncoder.encode("null"));
   }
   if (typeof value === "string") {
     return ProtoValue.create({ kind: { $case: "stringValue", value } });
@@ -72,7 +72,7 @@ export function encodeUnknown(value: unknown): ProtoValue {
     return ProtoValue.create({ kind: { $case: "doubleValue", value } });
   }
   if (value instanceof Uint8Array) {
-    return objectValue("r", value);
+    return objectValue("raw", value);
   }
   let json: string | undefined;
   try {
@@ -83,13 +83,13 @@ export function encodeUnknown(value: unknown): ProtoValue {
   if (json === undefined) {
     throw new ValueMappingError("encode", "value cannot be encoded as JSON");
   }
-  return objectValue("j", textEncoder.encode(json));
+  return objectValue("json", textEncoder.encode(json));
 }
 
 export function decodeValue<T>(codec: Codec<T>, value: ProtoValue): T {
   if (
     value.kind?.$case === "objValue" &&
-    value.kind.value.encoding === "j" &&
+    value.kind.value.encoding === "json" &&
     textDecoder.decode(value.kind.value.payload) === "null"
   ) {
     return undefined as T;
@@ -117,10 +117,10 @@ export function decodeUnknown(value: ProtoValue): unknown {
       return kind.value;
     case "objValue": {
       const object = kind.value;
-      if (object.encoding === "r") {
+      if (object.encoding === "raw") {
         return object.payload;
       }
-      if (object.encoding === "j") {
+      if (object.encoding === "json") {
         try {
           return JSON.parse(textDecoder.decode(object.payload));
         } catch (failure) {
@@ -260,10 +260,10 @@ function toCodecValue(value: ProtoValue): CodecValue {
     case "doubleValue":
       return { kind: "double", data: kind.value };
     case "objValue":
-      if (kind.value.encoding === "r") {
+      if (kind.value.encoding === "raw") {
         return { kind: "bytes", data: kind.value.payload };
       }
-      if (kind.value.encoding === "j") {
+      if (kind.value.encoding === "json") {
         return { kind: "json", data: textDecoder.decode(kind.value.payload) };
       }
       throw new ValueMappingError("decode", `unsupported object encoding ${kind.value.encoding}`);

@@ -491,7 +491,7 @@ func (s *flowService) LoadBlobs(
 	return &dexpb.LoadBlobsResponse{Values: map[string]*dexpb.Value{
 		"string-id": {Kind: &dexpb.Value_StringValue{StringValue: "loaded string"}},
 		"object-id": {Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
-			Encoding: "j",
+			Encoding: "json",
 			Payload:  []byte(`{"answer":42}`),
 		}}},
 	}}, nil

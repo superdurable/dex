@@ -72,7 +72,7 @@ func (h *handler) InvokeWorkerRPC(
 			Output: &dexpb.Value{
 				Kind: &dexpb.Value_ObjValue{
 					ObjValue: &dexpb.EncodedObject{
-						Encoding: "j",
+						Encoding: "json",
 						Payload:  data,
 					},
 				},
@@ -88,7 +88,7 @@ func (h *handler) InvokeWorkerRPC(
 			Output: &dexpb.Value{
 				Kind: &dexpb.Value_ObjValue{
 					ObjValue: &dexpb.EncodedObject{
-						Encoding: "j",
+						Encoding: "json",
 						Payload:  data,
 					},
 				},

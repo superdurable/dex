@@ -93,7 +93,7 @@ class WaitForFlowService(dex_pb2_grpc.FlowServiceServicer):
             elif blob_id == "internal_blob_id_for_obj_value":
                 key = value.internal_blob_id_for_obj_value
                 values[key] = pb.Value(
-                    obj_value=pb.EncodedObject(encoding="r", payload=b"done")
+                    obj_value=pb.EncodedObject(encoding="raw", payload=b"done")
                 )
             else:
                 raise AssertionError("unexpected LoadBlobs value")

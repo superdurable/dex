@@ -406,7 +406,7 @@ final class ValueHydrator {
                 return;
             case OBJ_VALUE:
                 final String encoding = value.getObjValue().getEncoding();
-                if (!"j".equals(encoding) && !"r".equals(encoding)) {
+                if (!"json".equals(encoding) && !"raw".equals(encoding)) {
                     throw new IllegalArgumentException("unsupported object encoding " + encoding);
                 }
                 return;

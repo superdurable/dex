@@ -77,7 +77,7 @@ func doTestSkipStartFlow(
 	defer cancel()
 
 	flowId := skipstart.WorkflowType + "-" + uuid.NewString()
-	stepInput := encodedObjectValue("j", []byte("test data"))
+	stepInput := encodedObjectValue("json", []byte("test data"))
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
 		FlowId:             flowId,

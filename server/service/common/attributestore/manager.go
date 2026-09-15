@@ -632,7 +632,7 @@ func (c columnSchema) convertObject(
 	if object == nil {
 		return nil, fmt.Errorf("object is missing")
 	}
-	if object.GetEncoding() == "j" {
+	if object.GetEncoding() == "json" {
 		if !json.Valid(object.GetPayload()) {
 			return nil, fmt.Errorf("JSON payload is invalid")
 		}

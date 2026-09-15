@@ -122,7 +122,7 @@ func NewBlobStore(
 
 	return &blobStoreImpl{
 		s3Client:                    s3Client,
-		pathPrefix:                  temporalOrCadenceNamespace + "/v2/",
+		pathPrefix:                  temporalOrCadenceNamespace + "/",
 		activeStorage:               *activeStorage,
 		supportedStore:              supportedStores,
 		logger:                      logger,
@@ -152,7 +152,7 @@ func (b *blobStoreImpl) WriteObject(
 	if err != nil {
 		return "", "", err
 	}
-	startedDate := time.Now().UTC().Format("20060102")
+	startedDate := formatBlobDate(time.Now())
 	locator = startedDate + "/" + objectID
 	path, err := ValueObjectPath(flowID, locator)
 	if err != nil {
@@ -480,7 +480,7 @@ func putObject(ctx context.Context, client *s3.Client, bucketName string, key st
 		Bucket:      aws.String(bucketName),
 		Key:         aws.String(key),
 		Body:        bytes.NewReader(content),
-		ContentType: aws.String("application/json"),
+		ContentType: aws.String("application/octet-stream"),
 	})
 	return err
 }
@@ -504,8 +504,8 @@ func getObject(ctx context.Context, client *s3.Client, bucketName, key string) (
 
 func (b *blobStoreImpl) CountWorkflowObjectsForTesting(ctx context.Context, flowID string) (int64, error) {
 	// Create the prefix to match objects for this Flow for today.
-	yyyymmdd := time.Now().UTC().Format("20060102")
-	prefix := fmt.Sprintf("%s%s$%s/", b.pathPrefix, yyyymmdd, encodePathPart(flowID))
+	yymmdd := formatBlobDate(time.Now())
+	prefix := fmt.Sprintf("%s%s$%s/", b.pathPrefix, yymmdd, encodePathPart(flowID))
 	if b.activeStorage.StorageType == config.StorageTypeLocal {
 		return countLocalObjects(ctx, b.activeStorage.LocalDirectory, prefix)
 	}
@@ -697,7 +697,7 @@ func (b *blobStoreImpl) ListWorkflowPaths(ctx context.Context, input ListObjectP
 	workflowPaths := make([]string, 0, len(result.CommonPrefixes))
 	for _, commonPrefix := range result.CommonPrefixes {
 		if commonPrefix.Prefix != nil {
-			// Remove the pathPrefix to get the workflow path (yyyymmdd$encodedFlowId)
+			// Remove the pathPrefix to get the workflow path (yymmdd$encodedFlowId)
 			prefixStr := *commonPrefix.Prefix
 			if strings.HasPrefix(prefixStr, b.pathPrefix) {
 				workflowPath := strings.TrimPrefix(prefixStr, b.pathPrefix)

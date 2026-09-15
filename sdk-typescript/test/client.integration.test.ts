@@ -464,7 +464,7 @@ function protoJson(value: unknown): Value {
   return Value.create({
     kind: {
       $case: "objValue",
-      value: { encoding: "j", payload: new TextEncoder().encode(JSON.stringify(value)) },
+      value: { encoding: "json", payload: new TextEncoder().encode(JSON.stringify(value)) },
     },
   });
 }

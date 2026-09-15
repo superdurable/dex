@@ -79,9 +79,9 @@ final class WorkerServiceIntegrationTest {
     @Test
     void usesCompactObjectEncodingWireValues() {
         final ValueMapper values = new ValueMapper(new ObjectMapper());
-        assertEquals("j", values.encode(Collections.singletonMap("key", "value"))
+        assertEquals("json", values.encode(Collections.singletonMap("key", "value"))
                 .getObjValue().getEncoding());
-        assertEquals("r", values.encode(new byte[] {1, 2, 3})
+        assertEquals("raw", values.encode(new byte[] {1, 2, 3})
                 .getObjValue().getEncoding());
     }
 

@@ -1473,7 +1473,7 @@ func (*Value_NullValue) isValue_Kind() {}
 
 type EncodedObject struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// "j" is JSON and "r" is raw bytes. Other values are passed through.
+	// "json" is JSON and "raw" is raw bytes. Other values are passed through.
 	Encoding      string `protobuf:"bytes,1,opt,name=encoding,proto3" json:"encoding,omitempty"`
 	Payload       []byte `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
 	unknownFields protoimpl.UnknownFields

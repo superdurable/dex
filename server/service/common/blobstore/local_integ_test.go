@@ -139,26 +139,54 @@ func TestLocalBlobStoreTransfersCrossFlowOwnership(t *testing.T) {
 	threshold := config.DefaultBlobStoreThresholdInBytes
 	payload := bytes.Repeat([]byte("x"), threshold+1)
 	value := &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
-		Encoding: "j",
+		Encoding: "json",
 		Payload:  payload,
 	}}}
 	require.NoError(t, OffloadLargeValue(ctx, value, sourceFlowID, "invocation", threshold, store, true))
 	sourceRef := value.GetInternalBlobIdForObjValue()
-	require.Regexp(t, regexp.MustCompile(`^local\|[0-9]{8}/[0-9a-z]{10}\|j$`), sourceRef)
+	require.Regexp(t, regexp.MustCompile(`^local\|[0-9]{6}/[0-9a-z]{10}$`), sourceRef)
+
+	rawValue := &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+		Encoding: "raw",
+		Payload:  payload,
+	}}}
+	require.NoError(t, OffloadLargeValue(ctx, rawValue, sourceFlowID, "invocation", threshold, store, true))
+	rawRef := rawValue.GetInternalBlobIdForObjValue()
+	require.Regexp(t, regexp.MustCompile(`^local\|[0-9]{6}/[0-9a-z]{10}$`), rawRef)
+	require.NotEqual(t, sourceRef, rawRef)
+	require.NoError(t, HydrateValue(ctx, sourceFlowID, rawValue, store))
+	require.Equal(t, "raw", rawValue.GetObjValue().GetEncoding())
+	require.Equal(t, payload, rawValue.GetObjValue().GetPayload())
+
+	stringPayload := string(bytes.Repeat([]byte("s"), threshold+1))
+	stringValue := &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: stringPayload}}
+	require.NoError(t, OffloadLargeValue(ctx, stringValue, sourceFlowID, "string", threshold, store, true))
+	require.Regexp(
+		t,
+		regexp.MustCompile(`^local\|[0-9]{6}/[0-9a-z]{10}$`),
+		stringValue.GetInternalBlobIdForStringValue(),
+	)
+	require.NoError(t, HydrateValue(ctx, sourceFlowID, stringValue, store))
+	require.Equal(t, stringPayload, stringValue.GetStringValue())
+
+	legacyReference := &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForObjValue{
+		InternalBlobIdForObjValue: sourceRef + "|json",
+	}}
+	require.ErrorContains(t, HydrateValue(ctx, sourceFlowID, legacyReference, store), "invalid Blob ID")
 
 	require.NoError(t, TransferValueBlobOwnership(
 		ctx, value, sourceFlowID, destinationFlowID, "invocation", threshold, store, true,
 	))
 	require.Equal(t, sourceRef, value.GetInternalBlobIdForObjValue())
-	require.Equal(t, int64(1), mustCountFlowObjects(t, ctx, store, sourceFlowID))
+	require.Equal(t, int64(3), mustCountFlowObjects(t, ctx, store, sourceFlowID))
 	require.Equal(t, int64(1), mustCountFlowObjects(t, ctx, store, destinationFlowID))
 
-	date := strings.SplitN(strings.SplitN(sourceRef, "|", 3)[1], "/", 2)[0]
+	date := strings.SplitN(strings.SplitN(sourceRef, "|", 2)[1], "/", 2)[0]
 	require.NoError(t, store.DeleteWorkflowObjects(
 		ctx, "local", date+"$"+encodePathPart(sourceFlowID),
 	))
 	require.NoError(t, HydrateValue(ctx, destinationFlowID, value, store))
-	require.Equal(t, "j", value.GetObjValue().GetEncoding())
+	require.Equal(t, "json", value.GetObjValue().GetEncoding())
 	require.Equal(t, payload, value.GetObjValue().GetPayload())
 
 	inline := &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: string(bytes.Repeat([]byte("y"), threshold))}}

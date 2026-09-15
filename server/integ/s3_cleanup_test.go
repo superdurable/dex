@@ -125,7 +125,7 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 		continuationToken = output.ContinuationToken
 	}
 
-	todayPrefix := time.Now().UTC().Format("20060102")
+	todayPrefix := time.Now().UTC().Format("060102")
 	foundCount := 0
 	for _, flowId := range flowIds {
 		expectedPath := fmt.Sprintf(

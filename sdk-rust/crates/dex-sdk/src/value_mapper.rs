@@ -65,7 +65,7 @@ fn encode_json(json: JsonValue) -> SdkResult<ProtoValue> {
             }
         }
         other => value::Kind::ObjValue(EncodedObject {
-            encoding: "j".to_string(),
+            encoding: "json".to_string(),
             payload: serde_json::to_vec(&other).map_err(mapping_error)?,
         }),
     };
@@ -81,10 +81,10 @@ fn decode_json(input: &ProtoValue) -> SdkResult<JsonValue> {
         }
         Some(value::Kind::DoubleValue(_)) => Err(value_error("non-finite numbers are unsupported")),
         Some(value::Kind::BoolValue(value)) => Ok(JsonValue::Bool(*value)),
-        Some(value::Kind::ObjValue(object)) if object.encoding == "j" => {
+        Some(value::Kind::ObjValue(object)) if object.encoding == "json" => {
             serde_json::from_slice(&object.payload).map_err(mapping_error)
         }
-        Some(value::Kind::ObjValue(object)) if object.encoding == "r" => Ok(JsonValue::Array(
+        Some(value::Kind::ObjValue(object)) if object.encoding == "raw" => Ok(JsonValue::Array(
             object
                 .payload
                 .iter()
@@ -131,11 +131,11 @@ mod tests {
         let Some(value::Kind::ObjValue(encoded_json)) = encoded_json.kind else {
             panic!("expected encoded object");
         };
-        assert_eq!(encoded_json.encoding, "j");
+        assert_eq!(encoded_json.encoding, "json");
 
         let encoded_bytes = ProtoValue {
             kind: Some(value::Kind::ObjValue(EncodedObject {
-                encoding: "r".to_string(),
+                encoding: "raw".to_string(),
                 payload: vec![1, 2, 3],
             })),
         };

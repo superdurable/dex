@@ -537,8 +537,8 @@ def test_builtin_codecs_enforce_wire_types_and_ranges() -> None:
 
 def test_object_codecs_use_compact_wire_encodings() -> None:
     values = ValueMapper(CodecRegistry())
-    assert values.encode_dynamic({"order_id": "order-1"}).obj_value.encoding == "j"
-    assert values.encode_dynamic(b"payload").obj_value.encoding == "r"
+    assert values.encode_dynamic({"order_id": "order-1"}).obj_value.encoding == "json"
+    assert values.encode_dynamic(b"payload").obj_value.encoding == "raw"
 
 
 def test_fluent_wait_factories_validate_channel_bounds() -> None:

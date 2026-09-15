@@ -98,7 +98,7 @@ func doTestAnyCommandCloseFlow(
 	})
 	require.NoError(t, err)
 
-	signalValue := encodedObjectValue("j", []byte("test-data-1"))
+	signalValue := encodedObjectValue("json", []byte("test-data-1"))
 	_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
 		FlowId: flowId,
 		Messages: []*dexpb.ChannelMessage{

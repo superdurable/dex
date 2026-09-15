@@ -537,7 +537,7 @@ func doTestFlowTimeoutHandlerExecutionOptions(
 	if shouldRecover {
 		require.Equal(t, "recovered", result.GetResults()[0].GetCompletedStepOutput().GetStringValue())
 		recoveryRequest := receiveTimeoutExecuteRequest(t, ctx, workerHandler.recoveryRequests)
-		require.Equal(t, "j", recoveryRequest.GetStepInput().GetObjValue().GetEncoding())
+		require.Equal(t, "json", recoveryRequest.GetStepInput().GetObjValue().GetEncoding())
 		require.Equal(t, []byte("null"), recoveryRequest.GetStepInput().GetObjValue().GetPayload())
 		require.NotNil(t, recoveryRequest.GetContext().GetRecoveryError())
 		require.Contains(t, recoveryRequest.GetContext().GetRecoveryError().GetDetail(), "retryable timeout handler failure")
