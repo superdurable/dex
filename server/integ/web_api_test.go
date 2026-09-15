@@ -1604,7 +1604,7 @@ func testWebHistoryAndSummary(
 		stepInputLocator := strings.SplitN(stepInputBlobID, "|", 2)[1]
 		locatorParts := strings.SplitN(stepInputLocator, "/", 2)
 		stepInputObjectPath := locatorParts[0] + "$" + encodeWebPathPart(flowID) + "/" + locatorParts[1]
-		require.NoError(t, os.Remove(filepath.Join(blobDirectory, "default", "v2", stepInputObjectPath)))
+		require.NoError(t, os.Remove(filepath.Join(blobDirectory, "default", stepInputObjectPath)))
 		valueMissingEvents, _ := getAllWebHistoryEvents(
 			t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
 		)
