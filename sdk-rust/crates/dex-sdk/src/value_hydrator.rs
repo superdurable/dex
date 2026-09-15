@@ -230,9 +230,7 @@ fn validate_concrete(value: &Value) -> SdkResult<()> {
         | Some(value::Kind::InternalBlobIdForObjValue(_)) => {
             Err(mapping_error("blob-backed Value was not hydrated"))
         }
-        Some(value::Kind::NullValue(_)) => Err(mapping_error(
-            "attribute deletion marker cannot be hydrated",
-        )),
+        Some(value::Kind::NullValue(_)) => Ok(()),
         None => Err(mapping_error("Value has no concrete kind")),
     }
 }

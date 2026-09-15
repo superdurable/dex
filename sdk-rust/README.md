@@ -257,7 +257,7 @@ context.record_heartbeat()?;
 
 `record_heartbeat_value` persists a typed checkpoint for the next regular activity attempt.
 `record_heartbeat` sends a heartbeat without a Value and clears the persisted details. A missing
-Value and an encoded JSON null remain distinguishable by decoding `Option<T>`: the latter returns
+Value and a null Value remain distinguishable by decoding `Option<T>`: the latter returns
 `Some(None)`. Local activities transmit heartbeat frames but Dex ignores their values.
 
 Each call blocks only when the Worker's single-frame output buffer is full. This bounded

@@ -83,6 +83,9 @@ final class WorkerServiceIntegrationTest {
                 .getObjValue().getEncoding());
         assertEquals("raw", values.encode(new byte[] {1, 2, 3})
                 .getObjValue().getEncoding());
+        final Value nullValue = values.encode(null);
+        assertEquals(Value.KindCase.NULL_VALUE, nullValue.getKindCase());
+        assertNull(values.decode(nullValue, Void.class));
     }
 
     @Test

@@ -28,7 +28,7 @@ const textDecoder = new TextDecoder();
 
 export function encodeValue<T>(codec: Codec<T>, value: T): ProtoValue {
   if (value === undefined || value === null) {
-    return objectValue("json", textEncoder.encode("null"));
+    return nullValue();
   }
   let encoded: CodecValue;
   try {
@@ -54,7 +54,7 @@ export function encodeValue<T>(codec: Codec<T>, value: T): ProtoValue {
 
 export function encodeUnknown(value: unknown): ProtoValue {
   if (value === undefined || value === null) {
-    return objectValue("json", textEncoder.encode("null"));
+    return nullValue();
   }
   if (typeof value === "string") {
     return ProtoValue.create({ kind: { $case: "stringValue", value } });
@@ -87,13 +87,6 @@ export function encodeUnknown(value: unknown): ProtoValue {
 }
 
 export function decodeValue<T>(codec: Codec<T>, value: ProtoValue): T {
-  if (
-    value.kind?.$case === "objValue" &&
-    value.kind.value.encoding === "json" &&
-    textDecoder.decode(value.kind.value.payload) === "null"
-  ) {
-    return undefined as T;
-  }
   try {
     return codec.decode(toCodecValue(value));
   } catch (failure) {
@@ -133,11 +126,15 @@ export function decodeUnknown(value: ProtoValue): unknown {
     case "internalBlobIdForObjValue":
       throw new ValueMappingError("decode", "blob-backed Value was not hydrated");
     case "nullValue":
-      return undefined;
+      return null;
   }
 }
 
 export function deletionValue(): ProtoValue {
+  return nullValue();
+}
+
+function nullValue(): ProtoValue {
   return ProtoValue.create({
     kind: { $case: "nullValue", value: NullValue.NULL_VALUE },
   });
@@ -271,7 +268,7 @@ function toCodecValue(value: ProtoValue): CodecValue {
     case "internalBlobIdForObjValue":
       throw new ValueMappingError("decode", "blob-backed Value was not hydrated");
     case "nullValue":
-      throw new ValueMappingError("decode", "attribute deletion marker cannot be decoded");
+      return { kind: "json", data: "null" };
   }
 }
 

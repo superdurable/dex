@@ -1451,7 +1451,7 @@ type Value_BoolValue struct {
 }
 
 type Value_NullValue struct {
-	// Null deletes an attribute in storage.
+	// Top-level null. Within AttributeWrite, null deletes the Attribute.
 	NullValue structpb.NullValue `protobuf:"varint,8,opt,name=null_value,json=nullValue,proto3,enum=google.protobuf.NullValue,oneof"`
 }
 

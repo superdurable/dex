@@ -42,6 +42,7 @@ pub(crate) fn deletion() -> ProtoValue {
 
 fn encode_json(json: JsonValue) -> SdkResult<ProtoValue> {
     let kind = match json {
+        JsonValue::Null => value::Kind::NullValue(NullValue::NullValue.into()),
         JsonValue::String(text) => value::Kind::StringValue(text),
         JsonValue::Bool(value) => value::Kind::BoolValue(value),
         JsonValue::Number(number) => {
@@ -100,9 +101,7 @@ fn decode_json(input: &ProtoValue) -> SdkResult<JsonValue> {
         | Some(value::Kind::InternalBlobIdForObjValue(_)) => {
             Err(value_error("blob-backed Value was not hydrated"))
         }
-        Some(value::Kind::NullValue(_)) => {
-            Err(value_error("attribute deletion marker cannot be decoded"))
-        }
+        Some(value::Kind::NullValue(_)) => Ok(JsonValue::Null),
         None => Err(value_error("Value has no concrete kind")),
     }
 }
@@ -142,6 +141,13 @@ mod tests {
         assert_eq!(
             decode::<Vec<u8>>(&encoded_bytes).expect("decode bytes"),
             vec![1, 2, 3]
+        );
+
+        let encoded_null = encode(&Option::<String>::None).expect("encode null");
+        assert!(matches!(encoded_null.kind, Some(value::Kind::NullValue(_))));
+        assert_eq!(
+            decode::<Option<String>>(&encoded_null).expect("decode null"),
+            None
         );
     }
 }

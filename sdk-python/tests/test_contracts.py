@@ -539,6 +539,10 @@ def test_object_codecs_use_compact_wire_encodings() -> None:
     values = ValueMapper(CodecRegistry())
     assert values.encode_dynamic({"order_id": "order-1"}).obj_value.encoding == "json"
     assert values.encode_dynamic(b"payload").obj_value.encoding == "raw"
+    encoded_null = values.encode_dynamic(None)
+    assert encoded_null.WhichOneof("kind") == "null_value"
+    assert values.decode(encoded_null, values.codec(type(None))) is None
+    assert values.decode(encoded_null, values.codec(str)) is None
 
 
 def test_fluent_wait_factories_validate_channel_bounds() -> None:

@@ -60,7 +60,7 @@ Local contract tests also cover malformed rich details, fallible registration,
 invalid Step-result worker metadata, user-owned Condition IDs, and map
 introspection. Persistence integration covers singleton Attribute equality waits.
 
-Heartbeat recovery verifies typed checkpoints, explicit clearing, JSON null versus an absent Value,
+Heartbeat recovery verifies typed checkpoints, explicit clearing, null versus an absent Value,
 Stream implicit-heartbeat preservation, and the absence of local-activity details after regular
 fallback. Stream integration interleaves WaitFor and Execute heartbeat frames with repeated Step
 writes, exercises default and custom buffered text writers, then verifies repeated client sources

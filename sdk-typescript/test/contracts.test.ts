@@ -37,6 +37,7 @@ import {
   openBlobCache,
   rpc,
   stringCodec,
+  voidCodec,
   type BlobCache,
   type AsyncContext,
   type Context,
@@ -58,7 +59,12 @@ import {
   type StepStreamWrite,
   type Value,
 } from "../src/gen/dex.js";
-import { codecOrJson, encodeValue, type ValueHydrator } from "../src/value-mapper.js";
+import {
+  codecOrJson,
+  decodeValue,
+  encodeValue,
+  type ValueHydrator,
+} from "../src/value-mapper.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
 import { registeredFlowByName } from "../src/flow.js";
 import { InvocationContext } from "../src/invocation-context.js";
@@ -218,6 +224,10 @@ test("omitted codecs use identity JSON rather than scalar wire kinds", () => {
   assert.equal(scalarString.kind?.$case, "stringValue");
   const rawBytes = encodeValue(bytesCodec, new Uint8Array([1, 2, 3]));
   assert.equal(rawBytes.kind?.$case === "objValue" ? rawBytes.kind.value.encoding : "", "raw");
+  const nullValue = encodeValue(codecOrJson(), null);
+  assert.equal(nullValue.kind?.$case, "nullValue");
+  assert.equal(decodeValue(codecOrJson(), nullValue), null);
+  assert.equal(decodeValue(voidCodec, nullValue), undefined);
 });
 
 test("object Step and RPC omit codecs and still encode JSON", async () => {
@@ -286,7 +296,7 @@ test("object Step and RPC omit codecs and still encode JSON", async () => {
       attributes: [],
     }),
   );
-  assert.equal(pinged.output?.kind?.$case, "objValue");
+  assert.equal(pinged.output?.kind?.$case, "nullValue");
 });
 
 test("fluent wait factories validate channel bounds", () => {
@@ -724,13 +734,13 @@ test("Async Step Context preserves heartbeat Value presence and codecs", async (
   assert.deepEqual(observed, [
     { hasValue: false, value: undefined },
     { hasValue: true, value: "restored" },
-    { hasValue: true, value: undefined },
+    { hasValue: true, value: null },
   ]);
   assert.equal(heartbeats.length, 12);
   for (let offset = 0; offset < heartbeats.length; offset += 4) {
     assert.equal(heartbeats[offset]?.kind?.$case, "objValue");
     assert.equal(heartbeats[offset + 1]?.kind?.$case, "stringValue");
-    assert.equal(heartbeats[offset + 2]?.kind?.$case, "objValue");
+    assert.equal(heartbeats[offset + 2]?.kind?.$case, "nullValue");
     assert.equal(heartbeats[offset + 3], undefined);
   }
 });

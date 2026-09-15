@@ -57,7 +57,7 @@ export interface Context {
    *
    * The codec must match the one passed to {@link AsyncContext.recordHeartbeat}. When omitted,
    * values use JSON encoding. Call {@link Context.hasLastHeartbeatValue} to distinguish an absent
-   * Value from a present JSON null value, because both decode to `undefined`.
+   * Value from a present null value, because both decode to `undefined`.
    *
    * @typeParam T - Expected heartbeat value type.
    * @param codec - Codec used to decode the Value; omitted for JSON.

@@ -250,7 +250,7 @@ export interface Value {
     | { $case: "doubleValue"; value: number }
     | { $case: "boolValue"; value: boolean }
     | //
-    /** Null deletes an attribute in storage. */
+    /** Top-level null. Within AttributeWrite, null deletes the Attribute. */
     { $case: "nullValue"; value: NullValue }
     | undefined;
 }

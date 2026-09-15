@@ -126,7 +126,7 @@ message Value {
     int64 int_value = 5;
     double double_value = 6;
     bool bool_value = 7;
-    // Null deletes an attribute in storage.
+    // Top-level null. Within AttributeWrite, null deletes the Attribute.
     google.protobuf.NullValue null_value = 8;
   }
 }

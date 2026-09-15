@@ -586,8 +586,8 @@ Decode requires a non-nil pointer. Invalid UTF-8 strings, integer overflow,
 incompatible targets, unknown encodings, unhydrated blob references, and
 malformed JSON return errors.
 
-Ordinary nil encodes as JSON null. The Dex null arm is used only when deleting
-an attribute.
+Ordinary nil encodes with the Dex null arm. In an Attribute write, that arm
+deletes the Attribute. In every other Value context, it represents null.
 
 ### Indexed attributes
 

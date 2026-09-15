@@ -24,6 +24,7 @@ import (
 	"github.com/superdurable/dex/service/interpreter/cont"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"github.com/superdurable/dex/service/interpreter/timers"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -1344,8 +1345,8 @@ func stepFailureInput(step *dexpb.StepMovement) *dexpb.Value {
 		return step.GetStepInput()
 	}
 	return &dexpb.Value{
-		Kind: &dexpb.Value_ObjValue{
-			ObjValue: &dexpb.EncodedObject{Encoding: "json", Payload: []byte("null")},
+		Kind: &dexpb.Value_NullValue{
+			NullValue: structpb.NullValue_NULL_VALUE,
 		},
 	}
 }

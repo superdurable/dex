@@ -43,10 +43,7 @@ class ValueMapper:
     def _encode(self, value: Any, codec: Codec[Any]) -> pb.Value:
         if value is None:
             return pb.Value(
-                obj_value=pb.EncodedObject(
-                    encoding=_JSON_ENCODING,
-                    payload=b"null",
-                )
+                null_value=cast(struct_pb2.NullValue, struct_pb2.NULL_VALUE)
             )
         logical = codec.encode(value)
         if logical.kind is WireKind.STRING:
@@ -134,7 +131,7 @@ class ValueMapper:
         ):
             raise ValueError("blob-backed Value was not hydrated")
         if kind == "null_value":
-            raise ValueError("attribute deletion marker cannot be decoded")
+            return None
         raise TypeError(f"cannot decode {kind or 'empty Value'} as {codec.type_name}")
 
     def to_value(self, value: pb.Value) -> Value:
@@ -166,6 +163,8 @@ class ValueMapper:
             "internal_blob_id_for_obj_value",
         ):
             raise ValueError("blob-backed Value was not hydrated")
+        if kind == "null_value":
+            return Value(WireKind.JSON, "null")
         raise TypeError(f"cannot wrap {kind or 'empty Value'} as Value")
 
     @staticmethod

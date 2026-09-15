@@ -254,7 +254,7 @@ impl Context {
 
     /// Decodes the checkpoint persisted by the previous regular attempt.
     ///
-    /// `None` means no heartbeat Value is present. To distinguish an encoded JSON null, request an
+    /// `None` means no heartbeat Value is present. To distinguish a null Value, request an
     /// optional application type: `last_heartbeat_value::<Option<T>>()` returns `Some(None)` for a
     /// present null Value.
     ///

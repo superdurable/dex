@@ -157,7 +157,8 @@ func TestValueCodecNullAndDecodeValidation(t *testing.T) {
 	var noneInput None
 	noneValue, err := encodeValue(noneInput)
 	require.NoError(t, err)
-	require.JSONEq(t, "null", string(noneValue.GetObjValue().Payload))
+	_, isNull := noneValue.Kind.(*dexpb.Value_NullValue)
+	require.True(t, isNull)
 	var noneOutput None
 	require.NoError(t, decodeValue(noneValue, &noneOutput))
 	require.Nil(t, noneOutput)
@@ -174,12 +175,14 @@ func TestValueCodecNullAndDecodeValidation(t *testing.T) {
 	var input *codecRecord
 	value, err := encodeValue(input)
 	require.NoError(t, err)
-	require.JSONEq(t, "null", string(value.GetObjValue().Payload))
+	_, isNull = value.Kind.(*dexpb.Value_NullValue)
+	require.True(t, isNull)
 
 	var channel chan int
 	value, err = encodeValue(channel)
 	require.NoError(t, err)
-	require.JSONEq(t, "null", string(value.GetObjValue().Payload))
+	_, isNull = value.Kind.(*dexpb.Value_NullValue)
+	require.True(t, isNull)
 
 	value, err = encodeValue(uintptr(9))
 	require.NoError(t, err)

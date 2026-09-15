@@ -414,7 +414,7 @@ final class ValueHydrator {
             case INTERNAL_BLOB_ID_FOR_OBJ_VALUE:
                 throw new IllegalArgumentException("blob-backed Value was not hydrated");
             case NULL_VALUE:
-                throw new IllegalArgumentException("attribute deletion marker cannot be hydrated");
+                return;
             default:
                 throw new IllegalArgumentException("Value has no concrete kind");
         }
