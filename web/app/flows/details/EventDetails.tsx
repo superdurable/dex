@@ -18,7 +18,7 @@ import {
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
   ASYNC_STEP_INPUT_SNAPSHOT_NOT_RECORDED,
-  STEP_INPUT_SNAPSHOT_NOT_RETAINED,
+  STEP_INPUT_SNAPSHOT_UNAVAILABLE,
   VALUE_BLOB_UNAVAILABLE,
 } from '@/lib/unavailable';
 import {
@@ -919,7 +919,7 @@ function StepMethodDetails({
             <p>
               {isAsyncTerminalFailure
                 ? ASYNC_STEP_INPUT_SNAPSHOT_NOT_RECORDED
-                : STEP_INPUT_SNAPSHOT_NOT_RETAINED}
+                : STEP_INPUT_SNAPSHOT_UNAVAILABLE}
             </p>
             {isAsyncTerminalFailure && (
               <p>

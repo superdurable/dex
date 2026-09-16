@@ -13,7 +13,7 @@ import { PreferencesProvider } from '@/app/providers';
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
   ASYNC_STEP_INPUT_SNAPSHOT_NOT_RECORDED,
-  STEP_INPUT_SNAPSHOT_NOT_RETAINED,
+  STEP_INPUT_SNAPSHOT_UNAVAILABLE,
 } from '@/lib/unavailable';
 import { eventTitle, eventTypeLabel, SemanticEventDetails } from './EventDetails';
 
@@ -230,7 +230,10 @@ describe('selected step event details', () => {
     const markup = renderDetails(event);
 
     expect(markup).toContain('Step method input snapshot unavailable');
-    expect(markup).toContain(STEP_INPUT_SNAPSHOT_NOT_RETAINED);
+    expect(markup).toContain(STEP_INPUT_SNAPSHOT_UNAVAILABLE);
+    expect(markup).toContain('ASYNC Step input snapshots are disabled by default');
+    expect(markup).toContain('blobStore.asyncStepInputSnapshotsEnabled');
+    expect(markup).toContain('Blob Store may be disabled');
     expect(markup).toContain('full invocation input snapshot');
     expect(markup).toContain('does not indicate an individual Value blob load failure');
     expect(markup).not.toContain(ASYNC_STEP_INPUT_SNAPSHOT_NOT_RECORDED);
