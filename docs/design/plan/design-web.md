@@ -379,7 +379,8 @@ Web 只消费统一的 `input/output/context`，不根据 durability 选择额�
 local activity 才保存 snapshot。配置关闭、local snapshot 不存在、external storage 未启用
 或数据已清理时，server 返回
 `input.unavailable=true`。这只代表 step method input snapshot 不可恢复，不代表其中某个
-独立 Value blob 加载失败。Web 不显示 page-level data warning；terminal ASYNC failure
+独立 Value blob 加载失败。Web 将它显示为整个 step method input snapshot unavailable，
+并明确区分单个 Value blob load failure。Web 不显示 page-level data warning；terminal ASYNC failure
 说明 short retry budget 可在 sync fallback 前耗尽，因此没有记录 invocation
 input snapshot，并引导用户沿 Timeline source link 回看调度来源。
 

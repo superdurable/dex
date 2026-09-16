@@ -915,7 +915,7 @@ function StepMethodDetails({
       <DetailSection title="Input">
         {input.unavailable === true ? (
           <div className="semantic-notice">
-            <strong>Invocation inputs were not recorded</strong>
+            <strong>Step method input snapshot unavailable</strong>
             <p>
               {isAsyncTerminalFailure
                 ? ASYNC_STEP_INPUT_SNAPSHOT_NOT_RECORDED
