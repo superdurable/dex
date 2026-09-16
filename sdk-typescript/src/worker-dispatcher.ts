@@ -306,7 +306,7 @@ export class WorkerDispatcher {
   ): Promise<InvokeWaitForMethodRequest> {
     const lastHeartbeatValue = request.context?.lastHeartbeatValue;
     const hasLastHeartbeatValue = lastHeartbeatValue !== undefined;
-    const values = await this.hydrator.hydrateAll([
+    const values = await this.hydrator.hydrateAll(request.context?.flowId ?? "", [
       ...(hasLastHeartbeatValue ? [lastHeartbeatValue] : []),
       request.stepInput,
       ...request.attributes.map((entry) => entry.value),
@@ -343,7 +343,7 @@ export class WorkerDispatcher {
       (result) => result.results.map((completion) => completion.completedStepOutput),
     ) ?? [];
     const hasInput = request.stepInput !== undefined;
-    const values = await this.hydrator.hydrateAll([
+    const values = await this.hydrator.hydrateAll(request.context?.flowId ?? "", [
       ...(hasLastHeartbeatValue ? [lastHeartbeatValue] : []),
       ...(hasInput ? [request.stepInput] : []),
       ...request.attributes.map((entry) => entry.value),
@@ -387,7 +387,7 @@ export class WorkerDispatcher {
   private async hydrateRPC(request: InvokeWorkerRPCRequest): Promise<InvokeWorkerRPCRequest> {
     const hasInput = request.input !== undefined;
     const channelMessages = loadedMessageValues(request.loadedChannelMessages);
-    const values = await this.hydrator.hydrateAll([
+    const values = await this.hydrator.hydrateAll(request.context?.flowId ?? "", [
       ...(hasInput ? [request.input] : []),
       ...request.attributes.map((entry) => entry.value),
       ...channelMessages,

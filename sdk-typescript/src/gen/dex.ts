@@ -250,12 +250,13 @@ export interface Value {
     | { $case: "doubleValue"; value: number }
     | { $case: "boolValue"; value: boolean }
     | //
-    /** Null deletes an attribute in storage. */
+    /** Top-level null. Within AttributeWrite, null deletes the Attribute. */
     { $case: "nullValue"; value: NullValue }
     | undefined;
 }
 
 export interface EncodedObject {
+  /** "json" is JSON and "raw" is raw bytes. Other values are passed through. */
   encoding: string;
   payload: Uint8Array;
 }
@@ -515,13 +516,15 @@ export interface SetAttributesRequest {
   requestId: string;
 }
 
+export interface LoadBlobRequestEntry {
+  /** Flow that owns blob_value and supplies the omitted Blob path segment. */
+  flowId: string;
+  /** Must use internal_blob_id_for_string_value or internal_blob_id_for_obj_value. */
+  blobValue: Value | undefined;
+}
+
 export interface LoadBlobsRequest {
-  /**
-   * Each value must be a blob-id only
-   * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-   * Concrete payload arms (string_value / obj_value) are rejected.
-   */
-  values: Value[];
+  entries: LoadBlobRequestEntry[];
 }
 
 export interface LoadBlobsResponse {
@@ -4763,14 +4766,74 @@ export const SetAttributesRequest: MessageFns<SetAttributesRequest> = {
   },
 };
 
+function createBaseLoadBlobRequestEntry(): LoadBlobRequestEntry {
+  return { flowId: "", blobValue: undefined };
+}
+
+export const LoadBlobRequestEntry: MessageFns<LoadBlobRequestEntry> = {
+  encode(message: LoadBlobRequestEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.flowId !== "") {
+      writer.uint32(10).string(message.flowId);
+    }
+    if (message.blobValue !== undefined) {
+      Value.encode(message.blobValue, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): LoadBlobRequestEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseLoadBlobRequestEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.blobValue = Value.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<LoadBlobRequestEntry>, I>>(base?: I): LoadBlobRequestEntry {
+    return LoadBlobRequestEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<LoadBlobRequestEntry>, I>>(object: I): LoadBlobRequestEntry {
+    const message = createBaseLoadBlobRequestEntry();
+    message.flowId = object.flowId ?? "";
+    message.blobValue = (object.blobValue !== undefined && object.blobValue !== null)
+      ? Value.fromPartial(object.blobValue)
+      : undefined;
+    return message;
+  },
+};
+
 function createBaseLoadBlobsRequest(): LoadBlobsRequest {
-  return { values: [] };
+  return { entries: [] };
 }
 
 export const LoadBlobsRequest: MessageFns<LoadBlobsRequest> = {
   encode(message: LoadBlobsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    for (const v of message.values) {
-      Value.encode(v!, writer.uint32(10).fork()).join();
+    for (const v of message.entries) {
+      LoadBlobRequestEntry.encode(v!, writer.uint32(10).fork()).join();
     }
     return writer;
   },
@@ -4787,7 +4850,7 @@ export const LoadBlobsRequest: MessageFns<LoadBlobsRequest> = {
             break;
           }
 
-          message.values.push(Value.decode(reader, reader.uint32()));
+          message.entries.push(LoadBlobRequestEntry.decode(reader, reader.uint32()));
           continue;
         }
       }
@@ -4804,7 +4867,7 @@ export const LoadBlobsRequest: MessageFns<LoadBlobsRequest> = {
   },
   fromPartial<I extends Exact<DeepPartial<LoadBlobsRequest>, I>>(object: I): LoadBlobsRequest {
     const message = createBaseLoadBlobsRequest();
-    message.values = object.values?.map((e) => Value.fromPartial(e)) || [];
+    message.entries = object.entries?.map((e) => LoadBlobRequestEntry.fromPartial(e)) || [];
     return message;
   },
 };

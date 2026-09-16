@@ -470,15 +470,17 @@ impl Client {
             let values = response
                 .flow_runs
                 .iter()
-                .flat_map(|entry| entry.indexed_attributes.iter())
-                .map(|attribute| {
-                    attribute
-                        .value
-                        .clone()
-                        .ok_or_else(|| invalid("Indexed Attribute has no Value"))
+                .flat_map(|entry| {
+                    entry.indexed_attributes.iter().map(|attribute| {
+                        attribute
+                            .value
+                            .clone()
+                            .map(|value| (entry.flow_id.clone(), value))
+                            .ok_or_else(|| invalid("Indexed Attribute has no Value"))
+                    })
                 })
                 .collect::<SdkResult<Vec<_>>>()?;
-            let mut values = self.hydrator.hydrate_all(values).await?.into_iter();
+            let mut values = self.hydrator.hydrate_for_flows(values).await?.into_iter();
             let mut flows = Vec::with_capacity(response.flow_runs.len());
             for entry in response.flow_runs {
                 let mut indexed_attributes = BTreeMap::new();
@@ -869,7 +871,9 @@ impl Client {
                 })
         })?;
         let output = output.ok_or_else(|| invalid("InvokeRPC omitted output"))?;
-        let output = self.runtime.block_on(self.hydrator.hydrate(output))?;
+        let output = self
+            .runtime
+            .block_on(self.hydrator.hydrate(flow_id, output))?;
         value_mapper::decode(&output)
     }
 
@@ -960,7 +964,9 @@ impl Client {
                 }
             })?);
         }
-        let outputs = self.runtime.block_on(self.hydrator.hydrate_all(outputs))?;
+        let outputs = self
+            .runtime
+            .block_on(self.hydrator.hydrate_all(flow_id, outputs))?;
         let completions = response
             .results
             .into_iter()

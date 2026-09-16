@@ -25,7 +25,7 @@ import (
 
 const (
 	jsonEncoding     = "json"
-	rawBytesEncoding = "rawbytes"
+	rawBytesEncoding = "raw"
 	dateTimeFormat   = time.RFC3339Nano
 )
 
@@ -66,18 +66,18 @@ func encodeValue(value any) (encoded *dexpb.Value, err error) {
 		err = wrapValueMappingError("encode", err)
 	}()
 	if value == nil {
-		return encodeJSONObject(value)
+		return newNullValue(), nil
 	}
 
 	reflected := reflect.ValueOf(value)
 	if reflected.Type() == noneType {
 		if reflected.IsNil() {
-			return encodeJSONObject(nil)
+			return newNullValue(), nil
 		}
 		return nil, fmt.Errorf("dex: None payload must be nil")
 	}
 	if isNilValue(reflected) {
-		return encodeJSONObject(nil)
+		return newNullValue(), nil
 	}
 
 	switch reflected.Kind() {
@@ -282,7 +282,7 @@ func decodeValueInto(
 		*dexpb.Value_InternalBlobIdForObjValue:
 		return fmt.Errorf("dex: blob-backed value must be hydrated before decoding")
 	case *dexpb.Value_NullValue:
-		return fmt.Errorf("dex: attribute deletion marker cannot be decoded")
+		return decodeJSONPayload([]byte("null"), target, valuePtr)
 	default:
 		return fmt.Errorf("dex: unsupported value kind %T", kind)
 	}
@@ -309,19 +309,23 @@ func decodeObject(
 	}
 	switch object.Encoding {
 	case jsonEncoding:
-		if target.Type() == noneType &&
-			!bytes.Equal(bytes.TrimSpace(object.Payload), []byte("null")) {
-			return fmt.Errorf("dex: None payload must be JSON null")
-		}
-		if err := json.Unmarshal(object.Payload, valuePtr); err != nil {
-			return fmt.Errorf("dex: decode JSON value: %w", err)
-		}
-		return nil
+		return decodeJSONPayload(object.Payload, target, valuePtr)
 	case rawBytesEncoding:
 		return assignRawBytes(target, object.Payload)
 	default:
 		return fmt.Errorf("dex: unsupported object encoding %q", object.Encoding)
 	}
+}
+
+func decodeJSONPayload(payload []byte, target reflect.Value, valuePtr any) error {
+	if target.Type() == noneType &&
+		!bytes.Equal(bytes.TrimSpace(payload), []byte("null")) {
+		return fmt.Errorf("dex: None payload must be JSON null")
+	}
+	if err := json.Unmarshal(payload, valuePtr); err != nil {
+		return fmt.Errorf("dex: decode JSON value: %w", err)
+	}
+	return nil
 }
 
 func assignRawBytes(target reflect.Value, payload []byte) error {
@@ -444,9 +448,7 @@ func mapIndexType(indexType IndexType) (dexpb.IndexType, error) {
 }
 
 func newDeleteValue(index *AttributeIndex) (*dexpb.Value, *dexpb.IndexConfig, error) {
-	value := &dexpb.Value{
-		Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE},
-	}
+	value := newNullValue()
 	if index == nil {
 		return value, nil, nil
 	}
@@ -459,6 +461,12 @@ func newDeleteValue(index *AttributeIndex) (*dexpb.Value, *dexpb.IndexConfig, er
 		Type:     indexType,
 		IndexKey: index.IndexKey,
 	}, nil
+}
+
+func newNullValue() *dexpb.Value {
+	return &dexpb.Value{
+		Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE},
+	}
 }
 
 func parseDatetime(value string) (time.Time, error) {

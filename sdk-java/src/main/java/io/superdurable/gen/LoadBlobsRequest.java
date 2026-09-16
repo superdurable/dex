@@ -28,7 +28,7 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private LoadBlobsRequest() {
-    values_ = java.util.Collections.emptyList();
+    entries_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -49,75 +49,45 @@ private static final long serialVersionUID = 0L;
             io.superdurable.gen.LoadBlobsRequest.class, io.superdurable.gen.LoadBlobsRequest.Builder.class);
   }
 
-  public static final int VALUES_FIELD_NUMBER = 1;
+  public static final int ENTRIES_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
-  private java.util.List<io.superdurable.gen.Value> values_;
+  private java.util.List<io.superdurable.gen.LoadBlobRequestEntry> entries_;
   /**
-   * <pre>
-   * Each value must be a blob-id only
-   * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-   * Concrete payload arms (string_value / obj_value) are rejected.
-   * </pre>
-   *
-   * <code>repeated .dex.Value values = 1;</code>
+   * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<io.superdurable.gen.Value> getValuesList() {
-    return values_;
+  public java.util.List<io.superdurable.gen.LoadBlobRequestEntry> getEntriesList() {
+    return entries_;
   }
   /**
-   * <pre>
-   * Each value must be a blob-id only
-   * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-   * Concrete payload arms (string_value / obj_value) are rejected.
-   * </pre>
-   *
-   * <code>repeated .dex.Value values = 1;</code>
+   * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
    */
   @java.lang.Override
-  public java.util.List<? extends io.superdurable.gen.ValueOrBuilder> 
-      getValuesOrBuilderList() {
-    return values_;
+  public java.util.List<? extends io.superdurable.gen.LoadBlobRequestEntryOrBuilder> 
+      getEntriesOrBuilderList() {
+    return entries_;
   }
   /**
-   * <pre>
-   * Each value must be a blob-id only
-   * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-   * Concrete payload arms (string_value / obj_value) are rejected.
-   * </pre>
-   *
-   * <code>repeated .dex.Value values = 1;</code>
+   * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
    */
   @java.lang.Override
-  public int getValuesCount() {
-    return values_.size();
+  public int getEntriesCount() {
+    return entries_.size();
   }
   /**
-   * <pre>
-   * Each value must be a blob-id only
-   * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-   * Concrete payload arms (string_value / obj_value) are rejected.
-   * </pre>
-   *
-   * <code>repeated .dex.Value values = 1;</code>
+   * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.Value getValues(int index) {
-    return values_.get(index);
+  public io.superdurable.gen.LoadBlobRequestEntry getEntries(int index) {
+    return entries_.get(index);
   }
   /**
-   * <pre>
-   * Each value must be a blob-id only
-   * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-   * Concrete payload arms (string_value / obj_value) are rejected.
-   * </pre>
-   *
-   * <code>repeated .dex.Value values = 1;</code>
+   * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.ValueOrBuilder getValuesOrBuilder(
+  public io.superdurable.gen.LoadBlobRequestEntryOrBuilder getEntriesOrBuilder(
       int index) {
-    return values_.get(index);
+    return entries_.get(index);
   }
 
   private byte memoizedIsInitialized = -1;
@@ -134,8 +104,8 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    for (int i = 0; i < values_.size(); i++) {
-      output.writeMessage(1, values_.get(i));
+    for (int i = 0; i < entries_.size(); i++) {
+      output.writeMessage(1, entries_.get(i));
     }
     getUnknownFields().writeTo(output);
   }
@@ -143,10 +113,10 @@ private static final long serialVersionUID = 0L;
     int size = 0;
 
         {
-          final int count = values_.size();
+          final int count = entries_.size();
           for (int i = 0; i < count; i++) {
             size += com.google.protobuf.CodedOutputStream
-              .computeMessageSizeNoTag(values_.get(i));
+              .computeMessageSizeNoTag(entries_.get(i));
           }
           size += 1 * count;
         }
@@ -174,8 +144,8 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.LoadBlobsRequest other = (io.superdurable.gen.LoadBlobsRequest) obj;
 
-    if (!getValuesList()
-        .equals(other.getValuesList())) return false;
+    if (!getEntriesList()
+        .equals(other.getEntriesList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -187,9 +157,9 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    if (getValuesCount() > 0) {
-      hash = (37 * hash) + VALUES_FIELD_NUMBER;
-      hash = (53 * hash) + getValuesList().hashCode();
+    if (getEntriesCount() > 0) {
+      hash = (37 * hash) + ENTRIES_FIELD_NUMBER;
+      hash = (53 * hash) + getEntriesList().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -322,11 +292,11 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      if (valuesBuilder_ == null) {
-        values_ = java.util.Collections.emptyList();
+      if (entriesBuilder_ == null) {
+        entries_ = java.util.Collections.emptyList();
       } else {
-        values_ = null;
-        valuesBuilder_.clear();
+        entries_ = null;
+        entriesBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000001);
       return this;
@@ -362,14 +332,14 @@ private static final long serialVersionUID = 0L;
     }
 
     private void buildPartialRepeatedFields(io.superdurable.gen.LoadBlobsRequest result) {
-      if (valuesBuilder_ == null) {
+      if (entriesBuilder_ == null) {
         if (((bitField0_ & 0x00000001) != 0)) {
-          values_ = java.util.Collections.unmodifiableList(values_);
+          entries_ = java.util.Collections.unmodifiableList(entries_);
           bitField0_ = (bitField0_ & ~0x00000001);
         }
-        result.values_ = values_;
+        result.entries_ = entries_;
       } else {
-        result.values_ = valuesBuilder_.build();
+        result.entries_ = entriesBuilder_.build();
       }
     }
 
@@ -389,29 +359,29 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.LoadBlobsRequest other) {
       if (other == io.superdurable.gen.LoadBlobsRequest.getDefaultInstance()) return this;
-      if (valuesBuilder_ == null) {
-        if (!other.values_.isEmpty()) {
-          if (values_.isEmpty()) {
-            values_ = other.values_;
+      if (entriesBuilder_ == null) {
+        if (!other.entries_.isEmpty()) {
+          if (entries_.isEmpty()) {
+            entries_ = other.entries_;
             bitField0_ = (bitField0_ & ~0x00000001);
           } else {
-            ensureValuesIsMutable();
-            values_.addAll(other.values_);
+            ensureEntriesIsMutable();
+            entries_.addAll(other.entries_);
           }
           onChanged();
         }
       } else {
-        if (!other.values_.isEmpty()) {
-          if (valuesBuilder_.isEmpty()) {
-            valuesBuilder_.dispose();
-            valuesBuilder_ = null;
-            values_ = other.values_;
+        if (!other.entries_.isEmpty()) {
+          if (entriesBuilder_.isEmpty()) {
+            entriesBuilder_.dispose();
+            entriesBuilder_ = null;
+            entries_ = other.entries_;
             bitField0_ = (bitField0_ & ~0x00000001);
-            valuesBuilder_ = 
+            entriesBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
-                 internalGetValuesFieldBuilder() : null;
+                 internalGetEntriesFieldBuilder() : null;
           } else {
-            valuesBuilder_.addAllMessages(other.values_);
+            entriesBuilder_.addAllMessages(other.entries_);
           }
         }
       }
@@ -442,15 +412,15 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              io.superdurable.gen.Value m =
+              io.superdurable.gen.LoadBlobRequestEntry m =
                   input.readMessage(
-                      io.superdurable.gen.Value.parser(),
+                      io.superdurable.gen.LoadBlobRequestEntry.parser(),
                       extensionRegistry);
-              if (valuesBuilder_ == null) {
-                ensureValuesIsMutable();
-                values_.add(m);
+              if (entriesBuilder_ == null) {
+                ensureEntriesIsMutable();
+                entries_.add(m);
               } else {
-                valuesBuilder_.addMessage(m);
+                entriesBuilder_.addMessage(m);
               }
               break;
             } // case 10
@@ -471,352 +441,244 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private java.util.List<io.superdurable.gen.Value> values_ =
+    private java.util.List<io.superdurable.gen.LoadBlobRequestEntry> entries_ =
       java.util.Collections.emptyList();
-    private void ensureValuesIsMutable() {
+    private void ensureEntriesIsMutable() {
       if (!((bitField0_ & 0x00000001) != 0)) {
-        values_ = new java.util.ArrayList<io.superdurable.gen.Value>(values_);
+        entries_ = new java.util.ArrayList<io.superdurable.gen.LoadBlobRequestEntry>(entries_);
         bitField0_ |= 0x00000001;
        }
     }
 
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> valuesBuilder_;
+        io.superdurable.gen.LoadBlobRequestEntry, io.superdurable.gen.LoadBlobRequestEntry.Builder, io.superdurable.gen.LoadBlobRequestEntryOrBuilder> entriesBuilder_;
 
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.Value> getValuesList() {
-      if (valuesBuilder_ == null) {
-        return java.util.Collections.unmodifiableList(values_);
+    public java.util.List<io.superdurable.gen.LoadBlobRequestEntry> getEntriesList() {
+      if (entriesBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(entries_);
       } else {
-        return valuesBuilder_.getMessageList();
+        return entriesBuilder_.getMessageList();
       }
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public int getValuesCount() {
-      if (valuesBuilder_ == null) {
-        return values_.size();
+    public int getEntriesCount() {
+      if (entriesBuilder_ == null) {
+        return entries_.size();
       } else {
-        return valuesBuilder_.getCount();
+        return entriesBuilder_.getCount();
       }
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public io.superdurable.gen.Value getValues(int index) {
-      if (valuesBuilder_ == null) {
-        return values_.get(index);
+    public io.superdurable.gen.LoadBlobRequestEntry getEntries(int index) {
+      if (entriesBuilder_ == null) {
+        return entries_.get(index);
       } else {
-        return valuesBuilder_.getMessage(index);
+        return entriesBuilder_.getMessage(index);
       }
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public Builder setValues(
-        int index, io.superdurable.gen.Value value) {
-      if (valuesBuilder_ == null) {
+    public Builder setEntries(
+        int index, io.superdurable.gen.LoadBlobRequestEntry value) {
+      if (entriesBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        ensureValuesIsMutable();
-        values_.set(index, value);
+        ensureEntriesIsMutable();
+        entries_.set(index, value);
         onChanged();
       } else {
-        valuesBuilder_.setMessage(index, value);
+        entriesBuilder_.setMessage(index, value);
       }
       return this;
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public Builder setValues(
-        int index, io.superdurable.gen.Value.Builder builderForValue) {
-      if (valuesBuilder_ == null) {
-        ensureValuesIsMutable();
-        values_.set(index, builderForValue.build());
+    public Builder setEntries(
+        int index, io.superdurable.gen.LoadBlobRequestEntry.Builder builderForValue) {
+      if (entriesBuilder_ == null) {
+        ensureEntriesIsMutable();
+        entries_.set(index, builderForValue.build());
         onChanged();
       } else {
-        valuesBuilder_.setMessage(index, builderForValue.build());
+        entriesBuilder_.setMessage(index, builderForValue.build());
       }
       return this;
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public Builder addValues(io.superdurable.gen.Value value) {
-      if (valuesBuilder_ == null) {
+    public Builder addEntries(io.superdurable.gen.LoadBlobRequestEntry value) {
+      if (entriesBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        ensureValuesIsMutable();
-        values_.add(value);
+        ensureEntriesIsMutable();
+        entries_.add(value);
         onChanged();
       } else {
-        valuesBuilder_.addMessage(value);
+        entriesBuilder_.addMessage(value);
       }
       return this;
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public Builder addValues(
-        int index, io.superdurable.gen.Value value) {
-      if (valuesBuilder_ == null) {
+    public Builder addEntries(
+        int index, io.superdurable.gen.LoadBlobRequestEntry value) {
+      if (entriesBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        ensureValuesIsMutable();
-        values_.add(index, value);
+        ensureEntriesIsMutable();
+        entries_.add(index, value);
         onChanged();
       } else {
-        valuesBuilder_.addMessage(index, value);
+        entriesBuilder_.addMessage(index, value);
       }
       return this;
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public Builder addValues(
-        io.superdurable.gen.Value.Builder builderForValue) {
-      if (valuesBuilder_ == null) {
-        ensureValuesIsMutable();
-        values_.add(builderForValue.build());
+    public Builder addEntries(
+        io.superdurable.gen.LoadBlobRequestEntry.Builder builderForValue) {
+      if (entriesBuilder_ == null) {
+        ensureEntriesIsMutable();
+        entries_.add(builderForValue.build());
         onChanged();
       } else {
-        valuesBuilder_.addMessage(builderForValue.build());
+        entriesBuilder_.addMessage(builderForValue.build());
       }
       return this;
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public Builder addValues(
-        int index, io.superdurable.gen.Value.Builder builderForValue) {
-      if (valuesBuilder_ == null) {
-        ensureValuesIsMutable();
-        values_.add(index, builderForValue.build());
+    public Builder addEntries(
+        int index, io.superdurable.gen.LoadBlobRequestEntry.Builder builderForValue) {
+      if (entriesBuilder_ == null) {
+        ensureEntriesIsMutable();
+        entries_.add(index, builderForValue.build());
         onChanged();
       } else {
-        valuesBuilder_.addMessage(index, builderForValue.build());
+        entriesBuilder_.addMessage(index, builderForValue.build());
       }
       return this;
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public Builder addAllValues(
-        java.lang.Iterable<? extends io.superdurable.gen.Value> values) {
-      if (valuesBuilder_ == null) {
-        ensureValuesIsMutable();
+    public Builder addAllEntries(
+        java.lang.Iterable<? extends io.superdurable.gen.LoadBlobRequestEntry> values) {
+      if (entriesBuilder_ == null) {
+        ensureEntriesIsMutable();
         com.google.protobuf.AbstractMessageLite.Builder.addAll(
-            values, values_);
+            values, entries_);
         onChanged();
       } else {
-        valuesBuilder_.addAllMessages(values);
+        entriesBuilder_.addAllMessages(values);
       }
       return this;
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public Builder clearValues() {
-      if (valuesBuilder_ == null) {
-        values_ = java.util.Collections.emptyList();
+    public Builder clearEntries() {
+      if (entriesBuilder_ == null) {
+        entries_ = java.util.Collections.emptyList();
         bitField0_ = (bitField0_ & ~0x00000001);
         onChanged();
       } else {
-        valuesBuilder_.clear();
+        entriesBuilder_.clear();
       }
       return this;
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public Builder removeValues(int index) {
-      if (valuesBuilder_ == null) {
-        ensureValuesIsMutable();
-        values_.remove(index);
+    public Builder removeEntries(int index) {
+      if (entriesBuilder_ == null) {
+        ensureEntriesIsMutable();
+        entries_.remove(index);
         onChanged();
       } else {
-        valuesBuilder_.remove(index);
+        entriesBuilder_.remove(index);
       }
       return this;
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public io.superdurable.gen.Value.Builder getValuesBuilder(
+    public io.superdurable.gen.LoadBlobRequestEntry.Builder getEntriesBuilder(
         int index) {
-      return internalGetValuesFieldBuilder().getBuilder(index);
+      return internalGetEntriesFieldBuilder().getBuilder(index);
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public io.superdurable.gen.ValueOrBuilder getValuesOrBuilder(
+    public io.superdurable.gen.LoadBlobRequestEntryOrBuilder getEntriesOrBuilder(
         int index) {
-      if (valuesBuilder_ == null) {
-        return values_.get(index);  } else {
-        return valuesBuilder_.getMessageOrBuilder(index);
+      if (entriesBuilder_ == null) {
+        return entries_.get(index);  } else {
+        return entriesBuilder_.getMessageOrBuilder(index);
       }
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public java.util.List<? extends io.superdurable.gen.ValueOrBuilder> 
-         getValuesOrBuilderList() {
-      if (valuesBuilder_ != null) {
-        return valuesBuilder_.getMessageOrBuilderList();
+    public java.util.List<? extends io.superdurable.gen.LoadBlobRequestEntryOrBuilder> 
+         getEntriesOrBuilderList() {
+      if (entriesBuilder_ != null) {
+        return entriesBuilder_.getMessageOrBuilderList();
       } else {
-        return java.util.Collections.unmodifiableList(values_);
+        return java.util.Collections.unmodifiableList(entries_);
       }
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public io.superdurable.gen.Value.Builder addValuesBuilder() {
-      return internalGetValuesFieldBuilder().addBuilder(
-          io.superdurable.gen.Value.getDefaultInstance());
+    public io.superdurable.gen.LoadBlobRequestEntry.Builder addEntriesBuilder() {
+      return internalGetEntriesFieldBuilder().addBuilder(
+          io.superdurable.gen.LoadBlobRequestEntry.getDefaultInstance());
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public io.superdurable.gen.Value.Builder addValuesBuilder(
+    public io.superdurable.gen.LoadBlobRequestEntry.Builder addEntriesBuilder(
         int index) {
-      return internalGetValuesFieldBuilder().addBuilder(
-          index, io.superdurable.gen.Value.getDefaultInstance());
+      return internalGetEntriesFieldBuilder().addBuilder(
+          index, io.superdurable.gen.LoadBlobRequestEntry.getDefaultInstance());
     }
     /**
-     * <pre>
-     * Each value must be a blob-id only
-     * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-     * Concrete payload arms (string_value / obj_value) are rejected.
-     * </pre>
-     *
-     * <code>repeated .dex.Value values = 1;</code>
+     * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
      */
-    public java.util.List<io.superdurable.gen.Value.Builder> 
-         getValuesBuilderList() {
-      return internalGetValuesFieldBuilder().getBuilderList();
+    public java.util.List<io.superdurable.gen.LoadBlobRequestEntry.Builder> 
+         getEntriesBuilderList() {
+      return internalGetEntriesFieldBuilder().getBuilderList();
     }
     private com.google.protobuf.RepeatedFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
-        internalGetValuesFieldBuilder() {
-      if (valuesBuilder_ == null) {
-        valuesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
-            io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>(
-                values_,
+        io.superdurable.gen.LoadBlobRequestEntry, io.superdurable.gen.LoadBlobRequestEntry.Builder, io.superdurable.gen.LoadBlobRequestEntryOrBuilder> 
+        internalGetEntriesFieldBuilder() {
+      if (entriesBuilder_ == null) {
+        entriesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            io.superdurable.gen.LoadBlobRequestEntry, io.superdurable.gen.LoadBlobRequestEntry.Builder, io.superdurable.gen.LoadBlobRequestEntryOrBuilder>(
+                entries_,
                 ((bitField0_ & 0x00000001) != 0),
                 getParentForChildren(),
                 isClean());
-        values_ = null;
+        entries_ = null;
       }
-      return valuesBuilder_;
+      return entriesBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.LoadBlobsRequest)

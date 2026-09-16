@@ -370,11 +370,14 @@ Web 只消费统一的 `input/output/context`，不根据 durability 选择额�
 | 执行路径 | Input 来源 | Context/options 来源 |
 |---|---|---|
 | SYNC regular Activity | ActivityTaskScheduled input | scheduled event metadata 和 input context |
-| ASYNC local success | run-scoped async input snapshot | LocalActivity marker 与 async input snapshot |
+| ASYNC local success with snapshots enabled | run-scoped async input snapshot | LocalActivity marker 与 async input snapshot |
+| ASYNC local success with snapshots disabled | unavailable | LocalActivity marker metadata |
 | ASYNC local failure + regular fallback | fallback ActivityTaskScheduled input | scheduled event metadata；durability 仍为 ASYNC |
 | ASYNC local failure + budget exhausted | unavailable | LocalActivity failure marker metadata |
 
-local snapshot 不存在、external storage 未启用或数据已清理时，server 返回
+`blobStore.asyncStepInputSnapshotsEnabled` 默认关闭。只有明确开启后，成功的 ASYNC
+local activity 才保存 snapshot。配置关闭、local snapshot 不存在、external storage 未启用
+或数据已清理时，server 返回
 `input.unavailable=true`。这只代表 step method input snapshot 不可恢复，不代表其中某个
 独立 Value blob 加载失败。Web 不显示 page-level data warning；terminal ASYNC failure
 说明 short retry budget 可在 sync fallback 前耗尽，因此没有记录 invocation
@@ -474,7 +477,7 @@ message InternalLocalStepActivityFailure {
 
 - `InternalLocalActivityInput` 是 workflow provider 只给 local activity 的第二个参数，
   用于携带当前 run start time 和 method options；
-- `InternalAsyncStepInputSnapshot` 是成功 local activity 写入 external storage 的 protobuf，
+- `InternalAsyncStepInputSnapshot` 是启用 snapshot 后由成功 local activity 写入 external storage 的 protobuf，
   保存准确发送给 worker 的 request 和 method options；
 - regular failure 使用单一 `InternalActivityError` detail；local failure 使用单一
   `InternalLocalStepActivityFailure` detail，并在其中嵌套 `activity_error`；
@@ -730,12 +733,12 @@ Phase 2 使用 `server/integ/`：
 - Temporal/Cadence × SYNC/ASYNC：WaitFor/Execute 显示调用时 step input、attributes 和 condition results。
 - SYNC scheduled input 和 ASYNC snapshot 都映射为完全相同的 `input/output/context` shape。
 - regular Activity input proto 保持不变；第二个 activity argument 为 null 时 Temporal/Cadence 都能解码。
-- ASYNC local success 保存 `InternalAsyncStepInputSnapshot`；marker 中不增加完整 request。
+- 开启 `blobStore.asyncStepInputSnapshotsEnabled` 后，ASYNC local success 保存 `InternalAsyncStepInputSnapshot`；marker 中不增加完整 request。
 - method options：SYNC 从 scheduled metadata 转换；ASYNC success 从 snapshot 恢复，fallback 从 local failure metadata 恢复。
 - channel values、多个 timers、ANY/ALL results 从保存的 worker request 精确恢复。
 - local failure fallback 使用 regular Activity history request，且不暴露 local failure。
 - sync 和 async regular retry 只返回最近一次 failure；local failure 在 fallback 期间不暴露。
-- local retry budget 耗尽且没有 fallback 时，以及关闭存储或清理后缺失 async snapshot 时，返回 `input.unavailable=true`。
+- local retry budget 耗尽且没有 fallback 时，以及 snapshot 配置关闭、存储关闭或清理后缺失 async snapshot 时，返回 `input.unavailable=true`。
 - local filesystem storage 覆盖 string/object blob、run-level cleanup 和安全路径。
 
 Web Go integration：

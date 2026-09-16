@@ -29,7 +29,7 @@ import java.time.Instant;
 
 final class ValueMapper {
     private static final String JSON = "json";
-    private static final String RAW_BYTES = "rawbytes";
+    private static final String RAW_BYTES = "raw";
 
     private final ObjectMapper objectMapper;
 
@@ -38,6 +38,9 @@ final class ValueMapper {
     }
 
     Value encode(final Object value) {
+        if (value == null) {
+            return nullValue();
+        }
         if (value instanceof String) {
             return Value.newBuilder().setStringValue((String) value).build();
         }
@@ -101,7 +104,8 @@ final class ValueMapper {
             case INTERNAL_BLOB_ID_FOR_OBJ_VALUE:
                 throw new ValueMappingException("Cannot decode an unhydrated blob-backed Value");
             case NULL_VALUE:
-                throw new ValueMappingException("Cannot decode an attribute deletion marker");
+                decoded = null;
+                break;
             default:
                 throw new ValueMappingException("Cannot decode an unsupported Value kind");
         }
@@ -149,6 +153,10 @@ final class ValueMapper {
     }
 
     Value deletion() {
+        return nullValue();
+    }
+
+    private static Value nullValue() {
         return Value.newBuilder().setNullValue(NullValue.NULL_VALUE).build();
     }
 

@@ -20,6 +20,7 @@ import (
 	"hash"
 	"io"
 	"io/fs"
+	"math/big"
 	"sort"
 	"strings"
 	"time"
@@ -28,7 +29,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
-	"github.com/google/uuid"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/service/common/log"
@@ -37,6 +37,8 @@ import (
 )
 
 var errStoreNotFound = errors.New("store not found")
+
+const base36Alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 type blobStoreImpl struct {
 	s3Client                    *s3.Client
@@ -48,6 +50,7 @@ type blobStoreImpl struct {
 	readObjectErrorCounter      client.MetricsCounter
 	writeObjectSuccessHistogram client.MetricsTimer
 	readObjectSuccessHistogram  client.MetricsTimer
+	objectIDLength              int
 	blobCache                   *blobcache.Cache
 	blobCacheHitCounter         client.MetricsCounter
 	blobCacheMissCounter        client.MetricsCounter
@@ -67,11 +70,11 @@ func NewBlobStore(
 	if storeConfig == nil {
 		panic("NewBlobStore requires BlobStoreConfig")
 	}
+	if err := storeConfig.Validate(); err != nil {
+		return nil, err
+	}
 	if !storeConfig.EffectiveEnabled() {
 		return nil, nil
-	}
-	if err := storeConfig.BlobCache.Validate(); err != nil {
-		return nil, err
 	}
 
 	var activeStorage *config.BlobStoreConfigEntry
@@ -127,6 +130,7 @@ func NewBlobStore(
 		readObjectErrorCounter:      readObjectErrorCounter,
 		writeObjectSuccessHistogram: writeObjectSuccessHistogram,
 		readObjectSuccessHistogram:  readObjectSuccessHistogram,
+		objectIDLength:              storeConfig.EffectiveObjectIDLength(),
 		blobCache:                   attributeCache,
 		blobCacheHitCounter:         metricsHandler.Counter("blob_cache_hit"),
 		blobCacheMissCounter:        metricsHandler.Counter("blob_cache_miss"),
@@ -139,19 +143,21 @@ func NewBlobStore(
 
 func (b *blobStoreImpl) WriteObject(
 	ctx context.Context,
-	workflowId string,
-	invocationId string,
+	flowID string,
+	invocationID string,
 	data []byte,
-) (storeId, path string, err error) {
-	storeId = b.activeStorage.StorageId
-	objectID, err := deterministicBlobUUID(invocationId, data)
+) (storeID, locator string, err error) {
+	storeID = b.activeStorage.StorageId
+	objectID, err := deterministicBlobObjectID(invocationID, data, b.objectIDLength)
 	if err != nil {
 		return "", "", err
 	}
-	yyyymmdd := time.Now().UTC().Format("20060102")
-	// yyyymmdd$workflowId/uuid
-	// Note: using $ here so that the listing can be much easier to implement for pagination
-	path = fmt.Sprintf("%s$%s/%s", yyyymmdd, workflowId, objectID)
+	startedDate := formatBlobDate(time.Now())
+	locator = startedDate + "/" + objectID
+	path, err := ValueObjectPath(flowID, locator)
+	if err != nil {
+		return "", "", err
+	}
 
 	err = b.writeObject(ctx, b.activeStorage, path, data)
 	if err != nil {
@@ -162,25 +168,25 @@ func (b *blobStoreImpl) WriteObject(
 				tag.RequestID(re.ServiceRequestID()),
 				tag.HostID(re.ServiceHostID()),
 				tag.Bucket(b.activeStorage.S3Bucket),
-				tag.WorkflowID(workflowId),
+				tag.WorkflowID(flowID),
 				tag.Error(err))
 			err = fmt.Errorf("failed to write object (requestId=%s, hostId=%s): %w",
 				re.ServiceRequestID(), re.ServiceHostID(), err)
 		} else {
 			b.logger.Error("PutObject error",
 				tag.Bucket(b.activeStorage.S3Bucket),
-				tag.WorkflowID(workflowId),
+				tag.WorkflowID(flowID),
 				tag.Error(err))
 			err = fmt.Errorf("failed to write object: %w", err)
 		}
 		return
 	}
 	if b.activeStorage.StorageType == config.StorageTypeS3 {
-		if err = b.cacheAttributeObject(storeId, path, data, b.blobCacheWriteCounter); err != nil {
+		if err = b.cacheAttributeObject(storeID, path, data, b.blobCacheWriteCounter); err != nil {
 			b.writeObjectErrorCounter.Inc(1)
 			b.logger.Error("Attribute blob cache write failed",
 				tag.Path(path),
-				tag.StoreID(storeId),
+				tag.StoreID(storeID),
 				tag.Error(err))
 			err = fmt.Errorf("failed to cache written object: %w", err)
 			return
@@ -267,25 +273,31 @@ func (b *blobStoreImpl) writeObject(
 	}
 }
 
-func deterministicBlobUUID(invocationId string, data []byte) (uuid.UUID, error) {
+func deterministicBlobObjectID(invocationID string, data []byte, objectIDLength int) (string, error) {
 	hasher := sha256.New()
 	components := [][]byte{
-		[]byte("dex-blob-v1"),
-		[]byte(invocationId),
+		[]byte("dex-blob-v2"),
+		[]byte(invocationID),
 		data,
 	}
 	for _, component := range components {
 		if err := writeHashComponent(hasher, component); err != nil {
-			return uuid.Nil, err
+			return "", err
 		}
 	}
+	return fixedWidthBase36(hasher.Sum(nil), objectIDLength), nil
+}
 
-	digest := hasher.Sum(nil)
-	var objectID uuid.UUID
-	copy(objectID[:], digest[:16])
-	objectID[6] = (objectID[6] & 0x0f) | 0x80
-	objectID[8] = (objectID[8] & 0x3f) | 0x80
-	return objectID, nil
+func fixedWidthBase36(digest []byte, length int) string {
+	value := new(big.Int).SetBytes(digest)
+	base := big.NewInt(int64(len(base36Alphabet)))
+	remainder := new(big.Int)
+	encoded := make([]byte, length)
+	for index := length - 1; index >= 0; index-- {
+		value.DivMod(value, base, remainder)
+		encoded[index] = base36Alphabet[remainder.Int64()]
+	}
+	return string(encoded)
 }
 
 func writeHashComponent(hasher hash.Hash, component []byte) error {
@@ -308,19 +320,23 @@ func writeHashBytes(hasher hash.Hash, data []byte) error {
 	return nil
 }
 
-func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([]byte, error) {
-	storeConfig, ok := b.supportedStore[storeId]
+func (b *blobStoreImpl) ReadObject(ctx context.Context, storeID, flowID, locator string) ([]byte, error) {
+	path, err := ValueObjectPath(flowID, locator)
+	if err != nil {
+		return nil, err
+	}
+	storeConfig, ok := b.supportedStore[storeID]
 	if !ok {
 		b.readObjectErrorCounter.Inc(1)
-		return nil, fmt.Errorf("%w for %s", errStoreNotFound, storeId)
+		return nil, fmt.Errorf("%w for %s", errStoreNotFound, storeID)
 	}
 	if storeConfig.StorageType == config.StorageTypeS3 && b.blobCache != nil {
-		data, found, err := b.readCachedAttributeObject(storeId, path)
+		data, found, err := b.readCachedAttributeObject(storeID, path)
 		if err != nil {
 			b.readObjectErrorCounter.Inc(1)
 			b.logger.Error("Attribute blob cache read failed",
 				tag.Path(path),
-				tag.StoreID(storeId),
+				tag.StoreID(storeID),
 				tag.Error(err))
 			return nil, fmt.Errorf("failed to read cached object: %w", err)
 		}
@@ -339,7 +355,7 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([
 				tag.HostID(re.ServiceHostID()),
 				tag.Bucket(storeConfig.S3Bucket),
 				tag.Path(path),
-				tag.StoreID(storeId),
+				tag.StoreID(storeID),
 				tag.Error(err))
 			return nil, fmt.Errorf("failed to read object (requestId=%s, hostId=%s): %w",
 				re.ServiceRequestID(), re.ServiceHostID(), err)
@@ -347,16 +363,16 @@ func (b *blobStoreImpl) ReadObject(ctx context.Context, storeId, path string) ([
 		b.logger.Error("GetObject error",
 			tag.Bucket(storeConfig.S3Bucket),
 			tag.Path(path),
-			tag.StoreID(storeId),
+			tag.StoreID(storeID),
 			tag.Error(err))
 		return nil, fmt.Errorf("failed to read object: %w", err)
 	}
 	if storeConfig.StorageType == config.StorageTypeS3 {
-		if err := b.cacheAttributeObject(storeId, path, data, b.blobCacheReadFillCounter); err != nil {
+		if err := b.cacheAttributeObject(storeID, path, data, b.blobCacheReadFillCounter); err != nil {
 			b.readObjectErrorCounter.Inc(1)
 			b.logger.Error("Attribute blob cache fill failed",
 				tag.Path(path),
-				tag.StoreID(storeId),
+				tag.StoreID(storeID),
 				tag.Error(err))
 			return nil, fmt.Errorf("failed to fill object cache: %w", err)
 		}
@@ -464,7 +480,7 @@ func putObject(ctx context.Context, client *s3.Client, bucketName string, key st
 		Bucket:      aws.String(bucketName),
 		Key:         aws.String(key),
 		Body:        bytes.NewReader(content),
-		ContentType: aws.String("application/json"),
+		ContentType: aws.String("application/octet-stream"),
 	})
 	return err
 }
@@ -486,10 +502,10 @@ func getObject(ctx context.Context, client *s3.Client, bucketName, key string) (
 	return data, nil
 }
 
-func (b *blobStoreImpl) CountWorkflowObjectsForTesting(ctx context.Context, workflowId string) (int64, error) {
-	// Create the prefix to match objects for this workflowId for today
-	yyyymmdd := time.Now().UTC().Format("20060102")
-	prefix := fmt.Sprintf("%s%s$%s/", b.pathPrefix, yyyymmdd, workflowId)
+func (b *blobStoreImpl) CountWorkflowObjectsForTesting(ctx context.Context, flowID string) (int64, error) {
+	// Create the prefix to match objects for this Flow for today.
+	yymmdd := formatBlobDate(time.Now())
+	prefix := fmt.Sprintf("%s%s$%s/", b.pathPrefix, yymmdd, encodePathPart(flowID))
 	if b.activeStorage.StorageType == config.StorageTypeLocal {
 		return countLocalObjects(ctx, b.activeStorage.LocalDirectory, prefix)
 	}
@@ -681,7 +697,7 @@ func (b *blobStoreImpl) ListWorkflowPaths(ctx context.Context, input ListObjectP
 	workflowPaths := make([]string, 0, len(result.CommonPrefixes))
 	for _, commonPrefix := range result.CommonPrefixes {
 		if commonPrefix.Prefix != nil {
-			// Remove the pathPrefix to get the workflow path (yyyymmdd$workflowId)
+			// Remove the pathPrefix to get the workflow path (yymmdd$encodedFlowId)
 			prefixStr := *commonPrefix.Prefix
 			if strings.HasPrefix(prefixStr, b.pathPrefix) {
 				workflowPath := strings.TrimPrefix(prefixStr, b.pathPrefix)

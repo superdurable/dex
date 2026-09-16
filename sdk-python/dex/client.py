@@ -308,7 +308,7 @@ class Client:
         if rpc.output_codec is None:
             return None
         return self._values.decode(
-            self._hydrator.hydrate(response.output),
+            self._hydrator.hydrate(flow_id, response.output),
             rpc.output_codec,
         )
 
@@ -505,7 +505,7 @@ class Client:
             DexServiceError: If FlowService cannot perform the wait.
         """
         response = self._wait_for_flow_response(flow_id, timeout)
-        hydrated = self._hydrator.step_outputs(list(response.results))
+        hydrated = self._hydrator.step_outputs(flow_id, list(response.results))
         mapped = pb.FlowResult()
         mapped.CopyFrom(response)
         del mapped.results[:]
@@ -624,7 +624,9 @@ class Client:
 
     def _map_search_entry(self, entry: pb.SearchFlowsResponseEntry) -> SearchFlowEntry:
         attributes = {
-            kv.key: self._values.to_value(self._hydrator.hydrate(kv.value))
+            kv.key: self._values.to_value(
+                self._hydrator.hydrate(entry.flow_id, kv.value)
+            )
             for kv in entry.indexed_attributes
         }
         closed_at = (

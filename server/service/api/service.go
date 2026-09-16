@@ -645,7 +645,7 @@ func (s *serviceImpl) GetChannelMessages(
 		for _, message := range response.GetMessages() {
 			values = append(values, message.GetValue())
 		}
-		if err := blobstore.HydrateValues(ctx, values, s.store); err != nil {
+		if err := blobstore.HydrateFlowValues(ctx, req.GetFlowId(), values, s.store); err != nil {
 			return nil, s.handleError(err)
 		}
 	}
@@ -1075,7 +1075,7 @@ func (s *serviceImpl) GetAttributes(
 	}
 	attributes := queryResponse.GetAttributes()
 	if !s.blobStoreCfg.EffectiveLazyLoading() {
-		if err := blobstore.HydrateKVs(ctx, attributes, s.store); err != nil {
+		if err := blobstore.HydrateKVs(ctx, req.GetFlowId(), attributes, s.store); err != nil {
 			return nil, s.handleError(err)
 		}
 	}
@@ -1123,16 +1123,19 @@ func (s *serviceImpl) SetAttributes(
 }
 
 func (s *serviceImpl) LoadBlobs(ctx context.Context, req *dexpb.LoadBlobsRequest) (*dexpb.LoadBlobsResponse, error) {
-	if req == nil || len(req.GetValues()) == 0 {
+	if req == nil || len(req.GetEntries()) == 0 {
 		return &dexpb.LoadBlobsResponse{Values: map[string]*dexpb.Value{}}, nil
 	}
-	values := make(map[string]*dexpb.Value, len(req.GetValues()))
-	for _, value := range req.GetValues() {
-		blobId, hydrateValue, err := blobArmForLoad(value)
+	values := make(map[string]*dexpb.Value, len(req.GetEntries()))
+	for _, entry := range req.GetEntries() {
+		if entry == nil || entry.GetFlowId() == "" {
+			return nil, makeInvalidRequestError("Flow ID is required for every Blob")
+		}
+		blobId, hydrateValue, err := blobArmForLoad(entry.GetBlobValue())
 		if err != nil {
 			return nil, makeInvalidRequestError(err.Error())
 		}
-		if err := blobstore.HydrateValue(ctx, hydrateValue, s.store); err != nil {
+		if err := blobstore.HydrateValue(ctx, entry.GetFlowId(), hydrateValue, s.store); err != nil {
 			if blobstore.IsObjectUnavailable(err) {
 				continue
 			}
@@ -1492,7 +1495,7 @@ func (s *serviceImpl) InvokeRPC(
 		response, err := s.doInvokeRPC(ctx, req, runID, isTransactional)
 		if err == nil {
 			if !s.blobStoreCfg.EffectiveLazyLoading() {
-				if err := blobstore.HydrateValue(ctx, response.GetOutput(), s.store); err != nil {
+				if err := blobstore.HydrateValue(ctx, req.GetFlowId(), response.GetOutput(), s.store); err != nil {
 					return nil, s.handleError(err)
 				}
 			}

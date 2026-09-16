@@ -126,7 +126,7 @@ func executeWait(c *flowCommand, ctx context.Context, args []string, options opt
 		if callErr != nil {
 			return newOperationError("flow wait", callErr)
 		}
-		mapped, warnings, mapErr := naturalMessage(callCtx, client.service, response, options.noHydrate)
+		mapped, warnings, mapErr := naturalMessage(callCtx, client.service, flowID, response, options.noHydrate)
 		if mapErr != nil {
 			return newOperationError("flow wait", mapErr)
 		}

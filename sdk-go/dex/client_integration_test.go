@@ -216,8 +216,9 @@ func (service *clientTestFlowService) LoadBlobs(
 	_ context.Context,
 	request *dexpb.LoadBlobsRequest,
 ) (*dexpb.LoadBlobsResponse, error) {
-	values := make(map[string]*dexpb.Value, len(request.Values))
-	for _, value := range request.Values {
+	values := make(map[string]*dexpb.Value, len(request.Entries))
+	for _, entry := range request.Entries {
+		value := entry.GetBlobValue()
 		blobID, found, err := getBlobID(value)
 		if err != nil {
 			return nil, err

@@ -134,19 +134,19 @@ remains internal.
 | unsigned integers up to `math.MaxInt64` | `int_value` |
 | float32 and float64 | `double_value` |
 | bool and named bools | `bool_value` |
-| `[]byte` and named byte slices | `obj_value`, encoding `"rawbytes"` |
+| ordinary nil and typed nil | `null_value` |
+| `[]byte` and named byte slices | `obj_value`, encoding `"raw"` |
 | all other JSON-compatible values | `obj_value`, encoding `"json"` |
 
 Strings with invalid UTF-8 return an encoding error; arbitrary binary data uses
 `[]byte`. Raw-byte object payloads contain the bytes directly without JSON or
 base64 encoding. Structs, maps, other slices, arrays, and non-indexed
-`time.Time` use JSON. Ordinary nil and typed nil encode as a JSON null object.
-The proto null arm is reserved for attribute deletion.
+`time.Time` use JSON. The proto null arm represents top-level null. Within an
+Attribute write, it deletes the Attribute.
 
 `Value.Decode` requires a non-nil pointer. It rejects overflow, incompatible
-targets, malformed JSON, unknown object encodings, deletion markers, and blob
-arms that have not passed through hydration. Dynamic failures return errors and
-never panic.
+targets, malformed JSON, unknown object encodings, and blob arms that have not
+passed through hydration. Dynamic failures return errors and never panic.
 
 ### Indexed attributes
 

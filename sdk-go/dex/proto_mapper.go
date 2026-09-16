@@ -1277,7 +1277,7 @@ func validateConcreteValue(value *dexpb.Value) error {
 		*dexpb.Value_InternalBlobIdForObjValue:
 		return fmt.Errorf("dex: blob-backed value is not hydrated")
 	case *dexpb.Value_NullValue:
-		return fmt.Errorf("dex: attribute deletion marker is not a result value")
+		return nil
 	default:
 		return fmt.Errorf("dex: unsupported value kind %T", kind)
 	}

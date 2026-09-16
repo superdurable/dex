@@ -135,7 +135,7 @@ public interface ValueOrBuilder extends
 
   /**
    * <pre>
-   * Null deletes an attribute in storage.
+   * Top-level null. Within AttributeWrite, null deletes the Attribute.
    * </pre>
    *
    * <code>.google.protobuf.NullValue null_value = 8;</code>
@@ -144,7 +144,7 @@ public interface ValueOrBuilder extends
   boolean hasNullValue();
   /**
    * <pre>
-   * Null deletes an attribute in storage.
+   * Top-level null. Within AttributeWrite, null deletes the Attribute.
    * </pre>
    *
    * <code>.google.protobuf.NullValue null_value = 8;</code>
@@ -153,7 +153,7 @@ public interface ValueOrBuilder extends
   int getNullValueValue();
   /**
    * <pre>
-   * Null deletes an attribute in storage.
+   * Top-level null. Within AttributeWrite, null deletes the Attribute.
    * </pre>
    *
    * <code>.google.protobuf.NullValue null_value = 8;</code>

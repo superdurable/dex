@@ -439,7 +439,10 @@ client operations, and assertions as the Java suite against an isolated
 The strongly typed contracts, registry, synchronous Client/Worker, optional
 `AsyncClient`/`AsyncWorker` (`grpc.aio`), and Rust-backed BlobCache are
 implemented. Python owns its gRPC transport; the native bridge is limited to
-the shared BlobCache. Design notes:
+the shared BlobCache. Serialized object values use wire encoding `json` for JSON
+and `raw` for raw bytes. Internal Blob references are opaque. Hydration sends the
+owning Flow ID with each reference, and the cache is isolated by
+`(flow_id, blob_ref)`. Design notes:
 [`python-sdk-async-apis.md`](../docs/design/plan/python-sdk-async-apis.md) and
 [`python-sdk-step-streaming.md`](../docs/design/plan/python-sdk-step-streaming.md).
 

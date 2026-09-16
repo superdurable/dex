@@ -607,7 +607,7 @@ public final class Client implements AutoCloseable {
                 mapFlowStatus(response.getFlowStatus()),
                 mapNullableFlowErrorType(response.getErrorType()),
                 response.getErrorMessage().isEmpty() ? null : response.getErrorMessage(),
-                mapStepCompletions(response.getResultsList()));
+                mapStepCompletions(flowId, response.getResultsList()));
     }
 
     /**
@@ -684,7 +684,7 @@ public final class Client implements AutoCloseable {
         for (final KV attribute : entry.getIndexedAttributesList()) {
             attributes.put(
                     attribute.getKey(),
-                    values.decodeToObject(hydrator.hydrate(attribute.getValue())));
+                    values.decodeToObject(hydrator.hydrate(entry.getFlowId(), attribute.getValue())));
         }
         return new SearchFlowEntry(
                 entry.getFlowId(),
@@ -1004,6 +1004,7 @@ public final class Client implements AutoCloseable {
                 .addAllLoadChannelMapInstances(rpc.getStateLoads().getChannelMaps())
                 .build();
         final io.superdurable.gen.Value output = hydrator.hydrate(
+                target.flowId,
                 call(
                         () -> service.invokeRPC(request),
                         FlowTargetRequirement.ACTIVE,
@@ -1035,10 +1036,11 @@ public final class Client implements AutoCloseable {
     }
 
     private List<StepCompletion> mapStepCompletions(
+            final String flowId,
             final List<io.superdurable.gen.StepCompletionOutput> outputs) {
         final List<StepCompletion> completions = new ArrayList<StepCompletion>();
         for (io.superdurable.gen.StepCompletionOutput completion
-                : hydrator.hydrateStepOutputs(outputs)) {
+                : hydrator.hydrateStepOutputs(flowId, outputs)) {
             completions.add(new StepCompletion(
                     completion,
                     (value, outputType) -> values.decode(value, outputType)));

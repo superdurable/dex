@@ -11,56 +11,26 @@ public interface LoadBlobsRequestOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <pre>
-   * Each value must be a blob-id only
-   * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-   * Concrete payload arms (string_value / obj_value) are rejected.
-   * </pre>
-   *
-   * <code>repeated .dex.Value values = 1;</code>
+   * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
    */
-  java.util.List<io.superdurable.gen.Value> 
-      getValuesList();
+  java.util.List<io.superdurable.gen.LoadBlobRequestEntry> 
+      getEntriesList();
   /**
-   * <pre>
-   * Each value must be a blob-id only
-   * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-   * Concrete payload arms (string_value / obj_value) are rejected.
-   * </pre>
-   *
-   * <code>repeated .dex.Value values = 1;</code>
+   * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
    */
-  io.superdurable.gen.Value getValues(int index);
+  io.superdurable.gen.LoadBlobRequestEntry getEntries(int index);
   /**
-   * <pre>
-   * Each value must be a blob-id only
-   * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-   * Concrete payload arms (string_value / obj_value) are rejected.
-   * </pre>
-   *
-   * <code>repeated .dex.Value values = 1;</code>
+   * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
    */
-  int getValuesCount();
+  int getEntriesCount();
   /**
-   * <pre>
-   * Each value must be a blob-id only
-   * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-   * Concrete payload arms (string_value / obj_value) are rejected.
-   * </pre>
-   *
-   * <code>repeated .dex.Value values = 1;</code>
+   * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
    */
-  java.util.List<? extends io.superdurable.gen.ValueOrBuilder> 
-      getValuesOrBuilderList();
+  java.util.List<? extends io.superdurable.gen.LoadBlobRequestEntryOrBuilder> 
+      getEntriesOrBuilderList();
   /**
-   * <pre>
-   * Each value must be a blob-id only
-   * (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-   * Concrete payload arms (string_value / obj_value) are rejected.
-   * </pre>
-   *
-   * <code>repeated .dex.Value values = 1;</code>
+   * <code>repeated .dex.LoadBlobRequestEntry entries = 1;</code>
    */
-  io.superdurable.gen.ValueOrBuilder getValuesOrBuilder(
+  io.superdurable.gen.LoadBlobRequestEntryOrBuilder getEntriesOrBuilder(
       int index);
 }

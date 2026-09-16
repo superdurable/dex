@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/service/common/ptr"
 )
 
 func TestAttributeStoreConfigDecodeAndDefaults(t *testing.T) {
@@ -60,8 +61,29 @@ func TestBlobStoreDefaults(t *testing.T) {
 	cfg, err := NewConfig(path)
 	require.NoError(t, err)
 	require.True(t, cfg.BlobStore.EffectiveEnabled())
-	require.Equal(t, 1024, cfg.BlobStore.EffectiveThresholdInBytes())
+	require.False(t, cfg.BlobStore.AsyncStepInputSnapshotsEnabled)
+	require.Equal(t, 100, cfg.BlobStore.EffectiveThresholdInBytes())
+	require.Equal(t, DefaultBlobStoreObjectIDLength, cfg.BlobStore.EffectiveObjectIDLength())
 	require.Equal(t, 100*time.Millisecond, cfg.AttributeStore.EffectiveSyncRetryPolicy().InitialInterval)
+}
+
+func TestBlobStoreObjectIDLengthValidation(t *testing.T) {
+	for _, objectIDLength := range []int{0, 1, 9, 10, 12, 16, 22, 50, 51} {
+		require.NoError(t, (BlobStoreConfig{ObjectIDLength: objectIDLength}).Validate())
+	}
+	err := (BlobStoreConfig{ObjectIDLength: -1}).Validate()
+	require.ErrorContains(t, err, "objectIdLength")
+}
+
+func TestBlobStoreAsyncStepInputSnapshotsRequireBlobStore(t *testing.T) {
+	require.NoError(t, (BlobStoreConfig{}).Validate())
+	require.NoError(t, (BlobStoreConfig{AsyncStepInputSnapshotsEnabled: true}).Validate())
+
+	err := (BlobStoreConfig{
+		Enabled:                        ptr.Any(false),
+		AsyncStepInputSnapshotsEnabled: true,
+	}).Validate()
+	require.ErrorContains(t, err, "asyncStepInputSnapshotsEnabled")
 }
 
 func TestExternalStorageConfigKeyIsRejected(t *testing.T) {

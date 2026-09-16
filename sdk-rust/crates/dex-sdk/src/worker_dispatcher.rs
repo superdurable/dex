@@ -382,6 +382,11 @@ impl WorkerDispatcher {
         &self,
         mut request: InvokeWaitForMethodRequest,
     ) -> HandlerResult<InvokeWaitForMethodRequest> {
+        let flow_id = request
+            .context
+            .as_ref()
+            .map(|context| context.flow_id.clone())
+            .unwrap_or_default();
         let last_heartbeat_value = request
             .context
             .as_mut()
@@ -395,7 +400,7 @@ impl WorkerDispatcher {
             take_channel_message_values(&mut request.loaded_channel_messages, &mut values)?;
         let hydrated = self
             .hydrator
-            .hydrate_all(values)
+            .hydrate_all(&flow_id, values)
             .await
             .map_err(handler_error)?;
         let mut hydrated = hydrated.into_iter();
@@ -421,6 +426,11 @@ impl WorkerDispatcher {
         &self,
         mut request: InvokeExecuteMethodRequest,
     ) -> HandlerResult<InvokeExecuteMethodRequest> {
+        let flow_id = request
+            .context
+            .as_ref()
+            .map(|context| context.flow_id.clone())
+            .unwrap_or_default();
         let last_heartbeat_value = request
             .context
             .as_mut()
@@ -475,7 +485,7 @@ impl WorkerDispatcher {
             take_channel_message_values(&mut request.loaded_channel_messages, &mut values)?;
         let mut hydrated = self
             .hydrator
-            .hydrate_all(values)
+            .hydrate_all(&flow_id, values)
             .await
             .map_err(handler_error)?
             .into_iter();
@@ -515,6 +525,11 @@ impl WorkerDispatcher {
         &self,
         mut request: InvokeWorkerRpcRequest,
     ) -> HandlerResult<InvokeWorkerRpcRequest> {
+        let flow_id = request
+            .context
+            .as_ref()
+            .map(|context| context.flow_id.clone())
+            .unwrap_or_default();
         let mut values = vec![request.input.take().unwrap_or_default()];
         let attribute_count = request.attributes.len();
         values.extend(take_entry_values(&mut request.attributes)?);
@@ -522,7 +537,7 @@ impl WorkerDispatcher {
             take_channel_message_values(&mut request.loaded_channel_messages, &mut values)?;
         let hydrated = self
             .hydrator
-            .hydrate_all(values)
+            .hydrate_all(&flow_id, values)
             .await
             .map_err(handler_error)?;
         let mut hydrated = hydrated.into_iter();

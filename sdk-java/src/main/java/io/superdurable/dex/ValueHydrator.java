@@ -19,6 +19,7 @@ import io.superdurable.gen.ChannelResult;
 import io.superdurable.gen.ChannelValues;
 import io.superdurable.gen.ConditionResults;
 import io.superdurable.gen.EncodedObject;
+import io.superdurable.gen.FlowResult;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.InvokeExecuteMethodRequest;
 import io.superdurable.gen.InvokeWaitForMethodRequest;
@@ -26,6 +27,7 @@ import io.superdurable.gen.InvokeWorkerRPCRequest;
 import io.superdurable.gen.KV;
 import io.superdurable.gen.LoadBlobsRequest;
 import io.superdurable.gen.LoadBlobsResponse;
+import io.superdurable.gen.LoadBlobRequestEntry;
 import io.superdurable.gen.StepCompletionOutput;
 import io.superdurable.gen.Value;
 
@@ -58,11 +60,12 @@ final class ValueHydrator {
         this.cache = cache;
     }
 
-    Value hydrate(final Value value) {
-        return hydrateAll(Collections.singletonList(value)).get(0);
+    Value hydrate(final String flowId, final Value value) {
+        return hydrateAll(flowId, Collections.singletonList(value)).get(0);
     }
 
     List<StepCompletionOutput> hydrateStepOutputs(
+            final String flowId,
             final List<StepCompletionOutput> outputs) {
         final List<Value> source = new ArrayList<Value>();
         for (StepCompletionOutput output : outputs) {
@@ -70,7 +73,7 @@ final class ValueHydrator {
                 source.add(output.getCompletedStepOutput());
             }
         }
-        final List<Value> hydrated = hydrateAll(source);
+        final List<Value> hydrated = hydrateAll(flowId, source);
         final List<StepCompletionOutput> results =
                 new ArrayList<StepCompletionOutput>(outputs.size());
         int index = 0;
@@ -94,7 +97,7 @@ final class ValueHydrator {
         }
         addValues(source, request.getAttributesList());
         addChannelMessageValues(source, request.getLoadedChannelMessagesMap());
-        final List<Value> hydrated = hydrateAll(source);
+        final List<Value> hydrated = hydrateAll(request.getContext().getFlowId(), source);
         int index = 0;
         final InvokeWaitForMethodRequest.Builder builder = request.toBuilder()
                 .setStepInput(hydrated.get(index++))
@@ -125,8 +128,13 @@ final class ValueHydrator {
             for (ChannelResult result : request.getConditionResults().getChannelResultsList()) {
                 source.addAll(result.getValuesList());
             }
+            for (FlowResult result : request.getConditionResults().getSubFlowResultsList()) {
+                for (StepCompletionOutput completion : result.getResultsList()) {
+                    source.add(completion.getCompletedStepOutput());
+                }
+            }
         }
-        final List<Value> hydrated = hydrateAll(source);
+        final List<Value> hydrated = hydrateAll(request.getContext().getFlowId(), source);
         int index = 0;
         final InvokeExecuteMethodRequest.Builder builder = request.toBuilder()
                 .clearAttributes()
@@ -149,13 +157,22 @@ final class ValueHydrator {
         if (request.hasConditionResults()) {
             final ConditionResults.Builder conditions = request.getConditionResults()
                     .toBuilder()
-                    .clearChannelResults();
+                    .clearChannelResults()
+                    .clearSubFlowResults();
             for (ChannelResult result : request.getConditionResults().getChannelResultsList()) {
                 final ChannelResult.Builder channel = result.toBuilder().clearValues();
                 for (int valueIndex = 0; valueIndex < result.getValuesCount(); valueIndex++) {
                     channel.addValues(hydrated.get(index++));
                 }
                 conditions.addChannelResults(channel);
+            }
+            for (FlowResult result : request.getConditionResults().getSubFlowResultsList()) {
+                final FlowResult.Builder flowResult = result.toBuilder().clearResults();
+                for (StepCompletionOutput completion : result.getResultsList()) {
+                    flowResult.addResults(completion.toBuilder()
+                            .setCompletedStepOutput(hydrated.get(index++)));
+                }
+                conditions.addSubFlowResults(flowResult);
             }
             builder.setConditionResults(conditions);
         }
@@ -167,7 +184,7 @@ final class ValueHydrator {
         source.add(request.getInput());
         addValues(source, request.getAttributesList());
         addChannelMessageValues(source, request.getLoadedChannelMessagesMap());
-        final List<Value> hydrated = hydrateAll(source);
+        final List<Value> hydrated = hydrateAll(request.getContext().getFlowId(), source);
         int index = 0;
         final InvokeWorkerRPCRequest.Builder builder = request.toBuilder()
                 .setInput(hydrated.get(index++))
@@ -239,7 +256,10 @@ final class ValueHydrator {
         return index;
     }
 
-    private List<Value> hydrateAll(final List<Value> values) {
+    private List<Value> hydrateAll(final String flowId, final List<Value> values) {
+        if (flowId == null || flowId.isEmpty()) {
+            throw new IllegalArgumentException("Flow ID is required");
+        }
         final List<Value> hydrated = new ArrayList<Value>(values);
         final Map<BlobKey, PendingBlob> pending = new LinkedHashMap<BlobKey, PendingBlob>();
         for (int index = 0; index < values.size(); index++) {
@@ -251,7 +271,7 @@ final class ValueHydrator {
             }
             PendingBlob blob = pending.get(key);
             if (blob == null) {
-                blob = new PendingBlob(key, value);
+                blob = new PendingBlob(flowId, key, value);
                 pending.put(key, blob);
             }
             blob.indexes.add(index);
@@ -284,7 +304,9 @@ final class ValueHydrator {
         }
         final LoadBlobsRequest.Builder request = LoadBlobsRequest.newBuilder();
         for (PendingBlob miss : misses) {
-            request.addValues(miss.request);
+            request.addEntries(LoadBlobRequestEntry.newBuilder()
+                    .setFlowId(miss.flowId)
+                    .setBlobValue(miss.request));
         }
         final LoadBlobsResponse response = service.loadBlobs(request.build());
         for (PendingBlob miss : misses) {
@@ -300,7 +322,7 @@ final class ValueHydrator {
 
     private Value readCache(final PendingBlob blob) {
         try {
-            final Optional<byte[]> payload = cache.get(blob.key.id);
+            final Optional<byte[]> payload = cache.get(cacheKey(blob));
             if (!payload.isPresent()) {
                 return null;
             }
@@ -309,7 +331,7 @@ final class ValueHydrator {
                 | CharacterCodingException failure) {
             LOGGER.log(Level.WARNING, "cannot read cached blob " + blob.key.id, failure);
             try {
-                cache.delete(blob.key.id);
+                cache.delete(cacheKey(blob));
             } catch (RuntimeException deleteFailure) {
                 LOGGER.log(Level.WARNING, "cannot delete cached blob " + blob.key.id, deleteFailure);
             }
@@ -322,7 +344,7 @@ final class ValueHydrator {
             final byte[] payload = blob.key.object
                     ? concrete.getObjValue().toByteArray()
                     : concrete.getStringValue().getBytes(StandardCharsets.UTF_8);
-            cache.put(blob.key.id, payload);
+            cache.put(cacheKey(blob), payload);
         } catch (RuntimeException failure) {
             LOGGER.log(Level.WARNING, "cannot write cached blob " + blob.key.id, failure);
         }
@@ -384,7 +406,7 @@ final class ValueHydrator {
                 return;
             case OBJ_VALUE:
                 final String encoding = value.getObjValue().getEncoding();
-                if (!"json".equals(encoding) && !"rawbytes".equals(encoding)) {
+                if (!"json".equals(encoding) && !"raw".equals(encoding)) {
                     throw new IllegalArgumentException("unsupported object encoding " + encoding);
                 }
                 return;
@@ -392,7 +414,7 @@ final class ValueHydrator {
             case INTERNAL_BLOB_ID_FOR_OBJ_VALUE:
                 throw new IllegalArgumentException("blob-backed Value was not hydrated");
             case NULL_VALUE:
-                throw new IllegalArgumentException("attribute deletion marker cannot be hydrated");
+                return;
             default:
                 throw new IllegalArgumentException("Value has no concrete kind");
         }
@@ -403,6 +425,10 @@ final class ValueHydrator {
             throw new IllegalArgumentException("blob ID is required");
         }
         return blobId;
+    }
+
+    private static String cacheKey(final PendingBlob blob) {
+        return blob.flowId.length() + ":" + blob.flowId + blob.key.id;
     }
 
     private static void addValues(final List<Value> values, final List<KV> entries) {
@@ -436,12 +462,14 @@ final class ValueHydrator {
     }
 
     private static final class PendingBlob {
+        private final String flowId;
         private final BlobKey key;
         private final Value request;
         private final List<Integer> indexes = new ArrayList<Integer>();
         private Value hydrated;
 
-        private PendingBlob(final BlobKey key, final Value request) {
+        private PendingBlob(final String flowId, final BlobKey key, final Value request) {
+            this.flowId = flowId;
             this.key = key;
             this.request = request;
         }

@@ -744,11 +744,19 @@ class SetAttributesRequest(_message.Message):
     request_id: str
     def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., request_id: _Optional[str] = ...) -> None: ...
 
+class LoadBlobRequestEntry(_message.Message):
+    __slots__ = ("flow_id", "blob_value")
+    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    BLOB_VALUE_FIELD_NUMBER: _ClassVar[int]
+    flow_id: str
+    blob_value: Value
+    def __init__(self, flow_id: _Optional[str] = ..., blob_value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
+
 class LoadBlobsRequest(_message.Message):
-    __slots__ = ("values",)
-    VALUES_FIELD_NUMBER: _ClassVar[int]
-    values: _containers.RepeatedCompositeFieldContainer[Value]
-    def __init__(self, values: _Optional[_Iterable[_Union[Value, _Mapping]]] = ...) -> None: ...
+    __slots__ = ("entries",)
+    ENTRIES_FIELD_NUMBER: _ClassVar[int]
+    entries: _containers.RepeatedCompositeFieldContainer[LoadBlobRequestEntry]
+    def __init__(self, entries: _Optional[_Iterable[_Union[LoadBlobRequestEntry, _Mapping]]] = ...) -> None: ...
 
 class LoadBlobsResponse(_message.Message):
     __slots__ = ("values",)

@@ -367,7 +367,7 @@ private static final long serialVersionUID = 0L;
   public static final int NULL_VALUE_FIELD_NUMBER = 8;
   /**
    * <pre>
-   * Null deletes an attribute in storage.
+   * Top-level null. Within AttributeWrite, null deletes the Attribute.
    * </pre>
    *
    * <code>.google.protobuf.NullValue null_value = 8;</code>
@@ -378,7 +378,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Null deletes an attribute in storage.
+   * Top-level null. Within AttributeWrite, null deletes the Attribute.
    * </pre>
    *
    * <code>.google.protobuf.NullValue null_value = 8;</code>
@@ -392,7 +392,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Null deletes an attribute in storage.
+   * Top-level null. Within AttributeWrite, null deletes the Attribute.
    * </pre>
    *
    * <code>.google.protobuf.NullValue null_value = 8;</code>
@@ -1518,7 +1518,7 @@ private static final long serialVersionUID = 0L;
 
     /**
      * <pre>
-     * Null deletes an attribute in storage.
+     * Top-level null. Within AttributeWrite, null deletes the Attribute.
      * </pre>
      *
      * <code>.google.protobuf.NullValue null_value = 8;</code>
@@ -1530,7 +1530,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Null deletes an attribute in storage.
+     * Top-level null. Within AttributeWrite, null deletes the Attribute.
      * </pre>
      *
      * <code>.google.protobuf.NullValue null_value = 8;</code>
@@ -1545,7 +1545,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Null deletes an attribute in storage.
+     * Top-level null. Within AttributeWrite, null deletes the Attribute.
      * </pre>
      *
      * <code>.google.protobuf.NullValue null_value = 8;</code>
@@ -1560,7 +1560,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Null deletes an attribute in storage.
+     * Top-level null. Within AttributeWrite, null deletes the Attribute.
      * </pre>
      *
      * <code>.google.protobuf.NullValue null_value = 8;</code>
@@ -1577,7 +1577,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Null deletes an attribute in storage.
+     * Top-level null. Within AttributeWrite, null deletes the Attribute.
      * </pre>
      *
      * <code>.google.protobuf.NullValue null_value = 8;</code>
@@ -1594,7 +1594,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Null deletes an attribute in storage.
+     * Top-level null. Within AttributeWrite, null deletes the Attribute.
      * </pre>
      *
      * <code>.google.protobuf.NullValue null_value = 8;</code>

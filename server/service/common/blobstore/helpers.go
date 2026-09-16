@@ -13,8 +13,10 @@ package blobstore
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/superdurable/dex/gen/dexpb"
+	"google.golang.org/protobuf/proto"
 )
 
 // OffloadLargeAttributeWrites replaces oversized string/object Value arms with server-minted blob ids.
@@ -122,18 +124,22 @@ func offloadValue(
 		if err != nil {
 			return err
 		}
-		blobId := formatStringBlobId(storeId, path)
+		blobId := formatBlobID(storeId, path)
 		value.Kind = &dexpb.Value_InternalBlobIdForStringValue{InternalBlobIdForStringValue: blobId}
 		return nil
 	case *dexpb.Value_ObjValue:
 		if kind.ObjValue == nil || len(kind.ObjValue.GetPayload()) <= threshold {
 			return nil
 		}
-		storeId, path, err := blobStore.WriteObject(ctx, flowId, invocationId, kind.ObjValue.GetPayload())
+		encodedObject, err := proto.MarshalOptions{Deterministic: true}.Marshal(kind.ObjValue)
+		if err != nil {
+			return fmt.Errorf("marshal EncodedObject: %w", err)
+		}
+		storeId, path, err := blobStore.WriteObject(ctx, flowId, invocationId, encodedObject)
 		if err != nil {
 			return err
 		}
-		blobId := formatObjBlobId(storeId, path, kind.ObjValue.GetEncoding())
+		blobId := formatBlobID(storeId, path)
 		value.Kind = &dexpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: blobId}
 		return nil
 	default:
@@ -141,10 +147,10 @@ func offloadValue(
 	}
 }
 
-// HydrateValues replaces internal_blob_id_for_* arms with concrete string/object values.
-func HydrateValues(ctx context.Context, values []*dexpb.Value, blobStore BlobStore) error {
+// HydrateFlowValues replaces Blob references with values owned by flowID.
+func HydrateFlowValues(ctx context.Context, flowID string, values []*dexpb.Value, blobStore BlobStore) error {
 	for _, value := range values {
-		if err := HydrateValue(ctx, value, blobStore); err != nil {
+		if err := HydrateValue(ctx, flowID, value, blobStore); err != nil {
 			return err
 		}
 	}
@@ -152,12 +158,17 @@ func HydrateValues(ctx context.Context, values []*dexpb.Value, blobStore BlobSto
 }
 
 // HydrateAttributeWrites hydrates Value arms on AttributeWrites / KVs.
-func HydrateAttributeWrites(ctx context.Context, writes []*dexpb.AttributeWrite, blobStore BlobStore) error {
+func HydrateAttributeWrites(
+	ctx context.Context,
+	flowID string,
+	writes []*dexpb.AttributeWrite,
+	blobStore BlobStore,
+) error {
 	for _, write := range writes {
 		if write == nil {
 			continue
 		}
-		if err := HydrateValue(ctx, write.GetValue(), blobStore); err != nil {
+		if err := HydrateValue(ctx, flowID, write.GetValue(), blobStore); err != nil {
 			return err
 		}
 	}
@@ -165,12 +176,12 @@ func HydrateAttributeWrites(ctx context.Context, writes []*dexpb.AttributeWrite,
 }
 
 // HydrateKVs hydrates Value arms on KV pairs.
-func HydrateKVs(ctx context.Context, kvs []*dexpb.KV, blobStore BlobStore) error {
+func HydrateKVs(ctx context.Context, flowID string, kvs []*dexpb.KV, blobStore BlobStore) error {
 	for _, kv := range kvs {
 		if kv == nil {
 			continue
 		}
-		if err := HydrateValue(ctx, kv.GetValue(), blobStore); err != nil {
+		if err := HydrateValue(ctx, flowID, kv.GetValue(), blobStore); err != nil {
 			return err
 		}
 	}
@@ -180,6 +191,7 @@ func HydrateKVs(ctx context.Context, kvs []*dexpb.KV, blobStore BlobStore) error
 // HydrateChannelValues hydrates every pending Channel message Value.
 func HydrateChannelValues(
 	ctx context.Context,
+	flowID string,
 	channels map[string]*dexpb.ChannelValues,
 	blobStore BlobStore,
 ) error {
@@ -191,7 +203,7 @@ func HydrateChannelValues(
 			if message == nil {
 				continue
 			}
-			if err := HydrateValue(ctx, message.GetValue(), blobStore); err != nil {
+			if err := HydrateValue(ctx, flowID, message.GetValue(), blobStore); err != nil {
 				return err
 			}
 		}
@@ -201,83 +213,149 @@ func HydrateChannelValues(
 
 func HydrateConditionResults(
 	ctx context.Context,
+	flowID string,
 	results *dexpb.ConditionResults,
 	blobStore BlobStore,
 ) error {
 	for _, result := range results.GetChannelResults() {
-		if err := HydrateValues(ctx, result.GetValues(), blobStore); err != nil {
+		if err := HydrateFlowValues(ctx, flowID, result.GetValues(), blobStore); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// HydrateValue hydrates a single Value in place.
-func HydrateValue(ctx context.Context, value *dexpb.Value, blobStore BlobStore) error {
+// HydrateValue hydrates a Flow-owned Value in place.
+func HydrateValue(ctx context.Context, flowID string, value *dexpb.Value, blobStore BlobStore) error {
 	if value == nil {
 		return nil
 	}
 	switch kind := value.GetKind().(type) {
 	case *dexpb.Value_InternalBlobIdForStringValue:
-		storeId, path, _, err := parseBlobId(kind.InternalBlobIdForStringValue)
+		storeId, path, err := parseBlobID(kind.InternalBlobIdForStringValue)
 		if err != nil {
 			return err
 		}
-		data, err := blobStore.ReadObject(ctx, storeId, path)
+		data, err := blobStore.ReadObject(ctx, storeId, flowID, path)
 		if err != nil {
 			return err
 		}
 		value.Kind = &dexpb.Value_StringValue{StringValue: string(data)}
 		return nil
 	case *dexpb.Value_InternalBlobIdForObjValue:
-		storeId, path, encoding, err := parseBlobId(kind.InternalBlobIdForObjValue)
+		storeId, path, err := parseBlobID(kind.InternalBlobIdForObjValue)
 		if err != nil {
 			return err
 		}
-		data, err := blobStore.ReadObject(ctx, storeId, path)
+		data, err := blobStore.ReadObject(ctx, storeId, flowID, path)
 		if err != nil {
 			return err
 		}
-		value.Kind = &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
-			Encoding: encoding,
-			Payload:  data,
-		}}
+		encodedObject := &dexpb.EncodedObject{}
+		if err := proto.Unmarshal(data, encodedObject); err != nil {
+			return fmt.Errorf("unmarshal EncodedObject: %w", err)
+		}
+		value.Kind = &dexpb.Value_ObjValue{ObjValue: encodedObject}
 		return nil
 	default:
 		return nil
 	}
 }
 
-func formatStringBlobId(storeId, path string) string {
+// TransferValueBlobOwnership ensures value is inline or owned by destinationFlowID.
+func TransferValueBlobOwnership(
+	ctx context.Context,
+	value *dexpb.Value,
+	sourceFlowID string,
+	destinationFlowID string,
+	invocationID string,
+	threshold int,
+	blobStore BlobStore,
+	enabled bool,
+) error {
+	if value == nil {
+		return nil
+	}
+	if destinationFlowID == "" {
+		return fmt.Errorf("destination Flow ID is required to transfer Blob ownership")
+	}
+	_, isBlobReference, err := blobIDFromValue(value)
+	if err != nil {
+		return err
+	}
+	if isBlobReference {
+		if sourceFlowID == "" {
+			return fmt.Errorf("source Flow ID is required to transfer Blob ownership")
+		}
+		if sourceFlowID == destinationFlowID {
+			return nil
+		}
+		if err := HydrateValue(ctx, sourceFlowID, value, blobStore); err != nil {
+			return err
+		}
+	}
+	return OffloadLargeValue(ctx, value, destinationFlowID, invocationID, threshold, blobStore, enabled)
+}
+
+// TransferFlowResultBlobOwnership transfers every completed Step output in result.
+func TransferFlowResultBlobOwnership(
+	ctx context.Context,
+	result *dexpb.FlowResult,
+	sourceFlowID string,
+	destinationFlowID string,
+	invocationID string,
+	threshold int,
+	blobStore BlobStore,
+	enabled bool,
+) error {
+	if result == nil {
+		return nil
+	}
+	for _, completion := range result.GetResults() {
+		if completion == nil {
+			continue
+		}
+		if err := TransferValueBlobOwnership(
+			ctx,
+			completion.GetCompletedStepOutput(),
+			sourceFlowID,
+			destinationFlowID,
+			invocationID,
+			threshold,
+			blobStore,
+			enabled,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func blobIDFromValue(value *dexpb.Value) (string, bool, error) {
+	switch kind := value.GetKind().(type) {
+	case *dexpb.Value_InternalBlobIdForStringValue:
+		if kind.InternalBlobIdForStringValue == "" {
+			return "", false, fmt.Errorf("Blob ID is required")
+		}
+		return kind.InternalBlobIdForStringValue, true, nil
+	case *dexpb.Value_InternalBlobIdForObjValue:
+		if kind.InternalBlobIdForObjValue == "" {
+			return "", false, fmt.Errorf("Blob ID is required")
+		}
+		return kind.InternalBlobIdForObjValue, true, nil
+	default:
+		return "", false, nil
+	}
+}
+
+func formatBlobID(storeId, path string) string {
 	return storeId + "|" + path
 }
 
-func formatObjBlobId(storeId, path, encoding string) string {
-	return storeId + "|" + path + "|" + encoding
-}
-
-func parseBlobId(blobId string) (storeId, path, encoding string, err error) {
-	first := -1
-	for i := 0; i < len(blobId); i++ {
-		if blobId[i] == '|' {
-			first = i
-			break
-		}
+func parseBlobID(blobID string) (storeID, path string, err error) {
+	storeID, path, found := strings.Cut(blobID, "|")
+	if !found || storeID == "" || path == "" || strings.Contains(path, "|") {
+		return "", "", fmt.Errorf("invalid Blob ID %q", blobID)
 	}
-	if first < 0 {
-		return "", "", "", fmt.Errorf("invalid blob id %q", blobId)
-	}
-	storeId = blobId[:first]
-	rest := blobId[first+1:]
-	second := -1
-	for i := 0; i < len(rest); i++ {
-		if rest[i] == '|' {
-			second = i
-			break
-		}
-	}
-	if second < 0 {
-		return storeId, rest, "", nil
-	}
-	return storeId, rest[:second], rest[second+1:], nil
+	return storeID, path, nil
 }

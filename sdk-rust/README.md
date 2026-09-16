@@ -257,7 +257,7 @@ context.record_heartbeat()?;
 
 `record_heartbeat_value` persists a typed checkpoint for the next regular activity attempt.
 `record_heartbeat` sends a heartbeat without a Value and clears the persisted details. A missing
-Value and an encoded JSON null remain distinguishable by decoding `Option<T>`: the latter returns
+Value and a null Value remain distinguishable by decoding `Option<T>`: the latter returns
 `Some(None)`. Local activities transmit heartbeat frames but Dex ignores their values.
 
 Each call blocks only when the Worker's single-frame output buffer is full. This bounded
@@ -335,6 +335,10 @@ retaining protocol presence.
 
 The shared cache keeps opaque payload bytes on disk and uses Stretto only for
 metadata admission and eviction:
+
+Serialized object values use wire encoding `json` for JSON and `raw` for raw bytes.
+Internal Blob references are opaque. Hydration sends the owning Flow ID with
+each reference, and SDK cache keys are isolated by `(flow_id, blob_ref)`.
 
 ```rust
 use dex_blob_cache::{BlobCache, BlobCacheConfig};

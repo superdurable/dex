@@ -118,8 +118,8 @@ class StepHeartbeatStep implements Step<HeartbeatScenario> {
       throw new Error(`${scenario} heartbeat Value was not restored`);
     }
     if (scenario === "null") {
-      if (context.getLastHeartbeatValue() !== undefined) {
-        throw new Error("JSON null heartbeat decoded unexpectedly");
+      if (context.getLastHeartbeatValue() !== null) {
+        throw new Error("null heartbeat decoded unexpectedly");
       }
       return;
     }

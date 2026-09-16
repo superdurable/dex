@@ -126,12 +126,13 @@ message Value {
     int64 int_value = 5;
     double double_value = 6;
     bool bool_value = 7;
-    // Null deletes an attribute in storage.
+    // Top-level null. Within AttributeWrite, null deletes the Attribute.
     google.protobuf.NullValue null_value = 8;
   }
 }
 
 message EncodedObject {
+  // "json" is JSON and "raw" is raw bytes. Other values are passed through.
   string encoding = 1;
   bytes payload = 2;
 }
@@ -446,11 +447,15 @@ message SetAttributesRequest {
   string request_id = 4;
 }
 
+message LoadBlobRequestEntry {
+  // Flow that owns blob_value and supplies the omitted Blob path segment.
+  string flow_id = 1;
+  // Must use internal_blob_id_for_string_value or internal_blob_id_for_obj_value.
+  Value blob_value = 2;
+}
+
 message LoadBlobsRequest {
-  // Each value must be a blob-id only
-  // (internal_blob_id_for_string_value or internal_blob_id_for_obj_value).
-  // Concrete payload arms (string_value / obj_value) are rejected.
-  repeated Value values = 1;
+  repeated LoadBlobRequestEntry entries = 1;
 }
 
 message LoadBlobsResponse {

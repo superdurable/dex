@@ -215,7 +215,7 @@ fn execute(&self, context: &mut Context, input: Import) -> HandlerResult<StepDec
 }
 ```
 
-`record_heartbeat()` emits no Value and clears backend heartbeat details. An encoded JSON null is a
+`record_heartbeat()` emits no Value and clears backend heartbeat details. A null Value is a
 present Value, so decoding `Option<T>` returns outer `Some` with inner `None`. A Stream frame is an
 implicit backend heartbeat that reuses the last explicit Worker heartbeat value, including its
 absence. Local activities ignore heartbeat details but still forward Stream frames.

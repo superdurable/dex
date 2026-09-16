@@ -83,6 +83,72 @@ network path 内。
 least-privilege policy。监控 write 和 read failure，并测试 credential rotation 后仍能读取
 现有 object 的恢复流程。
 
+Dex 默认将不超过 100 bytes 的 payload 保留在 history 中。101 bytes 的 string 或 encoded
+object 会被 offload。可通过 **blobStore.thresholdInBytes** 覆盖默认值。
+比较时只计算 payload size，不计算最终 reference size。
+
+~~~yaml
+blobStore:
+  thresholdInBytes: 100
+  objectIdLength: 10
+  asyncStepInputSnapshotsEnabled: false
+  supportedStorages:
+    - status: active
+      storageId: p1
+      storageType: s3
+~~~
+
+由于每个 offloaded value 都会把 **storageId** 写入 durable history，请保持该值简短。例如，
+在含义仍清楚时，用 **p1** 代替 **production1**。
+
+应用必须将 Blob reference 视为 opaque value。其 wire format 为：
+
+~~~text
+String: <storageId>|<YYMMDD>/<objectId>
+Object: <storageId>|<YYMMDD>/<objectId>
+
+示例：p1|260913/ab3de7kp2x
+~~~
+
+Value arm 用于区分 String 和 Object reference。Object Blob 保存完整的 **EncodedObject**，
+其中包括 **json**、**raw** 或 custom encoding。reference 保留 storage ID 和 UTC write date，
+但不保存 Flow ID 和 encoding。Dex 从可信的 request 或 Worker context 获取 owner Flow ID。
+物理 object path 为：
+
+~~~text
+<namespace>/<YYMMDD>$<base64url(flowId)>/<objectId>
+~~~
+
+两位年份表示 2000 到 2099 年。
+
+internal reference 只属于一个 Flow。在 reference 跨越 Flow boundary 前，Dex 会先 hydrate，
+再为目标 Flow 重写。目标 Flow 会收到 inline value，或收到存储在自身 Flow prefix 下的新
+object。因此，删除源 Flow 不会损坏目标 Flow。public API 会拒绝客户端提交的 internal
+reference。
+
+object ID 使用确定性的全小写 Base36 字符。同一个 invocation ID 和 stored bytes 的 retry 会
+覆盖同一个 object，不会生成重复 object。Object stored bytes 包含 encoding。Dex 不执行
+read-before-write、conditional create 或 collision retry。**blobStore.objectIdLength** 默认值为
+10。0 表示使用默认值，负数无效，正数没有协议规定的范围。写入同一个
+Blob Store namespace 的所有 Server 必须使用相同值，而且 Server 运行期间不能修改该值。
+reader 接受任意非空的全小写 Base36 ID，因此 deployment 可在协调重启时修改配置长度。
+
+10 位 Base36 提供约 51.7 bits。在单个 Flow 的单个 UTC day partition 内，10,000 个 object
+至少发生一次碰撞的近似概率为 1.4 × 10⁻⁸；100,000 个时为 1.4 × 10⁻⁶；1,000,000 个时为
+1.4 × 10⁻⁴。普通 deployment 使用 10。高吞吐 Flow 使用 12 或 16。长度 50 可以表达完整
+SHA-256 值。更长的值只会增加前导零，不会增加 entropy。
+
+cleanup 保留每个 Flow prefix 开头的 UTC date。它按字典序分页列出 prefix，describe 已编码
+的 Flow 和可选 Run，并且只在 execution 已不存在时删除整个 prefix。随后使用返回的
+continuation token 继续 list；该过程不使用 manifest。
+
+ASYNC Step input snapshot 默认关闭。只有当 semantic history 必须保留成功的 ASYNC local
+Step method 收到的准确 input 时，才将
+**blobStore.asyncStepInputSnapshotsEnabled** 设置为 true。snapshot 不受 payload offload
+threshold 影响，也不是 Flow execution、retry 或 recovery 所必需。关闭后，ASYNC local
+completion event 会将 input 标记为 unavailable。SYNC method 和 fallback 到 regular
+Activity 的 ASYNC method 仍会从 backend history 获得 input。
+
 可选的 **blobStore.blobCache** 缓存 S3 支持的 Attribute object。非空 **directory** 会启用
 它，并且只能属于一个 Server process。默认 budget 为 1 GiB。过大或被拒绝的 object 会
 绕过 cache，继续访问源 Blob Store。损坏的 entry 会被失效并重新填充；初始化、恢复和

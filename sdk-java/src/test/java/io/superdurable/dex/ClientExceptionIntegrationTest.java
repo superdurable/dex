@@ -443,7 +443,9 @@ final class ClientExceptionIntegrationTest {
                 final LoadBlobsRequest request,
                 final StreamObserver<LoadBlobsResponse> observer) {
             final LoadBlobsResponse.Builder response = LoadBlobsResponse.newBuilder();
-            for (final Value value : request.getValuesList()) {
+            for (final io.superdurable.gen.LoadBlobRequestEntry entry
+                    : request.getEntriesList()) {
+                final Value value = entry.getBlobValue();
                 if (value.hasInternalBlobIdForStringValue()) {
                     response.putValues(
                             value.getInternalBlobIdForStringValue(),
@@ -453,7 +455,7 @@ final class ClientExceptionIntegrationTest {
                             value.getInternalBlobIdForObjValue(),
                             Value.newBuilder()
                                     .setObjValue(EncodedObject.newBuilder()
-                                            .setEncoding("rawbytes")
+                                            .setEncoding("raw")
                                             .setPayload(ByteString.copyFromUtf8("done")))
                                     .build());
                 }

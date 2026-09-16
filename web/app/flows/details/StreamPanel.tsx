@@ -84,7 +84,12 @@ export function StreamPanel({ flowId, flowType }: StreamPanelProps) {
           streamName: activeStreamName,
           signal: controller.signal,
           onMessage: async (rawMessage) => {
-            const hydrated = await hydrateBlobs(rawMessage.value, blobCache.current, controller.signal);
+            const hydrated = await hydrateBlobs(
+              flowId,
+              rawMessage.value,
+              blobCache.current,
+              controller.signal,
+            );
             if (!isActive) return;
             setMessages((current) => [...current, { ...rawMessage, value: hydrated.value }]);
             if (hydrated.error) setBlobWarning(hydrated.error);

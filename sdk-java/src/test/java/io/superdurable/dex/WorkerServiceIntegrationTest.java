@@ -77,6 +77,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class WorkerServiceIntegrationTest {
     @Test
+    void usesCompactObjectEncodingWireValues() {
+        final ValueMapper values = new ValueMapper(new ObjectMapper());
+        assertEquals("json", values.encode(Collections.singletonMap("key", "value"))
+                .getObjValue().getEncoding());
+        assertEquals("raw", values.encode(new byte[] {1, 2, 3})
+                .getObjValue().getEncoding());
+        final Value nullValue = values.encode(null);
+        assertEquals(Value.KindCase.NULL_VALUE, nullValue.getKindCase());
+        assertNull(values.decode(nullValue, Void.class));
+    }
+
+    @Test
     void derivesAdvertisedTargetFromDefaultBindAddress() {
         final Worker worker = new Worker(
                 new Registry(Collections.<Flow<?>>emptyList()),
@@ -863,7 +875,9 @@ final class WorkerServiceIntegrationTest {
                             final StreamObserver<LoadBlobsResponse> observer) {
                         loads.incrementAndGet();
                         final LoadBlobsResponse.Builder response = LoadBlobsResponse.newBuilder();
-                        for (Value value : request.getValuesList()) {
+                        for (io.superdurable.gen.LoadBlobRequestEntry entry
+                                : request.getEntriesList()) {
+                            final Value value = entry.getBlobValue();
                             final String blobId = value.getInternalBlobIdForStringValue();
                             response.putValues(blobId, concrete("hydrated"));
                         }
@@ -909,7 +923,7 @@ final class WorkerServiceIntegrationTest {
                             .getCloseInput()
                             .getStringValue());
             assertEquals(1, loads.get());
-            assertTrue(cache.get("blob-1").isPresent());
+            assertTrue(cache.get("6:flow-1blob-1").isPresent());
         } finally {
             running.close();
             flowServer.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);

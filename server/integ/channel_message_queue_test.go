@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"github.com/superdurable/dex/integ/workflow/rpc"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
@@ -233,10 +234,17 @@ func testChannelMessageTransactionalRpcDeletion(t *testing.T) {
 		Keys:   []string{rpc.TestDataAttributeKey},
 	})
 	require.NoError(t, err)
+	attributeValue, err := common.LoadBlobsValue(
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		attributes.GetAttributes()[0].GetValue(),
+	)
+	require.NoError(t, err)
 	require.Equal(
 		t,
 		rpc.TestDataAttributeVal1.GetObjValue().GetPayload(),
-		attributes.GetAttributes()[0].GetValue().GetObjValue().GetPayload(),
+		attributeValue.GetObjValue().GetPayload(),
 	)
 	response, err := runtime.FlowClient.GetChannelMessages(ctx, &dexpb.GetChannelMessagesRequest{
 		FlowId:      flowID,

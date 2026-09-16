@@ -33,6 +33,7 @@ func BlobIdFromValue(value *dexpb.Value) string {
 func LoadBlobsValue(
 	ctx context.Context,
 	client dexpb.FlowServiceClient,
+	flowID string,
 	value *dexpb.Value,
 ) (*dexpb.Value, error) {
 	if value == nil {
@@ -46,7 +47,10 @@ func LoadBlobsValue(
 		return nil, fmt.Errorf("FlowServiceClient is required to LoadBlobs")
 	}
 	resp, err := client.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{
-		Values: []*dexpb.Value{blobArmCopy(value)},
+		Entries: []*dexpb.LoadBlobRequestEntry{{
+			FlowId:    flowID,
+			BlobValue: blobArmCopy(value),
+		}},
 	})
 	if err != nil {
 		return nil, err
@@ -75,9 +79,10 @@ func blobArmCopy(value *dexpb.Value) *dexpb.Value {
 func ObjPayloadString(
 	ctx context.Context,
 	client dexpb.FlowServiceClient,
+	flowID string,
 	value *dexpb.Value,
 ) (string, error) {
-	resolved, err := LoadBlobsValue(ctx, client, value)
+	resolved, err := LoadBlobsValue(ctx, client, flowID, value)
 	if err != nil {
 		return "", err
 	}

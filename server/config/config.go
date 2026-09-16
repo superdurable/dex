@@ -68,8 +68,10 @@ const (
 	DefaultWorkerServiceRequestMaxAttempts = 3
 	// DefaultBlobCacheMaxBytes caps the Server Attribute blob cache at one GiB.
 	DefaultBlobCacheMaxBytes int64 = 1 << 30
-	// DefaultBlobStoreThresholdInBytes offloads Attribute payloads larger than one KiB.
-	DefaultBlobStoreThresholdInBytes = 1 << 10
+	// DefaultBlobStoreThresholdInBytes offloads payloads larger than 100 bytes.
+	DefaultBlobStoreThresholdInBytes = 100
+	// DefaultBlobStoreObjectIDLength is the default Base36 object identifier length.
+	DefaultBlobStoreObjectIDLength = 10
 	// DefaultAttributeStoreSchemaSyncInterval refreshes table schemas every minute before jitter.
 	DefaultAttributeStoreSchemaSyncInterval = time.Minute
 	// DefaultAttributeStoreSyncBatchSize caps items in one Attribute Store upsert.
@@ -206,14 +208,18 @@ type (
 	BlobStoreConfig struct {
 		// Enabled turns blob offload on or off. Default true when omitted.
 		Enabled *bool `yaml:"enabled"`
+		// AsyncStepInputSnapshotsEnabled stores successful asynchronous local Step method inputs for semantic history. Default false. Requires Enabled and is immutable after startup.
+		AsyncStepInputSnapshotsEnabled bool `yaml:"asyncStepInputSnapshotsEnabled"`
 		// LazyLoading turns lazy loading on or off.
 		// When on, server will only send blobIDs to worker for worker APIs(invoke waitFor/execute/RPC) and GetAttribute API.
 		// Worker wil call LoadBlobs API to get the actual values.
 		// So that worker & server can minimize the data transfer, and worker can cache the values if needed.
 		// Default true when omitted (nil).
 		LazyLoading *bool `yaml:"lazyLoading"`
-		// ThresholdInBytes triggers blob offload above this payload size. Default 1024. Zero uses the default.
+		// ThresholdInBytes triggers blob offload above this payload size. Default 100. Zero uses the default.
 		ThresholdInBytes int `yaml:"thresholdInBytes"`
+		// ObjectIDLength sets deterministic lowercase Base36 Blob object IDs. Default 10. Zero uses the default; negative values are invalid. Immutable after startup and identical across Servers sharing a namespace.
+		ObjectIDLength int `yaml:"objectIdLength"`
 		// SupportedStorages lists blob backends. Exactly one may have Status active for writes; others are read-only.
 		SupportedStorages []BlobStoreConfigEntry `yaml:"supportedStorages"`
 		// HistoryRetentionInDays must match the Temporal/Cadence history retention. Default 0; configure it explicitly.
@@ -725,12 +731,31 @@ func (c BlobStoreConfig) EffectiveEnabled() bool {
 	return *c.Enabled
 }
 
-// EffectiveThresholdInBytes returns the offload threshold or its one-KiB default.
+// EffectiveThresholdInBytes returns the offload threshold or its 100-byte default.
 func (c BlobStoreConfig) EffectiveThresholdInBytes() int {
 	if c.ThresholdInBytes == 0 {
 		return DefaultBlobStoreThresholdInBytes
 	}
 	return c.ThresholdInBytes
+}
+
+// EffectiveObjectIDLength returns the configured Blob object ID length or its default.
+func (c BlobStoreConfig) EffectiveObjectIDLength() int {
+	if c.ObjectIDLength == 0 {
+		return DefaultBlobStoreObjectIDLength
+	}
+	return c.ObjectIDLength
+}
+
+// Validate checks Blob Store identifier and cache settings.
+func (c BlobStoreConfig) Validate() error {
+	if c.AsyncStepInputSnapshotsEnabled && !c.EffectiveEnabled() {
+		return fmt.Errorf("blobStore asyncStepInputSnapshotsEnabled requires blobStore.enabled")
+	}
+	if c.ObjectIDLength < 0 {
+		return fmt.Errorf("blobStore objectIdLength must not be negative")
+	}
+	return c.BlobCache.Validate()
 }
 
 // EffectiveMaxBytes returns the configured cache budget or its one-GiB default.

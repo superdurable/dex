@@ -302,7 +302,9 @@ boundary.
 A fallback regular activity carries only its prior attempt count and
 first-attempt time in `Context`.
 `InternalAsyncStepInputSnapshot` is the run-scoped request and method-options
-record; none of these internal types is returned by `FlowService`.
+record. Writing and reading these records requires the opt-in
+`blobStore.asyncStepInputSnapshotsEnabled` setting. None of these internal
+types is returned by `FlowService`.
 
 `LoadBlobs` resolves batches of string/object blob arms. Callers should dedupe
 by value kind and blob ID before loading. Missing objects and unconfigured store

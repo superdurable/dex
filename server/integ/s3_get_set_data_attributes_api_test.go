@@ -149,11 +149,11 @@ func doTestS3GetSetDataAttributes(t *testing.T, backendType service.BackendType,
 		require.Nil(t, retrieved[s3GetSetDataAttributes.LargeDataKey].GetObjValue())
 		require.Nil(t, retrieved[s3GetSetDataAttributes.AnotherLargeDataKey].GetObjValue())
 		requireLoadedBlobPayload(
-			t, ctx, flowClient, largeBlobId,
+			t, ctx, flowClient, flowId, largeBlobId,
 			string(s3GetSetDataAttributes.LargeDataValue.GetObjValue().GetPayload()),
 		)
 		requireLoadedBlobPayload(
-			t, ctx, flowClient, anotherBlobId,
+			t, ctx, flowClient, flowId, anotherBlobId,
 			string(s3GetSetDataAttributes.AnotherLargeDataValue.GetObjValue().GetPayload()),
 		)
 	} else {
@@ -264,7 +264,7 @@ func doTestS3GetSetDataAttributesWithInitialData(t *testing.T, backendType servi
 		require.NotEmpty(t, largeBlobId)
 		require.Nil(t, retrieved["initial-large"].GetObjValue())
 		requireLoadedBlobPayload(
-			t, ctx, flowClient, largeBlobId,
+			t, ctx, flowClient, flowId, largeBlobId,
 			string(s3GetSetDataAttributes.LargeDataValue.GetObjValue().GetPayload()),
 		)
 	} else {
@@ -334,17 +334,18 @@ func requireLoadedBlobPayload(
 	t *testing.T,
 	ctx context.Context,
 	flowClient dexpb.FlowServiceClient,
+	flowID string,
 	blobId string,
 	expectedPayload string,
 ) {
 	t.Helper()
 	loadResult, err := flowClient.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{
-		Values: []*dexpb.Value{
-			{
+		Entries: []*dexpb.LoadBlobRequestEntry{
+			{FlowId: flowID, BlobValue: &dexpb.Value{
 				Kind: &dexpb.Value_InternalBlobIdForObjValue{
 					InternalBlobIdForObjValue: blobId,
 				},
-			},
+			}},
 		},
 	})
 	require.NoError(t, err)

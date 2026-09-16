@@ -334,7 +334,7 @@ export class Client {
     }
     return decodeValue(
       codecOrJson(rpc.options.outputCodec),
-      await this.hydrator.hydrate(response.output),
+      await this.hydrator.hydrate(flowId, response.output),
     );
   }
 
@@ -482,6 +482,7 @@ export class Client {
         ),
     );
     const values = await this.hydrator.hydrateAll(
+      flowId,
       response.results.map((result) => result.completedStepOutput),
     );
     return createFlowResultFromProto(response, values);
@@ -562,7 +563,10 @@ export class Client {
     }
     const indexedAttributes = new Map<string, unknown>();
     for (const attribute of entry.indexedAttributes) {
-      indexedAttributes.set(attribute.key, decodeUnknown(await this.hydrator.hydrate(attribute.value)));
+      indexedAttributes.set(
+        attribute.key,
+        decodeUnknown(await this.hydrator.hydrate(entry.flowId, attribute.value)),
+      );
     }
     return {
       flowId: entry.flowId,

@@ -54,6 +54,10 @@ private static final long serialVersionUID = 0L;
   @SuppressWarnings("serial")
   private volatile java.lang.Object encoding_ = "";
   /**
+   * <pre>
+   * "json" is JSON and "raw" is raw bytes. Other values are passed through.
+   * </pre>
+   *
    * <code>string encoding = 1;</code>
    * @return The encoding.
    */
@@ -71,6 +75,10 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
+   * <pre>
+   * "json" is JSON and "raw" is raw bytes. Other values are passed through.
+   * </pre>
+   *
    * <code>string encoding = 1;</code>
    * @return The bytes for encoding.
    */
@@ -423,6 +431,10 @@ private static final long serialVersionUID = 0L;
 
     private java.lang.Object encoding_ = "";
     /**
+     * <pre>
+     * "json" is JSON and "raw" is raw bytes. Other values are passed through.
+     * </pre>
+     *
      * <code>string encoding = 1;</code>
      * @return The encoding.
      */
@@ -439,6 +451,10 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * "json" is JSON and "raw" is raw bytes. Other values are passed through.
+     * </pre>
+     *
      * <code>string encoding = 1;</code>
      * @return The bytes for encoding.
      */
@@ -456,6 +472,10 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * "json" is JSON and "raw" is raw bytes. Other values are passed through.
+     * </pre>
+     *
      * <code>string encoding = 1;</code>
      * @param value The encoding to set.
      * @return This builder for chaining.
@@ -469,6 +489,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * "json" is JSON and "raw" is raw bytes. Other values are passed through.
+     * </pre>
+     *
      * <code>string encoding = 1;</code>
      * @return This builder for chaining.
      */
@@ -479,6 +503,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * "json" is JSON and "raw" is raw bytes. Other values are passed through.
+     * </pre>
+     *
      * <code>string encoding = 1;</code>
      * @param value The bytes for encoding to set.
      * @return This builder for chaining.

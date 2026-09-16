@@ -18,38 +18,59 @@ For `StartFlow`, the server stores the request ID in workflow memo. When
 `ignore_already_started_error` is enabled, an AlreadyStarted error is ignored
 only when the running workflow has the same request ID.
 
-`FlowAlreadyStartedOptions.request_id` is removed and its field number and name
-are reserved.
+`FlowAlreadyStartedOptions.request_id` is removed without a compatibility field.
 
-## Blob UUID
+## Blob object ID
 
-Blob object names use deterministic UUIDv8:
+Blob object names use a configurable deterministic lowercase Base36 ID:
 
 ```text
 digest = SHA-256(lengthPrefixed(
-  "dex-blob-v1",
+  "dex-blob-v2",
   invocationID,
-  payload,
+  storedBytes,
 ))
-blobUUID = UUIDv8(digest[0:16])
+objectID = fixedWidthBase36(digest mod 36^objectIdLength)
 ```
 
 Each component is prefixed with its unsigned 64-bit big-endian byte length. The
-first 16 digest bytes are copied before setting the UUIDv8 version and RFC
-variant bits.
+alphabet is `0123456789abcdefghijklmnopqrstuvwxyz`. The configured length defaults
+to 10. Zero selects the default, negative values are invalid, and positive
+values have no protocol-defined range. All Servers writing the same namespace
+use the same immutable value. Lengths above 50 add leading zeros without adding
+SHA-256 entropy.
 
-The complete path remains:
+String blobs store their UTF-8 bytes. Object blobs store a deterministic protobuf
+serialization of the complete `EncodedObject`, including its encoding and
+payload. The offload threshold still compares the original payload length.
+
+Durable History stores a compact locator without the Flow ID or encoding:
 
 ```text
-yyyyMMdd$flowID/<blobUUID>
+<storageId>|<yyMMdd>/<objectID>
+```
+
+The Server combines the locator with the contextual Flow ID:
+
+```text
+<namespace>/<yyMMdd>$<base64url(flowID)>/<objectID>
 ```
 
 Activity writes use the workflow run ID plus activity ID as `invocationID`.
 External API writes use the caller-provided request ID. Activity attempt numbers
 are excluded.
 
+Normal writes overwrite an existing key. There is no conditional create,
+read-before-write, collision retry, or fallback key. This accepts the
+probabilistic collision risk of the configured truncated hash.
+
+Internal Blob references belong to one Flow. Before a reference crosses a Flow
+boundary, the Server reads it with the source Flow ID and writes any still-large
+value under the destination Flow ID. This makes cleanup of the source Flow safe.
+
 The date prefix uses the server's UTC date when the object is written. A retry
-crossing a UTC date boundary can create another path.
+crossing a UTC date boundary can create another path. Its two-digit year covers
+2000 through 2099.
 
 S3 bucket versioning must remain disabled. Otherwise, repeated writes to one
 deterministic key retain hidden object versions.

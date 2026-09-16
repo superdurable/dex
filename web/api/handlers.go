@@ -339,7 +339,11 @@ func (h *handler) loadBlobs(response http.ResponseWriter, request *http.Request)
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	values := make([]*dexpb.Value, 0, len(body.Values))
+	if body.FlowID == "" {
+		WriteError(response, http.StatusBadRequest, "flowId is required", nil)
+		return
+	}
+	entries := make([]*dexpb.LoadBlobRequestEntry, 0, len(body.Values))
 	seen := make(map[string]struct{}, len(body.Values))
 	for _, reference := range body.Values {
 		cacheKey := blobCacheKey(reference)
@@ -361,9 +365,9 @@ func (h *handler) loadBlobs(response http.ResponseWriter, request *http.Request)
 			WriteError(response, http.StatusBadRequest, "blob kind must be string or object", nil)
 			return
 		}
-		values = append(values, value)
+		entries = append(entries, &dexpb.LoadBlobRequestEntry{FlowId: body.FlowID, BlobValue: value})
 	}
-	result, err := h.client.LoadBlobs(request.Context(), &dexpb.LoadBlobsRequest{Values: values})
+	result, err := h.client.LoadBlobs(request.Context(), &dexpb.LoadBlobsRequest{Entries: entries})
 	if err != nil {
 		writeGRPCError(
 			response,

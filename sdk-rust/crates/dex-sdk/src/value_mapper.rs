@@ -42,6 +42,7 @@ pub(crate) fn deletion() -> ProtoValue {
 
 fn encode_json(json: JsonValue) -> SdkResult<ProtoValue> {
     let kind = match json {
+        JsonValue::Null => value::Kind::NullValue(NullValue::NullValue.into()),
         JsonValue::String(text) => value::Kind::StringValue(text),
         JsonValue::Bool(value) => value::Kind::BoolValue(value),
         JsonValue::Number(number) => {
@@ -84,16 +85,14 @@ fn decode_json(input: &ProtoValue) -> SdkResult<JsonValue> {
         Some(value::Kind::ObjValue(object)) if object.encoding == "json" => {
             serde_json::from_slice(&object.payload).map_err(mapping_error)
         }
-        Some(value::Kind::ObjValue(object)) if object.encoding == "rawbytes" => {
-            Ok(JsonValue::Array(
-                object
-                    .payload
-                    .iter()
-                    .copied()
-                    .map(JsonValue::from)
-                    .collect(),
-            ))
-        }
+        Some(value::Kind::ObjValue(object)) if object.encoding == "raw" => Ok(JsonValue::Array(
+            object
+                .payload
+                .iter()
+                .copied()
+                .map(JsonValue::from)
+                .collect(),
+        )),
         Some(value::Kind::ObjValue(object)) => Err(value_error(format!(
             "unsupported object encoding {}",
             object.encoding
@@ -102,9 +101,7 @@ fn decode_json(input: &ProtoValue) -> SdkResult<JsonValue> {
         | Some(value::Kind::InternalBlobIdForObjValue(_)) => {
             Err(value_error("blob-backed Value was not hydrated"))
         }
-        Some(value::Kind::NullValue(_)) => {
-            Err(value_error("attribute deletion marker cannot be decoded"))
-        }
+        Some(value::Kind::NullValue(_)) => Ok(JsonValue::Null),
         None => Err(value_error("Value has no concrete kind")),
     }
 }
@@ -121,4 +118,36 @@ fn value_error(message: impl Into<String>) -> SdkError {
 
 fn handler_mapping_error(error: SdkError) -> HandlerError {
     HandlerError::from_error(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uses_compact_object_encoding_wire_values() {
+        let encoded_json = encode(&vec![1, 2, 3]).expect("encode JSON");
+        let Some(value::Kind::ObjValue(encoded_json)) = encoded_json.kind else {
+            panic!("expected encoded object");
+        };
+        assert_eq!(encoded_json.encoding, "json");
+
+        let encoded_bytes = ProtoValue {
+            kind: Some(value::Kind::ObjValue(EncodedObject {
+                encoding: "raw".to_string(),
+                payload: vec![1, 2, 3],
+            })),
+        };
+        assert_eq!(
+            decode::<Vec<u8>>(&encoded_bytes).expect("decode bytes"),
+            vec![1, 2, 3]
+        );
+
+        let encoded_null = encode(&Option::<String>::None).expect("encode null");
+        assert!(matches!(encoded_null.kind, Some(value::Kind::NullValue(_))));
+        assert_eq!(
+            decode::<Option<String>>(&encoded_null).expect("decode null"),
+            None
+        );
+    }
 }

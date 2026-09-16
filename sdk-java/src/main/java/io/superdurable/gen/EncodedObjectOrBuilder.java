@@ -11,11 +11,19 @@ public interface EncodedObjectOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
+   * <pre>
+   * "json" is JSON and "raw" is raw bytes. Other values are passed through.
+   * </pre>
+   *
    * <code>string encoding = 1;</code>
    * @return The encoding.
    */
   java.lang.String getEncoding();
   /**
+   * <pre>
+   * "json" is JSON and "raw" is raw bytes. Other values are passed through.
+   * </pre>
+   *
    * <code>string encoding = 1;</code>
    * @return The bytes for encoding.
    */
