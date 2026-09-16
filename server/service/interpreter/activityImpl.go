@@ -699,7 +699,9 @@ func (a *Activities) persistStepEventInput(
 	method string,
 	input *dexpb.InternalAsyncStepInputSnapshot,
 ) error {
-	if !activityInfo.IsLocalActivity || !a.cfg.BlobStore.EffectiveEnabled() {
+	if !activityInfo.IsLocalActivity ||
+		!a.cfg.BlobStore.AsyncStepInputSnapshotsEnabled ||
+		!a.cfg.BlobStore.EffectiveEnabled() {
 		return nil
 	}
 	if stepExecutionID == "" {

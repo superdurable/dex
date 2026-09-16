@@ -35,6 +35,7 @@ type DexServiceTestConfig struct {
 	StreamStore                            config.StreamStoreConfig
 	BlobCacheDirectory                     string
 	BlobStoreEnabled                       *bool
+	AsyncStepInputSnapshotsEnabled         bool
 	IncludeRPCInputOutputIntoHistory       bool
 	UseTemporalSynchronousUpdateForAllRPCs bool
 	TemporalMetricsHandler                 client.MetricsHandler
@@ -68,7 +69,8 @@ func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config 
 			DefaultHeaders: testCfg.DefaultHeaders,
 		},
 		BlobStore: config.BlobStoreConfig{
-			Enabled: testCfg.BlobStoreEnabled,
+			Enabled:                        testCfg.BlobStoreEnabled,
+			AsyncStepInputSnapshotsEnabled: testCfg.AsyncStepInputSnapshotsEnabled,
 		},
 		Interpreter: config.Interpreter{
 			DefaultWorkflowConfig: syncDurabilityConfig(),
@@ -88,10 +90,11 @@ func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config 
 	}
 	if testCfg.S3TestThreshold > 0 {
 		blobStoreCfg := config.BlobStoreConfig{
-			Enabled:                ptr.Any(blobStoreEnabled),
-			LazyLoading:            testCfg.LazyLoading,
-			ThresholdInBytes:       testCfg.S3TestThreshold,
-			HistoryRetentionInDays: 3,
+			Enabled:                        ptr.Any(blobStoreEnabled),
+			AsyncStepInputSnapshotsEnabled: testCfg.AsyncStepInputSnapshotsEnabled,
+			LazyLoading:                    testCfg.LazyLoading,
+			ThresholdInBytes:               testCfg.S3TestThreshold,
+			HistoryRetentionInDays:         3,
 			BlobCache: config.BlobCacheConfig{
 				Directory: testCfg.BlobCacheDirectory,
 			},
@@ -116,10 +119,11 @@ func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config 
 			threshold = config.DefaultBlobStoreThresholdInBytes
 		}
 		cfg.BlobStore = config.BlobStoreConfig{
-			Enabled:                ptr.Any(blobStoreEnabled),
-			LazyLoading:            testCfg.LazyLoading,
-			ThresholdInBytes:       threshold,
-			HistoryRetentionInDays: 3,
+			Enabled:                        ptr.Any(blobStoreEnabled),
+			AsyncStepInputSnapshotsEnabled: testCfg.AsyncStepInputSnapshotsEnabled,
+			LazyLoading:                    testCfg.LazyLoading,
+			ThresholdInBytes:               threshold,
+			HistoryRetentionInDays:         3,
 			SupportedStorages: []config.BlobStoreConfigEntry{{
 				Status:         config.StorageStatusActive,
 				StorageId:      "local-store-id",

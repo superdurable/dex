@@ -91,6 +91,7 @@ object 会被 offload。可通过 **blobStore.thresholdInBytes** 覆盖默认值
 blobStore:
   thresholdInBytes: 100
   objectIdLength: 10
+  asyncStepInputSnapshotsEnabled: false
   supportedStorages:
     - status: active
       storageId: p1
@@ -140,6 +141,13 @@ SHA-256 值。更长的值只会增加前导零，不会增加 entropy。
 cleanup 保留每个 Flow prefix 开头的 UTC date。它按字典序分页列出 prefix，describe 已编码
 的 Flow 和可选 Run，并且只在 execution 已不存在时删除整个 prefix。随后使用返回的
 continuation token 继续 list；该过程不使用 manifest。
+
+ASYNC Step input snapshot 默认关闭。只有当 semantic history 必须保留成功的 ASYNC local
+Step method 收到的准确 input 时，才将
+**blobStore.asyncStepInputSnapshotsEnabled** 设置为 true。snapshot 不受 payload offload
+threshold 影响，也不是 Flow execution、retry 或 recovery 所必需。关闭后，ASYNC local
+completion event 会将 input 标记为 unavailable。SYNC method 和 fallback 到 regular
+Activity 的 ASYNC method 仍会从 backend history 获得 input。
 
 可选的 **blobStore.blobCache** 缓存 S3 支持的 Attribute object。非空 **directory** 会启用
 它，并且只能属于一个 Server process。默认 budget 为 1 GiB。过大或被拒绝的 object 会

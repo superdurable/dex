@@ -29,6 +29,7 @@ import (
 	"github.com/superdurable/dex/integ/workflow/signal"
 	"github.com/superdurable/dex/integ/workflow/wf_state_api_fail"
 	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -86,6 +87,9 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 	t.Run("async-local-fallback", func(t *testing.T) {
 		testWebAsyncLocalFallback(t, backendType)
 	})
+	t.Run("async-step-input-snapshots-disabled-by-default", func(t *testing.T) {
+		testWebAsyncStepInputSnapshotsDisabledByDefault(t, backendType)
+	})
 	t.Run("time-travel-snapshot-origin", func(t *testing.T) {
 		testWebTimeTravelSnapshotOrigin(t, backendType)
 	})
@@ -131,8 +135,9 @@ func testWebTimeTravelSnapshotOrigin(t *testing.T, backendType service.BackendTy
 		conditionType: "all",
 	})
 	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType:        backendType,
-		LocalBlobDirectory: t.TempDir(),
+		BackendType:                    backendType,
+		LocalBlobDirectory:             t.TempDir(),
+		AsyncStepInputSnapshotsEnabled: true,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -954,13 +959,74 @@ func testWebStepInputWithoutStorage(
 	require.Equal(t, expectedUnavailable, executeInput.GetUnavailable())
 }
 
+func testWebAsyncStepInputSnapshotsDisabledByDefault(
+	t *testing.T,
+	backendType service.BackendType,
+) {
+	workerTarget := startWorker(t, basic.NewHandler())
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType:        backendType,
+		LocalBlobDirectory: t.TempDir(),
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := "web-async-snapshots-disabled-" + uuid.NewString()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           basic.FlowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      basic.Step1,
+		StepInput:          stringValue("input"),
+		FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			WorkerTarget:   workerTarget,
+		}},
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+
+	events, _ := getAllWebHistoryEvents(t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId())
+	waitForEvent := firstStepEvent(events)
+	executeEvent := firstExecuteEvent(events)
+	require.NotNil(t, waitForEvent)
+	require.NotNil(t, executeEvent)
+	require.True(t, waitForEvent.GetInput().GetUnavailable())
+	require.True(t, executeEvent.GetInput().GetUnavailable())
+
+	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(
+		ctx,
+		flowID,
+		startResponse.GetRunId(),
+		nil,
+	)
+	require.NoError(t, err)
+	for _, method := range []string{
+		blobstore.StepEventInputMethodWaitFor,
+		blobstore.StepEventInputMethodExecute,
+	} {
+		_, found, readErr := runtime.BlobStore.ReadStepEventInput(
+			ctx,
+			description.StartTime,
+			flowID,
+			startResponse.GetRunId(),
+			waitForEvent.GetContext().GetStepExecutionId(),
+			method,
+		)
+		require.NoError(t, readErr)
+		require.False(t, found)
+	}
+}
+
 func testWebParallelAttributeSnapshots(t *testing.T, backendType service.BackendType) {
 	handler := newWebParallelSnapshotHandler()
 	workerTarget := startWorker(t, handler)
 	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType:        backendType,
-		LocalBlobDirectory: t.TempDir(),
-		LocalBlobThreshold: 10,
+		BackendType:                    backendType,
+		LocalBlobDirectory:             t.TempDir(),
+		LocalBlobThreshold:             10,
+		AsyncStepInputSnapshotsEnabled: true,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1148,10 +1214,11 @@ func testWebConditionResults(
 	flowType := fmt.Sprintf("web-step-input-%s-%s", durability, conditionType)
 	workerTarget := startWorker(t, &webStepInputHandler{flowType: flowType, conditionType: conditionType})
 	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType:        backendType,
-		LazyLoading:        ptr.Any(true),
-		LocalBlobDirectory: t.TempDir(),
-		LocalBlobThreshold: 10,
+		BackendType:                    backendType,
+		LazyLoading:                    ptr.Any(true),
+		LocalBlobDirectory:             t.TempDir(),
+		LocalBlobThreshold:             10,
+		AsyncStepInputSnapshotsEnabled: true,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1376,10 +1443,11 @@ func testWebHistoryAndSummary(
 	workerTarget := startWorker(t, basic.NewHandler())
 	blobDirectory := t.TempDir()
 	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType:        backendType,
-		LazyLoading:        ptr.Any(lazyLoading),
-		LocalBlobDirectory: blobDirectory,
-		LocalBlobThreshold: 10,
+		BackendType:                    backendType,
+		LazyLoading:                    ptr.Any(lazyLoading),
+		LocalBlobDirectory:             blobDirectory,
+		LocalBlobThreshold:             10,
+		AsyncStepInputSnapshotsEnabled: true,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -1636,10 +1704,11 @@ func testWebHistoryAndSummary(
 func testWebCurrentState(t *testing.T, backendType service.BackendType, lazyLoading bool) {
 	workerTarget := startWorker(t, signal.NewHandler())
 	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType:        backendType,
-		LazyLoading:        ptr.Any(lazyLoading),
-		LocalBlobDirectory: t.TempDir(),
-		LocalBlobThreshold: 10,
+		BackendType:                    backendType,
+		LazyLoading:                    ptr.Any(lazyLoading),
+		LocalBlobDirectory:             t.TempDir(),
+		LocalBlobThreshold:             10,
+		AsyncStepInputSnapshotsEnabled: true,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

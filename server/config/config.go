@@ -208,6 +208,8 @@ type (
 	BlobStoreConfig struct {
 		// Enabled turns blob offload on or off. Default true when omitted.
 		Enabled *bool `yaml:"enabled"`
+		// AsyncStepInputSnapshotsEnabled stores successful asynchronous local Step method inputs for semantic history. Default false. Requires Enabled and is immutable after startup.
+		AsyncStepInputSnapshotsEnabled bool `yaml:"asyncStepInputSnapshotsEnabled"`
 		// LazyLoading turns lazy loading on or off.
 		// When on, server will only send blobIDs to worker for worker APIs(invoke waitFor/execute/RPC) and GetAttribute API.
 		// Worker wil call LoadBlobs API to get the actual values.
@@ -747,6 +749,9 @@ func (c BlobStoreConfig) EffectiveObjectIDLength() int {
 
 // Validate checks Blob Store identifier and cache settings.
 func (c BlobStoreConfig) Validate() error {
+	if c.AsyncStepInputSnapshotsEnabled && !c.EffectiveEnabled() {
+		return fmt.Errorf("blobStore asyncStepInputSnapshotsEnabled requires blobStore.enabled")
+	}
 	if c.ObjectIDLength < 0 {
 		return fmt.Errorf("blobStore objectIdLength must not be negative")
 	}

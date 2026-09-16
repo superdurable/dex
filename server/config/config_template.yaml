@@ -53,6 +53,7 @@ interpreter:
     cloudAPIKey: ""
 blobStore:
   enabled: true
+  asyncStepInputSnapshotsEnabled: false
   thresholdInBytes: 100
   objectIdLength: 10
   historyRetentionInDays: 3
