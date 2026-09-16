@@ -35,8 +35,10 @@ objectID = fixedWidthBase36(digest mod 36^objectIdLength)
 
 Each component is prefixed with its unsigned 64-bit big-endian byte length. The
 alphabet is `0123456789abcdefghijklmnopqrstuvwxyz`. The configured length defaults
-to 10 and accepts 10 through 50. All Servers writing the same namespace use the
-same immutable value.
+to 10. Zero selects the default, negative values are invalid, and positive
+values have no protocol-defined range. All Servers writing the same namespace
+use the same immutable value. Lengths above 50 add leading zeros without adding
+SHA-256 entropy.
 
 String blobs store their UTF-8 bytes. Object blobs store a deterministic protobuf
 serialization of the complete `EncodedObject`, including its encoding and

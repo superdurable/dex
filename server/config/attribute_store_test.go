@@ -66,13 +66,11 @@ func TestBlobStoreDefaults(t *testing.T) {
 }
 
 func TestBlobStoreObjectIDLengthValidation(t *testing.T) {
-	for _, objectIDLength := range []int{0, 10, 12, 16, 22, 50} {
+	for _, objectIDLength := range []int{0, 1, 9, 10, 12, 16, 22, 50, 51} {
 		require.NoError(t, (BlobStoreConfig{ObjectIDLength: objectIDLength}).Validate())
 	}
-	for _, objectIDLength := range []int{-1, 1, 9, 51} {
-		err := (BlobStoreConfig{ObjectIDLength: objectIDLength}).Validate()
-		require.ErrorContains(t, err, "objectIdLength")
-	}
+	err := (BlobStoreConfig{ObjectIDLength: -1}).Validate()
+	require.ErrorContains(t, err, "objectIdLength")
 }
 
 func TestExternalStorageConfigKeyIsRejected(t *testing.T) {

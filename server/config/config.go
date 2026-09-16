@@ -72,10 +72,6 @@ const (
 	DefaultBlobStoreThresholdInBytes = 100
 	// DefaultBlobStoreObjectIDLength is the default Base36 object identifier length.
 	DefaultBlobStoreObjectIDLength = 10
-	// MinimumBlobStoreObjectIDLength is the shortest supported Base36 object identifier.
-	MinimumBlobStoreObjectIDLength = 10
-	// MaximumBlobStoreObjectIDLength is the longest supported Base36 object identifier.
-	MaximumBlobStoreObjectIDLength = 50
 	// DefaultAttributeStoreSchemaSyncInterval refreshes table schemas every minute before jitter.
 	DefaultAttributeStoreSchemaSyncInterval = time.Minute
 	// DefaultAttributeStoreSyncBatchSize caps items in one Attribute Store upsert.
@@ -220,7 +216,7 @@ type (
 		LazyLoading *bool `yaml:"lazyLoading"`
 		// ThresholdInBytes triggers blob offload above this payload size. Default 100. Zero uses the default.
 		ThresholdInBytes int `yaml:"thresholdInBytes"`
-		// ObjectIDLength sets deterministic lowercase Base36 Blob object IDs. Default 10. Valid range 10-50; zero uses the default. Immutable after startup and identical across Servers sharing a namespace.
+		// ObjectIDLength sets deterministic lowercase Base36 Blob object IDs. Default 10. Zero uses the default; negative values are invalid. Immutable after startup and identical across Servers sharing a namespace.
 		ObjectIDLength int `yaml:"objectIdLength"`
 		// SupportedStorages lists blob backends. Exactly one may have Status active for writes; others are read-only.
 		SupportedStorages []BlobStoreConfigEntry `yaml:"supportedStorages"`
@@ -751,13 +747,8 @@ func (c BlobStoreConfig) EffectiveObjectIDLength() int {
 
 // Validate checks Blob Store identifier and cache settings.
 func (c BlobStoreConfig) Validate() error {
-	objectIDLength := c.EffectiveObjectIDLength()
-	if objectIDLength < MinimumBlobStoreObjectIDLength || objectIDLength > MaximumBlobStoreObjectIDLength {
-		return fmt.Errorf(
-			"blobStore objectIdLength must be between %d and %d",
-			MinimumBlobStoreObjectIDLength,
-			MaximumBlobStoreObjectIDLength,
-		)
+	if c.ObjectIDLength < 0 {
+		return fmt.Errorf("blobStore objectIdLength must not be negative")
 	}
 	return c.BlobCache.Validate()
 }

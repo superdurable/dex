@@ -24,7 +24,7 @@ func TestDeterministicBlobObjectIDStableVector(t *testing.T) {
 }
 
 func TestDeterministicBlobObjectIDLengthsAndAlphabet(t *testing.T) {
-	for _, objectIDLength := range []int{10, 12, 16, 22, 50} {
+	for _, objectIDLength := range []int{1, 9, 10, 12, 16, 22, 50, 51} {
 		objectID, err := deterministicBlobObjectID("request", []byte("payload"), objectIDLength)
 		require.NoError(t, err)
 		require.Len(t, objectID, objectIDLength)
@@ -46,7 +46,7 @@ func TestDeterministicBlobObjectIDValuePathUsesContextualFlow(t *testing.T) {
 	require.Equal(t, "260913$Zmxvdy9vbmU/0abcde1234", path)
 
 	for _, locator := range []string{
-		"260913/abcdefghi",
+		"260913/",
 		"260913/ABCDEF1234",
 		"260913/abcdef1234/extra",
 		"261340/abcdef1234",

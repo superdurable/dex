@@ -16,8 +16,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/superdurable/dex/config"
 )
 
 const (
@@ -121,8 +119,8 @@ func ValueObjectPath(flowID string, locator string) (string, error) {
 		return "", fmt.Errorf("invalid Blob locator date: %w", err)
 	}
 	objectID := parts[1]
-	if len(objectID) < config.MinimumBlobStoreObjectIDLength || len(objectID) > config.MaximumBlobStoreObjectIDLength {
-		return "", fmt.Errorf("invalid Blob object ID length %d", len(objectID))
+	if objectID == "" {
+		return "", fmt.Errorf("invalid empty Blob object ID")
 	}
 	for _, character := range objectID {
 		if (character < '0' || character > '9') && (character < 'a' || character > 'z') {
