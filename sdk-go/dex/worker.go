@@ -24,6 +24,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const (
@@ -74,6 +75,8 @@ type Worker struct {
 	flowConn                  *grpc.ClientConn
 	flowService               dexpb.FlowServiceClient
 	attributeIndexSyncTimeout time.Duration
+	sdkVersion                string
+	negotiatedProtocolVersion uint32
 	logger                    Logger
 
 	lifecycleMu sync.Mutex
@@ -142,6 +145,7 @@ func NewWorker(
 		flowConn:                  flowConn,
 		flowService:               flowService,
 		attributeIndexSyncTimeout: syncTimeout,
+		sdkVersion:                currentGoSDKVersion(),
 		logger:                    logger,
 		state:                     workerCreated,
 		done:                      make(chan struct{}),
@@ -248,9 +252,9 @@ func validatePlaintextTarget(address string, requireHostPort bool) error {
 
 // Start serves WorkerService and blocks until Stop or a serve failure.
 //
-// Start may be called exactly once. Before listening, it synchronizes Attribute
-// indexes and waits up to
-// WorkerOptions.AttributeIndexSyncTimeout for Dex to accept the Registry's indexes.
+// Start may be called exactly once. Before listening, it negotiates a Server
+// protocol, synchronizes Attribute indexes, and waits up to
+// WorkerOptions.AttributeIndexSyncTimeout for each startup request.
 // It returns nil after a normal Stop, or an error for synchronization, listener,
 // serving, or invalid lifecycle state failures. Call Start on a dedicated goroutine
 // when the application must continue doing other work.
@@ -261,8 +265,27 @@ func (worker *Worker) Start() error {
 		worker.lifecycleMu.Unlock()
 		return fmt.Errorf("dex: Worker cannot start from state %s", state)
 	}
+	serverInfoCtx, cancelServerInfo := context.WithTimeout(
+		context.Background(),
+		worker.attributeIndexSyncTimeout,
+	)
+	serverInfo, err := worker.flowService.GetServerInfo(serverInfoCtx, &emptypb.Empty{})
+	cancelServerInfo()
+	if err != nil {
+		worker.state = workerStopped
+		worker.lifecycleMu.Unlock()
+		worker.finish()
+		return serverProtocolRequestError(worker.sdkVersion, err)
+	}
+	worker.negotiatedProtocolVersion, err = negotiateServerProtocol(serverInfo, worker.sdkVersion)
+	if err != nil {
+		worker.state = workerStopped
+		worker.lifecycleMu.Unlock()
+		worker.finish()
+		return err
+	}
 	syncCtx, cancelSync := context.WithTimeout(context.Background(), worker.attributeIndexSyncTimeout)
-	_, err := worker.flowService.SyncAttributeIndexes(syncCtx, &dexpb.SyncAttributeIndexRequest{
+	_, err = worker.flowService.SyncAttributeIndexes(syncCtx, &dexpb.SyncAttributeIndexRequest{
 		AttributeIndexes: worker.registry.attributeIndexes,
 	})
 	cancelSync()

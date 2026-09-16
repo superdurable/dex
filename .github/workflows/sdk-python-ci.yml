@@ -105,6 +105,7 @@ jobs:
             dex/_grpc_errors.py \
             dex/_invocation_context.py \
             dex/_native.pyi \
+            dex/_server_protocol.py \
             dex/_utils.py \
             dex/_value_hydrator.py \
             dex/_value_mapper.py \
@@ -112,6 +113,7 @@ jobs:
             dex/_worker_service.py \
             dex/attribute.py \
             dex/attribute_match.py \
+            dex/async_worker.py \
             dex/blob_cache.py \
             dex/channel.py \
             dex/client.py \

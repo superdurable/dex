@@ -353,6 +353,23 @@ binary does not read `web/`, `node_modules`, or the source tree.
 - “attribute index synchronization failed”: operators should verify that Dex
   can list and add backend visibility indexes. Workers never require a manual
   registration command.
+
+## Version compatibility
+
+`dexcli version` continues to print build metadata. Use `dexcli version check`
+to call `GetServerInfo` and compare dexcli's inclusive Server protocol interval
+with the Server interval:
+
+```shell
+dexcli version check --server dex.example.internal:8801 --output json
+```
+
+The command reports both artifact versions, both intervals, the highest common
+protocol, and `compatible`. It exits 0 only for a valid overlapping interval.
+Connection failures, an unimplemented RPC, invalid intervals, and nonoverlapping
+intervals produce a structured error and exit 1. The dexcli artifact version is
+injected by the release build and is diagnostic only.
+
 ## License
 
 [Sustainable Use License 1.0](LICENSE), with legacy portions under their

@@ -480,3 +480,14 @@ publisher with organization `superdurable`, repository `dex`, workflow
 Future releases use short-lived OIDC credentials and require no `NPM_TOKEN`.
 After verifying the first OIDC release, configure npm publishing access to
 require 2FA and disallow token-based publication.
+
+## Server protocol compatibility
+
+Worker startup calls `GetServerInfo`, negotiates the highest common protocol,
+synchronizes Attribute indexes, and then binds WorkerService. The initial
+TypeScript SDK interval is `[1,1]`. Missing information, invalid or disjoint
+intervals, and RPC failures stop startup before binding.
+
+The build generates the diagnostic SDK version from `package.json`, so the
+runtime value follows the version stamped by the release workflow. The artifact
+version does not participate in compatibility decisions.

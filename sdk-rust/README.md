@@ -434,6 +434,18 @@ is required before publishing.
 The workflow also supports a manual validation run. Manual publishing is
 restricted to `main` and requires the `CRATES_IO_TOKEN` repository secret.
 
+## Server protocol compatibility
+
+Worker startup calls `GetServerInfo`, negotiates the highest common protocol,
+synchronizes Attribute indexes, and then binds WorkerService. The initial Rust
+SDK interval is `[1,1]`. Missing information, invalid or disjoint intervals, and
+RPC failures stop startup before binding. The negotiated protocol is retained
+for future protocol-specific paths.
+
+The diagnostic SDK version is compiled from Cargo package metadata. Release
+stamping therefore updates both the crate artifact and its runtime value. The
+artifact version does not affect compatibility.
+
 ## License
 
 [Sustainable Use License 1.0](LICENSE), with legacy portions under their

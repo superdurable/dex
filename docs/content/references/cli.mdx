@@ -61,6 +61,24 @@ protobuf JSON and does not perform friendly value hydration.
 are worker callbacks and server-internal protocols rather than public operator
 APIs.
 
+## Check protocol compatibility
+
+**dexcli version** prints the CLI build version. **dexcli version check** calls
+the Server and verifies that its inclusive protocol interval overlaps the
+interval built into this CLI:
+
+```bash
+dexcli version check --server dex.example.internal:8801
+dexcli version check --output table
+```
+
+A successful result includes the client and Server versions, both intervals,
+the highest common protocol as **negotiatedProtocol**, and **compatible: true**.
+It exits with status 0. An unimplemented information RPC, invalid response,
+connection failure, or disjoint interval produces a structured compatibility
+error and exits with status 1. The command supports the normal **--server**,
+**--timeout**, and **--output** flags.
+
 ## Output and errors
 
 JSON is the default stable output. **--output table** is intended for human

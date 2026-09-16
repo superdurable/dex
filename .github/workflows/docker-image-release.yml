@@ -51,6 +51,20 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Verify Server runtime version
+        env:
+          SERVER_VERSION: ${{ steps.meta.outputs.tag }}
+        run: |
+          docker build \
+            --build-arg "SERVER_VERSION=${SERVER_VERSION}" \
+            --file server/Dockerfile \
+            --tag dex-server-release-check \
+            .
+          runtime_version="$(docker run --rm --entrypoint /dex/dex-server dex-server-release-check --version)"
+          [[ "${runtime_version}" == *"${SERVER_VERSION}"* ]] || {
+            echo "Server runtime version does not match ${SERVER_VERSION}: ${runtime_version}" >&2
+            exit 1
+          }
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
@@ -59,3 +73,5 @@ jobs:
           push: true
           platforms: linux/arm64,linux/amd64
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/dex-server:${{ steps.meta.outputs.tag }}
+          build-args: |
+            SERVER_VERSION=${{ steps.meta.outputs.tag }}

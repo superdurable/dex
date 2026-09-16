@@ -18,14 +18,15 @@ import (
 )
 
 type App struct {
-	stdin       io.Reader
-	stdout      io.Writer
-	stderr      io.Writer
-	getenv      func(string) string
-	openBrowser func(string) error
+	stdin           io.Reader
+	stdout          io.Writer
+	stderr          io.Writer
+	getenv          func(string) string
+	openBrowser     func(string) error
+	artifactVersion string
 }
 
-func NewApp(stdin io.Reader, stdout io.Writer, stderr io.Writer) *App {
+func NewApp(stdin io.Reader, stdout io.Writer, stderr io.Writer, artifactVersions ...string) *App {
 	if stdin == nil {
 		panic("command stdin must not be nil")
 	}
@@ -35,12 +36,20 @@ func NewApp(stdin io.Reader, stdout io.Writer, stderr io.Writer) *App {
 	if stderr == nil {
 		panic("command stderr must not be nil")
 	}
+	artifactVersion := "dev"
+	if len(artifactVersions) > 1 {
+		panic("command accepts at most one artifact version")
+	}
+	if len(artifactVersions) == 1 {
+		artifactVersion = artifactVersions[0]
+	}
 	return &App{
-		stdin:       stdin,
-		stdout:      stdout,
-		stderr:      stderr,
-		getenv:      os.Getenv,
-		openBrowser: openVisualizationBrowser,
+		stdin:           stdin,
+		stdout:          stdout,
+		stderr:          stderr,
+		getenv:          os.Getenv,
+		openBrowser:     openVisualizationBrowser,
+		artifactVersion: artifactVersion,
 	}
 }
 
@@ -71,6 +80,8 @@ func (a *App) Execute(ctx context.Context, args []string) error {
 		return newFlowCommand(a.stdin, a.stdout, a.stderr).Execute(ctx, remaining[1:], options)
 	case "api":
 		return newAPICommand(a.stdin, a.stdout, a.stderr).Execute(ctx, remaining[1:], options)
+	case "version":
+		return a.executeVersion(ctx, remaining[1:], options)
 	case "help", "--help", "-h":
 		a.printUsage()
 		return nil
@@ -117,6 +128,7 @@ func (a *App) printUsage() {
 	fmt.Fprintln(a.stdout, "  visualize Render a static Flow graph from Go or Python source")
 	fmt.Fprintln(a.stdout, "  flow      Start, operate, inspect, or watch Flows")
 	fmt.Fprintln(a.stdout, "  api       List, describe, or call FlowService RPCs")
+	fmt.Fprintln(a.stdout, "  version   Check dexcli and Server protocol compatibility")
 	fmt.Fprintln(a.stdout)
 	fmt.Fprintln(a.stdout, "Global flags:")
 	fmt.Fprintln(a.stdout, "  --server host:port                 Dex FlowService target")

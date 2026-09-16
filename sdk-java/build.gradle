@@ -140,6 +140,9 @@ tasks.named('processResources') {
 }
 
 tasks.named('jar') {
+    manifest {
+        attributes('Implementation-Version': artifactVersion)
+    }
     from('LICENSE') {
         into 'META-INF'
     }
@@ -414,8 +417,13 @@ tasks.register('validatePublication') {
                 .getOrElse(false)
                 ? nativeLibraries.keySet()
                 : [blobCacheNativePlatform]
-        def archive = new java.util.zip.ZipFile(mainJar)
+        def archive = new java.util.jar.JarFile(mainJar)
         try {
+            if (archive.manifest.mainAttributes.getValue('Implementation-Version')
+                    != artifactVersion) {
+                throw new GradleException(
+                        'publication JAR runtime version does not match publication version')
+            }
             if (archive.getEntry('io/superdurable/dex/Client.class') == null) {
                 throw new GradleException('publication JAR is missing the Java SDK')
             }

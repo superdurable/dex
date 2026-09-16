@@ -32,7 +32,7 @@
     "registry": "https://registry.npmjs.org"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node scripts/write-sdk-version.mjs && tsc -p tsconfig.json",
     "build:native": "node scripts/build-native.mjs",
     "coverage:integration": "./run-integration-tests.sh --coverage",
     "docs:check": "node scripts/check-public-docs.mjs",
@@ -40,7 +40,7 @@
     "prepack": "npm run build:native && npm run build",
     "test:integration": "npm run build:native && npm run build && node --test --test-concurrency=1 dist/test/integ/*.integration.test.js",
     "test:integration:coverage": "npm run build:native && npm run build && c8 node --test --test-concurrency=1 dist/test/integ/*.integration.test.js && node scripts/report-uncovered.mjs coverage/lcov.info",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "node scripts/write-sdk-version.mjs && tsc -p tsconfig.json --noEmit",
     "test": "npm run build:native && npm run build && node --test dist/test/*.test.js"
   },
   "devDependencies": {

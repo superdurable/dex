@@ -143,12 +143,21 @@ jobs:
           args: --release --locked --compatibility pypi --out dist
       - name: Smoke test installed wheel
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           python -m pip install sdk-python/dist/*.whl
           python - <<'PY'
+          import os
           import tempfile
+          from importlib.metadata import version
 
           from dex import BlobCacheConfig, open_blob_cache
+          from dex._server_protocol import sdk_version
+
+          expected_version = os.environ["RELEASE_VERSION"]
+          assert version("dex-python-sdk") == expected_version
+          assert sdk_version() == expected_version
 
           with tempfile.TemporaryDirectory() as directory:
               cache = open_blob_cache(BlobCacheConfig(directory, 1024 * 1024))

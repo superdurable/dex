@@ -18,6 +18,7 @@ import (
 )
 
 type ApiService interface {
+	GetServerInfo(context.Context, *emptypb.Empty) (*dexpb.ServerInfo, error)
 	StartFlow(context.Context, *dexpb.StartFlowRequest) (*dexpb.StartFlowResponse, error)
 	PublishToChannel(context.Context, *dexpb.PublishToChannelRequest) (*emptypb.Empty, error)
 	GetChannelMessages(context.Context, *dexpb.GetChannelMessagesRequest) (*dexpb.GetChannelMessagesResponse, error)

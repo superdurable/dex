@@ -10,11 +10,14 @@ RUN cd web && npm run build
 
 FROM golang:latest AS server-builder
 
+ARG SERVER_VERSION=dev
 WORKDIR /src
 COPY server/ server/
 COPY web/ web/
 COPY --from=web-builder /src/web/assets/dist/ web/assets/dist/
-RUN cd server/cmd/server && CGO_ENABLED=0 go build -trimpath -o /dex-server .
+RUN cd server/cmd/server && CGO_ENABLED=0 go build -trimpath \
+    -ldflags "-X github.com/superdurable/dex/service.DexServerVersion=${SERVER_VERSION}" \
+    -o /dex-server .
 
 FROM debian:bookworm-slim
 

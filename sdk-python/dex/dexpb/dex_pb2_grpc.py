@@ -88,6 +88,11 @@ class FlowServiceStub:
         Args:
             channel: A grpc.Channel.
         """
+        self.GetServerInfo = channel.unary_unary(
+                '/dex.FlowService/GetServerInfo',
+                request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+                response_deserializer=dex__pb2.ServerInfo.FromString,
+                _registered_method=True)
         self.StartFlow = channel.unary_unary(
                 '/dex.FlowService/StartFlow',
                 request_serializer=dex__pb2.StartFlowRequest.SerializeToString,
@@ -276,6 +281,13 @@ class FlowServiceServicer:
     Hosted by Dex server; SDKs call these RPCs.
     """
 
+    def GetServerInfo(self, request, context):
+        """Returns diagnostic release metadata and the Server's inclusive protocol interval.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def StartFlow(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -435,6 +447,11 @@ class FlowServiceServicer:
 
 def add_FlowServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'GetServerInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetServerInfo,
+                    request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                    response_serializer=dex__pb2.ServerInfo.SerializeToString,
+            ),
             'StartFlow': grpc.unary_unary_rpc_method_handler(
                     servicer.StartFlow,
                     request_deserializer=dex__pb2.StartFlowRequest.FromString,
@@ -628,6 +645,33 @@ class FlowService:
 
     Hosted by Dex server; SDKs call these RPCs.
     """
+
+    @staticmethod
+    def GetServerInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/GetServerInfo',
+            google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            dex__pb2.ServerInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def StartFlow(request,

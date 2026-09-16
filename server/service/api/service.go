@@ -111,6 +111,17 @@ func (s *serviceImpl) Close() {
 	s.client.Close()
 }
 
+func (s *serviceImpl) GetServerInfo(
+	context.Context,
+	*emptypb.Empty,
+) (*dexpb.ServerInfo, error) {
+	return &dexpb.ServerInfo{
+		ServerVersion:                   service.DexServerVersion,
+		MinimumSupportedProtocolVersion: service.MinimumSupportedProtocolVersion,
+		CurrentProtocolVersion:          service.CurrentProtocolVersion,
+	}, nil
+}
+
 func (s *serviceImpl) StartFlow(
 	ctx context.Context,
 	req *dexpb.StartFlowRequest,

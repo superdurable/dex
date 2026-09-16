@@ -32,6 +32,24 @@ dexcli dev
 定义前，使用[应用运维](/production/application-operations#versioning-flow-code)中的
 版本控制流程。
 
+## Server 与 SDK 协议兼容性
+
+Dex Server 和每个 SDK release 都声明一个包含上下界的协议区间。两个区间存在交集时，
+Worker 才能启动。Worker 先选择交集中的最高协议，再同步 Attribute index，最后绑定
+WorkerService。Server 和 SDK 的 artifact version 只用于诊断，不参与兼容判断。
+
+从不支持 **GetServerInfo** 的历史 deployment 升级时，必须先升级 Server。旧 Server 没有
+实现该检查，新 Worker 会拒绝连接。首次升级完成后，只要仍保留旧协议，新 SDK 就可以使用
+旧 Server；只要区间仍有交集，新 Server 也可以使用旧 SDK。
+
+Server breaking release 会提高最低协议版本。升级此类 Server 前，先停止旧 Worker 及其
+流量。在维护窗口内升级 Server 和 SDK，然后恢复流量。也可以使用相互隔离的蓝绿环境，
+确保协议区间不相交的 deployment 不会通信。已经运行的 Worker 不会在 Server 升级后自动
+重新协商，因此 breaking change 前必须主动停止它们。
+
+协议兼容只覆盖 Worker 与 Server 之间的 API。它不能替代开放 Flow 的兼容策略，包括
+Flow type name、Step graph 和持久化 payload。
+
 ## Server 组件
 
 dex-server 镜像默认在同一个 process 中启动 Dex Web、API 和 Interpreter。容器在 8801

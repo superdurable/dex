@@ -236,6 +236,16 @@ export enum SubFlowCompletionDeliveryStatus {
   UNRECOGNIZED = -1,
 }
 
+/** Describes the Dex Server release and the inclusive protocol range it supports. */
+export interface ServerInfo {
+  /** Identifies the Server artifact for diagnostics. Compatibility uses only the protocol range. */
+  serverVersion: string;
+  /** Oldest protocol version still accepted by this Server. */
+  minimumSupportedProtocolVersion: number;
+  /** Newest protocol version implemented by this Server. */
+  currentProtocolVersion: number;
+}
+
 export interface Value {
   kind:
     | //
@@ -1584,6 +1594,76 @@ export interface InvokeRpcUpdateResult {
 export interface StepExecutionNumbers {
   numbers: number[];
 }
+
+function createBaseServerInfo(): ServerInfo {
+  return { serverVersion: "", minimumSupportedProtocolVersion: 0, currentProtocolVersion: 0 };
+}
+
+export const ServerInfo: MessageFns<ServerInfo> = {
+  encode(message: ServerInfo, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.serverVersion !== "") {
+      writer.uint32(10).string(message.serverVersion);
+    }
+    if (message.minimumSupportedProtocolVersion !== 0) {
+      writer.uint32(16).uint32(message.minimumSupportedProtocolVersion);
+    }
+    if (message.currentProtocolVersion !== 0) {
+      writer.uint32(24).uint32(message.currentProtocolVersion);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ServerInfo {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseServerInfo();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.serverVersion = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.minimumSupportedProtocolVersion = reader.uint32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.currentProtocolVersion = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ServerInfo>, I>>(base?: I): ServerInfo {
+    return ServerInfo.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ServerInfo>, I>>(object: I): ServerInfo {
+    const message = createBaseServerInfo();
+    message.serverVersion = object.serverVersion ?? "";
+    message.minimumSupportedProtocolVersion = object.minimumSupportedProtocolVersion ?? 0;
+    message.currentProtocolVersion = object.currentProtocolVersion ?? 0;
+    return message;
+  },
+};
 
 function createBaseValue(): Value {
   return { kind: undefined };
@@ -17498,6 +17578,16 @@ export const StepExecutionNumbers: MessageFns<StepExecutionNumbers> = {
 /** Hosted by Dex server; SDKs call these RPCs. */
 export type FlowServiceService = typeof FlowServiceService;
 export const FlowServiceService = {
+  /** Returns diagnostic release metadata and the Server's inclusive protocol interval. */
+  getServerInfo: {
+    path: "/dex.FlowService/GetServerInfo" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
+    requestDeserialize: (value: Buffer): Empty => Empty.decode(value),
+    responseSerialize: (value: ServerInfo): Buffer => Buffer.from(ServerInfo.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ServerInfo => ServerInfo.decode(value),
+  },
   startFlow: {
     path: "/dex.FlowService/StartFlow" as const,
     requestStream: false as const,
@@ -17757,6 +17847,8 @@ export const FlowServiceService = {
 } as const;
 
 export interface FlowServiceServer extends UntypedServiceImplementation {
+  /** Returns diagnostic release metadata and the Server's inclusive protocol interval. */
+  getServerInfo: handleUnaryCall<Empty, ServerInfo>;
   startFlow: handleUnaryCall<StartFlowRequest, StartFlowResponse>;
   publishToChannel: handleUnaryCall<PublishToChannelRequest, Empty>;
   getChannelMessages: handleUnaryCall<GetChannelMessagesRequest, GetChannelMessagesResponse>;
@@ -17786,6 +17878,19 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
 }
 
 export interface FlowServiceClient extends Client {
+  /** Returns diagnostic release metadata and the Server's inclusive protocol interval. */
+  getServerInfo(request: Empty, callback: (error: ServiceError | null, response: ServerInfo) => void): ClientUnaryCall;
+  getServerInfo(
+    request: Empty,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ServerInfo) => void,
+  ): ClientUnaryCall;
+  getServerInfo(
+    request: Empty,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ServerInfo) => void,
+  ): ClientUnaryCall;
   startFlow(
     request: StartFlowRequest,
     callback: (error: ServiceError | null, response: StartFlowResponse) => void,

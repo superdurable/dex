@@ -73,6 +73,8 @@ option java_outer_classname = "DexProto";
 
 // Hosted by Dex server; SDKs call these RPCs.
 service FlowService {
+  // Returns diagnostic release metadata and the Server's inclusive protocol interval.
+  rpc GetServerInfo(google.protobuf.Empty) returns (ServerInfo);
   rpc StartFlow(StartFlowRequest) returns (StartFlowResponse);
   rpc PublishToChannel(PublishToChannelRequest) returns (google.protobuf.Empty);
   rpc GetChannelMessages(GetChannelMessagesRequest) returns (GetChannelMessagesResponse);
@@ -99,6 +101,16 @@ service FlowService {
   rpc WaitForAttribute(WaitForAttributeRequest) returns (WaitForAttributeResponse);
   rpc TriggerContinueAsNew(TriggerContinueAsNewRequest) returns (google.protobuf.Empty);
   rpc HealthCheck(google.protobuf.Empty) returns (HealthInfo);
+}
+
+// Describes the Dex Server release and the inclusive protocol range it supports.
+message ServerInfo {
+  // Identifies the Server artifact for diagnostics. Compatibility uses only the protocol range.
+  string server_version = 1;
+  // Oldest protocol version still accepted by this Server.
+  uint32 minimum_supported_protocol_version = 2;
+  // Newest protocol version implemented by this Server.
+  uint32 current_protocol_version = 3;
 }
 
 // Hosted by Dex worker; server calls these RPCs.

@@ -76,6 +76,18 @@ trigger starts singleton background FIFO trimming toward the 80% target. A
 write that would exceed 100% is not appended; it returns `ResourceExhausted`
 after scheduling trim and can be retried later.
 
+## Client protocol compatibility
+
+`GetServerInfo` reports the Server artifact version and its inclusive supported
+protocol interval. The initial interval is `[1,1]`. The artifact version is
+diagnostic only: local builds use `dev`, while release images inject the release
+tag through the `DexServerVersion` linker variable.
+
+SDK Workers call `GetServerInfo`, negotiate the highest version shared with
+their own interval, synchronize Attribute indexes, and only then bind their
+WorkerService listener. A breaking Server release raises the minimum protocol;
+an additive release can raise the current protocol while retaining its minimum.
+
 ## License
 
 [Sustainable Use License 1.0](LICENSE.md), with legacy portions under their

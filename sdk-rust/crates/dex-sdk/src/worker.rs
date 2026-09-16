@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 use dex_protocol::dex::WorkerErrorResponse;
 use dex_protocol::dex::flow_service_client::FlowServiceClient;
@@ -26,6 +26,7 @@ use tokio::sync::watch;
 use tonic::transport::{Channel, Endpoint, Server};
 use tonic::{Code, Request, Response, Status};
 
+use crate::server_protocol::{negotiate_server_protocol, server_info_request_error};
 use crate::value_hydrator::ValueHydrator;
 use crate::worker_dispatcher::WorkerDispatcher;
 use crate::worker_output::WorkerResponseStream;
@@ -46,9 +47,9 @@ const STOPPED: u8 = 2;
 
 /// Hosts registered Flow Step and RPC handlers over application WorkerService.
 ///
-/// A Worker owns an internal Tokio runtime and is one-shot. [`Self::start`] first synchronizes
-/// Attribute indexes with Dex, then blocks the calling thread while serving gRPC. Call [`Self::stop`]
-/// from another thread to request graceful server shutdown.
+/// A Worker owns an internal Tokio runtime and is one-shot. [`Self::start`] negotiates the Server
+/// protocol, synchronizes Attribute indexes, then blocks while serving gRPC. Call [`Self::stop`]
+/// from another thread to request graceful shutdown.
 ///
 /// # Examples
 ///
@@ -74,6 +75,7 @@ pub struct Worker {
     worker_target: WorkerTarget,
     shutdown: watch::Sender<bool>,
     state: AtomicU8,
+    negotiated_protocol_version: AtomicU32,
 }
 
 impl Worker {
@@ -139,6 +141,7 @@ impl Worker {
             worker_target,
             shutdown,
             state: AtomicU8::new(CREATED),
+            negotiated_protocol_version: AtomicU32::new(0),
         })
     }
 
@@ -147,7 +150,7 @@ impl Worker {
         &self.worker_target
     }
 
-    /// Synchronizes Attribute indexes, serves WorkerService, and blocks until stopped or failed.
+    /// Negotiates protocol, synchronizes Attribute indexes, and serves until stopped or failed.
     ///
     /// # Errors
     ///
@@ -161,6 +164,31 @@ impl Worker {
             })?;
         let mut shutdown = self.shutdown.subscribe();
         let mut flow_service = self.flow_service.clone();
+        let server_info_result = self.runtime.block_on(async {
+            tokio::time::timeout(
+                self.attribute_index_sync_timeout,
+                flow_service.get_server_info(()),
+            )
+            .await
+        });
+        let server_info = match server_info_result {
+            Ok(Ok(response)) => response.into_inner(),
+            Ok(Err(status)) => {
+                self.state.store(STOPPED, Ordering::Release);
+                return Err(service_error(server_info_request_error(status)));
+            }
+            Err(elapsed) => {
+                self.state.store(STOPPED, Ordering::Release);
+                return Err(service_error(server_info_request_error(elapsed)));
+            }
+        };
+        let negotiated_protocol_version =
+            negotiate_server_protocol(&server_info).map_err(|error| {
+                self.state.store(STOPPED, Ordering::Release);
+                service_error(error)
+            })?;
+        self.negotiated_protocol_version
+            .store(negotiated_protocol_version, Ordering::Release);
         let sync_result = self.runtime.block_on(async {
             tokio::time::timeout(
                 self.attribute_index_sync_timeout,

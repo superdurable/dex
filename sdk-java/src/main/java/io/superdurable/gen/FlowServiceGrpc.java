@@ -18,6 +18,37 @@ public final class FlowServiceGrpc {
   public static final java.lang.String SERVICE_NAME = "dex.FlowService";
 
   // Static method descriptors that strictly reflect the proto.
+  private static volatile io.grpc.MethodDescriptor<com.google.protobuf.Empty,
+      io.superdurable.gen.ServerInfo> getGetServerInfoMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "GetServerInfo",
+      requestType = com.google.protobuf.Empty.class,
+      responseType = io.superdurable.gen.ServerInfo.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<com.google.protobuf.Empty,
+      io.superdurable.gen.ServerInfo> getGetServerInfoMethod() {
+    io.grpc.MethodDescriptor<com.google.protobuf.Empty, io.superdurable.gen.ServerInfo> getGetServerInfoMethod;
+    if ((getGetServerInfoMethod = FlowServiceGrpc.getGetServerInfoMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getGetServerInfoMethod = FlowServiceGrpc.getGetServerInfoMethod) == null) {
+          FlowServiceGrpc.getGetServerInfoMethod = getGetServerInfoMethod =
+              io.grpc.MethodDescriptor.<com.google.protobuf.Empty, io.superdurable.gen.ServerInfo>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "GetServerInfo"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  com.google.protobuf.Empty.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.ServerInfo.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("GetServerInfo"))
+              .build();
+        }
+      }
+    }
+    return getGetServerInfoMethod;
+  }
+
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.StartFlowRequest,
       io.superdurable.gen.StartFlowResponse> getStartFlowMethod;
 
@@ -876,6 +907,16 @@ public final class FlowServiceGrpc {
   public interface AsyncService {
 
     /**
+     * <pre>
+     * Returns diagnostic release metadata and the Server's inclusive protocol interval.
+     * </pre>
+     */
+    default void getServerInfo(com.google.protobuf.Empty request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.ServerInfo> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getGetServerInfoMethod(), responseObserver);
+    }
+
+    /**
      */
     default void startFlow(io.superdurable.gen.StartFlowRequest request,
         io.grpc.stub.StreamObserver<io.superdurable.gen.StartFlowResponse> responseObserver) {
@@ -1089,6 +1130,17 @@ public final class FlowServiceGrpc {
     protected FlowServiceStub build(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       return new FlowServiceStub(channel, callOptions);
+    }
+
+    /**
+     * <pre>
+     * Returns diagnostic release metadata and the Server's inclusive protocol interval.
+     * </pre>
+     */
+    public void getServerInfo(com.google.protobuf.Empty request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.ServerInfo> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getGetServerInfoMethod(), getCallOptions()), request, responseObserver);
     }
 
     /**
@@ -1320,6 +1372,16 @@ public final class FlowServiceGrpc {
     }
 
     /**
+     * <pre>
+     * Returns diagnostic release metadata and the Server's inclusive protocol interval.
+     * </pre>
+     */
+    public io.superdurable.gen.ServerInfo getServerInfo(com.google.protobuf.Empty request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getGetServerInfoMethod(), getCallOptions(), request);
+    }
+
+    /**
      */
     public io.superdurable.gen.StartFlowResponse startFlow(io.superdurable.gen.StartFlowRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
@@ -1519,6 +1581,17 @@ public final class FlowServiceGrpc {
     protected FlowServiceFutureStub build(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       return new FlowServiceFutureStub(channel, callOptions);
+    }
+
+    /**
+     * <pre>
+     * Returns diagnostic release metadata and the Server's inclusive protocol interval.
+     * </pre>
+     */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.ServerInfo> getServerInfo(
+        com.google.protobuf.Empty request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getGetServerInfoMethod(), getCallOptions()), request);
     }
 
     /**
@@ -1730,32 +1803,33 @@ public final class FlowServiceGrpc {
     }
   }
 
-  private static final int METHODID_START_FLOW = 0;
-  private static final int METHODID_PUBLISH_TO_CHANNEL = 1;
-  private static final int METHODID_GET_CHANNEL_MESSAGES = 2;
-  private static final int METHODID_DELETE_CHANNEL_MESSAGE = 3;
-  private static final int METHODID_WRITE_STREAM = 4;
-  private static final int METHODID_READ_STREAM = 5;
-  private static final int METHODID_LIST_STREAM_MESSAGES = 6;
-  private static final int METHODID_STOP_FLOW = 7;
-  private static final int METHODID_GET_ATTRIBUTES = 8;
-  private static final int METHODID_SET_ATTRIBUTES = 9;
-  private static final int METHODID_LOAD_BLOBS = 10;
-  private static final int METHODID_WAIT_FOR_FLOW = 11;
-  private static final int METHODID_SEARCH_FLOWS = 12;
-  private static final int METHODID_SYNC_ATTRIBUTE_INDEXES = 13;
-  private static final int METHODID_GET_FLOW_SUMMARY = 14;
-  private static final int METHODID_GET_HISTORY_EVENTS = 15;
-  private static final int METHODID_WAIT_FOR_HISTORY_EVENT = 16;
-  private static final int METHODID_GET_FLOW_STATE = 17;
-  private static final int METHODID_RESET_FLOW = 18;
-  private static final int METHODID_INVOKE_RPC = 19;
-  private static final int METHODID_SKIP_TIMER = 20;
-  private static final int METHODID_UPDATE_FLOW_CONFIG = 21;
-  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 22;
-  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 23;
-  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 24;
-  private static final int METHODID_HEALTH_CHECK = 25;
+  private static final int METHODID_GET_SERVER_INFO = 0;
+  private static final int METHODID_START_FLOW = 1;
+  private static final int METHODID_PUBLISH_TO_CHANNEL = 2;
+  private static final int METHODID_GET_CHANNEL_MESSAGES = 3;
+  private static final int METHODID_DELETE_CHANNEL_MESSAGE = 4;
+  private static final int METHODID_WRITE_STREAM = 5;
+  private static final int METHODID_READ_STREAM = 6;
+  private static final int METHODID_LIST_STREAM_MESSAGES = 7;
+  private static final int METHODID_STOP_FLOW = 8;
+  private static final int METHODID_GET_ATTRIBUTES = 9;
+  private static final int METHODID_SET_ATTRIBUTES = 10;
+  private static final int METHODID_LOAD_BLOBS = 11;
+  private static final int METHODID_WAIT_FOR_FLOW = 12;
+  private static final int METHODID_SEARCH_FLOWS = 13;
+  private static final int METHODID_SYNC_ATTRIBUTE_INDEXES = 14;
+  private static final int METHODID_GET_FLOW_SUMMARY = 15;
+  private static final int METHODID_GET_HISTORY_EVENTS = 16;
+  private static final int METHODID_WAIT_FOR_HISTORY_EVENT = 17;
+  private static final int METHODID_GET_FLOW_STATE = 18;
+  private static final int METHODID_RESET_FLOW = 19;
+  private static final int METHODID_INVOKE_RPC = 20;
+  private static final int METHODID_SKIP_TIMER = 21;
+  private static final int METHODID_UPDATE_FLOW_CONFIG = 22;
+  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 23;
+  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 24;
+  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 25;
+  private static final int METHODID_HEALTH_CHECK = 26;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -1774,6 +1848,10 @@ public final class FlowServiceGrpc {
     @java.lang.SuppressWarnings("unchecked")
     public void invoke(Req request, io.grpc.stub.StreamObserver<Resp> responseObserver) {
       switch (methodId) {
+        case METHODID_GET_SERVER_INFO:
+          serviceImpl.getServerInfo((com.google.protobuf.Empty) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.ServerInfo>) responseObserver);
+          break;
         case METHODID_START_FLOW:
           serviceImpl.startFlow((io.superdurable.gen.StartFlowRequest) request,
               (io.grpc.stub.StreamObserver<io.superdurable.gen.StartFlowResponse>) responseObserver);
@@ -1896,6 +1974,13 @@ public final class FlowServiceGrpc {
 
   public static final io.grpc.ServerServiceDefinition bindService(AsyncService service) {
     return io.grpc.ServerServiceDefinition.builder(getServiceDescriptor())
+        .addMethod(
+          getGetServerInfoMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              com.google.protobuf.Empty,
+              io.superdurable.gen.ServerInfo>(
+                service, METHODID_GET_SERVER_INFO)))
         .addMethod(
           getStartFlowMethod(),
           io.grpc.stub.ServerCalls.asyncUnaryCall(
@@ -2126,6 +2211,7 @@ public final class FlowServiceGrpc {
         if (result == null) {
           serviceDescriptor = result = io.grpc.ServiceDescriptor.newBuilder(SERVICE_NAME)
               .setSchemaDescriptor(new FlowServiceFileDescriptorSupplier())
+              .addMethod(getGetServerInfoMethod())
               .addMethod(getStartFlowMethod())
               .addMethod(getPublishToChannelMethod())
               .addMethod(getGetChannelMessagesMethod())

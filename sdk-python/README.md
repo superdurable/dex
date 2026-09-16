@@ -544,6 +544,17 @@ The dispatch `version` input is stamped the same way as a release tag.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md#releases-monorepo-tags) for monorepo tag conventions.
 
+## Server protocol compatibility
+
+Both `Worker` and `AsyncWorker` call `GetServerInfo`, negotiate the highest
+common protocol, synchronize Attribute indexes, and only then bind
+WorkerService. The initial Python SDK interval is `[1,1]`. Missing information,
+invalid or disjoint intervals, and RPC failures stop startup before binding.
+
+The diagnostic SDK version comes from Python distribution metadata for
+`dex-python-sdk` and falls back to `dev` when the distribution is unavailable.
+It does not affect protocol compatibility.
+
 ## License
 
 [Sustainable Use License 1.0](LICENSE), with legacy portions under their

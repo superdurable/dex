@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 var (
@@ -974,6 +975,11 @@ func TestWorkerSynchronizesAttributeIndexesBeforeListening(t *testing.T) {
 		probeAddress: address,
 		received:     make(chan *dexpb.SyncAttributeIndexRequest, 1),
 		wasListening: make(chan bool, 1),
+		serverInfo: &dexpb.ServerInfo{
+			ServerVersion:                   "test",
+			MinimumSupportedProtocolVersion: 1,
+			CurrentProtocolVersion:          2,
+		},
 	}
 	flowServiceAddress := startWorkerFlowService(t, flowService)
 	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{
@@ -989,6 +995,9 @@ func TestWorkerSynchronizesAttributeIndexesBeforeListening(t *testing.T) {
 		"WorkerTestStatus": dexpb.IndexType_INDEX_TYPE_KEYWORD,
 	}, request.AttributeIndexes)
 	require.False(t, <-flowService.wasListening)
+	require.Equal(t, uint32(1), worker.negotiatedProtocolVersion)
+	require.Equal(t, "dev", worker.sdkVersion)
+	require.Equal(t, []string{"GetServerInfo", "SyncAttributeIndexes"}, flowService.recordedCalls())
 	require.Eventually(t, func() bool {
 		connection, dialErr := net.DialTimeout("tcp", address, 50*time.Millisecond)
 		if dialErr != nil {
@@ -1001,10 +1010,79 @@ func TestWorkerSynchronizesAttributeIndexesBeforeListening(t *testing.T) {
 	require.NoError(t, <-startResult)
 }
 
+func TestWorkerProtocolFailureKeepsIndexesUnsynchronizedAndPortClosed(t *testing.T) {
+	testCases := []struct {
+		name              string
+		serverInfo        *dexpb.ServerInfo
+		serverInfoFailure error
+		errorDetail       string
+	}{
+		{
+			name: "Server minimum exceeds SDK maximum",
+			serverInfo: &dexpb.ServerInfo{
+				ServerVersion:                   "future",
+				MinimumSupportedProtocolVersion: 2,
+				CurrentProtocolVersion:          2,
+			},
+			errorDetail: "do not overlap",
+		},
+		{
+			name: "zero interval",
+			serverInfo: &dexpb.ServerInfo{
+				ServerVersion: "invalid",
+			},
+			errorDetail: "interval is invalid",
+		},
+		{
+			name: "reversed interval",
+			serverInfo: &dexpb.ServerInfo{
+				ServerVersion:                   "invalid",
+				MinimumSupportedProtocolVersion: 2,
+				CurrentProtocolVersion:          1,
+			},
+			errorDetail: "interval is invalid",
+		},
+		{
+			name:              "unimplemented",
+			serverInfoFailure: status.Error(codes.Unimplemented, "old Server"),
+			errorDetail:       "GetServerInfo failed",
+		},
+		{
+			name:              "request failure",
+			serverInfoFailure: status.Error(codes.Unavailable, "offline"),
+			errorDetail:       "GetServerInfo failed",
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			address := unusedWorkerAddress(t)
+			flowService := &workerSyncFlowService{
+				serverInfo:        testCase.serverInfo,
+				serverInfoFailure: testCase.serverInfoFailure,
+			}
+			flowServiceAddress := startWorkerFlowService(t, flowService)
+			worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
+				BindAddress:        address,
+				FlowServiceAddress: flowServiceAddress,
+			})
+			require.NoError(t, err)
+			err = worker.Start()
+			require.ErrorContains(t, err, testCase.errorDetail)
+			require.Contains(t, err.Error(), "Go SDK version")
+			require.Equal(t, []string{"GetServerInfo"}, flowService.recordedCalls())
+			connection, dialErr := net.DialTimeout("tcp", address, 50*time.Millisecond)
+			if connection != nil {
+				require.NoError(t, connection.Close())
+			}
+			require.Error(t, dialErr)
+		})
+	}
+}
+
 func TestWorkerAttributeIndexSyncFailureKeepsPortClosed(t *testing.T) {
 	address := unusedWorkerAddress(t)
 	flowServiceAddress := startWorkerFlowService(t, &workerSyncFlowService{
-		failure: status.Error(codes.PermissionDenied, "denied"),
+		attributeFailure: status.Error(codes.PermissionDenied, "denied"),
 	})
 	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
 		BindAddress:        address,
@@ -1143,16 +1221,43 @@ type workerBlobFlowService struct {
 
 type workerSyncFlowService struct {
 	dexpb.UnimplementedFlowServiceServer
-	probeAddress string
-	received     chan *dexpb.SyncAttributeIndexRequest
-	wasListening chan bool
-	failure      error
+	probeAddress      string
+	received          chan *dexpb.SyncAttributeIndexRequest
+	wasListening      chan bool
+	serverInfo        *dexpb.ServerInfo
+	serverInfoFailure error
+	attributeFailure  error
+	calls             []string
+	callsMu           sync.Mutex
+}
+
+func (service *workerSyncFlowService) GetServerInfo(
+	_ context.Context,
+	_ *emptypb.Empty,
+) (*dexpb.ServerInfo, error) {
+	service.callsMu.Lock()
+	service.calls = append(service.calls, "GetServerInfo")
+	service.callsMu.Unlock()
+	if service.serverInfoFailure != nil {
+		return nil, service.serverInfoFailure
+	}
+	if service.serverInfo != nil {
+		return service.serverInfo, nil
+	}
+	return &dexpb.ServerInfo{
+		ServerVersion:                   "test",
+		MinimumSupportedProtocolVersion: 1,
+		CurrentProtocolVersion:          1,
+	}, nil
 }
 
 func (service *workerSyncFlowService) SyncAttributeIndexes(
 	_ context.Context,
 	request *dexpb.SyncAttributeIndexRequest,
 ) (*dexpb.SyncAttributeIndexResponse, error) {
+	service.callsMu.Lock()
+	service.calls = append(service.calls, "SyncAttributeIndexes")
+	service.callsMu.Unlock()
 	if service.probeAddress != "" {
 		connection, dialErr := net.DialTimeout("tcp", service.probeAddress, 50*time.Millisecond)
 		listening := dialErr == nil
@@ -1166,10 +1271,16 @@ func (service *workerSyncFlowService) SyncAttributeIndexes(
 	if service.received != nil {
 		service.received <- request
 	}
-	if service.failure != nil {
-		return nil, service.failure
+	if service.attributeFailure != nil {
+		return nil, service.attributeFailure
 	}
 	return &dexpb.SyncAttributeIndexResponse{}, nil
+}
+
+func (service *workerSyncFlowService) recordedCalls() []string {
+	service.callsMu.Lock()
+	defer service.callsMu.Unlock()
+	return append([]string(nil), service.calls...)
 }
 
 func (service *workerBlobFlowService) LoadBlobs(

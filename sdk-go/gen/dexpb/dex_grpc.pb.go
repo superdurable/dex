@@ -28,6 +28,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	FlowService_GetServerInfo_FullMethodName         = "/dex.FlowService/GetServerInfo"
 	FlowService_StartFlow_FullMethodName             = "/dex.FlowService/StartFlow"
 	FlowService_PublishToChannel_FullMethodName      = "/dex.FlowService/PublishToChannel"
 	FlowService_GetChannelMessages_FullMethodName    = "/dex.FlowService/GetChannelMessages"
@@ -62,6 +63,8 @@ const (
 //
 // Hosted by Dex server; SDKs call these RPCs.
 type FlowServiceClient interface {
+	// Returns diagnostic release metadata and the Server's inclusive protocol interval.
+	GetServerInfo(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ServerInfo, error)
 	StartFlow(ctx context.Context, in *StartFlowRequest, opts ...grpc.CallOption) (*StartFlowResponse, error)
 	PublishToChannel(ctx context.Context, in *PublishToChannelRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetChannelMessages(ctx context.Context, in *GetChannelMessagesRequest, opts ...grpc.CallOption) (*GetChannelMessagesResponse, error)
@@ -96,6 +99,16 @@ type flowServiceClient struct {
 
 func NewFlowServiceClient(cc grpc.ClientConnInterface) FlowServiceClient {
 	return &flowServiceClient{cc}
+}
+
+func (c *flowServiceClient) GetServerInfo(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ServerInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ServerInfo)
+	err := c.cc.Invoke(ctx, FlowService_GetServerInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *flowServiceClient) StartFlow(ctx context.Context, in *StartFlowRequest, opts ...grpc.CallOption) (*StartFlowResponse, error) {
@@ -364,6 +377,8 @@ func (c *flowServiceClient) HealthCheck(ctx context.Context, in *emptypb.Empty, 
 //
 // Hosted by Dex server; SDKs call these RPCs.
 type FlowServiceServer interface {
+	// Returns diagnostic release metadata and the Server's inclusive protocol interval.
+	GetServerInfo(context.Context, *emptypb.Empty) (*ServerInfo, error)
 	StartFlow(context.Context, *StartFlowRequest) (*StartFlowResponse, error)
 	PublishToChannel(context.Context, *PublishToChannelRequest) (*emptypb.Empty, error)
 	GetChannelMessages(context.Context, *GetChannelMessagesRequest) (*GetChannelMessagesResponse, error)
@@ -400,6 +415,9 @@ type FlowServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedFlowServiceServer struct{}
 
+func (UnimplementedFlowServiceServer) GetServerInfo(context.Context, *emptypb.Empty) (*ServerInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetServerInfo not implemented")
+}
 func (UnimplementedFlowServiceServer) StartFlow(context.Context, *StartFlowRequest) (*StartFlowResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StartFlow not implemented")
 }
@@ -497,6 +515,24 @@ func RegisterFlowServiceServer(s grpc.ServiceRegistrar, srv FlowServiceServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&FlowService_ServiceDesc, srv)
+}
+
+func _FlowService_GetServerInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetServerInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetServerInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetServerInfo(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _FlowService_StartFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -974,6 +1010,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "dex.FlowService",
 	HandlerType: (*FlowServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetServerInfo",
+			Handler:    _FlowService_GetServerInfo_Handler,
+		},
 		{
 			MethodName: "StartFlow",
 			Handler:    _FlowService_StartFlow_Handler,

@@ -73,6 +73,13 @@ func (h *handler) close() {
 	h.svc.Close()
 }
 
+func (h *handler) GetServerInfo(
+	ctx context.Context,
+	req *emptypb.Empty,
+) (*dexpb.ServerInfo, error) {
+	return h.svc.GetServerInfo(ctx, req)
+}
+
 func (h *handler) StartFlow(
 	ctx context.Context,
 	req *dexpb.StartFlowRequest,

@@ -52,6 +52,25 @@ type testFlowService struct {
 	timeTravelRequest    *dexpb.ResetFlowRequest
 	waitStarted          chan struct{}
 	waitOnce             sync.Once
+	serverInfo           *dexpb.ServerInfo
+	serverInfoFailure    error
+}
+
+func (s *testFlowService) GetServerInfo(
+	context.Context,
+	*emptypb.Empty,
+) (*dexpb.ServerInfo, error) {
+	if s.serverInfoFailure != nil {
+		return nil, s.serverInfoFailure
+	}
+	if s.serverInfo != nil {
+		return s.serverInfo, nil
+	}
+	return &dexpb.ServerInfo{
+		ServerVersion:                   "test-server",
+		MinimumSupportedProtocolVersion: 1,
+		CurrentProtocolVersion:          1,
+	}, nil
 }
 
 func (s *testFlowService) StartFlow(
@@ -579,6 +598,119 @@ func TestAPIDescriptorIncludesEveryFlowServiceMethod(t *testing.T) {
 	streamDescription := executeTestCommand(t, nil, "api", "describe", "WriteStream")
 	if streamDescription["requestType"] != "dex.WriteStreamRequest" || streamDescription["mutating"] != true {
 		t.Fatalf("unexpected Stream descriptor: %#v", streamDescription)
+	}
+}
+
+func TestVersionCheckReportsNegotiatedProtocol(t *testing.T) {
+	_, address := startTestFlowService(t)
+	result := executeTestCommand(t, nil, "version", "check", "--server", address)
+	if result["compatible"] != true || result["negotiatedProtocol"] != float64(1) {
+		t.Fatalf("unexpected version check result: %#v", result)
+	}
+	if result["clientVersion"] != "dev" || result["serverVersion"] != "test-server" {
+		t.Fatalf("unexpected artifact versions: %#v", result)
+	}
+}
+
+func TestVersionCheckRejectsNonoverlappingProtocols(t *testing.T) {
+	service, address := startTestFlowService(t)
+	service.serverInfo = &dexpb.ServerInfo{
+		ServerVersion:                   "future-server",
+		MinimumSupportedProtocolVersion: 2,
+		CurrentProtocolVersion:          2,
+	}
+	stdout := &bytes.Buffer{}
+	app := NewApp(bytes.NewReader(nil), stdout, &bytes.Buffer{}, "test-cli")
+	err := app.Execute(context.Background(), []string{"version", "check", "--server", address})
+	if err == nil || ExitCode(err) != 1 {
+		t.Fatalf("expected compatibility failure, got %v", err)
+	}
+	errorOutput := &bytes.Buffer{}
+	WriteError(errorOutput, err)
+	var payload map[string]any
+	if decodeErr := json.Unmarshal(errorOutput.Bytes(), &payload); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	errorPayload := payload["error"].(map[string]any)
+	if errorPayload["kind"] != "compatibility" || errorPayload["compatible"] != false {
+		t.Fatalf("unexpected structured error: %#v", errorPayload)
+	}
+}
+
+func TestVersionCheckRejectsInvalidAndUnimplementedServerInfo(t *testing.T) {
+	testCases := []struct {
+		name       string
+		serverInfo *dexpb.ServerInfo
+		failure    error
+		reason     string
+	}{
+		{
+			name:       "zero interval",
+			serverInfo: &dexpb.ServerInfo{ServerVersion: "invalid"},
+			reason:     "Server protocol interval is invalid",
+		},
+		{
+			name: "reversed interval",
+			serverInfo: &dexpb.ServerInfo{
+				ServerVersion:                   "invalid",
+				MinimumSupportedProtocolVersion: 2,
+				CurrentProtocolVersion:          1,
+			},
+			reason: "Server protocol interval is invalid",
+		},
+		{
+			name:    "unimplemented",
+			failure: status.Error(codes.Unimplemented, "old Server"),
+			reason:  "GetServerInfo failed",
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			service, address := startTestFlowService(t)
+			service.serverInfo = testCase.serverInfo
+			service.serverInfoFailure = testCase.failure
+			app := NewApp(bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{}, "test-cli")
+			err := app.Execute(
+				context.Background(),
+				[]string{"version", "check", "--server", address},
+			)
+			if err == nil || ExitCode(err) != 1 {
+				t.Fatalf("expected compatibility failure, got %v", err)
+			}
+			errorOutput := &bytes.Buffer{}
+			WriteError(errorOutput, err)
+			var payload map[string]any
+			if decodeErr := json.Unmarshal(errorOutput.Bytes(), &payload); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			errorPayload := payload["error"].(map[string]any)
+			if errorPayload["reason"] != testCase.reason {
+				t.Fatalf("unexpected structured error: %#v", errorPayload)
+			}
+		})
+	}
+}
+
+func TestVersionCheckReportsConnectionFailure(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	app := NewApp(bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{}, "test-cli")
+	err = app.Execute(context.Background(), []string{
+		"version", "check", "--server", address, "--timeout", "100ms",
+	})
+	if err == nil || ExitCode(err) != 1 {
+		t.Fatalf("expected connection failure, got %v", err)
+	}
+	errorOutput := &bytes.Buffer{}
+	WriteError(errorOutput, err)
+	if !strings.Contains(errorOutput.String(), `"reason":"GetServerInfo failed"`) {
+		t.Fatalf("unexpected structured error: %s", errorOutput.String())
 	}
 }
 

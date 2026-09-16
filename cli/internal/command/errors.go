@@ -23,6 +23,7 @@ type Error struct {
 	operation string
 	kind      string
 	cause     error
+	details   map[string]any
 }
 
 func newUsageError(operation string, cause error) *Error {
@@ -79,8 +80,11 @@ func WriteError(output io.Writer, err error) {
 			"message":   commandError.cause.Error(),
 		},
 	}
+	errorPayload := payload["error"].(map[string]any)
+	for key, value := range commandError.details {
+		errorPayload[key] = value
+	}
 	if rpcStatus, ok := status.FromError(commandError.cause); ok {
-		errorPayload := payload["error"].(map[string]any)
 		errorPayload["grpcCode"] = int32(rpcStatus.Code())
 		errorPayload["grpcCodeName"] = rpcStatus.Code().String()
 		details := make([]any, 0, len(rpcStatus.Details()))

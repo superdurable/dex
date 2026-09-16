@@ -659,3 +659,16 @@ The Actions run also publishes the report directory as
 
 The detailed design and later phase boundaries are in the
 [Go SDK rewrite plan](../docs/design/plan/go-sdk-rewrite.md).
+
+## Server protocol compatibility
+
+Worker startup calls `GetServerInfo`, negotiates the highest version in the
+intersection of the Server and Go SDK protocol intervals, synchronizes Attribute
+indexes, and then binds WorkerService. The initial SDK interval is `[1,1]`.
+Missing server information, invalid or disjoint intervals, and RPC failures stop
+startup before binding. The negotiated protocol is retained for future
+protocol-specific paths.
+
+The diagnostic SDK version comes from Go build information for the
+`github.com/superdurable/dex/sdk-go` module. Source builds without module version
+metadata report `dev`; neither value changes compatibility decisions.

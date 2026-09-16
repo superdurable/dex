@@ -36,6 +36,7 @@ import (
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/bootstrap"
 	dexweb "github.com/superdurable/dex/web"
 	"github.com/superdurable/dex/web/assets"
@@ -76,7 +77,7 @@ func BuildCLI(ctx context.Context) *cli.App {
 	app := cli.NewApp()
 	app.Name = "dex service"
 	app.Usage = "dex service"
-	app.Version = "beta"
+	app.Version = service.DexServerVersion
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "config, c",

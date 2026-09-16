@@ -687,3 +687,14 @@ use the local publishing command:
   * `main/java/io/superdurable/dex/`: public SDK and Java runtime
   * `main/java/io/superdurable/gen/`: checked-in protobuf and gRPC stubs
   * `test/java/io/superdurable/dex/`: contract, transport, and integration tests
+
+## Server protocol compatibility
+
+Worker startup calls `GetServerInfo`, negotiates the highest common protocol,
+synchronizes Attribute indexes, and then binds WorkerService. The initial Java
+SDK interval is `[1,1]`. An absent RPC, invalid or nonoverlapping intervals, and
+request failures stop startup before binding.
+
+Published JARs store the diagnostic SDK version in the
+`Implementation-Version` manifest attribute. Direct class-directory builds use
+`dev`. The artifact version never participates in the compatibility decision.

@@ -302,6 +302,16 @@ SUB_FLOW_COMPLETION_DELIVERY_STATUS_UNSPECIFIED: SubFlowCompletionDeliveryStatus
 SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED: SubFlowCompletionDeliveryStatus
 SUB_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_CLOSED_OR_NOT_FOUND: SubFlowCompletionDeliveryStatus
 
+class ServerInfo(_message.Message):
+    __slots__ = ("server_version", "minimum_supported_protocol_version", "current_protocol_version")
+    SERVER_VERSION_FIELD_NUMBER: _ClassVar[int]
+    MINIMUM_SUPPORTED_PROTOCOL_VERSION_FIELD_NUMBER: _ClassVar[int]
+    CURRENT_PROTOCOL_VERSION_FIELD_NUMBER: _ClassVar[int]
+    server_version: str
+    minimum_supported_protocol_version: int
+    current_protocol_version: int
+    def __init__(self, server_version: _Optional[str] = ..., minimum_supported_protocol_version: _Optional[int] = ..., current_protocol_version: _Optional[int] = ...) -> None: ...
+
 class Value(_message.Message):
     __slots__ = ("internal_blob_id_for_string_value", "internal_blob_id_for_obj_value", "string_value", "obj_value", "int_value", "double_value", "bool_value", "null_value")
     INTERNAL_BLOB_ID_FOR_STRING_VALUE_FIELD_NUMBER: _ClassVar[int]

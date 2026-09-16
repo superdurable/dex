@@ -15,6 +15,7 @@
 package io.superdurable.dex;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.protobuf.Empty;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
@@ -43,6 +44,7 @@ import io.superdurable.gen.InvokeWorkerRPCResponse;
 import io.superdurable.gen.KV;
 import io.superdurable.gen.LoadBlobsRequest;
 import io.superdurable.gen.LoadBlobsResponse;
+import io.superdurable.gen.ServerInfo;
 import io.superdurable.gen.SyncAttributeIndexRequest;
 import io.superdurable.gen.SyncAttributeIndexResponse;
 import io.superdurable.gen.Value;
@@ -98,6 +100,60 @@ final class WorkerServiceIntegrationTest {
             assertFalse(worker.getWorkerTarget().isHeadless());
         } finally {
             worker.close();
+        }
+    }
+
+    @Test
+    void rejectsIncompatibleServerBeforeIndexSyncAndBinding() throws Exception {
+        final int workerPort = availablePort();
+        final int flowPort = availablePort();
+        final AtomicInteger syncCalls = new AtomicInteger();
+        final Server flowServer = ServerBuilder.forPort(flowPort)
+                .addService(new FlowServiceGrpc.FlowServiceImplBase() {
+                    @Override
+                    public void getServerInfo(
+                            final Empty request,
+                            final StreamObserver<ServerInfo> observer) {
+                        observer.onNext(ServerInfo.newBuilder()
+                                .setServerVersion("future")
+                                .setMinimumSupportedProtocolVersion(2)
+                                .setCurrentProtocolVersion(2)
+                                .build());
+                        observer.onCompleted();
+                    }
+
+                    @Override
+                    public void syncAttributeIndexes(
+                            final SyncAttributeIndexRequest request,
+                            final StreamObserver<SyncAttributeIndexResponse> observer) {
+                        syncCalls.incrementAndGet();
+                        observer.onNext(SyncAttributeIndexResponse.getDefaultInstance());
+                        observer.onCompleted();
+                    }
+                })
+                .build()
+                .start();
+        final Worker worker = new Worker(
+                new Registry(Collections.<Flow<?>>singletonList(new BridgeFlow())),
+                new TestBlobCache(),
+                WorkerOptions.newBuilder()
+                        .bindAddress("127.0.0.1:" + workerPort)
+                        .serverAddress("127.0.0.1:" + flowPort)
+                        .build());
+        try {
+            final IllegalStateException failure = assertThrows(
+                    IllegalStateException.class,
+                    worker::start);
+            assertTrue(failure.getMessage().contains("protocol intervals do not overlap"));
+            assertEquals(0, syncCalls.get());
+            assertThrows(IOException.class, () -> {
+                try (Socket socket = new Socket()) {
+                    socket.connect(new InetSocketAddress("127.0.0.1", workerPort), 100);
+                }
+            });
+        } finally {
+            worker.close();
+            flowServer.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
         }
     }
 
@@ -862,6 +918,14 @@ final class WorkerServiceIntegrationTest {
         final Server flowServer = ServerBuilder.forPort(flowPort)
                 .addService(new FlowServiceGrpc.FlowServiceImplBase() {
                     @Override
+                    public void getServerInfo(
+                            final Empty request,
+                            final StreamObserver<ServerInfo> observer) {
+                        observer.onNext(compatibleServerInfo());
+                        observer.onCompleted();
+                    }
+
+                    @Override
                     public void syncAttributeIndexes(
                             final SyncAttributeIndexRequest request,
                             final StreamObserver<SyncAttributeIndexResponse> observer) {
@@ -954,6 +1018,14 @@ final class WorkerServiceIntegrationTest {
             ownedFlowServer = ServerBuilder.forPort(flowPort)
                     .addService(new FlowServiceGrpc.FlowServiceImplBase() {
                         @Override
+                        public void getServerInfo(
+                                final Empty request,
+                                final StreamObserver<ServerInfo> observer) {
+                            observer.onNext(compatibleServerInfo());
+                            observer.onCompleted();
+                        }
+
+                        @Override
                         public void syncAttributeIndexes(
                                 final SyncAttributeIndexRequest request,
                                 final StreamObserver<SyncAttributeIndexResponse> observer) {
@@ -1020,6 +1092,14 @@ final class WorkerServiceIntegrationTest {
                 .setFlowType("BridgeFlow")
                 .setStepType("BridgeStep")
                 .setStepInput(input)
+                .build();
+    }
+
+    private static ServerInfo compatibleServerInfo() {
+        return ServerInfo.newBuilder()
+                .setServerVersion("test")
+                .setMinimumSupportedProtocolVersion(1)
+                .setCurrentProtocolVersion(2)
                 .build();
     }
 

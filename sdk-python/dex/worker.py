@@ -16,7 +16,13 @@ from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
 
 import grpc
+from google.protobuf import empty_pb2
 
+from dex._server_protocol import (
+    negotiate_server_protocol,
+    sdk_version,
+    server_info_request_error,
+)
 from dex._value_hydrator import ValueHydrator
 from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
@@ -74,6 +80,8 @@ class Worker:
         self._flow_service = dex_pb2_grpc.FlowServiceStub(  # type: ignore[no-untyped-call]
             self._flow_channel
         )
+        self._sdk_version = sdk_version()
+        self._negotiated_protocol_version = 0
         values = ValueMapper(registry.codec_registry)
         dispatcher = WorkerDispatcher(
             registry,
@@ -136,7 +144,7 @@ class Worker:
         self.close()
 
     def start(self) -> None:
-        """Synchronize Attribute indexes, serve WorkerService, and block.
+        """Negotiate protocol, synchronize Attribute indexes, and serve.
 
         ``start`` may be called exactly once. It first contacts FlowService using the
         configured synchronization timeout, then binds the listener and waits until
@@ -148,6 +156,26 @@ class Worker:
         with self._lock:
             if self._state != "created":
                 raise RuntimeError(f"Worker cannot start from state {self._state}")
+            try:
+                server_info = self._flow_service.GetServerInfo(
+                    empty_pb2.Empty(),
+                    timeout=self.options.attribute_index_sync_timeout.total_seconds(),
+                )
+            except grpc.RpcError as failure:
+                self._state = "stopped"
+                self._flow_channel.close()
+                self._executor.shutdown(wait=True, cancel_futures=True)
+                raise server_info_request_error(self._sdk_version, failure) from failure
+            try:
+                self._negotiated_protocol_version = negotiate_server_protocol(
+                    server_info,
+                    self._sdk_version,
+                )
+            except RuntimeError:
+                self._state = "stopped"
+                self._flow_channel.close()
+                self._executor.shutdown(wait=True, cancel_futures=True)
+                raise
             try:
                 self._flow_service.SyncAttributeIndexes(
                     pb.SyncAttributeIndexRequest(

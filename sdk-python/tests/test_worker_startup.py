@@ -25,6 +25,7 @@ from dex.dexpb import dex_pb2_grpc
 from dex.flow import Flow, PersistenceSchema, Registry
 from dex.worker import Worker
 from dex.worker_options import WorkerOptions
+from google.protobuf import empty_pb2
 
 
 class IndexedFlow(Flow[None]):
@@ -61,18 +62,46 @@ class MemoryBlobCache:
 
 
 class SyncService(dex_pb2_grpc.FlowServiceServicer):
-    def __init__(self, worker_port: int, failure: bool = False) -> None:
+    def __init__(
+        self,
+        worker_port: int,
+        failure: bool = False,
+        server_info: pb.ServerInfo | None = None,
+        server_info_failure: grpc.StatusCode | None = None,
+    ) -> None:
         self.worker_port = worker_port
         self.failure = failure
+        self.server_info = (
+            server_info
+            if server_info is not None
+            else pb.ServerInfo(
+                server_version="test",
+                minimum_supported_protocol_version=1,
+                current_protocol_version=1,
+            )
+        )
+        self.server_info_failure = server_info_failure
         self.received: pb.SyncAttributeIndexRequest | None = None
         self.listening_during_sync: bool | None = None
         self.called = threading.Event()
+        self.calls: list[str] = []
+
+    def GetServerInfo(  # noqa: N802
+        self,
+        request: empty_pb2.Empty,
+        context: grpc.ServicerContext,
+    ) -> pb.ServerInfo:
+        self.calls.append("GetServerInfo")
+        if self.server_info_failure is not None:
+            context.abort(self.server_info_failure, "server info failed")
+        return self.server_info
 
     def SyncAttributeIndexes(  # noqa: N802
         self,
         request: pb.SyncAttributeIndexRequest,
         context: grpc.ServicerContext,
     ) -> pb.SyncAttributeIndexResponse:
+        self.calls.append("SyncAttributeIndexes")
         self.received = request
         self.listening_during_sync = _can_connect(self.worker_port)
         self.called.set()
@@ -111,6 +140,7 @@ def test_worker_synchronizes_indexes_before_listening() -> None:
             == pb.INDEX_TYPE_KEYWORD
         )
         assert service.listening_during_sync is False
+        assert service.calls == ["GetServerInfo", "SyncAttributeIndexes"]
         _await_listening(worker_port)
     finally:
         worker.stop()
@@ -134,6 +164,62 @@ def test_worker_sync_failure_keeps_port_closed() -> None:
     try:
         with pytest.raises(RuntimeError, match="synchronize Attribute indexes"):
             worker.start()
+        assert not _can_connect(worker_port)
+    finally:
+        worker.close()
+        flow_server.stop(grace=None).wait(timeout=5)
+
+
+@pytest.mark.parametrize(
+    ("server_info", "server_info_failure", "message"),
+    (
+        (
+            pb.ServerInfo(
+                server_version="future",
+                minimum_supported_protocol_version=2,
+                current_protocol_version=2,
+            ),
+            None,
+            "do not overlap",
+        ),
+        (pb.ServerInfo(server_version="invalid"), None, "interval is invalid"),
+        (
+            pb.ServerInfo(
+                server_version="invalid",
+                minimum_supported_protocol_version=2,
+                current_protocol_version=1,
+            ),
+            None,
+            "interval is invalid",
+        ),
+        (None, grpc.StatusCode.UNIMPLEMENTED, "GetServerInfo failed"),
+        (None, grpc.StatusCode.UNAVAILABLE, "GetServerInfo failed"),
+    ),
+)
+def test_worker_protocol_failure_precedes_sync_and_binding(
+    server_info: pb.ServerInfo | None,
+    server_info_failure: grpc.StatusCode | None,
+    message: str,
+) -> None:
+    worker_port = _available_port()
+    service = SyncService(
+        worker_port,
+        server_info=server_info,
+        server_info_failure=server_info_failure,
+    )
+    flow_server, flow_port = _start_flow_server(service)
+    worker = Worker(
+        Registry((IndexedFlow(),)),
+        MemoryBlobCache(),
+        WorkerOptions(
+            bind_address=f"127.0.0.1:{worker_port}",
+            server_address=f"127.0.0.1:{flow_port}",
+        ),
+    )
+    try:
+        with pytest.raises(RuntimeError, match=message):
+            worker.start()
+        assert service.calls == ["GetServerInfo"]
         assert not _can_connect(worker_port)
     finally:
         worker.close()

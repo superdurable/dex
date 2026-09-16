@@ -42,6 +42,9 @@
                 <version>3.5.1</version>
                 <configuration>
                     <mainClass>io.superdurable.dex.consumer.PublicationSmoke</mainClass>
+                    <arguments>
+                        <argument>${dexSdkVersion}</argument>
+                    </arguments>
                 </configuration>
             </plugin>
         </plugins>

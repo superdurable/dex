@@ -336,3 +336,11 @@ make -C protos proto
 `make -C server idl-code-gen` and `make -C sdk-go idl-code-gen` delegate to `make -C protos proto`.
 When `dex.proto` changes, commit every generated output from the full command.
 Component-only targets are for troubleshooting without an IDL change.
+
+## Protocol compatibility
+
+FlowService exposes `GetServerInfo`. Its response contains the diagnostic Server
+artifact version and the inclusive protocol interval supported by that Server.
+Workers and dexcli embed their own inclusive Server protocol interval. They are
+compatible when the intervals overlap and negotiate the highest common version.
+Protocol numbers increase monotonically and are never reused.

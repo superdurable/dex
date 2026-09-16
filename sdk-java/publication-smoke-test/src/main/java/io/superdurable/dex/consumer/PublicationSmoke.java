@@ -12,6 +12,7 @@ package io.superdurable.dex.consumer;
 
 import io.superdurable.dex.BlobCache;
 import io.superdurable.dex.BlobCacheConfig;
+import io.superdurable.dex.Worker;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -27,6 +28,15 @@ public final class PublicationSmoke {
     }
 
     public static void main(final String[] arguments) throws IOException {
+        if (arguments.length != 1) {
+            throw new IllegalArgumentException("expected the release version");
+        }
+        final String runtimeVersion = Worker.class.getPackage().getImplementationVersion();
+        if (!arguments[0].equals(runtimeVersion)) {
+            throw new IllegalStateException(
+                    "Java SDK runtime version " + runtimeVersion
+                            + " does not match release version " + arguments[0]);
+        }
         final Path directory = Files.createTempDirectory("dex-java-publication-");
         try {
             final byte[] payload = "published-native-cache".getBytes(StandardCharsets.UTF_8);

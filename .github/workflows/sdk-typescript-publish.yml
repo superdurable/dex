@@ -132,6 +132,16 @@ jobs:
         run: npm run typecheck
       - name: Build TypeScript
         run: npm run build
+      - name: Verify runtime version
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { sdkVersion } from "./dist/src/sdk-version.generated.js";
+          if (sdkVersion !== process.env.RELEASE_VERSION) {
+            throw new Error(`runtime version ${sdkVersion} does not match ${process.env.RELEASE_VERSION}`);
+          }
+          NODE
       - name: Test package
         run: node --test dist/test/*.test.js
       - name: Inspect package contents

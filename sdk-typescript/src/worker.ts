@@ -28,6 +28,7 @@ import {
   type InvokeWaitForMethodResponse,
   type InvokeWorkerRPCRequest,
   type InvokeWorkerRPCResponse,
+  type ServerInfo,
   type StepStreamWrite,
   type Value,
   type WorkerServiceServer,
@@ -36,6 +37,8 @@ import { workerServiceError } from "./grpc-status.js";
 import { registeredAttributeIndexes, type Registry } from "./flow.js";
 import type { StepOutputEmitter } from "./invocation-context.js";
 import type { WorkerOptions, WorkerTarget } from "./options.js";
+import { negotiateServerProtocol, serverInfoRequestError } from "./server-protocol.js";
+import { sdkVersion } from "./sdk-version.generated.js";
 import { ValueHydrator } from "./value-mapper.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
 
@@ -63,6 +66,7 @@ export class Worker {
   private readonly stopped: Promise<void>;
   private resolveStopped!: () => void;
   private state: WorkerState = "created";
+  private negotiatedProtocolVersion = 0;
 
   /**
    * Constructs a Worker without starting its listener.
@@ -92,7 +96,7 @@ export class Worker {
   }
 
   /**
-   * Synchronizes Attribute indexes and starts the WorkerService listener.
+   * Negotiates the Server protocol, synchronizes indexes, and starts the listener.
    * The promise resolves after successful binding; call exactly once.
    */
   public async start(): Promise<void> {
@@ -105,6 +109,13 @@ export class Worker {
       if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
         throw new RangeError("attributeIndexSyncTimeoutMs must be positive");
       }
+      let serverInfo: ServerInfo;
+      try {
+        serverInfo = await getServerInfo(this.flowService, timeoutMs);
+      } catch (failure) {
+        throw serverInfoRequestError(sdkVersion, failure);
+      }
+      this.negotiatedProtocolVersion = negotiateServerProtocol(serverInfo, sdkVersion);
       await syncAttributeIndexes(this.flowService, this.registry, timeoutMs);
       await bind(this.server, bindAddress);
       this.state = "running";
@@ -147,6 +158,21 @@ export class Worker {
     }
     this.state = "closed";
   }
+}
+
+function getServerInfo(
+  service: InstanceType<typeof FlowServiceClient>,
+  timeoutMs: number,
+): Promise<ServerInfo> {
+  return new Promise((resolve, reject) => {
+    service.getServerInfo({}, new Metadata(), { deadline: Date.now() + timeoutMs }, (error, info) => {
+      if (error !== null) {
+        reject(error);
+        return;
+      }
+      resolve(info);
+    });
+  });
 }
 
 function syncAttributeIndexes(

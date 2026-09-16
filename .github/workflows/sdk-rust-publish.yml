@@ -102,6 +102,13 @@ jobs:
           --stage-protocol
       - name: Validate stamped workspace
         run: cargo metadata --locked --no-deps --format-version 1
+      - name: Verify runtime version
+        env:
+          DEX_EXPECTED_SDK_VERSION: ${{ steps.release.outputs.version }}
+        run: >-
+          cargo test --locked -p dex-sdk
+          server_protocol::tests::runtime_version_matches_release
+          -- --exact
       - name: Build independently publishable crates
         run: |
           cargo package --locked --allow-dirty -p dex-blob-cache -p dex-protocol

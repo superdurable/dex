@@ -44,6 +44,7 @@ import {
   InvokeExecuteMethodRequest,
   InvokeWaitForMethodRequest,
   WorkerServiceClient,
+  type ServerInfo,
   type FlowServiceServer,
   type SyncAttributeIndexRequest,
   type SyncAttributeIndexResponse,
@@ -74,9 +75,15 @@ test("Worker synchronizes indexes before listening", async () => {
   const workerPort = await availablePort();
   let received: SyncAttributeIndexRequest | undefined;
   let listeningDuringSync: boolean | undefined;
+  const calls: string[] = [];
   const flowServer = new Server();
   flowServer.addService(FlowServiceService, {
+    getServerInfo(_call, callback: sendUnaryData<ServerInfo>) {
+      calls.push("GetServerInfo");
+      callback(null, compatibleServerInfo());
+    },
     syncAttributeIndexes(call, callback: sendUnaryData<SyncAttributeIndexResponse>) {
+      calls.push("SyncAttributeIndexes");
       received = call.request as SyncAttributeIndexRequest;
       void canConnect(workerPort).then((listening) => {
         listeningDuringSync = listening;
@@ -96,7 +103,44 @@ test("Worker synchronizes indexes before listening", async () => {
       ProtoIndexType.INDEX_TYPE_KEYWORD,
     );
     assert.equal(listeningDuringSync, false);
+    assert.deepEqual(calls, ["GetServerInfo", "SyncAttributeIndexes"]);
     assert.equal(await canConnect(workerPort), true);
+  } finally {
+    await worker.close();
+    await shutdown(flowServer);
+  }
+});
+
+test("Worker rejects incompatible Server before sync and binding", async () => {
+  const workerPort = await availablePort();
+  const calls: string[] = [];
+  const flowServer = new Server();
+  flowServer.addService(FlowServiceService, {
+    getServerInfo(_call, callback: sendUnaryData<ServerInfo>) {
+      calls.push("GetServerInfo");
+      callback(null, {
+        serverVersion: "future",
+        minimumSupportedProtocolVersion: 2,
+        currentProtocolVersion: 2,
+      });
+    },
+    syncAttributeIndexes(_call, callback: sendUnaryData<SyncAttributeIndexResponse>) {
+      calls.push("SyncAttributeIndexes");
+      callback(null, {});
+    },
+  } as Partial<FlowServiceServer> as FlowServiceServer);
+  const flowPort = await bind(flowServer);
+  const worker = new Worker(new Registry([new IndexedFlow()]), new MemoryBlobCache(), {
+    bindAddress: `127.0.0.1:${workerPort}`,
+    serverAddress: `127.0.0.1:${flowPort}`,
+  });
+  try {
+    await assert.rejects(worker.start(), (failure: Error) => {
+      assert.match(String(failure.cause), /protocol intervals do not overlap/);
+      return true;
+    });
+    assert.deepEqual(calls, ["GetServerInfo"]);
+    assert.equal(await canConnect(workerPort), false);
   } finally {
     await worker.close();
     await shutdown(flowServer);
@@ -107,6 +151,9 @@ test("Worker sync failure keeps its port closed", async () => {
   const workerPort = await availablePort();
   const flowServer = new Server();
   flowServer.addService(FlowServiceService, {
+    getServerInfo(_call, callback: sendUnaryData<ServerInfo>) {
+      callback(null, compatibleServerInfo());
+    },
     syncAttributeIndexes(_call, callback: sendUnaryData<SyncAttributeIndexResponse>) {
       callback({ code: grpcStatus.PERMISSION_DENIED, details: "denied", name: "Error", message: "denied" });
     },
@@ -129,6 +176,9 @@ test("Worker streams ordered Step progress and exactly one result", async () => 
   const workerPort = await availablePort();
   const flowServer = new Server();
   flowServer.addService(FlowServiceService, {
+    getServerInfo(_call, callback: sendUnaryData<ServerInfo>) {
+      callback(null, compatibleServerInfo());
+    },
     syncAttributeIndexes(_call, callback: sendUnaryData<SyncAttributeIndexResponse>) {
       callback(null, {});
     },
@@ -314,6 +364,14 @@ class MemoryBlobCache implements BlobCache {
   public deleteAll(): void {}
 
   public close(): void {}
+}
+
+function compatibleServerInfo(): ServerInfo {
+  return {
+    serverVersion: "test",
+    minimumSupportedProtocolVersion: 1,
+    currentProtocolVersion: 1,
+  };
 }
 
 function availablePort(): Promise<number> {

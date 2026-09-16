@@ -12,7 +12,13 @@ import asyncio
 from types import TracebackType
 
 import grpc
+from google.protobuf import empty_pb2
 
+from dex._server_protocol import (
+    negotiate_server_protocol,
+    sdk_version,
+    server_info_request_error,
+)
 from dex._async_value_hydrator import AsyncValueHydrator
 from dex._async_worker_dispatcher import AsyncWorkerDispatcher
 from dex._async_worker_service import AsyncWorkerService
@@ -64,6 +70,8 @@ class AsyncWorker:
         self._flow_service = dex_pb2_grpc.FlowServiceStub(  # type: ignore[no-untyped-call]
             self._flow_channel
         )
+        self._sdk_version = sdk_version()
+        self._negotiated_protocol_version = 0
         values = ValueMapper(registry.codec_registry)
         dispatcher = AsyncWorkerDispatcher(
             registry,
@@ -116,7 +124,7 @@ class AsyncWorker:
         await self.close()
 
     async def start(self) -> None:
-        """Synchronize Attribute indexes, serve WorkerService, and await shutdown.
+        """Negotiate protocol, synchronize Attribute indexes, and serve.
 
         ``start`` may be awaited exactly once. It contacts FlowService before binding
         and completes only after ``stop`` terminates the server.
@@ -126,6 +134,26 @@ class AsyncWorker:
         """
         if self._state != "created":
             raise RuntimeError(f"AsyncWorker cannot start from state {self._state}")
+        try:
+            server_info = await self._flow_service.GetServerInfo(
+                empty_pb2.Empty(),
+                timeout=self.options.attribute_index_sync_timeout.total_seconds(),
+            )
+        except grpc.RpcError as failure:
+            self._state = "stopped"
+            await self._flow_channel.close(None)
+            self._stopped.set()
+            raise server_info_request_error(self._sdk_version, failure) from failure
+        try:
+            self._negotiated_protocol_version = negotiate_server_protocol(
+                server_info,
+                self._sdk_version,
+            )
+        except RuntimeError:
+            self._state = "stopped"
+            await self._flow_channel.close(None)
+            self._stopped.set()
+            raise
         try:
             await self._flow_service.SyncAttributeIndexes(
                 pb.SyncAttributeIndexRequest(

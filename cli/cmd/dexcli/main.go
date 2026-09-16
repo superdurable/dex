@@ -47,14 +47,20 @@ func run(ctx context.Context, args []string) error {
 		return dev.Execute(ctx, args[1:], os.Stdout, os.Stderr, version)
 	case "codec-server":
 		return codecserver.Execute(ctx, args[1:], os.Stdout, os.Stderr)
-	case "version", "--version", "-v":
+	case "version":
+		if len(args) > 1 {
+			return command.NewApp(os.Stdin, os.Stdout, os.Stderr, version).Execute(ctx, args)
+		}
+		fmt.Fprintf(os.Stdout, "dexcli %s (commit %s, built %s)\n", version, commit, date)
+		return nil
+	case "--version", "-v":
 		fmt.Fprintf(os.Stdout, "dexcli %s (commit %s, built %s)\n", version, commit, date)
 		return nil
 	case "help", "--help", "-h":
 		printUsage(os.Stdout)
 		return nil
 	default:
-		return command.NewApp(os.Stdin, os.Stdout, os.Stderr).Execute(ctx, args)
+		return command.NewApp(os.Stdin, os.Stdout, os.Stderr, version).Execute(ctx, args)
 	}
 }
 
@@ -68,5 +74,5 @@ func printUsage(output *os.File) {
 	fmt.Fprintln(output, "  visualize Render a static Flow graph from Go or Python source")
 	fmt.Fprintln(output, "  flow      Search, inspect, watch, stop, or reset Flows")
 	fmt.Fprintln(output, "  api       List, describe, or call FlowService RPCs")
-	fmt.Fprintln(output, "  version   Print version information")
+	fmt.Fprintln(output, "  version   Print version information or check Server compatibility")
 }

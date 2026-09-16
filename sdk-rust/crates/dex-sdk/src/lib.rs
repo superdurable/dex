@@ -31,6 +31,7 @@ mod registry;
 mod retry_policy;
 mod rpc;
 mod sdk_error;
+mod server_protocol;
 mod start_flow_options;
 mod step;
 mod step_execution;

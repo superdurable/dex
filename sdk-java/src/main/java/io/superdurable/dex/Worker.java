@@ -11,11 +11,13 @@
 package io.superdurable.dex;
 
 import com.google.common.net.HostAndPort;
+import com.google.protobuf.Empty;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.superdurable.gen.FlowServiceGrpc;
+import io.superdurable.gen.ServerInfo;
 import io.superdurable.gen.SyncAttributeIndexRequest;
 
 import java.io.IOException;
@@ -63,7 +65,9 @@ public final class Worker implements AutoCloseable {
     private final ManagedChannel flowChannel;
     private final FlowServiceGrpc.FlowServiceBlockingStub flowService;
     private final JavaWorkerService workerService;
+    private final String sdkVersion;
     private Server server;
+    private int negotiatedProtocolVersion;
     private State state = State.CREATED;
 
     /**
@@ -107,6 +111,7 @@ public final class Worker implements AutoCloseable {
                 .usePlaintext()
                 .build();
         this.flowService = FlowServiceGrpc.newBlockingStub(flowChannel);
+        this.sdkVersion = ServerProtocolCompatibility.sdkVersion();
         final ValueMapper values = new ValueMapper(options.getObjectMapper());
         final WorkerDispatcher dispatcher = new WorkerDispatcher(
                 registry,
@@ -137,7 +142,8 @@ public final class Worker implements AutoCloseable {
     /**
      * Starts the worker listener and blocks until termination.
      *
-     * <p>Only a newly created worker may start. If the waiting thread is interrupted, the worker
+     * <p>Only a newly created worker may start. It negotiates the Server protocol before syncing
+     * Attribute indexes and binding the listener. If the waiting thread is interrupted, the worker
      * stops and restores the thread's interruption status before returning.
      *
      * @throws IllegalStateException if the worker was already started or its address cannot bind
@@ -147,6 +153,26 @@ public final class Worker implements AutoCloseable {
         synchronized (this) {
             if (state != State.CREATED) {
                 throw new IllegalStateException("Worker cannot start from state " + state);
+            }
+            final ServerInfo serverInfo;
+            try {
+                serverInfo = flowService
+                        .withDeadlineAfter(
+                                options.getAttributeIndexSyncTimeout().toMillis(),
+                                TimeUnit.MILLISECONDS)
+                        .getServerInfo(Empty.getDefaultInstance());
+            } catch (RuntimeException failure) {
+                state = State.STOPPED;
+                shutdownResources();
+                throw ServerProtocolCompatibility.requestFailure(sdkVersion, failure);
+            }
+            try {
+                negotiatedProtocolVersion =
+                        ServerProtocolCompatibility.negotiate(serverInfo, sdkVersion);
+            } catch (IllegalStateException failure) {
+                state = State.STOPPED;
+                shutdownResources();
+                throw failure;
             }
             try {
                 flowService

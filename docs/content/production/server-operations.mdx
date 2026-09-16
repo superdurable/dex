@@ -36,6 +36,30 @@ Worker release can change Flow behavior; use the versioning process in
 [Application operation](/production/application-operations#versioning-flow-code)
 before retiring a definition.
 
+## Server and SDK protocol compatibility
+
+Dex Server and each SDK release declare inclusive protocol intervals. A Worker
+can start when those intervals overlap. It negotiates the highest common
+protocol, then synchronizes Attribute indexes, then binds WorkerService. The
+Server and SDK artifact versions are diagnostic and do not decide compatibility.
+
+When upgrading a deployment that predates **GetServerInfo**, upgrade the Server
+first. Older Servers do not implement the check and new Workers reject them.
+After that first upgrade, a new SDK can use an older Server when it retains the
+older protocol, and a new Server can use an older SDK while their intervals
+still overlap.
+
+A breaking Server release raises its minimum protocol. Stop old Workers and
+their traffic before that Server upgrade. Upgrade the Server and SDKs in a
+maintenance window, then restart traffic. Alternatively, use isolated blue and
+green environments so deployments with disjoint intervals never communicate.
+Running Workers do not renegotiate after a Server upgrade, so stop them
+explicitly before a breaking change.
+
+Protocol compatibility covers the Worker-to-Server API only. It does not
+replace the compatibility rules for open Flows, including Flow type names, Step
+graphs, and persisted payloads.
+
 ## Server components
 
 The dex-server image starts Dex Web, API, and Interpreter in one process by

@@ -1,0 +1,84 @@
+---
+id: cli
+title: Dex CLI
+sidebar_label: CLI
+---
+
+# Dex CLI
+
+**dexcli** 提供以 JSON 为主的 Flow 运维和检查接口，适合 shell automation、AI agent
+和人工操作。
+
+## 连接 Dex
+
+command 默认连接 **127.0.0.1:8801**。可通过 **DEX_FLOW_SERVICE_ADDRESS** 设置
+process 级目标，或为单次 command 传入 **--server**。Server address 必须是 plaintext
+gRPC **host:port**，不能是 HTTP URL。
+
+```bash
+DEX_FLOW_SERVICE_ADDRESS=dex.example.internal:8801 dexcli health
+dexcli --server 127.0.0.1:9901 flow search
+```
+
+## 易用的 Flow 操作
+
+使用 **flow search**、**summary**、**state**、**history** 和 **inspect** 获取有界的
+JSON response。**inspect** 会组合 summary、current state 和 history，适合作为调查 Flow
+时的起点。
+
+```bash
+dexcli flow inspect order-123 --all-history
+```
+
+stored string 和 object 默认会被 hydrate。只需要结构和 Blob identity 时，使用
+**--no-hydrate**。此时输出包含稳定的 **__dexBlobReference** object，而不是 stored
+payload。
+
+**flow watch** 会先输出已有的 semantic history event，再 long-poll 新 event。每行是一个
+JSON object。Flow 到达 terminal status 后 command 会停止；**--follow-runs** 会在
+Continue-As-New 后跟随 current run。
+
+stop 和 time travel 必须同时提供准确的 **--run-id** 和显式 **--yes**。这样可以防止在解析
+旧 run 后误改较新的 run。
+
+## 完整的 public API 访问
+
+**api** command 暴露已安装 CLI 所知的全部 public **FlowService** RPC：
+
+```bash
+dexcli api list
+dexcli api describe InvokeRPC
+dexcli api call InvokeRPC --data @invoke.json --yes
+```
+
+**api describe** 返回 request 和 response field、oneof、enum、map 以及可达的 message
+definition。**api call** 通过 inline string、**@file** 或 **--data -** 的 stdin 接受
+canonical protobuf JSON。它返回 canonical protobuf JSON，不执行易用层的 value hydration。
+
+**WorkerService** 和 **InternalService** 是 Worker callback 与 Server internal protocol，
+因此不会出现在 public operator API 中。
+
+## 检查协议兼容性
+
+**dexcli version** 输出 CLI build version。**dexcli version check** 调用 Server，并验证
+Server 的闭协议区间是否与当前 CLI 内置的区间相交：
+
+```bash
+dexcli version check --server dex.example.internal:8801
+dexcli version check --output table
+```
+
+成功结果包含 client 与 Server version、双方区间、作为 **negotiatedProtocol** 的最高公共
+协议，以及 **compatible: true**，exit status 为 0。信息 RPC 未实现、response 无效、
+连接失败或区间不相交时，command 会输出结构化 compatibility error，并以 status 1 退出。
+该 command 支持通用的 **--server**、**--timeout** 和 **--output** flag。
+
+## 输出和错误
+
+JSON 是默认的稳定输出。**--output table** 用于人工阅读，不是 machine compatibility
+contract。对有界 command 使用 **--timeout 0** 可以关闭默认的 30 秒 client deadline；
+watch 会自行管理 long-poll lifecycle，直到被中断。
+
+error 以 JSON 写入 stderr。其中包含 **kind**、**operation** 和 **message**；适用时还包含
+**grpcCode**、**grpcCodeName** 和结构化 status detail。exit status 2 表示 usage 无效或
+缺少 confirmation，status 1 表示 request 失败。
