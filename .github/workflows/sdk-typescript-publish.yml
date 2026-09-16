@@ -115,6 +115,7 @@ jobs:
             echo "npm did not resolve release version ${release_version}" >&2
             exit 1
           fi
+          echo "version=${release_version}" >> "${GITHUB_OUTPUT}"
           if [[ "${release_version}" == *-* ]]; then
             echo "dist_tag=next" >> "${GITHUB_OUTPUT}"
           else
