@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict';
-import {readFile, access} from 'node:fs/promises';
+import {access, readFile, readdir} from 'node:fs/promises';
+import {dirname, join, relative, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {dirname, join} from 'node:path';
 
+const siteOrigin = 'https://docs.superdurable.io';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
+const redirectsPath = join(root, '..', 'redirects.json');
+const redirectRules = JSON.parse(await readFile(redirectsPath, 'utf8'));
+const expectedRedirects = new Map(
+  redirectRules.map(({from, to}) => [
+    routeWithTrailingSlash(from),
+    new URL(routeWithTrailingSlash(to), siteOrigin).href,
+  ]),
+);
+
 const home = await readFile(join(root, 'index.html'), 'utf8');
 const cloud = await readFile(join(root, 'cloud', 'index.html'), 'utf8');
 const cron = await readFile(join(root, 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
@@ -14,7 +24,6 @@ const zhCron = await readFile(join(root, 'zh-Hans', 'design-patterns', 'durable-
 const zhDexDeveloperSkill = await readFile(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
 const zhWhyDex = await readFile(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
-const sitemap = await readFile(join(root, 'sitemap.xml'), 'utf8');
 
 assert.match(home, /Super Durable home/);
 assert.match(home, /https:\/\/superdurable\.io\/dex/);
@@ -72,8 +81,6 @@ assert.match(dexDeveloperSkill, /Build Dex applications with AI/);
 assert.match(dexDeveloperSkill, /superdurable\/skill-dex-developer/);
 assert.match(zhDexDeveloperSkill, /使用 AI 构建 Dex 应用/);
 assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/subflow\/"/);
-assert.match(sitemap, /<loc>https:\/\/docs\.superdurable\.io\/production\/<\/loc>/);
-assert.doesNotMatch(sitemap, /<loc>https:\/\/docs\.superdurable\.io\/production<\/loc>/);
 
 await Promise.all([
   access(join(root, 'intro', 'what-is-durable-execution', 'index.html')),
@@ -89,4 +96,180 @@ await Promise.all([
   access(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'index.html')),
 ]);
 
-console.log('Docs shell, simplified product navigation, cloud page, and representative routes passed smoke checks.');
+const outputFiles = await collectOutputFiles(root);
+const outputFilePaths = new Set(outputFiles.map((filePath) => relativeOutputPath(filePath)));
+const htmlIndexFiles = outputFiles.filter((filePath) => filePath.endsWith(`${sep}index.html`));
+const indexablePages = new Map();
+const actualRedirects = new Map();
+
+for (const filePath of htmlIndexFiles) {
+  const route = routeFromIndexFile(filePath);
+  const html = await readFile(filePath, 'utf8');
+  const refreshTarget = metaRefreshTarget(html);
+  const canonicalLinks = linkTargets(html, 'canonical');
+
+  assert.equal(canonicalLinks.length, 1, `${route} must have exactly one canonical URL`);
+
+  if (refreshTarget !== undefined) {
+    const expectedTarget = expectedRedirects.get(route);
+    assert.ok(expectedTarget, `${route} is an undeclared redirect`);
+    assert.equal(new URL(refreshTarget, siteOrigin).href, expectedTarget);
+    assert.equal(new URL(canonicalLinks[0], siteOrigin).href, expectedTarget);
+    actualRedirects.set(route, expectedTarget);
+    continue;
+  }
+
+  const expectedCanonical = new URL(route, siteOrigin).href;
+  assert.equal(canonicalLinks[0], expectedCanonical, `${route} has a non-self-referencing canonical URL`);
+  assert.deepEqual(
+    alternateLanguageLinks(html),
+    expectedAlternateLanguageLinks(route),
+    `${route} has incorrect alternate-language URLs`,
+  );
+  assert.equal(hasNoIndexOrNoFollow(html), false, `${route} blocks search indexing`);
+  assert.equal(indexablePages.has(expectedCanonical), false, `${route} duplicates canonical ${expectedCanonical}`);
+  indexablePages.set(expectedCanonical, {html, route});
+}
+
+assert.deepEqual(
+  [...actualRedirects.entries()].sort(),
+  [...expectedRedirects.entries()].sort(),
+  'the production build must contain every declared redirect and no undeclared redirects',
+);
+
+for (const [canonical, {html, route}] of indexablePages) {
+  for (const href of anchorTargets(html)) {
+    const target = new URL(href, canonical);
+    if (target.origin !== siteOrigin) {
+      continue;
+    }
+    assert.equal(expectedRedirects.has(target.pathname), false, `${route} links to redirect ${target.pathname}`);
+    assert.ok(
+      indexablePages.has(new URL(target.pathname, siteOrigin).href) ||
+        outputFilePaths.has(decodeURIComponent(target.pathname).replace(/^\//, '')),
+      `${route} links to missing route ${target.pathname}`,
+    );
+  }
+}
+
+const sitemapFiles = outputFiles.filter((filePath) => filePath.endsWith(`${sep}sitemap.xml`));
+const sitemapUrls = (
+  await Promise.all(
+    sitemapFiles.map(async (filePath) => {
+      const sitemap = await readFile(filePath, 'utf8');
+      return [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]);
+    }),
+  )
+).flat();
+assert.equal(new Set(sitemapUrls).size, sitemapUrls.length, 'sitemap URLs must be unique');
+assert.deepEqual(
+  [...sitemapUrls].sort(),
+  [...indexablePages.keys()].sort(),
+  'sitemap must contain every indexable canonical URL and no redirects or duplicate variants',
+);
+
+const robots = await readFile(join(root, 'robots.txt'), 'utf8');
+assert.match(robots, /^User-agent: \*$/m);
+assert.match(robots, /^Allow: \/$/m);
+assert.doesNotMatch(robots, /^Disallow:\s*\/$/m);
+assert.match(robots, /^Sitemap: https:\/\/docs\.superdurable\.io\/sitemap\.xml$/m);
+assert.match(robots, /^Sitemap: https:\/\/docs\.superdurable\.io\/zh-Hans\/sitemap\.xml$/m);
+
+console.log(
+  `Docs shell and SEO audit passed for ${indexablePages.size} indexable routes and ${actualRedirects.size} redirects.`,
+);
+
+async function collectOutputFiles(directory) {
+  const entries = await readdir(directory, {withFileTypes: true});
+  const files = await Promise.all(
+    entries.map((entry) => {
+      const entryPath = join(directory, entry.name);
+      return entry.isDirectory() ? collectOutputFiles(entryPath) : [entryPath];
+    }),
+  );
+  return files.flat();
+}
+
+function relativeOutputPath(filePath) {
+  return relative(root, filePath).split(sep).join('/');
+}
+
+function routeFromIndexFile(filePath) {
+  const outputPath = relativeOutputPath(filePath);
+  if (outputPath === 'index.html') {
+    return '/';
+  }
+  return `/${outputPath.slice(0, -'index.html'.length)}`;
+}
+
+function routeWithTrailingSlash(pathname) {
+  const route = new URL(pathname, siteOrigin).pathname.replace(/\/+$/, '');
+  return route === '' ? '/' : `${route}/`;
+}
+
+function htmlTags(html, tagName) {
+  return html.match(new RegExp(`<${tagName}\\b[^>]*>`, 'gi')) ?? [];
+}
+
+function attributeValue(tag, attributeName) {
+  const match = tag.match(new RegExp(`\\b${attributeName}=(['"])(.*?)\\1`, 'i'));
+  return match?.[2];
+}
+
+function linkTargets(html, relationship) {
+  return htmlTags(html, 'link')
+    .filter((tag) => attributeValue(tag, 'rel')?.split(/\s+/).includes(relationship))
+    .map((tag) => attributeValue(tag, 'href'))
+    .filter((href) => href !== undefined);
+}
+
+function anchorTargets(html) {
+  return htmlTags(html, 'a')
+    .map((tag) => attributeValue(tag, 'href'))
+    .filter((href) => href !== undefined && !/^(?:mailto:|tel:|javascript:)/i.test(href));
+}
+
+function alternateLanguageLinks(html) {
+  const entries = htmlTags(html, 'link')
+    .filter((tag) => attributeValue(tag, 'rel')?.split(/\s+/).includes('alternate'))
+    .map((tag) => [attributeValue(tag, 'hreflang'), attributeValue(tag, 'href')]);
+  assert.equal(
+    new Set(entries.map(([language]) => language)).size,
+    entries.length,
+    'alternate-language declarations must be unique',
+  );
+  return Object.fromEntries(entries);
+}
+
+function expectedAlternateLanguageLinks(route) {
+  const unlocalizedRoute = route.startsWith('/zh-Hans/')
+    ? route.slice('/zh-Hans'.length)
+    : route;
+  const englishUrl = new URL(unlocalizedRoute, siteOrigin).href;
+  const chineseUrl = new URL(`/zh-Hans${unlocalizedRoute}`, siteOrigin).href;
+  return {
+    en: englishUrl,
+    'zh-Hans': chineseUrl,
+    'x-default': englishUrl,
+  };
+}
+
+function metaRefreshTarget(html) {
+  const refreshTag = htmlTags(html, 'meta').find(
+    (tag) => attributeValue(tag, 'http-equiv')?.toLowerCase() === 'refresh',
+  );
+  if (refreshTag === undefined) {
+    return undefined;
+  }
+  const content = attributeValue(refreshTag, 'content') ?? '';
+  return content.match(/^\s*0\s*;\s*url=(.+)\s*$/i)?.[1];
+}
+
+function hasNoIndexOrNoFollow(html) {
+  return htmlTags(html, 'meta').some((tag) => {
+    if (attributeValue(tag, 'name')?.toLowerCase() !== 'robots') {
+      return false;
+    }
+    return /(?:^|[,\s])(noindex|nofollow)(?:$|[,\s])/i.test(attributeValue(tag, 'content') ?? '');
+  });
+}

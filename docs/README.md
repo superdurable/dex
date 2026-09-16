@@ -44,6 +44,24 @@ Set `DEX_FLOW_PYTHON` when Python 3.11+ is not the default interpreter.
 
 Feature guides include [durable SubFlows](content/primitives/subflow.mdx).
 
+## Route and search-index integrity
+
+Published documentation URLs are permanent. When moving, renaming, or deleting
+a page, add a direct redirect for every affected locale to
+[`redirects.json`](redirects.json). Point each old URL to the closest successor,
+not the home page, and update internal links to use the destination directly.
+
+Run the full production-site check after every docs change:
+
+```bash
+cd docs
+npm run check
+```
+
+The check typechecks and builds both locales, rejects broken links, anchors, and
+duplicate routes, and audits generated routes, redirects, canonical URLs,
+robots directives, and the sitemap.
+
 ## Contributor design notes
 
 Engineering design docs (not in the public sidebar):

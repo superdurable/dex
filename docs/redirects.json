@@ -1,0 +1,22 @@
+[
+  {
+    "from": "/design-patterns/responsive-update/attribute-equal",
+    "to": "/design-patterns/responsive-update/attribute-match"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/responsive-update/attribute-equal",
+    "to": "/zh-Hans/design-patterns/responsive-update/attribute-match"
+  },
+  {
+    "from": "/production/versioning",
+    "to": "/production/application-operations"
+  },
+  {
+    "from": "/use-cases/ai-agent-email",
+    "to": "/use-cases/ai-agent"
+  },
+  {
+    "from": "/zh-Hans/use-cases/ai-agent-email",
+    "to": "/zh-Hans/use-cases/ai-agent"
+  }
+]

@@ -1,0 +1,28 @@
+---
+description: Prevent documentation route and search-index regressions
+globs: docs/**/*
+alwaysApply: false
+---
+
+# Documentation route and search-index integrity
+
+Treat every published docs URL as permanent. Before moving, renaming, or
+deleting a page, add direct entries to `docs/redirects.json` for every affected
+locale. Redirect to the closest successor, never an unrelated page or the home
+page. Do not create redirect chains or loops. Update internal links to use the
+destination directly.
+
+Every docs change must preserve all four search-index integrity gates:
+
+1. Routes and internal links resolve without accidental 404s.
+2. Only declared legacy URLs redirect; internal links and the sitemap never use
+   redirect sources.
+3. Each indexable page has one unique, self-referencing canonical URL with the
+   production scheme, host, locale, and trailing-slash policy.
+4. Robots directives and noindex/nofollow metadata permit indexing, while the
+   sitemap lists every canonical page once and excludes redirects.
+
+After any change under `docs/`, run `cd docs && npm run check`. This command must
+typecheck, build both locales, reject broken links, anchors, and duplicate
+routes, and pass the generated-site route, redirect, canonical, robots, and
+sitemap audit. Do not merge docs changes when it fails.

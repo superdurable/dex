@@ -8,9 +8,11 @@
  */
 
 import {fileURLToPath} from 'node:url';
+import clientRedirects from '@docusaurus/plugin-client-redirects';
 import {themes as prismThemes} from 'prism-react-renderer';
-import type {Config} from '@docusaurus/types';
+import type {Config, LoadContext} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
+import redirects from './redirects.json';
 
 const config: Config = {
   title: 'Super Durable Docs',
@@ -29,7 +31,9 @@ const config: Config = {
   projectName: 'dex',
 
   onBrokenLinks: 'throw',
+  onBrokenAnchors: 'throw',
   onBrokenMarkdownLinks: 'throw',
+  onDuplicateRoutes: 'throw',
 
   headTags: [
     {
@@ -107,6 +111,22 @@ const config: Config = {
   ],
 
   plugins: [
+    (context: LoadContext) =>
+      clientRedirects(context, {
+        id: 'default',
+        fromExtensions: [],
+        toExtensions: [],
+        redirects: redirects
+          .filter(
+            ({from, to}) =>
+              redirectPathLocale(context, from) === context.i18n.currentLocale &&
+              redirectPathLocale(context, to) === context.i18n.currentLocale,
+          )
+          .map(({from, to}) => ({
+            from: pathWithinCurrentLocale(context, from),
+            to: pathWithinCurrentLocale(context, to),
+          })),
+      }),
     () => ({
       name: 'local-flow-definition-renderer',
       configureWebpack: (_config, isServer, {getJSLoader}) => ({
@@ -185,5 +205,21 @@ const config: Config = {
     },
   } satisfies Preset.ThemeConfig,
 };
+
+function redirectPathLocale(context: LoadContext, pathname: string): string {
+  return (
+    context.i18n.locales.find(
+      (locale) =>
+        locale !== context.i18n.defaultLocale && pathname.startsWith(`/${locale}/`),
+    ) ?? context.i18n.defaultLocale
+  );
+}
+
+function pathWithinCurrentLocale(context: LoadContext, pathname: string): string {
+  if (context.i18n.currentLocale === context.i18n.defaultLocale) {
+    return pathname;
+  }
+  return pathname.slice(context.i18n.currentLocale.length + 1) || '/';
+}
 
 export default config;

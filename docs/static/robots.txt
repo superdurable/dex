@@ -2,3 +2,4 @@ User-agent: *
 Allow: /
 
 Sitemap: https://docs.superdurable.io/sitemap.xml
+Sitemap: https://docs.superdurable.io/zh-Hans/sitemap.xml

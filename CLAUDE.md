@@ -133,6 +133,20 @@ merged, do not mark the feature complete. Report the blocker explicitly.
   `examples/rust` has the same sample). Do not use
   per-language headings or stacked fenced blocks. `bash` / `text` fences
   are exempt.
+- Treat every published docs URL as permanent. Before moving, renaming, or
+  deleting a page, add direct entries to `docs/redirects.json` for every
+  affected locale. Redirect to the closest successor, never an unrelated page
+  or the home page. Do not create redirect chains or loops. Update internal
+  links to use the destination directly.
+- Every docs change must preserve all four search-index integrity gates:
+  routes and internal links resolve without accidental 404s; only declared
+  legacy URLs redirect; each indexable page has one unique, self-referencing
+  canonical URL; and robots directives, noindex/nofollow metadata, internal
+  links, and the sitemap keep canonical pages crawlable.
+- After any change under `docs/`, run `cd docs && npm run check`. This command
+  must typecheck, build both locales, reject broken links, anchors, and duplicate
+  routes, and pass the generated-site route, redirect, canonical, robots, and
+  sitemap audit. Do not merge docs changes when it fails.
 - Application snippets must be copied from runnable files under `examples/`.
   Link the example (and the examples playground when the sample has HTTP and
   is catalogued). Do not invent APIs; add the example first.
