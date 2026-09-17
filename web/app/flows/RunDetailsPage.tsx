@@ -16,7 +16,7 @@ import type {
 import { formatDate, formatDuration } from '@/lib/format';
 import { hydrateBlobs } from '@/lib/blobs';
 import { loadCompleteHistory } from '@/lib/history';
-import { readResponseJSON } from '@/lib/http';
+import { isTransientGatewayResponse, readResponseJSON } from '@/lib/http';
 import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
 import type {
   FlowHistoryEvent,
@@ -316,6 +316,10 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
         if (generation !== waitGeneration.current) return;
         if (response.status === 408) {
           setWaitCycle((current) => current + 1);
+          return;
+        }
+        if (isTransientGatewayResponse(response)) {
+          window.setTimeout(() => setWaitCycle((current) => current + 1), 1000);
           return;
         }
         await readResponseJSON(response);

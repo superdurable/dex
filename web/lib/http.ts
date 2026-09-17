@@ -14,6 +14,12 @@ export async function readResponseJSON<T>(response: Response): Promise<T> {
   return data;
 }
 
+const transientGatewayStatusCodes = new Set([502, 503, 504]);
+
+export function isTransientGatewayResponse(response: Response): boolean {
+  return transientGatewayStatusCodes.has(response.status);
+}
+
 async function parseResponseJSON<T>(response: Response): Promise<T> {
   const body = await response.text();
   if (!body.trim()) {

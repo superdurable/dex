@@ -7,7 +7,17 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { describe, expect, it } from 'vitest';
-import { readResponseJSON } from './http';
+import { isTransientGatewayResponse, readResponseJSON } from './http';
+
+describe('isTransientGatewayResponse', () => {
+  it('recognizes temporary gateway responses', () => {
+    for (const statusCode of [502, 503, 504]) {
+      expect(isTransientGatewayResponse(new Response(null, { status: statusCode }))).toBe(true);
+    }
+    expect(isTransientGatewayResponse(new Response(null, { status: 408 }))).toBe(false);
+    expect(isTransientGatewayResponse(new Response(null, { status: 500 }))).toBe(false);
+  });
+});
 
 describe('readResponseJSON', () => {
   it('returns parsed JSON for a successful response', async () => {

@@ -9,6 +9,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/superdurable/dex/gen/dexpb"
@@ -27,6 +29,8 @@ import (
 const (
 	maxRequestBytes               = 1 << 20
 	engineWorkflowVisibilityQuery = `WorkflowType = "Engine"`
+	// Finish before common 60-second proxy timeouts.
+	historyEventLongPollTimeout = 50 * time.Second
 )
 
 type handler struct {
@@ -220,8 +224,10 @@ func (h *handler) waitForHistoryEvent(response http.ResponseWriter, request *htt
 		)
 		return
 	}
+	waitContext, cancelWait := context.WithTimeout(request.Context(), historyEventLongPollTimeout)
+	defer cancelWait()
 	result, err := h.client.WaitForHistoryEvent(
-		request.Context(),
+		waitContext,
 		&dexpb.WaitForHistoryEventRequest{
 			FlowId:              flowID,
 			RunId:               runID,

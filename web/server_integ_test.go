@@ -38,6 +38,7 @@ type flowService struct {
 	dexpb.UnimplementedFlowServiceServer
 	waitStarted        chan struct{}
 	waitCanceled       chan struct{}
+	waitDeadline       chan time.Time
 	searchRequests     chan *dexpb.SearchFlowsRequest
 	loadBlobsRequests  chan *dexpb.LoadBlobsRequest
 	loadBlobsError     error
@@ -395,6 +396,33 @@ func TestWaitRequestPropagatesCancellation(t *testing.T) {
 	}
 }
 
+func TestWaitRequestUsesApplicationDeadline(t *testing.T) {
+	service := &flowService{waitDeadline: make(chan time.Time, 1)}
+	harness := newHarness(t, service)
+	requestStartedAt := time.Now()
+	response := get(
+		t,
+		harness.http.URL+"/api/flows/wait?flowId=flow&runId=run&nextInternalEventId=1",
+	)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusRequestTimeout {
+		t.Fatalf("wait status = %d body=%q", response.StatusCode, readBody(t, response))
+	}
+	deadline := <-service.waitDeadline
+	requestTimeout := deadline.Sub(requestStartedAt)
+	if requestTimeout < 45*time.Second || requestTimeout > 55*time.Second {
+		t.Fatalf("wait request timeout = %s, want approximately 50s", requestTimeout)
+	}
+	var mappedError struct {
+		Error    string `json:"error"`
+		GRPCCode int32  `json:"grpcCode"`
+	}
+	decodeResponse(t, response, &mappedError)
+	if mappedError.GRPCCode != int32(codes.DeadlineExceeded) {
+		t.Fatalf("unexpected wait error response: %+v", mappedError)
+	}
+}
+
 func TestWebServerStopsFlow(t *testing.T) {
 	service := &flowService{
 		stopRequests: make(chan *dexpb.StopFlowRequest, 1),
@@ -501,6 +529,14 @@ func (s *flowService) WaitForHistoryEvent(
 	ctx context.Context,
 	request *dexpb.WaitForHistoryEventRequest,
 ) (*dexpb.WaitForHistoryEventResponse, error) {
+	if s.waitDeadline != nil {
+		deadline, hasDeadline := ctx.Deadline()
+		if !hasDeadline {
+			return nil, status.Error(codes.Internal, "history wait has no deadline")
+		}
+		s.waitDeadline <- deadline
+		return nil, status.Error(codes.DeadlineExceeded, "history wait timed out")
+	}
 	close(s.waitStarted)
 	<-ctx.Done()
 	close(s.waitCanceled)
