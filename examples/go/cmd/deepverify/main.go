@@ -299,7 +299,7 @@ func verifyMicroservices(ctx context.Context, client *dex.Client, stamp string) 
 	}
 	var oldData string
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Microservices.Swap, "updated-data", &oldData, dex.InvokeOptions{},
+		ctx, flowID, registry.Microservices.Swap, "updated-data", &oldData,
 	); err != nil {
 		return fail(name, "swap", err)
 	}
@@ -307,7 +307,7 @@ func verifyMicroservices(ctx context.Context, client *dex.Client, stamp string) 
 		return fail(name, "swap returned "+oldData, nil)
 	}
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Microservices.SignalReady, nil, nil, dex.InvokeOptions{},
+		ctx, flowID, registry.Microservices.SignalReady, nil, nil,
 	); err != nil {
 		return fail(name, "publish ready", err)
 	}
@@ -344,7 +344,7 @@ func verifyEngagement(ctx context.Context, client *dex.Client, stamp string) res
 	}
 	var description engagement.EngagementDescription
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Engagement.Describe, nil, &description, dex.InvokeOptions{},
+		ctx, flowID, registry.Engagement.Describe, nil, &description,
 	); err != nil {
 		return fail(name, "describe", err)
 	}
@@ -352,13 +352,13 @@ func verifyEngagement(ctx context.Context, client *dex.Client, stamp string) res
 		return fail(name, "status="+string(description.CurrentStatus), nil)
 	}
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Engagement.OptOut, nil, nil, dex.InvokeOptions{},
+		ctx, flowID, registry.Engagement.OptOut, nil, nil,
 	); err != nil {
 		return fail(name, "opt-out reminder", err)
 	}
 	var status engagement.Status
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Engagement.Accept, "accepted deepverify", &status, dex.InvokeOptions{},
+		ctx, flowID, registry.Engagement.Accept, "accepted deepverify", &status,
 	); err != nil {
 		return fail(name, "accept", err)
 	}
@@ -407,7 +407,7 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 	}
 	var current subscription.Subscription
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Subscription.Describe, nil, &current, dex.InvokeOptions{},
+		ctx, flowID, registry.Subscription.Describe, nil, &current,
 	); err != nil {
 		return fail(name, "describe", err)
 	}
@@ -415,14 +415,14 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 		return fail(name, fmt.Sprintf("charge=%d", current.BillingPeriodCharge), nil)
 	}
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Subscription.UpdateCharge, 250, nil, dex.InvokeOptions{},
+		ctx, flowID, registry.Subscription.UpdateCharge, 250, nil,
 	); err != nil {
 		return fail(name, "update charge", err)
 	}
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		err = client.InvokeRPC(
-			ctx, flowID, registry.Subscription.Describe, nil, &current, dex.InvokeOptions{},
+			ctx, flowID, registry.Subscription.Describe, nil, &current,
 		)
 		if err == nil && current.BillingPeriodCharge == 250 {
 			break
@@ -433,7 +433,7 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 		time.Sleep(200 * time.Millisecond)
 	}
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Subscription.Cancel, nil, nil, dex.InvokeOptions{},
+		ctx, flowID, registry.Subscription.Cancel, nil, nil,
 	); err != nil {
 		return fail(name, "cancel", err)
 	}
@@ -471,7 +471,7 @@ func verifySignup(ctx context.Context, client *dex.Client, stamp string) result 
 	}
 	var verifyOutput string
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.UserOnboarding.Verify, nil, &verifyOutput, dex.InvokeOptions{},
+		ctx, flowID, registry.UserOnboarding.Verify, nil, &verifyOutput,
 	); err != nil {
 		return fail(name, "verify rpc", err)
 	}
@@ -485,7 +485,7 @@ func verifySignup(ctx context.Context, client *dex.Client, stamp string) result 
 	}
 	var task1Output string
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.UserOnboarding.AccomplishTask1, nil, &task1Output, dex.InvokeOptions{},
+		ctx, flowID, registry.UserOnboarding.AccomplishTask1, nil, &task1Output,
 	); err != nil {
 		return fail(name, "task 1 rpc", err)
 	}
@@ -496,7 +496,7 @@ func verifySignup(ctx context.Context, client *dex.Client, stamp string) result 
 	}
 	var task2Output string
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.UserOnboarding.AccomplishTask2, nil, &task2Output, dex.InvokeOptions{},
+		ctx, flowID, registry.UserOnboarding.AccomplishTask2, nil, &task2Output,
 	); err != nil {
 		return fail(name, "task 2 rpc", err)
 	}
@@ -538,7 +538,7 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 	}
 	var info jobpost.JobInfo
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.JobPosting.Get, nil, &info, dex.InvokeOptions{},
+		ctx, flowID, registry.JobPosting.Get, nil, &info,
 	); err != nil {
 		return fail(name, "get", err)
 	}
@@ -548,12 +548,12 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 	if err := client.InvokeRPC(
 		ctx, flowID, registry.JobPosting.Update,
 		jobpost.JobInfo{Title: "Senior DeepVerify", Description: "More depth", Notes: "n1"},
-		nil, jobpost.UpdateInvokeOptions(),
+		nil,
 	); err != nil {
 		return fail(name, "update", err)
 	}
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.JobPosting.Get, nil, &info, dex.InvokeOptions{},
+		ctx, flowID, registry.JobPosting.Get, nil, &info,
 	); err != nil {
 		return fail(name, "get after update", err)
 	}
@@ -602,7 +602,7 @@ func startInactivenessTrackerPath(
 	}
 	time.Sleep(2 * time.Second)
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.InactivenessTracker.RecordActivity, nil, nil, dex.InvokeOptions{},
+		ctx, flowID, registry.InactivenessTracker.RecordActivity, nil, nil,
 	); err != nil {
 		return "", err
 	}
@@ -668,7 +668,7 @@ func verifyInterruptible(ctx context.Context, client *dex.Client, stamp string) 
 	}
 	time.Sleep(500 * time.Millisecond)
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Interruptible.Interrupt, nil, nil, dex.InvokeOptions{},
+		ctx, flowID, registry.Interruptible.Interrupt, nil, nil,
 	); err != nil {
 		return fail(name, "interrupt rpc", err)
 	}
@@ -679,7 +679,6 @@ func verifyInterruptible(ctx context.Context, client *dex.Client, stamp string) 
 		registry.Interruptible.GetInterruptSignal,
 		nil,
 		&signal,
-		dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "get interrupt signal", err)
 	}
@@ -701,7 +700,7 @@ func verifyReminder(ctx context.Context, client *dex.Client, stamp string) resul
 	}
 	time.Sleep(6 * time.Second) // allow at least one reminder timer tick
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Reminder.OptOutReminders, nil, nil, dex.InvokeOptions{},
+		ctx, flowID, registry.Reminder.OptOutReminders, nil, nil,
 	); err != nil {
 		return fail(name, "opt out", err)
 	}
@@ -752,13 +751,13 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 				Tags:   []string{"example", "enterprise"},
 			},
 		},
-		nil, dex.InvokeOptions{},
+		nil,
 	); err != nil {
 		return fail(name, "update", err)
 	}
 	var got entitystore.UserProfile
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.UserProfile.GetProfile, nil, &got, dex.InvokeOptions{},
+		ctx, flowID, registry.UserProfile.GetProfile, nil, &got,
 	); err != nil {
 		return fail(name, "get", err)
 	}
@@ -772,7 +771,7 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 		return fail(name, fmt.Sprintf("unexpected profile: %+v", got), nil)
 	}
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.UserProfile.ClearProfile, nil, nil, dex.InvokeOptions{},
+		ctx, flowID, registry.UserProfile.ClearProfile, nil, nil,
 	); err != nil {
 		return fail(name, "clear", err)
 	}
@@ -789,7 +788,7 @@ func verifyManualRecoveryRetry(ctx context.Context, client *dex.Client, stamp st
 		return fail(name, "start", err)
 	}
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.ManualRecovery.Retry, nil, nil, dex.InvokeOptions{},
+		ctx, flowID, registry.ManualRecovery.Retry, nil, nil,
 	); err != nil {
 		return fail(name, "publish retry", err)
 	}
@@ -817,7 +816,7 @@ func verifyManualRecoverySkip(ctx context.Context, client *dex.Client, stamp str
 		return fail(name, "start", err)
 	}
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.ManualRecovery.Skip, nil, nil, dex.InvokeOptions{},
+		ctx, flowID, registry.ManualRecovery.Skip, nil, nil,
 	); err != nil {
 		return fail(name, "publish skip", err)
 	}
@@ -936,7 +935,7 @@ func verifyParallelSubFlowsLongLived(ctx context.Context, client *dex.Client, st
 	if err != nil {
 		return fail(name, "start", err)
 	}
-	if err := client.InvokeRPC(ctx, flowID, registry.LongLiveSubFlows.Stop, nil, nil, dex.InvokeOptions{}); err != nil {
+	if err := client.InvokeRPC(ctx, flowID, registry.LongLiveSubFlows.Stop, nil, nil); err != nil {
 		return fail(name, "stop", err)
 	}
 	if _, err := waitCompleted(ctx, client, flowID, 90*time.Second); err != nil {
@@ -991,7 +990,6 @@ func verifyDrainingChannel(ctx context.Context, client *dex.Client, stamp string
 		registry.DrainExternal.PublishExternalChannelMessage,
 		"second message",
 		&output,
-		dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "second message", err)
 	}
@@ -1024,7 +1022,7 @@ func verifyWaitForStepCompletion(
 	var persisted waitforstepcompletion.JobSeekerData
 	if err := client.InvokeRPC(
 		ctx, flowID, registry.WaitForStepCompletion.GetJobSeekerData,
-		nil, &persisted, dex.InvokeOptions{},
+		nil, &persisted,
 	); err != nil {
 		return fail(name, "GetJobSeekerData", err)
 	}
@@ -1104,7 +1102,7 @@ func verifyCronSchedule(ctx context.Context, client *dex.Client) result {
 	}
 	triggerCount := 2
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.CronSchedule.TriggerNow, &triggerCount, nil, dex.InvokeOptions{},
+		ctx, flowID, registry.CronSchedule.TriggerNow, &triggerCount, nil,
 	); err != nil {
 		return fail(name, "trigger "+flowID, err)
 	}

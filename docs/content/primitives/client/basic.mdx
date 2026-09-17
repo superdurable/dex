@@ -112,7 +112,7 @@ result = await client.invoke_rpc(flow.trigger, "order-123", "approved")
 
 ```go
 var result string
-err := client.InvokeRPC(ctx, "order-123", flow.Trigger, "approved", &result, sdk.InvokeOptions{})
+err := client.InvokeRPC(ctx, "order-123", flow.Trigger, "approved", &result)
 ```
 
 </SdkSnippet>

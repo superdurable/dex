@@ -89,6 +89,10 @@ func (*CronScheduleFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *CronScheduleFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.TriggerNow, nil)}
+}
+
 func (*CronScheduleFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Channels: []dex.ChannelDef{Trigger, Skip}}
 }

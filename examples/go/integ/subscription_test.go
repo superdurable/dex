@@ -72,7 +72,6 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 		registry.Subscription.Describe,
 		nil,
 		&current,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, 100, current.BillingPeriodCharge)
 	require.NoError(t, integClient.InvokeRPC(
@@ -81,7 +80,6 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 		registry.Subscription.UpdateCharge,
 		250,
 		nil,
-		dex.InvokeOptions{},
 	))
 	require.Eventually(t, func() bool {
 		err = integClient.InvokeRPC(
@@ -90,7 +88,6 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 			registry.Subscription.Describe,
 			nil,
 			&current,
-			dex.InvokeOptions{},
 		)
 		return err == nil && current.BillingPeriodCharge == 250
 	}, 20*time.Second, 200*time.Millisecond, "Describe failed: %v", err)
@@ -100,7 +97,6 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 		registry.Subscription.Cancel,
 		nil,
 		nil,
-		dex.InvokeOptions{},
 	))
 
 	result := waitForFlow(t, flowID)

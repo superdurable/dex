@@ -20,7 +20,11 @@
 
 package rpc
 
-import "github.com/superdurable/dex/sdk-go/dex"
+import (
+	"time"
+
+	"github.com/superdurable/dex/sdk-go/dex"
+)
 
 var (
 	ExampleCh = dex.DefineChannel[dex.None]("rpc-internal")
@@ -40,6 +44,12 @@ func (*RpcFlow) GetSteps() []dex.StepDef {
 		dex.DefineStartStep(rpcWaitStep{}),
 		dex.DefineStep(rpcCompleteStep{}),
 		dex.DefineStep(exampleStep{}),
+	}
+}
+
+func (flow *RpcFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Trigger, &dex.RPCOptions{Timeout: 30 * time.Second}),
 	}
 }
 

@@ -6,8 +6,8 @@ Applications read and write Flow state through typed RPCs. The Client does not
 expose direct Attribute reads or writes, Channel publication, or pending-message
 mutation. This keeps each external state transition behind a Flow-owned method.
 
-An RPC can stage `channel.Delete(ctx, messageID)`. Set
-`dex.InvokeOptions{IsTransactional: true}` when a missing ID must abort every
+An RPC can stage `channel.Delete(ctx, messageID)`. Register that RPC with
+`dex.RPCOptions{IsTransactional: true}` when a missing ID must abort every
 other RPC write. Attribute locking already selects transactional execution, while
 Channel deletion requires this explicit option.
 
@@ -17,10 +17,14 @@ RPCs receive ordinary Attributes and all Channel size metadata by default.
 AttributeMap entries and pending Channel messages are opt-in:
 
 ```go
-options := dex.InvokeOptions{
-	LoadAttributeMapInstances: []dex.AttributeMapLoad{Items.Load("tenant-a")},
-	LoadChannels:              []dex.ChannelDef{Queued},
-	LoadChannelMaps:           []dex.ChannelDef{ByTenant},
+func (flow *OrderFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.GetOrder, &dex.RPCOptions{
+			LoadAttributeMapInstances: []dex.AttributeMapLoad{Items.Load("tenant-a")},
+			LoadChannels:              []dex.ChannelDef{Queued},
+			LoadChannelMaps:           []dex.ChannelDef{ByTenant},
+		}),
+	}
 }
 ```
 
@@ -406,9 +410,23 @@ while preserving protocol presence.
 movements resolve through the current Flow's registered step definitions, so a
 same-name Step value cannot replace the registered handler or defaults.
 
-RPCs require no communication schema. Every exported Flow method other than the
-`Flow` interface methods must use this exact shape and is registered under its
-Go method name:
+RPCs require no communication schema. A Flow lists its RPCs and immutable
+execution options explicitly through `GetRPCs`:
+
+```go
+func (flow *OrderFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.GetOrder, nil),
+		dex.DefineRPC(flow.UpdateOrder, &dex.RPCOptions{
+			Timeout:        30 * time.Second,
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(OrderStatus)},
+		}),
+	}
+}
+```
+
+Each registered method uses this exact shape and keeps its Go method name as the
+durable RPC name:
 
 ```go
 func (
@@ -417,13 +435,13 @@ func (
 ) (*dex.RPCResult[OUT], error)
 ```
 
-Exported methods with any other signature fail registration. Unexported methods
-are ignored. Register a pointer Flow value when methods use pointer receivers; a
-value-typed Flow that only exposes those methods on `*T` fails registration
-instead of silently omitting them. Client calls must pass the direct bound
-method value, such as `Orders.Update`; package functions, method expressions,
-closures, and wrappers are rejected. Return `nil, err` on failure; returning
-`nil, nil` is an invalid Worker result.
+Only methods returned from `GetRPCs` are RPCs. Exported helpers and unregistered
+RPC-shaped methods are ignored. Each definition must contain a direct bound
+method on that Flow value; package functions, methods from another Flow, method
+expressions, closures, wrappers, duplicates, and invalid options fail Registry
+construction. Client calls pass the same direct bound method, such as
+`Orders.Update`, but do not pass RPC options. Return `nil, err` on failure;
+returning `nil, nil` is an invalid Worker result.
 
 Registered Flow and Step values are retained and may be invoked concurrently.
 They must be immutable or concurrency-safe and must keep

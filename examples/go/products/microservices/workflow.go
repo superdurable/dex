@@ -50,6 +50,14 @@ func (flow *OrchestrationFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *OrchestrationFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Swap, nil),
+		dex.DefineRPC(flow.SignalReady, nil),
+		dex.DefineRPC(flow.GetData, nil),
+	}
+}
+
 func (*OrchestrationFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{Data},

@@ -114,7 +114,6 @@ func (controller *controller) read(request *gin.Context) {
 		controller.flow.Get,
 		nil,
 		&output,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, output, err)
 }
@@ -143,7 +142,6 @@ func (controller *controller) update(request *gin.Context) {
 		controller.flow.Update,
 		JobInfo{Title: title, Description: description, Notes: notes},
 		&version,
-		UpdateInvokeOptions(),
 	)
 	httputil.Respond(request, gin.H{"updated": true, "version": version}, err)
 }
@@ -182,7 +180,6 @@ func (controller *controller) waitForUpdate(request *gin.Context) {
 		controller.flow.Get,
 		nil,
 		&jobInfo,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, gin.H{"revision": revision, "jobInfo": jobInfo}, err)
 }

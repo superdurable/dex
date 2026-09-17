@@ -161,6 +161,13 @@ func (flow *OrderProcessingFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *OrderProcessingFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Approve, nil),
+		dex.DefineRPC(flow.Describe, nil),
+	}
+}
+
 func (*OrderProcessingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{OrderStatus},
@@ -1046,7 +1053,6 @@ func (controller *controller) approve(request *gin.Context) {
 		controller.flow.Approve,
 		request.Query("notes"),
 		&output,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, output, err)
 }
@@ -1063,7 +1069,6 @@ func (controller *controller) describe(request *gin.Context) {
 		controller.flow.Describe,
 		nil,
 		&output,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, gin.H{"flowID": flowID, "status": output}, err)
 }

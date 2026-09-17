@@ -771,7 +771,7 @@ StepOptions::new()
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py',
-    go: 'examples/go/primitives/attribute/controller.go',
+    go: 'examples/go/primitives/attribute/workflow.go',
     java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java',
     typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts',
     rust: 'examples/rust/src/primitives/attribute/flow.rs',
@@ -790,19 +790,15 @@ def update_status(self, context: Context, input: str) -> RPCResult[str]:
 <SdkSnippet lang="go">
 
 ```go
-func invokeUpdateStatus(ctx context.Context, client *sdk.Client, flowID string) error {
-	var updated string
-	return client.InvokeRPC(
-		ctx,
-		flowID,
-		(*AttributeFlow).UpdateStatus,
-		"completed",
-		&updated,
-		sdk.InvokeOptions{LockAttributes: []sdk.AttributeLock{
-			sdk.LockAttribute(Status),
-			sdk.LockAttributeMap(Progress, "payment"),
-		}},
-	)
+func (flow *AttributeFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.UpdateStatus, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{
+				dex.LockAttribute(Status),
+				dex.LockAttributeMap(Progress, "payment"),
+			},
+		}),
+	}
 }
 ```
 

@@ -89,7 +89,6 @@ func (controller *controller) describe(request *gin.Context) {
 		controller.flow.Describe,
 		nil,
 		&output,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, output, err)
 }
@@ -105,7 +104,6 @@ func (controller *controller) optOutReminder(request *gin.Context) {
 		controller.flow.OptOut,
 		nil,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, struct{}{}, err)
 }
@@ -133,7 +131,6 @@ func (controller *controller) update(
 		rpc,
 		request.Query("notes"),
 		&output,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, output, err)
 }

@@ -46,6 +46,10 @@ func (flow *ReminderFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *ReminderFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.OptOutReminders, nil)}
+}
+
 func (*ReminderFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Channels: []dex.ChannelDef{OptOut}}
 }

@@ -178,6 +178,16 @@ func (flow *JobPostingFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *JobPostingFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Get, nil),
+		dex.DefineRPC(flow.GetWithStrongConsistency, nil),
+		dex.DefineRPC(flow.Update, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(UpdatePostingLock)},
+		}),
+	}
+}
+
 func (*JobPostingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{
@@ -215,12 +225,6 @@ func (*JobPostingFlow) Update(
 		return nil, err
 	}
 	return &dex.RPCResult[int]{Output: version}, nil
-}
-
-func UpdateInvokeOptions() dex.InvokeOptions {
-	return dex.InvokeOptions{
-		LockAttributes: []dex.AttributeLock{dex.LockAttribute(UpdatePostingLock)},
-	}
 }
 
 func (InitStep) Execute(

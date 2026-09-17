@@ -44,6 +44,13 @@ func (flow *AdvancedLongLiveParentFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *AdvancedLongLiveParentFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.SendRequest, nil),
+		dex.DefineRPC(flow.Stop, nil),
+	}
+}
+
 func (*AdvancedLongLiveParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{Stopped},

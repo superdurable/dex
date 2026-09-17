@@ -42,6 +42,13 @@ func (*WaitTypesFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(waitTypesStep{})}
 }
 
+func (flow *WaitTypesFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.SignalA, nil),
+		dex.DefineRPC(flow.SignalB, nil),
+	}
+}
+
 func (*WaitTypesFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Channels: []dex.ChannelDef{SignalA, SignalB}}
 }

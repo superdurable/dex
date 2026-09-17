@@ -68,6 +68,10 @@ func (*ExampleFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *ExampleFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.Describe, nil)}
+}
+
 func (*ExampleFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{Status},
@@ -184,4 +188,4 @@ The persistence schema lists every [Attribute](/primitives/attribute) and [Chann
 
 ## RPC handlers {#rpc-handlers}
 
-Dex registers RPC methods under their method names (or explicit RPC names in Rust). Clients call them with [InvokeRPC](/primitives/rpc); Dex then dispatches the call to the Worker.
+Each Flow explicitly declares its RPC handlers and their execution options. Go returns direct bound methods from **GetRPCs** with **DefineRPC**. Dex uses the method name as the durable RPC name, except Rust may provide an explicit name. Clients call handlers with [InvokeRPC](/primitives/rpc); Dex then dispatches the call to the Worker.

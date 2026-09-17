@@ -58,7 +58,6 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 		controller.flow.PublishExternalChannelMessage,
 		"message from start-or-publish endpoint",
 		&output,
-		sdk.InvokeOptions{},
 	)
 	if err == nil {
 		httputil.RespondString(request, "Published to the Flow", nil)

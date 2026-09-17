@@ -56,6 +56,10 @@ func (flow *WaitForStepCompletionFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *WaitForStepCompletionFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.GetJobSeekerData, nil)}
+}
+
 func (*WaitForStepCompletionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{JobSeekerDataAttribute},

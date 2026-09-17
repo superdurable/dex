@@ -384,7 +384,6 @@ func (controller *controller) dealStateSnapshot(
 		controller.flow.GetSnapshot,
 		nil,
 		&snapshot,
-		sdk.InvokeOptions{},
 	)
 	return snapshot, err
 }
@@ -421,7 +420,6 @@ func (controller *controller) sendChannelMessage(request *gin.Context) {
 		controller.flow.SendConditionMessage,
 		ConditionMessage{ConditionName: conditionName, Data: message.Data},
 		nil,
-		sdk.InvokeOptions{},
 	); err != nil {
 		controller.respondError(request, err)
 		return

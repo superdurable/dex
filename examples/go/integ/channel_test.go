@@ -42,10 +42,10 @@ func TestChannelMessageCanBeMovedByID(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, integClient.InvokeRPC(
-		ctx, flowID, registry.Channel.EnqueueChannelMessage, "delete me", nil, dex.InvokeOptions{},
+		ctx, flowID, registry.Channel.EnqueueChannelMessage, "delete me", nil,
 	))
 	require.NoError(t, integClient.InvokeRPC(
-		ctx, flowID, registry.Channel.EnqueueChannelMessage, "move me", nil, dex.InvokeOptions{},
+		ctx, flowID, registry.Channel.EnqueueChannelMessage, "move me", nil,
 	))
 
 	var pending []dex.ChannelMessage[string]
@@ -55,7 +55,6 @@ func TestChannelMessageCanBeMovedByID(t *testing.T) {
 		registry.Channel.GetQueuedMessages,
 		nil,
 		&pending,
-		dex.InvokeOptions{LoadChannels: []dex.ChannelDef{channelprimitive.QueuedMessages}},
 	))
 	require.Len(t, pending, 2)
 	require.Equal(t, []string{"delete me", "move me"}, []string{pending[0].Value, pending[1].Value})
@@ -65,7 +64,6 @@ func TestChannelMessageCanBeMovedByID(t *testing.T) {
 		registry.Channel.DeleteQueuedMessage,
 		channelprimitive.QueuedMessageReference{MessageID: pending[0].MessageID},
 		nil,
-		dex.InvokeOptions{IsTransactional: true, LoadChannels: []dex.ChannelDef{channelprimitive.QueuedMessages}},
 	))
 
 	queuedMessage := channelprimitive.QueuedMessageReference{MessageID: pending[1].MessageID}
@@ -75,7 +73,6 @@ func TestChannelMessageCanBeMovedByID(t *testing.T) {
 		registry.Channel.MoveQueuedMessageToPrioritizedMessages,
 		queuedMessage,
 		nil,
-		dex.InvokeOptions{IsTransactional: true, LoadChannels: []dex.ChannelDef{channelprimitive.QueuedMessages}},
 	))
 
 	var prioritizedMessages []dex.ChannelMessage[string]
@@ -85,7 +82,6 @@ func TestChannelMessageCanBeMovedByID(t *testing.T) {
 		registry.Channel.GetPrioritizedMessages,
 		nil,
 		&prioritizedMessages,
-		dex.InvokeOptions{LoadChannels: []dex.ChannelDef{channelprimitive.PrioritizedMessages}},
 	))
 	require.Len(t, prioritizedMessages, 1)
 	require.Equal(t, []string{"move me"}, []string{prioritizedMessages[0].Value})
@@ -96,7 +92,6 @@ func TestChannelMessageCanBeMovedByID(t *testing.T) {
 		registry.Channel.MoveQueuedMessageToPrioritizedMessages,
 		queuedMessage,
 		nil,
-		dex.InvokeOptions{IsTransactional: true, LoadChannels: []dex.ChannelDef{channelprimitive.QueuedMessages}},
 	)
 	var notFound *dex.ChannelMessageNotFoundError
 	require.ErrorAs(t, err, &notFound)
@@ -106,7 +101,6 @@ func TestChannelMessageCanBeMovedByID(t *testing.T) {
 		registry.Channel.GetPrioritizedMessages,
 		nil,
 		&prioritizedMessages,
-		dex.InvokeOptions{LoadChannels: []dex.ChannelDef{channelprimitive.PrioritizedMessages}},
 	))
 	require.Equal(t, []string{"move me"}, []string{prioritizedMessages[0].Value})
 
@@ -116,6 +110,5 @@ func TestChannelMessageCanBeMovedByID(t *testing.T) {
 		registry.Channel.PublishApprovalMessage,
 		nil,
 		nil,
-		dex.InvokeOptions{},
 	))
 }

@@ -75,6 +75,14 @@ func (*UserProfileFlow) GetSteps() []dex.StepDef {
 	return nil
 }
 
+func (flow *UserProfileFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.UpdateProfile, nil),
+		dex.DefineRPC(flow.GetProfile, nil),
+		dex.DefineRPC(flow.ClearProfile, nil),
+	}
+}
+
 func (*UserProfileFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{

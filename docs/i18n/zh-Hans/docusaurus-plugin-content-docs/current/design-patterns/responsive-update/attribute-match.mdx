@@ -45,9 +45,13 @@ def update(self, context: Context, input: JobInfo) -> RPCResult[int]:
 <SdkSnippet lang="go">
 
 ```go
-func UpdateInvokeOptions() dex.InvokeOptions {
-	return dex.InvokeOptions{
-		LockAttributes: []dex.AttributeLock{dex.LockAttribute(UpdatePostingLock)},
+func (flow *JobPostingFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Get, nil),
+		dex.DefineRPC(flow.GetWithStrongConsistency, nil),
+		dex.DefineRPC(flow.Update, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(UpdatePostingLock)},
+		}),
 	}
 }
 
@@ -211,7 +215,6 @@ err = controller.client.InvokeRPC(
 	controller.flow.Get,
 	nil,
 	&jobInfo,
-	sdk.InvokeOptions{},
 )
 ```
 

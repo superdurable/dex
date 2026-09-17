@@ -41,7 +41,7 @@ func (controller *controller) start(request *gin.Context) {
 	var persistedData JobSeekerData
 	err = controller.client.InvokeRPC(
 		request.Request.Context(), flowID, controller.flow.GetJobSeekerData,
-		nil, &persistedData, sdk.InvokeOptions{},
+		nil, &persistedData,
 	)
 	if err != nil {
 		httputil.RespondString(request, "", err)

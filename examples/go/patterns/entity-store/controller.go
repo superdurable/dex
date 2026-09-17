@@ -79,7 +79,6 @@ func (controller *controller) updateProfile(request *gin.Context) {
 		controller.flow.UpdateProfile,
 		profileRequest.UserProfile,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "Updated user profile", err)
 }
@@ -96,7 +95,6 @@ func (controller *controller) getProfile(request *gin.Context) {
 		controller.flow.GetProfile,
 		nil,
 		&profile,
-		sdk.InvokeOptions{},
 	)
 	if err != nil {
 		httputil.RespondString(request, "", err)
@@ -116,7 +114,6 @@ func (controller *controller) clearProfile(request *gin.Context) {
 		controller.flow.ClearProfile,
 		nil,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "Cleared user profile", err)
 }

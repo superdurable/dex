@@ -42,6 +42,12 @@ def trigger(self, context: Context, input: str) -> RPCResult[str]:
   <SdkSnippet lang="go">
 
 ```go
+func (flow *RpcFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Trigger, &dex.RPCOptions{Timeout: 30 * time.Second}),
+	}
+}
+
 func (*RpcFlow) Trigger(ctx dex.Context, input string) (*dex.RPCResult[string], error) {
 	if err := Data.Set(ctx, input); err != nil {
 		return nil, err
@@ -133,7 +139,6 @@ err := client.InvokeRPC(
 	flow.Trigger,
 	message,
 	&result,
-	sdk.InvokeOptions{},
 )
 ```
 
@@ -168,7 +173,7 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 
 Handler 需要所有当前 instance 时，加载整个 AttributeMap 或 ChannelMap；只需要已知 key 时，加载指定 map instance。需要 pending message 的 ID 或 Value 时，加载对应 Channel。Channel size、ChannelMap key 和 size 无需加载 pending message 即可读取。
 
-Python、Java、TypeScript 和 Rust 在 RPC definition 上声明 load；Go 在 **InvokeOptions** 中提供。Dex Server 会根据 Flow persistence schema 验证 requested definition，并随 RPC snapshot 返回已加载范围。Handler 读取选择性加载的 collection 时，SDK 会检查这个范围。
+所有 SDK 都在 RPC definition 上声明 load。Go 在 **GetRPCs** 中将 **RPCOptions** 传给 **DefineRPC**。Dex Server 会根据 Flow persistence schema 验证 requested definition，并随 RPC snapshot 返回已加载范围。Handler 读取选择性加载的 collection 时，SDK 会检查这个范围。
 
 如果 **AttributeMap** entry 或 instance 不在该范围内，SDK 会抛出 **AttributeMapNotLoadedError**。如果 pending message 不在该范围内，SDK 会抛出 **ChannelMessagesNotLoadedError**。Java 使用 **AttributeMapNotLoadedException** 和 **ChannelMessagesNotLoadedException**。
 
@@ -185,7 +190,7 @@ Caller 只传 pending message ID。RPC 加载 source Channel，从 snapshot 读�
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
-    go: 'examples/go/primitives/channel/controller.go',
+    go: 'examples/go/primitives/channel/workflow.go',
     java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
     typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
     rust: 'examples/rust/src/primitives/channel/flow.rs',
@@ -209,17 +214,26 @@ def move_queued_message_to_prioritized_messages(
 <SdkSnippet lang="go">
 
 ```go
-err := controller.client.InvokeRPC(
-	request.Request.Context(),
-	flowID,
-	controller.flow.MoveQueuedMessageToPrioritizedMessages,
-	QueuedMessageReference{MessageID: messageID},
-	nil,
-	sdk.InvokeOptions{
-		IsTransactional: true,
-		LoadChannels:    []sdk.ChannelDef{QueuedMessages},
-	},
-)
+func (flow *ChannelFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.PublishApprovalMessage, nil),
+		dex.DefineRPC(flow.EnqueueChannelMessage, nil),
+		dex.DefineRPC(flow.GetQueuedMessages, &dex.RPCOptions{
+			LoadChannels: []dex.ChannelDef{QueuedMessages},
+		}),
+		dex.DefineRPC(flow.DeleteQueuedMessage, &dex.RPCOptions{
+			IsTransactional: true,
+			LoadChannels:    []dex.ChannelDef{QueuedMessages},
+		}),
+		dex.DefineRPC(flow.GetPrioritizedMessages, &dex.RPCOptions{
+			LoadChannels: []dex.ChannelDef{PrioritizedMessages},
+		}),
+		dex.DefineRPC(flow.MoveQueuedMessageToPrioritizedMessages, &dex.RPCOptions{
+			IsTransactional: true,
+			LoadChannels:    []dex.ChannelDef{QueuedMessages},
+		}),
+	}
+}
 ```
 
 </SdkSnippet>
@@ -290,7 +304,7 @@ Non-transactional RPC 遇到 missing deletion 时会把它当作 no-op，仍然 
 
 RPC timeout 限制一次 Worker handler invocation。
 
-Python、Java、TypeScript 和 Rust 在 RPC handler 上声明 timeout。Go 在每次 Client 调用的 **InvokeOptions** 中传入。应用不设置 timeout 时，Dex Server 使用自己的 default。默认最大值为 60 秒。
+所有 SDK 都在 RPC definition 上声明 timeout。Go 将静态 **RPCOptions** 传给 **DefineRPC**。Client invocation 不能覆盖它，但 caller context 可以更早停止等待。应用不设置 timeout 时，Dex Server 使用自己的 default。默认最大值为 60 秒。
 
 <SdkTabs
   examples={{
@@ -310,7 +324,11 @@ Python、Java、TypeScript 和 Rust 在 RPC handler 上声明 timeout。Go 在�
 <SdkSnippet lang="go">
 
 ```go
-sdk.InvokeOptions{Timeout: 30 * time.Second}
+func (flow *RpcFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Trigger, &dex.RPCOptions{Timeout: 30 * time.Second}),
+	}
+}
 ```
 
 </SdkSnippet>

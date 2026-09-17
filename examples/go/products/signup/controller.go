@@ -106,7 +106,6 @@ func (controller *controller) invoke(
 		rpc,
 		nil,
 		&output,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, output, err)
 }

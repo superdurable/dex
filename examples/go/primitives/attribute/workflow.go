@@ -52,6 +52,17 @@ func (*AttributeFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(attributeStep{})}
 }
 
+func (flow *AttributeFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.UpdateStatus, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{
+				dex.LockAttribute(Status),
+				dex.LockAttributeMap(Progress, "payment"),
+			},
+		}),
+	}
+}
+
 func (*AttributeFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{Status, Progress, Email}}
 }

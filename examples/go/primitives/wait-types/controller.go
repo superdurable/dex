@@ -83,7 +83,6 @@ func (controller *controller) signalA(request *gin.Context) {
 		controller.flow.SignalA,
 		nil,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "done", err)
 }
@@ -99,7 +98,6 @@ func (controller *controller) signalB(request *gin.Context) {
 		controller.flow.SignalB,
 		nil,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "done", err)
 }

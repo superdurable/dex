@@ -65,7 +65,6 @@ func TestUserOnboardingCompletesEveryTask(t *testing.T) {
 		registry.UserOnboarding.Verify,
 		nil,
 		&output,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, "verified", output)
 	require.NoError(t, integClient.WaitForAttributeMatch(
@@ -84,7 +83,6 @@ func TestUserOnboardingCompletesEveryTask(t *testing.T) {
 		registry.UserOnboarding.AccomplishTask1,
 		nil,
 		&output,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, "task 1 accomplished", output)
 	require.NoError(t, integClient.WaitForAttributeMatch(
@@ -103,7 +101,6 @@ func TestUserOnboardingCompletesEveryTask(t *testing.T) {
 		registry.UserOnboarding.AccomplishTask2,
 		nil,
 		&output,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, "task 2 accomplished", output)
 

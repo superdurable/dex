@@ -68,6 +68,10 @@ func (*ExampleFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *ExampleFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.Describe, nil)}
+}
+
 func (*ExampleFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{Status},
@@ -183,4 +187,4 @@ Persistence schema 列出 Step 或 RPC 使用的每个 [Attribute](/primitives/a
 
 ## RPC handlers {#rpc-handlers}
 
-Dex 按方法名（Rust 中可显式命名）注册 RPC 方法。客户端用 [InvokeRPC](/primitives/rpc) 调用；Dex 随后将调用派发到 Worker。
+每个 Flow 都显式声明 RPC handler 及其 execution options。Go 通过 **GetRPCs** 和 **DefineRPC** 返回 direct bound method。Dex 将 method name 作为 durable RPC name，Rust 也可以提供显式名称。Client 使用 [InvokeRPC](/primitives/rpc) 调用；Dex 随后将调用派发到 Worker。

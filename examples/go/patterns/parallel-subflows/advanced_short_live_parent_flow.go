@@ -44,6 +44,10 @@ func (flow *AdvancedShortLiveParentFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *AdvancedShortLiveParentFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.SendRequest, nil)}
+}
+
 func (*AdvancedShortLiveParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{CurrSubFlowNum},

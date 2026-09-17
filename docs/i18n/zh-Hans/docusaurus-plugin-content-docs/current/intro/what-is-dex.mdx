@@ -239,6 +239,13 @@ func (flow *OrderProcessingFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *OrderProcessingFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Approve, nil),
+		dex.DefineRPC(flow.Describe, nil),
+	}
+}
+
 func (*OrderProcessingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{OrderStatus},

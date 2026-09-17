@@ -83,7 +83,6 @@ func (controller *controller) start(request *gin.Context) {
 		controller.flow.GetJobSeekerData,
 		nil,
 		&persistedData,
-		sdk.InvokeOptions{},
 	)
 	if err != nil {
 		httputil.RespondString(request, "", err)

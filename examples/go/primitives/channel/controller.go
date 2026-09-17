@@ -86,7 +86,6 @@ func (controller *controller) approve(request *gin.Context) {
 		controller.flow.PublishApprovalMessage,
 		nil,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "done", err)
 }
@@ -106,7 +105,6 @@ func (controller *controller) enqueue(request *gin.Context) {
 		controller.flow.EnqueueChannelMessage,
 		value,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "done", err)
 }
@@ -123,7 +121,6 @@ func (controller *controller) messages(request *gin.Context) {
 		controller.flow.GetQueuedMessages,
 		nil,
 		&messages,
-		sdk.InvokeOptions{LoadChannels: []sdk.ChannelDef{QueuedMessages}},
 	)
 	httputil.Respond(request, messages, err)
 }
@@ -143,10 +140,6 @@ func (controller *controller) delete(request *gin.Context) {
 		controller.flow.DeleteQueuedMessage,
 		QueuedMessageReference{MessageID: messageID},
 		nil,
-		sdk.InvokeOptions{
-			IsTransactional: true,
-			LoadChannels:    []sdk.ChannelDef{QueuedMessages},
-		},
 	)
 	httputil.RespondString(request, "done", err)
 }
@@ -166,10 +159,6 @@ func (controller *controller) move(request *gin.Context) {
 		controller.flow.MoveQueuedMessageToPrioritizedMessages,
 		QueuedMessageReference{MessageID: messageID},
 		nil,
-		sdk.InvokeOptions{
-			IsTransactional: true,
-			LoadChannels:    []sdk.ChannelDef{QueuedMessages},
-		},
 	)
 	httputil.RespondString(request, "done", err)
 }

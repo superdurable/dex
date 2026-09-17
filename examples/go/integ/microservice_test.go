@@ -59,7 +59,6 @@ func TestMicroserviceStartRPCAndChannel(t *testing.T) {
 		registry.Microservices.Swap,
 		"updated-data",
 		&oldData,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, "initial-data", oldData)
 	require.NoError(t, integClient.InvokeRPC(
@@ -68,7 +67,6 @@ func TestMicroserviceStartRPCAndChannel(t *testing.T) {
 		registry.Microservices.SignalReady,
 		nil,
 		nil,
-		dex.InvokeOptions{},
 	))
 
 	result := waitForFlow(t, flowID)

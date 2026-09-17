@@ -211,6 +211,14 @@ def update_profile(self, context: Context, input: UserProfile) -> None:
 <SdkSnippet lang="go">
 
 ```go
+func (flow *UserProfileFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.UpdateProfile, nil),
+		dex.DefineRPC(flow.GetProfile, nil),
+		dex.DefineRPC(flow.ClearProfile, nil),
+	}
+}
+
 func (*UserProfileFlow) UpdateProfile(
 	ctx dex.Context,
 	profile UserProfile,

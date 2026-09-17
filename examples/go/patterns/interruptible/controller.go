@@ -71,7 +71,6 @@ func (controller *controller) cancel(request *gin.Context) {
 		controller.flow.Interrupt,
 		nil,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "done", err)
 }

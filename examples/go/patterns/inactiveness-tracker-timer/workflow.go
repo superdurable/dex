@@ -49,6 +49,10 @@ func (*InactivenessTrackerFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *InactivenessTrackerFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.RecordActivity, nil)}
+}
+
 func (*InactivenessTrackerFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Channels: []dex.ChannelDef{ActiveChannel}}
 }

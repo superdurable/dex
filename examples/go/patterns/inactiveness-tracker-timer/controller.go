@@ -71,7 +71,6 @@ func (controller *controller) recordActivity(request *gin.Context) {
 		controller.flow.RecordActivity,
 		nil,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "activity recorded", err)
 }

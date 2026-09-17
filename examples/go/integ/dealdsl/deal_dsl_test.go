@@ -259,7 +259,6 @@ func assertProcessDefinitionSnapshot(
 		dealDSLFlow.GetSnapshot,
 		nil,
 		&snapshot,
-		dex.InvokeOptions{},
 	)
 	require.NoError(t, err)
 	require.Equal(t, process, snapshot.ProcessDefinition)

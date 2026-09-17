@@ -66,7 +66,6 @@ func (controller *controller) swapData(request *gin.Context) {
 		controller.flow.Swap,
 		request.Query("data"),
 		&output,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, output, err)
 }
@@ -82,7 +81,6 @@ func (controller *controller) signal(request *gin.Context) {
 		controller.flow.SignalReady,
 		nil,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, struct{}{}, err)
 }

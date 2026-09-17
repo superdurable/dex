@@ -156,6 +156,16 @@ func (flow *JobPostingFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *JobPostingFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Get, nil),
+		dex.DefineRPC(flow.GetWithStrongConsistency, nil),
+		dex.DefineRPC(flow.Update, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(UpdatePostingLock)},
+		}),
+	}
+}
+
 func (*JobPostingFlow) Update(
 	ctx dex.Context,
 	input JobInfo,
@@ -180,12 +190,6 @@ func (*JobPostingFlow) Update(
 		return nil, err
 	}
 	return &dex.RPCResult[int]{Output: version}, nil
-}
-
-func UpdateInvokeOptions() dex.InvokeOptions {
-	return dex.InvokeOptions{
-		LockAttributes: []dex.AttributeLock{dex.LockAttribute(UpdatePostingLock)},
-	}
 }
 
 func (InitStep) Execute(

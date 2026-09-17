@@ -69,7 +69,6 @@ func (controller *controller) optOut(request *gin.Context) {
 		controller.flow.OptOutReminders,
 		nil,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.RespondString(request, "done", err)
 }

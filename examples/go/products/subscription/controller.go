@@ -72,7 +72,6 @@ func (controller *controller) cancel(request *gin.Context) {
 		controller.flow.Cancel,
 		nil,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, struct{}{}, err)
 }
@@ -93,7 +92,6 @@ func (controller *controller) updateChargeAmount(request *gin.Context) {
 		controller.flow.UpdateCharge,
 		amount,
 		nil,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, struct{}{}, err)
 }
@@ -110,7 +108,6 @@ func (controller *controller) describe(request *gin.Context) {
 		controller.flow.Describe,
 		nil,
 		&output,
-		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, output, err)
 }

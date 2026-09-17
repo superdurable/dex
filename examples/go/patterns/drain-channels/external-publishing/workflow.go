@@ -45,6 +45,10 @@ func (*DrainingExternalChannelFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *DrainingExternalChannelFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.PublishExternalChannelMessage, nil)}
+}
+
 func (*DrainingExternalChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Channels: []dex.ChannelDef{QueueChannel},

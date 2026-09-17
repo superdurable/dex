@@ -42,6 +42,10 @@ func (*ExampleFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *ExampleFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.Describe, nil)}
+}
+
 func (*ExampleFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{Status},

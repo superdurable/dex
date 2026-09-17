@@ -63,7 +63,6 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 		registry.JobPosting.Update,
 		updated,
 		&version,
-		jobpost.UpdateInvokeOptions(),
 	))
 	require.Equal(t, 1, version)
 	newest := jobpost.JobInfo{
@@ -77,7 +76,6 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 		registry.JobPosting.Update,
 		newest,
 		&version,
-		jobpost.UpdateInvokeOptions(),
 	))
 	require.Equal(t, 2, version)
 	require.NoError(t, integClient.WaitForStepCompletion(
@@ -106,7 +104,6 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 		registry.JobPosting.Get,
 		nil,
 		&actual,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, newest, actual)
 	require.NoError(t, integClient.StopFlow(ctx, flowID, dex.StopOptions{}))

@@ -67,6 +67,14 @@ func (flow *UserOnboardingFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *UserOnboardingFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Verify, nil),
+		dex.DefineRPC(flow.AccomplishTask1, nil),
+		dex.DefineRPC(flow.AccomplishTask2, nil),
+	}
+}
+
 func (*UserOnboardingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{Form, Status},

@@ -41,6 +41,12 @@ def trigger(self, context: Context, input: str) -> RPCResult[str]:
   <SdkSnippet lang="go">
 
 ```go
+func (flow *RpcFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Trigger, &dex.RPCOptions{Timeout: 30 * time.Second}),
+	}
+}
+
 func (*RpcFlow) Trigger(ctx dex.Context, input string) (*dex.RPCResult[string], error) {
 	if err := Data.Set(ctx, input); err != nil {
 		return nil, err
@@ -132,7 +138,6 @@ err := client.InvokeRPC(
 	flow.Trigger,
 	message,
 	&result,
-	sdk.InvokeOptions{},
 )
 ```
 
@@ -167,7 +172,7 @@ Every RPC receives regular Attribute values and Channel size metadata. Reading A
 
 Load a whole AttributeMap or ChannelMap when the handler needs all current instances. Load exact map instances when it needs only known keys. Load a Channel when the handler needs its pending message IDs or Values. Channel size and ChannelMap keys and sizes remain available without loading pending messages.
 
-Python, Java, TypeScript, and Rust declare loads with the RPC. Go supplies them in **InvokeOptions**. Dex Server validates each requested definition against the Flow persistence schema and returns the loaded scope with the RPC snapshot. The SDK checks that scope when the handler reads a selectively loaded collection.
+Every SDK declares loads with the RPC. Go places them in **RPCOptions** passed to **DefineRPC** from **GetRPCs**. Dex Server validates each requested definition against the Flow persistence schema and returns the loaded scope with the RPC snapshot. The SDK checks that scope when the handler reads a selectively loaded collection.
 
 For an **AttributeMap** entry or instance enumeration outside that scope, the SDK raises **AttributeMapNotLoadedError**. For pending messages outside that scope, it raises **ChannelMessagesNotLoadedError**. Java uses **AttributeMapNotLoadedException** and **ChannelMessagesNotLoadedException**.
 
@@ -184,7 +189,7 @@ The caller passes only a pending message ID. The RPC loads the source Channel, r
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
-    go: 'examples/go/primitives/channel/controller.go',
+    go: 'examples/go/primitives/channel/workflow.go',
     java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
     typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
     rust: 'examples/rust/src/primitives/channel/flow.rs',
@@ -208,17 +213,26 @@ def move_queued_message_to_prioritized_messages(
 <SdkSnippet lang="go">
 
 ```go
-err := controller.client.InvokeRPC(
-	request.Request.Context(),
-	flowID,
-	controller.flow.MoveQueuedMessageToPrioritizedMessages,
-	QueuedMessageReference{MessageID: messageID},
-	nil,
-	sdk.InvokeOptions{
-		IsTransactional: true,
-		LoadChannels:    []sdk.ChannelDef{QueuedMessages},
-	},
-)
+func (flow *ChannelFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.PublishApprovalMessage, nil),
+		dex.DefineRPC(flow.EnqueueChannelMessage, nil),
+		dex.DefineRPC(flow.GetQueuedMessages, &dex.RPCOptions{
+			LoadChannels: []dex.ChannelDef{QueuedMessages},
+		}),
+		dex.DefineRPC(flow.DeleteQueuedMessage, &dex.RPCOptions{
+			IsTransactional: true,
+			LoadChannels:    []dex.ChannelDef{QueuedMessages},
+		}),
+		dex.DefineRPC(flow.GetPrioritizedMessages, &dex.RPCOptions{
+			LoadChannels: []dex.ChannelDef{PrioritizedMessages},
+		}),
+		dex.DefineRPC(flow.MoveQueuedMessageToPrioritizedMessages, &dex.RPCOptions{
+			IsTransactional: true,
+			LoadChannels:    []dex.ChannelDef{QueuedMessages},
+		}),
+	}
+}
 ```
 
 </SdkSnippet>
@@ -289,7 +303,7 @@ A non-transactional RPC treats a missing deletion as a no-op and still commits i
 
 An RPC timeout limits one Worker handler invocation.
 
-Python, Java, TypeScript, and Rust declare the timeout with the RPC handler. Go passes it in **InvokeOptions** for each Client invocation. When the application does not set a timeout, Dex Server uses its default. The default maximum is 60 seconds.
+Every SDK declares the timeout with the RPC. Go places it in the static **RPCOptions** passed to **DefineRPC**. A Client invocation cannot override it, although the caller's context can stop waiting sooner. When the application does not set a timeout, Dex Server uses its default. The default maximum is 60 seconds.
 
 <SdkTabs
   examples={{
@@ -309,7 +323,11 @@ Python, Java, TypeScript, and Rust declare the timeout with the RPC handler. Go 
 <SdkSnippet lang="go">
 
 ```go
-sdk.InvokeOptions{Timeout: 30 * time.Second}
+func (flow *RpcFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Trigger, &dex.RPCOptions{Timeout: 30 * time.Second}),
+	}
+}
 ```
 
 </SdkSnippet>

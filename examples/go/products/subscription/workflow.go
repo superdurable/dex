@@ -69,6 +69,15 @@ func (flow *SubscriptionFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *SubscriptionFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Describe, nil),
+		dex.DefineRPC(flow.GetCustomer, nil),
+		dex.DefineRPC(flow.Cancel, nil),
+		dex.DefineRPC(flow.UpdateCharge, nil),
+	}
+}
+
 func (*SubscriptionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{BillingPeriodNumber, CustomerDetails},

@@ -72,9 +72,5 @@ func invokeUpdateStatus(ctx context.Context, client *sdk.Client, flowID string) 
 		(*AttributeFlow).UpdateStatus,
 		"completed",
 		&updated,
-		sdk.InvokeOptions{LockAttributes: []sdk.AttributeLock{
-			sdk.LockAttribute(Status),
-			sdk.LockAttributeMap(Progress, "payment"),
-		}},
 	)
 }

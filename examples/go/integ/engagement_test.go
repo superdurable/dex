@@ -66,7 +66,6 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		registry.Engagement.Describe,
 		nil,
 		&description,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, engagement.StatusInitiated, description.CurrentStatus)
 	require.NoError(t, integClient.InvokeRPC(
@@ -75,7 +74,6 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		registry.Engagement.OptOut,
 		nil,
 		nil,
-		dex.InvokeOptions{},
 	))
 	require.Eventually(t, func() bool {
 		err = integClient.InvokeRPC(
@@ -84,7 +82,6 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 			registry.Engagement.Describe,
 			nil,
 			&description,
-			dex.InvokeOptions{},
 		)
 		return err == nil && strings.Contains(description.Notes, "user opted out of reminders")
 	}, 20*time.Second, 200*time.Millisecond, "reminder opt-out failed: %v", err)
@@ -96,7 +93,6 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		registry.Engagement.Decline,
 		"declined in integration test",
 		&status,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, engagement.StatusDeclined, status)
 	require.NoError(t, integClient.WaitForAttributeMatch(
@@ -114,7 +110,6 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		registry.Engagement.Accept,
 		"accepted in integration test",
 		&status,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, engagement.StatusAccepted, status)
 

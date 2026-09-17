@@ -102,6 +102,10 @@ func (*DrainingExternalChannelFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *DrainingExternalChannelFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.PublishExternalChannelMessage, nil)}
+}
+
 func (*DrainingExternalChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Channels: []dex.ChannelDef{QueueChannel},
@@ -427,7 +431,6 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 		controller.flow.PublishExternalChannelMessage,
 		"message from start-or-publish endpoint",
 		&output,
-		sdk.InvokeOptions{},
 	)
 	if err == nil {
 		httputil.RespondString(request, "Published to the Flow", nil)

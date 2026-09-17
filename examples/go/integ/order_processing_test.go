@@ -60,7 +60,6 @@ func TestOrderProcessingHappyPath(t *testing.T) {
 		registry.OrderProcessing.Approve,
 		"",
 		&approved,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, "ok", approved)
 	result := waitForFlow(t, flowID)
@@ -114,7 +113,6 @@ func TestOrderProcessingReminderThenShip(t *testing.T) {
 		registry.OrderProcessing.Approve,
 		"",
 		&approved,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, "ok", approved)
 	result := waitForFlow(t, flowID)
@@ -155,7 +153,6 @@ func TestOrderProcessingShipFailureRefunds(t *testing.T) {
 		registry.OrderProcessing.Approve,
 		"",
 		&approved,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, "ok", approved)
 	result := waitForFlow(t, flowID)

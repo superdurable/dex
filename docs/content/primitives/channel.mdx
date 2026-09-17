@@ -118,6 +118,27 @@ func (*ChannelFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(channelWaitStep{})}
 }
 
+func (flow *ChannelFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.PublishApprovalMessage, nil),
+		dex.DefineRPC(flow.EnqueueChannelMessage, nil),
+		dex.DefineRPC(flow.GetQueuedMessages, &dex.RPCOptions{
+			LoadChannels: []dex.ChannelDef{QueuedMessages},
+		}),
+		dex.DefineRPC(flow.DeleteQueuedMessage, &dex.RPCOptions{
+			IsTransactional: true,
+			LoadChannels:    []dex.ChannelDef{QueuedMessages},
+		}),
+		dex.DefineRPC(flow.GetPrioritizedMessages, &dex.RPCOptions{
+			LoadChannels: []dex.ChannelDef{PrioritizedMessages},
+		}),
+		dex.DefineRPC(flow.MoveQueuedMessageToPrioritizedMessages, &dex.RPCOptions{
+			IsTransactional: true,
+			LoadChannels:    []dex.ChannelDef{QueuedMessages},
+		}),
+	}
+}
+
 func (*ChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Channels: []dex.ChannelDef{ApprovalMessages, QueuedMessages, PrioritizedMessages},

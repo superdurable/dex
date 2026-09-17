@@ -52,6 +52,13 @@ func (*ManualRecoveryFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *ManualRecoveryFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Retry, nil),
+		dex.DefineRPC(flow.Skip, nil),
+	}
+}
+
 func (*ManualRecoveryFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Channels: []dex.ChannelDef{RetryChannel, SkipChannel},

@@ -3,10 +3,10 @@
 Pending Channel queues use `ChannelMessage[T]` envelopes. Client list methods
 decode into a caller-owned slice pointer, and deletion uses the server-assigned
 message ID. RPC handlers stage deletion through the Channel definition and set
-`InvokeOptions.IsTransactional` when existence validation must be atomic with all
-other RPC writes.
+`RPCOptions.IsTransactional` in `DefineRPC` when existence validation must be
+atomic with all other RPC writes.
 
-`InvokeOptions` also carries typed AttributeMap, Channel, and ChannelMap loads.
+`RPCOptions` also carries typed AttributeMap, Channel, and ChannelMap loads.
 Ordinary Attributes and Channel size metadata remain automatic.
 Map entries and pending message envelopes are available only when loaded.
 Exact map loads use a slash-free logical instance and encode its physical name;
@@ -213,7 +213,7 @@ func NewRegistry(flows []Flow) (*Registry, error)
 The Phase 3 implementation may initially keep this wrapper private. Phase 5
 exports it so one validated instance can be shared by Client and Worker.
 Application code declares its contents through `Flow.GetSteps`,
-`Flow.GetPersistenceSchema`, and RPC methods on the Flow value.
+`Flow.GetRPCs`, and `Flow.GetPersistenceSchema`.
 
 There is no mutable `AddFlow`, `AddStep`, or `AddRPC` API. Construction is
 atomic: validation and lookup assembly happen in temporary state, and any error
@@ -226,7 +226,7 @@ The registry owns:
 
 - a flow lookup keyed by durable flow type;
 - per-flow step lookups keyed by durable step type;
-- per-flow RPC lookups keyed by exported Go method name;
+- per-flow RPC lookups keyed by explicitly registered Go method name;
 - per-flow attribute and channel definition lookups.
 
 Step and RPC names are scoped to one flow. The same durable step or RPC name may
@@ -345,11 +345,12 @@ Conditional close decisions likewise resolve every channel through the current
 flow schema. Duplicate, empty, undeclared, or wrong static/map references fail
 before a WorkerService response is committed.
 
-### Flow method RPC discovery
+### Explicit Flow RPC registration
 
-RPCs are not listed in a separate communication schema. Registration enumerates
-the exported method set of the exact Flow value with `reflect.Type.NumMethod`.
-A method is an RPC only when its signature is exactly:
+`Flow.GetRPCs` returns sealed `RPCDef` values created by `DefineRPC`. The typed
+wrapper stores the bound handler, input/output types, and immutable
+`RPCOptions`, then invokes the handler directly. A method is an RPC only when it
+is present in this list and its signature is exactly:
 
 ```go
 func(
@@ -358,38 +359,36 @@ func(
 ) (*dex.RPCResult[OUT], error)
 ```
 
-The receiver is supplied by reflection and is not part of the application
-signature. `Context` must be the SDK interface, the second result must be
-`error`, and the first result must be a pointer to a concrete `RPCResult[OUT]`.
-Value results and defined lookalike result types are not accepted. Every exported
-method on the registered Flow value other than the `Flow` interface methods
-(`GetFlowType`, `GetSteps`, `GetPersistenceSchema`) must match this RPC
-signature; otherwise registration fails. Unexported methods are ignored.
+`Context` must be the SDK interface, the second result must be `error`, and the
+first result must be a pointer to a concrete `RPCResult[OUT]`. Value results and
+defined lookalike result types are not accepted. Exported helper methods and
+unregistered RPC-shaped methods are ignored.
 
 The exported Go method name is the durable RPC name. The registry retains:
 
-- the method bound to the exact registered Flow receiver;
+- the typed wrapper bound to the exact registered Flow receiver;
 - its input and output Go types;
-- its durable method name.
+- its durable method name; and
+- its static RPC options.
 
 Value-receiver and pointer-receiver RPCs are supported when the supplied Flow
 value exposes them. The registry retains that exact receiver so constructor
-dependencies stored on the Flow remain available. If a value-typed Flow
-implements the `Flow` interface but exported methods exist only on the pointer
-type, registration fails and names those methods so the application registers a
-pointer instead of discovering an incomplete method set.
+dependencies stored on the Flow remain available. A definition using a method
+from another Flow or a pointer-only method unavailable on the registered value
+fails Registry construction.
 
-`*RPCResult[OUT]` implements a private erasure contract so the reflected result
-can expose its output and next movements without exporting a non-generic
-wrapper. Handlers return `nil, err` on failure; `nil, nil` is rejected as an
-invalid Worker result. RPC invocation still receives and returns concrete Go
-values in Phase 3 tests; protobuf conversion and invocation state belong to
-Phase 4.
+`*RPCResult[OUT]` implements a private erasure contract so the typed wrapper can
+expose its output and next movements without exporting a non-generic result.
+Handlers return `nil, err` on failure; `nil, nil` is rejected as an invalid
+Worker result. RPC invocation still receives and returns concrete Go values in
+Phase 3 tests; protobuf conversion and invocation state belong to Phase 4.
 
-Package-level functions, closures, method expressions, and anonymous wrappers
-are not registrable RPCs. The later non-generic client accepts a direct bound
-Flow method value, validates its canonical `-fm` method identity, and derives
-the same durable method name. It does not need a public communication schema.
+Package-level functions, closures, method expressions, anonymous wrappers,
+duplicate methods, and nil definitions are not registrable RPCs. Registration
+validates locks and selective loads against the Flow schema and validates
+timeouts once. The later non-generic client accepts the same direct bound Flow
+method value and resolves the registered descriptor by canonical method
+identity. It does not receive or override RPC options.
 
 ### Handler lifecycle and concurrency
 
@@ -420,7 +419,7 @@ Registry.
 ### Phase 3 exit gate
 
 1. Heterogeneous generic steps assemble behind private typed adapters.
-2. Flow method RPCs are discovered without an explicit RPC schema.
+2. Flow RPCs and their static options are explicitly registered with `GetRPCs`.
 3. Invalid names, duplicates, schema references, options, and fallbacks fail
    atomically during registration.
 4. Runtime step references resolve only to registered definitions in their
@@ -442,11 +441,11 @@ Add focused tests for:
 5. typed adapter input validation and successful WaitFor/Execute dispatch;
 6. undeclared locks, invalid fallback targets, mismatched input types, and
    fallback cycles;
-7. value- and pointer-receiver RPC discovery, input/output type retention, and
-   durable method names; rejection when pointer-only methods are invisible on a
-   value-typed Flow;
-8. rejection of exported non-RPC Flow methods, plus rejection of package
-   functions, method expressions, closures, and wrappers as RPC identities;
+7. value- and pointer-receiver RPC registration, input/output type retention,
+   durable method names, and typed dispatch;
+8. exported helper methods are ignored; nil, duplicate, package-function,
+   foreign-Flow, method-expression, closure, wrapper, and invalid-option
+   definitions are rejected;
 9. lookalike Step references using registered defaults, plus undeclared or
    wrong-kind channel references;
 10. atomic failure without a partially usable registry;
@@ -467,7 +466,7 @@ buffer commit/rollback, errors, and concurrency.
 
 - Keep this plan linked from [`docs/README.md`](../../README.md).
 - Update [`sdk-go/README.md`](../../../sdk-go/README.md) when Phase 3 lands with
-  Flow registration, starting-step, RPC reflection, and concurrency rules.
+  Flow registration, starting-step, explicit RPC definitions, and concurrency rules.
 - Update [`sdk-go/CONTRIBUTION.md`](../../../sdk-go/CONTRIBUTION.md) with the
   Phase 3 verification commands.
 - Add `NewRegistry` construction to SDK examples with the Phase 4 Worker entry
@@ -964,7 +963,7 @@ Cover these scenarios:
    WaitFor-failure helpers, and maps every next/close decision.
 5. Multiple completed conditions on one channel concatenate values in server
    order, including static and map channels.
-6. RPC reflection dispatch preserves typed input/output, movement validation,
+6. Typed RPC dispatch preserves input/output, movement validation,
    attributes, events, publishes, and channel sizes including local publishes.
 7. Set-then-Get observes buffered state; Delete-then-Get returns
    `*AttributeNotFoundError`; duplicate events and malformed keys fail.
@@ -1309,10 +1308,10 @@ observation APIs. They do not provide general snapshot reads or mutations.
 
 ### RPC invocation
 
-InvokeRPC continues to accept a direct bound Flow method. The shared Registry
-matches its identity and signature to a descriptor discovered at construction,
-which supplies the durable method name and IN/OUT types. The Client neither
-invokes the method nor rediscovers Flow methods locally.
+InvokeRPC accepts a direct bound Flow method. The shared Registry matches its
+identity and signature to the descriptor created from `GetRPCs`, which supplies
+the durable method name, IN/OUT types, and static `RPCOptions`. The Client
+neither invokes the method nor accepts invocation-specific RPC options.
 
 Before transport, the Client:
 
@@ -1320,7 +1319,7 @@ Before transport, the Client:
   RPC signatures;
 - verifies that `input` is assignable to the method's IN type;
 - requires `outputPtr` to be a non-nil pointer compatible with OUT;
-- validates and resolves every attribute lock; and
+- uses the descriptor's validated locks and selective loads; and
 - encodes the input and generates one request ID.
 
 The response output is hydrated before it is decoded into `outputPtr`. A nil or
@@ -1329,10 +1328,11 @@ and value types, but it cannot prove that the remote Worker registered that
 bound method for the target flow ID; that failure returns the server's Worker
 error.
 
-RPC timeout zero keeps the server default. Positive values round up; negative
-values fail locally. Lock ordering is preserved and duplicate physical locks
-are rejected. RPC next-step movements remain entirely worker-side and do not
-appear in the public invocation response.
+At Registry construction, RPC timeout zero keeps the server default, positive
+values round up, and negative values fail. Lock ordering is preserved and
+duplicate physical locks are rejected. The caller's context still controls its
+own wait and cancellation. RPC next-step movements remain entirely worker-side
+and do not appear in the public invocation response.
 
 ### Wait, lifecycle, and administrative operations
 
@@ -1608,8 +1608,8 @@ attribute.go        Attribute, AttributeMap, indexing, invocation operations
 channel.go          Channel, ChannelMap, publish, size, bounded conditions
 condition.go        Wait, timers, and combinations
 decision.go         StepMovement, StepDecision, CloseDecision helpers
-options.go          retry, durability, step, start, and flow options
-rpc.go              RPC and RPCResult
+options.go          retry, durability, step, RPC, start, and flow options
+rpc.go              RPC, RPCDef, DefineRPC, and RPCResult
 client.go           Client façade declarations and public result types
 errors.go           public error model
 ```
@@ -1625,6 +1625,7 @@ Application code implements a minimal flow interface:
 type Flow interface {
 	GetFlowType() string
 	GetSteps() []StepDef
+	GetRPCs() []RPCDef
 	GetPersistenceSchema() PersistenceSchema
 }
 ```
@@ -1633,8 +1634,10 @@ Embedding `FlowDefaults` makes `GetFlowType` return empty, selecting the
 pointer-stripped package-qualified Go type such as `orders.OrderFlow`. An
 explicit non-empty result overrides that default. Registration of a flow
 together with its heterogeneous steps and RPCs belongs to Phase 3.
-`GetSteps` supplies every step through an opaque `StepDef`. Generic handler
-adapters remain internal implementation details, not public Phase 1 API.
+`GetSteps` supplies every step through an opaque `StepDef`. `GetRPCs` supplies
+every synchronous RPC and its static execution options through an opaque
+`RPCDef`. Embedding `FlowDefaults` returns nil for both lists unless the Flow
+overrides them. Generic handler adapters remain internal implementation details.
 
 A flow declares at most one starting step with `DefineStartStep`. Other
 steps use `DefineStep`. A flow without a starting step starts with no step,
@@ -2291,6 +2294,15 @@ type RPC[IN, OUT any] func(
 	input IN,
 ) (*RPCResult[OUT], error)
 
+type RPCDef interface {
+	// unexported
+}
+
+func DefineRPC[IN, OUT any](
+	rpc RPC[IN, OUT],
+	options *RPCOptions,
+) RPCDef
+
 type RPCResult[OUT any] struct {
 	Output         OUT
 	NextSteps      []StepMovement
@@ -2305,22 +2317,26 @@ func (result *RPCResult[OUT]) CancelSteps(
 Application code defines a Flow method with that signature:
 
 ```go
-type BillingFlow struct{}
+type BillingFlow struct{ dex.FlowDefaults }
 
-func (BillingFlow) Refund(
+func (flow *BillingFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Refund, &dex.RPCOptions{Timeout: 30 * time.Second}),
+	}
+}
+
+func (*BillingFlow) Refund(
 	ctx dex.Context,
 	input RefundInput,
 ) (*dex.RPCResult[RefundOutput], error) {
 	return &dex.RPCResult[RefundOutput]{Output: RefundOutput{}}, nil
 }
-
-var Billing = BillingFlow{}
-var _ dex.RPC[RefundInput, RefundOutput] = Billing.Refund
 ```
 
-A Flow exposes RPCs as methods matching this function signature. Phase 3
-registration associates the method value with its Flow and uses the Go method
-name as the durable RPC name. Package-level functions are not registrable RPCs.
+A Flow exposes RPCs by returning direct bound methods from `GetRPCs`. Phase 3
+registration validates the definition and uses the Go method name as the durable
+RPC name. Package-level functions and methods from another Flow are not
+registrable RPCs. Methods omitted from `GetRPCs` are ordinary methods.
 
 RPC methods use typed attributes/channels and `Context.RecordEvent`. They do not
 receive a legacy `Persistence` or `Communication` argument. RPC cannot use
@@ -2356,7 +2372,6 @@ func (client *Client) InvokeRPC(
 	rpc any,
 	input any,
 	outputPtr any,
-	options InvokeOptions,
 ) error
 
 func (client *Client) WaitForAttributeMatch(
@@ -2582,9 +2597,15 @@ type AlreadyStartedOptions struct {
 	IgnoreError bool
 }
 
-type InvokeOptions struct {
-	Timeout        time.Duration
-	LockAttributes []AttributeLock
+type RPCOptions struct {
+	Timeout                   time.Duration
+	LockAttributes            []AttributeLock
+	IsTransactional           bool
+	LoadAttributeMaps         []AttributeDef
+	LoadAttributeMapInstances []AttributeMapLoad
+	LoadChannels              []ChannelDef
+	LoadChannelMaps           []ChannelDef
+	LoadChannelMapInstances   []ChannelMapLoad
 }
 
 type WaitForFlowOptions struct {

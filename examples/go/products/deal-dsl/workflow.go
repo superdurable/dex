@@ -110,6 +110,13 @@ func (flow *DealDSLFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *DealDSLFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.GetSnapshot, nil),
+		dex.DefineRPC(flow.SendConditionMessage, nil),
+	}
+}
+
 func (*DealDSLFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{

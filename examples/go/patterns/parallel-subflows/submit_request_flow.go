@@ -113,7 +113,7 @@ func invokeRequest(
 ) (bool, error) {
 	var accepted bool
 	err := client.InvokeRPC(
-		ctx, parentID, parentFlow.SendRequest, request, &accepted, dex.InvokeOptions{},
+		ctx, parentID, parentFlow.SendRequest, request, &accepted,
 	)
 	return accepted, err
 }

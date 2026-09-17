@@ -64,6 +64,15 @@ func (flow *EngagementFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *EngagementFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Describe, nil),
+		dex.DefineRPC(flow.OptOut, nil),
+		dex.DefineRPC(flow.Decline, nil),
+		dex.DefineRPC(flow.Accept, nil),
+	}
+}
+
 func (*EngagementFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{

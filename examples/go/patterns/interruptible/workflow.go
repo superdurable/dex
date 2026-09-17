@@ -52,6 +52,13 @@ func (*InterruptibleFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *InterruptibleFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Interrupt, nil),
+		dex.DefineRPC(flow.GetInterruptSignal, nil),
+	}
+}
+
 func (*InterruptibleFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{InterruptSignal},
