@@ -12,8 +12,8 @@ package integ
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,6 +80,7 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 
 	const storeId = "s3-store-id"
 	objectCounts := make([]int, len(flowIds))
+	expectedWorkflowPaths := make(map[string]string, len(flowIds))
 	for i, flowId := range flowIds {
 		objectCount := 1
 		if i == len(flowIds)-1 {
@@ -87,13 +88,18 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 		}
 		objectCounts[i] = objectCount
 		for j := 0; j < objectCount; j++ {
-			_, _, err := globalBlobStore.WriteObject(
+			_, locator, err := globalBlobStore.WriteObject(
 				ctx,
 				flowId,
 				fmt.Sprintf("cleanup-%d", j),
 				[]byte(fmt.Sprintf("test-data-workflow-%d-object-%d", i, j)),
 			)
 			require.NoError(t, err)
+			if j == 0 {
+				objectPath, pathErr := blobstore.ValueObjectPath(flowId, locator)
+				require.NoError(t, pathErr)
+				expectedWorkflowPaths[flowId] = strings.SplitN(objectPath, "/", 2)[0]
+			}
 		}
 	}
 
@@ -125,14 +131,9 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 		continuationToken = output.ContinuationToken
 	}
 
-	todayPrefix := time.Now().UTC().Format("060102")
 	foundCount := 0
 	for _, flowId := range flowIds {
-		expectedPath := fmt.Sprintf(
-			"%s$%s",
-			todayPrefix,
-			base64.RawURLEncoding.EncodeToString([]byte(flowId)),
-		)
+		expectedPath := expectedWorkflowPaths[flowId]
 		for _, path := range allWorkflowPaths {
 			if path == expectedPath {
 				foundCount++

@@ -138,10 +138,10 @@ is still operationally clear.
 Blob references are opaque application values. Their wire forms are:
 
 ~~~text
-String: <storageId>|<YYMMDD>/<objectId>
-Object: <storageId>|<YYMMDD>/<objectId>
+String: <storageId>|<base36DayOffset>/<objectId>
+Object: <storageId>|<base36DayOffset>/<objectId>
 
-Example: p1|260913/ab3de7kp2x
+Example: p1|c/ab3de7kp2x
 ~~~
 
 The Value arm distinguishes String and Object references. An Object Blob stores
@@ -151,10 +151,20 @@ Flow ID and encoding. Dex obtains the owning Flow ID from trusted request or
 Worker context. The physical object path is:
 
 ~~~text
-<namespace>/<YYMMDD>$<base64url(flowId)>/<objectId>
+<namespace>/<YYMMDD>$<escapedFlowId>/<objectId>
+
+Example: default/260913$coding-session--c08256c4/ab3de7kp2x
 ~~~
 
-The two-digit year represents 2000 through 2099.
+The reference date is the lowercase Base36 day offset from September 1, 2026
+UTC. It has no leading zeros: **0** is September 1, 2026, **c** is September 13,
+2026, and **10** is October 7, 2026. The physical path retains **YYMMDD**, whose
+two-digit year represents 2000 through 2099.
+
+Common Flow ID characters remain readable in the physical path. Dex
+percent-escapes characters that are unsafe in object-key path segments. For
+example, **SubFlow:parent-step-0** becomes **SubFlow%3Aparent-step-0**. Run IDs
+and Step execution IDs in input-snapshot paths remain Base64URL encoded.
 
 Internal references belong to exactly one Flow. Dex rehydrates and rewrites a
 reference before it crosses a Flow boundary. The destination receives an
@@ -181,7 +191,7 @@ length of 50 can represent the full SHA-256 value. Longer values add leading
 zeros but no additional entropy.
 
 Cleanup keeps the UTC date at the start of each Flow prefix. It lists prefixes
-in lexical pages, describes the encoded Flow and optional Run, and deletes the
+in lexical pages, decodes the escaped Flow and optional Run, and deletes the
 whole prefix only after the execution no longer exists. Continue listing with
 the returned continuation token; no manifest is involved.
 

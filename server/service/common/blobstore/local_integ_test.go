@@ -144,7 +144,7 @@ func TestLocalBlobStoreTransfersCrossFlowOwnership(t *testing.T) {
 	}}}
 	require.NoError(t, OffloadLargeValue(ctx, value, sourceFlowID, "invocation", threshold, store, true))
 	sourceRef := value.GetInternalBlobIdForObjValue()
-	require.Regexp(t, regexp.MustCompile(`^local\|[0-9]{6}/[0-9a-z]{10}$`), sourceRef)
+	require.Regexp(t, regexp.MustCompile(`^local\|[0-9a-z]{1,3}/[0-9a-z]{10}$`), sourceRef)
 
 	rawValue := &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
 		Encoding: "raw",
@@ -152,7 +152,7 @@ func TestLocalBlobStoreTransfersCrossFlowOwnership(t *testing.T) {
 	}}}
 	require.NoError(t, OffloadLargeValue(ctx, rawValue, sourceFlowID, "invocation", threshold, store, true))
 	rawRef := rawValue.GetInternalBlobIdForObjValue()
-	require.Regexp(t, regexp.MustCompile(`^local\|[0-9]{6}/[0-9a-z]{10}$`), rawRef)
+	require.Regexp(t, regexp.MustCompile(`^local\|[0-9a-z]{1,3}/[0-9a-z]{10}$`), rawRef)
 	require.NotEqual(t, sourceRef, rawRef)
 	require.NoError(t, HydrateValue(ctx, sourceFlowID, rawValue, store))
 	require.Equal(t, "raw", rawValue.GetObjValue().GetEncoding())
@@ -163,7 +163,7 @@ func TestLocalBlobStoreTransfersCrossFlowOwnership(t *testing.T) {
 	require.NoError(t, OffloadLargeValue(ctx, stringValue, sourceFlowID, "string", threshold, store, true))
 	require.Regexp(
 		t,
-		regexp.MustCompile(`^local\|[0-9]{6}/[0-9a-z]{10}$`),
+		regexp.MustCompile(`^local\|[0-9a-z]{1,3}/[0-9a-z]{10}$`),
 		stringValue.GetInternalBlobIdForStringValue(),
 	)
 	require.NoError(t, HydrateValue(ctx, sourceFlowID, stringValue, store))
@@ -181,9 +181,11 @@ func TestLocalBlobStoreTransfersCrossFlowOwnership(t *testing.T) {
 	require.Equal(t, int64(3), mustCountFlowObjects(t, ctx, store, sourceFlowID))
 	require.Equal(t, int64(1), mustCountFlowObjects(t, ctx, store, destinationFlowID))
 
-	date := strings.SplitN(strings.SplitN(sourceRef, "|", 2)[1], "/", 2)[0]
+	referenceDate := strings.SplitN(strings.SplitN(sourceRef, "|", 2)[1], "/", 2)[0]
+	writeDate, err := parseBlobReferenceDate(referenceDate)
+	require.NoError(t, err)
 	require.NoError(t, store.DeleteWorkflowObjects(
-		ctx, "local", date+"$"+encodePathPart(sourceFlowID),
+		ctx, "local", formatBlobStorageDate(writeDate)+"$"+encodeFlowIDPathPart(sourceFlowID),
 	))
 	require.NoError(t, HydrateValue(ctx, destinationFlowID, value, store))
 	require.Equal(t, "json", value.GetObjValue().GetEncoding())

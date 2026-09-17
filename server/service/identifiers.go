@@ -21,7 +21,7 @@ import (
 // "/" separates object-key path segments. Reserving it keeps every Flow's blobs in one directory
 // and preserves local and remote blob listing and cleanup boundaries.
 //
-// "$" separates the UTC date prefix from the Flow ID in `<yymmdd>$<flowID>/<blobID>`.
+// "$" separates the UTC date prefix from the escaped Flow ID in `<yymmdd>$<escapedFlowID>/<blobID>`.
 // Reserving it keeps date-scoped listing and cleanup prefixes unambiguous.
 //
 // ":" identifies server-generated Flow namespaces such as `SubFlow:`. Reserving it prevents an

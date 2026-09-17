@@ -152,8 +152,11 @@ func (b *blobStoreImpl) WriteObject(
 	if err != nil {
 		return "", "", err
 	}
-	startedDate := formatBlobDate(time.Now())
-	locator = startedDate + "/" + objectID
+	writeDate, err := formatBlobReferenceDate(time.Now())
+	if err != nil {
+		return "", "", err
+	}
+	locator = writeDate + "/" + objectID
 	path, err := ValueObjectPath(flowID, locator)
 	if err != nil {
 		return "", "", err
@@ -504,8 +507,8 @@ func getObject(ctx context.Context, client *s3.Client, bucketName, key string) (
 
 func (b *blobStoreImpl) CountWorkflowObjectsForTesting(ctx context.Context, flowID string) (int64, error) {
 	// Create the prefix to match objects for this Flow for today.
-	yymmdd := formatBlobDate(time.Now())
-	prefix := fmt.Sprintf("%s%s$%s/", b.pathPrefix, yymmdd, encodePathPart(flowID))
+	yymmdd := formatBlobStorageDate(time.Now())
+	prefix := fmt.Sprintf("%s%s$%s/", b.pathPrefix, yymmdd, encodeFlowIDPathPart(flowID))
 	if b.activeStorage.StorageType == config.StorageTypeLocal {
 		return countLocalObjects(ctx, b.activeStorage.LocalDirectory, prefix)
 	}
@@ -697,7 +700,7 @@ func (b *blobStoreImpl) ListWorkflowPaths(ctx context.Context, input ListObjectP
 	workflowPaths := make([]string, 0, len(result.CommonPrefixes))
 	for _, commonPrefix := range result.CommonPrefixes {
 		if commonPrefix.Prefix != nil {
-			// Remove the pathPrefix to get the workflow path (yymmdd$encodedFlowId)
+			// Remove the pathPrefix to get the workflow path (yymmdd$escapedFlowId)
 			prefixStr := *commonPrefix.Prefix
 			if strings.HasPrefix(prefixStr, b.pathPrefix) {
 				workflowPath := strings.TrimPrefix(prefixStr, b.pathPrefix)

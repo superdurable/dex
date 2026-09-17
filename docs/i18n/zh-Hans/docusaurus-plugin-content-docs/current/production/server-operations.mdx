@@ -122,10 +122,10 @@ blobStore:
 应用必须将 Blob reference 视为 opaque value。其 wire format 为：
 
 ~~~text
-String: <storageId>|<YYMMDD>/<objectId>
-Object: <storageId>|<YYMMDD>/<objectId>
+String: <storageId>|<base36DayOffset>/<objectId>
+Object: <storageId>|<base36DayOffset>/<objectId>
 
-示例：p1|260913/ab3de7kp2x
+示例：p1|c/ab3de7kp2x
 ~~~
 
 Value arm 用于区分 String 和 Object reference。Object Blob 保存完整的 **EncodedObject**，
@@ -134,10 +134,19 @@ Value arm 用于区分 String 和 Object reference。Object Blob 保存完整的
 物理 object path 为：
 
 ~~~text
-<namespace>/<YYMMDD>$<base64url(flowId)>/<objectId>
+<namespace>/<YYMMDD>$<escapedFlowId>/<objectId>
+
+示例：default/260913$coding-session--c08256c4/ab3de7kp2x
 ~~~
 
-两位年份表示 2000 到 2099 年。
+reference date 是从 2026 年 9 月 1 日 UTC 起算的全小写 Base36 日序，并且没有前导零。
+**0** 表示 2026 年 9 月 1 日，**c** 表示 2026 年 9 月 13 日，**10** 表示 2026 年
+10 月 7 日。物理路径继续使用 **YYMMDD**，其中两位年份表示 2000 到 2099 年。
+
+常见 Flow ID 字符会在物理路径中保持可读。Dex 只对 object-key path segment 中不安全的
+字符进行 percent escaping。例如，**SubFlow:parent-step-0** 会变成
+**SubFlow%3Aparent-step-0**。input snapshot path 中的 Run ID 和 Step execution ID 继续使用
+Base64URL encoding。
 
 internal reference 只属于一个 Flow。在 reference 跨越 Flow boundary 前，Dex 会先 hydrate，
 再为目标 Flow 重写。目标 Flow 会收到 inline value，或收到存储在自身 Flow prefix 下的新
@@ -156,8 +165,8 @@ reader 接受任意非空的全小写 Base36 ID，因此 deployment 可在协调
 1.4 × 10⁻⁴。普通 deployment 使用 10。高吞吐 Flow 使用 12 或 16。长度 50 可以表达完整
 SHA-256 值。更长的值只会增加前导零，不会增加 entropy。
 
-cleanup 保留每个 Flow prefix 开头的 UTC date。它按字典序分页列出 prefix，describe 已编码
-的 Flow 和可选 Run，并且只在 execution 已不存在时删除整个 prefix。随后使用返回的
+cleanup 保留每个 Flow prefix 开头的 UTC date。它按字典序分页列出 prefix，解码转义后的
+Flow 和可选 Run，并且只在 execution 已不存在时删除整个 prefix。随后使用返回的
 continuation token 继续 list；该过程不使用 manifest。
 
 ASYNC Step input snapshot 默认关闭。只有当 semantic history 必须保留成功的 ASYNC local

@@ -47,14 +47,24 @@ payload. The offload threshold still compares the original payload length.
 Durable History stores a compact locator without the Flow ID or encoding:
 
 ```text
-<storageId>|<yyMMdd>/<objectID>
+<storageId>|<base36DayOffset>/<objectID>
 ```
 
 The Server combines the locator with the contextual Flow ID:
 
 ```text
-<namespace>/<yyMMdd>$<base64url(flowID)>/<objectID>
+<namespace>/<yyMMdd>$<escapedFlowID>/<objectID>
 ```
+
+The date code is the canonical lowercase Base36 day offset from September 1,
+2026 UTC. It has no leading zeros. `0` represents the epoch, `c` represents
+September 13, 2026, and `ko0` represents December 31, 2099. The physical path
+uses the decoded date in `yyMMdd` form so lexical storage order remains
+chronological.
+
+Flow IDs retain ASCII letters, digits, hyphens, and underscores in the physical
+path. Every other UTF-8 byte uses canonical uppercase percent escaping. Run IDs
+and Step execution IDs in input-snapshot paths remain Base64URL encoded.
 
 Activity writes use the workflow run ID plus activity ID as `invocationID`.
 External API writes use the caller-provided request ID. Activity attempt numbers
@@ -68,9 +78,8 @@ Internal Blob references belong to one Flow. Before a reference crosses a Flow
 boundary, the Server reads it with the source Flow ID and writes any still-large
 value under the destination Flow ID. This makes cleanup of the source Flow safe.
 
-The date prefix uses the server's UTC date when the object is written. A retry
-crossing a UTC date boundary can create another path. Its two-digit year covers
-2000 through 2099.
+The date uses the server's UTC date when the object is written. A retry crossing
+a UTC date boundary can create another path.
 
 S3 bucket versioning must remain disabled. Otherwise, repeated writes to one
 deterministic key retain hidden object versions.

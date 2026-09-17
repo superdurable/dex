@@ -12,7 +12,6 @@ package integ
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1670,8 +1669,8 @@ func testWebHistoryAndSummary(
 		stepInputBlobID := firstStep.GetInput().GetStepInput().GetInternalBlobIdForStringValue()
 		require.NotEmpty(t, stepInputBlobID)
 		stepInputLocator := strings.SplitN(stepInputBlobID, "|", 2)[1]
-		locatorParts := strings.SplitN(stepInputLocator, "/", 2)
-		stepInputObjectPath := locatorParts[0] + "$" + encodeWebPathPart(flowID) + "/" + locatorParts[1]
+		stepInputObjectPath, pathErr := blobstore.ValueObjectPath(flowID, stepInputLocator)
+		require.NoError(t, pathErr)
 		require.NoError(t, os.Remove(filepath.Join(blobDirectory, "default", stepInputObjectPath)))
 		valueMissingEvents, _ := getAllWebHistoryEvents(
 			t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
@@ -2066,10 +2065,6 @@ func blobRequestEntries(flowID string, values []*dexpb.Value) []*dexpb.LoadBlobR
 		entries = append(entries, &dexpb.LoadBlobRequestEntry{FlowId: flowID, BlobValue: value})
 	}
 	return entries
-}
-
-func encodeWebPathPart(value string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(value))
 }
 
 func resolvedWebStringValue(value *dexpb.Value, loadedValues map[string]*dexpb.Value) string {

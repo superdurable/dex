@@ -22,6 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
@@ -222,9 +223,9 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.True(t, len(output.WorkflowPaths) >= 2)
 
 		// Verify workflow paths contain expected patterns
-		todayPrefix := formatBlobDate(time.Now())
-		expectedPath1 := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart(workflowId1))
-		expectedPath2 := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart(workflowId2))
+		todayPrefix := formatBlobStorageDate(time.Now())
+		expectedPath1 := fmt.Sprintf("%s$%s", todayPrefix, encodeFlowIDPathPart(workflowId1))
+		expectedPath2 := fmt.Sprintf("%s$%s", todayPrefix, encodeFlowIDPathPart(workflowId2))
 
 		foundPath1 := false
 		foundPath2 := false
@@ -273,8 +274,8 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Equal(t, int64(3), count)
 
 		// Delete all objects for the workflow
-		todayPrefix := formatBlobDate(time.Now())
-		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart(deleteTestWorkflowId))
+		todayPrefix := formatBlobStorageDate(time.Now())
+		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, encodeFlowIDPathPart(deleteTestWorkflowId))
 		err = blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath)
 		assert.NoError(t, err)
 
@@ -307,8 +308,8 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Equal(t, int64(numObjects), count)
 
 		// Delete all objects for the workflow
-		todayPrefix := formatBlobDate(time.Now())
-		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart(multiDeleteWorkflowId))
+		todayPrefix := formatBlobStorageDate(time.Now())
+		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, encodeFlowIDPathPart(multiDeleteWorkflowId))
 		err = blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath)
 		assert.NoError(t, err)
 
@@ -320,8 +321,8 @@ func TestBlobStoreIntegration(t *testing.T) {
 
 	t.Run("DeleteWorkflowObjectsNonExistent", func(t *testing.T) {
 		// Try to delete objects for a workflow that doesn't exist
-		todayPrefix := formatBlobDate(time.Now())
-		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, encodePathPart("non-existent-workflow"))
+		todayPrefix := formatBlobStorageDate(time.Now())
+		workflowPath := fmt.Sprintf("%s$%s", todayPrefix, encodeFlowIDPathPart("non-existent-workflow"))
 		err := blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath)
 		assert.NoError(t, err) // Should succeed even if no objects to delete
 	})
@@ -337,7 +338,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 
 		// Test reading with invalid store ID
 		_, err = blobStore.ReadObject(
-			ctx, "invalid-store-id", "flow", formatBlobDate(time.Now())+"/0000000000",
+			ctx, "invalid-store-id", "flow", mustBlobReferenceDate(t, time.Now())+"/0000000000",
 		)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "store not found")
@@ -349,7 +350,7 @@ func TestBlobStoreIntegration(t *testing.T) {
 
 		// Test reading a non-existent key from a valid store triggers the new error wrapping
 		_, err = blobStore.ReadObject(
-			ctx, testStorageId, "flow", formatBlobDate(time.Now())+"/0000000000",
+			ctx, testStorageId, "flow", mustBlobReferenceDate(t, time.Now())+"/0000000000",
 		)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read object")
@@ -412,4 +413,11 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Equal(t, "binary", objectValue.GetObjValue().GetEncoding())
 		assert.Equal(t, objectPayload, objectValue.GetObjValue().GetPayload())
 	})
+}
+
+func mustBlobReferenceDate(t *testing.T, timestamp time.Time) string {
+	t.Helper()
+	referenceDate, err := formatBlobReferenceDate(timestamp)
+	require.NoError(t, err)
+	return referenceDate
 }
