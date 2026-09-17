@@ -24,6 +24,7 @@ import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.superdurable.dex.exceptions.DexRequestException;
+import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
@@ -229,6 +230,7 @@ final class ClientExceptionIntegrationTest {
         final DexRequestException missingDetails = assertThrows(
                 DexRequestException.class,
                 () -> client.describeFlow("no-details"));
+        assertTrue(missingDetails instanceof DexServiceException);
         assertEquals(ErrorSubStatus.UNCATEGORIZED, missingDetails.getSubStatus());
         assertEquals("plain failure", missingDetails.getDetail());
 

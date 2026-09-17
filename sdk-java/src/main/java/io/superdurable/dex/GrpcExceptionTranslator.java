@@ -16,6 +16,7 @@ import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.superdurable.dex.exceptions.ChannelMessageNotFoundException;
 import io.superdurable.dex.exceptions.DexRequestException;
+import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
@@ -36,7 +37,7 @@ final class GrpcExceptionTranslator {
     private GrpcExceptionTranslator() {
     }
 
-    static RuntimeException translate(
+    static DexServiceException translate(
             final StatusRuntimeException exception,
             final FlowTargetRequirement requirement,
             final String flowId) {
@@ -104,7 +105,7 @@ final class GrpcExceptionTranslator {
         return exception.getStatus().getCode().name();
     }
 
-    private static RuntimeException missingFlowException(
+    private static DexServiceException missingFlowException(
             final Status.Code code,
             final String detail,
             final StatusRuntimeException cause,
@@ -122,7 +123,7 @@ final class GrpcExceptionTranslator {
                 cause);
     }
 
-    private static RuntimeException workerException(
+    private static DexServiceException workerException(
             final Status.Code code,
             final String detail,
             final StatusRuntimeException cause,

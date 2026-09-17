@@ -21,6 +21,7 @@ import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
 import io.superdurable.dex.GrpcExceptionTranslator.FlowTargetRequirement;
 import io.superdurable.dex.exceptions.DexRequestException;
+import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
@@ -89,10 +90,10 @@ import java.util.concurrent.TimeUnit;
  * <p>All network methods block the calling thread until the gRPC request completes. Create one
  * client for a registered set of Flow definitions and reuse it across calls; the underlying gRPC
  * channel supports concurrent callers. The supplied {@link BlobCache} is borrowed and is not closed
- * by the client. Service failures use concrete exception types. Requests without a more specific
- * failure type throw {@link DexRequestException}. Long-poll operations can throw
- * {@link LongPollTimeoutException}. {@link #waitForFlow(String)} returns a {@link FlowResult} for
- * every terminal status.
+ * by the client. Service failures use typed {@link DexServiceException} subclasses. Requests
+ * without a more specific failure type throw {@link DexRequestException}. Long-poll operations can
+ * throw {@link LongPollTimeoutException}. {@link #waitForFlow(String)} returns a {@link FlowResult}
+ * for every terminal status.
  *
  * <pre>{@code
  * Registry registry = new Registry(Collections.<Flow<?>>singletonList(orderFlow));

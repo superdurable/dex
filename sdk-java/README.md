@@ -452,9 +452,10 @@ before decoding outputs from an unsuccessful result.
 detail, gRPC code, and Java stack trace. Read the persisted trace with
 `getWorkerStackTrace()`; it may be empty for Workers implemented by another SDK.
 `DexRequestException` reports a request failure that has no more specific public
-exception type and exposes status metadata for diagnostics. There is no public
-catch-all base type for remote failures; handle only the concrete outcomes that
-the application can recover from.
+exception type. All remote failures remain subclasses of the public
+`DexServiceException`, which exposes status metadata for diagnostics and narrow
+boundaries that intentionally apply one policy to every remote Dex failure.
+Prefer concrete exceptions for outcomes the application can decide.
 
 Local definition and value failures use `FlowDefinitionException`,
 `InvalidStepResultException`, and `ValueMappingException`.
