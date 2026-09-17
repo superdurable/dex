@@ -20,7 +20,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
 import io.superdurable.dex.GrpcExceptionTranslator.FlowTargetRequirement;
-import io.superdurable.dex.exceptions.DexServiceException;
+import io.superdurable.dex.exceptions.DexRequestException;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
@@ -89,9 +89,10 @@ import java.util.concurrent.TimeUnit;
  * <p>All network methods block the calling thread until the gRPC request completes. Create one
  * client for a registered set of Flow definitions and reuse it across calls; the underlying gRPC
  * channel supports concurrent callers. The supplied {@link BlobCache} is borrowed and is not closed
- * by the client. Service failures use typed {@link DexServiceException} subclasses. Long-poll
- * operations can throw {@link LongPollTimeoutException}. {@link #waitForFlow(String)} returns a
- * {@link FlowResult} for every terminal status.
+ * by the client. Service failures use concrete exception types. Requests without a more specific
+ * failure type throw {@link DexRequestException}. Long-poll operations can throw
+ * {@link LongPollTimeoutException}. {@link #waitForFlow(String)} returns a {@link FlowResult} for
+ * every terminal status.
  *
  * <pre>{@code
  * Registry registry = new Registry(Collections.<Flow<?>>singletonList(orderFlow));
@@ -174,7 +175,7 @@ public final class Client implements AutoCloseable {
      * @throws IllegalArgumentException if the Flow is unregistered, the ID is invalid, or the input
      *     does not match the registered start Step
      * @throws FlowAlreadyStartedException if the Flow ID conflicts with an existing execution
-     * @throws DexServiceException if Dex otherwise rejects or cannot complete the request
+     * @throws DexRequestException if Dex otherwise rejects or cannot complete the request
      */
     public <I> String startFlow(
             final Flow<I> flow,
@@ -194,7 +195,7 @@ public final class Client implements AutoCloseable {
      * @return the server-assigned run ID
      * @throws IllegalArgumentException if the Flow, ID, input, or duration settings are invalid
      * @throws FlowAlreadyStartedException if the Flow ID conflicts with an existing execution
-     * @throws DexServiceException if Dex otherwise rejects or cannot complete the request
+     * @throws DexRequestException if Dex otherwise rejects or cannot complete the request
      */
     public <I> String startFlow(
             final Flow<I> flow,
@@ -351,7 +352,7 @@ public final class Client implements AutoCloseable {
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
-     * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     * @throws DexRequestException if Dex otherwise rejects or cannot complete the RPC
      */
     public <I, O> O invokeRPC(
             final RpcDefinitions.RpcFunc1<I, O> rpcStubMethod,
@@ -368,7 +369,7 @@ public final class Client implements AutoCloseable {
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
-     * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     * @throws DexRequestException if Dex otherwise rejects or cannot complete the RPC
      */
     public <O> O invokeRPC(final RpcDefinitions.RpcFunc0<O> rpcStubMethod) {
         return rpcStubMethod.execute(null).getOutput();
@@ -383,7 +384,7 @@ public final class Client implements AutoCloseable {
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
-     * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     * @throws DexRequestException if Dex otherwise rejects or cannot complete the RPC
      */
     public <I> void invokeRPC(
             final RpcDefinitions.RpcProc1<I> rpcStubMethod,
@@ -398,7 +399,7 @@ public final class Client implements AutoCloseable {
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
-     * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     * @throws DexRequestException if Dex otherwise rejects or cannot complete the RPC
      */
     public void invokeRPC(final RpcDefinitions.RpcProc0 rpcStubMethod) {
         rpcStubMethod.execute(null);
@@ -417,7 +418,7 @@ public final class Client implements AutoCloseable {
      * @param <T> the Stream message type
      * @throws FlowDefinitionException if the Stream is not registered
      * @throws IllegalArgumentException if the Flow ID or source is invalid
-     * @throws DexServiceException if Dex cannot append the message
+     * @throws DexRequestException if Dex cannot append the message
      */
     public <T> void writeStream(
             final String flowId,
@@ -463,7 +464,7 @@ public final class Client implements AutoCloseable {
      * @return the decoded message and resumable metadata
      * @throws LongPollTimeoutException if no message arrives before the wait expires
      * @throws FlowDefinitionException if the Stream is not registered
-     * @throws DexServiceException if Dex cannot read the Stream
+     * @throws DexRequestException if Dex cannot read the Stream
      */
     public <T> StreamMessage<T> readStream(
             final String flowId,
@@ -511,7 +512,7 @@ public final class Client implements AutoCloseable {
      * @return decoded messages in newest-first order and the next-page token
      * @throws IllegalArgumentException if {@code pageSize} is not positive
      * @throws FlowDefinitionException if the Stream is not registered
-     * @throws DexServiceException if Dex cannot list the Stream
+     * @throws DexRequestException if Dex cannot list the Stream
      */
     public <T> StreamMessagesPage<T> listStreamMessages(
             final String flowId,
@@ -554,7 +555,7 @@ public final class Client implements AutoCloseable {
      *
      * @param flowId the target Flow ID
      * @throws FlowNotActiveException if the target Flow has no active execution
-     * @throws DexServiceException if Dex otherwise cannot stop the Flow
+     * @throws DexRequestException if Dex otherwise cannot stop the Flow
      */
     public void stopFlow(final String flowId) {
         stopFlow(flowId, new StopFlowOptions());
@@ -566,7 +567,7 @@ public final class Client implements AutoCloseable {
      * @param flowId the target Flow ID
      * @param stopOptions the stop mode and optional reason
      * @throws FlowNotActiveException if the target Flow has no active execution
-     * @throws DexServiceException if Dex otherwise cannot stop the Flow
+     * @throws DexRequestException if Dex otherwise cannot stop the Flow
      */
     public void stopFlow(final String flowId, final StopFlowOptions stopOptions) {
         call(() -> service.stopFlow(StopFlowRequest.newBuilder()
@@ -582,7 +583,7 @@ public final class Client implements AutoCloseable {
      * @param flowId the target Flow ID
      * @return the terminal Flow result
      * @throws FlowNotFoundException if no matching Flow execution exists
-     * @throws DexServiceException if Dex otherwise cannot complete the wait request
+     * @throws DexRequestException if Dex otherwise cannot complete the wait request
      */
     public FlowResult waitForFlow(final String flowId) {
         return waitForFlow(flowId, null);
@@ -597,7 +598,7 @@ public final class Client implements AutoCloseable {
      * @throws LongPollTimeoutException if {@code timeout} expires while the Flow remains running
      * @throws IllegalArgumentException if {@code timeout} is not a supported whole-second duration
      * @throws FlowNotFoundException if no matching Flow execution exists
-     * @throws DexServiceException if Dex otherwise cannot complete the wait request
+     * @throws DexRequestException if Dex otherwise cannot complete the wait request
      */
     public FlowResult waitForFlow(
             final String flowId,
@@ -619,7 +620,7 @@ public final class Client implements AutoCloseable {
      * @param flowId the target Flow ID
      * @return the current Flow run summary
      * @throws FlowNotFoundException if no matching Flow execution exists
-     * @throws DexServiceException if Dex otherwise cannot describe the Flow
+     * @throws DexRequestException if Dex otherwise cannot describe the Flow
      */
     public FlowInfo describeFlow(final String flowId) {
         final GetFlowSummaryResponse response = call(() -> service.getFlowSummary(
@@ -642,7 +643,7 @@ public final class Client implements AutoCloseable {
      * @param pageSize the nonnegative requested page size; zero uses the server default
      * @return the first immutable search-results page
      * @throws IllegalArgumentException if {@code pageSize} is negative
-     * @throws DexServiceException if Dex cannot execute the search
+     * @throws DexRequestException if Dex cannot execute the search
      */
     public SearchFlowsPage searchFlows(final String query, final int pageSize) {
         return searchFlows(query, pageSize, "");
@@ -656,7 +657,7 @@ public final class Client implements AutoCloseable {
      * @param nextPageToken the prior page's token, or {@code null} for the first page
      * @return an immutable search-results page
      * @throws IllegalArgumentException if {@code pageSize} is negative
-     * @throws DexServiceException if Dex cannot execute the search
+     * @throws DexRequestException if Dex cannot execute the search
      */
     public SearchFlowsPage searchFlows(
             final String query,
@@ -703,7 +704,7 @@ public final class Client implements AutoCloseable {
      * @param options the time travel point and replay behavior
      * @return the server-assigned run ID of the new execution
      * @throws FlowNotFoundException if no matching Flow execution exists
-     * @throws DexServiceException if Dex otherwise rejects or cannot perform time travel
+     * @throws DexRequestException if Dex otherwise rejects or cannot perform time travel
      */
     public String timeTravel(final String flowId, final TimeTravelOptions options) {
         final ResetFlowRequest.Builder request = ResetFlowRequest.newBuilder()
@@ -736,7 +737,7 @@ public final class Client implements AutoCloseable {
      * @param stepExecutionId the Step execution containing the timer
      * @param timerId the timer selected by condition ID or index
      * @throws FlowNotActiveException if the target Flow has no active execution
-     * @throws DexServiceException if Dex otherwise cannot find or skip the timer
+     * @throws DexRequestException if Dex otherwise cannot find or skip the timer
      */
     public void skipTimer(
             final String flowId,
@@ -773,7 +774,7 @@ public final class Client implements AutoCloseable {
      * @throws IllegalArgumentException if the budget is unsupported
      * @throws WaitHandlerTimeoutException if a positive handler budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
-     * @throws DexServiceException if Dex otherwise cannot complete the wait request
+     * @throws DexRequestException if Dex otherwise cannot complete the wait request
      */
     public void waitForStepCompletion(
             final String flowId,
@@ -818,7 +819,7 @@ public final class Client implements AutoCloseable {
      * @throws IllegalArgumentException if the budget, match operand, or operator is invalid
      * @throws WaitHandlerTimeoutException if a positive handler budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
-     * @throws DexServiceException if Dex otherwise cannot complete the wait
+     * @throws DexRequestException if Dex otherwise cannot complete the wait
      */
     public <T> T waitForAttributeMatch(
             final String flowId,
@@ -842,7 +843,7 @@ public final class Client implements AutoCloseable {
      * @throws IllegalArgumentException if the budget, match operand, or operator is invalid
      * @throws WaitHandlerTimeoutException if a positive handler budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
-     * @throws DexServiceException if Dex otherwise cannot complete the wait
+     * @throws DexRequestException if Dex otherwise cannot complete the wait
      */
     public <T> T waitForAttributeMatch(
             final String flowId,
@@ -933,7 +934,7 @@ public final class Client implements AutoCloseable {
      * @param flowId the target Flow ID
      * @param config the new Flow configuration
      * @throws FlowNotActiveException if the target Flow has no active execution
-     * @throws DexServiceException if Dex otherwise cannot update the Flow
+     * @throws DexRequestException if Dex otherwise cannot update the Flow
      */
     public void updateFlowConfig(final String flowId, final FlowConfig config) {
         call(
@@ -950,7 +951,7 @@ public final class Client implements AutoCloseable {
      *
      * @param flowId the target Flow ID
      * @throws FlowNotActiveException if the target Flow has no active execution
-     * @throws DexServiceException if Dex otherwise cannot apply the request
+     * @throws DexRequestException if Dex otherwise cannot apply the request
      */
     public void triggerContinueAsNew(final String flowId) {
         call(

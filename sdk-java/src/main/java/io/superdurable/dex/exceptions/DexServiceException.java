@@ -12,38 +12,12 @@ package io.superdurable.dex.exceptions;
 
 import io.grpc.Status;
 
-/**
- * Reports a Dex API failure translated from a gRPC response.
- *
- * <p>Inspect the standard gRPC {@link #getCode()} first and the optional Dex
- * {@link #getSubStatus()} when application recovery needs a more precise category. Prefer a
- * concrete subclass such as {@link FlowNotFoundException} for expected outcomes and use this base
- * type for diagnostics or uncategorized service failures.
- *
- * <pre>{@code
- * try {
- *     client.describeFlow("order-123");
- * } catch (FlowNotFoundException missing) {
- *     createOrder();
- * } catch (DexServiceException serviceFailure) {
- *     log.error("Dex {}: {}", serviceFailure.getCode(), serviceFailure.getDetail());
- * }
- * }</pre>
- */
-public class DexServiceException extends RuntimeException {
+class DexServiceException extends RuntimeException {
     private final Status.Code code;
     private final ErrorSubStatus subStatus;
     private final String detail;
 
-    /**
-     * Creates a service exception with transport and Dex-specific status metadata.
-     *
-     * @param code the nonnull gRPC status code
-     * @param subStatus the Dex-specific category, or {@code null} when unavailable
-     * @param detail the server-provided error detail, which may be {@code null}
-     * @param cause the original transport failure, which may be {@code null}
-     */
-    public DexServiceException(
+    DexServiceException(
             final Status.Code code,
             final ErrorSubStatus subStatus,
             final String detail,

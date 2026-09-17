@@ -451,8 +451,10 @@ before decoding outputs from an unsuccessful result.
 `WorkerInvocationException` preserves the original WorkerService error type,
 detail, gRPC code, and Java stack trace. Read the persisted trace with
 `getWorkerStackTrace()`; it may be empty for Workers implemented by another SDK.
-`DexServiceException` remains the generic service failure and exposes status
-metadata for diagnostics.
+`DexRequestException` reports a request failure that has no more specific public
+exception type and exposes status metadata for diagnostics. There is no public
+catch-all base type for remote failures; handle only the concrete outcomes that
+the application can recover from.
 
 Local definition and value failures use `FlowDefinitionException`,
 `InvalidStepResultException`, and `ValueMappingException`.

@@ -23,7 +23,7 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
-import io.superdurable.dex.exceptions.DexServiceException;
+import io.superdurable.dex.exceptions.DexRequestException;
 import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
@@ -226,19 +226,19 @@ final class ClientExceptionIntegrationTest {
 
     @Test
     void fallsBackForMissingUnknownAndMalformedDetails() {
-        final DexServiceException missingDetails = assertThrows(
-                DexServiceException.class,
+        final DexRequestException missingDetails = assertThrows(
+                DexRequestException.class,
                 () -> client.describeFlow("no-details"));
         assertEquals(ErrorSubStatus.UNCATEGORIZED, missingDetails.getSubStatus());
         assertEquals("plain failure", missingDetails.getDetail());
 
-        final DexServiceException unknown = assertThrows(
-                DexServiceException.class,
+        final DexRequestException unknown = assertThrows(
+                DexRequestException.class,
                 () -> client.describeFlow("unknown"));
         assertEquals(ErrorSubStatus.UNCATEGORIZED, unknown.getSubStatus());
 
-        final DexServiceException malformed = assertThrows(
-                DexServiceException.class,
+        final DexRequestException malformed = assertThrows(
+                DexRequestException.class,
                 () -> client.describeFlow("malformed"));
         assertEquals(ErrorSubStatus.UNCATEGORIZED, malformed.getSubStatus());
         assertTrue(malformed.getDetail().contains("malformed"));

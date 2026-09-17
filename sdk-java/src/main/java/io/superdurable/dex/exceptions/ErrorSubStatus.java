@@ -13,7 +13,7 @@ package io.superdurable.dex.exceptions;
 /**
  * Identifies a Dex-specific category within a transport error.
  *
- * <p>Inspect this value from {@link DexServiceException#getSubStatus()} when application recovery
+ * <p>Inspect this value from {@link DexRequestException#getSubStatus()} when application recovery
  * depends on more detail than the gRPC status code provides. Prefer concrete exception subclasses
  * for control flow; use the substatus for diagnostics and uncategorized service failures.
  */

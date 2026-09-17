@@ -15,7 +15,7 @@ package io.superdurable.dex.integ;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.TimerId;
-import io.superdurable.dex.exceptions.DexServiceException;
+import io.superdurable.dex.exceptions.DexRequestException;
 
 import java.time.Duration;
 
@@ -29,12 +29,12 @@ final class IntegrationTestWaits {
             final StepExecutionId stepExecutionId,
             final TimerId timerId) {
         final long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
-        DexServiceException lastFailure = null;
+        DexRequestException lastFailure = null;
         while (System.nanoTime() < deadline) {
             try {
                 client.skipTimer(flowId, stepExecutionId, timerId);
                 return;
-            } catch (DexServiceException failure) {
+            } catch (DexRequestException failure) {
                 if (!failure.getDetail().contains(
                         "timer condition does not exist or is not pending")) {
                     throw failure;
