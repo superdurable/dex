@@ -34,6 +34,7 @@ jobs:
             examples-rust-ci.yml
             examples-typescript-ci.yml
             generated-code-ci.yml
+            release-tooling-ci.yml
             sdk-go-ci.yml
             sdk-java-ci.yml
             sdk-python-ci.yml

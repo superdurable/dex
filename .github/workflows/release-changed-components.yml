@@ -220,6 +220,39 @@ jobs:
       publish: true
     secrets: inherit
 
+  publish-compatibility:
+    name: Publish compatibility manifest
+    needs:
+      - plan
+      - create-releases
+      - publish-java
+      - publish-python
+      - publish-rust
+      - publish-typescript
+      - publish-server
+      - publish-cli
+    if: >
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.create-releases.result == 'success' &&
+      needs.plan.outputs.go == 'true' &&
+      needs.plan.outputs.java == 'true' &&
+      needs.plan.outputs.python == 'true' &&
+      needs.plan.outputs.rust == 'true' &&
+      needs.plan.outputs.typescript == 'true' &&
+      needs.plan.outputs.server == 'true' &&
+      needs.plan.outputs.cli == 'true' &&
+      needs.publish-java.result == 'success' &&
+      needs.publish-python.result == 'success' &&
+      needs.publish-rust.result == 'success' &&
+      needs.publish-typescript.result == 'success' &&
+      needs.publish-server.result == 'success' &&
+      needs.publish-cli.result == 'success'
+    uses: ./.github/workflows/compatibility-manifest.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+    secrets: inherit
+
   complete:
     name: Verify publications
     if: always() && needs.plan.result != 'skipped'
@@ -232,6 +265,7 @@ jobs:
       - publish-typescript
       - publish-server
       - publish-cli
+      - publish-compatibility
     runs-on: ubuntu-latest
     steps:
       - name: Report results
@@ -252,6 +286,7 @@ jobs:
           SERVER_RESULT: ${{ needs.publish-server.result }}
           CLI_SELECTED: ${{ needs.plan.outputs.cli }}
           CLI_RESULT: ${{ needs.publish-cli.result }}
+          COMPATIBILITY_RESULT: ${{ needs.publish-compatibility.result }}
         run: |
           {
             echo "### Publication results"
@@ -273,6 +308,7 @@ jobs:
               [[ "${selected}" == "true" ]] || outcome="skipped"
               echo "| ${name} | ${outcome} |"
             done
+            echo "| Compatibility manifest | ${COMPATIBILITY_RESULT} |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
           if [[ "${PLAN_RESULT}" != "success" || "${RELEASE_RESULT}" != "success" ]]; then
@@ -289,3 +325,9 @@ jobs:
               exit 1
             fi
           done
+          if [[ "${GO_SELECTED}" == "true" && "${JAVA_SELECTED}" == "true" &&
+                "${PYTHON_SELECTED}" == "true" && "${RUST_SELECTED}" == "true" &&
+                "${TYPESCRIPT_SELECTED}" == "true" && "${SERVER_SELECTED}" == "true" &&
+                "${CLI_SELECTED}" == "true" && "${COMPATIBILITY_RESULT}" != "success" ]]; then
+            exit 1
+          fi

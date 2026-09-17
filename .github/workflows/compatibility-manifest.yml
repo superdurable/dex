@@ -1,0 +1,105 @@
+name: Publish compatibility manifest
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Shared Dex semantic version
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Released Dex semantic version
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: compatibility-manifest-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify and publish manifest
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      manifest_sha256: ${{ steps.manifest.outputs.sha256 }}
+      manifest_url: ${{ steps.manifest.outputs.url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v4
+      - name: Generate verified compatibility manifest
+        id: manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          output="dist/dex-compatibility-v${RELEASE_VERSION}.json"
+          python3 script/release/compatibility_manifest.py \
+            "${RELEASE_VERSION}" \
+            --verify-releases \
+            --output "${output}" | tee manifest-metadata.txt
+          echo "sha256=$(sha256sum "${output}" | cut -d ' ' -f 1)" >> "${GITHUB_OUTPUT}"
+          echo "url=https://github.com/${GITHUB_REPOSITORY}/releases/download/server/v${RELEASE_VERSION}/dex-compatibility-v${RELEASE_VERSION}.json" >> "${GITHUB_OUTPUT}"
+          cat manifest-metadata.txt >> "${GITHUB_STEP_SUMMARY}"
+      - name: Upload immutable release contract
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          asset="dex-compatibility-v${RELEASE_VERSION}.json"
+          release="server/v${RELEASE_VERSION}"
+          if gh release view "${release}" --json assets --jq '.assets[].name' |
+            grep --fixed-strings --line-regexp --quiet "${asset}"; then
+            existing="${RUNNER_TEMP}/existing-dex-compatibility"
+            mkdir -p "${existing}"
+            gh release download "${release}" --pattern "${asset}" --dir "${existing}"
+            cmp --silent "dist/${asset}" "${existing}/${asset}" || {
+              echo "Release asset ${asset} already exists with different contents" >&2
+              exit 1
+            }
+            echo "Release asset ${asset} already contains the expected manifest"
+          else
+            gh release upload "${release}" "dist/${asset}"
+          fi
+
+  request-superagent-upgrade:
+    name: Request SuperAgent upgrade
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create repository-scoped release automation token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RELEASE_AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.RELEASE_AUTOMATION_PRIVATE_KEY }}
+          owner: superdurable
+          repositories: superagent
+      - name: Dispatch audited SuperAgent upgrade
+        env:
+          DEX_MANIFEST_SHA256: ${{ needs.publish.outputs.manifest_sha256 }}
+          DEX_MANIFEST_URL: ${{ needs.publish.outputs.manifest_url }}
+          DEX_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api --method POST repos/superdurable/superagent/dispatches \
+            -f event_type=dex-release-published \
+            -f "client_payload[version]=${DEX_VERSION}" \
+            -f "client_payload[manifest_url]=${DEX_MANIFEST_URL}" \
+            -f "client_payload[manifest_sha256]=${DEX_MANIFEST_SHA256}"
+
+  reject-non-main:
+    name: Reject non-main publication
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Compatibility manifests can be published only from main" >&2
+          exit 1

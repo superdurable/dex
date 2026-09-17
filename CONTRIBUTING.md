@@ -166,6 +166,21 @@ Each component has its own version and tag prefix. Create a GitHub Release for t
 
 For coordinated releases, run **Release changed components** from the **main** branch and enter one semantic version. The workflow applies that version to every selected component. It compares each component with its own latest reachable release tag, uses that tag as the start of the component's generated release notes, preflights every selected target tag, creates the GitHub Releases, and directly invokes each publisher. The run succeeds only after every selected registry, Docker, CLI asset, and Homebrew publication succeeds. Go SDK publication is complete when its module tag and GitHub Release exist.
 
+A coordinated Server, CLI, and all-SDK release also publishes a compatibility
+manifest. Add `release/compatibility/<version>.json` before dispatching the
+release. The declaration records the reviewed protocol intervals, open-Flow
+compatibility, persistence compatibility, and rollout order. Release tooling
+verifies those intervals against the tagged source, verifies that every
+component tag resolves to one commit, reads the published CLI checksums and
+Server image digest, and uploads
+`dex-compatibility-v<version>.json` to the Server GitHub Release.
+
+Use **Publish compatibility manifest** to backfill or reverify an already
+published coordinated release. The workflow replaces only that release asset;
+it never recreates component tags or republishes packages. Downstream systems
+must verify the downloaded manifest digest before changing a Server or SDK
+version.
+
 Components without relevant changes are skipped. A run with no relevant changes succeeds without creating tags. Documentation and workflow changes alone do not select a product release. A missing component baseline is treated as its first release.
 
 The dependency-aware paths are:

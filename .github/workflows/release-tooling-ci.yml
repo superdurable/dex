@@ -1,0 +1,34 @@
+name: Release Tooling CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "release/compatibility/**"
+      - "script/release/**"
+      - ".github/workflows/compatibility-manifest.yml"
+      - ".github/workflows/release-changed-components.yml"
+      - ".github/workflows/release-tooling-ci.yml"
+      - "CONTRIBUTING.md"
+  pull_request:
+    paths:
+      - "release/compatibility/**"
+      - "script/release/**"
+      - ".github/workflows/compatibility-manifest.yml"
+      - ".github/workflows/release-changed-components.yml"
+      - ".github/workflows/release-tooling-ci.yml"
+      - "CONTRIBUTING.md"
+  workflow_dispatch:
+
+jobs:
+  release-tooling:
+    name: Release tooling
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Test release tooling
+        run: python3 -m unittest discover -s script/release -p '*_test.py'
+      - name: Validate workflow policy
+        run: make ci-runner-check
