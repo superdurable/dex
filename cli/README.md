@@ -166,7 +166,7 @@ Commands connect to `127.0.0.1:8801` by default. Override the target with
 ```bash
 dexcli health
 dexcli flow start order-123 --flow-type OrderFlow --start-step-type StartOrder --input '{"order":123}' --yes
-dexcli flow search --query 'FlowStatus = "Running"'
+dexcli flow search --query 'ExecutionStatus = "Running"'
 dexcli flow inspect order-123 --all-history
 dexcli flow watch order-123 --follow-runs
 ```
