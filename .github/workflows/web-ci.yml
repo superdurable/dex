@@ -91,7 +91,7 @@ jobs:
             dex-server-image-test
           api_response_file="$(mktemp)"
           for attempt in {1..120}; do
-            if nc -z 127.0.0.1 18801 \
+            if (echo >/dev/tcp/127.0.0.1/18801) >/dev/null 2>&1 \
               && curl --fail --silent http://127.0.0.1:18802/healthz >/dev/null \
               && curl --fail --silent --max-time 5 \
                 --header 'Content-Type: application/json' \

@@ -30,21 +30,35 @@ func TestChannelMessageQueueTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	testChannelMessageListAndDelete(t, service.BackendTypeTemporal)
-	testChannelMessageLargeValueHydration(t, service.BackendTypeTemporal)
-	testChannelMessageTransactionalRpcDeletion(t)
-	testChannelMessageSignalMissingDeletion(t, service.BackendTypeTemporal, false)
-	testConcurrentChannelMessageDelete(t)
+	t.Run("list and delete", func(t *testing.T) {
+		testChannelMessageListAndDelete(t, service.BackendTypeTemporal)
+	})
+	t.Run("large value hydration", func(t *testing.T) {
+		testChannelMessageLargeValueHydration(t, service.BackendTypeTemporal)
+	})
+	t.Run("transactional RPC deletion", testChannelMessageTransactionalRpcDeletion)
+	t.Run("signal missing deletion", func(t *testing.T) {
+		testChannelMessageSignalMissingDeletion(t, service.BackendTypeTemporal, false)
+	})
+	t.Run("concurrent deletion", testConcurrentChannelMessageDelete)
 }
 
 func TestChannelMessageQueueCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
-	testChannelMessageListAndDelete(t, service.BackendTypeCadence)
-	testChannelMessageLargeValueHydration(t, service.BackendTypeCadence)
-	testChannelMessageSignalMissingDeletion(t, service.BackendTypeCadence, false)
-	testChannelMessageSignalMissingDeletion(t, service.BackendTypeCadence, true)
+	t.Run("list and delete", func(t *testing.T) {
+		testChannelMessageListAndDelete(t, service.BackendTypeCadence)
+	})
+	t.Run("large value hydration", func(t *testing.T) {
+		testChannelMessageLargeValueHydration(t, service.BackendTypeCadence)
+	})
+	t.Run("signal missing deletion", func(t *testing.T) {
+		testChannelMessageSignalMissingDeletion(t, service.BackendTypeCadence, false)
+	})
+	t.Run("transactional signal missing deletion", func(t *testing.T) {
+		testChannelMessageSignalMissingDeletion(t, service.BackendTypeCadence, true)
+	})
 }
 
 func testChannelMessageListAndDelete(t *testing.T, backendType service.BackendType) {
