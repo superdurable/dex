@@ -249,10 +249,15 @@ unitTests:
 	@GOWORK=off go test -v ./config $$(GOWORK=off go list ./service/... | grep -v ./service/common/blobstore)
 	@GOWORK=off go test -v ./service/common/blobstore -run '^TestDeterministicBlobObjectID'
 
-# Requires SQL dependencies and covers both workflow backends in dedicated CI.
-attributeStoreIntegTests: prepareIntegrationCoverage
+# Requires MySQL, PostgreSQL, Temporal, and Cadence in label-gated CI.
+attributeSyncIntegTests: prepareIntegrationCoverage
 	@GOWORK=off go test $(integrationCoverageFlags) -v -tags=attributestore_integration ./service/common/attributestore -run '^TestMySQLAndPostgresAttributeStoreIntegration$$' -timeout 5m $(integrationCoverageArgs)
 	@GOWORK=off go test $(integrationCoverageFlags) -v -tags=attributestore_integration ./integ -run '^TestAttributeSync' -timeout 10m -temporalHostPort=$(temporalHostPort) $(integrationCoverageArgs)
+
+# Requires MongoDB and covers both workflow backends in label-gated CI.
+mongodbAttributeStoreIntegTests: prepareIntegrationCoverage
+	@GOWORK=off go test $(integrationCoverageFlags) -v -tags=attributestore_integration ./service/common/attributestore -run '^TestMongoDBAttributeStoreIntegration$$' -timeout 5m $(integrationCoverageArgs)
+	@GOWORK=off go test $(integrationCoverageFlags) -v -tags=attributestore_integration ./integ -run '^TestMongoDBAttributeSync' -timeout 10m -temporalHostPort=$(temporalHostPort) $(integrationCoverageArgs)
 
 blobStoreIntegTests: prepareIntegrationCoverage
 	@GOWORK=off go test $(integrationCoverageFlags) -v ./service/common/blobstore -run '^(TestBlobStoreIntegration|TestLocalBlobStore|TestS3AttributeBlobCache)' -timeout 5m $(integrationCoverageArgs)

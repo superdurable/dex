@@ -25,6 +25,9 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/integ/workflow/signal"
 	"github.com/superdurable/dex/service"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 func TestAttributeSyncTemporal(t *testing.T) {
@@ -39,6 +42,20 @@ func TestAttributeSyncCadence(t *testing.T) {
 		t.Skip()
 	}
 	doTestAttributeSync(t, service.BackendTypeCadence)
+}
+
+func TestMongoDBAttributeSyncTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	doTestAttributeSyncMongoDB(t, service.BackendTypeTemporal)
+}
+
+func TestMongoDBAttributeSyncCadence(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	doTestAttributeSyncMongoDB(t, service.BackendTypeCadence)
 }
 
 func TestAttributeSyncFlowTimeoutTemporal(t *testing.T) {
@@ -285,6 +302,95 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 		require.Equal(t, "terminal-signal", message)
 		require.JSONEq(t, `{"source":"blob-cache"}`, document)
 	}
+}
+
+func doTestAttributeSyncMongoDB(t *testing.T, backendType service.BackendType) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	mongodbDSN := os.Getenv("DEX_ATTRIBUTE_STORE_MONGODB_DSN")
+	if mongodbDSN == "" {
+		mongodbDSN = "mongodb://127.0.0.1:57017"
+	}
+	mongodbClient, err := mongo.Connect(options.Client().ApplyURI(mongodbDSN))
+	require.NoError(t, err)
+	require.NoError(t, mongodbClient.Ping(ctx, nil))
+	t.Cleanup(func() { require.NoError(t, mongodbClient.Disconnect(context.Background())) })
+	databaseName := "dex"
+	collectionName := "flow_attributes_" + strings.ReplaceAll(newRequestID(), "-", "")
+	require.NoError(t, mongodbClient.Database(databaseName).CreateCollection(ctx, collectionName))
+	t.Cleanup(func() {
+		require.NoError(t, mongodbClient.Database(databaseName).Collection(collectionName).Drop(context.Background()))
+	})
+
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType:        backendType,
+		S3TestThreshold:    1,
+		BlobCacheDirectory: t.TempDir(),
+		AttributeStore: config.AttributeStoreConfig{
+			Stores: map[string]config.AttributeStoreConfigEntry{
+				"documents": {
+					Type:           config.AttributeStoreTypeMongoDB,
+					DSN:            mongodbDSN,
+					DatabaseName:   databaseName,
+					CollectionName: collectionName,
+				},
+			},
+			SyncBatchSize: 2,
+		},
+	})
+	workerTarget := startWorker(t, signal.NewHandler())
+	flowID := "attribute-sync-mongodb-" + newRequestID()
+	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           "attribute-sync-mongodb",
+		FlowTimeoutSeconds: 30,
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
+				syncedStringAttribute("message", strings.Repeat("cache-backed-string", 8)),
+				syncedObjectAttribute("document", `{"source":"blob-cache","sequence":1}`),
+			},
+			FlowConfigOverride: &dexpb.FlowConfig{
+				AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"documents"}},
+				WorkerTarget:        workerTarget,
+			},
+		},
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowID,
+		Attributes: []*dexpb.AttributeWrite{
+			syncedStringAttribute("message", "terminal-signal"),
+		},
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId:   flowID,
+		StopType: dexpb.StopType_STOP_TYPE_CANCEL,
+	})
+	require.NoError(t, err)
+	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
+
+	collection := mongodbClient.Database(databaseName).Collection(collectionName)
+	require.Eventually(t, func() bool {
+		var document struct {
+			Message  string `bson:"message"`
+			Document struct {
+				Source   string `bson:"source"`
+				Sequence int64  `bson:"sequence"`
+			} `bson:"document"`
+		}
+		findErr := collection.FindOne(ctx, bson.D{{Key: "_id", Value: flowID}}).Decode(&document)
+		if findErr != nil {
+			return false
+		}
+		return document.Message == "terminal-signal" &&
+			document.Document.Source == "blob-cache" && document.Document.Sequence == int64(1)
+	}, 5*time.Second, 20*time.Millisecond)
 }
 
 func doTestAttributeSyncFlowTimeout(t *testing.T, backendType service.BackendType) {

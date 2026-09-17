@@ -5,15 +5,34 @@ This directory contains integration tests for the Dex service.
 * [How to run](../CONTRIBUTING.md#how-to-run-server-or-integration-test)
 * The integration tests are written without Dex SDKs. The workflows are implemented in REST API routes. e.g. [this basic workflow](./workflow/basic/routers.go)
 
-Custom Attribute Store integration uses isolated MySQL and PostgreSQL services:
+Attribute Sync integration uses isolated MySQL and PostgreSQL services:
 
 ```shell
 docker compose -f docker-compose/attribute-store-dependencies.yml up -d --wait
-make attributeStoreIntegTests
+make attributeSyncIntegTests
 ```
 
-The suite covers startup schema contracts, both SQL upsert dialects, filtering,
-schema refresh recovery, and additive columns.
+The suite covers startup schema contracts, both relational upsert dialects,
+filtering, schema refresh recovery, additive SQL columns, and Attribute Sync
+happy paths on both stores with Temporal and Cadence. In pull requests, the
+**Attribute Sync CI** workflow runs only when the **ci:attribute-sync** label is
+present. Regular **Server CI** does not start MySQL or PostgreSQL.
+
+MongoDB Attribute Sync runs in a separate label-gated job because its container
+and workflow coverage are comparatively expensive:
+
+```shell
+docker compose -f docker-compose/mongodb-attribute-store-dependency.yml up -d --wait
+make mongodbAttributeStoreIntegTests
+```
+
+The MongoDB suite covers startup collection contracts, upserts, partial updates,
+filtering, and Attribute Sync happy paths on Temporal and Cadence. In pull
+requests, the **Attribute Sync CI** workflow runs this suite with the relational
+suite when the **ci:attribute-sync** label is present.
+
+Databricks and Snowflake use local SQL contract tests because the suite does not
+connect to cloud warehouses.
 
 In-process tests use an isolated local Blob Store with the default 1 KiB
 offload threshold. S3-specific tests replace it with MinIO.

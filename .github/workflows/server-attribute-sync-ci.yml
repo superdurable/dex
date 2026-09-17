@@ -1,0 +1,80 @@
+name: Attribute Sync CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - "server/**"
+      - "protos/**"
+      - ".github/scripts/dump-docker-logs.sh"
+      - ".github/workflows/server-attribute-sync-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  attribute-sync-integ:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:attribute-sync')
+    name: Attribute Sync integration
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Start MySQL and PostgreSQL
+        run: docker compose -f docker-compose/attribute-store-dependencies.yml up -d --wait
+      - name: Start Temporal and Cadence
+        run: docker compose -f docker-compose/ci-cadence-temporal-dependencies.yml up -d
+      - name: Attribute Sync integration tests
+        env:
+          GOWORK: "off"
+        run: make attributeSyncIntegTests integrationCoverageDir=coverage-raw
+      - name: Upload integration coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-integration-coverage-attribute-sync
+          path: server/coverage-raw/
+          if-no-files-found: ignore
+          retention-days: 1
+      - name: Dump docker logs
+        if: always()
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
+
+  mongodb-attribute-sync-integ:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:attribute-sync')
+    name: MongoDB Attribute Sync integration
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Start MongoDB
+        run: docker compose -f docker-compose/mongodb-attribute-store-dependency.yml up -d --wait
+      - name: Start Temporal and Cadence
+        run: docker compose -f docker-compose/ci-cadence-temporal-dependencies.yml up -d
+      - name: MongoDB Attribute Sync integration tests
+        env:
+          GOWORK: "off"
+        run: make mongodbAttributeStoreIntegTests integrationCoverageDir=coverage-raw
+      - name: Upload integration coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-integration-coverage-mongodb-attribute-sync
+          path: server/coverage-raw/
+          if-no-files-found: ignore
+          retention-days: 1
+      - name: Dump docker logs
+        if: always()
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"

@@ -56,6 +56,137 @@ attributeStore:
 	require.NoError(t, cfg.AttributeStore.Validate())
 }
 
+func TestAttributeStoreConfigNewBackends(t *testing.T) {
+	path := writeTestConfig(t, `
+attributeStore:
+  stores:
+    lakehouse:
+      type: databricks
+      dsn: token:secret@workspace:443/sql/1.0/warehouses/id
+      tableName: analytics.reporting.flow_attributes
+      flowIdColumn: flow_id
+    warehouse:
+      type: snowflake
+      dsn: user:password@account/analytics/reporting
+      tableName: analytics.reporting.flow_attributes
+      flowIdColumn: flow_id
+    documents:
+      type: mongodb
+      dsn: mongodb://localhost:27017
+      databaseName: analytics
+      collectionName: flow_attributes
+`)
+	cfg, err := NewConfig(path)
+	require.NoError(t, err)
+	require.NoError(t, cfg.AttributeStore.Validate())
+	require.Equal(t, AttributeStoreTypeDatabricks, cfg.AttributeStore.Stores["lakehouse"].Type)
+	require.Equal(t, "flow_id", cfg.AttributeStore.Stores["warehouse"].FlowIDColumn)
+	require.Equal(t, "flow_attributes", cfg.AttributeStore.Stores["documents"].CollectionName)
+}
+
+func TestAttributeStoreConfigBackendSpecificValidation(t *testing.T) {
+	tests := []struct {
+		name  string
+		store AttributeStoreConfigEntry
+		error string
+	}{
+		{
+			name:  "unsupported",
+			store: AttributeStoreConfigEntry{Type: "unknown", DSN: "dsn", TableName: "table"},
+			error: "unsupported type",
+		},
+		{
+			name:  "missing dsn",
+			store: AttributeStoreConfigEntry{Type: AttributeStoreTypeSnowflake, TableName: "table", FlowIDColumn: "flow_id"},
+			error: "requires dsn",
+		},
+		{
+			name:  "missing table",
+			store: AttributeStoreConfigEntry{Type: AttributeStoreTypeSnowflake, DSN: "dsn", FlowIDColumn: "flow_id"},
+			error: "requires tableName",
+		},
+		{
+			name:  "databricks flow id",
+			store: AttributeStoreConfigEntry{Type: AttributeStoreTypeDatabricks, DSN: "dsn", TableName: "table"},
+			error: "flowIdColumn",
+		},
+		{
+			name: "mongodb target",
+			store: AttributeStoreConfigEntry{
+				Type: AttributeStoreTypeMongoDB, DSN: "dsn", DatabaseName: "database",
+			},
+			error: "collectionName",
+		},
+		{
+			name: "mongodb sql fields",
+			store: AttributeStoreConfigEntry{
+				Type: AttributeStoreTypeMongoDB, DSN: "dsn", DatabaseName: "database",
+				CollectionName: "collection", TableName: "table",
+			},
+			error: "does not accept tableName",
+		},
+		{
+			name: "sql mongo fields",
+			store: AttributeStoreConfigEntry{
+				Type: AttributeStoreTypePostgres, DSN: "dsn", TableName: "table", DatabaseName: "database",
+			},
+			error: "does not accept databaseName",
+		},
+		{
+			name: "postgres flow id",
+			store: AttributeStoreConfigEntry{
+				Type: AttributeStoreTypePostgres, DSN: "dsn", TableName: "table", FlowIDColumn: "flow_id",
+			},
+			error: "only warehouses",
+		},
+		{
+			name: "warehouse table has too many parts",
+			store: AttributeStoreConfigEntry{
+				Type: AttributeStoreTypeSnowflake, DSN: "dsn",
+				TableName: "one.two.three.four", FlowIDColumn: "flow_id",
+			},
+			error: "at most 3",
+		},
+		{
+			name: "relational table has too many parts",
+			store: AttributeStoreConfigEntry{
+				Type: AttributeStoreTypePostgres, DSN: "dsn", TableName: "one.two.three",
+			},
+			error: "at most 2",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := (AttributeStoreConfig{Stores: map[string]AttributeStoreConfigEntry{
+				"target": test.store,
+			}}).Validate()
+			require.ErrorContains(t, err, test.error)
+		})
+	}
+}
+
+func TestAttributeStoreConfigQualifiedTableNames(t *testing.T) {
+	tests := []struct {
+		storeType AttributeStoreType
+		tableName string
+	}{
+		{AttributeStoreTypePostgres, "flow_attributes"},
+		{AttributeStoreTypeMySQL, "reporting.flow_attributes"},
+		{AttributeStoreTypeDatabricks, "flow_attributes"},
+		{AttributeStoreTypeSnowflake, "reporting.flow_attributes"},
+		{AttributeStoreTypeDatabricks, "analytics.reporting.flow_attributes"},
+	}
+	for _, test := range tests {
+		store := AttributeStoreConfigEntry{Type: test.storeType, DSN: "dsn", TableName: test.tableName}
+		if test.storeType.IsWarehouse() {
+			store.FlowIDColumn = "flow_id"
+		}
+		require.NoError(t, (AttributeStoreConfig{Stores: map[string]AttributeStoreConfigEntry{
+			"target": store,
+		}}).Validate(), test.tableName)
+	}
+}
+
 func TestBlobStoreDefaults(t *testing.T) {
 	path := writeTestConfig(t, "{}\n")
 	cfg, err := NewConfig(path)

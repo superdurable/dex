@@ -24,6 +24,9 @@ import (
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/common/log"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 func TestMySQLAndPostgresAttributeStoreIntegration(t *testing.T) {
@@ -64,12 +67,13 @@ func TestMySQLAndPostgresAttributeStoreIntegration(t *testing.T) {
 	assertIntegrationRow(t, postgres, "postgres-flow")
 	assertIntegrationRow(t, mysql, "mysql-flow")
 
-	previousSnapshot := manager.entries["reporting"].schema.Load()
+	reportingStore := manager.entries["reporting"].(*sqlStore)
+	previousSnapshot := reportingStore.schema.Load()
 	_, err = postgres.ExecContext(ctx, `ALTER TABLE flow_attributes RENAME TO flow_attributes_hidden`)
 	require.NoError(t, err)
 	require.Never(t, func() bool {
 		return !reflect.DeepEqual(
-			manager.entries["reporting"].schema.Load(),
+			reportingStore.schema.Load(),
 			previousSnapshot,
 		)
 	}, 200*time.Millisecond, 20*time.Millisecond)
@@ -78,7 +82,7 @@ func TestMySQLAndPostgresAttributeStoreIntegration(t *testing.T) {
 	_, err = postgres.ExecContext(ctx, `ALTER TABLE flow_attributes ADD COLUMN late_column TEXT`)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		return manager.entries["reporting"].schema.Load().columns["late_column"].name == "late_column"
+		return reportingStore.schema.Load().columns["late_column"].name == "late_column"
 	}, 3*time.Second, 20*time.Millisecond)
 	err = manager.WriteBatch(ctx, &dexpb.SyncAttributeBatchActivityInput{
 		FlowId:     "postgres-flow",
@@ -94,6 +98,65 @@ func TestMySQLAndPostgresAttributeStoreIntegration(t *testing.T) {
 	require.NoError(t, postgres.QueryRowContext(ctx,
 		`SELECT late_column FROM flow_attributes WHERE flow_id = $1`, "postgres-flow").Scan(&lateColumn))
 	require.Equal(t, "available", lateColumn)
+}
+
+func TestMongoDBAttributeStoreIntegration(t *testing.T) {
+	ctx := context.Background()
+	mongodbDSN := environmentOrDefault(
+		"DEX_ATTRIBUTE_STORE_MONGODB_DSN",
+		"mongodb://127.0.0.1:57017",
+	)
+	mongodbClient := openIntegrationMongoDB(t, mongodbDSN)
+	prepareIntegrationCollection(t, mongodbClient)
+	assertMissingCollectionFailsStartup(t, mongodbDSN)
+
+	manager, err := NewManager(ctx, &config.AttributeStoreConfig{
+		Stores: map[string]config.AttributeStoreConfigEntry{
+			"documents": {
+				Type:           config.AttributeStoreTypeMongoDB,
+				DSN:            mongodbDSN,
+				DatabaseName:   "dex",
+				CollectionName: "flow_attributes",
+			},
+		},
+	}, log.NewNoop())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+
+	writeIntegrationBatch(t, manager, "documents", "mongodb-flow")
+	assertMongoDBIntegrationDocument(t, mongodbClient, "mongodb-flow")
+	assertMongoDBPartialUpdateAndInvalidFieldFiltering(t, manager, mongodbClient)
+}
+
+func openIntegrationMongoDB(t *testing.T, uri string) *mongo.Client {
+	t.Helper()
+	client, err := mongo.Connect(options.Client().ApplyURI(uri))
+	require.NoError(t, err)
+	require.NoError(t, client.Ping(context.Background(), nil))
+	t.Cleanup(func() { require.NoError(t, client.Disconnect(context.Background())) })
+	return client
+}
+
+func prepareIntegrationCollection(t *testing.T, client *mongo.Client) {
+	t.Helper()
+	database := client.Database("dex")
+	require.NoError(t, database.Collection("flow_attributes").Drop(context.Background()))
+	require.NoError(t, database.CreateCollection(context.Background(), "flow_attributes"))
+}
+
+func assertMissingCollectionFailsStartup(t *testing.T, uri string) {
+	t.Helper()
+	_, err := NewManager(context.Background(), &config.AttributeStoreConfig{
+		Stores: map[string]config.AttributeStoreConfigEntry{
+			"invalid": {
+				Type:           config.AttributeStoreTypeMongoDB,
+				DSN:            uri,
+				DatabaseName:   "dex",
+				CollectionName: "missing_collection",
+			},
+		},
+	}, log.NewNoop())
+	require.ErrorContains(t, err, "does not exist")
 }
 
 func assertInvalidSchemasFailStartup(t *testing.T, dsn string, postgres *sql.DB) {
@@ -147,6 +210,7 @@ func prepareIntegrationTables(t *testing.T, postgres, mysql *sql.DB) {
 		database *sql.DB
 		query    string
 	}{
+		{postgres, `DROP TABLE IF EXISTS flow_attributes_hidden`},
 		{postgres, `DROP TABLE IF EXISTS flow_attributes`},
 		{postgres, `CREATE TABLE flow_attributes (
 flow_id TEXT PRIMARY KEY,
@@ -214,6 +278,61 @@ func assertIntegrationRow(t *testing.T, database *sql.DB, flowID string) {
 	require.JSONEq(t, `{"ok":true}`, string(jsonValue))
 	require.Equal(t, []byte("bytes"), binaryValue)
 	require.False(t, nullableValue.Valid)
+}
+
+func assertMongoDBIntegrationDocument(t *testing.T, client *mongo.Client, flowID string) {
+	t.Helper()
+	var document struct {
+		ID         string  `bson:"_id"`
+		Name       string  `bson:"name"`
+		CountValue int64   `bson:"count_value"`
+		Ratio      float64 `bson:"ratio"`
+		Active     bool    `bson:"active"`
+		LoggedAt   string  `bson:"logged_at"`
+		JSONValue  struct {
+			OK bool `bson:"ok"`
+		} `bson:"json_value"`
+		BinaryValue   bson.Binary `bson:"binary_value"`
+		NullableValue any         `bson:"nullable_value"`
+	}
+	err := client.Database("dex").Collection("flow_attributes").
+		FindOne(context.Background(), bson.D{{Key: "_id", Value: flowID}}).Decode(&document)
+	require.NoError(t, err)
+	require.Equal(t, flowID, document.ID)
+	require.Equal(t, "latest", document.Name)
+	require.Equal(t, int64(42), document.CountValue)
+	require.Equal(t, 2.5, document.Ratio)
+	require.True(t, document.Active)
+	require.Equal(t, "2026-08-11T15:30:00Z", document.LoggedAt)
+	require.True(t, document.JSONValue.OK)
+	require.Equal(t, bson.Binary{Subtype: 0, Data: []byte("bytes")}, document.BinaryValue)
+	require.Nil(t, document.NullableValue)
+}
+
+func assertMongoDBPartialUpdateAndInvalidFieldFiltering(
+	t *testing.T,
+	manager *Manager,
+	client *mongo.Client,
+) {
+	t.Helper()
+	err := manager.WriteBatch(context.Background(), &dexpb.SyncAttributeBatchActivityInput{
+		FlowId:     "mongodb-flow",
+		ConfigName: "documents",
+		Items: []*dexpb.AttributeSyncItem{
+			{ConfigName: "documents", Key: "name", Value: stringValue("updated")},
+			{ConfigName: "documents", Key: "name", Value: stringValue("latest-update")},
+			{ConfigName: "documents", Key: "_id", Value: stringValue("replacement")},
+			{ConfigName: "documents", Key: "nested.path", Value: stringValue("invalid")},
+		},
+	})
+	require.NoError(t, err)
+	var document bson.M
+	err = client.Database("dex").Collection("flow_attributes").
+		FindOne(context.Background(), bson.D{{Key: "_id", Value: "mongodb-flow"}}).Decode(&document)
+	require.NoError(t, err)
+	require.Equal(t, "latest-update", document["name"])
+	require.Equal(t, int64(42), document["count_value"])
+	require.NotContains(t, document, "nested.path")
 }
 
 func doubleValue(value float64) *dexpb.Value {

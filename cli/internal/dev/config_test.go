@@ -52,6 +52,44 @@ func TestAttributeStoreConfigFlagLoadsStandardDexYAML(t *testing.T) {
 	}
 }
 
+func TestAttributeStoreConfigFlagLoadsWarehouseAndMongoDB(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "attribute-store.yaml")
+	contents := []byte(`attributeStore:
+  stores:
+    lakehouse:
+      type: databricks
+      dsn: token:secret@workspace:443/sql/1.0/warehouses/id
+      tableName: analytics.reporting.flow_attributes
+      flowIdColumn: flow_id
+    warehouse:
+      type: snowflake
+      dsn: user:password@account/analytics/reporting
+      tableName: analytics.reporting.flow_attributes
+      flowIdColumn: flow_id
+    documents:
+      type: mongodb
+      dsn: mongodb://localhost:27017
+      databaseName: analytics
+      collectionName: flow_attributes
+`)
+	if err := os.WriteFile(configPath, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cliConfig, err := parseConfig([]string{"--attribute-store-config", configPath}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attributeStore, err := cliConfig.loadAttributeStoreConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attributeStore.Stores["lakehouse"].FlowIDColumn != "flow_id" ||
+		attributeStore.Stores["warehouse"].Type != config.AttributeStoreTypeSnowflake ||
+		attributeStore.Stores["documents"].CollectionName != "flow_attributes" {
+		t.Fatalf("unexpected Attribute Store config: %+v", attributeStore.Stores)
+	}
+}
+
 func TestAttributeStoreConfigRejectsUnknownFields(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "attribute-store.yaml")
 	if err := os.WriteFile(configPath, []byte("attributeStore:\n  unknown: true\n"), 0o600); err != nil {

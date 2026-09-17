@@ -561,6 +561,12 @@ attributeStore:
       tableName: public.user_profiles
 ```
 
+The same configuration can target MySQL, Databricks, Snowflake, or MongoDB.
+Create the destination first. Attribute Sync writes latest state asynchronously
+and does not automatically backfill existing Flows. See
+[Custom Attribute Store operations](/production/attribute-store) for target
+contracts, type mappings, and retry behavior.
+
 Start Dex Server with the configuration:
 
 ```bash

@@ -1,0 +1,155 @@
+---
+title: 自定义 Attribute Store
+---
+
+# 自定义 Attribute Store 运维
+
+自定义 Attribute Store 会把选定的 Flow Attribute 写入 PostgreSQL、MySQL、
+Databricks、Snowflake 或 MongoDB。Dex 以异步方式逐个 Flow 写入最新状态，
+并采用至少一次尝试语义，因此每种目标写入都具有幂等性。
+
+Dex 不会创建、迁移或回填目标。请在启动 Dex 前创建 SQL 表或 MongoDB collection。
+
+## 配置
+
+```yaml
+attributeStore:
+  stores:
+    reporting:
+      type: postgres
+      dsn: postgres://user:password@host/database
+      tableName: public.flow_attributes
+    operational:
+      type: mysql
+      dsn: user:password@tcp(host:3306)/database
+      tableName: flow_attributes
+    lakehouse:
+      type: databricks
+      dsn: token:secret@workspace:443/sql/1.0/warehouses/warehouse-id
+      tableName: analytics.reporting.flow_attributes
+      flowIdColumn: flow_id
+    warehouse:
+      type: snowflake
+      dsn: user:password@account/analytics/reporting
+      tableName: analytics.reporting.flow_attributes
+      flowIdColumn: flow_id
+    documents:
+      type: mongodb
+      dsn: mongodb://user:password@host:27017
+      databaseName: analytics
+      collectionName: flow_attributes
+  schemaSyncInterval: 1m
+  syncBatchSize: 100
+  syncAttemptTimeout: 30s
+  syncRetryPolicy:
+    initialInterval: 100ms
+    maximumInterval: 30s
+    backoffCoefficient: 2
+    maximumAttempts: 0
+    totalDuration: 1h
+```
+
+每个 store 都必须配置 **type** 和 **dsn**。Dex 绝不会记录 DSN。SQL store 还必须
+配置 **tableName**。MongoDB 则必须配置 **databaseName** 和 **collectionName**；
+SQL 字段与 MongoDB 字段不能混用。
+
+PostgreSQL 和 MySQL 接受 **table** 或 **schema.table**。Databricks 和 Snowflake
+接受 **table**、**schema.table** 或 **catalog-or-database.schema.table**。省略的部分
+使用连接当前的 catalog 或 database 与 schema。Dex 会解析并引用标识符，Attribute
+value 始终通过 driver 参数传递。
+
+## 启动契约
+
+Dex 在启动时连接、ping 并验证每个目标。任一目标失败都会导致启动失败，并关闭已经
+打开的 client。
+
+对于 PostgreSQL 和 MySQL，每张表必须只有一个可存储字符串的 primary key。Dex 会
+发现该 key，并把 Flow ID 写入其中。这两类 store 的现有配置和行为保持不变。
+
+对于 Databricks 和 Snowflake，**flowIdColumn** 必须指向已有、非空、非 generated
+的字符串列。该列的值必须在逻辑上唯一。Dex 不会扫描重复值、创建约束，也不依赖
+warehouse 强制执行 primary key。Databricks 连接必须已有可用的 SQL Warehouse。
+
+其他必填 SQL 列都必须有 default 或 generated value，这样 partial insert 才能创建
+新行。Attribute name 必须精确匹配非 Flow ID 列。
+
+对于 MongoDB，配置的 collection 必须已经存在。Dex 不会创建 collection、修改
+validator 或创建 index。
+
+## SQL 写入与 schema refresh
+
+PostgreSQL 和 MySQL 保留现有 upsert 语句。Databricks 和 Snowflake 对来自单个 Flow
+的每个 batch 执行一次参数化 **MERGE**。Dex 不会合并不同 Flow 的 batch，也不维护
+change log。
+
+每个 SQL store 独立 refresh。默认一分钟间隔的每轮会加入均匀的 90–110% jitter。
+metadata 查询成功后会原子替换内存中的 immutable schema snapshot；查询失败时继续
+使用旧 snapshot，并在下个间隔后重试。MongoDB 不运行 schema refresh loop。
+
+新增 nullable 或有 default 的 SQL 列无需重启 Dex 即可被发现。删除或修改列后，
+后续 mutation 可能在本地验证时被过滤，也可能在 SQL 执行失败后重试。
+
+### SQL 类型契约
+
+| Attribute value | PostgreSQL 与 MySQL | Databricks 与 Snowflake |
+| --- | --- | --- |
+| string | Character、varchar 或 text；检查声明长度 | String、character、varchar 或 text；检查声明长度 |
+| int64 | 有符号整数或 scale 为零的 numeric；检查范围和精度 | 整数类型或 scale 为零的 decimal/number/fixed；检查范围和精度 |
+| double | 浮点或 numeric | 浮点类型；只能写入有限值 |
+| bool | PostgreSQL boolean；MySQL boolean、tinyint(1) 或 bit(1) | Boolean |
+| SDK datetime | PostgreSQL timestamp with time zone；MySQL timestamp 或 datetime | Timestamp 类型；包括无时区 timestamp 在内都转换为 UTC |
+| JSON object | 验证后的 JSON 或 JSONB | 通过目标原生 JSON parser 写入 VARIANT |
+| 其他 object | PostgreSQL bytea 或 MySQL binary/varbinary/blob | Binary 或 varbinary |
+| null | 仅 nullable 列 | 仅 nullable 列 |
+
+SDK datetime 可以使用 RFC3339 string 或 JSON epoch seconds。Dex 会拒绝过长的 string
+或 binary、越界 integer、超过 decimal precision 的值、非有限浮点值和非法 JSON。
+
+缺失列、类型不匹配、覆盖 Flow ID 的写入和对必填列写入 null 都会逐字段记录并过滤。
+同一 batch 中的有效字段仍会写入。如果所有字段都被过滤，Activity 成功结束且不执行
+SQL。
+
+## MongoDB document 契约
+
+每个 Flow 对应一个 document。document 的 **_id** 是 Flow ID，同步的 Attribute
+作为顶层字段：
+
+```json
+{
+  "_id": "customer-42",
+  "display_name": "Ada",
+  "profile": { "active": true },
+  "score": 17
+}
+```
+
+Dex 通过 upsert 执行 partial field update。batch 中未出现的 Attribute 保持不变。
+同一 batch 中多次出现同名 Attribute 时，最后一个值生效。
+
+String、64-bit integer、有限 double、boolean 和 null 使用原生 BSON value。JSON 会
+递归转换为 BSON document、array 和 scalar；能够用 64-bit integer 表示的整数仍保持
+整数。其他 encoded object 保存为 BSON binary。
+
+Attribute name **_id**、包含句点或 NUL 的 name，以及以美元符号开头的 name 会被
+记录并跳过。batch 中其他有效字段仍会写入。如果所有字段都无效，Activity 成功结束且
+不会访问 collection。
+
+## 交付与关闭
+
+Attribute Sync 保存最新状态，而不是 event history。发生不确定失败后，后续写入可能
+重复。因此 SQL upsert、warehouse merge 和 MongoDB upsert 都使用 Flow ID 作为幂等 key。
+
+Local Activity 优化最多运行七秒。它使用配置的 backoff interval 和 coefficient，但
+attempt 只受七秒总窗口限制。Regular Activity 的单次 attempt 默认最多 30 秒，总重试
+预算默认一小时。预算耗尽后会跳过该 batch。Dex 不会自动重放旧 Attribute，也不会为
+新配置的 store 自动 backfill。
+
+过滤写入、目标缺失和重试耗尽都会输出 error log。
+
+CancelFlow 和 FailFlow 是 cooperative 操作，可能等待 active Step、已接受的 Temporal
+RPC Update，以及多个一小时 batch budget。Cancel 返回原生 canceled error，因此
+Temporal 和 Cadence 都保留 Canceled execution state。terminal finalization 开始后，
+Temporal 会拒绝新的 RPC Update。Cadence 在 cleanup 期间已经接受的 SetAttributes 和
+RPC result signal 会完成对应的 Attribute 写入，但 terminal processing 不会启动它们的
+next Step。Terminate 和 engine timeout 是 hard stop，可能使 external storage 落后于
+workflow state。

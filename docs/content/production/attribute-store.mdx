@@ -4,8 +4,13 @@ title: Custom Attribute Store
 
 # Custom Attribute Store operations
 
-Custom Attribute Store projects selected Flow Attribute writes into MySQL or
-PostgreSQL. Dex never creates or migrates the destination table.
+Custom Attribute Store projects selected Flow Attribute writes into PostgreSQL,
+MySQL, Databricks, Snowflake, or MongoDB. Dex uses asynchronous, latest-state
+writes for one Flow at a time. Delivery is attempted at least once, so every
+destination write is idempotent.
+
+Dex never creates, migrates, or backfills a destination. Create the SQL table or
+MongoDB collection before starting Dex.
 
 ## Configuration
 
@@ -20,6 +25,21 @@ attributeStore:
       type: mysql
       dsn: user:password@tcp(host:3306)/database
       tableName: flow_attributes
+    lakehouse:
+      type: databricks
+      dsn: token:secret@workspace:443/sql/1.0/warehouses/warehouse-id
+      tableName: analytics.reporting.flow_attributes
+      flowIdColumn: flow_id
+    warehouse:
+      type: snowflake
+      dsn: user:password@account/analytics/reporting
+      tableName: analytics.reporting.flow_attributes
+      flowIdColumn: flow_id
+    documents:
+      type: mongodb
+      dsn: mongodb://user:password@host:27017
+      databaseName: analytics
+      collectionName: flow_attributes
   schemaSyncInterval: 1m
   syncBatchSize: 100
   syncAttemptTimeout: 30s
@@ -31,60 +51,124 @@ attributeStore:
     totalDuration: 1h
 ```
 
-The Server connects, pings, and describes every configured table during startup.
-One failure fails startup and closes already-opened pools. Every table must have
-exactly one character-compatible primary key; Dex writes the Flow ID into the
-discovered key. Any other **NOT NULL** column must have a default or generated
-value so a partial insert can create a row.
+Every store requires **type** and **dsn**. Dex never logs DSNs. SQL stores also
+require **tableName**. MongoDB instead requires **databaseName** and
+**collectionName**; SQL fields and MongoDB fields cannot be mixed.
 
-**tableName** accepts **table** or **schema.table** for PostgreSQL and **table** or
-**database.table** for MySQL. Identifiers are parsed and quoted; values always use
-SQL parameters. DSNs and Attribute payloads are not logged.
+PostgreSQL and MySQL accept **table** or **schema.table**. Databricks and
+Snowflake accept **table**, **schema.table**, or
+**catalog-or-database.schema.table**. Missing parts use the connection's current
+catalog or database and schema. Identifiers are parsed and quoted. Attribute
+values always use driver parameters.
 
-## Schema refresh
+## Startup contracts
 
-Each store refreshes independently. The one-minute default receives uniform
-90–110% jitter every cycle. A successful describe atomically replaces the
-immutable in-memory snapshot. A failure retains the previous snapshot and
-retries after the next jittered interval.
+Dex connects, pings, and validates every destination during startup. One failure
+fails startup and closes already-opened clients.
 
-Adding nullable/defaulted columns is therefore discovered without restarting
-Dex. Removing or changing columns may cause later mutations to be filtered or
-retried, depending on whether validation or SQL execution detects the change.
+For PostgreSQL and MySQL, each table must have exactly one character-compatible
+primary key. Dex discovers that key and stores the Flow ID in it. This preserves
+the existing configuration and behavior for these stores.
 
-## Type contract
+For Databricks and Snowflake, **flowIdColumn** must name an existing, non-null,
+non-generated string column. Values in that column must be logically unique.
+Dex does not scan for duplicates, create a constraint, or rely on warehouse
+primary-key enforcement. A SQL Warehouse must already be available for a
+Databricks connection.
 
-- strings: character, varchar, or text, with declared length enforced
-- **int64**: signed integer or scale-zero numeric, with range/precision enforced
-- double: floating or numeric
-- bool: PostgreSQL boolean; MySQL boolean, **tinyint(1)**, or **bit(1)**
-- SDK datetime: RFC3339 or JSON epoch seconds; PostgreSQL timestamp with time zone,
-  MySQL timestamp or datetime
-- JSON object: JSON/JSONB, after payload validation
-- other object: PostgreSQL bytea or MySQL binary/varbinary/blob
-- null: nullable columns only
+Every other required SQL column must have a default or generated value. This
+allows a partial insert to create a row. Attribute names match non-Flow-ID
+columns exactly.
 
-An Attribute name must exactly match a non-primary-key column. Missing columns,
-type mismatches, primary-key writes, oversized values, and nulls for required
-columns are logged and filtered without blocking valid fields in the batch. If
-all fields are filtered, the Activity succeeds without SQL.
+For MongoDB, the configured collection must exist. Dex does not create the
+collection, change its validator, or create indexes.
+
+## SQL writes and schema refresh
+
+PostgreSQL and MySQL retain their existing upsert statements. Databricks and
+Snowflake execute one parameterized **MERGE** for each batch from one Flow. Dex
+does not combine batches from different Flows and does not maintain a change
+log.
+
+Each SQL store refreshes independently. The one-minute default receives uniform
+90–110% jitter every cycle. A successful metadata query atomically replaces the
+immutable in-memory schema snapshot. A failed query retains the previous
+snapshot and retries after the next interval. MongoDB does not run a schema
+refresh loop.
+
+Adding nullable or defaulted SQL columns is discovered without restarting Dex.
+Removing or changing columns may cause later mutations to be filtered or
+retried, depending on whether local validation or SQL execution detects the
+change.
+
+### SQL type contract
+
+| Attribute value | PostgreSQL and MySQL | Databricks and Snowflake |
+| --- | --- | --- |
+| string | Character, varchar, or text; declared length is enforced | String, character, varchar, or text; declared length is enforced |
+| int64 | Signed integer or scale-zero numeric; range and precision are enforced | Integer types or scale-zero decimal/number/fixed; range and precision are enforced |
+| double | Floating or numeric | Floating types; finite values only |
+| bool | PostgreSQL boolean; MySQL boolean, tinyint(1), or bit(1) | Boolean |
+| SDK datetime | PostgreSQL timestamp with time zone; MySQL timestamp or datetime | Timestamp types; values are converted to UTC, including timestamps without a time zone |
+| JSON object | JSON or JSONB after validation | VARIANT through the destination's native JSON parser |
+| other object | PostgreSQL bytea or MySQL binary/varbinary/blob | Binary or varbinary |
+| null | Nullable columns only | Nullable columns only |
+
+SDK datetime values may use RFC3339 strings or JSON epoch seconds. Dex rejects
+oversized strings or binary values, out-of-range integers, excess decimal
+precision, non-finite floating-point values, and invalid JSON.
+
+Missing columns, type mismatches, Flow ID writes, and nulls for required columns
+are logged and filtered one field at a time. Valid fields in the same batch still
+write. If every field is filtered, the Activity succeeds without executing SQL.
+
+## MongoDB document contract
+
+Each Flow maps to one document. The document **_id** is the Flow ID, and synced
+Attributes are top-level fields:
+
+```json
+{
+  "_id": "customer-42",
+  "display_name": "Ada",
+  "profile": { "active": true },
+  "score": 17
+}
+```
+
+Dex uses an upsert with a partial field update. Attributes omitted from a batch
+remain unchanged. When one batch contains the same Attribute more than once,
+the last value wins.
+
+Strings, 64-bit integers, finite doubles, booleans, and null use native BSON
+values. JSON recursively becomes BSON documents, arrays, and scalar values;
+integers that fit in 64 bits remain integers. Other encoded objects become BSON
+binary values.
+
+The Attribute name **_id**, names containing a period or NUL, and names beginning
+with a dollar sign are logged and skipped. Other valid fields in the batch still
+write. If every field is invalid, the Activity succeeds without contacting the
+collection.
 
 ## Delivery and shutdown
 
-SQL upserts are idempotent latest-state writes. Local Activity optimization is
-limited to seven seconds. It uses the configured backoff intervals and
-coefficient, but its attempts are bounded only by that seven-second total
-window. Regular Activity attempts default to 30 seconds and a one-hour total
-retry budget. Exhaustion skips that batch; there is no automatic replay or
-backfill.
+Attribute Sync stores latest state, not an event history. A later write may
+repeat after an ambiguous failure. SQL upserts, warehouse merges, and MongoDB
+upserts therefore use the Flow ID as their idempotency key.
+
+Local Activity optimization is limited to seven seconds. It uses the configured
+backoff intervals and coefficient, but its attempts are bounded only by that
+seven-second window. Regular Activity attempts default to 30 seconds and a
+one-hour total retry budget. Exhaustion skips that batch. Dex does not
+automatically replay old Attributes or backfill a newly configured store.
 
 Filtered writes, missing targets, and retry exhaustion emit error logs.
 
 CancelFlow and FailFlow are cooperative and may wait for active Steps, accepted
-Temporal RPC Updates, and multiple one-hour batch budgets. Cancel returns a native
-canceled error, so Temporal and Cadence retain the Canceled execution state.
-Temporal rejects new RPC Updates after terminal finalization begins. Cadence
-SetAttributes and RPC result signals accepted during cleanup are drained for their
-Attribute writes; terminal processing does not start their next Steps. Terminate
-and engine timeouts are hard stops and may leave the external table behind
-workflow state.
+Temporal RPC Updates, and multiple one-hour batch budgets. Cancel returns a
+native canceled error, so Temporal and Cadence retain the Canceled execution
+state. Temporal rejects new RPC Updates after terminal finalization begins.
+Cadence SetAttributes and RPC result signals accepted during cleanup are drained
+for their Attribute writes; terminal processing does not start their next Steps.
+Terminate and engine timeouts are hard stops and may leave external storage
+behind workflow state.

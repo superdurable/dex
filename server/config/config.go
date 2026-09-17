@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
@@ -107,8 +108,11 @@ const (
 )
 
 const (
-	AttributeStoreTypeMySQL    AttributeStoreType = "mysql"
-	AttributeStoreTypePostgres AttributeStoreType = "postgres"
+	AttributeStoreTypeMySQL      AttributeStoreType = "mysql"
+	AttributeStoreTypePostgres   AttributeStoreType = "postgres"
+	AttributeStoreTypeDatabricks AttributeStoreType = "databricks"
+	AttributeStoreTypeSnowflake  AttributeStoreType = "snowflake"
+	AttributeStoreTypeMongoDB    AttributeStoreType = "mongodb"
 )
 
 var defaultHeadlessFailoverStatusCodes = [...]codes.Code{
@@ -238,11 +242,11 @@ type (
 	AttributeStoreType string
 
 	AttributeStoreConfig struct {
-		// Stores maps FlowConfig names to immutable SQL destinations. Default empty disables Attribute synchronization.
+		// Stores maps FlowConfig names to immutable external destinations. Default empty disables Attribute synchronization.
 		Stores map[string]AttributeStoreConfigEntry `yaml:"stores"`
-		// SchemaSyncInterval refreshes table schemas. Default 1m. Each interval receives uniform ±10% jitter.
+		// SchemaSyncInterval refreshes SQL table schemas. Default 1m. Each interval receives uniform ±10% jitter.
 		SchemaSyncInterval time.Duration `yaml:"schemaSyncInterval"`
-		// SyncBatchSize caps contiguous items per SQL upsert. Default 100. Must be positive after defaults.
+		// SyncBatchSize caps contiguous items per Attribute Store upsert. Default 100. Must be positive after defaults.
 		SyncBatchSize int `yaml:"syncBatchSize"`
 		// SyncAttemptTimeout caps each regular Activity attempt. Default 30s. Must be positive after defaults.
 		SyncAttemptTimeout time.Duration `yaml:"syncAttemptTimeout"`
@@ -251,12 +255,18 @@ type (
 	}
 
 	AttributeStoreConfigEntry struct {
-		// Type selects mysql or postgres. Default empty is invalid for a configured entry. Immutable after startup.
+		// Type selects mysql, postgres, databricks, snowflake, or mongodb. Default empty is invalid for a configured entry. Immutable after startup.
 		Type AttributeStoreType `yaml:"type"`
-		// DSN is the driver connection string. Default empty is invalid. It may contain credentials and is never logged.
+		// DSN is the driver connection string or MongoDB URI. Default empty is invalid. It may contain credentials and is never logged.
 		DSN string `yaml:"dsn"`
-		// TableName selects table or schema.table/database.table. Default empty is invalid. Immutable after startup.
+		// TableName selects the SQL target. MySQL and PostgreSQL accept up to two parts; warehouses accept up to three. Default empty is invalid for SQL stores. Immutable after startup.
 		TableName string `yaml:"tableName"`
+		// FlowIDColumn stores Flow IDs in Databricks and Snowflake. Default empty is invalid for warehouse stores. Immutable after startup.
+		FlowIDColumn string `yaml:"flowIdColumn"`
+		// DatabaseName selects the MongoDB database. Default empty is invalid for MongoDB stores. Immutable after startup.
+		DatabaseName string `yaml:"databaseName"`
+		// CollectionName selects the existing MongoDB collection. Default empty is invalid for MongoDB stores. Immutable after startup.
+		CollectionName string `yaml:"collectionName"`
 	}
 
 	StorageStatus       string
@@ -828,14 +838,71 @@ func (c AttributeStoreConfig) Validate() error {
 		if name == "" {
 			return fmt.Errorf("attribute store name must not be empty")
 		}
-		if store.Type != AttributeStoreTypeMySQL && store.Type != AttributeStoreTypePostgres {
+		if !store.Type.IsSupported() {
 			return fmt.Errorf("attribute store %q has unsupported type %q", name, store.Type)
 		}
-		if store.DSN == "" || store.TableName == "" {
-			return fmt.Errorf("attribute store %q requires dsn and tableName", name)
+		if store.DSN == "" {
+			return fmt.Errorf("attribute store %q requires dsn", name)
+		}
+		if store.Type == AttributeStoreTypeMongoDB {
+			if store.DatabaseName == "" || store.CollectionName == "" {
+				return fmt.Errorf("attribute store %q requires databaseName and collectionName", name)
+			}
+			if store.TableName != "" || store.FlowIDColumn != "" {
+				return fmt.Errorf("attribute store %q mongodb configuration does not accept tableName or flowIdColumn", name)
+			}
+			continue
+		}
+		if store.TableName == "" {
+			return fmt.Errorf("attribute store %q requires tableName", name)
+		}
+		if err := validateAttributeStoreTableName(store.Type, store.TableName); err != nil {
+			return fmt.Errorf("attribute store %q has invalid tableName: %w", name, err)
+		}
+		if store.DatabaseName != "" || store.CollectionName != "" {
+			return fmt.Errorf("attribute store %q SQL configuration does not accept databaseName or collectionName", name)
+		}
+		if store.Type.IsWarehouse() && store.FlowIDColumn == "" {
+			return fmt.Errorf("attribute store %q requires flowIdColumn", name)
+		}
+		if !store.Type.IsWarehouse() && store.FlowIDColumn != "" {
+			return fmt.Errorf("attribute store %q only warehouses accept flowIdColumn", name)
 		}
 	}
 	return nil
+}
+
+func validateAttributeStoreTableName(storeType AttributeStoreType, tableName string) error {
+	parts := strings.Split(tableName, ".")
+	maximumParts := 2
+	if storeType.IsWarehouse() {
+		maximumParts = 3
+	}
+	if len(parts) > maximumParts {
+		return fmt.Errorf("must contain at most %d identifiers", maximumParts)
+	}
+	for _, part := range parts {
+		if part == "" || strings.IndexByte(part, 0) >= 0 {
+			return fmt.Errorf("contains an invalid identifier")
+		}
+	}
+	return nil
+}
+
+// IsSupported reports whether the Attribute Store type has a built-in backend.
+func (t AttributeStoreType) IsSupported() bool {
+	switch t {
+	case AttributeStoreTypeMySQL, AttributeStoreTypePostgres, AttributeStoreTypeDatabricks,
+		AttributeStoreTypeSnowflake, AttributeStoreTypeMongoDB:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsWarehouse reports whether the store uses an explicitly configured Flow ID column.
+func (t AttributeStoreType) IsWarehouse() bool {
+	return t == AttributeStoreTypeDatabricks || t == AttributeStoreTypeSnowflake
 }
 
 func (c CleanupStrategy) CronSchedule() (string, error) {

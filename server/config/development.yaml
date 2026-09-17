@@ -80,6 +80,21 @@ blobStore:
 #       type: mysql
 #       dsn: user:password@tcp(localhost:3306)/operational
 #       tableName: flow_attributes
+#     lakehouse:
+#       type: databricks
+#       dsn: token:secret@workspace:443/sql/1.0/warehouses/warehouse-id
+#       tableName: analytics.reporting.flow_attributes
+#       flowIdColumn: flow_id
+#     warehouse:
+#       type: snowflake
+#       dsn: user:password@account/analytics/reporting
+#       tableName: analytics.reporting.flow_attributes
+#       flowIdColumn: flow_id
+#     documents:
+#       type: mongodb
+#       dsn: mongodb://user:password@localhost:27017
+#       databaseName: analytics
+#       collectionName: flow_attributes
 #   schemaSyncInterval: 1m
 #   syncBatchSize: 100
 #   syncAttemptTimeout: 30s
