@@ -43,6 +43,10 @@ func (channelFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow channelFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.Publish, nil)}
+}
+
 func (channelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Channels: []dex.ChannelDef{
 		channelFlowFirst,
@@ -183,7 +187,6 @@ func runChannelFlow(
 		channelFlow{}.Publish,
 		channelPublishInput{Channel: "second", Value: 10},
 		&noOutput,
-		dex.InvokeOptions{},
 	))
 	waitCtx, cancelWait = context.WithTimeout(ctx, 20*time.Second)
 	require.NoError(t, integClient.WaitForStepCompletion(
@@ -199,7 +202,6 @@ func runChannelFlow(
 		channelFlow{}.Publish,
 		channelPublishInput{Channel: "first", Value: 100},
 		&noOutput,
-		dex.InvokeOptions{},
 	))
 	require.Eventually(t, func() bool {
 		err = integClient.SkipTimer(
@@ -224,7 +226,6 @@ func runChannelFlow(
 		channelFlow{}.Publish,
 		channelPublishInput{Channel: "first", Value: 100},
 		&noOutput,
-		dex.InvokeOptions{},
 	)
 	var inactive *dex.FlowNotActiveError
 	require.ErrorAs(t, err, &inactive)

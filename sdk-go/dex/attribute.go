@@ -274,7 +274,7 @@ func SyncToAttributeStore() AttributeOption {
 }
 
 // AttributeLock identifies one Attribute or Attribute-map instance lock.
-// Create locks with LockAttribute or LockAttributeMap, then place them in StepOptions or InvokeOptions.
+// Create locks with LockAttribute or LockAttributeMap, then place them in StepOptions or RPCOptions.
 type AttributeLock interface {
 	attributeLock()
 }

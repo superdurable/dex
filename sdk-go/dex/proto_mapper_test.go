@@ -310,13 +310,13 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 
 func TestClientOptionMapping(t *testing.T) {
 	attribute := DefineAttribute[string]("status")
-	_, locks, err := mapInvokeOptions(InvokeOptions{
+	_, locks, err := mapRPCOptions(&RPCOptions{
 		LockAttributes: []AttributeLock{LockAttribute(attribute)},
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{"status"}, locks)
 
-	_, locks, err = mapInvokeOptions(InvokeOptions{})
+	_, locks, err = mapRPCOptions(&RPCOptions{})
 	require.NoError(t, err)
 	require.Empty(t, locks)
 }

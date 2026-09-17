@@ -31,6 +31,25 @@ func (selectiveRPCFlow) GetSteps() []dex.StepDef {
 	return nil
 }
 
+func (flow selectiveRPCFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Seed, nil),
+		dex.DefineRPC(flow.Snapshot, &dex.RPCOptions{
+			LoadAttributeMapInstances: []dex.AttributeMapLoad{
+				selectiveRPCItems.Load("tenant-a"),
+			},
+			LoadChannels:    []dex.ChannelDef{selectiveRPCQueued},
+			LoadChannelMaps: []dex.ChannelDef{selectiveRPCByTenant},
+		}),
+		dex.DefineRPC(flow.ComplementarySnapshot, &dex.RPCOptions{
+			LoadAttributeMaps: []dex.AttributeDef{selectiveRPCItems},
+			LoadChannelMapInstances: []dex.ChannelMapLoad{
+				selectiveRPCByTenant.LoadMessages("tenant-a"),
+			},
+		}),
+	}
+}
+
 func (selectiveRPCFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{selectiveRPCItems},
@@ -146,7 +165,6 @@ func TestRPCSelectiveStateLoading(t *testing.T) {
 		flow.Seed,
 		nil,
 		new(dex.None),
-		dex.InvokeOptions{},
 	))
 
 	var snapshot selectiveRPCSnapshot
@@ -156,13 +174,6 @@ func TestRPCSelectiveStateLoading(t *testing.T) {
 		flow.Snapshot,
 		nil,
 		&snapshot,
-		dex.InvokeOptions{
-			LoadAttributeMapInstances: []dex.AttributeMapLoad{
-				selectiveRPCItems.Load("tenant-a"),
-			},
-			LoadChannels:    []dex.ChannelDef{selectiveRPCQueued},
-			LoadChannelMaps: []dex.ChannelDef{selectiveRPCByTenant},
-		},
 	))
 	require.Equal(t, 11, snapshot.Item)
 	require.True(t, snapshot.UnloadedRejected)
@@ -183,12 +194,6 @@ func TestRPCSelectiveStateLoading(t *testing.T) {
 		flow.ComplementarySnapshot,
 		nil,
 		&complementary,
-		dex.InvokeOptions{
-			LoadAttributeMaps: []dex.AttributeDef{selectiveRPCItems},
-			LoadChannelMapInstances: []dex.ChannelMapLoad{
-				selectiveRPCByTenant.LoadMessages("tenant-a"),
-			},
-		},
 	))
 	require.Equal(t, []string{"tenant-a", "tenant-b"}, complementary.ItemKeys)
 	require.Equal(t, []string{"alpha"}, channelMessageValues(complementary.TenantA))

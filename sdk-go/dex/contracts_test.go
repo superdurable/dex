@@ -153,6 +153,13 @@ func (contractFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow contractFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Update, nil),
+		dex.DefineRPC(flow.Describe, &dex.RPCOptions{}),
+	}
+}
+
 func (contractFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{
@@ -516,5 +523,4 @@ var _ func(
 	any,
 	any,
 	any,
-	dex.InvokeOptions,
 ) error = (*dex.Client).InvokeRPC

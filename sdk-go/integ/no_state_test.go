@@ -31,6 +31,16 @@ func (noStepFlow) GetSteps() []dex.StepDef {
 	return nil
 }
 
+func (flow noStepFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Fail, nil),
+		dex.DefineRPC(flow.IncreaseCounter, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(noStepCounter)},
+		}),
+		dex.DefineRPC(flow.GetCounter, nil),
+	}
+}
+
 func (noStepFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{noStepCounter}}
 }
@@ -112,7 +122,6 @@ func TestFlowWithoutSteps(t *testing.T) {
 		flow.Fail,
 		1,
 		&output,
-		dex.InvokeOptions{},
 	)
 	var workerError *dex.WorkerInvocationError
 	require.ErrorAs(t, err, &workerError)
@@ -148,9 +157,6 @@ func TestRPCLockConflict(t *testing.T) {
 				flow.IncreaseCounter,
 				nil,
 				&output,
-				dex.InvokeOptions{LockAttributes: []dex.AttributeLock{
-					dex.LockAttribute(noStepCounter),
-				}},
 			)
 		}()
 	}
@@ -177,7 +183,6 @@ func TestRPCLockConflict(t *testing.T) {
 		flow.GetCounter,
 		nil,
 		&counter,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, succeeded, counter)
 	require.NoError(t, integClient.StopFlow(

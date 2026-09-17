@@ -1192,9 +1192,12 @@ func mapWaitForFlowOptions(options WaitForFlowOptions) bool {
 	return options.NeedsResults
 }
 
-func mapInvokeOptions(
-	options InvokeOptions,
+func mapRPCOptions(
+	options *RPCOptions,
 ) (int32, []string, error) {
+	if options == nil {
+		return 0, nil, nil
+	}
 	timeout, err := durationSeconds32(options.Timeout)
 	if err != nil {
 		return 0, nil, err

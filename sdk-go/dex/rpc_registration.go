@@ -14,16 +14,16 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
-	"sort"
 	"strings"
 )
 
 type registeredRPC struct {
-	method      reflect.Value
+	handler     RPCDef
 	durableName string
 	identity    string
 	input       reflect.Type
 	output      reflect.Type
+	options     *RPCOptions
 }
 
 var (
@@ -32,116 +32,11 @@ var (
 	rpcResultType = reflect.TypeFor[rpcResult]()
 )
 
-var flowInterfaceMethodNames = func() map[string]struct{} {
-	flowType := reflect.TypeFor[Flow]()
-	names := make(map[string]struct{}, flowType.NumMethod())
-	for index := 0; index < flowType.NumMethod(); index++ {
-		names[flowType.Method(index).Name] = struct{}{}
-	}
-	return names
-}()
-
-func discoverRPCs(flow Flow) (map[string]*registeredRPC, error) {
-	receiver := reflect.ValueOf(flow)
-	receiverType := receiver.Type()
-	registered := make(map[string]*registeredRPC)
-	var invalid []string
-	for index := 0; index < receiverType.NumMethod(); index++ {
-		method := receiverType.Method(index)
-		if _, skip := flowInterfaceMethodNames[method.Name]; skip {
-			continue
-		}
-		if method.Name == "HandleTimeout" {
-			if _, isTimeoutHandler := flow.(FlowTimeoutHandler); isTimeoutHandler {
-				continue
-			}
-		}
-		rpc, matches := newRegisteredRPC(receiver, method)
-		if !matches {
-			invalid = append(invalid, method.Name)
-			continue
-		}
-		registered[rpc.durableName] = rpc
-	}
-	if len(invalid) > 0 {
-		sort.Strings(invalid)
-		return nil, fmt.Errorf(
-			"exported methods %v must be RPCs with signature (Context, IN) (*RPCResult[OUT], error)",
-			invalid,
-		)
-	}
-	if err := rejectPointerOnlyMethods(receiverType); err != nil {
-		return nil, err
-	}
-	return registered, nil
-}
-
-func rejectPointerOnlyMethods(receiverType reflect.Type) error {
-	if receiverType.Kind() == reflect.Pointer {
-		return nil
-	}
-	pointerType := reflect.PointerTo(receiverType)
-	var missing []string
-	for index := 0; index < pointerType.NumMethod(); index++ {
-		method := pointerType.Method(index)
-		if _, skip := flowInterfaceMethodNames[method.Name]; skip {
-			continue
-		}
-		if _, found := receiverType.MethodByName(method.Name); found {
-			continue
-		}
-		missing = append(missing, method.Name)
-	}
-	if len(missing) == 0 {
-		return nil
-	}
-	sort.Strings(missing)
-	return fmt.Errorf(
-		"exported methods %v have pointer receivers; register *%s, not %s",
-		missing,
-		receiverType.Name(),
-		receiverType,
-	)
-}
-
-func newRegisteredRPC(
-	receiver reflect.Value,
-	method reflect.Method,
-) (*registeredRPC, bool) {
-	methodType := method.Type
-	if !rpcMethodType(methodType, true) {
-		return nil, false
-	}
-	result := reflect.Zero(methodType.Out(0).Elem()).Interface().(rpcResult)
-	return &registeredRPC{
-		method:      receiver.Method(method.Index),
-		durableName: method.Name,
-		identity:    runtime.FuncForPC(method.Func.Pointer()).Name(),
-		input:       methodType.In(2),
-		output:      result.rpcOutputType(),
-	}, true
-}
-
 func (rpc *registeredRPC) invoke(
 	ctx Context,
 	input any,
 ) (rpcResult, error) {
-	contextValue, err := reflectionArgument(ctx, contextType)
-	if err != nil {
-		return nil, err
-	}
-	inputValue, err := reflectionArgument(input, rpc.input)
-	if err != nil {
-		return nil, err
-	}
-	results := rpc.method.Call([]reflect.Value{contextValue, inputValue})
-	if !results[1].IsNil() {
-		return nil, results[1].Interface().(error)
-	}
-	if results[0].IsNil() {
-		return nil, nil
-	}
-	return results[0].Interface().(rpcResult), nil
+	return rpc.handler.invoke(ctx, input)
 }
 
 func rpcMethodName(rpc any) (string, error) {
@@ -191,28 +86,4 @@ func rpcMethodType(methodType reflect.Type, hasReceiver bool) bool {
 		resultType.Elem().Kind() == reflect.Struct &&
 		resultType.Implements(rpcResultType) &&
 		methodType.Out(1) == errorType
-}
-
-func reflectionArgument(
-	value any,
-	targetType reflect.Type,
-) (reflect.Value, error) {
-	if value == nil {
-		if isNilableType(targetType) {
-			return reflect.Zero(targetType), nil
-		}
-		return reflect.Value{}, fmt.Errorf(
-			"dex: nil is not assignable to %s",
-			targetType,
-		)
-	}
-	reflected := reflect.ValueOf(value)
-	if !reflected.Type().AssignableTo(targetType) {
-		return reflect.Value{}, fmt.Errorf(
-			"dex: value type %s is not assignable to %s",
-			reflected.Type(),
-			targetType,
-		)
-	}
-	return reflected, nil
 }

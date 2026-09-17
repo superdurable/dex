@@ -1327,22 +1327,21 @@ func isPrimitiveValue(value *dexpb.Value) bool {
 //
 // rpc identifies an RPC definition belonging to the Flow type, input must match its
 // input type, and outputPtr may be nil to discard the RPC output. Otherwise outputPtr
-// must be a non-nil pointer to the RPC output type. options controls timeout and
-// Attribute locks. InvokeRPC blocks until the handler returns, the timeout expires,
-// or ctx is canceled, then decodes the result into outputPtr when one is provided.
+// must be a non-nil pointer to the RPC output type. The RPC's registered RPCOptions
+// control timeout, locks, transactional execution, and selective state loading.
+// InvokeRPC blocks until the handler returns, the timeout expires, or ctx is canceled,
+// then decodes the result into outputPtr when one is provided.
 // It may return validation, serialization, lock-conflict, worker, inactive-Flow,
 // context, hydration, transport, or server errors. outputPtr is not owned by Dex.
 //
 //	var result Quote
-//	err := client.InvokeRPC(ctx, "order-42", quoteRPC, request, &result,
-//		dex.InvokeOptions{})
+//	err := client.InvokeRPC(ctx, "order-42", quoteRPC, request, &result)
 func (client *Client) InvokeRPC(
 	ctx context.Context,
 	flowID string,
 	rpc any,
 	input any,
 	outputPtr any,
-	options InvokeOptions,
 ) error {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return err
@@ -1372,17 +1371,14 @@ func (client *Client) InvokeRPC(
 			registered.output,
 		)
 	}
-	if err := flow.validateAttributeLocks(options.LockAttributes); err != nil {
-		return err
-	}
-	attributeMapInstances, channelNames, channelMapInstances, err := validateInvokeStateLoads(
+	attributeMapInstances, channelNames, channelMapInstances, err := validateRPCStateLoads(
 		flow,
-		options,
+		registered.options,
 	)
 	if err != nil {
 		return err
 	}
-	timeout, locks, err := mapInvokeOptions(options)
+	timeout, locks, err := mapRPCOptions(registered.options)
 	if err != nil {
 		return err
 	}
@@ -1401,7 +1397,7 @@ func (client *Client) InvokeRPC(
 		TimeoutSeconds:            timeout,
 		LockAttributeKeys:         locks,
 		RequestId:                 requestID,
-		IsTransactional:           options.IsTransactional,
+		IsTransactional:           registered.options != nil && registered.options.IsTransactional,
 		LoadAttributeMapInstances: attributeMapInstances,
 		LoadChannelNames:          channelNames,
 		LoadChannelMapInstances:   channelMapInstances,
@@ -1422,17 +1418,11 @@ func (client *Client) InvokeRPC(
 	return decodeValue(response.Output, outputPtr)
 }
 
-func validateInvokeStateLoads(
+func validateRPCStateLoads(
 	flow *registeredFlow,
-	options InvokeOptions,
+	options *RPCOptions,
 ) ([]string, []string, []string, error) {
-	return validateStateLoads(flow, stateLoads{
-		attributeMaps:         options.LoadAttributeMaps,
-		attributeMapInstances: options.LoadAttributeMapInstances,
-		channels:              options.LoadChannels,
-		channelMaps:           options.LoadChannelMaps,
-		channelMapInstances:   options.LoadChannelMapInstances,
-	})
+	return validateStateLoads(flow, rpcStateLoads(options))
 }
 
 type stateLoads struct {

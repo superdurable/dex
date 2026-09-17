@@ -28,6 +28,10 @@ func (BillingFlow) GetSteps() []dex.StepDef {
 	return nil
 }
 
+func (flow BillingFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.Refund, nil)}
+}
+
 func (BillingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }

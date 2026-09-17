@@ -134,12 +134,6 @@ func invokeUpdateOrder(
 		Orders.UpdateOrder,
 		UpdateOrderInput{Status: "processing"},
 		&output,
-		dex.InvokeOptions{
-			Timeout: time.Minute,
-			LockAttributes: []dex.AttributeLock{
-				dex.LockAttribute(OrderStatus),
-			},
-		},
 	)
 	return output, err
 }

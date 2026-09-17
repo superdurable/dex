@@ -88,6 +88,24 @@ func (clientTestFlow) GetSteps() []StepDef {
 	return []StepDef{DefineStartStep(clientTestStep{})}
 }
 
+func (flow clientTestFlow) GetRPCs() []RPCDef {
+	return []RPCDef{
+		DefineRPC(flow.NoOutput, nil),
+		DefineRPC(flow.Update, &RPCOptions{
+			Timeout:                   30 * time.Second,
+			LockAttributes:            []AttributeLock{LockAttribute(clientTestStatus)},
+			IsTransactional:           true,
+			LoadAttributeMaps:         []AttributeDef{clientTestItems},
+			LoadAttributeMapInstances: []AttributeMapLoad{clientTestItems.Load("tenant-a")},
+			LoadChannels:              []ChannelDef{clientTestCommands},
+			LoadChannelMaps:           []ChannelDef{clientTestByOrder},
+			LoadChannelMapInstances: []ChannelMapLoad{
+				clientTestByOrder.LoadMessages("tenant-a"),
+			},
+		}),
+	}
+}
+
 func (clientTestFlow) GetPersistenceSchema() PersistenceSchema {
 	return PersistenceSchema{
 		Attributes: []AttributeDef{clientTestStatus, clientTestItems},
@@ -695,16 +713,17 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 		clientTestFlow{}.NoOutput,
 		nil,
 		nil,
-		InvokeOptions{},
 	))
 	require.Equal(t, "NoOutput", service.invokeRequest.RpcName)
+	require.Zero(t, service.invokeRequest.TimeoutSeconds)
+	require.Empty(t, service.invokeRequest.LockAttributeKeys)
+	require.False(t, service.invokeRequest.IsTransactional)
 	require.NoError(t, client.InvokeRPC(
 		ctx,
 		"discard-output",
 		clientTestFlow{}.Update,
 		clientTestRPCInput{Status: "discarded"},
 		nil,
-		InvokeOptions{},
 	))
 	require.Equal(t, "Update", service.invokeRequest.RpcName)
 
@@ -715,19 +734,10 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 		clientTestFlow{}.Update,
 		clientTestRPCInput{Status: "updated"},
 		&output,
-		InvokeOptions{
-			LockAttributes:            []AttributeLock{LockAttribute(clientTestStatus)},
-			IsTransactional:           true,
-			LoadAttributeMaps:         []AttributeDef{clientTestItems},
-			LoadAttributeMapInstances: []AttributeMapLoad{clientTestItems.Load("tenant-a")},
-			LoadChannels:              []ChannelDef{clientTestCommands},
-			LoadChannelMaps:           []ChannelDef{clientTestByOrder},
-			LoadChannelMapInstances: []ChannelMapLoad{
-				clientTestByOrder.LoadMessages("tenant-a"),
-			},
-		},
 	)
 	require.NoError(t, err)
+	require.Equal(t, int32(30), service.invokeRequest.TimeoutSeconds)
+	require.Equal(t, []string{"status"}, service.invokeRequest.LockAttributeKeys)
 	require.True(t, service.invokeRequest.IsTransactional)
 	require.Equal(t, []string{"items/", "items/tenant-a"}, service.invokeRequest.LoadAttributeMapInstances)
 	require.Equal(t, []string{"commands"}, service.invokeRequest.LoadChannelNames)
@@ -913,7 +923,6 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 		clientTestFlow{}.Update,
 		clientTestRPCInput{},
 		&output,
-		InvokeOptions{},
 	)
 	var worker *WorkerInvocationError
 	require.ErrorAs(t, err, &worker)
@@ -927,7 +936,6 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 		clientTestFlow{}.Update,
 		clientTestRPCInput{},
 		&output,
-		InvokeOptions{},
 	)
 	var conflict *RPCLockConflictError
 	require.ErrorAs(t, err, &conflict)
@@ -938,7 +946,6 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 		clientTestFlow{}.Update,
 		clientTestRPCInput{},
 		&output,
-		InvokeOptions{},
 	)
 	var inactive *FlowNotActiveError
 	require.ErrorAs(t, err, &inactive)

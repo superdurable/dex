@@ -128,6 +128,7 @@ func (*stringRegistrationStep) Execute(
 type registrationFlow struct {
 	flowType string
 	steps    []StepDef
+	rpcs     []RPCDef
 	schema   PersistenceSchema
 	rpcCalls int
 }
@@ -138,6 +139,10 @@ func (flow *registrationFlow) GetFlowType() string {
 
 func (flow *registrationFlow) GetSteps() []StepDef {
 	return flow.steps
+}
+
+func (flow *registrationFlow) GetRPCs() []RPCDef {
+	return flow.rpcs
 }
 
 func (flow *registrationFlow) GetPersistenceSchema() PersistenceSchema {
@@ -161,6 +166,10 @@ func (flow invalidRPCRegistrationFlow) GetFlowType() string {
 }
 
 func (invalidRPCRegistrationFlow) GetSteps() []StepDef {
+	return nil
+}
+
+func (invalidRPCRegistrationFlow) GetRPCs() []RPCDef {
 	return nil
 }
 
@@ -203,6 +212,10 @@ func (valueRegistrationFlow) GetSteps() []StepDef {
 	return nil
 }
 
+func (flow valueRegistrationFlow) GetRPCs() []RPCDef {
+	return []RPCDef{DefineRPC(flow.Query, nil)}
+}
+
 func (valueRegistrationFlow) GetPersistenceSchema() PersistenceSchema {
 	return PersistenceSchema{}
 }
@@ -222,6 +235,10 @@ func (mixedReceiverRegistrationFlow) GetFlowType() string {
 
 func (mixedReceiverRegistrationFlow) GetSteps() []StepDef {
 	return nil
+}
+
+func (flow mixedReceiverRegistrationFlow) GetRPCs() []RPCDef {
+	return []RPCDef{DefineRPC((&flow).Update, nil)}
 }
 
 func (mixedReceiverRegistrationFlow) GetPersistenceSchema() PersistenceSchema {
@@ -245,6 +262,10 @@ func (errorRegistrationFlow) GetFlowType() string {
 
 func (errorRegistrationFlow) GetSteps() []StepDef {
 	return nil
+}
+
+func (flow errorRegistrationFlow) GetRPCs() []RPCDef {
+	return []RPCDef{DefineRPC(flow.Fail, nil)}
 }
 
 func (errorRegistrationFlow) GetPersistenceSchema() PersistenceSchema {
@@ -350,6 +371,7 @@ func TestRegistryAssemblesScopedDefinitions(t *testing.T) {
 			Streams:    []StreamDef{progress},
 		},
 	}
+	first.rpcs = []RPCDef{DefineRPC(first.Update, nil)}
 	second := &registrationFlow{
 		flowType: "second",
 		steps:    []StepDef{DefineStep(&registrationStep{stepType: "start"})},
@@ -376,16 +398,107 @@ func TestRegistryAssemblesScopedDefinitions(t *testing.T) {
 	require.True(t, found)
 }
 
-func TestRegistryRejectsNonRPCExportedMethods(t *testing.T) {
+func TestRegistryIgnoresUnregisteredExportedMethods(t *testing.T) {
 	assembled, err := NewRegistry([]Flow{
 		invalidRPCRegistrationFlow{flowType: "invalid-rpc"},
 	})
-	require.Nil(t, assembled)
-	require.ErrorContains(t, err, "exported methods")
-	require.ErrorContains(t, err, "ExportedHelper")
-	require.ErrorContains(t, err, "ValueResult")
-	require.ErrorContains(t, err, "WrongResult")
-	require.ErrorContains(t, err, "must be RPCs")
+	require.NoError(t, err)
+	registered, found := assembled.lookupFlow("invalid-rpc")
+	require.True(t, found)
+	require.Empty(t, registered.rpcs)
+}
+
+func TestRegistryRejectsInvalidRPCDefinitions(t *testing.T) {
+	status := DefineAttribute[string]("status")
+	missingStatus := DefineAttribute[string]("missing-status")
+	items := DefineAttributeMap[int]("items")
+	missingItems := DefineAttributeMap[int]("missing-items")
+
+	tests := []struct {
+		name        string
+		definitions func(*registrationFlow) []RPCDef
+		options     *RPCOptions
+		error       string
+	}{
+		{
+			name: "nil RPC",
+			definitions: func(*registrationFlow) []RPCDef {
+				var rpc RPC[registrationInput, registrationOutput]
+				return []RPCDef{DefineRPC(rpc, nil)}
+			},
+			error: "RPC at index 0 is nil",
+		},
+		{
+			name: "package function",
+			definitions: func(*registrationFlow) []RPCDef {
+				return []RPCDef{DefineRPC(packageRegistrationRPC, nil)}
+			},
+			error: "direct bound Flow method",
+		},
+		{
+			name: "foreign Flow method",
+			definitions: func(*registrationFlow) []RPCDef {
+				foreign := valueRegistrationFlow{}
+				return []RPCDef{DefineRPC(foreign.Query, nil)}
+			},
+			error: "must be a direct bound method",
+		},
+		{
+			name: "duplicate RPC",
+			definitions: func(flow *registrationFlow) []RPCDef {
+				return []RPCDef{
+					DefineRPC(flow.Update, nil),
+					DefineRPC(flow.Update, nil),
+				}
+			},
+			error: `duplicate RPC "Update"`,
+		},
+		{
+			name:    "negative timeout",
+			options: &RPCOptions{Timeout: -time.Second},
+			error:   "duration must not be negative",
+		},
+		{
+			name: "undeclared lock",
+			options: &RPCOptions{
+				LockAttributes: []AttributeLock{LockAttribute(missingStatus)},
+			},
+			error: `attribute "missing-status" is not declared`,
+		},
+		{
+			name: "undeclared state load",
+			options: &RPCOptions{
+				LoadAttributeMaps: []AttributeDef{missingItems},
+			},
+			error: `AttributeMap "missing-items" is not registered`,
+		},
+		{
+			name: "duplicate state load",
+			options: &RPCOptions{
+				LoadAttributeMaps: []AttributeDef{items, items},
+			},
+			error: `duplicate AttributeMap load "items/"`,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			flow := &registrationFlow{
+				flowType: "rpc-options",
+				schema: PersistenceSchema{
+					Attributes: []AttributeDef{status, items},
+				},
+			}
+			if testCase.definitions != nil {
+				flow.rpcs = testCase.definitions(flow)
+			} else {
+				flow.rpcs = []RPCDef{DefineRPC(flow.Update, testCase.options)}
+			}
+			assembled, err := NewRegistry([]Flow{flow})
+			require.Nil(t, assembled)
+			require.ErrorContains(t, err, testCase.error)
+		})
+	}
 }
 
 func TestRegistryUsesDefaultPackageQualifiedTypes(t *testing.T) {
@@ -930,17 +1043,18 @@ func TestRegistryReportsFirstInvalidStepOptions(t *testing.T) {
 func TestRegistryRejectsPointerOnlyRPCsOnValueFlow(t *testing.T) {
 	assembled, err := NewRegistry([]Flow{mixedReceiverRegistrationFlow{}})
 	require.Nil(t, assembled)
-	require.ErrorContains(t, err, `exported methods [Update]`)
-	require.ErrorContains(t, err, "pointer receivers")
-	require.ErrorContains(t, err, "register *mixedReceiverRegistrationFlow")
+	require.ErrorContains(t, err, `RPC "Update"`)
+	require.ErrorContains(t, err, "direct bound method")
+	require.ErrorContains(t, err, "mixed-flow")
 
 	name, err := rpcMethodName((&mixedReceiverRegistrationFlow{}).Update)
 	require.NoError(t, err)
 	require.Equal(t, "Update", name)
 }
 
-func TestRPCDiscoveryInvocationAndIdentity(t *testing.T) {
+func TestRPCDefinitionInvocationAndIdentity(t *testing.T) {
 	pointerFlow := &registrationFlow{flowType: "pointer-flow"}
+	pointerFlow.rpcs = []RPCDef{DefineRPC(pointerFlow.Update, nil)}
 	assembled, err := NewRegistry([]Flow{
 		pointerFlow,
 		valueRegistrationFlow{},

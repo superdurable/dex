@@ -40,6 +40,16 @@ func (rpcFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(rpcFlowStep{})}
 }
 
+func (flow rpcFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Increment, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(rpcFlowStatus)},
+		}),
+		dex.DefineRPC(flow.Fail, nil),
+		dex.DefineRPC(flow.SetWaitTargets, nil),
+	}
+}
+
 func (rpcFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{
@@ -203,7 +213,6 @@ func TestRPCFlow(t *testing.T) {
 		flow.SetWaitTargets,
 		nil,
 		&noOutput,
-		dex.InvokeOptions{},
 	))
 	require.NoError(t, <-waitErrors)
 	require.NoError(t, <-waitErrors)
@@ -242,7 +251,6 @@ func TestRPCFlow(t *testing.T) {
 		flow.Fail,
 		1,
 		&failedOutput,
-		dex.InvokeOptions{},
 	)
 	var workerError *dex.WorkerInvocationError
 	require.ErrorAs(t, err, &workerError)
@@ -259,9 +267,6 @@ func TestRPCFlow(t *testing.T) {
 		flow.Increment,
 		1,
 		&output,
-		dex.InvokeOptions{LockAttributes: []dex.AttributeLock{
-			dex.LockAttribute(rpcFlowStatus),
-		}},
 	))
 	require.Equal(t, 2, output.Value)
 	require.Equal(t, 0, output.SizeBefore)
@@ -281,7 +286,6 @@ func TestRPCFlow(t *testing.T) {
 		flow.Increment,
 		1,
 		&output,
-		dex.InvokeOptions{},
 	)
 	var inactive *dex.FlowNotActiveError
 	require.ErrorAs(t, err, &inactive)

@@ -335,9 +335,12 @@ type AlreadyStartedOptions struct {
 	IgnoreError bool
 }
 
-// InvokeOptions configures one RPC invocation.
-type InvokeOptions struct {
-	// Timeout limits the RPC handler; zero uses its registered or server default.
+// RPCOptions configures every invocation of one registered RPC.
+//
+// Return these options with DefineRPC from Flow.GetRPCs. The Client applies the same immutable
+// settings to every invocation. Its context may still impose a shorter caller-side deadline.
+type RPCOptions struct {
+	// Timeout limits the RPC handler; zero uses the server default.
 	Timeout time.Duration
 	// LockAttributes are acquired atomically for the RPC invocation.
 	LockAttributes []AttributeLock

@@ -276,6 +276,10 @@ func (workerTestFlow) GetSteps() []StepDef {
 	}
 }
 
+func (flow workerTestFlow) GetRPCs() []RPCDef {
+	return []RPCDef{DefineRPC(flow.Update, nil)}
+}
+
 func (workerTestFlow) GetPersistenceSchema() PersistenceSchema {
 	return PersistenceSchema{
 		Attributes: []AttributeDef{workerTestStatus, workerTestItems},
@@ -393,6 +397,10 @@ type workerBlockingFlow struct {
 
 func (*workerBlockingFlow) GetSteps() []StepDef {
 	return nil
+}
+
+func (flow *workerBlockingFlow) GetRPCs() []RPCDef {
+	return []RPCDef{DefineRPC(flow.Block, nil)}
 }
 
 func (*workerBlockingFlow) GetPersistenceSchema() PersistenceSchema {

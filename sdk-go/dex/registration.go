@@ -13,6 +13,7 @@ package dex
 import (
 	"fmt"
 	"reflect"
+	"runtime"
 	"strings"
 	"time"
 
@@ -159,11 +160,9 @@ func (registry *Registry) registerFlow(
 	if err := registered.registerSteps(flow.GetSteps()); err != nil {
 		return nil, fmt.Errorf("dex: flow %q: %w", flowType, err)
 	}
-	rpcs, err := discoverRPCs(flow)
-	if err != nil {
+	if err := registered.registerRPCs(flow.GetRPCs()); err != nil {
 		return nil, fmt.Errorf("dex: flow %q: %w", flowType, err)
 	}
-	registered.rpcs = rpcs
 	return registered, nil
 }
 
@@ -300,6 +299,69 @@ func (flow *registeredFlow) registerSteps(definitions []StepDef) error {
 		if err := flow.validateStepOptions(step.options, step.inputType); err != nil {
 			return fmt.Errorf("step %q options: %w", step.stepType, err)
 		}
+	}
+	return nil
+}
+
+func (flow *registeredFlow) registerRPCs(definitions []RPCDef) error {
+	for index, definition := range definitions {
+		if err := flow.registerRPC(definition, index); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (flow *registeredFlow) registerRPC(definition RPCDef, index int) error {
+	if definition == nil || nilInterface(definition.rpcHandler()) {
+		return fmt.Errorf("RPC at index %d is nil", index)
+	}
+	handler := definition.rpcHandler()
+	durableName, err := rpcMethodName(handler)
+	if err != nil {
+		return fmt.Errorf("RPC at index %d: %w", index, err)
+	}
+	identity, err := rpcMethodIdentity(handler)
+	if err != nil {
+		return fmt.Errorf("RPC %q: %w", durableName, err)
+	}
+	flowMethod, found := reflect.TypeOf(flow.flow).MethodByName(durableName)
+	if !found || runtime.FuncForPC(flowMethod.Func.Pointer()).Name() != identity {
+		return fmt.Errorf(
+			"RPC %q must be a direct bound method on Flow %q",
+			durableName,
+			flow.flowType,
+		)
+	}
+	if _, found := flow.rpcs[durableName]; found {
+		return fmt.Errorf("duplicate RPC %q", durableName)
+	}
+	if err := flow.validateRPCOptions(definition.rpcOptions()); err != nil {
+		return fmt.Errorf("RPC %q options: %w", durableName, err)
+	}
+	flow.rpcs[durableName] = &registeredRPC{
+		handler:     definition,
+		durableName: durableName,
+		identity:    identity,
+		input:       definition.rpcInputType(),
+		output:      definition.rpcOutputType(),
+		options:     definition.rpcOptions(),
+	}
+	return nil
+}
+
+func (flow *registeredFlow) validateRPCOptions(options *RPCOptions) error {
+	if options == nil {
+		return nil
+	}
+	if err := flow.validateAttributeLocks(options.LockAttributes); err != nil {
+		return fmt.Errorf("locks: %w", err)
+	}
+	if _, _, _, err := validateStateLoads(flow, rpcStateLoads(options)); err != nil {
+		return fmt.Errorf("state load: %w", err)
+	}
+	if _, _, err := mapRPCOptions(options); err != nil {
+		return err
 	}
 	return nil
 }

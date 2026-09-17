@@ -14,8 +14,7 @@ package dex
 // object (at least a few seconds) can be modeled as a Flow: a Go type, a list
 // of Steps, and a persistence schema of attributes and channels.
 //
-// Exported methods on the Flow (other than the Flow interface methods) that
-// match RPC[IN, OUT] are registered as RPCs under their Go method names.
+// RPC methods are registered explicitly through GetRPCs under their Go method names.
 //
 // Example:
 //
@@ -34,6 +33,12 @@ package dex
 //		return dex.PersistenceSchema{
 //			Attributes: []dex.AttributeDef{OrderStatus},
 //			Channels:   []dex.ChannelDef{ApprovalChannel},
+//		}
+//	}
+//
+//	func (flow OrderFlow) GetRPCs() []dex.RPCDef {
+//		return []dex.RPCDef{
+//			dex.DefineRPC(flow.GetSnapshot, nil),
 //		}
 //	}
 //
@@ -60,6 +65,10 @@ type Flow interface {
 	// the run starts with no step execution; application code can still invoke
 	// RPCs that move into steps later.
 	GetSteps() []StepDef
+
+	// GetRPCs defines the Flow's synchronous RPC methods and their immutable execution options.
+	// Embed FlowDefaults to return an empty list when the Flow exposes no RPCs.
+	GetRPCs() []RPCDef
 
 	// GetPersistenceSchema declares attributes and channels for this flow.
 	//
@@ -96,6 +105,11 @@ type FlowDefaults struct{}
 // GetFlowType returns empty so Registry derives the package-qualified Go type name.
 func (FlowDefaults) GetFlowType() string {
 	return ""
+}
+
+// GetRPCs returns no RPC definitions. Flows exposing RPCs override this method.
+func (FlowDefaults) GetRPCs() []RPCDef {
+	return nil
 }
 
 // PersistenceSchema registers a Flow's Attribute, Channel, and Stream definitions.

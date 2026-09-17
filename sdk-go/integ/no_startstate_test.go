@@ -25,6 +25,10 @@ func (noStartStepFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStep(noStartFinishStep{})}
 }
 
+func (flow noStartStepFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.Start, nil)}
+}
+
 func (noStartStepFlow) Start(
 	dex.Context,
 	int,
@@ -65,7 +69,6 @@ func TestFlowWithoutStartingStep(t *testing.T) {
 		flow.Start,
 		1,
 		&rpcOutput,
-		dex.InvokeOptions{},
 	))
 	require.Equal(t, 2, rpcOutput)
 	result := waitForFlow(t, flowID, true)

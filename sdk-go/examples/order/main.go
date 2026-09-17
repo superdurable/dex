@@ -120,6 +120,17 @@ func (OrderFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow OrderFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.UpdateOrder, &dex.RPCOptions{
+			Timeout: time.Minute,
+			LockAttributes: []dex.AttributeLock{
+				dex.LockAttribute(OrderStatus),
+			},
+		}),
+	}
+}
+
 func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{OrderStatus, ItemQuantities},
