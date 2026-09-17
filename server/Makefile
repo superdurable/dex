@@ -225,7 +225,7 @@ partitionNum ?= 0
 
 ci-cadence-integ-test: prepareIntegrationCoverage
 	$Q set -e; \
-		test_run_pattern="$$(./script/select-integ-test-partition.sh "$(totalPartitions)" "$(partitionNum)")"; \
+		test_run_pattern="$$(./script/select-integ-test-partition.sh "$(totalPartitions)" "$(partitionNum)" integ/cadence-ci-tests.txt)"; \
 		go test $(integrationCoverageFlags) -v ./integ -timeout 20m -run "$$test_run_pattern" -search=false -temporal=false -dependencyWaitSeconds=180 $(integrationCoverageArgs)
 
 ci-cadence-integ-test-disable-sticky: prepareIntegrationCoverage

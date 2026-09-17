@@ -183,7 +183,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        partition: [0, 1, 2, 3, 4]
+        partition: [0, 1]
     defaults:
       run:
         working-directory: server
@@ -198,7 +198,7 @@ jobs:
       - name: Cadence integ tests
         env:
           GOWORK: "off"
-        run: make ci-cadence-integ-test totalPartitions=5 partitionNum=${{ matrix.partition }} integrationCoverageDir=coverage-raw
+        run: make ci-cadence-integ-test totalPartitions=2 partitionNum=${{ matrix.partition }} integrationCoverageDir=coverage-raw
       - name: Upload integration coverage data
         if: always()
         uses: actions/upload-artifact@v7

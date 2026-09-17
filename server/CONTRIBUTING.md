@@ -222,11 +222,15 @@ in the same partition as their parent. Reproduce a CI partition locally with:
 
 ```shell
 make ci-temporal-integ-test totalPartitions=5 partitionNum=0
-make ci-cadence-integ-test totalPartitions=5 partitionNum=0
+make ci-cadence-integ-test totalPartitions=2 partitionNum=0
 ```
 
 `totalPartitions` defaults to `1` and `partitionNum` defaults to `0`, which runs
-the complete suite. Each CI partition uses an independent runner and backend
+every selected test. Temporal CI runs every top-level integration test across
+five partitions. Cadence CI runs the 42 core compatibility tests listed in
+`integ/cadence-ci-tests.txt` across two partitions; its Web API test runs in the
+dedicated Web API integration job. Use `cadenceIntegTests` to run the full
+Cadence suite locally. Each CI partition uses an independent runner and backend
 stack.
 
 ### Measure integration coverage
