@@ -69,6 +69,15 @@ function renderDetails(
   );
 }
 
+function expectStrongLabelsInOrder(markup: string, labels: string[]): void {
+  let previousPosition = -1;
+  for (const label of labels) {
+    const position = markup.indexOf(`>${label}</strong>`);
+    expect(position).toBeGreaterThan(previousPosition);
+    previousPosition = position;
+  }
+}
+
 describe('selected step event details', () => {
   it('links a Time Travel fork to its previous run', () => {
     const fork: FlowHistoryEvent = {
@@ -528,7 +537,9 @@ describe('RPC event details', () => {
         isSetAttributeApi: true,
         upsertAttributes: [
           { key: 'status', value: { stringValue: 'ready' } },
+          { key: 'orders/11', value: { stringValue: 'eleven' } },
           { key: 'orders/first%20order', value: { stringValue: 'pending' } },
+          { key: 'orders/2', value: { stringValue: 'two' } },
         ],
       },
     };
@@ -539,7 +550,9 @@ describe('RPC event details', () => {
       payload: {
         messages: [
           { channelName: 'notifications', value: { stringValue: 'sent' } },
+          { channelName: 'updates/11', value: { stringValue: 'eleven' } },
           { channelName: 'updates/first%20order', value: { stringValue: 'queued' } },
+          { channelName: 'updates/2', value: { stringValue: 'two' } },
         ],
       },
     };
@@ -555,6 +568,8 @@ describe('RPC event details', () => {
     expect(channelMarkup).toContain('<details class="semantic-record channel-record semantic-map-record">');
     expect(channelMarkup).toContain('first order');
     expect(channelMarkup).not.toContain('<details class="semantic-record channel-record" open="">');
+    expectStrongLabelsInOrder(attributeMarkup, ['2', '11', 'first order']);
+    expectStrongLabelsInOrder(channelMarkup, ['2', '11', 'first order']);
   });
 });
 

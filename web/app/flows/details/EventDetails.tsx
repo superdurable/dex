@@ -36,6 +36,7 @@ import {
   waitingConditionTypeLabel,
 } from '@/lib/semantic';
 import { formatDate, type TimezonePreference } from '@/lib/format';
+import { groupPersistenceEntries } from '@/lib/persistenceGroups';
 import { formatElapsedDuration } from '@/lib/timeline';
 import { findSourceStepOptions } from '@/lib/stepOptions';
 import { generatedSubFlowID } from '@/lib/subflows';
@@ -183,43 +184,6 @@ function ValueBlock({
   );
 }
 
-function mapEntry(key: string): { name: string; instance: string } | null {
-  const separator = key.indexOf('/');
-  if (separator <= 0 || separator === key.length - 1) return null;
-  const name = key.slice(0, separator);
-  const encodedInstance = key.slice(separator + 1);
-  try {
-    return { name, instance: decodeURIComponent(encodedInstance) };
-  } catch {
-    return { name, instance: encodedInstance };
-  }
-}
-
-type PersistenceGroup =
-  | { kind: 'value'; entry: Data; index: number }
-  | { kind: 'map'; name: string; entries: Array<{ entry: Data; instance: string; index: number }> };
-
-function persistenceGroups(entries: Data[], keyForEntry: (entry: Data) => string): PersistenceGroup[] {
-  const groups: PersistenceGroup[] = [];
-  const mapsByName = new Map<string, Extract<PersistenceGroup, { kind: 'map' }>>();
-  for (const [index, entry] of entries.entries()) {
-    const key = keyForEntry(entry);
-    const mapped = mapEntry(key);
-    if (!mapped) {
-      groups.push({ kind: 'value', entry, index });
-      continue;
-    }
-    let group = mapsByName.get(mapped.name);
-    if (!group) {
-      group = { kind: 'map', name: mapped.name, entries: [] };
-      mapsByName.set(mapped.name, group);
-      groups.push(group);
-    }
-    group.entries.push({ entry, instance: mapped.instance, index });
-  }
-  return groups;
-}
-
 function CollapsedValueRecord({
   label,
   value,
@@ -242,7 +206,7 @@ function CollapsedValueRecord({
 function KeyValues({ values, emptyLabel }: { values: unknown; emptyLabel?: string }) {
   const entries = asDataArray(values);
   if (entries.length === 0) return emptyLabel ? <p className="muted">{emptyLabel}</p> : null;
-  const groups = persistenceGroups(entries, (entry) => displayValue(entry.key));
+  const groups = groupPersistenceEntries(entries, (entry) => displayValue(entry.key));
   return (
     <div className="semantic-records">
       {groups.map((group) => group.kind === 'value' ? (
@@ -274,7 +238,7 @@ function KeyValues({ values, emptyLabel }: { values: unknown; emptyLabel?: strin
 function ChannelMessages({ values }: { values: unknown }) {
   const messages = asDataArray(values);
   if (messages.length === 0) return null;
-  const groups = persistenceGroups(messages, (message) => displayValue(message.channelName));
+  const groups = groupPersistenceEntries(messages, (message) => displayValue(message.channelName));
   return (
     <div className="semantic-records">
       {groups.map((group) => group.kind === 'value' ? (

@@ -153,6 +153,8 @@ entry opens the operation with that Step execution and its WaitFor or Execute
 method already selected. Backend history IDs remain internal pagination and
 correlation details. A Time Travel-created run includes a **TimeTravelFork**
 event whose source run links back to the preserved history.
+AttributeMap and ChannelMap instances with decimal-only names appear before
+other instances and sort by numeric value in live state and event details.
 Continued runs link to their previous run from Timeline and Execution graph.
 Timeline connects each Step execution's first method event to the Flow start,
 Flow continued, RPC, Step decision, or recovery event that scheduled it.

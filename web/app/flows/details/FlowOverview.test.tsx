@@ -12,6 +12,15 @@ import { StructuredValue } from '@/app/components/StructuredValue';
 import type { FlowState, FlowSummary } from '@/lib/types';
 import { FlowOverview } from './FlowOverview';
 
+function expectStrongLabelsInOrder(markup: string, labels: string[]): void {
+  let previousPosition = -1;
+  for (const label of labels) {
+    const position = markup.indexOf(`>${label}</strong>`);
+    expect(position).toBeGreaterThan(previousPosition);
+    previousPosition = position;
+  }
+}
+
 describe('live Flow state failures', () => {
   it('shows the Java Worker stack expanded with a named gRPC status', () => {
     const summary: FlowSummary = {
@@ -90,8 +99,13 @@ describe('live Flow state failures', () => {
       flowConfig: {},
       attributes: [
         { key: 'status', value: 'ready' },
+        { key: 'orders/9007199254740993', value: 'largest' },
         { key: 'orders/first%20order', value: 'pending' },
-        { key: 'orders/second', value: 'complete' },
+        { key: 'orders/11', value: 'eleven' },
+        { key: 'orders/02', value: 'two-padded' },
+        { key: 'orders/2', value: 'two' },
+        { key: 'orders/9007199254740992', value: 'large' },
+        { key: 'orders/text', value: 'complete' },
       ],
       activeStepExecutions: [],
       queuedSteps: [],
@@ -107,8 +121,16 @@ describe('live Flow state failures', () => {
     expect(markup).toContain('ready');
     expect(markup).toContain('orders');
     expect(markup).toContain('first order');
-    expect(markup).toContain('second');
     expect(markup).toContain('<details class="semantic-record semantic-map-entry">');
+    expectStrongLabelsInOrder(markup, [
+      '02',
+      '2',
+      '11',
+      '9007199254740992',
+      '9007199254740993',
+      'first order',
+      'text',
+    ]);
   });
 
   it('shows ChannelMap instances before their queued messages', () => {
@@ -116,16 +138,16 @@ describe('live Flow state failures', () => {
       <StructuredValue
         persistenceKind="channels"
         value={{
-          'updates/first%20order': { values: ['queued'] },
-          'updates/second': { values: ['complete'] },
+          'updates/text': { values: ['queued'] },
+          'updates/11': { values: ['eleven'] },
+          'updates/2': { values: ['two'] },
         }}
       />,
     );
 
     expect(markup).toContain('updates');
-    expect(markup).toContain('first order');
-    expect(markup).toContain('second');
     expect(markup).toContain('<details class="semantic-record semantic-map-entry">');
+    expectStrongLabelsInOrder(markup, ['2', '11', 'text']);
   });
 
   it('shows pending Channel message IDs and deletion controls', () => {

@@ -14,6 +14,7 @@ import {
   storedValueJSONReplacer,
 } from '@/lib/blobs';
 import { formatDate, type TimezonePreference } from '@/lib/format';
+import { groupPersistenceEntries } from '@/lib/persistenceGroups';
 import {
   conditionStatusLabel,
   durabilityLabel,
@@ -179,45 +180,11 @@ function WaitingConditionStructured({
   );
 }
 
-function mapEntry(key: string): { name: string; instance: string } | null {
-  const separator = key.indexOf('/');
-  if (separator <= 0 || separator === key.length - 1) return null;
-  const name = key.slice(0, separator);
-  const encodedInstance = key.slice(separator + 1);
-  try {
-    return { name, instance: decodeURIComponent(encodedInstance) };
-  } catch {
-    return { name, instance: encodedInstance };
-  }
-}
-
-type PersistenceGroup =
-  | { kind: 'value'; entry: Data; index: number }
-  | { kind: 'map'; name: string; entries: Array<{ entry: Data; instance: string; index: number }> };
-
-function persistenceGroups(entries: Data[]): PersistenceGroup[] {
-  const groups: PersistenceGroup[] = [];
-  const mapsByName = new Map<string, Extract<PersistenceGroup, { kind: 'map' }>>();
-  for (const [index, entry] of entries.entries()) {
-    const key = typeof entry.key === 'string' ? entry.key : displayValue(entry.key);
-    const mapped = mapEntry(key);
-    if (!mapped) {
-      groups.push({ kind: 'value', entry, index });
-      continue;
-    }
-    let group = mapsByName.get(mapped.name);
-    if (!group) {
-      group = { kind: 'map', name: mapped.name, entries: [] };
-      mapsByName.set(mapped.name, group);
-      groups.push(group);
-    }
-    group.entries.push({ entry, instance: mapped.instance, index });
-  }
-  return groups;
-}
-
 function KeyValueListStructured({ value }: { value: unknown }) {
-  const groups = persistenceGroups(asDataArray(value));
+  const groups = groupPersistenceEntries(
+    asDataArray(value),
+    (entry) => typeof entry.key === 'string' ? entry.key : displayValue(entry.key),
+  );
   return (
     <div className="structured-value semantic-records">
       {groups.map((group) => group.kind === 'value' ? (
@@ -260,7 +227,10 @@ function ChannelValues({ value }: { value: unknown }) {
 }
 
 function PendingChannelsStructured({ value }: { value: Data }) {
-  const groups = persistenceGroups(Object.entries(value).map(([key, entry]) => ({ key, value: entry })));
+  const groups = groupPersistenceEntries(
+    Object.entries(value).map(([key, entry]) => ({ key, value: entry })),
+    (entry) => entry.key,
+  );
   return (
     <div className="structured-value semantic-records">
       {groups.map((group) => group.kind === 'value' ? (
