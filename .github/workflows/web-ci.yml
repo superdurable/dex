@@ -107,13 +107,16 @@ jobs:
             fi
             sleep 1
           done
-          if ! default_server_processes="$(docker top dex-server-default)"; then
+          if ! default_server_processes="$(docker top dex-server-default -eo pid,args)"; then
             echo "Cannot inspect the default Server image process"
             docker logs dex-server-default
             exit 1
           fi
           printf '%s\n' "${default_server_processes}"
-          default_server_process_count="$(grep -c -- '/dex/dex-server' <<<"${default_server_processes}" || true)"
+          default_server_process_count="$(
+            awk 'NR > 1 && /\/dex\/dex-server/ && !seen[$1]++ { count++ } END { print count + 0 }' \
+              <<<"${default_server_processes}"
+          )"
           if [[ "${default_server_process_count}" -ne 1 ]]; then
             echo "Expected one default Server image process, found ${default_server_process_count}"
             docker logs dex-server-default
