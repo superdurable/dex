@@ -8,7 +8,7 @@ require (
 	github.com/superdurable/dex v0.0.0
 	github.com/superdurable/dex/protos/codec-server v0.0.0
 	github.com/superdurable/dex/web v0.0.0
-	go.temporal.io/sdk v1.47.1-superdurable.2
+	go.temporal.io/sdk v1.47.1-superdurable.3
 	golang.org/x/tools v0.49.0
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
@@ -172,4 +172,4 @@ replace github.com/superdurable/dex/protos/codec-server => ../protos/codec-serve
 
 replace github.com/superdurable/dex/web => ../web
 
-replace go.temporal.io/sdk => github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.2
+replace go.temporal.io/sdk => github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.3
