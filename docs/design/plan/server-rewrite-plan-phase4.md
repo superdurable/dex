@@ -461,7 +461,7 @@ compile only after S5 migrates updater/query/CAN files.
 
 ### InvokeRPC update
 
-- Full attributes; no LoadingPolicy. Temporal uses one synchronous `InvokeRpc`
+- Full attributes; no LoadingPolicy. Temporal uses one synchronous `IRPC`
   Update for non-empty `lock_attribute_keys` or when all RPCs opt into Updates.
 - The API owns a WorkerService connection pool built from
   `InterpreterActivityConfig`. The non-locking path queries `PrepareRpc`, invokes

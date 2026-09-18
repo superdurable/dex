@@ -207,7 +207,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 	err = u.provider.ExecuteLocalActivity(
 		&activityOutput,
 		ctx,
-		u.activities.InvokeWorkerRPC,
+		u.activities.IWRPC,
 		&dexpb.InvokeWorkerRPCActivityInput{
 			RpcPrep: rpcPrep,
 			Request: input,

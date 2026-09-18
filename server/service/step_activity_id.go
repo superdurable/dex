@@ -11,8 +11,8 @@ package service
 import "strings"
 
 const (
-	waitForStepActivityIDPrefix = DexSystemConstPrefix + "StepWaitFor_"
-	executeStepActivityIDPrefix = DexSystemConstPrefix + "StepExecute_"
+	waitForStepActivityIDPrefix = "StepWaitFor_"
+	executeStepActivityIDPrefix = "StepExecute_"
 )
 
 // WaitForStepActivityID identifies one Step wait activity across retries.

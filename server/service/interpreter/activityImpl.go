@@ -108,8 +108,8 @@ func (a *Activities) SyncAttributeBatch(
 	return a.attributeStore.WriteBatch(ctx, input)
 }
 
-// InvokeWaitForMethod calls WorkerService.InvokeWaitForMethod.
-func (a *Activities) InvokeWaitForMethod(
+// IWaitForM calls WorkerService.InvokeWaitForMethod.
+func (a *Activities) IWaitForM(
 	ctx context.Context,
 	input *dexpb.InvokeWaitForMethodActivityInput,
 	localInput *dexpb.InternalLocalActivityInput,
@@ -140,7 +140,7 @@ func (a *Activities) InvokeWaitForMethod(
 	lazyLoading := a.cfg.BlobStore.EffectiveLazyLoading()
 	if !lazyLoading {
 		if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
-			a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
+			a.logLocalActivityWarn(logger, activityInfo, "IWaitForM", req.GetContext().GetStepExecutionId(), req, err)
 			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 		}
 		if err := blobstore.HydrateChannelValues(
@@ -162,14 +162,14 @@ func (a *Activities) InvokeWaitForMethod(
 	stream, err := client.InvokeWaitForMethod(callCtx, req)
 	if err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
-		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
+		a.logLocalActivityWarn(logger, activityInfo, "IWaitForM", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
 	resp, err := a.receiveWaitForMethodResponse(ctx, stream, req, activityInfo, logger)
 	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
 	if err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
-		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
+		a.logLocalActivityWarn(logger, activityInfo, "IWaitForM", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
 	if err := validateWaitingCondition(
@@ -277,8 +277,8 @@ func (a *Activities) offloadSubFlowStartInputs(
 	return nil
 }
 
-// InvokeExecuteMethod calls WorkerService.InvokeExecuteMethod.
-func (a *Activities) InvokeExecuteMethod(
+// IExecuteM calls WorkerService.InvokeExecuteMethod.
+func (a *Activities) IExecuteM(
 	ctx context.Context,
 	input *dexpb.InvokeExecuteMethodActivityInput,
 	localInput *dexpb.InternalLocalActivityInput,
@@ -310,7 +310,7 @@ func (a *Activities) InvokeExecuteMethod(
 	originalStepInputBlob := stepInputBlobRef(req.GetStepInput())
 	if !lazyLoading {
 		if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
-			a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
+			a.logLocalActivityWarn(logger, activityInfo, "IExecuteM", req.GetContext().GetStepExecutionId(), req, err)
 			return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 		}
 		if err := blobstore.HydrateKVs(ctx, req.GetContext().GetFlowId(), req.GetStepExeLocals(), a.blobStore); err != nil {
@@ -340,14 +340,14 @@ func (a *Activities) InvokeExecuteMethod(
 	stream, err := client.InvokeExecuteMethod(callCtx, req)
 	if err != nil {
 		a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptFail)
-		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
+		a.logLocalActivityWarn(logger, activityInfo, "IExecuteM", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
 	resp, err := a.receiveExecuteMethodResponse(ctx, stream, req, activityInfo, logger)
 	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
 	if err != nil {
 		a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptFail)
-		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
+		a.logLocalActivityWarn(logger, activityInfo, "IExecuteM", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
 	if err := validateExecuteResponse(
@@ -756,8 +756,8 @@ func (a *Activities) DumpFlowForContinueAsNew(
 
 const maxWorkerRpcActivityAttempts = 3
 
-// InvokeWorkerRPC wraps rpc.InvokeWorkerRpc for the activity worker.
-func (a *Activities) InvokeWorkerRPC(
+// IWRPC wraps rpc.InvokeWorkerRpc for the activity worker.
+func (a *Activities) IWRPC(
 	ctx context.Context, input *dexpb.InvokeWorkerRPCActivityInput,
 ) (*dexpb.InvokeWorkerRPCActivityOutput, error) {
 	provider := a.activityProvider
@@ -1027,7 +1027,7 @@ func buildSubFlowStartOptions(
 		RetryPolicy:      options.GetRetryPolicy(),
 		SearchAttributes: index.ConvertAttributeWritesToSearchAttributeUpsertMap(options.GetAttributes()),
 		Memo: map[string]interface{}{
-			service.WorkflowRequestId: &dexpb.EncodedObject{Payload: []byte(requestID)},
+			service.ReqId: &dexpb.EncodedObject{Payload: []byte(requestID)},
 		},
 	}
 	workflowOptions.SearchAttributes[service.SearchAttributeDexWorkflowType] = condition.GetSubFlowType()

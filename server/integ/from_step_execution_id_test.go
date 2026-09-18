@@ -13,7 +13,6 @@ package integ
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -327,11 +326,11 @@ func recordTemporalScheduledLineage(
 	attributes := event.GetActivityTaskScheduledEventAttributes()
 	activityType := attributes.GetActivityType().GetName()
 	switch {
-	case strings.Contains(activityType, "InvokeWaitForMethod"):
+	case activityType == "IWaitForM":
 		var input dexpb.InvokeWaitForMethodActivityInput
 		require.NoError(t, dataConverter.FromPayloads(attributes.GetInput(), &input))
 		recordStepContext(t, lineage, input.GetRequest().GetContext())
-	case strings.Contains(activityType, "InvokeExecuteMethod"):
+	case activityType == "IExecuteM":
 		var input dexpb.InvokeExecuteMethodActivityInput
 		require.NoError(t, dataConverter.FromPayloads(attributes.GetInput(), &input))
 		recordStepContext(t, lineage, input.GetRequest().GetContext())
@@ -360,11 +359,11 @@ func recordTemporalLocalLineage(
 	var marker temporalLocalActivityMarkerData
 	require.NoError(t, dataConverter.FromPayloads(markerPayload, &marker))
 	switch {
-	case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
+	case marker.ActivityType == "IWaitForM":
 		var output dexpb.InvokeWaitForMethodActivityOutput
 		require.NoError(t, dataConverter.FromPayloads(resultPayload, &output))
 		recordLocalActivityMetadata(t, lineage, output.GetResponse().GetLocalActivityMetadata())
-	case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
+	case marker.ActivityType == "IExecuteM":
 		var output dexpb.InvokeExecuteMethodActivityOutput
 		require.NoError(t, dataConverter.FromPayloads(resultPayload, &output))
 		recordLocalActivityMetadata(t, lineage, output.GetResponse().GetLocalActivityMetadata())
@@ -418,12 +417,12 @@ func recordCadenceScheduledLineage(
 	attributes := event.GetActivityTaskScheduledEventAttributes()
 	activityType := attributes.GetActivityType().GetName()
 	switch {
-	case strings.Contains(activityType, "InvokeWaitForMethod"):
+	case activityType == "IWaitForM":
 		var input dexpb.InvokeWaitForMethodActivityInput
 		var localInput *dexpb.InternalLocalActivityInput
 		require.NoError(t, dataConverter.FromData(attributes.GetInput(), &input, &localInput))
 		recordStepContext(t, lineage, input.GetRequest().GetContext())
-	case strings.Contains(activityType, "InvokeExecuteMethod"):
+	case activityType == "IExecuteM":
 		var input dexpb.InvokeExecuteMethodActivityInput
 		var localInput *dexpb.InternalLocalActivityInput
 		require.NoError(t, dataConverter.FromData(attributes.GetInput(), &input, &localInput))
@@ -450,7 +449,7 @@ func recordCadenceLocalLineage(
 		return
 	}
 	switch {
-	case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
+	case marker.ActivityType == "IWaitForM":
 		var output dexpb.InvokeWaitForMethodActivityOutput
 		require.NoError(
 			t,
@@ -460,7 +459,7 @@ func recordCadenceLocalLineage(
 			[]byte(marker.ResultJSON),
 		)
 		recordLocalActivityMetadata(t, lineage, output.GetResponse().GetLocalActivityMetadata())
-	case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
+	case marker.ActivityType == "IExecuteM":
 		var output dexpb.InvokeExecuteMethodActivityOutput
 		require.NoError(
 			t,

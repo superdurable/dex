@@ -1226,7 +1226,7 @@ long-poll reattachments. When a previous Update using that ID completed with a
 handler timeout, the server appends an increasing `-N` suffix until it can start
 a new Update.
 
-InvokeRPC uses the ID for external-value ownership and as the `InvokeRpc`
+InvokeRPC uses the ID for external-value ownership and as the `IRPC`
 Temporal Update ID. Durable waits use their server-selected generation ID. The
 ID is not exposed in results.
 

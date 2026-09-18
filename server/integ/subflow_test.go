@@ -156,7 +156,7 @@ func doTestSubFlowCondition(
 	)
 	require.NoError(t, err)
 	require.Len(t, parentDescription.Memos, 1)
-	require.Equal(t, parentRequestID, string(parentDescription.Memos[service.WorkflowRequestId].GetObjValue().GetPayload()))
+	require.Equal(t, parentRequestID, string(parentDescription.Memos["ReqId"].GetObjValue().GetPayload()))
 
 	firstResult, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          parentFlowID,
@@ -199,7 +199,7 @@ func doTestSubFlowCondition(
 	require.Equal(
 		t,
 		startResponse.GetRunId()+subFlowParentStep+"-1",
-		string(childDescription.Memos[service.WorkflowRequestId].GetObjValue().GetPayload()),
+		string(childDescription.Memos["ReqId"].GetObjValue().GetPayload()),
 	)
 	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, childFlowID)
 	require.NoError(t, err)

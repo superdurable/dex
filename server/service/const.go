@@ -31,7 +31,6 @@ const (
 	IsStepExecutionCompletedQueryType   = "IsStepExecutionCompleted"
 	PrepareRpcQueryType                 = "PrepareRpcQueryType"
 
-	InvokeRpcUpdateType             = "InvokeRpc"
 	DeleteChannelMessageUpdateType  = "DeleteChannelMessage"
 	WaitForStepCompletionUpdateType = "WaitForStepCompletion"
 	WaitForAttributeUpdateType      = "WaitForAttribute"
@@ -42,17 +41,22 @@ const (
 
 	BackendTypeCadence  BackendType = "cadence"
 	BackendTypeTemporal BackendType = "temporal"
+)
 
-	DexSystemConstPrefix = "__DexSystem_"
+// Compact wire values reduce history size because Temporal and Cadence persist these names repeatedly.
+const (
+	InvokeRpcUpdateType                   = "IRPC"
+	WaitForMethodActivityType             = "IWaitForM"
+	ExecuteMethodActivityType             = "IExecuteM"
+	WorkerRPCActivityType                 = "IWRPC"
+	SkipTimerSignalChannelName            = "SkipTimer"
+	StopWorkflowSignalChannelName         = "StopWorkflow"
+	UpdateConfigSignalChannelName         = "UpdateConfig"
+	ExecuteRpcSignalChannelName           = "ERPC"
+	TriggerContinueAsNewSignalChannelName = "TriggerContinueAsNew"
+	SubFlowCompletionSignalChannelName    = "SubFlowCompletion"
 
-	SkipTimerSignalChannelName            = DexSystemConstPrefix + "SkipTimerChannel"
-	StopWorkflowSignalChannelName         = DexSystemConstPrefix + "StopWorkflowChannel"
-	UpdateConfigSignalChannelName         = DexSystemConstPrefix + "UpdateWorkflowConfig"
-	ExecuteRpcSignalChannelName           = DexSystemConstPrefix + "ExecuteRpc"
-	TriggerContinueAsNewSignalChannelName = DexSystemConstPrefix + "TriggerContinueAsNew"
-	SubFlowCompletionSignalChannelName    = DexSystemConstPrefix + "SubFlowCompletion"
-
-	WorkflowRequestId = DexSystemConstPrefix + "WorkflowRequestId"
+	ReqId = "ReqId"
 )
 
 const (

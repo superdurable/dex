@@ -112,7 +112,7 @@ message GetFlowSummaryResponse {
 }
 ```
 
-`request_id` 从 `__DexSystem_WorkflowRequestId` memo 转换得到。`flow_type` 从 Dex `FlowType` search attribute 转换得到。原始 memo 不返回。
+`request_id` 从 `ReqId` memo 转换得到。`flow_type` 从 Dex `FlowType` search attribute 转换得到。原始 memo 不返回。
 
 `run_id` 为空时，server 让 Temporal/Cadence 解析 current/latest run，并在 response 中返回实际 run ID。Web 随后替换为包含 run ID 的 canonical URL。
 

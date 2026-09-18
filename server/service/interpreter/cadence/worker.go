@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/service"
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
@@ -24,6 +25,7 @@ import (
 	"github.com/superdurable/dex/service/interpreter"
 	"go.temporal.io/sdk/client"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
+	"go.uber.org/cadence/activity"
 	"go.uber.org/cadence/encoded"
 	"go.uber.org/cadence/worker"
 )
@@ -139,10 +141,16 @@ func (iw *InterpreterWorker) doStart(disableStickyCache bool) error {
 
 	iw.worker.RegisterWorkflow(iw.Engine)
 	iw.worker.RegisterWorkflow(iw.BlobStoreCleanup)
-	iw.worker.RegisterActivity(iw.activities.InvokeWaitForMethod)
-	iw.worker.RegisterActivity(iw.activities.InvokeExecuteMethod)
+	iw.worker.RegisterActivityWithOptions(iw.activities.IWaitForM, activity.RegisterOptions{
+		Name: service.WaitForMethodActivityType,
+	})
+	iw.worker.RegisterActivityWithOptions(iw.activities.IExecuteM, activity.RegisterOptions{
+		Name: service.ExecuteMethodActivityType,
+	})
 	iw.worker.RegisterActivity(iw.activities.DumpFlowForContinueAsNew)
-	iw.worker.RegisterActivity(iw.activities.InvokeWorkerRPC)
+	iw.worker.RegisterActivityWithOptions(iw.activities.IWRPC, activity.RegisterOptions{
+		Name: service.WorkerRPCActivityType,
+	})
 	iw.worker.RegisterActivity(iw.activities.StartSubFlow)
 	iw.worker.RegisterActivity(iw.activities.ReportSubFlowCompletion)
 	iw.worker.RegisterActivity(iw.activities.CleanupBlobsAfterAllRunsDeleted)

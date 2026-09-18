@@ -852,7 +852,7 @@ func (t *temporalClient) recordTemporalScheduledActivity(
 		}
 	}
 	switch {
-	case strings.Contains(activityType, "InvokeWaitForMethod"):
+	case activityType == service.WaitForMethodActivityType:
 		var input dexpb.InvokeWaitForMethodActivityInput
 		var localInput *dexpb.InternalLocalActivityInput
 		if err := t.dataConverter.FromPayloads(attributes.GetInput(), &input, &localInput); err != nil {
@@ -865,7 +865,7 @@ func (t *temporalClient) recordTemporalScheduledActivity(
 			durability,
 			temporalStepMethodOptions(attributes),
 		)
-	case strings.Contains(activityType, "InvokeExecuteMethod"):
+	case activityType == service.ExecuteMethodActivityType:
 		var input dexpb.InvokeExecuteMethodActivityInput
 		var localInput *dexpb.InternalLocalActivityInput
 		if err := t.dataConverter.FromPayloads(attributes.GetInput(), &input, &localInput); err != nil {
@@ -917,7 +917,7 @@ func (t *temporalClient) recordTemporalCompletedActivity(
 	attributes := event.GetActivityTaskCompletedEventAttributes()
 	activityType := scheduledTypes[attributes.GetScheduledEventId()]
 	switch {
-	case strings.Contains(activityType, "InvokeWaitForMethod"):
+	case activityType == service.WaitForMethodActivityType:
 		var output dexpb.InvokeWaitForMethodActivityOutput
 		if err := t.dataConverter.FromPayloads(attributes.GetResult(), &output); err != nil {
 			return err
@@ -929,7 +929,7 @@ func (t *temporalClient) recordTemporalCompletedActivity(
 			&output,
 			nil,
 		)
-	case strings.Contains(activityType, "InvokeExecuteMethod"):
+	case activityType == service.ExecuteMethodActivityType:
 		var output dexpb.InvokeExecuteMethodActivityOutput
 		if err := t.dataConverter.FromPayloads(attributes.GetResult(), &output); err != nil {
 			return err
@@ -979,7 +979,7 @@ func (t *temporalClient) recordTemporalLocalActivity(
 			return nil
 		}
 		switch {
-		case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
+		case marker.ActivityType == service.WaitForMethodActivityType:
 			builder.RecordLocalActivityFailed(
 				event.GetEventId(),
 				event.GetEventTime().AsTime(),
@@ -987,7 +987,7 @@ func (t *temporalClient) recordTemporalLocalActivity(
 				failure,
 				metadata,
 			)
-		case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
+		case marker.ActivityType == service.ExecuteMethodActivityType:
 			builder.RecordLocalActivityFailed(
 				event.GetEventId(),
 				event.GetEventTime().AsTime(),
@@ -999,7 +999,7 @@ func (t *temporalClient) recordTemporalLocalActivity(
 		return nil
 	}
 	switch {
-	case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
+	case marker.ActivityType == service.WaitForMethodActivityType:
 		var output dexpb.InvokeWaitForMethodActivityOutput
 		if err := t.dataConverter.FromPayloads(result, &output); err != nil {
 			return err
@@ -1010,7 +1010,7 @@ func (t *temporalClient) recordTemporalLocalActivity(
 			&output,
 			marker.Attempt,
 		)
-	case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
+	case marker.ActivityType == service.ExecuteMethodActivityType:
 		var output dexpb.InvokeExecuteMethodActivityOutput
 		if err := t.dataConverter.FromPayloads(result, &output); err != nil {
 			return err
@@ -1027,7 +1027,7 @@ func (t *temporalClient) recordTemporalLocalActivity(
 			return err
 		}
 		builder.RecordContinueDump(&output)
-	case strings.Contains(marker.ActivityType, "InvokeWorkerRPC"):
+	case marker.ActivityType == service.WorkerRPCActivityType:
 		var output dexpb.InvokeWorkerRPCActivityOutput
 		if err := t.dataConverter.FromPayloads(result, &output); err != nil {
 			return err
@@ -1136,9 +1136,9 @@ func temporalFlowErrorType(failure *failurepb.Failure) dexpb.FlowErrorType {
 
 func activityMethod(activityType string) string {
 	switch {
-	case strings.Contains(activityType, "InvokeWaitForMethod"):
+	case activityType == service.WaitForMethodActivityType:
 		return "wait-for"
-	case strings.Contains(activityType, "InvokeExecuteMethod"):
+	case activityType == service.ExecuteMethodActivityType:
 		return "execute"
 	default:
 		return activityType
@@ -1146,8 +1146,8 @@ func activityMethod(activityType string) string {
 }
 
 func isStepActivity(activityType string) bool {
-	return strings.Contains(activityType, "InvokeWaitForMethod") ||
-		strings.Contains(activityType, "InvokeExecuteMethod")
+	return activityType == service.WaitForMethodActivityType ||
+		activityType == service.ExecuteMethodActivityType
 }
 
 func stringSearchAttribute(attributes []*dexpb.KV, key string) string {

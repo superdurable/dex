@@ -780,7 +780,7 @@ func (t *cadenceClient) recordCadenceScheduledActivity(
 		}
 	}
 	switch {
-	case strings.Contains(activityType, "InvokeWaitForMethod"):
+	case activityType == service.WaitForMethodActivityType:
 		var input dexpb.InvokeWaitForMethodActivityInput
 		var localInput *dexpb.InternalLocalActivityInput
 		if err := t.converter.FromData(attributes.GetInput(), &input, &localInput); err != nil {
@@ -793,7 +793,7 @@ func (t *cadenceClient) recordCadenceScheduledActivity(
 			durability,
 			cadenceStepMethodOptions(attributes),
 		)
-	case strings.Contains(activityType, "InvokeExecuteMethod"):
+	case activityType == service.ExecuteMethodActivityType:
 		var input dexpb.InvokeExecuteMethodActivityInput
 		var localInput *dexpb.InternalLocalActivityInput
 		if err := t.converter.FromData(attributes.GetInput(), &input, &localInput); err != nil {
@@ -847,7 +847,7 @@ func (t *cadenceClient) recordCadenceCompletedActivity(
 	attributes := event.GetActivityTaskCompletedEventAttributes()
 	activityType := scheduledTypes[attributes.GetScheduledEventId()]
 	switch {
-	case strings.Contains(activityType, "InvokeWaitForMethod"):
+	case activityType == service.WaitForMethodActivityType:
 		var output dexpb.InvokeWaitForMethodActivityOutput
 		if err := t.converter.FromData(attributes.GetResult(), &output); err != nil {
 			return err
@@ -859,7 +859,7 @@ func (t *cadenceClient) recordCadenceCompletedActivity(
 			&output,
 			nil,
 		)
-	case strings.Contains(activityType, "InvokeExecuteMethod"):
+	case activityType == service.ExecuteMethodActivityType:
 		var output dexpb.InvokeExecuteMethodActivityOutput
 		if err := t.converter.FromData(attributes.GetResult(), &output); err != nil {
 			return err
@@ -913,7 +913,7 @@ func (t *cadenceClient) recordCadenceLocalActivity(
 			return nil
 		}
 		switch {
-		case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
+		case marker.ActivityType == service.WaitForMethodActivityType:
 			builder.RecordLocalActivityFailed(
 				event.GetEventId(),
 				time.Unix(0, event.GetTimestamp()),
@@ -921,7 +921,7 @@ func (t *cadenceClient) recordCadenceLocalActivity(
 				failure,
 				metadata,
 			)
-		case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
+		case marker.ActivityType == service.ExecuteMethodActivityType:
 			builder.RecordLocalActivityFailed(
 				event.GetEventId(),
 				time.Unix(0, event.GetTimestamp()),
@@ -934,7 +934,7 @@ func (t *cadenceClient) recordCadenceLocalActivity(
 	}
 	result := []byte(marker.ResultJSON)
 	switch {
-	case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
+	case marker.ActivityType == service.WaitForMethodActivityType:
 		var output dexpb.InvokeWaitForMethodActivityOutput
 		if err := t.converter.FromData(result, &output); err != nil {
 			return err
@@ -945,7 +945,7 @@ func (t *cadenceClient) recordCadenceLocalActivity(
 			&output,
 			marker.Attempt+1,
 		)
-	case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
+	case marker.ActivityType == service.ExecuteMethodActivityType:
 		var output dexpb.InvokeExecuteMethodActivityOutput
 		if err := t.converter.FromData(result, &output); err != nil {
 			return err
@@ -1048,9 +1048,9 @@ func cadenceFlowErrorType(reason string) dexpb.FlowErrorType {
 
 func activityMethod(activityType string) string {
 	switch {
-	case strings.Contains(activityType, "InvokeWaitForMethod"):
+	case activityType == service.WaitForMethodActivityType:
 		return "wait-for"
-	case strings.Contains(activityType, "InvokeExecuteMethod"):
+	case activityType == service.ExecuteMethodActivityType:
 		return "execute"
 	default:
 		return activityType
@@ -1058,8 +1058,8 @@ func activityMethod(activityType string) string {
 }
 
 func isStepActivity(activityType string) bool {
-	return strings.Contains(activityType, "InvokeWaitForMethod") ||
-		strings.Contains(activityType, "InvokeExecuteMethod")
+	return activityType == service.WaitForMethodActivityType ||
+		activityType == service.ExecuteMethodActivityType
 }
 
 func stringSearchAttribute(attributes []*dexpb.KV, key string) string {

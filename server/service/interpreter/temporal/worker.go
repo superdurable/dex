@@ -16,6 +16,7 @@ import (
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
@@ -147,16 +148,19 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) error {
 		FlowTypeProvider: interpreterWorkflowFlowType,
 	})
 	iw.worker.RegisterWorkflow(iw.BlobStoreCleanup)
-	iw.worker.RegisterActivityWithOptions(iw.activities.InvokeWaitForMethod, activity.RegisterOptions{
+	iw.worker.RegisterActivityWithOptions(iw.activities.IWaitForM, activity.RegisterOptions{
+		Name:             service.WaitForMethodActivityType,
 		FlowTypeProvider: waitForMethodFlowType,
 		StepTypeProvider: waitForMethodStepType,
 	})
-	iw.worker.RegisterActivityWithOptions(iw.activities.InvokeExecuteMethod, activity.RegisterOptions{
+	iw.worker.RegisterActivityWithOptions(iw.activities.IExecuteM, activity.RegisterOptions{
+		Name:             service.ExecuteMethodActivityType,
 		FlowTypeProvider: executeMethodFlowType,
 		StepTypeProvider: executeMethodStepType,
 	})
 	iw.worker.RegisterActivity(iw.activities.DumpFlowForContinueAsNew)
-	iw.worker.RegisterActivityWithOptions(iw.activities.InvokeWorkerRPC, activity.RegisterOptions{
+	iw.worker.RegisterActivityWithOptions(iw.activities.IWRPC, activity.RegisterOptions{
+		Name:             service.WorkerRPCActivityType,
 		FlowTypeProvider: invokeWorkerRPCFlowType,
 		RPCNameProvider:  invokeWorkerRPCName,
 	})
