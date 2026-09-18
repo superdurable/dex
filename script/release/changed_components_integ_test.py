@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import subprocess
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -125,7 +124,6 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
 
     def test_server_change_triggers_server_and_cli(self) -> None:
         self.change("server/main.go")
-        self.write_declaration("server", "cli")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "server", "cli")
@@ -157,36 +155,9 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.change("sdk-go/client.go")
         self.change("sdk-typescript/package.json")
         self.change("protos/api.proto")
-        self.write_declaration("go", "typescript", "server", "cli")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "go", "typescript", "server", "cli")
-
-    def write_declaration(self, *selected: str) -> None:
-        source = SCRIPT.parents[2] / "release/compatibility/0.9.0.json"
-        declaration = json.loads(source.read_text(encoding="utf-8"))
-        declaration["release"] = "1.2.3"
-        names = {"go": "sdkGo", "rust": "sdkRust", "java": "sdkJava", "python": "sdkPython", "typescript": "sdkTypeScript"}
-        declaration["componentVersions"] = {
-            names.get(key, key): "1.2.3" if key in selected else "0.1.0"
-            for key in COMPONENT_KEYS
-        }
-        path = self.repository / "release/compatibility/1.2.3.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(declaration), encoding="utf-8")
-
-    def test_server_release_requires_declaration_before_creating_tags(self) -> None:
-        self.change("server/main.go")
-        result, _ = self.plan()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("cannot read compatibility declaration", result.stderr)
-
-    def test_partial_release_rejects_declaring_unpublished_sdk_version(self) -> None:
-        self.change("server/main.go")
-        self.write_declaration("server", "cli", "go")
-        result, _ = self.plan()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("declared sdkGo release does not match", result.stderr)
 
     def test_missing_baseline_selects_first_release(self) -> None:
         self.git("tag", "-d", "sdk-go/v0.1.0")

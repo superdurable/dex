@@ -75,9 +75,7 @@ jobs:
               - 'Makefile'
               - '.github/workflows/generated-code-ci.yml'
             release_tooling:
-              - 'release/compatibility/**'
               - 'script/release/**'
-              - '.github/workflows/compatibility-manifest.yml'
               - '.github/workflows/release-changed-components.yml'
               - '.github/workflows/release-tooling-ci.yml'
               - 'CONTRIBUTING.md'

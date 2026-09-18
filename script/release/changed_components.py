@@ -16,9 +16,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from compatibility_manifest import ManifestError, component_versions, load_declaration
-
-
 VERSION_PATTERN = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
     r"(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$"
@@ -178,20 +175,6 @@ def write_outputs(output_path: Path, version: str) -> int:
         for collision in collisions:
             print(f"- {collision}", file=sys.stderr)
         return 1
-
-    if any(component.key == "server" and selected for component, _, selected, _ in selections):
-        try:
-            declaration = load_declaration(Path("release/compatibility") / f"{version}.json", version)
-            versions = component_versions(declaration)
-            names = {"go": "sdkGo", "rust": "sdkRust", "java": "sdkJava", "python": "sdkPython", "typescript": "sdkTypeScript"}
-            for component, baseline, selected, target in selections:
-                key = names.get(component.key, component.key)
-                declared_tag = f"{component.tag_prefix}{versions[key]}"
-                if declared_tag != (target if selected else baseline):
-                    raise ManifestError(f"declared {key} release does not match the release plan")
-        except ManifestError as error:
-            print(f"Compatibility preflight failed: {error}", file=sys.stderr)
-            return 1
 
     output_path.write_text("\n".join(output_lines) + "\n", encoding="utf-8")
     return 0
