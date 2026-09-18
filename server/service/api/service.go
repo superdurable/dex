@@ -221,9 +221,6 @@ func (s *serviceImpl) StartFlow(
 		TaskQueue:        s.taskQueue,
 		SearchAttributes: searchAttributes,
 		Memo: map[string]interface{}{
-			service.WorkerAddressMemoKey: &dexpb.EncodedObject{
-				Payload: []byte(workerTarget.GetAddress()),
-			},
 			service.WorkflowRequestId: &dexpb.EncodedObject{
 				Payload: []byte(req.GetRequestId()),
 			},

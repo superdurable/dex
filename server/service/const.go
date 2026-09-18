@@ -52,8 +52,7 @@ const (
 	TriggerContinueAsNewSignalChannelName = DexSystemConstPrefix + "TriggerContinueAsNew"
 	SubFlowCompletionSignalChannelName    = DexSystemConstPrefix + "SubFlowCompletion"
 
-	WorkerAddressMemoKey = DexSystemConstPrefix + "WorkerAddress"
-	WorkflowRequestId    = DexSystemConstPrefix + "WorkflowRequestId"
+	WorkflowRequestId = DexSystemConstPrefix + "WorkflowRequestId"
 )
 
 const (
