@@ -28,10 +28,15 @@ API, primitive, feature, design pattern, or operational semantic, update
 `superdurable/skill-dex-developer` in the same work item. Pure internal
 refactors and fixes that preserve application behavior do not trigger this rule.
 
-Commit Dex first. Then advance the skill repository's `DEX_BASELINE` to that
-exact commit, refresh pinned source links, update affected core and all five
-language references, and update the version, changelog, and plugin manifests.
-Run every skill repository validator before completion.
+Commit Dex first. After that change is included in a published Dex release,
+advance the skill repository's `DEX_BASELINE` to that exact release tag,
+refresh pinned source links, update affected core and all five language
+references, and update the version, changelog, and plugin manifests. Never use
+a branch name or commit SHA for `DEX_BASELINE` or pinned source links. Run every
+skill repository validator before completion.
+
+If no release tag contains the Dex change yet, report the release as the
+blocker. Do not update the skill from an unreleased commit.
 
 If the skill repository is unavailable or contains work that cannot be safely
 merged, do not mark the feature complete. Report the blocker explicitly.
