@@ -317,7 +317,7 @@ At start, Dex applies the supplied fields over the Dex Server defaults. Omitted 
 
 | Field | Behavior                                                                                                                        |
 |-------|---------------------------------------------------------------------------------------------------------------------------------|
-| **ActiveStepSearchMode** | Index every active Step, only Steps that ran **WaitFor**, or no active Steps. The default indexes Steps with **WaitFor**.       |
+| **ActiveStepSearchMode** | Index every active Step, only Steps that ran **WaitFor**, or no active Steps. The built-in server default does not index active Steps. Set an explicit mode to opt in. |
 | **ContinueAsNewThreshold** | Continue as new after this many tracked events. Zero turns it off.                                                              |
 | **ContinueAsNewPageSizeBytes** | Limit each page of state carried into continue-as-new. Zero uses 1 MiB.|
 | **StepDurability** | Default durability for methods without a Step override. Dex resolves a method override first, then this value, then **SYNC**. |
