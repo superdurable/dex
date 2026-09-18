@@ -220,33 +220,6 @@ jobs:
       publish: true
     secrets: inherit
 
-  publish-compatibility:
-    name: Publish compatibility manifest
-    needs:
-      - plan
-      - create-releases
-      - publish-java
-      - publish-python
-      - publish-rust
-      - publish-typescript
-      - publish-server
-      - publish-cli
-    if: >
-      always() &&
-      needs.plan.result == 'success' &&
-      needs.create-releases.result == 'success' &&
-      needs.plan.outputs.server == 'true' &&
-      (needs.plan.outputs.java != 'true' || needs.publish-java.result == 'success') &&
-      (needs.plan.outputs.python != 'true' || needs.publish-python.result == 'success') &&
-      (needs.plan.outputs.rust != 'true' || needs.publish-rust.result == 'success') &&
-      (needs.plan.outputs.typescript != 'true' || needs.publish-typescript.result == 'success') &&
-      needs.publish-server.result == 'success' &&
-      (needs.plan.outputs.cli != 'true' || needs.publish-cli.result == 'success')
-    uses: ./.github/workflows/compatibility-manifest.yml
-    with:
-      version: ${{ needs.plan.outputs.version }}
-    secrets: inherit
-
   complete:
     name: Verify publications
     if: always() && needs.plan.result != 'skipped'
@@ -259,7 +232,6 @@ jobs:
       - publish-typescript
       - publish-server
       - publish-cli
-      - publish-compatibility
     runs-on: ubuntu-latest
     steps:
       - name: Report results
@@ -280,7 +252,6 @@ jobs:
           SERVER_RESULT: ${{ needs.publish-server.result }}
           CLI_SELECTED: ${{ needs.plan.outputs.cli }}
           CLI_RESULT: ${{ needs.publish-cli.result }}
-          COMPATIBILITY_RESULT: ${{ needs.publish-compatibility.result }}
         run: |
           {
             echo "### Publication results"
@@ -302,7 +273,6 @@ jobs:
               [[ "${selected}" == "true" ]] || outcome="skipped"
               echo "| ${name} | ${outcome} |"
             done
-            echo "| Compatibility manifest | ${COMPATIBILITY_RESULT} |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
           if [[ "${PLAN_RESULT}" != "success" || "${RELEASE_RESULT}" != "success" ]]; then
@@ -319,6 +289,3 @@ jobs:
               exit 1
             fi
           done
-          if [[ "${SERVER_SELECTED}" == "true" && "${COMPATIBILITY_RESULT}" != "success" ]]; then
-            exit 1
-          fi

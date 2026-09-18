@@ -166,29 +166,12 @@ Each component has its own version and tag prefix. Create a GitHub Release for t
 
 For coordinated releases, run **Release changed components** from the **main** branch and enter one semantic version. The workflow applies that version to every selected component. It compares each component with its own latest reachable release tag, uses that tag as the start of the component's generated release notes, preflights every selected target tag, creates the GitHub Releases, and directly invokes each publisher. The run succeeds only after every selected registry, Docker, CLI asset, and Homebrew publication succeeds. Go SDK publication is complete when its module tag and GitHub Release exist.
 
-Every coordinated release that selects Server also publishes a compatibility
-manifest. Add `release/compatibility/<version>.json` before dispatching the
-release. The declaration records the reviewed protocol intervals, open-Flow
-compatibility, persistence compatibility, and rollout order. Release tooling
-verifies those intervals against each component's tagged source, reads the published CLI checksums and
-Server image digest, and uploads
-`dex-compatibility-v<version>.json` to the Server GitHub Release.
-
-For a partial release, include `componentVersions` with all seven component keys:
-`server`, `cli`, `sdkGo`, `sdkJava`, `sdkPython`, `sdkRust`, and `sdkTypeScript`.
-Changed components use the requested version; unchanged components retain their
-published versions. The planner checks this declaration before creating tags.
-The manifest's `sourceCommit` identifies Server; each component's tag identifies
-its own source. Every declared client protocol must overlap the Server interval.
-Omitting `componentVersions` declares that every component uses the release version.
-An SDK-only or CLI-only release does not rewrite an existing Server manifest.
-
-Use **Publish compatibility manifest** to backfill or reverify an already
-published Server release, including a partial release. The workflow adds the asset
-when absent and requires byte-identical contents when it already exists;
-it never recreates component tags or republishes packages. Downstream systems
-must verify the downloaded manifest digest before changing a Server or SDK
-version.
+Coordinated releases do not create a cross-component compatibility manifest.
+Each selected component publishes its native immutable artifacts. CLI publishes
+`checksums.txt`, Server publishes its versioned image, and SDK registries retain
+their normal package checksums. Applications update explicit component versions
+in ordinary pull requests and use compilation and integration tests as the
+compatibility gate.
 
 Components without relevant changes are skipped. A run with no relevant changes succeeds without creating tags. Documentation and workflow changes alone do not select a product release. A missing component baseline is treated as its first release.
 

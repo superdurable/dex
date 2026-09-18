@@ -10,7 +10,7 @@ GENERATED_CODE_PATHS := \
 
 .PHONY: help ci-runner-check copyright copyright-check generated-code generated-code-check githooks docs-prose-check docs-prose-fix release-tooling-test
 
-release-tooling-test: ## Verify component selection and immutable release manifests
+release-tooling-test: ## Verify changed-component selection and release preflight
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s script/release -p '*_test.py'
 
 help: ## Show targets
