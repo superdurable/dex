@@ -15,9 +15,9 @@ Learn more: [What is Durable Execution?](https://docs.superdurable.io/intro/what
 
 AI coding assistants can use the official [Dex Developer skill](https://docs.superdurable.io/build-with-ai/dex-developer-skill) to build, test, and operate Dex applications through Dex's public programming model. Its source is maintained in [superdurable/skill-dex-developer](https://github.com/superdurable/skill-dex-developer).
 
-## Community
+## 💬 Community
 
-Join the [SuperDurable Dex community on Slack](https://join.slack.com/t/superdurableworkspace/shared_invite/zt-4aby5e0b6-6rNT9zN6BzbroHZpGyia0A) to ask questions, share feedback, and connect with other Dex users and contributors.
+🎉 Join the [SuperDurable Dex community on Slack](https://join.slack.com/t/superdurableworkspace/shared_invite/zt-4aby5e0b6-6rNT9zN6BzbroHZpGyia0A) to ask questions, share feedback, and connect with other Dex users and contributors.
 
 ## Quick start
 
