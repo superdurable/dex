@@ -15,9 +15,10 @@ import io.grpc.Status;
 /**
  * Reports that an operation requiring a running Flow has no active target.
  *
- * <p>RPC, Channel publish, Attribute mutation, stop, timer, configuration, and Step-wait operations
- * use this exception when the Flow never existed or is already closed. Use
- * {@link FlowNotFoundException} for read and history operations that can target closed Flows.
+ * <p>RPC paths that require Update or Signal, Channel publish, Attribute mutation, stop, timer,
+ * configuration, and Step-wait operations use this exception when the Flow never existed or is
+ * already closed. A query-only RPC can read a retained terminal execution. Use {@link
+ * FlowNotFoundException} for other read and history operations that can target closed Flows.
  */
 public final class FlowNotActiveException extends DexServiceException {
     /**

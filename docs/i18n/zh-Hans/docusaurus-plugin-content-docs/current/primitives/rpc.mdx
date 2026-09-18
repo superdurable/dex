@@ -167,6 +167,16 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 </SdkSnippet>
 </SdkTabs>
 
+## 只读 RPC 与 terminal Flow
+
+没有 Attribute lock 且没有启用 transactional execution 的 RPC 会先走 backend query。如果 handler 只返回 output，不产生 durable effect，Dex 不会向 Flow 发送 signal，而是直接返回 output。该 query 可以读取仍在 retention 内的 terminal execution。因此，只读 RPC 成功并不能证明 Flow 仍处于 active 状态。
+
+Attribute lock 和显式 transactional execution 都要求 active execution。Query 路径上的 handler 如果返回 Attribute write、Channel operation、event 或 Step movement，Dex 也必须在 handler 返回后通过 signal commit 这些 effect。Terminal Flow 会拒绝这次 commit，即使 Worker handler 可能已经运行。Server 也可以配置为让所有 Temporal RPC 都走 synchronous Update；该路径同样要求 active execution。
+
+响应需要当前 execution status 时，请使用 Flow lifecycle API。Application snapshot RPC 读取的是 Flow 捕获的 durable application state；它不能根据 RPC 是否成功推断 terminal status。应把 **FlowNotActiveError** 视为特定执行路径的失败，而不是只读 query RPC 的正常 terminal 结果。
+
+普通只读 RPC 无需先搜索 Run ID。SDK 暴露可选 Run ID 时，省略它即可让 Server 为本次调用解析并固定当前 execution。只有应用必须在 Flow ID 重用场景下精确指定某次 execution 时，才需要提供 Run ID。
+
 ## 选择性加载 RPC 状态 {#load-collection-state}
 
 每个 RPC 都会收到普通 Attribute value 和 Channel size metadata。读取 AttributeMap entry 或 pending Channel message 时必须显式加载，避免不使用这些大型 collection 的 RPC 仍要接收它们。

@@ -165,7 +165,7 @@ func TestAttributeSyncInvokeRPCGracefulCompleteTemporal(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, terminalRPCAcceptedOutput, acceptedResponse.GetOutput().GetStringValue())
 	close(handler.releaseFinish)
-	assertRPCRejectedAfterStop(t, ctx, runtime.FlowClient, flowID, handler)
+	assertRPCUpdateRejectedAfterStop(t, ctx, runtime.FlowClient, flowID, handler)
 	require.NoError(t, lockTransaction.Commit())
 	lockReleased = true
 	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})

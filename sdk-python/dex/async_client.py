@@ -254,13 +254,18 @@ class AsyncClient:
         """Invoke a registered RPC and await its typed result.
 
         Pass the bound method from the registered Flow instance. RPC timeout and
-        Attribute locks come from ``@rpc`` configuration.
+        Attribute locks come from ``@rpc`` configuration. A non-transactional RPC
+        without Attribute locks starts from a backend query. If the handler returns no
+        durable effects, a retained terminal execution can serve that query. Locks,
+        transactional execution, returned effects, or server policy can require an
+        active execution.
 
         Args:
             rpc_method: A bound method decorated with ``@rpc``.
             flow_id: The non-empty target Flow ID.
             input: The annotated input, or ``None`` for an input-free RPC.
-            run_id: Optional exact run; ``""`` targets the active run.
+            run_id: Optional exact run. With ``""``, the server resolves the current
+                execution.
 
         Returns:
             The decoded ``RPCResult.output``, or ``None`` for a no-output RPC.
@@ -270,7 +275,8 @@ class AsyncClient:
             RpcLockConflictError: If Attribute locks cannot be acquired.
             WorkerInvocationError: If the application handler fails.
             ValueMappingError: If input or output mapping fails.
-            DexServiceError: If the Flow is inactive or the service call fails.
+            DexServiceError: If the selected path requires an active execution or the
+                service call otherwise fails.
         """
         _, rpc = self.registry._rpc_for_method(rpc_method)
         encoded_input = (

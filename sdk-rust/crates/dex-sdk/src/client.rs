@@ -212,10 +212,16 @@ impl Client {
 
     /// Invokes a registered RPC with typed input and decodes its typed output.
     ///
+    /// A non-transactional RPC without Attribute locks starts from a backend query. A retained
+    /// terminal execution can serve it when the handler returns no durable effects. Locks,
+    /// transactional execution, returned effects, or server policy can require an active
+    /// execution.
+    ///
     /// # Errors
     ///
     /// Returns [`SdkError::RpcLockConflict`] when locks cannot be acquired, WorkerInvocation for a
-    /// handler failure, FlowNotActive for a terminal Flow, or a mapping/service error.
+    /// handler failure, FlowNotActive when the selected path requires an active execution, or a
+    /// mapping/service error.
     pub fn invoke_rpc<Input: Value, Output: Value>(
         &self,
         flow_id: &str,
