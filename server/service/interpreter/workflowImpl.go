@@ -935,7 +935,7 @@ func (i *Interpreter) processStepExecution(
 			&activityOutput,
 			flowConfiger.ResolveWaitForDurability(options),
 			ctx,
-			i.activities.InvokeWaitForMethod,
+			i.activities.IWaitForM,
 			activityInput,
 			&dexpb.InternalLocalActivityInput{
 				CurrentRunStartedTimestamp: basicInfo.RunStartedTimestamp,
@@ -1269,7 +1269,7 @@ func (i *Interpreter) invokeExecuteMethod(
 		&activityOutput,
 		flowConfiger.ResolveExecuteDurability(step.GetStepOptions()),
 		ctx,
-		i.activities.InvokeExecuteMethod,
+		i.activities.IExecuteM,
 		activityInput,
 		&dexpb.InternalLocalActivityInput{
 			CurrentRunStartedTimestamp: basicInfo.RunStartedTimestamp,

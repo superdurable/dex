@@ -57,7 +57,7 @@ Interpreter workflows and activities use constructor injection. Do not add mutab
 package-global environments or registries.
 
 `WaitForStepCompletion` and `WaitForAttribute` are Temporal-only synchronous
-updates. Locking Temporal InvokeRPC uses an `InvokeRpc` synchronous Update.
+updates. Locking Temporal InvokeRPC uses an `IRPC` synchronous Update.
 Non-locking InvokeRPC uses query, WorkerService, and optional signal unless
 `api.useTemporalSynchronousUpdateForAllRPCs` opts Temporal into Updates.
 

@@ -10,7 +10,6 @@ package integ
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -650,7 +649,7 @@ func temporalRegularFallbackRetryPolicy(
 			continue
 		}
 		attributes := historyEvent.GetActivityTaskScheduledEventAttributes()
-		if !strings.Contains(attributes.GetActivityType().GetName(), "InvokeWaitForMethod") {
+		if attributes.GetActivityType().GetName() != "IWaitForM" {
 			continue
 		}
 		var input dexpb.InvokeWaitForMethodActivityInput
@@ -689,7 +688,7 @@ func cadenceRegularFallbackRetryPolicy(
 			continue
 		}
 		attributes := historyEvent.GetActivityTaskScheduledEventAttributes()
-		if !strings.Contains(attributes.GetActivityType().GetName(), "InvokeWaitForMethod") {
+		if attributes.GetActivityType().GetName() != "IWaitForM" {
 			continue
 		}
 		var input dexpb.InvokeWaitForMethodActivityInput

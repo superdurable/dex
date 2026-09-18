@@ -67,6 +67,7 @@ robots directives, and the sitemap.
 Engineering design docs (not in the public sidebar):
 
 * [Dex Design](design/Dex-Design.md)
+* [Compact workflow-history wire names](design/compact-workflow-history-names.md)
 * [IDL renames (OpenAPI → dex.proto)](design/idl-renames.md)
 * [ContinueAsNew in Temporal (or Cadence)](design/ContinueAsNew-in-Temporal-(or-Cadence)-workflow.md)
 * Plans under [`design/plan/`](design/plan/)

@@ -65,7 +65,7 @@ func (r *SubFlowReuseResolver) resolveExisting(
 	workflowInput *dexpb.InterpreterWorkflowInput,
 	description *uclient.DescribeWorkflowExecutionResponse,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
-	existingRequestID := memoString(description.Memos, service.WorkflowRequestId)
+	existingRequestID := memoString(description.Memos, service.ReqId)
 	if existingRequestID == requestID {
 		return r.attachOrRead(ctx, subFlowID, description)
 	}

@@ -14,6 +14,8 @@ Dex uses the [global versioning design pattern](https://medium.com/@qlong/how-to
 
 After the gRPC interpreter rewrite, the global-version scheme **restarted at v1**.
 Pre-rewrite histories were deleted; do not keep baselines for old global versions.
+The current baseline uses the shortened internal Activity, Update, Signal, memo,
+and Step Activity ID names. Histories recorded with the former names are unsupported.
 
 * For every new global version, add at least one new history under [`history/`](./history).
 * Each version may need multiple histories for different code paths.

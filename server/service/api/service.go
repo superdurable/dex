@@ -221,7 +221,7 @@ func (s *serviceImpl) StartFlow(
 		TaskQueue:        s.taskQueue,
 		SearchAttributes: searchAttributes,
 		Memo: map[string]interface{}{
-			service.WorkflowRequestId: &dexpb.EncodedObject{
+			service.ReqId: &dexpb.EncodedObject{
 				Payload: []byte(req.GetRequestId()),
 			},
 		},
@@ -271,7 +271,7 @@ func (s *serviceImpl) StartFlow(
 			if descErr != nil {
 				return nil, s.handleError(descErr)
 			}
-			requestMemo := response.Memos[service.WorkflowRequestId]
+			requestMemo := response.Memos[service.ReqId]
 			if requestMemo.GetObjValue() != nil &&
 				string(requestMemo.GetObjValue().GetPayload()) == req.GetRequestId() {
 				shouldReturnError = false
@@ -1304,7 +1304,7 @@ func (s *serviceImpl) GetFlowSummary(
 			RunId:  description.RunId,
 		},
 		FirstRunId: description.FirstRunId,
-		RequestId:  decodeStringMemo(description.Memos[service.WorkflowRequestId]),
+		RequestId:  decodeStringMemo(description.Memos[service.ReqId]),
 		FlowType:   description.IndexedAttributes[service.SearchAttributeDexWorkflowType].GetStringValue(),
 		FlowStatus: description.Status,
 		StartTime:  timestamppb.New(description.StartTime),

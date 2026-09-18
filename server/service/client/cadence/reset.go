@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/common/timeparser"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
@@ -230,7 +231,7 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 			}
 			if event.GetEventType() == shared.EventTypeActivityTaskScheduled {
 				typeName := event.GetActivityTaskScheduledEventAttributes().GetActivityType().GetName()
-				if strings.Contains(typeName, "InvokeExecuteMethod") {
+				if typeName == service.ExecuteMethodActivityType {
 					var input dexpb.InvokeExecuteMethodActivityInput
 					var localInput *dexpb.InternalLocalActivityInput
 					err = converter.FromData(
@@ -255,7 +256,7 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 						}
 						return
 					}
-				} else if strings.Contains(typeName, "InvokeWaitForMethod") {
+				} else if typeName == service.WaitForMethodActivityType {
 					var input dexpb.InvokeWaitForMethodActivityInput
 					var localInput *dexpb.InternalLocalActivityInput
 					err = converter.FromData(
@@ -390,9 +391,9 @@ func cadenceLocalActivityStepExecutionID(
 
 func stepMethodFromActivityType(activityType string) dexpb.FlowResetStepMethod {
 	switch {
-	case strings.Contains(activityType, "InvokeWaitForMethod"):
+	case activityType == service.WaitForMethodActivityType:
 		return dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_WAIT_FOR
-	case strings.Contains(activityType, "InvokeExecuteMethod"):
+	case activityType == service.ExecuteMethodActivityType:
 		return dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE
 	default:
 		return dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_UNSPECIFIED

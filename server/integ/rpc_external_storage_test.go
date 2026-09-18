@@ -340,7 +340,7 @@ func assertTemporalRpcBlobHistory(
 					string(rpcStorage.TestInput.GetObjValue().GetPayload()),
 				)
 			}
-			require.Equal(t, service.InvokeRpcUpdateType, accepted.GetInput().GetName())
+			require.Equal(t, "IRPC", accepted.GetInput().GetName())
 			var request dexpb.InvokeRPCRequest
 			require.NoError(t, dataConverter.FromPayloads(accepted.GetInput().GetArgs(), &request))
 			acceptedInput = request.GetInput()
@@ -363,7 +363,7 @@ func assertTemporalRpcBlobHistory(
 			completedCount++
 		case temporalenums.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
 			signalName := event.GetWorkflowExecutionSignaledEventAttributes().GetSignalName()
-			require.NotEqual(t, service.ExecuteRpcSignalChannelName, signalName)
+			require.NotEqual(t, "ERPC", signalName)
 		}
 	}
 	require.Equal(t, 1, acceptedCount)
@@ -466,7 +466,7 @@ func assertTemporalRpcSignalHistory(
 			require.NotEqual(t, requestID, accepted.GetMeta().GetUpdateId())
 		case temporalenums.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
 			attributes := event.GetWorkflowExecutionSignaledEventAttributes()
-			if attributes.GetSignalName() != service.ExecuteRpcSignalChannelName {
+			if attributes.GetSignalName() != "ERPC" {
 				continue
 			}
 			var request dexpb.ExecuteRpcSignalRequest

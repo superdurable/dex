@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/timeparser"
 	"github.com/superdurable/dex/service/common/utils"
 	"go.temporal.io/api/common/v1"
@@ -224,7 +225,7 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 			}
 			if event.GetEventType() == enums.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED {
 				typeName := event.GetActivityTaskScheduledEventAttributes().GetActivityType().GetName()
-				if strings.Contains(typeName, "InvokeExecuteMethod") {
+				if typeName == service.ExecuteMethodActivityType {
 					var input dexpb.InvokeExecuteMethodActivityInput
 					err = converter.FromPayloads(event.GetActivityTaskScheduledEventAttributes().Input, &input)
 					if err != nil {
@@ -244,7 +245,7 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 						}
 						return
 					}
-				} else if strings.Contains(typeName, "InvokeWaitForMethod") {
+				} else if typeName == service.WaitForMethodActivityType {
 					var input dexpb.InvokeWaitForMethodActivityInput
 					err = converter.FromPayloads(event.GetActivityTaskScheduledEventAttributes().Input, &input)
 					if err != nil {
@@ -375,9 +376,9 @@ func temporalLocalActivityStepExecutionID(
 
 func stepMethodFromActivityType(activityType string) dexpb.FlowResetStepMethod {
 	switch {
-	case strings.Contains(activityType, "InvokeWaitForMethod"):
+	case activityType == service.WaitForMethodActivityType:
 		return dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_WAIT_FOR
-	case strings.Contains(activityType, "InvokeExecuteMethod"):
+	case activityType == service.ExecuteMethodActivityType:
 		return dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE
 	default:
 		return dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_UNSPECIFIED

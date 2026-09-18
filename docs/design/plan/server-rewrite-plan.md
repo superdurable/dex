@@ -26,7 +26,7 @@ flowchart LR
 - **Attribute locking:** retain WaitFor/Execute lock keys on `StepOptions`. For
   RPC, add a minimal lock surface — `repeated string
   lock_attribute_keys` on `InvokeRPCRequest`. Temporal uses one synchronous
-  `InvokeRpc` Update for non-empty lists and may opt all RPCs into Updates. Keeps
+  `IRPC` Update for non-empty lists and may opt all RPCs into Updates. Keeps
   the retained
   `RPC_ACQUIRE_LOCK_FAILURE` + `skip_writes_reapply` meaningful. Because the
   locking path uses `SynchronousUpdateWorkflow`, a **non-empty `lock_attribute_keys`
@@ -442,7 +442,7 @@ short-circuit these two RPCs — and any `InvokeRPC` with non-empty
 `lock_attribute_keys` — to `Unimplemented` before dialing.
 
 **RPC locking (`InvokeRPC`):** driven by the new `InvokeRPCRequest.lock_attribute_keys`
-(Phase 0). Temporal uses the synchronous `InvokeRpc` Update for locking RPCs or
+(Phase 0). Temporal uses the synchronous `IRPC` Update for locking RPCs or
 when `api.useTemporalSynchronousUpdateForAllRPCs` is enabled. The validator accepts
 an empty list and returns `RPC_ACQUIRE_LOCK_FAILURE` / `Aborted` when a requested
 key is locked. The handler calls `LoadAttributes`; an empty list reads all attributes
