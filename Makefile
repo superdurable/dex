@@ -8,7 +8,10 @@ GENERATED_CODE_PATHS := \
 	sdk-python/dex/dexpb \
 	sdk-typescript/src/gen
 
-.PHONY: help ci-runner-check copyright copyright-check generated-code generated-code-check githooks docs-prose-check docs-prose-fix
+.PHONY: help ci-runner-check copyright copyright-check generated-code generated-code-check githooks docs-prose-check docs-prose-fix release-tooling-test
+
+release-tooling-test: ## Verify component selection and immutable release manifests
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s script/release -p '*_test.py'
 
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'

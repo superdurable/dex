@@ -132,7 +132,7 @@ def load_declaration(path: Path, version: str) -> dict[str, Any]:
         "persistenceCompatibility",
         "protocol",
     }
-    if not isinstance(declaration, dict) or set(declaration) != expected_keys:
+    if not isinstance(declaration, dict) or set(declaration) - {"componentVersions"} != expected_keys:
         raise ManifestError("compatibility declaration has unexpected fields")
     if declaration["schemaVersion"] != 1 or declaration["release"] != version:
         raise ManifestError("compatibility declaration version does not match the requested release")
@@ -147,7 +147,21 @@ def load_declaration(path: Path, version: str) -> dict[str, Any]:
     }:
         raise ManifestError("persistenceCompatibility is invalid")
     validate_protocol_declaration(declaration["protocol"])
+    component_versions(declaration)
     return declaration
+
+
+def component_versions(declaration: dict[str, Any]) -> dict[str, str]:
+    versions = declaration.get("componentVersions", {
+        component.key: declaration["release"] for component in COMPONENTS
+    })
+    if not isinstance(versions, dict) or set(versions) != {component.key for component in COMPONENTS}:
+        raise ManifestError("componentVersions must name every component")
+    if any(not isinstance(version, str) or not VERSION_PATTERN.fullmatch(version) for version in versions.values()):
+        raise ManifestError("componentVersions contains an invalid version")
+    if versions["server"] != declaration["release"]:
+        raise ManifestError("Server component version must match the release")
+    return versions
 
 
 def validate_protocol_declaration(protocol: Any) -> None:
@@ -173,8 +187,8 @@ def validate_protocol_declaration(protocol: Any) -> None:
             raise ManifestError(f"protocol interval is invalid: {name}")
 
 
-def resolve_release_commit(version: str, verify_releases: bool) -> tuple[str, dict[str, str]]:
-    tags = {component.key: component.tag(version) for component in COMPONENTS}
+def resolve_release_commits(versions: dict[str, str], verify_releases: bool) -> tuple[dict[str, str], dict[str, str]]:
+    tags = {component.key: component.tag(versions[component.key]) for component in COMPONENTS}
     commits: dict[str, str] = {}
     for key, tag in tags.items():
         commit = git("rev-parse", f"refs/tags/{tag}^{{commit}}")
@@ -194,11 +208,7 @@ def resolve_release_commit(version: str, verify_releases: bool) -> tuple[str, di
             )
             if metadata.get("tagName") != tag or metadata.get("targetCommitish") != commit:
                 raise ManifestError(f"GitHub release target does not match tag commit: {tag}")
-    unique_commits = set(commits.values())
-    if len(unique_commits) != 1:
-        details = ", ".join(f"{key}={value}" for key, value in sorted(commits.items()))
-        raise ManifestError(f"component release tags do not share one commit: {details}")
-    return unique_commits.pop(), tags
+    return commits, tags
 
 
 def read_protocol_interval(commit: str, key: str) -> dict[str, int]:
@@ -214,14 +224,17 @@ def read_protocol_interval(commit: str, key: str) -> dict[str, int]:
     }
 
 
-def verify_protocols(commit: str, declared: dict[str, Any]) -> None:
+def verify_protocols(commits: dict[str, str], declared: dict[str, Any]) -> None:
     intervals = {"server": declared["server"], **declared["clients"]}
     for key, expected in intervals.items():
-        actual = read_protocol_interval(commit, key)
+        actual = read_protocol_interval(commits[key], key)
         if actual != expected:
             raise ManifestError(
                 f"protocol declaration does not match {key} source: expected {expected}, got {actual}"
             )
+        server = declared["server"]
+        if max(actual["minimum"], server["minimum"]) > min(actual["maximum"], server["maximum"]):
+            raise ManifestError(f"{key} protocol does not overlap Server protocol")
 
 
 def parse_cli_checksums(path: Path, version: str) -> dict[str, str]:
@@ -297,14 +310,15 @@ def build_manifest(
     if not VERSION_PATTERN.fullmatch(version):
         raise ManifestError(f"invalid semantic version: {version}")
     declaration = load_declaration(declaration_path, version)
-    source_commit, tags = resolve_release_commit(version, verify_releases)
-    verify_protocols(source_commit, declaration["protocol"])
-    checksums = parse_cli_checksums(cli_checksums_path, version)
+    versions = component_versions(declaration)
+    commits, tags = resolve_release_commits(versions, verify_releases)
+    verify_protocols(commits, declaration["protocol"])
+    checksums = parse_cli_checksums(cli_checksums_path, versions["cli"])
     if verify_releases:
         verify_cli_release_assets(tags["cli"], checksums)
     components: dict[str, Any] = {}
     for component in COMPONENTS:
-        value: dict[str, Any] = {"version": version, "tag": tags[component.key]}
+        value: dict[str, Any] = {"version": versions[component.key], "tag": tags[component.key]}
         if component.key == "server":
             value["image"] = (
                 "docker.io/superdurable/dex-server@" + require_digest(server_digest)
@@ -313,8 +327,8 @@ def build_manifest(
             value["checksums"] = checksums
         components[component.key] = value
     return {
-        **declaration,
-        "sourceCommit": source_commit,
+        **{key: value for key, value in declaration.items() if key != "componentVersions"},
+        "sourceCommit": commits["server"],
         "components": components,
     }
 
@@ -340,11 +354,13 @@ def main() -> int:
     )
     temporary_directory: tempfile.TemporaryDirectory[str] | None = None
     try:
+        declaration = load_declaration(declaration_path, arguments.version)
+        versions = component_versions(declaration)
         server_digest = arguments.server_image_digest or resolve_server_digest(arguments.version)
         checksums_path = arguments.cli_checksums
         if checksums_path is None:
             temporary_directory, checksums_path = download_cli_checksums(
-                f"cli-v{arguments.version}"
+                f"cli-v{versions['cli']}"
             )
         manifest = build_manifest(
             arguments.version,
