@@ -201,6 +201,7 @@ with **--out**:
 ```bash
 dexcli visualize ./order_flow.py --json
 dexcli visualize ./order_flow.go --json --out ./build/order-flow
+dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund
 dexcli dev --flow-rendering-dir ./build
 ```
 
@@ -237,14 +238,23 @@ Dynamic targets produce an Unknown node and a blocking diagnostic. The default
 renderer still shows the partial graph. With **--json**, a partial JSON artifact
 is written, and the command exits with status 1.
 
+Version 2 is Go-only and adds ordered Step groups plus a Supervision contract.
+The contract declares Indexed Attributes, the fixed `GetDexSummary` and
+`GetDexDisplay` RPCs, editable Display fields, and conditional Action RPCs.
+Directives use unordered named `name:value` arguments. Repeated directive lines
+retain source order; no `order` property is generated. Every Version 2 Step,
+Attribute, RPC, input struct, and directive must be in the same source file.
+
 ```text
-dexcli visualize SOURCE [--language auto|go|python] [--open=true|false]
+dexcli visualize SOURCE [--language auto|go|python] [--schema-version 1.0|2.0]
+                         [--open=true|false]
                          [--json [--out PATH_PREFIX|-]]
                          [--python PYTHON_PATH]
 ```
 
-Invalid command usage exits with status 2. The JSON contract is documented by
-[`schema/flow-definition-graph.v1.schema.json`](schema/flow-definition-graph.v1.schema.json).
+Invalid command usage exits with status 2. The JSON contracts are documented by
+[`schema/flow-definition-graph.v1.schema.json`](schema/flow-definition-graph.v1.schema.json)
+and [`schema/flow-definition-graph.v2.schema.json`](schema/flow-definition-graph.v2.schema.json).
 
 The friendly Flow commands are:
 

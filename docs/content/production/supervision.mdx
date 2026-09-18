@@ -1,0 +1,65 @@
+---
+title: Supervision
+---
+
+# Supervision
+
+Dex Web enables Supervision when its Flow rendering directory contains at least one valid Go Flow Definition Graph 2.0 file. Supervision is then the default workspace. Operators can switch between **Supervision** and **Operations** in the upper-left corner. Operations keeps the existing run search, history, state, and rendering pages.
+
+Generate a definition and provide its directory when Dex starts:
+
+```bash
+dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund
+dexcli dev --flow-rendering-dir ./build
+```
+
+Version 1 remains the default and supports Go and Python. Version 2 currently supports Go only. Version 1 and Version 2 definitions can coexist. Dex Web rejects malformed Version 2 files and duplicate valid definitions for the same Flow type at startup. An analyzer result with **valid: false** remains available for diagnostics but does not enable supervision.
+
+## Named directives
+
+Version 2 directives use named values. Parameter position within one line has no meaning. Quote strings containing spaces as JSON strings, and write multiple values as a JSON array.
+
+<SdkTabs examples={{go: 'examples/go/products/customer-refund/agentic/workflow.go'}}>
+<SdkSnippet lang="go">
+
+```go
+// dex:group group-id:control group-label:"Control"
+// dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:case-status
+// dex:field attribute-key:operator-note value-type:string editable:true description:"Operator note"
+// dex:action action-label:"Reject"
+// dex:when attribute-key:case-status operator:in values:["awaiting-manager-rule","awaiting-manager-agent"]
+// dex:input field-name:reason value-type:string source:user required:true description:"Rejection reason"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Unknown or repeated parameters, missing required parameters, and invalid JSON are blocking diagnostics. Separate indexed Attribute, field, Action, and input lines keep source order. This order becomes column, detail-field, Action, and form order. There is no separate order property.
+
+Every registered Step has one group declaration. Group order follows the first member's registration position in **GetSteps**. Step order within a group also follows **GetSteps**.
+
+## Search and Summary
+
+An indexed Attribute declaration binds the Dex Attribute key, physical search index key, index type, application value type, and description. The analyzer compares every value with the Go definition and the SDK's effective index configuration.
+
+The list page searches one Flow type at a time. Filters include Flow ID, execution status, start and close time, and the declared indexed Attributes. Dex Web compiles these controls into a visibility query. It does not accept a raw query from the browser. Different fields use AND; multiple values for one field use OR.
+
+Each row calls **GetDexSummary** for the logical Flow ID's current run. The RPC accepts **dex.None** and returns a **map[string]any**. Dex Web loads at most eight summaries concurrently, applies a five-second timeout to each call, and isolates a failure to its row. Indexed Attributes appear before Summary fields.
+
+## Display and edits
+
+Selecting a row opens the Flow ID, not a run ID. **GetDexDisplay**, Attribute reads, edits, and Actions omit the run ID, so Dex resolves the current run. After Continue-as-New, refreshing the same URL automatically addresses the new run. Historical runs remain in Operations.
+
+Display fields are ordered by their directive lines. Primitive string, integer, double, boolean, and datetime fields can be editable. JSON, objects, arrays, and AttributeMap values remain read-only. Missing fields must be returned as null. The backend rejects omitted, undeclared, or mistyped values.
+
+Edits are available only while the current run is active. Dex Web writes the Attribute through **SetAttributes** and includes its declared index configuration when the Attribute is indexed.
+
+## Actions
+
+An Action is an RPC with an Action directive and one condition. The first version supports the **in** operator. Dex Web re-reads the condition Attribute before invoking the RPC.
+
+An Action without input accepts **dex.None** and renders as a direct button. An Action with input accepts a named Go struct. User-sourced fields render controls in directive order. Attribute-sourced fields stay hidden and use the detail page's Attribute snapshot.
+
+The browser condition only controls presentation. Every Action RPC must check the current state again before changing durable state or publishing a Channel message. Use locks when that check and the effect must be atomic.
+
+The first version adds no login or role system. Deploy it behind the same trusted network or reverse-proxy boundary used for Dex Web.

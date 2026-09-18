@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { FlowDefinitionGraph } from '@superdurable/flow-definition-renderer';
+import type { FlowSupervisionDefinition } from '@superdurable/flow-definition-renderer';
 
 export type {
   FlowDefinitionDiagnostic,
@@ -147,11 +148,50 @@ export interface StepGraphEdge {
 export interface FlowDefinitionEntry {
   id: string;
   file: string;
+  schemaVersion: '1.0' | '2.0';
   flowName: string;
   sourceLanguage: string;
   sourcePath: string;
   valid: boolean;
   graph: FlowDefinitionGraph;
+}
+
+export interface SupervisionCatalogEntry {
+  flowType: string;
+  definition: FlowSupervisionDefinition;
+}
+
+export interface SupervisionCatalog {
+  enabled: boolean;
+  flows: SupervisionCatalogEntry[];
+}
+
+export interface SupervisionFlow {
+  flowId: string;
+  flowType: string;
+  flowStatus: FlowStatus;
+  flowStatusCode: number;
+  startTime: string | null;
+  closeTime: string | null;
+  indexedAttributes: Record<string, unknown>;
+  summary?: Record<string, unknown>;
+  summaryError?: string;
+}
+
+export interface SupervisionSearchResult {
+  flows: SupervisionFlow[];
+  nextPageToken: string;
+}
+
+export interface SupervisionDisplay {
+  flowId: string;
+  flowType: string;
+  flowStatus: FlowStatus;
+  flowStatusCode: number;
+  isActive: boolean;
+  display: Record<string, unknown>;
+  attributeSnapshot: Record<string, unknown>;
+  eligibleActions: string[];
 }
 
 export interface FlowDefinitionCatalog {

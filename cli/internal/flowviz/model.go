@@ -14,7 +14,10 @@ import (
 	"strings"
 )
 
-const SchemaVersion = "1.0"
+const (
+	SchemaVersionV1 = "1.0"
+	SchemaVersionV2 = "2.0"
+)
 
 type Graph struct {
 	SchemaVersion string       `json:"schemaVersion"`
@@ -24,6 +27,68 @@ type Graph struct {
 	Nodes         []Node       `json:"nodes"`
 	Edges         []Edge       `json:"edges"`
 	Diagnostics   []Diagnostic `json:"diagnostics"`
+	Groups        []StepGroup  `json:"groups,omitempty"`
+	Supervision   *Supervision `json:"supervision,omitempty"`
+}
+
+type StepGroup struct {
+	ID      string   `json:"id"`
+	Label   string   `json:"label"`
+	StepIDs []string `json:"stepIds"`
+}
+
+type Supervision struct {
+	IndexedAttributes []IndexedAttribute `json:"indexedAttributes"`
+	Summary           RPCView            `json:"summary"`
+	Display           RPCView            `json:"display"`
+	Actions           []Action           `json:"actions"`
+}
+
+type IndexedAttribute struct {
+	AttributeKey string `json:"attributeKey"`
+	IndexKey     string `json:"indexKey"`
+	IndexType    string `json:"indexType"`
+	ValueType    string `json:"valueType"`
+	Description  string `json:"description"`
+}
+
+type RPCView struct {
+	RPCName string      `json:"rpcName"`
+	Fields  []ViewField `json:"fields"`
+}
+
+type ViewField struct {
+	AttributeKey string `json:"attributeKey"`
+	ValueType    string `json:"valueType"`
+	Editable     bool   `json:"editable"`
+	Description  string `json:"description"`
+}
+
+type Action struct {
+	RPCName   string          `json:"rpcName"`
+	Label     string          `json:"label"`
+	Condition ActionCondition `json:"condition"`
+	Input     ActionInput     `json:"input"`
+}
+
+type ActionCondition struct {
+	AttributeKey string `json:"attributeKey"`
+	Operator     string `json:"operator"`
+	Values       []any  `json:"values"`
+}
+
+type ActionInput struct {
+	Kind   string             `json:"kind"`
+	Fields []ActionInputField `json:"fields,omitempty"`
+}
+
+type ActionInputField struct {
+	FieldName    string `json:"fieldName"`
+	ValueType    string `json:"valueType"`
+	Source       string `json:"source"`
+	AttributeKey string `json:"attributeKey,omitempty"`
+	Required     bool   `json:"required"`
+	Description  string `json:"description"`
 }
 
 type Source struct {
@@ -111,7 +176,7 @@ type Span struct {
 
 func NewGraph(language string, path string) *Graph {
 	return &Graph{
-		SchemaVersion: SchemaVersion,
+		SchemaVersion: SchemaVersionV1,
 		Valid:         true,
 		Source:        Source{Language: language, Path: path},
 		Nodes:         make([]Node, 0),

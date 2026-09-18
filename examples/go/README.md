@@ -130,6 +130,7 @@ details.
 - [User onboarding process](./products/signup)
 - [Job posting](./products/job-post)
 - [Deal DSL](./products/deal-dsl) (separate UI and `dex-deal-dsl` binary)
+- [Customer refund supervision](./products/customer-refund) (deterministic and agentic FDG 2.0 Flows)
 
 ## Patterns
 

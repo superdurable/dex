@@ -145,6 +145,7 @@ const sidebars: SidebarsConfig = {
         'use-cases/deal-dsl',
         'use-cases/microservice-orchestration',
         'use-cases/job-post',
+        'use-cases/customer-refund',
       ],
     },
     {
@@ -153,6 +154,7 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'production/index'},
       items: [
         'production/application-operations',
+        'production/supervision',
         'production/server-operations',
         'production/metrics',
         'production/attribute-store',

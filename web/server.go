@@ -79,6 +79,7 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 	mux := http.NewServeMux()
 	if client != nil {
 		api.RegisterHandlers(mux, client)
+		api.RegisterSupervisionHandlers(mux, client, flowDefinitions.SupervisionDefinitions())
 	}
 	mux.Handle("GET /api/flow-definitions", flowDefinitions)
 	mux.Handle("/", spaHandler(assetRoot))

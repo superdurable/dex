@@ -155,6 +155,28 @@ a {
   font-size: 13px;
 }
 
+.workspace-switch {
+  display: flex;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f5f8f2;
+}
+
+.workspace-switch a {
+  padding: 6px 9px;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.workspace-switch a.active {
+  color: var(--brand-dark);
+  background: white;
+  box-shadow: 0 2px 8px rgba(45, 79, 42, 0.12);
+}
+
 .header-nav > a {
   font-weight: 650;
 }
@@ -195,6 +217,261 @@ a {
 
 .app-main {
   min-height: calc(100vh - 70px);
+}
+
+.supervision-home,
+.supervision-list-page,
+.supervision-detail-page {
+  display: grid;
+  gap: 18px;
+}
+
+.supervision-hero h1,
+.supervision-title-row h1 {
+  margin: 5px 0 7px;
+}
+
+.supervision-hero > p:last-child,
+.supervision-title-row > div > p:last-child {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.supervision-flow-types {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.supervision-flow-type {
+  display: grid;
+  padding: 20px;
+  gap: 8px;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.supervision-flow-type:hover {
+  border-color: #9fbd89;
+  transform: translateY(-2px);
+}
+
+.supervision-flow-type span,
+.supervision-flow-type small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.supervision-flow-type strong {
+  color: var(--brand-dark);
+  font-size: 18px;
+}
+
+.supervision-title-row,
+.supervision-filter-heading,
+.supervision-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.supervision-filters {
+  display: grid;
+  padding: 16px;
+  gap: 10px;
+}
+
+.supervision-filter-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.9fr) minmax(120px, 0.55fr) minmax(220px, 1.5fr) 36px;
+  gap: 8px;
+}
+
+.supervision-filter-row input,
+.supervision-filter-row select,
+.supervision-inline-edit input,
+.supervision-inline-edit select,
+.supervision-action input,
+.supervision-action select {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.supervision-table-card {
+  overflow: hidden;
+}
+
+.supervision-table {
+  min-width: 980px;
+}
+
+.supervision-table th {
+  max-width: 230px;
+}
+
+.supervision-table td {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.supervision-table-card .pagination {
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.supervision-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(310px, 0.7fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.supervision-display-card,
+.supervision-actions-card {
+  padding: 18px;
+}
+
+.supervision-section-heading h2,
+.supervision-section-heading p {
+  margin: 0;
+}
+
+.supervision-section-heading h2 {
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+.supervision-section-heading > code {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.supervision-display-card dl {
+  display: grid;
+  margin: 18px 0 0;
+}
+
+.supervision-display-card dl > div {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.55fr) minmax(0, 1fr);
+  padding: 13px 0;
+  gap: 18px;
+  border-top: 1px solid #e7eee3;
+}
+
+.supervision-display-card dt {
+  display: grid;
+  gap: 4px;
+  color: #32453a;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.supervision-display-card dt code {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.supervision-display-card dd {
+  display: flex;
+  margin: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.supervision-inline-edit {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 7px;
+}
+
+.supervision-inline-edit-shell {
+  display: grid;
+  width: 100%;
+  gap: 5px;
+}
+
+.supervision-field-error {
+  color: var(--danger);
+  font-size: 10px;
+}
+
+.supervision-inline-edit input,
+.supervision-inline-edit select {
+  flex: 1;
+}
+
+.supervision-actions-card {
+  display: grid;
+  gap: 14px;
+}
+
+.supervision-action {
+  display: grid;
+  padding: 14px;
+  gap: 11px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fbfcfa;
+}
+
+.supervision-action > div {
+  display: grid;
+  gap: 4px;
+}
+
+.supervision-action small,
+.supervision-action label > span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.supervision-action label {
+  display: grid;
+  gap: 5px;
+}
+
+@media (max-width: 980px) {
+  .supervision-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .supervision-filter-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .supervision-title-row,
+  .supervision-filter-heading,
+  .supervision-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .supervision-filter-row,
+  .supervision-display-card dl > div {
+    grid-template-columns: 1fr;
+  }
+
+  .supervision-inline-edit {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .flow-rendering-page {

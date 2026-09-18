@@ -48,6 +48,14 @@ with `dexcli visualize SOURCE --json --out ./build/flow-definitions/name` and re
 Dex after changing the files. Invalid JSON, unsupported schema versions, or a
 non-directory path stop startup with an error.
 
+A valid Go Flow Definition Graph 2.0 file also enables **Supervision** and makes
+it the default workspace. The upper-left switch keeps the existing **Operations**
+workspace available. Supervision routes use Flow type and Flow ID only; Summary,
+Display, edits, and Actions target the current run without accepting a Run ID.
+Version 1 and Version 2 files can coexist. Duplicate valid Version 2 definitions
+for one Flow type stop startup. Invalid analyzer output remains visible in Flow
+Rendering but does not enable Supervision.
+
 ## Run through the Dex Server image
 
 The `dex-server` Docker image embeds these production assets and starts Dex Web,
@@ -105,6 +113,13 @@ directory into the Go module and ultimately into `dexcli`.
 
 ## Pages
 
+The Supervision list compiles typed filter controls into visibility queries,
+loads current-run Summary RPCs with bounded concurrency, and displays Indexed
+Attributes before ordered Summary fields. Its detail page validates the Display
+contract, supports inline edits for declared primitive fields, and renders
+conditional none/object Actions. Attribute-sourced Action inputs remain hidden.
+The UI condition is presentational; Action RPCs must re-check current state.
+
 The Flows page provides Basic and Advanced visibility queries, pagination,
 saved queries, configurable columns, Indexed Attributes, and timezone
 preferences.
@@ -135,6 +150,11 @@ Viewport controls use visible Zoom In, Zoom Out, and Fit View labels. The
 collapsed Mini Map uses a visible Show Mini Map button.
 Each graph fits the complete definition into the viewport when it first loads
 and after its visible layers change.
+
+Flow Definition Graph 2.0 uses Process Canvas. It groups registered Steps into
+ordered bands, supports collapsed and expanded cards, switches between top-down
+and left-right layouts, and shows Step or Group details on selection. Version 1
+continues to use the original definition renderer.
 
 The graph contract, compound layout, React components, and styles live in the
 shared [`flow-definition-renderer`](../packages/flow-definition-renderer)

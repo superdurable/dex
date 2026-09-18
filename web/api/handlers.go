@@ -420,6 +420,7 @@ func decodeJSON(response http.ResponseWriter, request *http.Request, value inter
 	request.Body = http.MaxBytesReader(response, request.Body, maxRequestBytes)
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
 	if err := decoder.Decode(value); err != nil {
 		return fmt.Errorf("invalid JSON body: %w", err)
 	}

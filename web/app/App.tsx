@@ -13,20 +13,33 @@ import { FlowSearchPage } from './flows/FlowSearchPage';
 import { RunDetailsPage } from './flows/RunDetailsPage';
 import { PreferencesProvider } from './providers';
 import { FlowRenderingPage } from './rendering/FlowRenderingPage';
+import {
+  HomePage,
+  SupervisionDetailPage,
+  SupervisionHomePage,
+  SupervisionListPage,
+} from './supervision/SupervisionPages';
+import { SupervisionProvider } from './supervision/SupervisionProvider';
 
 export function App() {
   return (
     <PreferencesProvider>
-      <AppHeader />
-      <main className="app-main">
-        <Routes>
-          <Route path="/" element={<FlowSearchPage />} />
-          <Route path="/rendering" element={<FlowRenderingPage />} />
-          <Route path="/flows/:flowId" element={<CurrentFlowRoute />} />
-          <Route path="/flows/:flowId/:runId" element={<FlowRunRoute />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
+      <SupervisionProvider>
+        <AppHeader />
+        <main className="app-main">
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/supervision" element={<SupervisionHomePage />} />
+            <Route path="/supervision/:flowType" element={<SupervisionListPage />} />
+            <Route path="/supervision/:flowType/:flowId" element={<SupervisionDetailPage />} />
+            <Route path="/flows" element={<FlowSearchPage />} />
+            <Route path="/rendering" element={<FlowRenderingPage />} />
+            <Route path="/flows/:flowId" element={<CurrentFlowRoute />} />
+            <Route path="/flows/:flowId/:runId" element={<FlowRunRoute />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </SupervisionProvider>
     </PreferencesProvider>
   );
 }

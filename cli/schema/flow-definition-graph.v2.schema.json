@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://superdurable.com/schemas/flow-definition-graph.v2.schema.json",
+  "title": "Dex Flow Definition Graph v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "valid",
+    "source",
+    "flow",
+    "nodes",
+    "edges",
+    "diagnostics",
+    "groups",
+    "supervision"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "2.0"},
+    "valid": {"type": "boolean"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "path"],
+      "properties": {
+        "language": {"const": "go"},
+        "path": {"type": "string"}
+      }
+    },
+    "flow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "startStepId": {"type": "string"},
+        "span": {"$ref": "flow-definition-graph.v1.schema.json#/$defs/span"}
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {"$ref": "flow-definition-graph.v1.schema.json#/$defs/node"}
+    },
+    "edges": {
+      "type": "array",
+      "items": {"$ref": "flow-definition-graph.v1.schema.json#/$defs/edge"}
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {"$ref": "flow-definition-graph.v1.schema.json#/$defs/diagnostic"}
+    },
+    "groups": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/group"}
+    },
+    "supervision": {"$ref": "#/$defs/supervision"}
+  },
+  "$defs": {
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "stepIds"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+        "label": {"type": "string", "minLength": 1},
+        "stepIds": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+      }
+    },
+    "supervision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["indexedAttributes", "summary", "display", "actions"],
+      "properties": {
+        "indexedAttributes": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/indexedAttribute"}
+        },
+        "summary": {"$ref": "#/$defs/rpcView"},
+        "display": {"$ref": "#/$defs/rpcView"},
+        "actions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/action"}
+        }
+      }
+    },
+    "indexedAttribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attributeKey", "indexKey", "indexType", "valueType", "description"],
+      "properties": {
+        "attributeKey": {"type": "string"},
+        "indexKey": {"type": "string"},
+        "indexType": {"enum": ["keyword", "fulltext", "keyword-array", "int", "double", "bool", "datetime"]},
+        "valueType": {"enum": ["string", "string-array", "int64", "double", "bool", "datetime"]},
+        "description": {"type": "string"}
+      }
+    },
+    "rpcView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rpcName", "fields"],
+      "properties": {
+        "rpcName": {"type": "string"},
+        "fields": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/viewField"}
+        }
+      }
+    },
+    "viewField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attributeKey", "valueType", "editable", "description"],
+      "properties": {
+        "attributeKey": {"type": "string"},
+        "valueType": {"$ref": "#/$defs/valueType"},
+        "editable": {"type": "boolean"},
+        "description": {"type": "string"}
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rpcName", "label", "condition", "input"],
+      "properties": {
+        "rpcName": {"type": "string"},
+        "label": {"type": "string", "minLength": 1},
+        "condition": {"$ref": "#/$defs/actionCondition"},
+        "input": {"$ref": "#/$defs/actionInput"}
+      }
+    },
+    "actionCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attributeKey", "operator", "values"],
+      "properties": {
+        "attributeKey": {"type": "string"},
+        "operator": {"const": "in"},
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "anyOf": [
+              {"type": "string"},
+              {"type": "integer"},
+              {"type": "number"},
+              {"type": "boolean"}
+            ]
+          }
+        }
+      }
+    },
+    "actionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["none", "object"]},
+        "fields": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/actionInputField"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "object"}}},
+          "then": {"required": ["fields"], "properties": {"fields": {"type": "array", "minItems": 1}}},
+          "else": {"not": {"required": ["fields"]}}
+        }
+      ]
+    },
+    "actionInputField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fieldName", "valueType", "source", "required", "description"],
+      "properties": {
+        "fieldName": {"type": "string"},
+        "valueType": {"enum": ["string", "int64", "double", "bool", "datetime"]},
+        "source": {"enum": ["user", "attribute"]},
+        "attributeKey": {"type": "string"},
+        "required": {"type": "boolean"},
+        "description": {"type": "string"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"source": {"const": "attribute"}}},
+          "then": {"required": ["attributeKey"]},
+          "else": {"not": {"required": ["attributeKey"]}}
+        }
+      ]
+    },
+    "valueType": {
+      "enum": ["string", "string-array", "int64", "double", "bool", "datetime", "json", "object", "array", "attribute-map"]
+    }
+  }
+}

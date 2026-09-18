@@ -42,6 +42,7 @@ web_port="${DEX_EXAMPLES_WEB_PORT:-19901}"
 deal_dsl_dex_port="${DEX_EXAMPLES_DEAL_DSL_DEX_PORT:-19803}"
 deal_dsl_web_port="${DEX_EXAMPLES_DEAL_DSL_WEB_PORT:-19903}"
 postgres_port="${DEX_EXAMPLES_POSTGRES_PORT:-19432}"
+entity_store_postgres_port="${DEX_EXAMPLES_ENTITY_STORE_POSTGRES_PORT:-55432}"
 default_dex_address="127.0.0.1:${dex_port}"
 deal_dsl_dex_address="127.0.0.1:${deal_dsl_dex_port}"
 postgres_url="postgres://deal_dsl:deal_dsl@127.0.0.1:${postgres_port}/deal_dsl?sslmode=disable"
@@ -78,7 +79,7 @@ cleanup() {
     fi
   fi
   if $entity_store_started; then
-    if ! docker compose -p "$entity_store_project" \
+    if ! ENTITY_STORE_POSTGRES_PORT="$entity_store_postgres_port" docker compose -p "$entity_store_project" \
       -f "$entity_store_dir/docker-compose.yml" down --volumes >>"$log_file" 2>&1; then
       echo "failed to stop the Go examples entity store" >&2
     fi
@@ -93,9 +94,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker compose -p "$entity_store_project" \
+ENTITY_STORE_POSTGRES_PORT="$entity_store_postgres_port" docker compose -p "$entity_store_project" \
   -f "$entity_store_dir/docker-compose.yml" up --detach --wait
 entity_store_started=true
+
+entity_store_config="$test_dir/entity-store.yaml"
+sed "s/localhost:55432/localhost:${entity_store_postgres_port}/" \
+  "$entity_store_dir/attribute-store.yaml" >"$entity_store_config"
 
 if [[ ! -f "$repo_root/web/assets/dist/index.html" ]]; then
   (
@@ -111,7 +116,7 @@ fi
 )
 
 "$binary_dir/dexcli" dev \
-  -attribute-store-config "$entity_store_dir/attribute-store.yaml" \
+  -attribute-store-config "$entity_store_config" \
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
@@ -164,7 +169,7 @@ DEAL_DSL_POSTGRES_PORT="$postgres_port" docker compose \
 deal_dsl_started=true
 
 "$binary_dir/dexcli" dev \
-  -attribute-store-config "$entity_store_dir/attribute-store.yaml" \
+  -attribute-store-config "$entity_store_config" \
   -bind-address 127.0.0.1 \
   -dex-port "$deal_dsl_dex_port" \
   -web-port "$deal_dsl_web_port" \

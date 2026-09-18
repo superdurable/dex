@@ -1,0 +1,48 @@
+---
+title: 客户退款
+---
+
+import deterministicFlow from '@site/src/data/flow-definitions/customer-refund.json';
+import agenticFlow from '@site/src/data/flow-definitions/customer-refund-agentic.json';
+
+# 客户退款
+
+Go customer-refund 产品包含两个自包含的 Flow。两者都会发布 Flow Definition Graph 2.0 元数据，供 Process Canvas 与 Dex Web Supervision 使用。
+
+## 确定性策略
+
+**CustomerRefundFlow** 固定执行七个已注册 Step。它确认订单存在、应用 30 天规则、在调用支付 provider 前记录幂等 key，并保留 provider 的 declined 与 unknown 结果。
+
+<DocsFlowDefinitionGraph graph={deterministicFlow} />
+
+Summary 展示 charge reference、请求金额和 recommendation。Display 额外展示证据、计费结果和可编辑的 operator note。它不声明任何 Action，用于验证空 Action 列表也是有效 contract。
+
+## Agentic 审核
+
+**AgenticCustomerRefundFlow** 通过持久化 decision loop 收集证据。Guardrail 会绑定自动 effect，或打开带 key 的 manager gate。Flow 会先记录 intent，再执行幂等的 billing、subscription 和 customer-message effect。
+
+<DocsFlowDefinitionGraph graph={agenticFlow} />
+
+批准 Action 没有输入，因此直接显示为按钮。拒绝 Action 要求填写原因。Dex Web 会使用详情页打开时捕获的 Attribute snapshot 注入隐藏的 gate key。RPC 在发布 verdict 前会把该 key 与当前 gate 比较。
+
+两个 Action 也会读取当前 case status。Flow Definition Graph 2.0 中的可见性条件只控制按钮是否出现，不构成授权。
+
+## 运行示例
+
+Go 示例标签链接到可运行文件。
+
+<SdkTabs examples={{go: 'examples/go/products/customer-refund/deterministic/workflow.go'}}>
+<SdkSnippet lang="go">
+
+```go
+// dex:indexed-attribute attribute-key:case-status index-key:case-status index-type:keyword value-type:string description:"Current case status"
+var deterministicCaseStatus = dex.DefineAttribute[string](
+    "case-status",
+    dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
+)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+协议与操作流程见 [Supervision](/production/supervision)。

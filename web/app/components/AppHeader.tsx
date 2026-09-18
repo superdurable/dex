@@ -8,13 +8,17 @@
 
 import { Link } from 'react-router-dom';
 import { usePreferences } from '../providers';
+import { useSupervision } from '../supervision/SupervisionProvider';
 
 export function AppHeader() {
   const { timezone, setTimezone } = usePreferences();
+  const { catalog, mode, setMode } = useSupervision();
+  const hasSupervision = catalog?.enabled === true;
+  const home = hasSupervision && mode === 'supervision' ? '/supervision' : '/flows';
   return (
     <header className="app-header">
       <div className="header-brand">
-        <Link to="/" className="brand-mark" aria-label="Super Durable home">
+        <Link to={home} className="brand-mark" aria-label="Super Durable home">
           <img
             className="brand-logo"
             src="/super-durable-logo.png"
@@ -23,14 +27,20 @@ export function AppHeader() {
             height={72}
           />
         </Link>
-        <Link to="/" className="brand-name">
+        <Link to={home} className="brand-name">
           <span>Super Durable</span>
           <i aria-hidden="true">·</i>
           <b>Dex</b>
         </Link>
       </div>
       <nav className="header-nav" aria-label="Primary navigation">
-        <Link to="/">Flows</Link>
+        {hasSupervision && (
+          <div className="workspace-switch" aria-label="Workspace mode">
+            <Link className={mode === 'supervision' ? 'active' : ''} onClick={() => setMode('supervision')} to="/supervision">Supervision</Link>
+            <Link className={mode === 'operations' ? 'active' : ''} onClick={() => setMode('operations')} to="/flows">Operations</Link>
+          </div>
+        )}
+        {!hasSupervision && <Link to="/flows">Flows</Link>}
         <Link to="/rendering">Flow Rendering</Link>
         <span className="connection-pill">
           <span className="connection-dot" />

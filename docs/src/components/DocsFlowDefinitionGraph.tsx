@@ -10,6 +10,7 @@ import {useEffect, useState} from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {
   FlowDefinitionGraphView,
+  ProcessCanvasView,
   type FlowDefinitionGraph,
 } from '@superdurable/flow-definition-renderer';
 
@@ -49,7 +50,9 @@ export default function DocsFlowDefinitionGraph({graph}: DocsFlowDefinitionGraph
             : (isChinese ? '展开 diagram' : 'Expand diagram')}
         </button>
       </div>
-      <FlowDefinitionGraphView displayName={graph.flow.name} graph={graph} />
+      {graph.schemaVersion === '2.0'
+        ? <ProcessCanvasView graph={graph} />
+        : <FlowDefinitionGraphView displayName={graph.flow.name} graph={graph} />}
     </div>
   );
 }

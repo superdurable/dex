@@ -62,6 +62,7 @@ import (
 	primitivesubflow "github.com/superdurable/dex/examples/go/primitives/subflow"
 	primitivetimer "github.com/superdurable/dex/examples/go/primitives/timer"
 	primitivewaittypes "github.com/superdurable/dex/examples/go/primitives/wait-types"
+	customerrefund "github.com/superdurable/dex/examples/go/products/customer-refund"
 	"github.com/superdurable/dex/examples/go/products/engagement"
 	"github.com/superdurable/dex/examples/go/products/job-post"
 	"github.com/superdurable/dex/examples/go/products/microservices"
@@ -164,6 +165,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	orderprocessing.RegisterRoutes(router, client, registry.OrderProcessing)
 	signup.RegisterRoutes(router, client, registry.UserOnboarding)
 	jobpost.RegisterRoutes(router, client, registry.JobPosting)
+	customerrefund.RegisterRoutes(router, client, registry.CustomerRefund, registry.AgenticRefund)
 	patternspolling.RegisterRoutes(router, client, registry.PollingWithTimer, registry.BackoffPolling, registry.Iteration)
 	interruptible.RegisterRoutes(router, client, registry.Interruptible)
 	reminders.RegisterRoutes(router, client, registry.Reminder)

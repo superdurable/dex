@@ -44,6 +44,8 @@ type goAnalyzer struct {
 	steps             map[string]string
 	resources         map[types.Object]string
 	resourceVars      map[string]string
+	schemaVersion     string
+	registeredSteps   []string
 }
 
 type goExternalMethod struct {
@@ -75,8 +77,9 @@ type goDecisionOutcome struct {
 	span            *Span
 }
 
-func analyzeGo(ctx context.Context, sourcePath string, source []byte) (*Graph, error) {
+func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVersion string) (*Graph, error) {
 	graph := NewGraph("go", sourcePath)
+	graph.SchemaVersion = schemaVersion
 	config := &packages.Config{
 		Context: ctx,
 		Dir:     filepath.Dir(sourcePath),
@@ -114,7 +117,7 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte) (*Graph, e
 	for _, packageError := range selectedPackage.Errors {
 		graph.AddDiagnostic("error", "go_type_check_failed", packageError.Msg, nil)
 	}
-	analyzer := newGoAnalyzer(graph, selectedFile, selectedPackage.Syntax, selectedPackage.Fset, selectedPackage.TypesInfo, sourcePath)
+	analyzer := newGoAnalyzer(graph, selectedFile, selectedPackage.Syntax, selectedPackage.Fset, selectedPackage.TypesInfo, sourcePath, schemaVersion)
 	analyzer.Analyze()
 	return graph, nil
 }
@@ -126,6 +129,7 @@ func newGoAnalyzer(
 	fileSet *token.FileSet,
 	typeInfo *types.Info,
 	sourcePath string,
+	schemaVersion string,
 ) *goAnalyzer {
 	if typeInfo == nil {
 		typeInfo = &types.Info{}
@@ -150,6 +154,8 @@ func newGoAnalyzer(
 		steps:             make(map[string]string),
 		resources:         make(map[types.Object]string),
 		resourceVars:      make(map[string]string),
+		schemaVersion:     schemaVersion,
+		registeredSteps:   make([]string, 0),
 	}
 }
 
@@ -178,6 +184,9 @@ func (analyzer *goAnalyzer) Analyze() {
 		analyzer.analyzeStep(stepType, nodeID)
 	}
 	analyzer.analyzeFlowHandlers(flowName)
+	if analyzer.schemaVersion == SchemaVersionV2 {
+		analyzer.analyzeVisualizationV2(flowName)
+	}
 }
 
 func (analyzer *goAnalyzer) indexImportsAndMethods() {
@@ -393,6 +402,7 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 		nodeID := "step:" + stepType
 		isStart := callName == "DefineStartStep"
 		analyzer.steps[stepType] = nodeID
+		analyzer.registeredSteps = append(analyzer.registeredSteps, stepType)
 		analyzer.graph.AddNode(Node{ID: nodeID, Kind: "step", Name: stepName, Start: isStart, Span: analyzer.span(call)})
 		if isStart {
 			if analyzer.graph.Flow.StartStepID != "" {

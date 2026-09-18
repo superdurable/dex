@@ -25,6 +25,6 @@ services:
       timeout: 5s
       retries: 20
     ports:
-      - "55432:5432"
+      - "${ENTITY_STORE_POSTGRES_PORT:-55432}:5432"
     volumes:
       - "./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro"

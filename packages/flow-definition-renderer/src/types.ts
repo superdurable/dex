@@ -69,7 +69,7 @@ export interface FlowDefinitionDiagnostic {
 }
 
 export interface FlowDefinitionGraph {
-  schemaVersion: '1.0';
+  schemaVersion: '1.0' | '2.0';
   valid: boolean;
   source: {
     language: 'go' | 'python';
@@ -83,4 +83,84 @@ export interface FlowDefinitionGraph {
   nodes: FlowDefinitionNode[];
   edges: FlowDefinitionEdge[];
   diagnostics: FlowDefinitionDiagnostic[];
+  groups?: FlowDefinitionGroup[];
+  supervision?: FlowSupervisionDefinition;
+}
+
+export interface FlowDefinitionGroup {
+  id: string;
+  label: string;
+  stepIds: string[];
+}
+
+export interface FlowSupervisionIndexedAttribute {
+  attributeKey: string;
+  indexKey: string;
+  indexType: 'keyword' | 'fulltext' | 'keyword-array' | 'int' | 'double' | 'bool' | 'datetime';
+  valueType: SupervisionIndexedValueType;
+  description: string;
+}
+
+export type SupervisionValueType =
+  | 'string'
+  | 'string-array'
+  | 'int64'
+  | 'double'
+  | 'bool'
+  | 'datetime'
+  | 'json'
+  | 'object'
+  | 'array'
+  | 'attribute-map';
+
+export type SupervisionIndexedValueType =
+  | 'string'
+  | 'string-array'
+  | 'int64'
+  | 'double'
+  | 'bool'
+  | 'datetime';
+
+export type SupervisionEditableValueType = Exclude<SupervisionIndexedValueType, 'string-array'>;
+
+export interface FlowSupervisionField {
+  attributeKey: string;
+  valueType: SupervisionValueType;
+  editable: boolean;
+  description: string;
+}
+
+export interface FlowSupervisionView {
+  rpcName: string;
+  fields: FlowSupervisionField[];
+}
+
+export interface FlowSupervisionActionInputField {
+  fieldName: string;
+  valueType: SupervisionEditableValueType;
+  source: 'user' | 'attribute';
+  attributeKey?: string;
+  required: boolean;
+  description: string;
+}
+
+export interface FlowSupervisionAction {
+  rpcName: string;
+  label: string;
+  condition: {
+    attributeKey: string;
+    operator: 'in';
+    values: unknown[];
+  };
+  input: {
+    kind: 'none' | 'object';
+    fields?: FlowSupervisionActionInputField[];
+  };
+}
+
+export interface FlowSupervisionDefinition {
+  indexedAttributes: FlowSupervisionIndexedAttribute[];
+  summary: FlowSupervisionView;
+  display: FlowSupervisionView;
+  actions: FlowSupervisionAction[];
 }
