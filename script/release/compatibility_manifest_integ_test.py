@@ -63,6 +63,8 @@ class CompatibilityManifestIntegrationTest(unittest.TestCase):
                 self.write_checksums(directory),
                 False,
             )
+            digest = MODULE.write_manifest(directory / "manifest.json", manifest)
+            self.assertEqual(digest, "dc09203a2d785008d4449e23f70bd3598107e82d5f7934d86f49f1c534310906")
         self.assertEqual(manifest["sourceCommit"], SOURCE_COMMIT)
         self.assertEqual(
             manifest["components"]["server"]["image"],
@@ -87,6 +89,40 @@ class CompatibilityManifestIntegrationTest(unittest.TestCase):
                     self.write_checksums(directory),
                     False,
                 )
+
+    def test_partial_release_uses_each_published_component_tag(self) -> None:
+        with tempfile.TemporaryDirectory() as directory_name:
+            directory = Path(directory_name)
+            checksums = {name.replace("0.9.0", "0.10.0"): value for name, value in CHECKSUMS.items()}
+            manifest = MODULE.build_manifest(
+                "0.10.0",
+                REPOSITORY / "release/compatibility/0.10.0.json",
+                SERVER_DIGEST,
+                self.write_checksums(directory, checksums),
+                False,
+            )
+        self.assertEqual(manifest["sourceCommit"], "90dbc4ef121d575e4f79505cde0889cf49583fc2")
+        self.assertEqual(manifest["components"]["sdkGo"]["version"], "0.10.0")
+        self.assertEqual(manifest["components"]["sdkJava"]["tag"], "sdk-java/v0.9.0")
+        self.assertEqual(manifest["components"]["cli"]["checksums"], checksums)
+
+    def test_partial_release_checks_retained_sdk_protocol_source(self) -> None:
+        declaration = json.loads((REPOSITORY / "release/compatibility/0.10.0.json").read_text())
+        declaration["protocol"]["clients"]["sdkJava"]["maximum"] = 2
+        with tempfile.TemporaryDirectory() as directory_name:
+            directory = Path(directory_name)
+            declaration_path = directory / "declaration.json"
+            declaration_path.write_text(json.dumps(declaration), encoding="utf-8")
+            with self.assertRaisesRegex(MODULE.ManifestError, "does not match sdkJava source"):
+                MODULE.build_manifest("0.10.0", declaration_path, SERVER_DIGEST, self.write_checksums(directory), False)
+
+    def test_workflow_requires_manifest_for_partial_server_release(self) -> None:
+        workflow = (REPOSITORY / ".github/workflows/release-changed-components.yml").read_text()
+        condition = workflow.split("  publish-compatibility:", 1)[1].split("    uses:", 1)[0]
+        self.assertIn("needs.plan.outputs.server == 'true'", condition)
+        self.assertNotIn("needs.plan.outputs.java == 'true'", condition)
+        self.assertIn("needs.plan.outputs.java != 'true' || needs.publish-java.result == 'success'", condition)
+        self.assertIn('if [[ "${SERVER_SELECTED}" == "true" && "${COMPATIBILITY_RESULT}" != "success" ]]', workflow)
 
     def test_rejects_missing_cli_archive(self) -> None:
         checksums = dict(CHECKSUMS)

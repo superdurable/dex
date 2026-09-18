@@ -29,6 +29,6 @@ jobs:
         with:
           fetch-depth: 0
       - name: Test release tooling
-        run: python3 -m unittest discover -s script/release -p '*_test.py'
+        run: make release-tooling-test
       - name: Validate workflow policy
         run: make ci-runner-check

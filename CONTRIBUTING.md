@@ -166,17 +166,26 @@ Each component has its own version and tag prefix. Create a GitHub Release for t
 
 For coordinated releases, run **Release changed components** from the **main** branch and enter one semantic version. The workflow applies that version to every selected component. It compares each component with its own latest reachable release tag, uses that tag as the start of the component's generated release notes, preflights every selected target tag, creates the GitHub Releases, and directly invokes each publisher. The run succeeds only after every selected registry, Docker, CLI asset, and Homebrew publication succeeds. Go SDK publication is complete when its module tag and GitHub Release exist.
 
-A coordinated Server, CLI, and all-SDK release also publishes a compatibility
+Every coordinated release that selects Server also publishes a compatibility
 manifest. Add `release/compatibility/<version>.json` before dispatching the
 release. The declaration records the reviewed protocol intervals, open-Flow
 compatibility, persistence compatibility, and rollout order. Release tooling
-verifies those intervals against the tagged source, verifies that every
-component tag resolves to one commit, reads the published CLI checksums and
+verifies those intervals against each component's tagged source, reads the published CLI checksums and
 Server image digest, and uploads
 `dex-compatibility-v<version>.json` to the Server GitHub Release.
 
+For a partial release, include `componentVersions` with all seven component keys:
+`server`, `cli`, `sdkGo`, `sdkJava`, `sdkPython`, `sdkRust`, and `sdkTypeScript`.
+Changed components use the requested version; unchanged components retain their
+published versions. The planner checks this declaration before creating tags.
+The manifest's `sourceCommit` identifies Server; each component's tag identifies
+its own source. Every declared client protocol must overlap the Server interval.
+Omitting `componentVersions` declares that every component uses the release version.
+An SDK-only or CLI-only release does not rewrite an existing Server manifest.
+
 Use **Publish compatibility manifest** to backfill or reverify an already
-published coordinated release. The workflow replaces only that release asset;
+published Server release, including a partial release. The workflow adds the asset
+when absent and requires byte-identical contents when it already exists;
 it never recreates component tags or republishes packages. Downstream systems
 must verify the downloaded manifest digest before changing a Server or SDK
 version.
