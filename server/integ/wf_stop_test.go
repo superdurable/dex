@@ -62,7 +62,7 @@ func TestWorkflowCanceledTemporal(t *testing.T) {
 	}
 }
 
-func TestInvokeRPCTerminalValidationTemporal(t *testing.T) {
+func TestInvokeRPCUpdateRejectedAfterTerminalTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
@@ -71,9 +71,30 @@ func TestInvokeRPCTerminalValidationTemporal(t *testing.T) {
 		dexpb.StopType_STOP_TYPE_FAIL,
 	} {
 		t.Run(stopType.String(), func(t *testing.T) {
-			doTestInvokeRPCTerminalValidation(t, stopType)
+			doTestInvokeRPCUpdateRejectedAfterTerminal(t, stopType)
 		})
 	}
+}
+
+func TestInvokeRPCReadOnlyQueryAfterTerminalTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	for _, stopType := range []dexpb.StopType{
+		dexpb.StopType_STOP_TYPE_CANCEL,
+		dexpb.StopType_STOP_TYPE_FAIL,
+	} {
+		t.Run(stopType.String(), func(t *testing.T) {
+			doTestInvokeRPCReadOnlyQueryAfterTerminal(t, stopType)
+		})
+	}
+}
+
+func TestInvokeRPCSignalRejectedAfterTerminalTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	doTestInvokeRPCSignalRejectedAfterTerminal(t)
 }
 
 func TestWorkflowCanceledCadence(t *testing.T) {
@@ -159,7 +180,7 @@ func doTestWorkflowCancelWaitsForProducer(
 	require.Empty(t, response.GetErrorMessage())
 }
 
-func doTestInvokeRPCTerminalValidation(t *testing.T, stopType dexpb.StopType) {
+func doTestInvokeRPCUpdateRejectedAfterTerminal(t *testing.T, stopType dexpb.StopType) {
 	handler := newFinalizingRPCHandler(false)
 	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:                            service.BackendTypeTemporal,
@@ -185,7 +206,7 @@ func doTestInvokeRPCTerminalValidation(t *testing.T, stopType dexpb.StopType) {
 		FlowId: flowID, StopType: stopType, Reason: "terminal validation",
 	})
 	require.NoError(t, err)
-	assertRPCRejectedAfterStop(t, ctx, runtime.FlowClient, flowID, handler)
+	assertRPCUpdateRejectedAfterStop(t, ctx, runtime.FlowClient, flowID, handler)
 	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
 	require.NoError(t, err)
 	if stopType == dexpb.StopType_STOP_TYPE_CANCEL {
@@ -198,7 +219,7 @@ func doTestInvokeRPCTerminalValidation(t *testing.T, stopType dexpb.StopType) {
 	)
 }
 
-func assertRPCRejectedAfterStop(
+func assertRPCUpdateRejectedAfterStop(
 	t *testing.T,
 	ctx context.Context,
 	flowClient dexpb.FlowServiceClient,
@@ -218,6 +239,66 @@ func assertRPCRejectedAfterStop(
 	})
 	require.Contains(t, []codes.Code{codes.FailedPrecondition, codes.NotFound}, status.Code(err))
 	require.Equal(t, invokesBefore, handler.probeInvokeCount())
+}
+
+func doTestInvokeRPCReadOnlyQueryAfterTerminal(t *testing.T, stopType dexpb.StopType) {
+	handler := newFinalizingRPCHandler(false)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	workerTarget := startWorker(t, handler)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := terminalRPCFlowType + "-query-" + uuid.NewString()
+	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           terminalRPCFlowType,
+		FlowTimeoutSeconds: 20,
+		FlowStartOptions:   withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId: flowID, StopType: stopType, Reason: "terminal query validation",
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+
+	invokesBefore := handler.probeInvokeCount()
+	_, err = runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCProbe,
+	})
+	require.NoError(t, err)
+	require.Equal(t, invokesBefore+1, handler.probeInvokeCount())
+}
+
+func doTestInvokeRPCSignalRejectedAfterTerminal(t *testing.T) {
+	handler := newFinalizingRPCHandler(false)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	workerTarget := startWorker(t, handler)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := terminalRPCFlowType + "-signal-" + uuid.NewString()
+	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           terminalRPCFlowType,
+		FlowTimeoutSeconds: 20,
+		FlowStartOptions:   withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId: flowID, StopType: dexpb.StopType_STOP_TYPE_CANCEL, Reason: "terminal signal validation",
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+
+	invokesBefore := handler.signalInvokeCount()
+	_, err = runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCSignal,
+	})
+	require.Contains(t, []codes.Code{codes.FailedPrecondition, codes.NotFound}, status.Code(err))
+	require.Equal(t, invokesBefore+1, handler.signalInvokeCount())
 }
 
 func assertAcceptedRPCResultInHistory(
@@ -400,6 +481,8 @@ const (
 	terminalRPCFlowType       = "terminal-rpc"
 	terminalRPCAccepted       = "accepted"
 	terminalRPCProbe          = "probe"
+	terminalRPCSignal         = "signal"
+	terminalRPCChannel        = "terminal-rpc-channel"
 	terminalRPCFinishStep     = "finish-step"
 	terminalRPCAcceptedOutput = "accepted-before-finalize"
 )
@@ -412,6 +495,7 @@ type finalizingRPCHandler struct {
 	blockFinish        bool
 	mu                 sync.Mutex
 	probeInvokes       int
+	signalInvokes      int
 }
 
 func newFinalizingRPCHandler(blockFinish bool) *finalizingRPCHandler {
@@ -438,6 +522,16 @@ func (h *finalizingRPCHandler) InvokeWorkerRPC(
 		h.probeInvokes++
 		h.mu.Unlock()
 		return &dexpb.InvokeWorkerRPCResponse{}, nil
+	case terminalRPCSignal:
+		h.mu.Lock()
+		h.signalInvokes++
+		h.mu.Unlock()
+		return &dexpb.InvokeWorkerRPCResponse{
+			PublishToChannel: []*dexpb.ChannelMessage{{
+				ChannelName: terminalRPCChannel,
+				Value:       &dexpb.Value{},
+			}},
+		}, nil
 	default:
 		return nil, status.Error(codes.InvalidArgument, "unknown terminal RPC")
 	}
@@ -484,6 +578,12 @@ func (h *finalizingRPCHandler) probeInvokeCount() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.probeInvokes
+}
+
+func (h *finalizingRPCHandler) signalInvokeCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.signalInvokes
 }
 
 type cooperativeStopHandler struct {

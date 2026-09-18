@@ -1323,12 +1323,16 @@ func isPrimitiveValue(value *dexpb.Value) bool {
 	}
 }
 
-// InvokeRPC synchronously invokes a registered RPC on an active Flow.
+// InvokeRPC synchronously invokes a registered RPC on a Flow execution.
 //
 // rpc identifies an RPC definition belonging to the Flow type, input must match its
 // input type, and outputPtr may be nil to discard the RPC output. Otherwise outputPtr
 // must be a non-nil pointer to the RPC output type. The RPC's registered RPCOptions
 // control timeout, locks, transactional execution, and selective state loading.
+// A non-transactional RPC without Attribute locks starts from a backend query. If its
+// handler returns no durable effects, a retained terminal execution can serve the query.
+// Locks, transactional execution, returned effects, or server policy can require an
+// active execution and cause FlowNotActiveError for a terminal Flow.
 // InvokeRPC blocks until the handler returns, the timeout expires, or ctx is canceled,
 // then decodes the result into outputPtr when one is provided.
 // It may return validation, serialization, lock-conflict, worker, inactive-Flow,

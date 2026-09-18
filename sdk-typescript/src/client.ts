@@ -212,12 +212,15 @@ export class Client {
 
   /**
    * Invokes an RPC with typed input and output.
+   * A non-transactional RPC without Attribute locks starts from a backend query. A retained
+   * terminal execution can serve it when the handler returns no durable effects. Locks,
+   * transactional execution, returned effects, or server policy can require an active execution.
    * @typeParam Input - RPC input type.
    * @typeParam Output - RPC output type.
    * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
    * @param flowId - Non-empty target Flow ID.
    * @param input - Typed handler input.
-   * @param runId - Optional exact run; targets the active run when omitted.
+   * @param runId - Optional exact run; the server resolves the current execution when omitted.
    * @returns The decoded RPCResult output.
    */
   public invokeRPC<Input, Output>(
@@ -232,10 +235,12 @@ export class Client {
 
   /**
    * Invokes an input-free RPC with typed output.
+   * A retained terminal execution can serve a query-only RPC. Other execution paths can require
+   * an active execution.
    * @typeParam Output - RPC output type.
    * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
    * @param flowId - Non-empty target Flow ID.
-   * @param runId - Optional exact run; targets the active run when omitted.
+   * @param runId - Optional exact run; the server resolves the current execution when omitted.
    * @returns The decoded RPCResult output.
    */
   public invokeRPC<Output>(
@@ -246,11 +251,13 @@ export class Client {
 
   /**
    * Invokes a typed-input RPC that returns no output.
+   * A retained terminal execution can serve a query-only RPC. Other execution paths can require
+   * an active execution.
    * @typeParam Input - RPC input type.
    * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
    * @param flowId - Non-empty target Flow ID.
    * @param input - Typed handler input.
-   * @param runId - Optional exact run; targets the active run when omitted.
+   * @param runId - Optional exact run; the server resolves the current execution when omitted.
    * @returns A promise resolved after successful handler completion.
    */
   public invokeRPC<Input>(
@@ -262,9 +269,11 @@ export class Client {
 
   /**
    * Invokes an input-free, output-free RPC.
+   * A retained terminal execution can serve a query-only RPC. Other execution paths can require
+   * an active execution.
    * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
    * @param flowId - Non-empty target Flow ID.
-   * @param runId - Optional exact run; targets the active run when omitted.
+   * @param runId - Optional exact run; the server resolves the current execution when omitted.
    * @returns A promise resolved after successful handler completion.
    */
   public invokeRPC(
@@ -278,10 +287,12 @@ export class Client {
    * @param rpcMethod - Bound registered RPC method.
    * @param flowId - Non-empty target Flow ID.
    * @param inputOrRunId - Typed input, or run ID for an input-free RPC.
-   * @param runId - Exact run for an input-bearing RPC; targets the active run when omitted.
+   * @param runId - Exact run for an input-bearing RPC; the server resolves the current execution
+   * when omitted.
    * @returns Decoded output, or `undefined` for an output-free RPC.
    * @throws {@link RpcLockConflictError} when locks cannot be acquired.
    * @throws {@link WorkerInvocationError} when the application handler fails.
+   * @throws {@link FlowNotActiveError} when the selected path requires an active execution.
    */
   public async invokeRPC(
     rpcMethod: Function,

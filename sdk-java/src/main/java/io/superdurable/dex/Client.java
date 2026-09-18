@@ -343,12 +343,17 @@ public final class Client implements AutoCloseable {
     /**
      * Invokes a function-style RPC with one input and returns its typed output.
      *
+     * <p>A non-transactional RPC without Attribute locks starts from a backend query. A
+     * retained terminal execution can serve the query when the handler returns no durable effects.
+     * Locks, transactional execution, returned effects, or server policy can require an active
+     * execution.
+     *
      * @param rpcStubMethod a direct method reference from a stub created by this client
      * @param input the typed RPC input
      * @param <I> the RPC input type
      * @param <O> the RPC output type
      * @return the decoded RPC output
-     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws FlowNotActiveException if the selected path requires an active execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
@@ -362,10 +367,13 @@ public final class Client implements AutoCloseable {
     /**
      * Invokes a function-style RPC without application input.
      *
+     * <p>A retained terminal execution can serve a query-only RPC. Locks, transactional
+     * execution, returned effects, or server policy can require an active execution.
+     *
      * @param rpcStubMethod a direct method reference from a stub created by this client
      * @param <O> the RPC output type
      * @return the decoded RPC output
-     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws FlowNotActiveException if the selected path requires an active execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
@@ -377,10 +385,13 @@ public final class Client implements AutoCloseable {
     /**
      * Invokes a procedure-style RPC with one input.
      *
+     * <p>A retained terminal execution can serve a query-only RPC. Locks, transactional
+     * execution, returned effects, or server policy can require an active execution.
+     *
      * @param rpcStubMethod a direct method reference from a stub created by this client
      * @param input the typed RPC input
      * @param <I> the RPC input type
-     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws FlowNotActiveException if the selected path requires an active execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
@@ -394,8 +405,11 @@ public final class Client implements AutoCloseable {
     /**
      * Invokes a procedure-style RPC without application input.
      *
+     * <p>A retained terminal execution can serve a query-only RPC. Locks, transactional
+     * execution, returned effects, or server policy can require an active execution.
+     *
      * @param rpcStubMethod a direct method reference from a stub created by this client
-     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws FlowNotActiveException if the selected path requires an active execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC

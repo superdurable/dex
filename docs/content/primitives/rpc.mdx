@@ -166,6 +166,16 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 </SdkSnippet>
 </SdkTabs>
 
+## Read-only RPCs and terminal Flows
+
+An RPC without Attribute locks and without transactional execution starts from a backend query. If its handler returns only an output and no durable effects, Dex returns that output without signaling the Flow. The query can read a retained terminal execution. A successful read-only RPC therefore does not prove that the Flow is active.
+
+Attribute locks and explicit transactional execution use an active execution. A query-path handler that returns Attribute writes, Channel operations, events, or Step movements also needs an active execution because Dex must signal those effects after the handler returns. A terminal Flow rejects that commit even though the Worker handler may already have run. A Server can also be configured to route every Temporal RPC through synchronous Update, which requires an active execution.
+
+Use a Flow lifecycle API when the response needs current execution status. An application snapshot RPC reads the durable application state captured by the Flow; it does not infer terminal status from RPC success. Treat **FlowNotActiveError** as a path-specific failure, not as the normal terminal result of a query-only RPC.
+
+Callers do not need to search for a Run ID before a normal read-only RPC. When the SDK exposes an optional Run ID, omit it to let the Server resolve and pin the current execution for that invocation. Supply one only when the application must address an exact execution across Flow ID reuse.
+
 ## Selective RPC state loading {#load-collection-state}
 
 Every RPC receives regular Attribute values and Channel size metadata. Reading AttributeMap entries or pending Channel messages requires an explicit load. This keeps large collections out of RPC requests that do not use them.

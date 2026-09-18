@@ -98,7 +98,7 @@ client.stop_flow("order-123", StopFlowOptions::cancel().reason("customer cancell
 
 ## Invoke an RPC
 
-**InvokeRPC** calls a registered [RPC](/primitives/rpc) handler on an active Flow and returns its result.
+**InvokeRPC** calls a registered [RPC](/primitives/rpc) handler and returns its result. A query-only RPC can read a retained terminal execution. An RPC that needs to commit effects requires an active execution.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/rpc/controller.py', go: 'examples/go/primitives/rpc/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc/RpcController.java', typescript: 'examples/typescript/src/primitives/rpc/controller.ts', rust: 'examples/rust/src/primitives/rpc/controller.rs'}}>
 <SdkSnippet lang="python">

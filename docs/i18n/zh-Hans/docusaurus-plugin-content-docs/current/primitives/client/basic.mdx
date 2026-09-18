@@ -98,7 +98,7 @@ client.stop_flow("order-123", StopFlowOptions::cancel().reason("customer cancell
 
 ## 调用 RPC
 
-**InvokeRPC** 调用 active Flow 上已注册的 [RPC](/primitives/rpc) handler，并返回结果。
+**InvokeRPC** 调用已注册的 [RPC](/primitives/rpc) handler，并返回结果。只走 query 的 RPC 可以读取仍在 retention 内的 terminal execution。需要 commit effect 的 RPC 则要求 execution 仍处于 active 状态。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/rpc/controller.py', go: 'examples/go/primitives/rpc/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc/RpcController.java', typescript: 'examples/typescript/src/primitives/rpc/controller.ts', rust: 'examples/rust/src/primitives/rpc/controller.rs'}}>
 <SdkSnippet lang="python">
