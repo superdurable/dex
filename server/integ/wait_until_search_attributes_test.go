@@ -47,6 +47,15 @@ func TestWaitUntilSearchAttributesWorkflowTemporal(t *testing.T) {
 	}
 
 	for i := 0; i < *repeatIntegTest; i++ {
+		doTestWaitUntilSearchAttributes(t, &dexpb.FlowConfig{
+			ActiveStepSearchMode: ptr.Any(
+				dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR,
+			),
+		})
+		smallWaitForFastTest()
+	}
+
+	for i := 0; i < *repeatIntegTest; i++ {
 		doTestWaitUntilSearchAttributes(t, nil)
 		smallWaitForFastTest()
 	}
@@ -56,7 +65,8 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *dexpb.FlowConfig)
 	workerHandler := wait_until_search_attributes.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
 	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType: service.BackendTypeTemporal,
+		BackendType:                     service.BackendTypeTemporal,
+		UseBuiltInDefaultWorkflowConfig: true,
 	})
 	flowClient := runtime.FlowClient
 
@@ -81,7 +91,7 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *dexpb.FlowConfig)
 	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
 
-	mode := dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR
+	mode := dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED
 	if flowConfig != nil && flowConfig.ActiveStepSearchMode != nil {
 		mode = flowConfig.GetActiveStepSearchMode()
 	}

@@ -40,6 +40,8 @@ type DexServiceTestConfig struct {
 	UseTemporalSynchronousUpdateForAllRPCs bool
 	TemporalMetricsHandler                 client.MetricsHandler
 	MaxWaitSeconds                         int64
+	// UseBuiltInDefaultWorkflowConfig lets a test exercise package defaults.
+	UseBuiltInDefaultWorkflowConfig bool
 	// LazyLoading overrides BlobStore.LazyLoading.
 	// Nil uses EffectiveLazyLoading default (true).
 	LazyLoading *bool
@@ -54,6 +56,10 @@ func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config 
 	maxWaitSeconds := testCfg.MaxWaitSeconds
 	if maxWaitSeconds == 0 {
 		maxWaitSeconds = 12
+	}
+	defaultWorkflowConfig := syncDurabilityConfig()
+	if testCfg.UseBuiltInDefaultWorkflowConfig {
+		defaultWorkflowConfig = nil
 	}
 	cfg := config.Config{
 		Api: config.ApiConfig{
@@ -73,7 +79,7 @@ func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config 
 			AsyncStepInputSnapshotsEnabled: testCfg.AsyncStepInputSnapshotsEnabled,
 		},
 		Interpreter: config.Interpreter{
-			DefaultWorkflowConfig: syncDurabilityConfig(),
+			DefaultWorkflowConfig: defaultWorkflowConfig,
 			VerboseDebug:          false,
 			InterpreterActivityConfig: config.InterpreterActivityConfig{
 				MinimumStepHeartbeatTimeout: 2 * time.Second,

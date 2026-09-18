@@ -450,6 +450,7 @@ func RetryPolicyWithDefaults(policy *RetryPolicy, defaults RetryPolicy) RetryPol
 
 // DefaultWorkflowConfig is used when Interpreter.DefaultWorkflowConfig is nil.
 var DefaultWorkflowConfig = &dexpb.FlowConfig{
+	ActiveStepSearchMode:   ptr.Any(dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED),
 	ContinueAsNewThreshold: ptr.Any(int32(100)),
 	StepDurability:         ptr.Any(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 }

@@ -317,7 +317,7 @@ Dex Server 要求 **RequestID** 非空。省略时，SDK 会在发送请求前�
 
 | 字段 | 行为 |
 |------|------|
-| **ActiveStepSearchMode** | 索引所有 active Step、只索引运行过 **WaitFor** 的 Step，或不索引 active Step。默认只索引带 **WaitFor** 的 Step。 |
+| **ActiveStepSearchMode** | 索引所有 active Step、只索引运行过 **WaitFor** 的 Step，或不索引 active Step。内置 Server 默认不索引 active Step；如需启用，请显式设置模式。 |
 | **ContinueAsNewThreshold** | 追踪到这个事件数后 continue as new。零会关闭它。 |
 | **ContinueAsNewPageSizeBytes** | 限制 continue-as-new 带入的每一页 state。零使用 1 MiB。 |
 | **StepDurability** | 没有 Step override 的 method 使用的默认 durability。Dex 依次使用 method override、这里的值，最后使用 **SYNC**。 |
