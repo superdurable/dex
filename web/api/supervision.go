@@ -457,7 +457,11 @@ func (h *supervisionHandler) invokeView(
 	if err != nil {
 		return nil, err
 	}
-	values, ok := supervisionDexValue(result.GetOutput()).(map[string]interface{})
+	output, err := h.hydrateSupervisionValue(ctx, flowID, result.GetOutput())
+	if err != nil {
+		return nil, err
+	}
+	values, ok := supervisionDexValue(output).(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("%s returned a non-object value", view.RPCName)
 	}
@@ -468,6 +472,43 @@ func (h *supervisionHandler) invokeView(
 		values[field.AttributeKey] = supervisionResponseValue(values[field.AttributeKey], field.ValueType)
 	}
 	return values, nil
+}
+
+// InvokeRPC leaves large outputs as blob IDs when lazy loading is enabled.
+func (h *supervisionHandler) hydrateSupervisionValue(
+	ctx context.Context,
+	flowID string,
+	value *dexpb.Value,
+) (*dexpb.Value, error) {
+	blobID := supervisionBlobID(value)
+	if blobID == "" {
+		return value, nil
+	}
+	result, err := h.client.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{
+		Entries: []*dexpb.LoadBlobRequestEntry{{FlowId: flowID, BlobValue: value}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	hydrated, ok := result.GetValues()[blobID]
+	if !ok {
+		return nil, fmt.Errorf("value blob unavailable")
+	}
+	return hydrated, nil
+}
+
+func supervisionBlobID(value *dexpb.Value) string {
+	if value == nil {
+		return ""
+	}
+	switch kind := value.GetKind().(type) {
+	case *dexpb.Value_InternalBlobIdForStringValue:
+		return kind.InternalBlobIdForStringValue
+	case *dexpb.Value_InternalBlobIdForObjValue:
+		return kind.InternalBlobIdForObjValue
+	default:
+		return ""
+	}
 }
 
 func supervisionDexValue(value *dexpb.Value) interface{} {

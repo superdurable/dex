@@ -37,6 +37,8 @@ type supervisionTestClient struct {
 	attributeRequests  []*dexpb.GetAttributesRequest
 	setRequests        []*dexpb.SetAttributesRequest
 	rpcRequests        []*dexpb.InvokeRPCRequest
+	loadBlobRequests   []*dexpb.LoadBlobsRequest
+	blobs              map[string]*dexpb.Value
 	currentCaseStatus  string
 	currentGateRequest string
 	invokeRPCHandler   func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error)
@@ -106,6 +108,25 @@ func (client *supervisionTestClient) SetAttributes(
 	client.setRequests = append(client.setRequests, request)
 	client.mutex.Unlock()
 	return &emptypb.Empty{}, nil
+}
+
+func (client *supervisionTestClient) LoadBlobs(
+	_ context.Context,
+	request *dexpb.LoadBlobsRequest,
+	_ ...grpc.CallOption,
+) (*dexpb.LoadBlobsResponse, error) {
+	client.mutex.Lock()
+	client.loadBlobRequests = append(client.loadBlobRequests, request)
+	blobs := client.blobs
+	client.mutex.Unlock()
+	values := make(map[string]*dexpb.Value, len(request.GetEntries()))
+	for _, entry := range request.GetEntries() {
+		blobID := supervisionBlobID(entry.GetBlobValue())
+		if hydrated, ok := blobs[blobID]; ok {
+			values[blobID] = hydrated
+		}
+	}
+	return &dexpb.LoadBlobsResponse{Values: values}, nil
 }
 
 func (client *supervisionTestClient) InvokeRPC(
@@ -342,6 +363,76 @@ func TestSupervisionSummaryLoadingBoundsConcurrencyAndIsolatesFailures(t *testin
 	}
 }
 
+func TestSupervisionHydratesBlobBackedViewOutput(t *testing.T) {
+	client := &supervisionTestClient{
+		currentCaseStatus: "awaiting-manager", currentGateRequest: "gate-1",
+		blobs: map[string]*dexpb.Value{
+			"summary-blob": jsonDexValue(`{"charge-reference":null}`),
+			"display-blob": jsonDexValue(`{"operator-note":"reviewed","case-status":"awaiting-manager"}`),
+		},
+	}
+	client.invokeRPCHandler = func(_ context.Context, request *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
+		switch request.GetRpcName() {
+		case "GetDexSummary":
+			return &dexpb.InvokeRPCResponse{Output: blobObjDexValue("summary-blob")}, nil
+		case "GetDexDisplay":
+			return &dexpb.InvokeRPCResponse{Output: blobObjDexValue("display-blob")}, nil
+		default:
+			return &dexpb.InvokeRPCResponse{Output: &dexpb.Value{
+				Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE},
+			}}, nil
+		}
+	}
+	mux := http.NewServeMux()
+	RegisterSupervisionHandlers(mux, client, map[string]SupervisionDefinition{
+		"RefundFlow": testSupervisionDefinition(),
+	})
+
+	searchResponse := performSupervisionJSON(t, mux, http.MethodPost, "/api/supervision/search", `{
+		"flowType":"RefundFlow"
+	}`)
+	if searchResponse.Code != http.StatusOK {
+		t.Fatalf("search status = %d body=%q", searchResponse.Code, searchResponse.Body.String())
+	}
+	var searchResult supervisionSearchResponse
+	decodeSupervisionResponse(t, searchResponse, &searchResult)
+	if len(searchResult.Flows) != 1 || searchResult.Flows[0].SummaryError != "" {
+		t.Fatalf("search result = %+v", searchResult)
+	}
+	if _, exists := searchResult.Flows[0].Summary["charge-reference"]; !exists {
+		t.Fatalf("summary omitted charge-reference: %+v", searchResult.Flows[0].Summary)
+	}
+
+	displayResponse := performSupervisionJSON(
+		t, mux, http.MethodGet,
+		"/api/supervision/display?flowType=RefundFlow&flowId=refund-1", "",
+	)
+	if displayResponse.Code != http.StatusOK {
+		t.Fatalf("display status = %d body=%q", displayResponse.Code, displayResponse.Body.String())
+	}
+	var displayResult supervisionDisplayResponse
+	decodeSupervisionResponse(t, displayResponse, &displayResult)
+	if displayResult.Display["operator-note"] != "reviewed" {
+		t.Fatalf("display result = %+v", displayResult)
+	}
+	if len(client.loadBlobRequests) == 0 {
+		t.Fatal("LoadBlobs was not called for blob-backed view output")
+	}
+}
+
+func TestSupervisionMissingViewBlobSurfacesRowError(t *testing.T) {
+	client := &supervisionTestClient{}
+	client.invokeRPCHandler = func(_ context.Context, _ *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
+		return &dexpb.InvokeRPCResponse{Output: blobObjDexValue("missing-blob")}, nil
+	}
+	handler := &supervisionHandler{client: client}
+	flows := []supervisionFlow{{FlowID: "refund-1"}}
+	handler.loadSummaries(context.Background(), testSupervisionDefinition().Summary, flows)
+	if flows[0].SummaryError == "" {
+		t.Fatalf("missing blob did not surface a row error: %+v", flows[0])
+	}
+}
+
 func TestSupervisionViewOutputContract(t *testing.T) {
 	view := testSupervisionDefinition().Summary
 	if err := validateViewOutput(view, map[string]interface{}{"charge-reference": nil}); err != nil {
@@ -509,4 +600,8 @@ func jsonDexValue(value string) *dexpb.Value {
 	return &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
 		Encoding: "json", Payload: []byte(value),
 	}}}
+}
+
+func blobObjDexValue(blobID string) *dexpb.Value {
+	return &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: blobID}}
 }
