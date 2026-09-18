@@ -92,7 +92,7 @@ jobs:
           api_response_file="$(mktemp)"
           for attempt in {1..120}; do
             if (echo >/dev/tcp/127.0.0.1/18801) >/dev/null 2>&1 \
-              && curl --fail --silent http://127.0.0.1:18802/healthz >/dev/null \
+              && curl --fail --silent --max-time 5 http://127.0.0.1:18802/healthz >/dev/null \
               && curl --fail --silent --max-time 5 \
                 --header 'Content-Type: application/json' \
                 --data '{"pageSize":1}' \
@@ -107,8 +107,31 @@ jobs:
             fi
             sleep 1
           done
-          test "$(docker top dex-server-default | grep -c '/dex/dex-server')" -eq 1
-          curl --fail --silent http://127.0.0.1:18802/ | grep --quiet '<div id="root"></div>'
+          if ! default_server_processes="$(docker top dex-server-default)"; then
+            echo "Cannot inspect the default Server image process"
+            docker logs dex-server-default
+            exit 1
+          fi
+          printf '%s\n' "${default_server_processes}"
+          default_server_process_count="$(grep -c -- '/dex/dex-server' <<<"${default_server_processes}" || true)"
+          if [[ "${default_server_process_count}" -ne 1 ]]; then
+            echo "Expected one default Server image process, found ${default_server_process_count}"
+            docker logs dex-server-default
+            exit 1
+          fi
+
+          homepage_response_file="$(mktemp)"
+          if ! curl --fail --silent --show-error --max-time 5 http://127.0.0.1:18802/ >"${homepage_response_file}"; then
+            echo "Cannot request the default Server image homepage"
+            docker logs dex-server-default
+            exit 1
+          fi
+          if ! grep --fixed-strings --quiet '<div id="root"></div>' "${homepage_response_file}"; then
+            echo "Default Server image homepage did not include the Dex Web root element"
+            cat "${homepage_response_file}"
+            docker logs dex-server-default
+            exit 1
+          fi
 
           docker rm -f dex-server-default >/dev/null
           docker run -d --name dex-server-web-only \
