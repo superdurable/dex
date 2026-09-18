@@ -106,6 +106,7 @@ func doTestSubFlowCondition(
 	parentFlowID := subFlowParentType + "-" + uuid.NewString()
 	childFlowID := "SubFlow:" + parentFlowID + "-" + subFlowParentStep + "-1-0"
 	input := stringValue(subFlowInput)
+	parentRequestID := newRequestID()
 	for _, reservedCharacter := range []string{"/", "$", ":"} {
 		_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 			RequestId:          newRequestID(),
@@ -136,7 +137,7 @@ func doTestSubFlowCondition(
 	require.ErrorContains(t, err, `flow ID contains reserved character ":"`)
 
 	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
-		RequestId:          newRequestID(),
+		RequestId:          parentRequestID,
 		FlowId:             parentFlowID,
 		FlowType:           subFlowParentType,
 		FlowTimeoutSeconds: 30,
@@ -147,6 +148,15 @@ func doTestSubFlowCondition(
 		}, workerTarget),
 	})
 	require.NoError(t, err)
+	parentDescription, err := runtime.UnifiedClient.DescribeWorkflowExecution(
+		ctx,
+		parentFlowID,
+		startResponse.GetRunId(),
+		nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, parentDescription.Memos, 1)
+	require.Equal(t, parentRequestID, string(parentDescription.Memos[service.WorkflowRequestId].GetObjValue().GetPayload()))
 
 	firstResult, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          parentFlowID,
@@ -184,6 +194,12 @@ func doTestSubFlowCondition(
 		t,
 		parentFlowID,
 		childDescription.IndexedAttributes[service.SearchAttributeDexParentFlowID].GetStringValue(),
+	)
+	require.Len(t, childDescription.Memos, 1)
+	require.Equal(
+		t,
+		startResponse.GetRunId()+subFlowParentStep+"-1",
+		string(childDescription.Memos[service.WorkflowRequestId].GetObjValue().GetPayload()),
 	)
 	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, childFlowID)
 	require.NoError(t, err)

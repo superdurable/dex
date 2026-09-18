@@ -1027,8 +1027,7 @@ func buildSubFlowStartOptions(
 		RetryPolicy:      options.GetRetryPolicy(),
 		SearchAttributes: index.ConvertAttributeWritesToSearchAttributeUpsertMap(options.GetAttributes()),
 		Memo: map[string]interface{}{
-			service.WorkerAddressMemoKey: &dexpb.EncodedObject{Payload: []byte(flowConfig.GetWorkerTarget().GetAddress())},
-			service.WorkflowRequestId:    &dexpb.EncodedObject{Payload: []byte(requestID)},
+			service.WorkflowRequestId: &dexpb.EncodedObject{Payload: []byte(requestID)},
 		},
 	}
 	workflowOptions.SearchAttributes[service.SearchAttributeDexWorkflowType] = condition.GetSubFlowType()
