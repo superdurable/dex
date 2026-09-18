@@ -3657,6 +3657,8 @@ github.com/superdurable/dex/blob-cache-go v0.1.0 h1:+c3H5YBWG3DlICOHbgT9IUM5vTlf
 github.com/superdurable/dex/blob-cache-go v0.1.0/go.mod h1:Atepb7+sztvDCztVKmlvEKCSKFCkHKtDhoFYjaFmtEw=
 github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.2 h1:IgZOO5uZ/KSHso/GQdGoQvRhClpY9kawow5PtpqfEiY=
 github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.2/go.mod h1:man3WG0HjtUkJVJn2TR82mFEK0F9PfDAZl3W1m4vkws=
+github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.3 h1:DbV21FY6SW6i+OcfbGnBgyzzJCqHljEqKASvIDbd61I=
+github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.3/go.mod h1:man3WG0HjtUkJVJn2TR82mFEK0F9PfDAZl3W1m4vkws=
 github.com/tidwall/gjson v1.14.2/go.mod h1:/wbyibRr2FHMks5tjHJ5F8dMZh3AcwJEMf5vlfC0lxk=
 github.com/tidwall/match v1.1.1/go.mod h1:eRSPERbgtNPcGhD8UCthc6PmLEQXEWd3PRB5JTxsfmM=
 github.com/tidwall/pretty v1.2.0/go.mod h1:ITEVvHYasfjBbM0u2Pg8T2nJnzm8xPwvNhhsoaGGjNU=
