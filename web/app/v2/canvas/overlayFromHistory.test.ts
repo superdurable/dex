@@ -45,7 +45,7 @@ describe('overlayFromHistory', () => {
         }),
         event('StepExecuteCompleted', {
           input: { stepInput: { ticket: 'A' } },
-          output: { stepDecision: { type: 'goTo', nextSteps: [{ stepType: 'NotifyStep' }] } },
+          output: { stepDecision: { nextSteps: [{ stepType: 'NotifyStep' }] } },
           context: {
             stepExecutionId: 'exec-2',
             stepType: 'RefundStep',
@@ -69,13 +69,28 @@ describe('overlayFromHistory', () => {
     expect(execution.nextStepTypes).toEqual(['NotifyStep']);
     expect(payloadFromRecord(bundle.records[0])).toEqual({
       input: { stepInput: { ticket: 'A' } },
-      output: { stepDecision: { type: 'goTo', nextSteps: [{ stepType: 'NotifyStep' }] } },
+      output: { stepDecision: { nextSteps: [{ stepType: 'NotifyStep' }] } },
       context: {
         stepExecutionId: 'exec-2',
         stepType: 'RefundStep',
         startedTime: '2026-09-18T00:00:10.000Z',
       },
     });
+  });
+
+  it('names close decisions from closeDecisionType', () => {
+    const bundle = overlayFromHistory({
+      flowId: 'flow-1',
+      runId: 'run-2',
+      status: 'Completed',
+      events: [
+        event('StepExecuteCompleted', {
+          output: { stepDecision: { closeDecision: { closeDecisionType: 3 } } },
+          context: { stepExecutionId: 'exec-close', stepType: 'CloseCaseStep' },
+        }),
+      ],
+    });
+    expect(bundle.overlay.executions[0].decisionType).toBe('forceComplete');
   });
 
   it('returns null payload when a record has no wait or execute event', () => {
@@ -124,11 +139,11 @@ describe('overlayFromHistory', () => {
         event('FlowStartedOrContinued', { continuedStart: { previousRunId: 'run-1' } }),
         event('StepExecuteCompleted', {
           input: { stepInput: 'now' },
-          output: { stepDecision: { type: 'goTo' } },
+          output: { stepDecision: { nextSteps: [{ stepType: 'NotifyStep' }] } },
           context: { stepExecutionId: 'exec-now', stepType: 'RefundStep' },
         }),
         event('StepExecuteCompleted', {
-          output: { stepDecision: { type: 'goTo' } },
+          output: { stepDecision: { nextSteps: [{ stepType: 'CloseCaseStep' }] } },
           context: { stepExecutionId: 'exec-other', stepType: 'NotifyStep' },
         }),
       ],
@@ -141,11 +156,11 @@ describe('overlayFromHistory', () => {
         event('FlowStartedOrContinued', { continuedStart: { previousRunId: 'run-0' } }),
         event('StepExecuteCompleted', {
           input: { stepInput: 'then' },
-          output: { stepDecision: { type: 'goTo' } },
+          output: { stepDecision: { nextSteps: [{ stepType: 'NotifyStep' }] } },
           context: { stepExecutionId: 'exec-then', stepType: 'RefundStep' },
         }),
         event('StepExecuteCompleted', {
-          output: { stepDecision: { type: 'goTo' } },
+          output: { stepDecision: { nextSteps: [{ stepType: 'CloseCaseStep' }] } },
           context: { stepExecutionId: 'exec-old-notify', stepType: 'NotifyStep' },
         }),
       ],

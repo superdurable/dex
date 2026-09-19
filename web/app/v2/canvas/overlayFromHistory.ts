@@ -270,7 +270,7 @@ function applyEvent(record: ExecutionRecord, event: FlowHistoryEvent): void {
     record.executeEvent = event;
     record.execution.execute = { status };
     const decision = asData(asData(event.payload.output).stepDecision);
-    const decisionType = stringField(decision.type);
+    const decisionType = decisionKindFromStepDecision(decision);
     if (decisionType) record.execution.decisionType = decisionType;
     const next = nextStepTypes(decision);
     if (next.length > 0) record.execution.nextStepTypes = next;
@@ -348,6 +348,36 @@ function nextStepTypes(decision: Record<string, unknown>): string[] {
   return decision.nextSteps
     .map((step) => stringField(asData(step).stepType))
     .filter(Boolean);
+}
+
+/** Wire StepDecision has no `type`; derive the verb from nextSteps / closeDecision. */
+function decisionKindFromStepDecision(decision: Record<string, unknown>): string {
+  const legacy = stringField(decision.type);
+  if (legacy) return legacy;
+  const next = nextStepTypes(decision);
+  const closeVerb = closeDecisionVerb(asData(decision.closeDecision).closeDecisionType);
+  if (next.length > 0 && closeVerb) return `goTo · ${closeVerb}`;
+  if (next.length > 0) return 'goTo';
+  return closeVerb;
+}
+
+function closeDecisionVerb(value: unknown): string {
+  if (value === 1 || value === 'CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY') {
+    return 'forceCompleteIfChannelsEmpty';
+  }
+  if (value === 2 || value === 'CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE') {
+    return 'gracefulComplete';
+  }
+  if (value === 3 || value === 'CLOSE_DECISION_TYPE_FORCE_COMPLETE') {
+    return 'forceComplete';
+  }
+  if (value === 4 || value === 'CLOSE_DECISION_TYPE_FORCE_FAIL') {
+    return 'forceFail';
+  }
+  if (value === 5 || value === 'CLOSE_DECISION_TYPE_DEAD_END') {
+    return 'deadEnd';
+  }
+  return '';
 }
 
 function failureMessage(value: unknown): string | undefined {
