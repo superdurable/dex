@@ -35,7 +35,7 @@ type DexServiceTestConfig struct {
 	StreamStore                            config.StreamStoreConfig
 	BlobCacheDirectory                     string
 	BlobStoreEnabled                       *bool
-	AsyncStepInputSnapshotsEnabled         bool
+	AsyncStepInputSnapshotsEnabled         *bool
 	IncludeRPCInputOutputIntoHistory       bool
 	UseTemporalSynchronousUpdateForAllRPCs bool
 	TemporalMetricsHandler                 client.MetricsHandler

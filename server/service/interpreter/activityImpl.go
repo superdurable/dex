@@ -700,7 +700,7 @@ func (a *Activities) persistStepEventInput(
 	input *dexpb.InternalAsyncStepInputSnapshot,
 ) error {
 	if !activityInfo.IsLocalActivity ||
-		!a.cfg.BlobStore.AsyncStepInputSnapshotsEnabled ||
+		!a.cfg.BlobStore.EffectiveAsyncStepInputSnapshotsEnabled() ||
 		!a.cfg.BlobStore.EffectiveEnabled() {
 		return nil
 	}

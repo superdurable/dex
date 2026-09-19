@@ -192,7 +192,7 @@ func TestBlobStoreDefaults(t *testing.T) {
 	cfg, err := NewConfig(path)
 	require.NoError(t, err)
 	require.True(t, cfg.BlobStore.EffectiveEnabled())
-	require.False(t, cfg.BlobStore.AsyncStepInputSnapshotsEnabled)
+	require.True(t, cfg.BlobStore.EffectiveAsyncStepInputSnapshotsEnabled())
 	require.Equal(t, 100, cfg.BlobStore.EffectiveThresholdInBytes())
 	require.Equal(t, DefaultBlobStoreObjectIDLength, cfg.BlobStore.EffectiveObjectIDLength())
 	require.Equal(t, 100*time.Millisecond, cfg.AttributeStore.EffectiveSyncRetryPolicy().InitialInterval)
@@ -208,11 +208,13 @@ func TestBlobStoreObjectIDLengthValidation(t *testing.T) {
 
 func TestBlobStoreAsyncStepInputSnapshotsRequireBlobStore(t *testing.T) {
 	require.NoError(t, (BlobStoreConfig{}).Validate())
-	require.NoError(t, (BlobStoreConfig{AsyncStepInputSnapshotsEnabled: true}).Validate())
+	require.NoError(t, (BlobStoreConfig{Enabled: ptr.Any(false)}).Validate())
+	require.NoError(t, (BlobStoreConfig{AsyncStepInputSnapshotsEnabled: ptr.Any(true)}).Validate())
+	require.False(t, (BlobStoreConfig{Enabled: ptr.Any(false)}).EffectiveAsyncStepInputSnapshotsEnabled())
 
 	err := (BlobStoreConfig{
 		Enabled:                        ptr.Any(false),
-		AsyncStepInputSnapshotsEnabled: true,
+		AsyncStepInputSnapshotsEnabled: ptr.Any(true),
 	}).Validate()
 	require.ErrorContains(t, err, "asyncStepInputSnapshotsEnabled")
 }
