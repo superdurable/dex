@@ -398,6 +398,113 @@
   color: var(--p-ink-0);
   border-color: var(--p-ink-3);
 }
+.ppan-def {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+.ppan-def-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--p-ink-2);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ppan-def-chevron {
+  color: var(--p-ink-3);
+}
+.ppan-def-body {
+  padding: 0 14px 12px;
+}
+.ppan-def-body h3 {
+  margin: 10px 0 4px;
+  color: var(--p-ink-3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.ppan-def-body h3:first-child {
+  margin-top: 0;
+}
+.ppan-def-line {
+  margin: 0;
+  color: var(--p-ink-1);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.ppan-def-source {
+  font-family: var(--p-mono);
+  font-size: 10.5px;
+  color: var(--p-ink-3);
+  overflow-wrap: anywhere;
+}
+.ppan-def-list {
+  margin: 4px 0 0;
+  padding-left: 1.1rem;
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+.ppan-exec {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.ppan-exec-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px 0;
+}
+.ppan-exec-head > h3 {
+  margin: 0;
+  color: var(--p-ink-3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.ppan-exec-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+.ppan-exec-pick select {
+  max-width: min(100%, 18rem);
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+  font: inherit;
+  font-size: 11px;
+}
+.ppan-exec-one {
+  margin: 0;
+  max-width: min(100%, 18rem);
+  overflow: hidden;
+  color: var(--p-ink-3);
+  font-family: var(--p-mono);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ppan-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -441,7 +548,7 @@
 }
 .ppan-row {
   display: grid;
-  grid-template-columns: 96px 1fr;
+  grid-template-columns: minmax(5rem, 32%) minmax(0, 1fr);
   gap: 8px;
   padding: 3px 0;
   border-bottom: 1px solid var(--p-line-soft);
@@ -449,6 +556,8 @@
 }
 .ppan-row dt {
   color: var(--p-ink-3);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .ppan-row dd {
   margin: 0;

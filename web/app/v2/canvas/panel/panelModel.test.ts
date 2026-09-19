@@ -75,12 +75,12 @@ function flow(model: StepModel): PocFlow {
   }
 }
 
-function overlay(execution: StepExecution): RunOverlay {
+function overlay(executions: StepExecution[]): RunOverlay {
   return {
     runId: 'run-2',
     flowId: 'flow-1',
     status: 'Running',
-    executions: [execution],
+    executions,
     simulated: false,
     note: 'run-2',
     now: 1,
@@ -101,37 +101,55 @@ function methodEvent(): FlowHistoryEvent {
 }
 
 describe('buildPanel', () => {
-  it('defaults to Input when a method event is present', () => {
+  it('keeps Definition separate and lists executions for the picker', () => {
     const model = step()
     const panel = buildPanel(
       flow(model),
       model,
-      overlay({
-        stepExecutionId: 'exec-2',
-        stepType: 'RefundStep',
-        ordinal: 1,
-        waitFor: null,
-        execute: { status: 'completed' },
-        attempts: 1,
-        decisionType: 'goTo',
-        nextStepTypes: ['NotifyStep'],
-      }),
-      null,
+      overlay([
+        {
+          stepExecutionId: 'exec-1',
+          stepType: 'RefundStep',
+          ordinal: 1,
+          waitFor: null,
+          execute: { status: 'completed' },
+          attempts: 1,
+          decisionType: 'goTo',
+          nextStepTypes: ['NotifyStep'],
+        },
+        {
+          stepExecutionId: 'exec-2',
+          stepType: 'RefundStep',
+          ordinal: 2,
+          waitFor: null,
+          execute: { status: 'completed' },
+          attempts: 1,
+          decisionType: 'goTo',
+          nextStepTypes: ['NotifyStep'],
+        },
+      ]),
+      'exec-2',
       methodEvent(),
       1,
       true,
     )
+    expect(panel.definition.branches.map((branch) => branch.value)).toEqual([
+      'unconditional → NotARefund, AgentDecision',
+    ])
+    expect(panel.executions.map((execution) => execution.id)).toEqual(['exec-1', 'exec-2'])
+    expect(panel.sections.map((section) => section.id)).toEqual([
+      'overview',
+      'input',
+      'output',
+      'context',
+      'execute',
+    ])
     expect(panel.defaultSection).toBe('input')
-    expect(panel.sections.map((section) => section.id)).toContain('input')
-    expect(panel.sections.map((section) => section.id)).toContain('output')
-    expect(panel.sections.map((section) => section.id)).toContain('context')
-    expect(panel.sections.find((section) => section.id === 'executions')).toBeUndefined()
     const execute = panel.sections.find((section) => section.id === 'execute')
     expect(execute?.body.kind).toBe('execute')
     if (execute?.body.kind === 'execute') {
       expect(execute.body.nextStepTypes).toEqual(['NotifyStep'])
       expect(execute.body.hasExecuteEvent).toBe(true)
-      expect(execute.body.attempts).toHaveLength(1)
     }
   })
 
@@ -140,14 +158,16 @@ describe('buildPanel', () => {
     const panel = buildPanel(
       flow(model),
       model,
-      overlay({
-        stepExecutionId: 'exec-2',
-        stepType: 'RefundStep',
-        ordinal: 1,
-        waitFor: null,
-        execute: { status: 'notStarted' },
-        attempts: 1,
-      }),
+      overlay([
+        {
+          stepExecutionId: 'exec-2',
+          stepType: 'RefundStep',
+          ordinal: 1,
+          waitFor: null,
+          execute: { status: 'notStarted' },
+          attempts: 1,
+        },
+      ]),
       null,
       null,
       0,

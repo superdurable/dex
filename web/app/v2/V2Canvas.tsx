@@ -267,7 +267,7 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
         onInspect={(id) => {
           setSelectedId(id);
           setSelectedGroupId(null);
-          setInspectSection('executions');
+          setInspectSection('input');
         }}
         legend={() => (
           <div className="plegend-card" data-open={legendOpen ? 'true' : undefined}>

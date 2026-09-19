@@ -25,10 +25,6 @@ export type SectionId =
   | 'context'
   | 'wait'
   | 'execute'
-  | 'executions'
-  | 'transitions'
-  | 'state'
-  | 'definition'
 
 export interface Row {
   label: string
@@ -68,6 +64,20 @@ export interface AttemptRow {
   failure?: string
 }
 
+export interface ExecutionChoice {
+  id: string
+  wait: string
+  execute: string
+  won: string
+}
+
+export interface DefinitionModel {
+  waitFor: string | null
+  waitConditions: string[]
+  branches: Row[]
+  source: string | null
+}
+
 export type SectionBody =
   | { kind: 'rows'; rows: Row[]; availability?: Availability }
   | { kind: 'stepMethod'; part: 'input' | 'output' | 'context' }
@@ -83,8 +93,6 @@ export type SectionBody =
       io: Availability
       error?: string
     }
-  | { kind: 'executions'; rows: { id: string; wait: string; execute: string; won: string }[] }
-  | { kind: 'transitions'; inbound: Row[]; outbound: Row[] }
 
 export interface Section {
   id: SectionId
@@ -96,29 +104,13 @@ export interface PanelModel {
   title: string
   stepType: string
   defaultSection: SectionId
+  definition: DefinitionModel
+  executions: ExecutionChoice[]
   sections: Section[]
-}
-
-export interface ExecutionPayload {
-  input: unknown
-  output: unknown
-  context: unknown
 }
 
 function statusWord(s: PhaseStatus): string {
   return PHASE_LABEL[s]
-}
-
-function traversals(overlay: RunOverlay | null): Map<string, number> {
-  const out = new Map<string, number>()
-  if (overlay === null) return out
-  for (const e of overlay.executions) {
-    for (const t of e.nextStepTypes ?? []) {
-      const k = `${e.stepType}->${t}`
-      out.set(k, (out.get(k) ?? 0) + 1)
-    }
-  }
-  return out
 }
 
 export function buildPanel(
@@ -135,6 +127,28 @@ export function buildPanel(
     execs.find((e) => e.stepExecutionId === selectedExecutionId) ?? execs[execs.length - 1] ?? null
   const hasMethodEvent = methodEvent !== null
 
+  const definition: DefinitionModel = {
+    waitFor: step.waitFor === null ? null : `${step.waitFor.type} · ${step.waitFor.sentence}`,
+    waitConditions: step.waitFor?.conditions.map((c) => `${c.label} (${c.kind})`) ?? [],
+    branches: step.execute.branches.map((branch) => {
+      const targets = branch.targets
+        .map((target) => flow.steps.find((candidate) => candidate.id === target.stepId)?.label
+          ?? target.stepId.replace(/^step:/, ''))
+        .join(', ')
+      return {
+        label: branch.decisionTypes.join('/') || 'goTo',
+        value: [
+          branch.fullGuards.length > 0 ? branch.fullGuards.join('  ·  ') : 'unconditional',
+          targets.length > 0 ? `→ ${targets}` : '→ closes',
+        ].join(' '),
+        pre: branch.fullGuards.length > 0,
+      }
+    }),
+    source: step.span
+      ? `${flow.source.path}:${step.span.startLine}–${step.span.endLine}`
+      : null,
+  }
+
   const sections: Section[] = []
 
   const overview: Row[] = [{ label: 'Role', value: step.actor }]
@@ -149,9 +163,9 @@ export function buildPanel(
         value: coarseElapsed(current.startedAt, current.endedAt ?? overlay?.now ?? 0),
       })
     }
-    const w = current.waitFor
-    if (w !== null && (w.status === 'waiting' || w.status === 'pending')) {
-      const pending = w.conditions.filter((c) => !c.satisfied)
+    const waiting = current.waitFor
+    if (waiting !== null && (waiting.status === 'waiting' || waiting.status === 'pending')) {
+      const pending = waiting.conditions.filter((c) => !c.satisfied)
       overview.push({
         label: 'Blocked on',
         value:
@@ -185,10 +199,10 @@ export function buildPanel(
     const blocked = current?.waitFor?.status === 'waiting' || current?.waitFor?.status === 'pending'
     const anyWon = live.some((c) => c.satisfied)
     const rows: WaitRow[] = declared.map((d) => {
-      const l = live.find((c) => c.label === d.label)
+      const liveRow = live.find((c) => c.label === d.label)
       let verdict: Verdict = 'notEvaluated'
-      if (l !== undefined) {
-        if (l.satisfied) verdict = 'won'
+      if (liveRow !== undefined) {
+        if (liveRow.satisfied) verdict = 'won'
         else if (blocked) verdict = 'pending'
         else if (anyWon) verdict = 'lostStillQueued'
       }
@@ -239,97 +253,22 @@ export function buildPanel(
       nextStepTypes: current?.nextStepTypes ?? [],
       hasExecuteEvent,
       defaultTab: failedNow ? 'error' : 'output',
-      io: hasMethodEvent ? 'available' : overlay === null ? 'notRetained' : 'notRetained',
+      io: hasMethodEvent ? 'available' : 'notRetained',
       error: current?.lastFailure,
     },
   })
-
-  if (execs.length > 1) {
-    sections.push({
-      id: 'executions',
-      label: `Executions · ${execs.length}`,
-      body: {
-        kind: 'executions',
-        rows: execs.map((e) => ({
-          id: e.stepExecutionId,
-          wait: e.waitFor === null ? 'no wait' : statusWord(e.waitFor.status),
-          execute: statusWord(e.execute.status),
-          won: waitKind(e, [e]) ?? '—',
-        })),
-      },
-    })
-  }
-
-  const trav = traversals(overlay)
-  const inbound: Row[] = flow.transitions
-    .filter((t) => t.toStepId === step.id)
-    .map((t) => {
-      const from = flow.steps.find((s) => s.id === t.fromStepId)
-      const n = trav.get(`${from?.stepType}->${step.stepType}`)
-      return {
-        label: from?.label ?? t.fromStepId,
-        value:
-          (t.kind === 'failure_transition' ? 'on failure' : 'transition') +
-          (n === undefined ? '' : ` · taken ${n}×`),
-        tone: t.kind === 'failure_transition' ? ('warn' as const) : undefined,
-      }
-    })
-    .sort((a, b) => a.label.localeCompare(b.label))
-  const outbound: Row[] = flow.transitions
-    .filter((t) => t.fromStepId === step.id)
-    .map((t) => {
-      const to = flow.steps.find((s) => s.id === t.toStepId)
-      const n = trav.get(`${step.stepType}->${to?.stepType}`)
-      return {
-        label: to?.label ?? t.toStepId,
-        value:
-          (t.mergedGuards.length > 0 ? t.mergedGuards.join('  ·  ') : 'unconditional') +
-          (n === undefined ? '' : ` · taken ${n}×`),
-        pre: t.mergedGuards.length > 0,
-      }
-    })
-  sections.push({ id: 'transitions', label: 'Transitions', body: { kind: 'transitions', inbound, outbound } })
-
-  if (step.resources.length > 0) {
-    sections.push({
-      id: 'state',
-      label: 'State',
-      body: {
-        kind: 'rows',
-        rows: step.resources.map((r) => ({
-          label: r.resourceId.replace(/^(attribute|channel|stream):/, ''),
-          value: `${r.access}${r.phase === undefined ? '' : ` · during ${r.phase}`}`,
-          tone: 'quiet' as const,
-        })),
-        availability: overlay === null ? undefined : hasMethodEvent ? 'available' : 'notRetained',
-      },
-    })
-  }
-
-  const defRows: Row[] = [{ label: 'Step type', value: step.stepType }]
-  if (step.waitFor !== null) {
-    defRows.push({ label: 'Wait', value: `${step.waitFor.type} · ${step.waitFor.sentence}` })
-  }
-  for (const b of step.execute.branches) {
-    defRows.push({
-      label: b.decisionTypes.join('/'),
-      value: b.fullGuards.length > 0 ? b.fullGuards.join('  ·  ') : 'unconditional',
-      pre: b.fullGuards.length > 0,
-    })
-  }
-  if (step.span) {
-    defRows.push({
-      label: 'Source',
-      value: `${flow.source.path}:${step.span.startLine}–${step.span.endLine}`,
-      tone: 'quiet',
-    })
-  }
-  sections.push({ id: 'definition', label: 'Definition', body: { kind: 'rows', rows: defRows } })
 
   return {
     title: step.label,
     stepType: step.stepType,
     defaultSection: hasMethodEvent ? 'input' : 'overview',
+    definition,
+    executions: execs.map((execution) => ({
+      id: execution.stepExecutionId,
+      wait: execution.waitFor === null ? 'no wait' : statusWord(execution.waitFor.status),
+      execute: statusWord(execution.execute.status),
+      won: waitKind(execution, [execution]) ?? '—',
+    })),
     sections,
   }
 }

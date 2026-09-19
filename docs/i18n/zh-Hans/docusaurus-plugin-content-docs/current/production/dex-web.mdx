@@ -53,7 +53,7 @@ Indexed Attribute 声明绑定 Dex Attribute key、物理搜索 index key、inde
 
 点击一行会把 Flow ID 留在 URL 中，而不是 run ID。**GetDexDisplay**、Attribute 读取、编辑和 Action 都省略 run ID，因此 Dex 会定位 current run。Continue-as-New 后，刷新同一个 URL 会自动指向新 run。
 
-在 **v2** 中，在画布上选中 Step 会打开该 current run 的详情面板。**Input**、**Output** 和 **Context** 以与 **v1** Selected event 相同的结构化方式展示选中的 WaitFor 或 Execute history 事件。面板默认 Details，可切换为已水合 payload 的 Raw JSON。十进制数字形式的 AttributeMap / ChannelMap instance 按数值排序，行为与 **v1** 一致。Execute 显示该次 run 决策里的 live next Steps，而不是 FDG 上的全部出口。若 Continue-as-New 把该 Step 留在上一 hop，使用 Load more from previous run。
+在 **v2** 中，选中 Step 会打开分为 **Definition** 与 **Execution** 的面板。Definition 展示 Flow Definition Graph 中该 Step 的 WaitFor 与 Execute 分支。若该 Step 执行过多次，Execution 提供下拉框选择某次执行，再以与 **v1** Selected event 相同的结构化方式展示所选 WaitFor 或 Execute history 事件的 **Input**、**Output** 和 **Context**。执行 payload 默认 Details，可切换为已水合 payload 的 Raw JSON。十进制数字形式的 AttributeMap / ChannelMap instance 按数值排序，行为与 **v1** 一致。Execute 显示该次 run 决策里的 live next Steps，而不是 FDG 上的全部出口。若 Continue-as-New 把该 Step 留在上一 hop，使用 Load more from previous run。
 
 Display 字段按照 directive 行排序。String、integer、double、boolean 和 datetime 字段可以编辑。JSON、object、array 和 AttributeMap 只读。缺失字段必须返回 null。后端会拒绝遗漏、未声明或类型错误的值。
 
