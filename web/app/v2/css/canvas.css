@@ -1884,7 +1884,7 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: 360px;
+  width: var(--v2-panel-w, 360px);
   z-index: 6;
   border-left: 1px solid var(--p-line-soft);
   /* Opaque, unlike the other canvas chrome: it is a reading surface, and edges showing through prose is

@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { hydrateBlobs } from '@/lib/blobs';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog, FlowHistoryEvent } from '@/lib/types';
@@ -32,8 +32,16 @@ import type { Detail, Direction } from './canvas/views/types';
 import { Controls } from './flow/Controls';
 import { Legend } from './flow/Legend';
 import { groupsFromDefinition } from './groupsFromGraph';
+import {
+  PANEL_WIDTH_DEFAULT,
+  PANEL_WIDTH_KEY,
+  V2SplitHandle,
+  readStoredPixels,
+  writeStoredPixels,
+} from './V2SplitHandle';
 
 export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?: string }) {
+  const canvasRef = useRef<HTMLDivElement>(null);
   const [catalog, setCatalog] = useState<FlowDefinitionCatalog | null>(null);
   const [detail, setDetail] = useState<Detail>('collapsed');
   const [direction, setDirection] = useState<Direction>('tb');
@@ -42,6 +50,10 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
   const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
   const [inspectSection, setInspectSection] = useState<SectionId | null>(null);
   const [legendOpen, setLegendOpen] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const stored = readStoredPixels(PANEL_WIDTH_KEY);
+    return Number.isFinite(stored) ? stored : PANEL_WIDTH_DEFAULT;
+  });
   const [error, setError] = useState('');
   const [runError, setRunError] = useState('');
   const [currentBundle, setCurrentBundle] = useState<RunOverlayBundle | null>(null);
@@ -231,14 +243,24 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
     }
   }, [flowId, previousCursor, selectedStep]);
 
+  const commitPanelWidth = useCallback((width: number) => {
+    const next = Math.round(width);
+    setPanelWidth(next);
+    writeStoredPixels(PANEL_WIDTH_KEY, next);
+  }, []);
+
   if (error) return <div className="v2-empty">{error}</div>;
   if (!catalog) return <div className="v2-empty">Loading Flow definition…</div>;
   if (!selected || !flow || !scene) {
     return <div className="v2-empty">No valid Flow Definition Graph 2.0 file for this Flow type.</div>;
   }
 
+  const canvasStyle = panel
+    ? ({ '--v2-panel-w': `${Math.round(panelWidth)}px` } as CSSProperties)
+    : undefined;
+
   return (
-    <div className="pcanvas">
+    <div className="pcanvas" ref={canvasRef} style={canvasStyle}>
       <ArrowDefs />
       <div className="pctlbar">
         <Controls detail={detail} direction={direction} onDetail={setDetail} onDirection={setDirection} />
@@ -250,7 +272,7 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
         direction={direction}
         selectedId={selectedId}
         selectedGroupId={selectedGroupId}
-        insetRight={panel !== null}
+        insetRightPx={panel ? panelWidth : null}
         onSelectGroup={(id) => {
           setSelectedGroupId(id);
           setSelectedId(null);
@@ -291,28 +313,41 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
             ) : null}
           </div>
         )}
-        fitKey={`${flowType}|${flowId}|${detail}|${direction}|${selected.file}|${overlay?.executions.length ?? 0}|${panel ? 'panel' : 'graph'}`}
+        fitKey={`${flowType}|${flowId}|${detail}|${direction}|${selected.file}|${overlay?.executions.length ?? 0}|${panel ? `panel:${Math.round(panelWidth)}` : 'graph'}`}
       />
       {panel ? (
-        <DetailPanel
-          key={`${panel.stepType}|${inspectSection ?? panel.defaultSection}|${selectedRecord?.execution.stepExecutionId ?? ''}`}
-          model={panel}
-          selectedExecutionId={selectedRecord?.execution.stepExecutionId ?? selectedExecutionId}
-          initialSection={inspectSection}
-          methodEvent={hydratedMethodEvent ?? selectedMethodEvent}
-          history={historyEvents}
-          parentFlowId={flowId}
-          onClose={() => {
-            setSelectedId(null);
-            setSelectedExecutionId(null);
-            setInspectSection(null);
-          }}
-          onSelectExecution={setSelectedExecutionId}
-          canLoadPrevious={Boolean(previousCursor)}
-          loadPreviousBusy={loadPreviousBusy}
-          previousEmpty={previousEmpty}
-          onLoadPrevious={() => { void loadPrevious(); }}
-        />
+        <>
+          <V2SplitHandle
+            axis="column"
+            cssVariable="--v2-panel-w"
+            edge="start"
+            invert
+            targetRef={canvasRef}
+            measureRef={canvasRef}
+            value={panelWidth}
+            ariaLabel="Resize the Step detail panel"
+            onCommit={commitPanelWidth}
+          />
+          <DetailPanel
+            key={`${panel.stepType}|${inspectSection ?? panel.defaultSection}|${selectedRecord?.execution.stepExecutionId ?? ''}`}
+            model={panel}
+            selectedExecutionId={selectedRecord?.execution.stepExecutionId ?? selectedExecutionId}
+            initialSection={inspectSection}
+            methodEvent={hydratedMethodEvent ?? selectedMethodEvent}
+            history={historyEvents}
+            parentFlowId={flowId}
+            onClose={() => {
+              setSelectedId(null);
+              setSelectedExecutionId(null);
+              setInspectSection(null);
+            }}
+            onSelectExecution={setSelectedExecutionId}
+            canLoadPrevious={Boolean(previousCursor)}
+            loadPreviousBusy={loadPreviousBusy}
+            previousEmpty={previousEmpty}
+            onLoadPrevious={() => { void loadPrevious(); }}
+          />
+        </>
       ) : null}
     </div>
   );

@@ -176,17 +176,22 @@ const FIT_BASE = {
   minZoom: MIN_ZOOM,
   maxZoom: FIT_MAX_ZOOM,
 } as const
-const FIT_INSET = {
-  padding: { top: '22%', bottom: '6%', left: '6%', right: '30%' },
-  minZoom: MIN_ZOOM,
-  maxZoom: FIT_MAX_ZOOM,
-} as const
+
+function fitOptions(insetRightPx: number | null | undefined, paneWidth: number) {
+  if (insetRightPx == null || insetRightPx <= 0 || paneWidth <= 0) return FIT_BASE
+  const rightPct = Math.min(58, Math.max(18, (insetRightPx / paneWidth) * 100 + 4))
+  return {
+    padding: { top: '22%', bottom: '6%', left: '6%', right: `${rightPct}%` },
+    minZoom: MIN_ZOOM,
+    maxZoom: FIT_MAX_ZOOM,
+  } as const
+}
 
 function Inner({
   scene,
   detail,
   direction,
-  insetRight,
+  insetRightPx,
   legend,
   handleRef,
   onSelectGroup,
@@ -230,12 +235,12 @@ function Inner({
   selectedGroupId?: string | null
   interactive: boolean
   /**
-   * True when a panel is covering the right of the pane, so the fit reserves room for it.
+   * Pixel width of the right-hand panel overlay, or null when none is open.
    *
    * A prop rather than something measured, because only the app knows a panel is open — and measuring the
    * overlay from in here would make the renderer depend on the shape of the thing overlaying it.
    */
-  insetRight?: boolean
+  insetRightPx?: number | null
   /** Changing this refits the view. Deliberately NOT the zoom, or fit would fight the user. */
   fitKey: string
 }): JSX.Element {
@@ -473,7 +478,7 @@ function Inner({
     () => ({
       zoomIn: () => void rf.zoomIn({ duration: 120 }),
       zoomOut: () => void rf.zoomOut({ duration: 120 }),
-      fit: () => void rf.fitView(insetRight === true ? FIT_INSET : FIT_BASE),
+      fit: () => void rf.fitView(fitOptions(insetRightPx, paneRef.current?.clientWidth ?? 0)),
       zoom: () => rf.getZoom(),
       reveal: (nodeId: string) => {
         /**
@@ -487,7 +492,7 @@ function Inner({
         void rf.fitView({ nodes: [{ id }], padding: 0.4, maxZoom: rf.getZoom(), duration: 160 })
       },
     }),
-    [rf, insetRight],
+    [rf, insetRightPx],
   )
 
   /**
@@ -504,7 +509,7 @@ function Inner({
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
         if (el.clientWidth < 8 || el.clientHeight < 8) return
-        void rf.fitView({ ...(insetRight === true ? FIT_INSET : FIT_BASE), duration: 160 })
+        void rf.fitView({ ...fitOptions(insetRightPx, el.clientWidth), duration: 160 })
       })
     }
     refit()
@@ -514,9 +519,9 @@ function Inner({
       cancelAnimationFrame(raf)
       ro.disconnect()
     }
-    /* `insetRight` is a dependency because it changes what "fits" MEANS: the reserved strip on the right
-       is part of the fit, so a panel opening has to refit rather than leave the drawing under it. */
-  }, [rf, fitKey, insetRight])
+    /* `insetRightPx` is a dependency because it changes what "fits" MEANS: the reserved strip on the right
+       is part of the fit, so a panel opening or resize has to refit rather than leave the drawing under it. */
+  }, [rf, fitKey, insetRightPx])
 
   /**
    * Zoom compensation, written to CSS custom properties rather than React state.
@@ -549,7 +554,7 @@ function Inner({
         edges={edges}
         nodeTypes={NODE_TYPES}
         fitView
-        fitViewOptions={insetRight === true ? FIT_INSET : FIT_BASE}
+        fitViewOptions={fitOptions(insetRightPx, paneRef.current?.clientWidth ?? 0)}
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
         nodesDraggable={false}
@@ -572,8 +577,8 @@ function Inner({
 }
 
 export function Stage(props: {
-  /** A panel is covering the right of the pane, so the fit reserves room for it. */
-  insetRight?: boolean
+  /** Pixel width of the right-hand panel overlay, or null when none is open. */
+  insetRightPx?: number | null
   scene: Scene
   detail: Detail
   /** Needed for edge routing: which axis the ranks advance along swaps with it. */

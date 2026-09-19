@@ -82,6 +82,14 @@
   cursor: col-resize;
 }
 
+.v2-split[data-axis='column'][data-edge='start'] {
+  right: var(--v2-panel-w, 360px);
+  left: auto;
+  width: 9px;
+  margin-right: -4px;
+  z-index: 7;
+}
+
 .v2-split[data-axis='row'] {
   left: 0;
   right: 0;

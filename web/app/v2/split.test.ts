@@ -13,8 +13,12 @@ import {
   LIST_REMAIN_MIN,
   LIST_WIDTH_DEFAULT,
   LIST_WIDTH_MIN,
+  PANEL_CANVAS_REMAIN_MIN,
+  PANEL_WIDTH_DEFAULT,
+  PANEL_WIDTH_MIN,
   clampCaseHeight,
   clampListWidth,
+  clampPanelWidth,
 } from './V2SplitHandle';
 
 describe('v2 split clamps', () => {
@@ -32,5 +36,11 @@ describe('v2 split clamps', () => {
     expect(clampCaseHeight(Number.NaN, 1000)).toBe(1000 * CASE_HEIGHT_FRAC);
     expect(clampCaseHeight(40, 1000)).toBe(CASE_HEIGHT_MIN);
     expect(clampCaseHeight(900, 1000)).toBe(1000 - LIST_REMAIN_MIN);
+  });
+
+  it('keeps the Step panel readable without covering the whole canvas', () => {
+    expect(clampPanelWidth(PANEL_WIDTH_DEFAULT, 1200)).toBe(PANEL_WIDTH_DEFAULT);
+    expect(clampPanelWidth(80, 1200)).toBe(PANEL_WIDTH_MIN);
+    expect(clampPanelWidth(1000, 1200)).toBe(Math.min(1200 * 0.7, 1200 - PANEL_CANVAS_REMAIN_MIN));
   });
 });
