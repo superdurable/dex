@@ -15,7 +15,6 @@ import type { RunOverlay } from './canvas/model/run';
 import {
   loadCurrentRun,
   loadRunHistory,
-  methodEventFromRecord,
   attemptCountFromRecord,
   overlayFromHistory,
   prependStepRecords,
@@ -62,7 +61,8 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
   const [loadPreviousBusy, setLoadPreviousBusy] = useState(false);
   const [previousEmpty, setPreviousEmpty] = useState(false);
   const [historyEvents, setHistoryEvents] = useState<FlowHistoryEvent[]>([]);
-  const [hydratedMethodEvent, setHydratedMethodEvent] = useState<FlowHistoryEvent | null>(null);
+  const [hydratedWaitEvent, setHydratedWaitEvent] = useState<FlowHistoryEvent | null>(null);
+  const [hydratedExecuteEvent, setHydratedExecuteEvent] = useState<FlowHistoryEvent | null>(null);
   const blobCache = useRef(new Map<string, unknown>());
 
   useEffect(() => {
@@ -84,7 +84,8 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
     setPreviousCursorByStep({});
     setPreviousEmpty(false);
     setHistoryEvents([]);
-    setHydratedMethodEvent(null);
+    setHydratedWaitEvent(null);
+    setHydratedExecuteEvent(null);
     setSelectedExecutionId(null);
     setRunError('');
     if (!flowId) return undefined;
@@ -162,49 +163,64 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
   const selectedRecord = selectedStep && bundle
     ? recordForExecution(bundle, selectedStep.stepType, selectedExecutionId)
     : undefined;
-  const selectedMethodEvent = methodEventFromRecord(selectedRecord) ?? null;
-  const methodEventKey = selectedMethodEvent
-    ? `${selectedMethodEvent.eventId}|${selectedMethodEvent.type}|${String(
-        (selectedMethodEvent.payload.context as { stepExecutionId?: string } | undefined)?.stepExecutionId ?? '',
-      )}`
-    : '';
+  const selectedWaitEvent = selectedRecord?.waitEvent ?? null;
+  const selectedExecuteEvent = selectedRecord?.executeEvent ?? null;
+  const methodEventKey = [
+    selectedWaitEvent
+      ? `${selectedWaitEvent.eventId}|${selectedWaitEvent.type}`
+      : '',
+    selectedExecuteEvent
+      ? `${selectedExecuteEvent.eventId}|${selectedExecuteEvent.type}`
+      : '',
+    selectedRecord?.execution.stepExecutionId ?? '',
+  ].join('|');
 
   useEffect(() => {
-    if (!flowId || !selectedMethodEvent) {
-      setHydratedMethodEvent(null);
+    if (!flowId || (!selectedWaitEvent && !selectedExecuteEvent)) {
+      setHydratedWaitEvent(null);
+      setHydratedExecuteEvent(null);
       return undefined;
     }
     const controller = new AbortController();
-    const raw = selectedMethodEvent;
-    setHydratedMethodEvent(raw);
-    void hydrateBlobs(flowId, raw, blobCache.current, controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted) setHydratedMethodEvent(result.value);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setHydratedMethodEvent(raw);
-      });
+    const waitRaw = selectedWaitEvent;
+    const executeRaw = selectedExecuteEvent;
+    setHydratedWaitEvent(waitRaw);
+    setHydratedExecuteEvent(executeRaw);
+    const hydrateOne = async (
+      raw: FlowHistoryEvent | null,
+      setValue: (value: FlowHistoryEvent | null) => void,
+    ) => {
+      if (!raw) {
+        setValue(null);
+        return;
+      }
+      try {
+        const result = await hydrateBlobs(flowId, raw, blobCache.current, controller.signal);
+        if (!controller.signal.aborted) setValue(result.value);
+      } catch {
+        if (!controller.signal.aborted) setValue(raw);
+      }
+    };
+    void hydrateOne(waitRaw, setHydratedWaitEvent);
+    void hydrateOne(executeRaw, setHydratedExecuteEvent);
     return () => controller.abort();
-  }, [flowId, methodEventKey, selectedMethodEvent]);
+  }, [flowId, methodEventKey, selectedExecuteEvent, selectedWaitEvent]);
 
   const panel = useMemo(() => {
     if (!flow || !selectedStep) return null;
-    const methodEvent = hydratedMethodEvent ?? selectedMethodEvent;
     return buildPanel(
       flow,
       selectedStep,
       overlay,
       selectedRecord?.execution.stepExecutionId ?? selectedExecutionId,
-      methodEvent,
-      attemptCountFromRecord(selectedRecord),
+      Boolean(selectedRecord?.waitEvent),
       Boolean(selectedRecord?.executeEvent),
+      attemptCountFromRecord(selectedRecord),
     );
   }, [
     flow,
-    hydratedMethodEvent,
     overlay,
     selectedExecutionId,
-    selectedMethodEvent,
     selectedRecord,
     selectedStep,
   ]);
@@ -289,7 +305,7 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
         onInspect={(id) => {
           setSelectedId(id);
           setSelectedGroupId(null);
-          setInspectSection('input');
+          setInspectSection('execute-input');
         }}
         legend={() => (
           <div className="plegend-card" data-open={legendOpen ? 'true' : undefined}>
@@ -333,7 +349,8 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
             model={panel}
             selectedExecutionId={selectedRecord?.execution.stepExecutionId ?? selectedExecutionId}
             initialSection={inspectSection}
-            methodEvent={hydratedMethodEvent ?? selectedMethodEvent}
+            waitEvent={hydratedWaitEvent ?? selectedWaitEvent}
+            executeEvent={hydratedExecuteEvent ?? selectedExecuteEvent}
             history={historyEvents}
             parentFlowId={flowId}
             onClose={() => {

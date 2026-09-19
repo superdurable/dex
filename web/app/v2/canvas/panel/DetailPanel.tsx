@@ -21,8 +21,17 @@ import {
   readStoredPixels,
   writeStoredPixels,
 } from '../../V2SplitHandle'
-import type { PanelModel, Row, SectionId } from './panelModel'
-import { VERDICT_TEXT } from './panelModel'
+import type {
+  ExecutionPhase,
+  PanelModel,
+  PhaseId,
+  PhaseTab,
+  PhaseTabId,
+  Row,
+  SectionId,
+  TabBody,
+} from './panelModel'
+import { parseSectionId, VERDICT_TEXT } from './panelModel'
 
 const KIND_GLYPH: Record<string, string> = {
   channel: '✉',
@@ -116,6 +125,265 @@ function StepMethodPane({
   )
 }
 
+function WaitOutputBody({
+  body,
+  event,
+  history,
+  parentFlowId,
+}: {
+  body: Extract<TabBody, { kind: 'waitOutput' }>
+  event: FlowHistoryEvent | null
+  history: FlowHistoryEvent[]
+  parentFlowId: string
+}): JSX.Element {
+  return (
+    <>
+      <table className="ppan-table">
+        <thead>
+          <tr>
+            <th>Condition</th>
+            <th>Verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          {body.rows.map((row) => (
+            <tr key={`${row.kind}-${row.label}`} data-verdict={row.verdict}>
+              <td>
+                <span className="ppan-glyph">{KIND_GLYPH[row.kind] ?? '?'}</span> {row.label}
+              </td>
+              <td>{VERDICT_TEXT[row.verdict]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {body.winner !== null ? (
+        <p className="ppan-note">
+          Satisfied by <strong>{body.winner}</strong>. Dex consumes only from the condition that
+          won, so anything the losers had queued stays queued.
+        </p>
+      ) : null}
+      {body.answeredBy.length > 0 ? (
+        <p className="ppan-note">
+          Answered through <strong>{body.answeredBy.join(', ')}</strong>.
+        </p>
+      ) : null}
+      {event !== null ? (
+        <>
+          <h3>WaitFor payload</h3>
+          <StepMethodPane
+            part="output"
+            event={event}
+            history={history.length > 0 ? history : [event]}
+            parentFlowId={parentFlowId}
+          />
+        </>
+      ) : (
+        <p className="ppan-note">No WaitFor event is loaded for this execution yet.</p>
+      )}
+    </>
+  )
+}
+
+function ExecuteOutputBody({
+  body,
+  event,
+  history,
+  parentFlowId,
+  canLoadPrevious,
+}: {
+  body: Extract<TabBody, { kind: 'executeOutput' }>
+  event: FlowHistoryEvent | null
+  history: FlowHistoryEvent[]
+  parentFlowId: string
+  canLoadPrevious: boolean
+}): JSX.Element {
+  return (
+    <>
+      {!body.hasExecuteEvent ? (
+        <p className="ppan-note">
+          Loaded history has no Execute event for this Step yet.
+          {canLoadPrevious
+            ? ' Use Load more from previous run if Continue-as-New moved it.'
+            : ''}
+        </p>
+      ) : body.attempts.length === 0 ? (
+        <p className="ppan-note">This step has not run in this run.</p>
+      ) : (
+        <table className="ppan-table">
+          <thead>
+            <tr>
+              <th>Attempt</th>
+              <th>Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            {body.attempts.map((attempt) => (
+              <tr key={attempt.n}>
+                <td>{attempt.n}</td>
+                <td>{attempt.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <Rows
+        rows={[
+          { label: 'Retries', value: body.attemptsLeft },
+          { label: 'Decision', value: body.decision ?? 'not returned yet' },
+          {
+            label: 'Next steps',
+            value:
+              body.nextStepTypes.length > 0
+                ? body.nextStepTypes.join(', ')
+                : body.hasExecuteEvent
+                  ? 'none — this closes'
+                  : '—',
+          },
+        ]}
+      />
+      {body.error !== undefined ? (
+        <>
+          <h3>Error</h3>
+          <p className="ppan-pre ppan-error">{body.error}</p>
+        </>
+      ) : null}
+      {event !== null ? (
+        <>
+          <h3>Execute payload</h3>
+          <StepMethodPane
+            part="output"
+            event={event}
+            history={history.length > 0 ? history : [event]}
+            parentFlowId={parentFlowId}
+          />
+        </>
+      ) : body.hasExecuteEvent ? null : (
+        <p className="ppan-note">No Execute event is loaded for this execution yet.</p>
+      )}
+    </>
+  )
+}
+
+function TabContent({
+  tab,
+  event,
+  history,
+  parentFlowId,
+  canLoadPrevious,
+  phaseLabel,
+}: {
+  tab: PhaseTab
+  event: FlowHistoryEvent | null
+  history: FlowHistoryEvent[]
+  parentFlowId: string
+  canLoadPrevious: boolean
+  phaseLabel: string
+}): JSX.Element {
+  if (tab.body.kind === 'stepMethod') {
+    if (event === null) {
+      return (
+        <p className="ppan-note">
+          No {phaseLabel} event is loaded for this execution.
+        </p>
+      )
+    }
+    return (
+      <StepMethodPane
+        part={tab.body.part}
+        event={event}
+        history={history.length > 0 ? history : [event]}
+        parentFlowId={parentFlowId}
+      />
+    )
+  }
+  if (tab.body.kind === 'waitOutput') {
+    return (
+      <WaitOutputBody
+        body={tab.body}
+        event={event}
+        history={history}
+        parentFlowId={parentFlowId}
+      />
+    )
+  }
+  return (
+    <ExecuteOutputBody
+      body={tab.body}
+      event={event}
+      history={history}
+      parentFlowId={parentFlowId}
+      canLoadPrevious={canLoadPrevious}
+    />
+  )
+}
+
+function PhaseBlock({
+  phase,
+  openTab,
+  onSelectTab,
+  event,
+  history,
+  parentFlowId,
+  canLoadPrevious,
+}: {
+  phase: ExecutionPhase
+  openTab: PhaseTabId
+  onSelectTab: (tab: PhaseTabId) => void
+  event: FlowHistoryEvent | null
+  history: FlowHistoryEvent[]
+  parentFlowId: string
+  canLoadPrevious: boolean
+}): JSX.Element {
+  const tab = phase.tabs.find((candidate) => candidate.id === openTab) ?? phase.tabs[0]
+  return (
+    <section className="ppan-phase" aria-label={phase.label}>
+      <header className="ppan-phase-head">
+        <h4>{phase.label}</h4>
+      </header>
+      <nav className="ppan-tabs" aria-label={`${phase.label} sections`}>
+        {phase.tabs.map((candidate) => (
+          <button
+            key={candidate.id}
+            type="button"
+            className="ppan-tab"
+            data-on={candidate.id === tab.id ? 'true' : undefined}
+            onClick={() => onSelectTab(candidate.id)}
+          >
+            {candidate.label}
+          </button>
+        ))}
+      </nav>
+      <div className="ppan-phase-body">
+        {tab === undefined ? null : (
+          <TabContent
+            tab={tab}
+            event={event}
+            history={history}
+            parentFlowId={parentFlowId}
+            canLoadPrevious={canLoadPrevious}
+            phaseLabel={phase.label}
+          />
+        )}
+      </div>
+    </section>
+  )
+}
+
+function resolveOpenTabs(
+  model: PanelModel,
+  section: SectionId | null | undefined,
+): Record<PhaseId, PhaseTabId> {
+  const defaults = Object.fromEntries(
+    model.phases.map((phase) => [phase.id, phase.defaultTab]),
+  ) as Record<PhaseId, PhaseTabId>
+  if (section == null) return defaults
+  const { phase, tab } = parseSectionId(section)
+  if (model.phases.some((candidate) => candidate.id === phase)) {
+    defaults[phase] = tab
+  }
+  return defaults
+}
+
 export function DetailPanel({
   model,
   onClose,
@@ -127,7 +395,8 @@ export function DetailPanel({
   loadPreviousBusy = false,
   previousEmpty = false,
   onLoadPrevious,
-  methodEvent = null,
+  waitEvent = null,
+  executeEvent = null,
   history = [],
   parentFlowId = '',
 }: {
@@ -141,16 +410,15 @@ export function DetailPanel({
   loadPreviousBusy?: boolean
   previousEmpty?: boolean
   onLoadPrevious?: () => void
-  methodEvent?: FlowHistoryEvent | null
+  waitEvent?: FlowHistoryEvent | null
+  executeEvent?: FlowHistoryEvent | null
   history?: FlowHistoryEvent[]
   parentFlowId?: string
 }): JSX.Element {
   const panelRef = useRef<HTMLElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState<SectionId>(
-    initialSection != null && model.sections.some((section) => section.id === initialSection)
-      ? initialSection
-      : model.defaultSection,
+  const [openTabs, setOpenTabs] = useState<Record<PhaseId, PhaseTabId>>(() =>
+    resolveOpenTabs(model, initialSection ?? model.defaultSection),
   )
   const [definitionOpen, setDefinitionOpen] = useState(true)
   const [branchesExpanded, setBranchesExpanded] = useState(false)
@@ -160,10 +428,8 @@ export function DetailPanel({
   })
 
   useEffect(() => {
-    if (initialSection != null && model.sections.some((section) => section.id === initialSection)) {
-      setOpen(initialSection)
-    }
-  }, [initialSection, model.sections])
+    setOpenTabs(resolveOpenTabs(model, initialSection ?? model.defaultSection))
+  }, [initialSection, model])
 
   useEffect(() => {
     setBranchesExpanded(false)
@@ -175,7 +441,6 @@ export function DetailPanel({
     writeStoredPixels(DEF_HEIGHT_KEY, next)
   }, [])
 
-  const section = model.sections.find((candidate) => candidate.id === open) ?? model.sections[0]
   const selectedId = selectedExecutionId
     ?? model.executions[model.executions.length - 1]?.id
     ?? ''
@@ -184,6 +449,15 @@ export function DetailPanel({
   const panelStyle = {
     '--v2-def-h': `${Math.round(defHeight)}px`,
   } as CSSProperties
+
+  function selectTab(phase: PhaseId, tab: PhaseTabId): void {
+    setOpenTabs((current) => ({ ...current, [phase]: tab }))
+    onSection?.(`${phase}-${tab}`)
+  }
+
+  function eventForPhase(phase: PhaseId): FlowHistoryEvent | null {
+    return phase === 'wait' ? waitEvent : executeEvent
+  }
 
   return (
     <aside
@@ -284,167 +558,67 @@ export function DetailPanel({
         ) : null}
 
         <section className="ppan-exec" aria-label="Step execution">
-        <div className="ppan-exec-head">
-          <h3>Execution</h3>
-          {model.executions.length > 1 ? (
-            <label className="ppan-exec-pick">
-              <span>Instance</span>
-              <select
-                aria-label="Step execution"
-                value={selectedId}
-                onChange={(event) => onSelectExecution(event.target.value)}
-              >
-                {model.executions.map((execution, index) => (
-                  <option key={execution.id} value={execution.id}>
-                    {`${index + 1}/${model.executions.length} · ${execution.id} · ${execution.execute}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : model.executions.length === 1 ? (
-            <p className="ppan-exec-one" title={model.executions[0].id}>
-              {model.executions[0].id}
-            </p>
-          ) : (
-            <p className="ppan-note">No executions loaded for this Step.</p>
-          )}
-        </div>
-
-        <nav className="ppan-tabs">
-          {model.sections.map((candidate) => (
-            <button
-              key={candidate.id}
-              type="button"
-              className="ppan-tab"
-              data-on={candidate.id === open ? 'true' : undefined}
-              onClick={() => {
-                setOpen(candidate.id)
-                onSection?.(candidate.id)
-              }}
-            >
-              {candidate.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="ppan-body">
-          {section === undefined ? null : section.body.kind === 'rows' ? (
-            <Rows rows={section.body.rows} />
-          ) : section.body.kind === 'stepMethod' && methodEvent !== null ? (
-            <StepMethodPane
-              part={section.body.part}
-              event={methodEvent}
-              history={history.length > 0 ? history : [methodEvent]}
-              parentFlowId={parentFlowId}
-            />
-          ) : section.body.kind === 'stepMethod' ? (
-            <p className="ppan-note">No WaitFor or Execute event is loaded for this execution.</p>
-          ) : section.body.kind === 'wait' ? (
-            <>
-              <table className="ppan-table">
-                <thead>
-                  <tr>
-                    <th>Condition</th>
-                    <th>Verdict</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {section.body.rows.map((row) => (
-                    <tr key={`${row.kind}-${row.label}`} data-verdict={row.verdict}>
-                      <td>
-                        <span className="ppan-glyph">{KIND_GLYPH[row.kind] ?? '?'}</span> {row.label}
-                      </td>
-                      <td>{VERDICT_TEXT[row.verdict]}</td>
-                    </tr>
+          <div className="ppan-exec-head">
+            <h3>Execution</h3>
+            {model.executions.length > 1 ? (
+              <label className="ppan-exec-pick">
+                <span>Instance</span>
+                <select
+                  aria-label="Step execution"
+                  value={selectedId}
+                  onChange={(change) => onSelectExecution(change.target.value)}
+                >
+                  {model.executions.map((execution, index) => (
+                    <option key={execution.id} value={execution.id}>
+                      {`${index + 1}/${model.executions.length} · ${execution.id} · ${execution.execute}`}
+                    </option>
                   ))}
-                </tbody>
-              </table>
-              {section.body.winner !== null ? (
-                <p className="ppan-note">
-                  Satisfied by <strong>{section.body.winner}</strong>. Dex consumes only from the
-                  condition that won, so anything the losers had queued stays queued.
-                </p>
-              ) : null}
-              {section.body.answeredBy.length > 0 ? (
-                <p className="ppan-note">
-                  Answered through <strong>{section.body.answeredBy.join(', ')}</strong>.
-                </p>
-              ) : null}
-            </>
-          ) : (
-            <>
-              {!section.body.hasExecuteEvent ? (
-                <p className="ppan-note">
-                  Loaded history has no Execute event for this Step yet.
-                  {canLoadPrevious
-                    ? ' Use Load more from previous run if Continue-as-New moved it.'
-                    : ''}
-                </p>
-              ) : section.body.attempts.length === 0 ? (
-                <p className="ppan-note">This step has not run in this run.</p>
-              ) : (
-                <table className="ppan-table">
-                  <thead>
-                    <tr>
-                      <th>Attempt</th>
-                      <th>Outcome</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {section.body.attempts.map((attempt) => (
-                      <tr key={attempt.n}>
-                        <td>{attempt.n}</td>
-                        <td>{attempt.status}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              <Rows
-                rows={[
-                  { label: 'Retries', value: section.body.attemptsLeft },
-                  { label: 'Decision', value: section.body.decision ?? 'not returned yet' },
-                  {
-                    label: 'Next steps',
-                    value:
-                      section.body.nextStepTypes.length > 0
-                        ? section.body.nextStepTypes.join(', ')
-                        : section.body.hasExecuteEvent
-                          ? 'none — this closes'
-                          : '—',
-                  },
-                ]}
-              />
-              {section.body.defaultTab === 'error' && section.body.error !== undefined ? (
-                <>
-                  <h3>Error</h3>
-                  <p className="ppan-pre ppan-error">{section.body.error}</p>
-                </>
-              ) : null}
-            </>
-          )}
+                </select>
+              </label>
+            ) : model.executions.length === 1 ? (
+              <p className="ppan-exec-one" title={model.executions[0].id}>
+                {model.executions[0].id}
+              </p>
+            ) : (
+              <p className="ppan-note">No executions loaded for this Step.</p>
+            )}
+          </div>
 
-          {canLoadPrevious ? (
-            <div className="ppan-more">
-              <button
-                type="button"
-                className="pchip"
-                disabled={loadPreviousBusy || onLoadPrevious === undefined}
-                onClick={onLoadPrevious}
-              >
-                {loadPreviousBusy ? 'Loading…' : 'Load more from previous run'}
-              </button>
-              {previousEmpty ? (
-                <p className="ppan-note">That earlier run has no executions of this step.</p>
-              ) : (
-                <p className="ppan-note">
-                  Continue-as-New keeps the Flow ID. This loads only this step from the previous run.
-                </p>
-              )}
-            </div>
-          ) : null}
-        </div>
-      </section>
+          <div className="ppan-body">
+            {model.phases.map((phase) => (
+              <PhaseBlock
+                key={phase.id}
+                phase={phase}
+                openTab={openTabs[phase.id] ?? phase.defaultTab}
+                onSelectTab={(tab) => selectTab(phase.id, tab)}
+                event={eventForPhase(phase.id)}
+                history={history}
+                parentFlowId={parentFlowId}
+                canLoadPrevious={canLoadPrevious}
+              />
+            ))}
+
+            {canLoadPrevious ? (
+              <div className="ppan-more">
+                <button
+                  type="button"
+                  className="pchip"
+                  disabled={loadPreviousBusy || onLoadPrevious === undefined}
+                  onClick={onLoadPrevious}
+                >
+                  {loadPreviousBusy ? 'Loading…' : 'Load more from previous run'}
+                </button>
+                {previousEmpty ? (
+                  <p className="ppan-note">That earlier run has no executions of this step.</p>
+                ) : (
+                  <p className="ppan-note">
+                    Continue-as-New keeps the Flow ID. This loads only this step from the previous run.
+                  </p>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </section>
       </div>
     </aside>
   )

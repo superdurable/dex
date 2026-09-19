@@ -6,25 +6,18 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { FlowHistoryEvent } from '@/lib/types'
 import type { PocFlow, StepModel } from '../model/pocFlow'
 import type { PhaseStatus, RunOverlay } from '../model/run'
 import {
-  cardStatus,
-  coarseElapsed,
   executionsOf,
   PHASE_LABEL,
   waitKind,
 } from '../model/run'
 import { answeredBy } from '../views/stepBox'
 
-export type SectionId =
-  | 'overview'
-  | 'input'
-  | 'output'
-  | 'context'
-  | 'wait'
-  | 'execute'
+export type PhaseId = 'wait' | 'execute'
+export type PhaseTabId = 'input' | 'context' | 'output'
+export type SectionId = `${PhaseId}-${PhaseTabId}`
 
 export interface Row {
   label: string
@@ -32,15 +25,6 @@ export interface Row {
   tone?: 'normal' | 'quiet' | 'warn' | 'good'
   /** Raw text that must not be truncated — full guards, full error messages. */
   pre?: boolean
-}
-
-export type Availability = 'available' | 'notRetained' | 'tooLarge' | 'deleted'
-
-export const AVAILABILITY_TEXT: Record<Availability, string> = {
-  available: '',
-  notRetained: 'Not retained — the run skeleton outlives its payloads.',
-  tooLarge: 'Too large to display.',
-  deleted: 'These payloads have been deleted.',
 }
 
 export type Verdict = 'won' | 'lostStillQueued' | 'notEvaluated' | 'pending'
@@ -78,26 +62,36 @@ export interface DefinitionModel {
   branches: Row[]
 }
 
-export type SectionBody =
-  | { kind: 'rows'; rows: Row[]; availability?: Availability }
-  | { kind: 'stepMethod'; part: 'input' | 'output' | 'context' }
-  | { kind: 'wait'; rows: WaitRow[]; winner: string | null; answeredBy: string[] }
+export type TabBody =
+  | { kind: 'stepMethod'; part: 'input' | 'context' }
   | {
-      kind: 'execute'
+      kind: 'waitOutput'
+      rows: WaitRow[]
+      winner: string | null
+      answeredBy: string[]
+      hasWaitEvent: boolean
+    }
+  | {
+      kind: 'executeOutput'
       attempts: AttemptRow[]
       attemptsLeft: string
       decision: string | null
       nextStepTypes: string[]
       hasExecuteEvent: boolean
-      defaultTab: 'output' | 'error'
-      io: Availability
       error?: string
     }
 
-export interface Section {
-  id: SectionId
+export interface PhaseTab {
+  id: PhaseTabId
   label: string
-  body: SectionBody
+  body: TabBody
+}
+
+export interface ExecutionPhase {
+  id: PhaseId
+  label: string
+  defaultTab: PhaseTabId
+  tabs: PhaseTab[]
 }
 
 export interface PanelModel {
@@ -106,11 +100,20 @@ export interface PanelModel {
   defaultSection: SectionId
   definition: DefinitionModel
   executions: ExecutionChoice[]
-  sections: Section[]
+  phases: ExecutionPhase[]
 }
 
-function statusWord(s: PhaseStatus): string {
-  return PHASE_LABEL[s]
+function statusWord(status: PhaseStatus): string {
+  return PHASE_LABEL[status]
+}
+
+function sectionId(phase: PhaseId, tab: PhaseTabId): SectionId {
+  return `${phase}-${tab}`
+}
+
+export function parseSectionId(id: SectionId): { phase: PhaseId; tab: PhaseTabId } {
+  const [phase, tab] = id.split('-') as [PhaseId, PhaseTabId]
+  return { phase, tab }
 }
 
 export function buildPanel(
@@ -118,19 +121,20 @@ export function buildPanel(
   step: StepModel,
   overlay: RunOverlay | null,
   selectedExecutionId: string | null,
-  methodEvent: FlowHistoryEvent | null = null,
-  attemptCount = 0,
+  hasWaitEvent = false,
   hasExecuteEvent = false,
+  attemptCount = 0,
 ): PanelModel {
   const execs = overlay === null ? [] : executionsOf(overlay, step.stepType)
   const current =
-    execs.find((e) => e.stepExecutionId === selectedExecutionId) ?? execs[execs.length - 1] ?? null
-  const hasMethodEvent = methodEvent !== null
+    execs.find((execution) => execution.stepExecutionId === selectedExecutionId)
+    ?? execs[execs.length - 1]
+    ?? null
 
   const definition: DefinitionModel = {
     explanation: step.explanation ?? null,
     waitFor: step.waitFor === null ? null : `${step.waitFor.type} · ${step.waitFor.sentence}`,
-    waitConditions: step.waitFor?.conditions.map((c) => `${c.label} (${c.kind})`) ?? [],
+    waitConditions: step.waitFor?.conditions.map((condition) => `${condition.label} (${condition.kind})`) ?? [],
     branches: step.execute.branches.map((branch) => {
       const targets = branch.targets
         .map((target) => flow.steps.find((candidate) => candidate.id === target.stepId)?.label
@@ -147,77 +151,46 @@ export function buildPanel(
     }),
   }
 
-  const sections: Section[] = []
-
-  const overview: Row[] = [{ label: 'Role', value: step.actor }]
-  if (step.isStart) overview.push({ label: 'Start', value: 'this is where the flow begins' })
-  if (current !== null) {
-    overview.push({ label: 'Status', value: statusWord(cardStatus(current)) })
-    overview.push({ label: 'Execution', value: current.stepExecutionId })
-    if (execs.length > 1) overview.push({ label: 'Ran', value: `${execs.length} times` })
-    if (current.startedAt !== undefined) {
-      overview.push({
-        label: current.endedAt === undefined ? 'Open for' : 'Took',
-        value: coarseElapsed(current.startedAt, current.endedAt ?? overlay?.now ?? 0),
-      })
-    }
-    const waiting = current.waitFor
-    if (waiting !== null && (waiting.status === 'waiting' || waiting.status === 'pending')) {
-      const pending = waiting.conditions.filter((c) => !c.satisfied)
-      overview.push({
-        label: 'Blocked on',
-        value:
-          pending.length === 0
-            ? 'something the analyser did not name'
-            : pending.map((c) => `${c.label} (${c.kind})`).join(', '),
-        tone: 'warn',
-      })
-      const who = answeredBy(flow, step)
-      if (who.length > 0) {
-        overview.push({ label: 'Answered through', value: who.join(', '), tone: 'good' })
-      }
-    }
-    if (current.lastFailure !== undefined) {
-      overview.push({ label: 'Failure', value: current.lastFailure, tone: 'warn', pre: true })
-    }
-  } else if (overlay !== null) {
-    overview.push({ label: 'Status', value: 'never ran in this run', tone: 'quiet' })
-  }
-  sections.push({ id: 'overview', label: 'Overview', body: { kind: 'rows', rows: overview } })
-
-  if (hasMethodEvent) {
-    sections.push({ id: 'input', label: 'Input', body: { kind: 'stepMethod', part: 'input' } })
-    sections.push({ id: 'output', label: 'Output', body: { kind: 'stepMethod', part: 'output' } })
-    sections.push({ id: 'context', label: 'Context', body: { kind: 'stepMethod', part: 'context' } })
-  }
+  const phases: ExecutionPhase[] = []
 
   if (step.waitFor !== null) {
     const declared = step.waitFor.conditions
     const live = current?.waitFor?.conditions ?? []
     const blocked = current?.waitFor?.status === 'waiting' || current?.waitFor?.status === 'pending'
-    const anyWon = live.some((c) => c.satisfied)
-    const rows: WaitRow[] = declared.map((d) => {
-      const liveRow = live.find((c) => c.label === d.label)
+    const anyWon = live.some((condition) => condition.satisfied)
+    const rows: WaitRow[] = declared.map((declaredCondition) => {
+      const liveRow = live.find((condition) => condition.label === declaredCondition.label)
       let verdict: Verdict = 'notEvaluated'
       if (liveRow !== undefined) {
         if (liveRow.satisfied) verdict = 'won'
         else if (blocked) verdict = 'pending'
         else if (anyWon) verdict = 'lostStillQueued'
       }
-      return { kind: d.kind, label: d.label, verdict }
+      return { kind: declaredCondition.kind, label: declaredCondition.label, verdict }
     })
     if (declared.length === 0) {
       rows.push({ kind: 'unknown', label: 'not reported by the analyser', verdict: 'notEvaluated' })
     }
-    sections.push({
+    const waitDefault: PhaseTabId = hasWaitEvent ? 'input' : 'output'
+    phases.push({
       id: 'wait',
-      label: `Wait · ${step.waitFor.type}`,
-      body: {
-        kind: 'wait',
-        rows,
-        winner: live.find((c) => c.satisfied)?.label ?? null,
-        answeredBy: answeredBy(flow, step),
-      },
+      label: `WaitFor · ${step.waitFor.type}`,
+      defaultTab: waitDefault,
+      tabs: [
+        { id: 'input', label: 'Input', body: { kind: 'stepMethod', part: 'input' } },
+        { id: 'context', label: 'Context', body: { kind: 'stepMethod', part: 'context' } },
+        {
+          id: 'output',
+          label: 'Output',
+          body: {
+            kind: 'waitOutput',
+            rows,
+            winner: live.find((condition) => condition.satisfied)?.label ?? null,
+            answeredBy: answeredBy(flow, step),
+            hasWaitEvent,
+          },
+        },
+      ],
     })
   }
 
@@ -225,41 +198,54 @@ export function buildPanel(
   const attempts =
     !hasExecuteEvent || current === null || attemptCount <= 0
       ? []
-      : Array.from({ length: attemptCount }, (_, i) => ({
-          n: i + 1,
+      : Array.from({ length: attemptCount }, (_, index) => ({
+          n: index + 1,
           status:
-            i === attemptCount - 1
+            index === attemptCount - 1
               ? current.execute.status
               : ('failed' as PhaseStatus),
           failure: current.lastFailure,
         }))
-  sections.push({
+  const executeDefault: PhaseTabId = hasExecuteEvent ? 'input' : 'output'
+  phases.push({
     id: 'execute',
     label: 'Execute',
-    body: {
-      kind: 'execute',
-      attempts,
-      attemptsLeft:
-        current === null || !hasExecuteEvent
-          ? '—'
-          : failedNow
-            ? 'no retries left'
-            : current.execute.status === 'completed'
-              ? 'finished'
-              : 'not retrying',
-      decision: current?.decisionType ?? null,
-      nextStepTypes: current?.nextStepTypes ?? [],
-      hasExecuteEvent,
-      defaultTab: failedNow ? 'error' : 'output',
-      io: hasMethodEvent ? 'available' : 'notRetained',
-      error: current?.lastFailure,
-    },
+    defaultTab: executeDefault,
+    tabs: [
+      { id: 'input', label: 'Input', body: { kind: 'stepMethod', part: 'input' } },
+      { id: 'context', label: 'Context', body: { kind: 'stepMethod', part: 'context' } },
+      {
+        id: 'output',
+        label: 'Output',
+        body: {
+          kind: 'executeOutput',
+          attempts,
+          attemptsLeft:
+            current === null || !hasExecuteEvent
+              ? '—'
+              : failedNow
+                ? 'no retries left'
+                : current.execute.status === 'completed'
+                  ? 'finished'
+                  : 'not retrying',
+          decision: current?.decisionType ?? null,
+          nextStepTypes: current?.nextStepTypes ?? [],
+          hasExecuteEvent,
+          error: current?.lastFailure,
+        },
+      },
+    ],
   })
+
+  const defaultPhase = phases.find((phase) => phase.id === 'execute' && hasExecuteEvent)
+    ?? phases.find((phase) => phase.id === 'wait')
+    ?? phases[0]
+  const defaultSection = sectionId(defaultPhase.id, defaultPhase.defaultTab)
 
   return {
     title: step.label,
     stepType: step.stepType,
-    defaultSection: hasMethodEvent ? 'input' : 'overview',
+    defaultSection,
     definition,
     executions: execs.map((execution) => ({
       id: execution.stepExecutionId,
@@ -267,6 +253,6 @@ export function buildPanel(
       execute: statusWord(execution.execute.status),
       won: waitKind(execution, [execution]) ?? '—',
     })),
-    sections,
+    phases,
   }
 }

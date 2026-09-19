@@ -7,12 +7,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { describe, expect, it } from 'vitest'
-import type { FlowHistoryEvent } from '@/lib/types'
 import type { PocFlow, StepModel } from '../model/pocFlow'
 import type { RunOverlay, StepExecution } from '../model/run'
 import { buildPanel } from './panelModel'
 
-function step(): StepModel {
+function step(wait = false): StepModel {
   return {
     id: 'step:RefundStep',
     stepType: 'RefundStep',
@@ -25,7 +24,16 @@ function step(): StepModel {
     hasUniformFailurePolicy: false,
     inboundCount: 0,
     inboundFailureCount: 0,
-    waitFor: null,
+    waitFor: wait
+      ? {
+          type: 'anyOf',
+          sentence: 'approval or timeout',
+          conditions: [
+            { kind: 'channel', label: 'approvals' },
+            { kind: 'timer', label: '24h' },
+          ],
+        }
+      : null,
     execute: {
       branches: [
         {
@@ -57,6 +65,7 @@ function flow(model: StepModel): PocFlow {
         stepType: 'NotARefundStep',
         label: 'NotARefund',
         isStart: false,
+        waitFor: null,
       },
       {
         ...model,
@@ -64,6 +73,7 @@ function flow(model: StepModel): PocFlow {
         stepType: 'AgentDecisionStep',
         label: 'AgentDecision',
         isStart: false,
+        waitFor: null,
       },
     ],
     entries: [],
@@ -88,22 +98,9 @@ function overlay(executions: StepExecution[]): RunOverlay {
   }
 }
 
-function methodEvent(): FlowHistoryEvent {
-  return {
-    eventId: 12,
-    eventTime: '2026-09-18T00:00:00.000Z',
-    type: 'StepExecuteCompleted',
-    payload: {
-      input: { stepInput: { amount: 12 } },
-      output: { stepDecision: { type: 'goTo', nextSteps: [{ stepType: 'NotifyStep' }] } },
-      context: { stepType: 'RefundStep', stepExecutionId: 'exec-2', finalAttempt: 1 },
-    },
-  }
-}
-
 describe('buildPanel', () => {
-  it('keeps Definition separate and lists executions for the picker', () => {
-    const model = step()
+  it('splits Execution into WaitFor and Execute phases with separate IO tabs', () => {
+    const model = step(true)
     const panel = buildPanel(
       flow(model),
       model,
@@ -112,7 +109,13 @@ describe('buildPanel', () => {
           stepExecutionId: 'exec-1',
           stepType: 'RefundStep',
           ordinal: 1,
-          waitFor: null,
+          waitFor: {
+            status: 'completed',
+            conditions: [
+              { kind: 'channel', label: 'approvals', satisfied: true },
+              { kind: 'timer', label: '24h', satisfied: false },
+            ],
+          },
           execute: { status: 'completed' },
           attempts: 1,
           decisionType: 'goTo',
@@ -122,7 +125,13 @@ describe('buildPanel', () => {
           stepExecutionId: 'exec-2',
           stepType: 'RefundStep',
           ordinal: 2,
-          waitFor: null,
+          waitFor: {
+            status: 'completed',
+            conditions: [
+              { kind: 'channel', label: 'approvals', satisfied: true },
+              { kind: 'timer', label: '24h', satisfied: false },
+            ],
+          },
           execute: { status: 'completed' },
           attempts: 1,
           decisionType: 'goTo',
@@ -130,35 +139,34 @@ describe('buildPanel', () => {
         },
       ]),
       'exec-2',
-      methodEvent(),
-      1,
       true,
+      true,
+      1,
     )
     expect(panel.definition.branches.map((branch) => branch.value)).toEqual([
       'unconditional → NotARefund, AgentDecision',
     ])
-    expect(panel.definition.explanation).toBe(
-      'Decide the next refund capability from gathered evidence.',
-    )
     expect(panel.executions.map((execution) => execution.id)).toEqual(['exec-1', 'exec-2'])
-    expect(panel.sections.map((section) => section.id)).toEqual([
-      'overview',
-      'input',
-      'output',
-      'context',
-      'execute',
-    ])
-    expect(panel.defaultSection).toBe('input')
-    const execute = panel.sections.find((section) => section.id === 'execute')
-    expect(execute?.body.kind).toBe('execute')
-    if (execute?.body.kind === 'execute') {
-      expect(execute.body.nextStepTypes).toEqual(['NotifyStep'])
-      expect(execute.body.hasExecuteEvent).toBe(true)
+    expect(panel.phases.map((phase) => phase.id)).toEqual(['wait', 'execute'])
+    expect(panel.phases[0].tabs.map((tab) => tab.id)).toEqual(['input', 'context', 'output'])
+    expect(panel.phases[1].tabs.map((tab) => tab.id)).toEqual(['input', 'context', 'output'])
+    expect(panel.defaultSection).toBe('execute-input')
+    const waitOutput = panel.phases[0].tabs.find((tab) => tab.id === 'output')
+    expect(waitOutput?.body.kind).toBe('waitOutput')
+    if (waitOutput?.body.kind === 'waitOutput') {
+      expect(waitOutput.body.winner).toBe('approvals')
+      expect(waitOutput.body.hasWaitEvent).toBe(true)
+    }
+    const executeOutput = panel.phases[1].tabs.find((tab) => tab.id === 'output')
+    expect(executeOutput?.body.kind).toBe('executeOutput')
+    if (executeOutput?.body.kind === 'executeOutput') {
+      expect(executeOutput.body.nextStepTypes).toEqual(['NotifyStep'])
+      expect(executeOutput.body.hasExecuteEvent).toBe(true)
     }
   })
 
-  it('omits Input tabs and reports missing Execute without a method event', () => {
-    const model = step()
+  it('keeps Execute-only Steps without a WaitFor phase', () => {
+    const model = step(false)
     const panel = buildPanel(
       flow(model),
       model,
@@ -173,18 +181,18 @@ describe('buildPanel', () => {
         },
       ]),
       null,
-      null,
-      0,
       false,
+      false,
+      0,
     )
-    expect(panel.defaultSection).toBe('overview')
-    expect(panel.sections.map((section) => section.id)).not.toContain('input')
-    const execute = panel.sections.find((section) => section.id === 'execute')
-    expect(execute?.body.kind).toBe('execute')
-    if (execute?.body.kind === 'execute') {
-      expect(execute.body.hasExecuteEvent).toBe(false)
-      expect(execute.body.attempts).toEqual([])
-      expect(execute.body.nextStepTypes).toEqual([])
+    expect(panel.phases.map((phase) => phase.id)).toEqual(['execute'])
+    expect(panel.defaultSection).toBe('execute-output')
+    const executeOutput = panel.phases[0].tabs.find((tab) => tab.id === 'output')
+    expect(executeOutput?.body.kind).toBe('executeOutput')
+    if (executeOutput?.body.kind === 'executeOutput') {
+      expect(executeOutput.body.hasExecuteEvent).toBe(false)
+      expect(executeOutput.body.attempts).toEqual([])
+      expect(executeOutput.body.nextStepTypes).toEqual([])
     }
   })
 })
