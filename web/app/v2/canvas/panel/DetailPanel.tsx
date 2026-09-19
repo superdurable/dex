@@ -6,8 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useState, type JSX } from 'react'
+import { useEffect, useState, type JSX } from 'react'
+import {
+  StepMethodContextSection,
+  StepMethodInputSection,
+  StepMethodOutputSection,
+} from '@/app/flows/details/StepMethodSections'
 import { storedValueJSONReplacer } from '@/lib/blobs'
+import type { FlowHistoryEvent } from '@/lib/types'
 import type { PanelModel, Row, SectionId } from './panelModel'
 import { AVAILABILITY_TEXT, VERDICT_TEXT } from './panelModel'
 
@@ -31,15 +37,75 @@ function Rows({ rows }: { rows: Row[] }): JSX.Element {
   )
 }
 
-function Payload({ value }: { value: unknown }): JSX.Element {
-  if (value === undefined) {
-    return <p className="ppan-note">No value on this execution.</p>
-  }
-  if (value && typeof value === 'object' && !Array.isArray(value) && (value as { unavailable?: unknown }).unavailable === true) {
-    return <p className="ppan-note">Snapshot unavailable.</p>
-  }
+function StepMethodPane({
+  part,
+  event,
+  history,
+  parentFlowId,
+}: {
+  part: 'input' | 'output' | 'context'
+  event: FlowHistoryEvent
+  history: FlowHistoryEvent[]
+  parentFlowId: string
+}): JSX.Element {
+  const [view, setView] = useState<'details' | 'raw'>('details')
+  useEffect(() => {
+    setView('details')
+  }, [event.eventId, event.type, part])
+
   return (
-    <pre className="ppan-pre ppan-json">{JSON.stringify(value, storedValueJSONReplacer, 2)}</pre>
+    <div className="ppan-step-method">
+      <div className="ppan-view-tabs" role="tablist" aria-label="Step method view">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'details'}
+          className={view === 'details' ? 'active' : undefined}
+          onClick={() => setView('details')}
+        >
+          Details
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'raw'}
+          className={view === 'raw' ? 'active' : undefined}
+          onClick={() => setView('raw')}
+        >
+          Raw JSON
+        </button>
+      </div>
+      {view === 'raw' ? (
+        <pre className="ppan-pre ppan-json">
+          {JSON.stringify(event.payload, storedValueJSONReplacer, 2)}
+        </pre>
+      ) : (
+        <div className="semantic-event ppan-semantic">
+          {part === 'input' ? (
+              <StepMethodInputSection
+                event={event}
+                history={history}
+                parentFlowId={parentFlowId}
+                wrapSection={false}
+              />
+            ) : part === 'output' ? (
+              <StepMethodOutputSection
+                event={event}
+                history={history}
+                parentFlowId={parentFlowId}
+                wrapSection={false}
+              />
+            ) : (
+              <StepMethodContextSection
+                event={event}
+                history={history}
+                parentFlowId={parentFlowId}
+                wrapSection={false}
+              />
+            )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -54,6 +120,9 @@ export function DetailPanel({
   loadPreviousBusy = false,
   previousEmpty = false,
   onLoadPrevious,
+  methodEvent = null,
+  history = [],
+  parentFlowId = '',
 }: {
   model: PanelModel
   onClose: () => void
@@ -65,6 +134,9 @@ export function DetailPanel({
   loadPreviousBusy?: boolean
   previousEmpty?: boolean
   onLoadPrevious?: () => void
+  methodEvent?: FlowHistoryEvent | null
+  history?: FlowHistoryEvent[]
+  parentFlowId?: string
 }): JSX.Element {
   const [open, setOpen] = useState<SectionId>(
     initialSection != null && model.sections.some((s) => s.id === initialSection)
@@ -112,8 +184,15 @@ export function DetailPanel({
               <p className="ppan-note">{AVAILABILITY_TEXT[section.body.availability]}</p>
             ) : null}
           </>
-        ) : section.body.kind === 'payload' ? (
-          <Payload value={section.body.value} />
+        ) : section.body.kind === 'stepMethod' && methodEvent !== null ? (
+          <StepMethodPane
+            part={section.body.part}
+            event={methodEvent}
+            history={history.length > 0 ? history : [methodEvent]}
+            parentFlowId={parentFlowId}
+          />
+        ) : section.body.kind === 'stepMethod' ? (
+          <p className="ppan-note">No WaitFor or Execute event is loaded for this execution.</p>
         ) : section.body.kind === 'wait' ? (
           <>
             <table className="ppan-table">
@@ -148,7 +227,14 @@ export function DetailPanel({
           </>
         ) : section.body.kind === 'execute' ? (
           <>
-            {section.body.attempts.length === 0 ? (
+            {!section.body.hasExecuteEvent ? (
+              <p className="ppan-note">
+                Loaded history has no Execute event for this Step yet.
+                {canLoadPrevious
+                  ? ' Use Load more from previous run if Continue-as-New moved it.'
+                  : ''}
+              </p>
+            ) : section.body.attempts.length === 0 ? (
               <p className="ppan-note">This step has not run in this run.</p>
             ) : (
               <table className="ppan-table">
@@ -173,8 +259,13 @@ export function DetailPanel({
                 { label: 'Retries', value: section.body.attemptsLeft },
                 { label: 'Decision', value: section.body.decision ?? 'not returned yet' },
                 {
-                  label: 'Goes to',
-                  value: section.body.targets.length > 0 ? section.body.targets.join(', ') : 'nothing — this closes',
+                  label: 'Next steps',
+                  value:
+                    section.body.nextStepTypes.length > 0
+                      ? section.body.nextStepTypes.join(', ')
+                      : section.body.hasExecuteEvent
+                        ? 'none — this closes'
+                        : '—',
                 },
               ]}
             />
@@ -182,11 +273,6 @@ export function DetailPanel({
               <>
                 <h3>Error</h3>
                 <p className="ppan-pre ppan-error">{section.body.error}</p>
-              </>
-            ) : section.body.io !== 'available' ? (
-              <>
-                <h3>Output</h3>
-                <p className="ppan-note">{AVAILABILITY_TEXT[section.body.io]}</p>
               </>
             ) : null}
           </>

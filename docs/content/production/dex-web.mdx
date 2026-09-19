@@ -53,6 +53,8 @@ Each row calls **GetDexSummary** for the logical Flow ID's current run. The RPC 
 
 Selecting a row keeps the Flow ID in the URL, not a run ID. **GetDexDisplay**, Attribute reads, edits, and Actions omit the run ID, so Dex resolves the current run. After Continue-as-New, refreshing the same URL automatically addresses the new run.
 
+On **v2**, selecting a Step on the canvas opens a detail panel for the current run. **Input**, **Output**, and **Context** show the selected WaitFor or Execute history event in the same structured form as **v1** Selected event. The panel defaults to Details and can switch to Raw JSON of the hydrated payload. AttributeMap and ChannelMap instances that are decimal numbers sort by numeric value, matching **v1**. Execute shows the live next Steps from that run's decision, not every FDG exit. When Continue-as-New moved a Step into a previous run, use Load more from previous run.
+
 Display fields are ordered by their directive lines. Primitive string, integer, double, boolean, and datetime fields can be editable. JSON, objects, arrays, and AttributeMap values remain read-only. Missing fields must be returned as null. The backend rejects omitted, undeclared, or mistyped values.
 
 Edits are available only while the current run is active. Dex Web writes the Attribute through **SetAttributes** and includes its declared index configuration when the Attribute is indexed.

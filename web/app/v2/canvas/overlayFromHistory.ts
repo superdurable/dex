@@ -219,18 +219,39 @@ export function recordForExecution(
   return mine.find((record) => record.execution.stepExecutionId === executionId) ?? mine.at(-1);
 }
 
+export function methodEventFromRecord(
+  record: ExecutionRecord | undefined,
+): FlowHistoryEvent | undefined {
+  return record?.executeEvent ?? record?.waitEvent;
+}
+
 export function payloadFromRecord(record: ExecutionRecord | undefined): {
   input: unknown;
   output: unknown;
   context: unknown;
-} {
-  const event = record?.executeEvent ?? record?.waitEvent;
-  if (!event) return { input: undefined, output: undefined, context: undefined };
+} | null {
+  const event = methodEventFromRecord(record);
+  if (!event) return null;
   return {
     input: event.payload.input,
     output: event.payload.output,
     context: event.payload.context,
   };
+}
+
+/** Prefer executeEvent; Wait tabs can pass waitEvent explicitly. */
+export function attemptCountFromRecord(record: ExecutionRecord | undefined): number {
+  if (!record) return 0;
+  const event = methodEventFromRecord(record);
+  if (!event) return 0;
+  const context = asData(event.payload.context);
+  const fromFinal = numberField(context.finalAttempt);
+  if (fromFinal > 0) return fromFinal;
+  const fromLastFailure = numberField(asData(context.lastFailureInfo).attempt);
+  if (fromLastFailure > 0) return fromLastFailure;
+  const fromOutputFailure = numberField(asData(asData(event.payload.output).failure).attempt);
+  if (fromOutputFailure > 0) return fromOutputFailure;
+  return Math.max(1, record.execution.attempts);
 }
 
 function applyEvent(record: ExecutionRecord, event: FlowHistoryEvent): void {
@@ -257,7 +278,12 @@ function applyEvent(record: ExecutionRecord, event: FlowHistoryEvent): void {
       record.execution.lastFailure = failureMessage(event.payload.output) ?? record.execution.lastFailure;
     }
   }
-  if (context.finalAttempt === true) record.execution.attempts = Math.max(record.execution.attempts, 2);
+  const attempt = Math.max(
+    numberField(context.finalAttempt),
+    numberField(asData(context.lastFailureInfo).attempt),
+    numberField(asData(asData(event.payload.output).failure).attempt),
+  );
+  if (attempt > 0) record.execution.attempts = Math.max(record.execution.attempts, attempt);
   const started = epochMs(context.startedTime);
   if (started !== undefined) record.execution.startedAt = started;
   if (!pending && (event.type.endsWith('Completed') || failed)) {
@@ -276,6 +302,8 @@ function applyActive(record: ExecutionRecord, active: ActiveStepExecution): void
   }
   if (active.lastFailureInfo) {
     record.execution.lastFailure = failureMessage(active.lastFailureInfo) ?? record.execution.lastFailure;
+    const attempt = numberField(asData(active.lastFailureInfo).attempt);
+    if (attempt > 0) record.execution.attempts = Math.max(record.execution.attempts, attempt);
   }
 }
 
@@ -336,6 +364,15 @@ function asData(value: unknown): Record<string, unknown> {
 
 function stringField(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function numberField(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
 }
 
 function epochMs(value: unknown): number | undefined {

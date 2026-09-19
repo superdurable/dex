@@ -9,14 +9,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hydrateBlobs } from '@/lib/blobs';
 import { readResponseJSON } from '@/lib/http';
-import type { FlowDefinitionCatalog } from '@/lib/types';
+import type { FlowDefinitionCatalog, FlowHistoryEvent } from '@/lib/types';
 import { safeDecode } from './canvas/model/decode';
 import type { RunOverlay } from './canvas/model/run';
 import {
   loadCurrentRun,
   loadRunHistory,
+  methodEventFromRecord,
+  attemptCountFromRecord,
   overlayFromHistory,
-  payloadFromRecord,
   prependStepRecords,
   recordForExecution,
   type ExecutionRecord,
@@ -48,7 +49,8 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
   const [previousCursorByStep, setPreviousCursorByStep] = useState<Record<string, string>>({});
   const [loadPreviousBusy, setLoadPreviousBusy] = useState(false);
   const [previousEmpty, setPreviousEmpty] = useState(false);
-  const [hydratedPayload, setHydratedPayload] = useState<ReturnType<typeof payloadFromRecord> | null>(null);
+  const [historyEvents, setHistoryEvents] = useState<FlowHistoryEvent[]>([]);
+  const [hydratedMethodEvent, setHydratedMethodEvent] = useState<FlowHistoryEvent | null>(null);
   const blobCache = useRef(new Map<string, unknown>());
 
   useEffect(() => {
@@ -69,7 +71,8 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
     setOlderByStep({});
     setPreviousCursorByStep({});
     setPreviousEmpty(false);
-    setHydratedPayload(null);
+    setHistoryEvents([]);
+    setHydratedMethodEvent(null);
     setSelectedExecutionId(null);
     setRunError('');
     if (!flowId) return undefined;
@@ -79,6 +82,7 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
       try {
         const { summary, events, state } = await loadCurrentRun(flowId);
         if (cancelled) return;
+        setHistoryEvents(events);
         setCurrentBundle(overlayFromHistory({
           flowId,
           runId: summary.runId,
@@ -146,35 +150,52 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
   const selectedRecord = selectedStep && bundle
     ? recordForExecution(bundle, selectedStep.stepType, selectedExecutionId)
     : undefined;
+  const selectedMethodEvent = methodEventFromRecord(selectedRecord) ?? null;
+  const methodEventKey = selectedMethodEvent
+    ? `${selectedMethodEvent.eventId}|${selectedMethodEvent.type}|${String(
+        (selectedMethodEvent.payload.context as { stepExecutionId?: string } | undefined)?.stepExecutionId ?? '',
+      )}`
+    : '';
 
   useEffect(() => {
-    if (!flowId || !selectedRecord) {
-      setHydratedPayload(null);
+    if (!flowId || !selectedMethodEvent) {
+      setHydratedMethodEvent(null);
       return undefined;
     }
     const controller = new AbortController();
-    const raw = payloadFromRecord(selectedRecord);
-    setHydratedPayload(raw);
+    const raw = selectedMethodEvent;
+    setHydratedMethodEvent(raw);
     void hydrateBlobs(flowId, raw, blobCache.current, controller.signal)
       .then((result) => {
-        if (!controller.signal.aborted) setHydratedPayload(result.value);
+        if (!controller.signal.aborted) setHydratedMethodEvent(result.value);
       })
       .catch(() => {
-        if (!controller.signal.aborted) setHydratedPayload(raw);
+        if (!controller.signal.aborted) setHydratedMethodEvent(raw);
       });
     return () => controller.abort();
-  }, [flowId, selectedRecord]);
+  }, [flowId, methodEventKey, selectedMethodEvent]);
 
   const panel = useMemo(() => {
     if (!flow || !selectedStep) return null;
+    const methodEvent = hydratedMethodEvent ?? selectedMethodEvent;
     return buildPanel(
       flow,
       selectedStep,
       overlay,
       selectedRecord?.execution.stepExecutionId ?? selectedExecutionId,
-      overlay ? (hydratedPayload ?? payloadFromRecord(selectedRecord)) : null,
+      methodEvent,
+      attemptCountFromRecord(selectedRecord),
+      Boolean(selectedRecord?.executeEvent),
     );
-  }, [flow, hydratedPayload, overlay, selectedExecutionId, selectedRecord, selectedStep]);
+  }, [
+    flow,
+    hydratedMethodEvent,
+    overlay,
+    selectedExecutionId,
+    selectedMethodEvent,
+    selectedRecord,
+    selectedStep,
+  ]);
 
   const previousCursor = selectedStep
     ? (previousCursorByStep[selectedStep.stepType] ?? bundle?.previousRunId ?? '')
@@ -193,6 +214,7 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
         events,
       });
       const older = hop.records.filter((record) => record.execution.stepType === selectedStep.stepType);
+      setHistoryEvents((current) => [...events, ...current]);
       setOlderByStep((current) => ({
         ...current,
         [selectedStep.stepType]: [...older, ...(current[selectedStep.stepType] ?? [])],
@@ -273,10 +295,13 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
       />
       {panel ? (
         <DetailPanel
-          key={`${panel.stepType}|${inspectSection ?? panel.defaultSection}`}
+          key={`${panel.stepType}|${inspectSection ?? panel.defaultSection}|${selectedRecord?.execution.stepExecutionId ?? ''}`}
           model={panel}
           selectedExecutionId={selectedRecord?.execution.stepExecutionId ?? selectedExecutionId}
           initialSection={inspectSection}
+          methodEvent={hydratedMethodEvent ?? selectedMethodEvent}
+          history={historyEvents}
+          parentFlowId={flowId}
           onClose={() => {
             setSelectedId(null);
             setSelectedExecutionId(null);

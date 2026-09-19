@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
+  attemptCountFromRecord,
   mergeStepExecutions,
   overlayFromHistory,
   payloadFromRecord,
@@ -66,7 +67,52 @@ describe('overlayFromHistory', () => {
     expect(execution.execute.status).toBe('completed');
     expect(execution.decisionType).toBe('goTo');
     expect(execution.nextStepTypes).toEqual(['NotifyStep']);
-    expect(payloadFromRecord(bundle.records[0]).input).toEqual({ stepInput: { ticket: 'A' } });
+    expect(payloadFromRecord(bundle.records[0])).toEqual({
+      input: { stepInput: { ticket: 'A' } },
+      output: { stepDecision: { type: 'goTo', nextSteps: [{ stepType: 'NotifyStep' }] } },
+      context: {
+        stepExecutionId: 'exec-2',
+        stepType: 'RefundStep',
+        startedTime: '2026-09-18T00:00:10.000Z',
+      },
+    });
+  });
+
+  it('returns null payload when a record has no wait or execute event', () => {
+    expect(payloadFromRecord(undefined)).toBeNull();
+    expect(payloadFromRecord({
+      runId: 'run-2',
+      execution: {
+        stepExecutionId: 'exec-empty',
+        stepType: 'ReceiveRequestStep',
+        ordinal: 1,
+        waitFor: null,
+        execute: { status: 'notStarted' },
+        attempts: 1,
+      },
+    })).toBeNull();
+  });
+
+  it('counts attempts from finalAttempt and lastFailureInfo like v1', () => {
+    const bundle = overlayFromHistory({
+      flowId: 'flow-1',
+      runId: 'run-2',
+      status: 'Running',
+      events: [
+        event('StepExecuteFailed', {
+          output: { failure: { attempt: 3, backendError: 'Unavailable' } },
+          context: {
+            stepExecutionId: 'exec-3',
+            stepType: 'ReceiveRequestStep',
+            finalAttempt: 3,
+            lastFailureInfo: { attempt: 2 },
+          },
+        }),
+      ],
+    });
+    expect(bundle.overlay.executions[0].attempts).toBe(3);
+    expect(attemptCountFromRecord(bundle.records[0])).toBe(3);
+    expect(payloadFromRecord(bundle.records[0])).not.toBeNull();
   });
 
   it('keeps current-run executions first and prepends only the requested step', () => {

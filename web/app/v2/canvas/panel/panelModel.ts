@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import type { FlowHistoryEvent } from '@/lib/types'
 import type { PocFlow, StepModel } from '../model/pocFlow'
 import type { PhaseStatus, RunOverlay } from '../model/run'
 import {
@@ -37,14 +38,13 @@ export interface Row {
   pre?: boolean
 }
 
-export type Availability = 'available' | 'notRetained' | 'tooLarge' | 'deleted' | 'notWired'
+export type Availability = 'available' | 'notRetained' | 'tooLarge' | 'deleted'
 
 export const AVAILABILITY_TEXT: Record<Availability, string> = {
   available: '',
   notRetained: 'Not retained — the run skeleton outlives its payloads.',
   tooLarge: 'Too large to display.',
   deleted: 'These payloads have been deleted.',
-  notWired: 'Not wired to a backend in this POC.',
 }
 
 export type Verdict = 'won' | 'lostStillQueued' | 'notEvaluated' | 'pending'
@@ -70,14 +70,15 @@ export interface AttemptRow {
 
 export type SectionBody =
   | { kind: 'rows'; rows: Row[]; availability?: Availability }
-  | { kind: 'payload'; value: unknown }
+  | { kind: 'stepMethod'; part: 'input' | 'output' | 'context' }
   | { kind: 'wait'; rows: WaitRow[]; winner: string | null; answeredBy: string[] }
   | {
       kind: 'execute'
       attempts: AttemptRow[]
       attemptsLeft: string
       decision: string | null
-      targets: string[]
+      nextStepTypes: string[]
+      hasExecuteEvent: boolean
       defaultTab: 'output' | 'error'
       io: Availability
       error?: string
@@ -125,11 +126,14 @@ export function buildPanel(
   step: StepModel,
   overlay: RunOverlay | null,
   selectedExecutionId: string | null,
-  payload: ExecutionPayload | null = null,
+  methodEvent: FlowHistoryEvent | null = null,
+  attemptCount = 0,
+  hasExecuteEvent = false,
 ): PanelModel {
   const execs = overlay === null ? [] : executionsOf(overlay, step.stepType)
   const current =
     execs.find((e) => e.stepExecutionId === selectedExecutionId) ?? execs[execs.length - 1] ?? null
+  const hasMethodEvent = methodEvent !== null
 
   const sections: Section[] = []
 
@@ -169,10 +173,10 @@ export function buildPanel(
   }
   sections.push({ id: 'overview', label: 'Overview', body: { kind: 'rows', rows: overview } })
 
-  if (payload !== null) {
-    sections.push({ id: 'input', label: 'Input', body: { kind: 'payload', value: payload.input } })
-    sections.push({ id: 'output', label: 'Output', body: { kind: 'payload', value: payload.output } })
-    sections.push({ id: 'context', label: 'Context', body: { kind: 'payload', value: payload.context } })
+  if (hasMethodEvent) {
+    sections.push({ id: 'input', label: 'Input', body: { kind: 'stepMethod', part: 'input' } })
+    sections.push({ id: 'output', label: 'Output', body: { kind: 'stepMethod', part: 'output' } })
+    sections.push({ id: 'context', label: 'Context', body: { kind: 'stepMethod', part: 'context' } })
   }
 
   if (step.waitFor !== null) {
@@ -205,31 +209,37 @@ export function buildPanel(
     })
   }
 
-  const targets = [
-    ...new Set(step.execute.branches.flatMap((b) => b.targets.map((t) => t.stepId))),
-  ].map((id) => flow.steps.find((s) => s.id === id)?.label ?? id.replace(/^step:/, ''))
   const failedNow = current?.execute.status === 'failed'
+  const attempts =
+    !hasExecuteEvent || current === null || attemptCount <= 0
+      ? []
+      : Array.from({ length: attemptCount }, (_, i) => ({
+          n: i + 1,
+          status:
+            i === attemptCount - 1
+              ? current.execute.status
+              : ('failed' as PhaseStatus),
+          failure: current.lastFailure,
+        }))
   sections.push({
     id: 'execute',
     label: 'Execute',
     body: {
       kind: 'execute',
-      attempts:
-        current === null
-          ? []
-          : Array.from({ length: current.attempts }, (_, i) => ({
-              n: i + 1,
-              status:
-                i === current.attempts - 1
-                  ? current.execute.status
-                  : ('failed' as PhaseStatus),
-              failure: current.lastFailure,
-            })),
-      attemptsLeft: current === null ? '—' : failedNow ? 'no retries left' : 'not retrying',
+      attempts,
+      attemptsLeft:
+        current === null || !hasExecuteEvent
+          ? '—'
+          : failedNow
+            ? 'no retries left'
+            : current.execute.status === 'completed'
+              ? 'finished'
+              : 'not retrying',
       decision: current?.decisionType ?? null,
-      targets,
+      nextStepTypes: current?.nextStepTypes ?? [],
+      hasExecuteEvent,
       defaultTab: failedNow ? 'error' : 'output',
-      io: payload !== null ? 'available' : overlay === null ? 'notWired' : 'notRetained',
+      io: hasMethodEvent ? 'available' : overlay === null ? 'notRetained' : 'notRetained',
       error: current?.lastFailure,
     },
   })
@@ -291,7 +301,7 @@ export function buildPanel(
           value: `${r.access}${r.phase === undefined ? '' : ` · during ${r.phase}`}`,
           tone: 'quiet' as const,
         })),
-        availability: overlay === null ? undefined : payload !== null ? 'available' : 'notRetained',
+        availability: overlay === null ? undefined : hasMethodEvent ? 'available' : 'notRetained',
       },
     })
   }
@@ -319,7 +329,7 @@ export function buildPanel(
   return {
     title: step.label,
     stepType: step.stepType,
-    defaultSection: payload !== null ? 'input' : 'overview',
+    defaultSection: hasMethodEvent ? 'input' : 'overview',
     sections,
   }
 }

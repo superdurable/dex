@@ -543,6 +543,57 @@
   border-top: 1px solid var(--p-line-soft);
 }
 
+.ppan-view-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.ppan-view-tabs button {
+  padding: 2px 8px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ppan-view-tabs button.active,
+.ppan-view-tabs button[aria-selected='true'] {
+  border-color: var(--p-ink-2);
+  background: var(--p-surface-3);
+  color: var(--p-ink-0);
+}
+
+/* Step method blocks reuse v1 semantic markup inside the v2 panel chrome. */
+.v2-shell .ppan .ppan-semantic .semantic-section,
+.v2-shell .ppan .semantic-notice,
+.v2-shell .ppan .semantic-record,
+.v2-shell .ppan .semantic-value code,
+.v2-shell .ppan .semantic-value pre,
+.v2-shell .ppan .semantic-alert pre,
+.v2-shell .ppan .failure-alert {
+  border-color: var(--p-line-soft);
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+}
+.v2-shell .ppan .semantic-section h4,
+.v2-shell .ppan .semantic-section h5,
+.v2-shell .ppan .semantic-fields dt,
+.v2-shell .ppan .semantic-value > span,
+.v2-shell .ppan .muted {
+  color: var(--p-ink-3);
+}
+.v2-shell .ppan .semantic-fields dd,
+.v2-shell .ppan .semantic-record > strong,
+.v2-shell .ppan .semantic-notice strong {
+  color: var(--p-ink-0);
+}
+.v2-shell .ppan .semantic-alert,
+.v2-shell .ppan .failure-alert {
+  border-color: color-mix(in srgb, var(--p-run-failed) 35%, var(--p-line-soft));
+}
+
 /* ---------- the two-cell phase token ----------
    ONE slot, at most TWO cells. Colour is a second channel: each cell carries a glyph, and the wait
    cell's glyph IS which condition kind it is about — so "which condition won" is answered by a symbol
