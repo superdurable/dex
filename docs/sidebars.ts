@@ -154,7 +154,7 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'production/index'},
       items: [
         'production/application-operations',
-        'production/supervision',
+        'production/dex-web',
         'production/server-operations',
         'production/metrics',
         'production/attribute-store',

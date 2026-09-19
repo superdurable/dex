@@ -91,9 +91,9 @@ function dexWebFlowURL(flowId, runId) {
     return "";
   }
   if (runId) {
-    return `${base}/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(runId)}`;
+    return `${base}/v1/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(runId)}`;
   }
-  return `${base}/flows/${encodeURIComponent(flowId)}`;
+  return `${base}/v1/flows/${encodeURIComponent(flowId)}`;
 }
 
 function dexWebSearchURL(flowId) {
@@ -101,7 +101,7 @@ function dexWebSearchURL(flowId) {
   if (!flowId || !base) {
     return "";
   }
-  return `${base}/?q=${encodeURIComponent(`WorkflowId="${flowId}"`)}`;
+  return `${base}/v1/flows?q=${encodeURIComponent(`WorkflowId="${flowId}"`)}`;
 }
 
 function fieldValue(form, field, example) {

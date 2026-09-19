@@ -1,0 +1,3274 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+/*
+ * POC-scoped styles.
+ *
+ * Deliberately self-contained rather than reusing the shipping app's tokens: this is a
+ * throwaway harness for a design question, and coupling it to the app's palette would let
+ * the app's decisions constrain the exploration. Nothing here is imported by the app, and
+ * the app's `index.css` is untouched.
+ *
+ * Colour carries exactly one meaning: WHO HAS TO ACT. Everything else is greyscale, so an
+ * actor accent is the only hue on screen and cannot lose a fight with decoration.
+ *
+ * The RPC cyan does not break that rule, it completes it. An external RPC IS a who — it is the door
+ * the outside actor comes through, where the amber gate is the step blocked behind that door. Cyan is
+ * amber's complement, so the pair carries maximum pre-attentive contrast and reads as a relationship
+ * rather than as two unrelated accents.
+ */
+
+.v2-shell {
+  /* ======================================================================
+   * THESE ARE ALIASES NOW, NOT VALUES.
+   *
+   * canvas.css used to be a second palette root with 35 colour literals of its
+   * own, and the cost was exact: "running" was blue in the chat and AMBER here,
+   * "failed" was salmon there and ROSE here, and five separate ambers meant a
+   * person-must-act gate and a running step were nearly the same colour.
+   *
+   * Every --p-* token now resolves to a token in index.css, so ONE colour means
+   * ONE thing in both panes and a theme change reaches the canvas for free. The
+   * ~2000 lines of rules below did not have to change at all.
+   *
+   * The mapping to the enterprise-conventional status vocabulary, which is what
+   * makes this legible to anyone who has used another operations tool:
+   *   amber  a person must act        (warning)
+   *   blue   running now              (primary / in progress)
+   *   green  done                     (success)
+   *   red    failed                   (error)
+   *   grey   machine work, idle       (neutral)
+   * plus two the conventions do not cover, chosen only to be distinct from those:
+   *   cyan   the door in from outside (an RPC)
+   *   purple a child flow
+   * ====================================================================== */
+
+  /* ---- planes and ink: the app's neutral ramp --------------------------- */
+  --p-bg: var(--surface-canvas);
+  --p-surface-1: var(--surface-page);
+  --p-surface-2: var(--surface-card);
+  --p-surface-3: var(--surface-raised);
+  --p-line: var(--line-mid);
+  --p-line-soft: var(--line-soft);
+  --p-ink-0: var(--ink-max);
+  --p-ink-1: var(--ink-strong);
+  --p-ink-2: var(--ink-mid);
+  --p-ink-3: var(--ink-soft);
+
+  /* ---- WHO MUST ACT ---------------------------------------------------- */
+  --p-external: var(--hue-attention-ink);
+  --p-external-dim: var(--hue-attention-fill);
+  /* A wait the analyser could not name: the same family as "a person", one step
+   * quieter, because it is the most likely place a human gate is hiding. */
+  --p-unknown: var(--hue-attention-line);
+  --p-unknown-dim: var(--hue-attention-fill);
+  --p-clock: var(--hue-clock-ink);
+  --p-clock-dim: var(--hue-clock-fill);
+  --p-child: var(--hue-child-ink);
+  --p-child-dim: var(--hue-child-fill);
+  --p-machine: var(--ink-soft);
+  --p-machine-dim: var(--line-soft);
+  --p-rpc: var(--hue-door-ink);
+  --p-rpc-dim: var(--hue-door-fill);
+
+  /* ---- HOW IT WENT ----------------------------------------------------- */
+  /* `run-active` was amber, which collided head-on with "a person must act".
+   * Blue is both the app's existing answer and the enterprise convention, and
+   * pairing blue with amber gives the product's most important distinction — the
+   * machine is working versus you are needed — maximum pre-attentive contrast. */
+  --p-run-active: var(--hue-progress-ink);
+  --p-run-done: var(--hue-success-ink);
+  --p-run-failed: var(--hue-danger-ink);
+  --p-run-idle: var(--ink-faint);
+
+  /* ---- EDGES: the line tier, and it is SHARED by both themes ------------ */
+  --p-edge-control: var(--ink-soft);
+  --p-edge-failure: var(--hue-danger-line);
+  --p-edge-resource: var(--hue-success-line);
+  --p-edge-wait: var(--hue-attention-line);
+  --p-edge-subflow: var(--hue-child-line);
+  --p-edge-gate: var(--hue-attention-line);
+  --p-edge-rpc: var(--hue-door-line);
+
+  /* ---- POC scaffolding, a hue claimed by nothing else ------------------- */
+  --p-temp: var(--hue-provisional-ink);
+  --p-temp-dim: var(--hue-provisional-fill);
+
+  --p-radius: 8px;
+  --p-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.v2-shell,
+.v2-shell *,
+.v2-shell *::before,
+.v2-shell *::after {
+  box-sizing: border-box;
+}
+
+.v2-shell {
+  height: 100%;
+  margin: 0;
+  background: var(--p-bg);
+  color: var(--p-ink-0);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * THREE columns: chat, canvas, panel. What used to be one scrolling sidebar holding every
+ * control; the canvas takes the entire remaining area, top to bottom. Nothing sits above
+ * the canvas, because vertical space is the scarce axis for reading a flow.
+ */
+.ppage {
+  display: grid;
+  /* chat | handle | canvas. The chat share is a percentage so it survives a window resize. */
+  grid-template-columns: var(--chat-pct, 50%) 5px 1fr;
+  height: 100%;
+  min-height: 0;
+}
+/* The panel is a third COLUMN, not an overlay: the canvas refits on resize, so opening it pans the
+   graph rather than covering it. */
+.ppage[data-panel='true'] {
+  grid-template-columns: var(--chat-pct, 50%) 5px 1fr 360px;
+}
+.ppage[data-focus='true'][data-panel='true'] {
+  grid-template-columns: 1fr 360px;
+}
+
+.pcanvas {
+  position: relative;
+  min-width: 0;
+  /* Grid items default to min-height:auto and refuse to shrink below their content, which
+     would push the canvas past the viewport instead of letting it fill exactly. */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Hiding the controls makes the canvas the whole window. */
+.ppage[data-focus='true'] {
+  grid-template-columns: 1fr;
+}
+.ppage[data-focus='true'] .psplit {
+  display: none;
+}
+.ppage[data-focus='true'][data-panel='true'] {
+  grid-template-columns: 1fr 360px;
+}
+.ppage[data-focus='true'] .pchat,
+.ppage[data-focus='true'] .pctlbar,
+.ppage[data-focus='true'] .pprovbox {
+  display: none;
+}
+
+/* ---------- header ---------- */
+
+.phead {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+.phead h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+/* Lives over the canvas, not in the sidebar, so it is still reachable once the sidebar
+   is gone. */
+.pfocus {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 5;
+  padding: 3px 9px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.pfocus:hover {
+  border-color: var(--p-ink-3);
+  color: var(--p-ink-0);
+}
+.pfocus kbd {
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 1px solid var(--p-line);
+  border-radius: 3px;
+  color: var(--p-ink-3);
+  font-family: var(--p-mono);
+  font-size: 9.5px;
+}
+
+.ptag {
+  margin-left: 8px;
+  padding: 2px 6px;
+  border: 1px dotted var(--p-ink-3);
+  border-radius: 4px;
+  color: var(--p-ink-2);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: 2px;
+}
+.phead-sub {
+  margin: 5px 0 0;
+  color: var(--p-ink-2);
+  font-size: 11.5px;
+}
+
+/* ---------- controls ---------- */
+
+/* A column, not a wrapping row: the sidebar is narrow, so every group is a stacked block. */
+.pctl {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 11px 14px 13px;
+  border-bottom: 1px solid var(--p-line-soft);
+  background: var(--p-surface-1);
+}
+.pctl-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pctl-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pctl-label {
+  color: var(--p-ink-3);
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.pctl-label em {
+  font-style: normal;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.pctl-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.pchip {
+  padding: 3px 9px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.pchip:hover {
+  border-color: var(--p-ink-3);
+  color: var(--p-ink-0);
+}
+.pchip[data-on='true'] {
+  border-color: var(--p-ink-2);
+  background: var(--p-surface-3);
+  color: var(--p-ink-0);
+}
+
+/* ---------- run state ----------
+   Colour is a SECOND channel here, never the only one: the card always writes the status as text,
+   because Temporal shipped a colour-only encoding and had to retrofit a text channel for
+   accessibility. Removing every colour below would lose emphasis, not meaning. */
+
+.pbox[data-emphasis='active'] {
+  border-color: var(--p-run-active);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--p-run-active) 45%, transparent);
+}
+.pbox[data-emphasis='failed'] {
+  border-color: var(--p-run-failed);
+}
+/* A predicted step is real information but not a fact yet, so it is drawn as provisional. */
+.pbox[data-emphasis='planned'] {
+  border-style: dashed;
+  opacity: 0.72;
+}
+
+.pbox-bar {
+  display: flex;
+  gap: 1px;
+  margin-top: 4px;
+  padding: 0;
+  height: 5px;
+  border: 0;
+  border-radius: 3px;
+  overflow: hidden;
+  /* A hit target, not a picture: hover decodes it, click enumerates the executions. */
+  cursor: pointer;
+}
+.pbox-bar:hover {
+  outline: 1px solid var(--p-ink-3);
+  outline-offset: 1px;
+}
+.pbox-bar:focus-visible {
+  outline: 2px solid var(--p-ink-1);
+  outline-offset: 1px;
+}
+.pbox-seg {
+  /* The 2px floor is the whole trick: proportional, but never zero-width, so a single failure
+     among a thousand successes is still visible. */
+  min-width: 2px;
+  background: var(--p-run-idle);
+}
+.pbox-seg[data-status='completed'] {
+  background: var(--p-run-done);
+}
+.pbox-seg[data-status='waiting'],
+.pbox-seg[data-status='running'],
+.pbox-seg[data-status='pending'] {
+  background: var(--p-run-active);
+}
+.pbox-seg[data-status='failed'] {
+  background: var(--p-run-failed);
+}
+
+.plegend-status {
+  padding: 0 5px;
+  border: 1px solid var(--p-line);
+  border-radius: 3px;
+  color: var(--p-ink-1);
+  font-family: var(--p-mono);
+  font-size: 9.5px;
+}
+
+/* ---------- detail panel ----------
+   The only place values are allowed to appear. Everything crowded off the canvas lands here: full
+   guard text, per-attempt failures, per-condition verdicts, the execution list. */
+
+.ppan {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--p-line-soft);
+  background: var(--p-surface-1);
+  min-width: 0;
+  min-height: 0;
+}
+.ppan-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+.ppan-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+/* The durable identifier, always reachable even when a display label covers it. */
+.ppan-type {
+  margin: 2px 0 0;
+  color: var(--p-ink-3);
+  font-family: var(--p-mono);
+  font-size: 10.5px;
+}
+.ppan-close {
+  flex: 0 0 auto;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-2);
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+.ppan-close:hover {
+  color: var(--p-ink-0);
+  border-color: var(--p-ink-3);
+}
+.ppan-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+.ppan-tab {
+  padding: 2px 8px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ppan-tab:hover {
+  color: var(--p-ink-0);
+}
+.ppan-tab[data-on='true'] {
+  border-color: var(--p-ink-2);
+  background: var(--p-surface-3);
+  color: var(--p-ink-0);
+}
+.ppan-body {
+  overflow-y: auto;
+  padding: 12px 14px 28px;
+  min-height: 0;
+}
+.ppan-body h3 {
+  margin: 16px 0 6px;
+  color: var(--p-ink-3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.ppan-rows {
+  margin: 0;
+}
+.ppan-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--p-line-soft);
+  font-size: 11.5px;
+}
+.ppan-row dt {
+  color: var(--p-ink-3);
+}
+.ppan-row dd {
+  margin: 0;
+  color: var(--p-ink-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ppan-row[data-tone='warn'] dd {
+  color: var(--p-run-failed);
+}
+.ppan-row[data-tone='good'] dd {
+  color: var(--p-run-done);
+}
+.ppan-row[data-tone='quiet'] dd {
+  color: var(--p-ink-2);
+}
+/* Never truncated: full guards, full error messages. Wrapped, not clipped. */
+.ppan-pre {
+  font-family: var(--p-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ppan-error {
+  color: var(--p-run-failed);
+}
+.ppan-note {
+  margin: 8px 0 0;
+  color: var(--p-ink-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.ppan-note strong {
+  color: var(--p-ink-0);
+}
+.ppan-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.ppan-table th {
+  padding: 3px 6px 3px 0;
+  border-bottom: 1px solid var(--p-line);
+  color: var(--p-ink-3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+}
+.ppan-table td {
+  padding: 3px 6px 3px 0;
+  border-bottom: 1px solid var(--p-line-soft);
+  color: var(--p-ink-1);
+  vertical-align: top;
+}
+.ppan-table tr[data-verdict='won'] td {
+  color: var(--p-run-done);
+}
+.ppan-table tr[data-verdict='pending'] td {
+  color: var(--p-external);
+}
+.ppan-table tr[data-verdict='lostStillQueued'] td {
+  color: var(--p-ink-2);
+}
+.ppan-clickable {
+  cursor: pointer;
+}
+.ppan-clickable:hover td {
+  color: var(--p-ink-0);
+}
+.ppan-clickable[data-on='true'] td {
+  color: var(--p-ink-0);
+  background: var(--p-surface-2);
+}
+.ppan-glyph {
+  color: var(--p-ink-2);
+}
+
+/* ---------- the two-cell phase token ----------
+   ONE slot, at most TWO cells. Colour is a second channel: each cell carries a glyph, and the wait
+   cell's glyph IS which condition kind it is about — so "which condition won" is answered by a symbol
+   rather than by prose. A blocked wait is ACHROMATIC, because nothing is consuming anything and
+   nothing should look busy. */
+
+.ptok {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.ptok-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 2px;
+  border: 1px solid var(--p-line);
+  border-radius: 3px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-2);
+  font-size: 9.5px;
+  line-height: 1;
+}
+/* The wait cell reads slightly softer than execute, so the pair has a reading order. */
+.ptok-cell[data-phase='wait'] {
+  border-style: dashed;
+}
+.ptok-cell[data-status='completed'] {
+  border-color: var(--p-run-done);
+  border-style: solid;
+  color: var(--p-run-done);
+}
+.ptok-cell[data-status='running'] {
+  border-color: var(--p-run-active);
+  color: var(--p-run-active);
+}
+.ptok-cell[data-status='failed'] {
+  border-color: var(--p-run-failed);
+  border-style: solid;
+  color: var(--p-run-failed);
+}
+/* Achromatic beats every status colour: a blocked wait and a not-started execute stay grey even
+   though they are "active" states, because they are not burning anything. */
+.ptok-cell[data-achromatic='true'] {
+  border-color: var(--p-line);
+  color: var(--p-ink-2);
+}
+.ptok-count {
+  margin-left: 2px;
+  color: var(--p-ink-2);
+  font-family: var(--p-mono);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+
+/* ---------- the reason line ----------
+   One line, conditional on blocked-or-failed, so a healthy card has no strip at all. */
+
+.pbox-reason {
+  margin-top: auto;
+  overflow: hidden;
+  padding-top: 3px;
+  border-top: 1px solid var(--p-line-soft);
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pbox-reason[data-tone='blocked'] {
+  color: var(--p-external);
+}
+.pbox-reason[data-tone='failed'] {
+  color: var(--p-run-failed);
+}
+.pbox-reason[data-tone='terminal'] {
+  color: var(--p-ink-1);
+}
+
+/* ---------- legend ---------- */
+
+.plegend {
+  padding: 10px 14px 4px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+.plegend h3 {
+  margin: 0 0 6px;
+  color: var(--p-ink-3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.plegend-list {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.plegend-list li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 1.5px 0;
+  font-size: 11px;
+}
+.plegend-text {
+  color: var(--p-ink-1);
+}
+.plegend-count {
+  margin-left: auto;
+  color: var(--p-ink-3);
+  font-family: var(--p-mono);
+  font-size: 10px;
+}
+.plegend-swatch {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--p-machine);
+  border-radius: 3px;
+}
+.plegend-swatch[data-actor='external'] {
+  border-color: var(--p-external);
+  background: var(--p-external-dim);
+}
+.plegend-swatch[data-actor='unknown'] {
+  border-color: var(--p-unknown);
+  border-style: dashed;
+  background: var(--p-unknown-dim);
+}
+.plegend-swatch[data-actor='clock'] {
+  border-color: var(--p-clock);
+  background: var(--p-clock-dim);
+}
+.plegend-swatch[data-actor='child'] {
+  border-color: var(--p-child);
+  background: var(--p-child-dim);
+}
+
+/* The swatch mirrors the edge exactly: same colour, same dash, same relative weight. */
+.plegend-line {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 0;
+  border-top: 2px solid var(--p-edge-control);
+}
+.plegend-line[data-family='failure'] {
+  border-top-width: 3px;
+  border-top-color: var(--p-edge-failure);
+}
+.plegend-line[data-family='resource'] {
+  border-top-style: dashed;
+  border-top-color: var(--p-edge-resource);
+}
+.plegend-line[data-family='wait'] {
+  border-top-style: dashed;
+  border-top-color: var(--p-edge-wait);
+}
+.plegend-line[data-family='subflow'] {
+  border-top-style: dashed;
+  border-top-color: var(--p-edge-subflow);
+}
+.plegend-line[data-family='gate'] {
+  border-top-style: dotted;
+  border-top-color: var(--p-edge-gate);
+}
+.plegend-line[data-family='latent'] {
+  border-top-style: dotted;
+  border-top-color: var(--p-ink-3);
+}
+
+.plegend-mark {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--p-line);
+  border-radius: 3px;
+}
+.plegend-mark[data-mark='start'] {
+  box-shadow: inset 3px 0 0 var(--p-ink-1);
+}
+.plegend-mark[data-mark='hub'] {
+  border-style: dashed;
+  border-color: var(--p-ink-2);
+}
+.plegend-mark[data-mark='recovery'] {
+  border-color: var(--p-edge-failure);
+}
+/* The pennant in miniature, so the legend teaches the silhouette and not just the colour. */
+.plegend-mark[data-mark='rpc'] {
+  width: 14px;
+  border: 0;
+  background: var(--p-rpc);
+  border-radius: 0;
+  clip-path: polygon(0 0, 60% 0, 100% 50%, 60% 100%, 0 100%);
+}
+
+/* ---------- compare grid ---------- */
+
+.pgrid {
+  display: grid;
+  /* Wide enough that a thumbnail is legible enough to judge. At 340px the tiles fit four
+     across and every one was too small to compare, which defeats the point of the grid. */
+  grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
+  /* `min-content` rows, not auto. The grid sits in a height-bounded flex parent, and auto
+     rows distribute the available height — so they COMPRESS below their content instead of
+     overflowing, which squashed every 320px thumbnail to about 100px. */
+  grid-auto-rows: min-content;
+  gap: 14px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  padding: 14px 16px 28px;
+  min-height: 0;
+}
+.ptile {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border: 1px solid var(--p-line-soft);
+  border-radius: var(--p-radius);
+  background: var(--p-surface-1);
+  overflow: hidden;
+}
+.ptile-cap {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+.ptile-open {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--p-ink-0);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.ptile-open:hover .ptile-name {
+  text-decoration: underline;
+}
+.ptile-letter {
+  min-width: 20px;
+  padding: 1px 4px;
+  border: 1px solid var(--p-line);
+  border-radius: 4px;
+  color: var(--p-ink-1);
+  font-family: var(--p-mono);
+  font-size: 10px;
+  text-align: center;
+}
+.ptile-count {
+  flex: 0 0 auto;
+  color: var(--p-ink-3);
+  font-family: var(--p-mono);
+  font-size: 10px;
+}
+/* `flex: 0 0 auto` because the tile is a flex column: without it the stage shrinks to its
+   content and every thumbnail collapses to a sliver. */
+.ptile-stage {
+  height: 320px;
+  flex: 0 0 auto;
+}
+.ptile-note,
+.ptile-error {
+  margin: 0;
+  padding: 7px 10px;
+  border-top: 1px solid var(--p-line-soft);
+  color: var(--p-ink-3);
+  font-size: 10.5px;
+}
+.ptile-error {
+  color: var(--p-edge-failure);
+  font-family: var(--p-mono);
+}
+
+/* ---------- stage ---------- */
+
+.pstage {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+/*
+ * The controls bar and the legend are OVERLAYS, so the pane insets itself to leave them room. Without
+ * this the bar sat on top of the first Step of a top-down flow — an overlay may cover empty canvas, but
+ * never the place the flow starts.
+ */
+.pstage-pane {
+  padding-top: 54px;
+  padding-bottom: 12px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  /* Written by Stage on every viewport move. Kept in CSS rather than React state so a wheel gesture
+     is one style mutation instead of a re-render of every node and edge. */
+  --zoom-comp: 1;
+  --edge-boost: 1;
+}
+
+/* ---------- edges ----------
+   Styled here, not inline, so the zoom-compensation variable can reach stroke widths without
+   React re-rendering. Solid = control flow, dashed = everything else: one pre-attentive channel
+   carrying the most important distinction. */
+
+.react-flow__edge-path {
+  stroke-width: calc(1.5px * var(--zoom-comp));
+}
+.pedge-control .react-flow__edge-path {
+  stroke: var(--p-edge-control);
+  /* Contrast RISES as the graph shrinks, so the skeleton survives being small. Clamps at 1. */
+  opacity: calc(0.82 * var(--edge-boost));
+}
+/* Recovery is the thickest line on the canvas — always drawn, and routed to a side gutter rather
+   than hidden behind a toggle. */
+.pedge-failure .react-flow__edge-path {
+  stroke: var(--p-edge-failure);
+  stroke-width: calc(2.4px * var(--zoom-comp));
+  opacity: calc(0.9 * var(--edge-boost));
+}
+.pedge-resource .react-flow__edge-path {
+  stroke: var(--p-edge-resource);
+  stroke-dasharray: 5 4;
+}
+.pedge-wait .react-flow__edge-path {
+  stroke: var(--p-edge-wait);
+  stroke-dasharray: 5 4;
+}
+.pedge-subflow .react-flow__edge-path {
+  stroke: var(--p-edge-subflow);
+  stroke-dasharray: 6 4;
+}
+.pedge-lit .react-flow__edge-path {
+  stroke-width: calc(2.6px * var(--zoom-comp));
+  opacity: 1;
+}
+.pedge-dim .react-flow__edge-path {
+  opacity: 0.24;
+}
+/* React Flow's own theming surface. Bare --xy-* names; there is no
+   `--xy-background-pattern-color-default`, the fallback is per-variant. */
+.pstage {
+  --xy-background-color: var(--p-bg);
+  /* THE REAL VARIABLE NAME. It was `--xy-background-pattern-dots-color`, which
+   * React Flow never reads — it reads the bare `--xy-background-pattern-color`
+   * and otherwise falls through to `--xy-background-pattern-dots-color-default`,
+   * which is its LIGHT default. So the dot grid was MEASURED painting that light
+   * grey on a near-black canvas. A silent no-op with a visible consequence, and
+   * the compliance check written to catch it could not see this file. */
+  --xy-background-pattern-color: var(--line-soft);
+  --xy-edge-stroke: var(--p-edge-control);
+  --xy-edge-stroke-selected: var(--p-ink-1);
+  --xy-controls-button-background-color: var(--p-surface-2);
+  --xy-controls-button-background-color-hover: var(--p-surface-3);
+  --xy-controls-button-color: var(--p-ink-1);
+  --xy-controls-button-color-hover: var(--p-ink-0);
+  --xy-controls-button-border-color: var(--p-line);
+}
+
+/* Anchors only. Visible handles would read as "you can connect these", which is exactly
+   what this surface must not suggest. */
+.phandle {
+  width: 1px !important;
+  height: 1px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---------- boxes ---------- */
+
+/* A div[role=button], not a <button>: the segmented bar inside is itself a button and nesting
+   interactive controls is invalid. Enter/Space are wired by hand in NodeBox. */
+.pbox {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+  padding: 7px 9px;
+  border: 1px solid var(--p-line);
+  border-radius: var(--p-radius);
+  background: var(--p-surface-1);
+  color: var(--p-ink-0);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pbox:hover {
+  border-color: var(--p-ink-3);
+}
+.pbox[data-selected='true'] {
+  border-color: var(--p-ink-1);
+  box-shadow: 0 0 0 1px var(--p-ink-2);
+}
+
+/* Colour says who has to act. Derived from the wait conditions, never configured. */
+.pbox[data-actor='external'] {
+  border-color: var(--p-external);
+  background: linear-gradient(var(--p-external-dim), var(--p-surface-1) 42%);
+}
+.pbox[data-actor='unknown'] {
+  border-color: var(--p-unknown);
+  border-style: dashed;
+}
+.pbox[data-actor='clock'] {
+  border-color: var(--p-clock);
+}
+.pbox[data-actor='child'] {
+  border-color: var(--p-child);
+}
+.pbox[data-emphasis='muted'] {
+  opacity: 0.82;
+}
+.pbox[data-emphasis='start'] {
+  box-shadow: inset 3px 0 0 var(--p-ink-1);
+}
+.pbox[data-emphasis='hub'] {
+  border-style: dashed;
+}
+.pbox-gate {
+  border-width: 2px;
+}
+.pbox-note,
+.pbox-summary {
+  border-style: dashed;
+  background: var(--p-surface-2);
+}
+.pbox-rpc {
+  border-radius: 16px;
+}
+.pbox-channel {
+  border-radius: 3px;
+  border-left: 3px solid var(--p-edge-wait);
+}
+.pbox-stream {
+  border-style: dotted;
+}
+.pbox-subflow {
+  border-style: dashed;
+  border-color: var(--p-child);
+}
+.pbox-commit {
+  border-radius: 4px;
+  border-left: 3px solid var(--p-edge-control);
+}
+
+.pbox-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  justify-content: space-between;
+}
+.pbox-title {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pbox-badge {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--p-external);
+  /* The same pair as `.badge-awaiting`: ink ON an amber fill, so it uses the one token that
+   * inverts while the amber does not. It was a hand-copied hex of --p-surface-1. */
+  color: var(--color-attention-on);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* The type on the left, the status on the right. Both text — Temporal had to retrofit a text
+   channel for status after shipping colour alone. */
+.pbox-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  justify-content: space-between;
+  min-width: 0;
+}
+.pbox-sub {
+  overflow: hidden;
+  color: var(--p-ink-3);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pbox-status {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border: 1px solid var(--p-line);
+  border-radius: 3px;
+  color: var(--p-ink-1);
+  font-family: var(--p-mono);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+.pbox-rows,
+.pbox-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.pbox-section {
+  margin-top: 4px;
+  padding-top: 3px;
+  border-top: 1px solid var(--p-line-soft);
+}
+.pbox-section-label {
+  color: var(--p-ink-3);
+  font-size: 9px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.pbox-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.pbox-row[data-tone='quiet'] {
+  color: var(--p-ink-2);
+}
+.pbox-row[data-tone='warn'] {
+  color: var(--p-edge-failure);
+}
+.pbox-glyph {
+  flex: 0 0 auto;
+  width: 11px;
+  color: var(--p-ink-2);
+  font-size: 10px;
+}
+.pbox-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pbox-trail {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 6px;
+  color: var(--p-ink-2);
+  font-family: var(--p-mono);
+  font-size: 10px;
+}
+
+/* ---------- bands ---------- */
+
+.pband {
+  border-radius: var(--p-radius);
+  pointer-events: none;
+}
+.pband-lane {
+  border: 1px solid var(--p-line-soft);
+  background: var(--p-surface-1);
+  opacity: 0.5;
+}
+.pband-frame {
+  border: 1px dashed var(--p-line);
+  background: none;
+}
+.pband-lane[data-tone='external'] {
+  border-color: var(--p-external);
+  background: var(--p-external-dim);
+}
+.pband-lane[data-tone='unknown'] {
+  border-color: var(--p-unknown);
+  border-style: dashed;
+  background: var(--p-unknown-dim);
+}
+.pband-lane[data-tone='clock'] {
+  border-color: var(--p-clock);
+  background: var(--p-clock-dim);
+}
+.pband-lane[data-tone='child'] {
+  border-color: var(--p-child);
+  background: var(--p-child-dim);
+}
+.pband-lane[data-tone='machine'] {
+  background: var(--p-machine-dim);
+}
+.pband-label {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  color: var(--p-ink-2);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ============================================================================
+ * External RPC — the door into the flow.
+ *
+ * Two conventions, combined, because our RPC is both things at once:
+ *
+ *   - BPMN gives a message arriving from outside an ENVELOPE glyph, and routes it over a connector
+ *     that no internal flow is allowed to use.
+ *   - n8n and Node-RED give an entry point a DISTINCT SILHOUETTE with no input side, so "nothing
+ *     flows into this" is structural rather than something you check by looking for a missing wire.
+ *
+ * So: a pennant, pointed at the step it unblocks. The point does double duty — it is the unique
+ * silhouette AND it is an arrow, which is what makes the association readable when the connector
+ * itself is only a few pixels long. An RPC node has no inbound edge by construction, so the flat back
+ * edge is honest: that side is the edge of the system.
+ * ==========================================================================*/
+
+.pbox-rpc {
+  /* Border via two layers: `clip-path` clips a border away, so the outer layer IS the border. */
+  background: var(--p-rpc);
+  padding: 1.5px;
+  border: 0;
+  color: var(--p-ink-0);
+  /*
+   * NO RADIUS, and not a stylistic choice. `.pbox` sets an 8px radius and `overflow: hidden`, and a
+   * rounded corner plus a `clip-path` polygon are two different shapes fighting over the same pixels —
+   * which chewed a notch out of the pennant's left edge. The polygon is the only shape here.
+   *
+   * It also reads better: a crisp geometric tag beside rounded step cards makes "this is not a step"
+   * a silhouette difference rather than a colour difference.
+   */
+  border-radius: 0;
+  overflow: visible;
+}
+
+.pbox-rpc[data-point='right'] {
+  clip-path: polygon(0 0, calc(100% - 13px) 0, 100% 50%, calc(100% - 13px) 100%, 0 100%);
+}
+
+.pbox-rpc[data-point='down'] {
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 13px), 50% 100%, 0 calc(100% - 13px));
+}
+
+/* The chevron eats into the bottom edge, so the text has to be held clear of it or it is clipped. */
+.pbox-rpc[data-point='down'] > .pbox-inner {
+  padding-bottom: 17px;
+}
+
+.pbox-rpc > .pbox-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  width: 100%;
+  height: 100%;
+  padding: 6px 8px;
+  background: var(--p-rpc-dim);
+  clip-path: inherit;
+  border-radius: 0;
+}
+
+.pbox-rpc .pbox-title {
+  color: var(--p-rpc);
+  font-weight: 600;
+}
+
+/* The BPMN envelope, as text rather than an icon font. */
+.pbox-rpc .pbox-title::before {
+  content: '✉ ';
+  opacity: 0.85;
+}
+
+.pbox-rpc .pbox-sub {
+  color: var(--p-ink-2);
+  font-size: 10px;
+}
+
+.pbox-rpc[data-selected='true'] {
+  background: color-mix(in srgb, var(--p-rpc) 100%, white 25%);
+}
+
+/* The outside-the-flow lane: BPMN's collapsed pool for an external participant. */
+.pband-lane[data-tone='rpc'] {
+  border-color: var(--p-rpc);
+  background: var(--p-rpc-dim);
+}
+
+/*
+ * MESSAGE FLOW. Dashed, per BPMN — the connector an internal transition may never use. The dash is
+ * the second, redundant channel: the hollow arrowhead already says it, and a reader who is looking at
+ * line style rather than at arrowheads still gets the answer.
+ */
+.pedge-rpc .react-flow__edge-path,
+.pedge-gate .react-flow__edge-path {
+  stroke: var(--p-edge-rpc);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 4;
+}
+
+/*
+ * BPMN's loop marker, on the card. The edge shows the PATH; this states the BEHAVIOUR, which is what
+ * survives being small. Quiet by default — a loop is ordinary in a Dex flow (21 of 96 transitions),
+ * so it is a fact, not a warning.
+ */
+.pbox-loop {
+  flex: 0 0 auto;
+  margin-left: 5px;
+  color: var(--p-ink-2);
+  font-size: 12px;
+  line-height: 1;
+}
+
+/*
+ * A self-loop arcs out of the right face and back into the top one, so it crosses the card's own
+ * corner. Slightly thinner and more transparent than a transition between two steps, because it is
+ * decoration on a fact the card already carries.
+ */
+.pedge-loop .react-flow__edge-path {
+  stroke-width: calc(1.2px * var(--zoom-comp));
+  opacity: calc(0.65 * var(--edge-boost));
+}
+
+/* ============================================================================
+ * SEMANTIC GROUPS — n8n's labelled region, transplanted.
+ *
+ * n8n tints each group a different pastel and puts the label top-left inside the box. The tint there
+ * carries NO meaning — it exists only so adjacent regions are separable. Ours does the same, which is
+ * why the hue is a rotating index rather than anything derived: this canvas already spends colour on
+ * "who has to act", and a group tint that competed with that would break the one rule the palette has.
+ *
+ * So the tint is barely-there and hueless-adjacent, the border is dashed, and the whole thing sits
+ * BEHIND everything at very low opacity. A group is context, not content — if it ever wins a fight
+ * with a card or an edge, it is drawn wrong.
+ * ==========================================================================*/
+
+.pband-group {
+  /* The BOUNDARY, not the fill, is what says one region ends and the next begins — so it is a full-strength
+   * dashed line rather than something faded, and two adjacent bands are distinguishable by it even before
+   * their fills differ. */
+  border: 1px dashed var(--p-line);
+
+  /*
+   * NO `opacity` HERE, AND THAT IS THE FIX. It used to be `opacity: 0.55`, which composited the whole band
+   * toward the canvas and halved whatever the token said — so a fill measured at 1.17:1 arrived on screen at
+   * roughly 1.08:1 and the regions read as barely present. The token is now the truth, which is also what
+   * makes the colour gate's numbers mean something.
+   *
+   * Removing it also removes a stacking context. Bands stay under the edges because `Stage` sets zIndex 0 on
+   * a band and 1 on an edge explicitly, not because opacity happened to isolate them.
+   */
+}
+
+/*
+ * ACHROMATIC. Six rules used to mix 22-30% of --p-clock, --p-child,
+ * --p-edge-resource, --p-external, --p-rpc and --p-edge-failure into the region
+ * background — so a region was tinted with "a person must act" or with
+ * "failure", which is exactly the crowding this replaces. The comment above
+ * them claimed they were "near-hueless"; they were not.
+ *
+ * Colour on this canvas means WHO MUST ACT. A region is not an actor, so it gets
+ * lightness and nothing else. Two steps alternating by index is enough: only
+ * ADJACENT bands ever need telling apart, and the label does the rest.
+ */
+.pband-group[data-hue='0'],
+.pband-group[data-hue='2'],
+.pband-group[data-hue='4'] {
+  background: var(--band-0);
+}
+.pband-group[data-hue='1'],
+.pband-group[data-hue='3'],
+.pband-group[data-hue='5'] {
+  background: var(--band-1);
+}
+
+/* The label reads as a region name, so it is quieter and larger-tracked than a card title. */
+.pband-group > .pband-label {
+  color: var(--p-ink-1);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+}
+
+/*
+ * The recovery mark: `⇥` a sink (the flow stops here), `⇉` a dispatcher (it can send the flow onward).
+ * Failure-coloured, because that is what it is about, and quiet because a saga catching its own
+ * failures is correct structure rather than a warning.
+ */
+.pbox-recovery {
+  flex: 0 0 auto;
+  margin-left: 5px;
+  color: var(--p-edge-failure);
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* ============================================================================
+ * THE UNIFIED SHELL — chat, canvas, panel.
+ *
+ * The canvas no longer shares its row with a document. Its own chrome sits ON it, at the edges: the
+ * controls along the top, the legend at the bottom-left. Both are overlays, so neither takes width from
+ * the drawing, and the left third belongs to chat.
+ *
+ * Legend and controls are deliberately SEPARATE surfaces. They answer different questions — "what am I
+ * looking at" versus "what do I want to see" — and stacking them in one column made the legend something
+ * you scrolled past on the way to a switch.
+ * ==========================================================================*/
+
+.pchat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--p-line-soft);
+  background: var(--p-surface-1);
+}
+.pchat-head {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+.pchat-head h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.pchat-sub {
+  margin: 5px 0 0;
+  color: var(--p-ink-2);
+  font-size: 11.5px;
+}
+.pchat-log {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-height: 0;
+}
+/* Says what it is. A placeholder that looked live would poison every judgement about the layout. */
+.pchat-mark {
+  margin: 0 0 2px;
+  padding: 2px 7px;
+  align-self: flex-start;
+  border: 1px dotted var(--p-ink-3);
+  border-radius: 4px;
+  color: var(--p-ink-3);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pchat-turn {
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  max-width: 92%;
+}
+.pchat-turn[data-from='you'] {
+  align-self: flex-end;
+  background: var(--p-surface-3);
+  color: var(--p-ink-0);
+}
+.pchat-turn[data-from='agent'] {
+  align-self: flex-start;
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+}
+.pchat-compose {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--p-line-soft);
+}
+.pchat-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--p-line);
+  border-radius: 6px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+  font: inherit;
+  font-size: 12.5px;
+}
+.pchat-input::placeholder {
+  color: var(--p-ink-3);
+}
+
+/* ---------- controls, along the canvas's top edge ---------- */
+
+.pctlbar {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  right: 132px;
+  z-index: 5;
+  display: flex;
+  /*
+   * ONE ROW, scrolling sideways if it must. Wrapping made the bar two or three rows tall exactly when
+   * the canvas was narrowest — the panel open — and since the pane reserves a FIXED inset for it, a
+   * taller bar covered the first Step of the flow. A fixed-height overlay is the only kind whose inset
+   * can be trusted.
+   */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: 8px;
+  /* Translucent so the drawing is never fully hidden behind its own switches. */
+  background: color-mix(in srgb, var(--p-surface-1) 88%, transparent);
+  backdrop-filter: blur(6px);
+  scrollbar-width: none;
+}
+.pctlbar::-webkit-scrollbar {
+  display: none;
+}
+.pctlbar .pctl-row,
+.pctlbar .pctl {
+  flex-wrap: nowrap;
+}
+.pctlbar .pchip,
+.pctlbar .pprov-chip {
+  white-space: nowrap;
+}
+/* Horizontal in the bar, where the old sidebar stacked them vertically. */
+.pctlbar .pctl {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.pctlbar .pctl-group {
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+}
+.pctlbar .pctl-label {
+  white-space: nowrap;
+}
+
+/* ---------- legend, its own surface at the bottom-left ---------- */
+
+.pprovbox {
+  position: absolute;
+  /*
+   * Bottom-left, not top-left: the controls bar owns the top edge, and stacked there the two collided.
+   * Window-fixed rather than in the scene, unlike the legend — provenance is a claim about the ARTEFACT,
+   * not a key to the drawing, and it must not be pannable out of sight.
+   */
+  bottom: 12px;
+  left: 12px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--p-surface-1) 90%, transparent);
+  backdrop-filter: blur(6px);
+}
+.plegend-notes {
+  padding: 0 12px 10px;
+  border-top: 1px solid var(--p-line-soft);
+  margin-top: 2px;
+}
+.plegend-notes p {
+  margin: 8px 0 0;
+  color: var(--p-ink-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ---------- a group band as a tap target ---------- */
+
+/*
+ * Clickable only in its OWN space. Cards sit above the band, so a click on a Step still reaches the
+ * Step and a click on the label strip or the padding reaches the region.
+ */
+.pband-tap {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.pband-tap:hover {
+  border-color: var(--p-ink-3);
+}
+.pband-tap[data-selected='true'] {
+  border-style: solid;
+  border-color: var(--p-ink-2);
+}
+.pband-tap:focus-visible {
+  outline: 1px solid var(--p-ink-1);
+  outline-offset: 2px;
+}
+
+/* The region panel's opening line, which is the group's reason for existing. */
+.ppan-lede {
+  margin: 0 0 4px;
+  color: var(--p-ink-1);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.ppan-diag {
+  margin: 8px 0 0;
+  color: var(--p-edge-failure);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.plegend-toggle {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  background: none;
+  color: var(--p-ink-3);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.plegend-toggle:hover {
+  color: var(--p-ink-1);
+}
+
+/* The chat/canvas split handle. Wider hit area than its visible line, per Fitts. */
+.psplit {
+  position: relative;
+  cursor: col-resize;
+  background: var(--p-line-soft);
+  touch-action: none;
+}
+.psplit::after {
+  content: '';
+  position: absolute;
+  inset: 0 -5px;
+}
+.psplit:hover,
+.psplit:focus-visible {
+  background: var(--p-ink-3);
+  outline: none;
+}
+
+/*
+ * The harness-only fixture picker. Deliberately separated from every real control and labelled, because
+ * a product session is about one flow and a switcher among genuine controls would imply otherwise.
+ */
+.pharness {
+  position: absolute;
+  /*
+   * TOP right, under the focus button. It was bottom-right and collided with the legend chip, which is
+   * now anchored to the bottom-right of the DRAWING — and the drawing wins that corner: it is the thing
+   * being looked at, and this picker does not exist in the product at all.
+   */
+  right: 12px;
+  top: 56px;
+  z-index: 5;
+  display: flex;
+  /*
+   * WRAPS, and aligns to the start rather than centring. It used to be one centred row, which was fine for
+   * five equal chips and stopped being fine the moment a grouped variant chooser joined them: the group
+   * was pushed off the right edge and clipped by the run panel, so the featured flow was the one you could
+   * not select. Columns, with a width cap, keeps every entry reachable at any pane width.
+   */
+  max-width: min(46ch, 44%);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 6px 9px;
+  border: 1px dashed var(--p-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--p-surface-1) 88%, transparent);
+  backdrop-filter: blur(6px);
+}
+.pharness-mark {
+  color: var(--p-ink-3);
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/*
+ * The legend, now a NODE in the scene rather than a window overlay — it pans and zooms with the drawing
+ * it decodes. `.plegend-node` is the React Flow node; `.plegend-card` is the surface.
+ */
+.plegend-node {
+  pointer-events: auto;
+  /*
+   * The card sits at the BOTTOM-LEFT of a fixed-height node, which is what bottom-aligns it with the
+   * flow. `align-items: flex-start` matters: collapsed, the card must shrink to its toggle rather than
+   * stretch to the node's reserved width, or it draws as a 292px-wide 17px-tall sliver that reads as a
+   * stray line on the canvas.
+   */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  height: 100%;
+}
+/*
+ * Styled as scene furniture rather than as a floating panel: the same dashed outline and translucent
+ * fill the group bands use, no shadow, no blur. It should read as another region of the drawing that
+ * happens to explain the drawing.
+ */
+.plegend-card {
+  border: 1px dashed var(--p-line);
+  border-radius: var(--p-radius);
+  background: color-mix(in srgb, var(--p-surface-1) 82%, transparent);
+}
+.plegend-card:hover {
+  border-color: var(--p-ink-3);
+}
+/* Collapsed it is only its own toggle: a chip sized to its text, not a full-width bar. */
+.plegend-card:not([data-open='true']) {
+  width: auto;
+}
+.plegend-card:not([data-open='true']) .plegend-toggle {
+  width: auto;
+  padding: 5px 10px;
+  color: var(--p-ink-2);
+}
+.plegend-card[data-open='true'] {
+  width: 100%;
+}
+
+/* ============================================================================
+ * THE PANEL, INSIDE THE CANVAS COLUMN.
+ *
+ * In the harness the panel was a third GRID column. Dropped into the app's canvas pane — a flex column —
+ * it stacked BELOW the stage instead: a full-width bottom drawer that squeezed the drawing to 139px of
+ * the pane's height. Absolutely positioned against the right edge here, which is also what the app's
+ * locked decision wanted: a detail panel OCCLUDES the canvas rather than resizing it, so opening one
+ * cannot change the zoom.
+ * ==========================================================================*/
+
+.pcanvas > .ppan {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 360px;
+  z-index: 6;
+  border-left: 1px solid var(--p-line-soft);
+  /* Opaque, unlike the other canvas chrome: it is a reading surface, and edges showing through prose is
+     worse than losing sight of a few of them. */
+  background: var(--p-surface-1);
+}
+
+/* ============================================================================
+ * THE FIXTURE PICKER — TEMPORARY SCAFFOLDING, and it should look like it.
+ *
+ * A distinct colour that appears NOWHERE in either palette's semantics, so it cannot be mistaken for a
+ * real signal. Amber already means "a person must act", cyan "the outside reaching in", rose "failure",
+ * purple "a child flow"; a lime is unclaimed and reads as debug tooling by convention.
+ *
+ * Left-aligned with the controls bar above it, because it is chrome and chrome should line up — floating
+ * it right made it look like a canvas affordance.
+ * ==========================================================================*/
+
+.pharness {
+  right: auto;
+  left: 12px;
+  border-color: color-mix(in srgb, var(--p-temp) 55%, transparent);
+  background: color-mix(in srgb, var(--p-temp-dim) 88%, transparent);
+}
+.pharness-mark {
+  color: var(--p-temp);
+  font-weight: 600;
+}
+.pharness .pchip {
+  border-color: color-mix(in srgb, var(--p-temp) 30%, var(--p-line));
+}
+.pharness .pchip[data-on='true'] {
+  border-color: var(--p-temp);
+  color: var(--p-temp);
+}
+
+/* ==========================================================================
+ * CHAT ⇄ CANVAS: the entity chip, the @ picker, and the cross-pane hover mark.
+ *
+ * These live in the CANVAS stylesheet even though two of the three render inside the chat pane, and
+ * that is the point. `docs/OPEN_DESIGN.md` §1 left one question open — does the canvas's rule that
+ * colour means WHO MUST ACT survive into the chat pane, or stop at the canvas boundary? A mention of
+ * `DirectorGate` in the transcript has to read amber, because the card it names reads amber; if it did
+ * not, the two panes would describe one step in two visual languages. So the rule crosses, the tokens
+ * come with it, and the app's blue accent gives way inside a chip.
+ * ==========================================================================*/
+
+/* --- the reference chip ------------------------------------------------- */
+
+/*
+ * QUIET BY DEFAULT, and this is the second pass. The first version drew every mention as a bordered,
+ * filled chip, and a paragraph naming five steps came out looking like a code listing: five boxes
+ * competing with the sentence they were inside. The rule the canvas already lives by settles it. Colour
+ * says WHO HAS TO ACT, so a machine step is a marked word and only an actor gets an accent.
+ *
+ * The mark is a dotted underline plus the identifier face, which is enough to say "this is a name you can
+ * click" without breaking the line's rhythm. The full chip treatment comes back on hover and on the
+ * composer's scope row, where the reference IS the subject rather than part of a sentence.
+ */
+.pent {
+  display: inline;
+  max-width: 100%;
+  border-bottom: 1px dotted var(--p-ink-3);
+  color: var(--p-ink-1);
+  /* Inline in a paragraph, so it must sit on the text baseline and never change the line box. A chip
+     that raises its line pushes the whole paragraph around as the agent's reply resolves. */
+  font-size: 0.94em;
+  line-height: inherit;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.pent-name {
+  font-family: var(--p-mono);
+}
+.pent-live {
+  padding: 0;
+  border-width: 0 0 1px;
+  background: none;
+  cursor: pointer;
+}
+/* `data-active` is a hover ANYWHERE: on this chip, or on the card it names. That is the whole point of
+   routing hover through selection rather than leaving it to `:hover`. */
+.pent-live:hover,
+.pent-live[data-active='true'] {
+  border-bottom-style: solid;
+  background: var(--p-surface-3);
+  color: var(--p-ink-0);
+}
+.pent-live:focus-visible {
+  outline: 1px solid var(--p-ink-1);
+  outline-offset: 1px;
+}
+
+/* The same accent the card carries, so a gate is amber in both panes. */
+/* A SOLID underline as well as a hue, so the accented kinds stay distinguishable from the quiet ones
+   without relying on colour at all. */
+.pent[data-actor='external'] {
+  border-bottom-color: var(--p-external);
+  border-bottom-style: solid;
+  color: var(--p-external);
+}
+.pent[data-actor='unknown'] {
+  border-bottom-color: var(--p-unknown);
+  color: var(--p-unknown);
+}
+/* An RPC is the door, and cyan is amber's complement, so the pair reads as a relationship. */
+.pent[data-kind='rpc'],
+.pent[data-kind='timeoutHandler'] {
+  border-bottom-color: var(--p-rpc);
+  border-bottom-style: solid;
+  color: var(--p-rpc);
+}
+/* Regions and resources stay hueless: they are nouns, not actors. A region keeps the band's dashed edge
+   so it reads as an area rather than a thing. */
+.pent[data-kind='group'] {
+  border-bottom-style: dashed;
+}
+
+/* --- the composer, with references inline ------------------------------- */
+
+/*
+ * A `contenteditable`, not a textarea, because a reference has to sit BETWEEN two words:
+ * `move ⟦A⟧ after ⟦B⟧` is a different instruction from `move ⟦B⟧ after ⟦A⟧`, and a textarea cannot hold an
+ * element in the middle of a line.
+ *
+ * The clamp and the scroll behaviour are the same ones the textarea had; the difference is that a div grows
+ * on its own, so the JS that measured `scrollHeight` and wrote a height back is gone.
+ */
+.pcompose {
+  min-height: var(--composer-min-h);
+  max-height: var(--composer-max-h);
+  padding: 7px 10px;
+  overflow-y: auto;
+  cursor: text;
+  /* Long identifiers must be able to break, or one `bk-chapter-plan-path` widens the whole pane. */
+  overflow-wrap: anywhere;
+  /* Preserves the newlines Shift+Enter inserts, and the spaces around a pill. */
+  white-space: pre-wrap;
+}
+.pcompose:focus,
+.pcompose:focus-visible {
+  border-color: var(--p-ink-3);
+  outline: none;
+}
+
+/* A contenteditable has no `placeholder` attribute, so it is drawn from a data attribute instead. Keyed
+   off `data-empty` rather than `:empty`, because a browser leaves a stray `<br>` behind and `:empty` then
+   stops matching a box that looks blank. */
+.pcompose[data-empty='true']::before {
+  content: attr(data-placeholder);
+  color: var(--p-ink-3);
+  pointer-events: none;
+}
+
+/*
+ * AN INLINE PILL. `display: inline-block` and `vertical-align: baseline` so it sits in the line of text
+ * without changing the line box — a pill that raised its own line would make the sentence jump every time
+ * one was inserted.
+ *
+ * `contenteditable="false"` (set in `refEditorDom`) is what makes it atomic: the caret steps over it and
+ * one Backspace removes the whole reference rather than eating the label a letter at a time.
+ */
+.pcompose-pill {
+  display: inline-block;
+  margin: 0 1px;
+  padding: 0 5px;
+  border: 1px solid var(--p-line);
+  border-radius: 4px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+  font-family: var(--p-mono);
+  font-size: 0.9em;
+  line-height: 1.45;
+  vertical-align: baseline;
+  white-space: nowrap;
+  /* Not selectable as text: a half-selected pill is a reference the user thinks they can edit. */
+  user-select: none;
+}
+
+/* The same accents the card and the transcript chip use, so one step reads the same in all three places.
+   Colour is spent only on actors; a machine step, a resource and a region stay hueless. */
+.pcompose-pill[data-actor='external'] {
+  border-color: color-mix(in srgb, var(--p-external) 60%, transparent);
+  background: color-mix(in srgb, var(--p-external-dim) 55%, var(--p-surface-2));
+  color: var(--p-external);
+}
+.pcompose-pill[data-actor='unknown'] {
+  border-color: color-mix(in srgb, var(--p-unknown) 60%, transparent);
+  color: var(--p-unknown);
+}
+.pcompose-pill[data-kind='rpc'],
+.pcompose-pill[data-kind='timeoutHandler'] {
+  border-color: color-mix(in srgb, var(--p-rpc) 60%, transparent);
+  background: color-mix(in srgb, var(--p-rpc-dim) 55%, var(--p-surface-2));
+  color: var(--p-rpc);
+}
+.pcompose-pill[data-kind='group'] {
+  border-style: dashed;
+}
+
+/* --- the @ picker ------------------------------------------------------- */
+
+.pmention {
+  position: absolute;
+  /* Above the composer's own padding, anchored to the box rather than to the caret. See MentionPicker. */
+  bottom: calc(100% - 12px);
+  left: 16px;
+  /* Capped rather than pane-width: at 50% of the window a full-width list reads as a banner over the
+     transcript rather than as a suggestion attached to the box. */
+  width: min(420px, calc(100% - 32px));
+  z-index: 8;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: 8px;
+  background: var(--p-surface-1);
+  box-shadow: var(--shadow-pop);
+}
+.pmention-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, auto) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.pmention-row[data-active='true'] {
+  background: var(--p-surface-3);
+}
+.pmention-mark {
+  color: var(--p-ink-3);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pmention-mark[data-actor='external'] {
+  color: var(--p-external);
+}
+.pmention-mark[data-kind='rpc'],
+.pmention-mark[data-kind='timeoutHandler'] {
+  color: var(--p-rpc);
+}
+.pmention-name {
+  color: var(--p-ink-1);
+  font-family: var(--p-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+/* The matched characters. With initialism matching this is the ONLY way the user learns the shortcut
+   exists — without it the picker looks like it matched by luck. */
+.pmention-hit {
+  color: var(--p-ink-0);
+  font-weight: 700;
+}
+.pmention-hint {
+  overflow: hidden;
+  color: var(--p-ink-3);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- the cross-pane hover mark ------------------------------------------ */
+
+/*
+ * `data-hover` is NOT `:hover`. It is true when the pointer is over this card or over any reference to
+ * it — a chip in the transcript, a name in a panel. Drawn as an outward ring rather than a background
+ * change so it survives on top of the six actor tints without fighting any of them, and so it reads
+ * differently from selection (which is a border and an inner ring).
+ */
+.pbox[data-hover='true'] {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--p-ink-1) 45%, transparent);
+}
+.pbox[data-selected='true'][data-hover='true'] {
+  box-shadow:
+    0 0 0 1px var(--p-ink-2),
+    0 0 0 3px color-mix(in srgb, var(--p-ink-1) 45%, transparent);
+}
+
+/*
+ * `data-ref` — this card is in the composer's reference list.
+ *
+ * A DASHED outset ring in the APP'S accent, not one of the canvas hues, and both halves of that are
+ * deliberate.
+ *
+ * Dashed, because three marks can sit on one card and they cannot all be brightness: selection is a
+ * border plus a tight inner ring, hover is a soft solid halo, and a reference is dashed because it is
+ * provisional — it lasts until the message is sent and then it is gone. Cmd-clicking four steps has to be
+ * checkable at a glance without reading anything.
+ *
+ * The app's blue rather than cyan, which the first version used, because every canvas hue already means
+ * something about the FLOW — amber a person must act, cyan the door they come through, rose failure,
+ * purple a child flow — and "the chat is holding this" is not a fact about the flow at all. Borrowing
+ * cyan would have made a referenced Step look faintly like an RPC. This is the one place the app's accent
+ * belongs on the canvas, and it draws the line cleanly: canvas hues are flow semantics, app blue is chat
+ * state.
+ */
+.pbox[data-ref='true'] {
+  outline: 1.5px dashed color-mix(in srgb, var(--color-accent) 80%, transparent);
+  outline-offset: 3px;
+}
+
+/* ==========================================================================
+ * THE LIFECYCLE CONTROL: a state chip, one verb button, one line about the other side.
+ *
+ * Sits in the APP HEADER beside the flow name, not in the canvas control bar — Copilot Studio's split,
+ * and the right one: lifecycle is about the artefact, detail and direction are about the drawing, and a
+ * person hunting for one should never have to read the other.
+ *
+ * It uses the app's own accent rather than a canvas hue, for the same reason the reference ring does:
+ * every canvas hue already means something about the FLOW (amber a person must act, cyan the door they
+ * come through, rose failure), and "which version am I looking at" is not a fact about the flow.
+ * ==========================================================================*/
+
+.modebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/*
+ * THE CHIP REPORTS, IT DOES NOT ACT. Rendered as a span, never a button: a non-technical user who clicks a
+ * state label expecting information must not find they have published. Making it clickable would recreate
+ * the two-position toggle this whole design exists to avoid.
+ */
+.modechip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--p-line);
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/*
+ * The ONE colour difference between the modes, and it is the whole visual delta on this control.
+ *
+ * Running is the app's accent because it is the normal, expected state and the one most sessions open in.
+ * Editing is hueless with a dashed edge: dashed because a draft is provisional, and hueless because colour
+ * in this product is spent on "who has to act" and an editing session is not an actor.
+ */
+.modechip[data-mode='running'] {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  color: var(--color-accent);
+}
+.modechip[data-mode='editing'] {
+  border-style: dashed;
+  color: var(--p-ink-1);
+}
+
+/* Same honesty rule as the provenance chip and the fixture row: if it is not real, it says so. */
+.modechip-sim {
+  color: var(--p-ink-3);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.modebtn {
+  padding: 3px 10px;
+  border: 1px solid var(--p-line);
+  border-radius: 6px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.modebtn:hover:not(:disabled) {
+  border-color: var(--p-ink-3);
+  color: var(--p-ink-0);
+}
+.modebtn:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+/* A blocked Publish stays visible and keeps its tooltip, which is where the reason lives. */
+.modebtn:disabled {
+  color: var(--p-ink-3);
+  cursor: default;
+}
+.modebtn[data-primary='true']:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
+  color: var(--color-accent);
+}
+
+/*
+ * THE UNPUBLISHED-CHANGES DOT. The indicator Copilot Studio lacks, so its documentation has to nag in
+ * prose instead. On the Edit button because that is exactly where a person would go to act on it.
+ */
+.modebtn[data-dot='true']::after {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  vertical-align: middle;
+}
+
+/*
+ * Fixture provenance, inside the POC-only row rather than standing over the drawing.
+ *
+ * `hand-derived` is the load-bearing word: a hand-derived graph that looked generated is the one mistake
+ * that could turn a demo into evidence it cannot support. So it stays legible and keeps its full tooltip,
+ * and it is drawn in the same temporary lime as the row it belongs to — the whole row goes away when there
+ * are real flows to open, and the provenance goes with it.
+ */
+.pharness-prov {
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--p-temp) 40%, transparent);
+  border-radius: 3px;
+  color: var(--p-temp);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: help;
+}
+/* Generated output is the ordinary case, so it is the quieter one. */
+.pharness-prov[data-generated='true'] {
+  border-color: var(--p-line);
+  color: var(--p-ink-3);
+}
+
+/* ==========================================================================
+ * THE THEME CONTROL. Three positions, in the header beside the honesty badge.
+ * ==========================================================================*/
+
+.themebar {
+  display: flex;
+  gap: 1px;
+  padding: 1px;
+  border: 1px solid var(--p-line);
+  border-radius: 6px;
+}
+.themebtn {
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: var(--p-ink-3);
+  font-size: 11px;
+  cursor: pointer;
+}
+.themebtn:hover {
+  color: var(--p-ink-1);
+}
+.themebtn[data-on='true'] {
+  background: var(--p-surface-3);
+  color: var(--p-ink-0);
+}
+.themebtn:focus-visible {
+  outline: 1px solid var(--color-focus);
+  outline-offset: 1px;
+}
+/* Shown only under `Auto`, where the setting and the result are two different facts. */
+.themebtn-echo {
+  margin-left: 4px;
+  color: var(--p-ink-3);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+/* ==========================================================================
+ * THE RUN LOG: what is happening, streaming into the chat pane.
+ *
+ * Its own block below the transcript rather than rows inside it, because a run is not a conversation and
+ * folding it in would mean minting agent turns for machine events.
+ * ==========================================================================*/
+
+.runlog {
+  flex: 0 0 auto;
+  max-height: 34%;
+  overflow-y: auto;
+  padding: 8px 16px 10px;
+  border-top: 1px solid var(--p-line-soft);
+}
+.runlog-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.runlog-title {
+  color: var(--p-ink-2);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.runlog-sim {
+  color: var(--p-ink-3);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.runlog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.runlog-row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/*
+ * ONE MARK PER ROW, and its colour is the same vocabulary the canvas uses: blue in progress, green finished,
+ * red could-not-finish. The same fact is on the card at the same moment, so the two panes cannot disagree.
+ */
+.runlog-mark {
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  transform: translateY(-2px);
+}
+.runlog-row[data-state='running'] .runlog-mark {
+  background: var(--p-run-active);
+}
+.runlog-row[data-state='done'] .runlog-mark {
+  background: var(--p-run-done);
+}
+.runlog-row[data-state='failed'] .runlog-mark {
+  background: var(--p-run-failed);
+}
+
+/* The newest line is the one being read; the rest are history and recede. */
+.runlog-row .runlog-text {
+  color: var(--p-ink-3);
+}
+.runlog-row[data-latest='true'] .runlog-text {
+  color: var(--p-ink-1);
+}
+
+.runlog-done {
+  margin-top: 8px;
+  color: var(--p-ink-3);
+  font-size: 11px;
+}
+
+/* ==========================================================================
+ * RECENT JOBS — the audit trail under the diagram.
+ *
+ * A STRIP, not a panel. It is capped at a fraction of the pane and scrolls, so the
+ * diagram never loses more than a quarter of its height to history however many
+ * jobs there are — the canvas stays the thing you are looking at.
+ *
+ * COLOUR REUSES THE RUN VOCABULARY EXACTLY, which is the whole point of having one
+ * palette: `waiting` is amber because amber means a person must act on the canvas
+ * too, and a job waiting on somebody is the same fact as a gate waiting on somebody.
+ * Nothing new is minted here.
+ * ====================================================================== */
+.paudit {
+  flex: 0 0 auto;
+  max-height: 26%;
+  overflow-y: auto;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--p-line-soft);
+  background: var(--p-surface-1);
+}
+
+.paudit-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.paudit-title {
+  color: var(--p-ink-2);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.paudit-mark {
+  color: var(--p-ink-3);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.paudit-clear {
+  margin-left: auto;
+  color: var(--p-ink-2);
+  font-size: 10px;
+  text-decoration: underline;
+  text-decoration-color: var(--p-line);
+  text-underline-offset: 2px;
+}
+
+.paudit-clear:hover {
+  color: var(--p-ink-0);
+}
+
+.paudit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.paudit-item {
+  position: relative;
+  border-radius: 5px;
+}
+
+/* Selected and inspected are DIFFERENT marks because they are different facts: which row
+   the chat is about, and which run the diagram is painting. They are usually the same and
+   the one time they are not (Cmd-click to reference) the user needs to see it. */
+.paudit-item[data-selected='true'] {
+  background: var(--p-surface-3);
+}
+
+.paudit-item[data-inspected='true']::before {
+  content: '';
+  position: absolute;
+  inset-block: 2px;
+  left: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--p-ink-2);
+}
+
+.paudit-item[data-ref='true'] .paudit-job {
+  text-decoration: underline dashed;
+  text-underline-offset: 2px;
+}
+
+.paudit-row {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(4rem, auto) 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 44px 3px 8px;
+  cursor: default;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.paudit-row:hover {
+  background: var(--p-surface-2);
+}
+
+.paudit-mark-dot {
+  position: absolute;
+  left: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--p-run-idle);
+}
+
+.paudit-item[data-status='succeeded'] .paudit-mark-dot {
+  background: var(--p-run-done);
+}
+.paudit-item[data-status='failed'] .paudit-mark-dot {
+  background: var(--p-run-failed);
+}
+.paudit-item[data-status='running'] .paudit-mark-dot {
+  background: var(--p-run-active);
+}
+.paudit-item[data-status='waiting'] .paudit-mark-dot,
+/* THE THREE WAITING REASONS SHARE THE DOT AND DIFFER IN WORDS.
+   Deliberate, and the colour law is the reason: status is text before it is colour, so inventing three new
+   hues to distinguish "a rule requires you" from "the agent was unsure" would put the distinction somewhere
+   a colour-blind reader cannot get at it. The dot says SOMEONE IS BLOCKED; the label says who and why. */
+.paudit-item[data-status='awaiting-rule'] .paudit-mark-dot,
+.paudit-item[data-status='awaiting-agent'] .paudit-mark-dot,
+.paudit-item[data-status='awaiting-external'] .paudit-mark-dot {
+  background: var(--p-external);
+}
+/* Nothing is waiting and something is still owed. Idle, because urgency here is a lie — but not done. */
+.paudit-item[data-status='incomplete'] .paudit-mark-dot,
+.paudit-item[data-status='partial'] .paudit-mark-dot {
+  background: var(--p-run-idle);
+}
+
+.paudit-job {
+  color: var(--p-ink-0);
+  font-size: 10.5px;
+}
+
+.paudit-status {
+  color: var(--p-ink-1);
+}
+
+.paudit-item[data-status='failed'] .paudit-status {
+  color: var(--p-run-failed);
+}
+.paudit-item[data-status='waiting'] .paudit-status,
+.paudit-item[data-status='awaiting-rule'] .paudit-status,
+.paudit-item[data-status='awaiting-agent'] .paudit-status,
+.paudit-item[data-status='awaiting-external'] .paudit-status {
+  color: var(--p-external);
+}
+
+/* THE QUEUE. Same rows, one addition: the reason, which is the whole point of it being a queue. */
+.pqueue-reason {
+  grid-column: 1 / -1;
+  padding-left: 8px;
+  color: var(--p-ink-2);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.pqueue-count {
+  color: var(--p-ink-1);
+  font-size: 10px;
+}
+
+.pqueue-toggle {
+  margin-left: auto;
+  color: var(--p-ink-2);
+  font-size: 10px;
+  text-decoration: underline;
+  text-decoration-color: var(--p-line);
+  text-underline-offset: 2px;
+}
+
+.pqueue-toggle:hover {
+  color: var(--p-ink-0);
+}
+
+.pqueue-clear {
+  padding: 4px 8px 6px;
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+/* THE LIVE BLOCK. Set apart from the rows below because those cannot be wrong and these can. */
+.pqueue-live {
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+
+.pqueue-liveline {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0 8px 4px;
+  color: var(--p-ink-2);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.pqueue-livemark {
+  color: var(--p-ink-3);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Unreachable and stale are the two states that must not read as an empty queue. */
+.pqueue-live[data-liveness='unreachable'] .pqueue-liveline,
+.pqueue-live[data-liveness='stale'] .pqueue-liveline {
+  color: var(--p-run-failed);
+}
+
+.pqueue-livewhy {
+  color: var(--p-ink-3);
+  font-size: 9.5px;
+}
+
+/* A queue row carries a reason under it, so its grid has to allow the second line. */
+.pqueue-row {
+  grid-template-columns: 8rem minmax(4rem, auto) 1fr auto;
+}
+
+.paudit-loops,
+.paudit-when,
+.paudit-dur {
+  color: var(--p-ink-3);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.paudit-loops {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.paudit-more {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  color: var(--p-ink-3);
+  font-size: 10px;
+}
+
+.paudit-more:hover {
+  color: var(--p-ink-0);
+}
+
+.paudit-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 8px 8px 8px;
+}
+
+.paudit-field {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 8px;
+  font-size: 10.5px;
+}
+
+.paudit-flabel {
+  color: var(--p-ink-3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 9px;
+  padding-top: 2px;
+}
+
+.paudit-fvalue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  color: var(--p-ink-1);
+}
+
+.paudit-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.paudit-pname {
+  color: var(--p-ink-3);
+  font-size: 9.5px;
+}
+
+.paudit-pvalue {
+  color: var(--p-ink-0);
+}
+
+/* A withheld field is NAMED and visibly withheld, never dropped: a silent omission would
+   misreport the input. */
+.paudit-pair[data-redacted='true'] .paudit-pvalue {
+  color: var(--p-ink-3);
+  font-style: italic;
+}
+
+.paudit-none {
+  color: var(--p-ink-3);
+  font-style: italic;
+}
+
+.paudit-failure {
+  color: var(--p-run-failed);
+}
+
+/* ==========================================================================
+ * ABOUT THIS RUN — the investigation exchanges in the chat pane.
+ *
+ * Visibly NOT the transcript, because it is not one: these answers are assembled in
+ * the browser from the run data and must never be mistaken for something a backend
+ * said. Hence the heading, the standing marker, and a quieter ground than a message
+ * bubble.
+ * ====================================================================== */
+.pinvest {
+  flex: 0 0 auto;
+  max-height: 38%;
+  overflow-y: auto;
+  padding: 8px 16px 10px;
+  border-top: 1px solid var(--p-line-soft);
+}
+
+.pinvest-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.pinvest-title {
+  color: var(--p-ink-2);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pinvest-mark {
+  color: var(--p-ink-3);
+  font-size: 9px;
+}
+
+.pinvest-ready {
+  color: var(--p-ink-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.pinvest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pinvest-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* The question, marked as the user's by a gutter rule rather than a bubble: a bubble here
+   would read as a transcript row, which is exactly the confusion to avoid. */
+.pinvest-q {
+  padding-left: 8px;
+  border-left: 2px solid var(--p-line);
+  color: var(--p-ink-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.pinvest-a {
+  color: var(--p-ink-0);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.pinvest-off {
+  color: var(--p-ink-3);
+  font-style: italic;
+}
+
+.pinvest-offer {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 3px 8px;
+  border: 1px solid var(--p-line);
+  border-radius: 999px;
+  color: var(--p-ink-1);
+  font-size: 10.5px;
+}
+
+.pinvest-offer:hover {
+  border-color: var(--p-ink-2);
+  color: var(--p-ink-0);
+}
+
+.pinvest-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.pinvest-prompt {
+  padding: 3px 8px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: 999px;
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+  text-align: left;
+}
+
+.pinvest-prompt:hover {
+  border-color: var(--p-line);
+  color: var(--p-ink-0);
+}
+
+/* ==========================================================================
+ * THE LIVE EXECUTION MAP — an agentic run drawn on the definition.
+ *
+ * Two additions and no new colours. The PATH is a weight-and-opacity change, not a
+ * hue: colour on this canvas already means who must act, and "the run came this way"
+ * is orthogonal to that. The AGENT ROLES are silhouette changes for the same reason —
+ * a decision point and a human gate must be tellable apart at thumbnail size and
+ * under any colour deficiency.
+ * ====================================================================== */
+
+/* An edge the run actually traversed. Thicker, fully opaque, and it outranks dimming. */
+.pedge-path .react-flow__edge-path {
+  stroke-width: calc(2.4px * var(--p-edge-boost, 1));
+  opacity: 1;
+}
+
+/* Everything the run did NOT take, while a run is on screen: present, quiet, still traceable. */
+.pcanvas[data-run='true'] .pedge:not(.pedge-path):not(.pedge-lit) .react-flow__edge-path {
+  opacity: 0.34;
+}
+
+/*
+ * THE DECISION STEP. A double left rule rather than a fill: the agent decision is where
+ * the run branches, and a bar on the leading edge reads as "something happens here"
+ * without competing with the actor accent that says who must act.
+ */
+.pbox[data-agent='decision'] {
+  border-style: solid;
+  box-shadow: inset 3px 0 0 var(--p-ink-2);
+}
+
+.pbox[data-agent='decision'][data-emphasis='active'] {
+  box-shadow: inset 3px 0 0 var(--p-run-active);
+}
+
+/* The hand-over. Amber already says a person must act; the dashes say the run is parked. */
+.pbox[data-agent='human-gate'] {
+  border-style: dashed;
+}
+
+/* Where the request arrives. Quietest of the three — it is context, not a decision. */
+.pbox[data-agent='intake'] {
+  box-shadow: inset 3px 0 0 var(--p-line);
+}
+
+/* ==========================================================================
+ * THE CURRENT RUN PANEL — decision first.
+ *
+ * It reuses `.ppan`'s geometry (the same drawer the step detail uses) so the right
+ * side of the app has one shape and switching between them is a content change
+ * rather than a layout change. What differs is the ORDER: a status line you can read
+ * from across the room, then the decision, then what it considered.
+ * ====================================================================== */
+.prun {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.prun-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 14px 8px;
+}
+
+.prun-title {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.prun-flow {
+  color: var(--p-ink-0);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.prun-job {
+  color: var(--p-ink-3);
+  font-size: 10px;
+}
+
+.prun-close {
+  margin-left: auto;
+  color: var(--p-ink-3);
+  font-size: 12px;
+}
+
+.prun-close:hover {
+  color: var(--p-ink-0);
+}
+
+/*
+ * IS IT WAITING FOR ME. The one line that is ever urgent, so it gets a fill rather than
+ * a tint — and the amber is the app's existing "a person must act" token, not a new one.
+ */
+.prun-status {
+  margin: 0 14px 10px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--p-surface-3);
+  color: var(--p-ink-1);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.prun-status[data-state='waiting'] {
+  background: var(--color-attention);
+  color: var(--color-attention-on);
+  font-weight: 600;
+}
+
+.prun-status[data-state='running'] {
+  color: var(--p-run-active);
+}
+
+.prun-status[data-state='done'] {
+  color: var(--p-run-done);
+}
+
+.prun-back {
+  align-self: flex-start;
+  margin: 0 14px 8px;
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+  text-decoration: underline;
+  text-decoration-color: var(--p-line);
+  text-underline-offset: 2px;
+}
+
+.prun-back:hover {
+  color: var(--p-ink-0);
+}
+
+.prun-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 14px 8px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+
+.prun-tab {
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--p-ink-3);
+  font-size: 10.5px;
+}
+
+.prun-tab:hover {
+  color: var(--p-ink-1);
+}
+
+.prun-tab[data-on='true'] {
+  border-color: var(--p-line);
+  background: var(--p-surface-3);
+  color: var(--p-ink-0);
+}
+
+.prun-body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 14px 16px;
+}
+
+.prun-block {
+  margin-bottom: 14px;
+}
+
+.prun-h {
+  margin-bottom: 4px;
+  color: var(--p-ink-3);
+  font-size: 9px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.prun-question {
+  color: var(--p-ink-1);
+  font-size: 11.5px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+/* The recommendation is the sentence the user is being asked to judge, so it reads loudest. */
+.prun-recommend {
+  margin-top: 5px;
+  color: var(--p-ink-0);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.prun-recommend[data-awaiting='true'] {
+  padding-left: 8px;
+  border-left: 2px solid var(--p-external);
+  font-weight: 600;
+}
+
+.prun-override {
+  margin-top: 5px;
+  color: var(--p-temp);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.prun-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.prun-fact {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.prun-fact dt {
+  color: var(--p-ink-3);
+}
+
+.prun-fact dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--p-ink-1);
+}
+
+/* The fact that makes the decision hard. Weight, not colour: colour means who must act. */
+.prun-fact[data-pivotal='true'] dd {
+  color: var(--p-ink-0);
+  font-weight: 600;
+}
+
+.prun-cite {
+  display: inline-flex;
+}
+
+/* A constraint is QUOTED, so it looks like something the author wrote rather than something inferred. */
+.prun-quote {
+  padding-left: 8px;
+  border-left: 2px solid var(--p-line);
+  color: var(--p-ink-1);
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.prun-chose,
+.prun-caps,
+.prun-altlist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.prun-alts {
+  margin-top: 6px;
+}
+
+.prun-alts summary {
+  color: var(--p-ink-3);
+  cursor: default;
+  font-size: 10.5px;
+}
+
+.prun-alts summary:hover {
+  color: var(--p-ink-1);
+}
+
+.prun-alts[open] summary {
+  margin-bottom: 5px;
+}
+
+.prun-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--p-ink-1);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.prun-rules li {
+  padding-left: 10px;
+  text-indent: -10px;
+}
+
+.prun-rules li::before {
+  content: '· ';
+  color: var(--p-ink-3);
+}
+
+.prun-goal {
+  color: var(--p-ink-0);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.prun-readonly {
+  margin-bottom: 12px;
+  color: var(--p-ink-3);
+  font-size: 10px;
+  font-style: italic;
+}
+
+.prun-empty {
+  color: var(--p-ink-3);
+  font-size: 11.5px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.prun-trail {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.prun-tstep {
+  display: grid;
+  grid-template-columns: 1.2rem 1fr;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.prun-tnum {
+  color: var(--p-ink-3);
+  font-size: 9.5px;
+  text-align: right;
+}
+
+.prun-tbody {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.prun-tsay {
+  color: var(--p-ink-2);
+  line-height: 1.45;
+}
+
+.prun-tstep[data-role='decision'] .prun-tsay {
+  color: var(--p-ink-1);
+}
+
+.prun-tstep[data-current='true'] .prun-tsay {
+  color: var(--p-run-active);
+}
+
+.prun-subject {
+  padding-top: 10px;
+  border-top: 1px solid var(--p-line-soft);
+}
+
+/* ==========================================================================
+ * THE RUN CONVERSATION — chat as the control surface.
+ *
+ * Visibly not the transcript: speaker labels rather than bubbles, and a standing
+ * marker. Two registers that both looked like chat would undo the separation between
+ * what a backend said and what this prototype assembled.
+ * ====================================================================== */
+/*
+ * A COLUMN with its own scroller, not one scrolling box.
+ *
+ * The history scrolls and the ask does not, because the ask is a control rather than a message: the buttons
+ * that release a refund must never be reachable only by scrolling.
+ */
+.pconv {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  padding: 8px 16px 10px;
+  border-top: 1px solid var(--p-line-soft);
+}
+
+.pconv-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.pconv-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.pconv-title {
+  color: var(--p-ink-2);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pconv-mark {
+  color: var(--p-ink-3);
+  font-size: 9px;
+}
+
+.pconv-list,
+.pconv-qa {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.pconv-qa {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--p-line-soft);
+}
+
+.pconv-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pconv-who {
+  color: var(--p-ink-3);
+  font-size: 9px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.pconv-say {
+  color: var(--p-ink-0);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* A decision beat reads a shade louder: it is the reasoning, not the bookkeeping. */
+.pconv-agent[data-role='decision'] .pconv-say {
+  padding-left: 8px;
+  border-left: 2px solid var(--p-line);
+}
+
+.pconv-agent[data-role='human-gate'] .pconv-say {
+  padding-left: 8px;
+  border-left: 2px solid var(--p-external);
+}
+
+.pconv-at {
+  display: inline-flex;
+  margin-top: 2px;
+}
+
+/* The ask. A panel rather than a row, because it is the one place the run stops for you. */
+.pconv-ask {
+  flex: 0 0 auto;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--p-external);
+  border-radius: 7px;
+  background: var(--p-external-dim);
+}
+
+.pconv-prompt {
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.pconv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.pconv-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--p-line);
+  border-radius: 6px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+  font-size: 11.5px;
+}
+
+.pconv-btn:hover {
+  border-color: var(--p-ink-2);
+  color: var(--p-ink-0);
+}
+
+.pconv-btn[data-tone='primary'] {
+  border-color: var(--p-run-active);
+  color: var(--p-run-active);
+  font-weight: 600;
+}
+
+.pconv-btn[data-tone='danger'] {
+  border-color: var(--p-run-failed);
+  color: var(--p-run-failed);
+}
+
+.pconv-hint {
+  margin-top: 6px;
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+/* What the person said, and what the run did about it. Both halves, always. */
+.pconv-human {
+  margin-top: 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--p-ink-2);
+}
+
+.pconv-said {
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.pconv-result {
+  margin-top: 2px;
+  color: var(--p-ink-2);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.pconv-human[data-type='override'] .pconv-result,
+.pconv-human[data-type='instruct'] .pconv-result {
+  color: var(--p-temp);
+}
+
+.pconv-done {
+  margin-top: 9px;
+  color: var(--p-run-done);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.pconv-q {
+  color: var(--p-ink-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.pconv-a {
+  color: var(--p-ink-0);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.pconv-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 9px;
+}
+
+.pconv-prompt-btn {
+  padding: 3px 8px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: 999px;
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+}
+
+.pconv-prompt-btn:hover {
+  border-color: var(--p-line);
+  color: var(--p-ink-0);
+}
+
+/* ==========================================================================
+ * THE VARIANT CHOOSER — two expressions of one process, offered as a choice.
+ * ====================================================================== */
+.pfamily {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 7px;
+}
+
+.pfamily-name {
+  color: var(--p-ink-2);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pchip-variant {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+/* Recommended, and still only a recommendation: the other one stays fully selectable. */
+.pchip-rec {
+  color: var(--p-run-done);
+  font-size: 8.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* An empty transcript gives its space to the run conversation rather than holding it open. */
+.transcript[data-collapsed='true'] {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 0;
+}

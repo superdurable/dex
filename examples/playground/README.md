@@ -60,8 +60,8 @@ example server allows CORS so the browser can call the APIs directly.
 
 After a flow ID is known, the page links to Dex Web:
 
-- current run: `{dexWeb}/flows/{flowId}`
-- specific run: `{dexWeb}/flows/{flowId}/{runId}`
-- search: `{dexWeb}/?q=WorkflowId="{flowId}"`
+- current run: `{dexWeb}/v1/flows/{flowId}`
+- specific run: `{dexWeb}/v1/flows/{flowId}/{runId}`
+- search: `{dexWeb}/v1/flows?q=WorkflowId="{flowId}"`
 
 Those routes come from `web/app/App.tsx`.

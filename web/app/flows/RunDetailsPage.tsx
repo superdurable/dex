@@ -451,7 +451,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       <section className="run-header">
         <div className="breadcrumbs">
           <Link to="/">Flows</Link><span>/</span>
-          <Link to={`/flows/${encodeURIComponent(flowId)}`}>{flowId}</Link><span>/</span>
+          <Link to={`/v1/flows/${encodeURIComponent(flowId)}`}>{flowId}</Link><span>/</span>
           <span className="mono">{runId}</span>
         </div>
         <div className="run-title-row">
@@ -463,7 +463,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
             {continuedToRunId && (
               <Link
                 className="button primary"
-                to={`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(continuedToRunId)}`}
+                to={`/v1/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(continuedToRunId)}`}
               >
                 Next run
               </Link>

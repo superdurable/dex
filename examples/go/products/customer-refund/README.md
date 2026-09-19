@@ -1,4 +1,4 @@
-# Customer refund supervision example
+# Customer refund example
 
 This product contains two Go Flows for the same customer-refund problem.
 

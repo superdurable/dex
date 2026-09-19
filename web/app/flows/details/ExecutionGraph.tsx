@@ -227,7 +227,7 @@ function SubFlowNodeLabel({ flow }: { flow: StepGraphNode }) {
   return (
     <Link
       className="graph-sub-flow-link nodrag nopan"
-      to={`/flows/${encodeURIComponent(flow.flowId ?? '')}`}
+      to={`/v1/flows/${encodeURIComponent(flow.flowId ?? '')}`}
       aria-label={`Open SubFlow ${flow.flowId ?? ''}`}
     >
       <span><ConditionIcon type="subflow" />SubFlow · {flow.subFlowStatus}</span>
@@ -394,7 +394,7 @@ export function ExecutionGraph({
                     <Link
                       className="graph-run-link nodrag nopan"
                       title={node.previousRunId}
-                      to={`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(node.previousRunId)}`}
+                      to={`/v1/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(node.previousRunId)}`}
                     >
                       Continued from previous run
                     </Link>

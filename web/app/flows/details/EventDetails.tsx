@@ -587,7 +587,7 @@ function SubFlowRecord({
   return (
     <a
       className="semantic-record sub-flow-record"
-      href={flowId ? `/flows/${encodeURIComponent(flowId)}` : '#'}
+      href={flowId ? `/v1/flows/${encodeURIComponent(flowId)}` : '#'}
       aria-label={`Open SubFlow ${flowId || index + 1}`}
     >
       <strong><SubFlowIcon /><code>{flowId}</code></strong>
@@ -634,7 +634,7 @@ function SubFlowResultRecord({
   return (
     <a
       className="semantic-record sub-flow-record"
-      href={flowId ? `/flows/${encodeURIComponent(flowId)}` : '#'}
+      href={flowId ? `/v1/flows/${encodeURIComponent(flowId)}` : '#'}
       aria-label={`Open SubFlow result ${flowId || index + 1}`}
     >
       <strong><SubFlowIcon /><code>{flowId}</code></strong>
@@ -1134,7 +1134,7 @@ function TimeTravelForkDetails({ payload, parentFlowId }: { payload: Data; paren
           <Link
             className="event-run-link"
             title={previousRunId}
-            to={`/flows/${encodeURIComponent(parentFlowId)}/${encodeURIComponent(previousRunId)}`}
+            to={`/v1/flows/${encodeURIComponent(parentFlowId)}/${encodeURIComponent(previousRunId)}`}
           >
             <code>{previousRunId}</code>
           </Link>

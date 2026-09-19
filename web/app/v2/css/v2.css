@@ -1,0 +1,165 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+@import './tokens.css';
+@import './canvas.css';
+@import './supervise.css';
+
+.v2-shell.sv {
+  min-height: 0;
+  height: 100%;
+  font-family: var(--font-sans);
+}
+
+.v2-shell .sv-body {
+  grid-template-columns: minmax(22rem, 32rem) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.v2-shell .sq {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.v2-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.v2-case {
+  flex: 0 0 auto;
+  max-height: 42%;
+  overflow: auto;
+  border-top: 1px solid var(--p-line-soft);
+  padding: 12px 16px 16px;
+}
+
+.v2-canvas {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--p-bg);
+}
+
+.v2-canvas .pcanvas,
+.v2-canvas .pstage {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+.v2-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 12px;
+}
+
+.v2-filter-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr minmax(0, 1.2fr) auto;
+  gap: 4px;
+}
+
+.v2-filter-row select,
+.v2-filter-row input,
+.v2-shell .sq select,
+.v2-shell .sq input,
+.v2-case input,
+.v2-case select,
+.v2-case textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+}
+
+.v2-filter-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.v2-ghost,
+.v2-primary {
+  padding: 4px 9px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.v2-ghost {
+  border: 1px solid var(--p-line);
+  background: transparent;
+  color: var(--p-ink-1);
+}
+
+.v2-primary {
+  border: 1px solid var(--p-ink-2);
+  background: var(--p-surface-3);
+  color: var(--p-ink-0);
+}
+
+.v2-error {
+  margin: 0 0 8px;
+  color: var(--p-run-failed);
+  font-size: 11px;
+}
+
+.v2-shell .sq-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.v2-shell .sq-row {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.v2-shell .sq-run {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.v2-shell .t-mono {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+.v2-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  grid-column: 1 / -1;
+}
+
+.v2-column {
+  color: var(--p-ink-2);
+  font-size: 10px;
+}
+
+.v2-empty {
+  padding: 18px 8px;
+  color: var(--p-ink-3);
+  font-size: 12px;
+}

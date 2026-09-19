@@ -22,7 +22,7 @@ export function CurrentRunRedirect({ flowId }: { flowId: string }) {
     })
       .then(async (response) => {
         const data = await readResponseJSON<FlowSummary>(response);
-        navigate(`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(data.runId)}`, {
+        navigate(`/v1/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(data.runId)}`, {
           replace: true,
         });
       })

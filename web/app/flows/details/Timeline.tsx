@@ -307,7 +307,7 @@ export function Timeline({
                         <Link
                           className="event-run-link"
                           title={previousRunId}
-                          to={`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(previousRunId)}`}
+                          to={`/v1/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(previousRunId)}`}
                         >
                           {event.type === 'TimeTravelFork' ? 'Time Travel fork' : 'Flow continued'}
                         </Link>

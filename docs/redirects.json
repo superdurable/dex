@@ -18,5 +18,13 @@
   {
     "from": "/zh-Hans/use-cases/ai-agent-email",
     "to": "/zh-Hans/use-cases/ai-agent"
+  },
+  {
+    "from": "/production/supervision",
+    "to": "/production/dex-web"
+  },
+  {
+    "from": "/zh-Hans/production/supervision",
+    "to": "/zh-Hans/production/dex-web"
   }
 ]

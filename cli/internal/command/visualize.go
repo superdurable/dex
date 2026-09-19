@@ -142,7 +142,7 @@ func (a *App) renderVisualization(ctx context.Context, isValid bool, graph []byt
 		}
 		serverErrors <- err
 	}()
-	url := "http://" + listener.Addr().String() + "/rendering"
+	url := "http://" + listener.Addr().String() + "/v1/rendering"
 	if options.openBrowser {
 		if err := a.openBrowser(url); err != nil {
 			shutdownErr := shutdownVisualizationServer(server, serverErrors)

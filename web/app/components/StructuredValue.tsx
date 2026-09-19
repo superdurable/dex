@@ -165,7 +165,7 @@ function WaitingConditionStructured({
       {subFlows.map((subFlow, index) => (
         <a
           className="semantic-record sub-flow-record"
-          href={`/flows/${encodeURIComponent(generatedSubFlowID(parentFlowId, stepExecutionId, index))}`}
+          href={`/v1/flows/${encodeURIComponent(generatedSubFlowID(parentFlowId, stepExecutionId, index))}`}
           aria-label={`Open SubFlow ${generatedSubFlowID(parentFlowId, stepExecutionId, index)}`}
           key={`${parentFlowId}-${stepExecutionId}-${index}`}
         >

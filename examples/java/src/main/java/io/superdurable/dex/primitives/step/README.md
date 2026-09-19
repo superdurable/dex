@@ -16,7 +16,7 @@ http://localhost:8080/retrying-failure/start?workflowId=java-retrying-failure-1
 Then open the Flow in Dex Web:
 
 ```text
-http://localhost:8802/flows/java-retrying-failure-1
+http://localhost:8802/v1/flows/java-retrying-failure-1
 ```
 
 Stop the demonstration when finished:

@@ -1,19 +1,22 @@
 ---
-title: Supervision
+title: Dex Web
+sidebar_label: Dex Web
 ---
 
-# Supervision
+# Dex Web
 
-Dex Web enables Supervision when its Flow rendering directory contains at least one valid Go Flow Definition Graph 2.0 file. Supervision is then the default workspace. Operators can switch between **Supervision** and **Operations** in the upper-left corner. Operations keeps the existing run search, history, state, and rendering pages.
+Dex Web has two URL prefixes. **v1** is the existing Flows search, run details, and Flow Rendering workspace. **v2** is the operator workspace: a run list and filters on the left, and the Flow Definition Graph on the right.
 
-Generate a definition and provide its directory when Dex starts:
+Start Dex without a JSON directory to open **v1** at **/v1/flows**. Start Dex with **--flow-rendering-dir** to open **v2** at **/v2**. The top-right Version menu switches back to **v1**.
 
 ```bash
 dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund
 dexcli dev --flow-rendering-dir ./build
 ```
 
-Version 1 remains the default and supports Go and Python. Version 2 currently supports Go only. Version 1 and Version 2 definitions can coexist. Dex Web rejects malformed Version 2 files and duplicate valid definitions for the same Flow type at startup. An analyzer result with **valid: false** remains available for diagnostics but does not enable supervision.
+**v2** searches current runs for one Flow type. The canvas uses that Flow type's generated definition, so you do not pick a JSON file again. Historical runs stay on **v1**.
+
+Version 1 remains the default analyzer schema and supports Go and Python. Version 2 currently supports Go only. Version 1 and Version 2 definition files can coexist. Dex Web rejects malformed Version 2 files and duplicate valid definitions for the same Flow type at startup. An analyzer result with **valid: false** remains available on **v1** Flow Rendering but does not appear as a **v2** Flow type.
 
 ## Named directives
 
@@ -42,13 +45,13 @@ Every registered Step has one group declaration. Group order follows the first m
 
 An indexed Attribute declaration binds the Dex Attribute key, physical search index key, index type, application value type, and description. The analyzer compares every value with the Go definition and the SDK's effective index configuration.
 
-The list page searches one Flow type at a time. Filters include Flow ID, execution status, start and close time, and the declared indexed Attributes. Dex Web compiles these controls into a visibility query. It does not accept a raw query from the browser. Different fields use AND; multiple values for one field use OR.
+The **v2** list searches one Flow type at a time. Filters include Flow ID, execution status, start and close time, and the declared indexed Attributes. Dex Web compiles these controls into a visibility query. It does not accept a raw query from the browser. Different fields use AND; multiple values for one field use OR.
 
 Each row calls **GetDexSummary** for the logical Flow ID's current run. The RPC accepts **dex.None** and returns a **map[string]any**. Dex Web loads at most eight summaries concurrently, applies a five-second timeout to each call, and isolates a failure to its row. Indexed Attributes appear before Summary fields.
 
 ## Display and edits
 
-Selecting a row opens the Flow ID, not a run ID. **GetDexDisplay**, Attribute reads, edits, and Actions omit the run ID, so Dex resolves the current run. After Continue-as-New, refreshing the same URL automatically addresses the new run. Historical runs remain in Operations.
+Selecting a row keeps the Flow ID in the URL, not a run ID. **GetDexDisplay**, Attribute reads, edits, and Actions omit the run ID, so Dex resolves the current run. After Continue-as-New, refreshing the same URL automatically addresses the new run.
 
 Display fields are ordered by their directive lines. Primitive string, integer, double, boolean, and datetime fields can be editable. JSON, objects, arrays, and AttributeMap values remain read-only. Missing fields must be returned as null. The backend rejects omitted, undeclared, or mistyped values.
 
@@ -58,7 +61,7 @@ Edits are available only while the current run is active. Dex Web writes the Att
 
 An Action is an RPC with an Action directive and one condition. The first version supports the **in** operator. Dex Web re-reads the condition Attribute before invoking the RPC.
 
-An Action without input accepts **dex.None** and renders as a direct button. An Action with input accepts a named Go struct. User-sourced fields render controls in directive order. Attribute-sourced fields stay hidden and use the detail page's Attribute snapshot.
+An Action without input accepts **dex.None** and renders as a direct button. An Action with input accepts a named Go struct. User-sourced fields render controls in directive order. Attribute-sourced fields stay hidden and use the selected run's Attribute snapshot.
 
 The browser condition only controls presentation. Every Action RPC must check the current state again before changing durable state or publishing a Channel message. Use locks when that check and the effect must be atomic.
 

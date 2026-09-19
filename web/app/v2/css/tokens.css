@@ -1,0 +1,226 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+/* Colour and geometry tokens copied from dexai src/index.css. Scoped to v2. */
+.v2-shell {
+  color-scheme: dark;
+
+  /* ======================================================================
+   * THE RAMPS. The only values in the project, and the ONLY thing a theme
+   * changes. Everything below this block is an alias, so a second theme is
+   * ~30 values rather than 175.
+   *
+   * Generated in OKLCH and MEASURED, not eyeballed. One lightness per ROLE,
+   * shared by every hue — that is what makes the palette read as one family
+   * instead of eight unrelated colours. The ratio in each comment is real.
+   *
+   *   ink   text and glyphs      >= 4.5:1 on card and canvas
+   *   line  borders and edges    >= 3.0:1 on ALL FOUR grounds, so it is SHARED
+   *   fill  washes               ~1.1-1.3:1, barely there
+   *
+   * `line` being shared between the themes is the useful accident: a
+   * mid-lightness colour clears 3:1 against both a near-black and a near-white
+   * ground, so the canvas's edge legibility needs no re-tuning for light mode.
+   * ====================================================================== */
+
+  /* ---- hue ramps: SHARED across themes ---------------------------------- */
+  --hue-attention-line: #a8760e; /* 3.74:1 worst of four grounds             */
+  --hue-progress-line: #5583bb; /* 3.67:1                                   */
+  --hue-success-line: #4e906f; /* 3.52:1                                    */
+  --hue-danger-line: #c05e60; /* 3.90:1                                     */
+  --hue-door-line: #0c90a4; /* 3.53:1                                       */
+  --hue-child-line: #8673b5; /* 3.80:1                                      */
+  --hue-clock-line: #778191; /* 3.67:1                                      */
+  --hue-provisional-line: #659023; /* 3.52:1                                */
+
+  /* ---- hue ramps: DARK -------------------------------------------------- */
+  --hue-attention-ink: #e4ac4e; /* 8.44 card / 9.82 canvas                  */
+  --hue-attention-fill: #392100;
+  --hue-progress-ink: #88bbf9; /* 8.58 / 9.98                               */
+  --hue-progress-fill: #102742;
+  --hue-success-ink: #83caa4; /* 8.89 / 10.34                               */
+  --hue-success-fill: #0c2e1e;
+  --hue-danger-ink: #ff9394; /* 8.05 / 9.36                                 */
+  --hue-danger-fill: #431417;
+  --hue-door-ink: #55cadf; /* 8.87 / 10.32                                  */
+  --hue-door-fill: #002d37;
+  --hue-child-ink: #bdaaf3; /* 8.31 / 9.67                                  */
+  --hue-child-fill: #29203f;
+  --hue-clock-ink: #adb8ca; /* 8.56 / 9.96                                  */
+  --hue-clock-fill: #22272e;
+  --hue-provisional-ink: #99ca5b; /* 8.91 / 10.37                           */
+  --hue-provisional-fill: #192d00;
+
+  /* ---- neutral ramp: DARK ----------------------------------------------- */
+  --surface-canvas: #07090c;
+  --surface-page: #0e1116;
+  --surface-card: #171c22;
+  --surface-raised: #1f252d;
+  --surface-hover: #242b33;
+  --ink-faint: #494d54; /* 1.85 card — marks and dividers, NEVER text        */
+  --ink-soft: #6c7077; /* 3.15 card — marks                                 */
+  --ink-mid: #8c9198; /* 4.93 card — muted text floor                       */
+  --ink-strong: #bec3ca; /* 8.80 card                                       */
+  --ink-max: #eff4fc; /* 14.12 card                                        */
+  --line-soft: #212734;
+  --line-mid: #2b313d;
+  --line-strong: #454f5a;
+
+  /* ---- how much hue a wash may carry. A dark ground tolerates more. ----- */
+  --wash-pct: 14%;
+  --wash-strong-pct: 26%;
+
+  /* ---- group bands: ACHROMATIC, and that is the point ------------------- */
+  /* They mixed 22-30% of --p-external, --p-rpc, --p-edge-failure and
+   * --p-child, so a region was tinted with "a person must act" or "failure".
+   * Colour on this canvas means WHO MUST ACT; a region is not an actor, so it
+   * gets lightness and nothing else. Two steps alternating by index is enough,
+   * because only ADJACENT bands need telling apart. */
+  --band-0: #26282a; /* 1.331:1 over the plane                             */
+  --band-1: #2f3134; /* 1.518:1                                            */
+
+  /* ---- planes ---------------------------------------------------------- */
+  --color-canvas: var(--surface-canvas); /* graph plane, the darkest thing in the app      */
+  --color-paper: var(--surface-page); /* app + chat background     (1.05:1 vs canvas)    */
+  --color-surface: var(--surface-card); /* cards, drawer, composer (1.16:1 vs canvas)    */
+  --color-raised: var(--surface-raised); /* hover, popover           (1.29:1 vs canvas)    */
+  --color-sunken: var(--surface-canvas); /* wells, skipped cards     (1.13:1 vs surface)   */
+  --color-hover: var(--surface-hover); /* row hover                 (1.20:1 vs surface)   */
+  --color-grid: var(--line-soft); /* dot grid (1.13:1 vs canvas — barely there)       */
+
+  /* ---- ink ramp. 100–300 are fills and dividers, NEVER text. ----------- */
+  --color-ink-100: var(--line-soft); /* 1.23 canvas — fill only                      */
+  --color-ink-200: var(--line-mid); /* 1.45 canvas — fill only                      */
+  --color-ink-300: var(--line-strong); /* 1.96 canvas — fill only                      */
+  --color-ink-400: var(--ink-faint); /* 3.47 canvas / 2.99 surface — marks, not text */
+  --color-ink-500: var(--ink-mid); /* 5.22 surface / 5.77 paper — muted floor      */
+  --color-ink-600: var(--ink-mid); /* 6.95 surface / 7.67 paper                    */
+  --color-ink-700: var(--ink-strong); /* 9.82 surface / 11.43 canvas                  */
+  --color-ink-800: var(--ink-strong); /* 13.25 surface                                */
+  --color-ink-900: var(--ink-max); /* 15.80 surface / 18.38 canvas                 */
+
+  /* ---- three line tiers, each with one job ----------------------------- */
+  --color-hairline: var(--line-soft); /* 1.36 canvas — decorative ONLY               */
+  --color-rule: var(--line-mid); /* 1.65 canvas — structure                        */
+  --color-rule-strong: var(--line-strong); /* 2.39 canvas — bounds a thing             */
+
+  /* ---- ONE accent: aliveness and interactivity, nothing else. ---------- */
+  --color-accent: var(--hue-progress-ink); /* 7.77 surface / 9.05 canvas                    */
+  --color-accent-hover: #a6c9f6; /* 10.04 surface                           */
+  --color-accent-rule: var(--hue-progress-line); /* 3.18 canvas — the running card's rail    */
+  --color-accent-subtle: var(--hue-progress-fill); /* running wash (1.16 canvas)             */
+  --color-focus: var(--hue-progress-ink); /* 9.59 surface / 11.16 canvas                    */
+
+  /* ---- the six node states. Three are deliberately hueless. ------------
+     `waiting` carries no hue because it means "blocked on a timer or a
+     sibling" — which is emphatically NOT the same thing as needing a human,
+     and the app has exactly one hue for that. */
+  --color-state-pending: var(--color-ink-400);
+  --color-state-running: var(--color-accent);
+  --color-state-waiting: var(--color-ink-400);
+  --color-state-done: var(--hue-success-ink); /* 6.69 surface / 7.79 canvas                */
+  --color-state-failed: var(--hue-danger-ink); /* 6.65 surface / 7.74 canvas              */
+  --color-state-skipped: var(--color-ink-300);
+
+  --color-done-ink: var(--hue-success-ink); /* 9.63 surface                                */
+  --color-done-subtle: var(--hue-success-fill);
+  --color-done-rule: var(--hue-success-line);
+  --color-failed-ink: var(--hue-danger-ink); /* 9.19 surface                              */
+  --color-failed-subtle: var(--hue-danger-fill);
+  --color-failed-rule: var(--hue-danger-line); /* failed border + failure edges            */
+
+  /* ---- the ONE warm hue. Open confirmations. Nothing else, ever. -------
+     Notably NOT the simulated marker: that marker is on screen in every state
+     anyone will ever see, and a permanent gold fixture would leave the
+     awaiting badge competing with furniture. */
+  --color-attention: var(--hue-attention-ink); /* 9.05 surface / 10.53 canvas                */
+  --color-attention-ink: var(--hue-attention-ink); /* 11.38 surface                          */
+  --color-attention-rule: var(--hue-attention-line);
+  --color-attention-subtle: var(--hue-attention-fill);
+  --color-attention-on: var(--surface-canvas); /* ink ON an amber fill. See the light twin. */
+
+  /* ---- washes: the only place a colour appears as rgba ----------------- */
+  --accent-wash: rgba(127, 178, 240, 0.1);
+  --accent-wash-strong: rgba(127, 178, 240, 0.22);
+  --attention-wash: rgba(233, 180, 76, 0.26);
+  --focus-ring: 0 0 0 3px rgba(156, 196, 255, 0.3);
+
+  /* ---- elevation. On near-black a shadow is a ring first, a blur second. */
+  --shadow-pop: 0 0 0 1px var(--color-rule-strong), 0 10px 28px -12px rgba(0, 0, 0, 0.78);
+  --shadow-drawer: -18px 0 34px -22px rgba(0, 0, 0, 0.85);
+
+  /* ---- radii. Nothing rounder than 10px exists. ------------------------ */
+  --r-sm: 4px;
+  --r: 6px;
+  --r-lg: 10px;
+
+  /* =====================================================================
+     GEOMETRY — mirrors src/design/metrics.ts. metrics.test.ts parses the
+     eight starred tokens below and fails the build if they diverge.
+     ===================================================================== */
+
+  --node-w: 260px; /* * NODE_W                                             */
+  --node-head-h: 76px; /* * NODE_HEAD_H                                    */
+  --node-substep-h: 20px; /* * SUBSTEP_H                                   */
+  --rank-gap: 72px; /* * RANK_GAP  (dagre ranksep, top-to-bottom)          */
+  --node-gap: 40px; /* * NODE_GAP  (dagre nodesep)                         */
+  --chat-w: 420px; /* * CHAT_W                                             */
+  --drawer-w: 380px; /* * DRAWER_W — overwritten per tier from TS          */
+  --grid-gap: 22px; /* * GRID_GAP                                          */
+
+  --node-substeps-lead: 8px;
+  --node-substep-more-h: 20px;
+  --node-pad: 14px;
+  --node-border-w: 1px;
+  --node-rail-w: 3px;
+  --graph-margin: 56px;
+  --grid-dot: 1.25px;
+
+  --sheet-w: 320px;
+  --chat-w-min: 360px;
+  --chat-w-max: 560px;
+  --canvas-min: 480px;
+  --rail-w: 44px;
+  --composer-min-h: 44px;
+  --composer-max-h: 168px;
+  --field-label-w: 132px;
+
+  /* Remapped per zoom tier: a 1px hairline at 40% zoom is a rumour. */
+  --color-node-rule: var(--color-rule-strong);
+
+  /* ---- motion ---------------------------------------------------------- */
+  --dur-fast: 110ms;
+  --dur: 160ms;
+  --dur-slow: 260ms;
+  --dur-layout: 320ms;
+  --dur-drawer: 240ms;
+  --pulse-dur: 1900ms;
+  --attn-dur: 2400ms;
+  --caret-dur: 1060ms;
+  --sweep-dur: 1400ms;
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-std: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-breathe: cubic-bezier(0.4, 0, 0.6, 1);
+
+  /* ---- z scale --------------------------------------------------------- */
+  --z-canvas: 0;
+  --z-canvas-ui: 10;
+  --z-drawer: 30;
+  --z-rail: 40;
+  --z-popover: 50;
+  --z-toast: 60;
+
+}
+
+.v2-shell {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+}

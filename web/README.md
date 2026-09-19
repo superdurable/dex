@@ -48,13 +48,14 @@ with `dexcli visualize SOURCE --json --out ./build/flow-definitions/name` and re
 Dex after changing the files. Invalid JSON, unsupported schema versions, or a
 non-directory path stop startup with an error.
 
-A valid Go Flow Definition Graph 2.0 file also enables **Supervision** and makes
-it the default workspace. The upper-left switch keeps the existing **Operations**
-workspace available. Supervision routes use Flow type and Flow ID only; Summary,
-Display, edits, and Actions target the current run without accepting a Run ID.
-Version 1 and Version 2 files can coexist. Duplicate valid Version 2 definitions
-for one Flow type stop startup. Invalid analyzer output remains visible in Flow
-Rendering but does not enable Supervision.
+Starting Dex with `--flow-rendering-dir` opens **v2** at `/v2`. The top-right
+Version menu returns to **v1**. Without that directory, Dex Web opens **v1** at
+`/v1/flows`. v2 lists current runs for one Flow type on the left and renders
+that type's Flow Definition Graph on the right. Summary, Display, edits, and
+Actions target the current run without accepting a Run ID. Version 1 and
+Version 2 files can coexist. Duplicate valid Version 2 definitions for one Flow
+type stop startup. Invalid analyzer output remains visible on **v1** Flow
+Rendering but does not appear as a **v2** Flow type.
 
 ## Run through the Dex Server image
 
@@ -113,14 +114,15 @@ directory into the Go module and ultimately into `dexcli`.
 
 ## Pages
 
-The Supervision list compiles typed filter controls into visibility queries,
+The v2 list compiles typed filter controls into visibility queries,
 loads current-run Summary RPCs with bounded concurrency, and displays Indexed
-Attributes before ordered Summary fields. Its detail page validates the Display
+Attributes before ordered Summary fields. Selecting a run validates the Display
 contract, supports inline edits for declared primitive fields, and renders
-conditional none/object Actions. Attribute-sourced Action inputs remain hidden.
-The UI condition is presentational; Action RPCs must re-check current state.
+conditional none/object Actions beside the Flow Definition Graph.
+Attribute-sourced Action inputs remain hidden. The UI condition is
+presentational; Action RPCs must re-check current state.
 
-The Flows page provides Basic and Advanced visibility queries, pagination,
+v1 pages live under `/v1/flows` and `/v1/rendering`. The Flows page provides Basic and Advanced visibility queries, pagination,
 saved queries, configurable columns, Indexed Attributes, and timezone
 preferences.
 
@@ -151,10 +153,9 @@ collapsed Mini Map uses a visible Show Mini Map button.
 Each graph fits the complete definition into the viewport when it first loads
 and after its visible layers change.
 
-Flow Definition Graph 2.0 uses Process Canvas. It groups registered Steps into
-ordered bands, supports collapsed and expanded cards, switches between top-down
-and left-right layouts, and shows Step or Group details on selection. Version 1
-continues to use the original definition renderer.
+Flow Definition Graph 2.0 on **v1** Flow Rendering uses Process Canvas. **v2**
+renders the same JSON with the Control Topology canvas. Version 1 continues to
+use the original definition renderer on **v1**.
 
 The graph contract, compound layout, React components, and styles live in the
 shared [`flow-definition-renderer`](../packages/flow-definition-renderer)

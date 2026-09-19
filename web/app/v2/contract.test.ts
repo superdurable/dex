@@ -12,23 +12,22 @@ import type {
   FlowSupervisionDefinition,
 } from '@superdurable/flow-definition-renderer';
 import {
-  supervisionActionUserFields,
-  supervisionActionUserInput,
-  supervisionDetailPath,
-  supervisionHomePath,
-  supervisionListColumns,
-  visibleSupervisionActions,
-} from './SupervisionPages';
+  v2ActionUserFields,
+  v2ActionUserInput,
+  v2FlowPath,
+  v2HomePath,
+  v2ListColumns,
+  visibleV2Actions,
+} from './contract';
 
-describe('Supervision pages', () => {
-  it('defaults to Supervision only when a valid v2 catalog is enabled', () => {
-    expect(supervisionHomePath(true, 'supervision')).toBe('/supervision');
-    expect(supervisionHomePath(true, 'operations')).toBe('/flows');
-    expect(supervisionHomePath(false, 'supervision')).toBe('/flows');
+describe('Dex Web v2 contract helpers', () => {
+  it('defaults to v2 only when a JSON directory is configured', () => {
+    expect(v2HomePath(true)).toBe('/v2');
+    expect(v2HomePath(false)).toBe('/v1/flows');
   });
 
   it('keeps indexed and Summary columns in protocol order', () => {
-    expect(supervisionListColumns(definition).map((column) => `${column.source}:${column.key}`)).toEqual([
+    expect(v2ListColumns(definition).map((column) => `${column.source}:${column.key}`)).toEqual([
       'indexed:case-status',
       'indexed:risk-score',
       'summary:charge-reference',
@@ -36,20 +35,20 @@ describe('Supervision pages', () => {
     ]);
   });
 
-  it('builds Flow-ID-only detail routes', () => {
-    const path = supervisionDetailPath('Refund Flow', 'refund/42');
-    expect(path).toBe('/supervision/Refund%20Flow/refund%2F42');
+  it('builds Flow-ID-only v2 routes', () => {
+    const path = v2FlowPath('Refund Flow', 'refund/42');
+    expect(path).toBe('/v2/Refund%20Flow/refund%2F42');
     expect(path).not.toContain('run');
   });
 
   it('shows only eligible Actions and hides Attribute-sourced inputs', () => {
     const approve = definition.actions[0];
     const reject = definition.actions[1];
-    expect(visibleSupervisionActions(definition.actions, ['RejectRefund'])).toEqual([reject]);
-    expect(supervisionActionUserFields(approve)).toEqual([]);
-    expect(supervisionActionUserInput(approve, {})).toEqual({});
-    expect(supervisionActionUserFields(reject).map((field) => field.fieldName)).toEqual(['reason']);
-    expect(supervisionActionUserInput(reject, { reason: 'duplicate', gateRequestKey: 'forged' })).toEqual({
+    expect(visibleV2Actions(definition.actions, ['RejectRefund'])).toEqual([reject]);
+    expect(v2ActionUserFields(approve)).toEqual([]);
+    expect(v2ActionUserInput(approve, {})).toEqual({});
+    expect(v2ActionUserFields(reject).map((field) => field.fieldName)).toEqual(['reason']);
+    expect(v2ActionUserInput(reject, { reason: 'duplicate', gateRequestKey: 'forged' })).toEqual({
       reason: 'duplicate',
     });
   });
@@ -67,7 +66,7 @@ describe('Supervision pages', () => {
         }],
       },
     };
-    expect(supervisionActionUserInput(countAction, { count: '9223372036854775807' })).toEqual({
+    expect(v2ActionUserInput(countAction, { count: '9223372036854775807' })).toEqual({
       count: '9223372036854775807',
     });
   });

@@ -6,15 +6,17 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { usePreferences } from '../providers';
-import { useSupervision } from '../supervision/SupervisionProvider';
+import { useWebCatalog } from '../v2/WebCatalogProvider';
 
 export function AppHeader() {
   const { timezone, setTimezone } = usePreferences();
-  const { catalog, mode, setMode } = useSupervision();
-  const hasSupervision = catalog?.enabled === true;
-  const home = hasSupervision && mode === 'supervision' ? '/supervision' : '/flows';
+  const { canUseV2 } = useWebCatalog();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isV2 = location.pathname === '/v2' || location.pathname.startsWith('/v2/');
+  const home = canUseV2 && isV2 ? '/v2' : '/v1/flows';
   return (
     <header className="app-header">
       <div className="header-brand">
@@ -34,18 +36,29 @@ export function AppHeader() {
         </Link>
       </div>
       <nav className="header-nav" aria-label="Primary navigation">
-        {hasSupervision && (
-          <div className="workspace-switch" aria-label="Workspace mode">
-            <Link className={mode === 'supervision' ? 'active' : ''} onClick={() => setMode('supervision')} to="/supervision">Supervision</Link>
-            <Link className={mode === 'operations' ? 'active' : ''} onClick={() => setMode('operations')} to="/flows">Operations</Link>
-          </div>
+        {!isV2 && (
+          <>
+            <Link to="/v1/flows">Flows</Link>
+            <Link to="/v1/rendering">Flow Rendering</Link>
+          </>
         )}
-        {!hasSupervision && <Link to="/flows">Flows</Link>}
-        <Link to="/rendering">Flow Rendering</Link>
         <span className="connection-pill">
           <span className="connection-dot" />
           Dex server
         </span>
+        {canUseV2 && (
+          <label className="timezone-control">
+            <span>Version</span>
+            <select
+              aria-label="Dex Web version"
+              value={isV2 ? 'v2' : 'v1'}
+              onChange={(event) => navigate(event.target.value === 'v2' ? '/v2' : '/v1/flows')}
+            >
+              <option value="v2">v2</option>
+              <option value="v1">v1</option>
+            </select>
+          </label>
+        )}
         <label className="timezone-control">
           <span>Timezone</span>
           <select

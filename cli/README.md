@@ -238,7 +238,7 @@ Dynamic targets produce an Unknown node and a blocking diagnostic. The default
 renderer still shows the partial graph. With **--json**, a partial JSON artifact
 is written, and the command exits with status 1.
 
-Version 2 is Go-only and adds ordered Step groups plus a Supervision contract.
+Version 2 is Go-only and adds ordered Step groups plus a Dex Web v2 contract.
 The contract declares Indexed Attributes, the fixed `GetDexSummary` and
 `GetDexDisplay` RPCs, editable Display fields, and conditional Action RPCs.
 Directives use unordered named `name:value` arguments. Repeated directive lines

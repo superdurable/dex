@@ -1,19 +1,22 @@
 ---
-title: Supervision
+title: Dex Web
+sidebar_label: Dex Web
 ---
 
-# Supervision
+# Dex Web
 
-当 Flow rendering directory 中至少包含一个有效的 Go Flow Definition Graph 2.0 文件时，Dex Web 会启用 Supervision，并把它设为默认 workspace。Operator 可以在左上角切换 **Supervision** 与 **Operations**。Operations 继续提供已有的 run 搜索、历史、状态和 rendering 页面。
+Dex Web 使用两个 URL 前缀。**v1** 是原有的 Flows 搜索、run 详情和 Flow Rendering。**v2** 是操作工作区：左边是 run 列表和过滤器，右边是该 Flow type 的 Flow Definition Graph。
 
-生成 definition，并在 Dex 启动时提供目录：
+不带 JSON 目录启动 Dex 时，打开 **v1** 的 **/v1/flows**。使用 **--flow-rendering-dir** 启动时，默认打开 **v2** 的 **/v2**。右上角 Version 菜单可以回到 **v1**。
 
 ```bash
 dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund
 dexcli dev --flow-rendering-dir ./build
 ```
 
-Version 1 仍是默认版本，并支持 Go 与 Python。Version 2 第一版只支持 Go。Version 1 与 Version 2 definition 可以共存。Dex Web 会在启动时拒绝格式错误的 Version 2 文件，以及同一 Flow type 的多个有效 Version 2 definition。Analyzer 输出中的 **valid: false** 文件仍可用于查看 diagnostic，但不会启用 supervision。
+**v2** 按一个 Flow type 搜索 current run。画布使用该 Flow type 已生成的 definition，因此不必再选 JSON 文件。历史 run 仍在 **v1**。
+
+Version 1 仍是默认 analyzer schema，并支持 Go 与 Python。Version 2 第一版只支持 Go。Version 1 与 Version 2 definition 可以共存。Dex Web 会在启动时拒绝格式错误的 Version 2 文件，以及同一 Flow type 的多个有效 Version 2 definition。Analyzer 输出中的 **valid: false** 文件仍可在 **v1** Flow Rendering 中查看 diagnostic，但不会作为 **v2** Flow type 出现。
 
 ## 具名 directive
 
@@ -42,13 +45,13 @@ Version 2 directive 使用具名值。同一行内的参数位置没有语义。
 
 Indexed Attribute 声明绑定 Dex Attribute key、物理搜索 index key、index type、应用 value type 和 description。Analyzer 会把每个值与 Go 定义和 SDK 计算出的有效 index 配置比较。
 
-列表页每次搜索一个 Flow type。过滤条件包括 Flow ID、execution status、开始和结束时间，以及声明的 indexed Attribute。Dex Web 会把这些控件编译成 visibility query，不接收浏览器提供的原始 query。不同字段使用 AND，同一字段的多个值使用 OR。
+**v2** 列表每次搜索一个 Flow type。过滤条件包括 Flow ID、execution status、开始和结束时间，以及声明的 indexed Attribute。Dex Web 会把这些控件编译成 visibility query，不接收浏览器提供的原始 query。不同字段使用 AND，同一字段的多个值使用 OR。
 
 每一行都会针对逻辑 Flow ID 的 current run 调用 **GetDexSummary**。该 RPC 接受 **dex.None** 并返回 **map[string]any**。Dex Web 最多并发加载八个 Summary，每次调用超时五秒，单条失败只影响对应行。Indexed Attribute 显示在 Summary 字段之前。
 
 ## Display 与编辑
 
-点击一行会打开 Flow ID，而不是 run ID。**GetDexDisplay**、Attribute 读取、编辑和 Action 都省略 run ID，因此 Dex 会定位 current run。Continue-as-New 后，刷新同一个 URL 会自动指向新 run。历史 run 继续在 Operations 中查看。
+点击一行会把 Flow ID 留在 URL 中，而不是 run ID。**GetDexDisplay**、Attribute 读取、编辑和 Action 都省略 run ID，因此 Dex 会定位 current run。Continue-as-New 后，刷新同一个 URL 会自动指向新 run。
 
 Display 字段按照 directive 行排序。String、integer、double、boolean 和 datetime 字段可以编辑。JSON、object、array 和 AttributeMap 只读。缺失字段必须返回 null。后端会拒绝遗漏、未声明或类型错误的值。
 
@@ -58,7 +61,7 @@ Display 字段按照 directive 行排序。String、integer、double、boolean �
 
 Action 是带 Action directive 和一个 condition 的 RPC。第一版只支持 **in** operator。Dex Web 会在调用 RPC 前重新读取 condition Attribute。
 
-无输入 Action 接受 **dex.None**，直接显示为按钮。有输入 Action 接受具名 Go struct。来自用户的字段按 directive 顺序渲染控件；来自 Attribute 的字段保持隐藏，并使用详情页的 Attribute snapshot。
+无输入 Action 接受 **dex.None**，直接显示为按钮。有输入 Action 接受具名 Go struct。来自用户的字段按 directive 顺序渲染控件；来自 Attribute 的字段保持隐藏，并使用当前选中 run 的 Attribute snapshot。
 
 浏览器中的 condition 只控制展示。每个 Action RPC 都必须在修改持久化状态或发布 Channel message 前再次检查当前状态。当检查与 effect 必须保持原子性时，应使用 lock。
 
