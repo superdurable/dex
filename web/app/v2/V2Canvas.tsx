@@ -6,10 +6,24 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { hydrateBlobs } from '@/lib/blobs';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog } from '@/lib/types';
 import { safeDecode } from './canvas/model/decode';
+import type { RunOverlay } from './canvas/model/run';
+import {
+  loadCurrentRun,
+  loadRunHistory,
+  overlayFromHistory,
+  payloadFromRecord,
+  prependStepRecords,
+  recordForExecution,
+  type ExecutionRecord,
+  type RunOverlayBundle,
+} from './canvas/overlayFromHistory';
+import { DetailPanel } from './canvas/panel/DetailPanel';
+import { buildPanel, type SectionId } from './canvas/panel/panelModel';
 import { ArrowDefs } from './canvas/render/ArrowDefs';
 import { Stage } from './canvas/render/Stage';
 import { viewById } from './canvas/views';
@@ -18,14 +32,24 @@ import { Controls } from './flow/Controls';
 import { Legend } from './flow/Legend';
 import { groupsFromDefinition } from './groupsFromGraph';
 
-export function V2Canvas({ flowType }: { flowType: string }) {
+export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?: string }) {
   const [catalog, setCatalog] = useState<FlowDefinitionCatalog | null>(null);
   const [detail, setDetail] = useState<Detail>('collapsed');
   const [direction, setDirection] = useState<Direction>('tb');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
+  const [inspectSection, setInspectSection] = useState<SectionId | null>(null);
   const [legendOpen, setLegendOpen] = useState(false);
   const [error, setError] = useState('');
+  const [runError, setRunError] = useState('');
+  const [currentBundle, setCurrentBundle] = useState<RunOverlayBundle | null>(null);
+  const [olderByStep, setOlderByStep] = useState<Record<string, ExecutionRecord[]>>({});
+  const [previousCursorByStep, setPreviousCursorByStep] = useState<Record<string, string>>({});
+  const [loadPreviousBusy, setLoadPreviousBusy] = useState(false);
+  const [previousEmpty, setPreviousEmpty] = useState(false);
+  const [hydratedPayload, setHydratedPayload] = useState<ReturnType<typeof payloadFromRecord> | null>(null);
+  const blobCache = useRef(new Map<string, unknown>());
 
   useEffect(() => {
     const controller = new AbortController();
@@ -39,6 +63,45 @@ export function V2Canvas({ flowType }: { flowType: string }) {
       });
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    setCurrentBundle(null);
+    setOlderByStep({});
+    setPreviousCursorByStep({});
+    setPreviousEmpty(false);
+    setHydratedPayload(null);
+    setSelectedExecutionId(null);
+    setRunError('');
+    if (!flowId) return undefined;
+    let cancelled = false;
+    let timer: number | undefined;
+    const load = async () => {
+      try {
+        const { summary, events, state } = await loadCurrentRun(flowId);
+        if (cancelled) return;
+        setCurrentBundle(overlayFromHistory({
+          flowId,
+          runId: summary.runId,
+          status: summary.flowStatus,
+          events,
+          activeSteps: state?.activeStepExecutions ?? [],
+        }));
+        setRunError('');
+        if (summary.flowStatusCode === 1 && timer === undefined) {
+          timer = window.setInterval(() => { void load(); }, 5000);
+        }
+      } catch (loadError: unknown) {
+        if (!cancelled) {
+          setRunError(loadError instanceof Error ? loadError.message : 'Run history failed to load');
+        }
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearInterval(timer);
+    };
+  }, [flowId]);
 
   const selected = useMemo(
     () => catalog?.definitions.find((definition) => definition.flowName === flowType && definition.valid),
@@ -58,16 +121,93 @@ export function V2Canvas({ flowType }: { flowType: string }) {
     return groupsFromDefinition(selected.graph, flow);
   }, [flow, selected]);
 
+  const bundle = useMemo(() => {
+    if (!currentBundle) return null;
+    return Object.entries(olderByStep).reduce(
+      (next, [stepType, older]) => prependStepRecords(next, older, stepType),
+      currentBundle,
+    );
+  }, [currentBundle, olderByStep]);
+
+  const overlay: RunOverlay | null = bundle?.overlay ?? null;
+  const selectedStep = flow?.steps.find((step) => step.id === selectedId) ?? null;
+
   const scene = useMemo(() => {
     if (!flow) return null;
     return viewById('control').layout(flow, {
       detail,
       direction,
       selectedId,
-      run: null,
+      run: overlay,
       groups,
     });
-  }, [detail, direction, flow, groups, selectedId]);
+  }, [detail, direction, flow, groups, overlay, selectedId]);
+
+  const selectedRecord = selectedStep && bundle
+    ? recordForExecution(bundle, selectedStep.stepType, selectedExecutionId)
+    : undefined;
+
+  useEffect(() => {
+    if (!flowId || !selectedRecord) {
+      setHydratedPayload(null);
+      return undefined;
+    }
+    const controller = new AbortController();
+    const raw = payloadFromRecord(selectedRecord);
+    setHydratedPayload(raw);
+    void hydrateBlobs(flowId, raw, blobCache.current, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setHydratedPayload(result.value);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setHydratedPayload(raw);
+      });
+    return () => controller.abort();
+  }, [flowId, selectedRecord]);
+
+  const panel = useMemo(() => {
+    if (!flow || !selectedStep) return null;
+    return buildPanel(
+      flow,
+      selectedStep,
+      overlay,
+      selectedRecord?.execution.stepExecutionId ?? selectedExecutionId,
+      overlay ? (hydratedPayload ?? payloadFromRecord(selectedRecord)) : null,
+    );
+  }, [flow, hydratedPayload, overlay, selectedExecutionId, selectedRecord, selectedStep]);
+
+  const previousCursor = selectedStep
+    ? (previousCursorByStep[selectedStep.stepType] ?? bundle?.previousRunId ?? '')
+    : '';
+
+  const loadPrevious = useCallback(async () => {
+    if (!flowId || !selectedStep || !previousCursor) return;
+    setLoadPreviousBusy(true);
+    setPreviousEmpty(false);
+    try {
+      const events = await loadRunHistory(flowId, previousCursor);
+      const hop = overlayFromHistory({
+        flowId,
+        runId: previousCursor,
+        status: 'Continued as new',
+        events,
+      });
+      const older = hop.records.filter((record) => record.execution.stepType === selectedStep.stepType);
+      setOlderByStep((current) => ({
+        ...current,
+        [selectedStep.stepType]: [...older, ...(current[selectedStep.stepType] ?? [])],
+      }));
+      setPreviousCursorByStep((current) => ({
+        ...current,
+        [selectedStep.stepType]: hop.previousRunId,
+      }));
+      setPreviousEmpty(older.length === 0);
+    } catch (loadError: unknown) {
+      setRunError(loadError instanceof Error ? loadError.message : 'Previous run failed to load');
+    } finally {
+      setLoadPreviousBusy(false);
+    }
+  }, [flowId, previousCursor, selectedStep]);
 
   if (error) return <div className="v2-empty">{error}</div>;
   if (!catalog) return <div className="v2-empty">Loading Flow definition…</div>;
@@ -81,19 +221,31 @@ export function V2Canvas({ flowType }: { flowType: string }) {
       <div className="pctlbar">
         <Controls detail={detail} direction={direction} onDetail={setDetail} onDirection={setDirection} />
       </div>
+      {runError ? <p className="v2-error v2-run-error">{runError}</p> : null}
       <Stage
         scene={scene}
         detail={detail}
         direction={direction}
         selectedId={selectedId}
         selectedGroupId={selectedGroupId}
+        insetRight={panel !== null}
         onSelectGroup={(id) => {
           setSelectedGroupId(id);
           setSelectedId(null);
+          setSelectedExecutionId(null);
+          setInspectSection(null);
         }}
         onSelect={(id) => {
           setSelectedId(id);
           setSelectedGroupId(null);
+          setSelectedExecutionId(null);
+          setInspectSection(null);
+          setPreviousEmpty(false);
+        }}
+        onInspect={(id) => {
+          setSelectedId(id);
+          setSelectedGroupId(null);
+          setInspectSection('executions');
         }}
         legend={() => (
           <div className="plegend-card" data-open={legendOpen ? 'true' : undefined}>
@@ -117,8 +269,26 @@ export function V2Canvas({ flowType }: { flowType: string }) {
             ) : null}
           </div>
         )}
-        fitKey={`${flowType}|${detail}|${direction}|${selected.file}`}
+        fitKey={`${flowType}|${flowId}|${detail}|${direction}|${selected.file}|${overlay?.executions.length ?? 0}|${panel ? 'panel' : 'graph'}`}
       />
+      {panel ? (
+        <DetailPanel
+          key={`${panel.stepType}|${inspectSection ?? panel.defaultSection}`}
+          model={panel}
+          selectedExecutionId={selectedRecord?.execution.stepExecutionId ?? selectedExecutionId}
+          initialSection={inspectSection}
+          onClose={() => {
+            setSelectedId(null);
+            setSelectedExecutionId(null);
+            setInspectSection(null);
+          }}
+          onSelectExecution={setSelectedExecutionId}
+          canLoadPrevious={Boolean(previousCursor)}
+          loadPreviousBusy={loadPreviousBusy}
+          previousEmpty={previousEmpty}
+          onLoadPrevious={() => { void loadPrevious(); }}
+        />
+      ) : null}
     </div>
   );
 }

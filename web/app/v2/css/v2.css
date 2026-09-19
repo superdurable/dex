@@ -19,21 +19,24 @@
 }
 
 .v2-shell .sv-body {
-  grid-template-columns: minmax(22rem, 32rem) minmax(0, 1fr);
+  position: relative;
+  grid-template-columns: var(--v2-list-w, 32rem) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
 }
 
 .v2-shell .sq {
+  position: relative;
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 
 .v2-list {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 8rem;
   overflow: auto;
 }
 
@@ -43,6 +46,49 @@
   overflow: auto;
   border-top: 1px solid var(--p-line-soft);
   padding: 12px 16px 16px;
+}
+
+.v2-shell .sq[data-has-case='true'] .v2-case {
+  flex: 0 0 var(--v2-case-h, 42%);
+  height: var(--v2-case-h, 42%);
+  max-height: none;
+  min-height: 8rem;
+}
+
+.v2-split {
+  position: absolute;
+  z-index: var(--z-canvas-ui);
+  background: transparent;
+  touch-action: none;
+  transition: background-color var(--dur-fast) var(--ease-std);
+}
+
+.v2-split:hover,
+.v2-split:focus-visible {
+  background: var(--accent-wash);
+  outline: none;
+}
+
+.v2-split[data-at-floor='true'],
+.v2-split[data-at-ceiling='true'] {
+  background: var(--accent-wash-strong);
+}
+
+.v2-split[data-axis='column'] {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+}
+
+.v2-split[data-axis='row'] {
+  left: 0;
+  right: 0;
+  bottom: var(--v2-case-h, 42%);
+  height: 9px;
+  margin-bottom: -4px;
+  cursor: row-resize;
 }
 
 .v2-canvas {
@@ -59,6 +105,10 @@
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
+}
+
+.v2-canvas .v2-run-error {
+  margin: 0 12px 8px;
 }
 
 .v2-filters {

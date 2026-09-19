@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useEffect, useState, type ChangeEventHandler } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEventHandler, type CSSProperties } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import type {
   FlowSupervisionAction,
@@ -28,6 +28,14 @@ import {
 } from './contract';
 import './css/v2.css';
 import { V2Canvas } from './V2Canvas';
+import {
+  CASE_HEIGHT_KEY,
+  LIST_WIDTH_DEFAULT,
+  LIST_WIDTH_KEY,
+  V2SplitHandle,
+  readStoredPixels,
+  writeStoredPixels,
+} from './V2SplitHandle';
 import { useWebCatalog } from './WebCatalogProvider';
 
 interface FilterRow {
@@ -57,6 +65,26 @@ export function V2Workspace() {
   const [nextPageToken, setNextPageToken] = useState('');
   const [pageTokens, setPageTokens] = useState<string[]>(['']);
   const [page, setPage] = useState(0);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const listPaneRef = useRef<HTMLElement>(null);
+  const [listWidth, setListWidth] = useState(() => {
+    const stored = readStoredPixels(LIST_WIDTH_KEY);
+    return Number.isFinite(stored) ? stored : LIST_WIDTH_DEFAULT;
+  });
+  const [caseHeight, setCaseHeight] = useState(() => readStoredPixels(CASE_HEIGHT_KEY));
+
+  const commitListWidth = useCallback((width: number) => {
+    const next = Math.round(width);
+    setListWidth(next);
+    writeStoredPixels(LIST_WIDTH_KEY, next);
+  }, []);
+
+  const commitCaseHeight = useCallback((height: number) => {
+    const next = Math.round(height);
+    setCaseHeight(next);
+    writeStoredPixels(CASE_HEIGHT_KEY, next);
+  }, []);
 
   const executeSearch = useCallback(async (token = '', nextPage = 0) => {
     if (!entry) return;
@@ -111,10 +139,14 @@ export function V2Workspace() {
 
   const fields = filterFields(entry.definition);
   const columns = v2ListColumns(entry.definition);
+  const paneStyle = {
+    '--v2-list-w': `${listWidth}px`,
+    ...(Number.isFinite(caseHeight) && caseHeight > 0 ? { '--v2-case-h': `${caseHeight}px` } : {}),
+  } as CSSProperties;
   return (
-    <div className="v2-shell sv">
-      <div className="sv-body">
-        <aside className="sq">
+    <div className="v2-shell sv" ref={shellRef} style={paneStyle}>
+      <div className="sv-body" ref={bodyRef}>
+        <aside className="sq" ref={listPaneRef} data-has-case={flowId ? 'true' : undefined}>
           <div className="sq-head">
             <span className="sq-title">{entry.flowType}</span>
             <span className="sq-live">current runs</span>
@@ -211,12 +243,34 @@ export function V2Workspace() {
               void executeSearch(nextPageToken, page + 1);
             }} type="button">Next</button>
           </div>
-          {flowId ? <SelectedRunPanel flowType={entry.flowType} flowId={flowId} definition={entry.definition} /> : (
+          {flowId ? (
+            <>
+              <V2SplitHandle
+                axis="row"
+                cssVariable="--v2-case-h"
+                targetRef={shellRef}
+                measureRef={listPaneRef}
+                value={Number.isFinite(caseHeight) ? caseHeight : 0}
+                ariaLabel="Resize the Display pane"
+                onCommit={commitCaseHeight}
+              />
+              <SelectedRunPanel flowType={entry.flowType} flowId={flowId} definition={entry.definition} />
+            </>
+          ) : (
             <p className="sq-state">Select a run to edit fields and invoke Actions.</p>
           )}
+          <V2SplitHandle
+            axis="column"
+            cssVariable="--v2-list-w"
+            targetRef={shellRef}
+            measureRef={bodyRef}
+            value={listWidth}
+            ariaLabel="Resize the listing pane"
+            onCommit={commitListWidth}
+          />
         </aside>
         <section className="v2-canvas" aria-label="Flow definition">
-          <V2Canvas flowType={entry.flowType} />
+          <V2Canvas flowType={entry.flowType} flowId={flowId} />
         </section>
       </div>
     </div>

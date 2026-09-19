@@ -13,29 +13,32 @@ import { FlowSearchPage } from './flows/FlowSearchPage';
 import { RunDetailsPage } from './flows/RunDetailsPage';
 import { PreferencesProvider } from './providers';
 import { FlowRenderingPage } from './rendering/FlowRenderingPage';
+import { ThemeProvider } from './theme';
 import { HomePage, V2Workspace } from './v2/V2Workspace';
 import { WebCatalogProvider } from './v2/WebCatalogProvider';
 
 export function App() {
   return (
     <PreferencesProvider>
-      <WebCatalogProvider>
-        <AppHeader />
-        <main className="app-main">
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/v2" element={<V2Workspace />} />
-            <Route path="/v2/:flowType" element={<V2Workspace />} />
-            <Route path="/v2/:flowType/:flowId" element={<V2Workspace />} />
-            <Route path="/v1" element={<Navigate to="/v1/flows" replace />} />
-            <Route path="/v1/flows" element={<FlowSearchPage />} />
-            <Route path="/v1/rendering" element={<FlowRenderingPage />} />
-            <Route path="/v1/flows/:flowId" element={<CurrentFlowRoute />} />
-            <Route path="/v1/flows/:flowId/:runId" element={<FlowRunRoute />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </main>
-      </WebCatalogProvider>
+      <ThemeProvider>
+        <WebCatalogProvider>
+          <AppHeader />
+          <main className="app-main">
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/v2" element={<V2Workspace />} />
+              <Route path="/v2/:flowType" element={<V2Workspace />} />
+              <Route path="/v2/:flowType/:flowId" element={<V2Workspace />} />
+              <Route path="/v1" element={<Navigate to="/v1/flows" replace />} />
+              <Route path="/v1/flows" element={<FlowSearchPage />} />
+              <Route path="/v1/rendering" element={<FlowRenderingPage />} />
+              <Route path="/v1/flows/:flowId" element={<CurrentFlowRoute />} />
+              <Route path="/v1/flows/:flowId/:runId" element={<FlowRunRoute />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </main>
+        </WebCatalogProvider>
+      </ThemeProvider>
     </PreferencesProvider>
   );
 }

@@ -528,6 +528,20 @@
 .ppan-glyph {
   color: var(--p-ink-2);
 }
+.ppan-json {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: 6px;
+  background: var(--p-surface-2);
+  max-height: 28rem;
+  overflow: auto;
+}
+.ppan-more {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--p-line-soft);
+}
 
 /* ---------- the two-cell phase token ----------
    ONE slot, at most TWO cells. Colour is a second channel: each cell carries a glyph, and the wait

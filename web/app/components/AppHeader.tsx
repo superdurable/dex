@@ -9,6 +9,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { usePreferences } from '../providers';
 import { useWebCatalog } from '../v2/WebCatalogProvider';
+import { ThemeToggle } from './ThemeToggle';
 
 export function AppHeader() {
   const { timezone, setTimezone } = usePreferences();
@@ -69,6 +70,7 @@ export function AppHeader() {
             <option value="UTC">UTC</option>
           </select>
         </label>
+        <ThemeToggle />
       </nav>
     </header>
   );
