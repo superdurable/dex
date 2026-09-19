@@ -493,8 +493,8 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
    *
    * So the surcharge is now charged per boundary, for the parts that boundary really has:
    *   - a group ENDING at this row wants its bottom padding,
-   *   - a group STARTING at the next row wants its top padding, plus a label strip if that is the
-   *     first region it has anywhere.
+   *   - a group STARTING at the next row wants its top padding, plus a label strip for
+   *     each new region it opens.
    * A group that simply continues across the boundary has no edge there and pays nothing.
    */
   const groupsIn = (row: string[]): Set<number> => {
@@ -505,25 +505,20 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
     }
     return out
   }
-  const firstRowOfGroup = new Map<number, number>()
-  rows.forEach((row, i) => {
-    for (const g of groupsIn(row)) if (!firstRowOfGroup.has(g)) firstRowOfGroup.set(g, i)
-  })
   const bandAllowance = (i: number): number => {
     const here = groupsIn(rows[i] ?? [])
     const next = groupsIn(rows[i + 1] ?? [])
     const ends = [...here].some((g) => !next.has(g))
     const starting = [...next].filter((g) => !here.has(g))
-    const labels = starting.some((g) => firstRowOfGroup.get(g) === i + 1)
     return (
       (ends ? GROUP_PAD : 0) +
       (starting.length > 0 ? GROUP_PAD : 0) +
-      (labels && !labelOnAcross ? GROUP_LABEL_H : 0)
+      (starting.length > 0 && !labelOnAcross ? GROUP_LABEL_H : 0)
     )
   }
 
   // The first row only needs headroom if a band actually opens there with a label to print.
-  const opensAtTop = [...groupsIn(rows[0] ?? [])].some((g) => firstRowOfGroup.get(g) === 0)
+  const opensAtTop = groupsIn(rows[0] ?? []).size > 0
   const contentStart = 34 + (opensAtTop && !labelOnAcross ? GROUP_LABEL_H + GROUP_PAD : 0)
   let along = contentStart
   let widestRow = 1
@@ -718,19 +713,18 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
       if (!merged) break
     }
 
-    rects.forEach((r, rectIndex) => {
+    rects.forEach((r) => {
       // Narrow pad on the across axis (its gap is only GAP_ACROSS), normal pad along the ranks. The
       // label strip is always on the y-minimum edge, because that is where the stylesheet draws it.
       const padX = lr ? GROUP_PAD : GROUP_PAD_X
       const padY = lr ? GROUP_PAD_X : GROUP_PAD
-      const strip = rectIndex === 0 ? GROUP_LABEL_H : 0
       bands.push({
         id: `${grp.id}:${Math.round(lr ? r.x : r.y)}`,
         x: r.x - padX,
-        y: r.y - padY - strip,
+        y: r.y - padY - GROUP_LABEL_H,
         w: r.w + padX * 2,
-        h: r.h + padY * 2 + strip,
-        label: rectIndex === 0 ? grp.label : undefined,
+        h: r.h + padY * 2 + GROUP_LABEL_H,
+        label: grp.label,
         style: 'group',
         hue: i,
       })
