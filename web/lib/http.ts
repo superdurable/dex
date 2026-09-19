@@ -6,10 +6,31 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+/**
+ * Carries the gRPC code so a caller can tell one unreadable run apart from an
+ * unreachable server. The code is absent, never 0, when the body omitted it.
+ */
+export class DexAPIError extends Error {
+  readonly httpStatus: number;
+  readonly grpcCode: number | undefined;
+
+  constructor(message: string, httpStatus: number, grpcCode?: number) {
+    super(message);
+    this.name = 'DexAPIError';
+    this.httpStatus = httpStatus;
+    this.grpcCode = grpcCode;
+    Object.setPrototypeOf(this, DexAPIError.prototype);
+  }
+}
+
 export async function readResponseJSON<T>(response: Response): Promise<T> {
-  const data = await parseResponseJSON<T & { error?: string }>(response);
+  const data = await parseResponseJSON<T & { error?: string; grpcCode?: number }>(response);
   if (!response.ok) {
-    throw new Error(data.error?.trim() || failedRequestMessage(response));
+    throw new DexAPIError(
+      data.error?.trim() || failedRequestMessage(response),
+      response.status,
+      typeof data.grpcCode === 'number' ? data.grpcCode : undefined,
+    );
   }
   return data;
 }

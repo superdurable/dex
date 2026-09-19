@@ -12,6 +12,7 @@ import { displayValue, formatDate } from '@/lib/format';
 import type { V2CatalogEntry, V2Flow } from '@/lib/types';
 import { usePreferences } from '../../providers';
 import { v2ListColumns } from '../contract';
+import { QUEUE_COPY } from '../queue/copy';
 import {
   filterFields,
   filterIndexType,
@@ -29,6 +30,8 @@ export function FlowListing({
   selectedFlowID,
   search,
   headerNote,
+  scope,
+  strandedFlowIDs,
   onSelectFlowType,
   onSelectRun,
   children,
@@ -38,6 +41,10 @@ export function FlowListing({
   selectedFlowID: string;
   search: FlowSearch;
   headerNote: string;
+  /** What this list is and is not showing. Rendered above the filters. */
+  scope?: ReactNode;
+  /** Runs this session found unreachable. Marked, not dropped: still unresolved work. */
+  strandedFlowIDs?: ReadonlySet<string>;
   onSelectFlowType: (flowType: string) => void;
   onSelectRun: (flowID: string) => void;
   children?: ReactNode;
@@ -68,6 +75,7 @@ export function FlowListing({
           ))}
         </div>
       )}
+      {scope}
       <div className="v2-filters">
         {filters.map((filter) => (
           <FilterRowControls
@@ -98,6 +106,7 @@ export function FlowListing({
           <li
             className="sq-item"
             data-selected={flow.flowId === selectedFlowID ? 'true' : undefined}
+            data-stranded={strandedFlowIDs?.has(flow.flowId) ? 'true' : undefined}
             key={flow.flowId}
           >
             <button className="sq-row" onClick={() => onSelectRun(flow.flowId)} type="button">
@@ -105,10 +114,13 @@ export function FlowListing({
               <span className="sq-attention">{formatDate(flow.startTime, timezone)}</span>
               <span className="sq-step t-mono">{flow.flowStatus}</span>
               <FlowColumns columns={columns} flow={flow} />
+              {strandedFlowIDs?.has(flow.flowId) && (
+                <span className="sq-unknown">{QUEUE_COPY.strandedRow}</span>
+              )}
             </button>
           </li>
         ))}
-        {!loading && flows.length === 0 && <li className="v2-empty">No matching Flows</li>}
+        {!loading && flows.length === 0 && !scope && <li className="v2-empty">No matching Flows</li>}
       </ol>
       <div className="v2-filter-actions">
         <button

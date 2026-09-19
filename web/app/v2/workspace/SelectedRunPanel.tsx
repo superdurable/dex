@@ -17,20 +17,29 @@ import { displayValue } from '@/lib/format';
 import { readResponseJSON } from '@/lib/http';
 import type { V2Display } from '@/lib/types';
 import { parseTypedValue, v2ActionUserFields, v2ActionUserInput, visibleV2Actions } from '../contract';
+import { QUEUE_COPY } from '../queue/copy';
+import { isStrandedRunFailure, readFailureReason } from '../queue/liveness';
 
 export function SelectedRunPanel({
   flowType,
   flowId,
   definition,
+  flowStatusCode,
   footer,
+  onStranded,
 }: {
   flowType: string;
   flowId: string;
   definition: FlowV2Definition;
+  /** From the search row, so a dead worker can be told apart from a closed run. */
+  flowStatusCode?: number;
   footer?: ReactNode;
+  /** Reported up so the list can mark the row; a search cannot discover this. */
+  onStranded?: (flowID: string) => void;
 }) {
   const [result, setResult] = useState<V2Display | null>(null);
   const [error, setError] = useState('');
+  const [isStranded, setIsStranded] = useState(false);
   const [busyKey, setBusyKey] = useState('');
   const [editingKey, setEditingKey] = useState('');
   const [editValue, setEditValue] = useState('');
@@ -39,14 +48,21 @@ export function SelectedRunPanel({
 
   const loadDisplay = useCallback(async () => {
     setError('');
+    setIsStranded(false);
     try {
       const query = new URLSearchParams({ flowType, flowId });
       const response = await fetch(`/api/v2/display?${query}`);
       setResult(await readResponseJSON<V2Display>(response));
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Display failed to load');
+      // Only knowable once somebody opens the run: a search says nothing about its worker.
+      if (isStrandedRunFailure(loadError, flowStatusCode)) {
+        setIsStranded(true);
+        onStranded?.(flowId);
+        return;
+      }
+      setError(readFailureReason(loadError));
     }
-  }, [flowId, flowType]);
+  }, [flowId, flowStatusCode, flowType, onStranded]);
 
   useEffect(() => { void loadDisplay(); }, [loadDisplay]);
 
@@ -103,9 +119,10 @@ export function SelectedRunPanel({
         {result && <span className="sc-status">{result.flowStatus}</span>}
         {footer}
       </div>
+      {isStranded && <p className="sc-state" data-liveness="stranded">{QUEUE_COPY.stranded}</p>}
       {error && <p className="v2-error">{error}</p>}
-      {!result && !error && <p className="sc-state">Loading Display…</p>}
-      {result && (
+      {!result && !error && !isStranded && <p className="sc-state">{QUEUE_COPY.loading}</p>}
+      {result && !isStranded && (
         <>
           <div className="sc-block">
             <div className="sc-blockhead">Display</div>

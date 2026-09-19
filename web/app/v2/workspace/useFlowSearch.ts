@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import { readResponseJSON } from '@/lib/http';
 import type { V2Flow, V2SearchResult } from '@/lib/types';
+import { absorb, nothingHeld, readFailureReason, type Liveness } from '../queue/liveness';
 import { filterValueType, parseFilterValues, type FilterRow } from './filters';
 
 export interface FlowSearch {
@@ -18,6 +19,8 @@ export interface FlowSearch {
   flows: V2Flow[];
   loading: boolean;
   searchError: string;
+  /** What the reader currently knows, which is not what the last request returned. */
+  liveness: Liveness;
   page: number;
   hasNextPage: boolean;
   runSearch: () => void;
@@ -31,9 +34,8 @@ export function useFlowSearch(
   initialFilters: FilterRow[] = [],
 ): FlowSearch {
   const [filters, setFilters] = useState<FilterRow[]>(initialFilters);
-  const [flows, setFlows] = useState<V2Flow[]>([]);
+  const [held, setHeld] = useState(() => nothingHeld<V2Flow[]>());
   const [loading, setLoading] = useState(false);
-  const [searchError, setSearchError] = useState('');
   const [nextPageToken, setNextPageToken] = useState('');
   const [pageTokens, setPageTokens] = useState<string[]>(['']);
   const [page, setPage] = useState(0);
@@ -41,7 +43,6 @@ export function useFlowSearch(
   const executeSearch = useCallback(async (token = '', nextPage = 0) => {
     if (!flowType || !definition) return;
     setLoading(true);
-    setSearchError('');
     try {
       const response = await fetch('/api/v2/search', {
         method: 'POST',
@@ -58,12 +59,15 @@ export function useFlowSearch(
         }),
       });
       const result = await readResponseJSON<V2SearchResult>(response);
-      setFlows(result.flows);
+      setHeld((prior) => absorb(prior, { state: 'ok', value: result.flows }));
       setNextPageToken(result.nextPageToken);
       setPage(nextPage);
     } catch (failedSearch) {
-      setSearchError(failedSearch instanceof Error ? failedSearch.message : 'Search failed');
-      setFlows([]);
+      // Keep the rows that were true a moment ago; absorb marks them stale.
+      setHeld((prior) => absorb(prior, {
+        state: 'unreachable',
+        reason: readFailureReason(failedSearch),
+      }));
     } finally {
       setLoading(false);
     }
@@ -94,9 +98,10 @@ export function useFlowSearch(
   return {
     filters,
     setFilters,
-    flows,
+    flows: held.value ?? [],
     loading,
-    searchError,
+    searchError: held.liveness === 'stale' || held.liveness === 'unreachable' ? held.reason ?? '' : '',
+    liveness: held.liveness,
     page,
     hasNextPage: nextPageToken !== '',
     runSearch,
