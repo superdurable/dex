@@ -7,8 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type {
-  FlowSupervisionAction,
-  FlowSupervisionDefinition,
+  FlowV2Action,
+  FlowV2Definition,
 } from '@superdurable/flow-definition-renderer';
 
 export function v2HomePath(canUseV2: boolean) {
@@ -21,7 +21,7 @@ export function v2FlowPath(flowType: string, flowID?: string) {
   return `${typePath}/${encodeURIComponent(flowID)}`;
 }
 
-export function v2ListColumns(definition: FlowSupervisionDefinition) {
+export function v2ListColumns(definition: FlowV2Definition) {
   return [
     ...definition.indexedAttributes.map((attribute) => ({
       source: 'indexed' as const,
@@ -37,19 +37,19 @@ export function v2ListColumns(definition: FlowSupervisionDefinition) {
 }
 
 export function visibleV2Actions(
-  actions: FlowSupervisionAction[],
+  actions: FlowV2Action[],
   eligibleRPCNames: string[],
 ) {
   const eligible = new Set(eligibleRPCNames);
   return actions.filter((action) => eligible.has(action.rpcName));
 }
 
-export function v2ActionUserFields(action: FlowSupervisionAction) {
+export function v2ActionUserFields(action: FlowV2Action) {
   return (action.input.fields ?? []).filter((field) => field.source === 'user');
 }
 
 export function v2ActionUserInput(
-  action: FlowSupervisionAction,
+  action: FlowV2Action,
   values: Record<string, string>,
 ) {
   return Object.fromEntries(v2ActionUserFields(action).map((field) => [

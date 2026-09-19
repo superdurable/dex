@@ -84,7 +84,7 @@ const graph: FlowDefinitionGraph = {
     { id: 'intake', label: 'Intake', stepIds: ['step:start'] },
     { id: 'control', label: 'Control', stepIds: ['step:review'] },
   ],
-  supervision: {
+  v2: {
     indexedAttributes: [],
     summary: { rpcName: 'GetDexSummary', fields: [] },
     display: { rpcName: 'GetDexDisplay', fields: [] },

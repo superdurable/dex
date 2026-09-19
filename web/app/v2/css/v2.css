@@ -10,7 +10,7 @@
 
 @import './tokens.css';
 @import './canvas.css';
-@import './supervise.css';
+@import './listing.css';
 
 .v2-shell.sv {
   min-height: 0;

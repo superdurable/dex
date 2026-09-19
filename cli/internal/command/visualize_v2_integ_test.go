@@ -57,13 +57,13 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 			require.Equal(t, flowviz.SchemaVersionV2, graph.SchemaVersion)
 			require.Equal(t, test.wantFlowType, graph.Flow.Name)
-			require.NotNil(t, graph.Supervision)
+			require.NotNil(t, graph.V2)
 			require.Equal(t, test.wantGroupIDs, v2GroupIDs(graph.Groups))
-			require.Equal(t, test.wantSummaryFields, v2ViewFieldKeys(graph.Supervision.Summary.Fields))
-			require.Equal(t, test.wantActionRPCNames, v2ActionRPCNames(graph.Supervision.Actions))
-			require.Equal(t, "case-status", graph.Supervision.IndexedAttributes[0].AttributeKey)
-			require.Equal(t, "case-status", graph.Supervision.IndexedAttributes[0].IndexKey)
-			require.Equal(t, "keyword", graph.Supervision.IndexedAttributes[0].IndexType)
+			require.Equal(t, test.wantSummaryFields, v2ViewFieldKeys(graph.V2.Summary.Fields))
+			require.Equal(t, test.wantActionRPCNames, v2ActionRPCNames(graph.V2.Actions))
+			require.Equal(t, "case-status", graph.V2.IndexedAttributes[0].AttributeKey)
+			require.Equal(t, "case-status", graph.V2.IndexedAttributes[0].IndexKey)
+			require.Equal(t, "keyword", graph.V2.IndexedAttributes[0].IndexType)
 			for _, node := range graph.Nodes {
 				if node.Kind != "step" {
 					continue
@@ -99,8 +99,8 @@ func TestVisualizeV2PreservesDirectiveLineOrderWithoutParameterOrder(t *testing.
 
 	require.Equal(t, "intake", graph.Groups[0].ID)
 	require.Equal(t, "Intake", graph.Groups[0].Label)
-	require.Equal(t, []string{"reason", "gateRequestKey"}, v2ActionInputNames(graph.Supervision.Actions[1].Input.Fields))
-	require.Equal(t, []string{"user", "attribute"}, v2ActionInputSources(graph.Supervision.Actions[1].Input.Fields))
+	require.Equal(t, []string{"reason", "gateRequestKey"}, v2ActionInputNames(graph.V2.Actions[1].Input.Fields))
+	require.Equal(t, []string{"user", "attribute"}, v2ActionInputSources(graph.V2.Actions[1].Input.Fields))
 }
 
 func TestVisualizeV2RejectsPython(t *testing.T) {
@@ -141,7 +141,7 @@ func TestVisualizeV2ReportsMalformedNamedDirectives(t *testing.T) {
 	encoded, err := flowviz.MarshalJSON(graph)
 	require.NoError(t, err)
 	require.Contains(t, string(encoded), `"groups": []`)
-	require.Contains(t, string(encoded), `"supervision": {`)
+	require.Contains(t, string(encoded), `"v2": {`)
 }
 
 func v2GroupIDs(groups []flowviz.StepGroup) []string {

@@ -26,9 +26,9 @@ func TestLoadFlowDefinitionsEnablesOnlyValidV2Definitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definitions := handler.SupervisionDefinitions()
+	definitions := handler.V2Definitions()
 	if len(definitions) != 1 {
-		t.Fatalf("supervision definitions = %+v", definitions)
+		t.Fatalf("v2 definitions = %+v", definitions)
 	}
 	if _, found := definitions["RefundFlow"]; !found {
 		t.Fatalf("RefundFlow is not enabled: %+v", definitions)
@@ -71,7 +71,7 @@ func TestLoadFlowDefinitionsPreservesInt64ConditionValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	value := handler.SupervisionDefinitions()["RefundFlow"].Actions[0].Condition.Values[0]
+	value := handler.V2Definitions()["RefundFlow"].Actions[0].Condition.Values[0]
 	if number, ok := value.(json.Number); !ok || number.String() != "9223372036854775807" {
 		t.Fatalf("condition value = %#v", value)
 	}
@@ -97,7 +97,7 @@ func validFlowDefinitionV2(flowType string, valid bool) string {
 	return `{"schemaVersion":"2.0","valid":` + validJSON + `,"source":{"language":"go","path":"flow.go"},` +
 		`"flow":{"name":"` + flowType + `"},"nodes":[],"edges":[],"diagnostics":[],` +
 		`"groups":[{"id":"control","label":"Control","stepIds":["step:control"]}],` +
-		`"supervision":{"indexedAttributes":[{"attributeKey":"case-status","indexKey":"case-status",` +
+		`"v2":{"indexedAttributes":[{"attributeKey":"case-status","indexKey":"case-status",` +
 		`"indexType":"keyword","valueType":"string","description":"Status"}],` +
 		`"summary":{"rpcName":"GetDexSummary","fields":[{"attributeKey":"charge-reference",` +
 		`"valueType":"string","editable":false,"description":"Charge"}]},` +

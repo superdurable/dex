@@ -59,8 +59,8 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 		if graph.Groups == nil {
 			graph.Groups = make([]StepGroup, 0)
 		}
-		if graph.Supervision == nil {
-			graph.Supervision = &Supervision{
+		if graph.V2 == nil {
+			graph.V2 = &V2Definition{
 				IndexedAttributes: make([]IndexedAttribute, 0),
 				Summary:           RPCView{RPCName: "GetDexSummary", Fields: make([]ViewField, 0)},
 				Display:           RPCView{RPCName: "GetDexDisplay", Fields: make([]ViewField, 0)},
@@ -89,9 +89,9 @@ func MarshalJSON(graph *Graph) ([]byte, error) {
 	if graph.SchemaVersion == SchemaVersionV2 {
 		payload = struct {
 			*Graph
-			Groups      []StepGroup  `json:"groups"`
-			Supervision *Supervision `json:"supervision"`
-		}{Graph: graph, Groups: graph.Groups, Supervision: graph.Supervision}
+			Groups []StepGroup   `json:"groups"`
+			V2     *V2Definition `json:"v2"`
+		}{Graph: graph, Groups: graph.Groups, V2: graph.V2}
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

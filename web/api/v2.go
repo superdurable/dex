@@ -29,21 +29,21 @@ import (
 )
 
 const (
-	supervisionDefaultPageSize = 50
-	supervisionRPCConcurrency  = 8
-	supervisionRPCTimeout      = 5 * time.Second
+	v2DefaultPageSize = 50
+	v2RPCConcurrency  = 8
+	v2RPCTimeout      = 5 * time.Second
 )
 
-// SupervisionDefinition describes one Flow type's supervision contract.
-type SupervisionDefinition struct {
-	IndexedAttributes []SupervisionIndexedAttribute `json:"indexedAttributes"`
-	Summary           SupervisionRPCView            `json:"summary"`
-	Display           SupervisionRPCView            `json:"display"`
-	Actions           []SupervisionAction           `json:"actions"`
+// V2Definition describes one Flow type's Dex Web v2 contract.
+type V2Definition struct {
+	IndexedAttributes []V2IndexedAttribute `json:"indexedAttributes"`
+	Summary           V2RPCView            `json:"summary"`
+	Display           V2RPCView            `json:"display"`
+	Actions           []V2Action           `json:"actions"`
 }
 
-// SupervisionIndexedAttribute describes one searchable Attribute.
-type SupervisionIndexedAttribute struct {
+// V2IndexedAttribute describes one searchable Attribute.
+type V2IndexedAttribute struct {
 	AttributeKey string `json:"attributeKey"`
 	IndexKey     string `json:"indexKey"`
 	IndexType    string `json:"indexType"`
@@ -51,43 +51,43 @@ type SupervisionIndexedAttribute struct {
 	Description  string `json:"description"`
 }
 
-// SupervisionRPCView describes Summary or Display fields.
-type SupervisionRPCView struct {
-	RPCName string                 `json:"rpcName"`
-	Fields  []SupervisionViewField `json:"fields"`
+// V2RPCView describes Summary or Display fields.
+type V2RPCView struct {
+	RPCName string        `json:"rpcName"`
+	Fields  []V2ViewField `json:"fields"`
 }
 
-// SupervisionViewField describes one ordered RPC output field.
-type SupervisionViewField struct {
+// V2ViewField describes one ordered RPC output field.
+type V2ViewField struct {
 	AttributeKey string `json:"attributeKey"`
 	ValueType    string `json:"valueType"`
 	Editable     bool   `json:"editable"`
 	Description  string `json:"description"`
 }
 
-// SupervisionAction describes one operator RPC.
-type SupervisionAction struct {
-	RPCName   string                     `json:"rpcName"`
-	Label     string                     `json:"label"`
-	Condition SupervisionActionCondition `json:"condition"`
-	Input     SupervisionActionInput     `json:"input"`
+// V2Action describes one operator RPC.
+type V2Action struct {
+	RPCName   string            `json:"rpcName"`
+	Label     string            `json:"label"`
+	Condition V2ActionCondition `json:"condition"`
+	Input     V2ActionInput     `json:"input"`
 }
 
-// SupervisionActionCondition describes an Action's visibility predicate.
-type SupervisionActionCondition struct {
+// V2ActionCondition describes an Action's visibility predicate.
+type V2ActionCondition struct {
 	AttributeKey string        `json:"attributeKey"`
 	Operator     string        `json:"operator"`
 	Values       []interface{} `json:"values"`
 }
 
-// SupervisionActionInput describes a none or object RPC input.
-type SupervisionActionInput struct {
-	Kind   string                        `json:"kind"`
-	Fields []SupervisionActionInputField `json:"fields"`
+// V2ActionInput describes a none or object RPC input.
+type V2ActionInput struct {
+	Kind   string               `json:"kind"`
+	Fields []V2ActionInputField `json:"fields"`
 }
 
-// SupervisionActionInputField describes one ordered Action input.
-type SupervisionActionInputField struct {
+// V2ActionInputField describes one ordered Action input.
+type V2ActionInputField struct {
 	FieldName    string `json:"fieldName"`
 	ValueType    string `json:"valueType"`
 	Source       string `json:"source"`
@@ -96,35 +96,35 @@ type SupervisionActionInputField struct {
 	Description  string `json:"description"`
 }
 
-type supervisionHandler struct {
+type v2Handler struct {
 	client      dexpb.FlowServiceClient
-	definitions map[string]SupervisionDefinition
+	definitions map[string]V2Definition
 }
 
-type supervisionCatalogEntry struct {
-	FlowType   string                `json:"flowType"`
-	Definition SupervisionDefinition `json:"definition"`
+type v2CatalogEntry struct {
+	FlowType   string       `json:"flowType"`
+	Definition V2Definition `json:"definition"`
 }
 
-type supervisionFilter struct {
+type v2Filter struct {
 	Field    string        `json:"field"`
 	Operator string        `json:"operator"`
 	Values   []interface{} `json:"values"`
 }
 
-type supervisionSearchRequest struct {
-	FlowType      string              `json:"flowType"`
-	Filters       []supervisionFilter `json:"filters"`
-	PageSize      int32               `json:"pageSize"`
-	NextPageToken string              `json:"nextPageToken"`
+type v2SearchRequest struct {
+	FlowType      string     `json:"flowType"`
+	Filters       []v2Filter `json:"filters"`
+	PageSize      int32      `json:"pageSize"`
+	NextPageToken string     `json:"nextPageToken"`
 }
 
-type supervisionSearchResponse struct {
-	Flows         []supervisionFlow `json:"flows"`
-	NextPageToken string            `json:"nextPageToken"`
+type v2SearchResponse struct {
+	Flows         []v2Flow `json:"flows"`
+	NextPageToken string   `json:"nextPageToken"`
 }
 
-type supervisionFlow struct {
+type v2Flow struct {
 	FlowID            string                 `json:"flowId"`
 	FlowType          string                 `json:"flowType"`
 	FlowStatus        string                 `json:"flowStatus"`
@@ -136,7 +136,7 @@ type supervisionFlow struct {
 	SummaryError      string                 `json:"summaryError,omitempty"`
 }
 
-type supervisionDisplayResponse struct {
+type v2DisplayResponse struct {
 	FlowID            string                 `json:"flowId"`
 	FlowType          string                 `json:"flowType"`
 	FlowStatus        string                 `json:"flowStatus"`
@@ -147,14 +147,14 @@ type supervisionDisplayResponse struct {
 	EligibleActions   []string               `json:"eligibleActions"`
 }
 
-type supervisionEditRequest struct {
+type v2EditRequest struct {
 	FlowType     string      `json:"flowType"`
 	FlowID       string      `json:"flowId"`
 	AttributeKey string      `json:"attributeKey"`
 	Value        interface{} `json:"value"`
 }
 
-type supervisionActionRequest struct {
+type v2ActionRequest struct {
 	FlowType          string                 `json:"flowType"`
 	FlowID            string                 `json:"flowId"`
 	RPCName           string                 `json:"rpcName"`
@@ -162,10 +162,10 @@ type supervisionActionRequest struct {
 	AttributeSnapshot map[string]interface{} `json:"attributeSnapshot"`
 }
 
-func RegisterSupervisionHandlers(
+func RegisterV2Handlers(
 	mux *http.ServeMux,
 	client dexpb.FlowServiceClient,
-	definitions map[string]SupervisionDefinition,
+	definitions map[string]V2Definition,
 ) {
 	if mux == nil {
 		panic("HTTP mux must not be nil")
@@ -173,23 +173,23 @@ func RegisterSupervisionHandlers(
 	if client == nil {
 		panic("Dex FlowService client must not be nil")
 	}
-	handler := &supervisionHandler{client: client, definitions: definitions}
-	mux.HandleFunc("GET /api/supervision/catalog", handler.catalog)
-	mux.HandleFunc("POST /api/supervision/search", handler.search)
-	mux.HandleFunc("GET /api/supervision/display", handler.display)
-	mux.HandleFunc("PATCH /api/supervision/display", handler.editDisplay)
-	mux.HandleFunc("POST /api/supervision/actions", handler.invokeAction)
+	handler := &v2Handler{client: client, definitions: definitions}
+	mux.HandleFunc("GET /api/v2/catalog", handler.catalog)
+	mux.HandleFunc("POST /api/v2/search", handler.search)
+	mux.HandleFunc("GET /api/v2/display", handler.display)
+	mux.HandleFunc("PATCH /api/v2/display", handler.editDisplay)
+	mux.HandleFunc("POST /api/v2/actions", handler.invokeAction)
 }
 
-func (h *supervisionHandler) catalog(response http.ResponseWriter, _ *http.Request) {
+func (h *v2Handler) catalog(response http.ResponseWriter, _ *http.Request) {
 	flowTypes := make([]string, 0, len(h.definitions))
 	for flowType := range h.definitions {
 		flowTypes = append(flowTypes, flowType)
 	}
 	sort.Strings(flowTypes)
-	entries := make([]supervisionCatalogEntry, 0, len(flowTypes))
+	entries := make([]v2CatalogEntry, 0, len(flowTypes))
 	for _, flowType := range flowTypes {
-		entries = append(entries, supervisionCatalogEntry{
+		entries = append(entries, v2CatalogEntry{
 			FlowType: flowType, Definition: h.definitions[flowType],
 		})
 	}
@@ -199,8 +199,8 @@ func (h *supervisionHandler) catalog(response http.ResponseWriter, _ *http.Reque
 	})
 }
 
-func (h *supervisionHandler) search(response http.ResponseWriter, request *http.Request) {
-	var body supervisionSearchRequest
+func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) {
+	var body v2SearchRequest
 	if err := decodeJSON(response, request, &body); err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -214,10 +214,10 @@ func (h *supervisionHandler) search(response http.ResponseWriter, request *http.
 		WriteError(response, http.StatusBadRequest, "pageSize must be non-negative", nil)
 		return
 	}
-	if body.PageSize == 0 || body.PageSize > supervisionDefaultPageSize {
-		body.PageSize = supervisionDefaultPageSize
+	if body.PageSize == 0 || body.PageSize > v2DefaultPageSize {
+		body.PageSize = v2DefaultPageSize
 	}
-	query, err := compileSupervisionQuery(body.FlowType, body.Filters, definition)
+	query, err := compileV2Query(body.FlowType, body.Filters, definition)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -235,7 +235,7 @@ func (h *supervisionHandler) search(response http.ResponseWriter, request *http.
 	sort.SliceStable(flowRuns, func(left int, right int) bool {
 		return flowRunStartTime(flowRuns[left]).After(flowRunStartTime(flowRuns[right]))
 	})
-	flows := make([]supervisionFlow, 0, len(flowRuns))
+	flows := make([]v2Flow, 0, len(flowRuns))
 	seenFlowIDs := make(map[string]struct{}, len(result.GetFlowRuns()))
 	for _, entry := range flowRuns {
 		if _, seen := seenFlowIDs[entry.GetFlowId()]; seen {
@@ -245,12 +245,12 @@ func (h *supervisionHandler) search(response http.ResponseWriter, request *http.
 		indexedValues := make(map[string]interface{}, len(definition.IndexedAttributes))
 		physicalValues := keyValueMap(entry.GetIndexedAttributes())
 		for _, attribute := range definition.IndexedAttributes {
-			indexedValues[attribute.AttributeKey] = supervisionResponseValue(
+			indexedValues[attribute.AttributeKey] = v2ResponseValue(
 				physicalValues[attribute.IndexKey],
 				attribute.ValueType,
 			)
 		}
-		flows = append(flows, supervisionFlow{
+		flows = append(flows, v2Flow{
 			FlowID: entry.GetFlowId(), FlowType: entry.GetFlowType(),
 			FlowStatus: flowStatusLabel(entry.GetFlowStatus()), FlowStatusCode: int32(entry.GetFlowStatus()),
 			StartTime: timestamp(entry.GetStartTime()), CloseTime: timestamp(entry.GetCloseTime()),
@@ -258,17 +258,17 @@ func (h *supervisionHandler) search(response http.ResponseWriter, request *http.
 		})
 	}
 	h.loadSummaries(request.Context(), definition.Summary, flows)
-	writeJSON(response, http.StatusOK, supervisionSearchResponse{
+	writeJSON(response, http.StatusOK, v2SearchResponse{
 		Flows: flows, NextPageToken: result.GetNextPageToken(),
 	})
 }
 
-func (h *supervisionHandler) loadSummaries(
+func (h *v2Handler) loadSummaries(
 	ctx context.Context,
-	view SupervisionRPCView,
-	flows []supervisionFlow,
+	view V2RPCView,
+	flows []v2Flow,
 ) {
-	semaphore := make(chan struct{}, supervisionRPCConcurrency)
+	semaphore := make(chan struct{}, v2RPCConcurrency)
 	var waitGroup sync.WaitGroup
 	for index := range flows {
 		waitGroup.Add(1)
@@ -276,7 +276,7 @@ func (h *supervisionHandler) loadSummaries(
 			defer waitGroup.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			callContext, cancelCall := context.WithTimeout(ctx, supervisionRPCTimeout)
+			callContext, cancelCall := context.WithTimeout(ctx, v2RPCTimeout)
 			defer cancelCall()
 			values, err := h.invokeView(callContext, flows[index].FlowID, view)
 			if err != nil {
@@ -289,7 +289,7 @@ func (h *supervisionHandler) loadSummaries(
 	waitGroup.Wait()
 }
 
-func (h *supervisionHandler) display(response http.ResponseWriter, request *http.Request) {
+func (h *v2Handler) display(response http.ResponseWriter, request *http.Request) {
 	for parameter, values := range request.URL.Query() {
 		if (parameter != "flowType" && parameter != "flowId") || len(values) != 1 {
 			WriteError(response, http.StatusBadRequest, "display accepts only one flowType and flowId", nil)
@@ -317,7 +317,7 @@ func (h *supervisionHandler) display(response http.ResponseWriter, request *http
 		writeGRPCError(response, err, definition.Display.RPCName)
 		return
 	}
-	snapshotKeys := supervisionSnapshotKeys(definition)
+	snapshotKeys := v2SnapshotKeys(definition)
 	snapshot := make(map[string]interface{}, len(snapshotKeys))
 	if len(snapshotKeys) > 0 {
 		attributes, attributeErr := h.client.GetAttributes(request.Context(), &dexpb.GetAttributesRequest{
@@ -336,16 +336,16 @@ func (h *supervisionHandler) display(response http.ResponseWriter, request *http
 		}
 	}
 	isActive := summary.GetFlowStatus() == dexpb.FlowStatus_FLOW_STATUS_RUNNING
-	writeJSON(response, http.StatusOK, supervisionDisplayResponse{
+	writeJSON(response, http.StatusOK, v2DisplayResponse{
 		FlowID: flowID, FlowType: flowType,
 		FlowStatus: flowStatusLabel(summary.GetFlowStatus()), FlowStatusCode: int32(summary.GetFlowStatus()),
-		IsActive: isActive, Display: displayValues, AttributeSnapshot: supervisionResponseSnapshot(snapshot),
+		IsActive: isActive, Display: displayValues, AttributeSnapshot: v2ResponseSnapshot(snapshot),
 		EligibleActions: eligibleActions,
 	})
 }
 
-func (h *supervisionHandler) editDisplay(response http.ResponseWriter, request *http.Request) {
-	var body supervisionEditRequest
+func (h *v2Handler) editDisplay(response http.ResponseWriter, request *http.Request) {
+	var body v2EditRequest
 	if err := decodeJSON(response, request, &body); err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -364,14 +364,14 @@ func (h *supervisionHandler) editDisplay(response http.ResponseWriter, request *
 		writeGRPCError(response, err, "GetFlowSummary")
 		return
 	}
-	value, err := encodeSupervisionValue(body.Value, field.ValueType)
+	value, err := encodeV2Value(body.Value, field.ValueType)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	write := &dexpb.AttributeWrite{Key: body.AttributeKey, Value: value}
 	if indexedAttribute, indexed := findIndexedAttribute(definition, body.AttributeKey); indexed {
-		indexType, mapErr := supervisionIndexType(indexedAttribute.IndexType)
+		indexType, mapErr := v2IndexType(indexedAttribute.IndexType)
 		if mapErr != nil {
 			WriteError(response, http.StatusInternalServerError, mapErr.Error(), nil)
 			return
@@ -392,8 +392,8 @@ func (h *supervisionHandler) editDisplay(response http.ResponseWriter, request *
 	})
 }
 
-func (h *supervisionHandler) invokeAction(response http.ResponseWriter, request *http.Request) {
-	var body supervisionActionRequest
+func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Request) {
+	var body v2ActionRequest
 	if err := decodeJSON(response, request, &body); err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -403,7 +403,7 @@ func (h *supervisionHandler) invokeAction(response http.ResponseWriter, request 
 		WriteError(response, http.StatusBadRequest, "flowType, flowId, and rpcName are required", nil)
 		return
 	}
-	action, ok := findSupervisionAction(definition.Actions, body.RPCName)
+	action, ok := findV2Action(definition.Actions, body.RPCName)
 	if !ok {
 		WriteError(response, http.StatusBadRequest, "rpcName is not a declared Action", nil)
 		return
@@ -431,7 +431,7 @@ func (h *supervisionHandler) invokeAction(response http.ResponseWriter, request 
 	}
 	result, err := h.client.InvokeRPC(request.Context(), &dexpb.InvokeRPCRequest{
 		FlowId: body.FlowID, RpcName: action.RPCName, Input: input,
-		TimeoutSeconds: int32(supervisionRPCTimeout.Seconds()), RequestId: uuid.NewString(),
+		TimeoutSeconds: int32(v2RPCTimeout.Seconds()), RequestId: uuid.NewString(),
 	})
 	if err != nil {
 		writeGRPCError(response, err, action.RPCName)
@@ -444,24 +444,24 @@ func (h *supervisionHandler) invokeAction(response http.ResponseWriter, request 
 	writeJSON(response, http.StatusOK, map[string]bool{"invoked": true})
 }
 
-func (h *supervisionHandler) invokeView(
+func (h *v2Handler) invokeView(
 	ctx context.Context,
 	flowID string,
-	view SupervisionRPCView,
+	view V2RPCView,
 ) (map[string]interface{}, error) {
 	result, err := h.client.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 		FlowId: flowID, RpcName: view.RPCName,
 		Input:          &dexpb.Value{Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}},
-		TimeoutSeconds: int32(supervisionRPCTimeout.Seconds()), RequestId: uuid.NewString(),
+		TimeoutSeconds: int32(v2RPCTimeout.Seconds()), RequestId: uuid.NewString(),
 	})
 	if err != nil {
 		return nil, err
 	}
-	output, err := h.hydrateSupervisionValue(ctx, flowID, result.GetOutput())
+	output, err := h.hydrateV2Value(ctx, flowID, result.GetOutput())
 	if err != nil {
 		return nil, err
 	}
-	values, ok := supervisionDexValue(output).(map[string]interface{})
+	values, ok := v2DexValue(output).(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("%s returned a non-object value", view.RPCName)
 	}
@@ -469,18 +469,18 @@ func (h *supervisionHandler) invokeView(
 		return nil, err
 	}
 	for _, field := range view.Fields {
-		values[field.AttributeKey] = supervisionResponseValue(values[field.AttributeKey], field.ValueType)
+		values[field.AttributeKey] = v2ResponseValue(values[field.AttributeKey], field.ValueType)
 	}
 	return values, nil
 }
 
 // InvokeRPC leaves large outputs as blob IDs when lazy loading is enabled.
-func (h *supervisionHandler) hydrateSupervisionValue(
+func (h *v2Handler) hydrateV2Value(
 	ctx context.Context,
 	flowID string,
 	value *dexpb.Value,
 ) (*dexpb.Value, error) {
-	blobID := supervisionBlobID(value)
+	blobID := v2BlobID(value)
 	if blobID == "" {
 		return value, nil
 	}
@@ -497,7 +497,7 @@ func (h *supervisionHandler) hydrateSupervisionValue(
 	return hydrated, nil
 }
 
-func supervisionBlobID(value *dexpb.Value) string {
+func v2BlobID(value *dexpb.Value) string {
 	if value == nil {
 		return ""
 	}
@@ -511,7 +511,7 @@ func supervisionBlobID(value *dexpb.Value) string {
 	}
 }
 
-func supervisionDexValue(value *dexpb.Value) interface{} {
+func v2DexValue(value *dexpb.Value) interface{} {
 	object, ok := value.GetKind().(*dexpb.Value_ObjValue)
 	if !ok || object.ObjValue.GetEncoding() != "json" {
 		return dexValue(value)
@@ -528,7 +528,7 @@ func supervisionDexValue(value *dexpb.Value) interface{} {
 	return decoded
 }
 
-func (h *supervisionHandler) requireActiveFlow(ctx context.Context, flowID string, flowType string) error {
+func (h *v2Handler) requireActiveFlow(ctx context.Context, flowID string, flowType string) error {
 	summary, err := h.client.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
 	if err != nil {
 		return err
@@ -542,24 +542,24 @@ func (h *supervisionHandler) requireActiveFlow(ctx context.Context, flowID strin
 	return nil
 }
 
-func compileSupervisionQuery(
+func compileV2Query(
 	flowType string,
-	filters []supervisionFilter,
-	definition SupervisionDefinition,
+	filters []v2Filter,
+	definition V2Definition,
 ) (string, error) {
 	conditions := []string{"FlowType = " + quoteVisibilityString(flowType)}
 	for _, filter := range filters {
 		if len(filter.Values) == 0 {
 			return "", fmt.Errorf("filter %q must contain at least one value", filter.Field)
 		}
-		physicalKey, valueType, indexType, ok := supervisionFilterField(filter.Field, definition)
+		physicalKey, valueType, indexType, ok := v2FilterField(filter.Field, definition)
 		if !ok {
-			return "", fmt.Errorf("unknown supervision filter field %q", filter.Field)
+			return "", fmt.Errorf("unknown v2 filter field %q", filter.Field)
 		}
-		if !isSupervisionIndexKey(physicalKey) {
+		if !isV2IndexKey(physicalKey) {
 			return "", fmt.Errorf("filter %q maps to an invalid index key", filter.Field)
 		}
-		condition, err := compileSupervisionFilter(physicalKey, valueType, indexType, filter)
+		condition, err := compileV2Filter(physicalKey, valueType, indexType, filter)
 		if err != nil {
 			return "", err
 		}
@@ -568,9 +568,9 @@ func compileSupervisionQuery(
 	return strings.Join(conditions, " AND "), nil
 }
 
-func supervisionFilterField(
+func v2FilterField(
 	field string,
-	definition SupervisionDefinition,
+	definition V2Definition,
 ) (string, string, string, bool) {
 	switch field {
 	case "flowId":
@@ -591,11 +591,11 @@ func supervisionFilterField(
 	}
 }
 
-func compileSupervisionFilter(
+func compileV2Filter(
 	physicalKey string,
 	valueType string,
 	indexType string,
-	filter supervisionFilter,
+	filter v2Filter,
 ) (string, error) {
 	fieldExpression := quoteVisibilityField(physicalKey)
 	operator := strings.ToLower(filter.Operator)
@@ -657,7 +657,7 @@ func visibilityLiteral(value interface{}, valueType string) (string, error) {
 		}
 		return quoteVisibilityString(text), nil
 	case "int64":
-		integer, ok := supervisionRequestInt64(value)
+		integer, ok := v2RequestInt64(value)
 		if !ok {
 			return "", fmt.Errorf("value must be an int64")
 		}
@@ -700,7 +700,7 @@ func quoteVisibilityField(value string) string {
 	return value
 }
 
-func isSupervisionIndexKey(value string) bool {
+func isV2IndexKey(value string) bool {
 	if value == "" {
 		return false
 	}
@@ -722,7 +722,7 @@ func flowRunStartTime(entry *dexpb.SearchFlowsResponseEntry) time.Time {
 	return entry.GetStartTime().AsTime()
 }
 
-func validateViewOutput(view SupervisionRPCView, values map[string]interface{}) error {
+func validateViewOutput(view V2RPCView, values map[string]interface{}) error {
 	if len(values) != len(view.Fields) {
 		return fmt.Errorf("%s returned %d fields; contract declares %d", view.RPCName, len(values), len(view.Fields))
 	}
@@ -731,14 +731,14 @@ func validateViewOutput(view SupervisionRPCView, values map[string]interface{}) 
 		if !exists {
 			return fmt.Errorf("%s omitted declared field %q", view.RPCName, field.AttributeKey)
 		}
-		if value != nil && !isSupervisionValueType(value, field.ValueType) {
+		if value != nil && !isV2ValueType(value, field.ValueType) {
 			return fmt.Errorf("%s field %q does not match %s", view.RPCName, field.AttributeKey, field.ValueType)
 		}
 	}
 	return nil
 }
 
-func supervisionResponseValue(value interface{}, valueType string) interface{} {
+func v2ResponseValue(value interface{}, valueType string) interface{} {
 	if value == nil || valueType != "int64" {
 		return value
 	}
@@ -749,7 +749,7 @@ func supervisionResponseValue(value interface{}, valueType string) interface{} {
 	return strconv.FormatInt(integer, 10)
 }
 
-func supervisionResponseSnapshot(snapshot map[string]interface{}) map[string]interface{} {
+func v2ResponseSnapshot(snapshot map[string]interface{}) map[string]interface{} {
 	response := make(map[string]interface{}, len(snapshot))
 	for key, value := range snapshot {
 		if integer, ok := value.(int64); ok {
@@ -761,7 +761,7 @@ func supervisionResponseSnapshot(snapshot map[string]interface{}) map[string]int
 	return response
 }
 
-func isSupervisionValueType(value interface{}, valueType string) bool {
+func isV2ValueType(value interface{}, valueType string) bool {
 	switch valueType {
 	case "string", "datetime":
 		text, ok := value.(string)
@@ -806,15 +806,15 @@ func isSupervisionValueType(value interface{}, valueType string) bool {
 	}
 }
 
-func encodeSupervisionValue(value interface{}, valueType string) (*dexpb.Value, error) {
+func encodeV2Value(value interface{}, valueType string) (*dexpb.Value, error) {
 	if valueType == "int64" {
-		integer, ok := supervisionRequestInt64(value)
+		integer, ok := v2RequestInt64(value)
 		if !ok {
 			return nil, fmt.Errorf("value does not match %s", valueType)
 		}
 		return &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: integer}}, nil
 	}
-	if !isSupervisionValueType(value, valueType) {
+	if !isV2ValueType(value, valueType) {
 		return nil, fmt.Errorf("value does not match %s", valueType)
 	}
 	switch valueType {
@@ -837,7 +837,7 @@ func encodeSupervisionValue(value interface{}, valueType string) (*dexpb.Value, 
 }
 
 func buildActionInput(
-	action SupervisionAction,
+	action V2Action,
 	userInput map[string]interface{},
 	attributeSnapshot map[string]interface{},
 ) (*dexpb.Value, error) {
@@ -866,14 +866,14 @@ func buildActionInput(
 			continue
 		}
 		if field.ValueType == "int64" {
-			integer, validInteger := supervisionRequestInt64(value)
+			integer, validInteger := v2RequestInt64(value)
 			if !validInteger {
 				return nil, fmt.Errorf("Action input %q does not match %s", field.FieldName, field.ValueType)
 			}
 			input[field.FieldName] = integer
 			continue
 		}
-		if !isSupervisionValueType(value, field.ValueType) {
+		if !isV2ValueType(value, field.ValueType) {
 			return nil, fmt.Errorf("Action input %q does not match %s", field.FieldName, field.ValueType)
 		}
 		input[field.FieldName] = value
@@ -892,7 +892,7 @@ func buildActionInput(
 	}}}, nil
 }
 
-func actionConditionMatches(condition SupervisionActionCondition, currentValue interface{}) bool {
+func actionConditionMatches(condition V2ActionCondition, currentValue interface{}) bool {
 	if condition.Operator != "in" {
 		return false
 	}
@@ -909,7 +909,7 @@ func actionConditionMatches(condition SupervisionActionCondition, currentValue i
 	return false
 }
 
-func supervisionSnapshotKeys(definition SupervisionDefinition) []string {
+func v2SnapshotKeys(definition V2Definition) []string {
 	seen := make(map[string]struct{})
 	keys := make([]string, 0)
 	for _, action := range definition.Actions {
@@ -939,37 +939,37 @@ func keyValueMap(values []*dexpb.KV) map[string]interface{} {
 	return mapped
 }
 
-func editableDisplayField(fields []SupervisionViewField, attributeKey string) (SupervisionViewField, bool) {
+func editableDisplayField(fields []V2ViewField, attributeKey string) (V2ViewField, bool) {
 	for _, field := range fields {
 		if field.AttributeKey == attributeKey && field.Editable {
 			return field, true
 		}
 	}
-	return SupervisionViewField{}, false
+	return V2ViewField{}, false
 }
 
 func findIndexedAttribute(
-	definition SupervisionDefinition,
+	definition V2Definition,
 	attributeKey string,
-) (SupervisionIndexedAttribute, bool) {
+) (V2IndexedAttribute, bool) {
 	for _, attribute := range definition.IndexedAttributes {
 		if attribute.AttributeKey == attributeKey {
 			return attribute, true
 		}
 	}
-	return SupervisionIndexedAttribute{}, false
+	return V2IndexedAttribute{}, false
 }
 
-func findSupervisionAction(actions []SupervisionAction, rpcName string) (SupervisionAction, bool) {
+func findV2Action(actions []V2Action, rpcName string) (V2Action, bool) {
 	for _, action := range actions {
 		if action.RPCName == rpcName {
 			return action, true
 		}
 	}
-	return SupervisionAction{}, false
+	return V2Action{}, false
 }
 
-func supervisionIndexType(indexType string) (dexpb.IndexType, error) {
+func v2IndexType(indexType string) (dexpb.IndexType, error) {
 	switch indexType {
 	case "keyword":
 		return dexpb.IndexType_INDEX_TYPE_KEYWORD, nil
@@ -1012,7 +1012,7 @@ func jsonNumberInt64(value interface{}) (int64, bool) {
 	}
 }
 
-func supervisionRequestInt64(value interface{}) (int64, bool) {
+func v2RequestInt64(value interface{}) (int64, bool) {
 	if text, ok := value.(string); ok {
 		integer, err := strconv.ParseInt(text, 10, 64)
 		return integer, err == nil

@@ -81,7 +81,7 @@ func (analyzer *goAnalyzer) analyzeVisualizationV2(flowType string) {
 		true,
 	)
 	actions := analyzer.collectV2Actions(flowType, attributes, registeredRPCNames)
-	analyzer.graph.Supervision = &Supervision{
+	analyzer.graph.V2 = &V2Definition{
 		IndexedAttributes: indexedAttributes,
 		Summary:           summary,
 		Display:           display,

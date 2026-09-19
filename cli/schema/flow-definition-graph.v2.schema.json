@@ -13,7 +13,7 @@
     "edges",
     "diagnostics",
     "groups",
-    "supervision"
+    "v2"
   ],
   "properties": {
     "schemaVersion": {"const": "2.0"},
@@ -53,7 +53,7 @@
       "type": "array",
       "items": {"$ref": "#/$defs/group"}
     },
-    "supervision": {"$ref": "#/$defs/supervision"}
+    "v2": {"$ref": "#/$defs/v2"}
   },
   "$defs": {
     "group": {
@@ -66,7 +66,7 @@
         "stepIds": {"type": "array", "items": {"type": "string"}, "minItems": 1}
       }
     },
-    "supervision": {
+    "v2": {
       "type": "object",
       "additionalProperties": false,
       "required": ["indexedAttributes", "summary", "display", "actions"],

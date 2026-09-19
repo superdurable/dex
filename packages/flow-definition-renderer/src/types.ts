@@ -84,7 +84,7 @@ export interface FlowDefinitionGraph {
   edges: FlowDefinitionEdge[];
   diagnostics: FlowDefinitionDiagnostic[];
   groups?: FlowDefinitionGroup[];
-  supervision?: FlowSupervisionDefinition;
+  v2?: FlowV2Definition;
 }
 
 export interface FlowDefinitionGroup {
@@ -93,15 +93,15 @@ export interface FlowDefinitionGroup {
   stepIds: string[];
 }
 
-export interface FlowSupervisionIndexedAttribute {
+export interface FlowV2IndexedAttribute {
   attributeKey: string;
   indexKey: string;
   indexType: 'keyword' | 'fulltext' | 'keyword-array' | 'int' | 'double' | 'bool' | 'datetime';
-  valueType: SupervisionIndexedValueType;
+  valueType: V2IndexedValueType;
   description: string;
 }
 
-export type SupervisionValueType =
+export type V2ValueType =
   | 'string'
   | 'string-array'
   | 'int64'
@@ -113,7 +113,7 @@ export type SupervisionValueType =
   | 'array'
   | 'attribute-map';
 
-export type SupervisionIndexedValueType =
+export type V2IndexedValueType =
   | 'string'
   | 'string-array'
   | 'int64'
@@ -121,30 +121,30 @@ export type SupervisionIndexedValueType =
   | 'bool'
   | 'datetime';
 
-export type SupervisionEditableValueType = Exclude<SupervisionIndexedValueType, 'string-array'>;
+export type V2EditableValueType = Exclude<V2IndexedValueType, 'string-array'>;
 
-export interface FlowSupervisionField {
+export interface FlowV2Field {
   attributeKey: string;
-  valueType: SupervisionValueType;
+  valueType: V2ValueType;
   editable: boolean;
   description: string;
 }
 
-export interface FlowSupervisionView {
+export interface FlowV2View {
   rpcName: string;
-  fields: FlowSupervisionField[];
+  fields: FlowV2Field[];
 }
 
-export interface FlowSupervisionActionInputField {
+export interface FlowV2ActionInputField {
   fieldName: string;
-  valueType: SupervisionEditableValueType;
+  valueType: V2EditableValueType;
   source: 'user' | 'attribute';
   attributeKey?: string;
   required: boolean;
   description: string;
 }
 
-export interface FlowSupervisionAction {
+export interface FlowV2Action {
   rpcName: string;
   label: string;
   condition: {
@@ -154,13 +154,13 @@ export interface FlowSupervisionAction {
   };
   input: {
     kind: 'none' | 'object';
-    fields?: FlowSupervisionActionInputField[];
+    fields?: FlowV2ActionInputField[];
   };
 }
 
-export interface FlowSupervisionDefinition {
-  indexedAttributes: FlowSupervisionIndexedAttribute[];
-  summary: FlowSupervisionView;
-  display: FlowSupervisionView;
-  actions: FlowSupervisionAction[];
+export interface FlowV2Definition {
+  indexedAttributes: FlowV2IndexedAttribute[];
+  summary: FlowV2View;
+  display: FlowV2View;
+  actions: FlowV2Action[];
 }

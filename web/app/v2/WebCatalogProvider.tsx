@@ -8,12 +8,12 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { readResponseJSON } from '@/lib/http';
-import type { FlowDefinitionCatalog, SupervisionCatalog } from '@/lib/types';
+import type { FlowDefinitionCatalog, V2Catalog } from '@/lib/types';
 
 interface WebCatalogValue {
   ready: boolean;
   canUseV2: boolean;
-  catalog: SupervisionCatalog | null;
+  catalog: V2Catalog | null;
   definitions: FlowDefinitionCatalog | null;
   error: string;
 }
@@ -21,7 +21,7 @@ interface WebCatalogValue {
 const WebCatalogContext = createContext<WebCatalogValue | null>(null);
 
 export function WebCatalogProvider({ children }: { children: ReactNode }) {
-  const [catalog, setCatalog] = useState<SupervisionCatalog | null>(null);
+  const [catalog, setCatalog] = useState<V2Catalog | null>(null);
   const [definitions, setDefinitions] = useState<FlowDefinitionCatalog | null>(null);
   const [operatorAPIAvailable, setOperatorAPIAvailable] = useState(false);
   const [error, setError] = useState('');
@@ -32,8 +32,8 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
     void Promise.all([
       fetch('/api/flow-definitions', { signal: controller.signal })
         .then((response) => readResponseJSON<FlowDefinitionCatalog>(response)),
-      fetch('/api/supervision/catalog', { signal: controller.signal })
-        .then((response) => readResponseJSON<SupervisionCatalog>(response))
+      fetch('/api/v2/catalog', { signal: controller.signal })
+        .then((response) => readResponseJSON<V2Catalog>(response))
         .then((value) => ({ ok: true as const, value }))
         .catch(() => ({ ok: false as const, value: { enabled: false, flows: [] } })),
     ]).then(([nextDefinitions, nextCatalog]) => {

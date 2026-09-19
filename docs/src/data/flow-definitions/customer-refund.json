@@ -852,7 +852,7 @@
       ]
     }
   ],
-  "supervision": {
+  "v2": {
     "indexedAttributes": [
       {
         "attributeKey": "case-status",

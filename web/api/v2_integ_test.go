@@ -29,7 +29,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type supervisionTestClient struct {
+type v2TestClient struct {
 	dexpb.FlowServiceClient
 	mutex              sync.Mutex
 	searchRequests     []*dexpb.SearchFlowsRequest
@@ -44,7 +44,7 @@ type supervisionTestClient struct {
 	invokeRPCHandler   func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error)
 }
 
-func (client *supervisionTestClient) SearchFlows(
+func (client *v2TestClient) SearchFlows(
 	_ context.Context,
 	request *dexpb.SearchFlowsRequest,
 	_ ...grpc.CallOption,
@@ -65,7 +65,7 @@ func (client *supervisionTestClient) SearchFlows(
 	}}, nil
 }
 
-func (client *supervisionTestClient) GetFlowSummary(
+func (client *v2TestClient) GetFlowSummary(
 	_ context.Context,
 	request *dexpb.GetFlowSummaryRequest,
 	_ ...grpc.CallOption,
@@ -80,7 +80,7 @@ func (client *supervisionTestClient) GetFlowSummary(
 	}, nil
 }
 
-func (client *supervisionTestClient) GetAttributes(
+func (client *v2TestClient) GetAttributes(
 	_ context.Context,
 	request *dexpb.GetAttributesRequest,
 	_ ...grpc.CallOption,
@@ -99,7 +99,7 @@ func (client *supervisionTestClient) GetAttributes(
 	return &dexpb.GetAttributesResponse{Attributes: attributes}, nil
 }
 
-func (client *supervisionTestClient) SetAttributes(
+func (client *v2TestClient) SetAttributes(
 	_ context.Context,
 	request *dexpb.SetAttributesRequest,
 	_ ...grpc.CallOption,
@@ -110,7 +110,7 @@ func (client *supervisionTestClient) SetAttributes(
 	return &emptypb.Empty{}, nil
 }
 
-func (client *supervisionTestClient) LoadBlobs(
+func (client *v2TestClient) LoadBlobs(
 	_ context.Context,
 	request *dexpb.LoadBlobsRequest,
 	_ ...grpc.CallOption,
@@ -121,7 +121,7 @@ func (client *supervisionTestClient) LoadBlobs(
 	client.mutex.Unlock()
 	values := make(map[string]*dexpb.Value, len(request.GetEntries()))
 	for _, entry := range request.GetEntries() {
-		blobID := supervisionBlobID(entry.GetBlobValue())
+		blobID := v2BlobID(entry.GetBlobValue())
 		if hydrated, ok := blobs[blobID]; ok {
 			values[blobID] = hydrated
 		}
@@ -129,7 +129,7 @@ func (client *supervisionTestClient) LoadBlobs(
 	return &dexpb.LoadBlobsResponse{Values: values}, nil
 }
 
-func (client *supervisionTestClient) InvokeRPC(
+func (client *v2TestClient) InvokeRPC(
 	ctx context.Context,
 	request *dexpb.InvokeRPCRequest,
 	_ ...grpc.CallOption,
@@ -156,24 +156,24 @@ func (client *supervisionTestClient) InvokeRPC(
 	}
 }
 
-func TestSupervisionFacadeUsesCurrentRunAndStructuredContract(t *testing.T) {
-	client := &supervisionTestClient{
+func TestV2FacadeUsesCurrentRunAndStructuredContract(t *testing.T) {
+	client := &v2TestClient{
 		currentCaseStatus: "awaiting-manager", currentGateRequest: "gate-1",
 	}
 	mux := http.NewServeMux()
-	RegisterSupervisionHandlers(mux, client, map[string]SupervisionDefinition{
-		"RefundFlow": testSupervisionDefinition(),
+	RegisterV2Handlers(mux, client, map[string]V2Definition{
+		"RefundFlow": testV2Definition(),
 	})
 
-	searchResponse := performSupervisionJSON(t, mux, http.MethodPost, "/api/supervision/search", `{
+	searchResponse := performV2JSON(t, mux, http.MethodPost, "/api/v2/search", `{
 		"flowType":"RefundFlow",
 		"filters":[{"field":"case-status","operator":"in","values":["awaiting-manager","review"]}]
 	}`)
 	if searchResponse.Code != http.StatusOK {
 		t.Fatalf("search status = %d body=%q", searchResponse.Code, searchResponse.Body.String())
 	}
-	var searchResult supervisionSearchResponse
-	decodeSupervisionResponse(t, searchResponse, &searchResult)
+	var searchResult v2SearchResponse
+	decodeV2Response(t, searchResponse, &searchResult)
 	if len(searchResult.Flows) != 1 || searchResult.Flows[0].FlowID != "refund-1" {
 		t.Fatalf("search result = %+v", searchResult)
 	}
@@ -182,35 +182,35 @@ func TestSupervisionFacadeUsesCurrentRunAndStructuredContract(t *testing.T) {
 		t.Fatalf("compiled query = %q", query)
 	}
 
-	displayResponse := performSupervisionJSON(
+	displayResponse := performV2JSON(
 		t, mux, http.MethodGet,
-		"/api/supervision/display?flowType=RefundFlow&flowId=refund-1", "",
+		"/api/v2/display?flowType=RefundFlow&flowId=refund-1", "",
 	)
 	if displayResponse.Code != http.StatusOK {
 		t.Fatalf("display status = %d body=%q", displayResponse.Code, displayResponse.Body.String())
 	}
-	var displayResult supervisionDisplayResponse
-	decodeSupervisionResponse(t, displayResponse, &displayResult)
+	var displayResult v2DisplayResponse
+	decodeV2Response(t, displayResponse, &displayResult)
 	if displayResult.AttributeSnapshot["case-status"] != "awaiting-manager" || len(displayResult.EligibleActions) != 2 {
 		t.Fatalf("display result = %+v", displayResult)
 	}
 
-	editResponse := performSupervisionJSON(
-		t, mux, http.MethodPatch, "/api/supervision/display",
+	editResponse := performV2JSON(
+		t, mux, http.MethodPatch, "/api/v2/display",
 		`{"flowType":"RefundFlow","flowId":"refund-1","attributeKey":"operator-note","value":"done"}`,
 	)
 	if editResponse.Code != http.StatusOK {
 		t.Fatalf("edit status = %d body=%q", editResponse.Code, editResponse.Body.String())
 	}
-	indexedEditResponse := performSupervisionJSON(
-		t, mux, http.MethodPatch, "/api/supervision/display",
+	indexedEditResponse := performV2JSON(
+		t, mux, http.MethodPatch, "/api/v2/display",
 		`{"flowType":"RefundFlow","flowId":"refund-1","attributeKey":"case-status","value":"review"}`,
 	)
 	if indexedEditResponse.Code != http.StatusOK {
 		t.Fatalf("indexed edit status = %d body=%q", indexedEditResponse.Code, indexedEditResponse.Body.String())
 	}
 
-	actionResponse := performSupervisionJSON(t, mux, http.MethodPost, "/api/supervision/actions", `{
+	actionResponse := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", `{
 		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund",
 		"input":{},"attributeSnapshot":{"gate-request-key":"gate-1"}
 	}`)
@@ -218,7 +218,7 @@ func TestSupervisionFacadeUsesCurrentRunAndStructuredContract(t *testing.T) {
 		t.Fatalf("Action status = %d body=%q", actionResponse.Code, actionResponse.Body.String())
 	}
 
-	assertSupervisionRequestsOmitRunID(t, client)
+	assertV2RequestsOmitRunID(t, client)
 	if len(client.setRequests) != 2 || client.setRequests[0].GetAttributes()[0].GetKey() != "operator-note" {
 		t.Fatalf("SetAttributes requests = %+v", client.setRequests)
 	}
@@ -233,27 +233,27 @@ func TestSupervisionFacadeUsesCurrentRunAndStructuredContract(t *testing.T) {
 	}
 }
 
-func TestSupervisionFacadeRejectsRunIDAndStaleActionState(t *testing.T) {
-	client := &supervisionTestClient{currentCaseStatus: "resolved"}
+func TestV2FacadeRejectsRunIDAndStaleActionState(t *testing.T) {
+	client := &v2TestClient{currentCaseStatus: "resolved"}
 	mux := http.NewServeMux()
-	RegisterSupervisionHandlers(mux, client, map[string]SupervisionDefinition{
-		"RefundFlow": testSupervisionDefinition(),
+	RegisterV2Handlers(mux, client, map[string]V2Definition{
+		"RefundFlow": testV2Definition(),
 	})
-	displayWithRunID := performSupervisionJSON(
+	displayWithRunID := performV2JSON(
 		t, mux, http.MethodGet,
-		"/api/supervision/display?flowType=RefundFlow&flowId=refund-1&runId=run-1", "",
+		"/api/v2/display?flowType=RefundFlow&flowId=refund-1&runId=run-1", "",
 	)
 	if displayWithRunID.Code != http.StatusBadRequest {
 		t.Fatalf("display runId status = %d body=%q", displayWithRunID.Code, displayWithRunID.Body.String())
 	}
-	withRunID := performSupervisionJSON(t, mux, http.MethodPost, "/api/supervision/actions", `{
+	withRunID := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", `{
 		"flowType":"RefundFlow","flowId":"refund-1","runId":"run-1","rpcName":"ApproveRefund","input":{}
 	}`)
 	if withRunID.Code != http.StatusBadRequest {
 		t.Fatalf("runId status = %d body=%q", withRunID.Code, withRunID.Body.String())
 	}
 
-	stale := performSupervisionJSON(t, mux, http.MethodPost, "/api/supervision/actions", `{
+	stale := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", `{
 		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund","input":{}
 	}`)
 	if stale.Code != http.StatusConflict {
@@ -261,15 +261,15 @@ func TestSupervisionFacadeRejectsRunIDAndStaleActionState(t *testing.T) {
 	}
 }
 
-func TestSupervisionFacadeBuildsObjectActionFromUserAndAttributeInputs(t *testing.T) {
-	client := &supervisionTestClient{
+func TestV2FacadeBuildsObjectActionFromUserAndAttributeInputs(t *testing.T) {
+	client := &v2TestClient{
 		currentCaseStatus: "awaiting-manager", currentGateRequest: "gate-current",
 	}
 	mux := http.NewServeMux()
-	RegisterSupervisionHandlers(mux, client, map[string]SupervisionDefinition{
-		"RefundFlow": testSupervisionDefinition(),
+	RegisterV2Handlers(mux, client, map[string]V2Definition{
+		"RefundFlow": testV2Definition(),
 	})
-	response := performSupervisionJSON(t, mux, http.MethodPost, "/api/supervision/actions", `{
+	response := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", `{
 		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"RejectRefund",
 		"input":{"reason":"duplicate"},"attributeSnapshot":{"gate-request-key":"gate-snapshot"}
 	}`)
@@ -285,7 +285,7 @@ func TestSupervisionFacadeBuildsObjectActionFromUserAndAttributeInputs(t *testin
 		t.Fatalf("object Action input = %+v", input)
 	}
 
-	forged := performSupervisionJSON(t, mux, http.MethodPost, "/api/supervision/actions", `{
+	forged := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", `{
 		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"RejectRefund",
 		"input":{"reason":"duplicate","gateRequestKey":"forged"},
 		"attributeSnapshot":{"gate-request-key":"gate-snapshot"}
@@ -295,12 +295,12 @@ func TestSupervisionFacadeBuildsObjectActionFromUserAndAttributeInputs(t *testin
 	}
 }
 
-func TestSupervisionSummaryLoadingBoundsConcurrencyAndIsolatesFailures(t *testing.T) {
+func TestV2SummaryLoadingBoundsConcurrencyAndIsolatesFailures(t *testing.T) {
 	started := make(chan struct{}, 16)
 	release := make(chan struct{})
 	var active atomic.Int32
 	var maximum atomic.Int32
-	client := &supervisionTestClient{}
+	client := &v2TestClient{}
 	client.invokeRPCHandler = func(ctx context.Context, request *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
 		current := active.Add(1)
 		defer active.Add(-1)
@@ -321,18 +321,18 @@ func TestSupervisionSummaryLoadingBoundsConcurrencyAndIsolatesFailures(t *testin
 		}
 		return &dexpb.InvokeRPCResponse{Output: jsonDexValue(`{"charge-reference":"ok"}`)}, nil
 	}
-	handler := &supervisionHandler{client: client}
-	flows := make([]supervisionFlow, 10)
+	handler := &v2Handler{client: client}
+	flows := make([]v2Flow, 10)
 	for index := range flows {
 		flows[index].FlowID = "refund-" + string(rune('a'+index))
 	}
 	flows[9].FlowID = "failure"
 	done := make(chan struct{})
 	go func() {
-		handler.loadSummaries(context.Background(), testSupervisionDefinition().Summary, flows)
+		handler.loadSummaries(context.Background(), testV2Definition().Summary, flows)
 		close(done)
 	}()
-	for index := 0; index < supervisionRPCConcurrency; index++ {
+	for index := 0; index < v2RPCConcurrency; index++ {
 		select {
 		case <-started:
 		case <-time.After(time.Second):
@@ -350,7 +350,7 @@ func TestSupervisionSummaryLoadingBoundsConcurrencyAndIsolatesFailures(t *testin
 	case <-time.After(time.Second):
 		t.Fatal("summary loading did not finish")
 	}
-	if maximum.Load() != supervisionRPCConcurrency {
+	if maximum.Load() != v2RPCConcurrency {
 		t.Fatalf("maximum summary concurrency = %d", maximum.Load())
 	}
 	if flows[9].SummaryError == "" {
@@ -363,8 +363,8 @@ func TestSupervisionSummaryLoadingBoundsConcurrencyAndIsolatesFailures(t *testin
 	}
 }
 
-func TestSupervisionHydratesBlobBackedViewOutput(t *testing.T) {
-	client := &supervisionTestClient{
+func TestV2HydratesBlobBackedViewOutput(t *testing.T) {
+	client := &v2TestClient{
 		currentCaseStatus: "awaiting-manager", currentGateRequest: "gate-1",
 		blobs: map[string]*dexpb.Value{
 			"summary-blob": jsonDexValue(`{"charge-reference":null}`),
@@ -384,18 +384,18 @@ func TestSupervisionHydratesBlobBackedViewOutput(t *testing.T) {
 		}
 	}
 	mux := http.NewServeMux()
-	RegisterSupervisionHandlers(mux, client, map[string]SupervisionDefinition{
-		"RefundFlow": testSupervisionDefinition(),
+	RegisterV2Handlers(mux, client, map[string]V2Definition{
+		"RefundFlow": testV2Definition(),
 	})
 
-	searchResponse := performSupervisionJSON(t, mux, http.MethodPost, "/api/supervision/search", `{
+	searchResponse := performV2JSON(t, mux, http.MethodPost, "/api/v2/search", `{
 		"flowType":"RefundFlow"
 	}`)
 	if searchResponse.Code != http.StatusOK {
 		t.Fatalf("search status = %d body=%q", searchResponse.Code, searchResponse.Body.String())
 	}
-	var searchResult supervisionSearchResponse
-	decodeSupervisionResponse(t, searchResponse, &searchResult)
+	var searchResult v2SearchResponse
+	decodeV2Response(t, searchResponse, &searchResult)
 	if len(searchResult.Flows) != 1 || searchResult.Flows[0].SummaryError != "" {
 		t.Fatalf("search result = %+v", searchResult)
 	}
@@ -403,15 +403,15 @@ func TestSupervisionHydratesBlobBackedViewOutput(t *testing.T) {
 		t.Fatalf("summary omitted charge-reference: %+v", searchResult.Flows[0].Summary)
 	}
 
-	displayResponse := performSupervisionJSON(
+	displayResponse := performV2JSON(
 		t, mux, http.MethodGet,
-		"/api/supervision/display?flowType=RefundFlow&flowId=refund-1", "",
+		"/api/v2/display?flowType=RefundFlow&flowId=refund-1", "",
 	)
 	if displayResponse.Code != http.StatusOK {
 		t.Fatalf("display status = %d body=%q", displayResponse.Code, displayResponse.Body.String())
 	}
-	var displayResult supervisionDisplayResponse
-	decodeSupervisionResponse(t, displayResponse, &displayResult)
+	var displayResult v2DisplayResponse
+	decodeV2Response(t, displayResponse, &displayResult)
 	if displayResult.Display["operator-note"] != "reviewed" {
 		t.Fatalf("display result = %+v", displayResult)
 	}
@@ -420,21 +420,21 @@ func TestSupervisionHydratesBlobBackedViewOutput(t *testing.T) {
 	}
 }
 
-func TestSupervisionMissingViewBlobSurfacesRowError(t *testing.T) {
-	client := &supervisionTestClient{}
+func TestV2MissingViewBlobSurfacesRowError(t *testing.T) {
+	client := &v2TestClient{}
 	client.invokeRPCHandler = func(_ context.Context, _ *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
 		return &dexpb.InvokeRPCResponse{Output: blobObjDexValue("missing-blob")}, nil
 	}
-	handler := &supervisionHandler{client: client}
-	flows := []supervisionFlow{{FlowID: "refund-1"}}
-	handler.loadSummaries(context.Background(), testSupervisionDefinition().Summary, flows)
+	handler := &v2Handler{client: client}
+	flows := []v2Flow{{FlowID: "refund-1"}}
+	handler.loadSummaries(context.Background(), testV2Definition().Summary, flows)
 	if flows[0].SummaryError == "" {
 		t.Fatalf("missing blob did not surface a row error: %+v", flows[0])
 	}
 }
 
-func TestSupervisionViewOutputContract(t *testing.T) {
-	view := testSupervisionDefinition().Summary
+func TestV2ViewOutputContract(t *testing.T) {
+	view := testV2Definition().Summary
 	if err := validateViewOutput(view, map[string]interface{}{"charge-reference": nil}); err != nil {
 		t.Fatal(err)
 	}
@@ -449,9 +449,9 @@ func TestSupervisionViewOutputContract(t *testing.T) {
 	}
 }
 
-func TestSupervisionInt64InputPreservesPrecision(t *testing.T) {
+func TestV2Int64InputPreservesPrecision(t *testing.T) {
 	const maximumInt64 = "9223372036854775807"
-	encoded, err := encodeSupervisionValue(maximumInt64, "int64")
+	encoded, err := encodeV2Value(maximumInt64, "int64")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,9 +459,9 @@ func TestSupervisionInt64InputPreservesPrecision(t *testing.T) {
 		t.Fatalf("encoded int64 = %d", encoded.GetIntValue())
 	}
 
-	action := SupervisionAction{Input: SupervisionActionInput{
+	action := V2Action{Input: V2ActionInput{
 		Kind: "object",
-		Fields: []SupervisionActionInputField{{
+		Fields: []V2ActionInputField{{
 			FieldName: "count", ValueType: "int64", Source: "user", Required: true,
 		}},
 	}}
@@ -472,68 +472,68 @@ func TestSupervisionInt64InputPreservesPrecision(t *testing.T) {
 	if payload := string(input.GetObjValue().GetPayload()); payload != `{"count":9223372036854775807}` {
 		t.Fatalf("Action input = %s", payload)
 	}
-	condition := SupervisionActionCondition{
+	condition := V2ActionCondition{
 		AttributeKey: "count", Operator: "in", Values: []interface{}{json.Number(maximumInt64)},
 	}
 	if !actionConditionMatches(condition, int64(9223372036854775807)) {
 		t.Fatal("maximum int64 Action condition did not match")
 	}
-	decoded := supervisionDexValue(jsonDexValue(`{"count":9223372036854775807}`)).(map[string]interface{})
+	decoded := v2DexValue(jsonDexValue(`{"count":9223372036854775807}`)).(map[string]interface{})
 	if number, ok := decoded["count"].(json.Number); !ok || number.String() != maximumInt64 {
 		t.Fatalf("decoded int64 = %#v", decoded["count"])
 	}
-	if responseValue := supervisionResponseValue(decoded["count"], "int64"); responseValue != maximumInt64 {
+	if responseValue := v2ResponseValue(decoded["count"], "int64"); responseValue != maximumInt64 {
 		t.Fatalf("int64 response value = %#v", responseValue)
 	}
 }
 
-func TestSupervisionSummaryCallsUseFiveSecondTimeout(t *testing.T) {
-	client := &supervisionTestClient{}
+func TestV2SummaryCallsUseFiveSecondTimeout(t *testing.T) {
+	client := &v2TestClient{}
 	client.invokeRPCHandler = func(ctx context.Context, _ *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
 		deadline, ok := ctx.Deadline()
 		if !ok {
 			t.Fatal("summary RPC has no deadline")
 		}
 		remaining := time.Until(deadline)
-		if remaining <= 0 || remaining > supervisionRPCTimeout {
+		if remaining <= 0 || remaining > v2RPCTimeout {
 			t.Fatalf("summary RPC timeout = %v", remaining)
 		}
 		return &dexpb.InvokeRPCResponse{Output: jsonDexValue(`{"charge-reference":"ok"}`)}, nil
 	}
-	flows := []supervisionFlow{{FlowID: "refund-1"}}
-	handler := &supervisionHandler{client: client}
-	handler.loadSummaries(context.Background(), testSupervisionDefinition().Summary, flows)
+	flows := []v2Flow{{FlowID: "refund-1"}}
+	handler := &v2Handler{client: client}
+	handler.loadSummaries(context.Background(), testV2Definition().Summary, flows)
 	if flows[0].Summary["charge-reference"] != "ok" {
 		t.Fatalf("summary = %+v", flows[0])
 	}
 }
 
-func testSupervisionDefinition() SupervisionDefinition {
-	return SupervisionDefinition{
-		IndexedAttributes: []SupervisionIndexedAttribute{{
+func testV2Definition() V2Definition {
+	return V2Definition{
+		IndexedAttributes: []V2IndexedAttribute{{
 			AttributeKey: "case-status", IndexKey: "case-status-index",
 			IndexType: "keyword", ValueType: "string", Description: "Case status",
 		}},
-		Summary: SupervisionRPCView{RPCName: "GetDexSummary", Fields: []SupervisionViewField{{
+		Summary: V2RPCView{RPCName: "GetDexSummary", Fields: []V2ViewField{{
 			AttributeKey: "charge-reference", ValueType: "string", Description: "Charge reference",
 		}}},
-		Display: SupervisionRPCView{RPCName: "GetDexDisplay", Fields: []SupervisionViewField{{
+		Display: V2RPCView{RPCName: "GetDexDisplay", Fields: []V2ViewField{{
 			AttributeKey: "operator-note", ValueType: "string", Editable: true, Description: "Operator note",
 		}, {
 			AttributeKey: "case-status", ValueType: "string", Editable: true, Description: "Case status",
 		}}},
-		Actions: []SupervisionAction{{
+		Actions: []V2Action{{
 			RPCName: "ApproveRefund", Label: "Approve",
-			Condition: SupervisionActionCondition{
+			Condition: V2ActionCondition{
 				AttributeKey: "case-status", Operator: "in", Values: []interface{}{"awaiting-manager"},
 			},
-			Input: SupervisionActionInput{Kind: "none"},
+			Input: V2ActionInput{Kind: "none"},
 		}, {
 			RPCName: "RejectRefund", Label: "Reject",
-			Condition: SupervisionActionCondition{
+			Condition: V2ActionCondition{
 				AttributeKey: "case-status", Operator: "in", Values: []interface{}{"awaiting-manager"},
 			},
-			Input: SupervisionActionInput{Kind: "object", Fields: []SupervisionActionInputField{{
+			Input: V2ActionInput{Kind: "object", Fields: []V2ActionInputField{{
 				FieldName: "reason", ValueType: "string", Source: "user", Required: true,
 				Description: "Rejection reason",
 			}, {
@@ -544,7 +544,7 @@ func testSupervisionDefinition() SupervisionDefinition {
 	}
 }
 
-func assertSupervisionRequestsOmitRunID(t *testing.T, client *supervisionTestClient) {
+func assertV2RequestsOmitRunID(t *testing.T, client *v2TestClient) {
 	t.Helper()
 	for _, request := range client.summaryRequests {
 		if request.GetRunId() != "" {
@@ -568,7 +568,7 @@ func assertSupervisionRequestsOmitRunID(t *testing.T, client *supervisionTestCli
 	}
 }
 
-func performSupervisionJSON(
+func performV2JSON(
 	t *testing.T,
 	handler http.Handler,
 	method string,
@@ -585,7 +585,7 @@ func performSupervisionJSON(
 	return response
 }
 
-func decodeSupervisionResponse(t *testing.T, response *httptest.ResponseRecorder, target interface{}) {
+func decodeV2Response(t *testing.T, response *httptest.ResponseRecorder, target interface{}) {
 	t.Helper()
 	if err := json.NewDecoder(response.Body).Decode(target); err != nil {
 		t.Fatal(err)

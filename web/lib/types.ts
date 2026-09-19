@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { FlowDefinitionGraph } from '@superdurable/flow-definition-renderer';
-import type { FlowSupervisionDefinition } from '@superdurable/flow-definition-renderer';
+import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 
 export type {
   FlowDefinitionDiagnostic,
@@ -156,17 +156,17 @@ export interface FlowDefinitionEntry {
   graph: FlowDefinitionGraph;
 }
 
-export interface SupervisionCatalogEntry {
+export interface V2CatalogEntry {
   flowType: string;
-  definition: FlowSupervisionDefinition;
+  definition: FlowV2Definition;
 }
 
-export interface SupervisionCatalog {
+export interface V2Catalog {
   enabled: boolean;
-  flows: SupervisionCatalogEntry[];
+  flows: V2CatalogEntry[];
 }
 
-export interface SupervisionFlow {
+export interface V2Flow {
   flowId: string;
   flowType: string;
   flowStatus: FlowStatus;
@@ -178,12 +178,12 @@ export interface SupervisionFlow {
   summaryError?: string;
 }
 
-export interface SupervisionSearchResult {
-  flows: SupervisionFlow[];
+export interface V2SearchResult {
+  flows: V2Flow[];
   nextPageToken: string;
 }
 
-export interface SupervisionDisplay {
+export interface V2Display {
   flowId: string;
   flowType: string;
   flowStatus: FlowStatus;

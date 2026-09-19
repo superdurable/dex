@@ -9,14 +9,14 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEventHandler, type CSSProperties } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import type {
-  FlowSupervisionAction,
-  FlowSupervisionActionInputField,
-  FlowSupervisionDefinition,
-  SupervisionValueType,
+  FlowV2Action,
+  FlowV2ActionInputField,
+  FlowV2Definition,
+  V2ValueType,
 } from '@superdurable/flow-definition-renderer';
 import { displayValue, formatDate } from '@/lib/format';
 import { readResponseJSON } from '@/lib/http';
-import type { SupervisionDisplay, SupervisionFlow, SupervisionSearchResult } from '@/lib/types';
+import type { V2Display, V2Flow, V2SearchResult } from '@/lib/types';
 import { usePreferences } from '../providers';
 import {
   parseTypedValue,
@@ -59,7 +59,7 @@ export function V2Workspace() {
   const { timezone } = usePreferences();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   const [filters, setFilters] = useState<FilterRow[]>([]);
-  const [flows, setFlows] = useState<SupervisionFlow[]>([]);
+  const [flows, setFlows] = useState<V2Flow[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [nextPageToken, setNextPageToken] = useState('');
@@ -91,7 +91,7 @@ export function V2Workspace() {
     setLoading(true);
     setSearchError('');
     try {
-      const response = await fetch('/api/supervision/search', {
+      const response = await fetch('/api/v2/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -105,7 +105,7 @@ export function V2Workspace() {
           nextPageToken: token,
         }),
       });
-      const result = await readResponseJSON<SupervisionSearchResult>(response);
+      const result = await readResponseJSON<V2SearchResult>(response);
       setFlows(result.flows);
       setNextPageToken(result.nextPageToken);
       setPage(nextPage);
@@ -284,9 +284,9 @@ function SelectedRunPanel({
 }: {
   flowType: string;
   flowId: string;
-  definition: FlowSupervisionDefinition;
+  definition: FlowV2Definition;
 }) {
-  const [result, setResult] = useState<SupervisionDisplay | null>(null);
+  const [result, setResult] = useState<V2Display | null>(null);
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState('');
   const [editingKey, setEditingKey] = useState('');
@@ -298,8 +298,8 @@ function SelectedRunPanel({
     setError('');
     try {
       const query = new URLSearchParams({ flowType, flowId });
-      const response = await fetch(`/api/supervision/display?${query}`);
-      setResult(await readResponseJSON<SupervisionDisplay>(response));
+      const response = await fetch(`/api/v2/display?${query}`);
+      setResult(await readResponseJSON<V2Display>(response));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Display failed to load');
     }
@@ -307,12 +307,12 @@ function SelectedRunPanel({
 
   useEffect(() => { void loadDisplay(); }, [loadDisplay]);
 
-  async function saveField(attributeKey: string, valueType: SupervisionValueType) {
+  async function saveField(attributeKey: string, valueType: V2ValueType) {
     setBusyKey(attributeKey);
     setError('');
     setFieldErrors((current) => ({ ...current, [attributeKey]: '' }));
     try {
-      const response = await fetch('/api/supervision/display', {
+      const response = await fetch('/api/v2/display', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           flowType, flowId, attributeKey,
@@ -332,12 +332,12 @@ function SelectedRunPanel({
     }
   }
 
-  async function invokeAction(action: FlowSupervisionAction) {
+  async function invokeAction(action: FlowV2Action) {
     setBusyKey(action.rpcName);
     setError('');
     try {
       const input = v2ActionUserInput(action, actionValues[action.rpcName] ?? {});
-      const response = await fetch('/api/supervision/actions', {
+      const response = await fetch('/api/v2/actions', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           flowType, flowId, rpcName: action.rpcName,
@@ -434,7 +434,7 @@ function SelectedRunPanel({
   );
 }
 
-function filterFields(definition: FlowSupervisionDefinition) {
+function filterFields(definition: FlowV2Definition) {
   return [
     { key: 'flowId', label: 'Flow ID' },
     { key: 'executionStatus', label: 'Execution status' },
@@ -444,19 +444,19 @@ function filterFields(definition: FlowSupervisionDefinition) {
   ];
 }
 
-function filterValueType(field: string, definition: FlowSupervisionDefinition): SupervisionValueType {
+function filterValueType(field: string, definition: FlowV2Definition): V2ValueType {
   if (field === 'startTime' || field === 'closeTime') return 'datetime';
   if (field === 'flowId' || field === 'executionStatus') return 'string';
   return definition.indexedAttributes.find((attribute) => attribute.attributeKey === field)?.valueType ?? 'string';
 }
 
-function filterIndexType(field: string, definition: FlowSupervisionDefinition) {
+function filterIndexType(field: string, definition: FlowV2Definition) {
   if (field === 'startTime' || field === 'closeTime') return 'datetime';
   if (field === 'flowId' || field === 'executionStatus') return 'keyword';
   return definition.indexedAttributes.find((attribute) => attribute.attributeKey === field)?.indexType ?? 'keyword';
 }
 
-function filterOperators(indexType: FlowSupervisionDefinition['indexedAttributes'][number]['indexType']) {
+function filterOperators(indexType: FlowV2Definition['indexedAttributes'][number]['indexType']) {
   const equality = [{ value: 'eq', label: 'equals' }, { value: 'in', label: 'is one of' }];
   if (indexType === 'fulltext') return [...equality, { value: 'contains', label: 'contains' }];
   if (indexType === 'datetime' || indexType === 'int' || indexType === 'double') {
@@ -471,14 +471,14 @@ function filterOperators(indexType: FlowSupervisionDefinition['indexedAttributes
   return equality;
 }
 
-function parseFilterValues(value: string, valueType: SupervisionValueType): unknown[] {
+function parseFilterValues(value: string, valueType: V2ValueType): unknown[] {
   return value.split(',').map((part) => part.trim()).filter(Boolean).map((part) => parseTypedValue(part, valueType));
 }
 
 function FilterInput({ operator, value, valueType, onChange }: {
   operator: string;
   value: string;
-  valueType: SupervisionValueType;
+  valueType: V2ValueType;
   onChange: ChangeEventHandler<HTMLInputElement | HTMLSelectElement>;
 }) {
   if (valueType === 'bool') {
@@ -499,7 +499,7 @@ function updateFilter(filters: FilterRow[], id: string, key: keyof FilterRow, va
   return filters.map((filter) => filter.id === id ? { ...filter, [key]: value } : filter);
 }
 
-function editableValue(value: unknown, valueType: SupervisionValueType): string {
+function editableValue(value: unknown, valueType: V2ValueType): string {
   if (value === null || value === undefined) return '';
   const text = typeof value === 'string' ? value : String(value);
   if (valueType !== 'datetime') return text;
@@ -510,7 +510,7 @@ function editableValue(value: unknown, valueType: SupervisionValueType): string 
 }
 
 function TypedInput({ field, value, onChange, required = false }: {
-  field: { valueType: SupervisionValueType; description: string };
+  field: { valueType: V2ValueType; description: string };
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
@@ -522,7 +522,7 @@ function TypedInput({ field, value, onChange, required = false }: {
 }
 
 function ActionInput({ field, value, onChange }: {
-  field: FlowSupervisionActionInputField;
+  field: FlowV2ActionInputField;
   value: string;
   onChange: (value: string) => void;
 }) {

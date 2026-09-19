@@ -35,7 +35,7 @@
  *
  * SCRIPTED, AND HONEST ABOUT IT. There is no model here. The trajectory is written down, including the
  * alternate continuations for reject and override, so what the prototype demonstrates is the SHAPE of
- * agentic supervision rather than a claim about an agent's judgement.
+ * agentic Dex Web v2 rather than a claim about an agent's judgement.
  */
 
 import type { PhaseStatus, RunOverlay, StepExecution } from './run'

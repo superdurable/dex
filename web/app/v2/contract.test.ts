@@ -8,8 +8,8 @@
 
 import { describe, expect, it } from 'vitest';
 import type {
-  FlowSupervisionAction,
-  FlowSupervisionDefinition,
+  FlowV2Action,
+  FlowV2Definition,
 } from '@superdurable/flow-definition-renderer';
 import {
   v2ActionUserFields,
@@ -54,7 +54,7 @@ describe('Dex Web v2 contract helpers', () => {
   });
 
   it('preserves int64 Action values as decimal strings', () => {
-    const countAction: FlowSupervisionAction = {
+    const countAction: FlowV2Action = {
       rpcName: 'RetryRefund',
       label: 'Retry',
       condition: { attributeKey: 'case-status', operator: 'in', values: ['failed'] },
@@ -72,14 +72,14 @@ describe('Dex Web v2 contract helpers', () => {
   });
 });
 
-const approveAction: FlowSupervisionAction = {
+const approveAction: FlowV2Action = {
   rpcName: 'ApproveRefund',
   label: 'Approve',
   condition: { attributeKey: 'case-status', operator: 'in', values: ['awaiting-manager'] },
   input: { kind: 'none' },
 };
 
-const rejectAction: FlowSupervisionAction = {
+const rejectAction: FlowV2Action = {
   rpcName: 'RejectRefund',
   label: 'Reject',
   condition: { attributeKey: 'case-status', operator: 'in', values: ['awaiting-manager'] },
@@ -98,7 +98,7 @@ const rejectAction: FlowSupervisionAction = {
   },
 };
 
-const definition: FlowSupervisionDefinition = {
+const definition: FlowV2Definition = {
   indexedAttributes: [
     {
       attributeKey: 'case-status', indexKey: 'case-status', indexType: 'keyword',

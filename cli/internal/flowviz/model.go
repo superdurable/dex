@@ -20,15 +20,15 @@ const (
 )
 
 type Graph struct {
-	SchemaVersion string       `json:"schemaVersion"`
-	Valid         bool         `json:"valid"`
-	Source        Source       `json:"source"`
-	Flow          Flow         `json:"flow"`
-	Nodes         []Node       `json:"nodes"`
-	Edges         []Edge       `json:"edges"`
-	Diagnostics   []Diagnostic `json:"diagnostics"`
-	Groups        []StepGroup  `json:"groups,omitempty"`
-	Supervision   *Supervision `json:"supervision,omitempty"`
+	SchemaVersion string        `json:"schemaVersion"`
+	Valid         bool          `json:"valid"`
+	Source        Source        `json:"source"`
+	Flow          Flow          `json:"flow"`
+	Nodes         []Node        `json:"nodes"`
+	Edges         []Edge        `json:"edges"`
+	Diagnostics   []Diagnostic  `json:"diagnostics"`
+	Groups        []StepGroup   `json:"groups,omitempty"`
+	V2            *V2Definition `json:"v2,omitempty"`
 }
 
 type StepGroup struct {
@@ -37,7 +37,7 @@ type StepGroup struct {
 	StepIDs []string `json:"stepIds"`
 }
 
-type Supervision struct {
+type V2Definition struct {
 	IndexedAttributes []IndexedAttribute `json:"indexedAttributes"`
 	Summary           RPCView            `json:"summary"`
 	Display           RPCView            `json:"display"`
