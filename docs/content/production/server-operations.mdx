@@ -124,7 +124,7 @@ the payload size, not the resulting reference size.
 blobStore:
   thresholdInBytes: 100
   objectIdLength: 10
-  asyncStepInputSnapshotsEnabled: false
+  asyncStepInputSnapshotsEnabled: true
   supportedStorages:
     - status: active
       storageId: p1
@@ -195,13 +195,14 @@ in lexical pages, decodes the escaped Flow and optional Run, and deletes the
 whole prefix only after the execution no longer exists. Continue listing with
 the returned continuation token; no manifest is involved.
 
-Async Step input snapshots are disabled by default. Set
-**blobStore.asyncStepInputSnapshotsEnabled** to true only when semantic history
-must retain the exact inputs sent to successful ASYNC local Step methods. The
-snapshot is independent of the payload offload threshold and is not required
-for Flow execution, retry, or recovery. When disabled, ASYNC local completion
-events report their input as unavailable. SYNC methods and ASYNC methods that
-fall back to a regular Activity continue to obtain input from backend history.
+Async Step input snapshots are enabled by default when Blob Store is enabled.
+They retain the exact inputs sent to successful ASYNC local Step methods so
+semantic history can show them. The snapshot is independent of the payload
+offload threshold and is not required for Flow execution, retry, or recovery.
+Set **blobStore.asyncStepInputSnapshotsEnabled** to false to skip that optional
+history cost. When disabled, ASYNC local completion events report their input as
+unavailable. SYNC methods and ASYNC methods that fall back to a regular Activity
+continue to obtain input from backend history.
 
 The optional **blobStore.blobCache** caches S3-backed Attribute objects. A
 non-empty **directory** enables it and must belong to one Server process. Its

@@ -86,8 +86,11 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 	t.Run("async-local-fallback", func(t *testing.T) {
 		testWebAsyncLocalFallback(t, backendType)
 	})
-	t.Run("async-step-input-snapshots-disabled-by-default", func(t *testing.T) {
-		testWebAsyncStepInputSnapshotsDisabledByDefault(t, backendType)
+	t.Run("async-step-input-snapshots-enabled-by-default", func(t *testing.T) {
+		testWebAsyncStepInputSnapshotsEnabledByDefault(t, backendType)
+	})
+	t.Run("async-step-input-snapshots-can-be-disabled", func(t *testing.T) {
+		testWebAsyncStepInputSnapshotsCanBeDisabled(t, backendType)
 	})
 	t.Run("time-travel-snapshot-origin", func(t *testing.T) {
 		testWebTimeTravelSnapshotOrigin(t, backendType)
@@ -136,7 +139,7 @@ func testWebTimeTravelSnapshotOrigin(t *testing.T, backendType service.BackendTy
 	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:                    backendType,
 		LocalBlobDirectory:             t.TempDir(),
-		AsyncStepInputSnapshotsEnabled: true,
+		AsyncStepInputSnapshotsEnabled: ptr.Any(true),
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -958,18 +961,36 @@ func testWebStepInputWithoutStorage(
 	require.Equal(t, expectedUnavailable, executeInput.GetUnavailable())
 }
 
-func testWebAsyncStepInputSnapshotsDisabledByDefault(
+func testWebAsyncStepInputSnapshotsEnabledByDefault(
 	t *testing.T,
 	backendType service.BackendType,
 ) {
+	assertWebAsyncStepInputSnapshotAvailability(t, backendType, nil, true)
+}
+
+func testWebAsyncStepInputSnapshotsCanBeDisabled(
+	t *testing.T,
+	backendType service.BackendType,
+) {
+	assertWebAsyncStepInputSnapshotAvailability(t, backendType, ptr.Any(false), false)
+}
+
+func assertWebAsyncStepInputSnapshotAvailability(
+	t *testing.T,
+	backendType service.BackendType,
+	snapshotsEnabled *bool,
+	expectRecorded bool,
+) {
+	t.Helper()
 	workerTarget := startWorker(t, basic.NewHandler())
 	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType:        backendType,
-		LocalBlobDirectory: t.TempDir(),
+		BackendType:                    backendType,
+		LocalBlobDirectory:             t.TempDir(),
+		AsyncStepInputSnapshotsEnabled: snapshotsEnabled,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	flowID := "web-async-snapshots-disabled-" + uuid.NewString()
+	flowID := "web-async-snapshots-" + uuid.NewString()
 	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
 		FlowId:             flowID,
@@ -991,8 +1012,8 @@ func testWebAsyncStepInputSnapshotsDisabledByDefault(
 	executeEvent := firstExecuteEvent(events)
 	require.NotNil(t, waitForEvent)
 	require.NotNil(t, executeEvent)
-	require.True(t, waitForEvent.GetInput().GetUnavailable())
-	require.True(t, executeEvent.GetInput().GetUnavailable())
+	require.Equal(t, !expectRecorded, waitForEvent.GetInput().GetUnavailable())
+	require.Equal(t, !expectRecorded, executeEvent.GetInput().GetUnavailable())
 
 	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(
 		ctx,
@@ -1014,7 +1035,7 @@ func testWebAsyncStepInputSnapshotsDisabledByDefault(
 			method,
 		)
 		require.NoError(t, readErr)
-		require.False(t, found)
+		require.Equal(t, expectRecorded, found)
 	}
 }
 
@@ -1025,7 +1046,7 @@ func testWebParallelAttributeSnapshots(t *testing.T, backendType service.Backend
 		BackendType:                    backendType,
 		LocalBlobDirectory:             t.TempDir(),
 		LocalBlobThreshold:             10,
-		AsyncStepInputSnapshotsEnabled: true,
+		AsyncStepInputSnapshotsEnabled: ptr.Any(true),
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1217,7 +1238,7 @@ func testWebConditionResults(
 		LazyLoading:                    ptr.Any(true),
 		LocalBlobDirectory:             t.TempDir(),
 		LocalBlobThreshold:             10,
-		AsyncStepInputSnapshotsEnabled: true,
+		AsyncStepInputSnapshotsEnabled: ptr.Any(true),
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1446,7 +1467,7 @@ func testWebHistoryAndSummary(
 		LazyLoading:                    ptr.Any(lazyLoading),
 		LocalBlobDirectory:             blobDirectory,
 		LocalBlobThreshold:             10,
-		AsyncStepInputSnapshotsEnabled: true,
+		AsyncStepInputSnapshotsEnabled: ptr.Any(true),
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -1707,7 +1728,7 @@ func testWebCurrentState(t *testing.T, backendType service.BackendType, lazyLoad
 		LazyLoading:                    ptr.Any(lazyLoading),
 		LocalBlobDirectory:             t.TempDir(),
 		LocalBlobThreshold:             10,
-		AsyncStepInputSnapshotsEnabled: true,
+		AsyncStepInputSnapshotsEnabled: ptr.Any(true),
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
