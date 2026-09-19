@@ -197,16 +197,24 @@ function ExecuteOutputBody({
   parentFlowId: string
   canLoadPrevious: boolean
 }): JSX.Element {
+  if (!body.hasExecuteEvent) {
+    return (
+      <p className="ppan-note">
+        {body.isRunningWithoutEvent
+          ? 'Execute is running — its completion event is not in history yet.'
+          : body.executeStatus === 'notStarted'
+            ? 'Execute has not started for this instance yet.'
+            : 'Loaded history has no Execute event for this Step yet.'}
+        {canLoadPrevious
+          ? ' Use Load more from previous run if Continue-as-New moved it.'
+          : ''}
+      </p>
+    )
+  }
+
   return (
     <>
-      {!body.hasExecuteEvent ? (
-        <p className="ppan-note">
-          Loaded history has no Execute event for this Step yet.
-          {canLoadPrevious
-            ? ' Use Load more from previous run if Continue-as-New moved it.'
-            : ''}
-        </p>
-      ) : body.attempts.length === 0 ? (
+      {body.attempts.length === 0 ? (
         <p className="ppan-note">This step has not run in this run.</p>
       ) : (
         <table className="ppan-table">
@@ -235,9 +243,7 @@ function ExecuteOutputBody({
             value:
               body.nextStepTypes.length > 0
                 ? body.nextStepTypes.join(', ')
-                : body.hasExecuteEvent
-                  ? 'none — this closes'
-                  : '—',
+                : 'none — this closes',
           },
         ]}
       />
@@ -257,9 +263,7 @@ function ExecuteOutputBody({
             parentFlowId={parentFlowId}
           />
         </>
-      ) : body.hasExecuteEvent ? null : (
-        <p className="ppan-note">No Execute event is loaded for this execution yet.</p>
-      )}
+      ) : null}
     </>
   )
 }

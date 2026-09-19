@@ -148,9 +148,9 @@ describe('buildPanel', () => {
     ])
     expect(panel.executions.map((execution) => execution.id)).toEqual(['exec-1', 'exec-2'])
     expect(panel.phases.map((phase) => phase.id)).toEqual(['wait', 'execute'])
-    expect(panel.phases[0].tabs.map((tab) => tab.id)).toEqual(['input', 'context', 'output'])
-    expect(panel.phases[1].tabs.map((tab) => tab.id)).toEqual(['input', 'context', 'output'])
-    expect(panel.defaultSection).toBe('execute-input')
+    expect(panel.phases[0].tabs.map((tab) => tab.id)).toEqual(['context', 'input', 'output'])
+    expect(panel.phases[1].tabs.map((tab) => tab.id)).toEqual(['context', 'input', 'output'])
+    expect(panel.defaultSection).toBe('execute-context')
     const waitOutput = panel.phases[0].tabs.find((tab) => tab.id === 'output')
     expect(waitOutput?.body.kind).toBe('waitOutput')
     if (waitOutput?.body.kind === 'waitOutput') {

@@ -78,6 +78,8 @@ export type TabBody =
       decision: string | null
       nextStepTypes: string[]
       hasExecuteEvent: boolean
+      executeStatus: PhaseStatus
+      isRunningWithoutEvent: boolean
       error?: string
     }
 
@@ -171,14 +173,14 @@ export function buildPanel(
     if (declared.length === 0) {
       rows.push({ kind: 'unknown', label: 'not reported by the analyser', verdict: 'notEvaluated' })
     }
-    const waitDefault: PhaseTabId = hasWaitEvent ? 'input' : 'output'
+    const waitDefault: PhaseTabId = hasWaitEvent ? 'context' : 'output'
     phases.push({
       id: 'wait',
       label: `WaitFor · ${step.waitFor.type}`,
       defaultTab: waitDefault,
       tabs: [
-        { id: 'input', label: 'Input', body: { kind: 'stepMethod', part: 'input' } },
         { id: 'context', label: 'Context', body: { kind: 'stepMethod', part: 'context' } },
+        { id: 'input', label: 'Input', body: { kind: 'stepMethod', part: 'input' } },
         {
           id: 'output',
           label: 'Output',
@@ -206,14 +208,15 @@ export function buildPanel(
               : ('failed' as PhaseStatus),
           failure: current.lastFailure,
         }))
-  const executeDefault: PhaseTabId = hasExecuteEvent ? 'input' : 'output'
+  const executeDefault: PhaseTabId = hasExecuteEvent ? 'context' : 'output'
+  const executeRunning = current?.execute.status === 'running' || current?.execute.status === 'pending'
   phases.push({
     id: 'execute',
     label: 'Execute',
     defaultTab: executeDefault,
     tabs: [
-      { id: 'input', label: 'Input', body: { kind: 'stepMethod', part: 'input' } },
       { id: 'context', label: 'Context', body: { kind: 'stepMethod', part: 'context' } },
+      { id: 'input', label: 'Input', body: { kind: 'stepMethod', part: 'input' } },
       {
         id: 'output',
         label: 'Output',
@@ -231,6 +234,8 @@ export function buildPanel(
           decision: current?.decisionType ?? null,
           nextStepTypes: current?.nextStepTypes ?? [],
           hasExecuteEvent,
+          executeStatus: current?.execute.status ?? 'notStarted',
+          isRunningWithoutEvent: !hasExecuteEvent && executeRunning,
           error: current?.lastFailure,
         },
       },
