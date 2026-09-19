@@ -375,12 +375,12 @@ Web 只消费统一的 `input/output/context`，不根据 durability 选择额�
 | ASYNC local failure + regular fallback | fallback ActivityTaskScheduled input | scheduled event metadata；durability 仍为 ASYNC |
 | ASYNC local failure + budget exhausted | unavailable | LocalActivity failure marker metadata |
 
-`blobStore.asyncStepInputSnapshotsEnabled` 默认关闭。只有明确开启后，成功的 ASYNC
-local activity 才保存 snapshot。配置关闭、local snapshot 不存在、external storage 未启用
+`blobStore.asyncStepInputSnapshotsEnabled` 默认开启。Blob Store 启用且未显式关闭时，成功的 ASYNC
+local activity 会保存 snapshot。配置关闭、local snapshot 不存在、external storage 未启用
 或数据已清理时，server 返回
 `input.unavailable=true`。这只代表 step method input snapshot 不可恢复，不代表其中某个
 独立 Value blob 加载失败。Web 将它显示为整个 step method input snapshot unavailable，
-将默认关闭及 `blobStore.asyncStepInputSnapshotsEnabled` 列为首要可能原因，并明确区分
+将 `blobStore.asyncStepInputSnapshotsEnabled` 关闭及 Blob Store 未启用列为可能原因，并明确区分
 单个 Value blob load failure。Web 不显示 page-level data warning；terminal ASYNC failure
 说明 short retry budget 可在 sync fallback 前耗尽，因此没有记录 invocation
 input snapshot，并引导用户沿 Timeline source link 回看调度来源。
@@ -735,7 +735,7 @@ Phase 2 使用 `server/integ/`：
 - Temporal/Cadence × SYNC/ASYNC：WaitFor/Execute 显示调用时 step input、attributes 和 condition results。
 - SYNC scheduled input 和 ASYNC snapshot 都映射为完全相同的 `input/output/context` shape。
 - regular Activity input proto 保持不变；第二个 activity argument 为 null 时 Temporal/Cadence 都能解码。
-- 开启 `blobStore.asyncStepInputSnapshotsEnabled` 后，ASYNC local success 保存 `InternalAsyncStepInputSnapshot`；marker 中不增加完整 request。
+- 默认开启 `blobStore.asyncStepInputSnapshotsEnabled` 后，ASYNC local success 保存 `InternalAsyncStepInputSnapshot`；marker 中不增加完整 request。关闭该选项可跳过这项可选 history 成本。
 - method options：SYNC 从 scheduled metadata 转换；ASYNC success 从 snapshot 恢复，fallback 从 local failure metadata 恢复。
 - channel values、多个 timers、ANY/ALL results 从保存的 worker request 精确恢复。
 - local failure fallback 使用 regular Activity history request，且不暴露 local failure。
