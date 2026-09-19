@@ -69,7 +69,7 @@ export interface FlowDefinitionDiagnostic {
 }
 
 export interface FlowDefinitionGraph {
-  schemaVersion: '1.0';
+  schemaVersion: '1.0' | '2.0';
   valid: boolean;
   source: {
     language: 'go' | 'python';
@@ -83,4 +83,84 @@ export interface FlowDefinitionGraph {
   nodes: FlowDefinitionNode[];
   edges: FlowDefinitionEdge[];
   diagnostics: FlowDefinitionDiagnostic[];
+  groups?: FlowDefinitionGroup[];
+  v2?: FlowV2Definition;
+}
+
+export interface FlowDefinitionGroup {
+  id: string;
+  label: string;
+  stepIds: string[];
+}
+
+export interface FlowV2IndexedAttribute {
+  attributeKey: string;
+  indexKey: string;
+  indexType: 'keyword' | 'fulltext' | 'keyword-array' | 'int' | 'double' | 'bool' | 'datetime';
+  valueType: V2IndexedValueType;
+  description: string;
+}
+
+export type V2ValueType =
+  | 'string'
+  | 'string-array'
+  | 'int64'
+  | 'double'
+  | 'bool'
+  | 'datetime'
+  | 'json'
+  | 'object'
+  | 'array'
+  | 'attribute-map';
+
+export type V2IndexedValueType =
+  | 'string'
+  | 'string-array'
+  | 'int64'
+  | 'double'
+  | 'bool'
+  | 'datetime';
+
+export type V2EditableValueType = Exclude<V2IndexedValueType, 'string-array'>;
+
+export interface FlowV2Field {
+  attributeKey: string;
+  valueType: V2ValueType;
+  editable: boolean;
+  description: string;
+}
+
+export interface FlowV2View {
+  rpcName: string;
+  fields: FlowV2Field[];
+}
+
+export interface FlowV2ActionInputField {
+  fieldName: string;
+  valueType: V2EditableValueType;
+  source: 'user' | 'attribute';
+  attributeKey?: string;
+  required: boolean;
+  description: string;
+}
+
+export interface FlowV2Action {
+  rpcName: string;
+  label: string;
+  condition: {
+    attributeKey: string;
+    operator: 'in';
+    values: unknown[];
+  };
+  input: {
+    kind: 'none' | 'object';
+    fields?: FlowV2ActionInputField[];
+  };
+}
+
+export interface FlowV2Definition {
+  indexedAttributes: FlowV2IndexedAttribute[];
+  summary: FlowV2View;
+  display: FlowV2View;
+  actions: FlowV2Action[];
 }

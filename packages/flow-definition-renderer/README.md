@@ -1,9 +1,10 @@
 # Flow Definition renderer
 
-This private package owns the Flow Definition Graph v1 TypeScript contract,
-compound layout, React renderer, and renderer styles. Dex Web and the product
-documentation import the same package so checked-in examples cannot drift from
-the interactive Flow Rendering page.
+This private package owns both Flow Definition Graph TypeScript contracts and
+renderers. `FlowDefinitionGraphView` renders Version 1 with its compound layout.
+`ProcessCanvasView` renders Version 2 with ordered group bands, collapsed or
+expanded Step cards, top-down or left-right layout, and selection details. Dex
+Web and product documentation import the same package.
 
 Consumers must provide React 19, React Flow, and Dagre. The repository uses a
 local file dependency and preserves symlinks in Vite, Docusaurus, and

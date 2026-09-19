@@ -1,0 +1,71 @@
+---
+title: Dex Web
+sidebar_label: Dex Web
+---
+
+# Dex Web
+
+Dex Web 使用两个 URL 前缀。**v1** 是原有的 Flows 搜索、run 详情和 Flow Rendering。**v2** 是操作工作区：左边是 run 列表和过滤器，右边是该 Flow type 的 Flow Definition Graph。
+
+不带 JSON 目录启动 Dex 时，打开 **v1** 的 **/v1/flows**。使用 **--flow-rendering-dir** 启动时，默认打开 **v2** 的 **/v2**。右上角 Version 菜单可以回到 **v1**。
+
+```bash
+dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund
+dexcli dev --flow-rendering-dir ./build
+```
+
+**v2** 按一个 Flow type 搜索 current run。画布使用该 Flow type 已生成的 definition，因此不必再选 JSON 文件。历史 run 仍在 **v1**。
+
+Version 1 仍是默认 analyzer schema，并支持 Go 与 Python。Version 2 第一版只支持 Go。Version 1 与 Version 2 definition 可以共存。Dex Web 会在启动时拒绝格式错误的 Version 2 文件，以及同一 Flow type 的多个有效 Version 2 definition。Analyzer 输出中的 **valid: false** 文件仍可在 **v1** Flow Rendering 中查看 diagnostic，但不会作为 **v2** Flow type 出现。
+
+## 具名 directive
+
+Version 2 directive 使用具名值。同一行内的参数位置没有语义。包含空格的字符串使用 JSON 双引号，多值使用 JSON array。
+
+<SdkTabs examples={{go: 'examples/go/products/customer-refund/agentic/workflow.go'}}>
+<SdkSnippet lang="go">
+
+```go
+// dex:group group-id:control group-label:"Control"
+// dex:explanation text:"Apply refund guardrails and set the recommended action."
+// dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:case-status
+// dex:field attribute-key:operator-note value-type:string editable:true description:"Operator note"
+// dex:action action-label:"Reject"
+// dex:when attribute-key:case-status operator:in values:["awaiting-manager-rule","awaiting-manager-agent"]
+// dex:input field-name:reason value-type:string source:user required:true description:"Rejection reason"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+未知或重复参数、缺少必填参数以及非法 JSON 都会产生 blocking diagnostic。多条 indexed Attribute、field、Action 与 input 声明保留源码顺序；这个顺序就是列、详情字段、Action 和表单顺序，不需要额外的 order 属性。
+
+每个已注册 Step 都必须有一个 group 声明和一个 explanation 声明。explanation 用一句话说明该 Step 做什么。Group 顺序由第一个成员在 **GetSteps** 中的注册位置决定，组内 Step 顺序也使用 **GetSteps**。
+
+## 搜索与 Summary
+
+Indexed Attribute 声明绑定 Dex Attribute key、物理搜索 index key、index type、应用 value type 和 description。Analyzer 会把每个值与 Go 定义和 SDK 计算出的有效 index 配置比较。
+
+**v2** 列表每次搜索一个 Flow type。过滤条件包括 Flow ID、execution status、开始和结束时间，以及声明的 indexed Attribute。Dex Web 会把这些控件编译成 visibility query，不接收浏览器提供的原始 query。不同字段使用 AND，同一字段的多个值使用 OR。
+
+每一行都会针对逻辑 Flow ID 的 current run 调用 **GetDexSummary**。该 RPC 接受 **dex.None** 并返回 **map[string]any**。Dex Web 最多并发加载八个 Summary，每次调用超时五秒，单条失败只影响对应行。Indexed Attribute 显示在 Summary 字段之前。
+
+## Display 与编辑
+
+点击一行会把 Flow ID 留在 URL 中，而不是 run ID。**GetDexDisplay**、Attribute 读取、编辑和 Action 都省略 run ID，因此 Dex 会定位 current run。Continue-as-New 后，刷新同一个 URL 会自动指向新 run。
+
+在 **v2** 中，选中 Step 会打开分为 **Definition** 与 **Execution** 的面板。Definition 展示 Step 的 **explanation**、WaitFor 与 Execute 分支；过长内容可滚动，以便 Execution 仍可见。Execute 分支超过三条时默认折叠。若该 Step 执行过多次，Execution 提供下拉框选择某次执行，再以与 **v1** Selected event 相同的结构化方式展示所选 WaitFor 或 Execute history 事件的 **Input**、**Output** 和 **Context**。执行 payload 默认 Details，可切换为已水合 payload 的 Raw JSON。十进制数字形式的 AttributeMap / ChannelMap instance 按数值排序，行为与 **v1** 一致。Execute 显示该次 run 决策里的 live next Steps，而不是 FDG 上的全部出口。若 Continue-as-New 把该 Step 留在上一 hop，使用 Load more from previous run。
+
+Display 字段按照 directive 行排序。String、integer、double、boolean 和 datetime 字段可以编辑。JSON、object、array 和 AttributeMap 只读。缺失字段必须返回 null。后端会拒绝遗漏、未声明或类型错误的值。
+
+只有 current run 仍为 active 时才能编辑。Dex Web 通过 **SetAttributes** 写入 Attribute；如果该 Attribute 已建立索引，还会附带声明的 index 配置。
+
+## Action
+
+Action 是带 Action directive 和一个 condition 的 RPC。第一版只支持 **in** operator。Dex Web 会在调用 RPC 前重新读取 condition Attribute。
+
+无输入 Action 接受 **dex.None**，直接显示为按钮。有输入 Action 接受具名 Go struct。来自用户的字段按 directive 顺序渲染控件；来自 Attribute 的字段保持隐藏，并使用当前选中 run 的 Attribute snapshot。
+
+浏览器中的 condition 只控制展示。每个 Action RPC 都必须在修改持久化状态或发布 Channel message 前再次检查当前状态。当检查与 effect 必须保持原子性时，应使用 lock。
+
+第一版不增加登录或 role 系统。请继续把它部署在 Dex Web 所在的可信网络或 reverse-proxy 边界之后。

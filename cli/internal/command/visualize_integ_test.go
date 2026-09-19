@@ -36,7 +36,7 @@ func TestVisualizeDefaultsToFlowRendering(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	app.openBrowser = func(url string) error {
-		response, err := http.Get(strings.TrimSuffix(url, "/rendering") + "/api/flow-definitions")
+		response, err := http.Get(strings.TrimSuffix(url, "/v1/rendering") + "/api/flow-definitions")
 		if err != nil {
 			return err
 		}

@@ -11,6 +11,12 @@ sidebar_label: Flow 可视化
 dexcli visualize ./order_flow.go
 ```
 
+默认 schema version 是 1.0。Go 源码可以选择 Version 2.0，以启用 Dex Web v2：
+
+```bash
+dexcli visualize ./refund_flow.go --schema-version 2.0
+```
+
 该命令会打开本地的 **Flow Rendering** 页面，并持续提供图形直到按下 Ctrl+C。需要 Flow Definition Graph 文件时使用 **--json**。未指定 **--out** 时，JSON 会写入标准输出；使用 **--out** 可以选择文件前缀：
 
 ```bash
@@ -31,7 +37,9 @@ dexcli visualize ./order_flow.py --json
 dexcli dev --flow-rendering-dir ./build
 ```
 
-在 Dex Web 中打开 **Flow Rendering**。该页面独立于 Flow 搜索页和运行详情页，用于交互式渲染所选定义图。通过图例可以显示或隐藏控制流、WaitFor、RPC、Attribute、Channel、Stream、SubFlow 及诊断。Flow timeout handler 始终作为 Flow 的一部分显示。Stream 默认隐藏，其他图层默认显示。
+在 Dex Web 的 **/v1/rendering** 打开 **Flow Rendering**。该页面独立于 Flow 搜索页和运行详情页，用于交互式渲染所选定义图。通过图例可以显示或隐藏控制流、WaitFor、RPC、Attribute、Channel、Stream、SubFlow 及诊断。Flow timeout handler 始终作为 Flow 的一部分显示。Stream 默认隐藏，其他图层默认显示。
+
+当 Dex 带着 JSON 目录启动时，**/v2** 也会在 run 列表右侧渲染当前 Flow type 的 definition。见 [Dex Web](/production/dex-web)。
 
 Dex 会递归扫描 JSON 文件，并在启动时创建一次快照。文件改变后需要重启 Dex。无效 JSON、不支持的 schema 版本或非目录路径都会使启动失败并返回错误。
 
@@ -89,6 +97,8 @@ Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查�
 
 首版不支持单文件中的多个 Flow、反射、动态 class、Dex 通配符导入、基于 getattr 的目标、monkeypatch，以及逃逸出处理方法的 movement 集合。TypeScript、Java、Rust 和递归多文件分析也不在首版范围内。
 
+Version 2.0 第一版只支持 Go。它保留所有 Version 1 字段，并要求 Step group 与 Dex Web v2 contract 和 Flow 位于同一文件。同一行内的具名 directive 参数可以任意排列。多条 directive 行保留源码顺序，并成为 UI 顺序。未知、重复、缺失或非法参数都会产生 blocking diagnostic。Indexed Attribute、Summary、Display 与 Action 规则见 [Dex Web](/production/dex-web)。
+
 ## Unknown 节点和诊断
 
 不支持的动态控制流不会被静默省略。输出会包含 Unknown 节点和错误诊断。默认 renderer 仍会显示部分图。使用 **--json** 时，命令会写出部分 JSON，并以状态码 1 退出。
@@ -99,6 +109,6 @@ warning 不会使图失效。例如，无法确定 value type 的 Attribute 会�
 
 ## JSON 合约
 
-[Flow Definition Graph v1 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v1.schema.json) 定义了源码位置、父子关系、结构化 WaitFor 和 decision 详情、资源类型、分支条件、边方向和诊断。该 schema 是未来可视化编辑器及其他语言 analyzer 的集成边界。
+[Flow Definition Graph v1 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v1.schema.json) 定义了源码位置、父子关系、结构化 WaitFor 和 decision 详情、资源类型、分支条件、边方向和诊断。[Flow Definition Graph v2 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v2.schema.json) 在此基础上增加有序 group 与 Dex Web v2 metadata。
 
 运行中 Flow 的操作命令请参阅 [Dex CLI](/references/cli)。

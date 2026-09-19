@@ -1,0 +1,55 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+/**
+ * Zoom is PURELY GEOMETRIC. It scales the picture and nothing else.
+ *
+ * There used to be a four-tier ladder derived from the zoom level, with hysteresis to stop it
+ * strobing at a boundary. It is gone. Level of detail is now an explicit two-position control
+ * (see `Detail` in `views/types.ts`), which is what nine surveyed products do — Copilot Studio
+ * lists `Expand/Collapse` as toolbar item 1 and zoom as items 2-3, LangGraph puts detail on a
+ * slider decoupled from the canvas, and n8n ties nothing to zoom but a single threshold for group
+ * descriptions.
+ *
+ * What remains here is the two tricks that make a zoomed-out graph readable WITHOUT a tier,
+ * both borrowed from n8n. They are better than a tier for the same reason: a tier change reflows
+ * the graph, and these do not.
+ */
+
+export const MIN_ZOOM = 0.14
+export const MAX_ZOOM = 2.2
+
+/** Fit never zooms IN past 1:1 — a three-Step flow blown up to fill a wall reads as a mistake. */
+export const FIT_MAX_ZOOM = 1
+
+/**
+ * Edge contrast RISES as you zoom out.
+ *
+ * At 0.2 an edge drawn for 1:1 is a grey suggestion, and the graph loses its skeleton exactly when
+ * the skeleton is all you can use. Gamma-corrected (2.2) because lightness is perceptual, not
+ * linear — a naive lerp overshoots in the middle.
+ *
+ * Returns a multiplier to apply to edge opacity, in [1, 1.9].
+ */
+export function edgeContrastBoost(zoom: number): number {
+  const t = Math.min(1, Math.max(0, (1 - zoom) / (1 - 0.2)))
+  const eased = t ** (1 / 2.2)
+  return 1 + eased * 0.9
+}
+
+/**
+ * Chrome COUNTER-SCALES so it does not shrink at the same rate as the graph.
+ *
+ * Stroke widths and edge labels are multiplied by this, so at 0.3 zoom an edge is still visible as
+ * a line rather than a hairline. Clamped so it never inflates above 1:1, where the graph is already
+ * legible and thicker strokes would just look clumsy.
+ */
+export function chromeCompensation(zoom: number): number {
+  if (zoom >= 1) return 1
+  return Math.min(2.6, 1 / Math.max(zoom, 0.2))
+}

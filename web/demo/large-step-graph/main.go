@@ -117,7 +117,7 @@ func run() (returnErr error) {
 	}
 	webAddress := strings.TrimRight(environmentOrDefault("DEX_WEB_URL", "http://127.0.0.1:8802"), "/")
 	_, err = fmt.Printf(
-		"flow_id=%s\nrun_id=%s\nstatus=%s\nurl=%s/flows/%s/%s\n",
+		"flow_id=%s\nrun_id=%s\nstatus=%s\nurl=%s/v1/flows/%s/%s\n",
 		flowID,
 		start.GetRunId(),
 		result.GetFlowStatus(),

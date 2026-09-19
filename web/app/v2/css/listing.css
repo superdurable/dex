@@ -1,0 +1,430 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+/*
+ * THE ALTERNATIVE VIEW'S OWN STYLES, imported only by its own entry.
+ *
+ * Every colour is a token from `canvas.css` — the colour law forbids a hex, an rgb() or a Tailwind palette
+ * utility anywhere but `index.css`, and `scripts/compliance.sh` checks it. Reusing the canvas tokens also
+ * means this view and the shell at `/` cannot drift into two different greys.
+ *
+ * TWO COLUMNS, list then item, because that is the shape of the work: choose, then read, then decide. No
+ * process diagram — see the v2 listing workspace.
+ */
+
+.sv {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  background: var(--p-surface-1);
+  color: var(--p-ink-0);
+  font-size: 13px;
+}
+
+.sv-head {
+  flex: 0 0 auto;
+  padding: 18px 22px 12px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+
+.sv-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sv-strap {
+  margin-top: 2px;
+  color: var(--p-ink-2);
+  font-size: 11.5px;
+}
+
+.sv-choose {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.sv-chooselabel {
+  color: var(--p-ink-3);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sv-flow {
+  padding: 3px 9px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  color: var(--p-ink-1);
+  font-size: 11.5px;
+}
+
+.sv-flow[aria-pressed='true'] {
+  border-color: var(--p-ink-2);
+  background: var(--p-surface-3);
+  color: var(--p-ink-0);
+}
+
+.sv-flow:disabled {
+  color: var(--p-ink-3);
+  cursor: not-allowed;
+}
+
+.sv-nonone,
+.sv-nograph {
+  color: var(--p-ink-3);
+  font-size: 10.5px;
+}
+
+.sv-nograph {
+  margin-top: 8px;
+}
+
+.sv-body {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(20rem, 26rem) 1fr;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------- queue */
+
+.sq {
+  overflow-y: auto;
+  padding: 14px 16px;
+  border-right: 1px solid var(--p-line-soft);
+}
+
+.sq-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.sq-title {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--p-ink-2);
+}
+
+/* The opposite marker from everywhere else in this repo: this one has to say it IS real. */
+.sq-live {
+  color: var(--p-ink-3);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.sq-refresh {
+  margin-left: auto;
+  color: var(--p-ink-2);
+  font-size: 10px;
+  text-decoration: underline;
+  text-decoration-color: var(--p-line);
+  text-underline-offset: 2px;
+}
+
+.sq-state {
+  margin: 6px 0 10px;
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+/* Unreachable and stale must not read as an empty queue. */
+.sq-state[data-liveness='unreachable'],
+.sq-state[data-liveness='stale'] {
+  color: var(--p-run-failed);
+}
+
+.sq-why {
+  display: block;
+  color: var(--p-ink-3);
+  font-size: 9.5px;
+}
+
+.sq-group {
+  margin-bottom: 14px;
+}
+
+.sq-grouphead {
+  margin-bottom: 4px;
+  color: var(--p-ink-1);
+  font-size: 10.5px;
+}
+
+/* Blocked work is the only kind that gets emphasis. The other two are real but not urgent. */
+.sq-group[data-kind='blocked'] .sq-grouphead {
+  color: var(--p-external);
+}
+
+.sq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sq-row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  text-align: left;
+}
+
+.sq-row:hover {
+  background: var(--p-surface-2);
+}
+
+.sq-item[data-selected='true'] .sq-row {
+  background: var(--p-surface-3);
+}
+
+.sq-run {
+  color: var(--p-ink-0);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+}
+
+.sq-attention,
+.sq-step {
+  color: var(--p-ink-2);
+  font-size: 10px;
+}
+
+.sq-step {
+  text-align: right;
+}
+
+/* A row nobody can act on. Dimmed rather than hidden: it is still unresolved work. */
+.sq-item[data-stranded='true'] .sq-run,
+.sq-item[data-stranded='true'] .sq-attention {
+  color: var(--p-ink-3);
+}
+
+/* A value the process's own contract does not list. A bug in the process, surfaced. */
+.sq-unknown {
+  grid-column: 1 / -1;
+  color: var(--p-run-failed);
+  font-size: 9.5px;
+}
+
+/* ----------------------------------------------------------------- item */
+
+.sc {
+  overflow-y: auto;
+  padding: 16px 20px 28px;
+}
+
+.sc-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+
+.sc-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sc-subtitle,
+.sc-status {
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+.sc-stale {
+  margin-left: auto;
+  color: var(--p-run-failed);
+  font-size: 10px;
+}
+
+.sc-state {
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+.sc-state[data-liveness='unreachable'] {
+  color: var(--p-run-failed);
+}
+
+.sc-why {
+  display: block;
+  color: var(--p-ink-3);
+  font-size: 9.5px;
+}
+
+.sc-block {
+  margin-top: 16px;
+}
+
+.sc-blockhead {
+  margin-bottom: 5px;
+  color: var(--p-ink-3);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sc-reason,
+.sc-recommend {
+  color: var(--p-ink-0);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sc-verbatim {
+  padding-left: 10px;
+  border-left: 2px solid var(--p-line);
+  color: var(--p-ink-1);
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+/*
+ * THE ONE THING THIS VIEW HAS THAT A TRANSCRIPT DOES NOT: a table. These are quantities to weigh against each
+ * other, and comparison wants columns — which was the open question the earlier finding could not settle.
+ */
+.sc-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 14px;
+}
+
+.sc-fact {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.sc-fname {
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+}
+
+.sc-fvalue {
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+}
+
+.sc-facts[data-pivotal='true'] .sc-fvalue {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sc-rest {
+  margin-top: 16px;
+}
+
+.sc-rest summary {
+  cursor: default;
+}
+
+.sc-decide {
+  padding-top: 14px;
+  border-top: 1px solid var(--p-line-soft);
+}
+
+.sc-none {
+  color: var(--p-ink-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.sc-verdicts {
+  display: flex;
+  gap: 8px;
+}
+
+.sc-verdict {
+  padding: 5px 14px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  color: var(--p-ink-0);
+  font-size: 12px;
+}
+
+.sc-verdict:hover:enabled {
+  background: var(--p-surface-3);
+}
+
+.sc-verdict:disabled {
+  color: var(--p-ink-3);
+}
+
+.sc-sending,
+.sc-outcome {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.sc-sending {
+  color: var(--p-ink-2);
+}
+
+.sc-outcome[data-outcome='accepted'] {
+  color: var(--p-run-done);
+}
+
+/* Refused and lost are different facts and neither is a success. */
+.sc-outcome[data-outcome='refused'],
+.sc-outcome[data-outcome='lost'] {
+  color: var(--p-run-failed);
+}
+
+.sc-asked {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sc-q {
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+.sc-a {
+  color: var(--p-ink-0);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sc-askrow {
+  display: flex;
+  gap: 8px;
+}
+
+.sc-askbox {
+  flex: 1 1 auto;
+  padding: 5px 9px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-1);
+  color: var(--p-ink-0);
+  font-size: 12px;
+}
+
+.sc-asksend {
+  padding: 5px 12px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  color: var(--p-ink-1);
+  font-size: 11.5px;
+}

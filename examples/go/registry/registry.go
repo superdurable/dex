@@ -53,6 +53,9 @@ import (
 	"github.com/superdurable/dex/examples/go/primitives/subflow"
 	"github.com/superdurable/dex/examples/go/primitives/timer"
 	"github.com/superdurable/dex/examples/go/primitives/wait-types"
+	"github.com/superdurable/dex/examples/go/products/customer-refund/agentic"
+	"github.com/superdurable/dex/examples/go/products/customer-refund/deterministic"
+	refundmodel "github.com/superdurable/dex/examples/go/products/customer-refund/model"
 	"github.com/superdurable/dex/examples/go/products/engagement"
 	"github.com/superdurable/dex/examples/go/products/job-post"
 	"github.com/superdurable/dex/examples/go/products/microservices"
@@ -78,6 +81,8 @@ var (
 	Subscription    *subscription.SubscriptionFlow
 	UserOnboarding  *signup.UserOnboardingFlow
 	JobPosting      *jobpost.JobPostingFlow
+	CustomerRefund  *deterministic.CustomerRefundFlow
+	AgenticRefund   *agentic.AgenticCustomerRefundFlow
 
 	CronSchedule          *cron.CronScheduleFlow
 	PollingWithTimer      *patternspolling.PollingWithTimerFlow
@@ -143,6 +148,9 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	Subscription = subscription.NewSubscriptionFlow(applicationService)
 	UserOnboarding = signup.NewUserOnboardingFlow(applicationService)
 	JobPosting = jobpost.NewJobPostingFlow(applicationService)
+	refundService := refundmodel.NewFakeService()
+	CustomerRefund = deterministic.NewCustomerRefundFlow(refundService)
+	AgenticRefund = agentic.NewAgenticCustomerRefundFlow(refundService)
 
 	CronSchedule = cron.NewCronScheduleFlow()
 	PollingWithTimer = patternspolling.NewPollingWithTimerFlow()
@@ -201,6 +209,8 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		Subscription,
 		UserOnboarding,
 		JobPosting,
+		CustomerRefund,
+		AgenticRefund,
 		CronSchedule,
 		PollingWithTimer,
 		BackoffPolling,

@@ -89,7 +89,7 @@ export function TimeTravelDialog({
         body: JSON.stringify(payload),
       });
       const data = await readResponseJSON<{ runId?: string }>(response);
-      navigate(`/flows/${encodeURIComponent(summary.flowId)}/${encodeURIComponent(data.runId || '')}`);
+      navigate(`/v1/flows/${encodeURIComponent(summary.flowId)}/${encodeURIComponent(data.runId || '')}`);
       onClose();
     } catch (timeTravelError) {
       setError(timeTravelError instanceof Error ? timeTravelError.message : 'Time travel failed');

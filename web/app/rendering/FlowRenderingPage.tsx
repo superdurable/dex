@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useMemo, useState } from 'react';
-import { FlowDefinitionGraphView } from '@superdurable/flow-definition-renderer';
+import { FlowDefinitionGraphView, ProcessCanvasView } from '@superdurable/flow-definition-renderer';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog } from '@/lib/types';
 
@@ -92,17 +92,22 @@ export function FlowRenderingPage() {
                   </span>
                   <code>{definition.file}</code>
                   <small>{definition.sourceLanguage} · {definition.sourcePath}</small>
+                  <small>FDG {definition.schemaVersion}</small>
                 </button>
               ))}
             </div>
           </aside>
           <div className="flow-rendering-graph">
             {selected && (
-              <FlowDefinitionGraphView
-                key={selected.id}
-                displayName={selected.flowName}
-                graph={selected.graph}
-              />
+              selected.graph.schemaVersion === '2.0' ? (
+                <ProcessCanvasView key={selected.id} graph={selected.graph} />
+              ) : (
+                <FlowDefinitionGraphView
+                  key={selected.id}
+                  displayName={selected.flowName}
+                  graph={selected.graph}
+                />
+              )
             )}
           </div>
         </div>

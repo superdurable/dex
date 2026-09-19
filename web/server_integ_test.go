@@ -100,7 +100,7 @@ func TestWebServerBridgesDexAndServesSPA(t *testing.T) {
 		t.Fatalf("unexpected unconfigured Flow definitions: %+v", definitionCatalog)
 	}
 
-	for _, path := range []string{"/", "/rendering", "/flows/checkout-1/run-1"} {
+	for _, path := range []string{"/", "/v1/rendering", "/v1/flows/checkout-1/run-1", "/v2"} {
 		response := get(t, harness.http.URL+path)
 		body := readBody(t, response)
 		response.Body.Close()

@@ -518,7 +518,7 @@ function renderCell(column: ColumnId, flow: FlowExecution, timezone: 'local' | '
       return (
         <Link
           className="table-link table-id table-id-flow"
-          to={`/flows/${encodeURIComponent(flow.flowId)}/${encodeURIComponent(flow.runId)}`}
+          to={`/v1/flows/${encodeURIComponent(flow.flowId)}/${encodeURIComponent(flow.runId)}`}
           title={flow.flowId}
         >
           {flow.flowId}

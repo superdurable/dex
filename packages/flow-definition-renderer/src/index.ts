@@ -10,6 +10,7 @@ import '@xyflow/react/dist/style.css';
 import './styles.css';
 
 export { FlowDefinitionGraphView, SelectedEdgeLabel } from './FlowDefinitionGraph';
+export { ProcessCanvasView, buildProcessCanvasScene } from './ProcessCanvas';
 export {
   buildDefinitionScene,
   filterDefinitionEdgesForSelection,
@@ -25,6 +26,16 @@ export type {
   FlowDefinitionDiagnostic,
   FlowDefinitionEdge,
   FlowDefinitionGraph,
+  FlowDefinitionGroup,
   FlowDefinitionNode,
+  FlowV2Action,
+  FlowV2ActionInputField,
+  FlowV2Definition,
+  FlowV2Field,
+  FlowV2IndexedAttribute,
+  FlowV2View,
   SourceSpan,
+  V2EditableValueType,
+  V2IndexedValueType,
+  V2ValueType,
 } from './types';
