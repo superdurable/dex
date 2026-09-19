@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useState, type JSX } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
 import {
   StepMethodContextSection,
   StepMethodInputSection,
@@ -14,6 +14,13 @@ import {
 } from '@/app/flows/details/StepMethodSections'
 import { storedValueJSONReplacer } from '@/lib/blobs'
 import type { FlowHistoryEvent } from '@/lib/types'
+import {
+  DEF_HEIGHT_DEFAULT,
+  DEF_HEIGHT_KEY,
+  V2SplitHandle,
+  readStoredPixels,
+  writeStoredPixels,
+} from '../../V2SplitHandle'
 import type { PanelModel, Row, SectionId } from './panelModel'
 import { VERDICT_TEXT } from './panelModel'
 
@@ -138,6 +145,8 @@ export function DetailPanel({
   history?: FlowHistoryEvent[]
   parentFlowId?: string
 }): JSX.Element {
+  const panelRef = useRef<HTMLElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState<SectionId>(
     initialSection != null && model.sections.some((section) => section.id === initialSection)
       ? initialSection
@@ -145,6 +154,10 @@ export function DetailPanel({
   )
   const [definitionOpen, setDefinitionOpen] = useState(true)
   const [branchesExpanded, setBranchesExpanded] = useState(false)
+  const [defHeight, setDefHeight] = useState(() => {
+    const stored = readStoredPixels(DEF_HEIGHT_KEY)
+    return Number.isFinite(stored) ? stored : DEF_HEIGHT_DEFAULT
+  })
 
   useEffect(() => {
     if (initialSection != null && model.sections.some((section) => section.id === initialSection)) {
@@ -156,15 +169,29 @@ export function DetailPanel({
     setBranchesExpanded(false)
   }, [model.stepType])
 
+  const commitDefHeight = useCallback((height: number) => {
+    const next = Math.round(height)
+    setDefHeight(next)
+    writeStoredPixels(DEF_HEIGHT_KEY, next)
+  }, [])
+
   const section = model.sections.find((candidate) => candidate.id === open) ?? model.sections[0]
   const selectedId = selectedExecutionId
     ?? model.executions[model.executions.length - 1]?.id
     ?? ''
   const branchCount = model.definition.branches.length
   const branchesCollapsed = branchCount > 3 && !branchesExpanded
+  const panelStyle = {
+    '--v2-def-h': `${Math.round(defHeight)}px`,
+  } as CSSProperties
 
   return (
-    <aside className="ppan" aria-label={`Detail for ${model.stepType}`}>
+    <aside
+      className="ppan"
+      ref={panelRef}
+      style={panelStyle}
+      aria-label={`Detail for ${model.stepType}`}
+    >
       <header className="ppan-head">
         <div>
           <h2>{model.title}</h2>
@@ -175,69 +202,88 @@ export function DetailPanel({
         </button>
       </header>
 
-      <section className="ppan-def" aria-label="Step definition">
-        <button
-          type="button"
-          className="ppan-def-toggle"
-          aria-expanded={definitionOpen}
-          onClick={() => setDefinitionOpen((openNow) => !openNow)}
+      <div className="ppan-stack" ref={bodyRef}>
+        <section
+          className="ppan-def"
+          data-collapsed={definitionOpen ? undefined : 'true'}
+          aria-label="Step definition"
         >
-          <span>Definition</span>
-          <span className="ppan-def-chevron">{definitionOpen ? '▾' : '▸'}</span>
-        </button>
-        {definitionOpen ? (
-          <div className="ppan-def-body">
-            <h3>Explanation</h3>
-            {model.definition.explanation === null ? (
-              <p className="ppan-note">No dex:explanation on this Step.</p>
-            ) : (
-              <p className="ppan-def-explanation">{model.definition.explanation}</p>
-            )}
-            <h3>WaitFor</h3>
-            {model.definition.waitFor === null ? (
-              <p className="ppan-note">No WaitFor — Execute runs immediately.</p>
-            ) : (
-              <>
-                <p className="ppan-def-line">{model.definition.waitFor}</p>
-                {model.definition.waitConditions.length > 0 ? (
-                  <ul className="ppan-def-list">
-                    {model.definition.waitConditions.map((condition) => (
-                      <li key={condition}>{condition}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </>
-            )}
-            <h3>Execute branches</h3>
-            {branchCount === 0 ? (
-              <p className="ppan-note">No Execute branches in the definition.</p>
-            ) : branchesCollapsed ? (
-              <button
-                type="button"
-                className="ppan-branches-toggle"
-                onClick={() => setBranchesExpanded(true)}
-              >
-                {branchCount} branches · expand
-              </button>
-            ) : (
-              <>
-                <Rows rows={model.definition.branches} />
-                {branchCount > 3 ? (
-                  <button
-                    type="button"
-                    className="ppan-branches-toggle"
-                    onClick={() => setBranchesExpanded(false)}
-                  >
-                    Collapse branches
-                  </button>
-                ) : null}
-              </>
-            )}
-          </div>
-        ) : null}
-      </section>
+          <button
+            type="button"
+            className="ppan-def-toggle"
+            aria-expanded={definitionOpen}
+            onClick={() => setDefinitionOpen((openNow) => !openNow)}
+          >
+            <span>Definition</span>
+            <span className="ppan-def-chevron">{definitionOpen ? '▾' : '▸'}</span>
+          </button>
+          {definitionOpen ? (
+            <div className="ppan-def-body">
+              <h3>Explanation</h3>
+              {model.definition.explanation === null ? (
+                <p className="ppan-note">No dex:explanation on this Step.</p>
+              ) : (
+                <p className="ppan-def-explanation">{model.definition.explanation}</p>
+              )}
+              <h3>WaitFor</h3>
+              {model.definition.waitFor === null ? (
+                <p className="ppan-note">No WaitFor — Execute runs immediately.</p>
+              ) : (
+                <>
+                  <p className="ppan-def-line">{model.definition.waitFor}</p>
+                  {model.definition.waitConditions.length > 0 ? (
+                    <ul className="ppan-def-list">
+                      {model.definition.waitConditions.map((condition) => (
+                        <li key={condition}>{condition}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              )}
+              <h3>Execute branches</h3>
+              {branchCount === 0 ? (
+                <p className="ppan-note">No Execute branches in the definition.</p>
+              ) : branchesCollapsed ? (
+                <button
+                  type="button"
+                  className="ppan-branches-toggle"
+                  onClick={() => setBranchesExpanded(true)}
+                >
+                  {branchCount} branches · expand
+                </button>
+              ) : (
+                <>
+                  <Rows rows={model.definition.branches} />
+                  {branchCount > 3 ? (
+                    <button
+                      type="button"
+                      className="ppan-branches-toggle"
+                      onClick={() => setBranchesExpanded(false)}
+                    >
+                      Collapse branches
+                    </button>
+                  ) : null}
+                </>
+              )}
+            </div>
+          ) : null}
+        </section>
 
-      <section className="ppan-exec" aria-label="Step execution">
+        {definitionOpen ? (
+          <V2SplitHandle
+            axis="row"
+            cssVariable="--v2-def-h"
+            edge="between"
+            invert
+            targetRef={panelRef}
+            measureRef={bodyRef}
+            value={defHeight}
+            ariaLabel="Resize Definition and Execution"
+            onCommit={commitDefHeight}
+          />
+        ) : null}
+
+        <section className="ppan-exec" aria-label="Step execution">
         <div className="ppan-exec-head">
           <h3>Execution</h3>
           {model.executions.length > 1 ? (
@@ -399,6 +445,7 @@ export function DetailPanel({
           ) : null}
         </div>
       </section>
+      </div>
     </aside>
   )
 }

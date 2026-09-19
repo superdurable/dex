@@ -399,11 +399,44 @@
   border-color: var(--p-ink-3);
 }
 .ppan-def {
-  flex: 0 1 auto;
-  max-height: min(40%, 16rem);
+  flex: 0 0 var(--v2-def-h, 11rem);
+  height: var(--v2-def-h, 11rem);
+  max-height: none;
   min-height: 0;
   overflow-y: auto;
+  border-bottom: 0;
+}
+.ppan-def[data-collapsed='true'] {
+  flex: 0 0 auto;
+  height: auto;
+  overflow: visible;
+}
+.ppan-stack {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+.ppan .v2-split[data-axis='row'][data-edge='between'] {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  z-index: 1;
+  flex: 0 0 9px;
+  width: auto;
+  height: 9px;
+  margin: 0;
+  border-top: 1px solid var(--p-line-soft);
   border-bottom: 1px solid var(--p-line-soft);
+  background: transparent;
+  cursor: row-resize;
+}
+.ppan .v2-split[data-axis='row'][data-edge='between']:hover,
+.ppan .v2-split[data-axis='row'][data-edge='between']:focus-visible {
+  background: var(--p-surface-3);
+  outline: none;
 }
 .ppan-def-toggle {
   display: flex;
@@ -476,9 +509,9 @@
 }
 .ppan-exec {
   display: flex;
-  flex: 1 1 55%;
+  flex: 1 1 auto;
   flex-direction: column;
-  min-height: 14rem;
+  min-height: 10rem;
 }
 .ppan-exec-head {
   display: flex;

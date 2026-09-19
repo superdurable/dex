@@ -10,6 +10,9 @@ import { describe, expect, it } from 'vitest';
 import {
   CASE_HEIGHT_FRAC,
   CASE_HEIGHT_MIN,
+  DEF_HEIGHT_DEFAULT,
+  DEF_HEIGHT_MIN,
+  EXEC_REMAIN_MIN,
   LIST_REMAIN_MIN,
   LIST_WIDTH_DEFAULT,
   LIST_WIDTH_MIN,
@@ -17,6 +20,7 @@ import {
   PANEL_WIDTH_DEFAULT,
   PANEL_WIDTH_MIN,
   clampCaseHeight,
+  clampDefHeight,
   clampListWidth,
   clampPanelWidth,
 } from './V2SplitHandle';
@@ -42,5 +46,11 @@ describe('v2 split clamps', () => {
     expect(clampPanelWidth(PANEL_WIDTH_DEFAULT, 1200)).toBe(PANEL_WIDTH_DEFAULT);
     expect(clampPanelWidth(80, 1200)).toBe(PANEL_WIDTH_MIN);
     expect(clampPanelWidth(1000, 1200)).toBe(Math.min(1200 * 0.7, 1200 - PANEL_CANVAS_REMAIN_MIN));
+  });
+
+  it('keeps Definition and Execution both usable inside the panel', () => {
+    expect(clampDefHeight(DEF_HEIGHT_DEFAULT, 800)).toBe(DEF_HEIGHT_DEFAULT);
+    expect(clampDefHeight(40, 800)).toBe(DEF_HEIGHT_MIN);
+    expect(clampDefHeight(700, 800)).toBe(800 - EXEC_REMAIN_MIN);
   });
 });
