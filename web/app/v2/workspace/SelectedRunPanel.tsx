@@ -1,0 +1,262 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import type {
+  FlowV2Action,
+  FlowV2ActionInputField,
+  FlowV2Definition,
+  V2ValueType,
+} from '@superdurable/flow-definition-renderer';
+import { displayValue } from '@/lib/format';
+import { readResponseJSON } from '@/lib/http';
+import type { V2Display } from '@/lib/types';
+import { parseTypedValue, v2ActionUserFields, v2ActionUserInput, visibleV2Actions } from '../contract';
+
+export function SelectedRunPanel({
+  flowType,
+  flowId,
+  definition,
+  footer,
+}: {
+  flowType: string;
+  flowId: string;
+  definition: FlowV2Definition;
+  footer?: ReactNode;
+}) {
+  const [result, setResult] = useState<V2Display | null>(null);
+  const [error, setError] = useState('');
+  const [busyKey, setBusyKey] = useState('');
+  const [editingKey, setEditingKey] = useState('');
+  const [editValue, setEditValue] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [actionValues, setActionValues] = useState<Record<string, Record<string, string>>>({});
+
+  const loadDisplay = useCallback(async () => {
+    setError('');
+    try {
+      const query = new URLSearchParams({ flowType, flowId });
+      const response = await fetch(`/api/v2/display?${query}`);
+      setResult(await readResponseJSON<V2Display>(response));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Display failed to load');
+    }
+  }, [flowId, flowType]);
+
+  useEffect(() => { void loadDisplay(); }, [loadDisplay]);
+
+  async function saveField(attributeKey: string, valueType: V2ValueType) {
+    setBusyKey(attributeKey);
+    setError('');
+    setFieldErrors((current) => ({ ...current, [attributeKey]: '' }));
+    try {
+      const response = await fetch('/api/v2/display', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flowType, flowId, attributeKey,
+          value: parseTypedValue(editValue, valueType),
+        }),
+      });
+      await readResponseJSON(response);
+      setEditingKey('');
+      await loadDisplay();
+    } catch (saveError) {
+      setFieldErrors((current) => ({
+        ...current,
+        [attributeKey]: saveError instanceof Error ? saveError.message : 'Edit failed',
+      }));
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function invokeAction(action: FlowV2Action) {
+    setBusyKey(action.rpcName);
+    setError('');
+    try {
+      const input = v2ActionUserInput(action, actionValues[action.rpcName] ?? {});
+      const response = await fetch('/api/v2/actions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flowType, flowId, rpcName: action.rpcName,
+          input, attributeSnapshot: result?.attributeSnapshot ?? {},
+        }),
+      });
+      await readResponseJSON(response);
+      await loadDisplay();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : 'Action failed');
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  return (
+    <div className="v2-case sc">
+      <div className="sc-head">
+        <span className="sc-title">{flowId}</span>
+        {result && <span className="sc-status">{result.flowStatus}</span>}
+        {footer}
+      </div>
+      {error && <p className="v2-error">{error}</p>}
+      {!result && !error && <p className="sc-state">Loading Display…</p>}
+      {result && (
+        <>
+          <div className="sc-block">
+            <div className="sc-blockhead">Display</div>
+            <dl className="sc-facts">
+              {definition.display.fields.map((field) => {
+                const isEditing = editingKey === field.attributeKey;
+                return (
+                  <div className="sc-fact" key={field.attributeKey}>
+                    <dt className="sc-fname">{field.description}</dt>
+                    <dd className="sc-fvalue">
+                      {isEditing ? (
+                        <>
+                          <TypedInput field={field} value={editValue} onChange={setEditValue} />
+                          <button
+                            className="v2-primary"
+                            disabled={busyKey === field.attributeKey}
+                            onClick={() => void saveField(field.attributeKey, field.valueType)}
+                            type="button"
+                          >
+                            Save
+                          </button>
+                          <button className="v2-ghost" onClick={() => setEditingKey('')} type="button">Cancel</button>
+                          {fieldErrors[field.attributeKey] && (
+                            <small className="v2-error">{fieldErrors[field.attributeKey]}</small>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <span>{displayValue(result.display[field.attributeKey])}</span>
+                          {field.editable && result.isActive && (
+                            <button
+                              className="v2-ghost"
+                              onClick={() => {
+                                setEditingKey(field.attributeKey);
+                                setFieldErrors((current) => ({ ...current, [field.attributeKey]: '' }));
+                                setEditValue(editableValue(
+                                  result.display[field.attributeKey],
+                                  field.valueType,
+                                ));
+                              }}
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </dd>
+                  </div>
+                );
+              })}
+            </dl>
+          </div>
+          <div className="sc-block">
+            <div className="sc-blockhead">Actions</div>
+            {visibleV2Actions(definition.actions, result.eligibleActions).map((action) => {
+              const userFields = v2ActionUserFields(action);
+              return (
+                <form
+                  className="sc-actions"
+                  key={action.rpcName}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void invokeAction(action);
+                  }}
+                >
+                  {userFields.map((field) => (
+                    <label key={field.fieldName}>
+                      <span className="sc-fname">{field.description}</span>
+                      <ActionInput
+                        field={field}
+                        value={actionValues[action.rpcName]?.[field.fieldName] ?? ''}
+                        onChange={(value) => setActionValues((current) => ({
+                          ...current,
+                          [action.rpcName]: {
+                            ...current[action.rpcName],
+                            [field.fieldName]: value,
+                          },
+                        }))}
+                      />
+                    </label>
+                  ))}
+                  <button
+                    className="v2-primary"
+                    disabled={!result.isActive || busyKey === action.rpcName}
+                    type="submit"
+                  >
+                    {busyKey === action.rpcName ? 'Working…' : action.label}
+                  </button>
+                </form>
+              );
+            })}
+            {definition.actions.length > 0 && result.eligibleActions.length === 0 && (
+              <p className="sc-state">No Actions are available in the current state.</p>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function editableValue(value: unknown, valueType: V2ValueType): string {
+  if (value === null || value === undefined) return '';
+  const text = typeof value === 'string' ? value : String(value);
+  if (valueType !== 'datetime') return text;
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return '';
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function TypedInput({ field, value, onChange, required = false }: {
+  field: { valueType: V2ValueType; description: string };
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+}) {
+  if (field.valueType === 'bool') {
+    return (
+      <select
+        aria-label={field.description}
+        required={required}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {!required && <option value="">Unset</option>}
+        <option value="true">True</option>
+        <option value="false">False</option>
+      </select>
+    );
+  }
+  return (
+    <input
+      aria-label={field.description}
+      required={required}
+      type={field.valueType === 'datetime'
+        ? 'datetime-local'
+        : field.valueType === 'int64' || field.valueType === 'double'
+          ? 'number'
+          : 'text'}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
+function ActionInput({ field, value, onChange }: {
+  field: FlowV2ActionInputField;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return <TypedInput field={field} required={field.required} value={value} onChange={onChange} />;
+}

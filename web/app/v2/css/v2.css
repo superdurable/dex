@@ -221,3 +221,36 @@
   color: var(--p-ink-3);
   font-size: 12px;
 }
+
+/* -------------------------------------------------- queue mode, no canvas */
+
+.v2-shell.v2-queue {
+  display: flex;
+  flex-direction: column;
+}
+
+.v2-queue .sq {
+  border-right: 1px solid var(--p-line-soft);
+}
+
+.v2-queue .v2-case {
+  max-height: none;
+  height: 100%;
+  border-top: none;
+  padding: 16px 20px 20px;
+}
+
+.v2-queue .sc-none {
+  padding: 18px 20px;
+}
+
+.v2-seemore {
+  margin-left: auto;
+  color: var(--p-ink-2);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.v2-seemore:hover {
+  color: var(--p-ink-1);
+}

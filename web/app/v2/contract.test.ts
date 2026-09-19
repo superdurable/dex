@@ -12,17 +12,19 @@ import type {
   FlowV2Definition,
 } from '@superdurable/flow-definition-renderer';
 import {
+  v1RunPath,
   v2ActionUserFields,
   v2ActionUserInput,
-  v2FlowPath,
   v2HomePath,
   v2ListColumns,
+  v2QueuePath,
+  v2RunPath,
   visibleV2Actions,
 } from './contract';
 
 describe('Dex Web v2 contract helpers', () => {
-  it('defaults to v2 only when a JSON directory is configured', () => {
-    expect(v2HomePath(true)).toBe('/v2');
+  it('defaults to v2 Run only when a JSON directory is configured', () => {
+    expect(v2HomePath(true)).toBe('/v2/run');
     expect(v2HomePath(false)).toBe('/v1/flows');
   });
 
@@ -35,10 +37,15 @@ describe('Dex Web v2 contract helpers', () => {
     ]);
   });
 
-  it('builds Flow-ID-only v2 routes', () => {
-    const path = v2FlowPath('Refund Flow', 'refund/42');
-    expect(path).toBe('/v2/Refund%20Flow/refund%2F42');
-    expect(path).not.toContain('run');
+  it('builds Flow-ID-only routes per mode', () => {
+    expect(v2RunPath('Refund Flow', 'refund/42')).toBe('/v2/run/Refund%20Flow/refund%2F42');
+    expect(v2QueuePath('Refund Flow', 'refund/42')).toBe('/v2/queue/Refund%20Flow/refund%2F42');
+    expect(v2RunPath()).toBe('/v2/run');
+    expect(v2QueuePath('Refund Flow')).toBe('/v2/queue/Refund%20Flow');
+  });
+
+  it('links a run to the v1 page that owns Timeline and controls', () => {
+    expect(v1RunPath('refund/42')).toBe('/v1/flows/refund%2F42');
   });
 
   it('shows only eligible Actions and hides Attribute-sourced inputs', () => {

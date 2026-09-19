@@ -8,8 +8,14 @@
 
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { usePreferences } from '../providers';
+import { v2HomePath, v2ModePath, type V2Mode } from '../v2/contract';
 import { useWebCatalog } from '../v2/WebCatalogProvider';
 import { ThemeToggle } from './ThemeToggle';
+
+const V2_MODES: { mode: V2Mode; label: string }[] = [
+  { mode: 'run', label: 'Run' },
+  { mode: 'queue', label: 'Work queue' },
+];
 
 export function AppHeader() {
   const { timezone, setTimezone } = usePreferences();
@@ -17,7 +23,8 @@ export function AppHeader() {
   const location = useLocation();
   const navigate = useNavigate();
   const isV2 = location.pathname === '/v2' || location.pathname.startsWith('/v2/');
-  const home = canUseV2 && isV2 ? '/v2' : '/v1/flows';
+  const activeMode: V2Mode = location.pathname.startsWith('/v2/queue') ? 'queue' : 'run';
+  const home = canUseV2 && isV2 ? v2HomePath(canUseV2) : '/v1/flows';
   return (
     <header className="app-header">
       <div className="header-brand">
@@ -43,6 +50,21 @@ export function AppHeader() {
             <Link to="/v1/rendering">Flow Rendering</Link>
           </>
         )}
+        {isV2 && canUseV2 && (
+          <div className="v2-modes" role="group" aria-label="Dex Web v2 mode">
+            {V2_MODES.map(({ mode, label }) => (
+              <button
+                aria-pressed={mode === activeMode}
+                className="v2-mode"
+                key={mode}
+                onClick={() => navigate(v2ModePath(mode))}
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         <span className="connection-pill">
           <span className="connection-dot" />
           Dex server
@@ -53,7 +75,9 @@ export function AppHeader() {
             <select
               aria-label="Dex Web version"
               value={isV2 ? 'v2' : 'v1'}
-              onChange={(event) => navigate(event.target.value === 'v2' ? '/v2' : '/v1/flows')}
+              onChange={(event) => navigate(
+                event.target.value === 'v2' ? v2HomePath(canUseV2) : '/v1/flows',
+              )}
             >
               <option value="v2">v2</option>
               <option value="v1">v1</option>
