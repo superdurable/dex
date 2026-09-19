@@ -431,9 +431,17 @@ export function DetailPanel({
     return Number.isFinite(stored) ? stored : DEF_HEIGHT_DEFAULT
   })
 
+  const selectedId = selectedExecutionId
+    ?? model.executions[model.executions.length - 1]?.id
+    ?? ''
+  const selectionKey = `${model.stepType}|${selectedId}`
+
+  // Keep the user's tab across history polls; only reset when the Step instance changes.
   useEffect(() => {
     setOpenTabs(resolveOpenTabs(model, initialSection ?? model.defaultSection))
-  }, [initialSection, model])
+    // Polls rebuild `model`; tab clicks update `initialSection`. Neither should reset tabs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectionKey only
+  }, [selectionKey])
 
   useEffect(() => {
     setBranchesExpanded(false)
@@ -445,9 +453,6 @@ export function DetailPanel({
     writeStoredPixels(DEF_HEIGHT_KEY, next)
   }, [])
 
-  const selectedId = selectedExecutionId
-    ?? model.executions[model.executions.length - 1]?.id
-    ?? ''
   const branchCount = model.definition.branches.length
   const branchesCollapsed = branchCount > 3 && !branchesExpanded
   const panelStyle = {

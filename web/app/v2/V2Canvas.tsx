@@ -345,7 +345,7 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
             onCommit={commitPanelWidth}
           />
           <DetailPanel
-            key={`${panel.stepType}|${inspectSection ?? panel.defaultSection}|${selectedRecord?.execution.stepExecutionId ?? ''}`}
+            key={`${panel.stepType}|${selectedRecord?.execution.stepExecutionId ?? ''}`}
             model={panel}
             selectedExecutionId={selectedRecord?.execution.stepExecutionId ?? selectedExecutionId}
             initialSection={inspectSection}
@@ -353,6 +353,7 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
             executeEvent={hydratedExecuteEvent ?? selectedExecuteEvent}
             history={historyEvents}
             parentFlowId={flowId}
+            onSection={setInspectSection}
             onClose={() => {
               setSelectedId(null);
               setSelectedExecutionId(null);
