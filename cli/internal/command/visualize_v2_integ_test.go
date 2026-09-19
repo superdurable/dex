@@ -64,6 +64,15 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 			require.Equal(t, "case-status", graph.Supervision.IndexedAttributes[0].AttributeKey)
 			require.Equal(t, "case-status", graph.Supervision.IndexedAttributes[0].IndexKey)
 			require.Equal(t, "keyword", graph.Supervision.IndexedAttributes[0].IndexType)
+			for _, node := range graph.Nodes {
+				if node.Kind != "step" {
+					continue
+				}
+				require.NotNil(t, node.Metadata, node.ID)
+				explanation, ok := node.Metadata["explanation"].(string)
+				require.True(t, ok, node.ID)
+				require.NotEmpty(t, explanation, node.ID)
+			}
 
 			firstJSON, err := flowviz.MarshalJSON(graph)
 			require.NoError(t, err)
@@ -122,6 +131,8 @@ func TestVisualizeV2ReportsMalformedNamedDirectives(t *testing.T) {
 	require.Contains(t, messages, "dex:field missing required argument description")
 	require.Contains(t, messages, "dex:field description: unterminated quoted string")
 	require.Contains(t, messages, "Step missingGroupStep must declare exactly one dex:group directive")
+	require.Contains(t, messages, "Step missingGroupStep must declare exactly one dex:explanation directive")
+	require.Contains(t, messages, "Step invalidV2Step must declare exactly one dex:explanation directive")
 	require.Contains(t, messages, `dex:indexed-attribute attribute-key "declared-indexed" does not match the Go declaration "actual-indexed"`)
 	require.Contains(t, messages, `dex:field value-type "string" does not match Attribute "flag" type "bool"`)
 	require.Contains(t, messages, "GetDexDisplay must be read-only")

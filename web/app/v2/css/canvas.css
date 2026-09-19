@@ -399,7 +399,10 @@
   border-color: var(--p-ink-3);
 }
 .ppan-def {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  max-height: min(40%, 16rem);
+  min-height: 0;
+  overflow-y: auto;
   border-bottom: 1px solid var(--p-line-soft);
 }
 .ppan-def-toggle {
@@ -454,11 +457,34 @@
   color: var(--p-ink-2);
   font-size: 11px;
 }
+.ppan-def-explanation {
+  margin: 0;
+  color: var(--p-ink-1);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.ppan-branches-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 3px 8px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ppan-branches-toggle:hover {
+  color: var(--p-ink-0);
+}
 .ppan-exec {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 55%;
   flex-direction: column;
-  min-height: 0;
+  min-height: 14rem;
 }
 .ppan-exec-head {
   display: flex;

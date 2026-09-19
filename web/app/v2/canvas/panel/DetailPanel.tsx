@@ -144,6 +144,7 @@ export function DetailPanel({
       : model.defaultSection,
   )
   const [definitionOpen, setDefinitionOpen] = useState(true)
+  const [branchesExpanded, setBranchesExpanded] = useState(false)
 
   useEffect(() => {
     if (initialSection != null && model.sections.some((section) => section.id === initialSection)) {
@@ -151,10 +152,16 @@ export function DetailPanel({
     }
   }, [initialSection, model.sections])
 
+  useEffect(() => {
+    setBranchesExpanded(false)
+  }, [model.stepType])
+
   const section = model.sections.find((candidate) => candidate.id === open) ?? model.sections[0]
   const selectedId = selectedExecutionId
     ?? model.executions[model.executions.length - 1]?.id
     ?? ''
+  const branchCount = model.definition.branches.length
+  const branchesCollapsed = branchCount > 3 && !branchesExpanded
 
   return (
     <aside className="ppan" aria-label={`Detail for ${model.stepType}`}>
@@ -180,6 +187,12 @@ export function DetailPanel({
         </button>
         {definitionOpen ? (
           <div className="ppan-def-body">
+            <h3>Explanation</h3>
+            {model.definition.explanation === null ? (
+              <p className="ppan-note">No dex:explanation on this Step.</p>
+            ) : (
+              <p className="ppan-def-explanation">{model.definition.explanation}</p>
+            )}
             <h3>WaitFor</h3>
             {model.definition.waitFor === null ? (
               <p className="ppan-note">No WaitFor — Execute runs immediately.</p>
@@ -196,10 +209,29 @@ export function DetailPanel({
               </>
             )}
             <h3>Execute branches</h3>
-            {model.definition.branches.length === 0 ? (
+            {branchCount === 0 ? (
               <p className="ppan-note">No Execute branches in the definition.</p>
+            ) : branchesCollapsed ? (
+              <button
+                type="button"
+                className="ppan-branches-toggle"
+                onClick={() => setBranchesExpanded(true)}
+              >
+                {branchCount} branches · expand
+              </button>
             ) : (
-              <Rows rows={model.definition.branches} />
+              <>
+                <Rows rows={model.definition.branches} />
+                {branchCount > 3 ? (
+                  <button
+                    type="button"
+                    className="ppan-branches-toggle"
+                    onClick={() => setBranchesExpanded(false)}
+                  >
+                    Collapse branches
+                  </button>
+                ) : null}
+              </>
             )}
             {model.definition.source !== null ? (
               <>

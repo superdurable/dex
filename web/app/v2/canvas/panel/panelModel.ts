@@ -72,6 +72,7 @@ export interface ExecutionChoice {
 }
 
 export interface DefinitionModel {
+  explanation: string | null
   waitFor: string | null
   waitConditions: string[]
   branches: Row[]
@@ -128,6 +129,7 @@ export function buildPanel(
   const hasMethodEvent = methodEvent !== null
 
   const definition: DefinitionModel = {
+    explanation: step.explanation ?? null,
     waitFor: step.waitFor === null ? null : `${step.waitFor.type} · ${step.waitFor.sentence}`,
     waitConditions: step.waitFor?.conditions.map((c) => `${c.label} (${c.kind})`) ?? [],
     branches: step.execute.branches.map((branch) => {

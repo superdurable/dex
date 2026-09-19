@@ -362,6 +362,7 @@ func (*AgenticCustomerRefundFlow) RejectRefund(
 }
 
 // dex:group group-id:intake group-label:"Intake"
+// dex:explanation text:"Store the inbound refund request and open or reject the case."
 type agenticReceiveRequestStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -396,6 +397,7 @@ func (agenticReceiveRequestStep) Execute(
 }
 
 // dex:group group-id:reasoning group-label:"Reasoning"
+// dex:explanation text:"Choose the next capability from gathered evidence and guardrails."
 type agenticDecisionStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -477,6 +479,7 @@ func (agenticDecisionStep) Execute(
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
+// dex:explanation text:"Verify the customer identity before collecting further evidence."
 type agenticCheckIdentityStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -497,6 +500,7 @@ func (step agenticCheckIdentityStep) Execute(
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
+// dex:explanation text:"Load the customer's subscription details for the case."
 type agenticGetSubscriptionStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -517,6 +521,7 @@ func (step agenticGetSubscriptionStep) Execute(
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
+// dex:explanation text:"Load the payment and charge evidence for the refund."
 type agenticGetPaymentStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -544,6 +549,7 @@ func (step agenticGetPaymentStep) Execute(
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
+// dex:explanation text:"Load usage signals that may support or deny a refund."
 type agenticGetUsageStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -568,6 +574,7 @@ func (step agenticGetUsageStep) Execute(
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
+// dex:explanation text:"Load prior support history for this customer."
 type agenticGetSupportHistoryStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -598,6 +605,7 @@ func (step agenticGetSupportHistoryStep) Execute(
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
+// dex:explanation text:"Check for active incidents that affect refund policy."
 type agenticCheckIncidentsStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -625,6 +633,7 @@ func (step agenticCheckIncidentsStep) Execute(
 }
 
 // dex:group group-id:control group-label:"Control"
+// dex:explanation text:"Apply refund guardrails and set the recommended action."
 type agenticGuardrailStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -683,6 +692,7 @@ func (agenticGuardrailStep) Execute(
 }
 
 // dex:group group-id:control group-label:"Control"
+// dex:explanation text:"Re-check evidence after a capability returns to the decision loop."
 type agenticReCheckStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -715,6 +725,7 @@ func (agenticReCheckStep) Execute(
 }
 
 // dex:group group-id:control group-label:"Control"
+// dex:explanation text:"Ask a human to approve or reject the recommended refund action."
 type agenticRequestHumanApprovalStep struct {
 	dex.StepDefaults
 }
@@ -756,6 +767,7 @@ func (agenticRequestHumanApprovalStep) Execute(
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
+// dex:explanation text:"Record the approved refund intent before billing changes."
 type agenticAuditIntentStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -779,6 +791,7 @@ func (agenticAuditIntentStep) Execute(
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
+// dex:explanation text:"Issue the refund through billing."
 type agenticIssueRefundStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -823,6 +836,7 @@ func (step agenticIssueRefundStep) Execute(
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
+// dex:explanation text:"Offer account credit instead of a cash refund."
 type agenticOfferAccountCreditStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -854,6 +868,7 @@ func (step agenticOfferAccountCreditStep) Execute(
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
+// dex:explanation text:"Verify the billing outcome after a refund or credit."
 type agenticVerifyBillingStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -891,6 +906,7 @@ func (step agenticVerifyBillingStep) Execute(
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
+// dex:explanation text:"Apply any subscription change required by the resolution."
 type agenticApplySubscriptionStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -918,6 +934,7 @@ func (step agenticApplySubscriptionStep) Execute(
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
+// dex:explanation text:"Send the customer the resolution message."
 type agenticSendCustomerMessageStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -965,6 +982,7 @@ func (step agenticSendCustomerMessageStep) Execute(
 }
 
 // dex:group group-id:failure group-label:"Failure"
+// dex:explanation text:"Close the loop when the agent cannot converge on an action."
 type agenticNonConvergenceStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -984,6 +1002,7 @@ func (agenticNonConvergenceStep) Execute(
 }
 
 // dex:group group-id:failure group-label:"Failure"
+// dex:explanation text:"Mark the case as not a refund request."
 type agenticNotARefundStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -1000,6 +1019,7 @@ func (agenticNotARefundStep) Execute(
 }
 
 // dex:group group-id:failure group-label:"Failure"
+// dex:explanation text:"Handle a billing failure during refund or credit."
 type agenticBillingFailedStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -1022,6 +1042,7 @@ func (agenticBillingFailedStep) Execute(
 }
 
 // dex:group group-id:failure group-label:"Failure"
+// dex:explanation text:"Handle a subscription update failure after a resolution."
 type agenticSubscriptionFailedStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -1044,6 +1065,7 @@ func (agenticSubscriptionFailedStep) Execute(
 }
 
 // dex:group group-id:failure group-label:"Failure"
+// dex:explanation text:"Handle a failure sending the customer resolution message."
 type agenticEmailFailedStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -1066,6 +1088,7 @@ func (agenticEmailFailedStep) Execute(
 }
 
 // dex:group group-id:close group-label:"Close"
+// dex:explanation text:"Close the refund case once resolution is final."
 type agenticCloseCaseStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }

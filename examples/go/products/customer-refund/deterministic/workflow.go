@@ -189,6 +189,7 @@ func (*CustomerRefundFlow) GetDexDisplay(
 }
 
 // dex:group group-label:"Intake" group-id:intake
+// dex:explanation text:"Store the inbound refund request and start the case."
 type deterministicReceiveRequestStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -219,6 +220,7 @@ func (deterministicReceiveRequestStep) Execute(
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
+// dex:explanation text:"Check the order and charge evidence for the refund."
 type deterministicCheckOrderStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -247,6 +249,7 @@ func (deterministicCheckOrderStep) Execute(
 }
 
 // dex:group group-id:control group-label:"Control"
+// dex:explanation text:"Evaluate refund policy and choose approve or deny."
 type deterministicCheckPolicyStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -289,6 +292,7 @@ func (deterministicCheckPolicyStep) Execute(
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
+// dex:explanation text:"Issue the refund through billing."
 type deterministicIssueRefundStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -329,6 +333,7 @@ func (step deterministicIssueRefundStep) Execute(
 }
 
 // dex:group group-id:failure group-label:"Failure"
+// dex:explanation text:"Record a policy denial for the refund request."
 type deterministicDenyRefundStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
@@ -348,6 +353,7 @@ func (deterministicDenyRefundStep) Execute(
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
+// dex:explanation text:"Notify the customer of the refund decision."
 type deterministicNotifyCustomerStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -383,6 +389,7 @@ func (step deterministicNotifyCustomerStep) Execute(
 }
 
 // dex:group group-id:close group-label:"Close"
+// dex:explanation text:"Close the refund case after notification."
 type deterministicCloseCaseStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }

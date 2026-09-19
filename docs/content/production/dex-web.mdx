@@ -27,6 +27,7 @@ Version 2 directives use named values. Parameter position within one line has no
 
 ```go
 // dex:group group-id:control group-label:"Control"
+// dex:explanation text:"Apply refund guardrails and set the recommended action."
 // dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:case-status
 // dex:field attribute-key:operator-note value-type:string editable:true description:"Operator note"
 // dex:action action-label:"Reject"
@@ -39,7 +40,7 @@ Version 2 directives use named values. Parameter position within one line has no
 
 Unknown or repeated parameters, missing required parameters, and invalid JSON are blocking diagnostics. Separate indexed Attribute, field, Action, and input lines keep source order. This order becomes column, detail-field, Action, and form order. There is no separate order property.
 
-Every registered Step has one group declaration. Group order follows the first member's registration position in **GetSteps**. Step order within a group also follows **GetSteps**.
+Every registered Step has one group declaration and one explanation declaration. The explanation is one sentence that states what the Step does. Group order follows the first member's registration position in **GetSteps**. Step order within a group also follows **GetSteps**.
 
 ## Search and Summary
 
@@ -53,7 +54,7 @@ Each row calls **GetDexSummary** for the logical Flow ID's current run. The RPC 
 
 Selecting a row keeps the Flow ID in the URL, not a run ID. **GetDexDisplay**, Attribute reads, edits, and Actions omit the run ID, so Dex resolves the current run. After Continue-as-New, refreshing the same URL automatically addresses the new run.
 
-On **v2**, selecting a Step opens a panel split into **Definition** and **Execution**. Definition shows the Step's WaitFor and Execute branches from the Flow Definition Graph. Execution has a dropdown when the Step ran more than once, then **Input**, **Output**, and **Context** for the selected WaitFor or Execute history event in the same structured form as **v1** Selected event. The execution payload defaults to Details and can switch to Raw JSON of the hydrated payload. AttributeMap and ChannelMap instances that are decimal numbers sort by numeric value, matching **v1**. Execute shows the live next Steps from that run's decision, not every FDG exit. When Continue-as-New moved a Step into a previous run, use Load more from previous run.
+On **v2**, selecting a Step opens a panel split into **Definition** and **Execution**. Definition shows the Step **explanation**, WaitFor, and Execute branches from the Flow Definition Graph. Long Definition content scrolls so Execution stays visible. When a Step has more than three Execute branches, the branch list starts collapsed. Execution has a dropdown when the Step ran more than once, then **Input**, **Output**, and **Context** for the selected WaitFor or Execute history event in the same structured form as **v1** Selected event. The execution payload defaults to Details and can switch to Raw JSON of the hydrated payload. AttributeMap and ChannelMap instances that are decimal numbers sort by numeric value, matching **v1**. Execute shows the live next Steps from that run's decision, not every FDG exit. When Continue-as-New moved a Step into a previous run, use Load more from previous run.
 
 Display fields are ordered by their directive lines. Primitive string, integer, double, boolean, and datetime fields can be editable. JSON, objects, arrays, and AttributeMap values remain read-only. Missing fields must be returned as null. The backend rejects omitted, undeclared, or mistyped values.
 

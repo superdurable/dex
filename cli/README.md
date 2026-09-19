@@ -241,9 +241,13 @@ is written, and the command exits with status 1.
 Version 2 is Go-only and adds ordered Step groups plus a Dex Web v2 contract.
 The contract declares Indexed Attributes, the fixed `GetDexSummary` and
 `GetDexDisplay` RPCs, editable Display fields, and conditional Action RPCs.
-Directives use unordered named `name:value` arguments. Repeated directive lines
-retain source order; no `order` property is generated. Every Version 2 Step,
-Attribute, RPC, input struct, and directive must be in the same source file.
+Every Version 2 Step must declare exactly one `dex:group` and one
+`dex:explanation text:"..."` directive. The explanation is one sentence that
+states what the Step does; it is stored on the Step node as
+`metadata.explanation`. Directives use unordered named `name:value` arguments.
+Repeated directive lines retain source order; no `order` property is generated.
+Every Version 2 Step, Attribute, RPC, input struct, and directive must be in the
+same source file.
 
 ```text
 dexcli visualize SOURCE [--language auto|go|python] [--schema-version 1.0|2.0]

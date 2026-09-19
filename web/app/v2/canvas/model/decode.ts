@@ -497,6 +497,7 @@ export function decodeFlow(
         execute,
         resources: refsByOwner.get(n.id) ?? [],
         span: n.span,
+        explanation: typeof n.metadata?.explanation === 'string' ? n.metadata.explanation : undefined,
       }
     })
     .sort((a, b) => (a.isStart ? -1 : b.isStart ? 1 : a.stepType.localeCompare(b.stepType)))

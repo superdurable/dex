@@ -40,6 +40,8 @@ function step(): StepModel {
       ],
     },
     resources: [],
+    span: { startLine: 10, startColumn: 1, endLine: 10, endColumn: 20 },
+    explanation: 'Decide the next refund capability from gathered evidence.',
   }
 }
 
@@ -136,6 +138,9 @@ describe('buildPanel', () => {
     expect(panel.definition.branches.map((branch) => branch.value)).toEqual([
       'unconditional → NotARefund, AgentDecision',
     ])
+    expect(panel.definition.explanation).toBe(
+      'Decide the next refund capability from gathered evidence.',
+    )
     expect(panel.executions.map((execution) => execution.id)).toEqual(['exec-1', 'exec-2'])
     expect(panel.sections.map((section) => section.id)).toEqual([
       'overview',

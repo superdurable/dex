@@ -57,6 +57,7 @@ type v2StructField struct {
 func (analyzer *goAnalyzer) analyzeVisualizationV2(flowType string) {
 	attributes := analyzer.collectV2Attributes()
 	analyzer.graph.Groups = analyzer.collectV2Groups()
+	analyzer.applyV2Explanations()
 	registeredRPCNames := analyzer.registeredV2RPCNames(flowType)
 	registeredRPCs := make(map[string]bool, len(registeredRPCNames))
 	for _, rpcName := range registeredRPCNames {
@@ -129,6 +130,42 @@ func (analyzer *goAnalyzer) collectV2Groups() []StepGroup {
 		groups[groupIndex].StepIDs = append(groups[groupIndex].StepIDs, "step:"+stepType)
 	}
 	return groups
+}
+
+func (analyzer *goAnalyzer) applyV2Explanations() {
+	typeDirectives := analyzer.v2TypeDirectives()
+	for _, stepType := range analyzer.registeredSteps {
+		directives := directivesNamed(typeDirectives[stepType], "explanation")
+		if len(directives) != 1 {
+			analyzer.graph.AddDiagnostic(
+				"error",
+				"v2_step_explanation",
+				fmt.Sprintf("Step %s must declare exactly one dex:explanation directive", stepType),
+				nil,
+			)
+			continue
+		}
+		directive := directives[0]
+		if !analyzer.validateV2Directive(directive, []string{"text"}, []string{"text"}) {
+			continue
+		}
+		explanation := strings.TrimSpace(directive.arguments["text"].text)
+		if explanation == "" {
+			analyzer.addV2DirectiveError(directive, "text must not be empty")
+			continue
+		}
+		nodeID := "step:" + stepType
+		for index := range analyzer.graph.Nodes {
+			if analyzer.graph.Nodes[index].ID != nodeID {
+				continue
+			}
+			if analyzer.graph.Nodes[index].Metadata == nil {
+				analyzer.graph.Nodes[index].Metadata = make(map[string]any)
+			}
+			analyzer.graph.Nodes[index].Metadata["explanation"] = explanation
+			break
+		}
+	}
 }
 
 func (analyzer *goAnalyzer) v2TypeDirectives() map[string][]v2Directive {

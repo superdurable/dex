@@ -5,7 +5,9 @@ This product contains two Go Flows for the same customer-refund problem.
 - `deterministic/workflow.go` is a fixed seven-Step policy. It verifies the 30-day window, uses a persisted provider idempotency key, and preserves declined or unknown outcomes.
 - `agentic/workflow.go` loops through durable evidence, records a recommendation, applies a guardrail, opens a keyed approval gate, and separates intent from idempotent effects.
 
-Both files are self-contained FDG 2.0 sources. Generate their definitions from the repository root:
+Both files are self-contained FDG 2.0 sources. Every Step declares `dex:group`
+and a one-sentence `dex:explanation`. Generate their definitions from the
+repository root:
 
 ```bash
 dexcli visualize examples/go/products/customer-refund/deterministic/workflow.go --schema-version 2.0 --json --out customer-refund-deterministic

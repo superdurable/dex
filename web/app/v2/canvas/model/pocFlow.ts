@@ -151,6 +151,8 @@ export interface StepModel {
   execute: ExecutePhase
   resources: ResourceRef[]
   span?: SourceSpan
+  /** One-sentence Step purpose from `dex:explanation`, when the FDG carries it. */
+  explanation?: string
 }
 
 export interface EntryModel {
