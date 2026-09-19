@@ -233,12 +233,6 @@ export function DetailPanel({
                 ) : null}
               </>
             )}
-            {model.definition.source !== null ? (
-              <>
-                <h3>Source</h3>
-                <p className="ppan-def-line ppan-def-source">{model.definition.source}</p>
-              </>
-            ) : null}
           </div>
         ) : null}
       </section>

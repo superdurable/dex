@@ -40,7 +40,6 @@ function step(): StepModel {
       ],
     },
     resources: [],
-    span: { startLine: 10, startColumn: 1, endLine: 10, endColumn: 20 },
     explanation: 'Decide the next refund capability from gathered evidence.',
   }
 }

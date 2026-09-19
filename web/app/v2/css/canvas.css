@@ -445,12 +445,6 @@
   font-size: 12px;
   line-height: 1.45;
 }
-.ppan-def-source {
-  font-family: var(--p-mono);
-  font-size: 10.5px;
-  color: var(--p-ink-3);
-  overflow-wrap: anywhere;
-}
 .ppan-def-list {
   margin: 4px 0 0;
   padding-left: 1.1rem;

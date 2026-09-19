@@ -76,7 +76,6 @@ export interface DefinitionModel {
   waitFor: string | null
   waitConditions: string[]
   branches: Row[]
-  source: string | null
 }
 
 export type SectionBody =
@@ -146,9 +145,6 @@ export function buildPanel(
         pre: branch.fullGuards.length > 0,
       }
     }),
-    source: step.span
-      ? `${flow.source.path}:${step.span.startLine}–${step.span.endLine}`
-      : null,
   }
 
   const sections: Section[] = []
