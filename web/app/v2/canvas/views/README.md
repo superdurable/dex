@@ -39,6 +39,16 @@ They pull against each other on purpose. Cohesion moves a card toward its group 
 edges; `short-edges` is where that stops. Do not relax a limit to let a change through without saying
 which principle you are trading away and what the corpus number becomes.
 
+## Regions only exist for FDG 2.0
+
+`dex:group` is an FDG 2.0 directive, so a 1.0 definition produces no regions and passes
+`tight-regions` and `group-cohesion` vacuously. Two of the shipped definitions carry groups today, so
+those two principles are exercised by 8 of 132 scenes. Do not read the corpus count as their coverage.
+The generation side needs nothing: the analyzer already errors unless every Step declares exactly one
+`dex:group`, and rejects one group id used with two labels, so membership is total and unambiguous.
+
+Porting a second FDG 2.0 Flow is the way to widen that, not loosening a limit.
+
 ## Metric traps found the hard way
 
 - **Area is not tightness.** Five failure Steps at five ranks make a tall thin region that is 81%

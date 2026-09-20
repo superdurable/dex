@@ -56,10 +56,25 @@ describe('layout principles hold across the shipped corpus', () => {
     }
   });
 
+  /**
+   * Regions come from `dex:group`, an FDG 2.0 directive, so a 1.0 definition has none and passes the
+   * region principles vacuously. Pinned so stale regenerated JSON cannot quietly empty the corpus.
+   */
+  it('still has definitions that carry groups', () => {
+    const carrying = NAMED.filter(({ graph }) =>
+      scenesOf(graph).some(({ scene }) => scene.bands.some((band) => band.style === 'group')));
+    expect(carrying.map(({ name }) => name)).toEqual([
+      'customer-refund-agentic.json',
+      'customer-refund.json',
+    ]);
+  });
+
   it('reports the worst metric per principle, so a regression has a number', () => {
     const worst = new Map<string, { value: number; where: string }>();
+    let regionScenes = 0;
     for (const { name, graph } of NAMED) {
       for (const { detail, direction, flow, scene } of scenesOf(graph)) {
+        if (scene.bands.some((band) => band.style === 'group')) regionScenes++;
         const metrics = measureScene(flow, scene, direction);
         for (const [key, value] of Object.entries(metrics)) {
           const prior = worst.get(key);
@@ -71,8 +86,13 @@ describe('layout principles hold across the shipped corpus', () => {
     }
     const lines = [...worst.entries()].map(([key, { value, where }]) =>
       `${key.padEnd(12)} ${value.toFixed(3).padStart(8)}  ${where}`);
+    const scenes = NAMED.length * DETAILS.length * DIRECTIONS.length;
     // eslint-disable-next-line no-console
-    console.log(`\n${LAYOUT_PRINCIPLES.length} principles over ${NAMED.length} flows\n${lines.join('\n')}`);
+    console.log(
+      `\n${LAYOUT_PRINCIPLES.length} principles over ${NAMED.length} flows (${scenes} scenes)`
+      + `\nregion principles exercised by ${regionScenes}/${scenes} scenes — the rest declare no groups`
+      + `\n${lines.join('\n')}`,
+    );
     expect(lines.length).toBeGreaterThan(0);
   });
 });
