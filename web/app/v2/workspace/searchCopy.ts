@@ -6,9 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-/**
- * What can be searched comes from the contract, so the words here name controls rather than fields.
- */
+/** Control names, not field names: what can be searched comes from the Flow's own contract. */
 export const SEARCH_COPY = {
   statusLabel: 'Execution status',
   anyStatus: 'Any status',
@@ -29,14 +27,5 @@ export const SEARCH_COPY = {
   searching: 'Searching…',
   clear: 'Clear',
   findHeading: 'Find runs',
-  resultsHeading: 'Results',
   flowTypeLabel: 'Flow type',
-
-  /** Said plainly, because a search box invites the assumption that it reads everything. */
-  scopeNote(attributeDescriptions: readonly string[]): string {
-    if (attributeDescriptions.length === 0) {
-      return 'This Flow declares nothing searchable, so runs can only be filtered by status and time.';
-    }
-    return `Searches ${attributeDescriptions.join(', ')} — the attributes this Flow declares as indexed. Not run inputs, outputs or history.`;
-  },
 } as const;

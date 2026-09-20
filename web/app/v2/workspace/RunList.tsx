@@ -68,9 +68,6 @@ export function RunList({
       <div className="sq-head">
         <span className="sq-title" title={RUN_COPY.selectPrompt}>{heading}</span>
         {headerNote !== undefined && <span className="sq-live">{headerNote}</span>}
-        <button className="sq-refresh" disabled={loading} onClick={search.runSearch} type="button">
-          {loading ? QUEUE_COPY.loading : QUEUE_COPY.refresh}
-        </button>
       </div>
       {flowTypes.length > 1 && (
         <section className="rsw-zone" data-zone="pick">
@@ -90,9 +87,6 @@ export function RunList({
         <section className="rsw-zone" data-zone="find">
           <h3 className="rsw-zonehead">{SEARCH_COPY.findHeading}</h3>
           {scope}
-          <p className="rsw-scopenote">
-            {SEARCH_COPY.scopeNote(entry.definition.indexedAttributes.map((a) => a.description))}
-          </p>
         </section>
       )}
       {stateText !== '' && (

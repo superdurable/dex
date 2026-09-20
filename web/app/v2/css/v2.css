@@ -773,14 +773,6 @@
   margin-top: 2px;
 }
 
-/* Said once, from the contract: a search box invites the assumption that it reads everything. */
-.rsw-scopenote {
-  margin: 8px 0 6px;
-  color: var(--p-ink-3);
-  font-size: 10px;
-  line-height: 1.45;
-}
-
 /* ------------------------------ progress through a run's human gates */
 
 .apg {
