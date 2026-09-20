@@ -45,10 +45,17 @@ export const LAYOUT_PRINCIPLES: readonly LayoutPrinciple[] = [
   },
   {
     id: 'tight-regions',
-    statement: 'A labelled region is mostly its own members, not empty floor.',
-    measure: 'Worst region: fraction of its area holding no card.',
-    // Padding and the label strip cost 0.49 on a single-card region; a staggered fan reaches 0.73.
-    limit: 0.8,
+    statement: 'A region has no gap inside it wide enough to hold a card.',
+    measure: "Worst region's largest sideways hole, in card widths.",
+    /**
+     * A HOLE, not a fill fraction, and measured against the cards rather than the band.
+     *
+     * Two earlier forms were wrong. Area punished the shape a strip is meant to have: five failure
+     * Steps at five ranks give a tall thin region that is 81% floor and still correct. Uncovered
+     * width then charged every region for its own padding and label strip, which is 0.435 of a
+     * single-card band left-right. The ordinary gap between fan members is 0.65 of a card.
+     */
+    limit: 0.85,
   },
   {
     id: 'group-cohesion',
@@ -73,8 +80,8 @@ export const LAYOUT_PRINCIPLES: readonly LayoutPrinciple[] = [
 
 export interface LayoutMetrics {
   collisions: number
-  /** Worst region's empty fraction, or 0 with no labelled region. */
-  regionWaste: number
+  /** Worst region's largest across-axis hole in card widths, or 0 with no region. */
+  regionHole: number
   straddledGroups: number
   edgeSpan: number
   beforeStart: number
@@ -84,7 +91,7 @@ export type Violation = { id: PrincipleId; value: number; limit: number }
 
 const METRIC_OF: Record<PrincipleId, keyof LayoutMetrics> = {
   'no-collision': 'collisions',
-  'tight-regions': 'regionWaste',
+  'tight-regions': 'regionHole',
   'group-cohesion': 'straddledGroups',
   'short-edges': 'edgeSpan',
   'reading-order': 'beforeStart',
@@ -114,17 +121,19 @@ export function measureScene(flow: PocFlow, scene: Scene, direction: Direction):
       along: (card: Box) => card.x,
       extent: (card: Box) => card.w,
       across: (card: Box) => card.y,
+      acrossExtent: (card: Box) => card.h,
       spanAlong: (rect: Rect) => ({ min: rect.x, max: rect.x + rect.w }),
     }
     : {
       along: (card: Box) => card.y,
       extent: (card: Box) => card.h,
       across: (card: Box) => card.x,
+      acrossExtent: (card: Box) => card.w,
       spanAlong: (rect: Rect) => ({ min: rect.y, max: rect.y + rect.h }),
     }
   return {
     collisions: countCollisions(cards),
-    regionWaste: worstRegionWaste(scene.bands, cards),
+    regionHole: worstRegionHole(scene.bands, cards, axes.across, axes.acrossExtent),
     straddledGroups: countStraddledGroups(scene.bands, cards, axes.across, axes.spanAlong),
     edgeSpan: meanEdgeSpan(scene, cards, axes.along),
     beforeStart: countBeforeStart(flow, cards, axes.along, axes.extent),
@@ -151,21 +160,31 @@ function overlaps(one: Rect, two: Rect): boolean {
 interface Rect { x: number; y: number; w: number; h: number }
 
 /**
- * Regions are judged by how much of their area is floor.
+ * The widest sideways gap inside a region, divided by the narrowest card in it.
  *
- * This is the metric that catches a band stretched between two lanes, which reads as a region
- * with a hole in it rather than as a place.
+ * Relative to a card because that is what makes a gap read as a hole: a reader sees room for a
+ * missing box, not a pixel count. Gaps along the ranks are the corridor a region is meant to cover.
  */
-function worstRegionWaste(bands: readonly Band[], cards: readonly Box[]): number {
-  const regions = bands.filter((band) => band.style === 'group')
+function worstRegionHole(
+  bands: readonly Band[],
+  cards: readonly Box[],
+  across: Reader,
+  acrossExtent: Reader,
+): number {
   let worst = 0
-  for (const region of regions) {
-    const area = region.w * region.h
-    if (area <= 0) continue
-    const ink = cards
-      .filter((card) => centreInside(card, region))
-      .reduce((sum, card) => sum + card.w * card.h, 0)
-    worst = Math.max(worst, 1 - Math.min(ink, area) / area)
+  for (const region of bands.filter((band) => band.style === 'group')) {
+    const inside = cards.filter((card) => centreInside(card, region))
+    if (inside.length < 2) continue
+    const unit = Math.min(...inside.map(acrossExtent))
+    if (unit <= 0) continue
+    const spans = inside
+      .map((card) => ({ min: across(card), max: across(card) + acrossExtent(card) }))
+      .sort((left, right) => left.min - right.min)
+    let reach = -Infinity
+    for (const span of spans) {
+      if (reach > -Infinity && span.min > reach) worst = Math.max(worst, (span.min - reach) / unit)
+      reach = Math.max(reach, span.max)
+    }
   }
   return worst
 }

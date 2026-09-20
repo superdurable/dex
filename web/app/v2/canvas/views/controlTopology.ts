@@ -190,49 +190,35 @@ function recoverySteps(flow: PocFlow): Set<string> {
 }
 
 /**
- * A declared group wants to be ONE PLACE, so a STRUCTURAL TWIN joins its group-mate in the gutter.
+ * A group that is MOSTLY ERROR HANDLING is error handling, so all of it shares the recovery lane.
  *
- * A twin shares the group, the downstream target, and an adjacent rank — the refund flow's
- * BillingFailedStep and SubscriptionFailedStep both catch a failure and both continue to
- * DraftCustomerMessageStep, so drawing one inline and one aside split a region for no reason a reader
- * could see. Reachability alone separated them: one is also a guarded branch target.
+ * Lane by group rather than by step. Reachability decides a step's lane correctly and still drew the
+ * refund flow's Failure group as five regions in three columns, because only three of its members are
+ * reached by failing — the other two are guarded branch targets that happen to be terminal. Judged as
+ * a group instead, Failure is one vertical strip, which is what the declaration already claimed.
  *
- * Deliberately narrow. NotARefundStep is in the same group but continues somewhere else, many ranks
- * earlier, so it stays on the spine rather than dragging a long edge across the gutter. Cohesion is
- * local: a group is pulled together where the graph already agrees, never forced.
+ * Majority, not presence: one compensating Step must not drag its whole phase aside. Measured over the
+ * corpus, Failure is the only group that reaches the threshold, so no other drawing moves.
  */
 function cohesionMoves(flow: PocFlow, groups: StepGroup[], aside: Set<string>): Set<string> {
-  const ranks = cyclicRanks(
-    flow.steps.map((step) => step.id),
-    flow.transitions
-      .filter((transition) => !transition.isSelfLoop)
-      .map((transition) => ({ from: transition.fromStepId, to: transition.toStepId })),
-    flow.startStepId,
-  )
-  const targetsOf = (id: string): string =>
-    flow.transitions
-      .filter((t) => t.fromStepId === id && t.kind === 'transition' && !t.isSelfLoop)
-      .map((t) => t.toStepId)
-      .sort()
-      .join(',')
+  const targetCount = (id: string): number =>
+    new Set(
+      flow.transitions
+        .filter((t) => t.fromStepId === id && t.kind === 'transition' && !t.isSelfLoop)
+        .map((t) => t.toStepId),
+    ).size
 
   const moves = new Set<string>()
   for (const group of groups) {
-    const members = flow.steps
-      .filter((step) => group.stepTypes.includes(step.stepType))
-      .map((step) => step.id)
-    const settled = members.filter((id) => aside.has(id))
-    if (settled.length === 0) continue
-    for (const id of members) {
-      const rank = ranks.get(id)
-      if (aside.has(id) || rank === undefined) continue
-      const twin = settled.some((other) => {
-        const theirs = ranks.get(other)
-        return theirs !== undefined
-          && Math.abs(theirs - rank) <= 1
-          && targetsOf(other) === targetsOf(id)
-      })
-      if (twin) moves.add(id)
+    const members = flow.steps.filter((step) => group.stepTypes.includes(step.stepType))
+    const handling = members.filter(
+      (step) => step.recoveryRole !== 'none' || aside.has(step.id),
+    )
+    if (handling.length * 2 <= members.length) continue
+    for (const step of members) {
+      // A branch point belongs where the spine reads it, however its group is classified.
+      if (aside.has(step.id) || step.isStart || targetCount(step.id) > 1) continue
+      moves.add(step.id)
     }
   }
   return moves
@@ -773,8 +759,15 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
         }
       }))
 
-    // Greedy pairwise merge until nothing more can join without capturing a foreign card.
-    for (let pass = 0; pass < rects.length; pass++) {
+    /**
+     * Greedy pairwise merge until nothing more can join without capturing a foreign card.
+     *
+     * The bound is the STARTING count. Comparing against the live length under-converged: every
+     * merge shortens the list while the counter rises, so a group of seven rows stopped after four
+     * merges and shipped three regions where one was available.
+     */
+    const passes = rects.length
+    for (let pass = 0; pass < passes; pass++) {
       let merged = false
       for (let a = 0; a < rects.length - 1 && !merged; a++) {
         const p = rects[a] as { x: number; y: number; w: number; h: number }
