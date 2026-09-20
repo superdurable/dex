@@ -12,6 +12,7 @@ import type { FlowSummary } from '@/lib/types';
 import { v2HomePath, v2RunPath } from './contract';
 import './css/v2.css';
 import { RunDetailDrawer, type StepBand } from './run/RunDetailDrawer';
+import type { StepContextView } from './run/stepContext';
 import { RunSwitcher } from './run/RunSwitcher';
 import { V2Canvas } from './V2Canvas';
 import {
@@ -46,6 +47,7 @@ export function RunWorkspace() {
   const search = useFlowSearch(flowType || undefined, entry?.definition);
   const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
   const [band, setBand] = useState<StepBand | null>(null);
+  const [stepView, setStepView] = useState<StepContextView | null>(null);
   const [summary, setSummary] = useState<FlowSummary | null>(null);
   const [tick, setTick] = useState(0);
   /** Dismissing the drawer keeps the run on the canvas; it just hands the width back. */
@@ -104,6 +106,7 @@ export function RunWorkspace() {
             flowId={flowId}
             flowType={entry.flowType}
             onBand={setBand}
+            onStepContext={setStepView}
             focusBlockingStep={showDrawer}
             onSummary={setSummary}
             showStepPanel={false}
@@ -130,6 +133,7 @@ export function RunWorkspace() {
               flowStatusCode={selectedFlow?.flowStatusCode}
               flowType={entry.flowType}
               reloadKey={tick}
+              stepContext={stepView}
               summary={summary}
               onClose={() => setDrawerOpen(false)}
               onStopped={search.runSearch}

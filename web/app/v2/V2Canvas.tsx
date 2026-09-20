@@ -38,6 +38,7 @@ import { Controls } from './flow/Controls';
 import { Legend } from './flow/Legend';
 import { groupsFromDefinition } from './groupsFromGraph';
 import type { StepBand } from './run/RunDetailDrawer';
+import { stepContext, type StepContextView } from './run/stepContext';
 import {
   PANEL_WIDTH_DEFAULT,
   PANEL_WIDTH_KEY,
@@ -50,6 +51,7 @@ export function V2Canvas({
   flowType,
   flowId = '',
   onBand,
+  onStepContext,
   onSummary,
   onTick,
   focusBlockingStep = false,
@@ -63,6 +65,8 @@ export function V2Canvas({
   showStepPanel?: boolean;
   /** What the canvas is showing, so a host drawer can label it without owning selection. */
   onBand?: (band: StepBand | null) => void;
+  /** Flow-level meaning of the selected Step, for a host that explains it. */
+  onStepContext?: (context: StepContextView | null) => void;
   onSummary?: (summary: FlowSummary | null) => void;
   /** Fired on every run poll, so a host can refresh on the same beat. */
   onTick?: () => void;
@@ -203,6 +207,13 @@ export function V2Canvas({
   }, [blockingStepType, flow, focusBlockingStep]);
 
   useEffect(() => {
+    if (!onStepContext) return;
+    onStepContext(
+      flow && selectedStep ? stepContext(flow, selectedStep, groups) : null,
+    );
+  }, [flow, groups, onStepContext, selectedStep]);
+
+  useEffect(() => {
     if (!onBand) return;
     if (!selectedStep || !overlay) {
       onBand(null);
@@ -213,7 +224,6 @@ export function V2Canvas({
     const reason = latest ? reasonLine(latest, Date.now()) : null;
     onBand({
       stepType: selectedStep.stepType,
-      explanation: selectedStep.explanation ?? null,
       reason: reason?.text ?? null,
       tone: reason?.tone ?? null,
       isBlocking: selectedStep.stepType === blockingStepType,

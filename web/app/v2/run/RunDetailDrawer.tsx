@@ -11,12 +11,11 @@ import type { FlowSummary } from '@/lib/types';
 import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { RUN_COPY } from './copy';
 import { RunHeader } from './RunHeader';
+import type { StepContextView } from './stepContext';
 
 /** What the canvas is currently showing, so the drawer can say so without owning selection. */
 export interface StepBand {
   stepType: string;
-  /** One-sentence purpose from dex:explanation, when the Flow declares it. */
-  explanation: string | null;
   /** The templated why-line the canvas already renders, or null for a healthy Step. */
   reason: string | null;
   tone: 'blocked' | 'failed' | 'terminal' | null;
@@ -35,6 +34,7 @@ export function RunDetailDrawer({
   summary,
   flowStatusCode,
   band,
+  stepContext,
   reloadKey,
   onStranded,
   onStopped,
@@ -46,6 +46,7 @@ export function RunDetailDrawer({
   summary: FlowSummary | null;
   flowStatusCode?: number;
   band: StepBand | null;
+  stepContext: StepContextView | null;
   reloadKey: number;
   onStranded?: (flowID: string) => void;
   onStopped: () => void;
@@ -66,7 +67,6 @@ export function RunDetailDrawer({
             {band.isBlocking ? RUN_COPY.waitingAt : RUN_COPY.showingStep}
           </span>
           <span className="rdw-bandstep t-mono">{band.stepType}</span>
-          {band.explanation && <span className="rdw-bandwhat">{band.explanation}</span>}
           {band.reason && <span className="rdw-bandwhy">{band.reason}</span>}
         </div>
       )}
@@ -81,6 +81,26 @@ export function RunDetailDrawer({
         onActed={onClose}
         onStranded={onStranded}
       />
+      {stepContext !== null && <StepContextBlock view={stepContext} />}
     </section>
+  );
+}
+
+/** What the selected Step is for, and where it sits. Flow-level: no run values here. */
+function StepContextBlock({ view }: { view: StepContextView }) {
+  return (
+    <div className="sc-block scx">
+      <div className="sc-blockhead">{RUN_COPY.thisStep}</div>
+      <p className="scx-step t-mono">{view.stepType}</p>
+      <p className="scx-purpose">{view.explanation ?? RUN_COPY.noPurpose}</p>
+      <dl className="scx-facts">
+        {view.facts.map((fact) => (
+          <div className="scx-fact" key={fact.label}>
+            <dt>{fact.label}</dt>
+            <dd>{fact.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
