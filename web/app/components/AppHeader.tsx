@@ -14,7 +14,7 @@ import { ThemeToggle } from './ThemeToggle';
 
 const V2_MODES: { mode: V2Mode; label: string }[] = [
   { mode: 'run', label: 'Run' },
-  { mode: 'queue', label: 'Work queue' },
+  { mode: 'queue', label: 'Inbox' },
 ];
 
 export function AppHeader() {
@@ -24,6 +24,8 @@ export function AppHeader() {
   const navigate = useNavigate();
   const isV2 = location.pathname === '/v2' || location.pathname.startsWith('/v2/');
   const activeMode: V2Mode = location.pathname.startsWith('/v2/queue') ? 'queue' : 'run';
+  // Absolute timestamps are a Deep Dive concern; the other views show relative or local time.
+  const isDebug = location.pathname.includes('/debug');
   const home = canUseV2 && isV2 ? v2HomePath(canUseV2) : '/v1/flows';
   return (
     <header className="app-header">
@@ -84,6 +86,7 @@ export function AppHeader() {
             </select>
           </label>
         )}
+        {(!isV2 || isDebug) && (
         <label className="timezone-control">
           <span>Timezone</span>
           <select
@@ -94,6 +97,7 @@ export function AppHeader() {
             <option value="UTC">UTC</option>
           </select>
         </label>
+        )}
         <ThemeToggle />
       </nav>
     </header>

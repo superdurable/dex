@@ -52,10 +52,13 @@ export function V2Canvas({
   onBand,
   onSummary,
   onTick,
+  focusBlockingStep = false,
   showStepPanel = true,
 }: {
   flowType: string;
   flowId?: string;
+  /** Zoom in on the waiting Step instead of merely panning to it. */
+  focusBlockingStep?: boolean;
   /** False when the host renders step detail itself, so the canvas keeps its width. */
   showStepPanel?: boolean;
   /** What the canvas is showing, so a host drawer can label it without owning selection. */
@@ -183,14 +186,21 @@ export function V2Canvas({
   const revealedFor = useRef('');
   useEffect(() => {
     if (!flow || blockingStepType === null) return;
-    if (revealedFor.current === `${flowId}|${blockingStepType}`) return;
+    const key = `${flowId}|${blockingStepType}|${String(focusBlockingStep)}`;
+    if (revealedFor.current === key) return;
     const step = flow.steps.find((candidate) => candidate.stepType === blockingStepType);
     if (!step) return;
-    revealedFor.current = `${flowId}|${blockingStepType}`;
-    setSelectedId(step.id);
+    revealedFor.current = key;
+    // Selection only. The zoom is declarative via focusNodeId, so the pane resize that
+    // follows the drawer opening refits to the Step instead of racing an imperative call.
+    setSelectedId(focusBlockingStep ? step.id : null);
     setSelectedGroupId(null);
-    viewportRef.current?.reveal(step.id);
-  }, [blockingStepType, flow, flowId]);
+  }, [blockingStepType, flow, flowId, focusBlockingStep]);
+
+  const focusNodeId = useMemo(() => {
+    if (!focusBlockingStep || !flow || blockingStepType === null) return null;
+    return flow.steps.find((step) => step.stepType === blockingStepType)?.id ?? null;
+  }, [blockingStepType, flow, focusBlockingStep]);
 
   useEffect(() => {
     if (!onBand) return;
@@ -345,6 +355,7 @@ export function V2Canvas({
       </div>
       {runError ? <p className="v2-error v2-run-error">{runError}</p> : null}
       <Stage
+        focusNodeId={focusNodeId}
         handleRef={viewportRef}
         scene={scene}
         detail={detail}

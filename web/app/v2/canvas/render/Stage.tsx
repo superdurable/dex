@@ -35,7 +35,14 @@ import { LEGEND_BOX_H, LEGEND_W, legendAnchor } from './legendAnchor'
 import type { CanvasViewportHandle } from './viewport'
 import { EDGE_MARKER, RPC_TAIL } from './markers'
 import { NodeBox } from './NodeBox'
-import { chromeCompensation, edgeContrastBoost, FIT_MAX_ZOOM, MAX_ZOOM, MIN_ZOOM } from './zoom'
+import {
+  chromeCompensation,
+  edgeContrastBoost,
+  FIT_MAX_ZOOM,
+  FOCUS_ZOOM,
+  MAX_ZOOM,
+  MIN_ZOOM,
+} from './zoom'
 import '@xyflow/react/dist/style.css'
 
 /**
@@ -172,7 +179,7 @@ const NODE_TYPES = { pbox: BoxNode, band: BandNode, legend: LegendNode }
  * the layout — so a fit that used an even padding put the first Step underneath it.
  */
 const FIT_BASE = {
-  padding: { top: '22%', bottom: '6%', left: '6%', right: '6%' },
+  padding: { top: '8%', bottom: '4%', left: '4%', right: '4%' },
   minZoom: MIN_ZOOM,
   maxZoom: FIT_MAX_ZOOM,
 } as const
@@ -181,7 +188,7 @@ function fitOptions(insetRightPx: number | null | undefined, paneWidth: number) 
   if (insetRightPx == null || insetRightPx <= 0 || paneWidth <= 0) return FIT_BASE
   const rightPct = Math.min(58, Math.max(18, (insetRightPx / paneWidth) * 100 + 4))
   return {
-    padding: { top: '22%', bottom: '6%', left: '6%', right: `${rightPct}%` },
+    padding: { top: '8%', bottom: '4%', left: '4%', right: `${rightPct}%` },
     minZoom: MIN_ZOOM,
     maxZoom: FIT_MAX_ZOOM,
   } as const
@@ -191,6 +198,7 @@ function Inner({
   scene,
   detail,
   direction,
+  focusNodeId,
   insetRightPx,
   legend,
   handleRef,
@@ -228,6 +236,8 @@ function Inner({
   onInspect?: (id: string) => void
   /** Rendered as a node at the diagram's top-left, so it zooms and pans with the drawing. */
   legend?: () => JSX.Element
+  /** When set, fit targets this node at reading zoom instead of the whole graph. */
+  focusNodeId?: string | null
   /** Publishes fit and zoom so a keyboard shortcut has something to drive. */
   handleRef?: Ref<CanvasViewportHandle>
   /** A click inside a group band's own space, outside any card. `additive` is Cmd (macOS) or Ctrl. */
@@ -480,6 +490,11 @@ function Inner({
       zoomOut: () => void rf.zoomOut({ duration: 120 }),
       fit: () => void rf.fitView(fitOptions(insetRightPx, paneRef.current?.clientWidth ?? 0)),
       zoom: () => rf.getZoom(),
+      focus: (nodeId: string) => {
+        const id = rf.getNode(nodeId) !== undefined ? nodeId : `band:${nodeId}`
+        if (rf.getNode(id) === undefined) return
+        void rf.fitView({ nodes: [{ id }], padding: 0.45, maxZoom: FOCUS_ZOOM, duration: 260 })
+      },
       reveal: (nodeId: string) => {
         /**
          * A BAND IS REGISTERED UNDER A PREFIX, and resolving that is this function's job rather than the
@@ -495,6 +510,9 @@ function Inner({
     [rf, insetRightPx],
   )
 
+  const focusNodeIdRef = useRef(focusNodeId)
+  useEffect(() => { focusNodeIdRef.current = focusNodeId }, [focusNodeId])
+
   /**
    * Refit when the thing being shown changes — never on zoom.
    *
@@ -509,6 +527,14 @@ function Inner({
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
         if (el.clientWidth < 8 || el.clientHeight < 8) return
+        const focusId = focusNodeIdRef.current ?? null
+        const resolved = focusId === null
+          ? null
+          : (rf.getNode(focusId) !== undefined ? focusId : `band:${focusId}`)
+        if (resolved !== null && rf.getNode(resolved) !== undefined) {
+          void rf.fitView({ nodes: [{ id: resolved }], padding: 0.45, maxZoom: FOCUS_ZOOM, duration: 160 })
+          return
+        }
         void rf.fitView({ ...fitOptions(insetRightPx, el.clientWidth), duration: 160 })
       })
     }
@@ -521,7 +547,7 @@ function Inner({
     }
     /* `insetRightPx` is a dependency because it changes what "fits" MEANS: the reserved strip on the right
        is part of the fit, so a panel opening or resize has to refit rather than leave the drawing under it. */
-  }, [rf, fitKey, insetRightPx])
+  }, [rf, fitKey, insetRightPx, focusNodeId])
 
   /**
    * Zoom compensation, written to CSS custom properties rather than React state.
@@ -595,6 +621,8 @@ export function Stage(props: {
   /** Rendered as a node at the diagram's top-left, so it zooms and pans with the drawing. */
   legend?: () => JSX.Element
   /** Publishes fit and zoom so a keyboard shortcut has something to drive. */
+  /** When set, fit targets this node at reading zoom instead of the whole graph. */
+  focusNodeId?: string | null
   handleRef?: Ref<CanvasViewportHandle>
   /** A click inside a group band's own space, outside any card. `additive` is Cmd (macOS) or Ctrl. */
   onSelectGroup?: (id: string | null, additive: boolean) => void

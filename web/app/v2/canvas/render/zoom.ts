@@ -24,8 +24,14 @@
 export const MIN_ZOOM = 0.14
 export const MAX_ZOOM = 2.2
 
-/** Fit never zooms IN past 1:1 — a three-Step flow blown up to fill a wall reads as a mistake. */
-export const FIT_MAX_ZOOM = 1
+/**
+ * Fit may zoom past 1:1, up to this. The cap used to be 1, which left a wide canvas mostly
+ * empty whenever the graph already fitted; a small flow still must not fill a wall.
+ */
+export const FIT_MAX_ZOOM = 1.7
+
+/** Focus on one Step zooms in properly — the point is to read it without reaching for zoom. */
+export const FOCUS_ZOOM = 1.45
 
 /**
  * Edge contrast RISES as you zoom out.

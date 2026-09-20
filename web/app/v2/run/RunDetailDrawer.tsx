@@ -38,6 +38,7 @@ export function RunDetailDrawer({
   reloadKey,
   onStranded,
   onStopped,
+  onClose,
 }: {
   flowType: string;
   flowId: string;
@@ -48,10 +49,17 @@ export function RunDetailDrawer({
   reloadKey: number;
   onStranded?: (flowID: string) => void;
   onStopped: () => void;
+  onClose: () => void;
 }) {
   return (
     <section className="rdw" aria-label={flowId}>
-      <RunHeader flowId={flowId} flowType={flowType} summary={summary} onStopped={onStopped} />
+      <RunHeader
+        flowId={flowId}
+        flowType={flowType}
+        summary={summary}
+        onClose={onClose}
+        onStopped={onStopped}
+      />
       {band && (
         <div className="rdw-band" data-tone={band.tone ?? undefined}>
           <span className="rdw-bandlabel">
@@ -70,6 +78,7 @@ export function RunDetailDrawer({
         order="actions-first"
         showHeading={false}
         reloadKey={reloadKey}
+        onActed={onClose}
         onStranded={onStranded}
       />
     </section>

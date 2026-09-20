@@ -22,6 +22,7 @@ export const RUN_COPY = {
   stopped: 'Stopping…',
   inspect: 'Inspect',
   inspectHint: 'The full technical record for this run',
+  close: 'Close the run panel',
   elapsed: 'Running for',
   closed: 'Closed',
 } as const;

@@ -29,6 +29,7 @@ export function SelectedRunPanel({
   reloadKey = 0,
   order,
   showHeading = true,
+  onActed,
   onStranded,
 }: {
   flowType: string;
@@ -46,6 +47,8 @@ export function SelectedRunPanel({
   order: 'actions-first' | 'evidence-first';
   /** False when the host already names the run, so it is not named twice. */
   showHeading?: boolean;
+  /** An Action succeeded, so whatever the run was waiting for has moved on. */
+  onActed?: () => void;
   /** Reported up so the list can mark the row; a search cannot discover this. */
   onStranded?: (flowID: string) => void;
 }) {
@@ -119,6 +122,7 @@ export function SelectedRunPanel({
       });
       await readResponseJSON(response);
       await loadDisplay();
+      onActed?.();
     } catch (actionError) {
       setActionError(readFailureReason(actionError));
     } finally {

@@ -158,7 +158,7 @@
 .v2-primary {
   padding: 4px 9px;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .v2-ghost {
@@ -176,7 +176,7 @@
 .v2-error {
   margin: 0 0 8px;
   color: var(--p-run-failed);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .v2-shell .sq-list {
@@ -213,13 +213,13 @@
 
 .v2-column {
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .v2-empty {
   padding: 18px 8px;
   color: var(--p-ink-3);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* ------------------------------ run mode: switcher | canvas | run drawer */
@@ -273,7 +273,7 @@
 .rsw-grouphead {
   margin-bottom: 2px;
   color: var(--p-ink-3);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -315,26 +315,26 @@
 
 .rsw-id {
   color: var(--p-ink-0);
-  font-size: 10.5px;
+  font-size: 11.5px;
   overflow-wrap: anywhere;
 }
 
 .rsw-time {
   color: var(--p-ink-3);
-  font-size: 9.5px;
+  font-size: 10.5px;
   text-align: right;
   white-space: nowrap;
 }
 
 .rsw-state {
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 11px;
   grid-column: 1 / -1;
 }
 
 .rsw-stranded {
   color: var(--p-run-failed);
-  font-size: 9.5px;
+  font-size: 10.5px;
   grid-column: 1 / -1;
 }
 
@@ -343,8 +343,15 @@
   color: var(--p-ink-3);
 }
 
-.v2-run-empty {
-  padding: 18px 20px;
+.rsw-flowtype {
+  width: 100%;
+  margin: 8px 0 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+  font-size: 11.5px;
 }
 
 /* The drawer scrolls; the Actions block does not leave the viewport. */
@@ -382,7 +389,7 @@
 
 .rhd-id {
   color: var(--p-ink-0);
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -397,13 +404,27 @@
   border: 1px solid var(--p-line);
   border-radius: 4px;
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
 .rhd-inspect:hover {
   border-color: var(--p-ink-3);
+  color: var(--p-ink-0);
+}
+
+.rhd-close {
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--p-ink-3);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rhd-close:hover {
   color: var(--p-ink-0);
 }
 
@@ -422,14 +443,14 @@
 
 .rhd-facts dt {
   color: var(--p-ink-3);
-  font-size: 9.5px;
+  font-size: 10.5px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .rhd-facts dd {
   color: var(--p-ink-1);
-  font-size: 10.5px;
+  font-size: 11.5px;
   overflow-wrap: anywhere;
 }
 
@@ -439,7 +460,7 @@
   border: 1px solid var(--p-run-failed);
   border-radius: 5px;
   color: var(--p-run-failed);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* Follows the canvas selection; the facts and Actions below it do not move. */
@@ -453,7 +474,7 @@
 
 .rdw-bandlabel {
   color: var(--p-ink-3);
-  font-size: 9.5px;
+  font-size: 10.5px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -468,12 +489,12 @@
 
 .rdw-bandstep {
   color: var(--p-ink-0);
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 
 .rdw-bandwhy {
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
@@ -502,7 +523,7 @@
 .v2-seemore {
   margin-left: auto;
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -512,6 +533,6 @@
 
 .rdw-bandwhat {
   color: var(--p-ink-1);
-  font-size: 10.5px;
+  font-size: 11.5px;
   line-height: 1.45;
 }

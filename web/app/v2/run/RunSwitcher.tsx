@@ -41,40 +41,40 @@ export function RunSwitcher({
   const { timezone } = usePreferences();
   const { flows, liveness, loading } = search;
   const groups = groupRuns(flows);
+  const stateText = liveness === 'loading'
+    ? QUEUE_COPY.loading
+    : liveness === 'unreachable'
+      ? QUEUE_COPY.unreachable
+      : liveness === 'stale'
+        ? QUEUE_COPY.stale
+        : flows.length === 0
+          ? RUN_COPY.noRuns
+          : '';
   return (
     <aside className="rsw" aria-label={RUN_COPY.runsHeading}>
       <div className="sq-head">
-        <span className="sq-title">{RUN_COPY.runsHeading}</span>
+        <span className="sq-title" title={RUN_COPY.selectPrompt}>{RUN_COPY.runsHeading}</span>
         <button className="sq-refresh" disabled={loading} onClick={search.runSearch} type="button">
           {loading ? QUEUE_COPY.loading : QUEUE_COPY.refresh}
         </button>
       </div>
       {flowTypes.length > 1 && (
-        <div className="sv-choose">
+        <select
+          aria-label="Flow type"
+          className="rsw-flowtype"
+          value={entry.flowType}
+          onChange={(event) => onSelectFlowType(event.target.value)}
+        >
           {flowTypes.map((candidate) => (
-            <button
-              aria-pressed={candidate.flowType === entry.flowType}
-              className="sv-flow"
-              key={candidate.flowType}
-              onClick={() => onSelectFlowType(candidate.flowType)}
-              type="button"
-            >
-              {candidate.flowType}
-            </button>
+            <option key={candidate.flowType} value={candidate.flowType}>{candidate.flowType}</option>
           ))}
-        </div>
+        </select>
       )}
+      {stateText !== '' && (
       <p className="sq-state" data-liveness={liveness}>
-        {liveness === 'loading'
-          ? QUEUE_COPY.loading
-          : liveness === 'unreachable'
-            ? QUEUE_COPY.unreachable
-            : liveness === 'stale'
-              ? QUEUE_COPY.stale
-              : flows.length === 0
-                ? RUN_COPY.noRuns
-                : RUN_COPY.order}
+        {stateText}
       </p>
+      )}
       <div className="rsw-scroll">
         {groups.map((group) => (
           <section className="rsw-group" data-group={group.key} key={group.key}>

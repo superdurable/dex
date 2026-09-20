@@ -13,8 +13,8 @@
  * may be offered, not who must act, so the queue says what it read and where it read it.
  */
 export const QUEUE_COPY = {
-  appName: 'Work queue',
-  strapline: 'Open runs of one Flow type, read from the running process.',
+  appName: 'Inbox',
+  strapline: 'What has arrived for you, read from the running process.',
   noGraph: 'No process diagram here by design: this view shows the work, not the shape of the process.',
 
   /** Derived from the live filter rows: the sentence must not outlive a filter the reader deleted. */

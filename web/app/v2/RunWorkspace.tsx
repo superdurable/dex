@@ -6,13 +6,12 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import type { FlowSummary } from '@/lib/types';
 import { v2HomePath, v2RunPath } from './contract';
 import './css/v2.css';
 import { RunDetailDrawer, type StepBand } from './run/RunDetailDrawer';
-import { RUN_COPY } from './run/copy';
 import { RunSwitcher } from './run/RunSwitcher';
 import { V2Canvas } from './V2Canvas';
 import {
@@ -49,6 +48,8 @@ export function RunWorkspace() {
   const [band, setBand] = useState<StepBand | null>(null);
   const [summary, setSummary] = useState<FlowSummary | null>(null);
   const [tick, setTick] = useState(0);
+  /** Dismissing the drawer keeps the run on the canvas; it just hands the width back. */
+  const [drawerOpen, setDrawerOpen] = useState(true);
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [drawerWidth, setDrawerWidth] = useState(() => {
@@ -65,6 +66,9 @@ export function RunWorkspace() {
   // One clock: the canvas owns the run poll and the drawer refreshes on the same beat.
   const onTick = useCallback(() => setTick((previous) => previous + 1), []);
 
+  // A newly chosen run always opens its drawer, even if the last one was dismissed.
+  useEffect(() => { setDrawerOpen(true); }, [flowId]);
+
   if (!ready) return <div className="page-loading">Loading Dex Web…</div>;
   if (!canUseV2) return <Navigate to="/v1/flows" replace />;
   if (error) return <div className="page-shell"><div className="error-banner">{error}</div></div>;
@@ -80,10 +84,11 @@ export function RunWorkspace() {
   if (!entry) return <Navigate to={v2RunPath()} replace />;
 
   const selectedFlow = search.flows.find((flow) => flow.flowId === flowId);
+  const showDrawer = Boolean(flowId) && drawerOpen;
   const paneStyle = { '--v2-drawer-w': `${drawerWidth}px` } as CSSProperties;
   return (
     <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
-      <div className="v2-run-body" data-has-run={flowId ? 'true' : undefined} ref={bodyRef}>
+      <div className="v2-run-body" data-has-run={showDrawer ? 'true' : undefined} ref={bodyRef}>
         <RunSwitcher
           attentionAttributeKey={entry.definition.indexedAttributes[0]?.attributeKey ?? null}
           entry={entry}
@@ -99,12 +104,13 @@ export function RunWorkspace() {
             flowId={flowId}
             flowType={entry.flowType}
             onBand={setBand}
+            focusBlockingStep={showDrawer}
             onSummary={setSummary}
             showStepPanel={false}
             onTick={onTick}
           />
         </section>
-        {flowId ? (
+        {showDrawer ? (
           <>
             <V2SplitHandle
               axis="column"
@@ -125,13 +131,12 @@ export function RunWorkspace() {
               flowType={entry.flowType}
               reloadKey={tick}
               summary={summary}
+              onClose={() => setDrawerOpen(false)}
               onStopped={search.runSearch}
               onStranded={rememberStranded}
             />
           </>
-        ) : (
-          <p className="sc-none v2-run-empty">{RUN_COPY.selectPrompt}</p>
-        )}
+        ) : null}
       </div>
     </div>
   );

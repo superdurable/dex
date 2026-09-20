@@ -42,7 +42,7 @@
 .sv-strap {
   margin-top: 2px;
   color: var(--p-ink-2);
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 
 .sv-choose {
@@ -55,7 +55,7 @@
 
 .sv-chooselabel {
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -65,7 +65,7 @@
   border: 1px solid var(--p-line);
   border-radius: 5px;
   color: var(--p-ink-1);
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 
 .sv-flow[aria-pressed='true'] {
@@ -81,7 +81,7 @@
 
 .sv-nograph {
   color: var(--p-ink-3);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .sv-nograph {
@@ -110,7 +110,7 @@
 }
 
 .sq-title {
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--p-ink-2);
@@ -119,14 +119,14 @@
 /* The opposite marker from everywhere else in this repo: this one has to say it IS real. */
 .sq-live {
   color: var(--p-ink-3);
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.06em;
 }
 
 .sq-refresh {
   margin-left: auto;
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 11px;
   text-decoration: underline;
   text-decoration-color: var(--p-line);
   text-underline-offset: 2px;
@@ -135,7 +135,7 @@
 .sq-state {
   margin: 6px 0 10px;
   color: var(--p-ink-2);
-  font-size: 10.5px;
+  font-size: 11.5px;
   line-height: 1.5;
 }
 
@@ -148,7 +148,7 @@
 .sq-why {
   display: block;
   color: var(--p-ink-3);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 
 .sq-list {
@@ -177,14 +177,14 @@
 
 .sq-run {
   color: var(--p-ink-0);
-  font-size: 10.5px;
+  font-size: 11.5px;
   overflow-wrap: anywhere;
 }
 
 .sq-attention,
 .sq-step {
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .sq-step {
@@ -201,7 +201,7 @@
 .sq-unknown {
   grid-column: 1 / -1;
   color: var(--p-run-failed);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 
 /* ----------------------------------------------------------------- item */
@@ -227,18 +227,18 @@
 
 .sc-status {
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .sc-stale {
   margin-left: auto;
   color: var(--p-run-failed);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .sc-state {
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .sc-state[data-liveness='unreachable'] {
@@ -248,7 +248,7 @@
 .sc-why {
   display: block;
   color: var(--p-ink-3);
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 
 .sc-block {
@@ -258,7 +258,7 @@
 .sc-blockhead {
   margin-bottom: 5px;
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -297,12 +297,12 @@
 
 .sc-fname {
   color: var(--p-ink-2);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .sc-fvalue {
   color: var(--p-ink-0);
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 
 .sc-facts[data-pivotal='true'] .sc-fvalue {
@@ -312,6 +312,6 @@
 
 .sc-none {
   color: var(--p-ink-2);
-  font-size: 11.5px;
+  font-size: 12.5px;
   line-height: 1.5;
 }

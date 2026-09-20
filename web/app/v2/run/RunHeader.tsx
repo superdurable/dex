@@ -25,11 +25,13 @@ export function RunHeader({
   flowId,
   summary,
   onStopped,
+  onClose,
 }: {
   flowType: string;
   flowId: string;
   summary: FlowSummary | null;
   onStopped: () => void;
+  onClose: () => void;
 }) {
   const { timezone } = usePreferences();
   const [stopOpen, setStopOpen] = useState(false);
@@ -47,6 +49,9 @@ export function RunHeader({
           {RUN_COPY.inspect}
           <span aria-hidden="true">›</span>
         </Link>
+        <button aria-label={RUN_COPY.close} className="rhd-close" onClick={onClose} type="button">
+          ✕
+        </button>
       </div>
       {summary && (
         <dl className="rhd-facts">

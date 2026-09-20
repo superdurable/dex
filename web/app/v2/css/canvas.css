@@ -1096,12 +1096,12 @@
    carrying the most important distinction. */
 
 .react-flow__edge-path {
-  stroke-width: calc(1.5px * var(--zoom-comp));
+  stroke-width: calc(1.9px * var(--zoom-comp));
 }
 .pedge-control .react-flow__edge-path {
   stroke: var(--p-edge-control);
   /* Contrast RISES as the graph shrinks, so the skeleton survives being small. Clamps at 1. */
-  opacity: calc(0.82 * var(--edge-boost));
+  opacity: calc(0.92 * var(--edge-boost));
 }
 /* Recovery is the thickest line on the canvas — always drawn, and routed to a side gutter rather
    than hidden behind a toggle. */
@@ -1127,7 +1127,7 @@
   opacity: 1;
 }
 .pedge-dim .react-flow__edge-path {
-  opacity: 0.24;
+  opacity: 0.45;
 }
 /* React Flow's own theming surface. Bare --xy-* names; there is no
    `--xy-background-pattern-color-default`, the fallback is per-variant. */
