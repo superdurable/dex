@@ -24,6 +24,7 @@ export interface LayoutPrinciple {
 export type PrincipleId =
   | 'no-collision'
   | 'tight-regions'
+  | 'group-cohesion'
   | 'short-edges'
   | 'reading-order'
 
@@ -50,11 +51,17 @@ export const LAYOUT_PRINCIPLES: readonly LayoutPrinciple[] = [
     limit: 0.8,
   },
   {
+    id: 'group-cohesion',
+    statement: 'A group sits in one place where the graph allows it.',
+    measure: 'Same-label regions at one rank split across two lanes.',
+    limit: 0,
+  },
+  {
     id: 'short-edges',
     statement: 'An arrow spans about a rank, not the whole drawing.',
     measure: 'Mean edge length in rank-pitch units.',
-    // Corpus worst is 5.3, on the refund flow's six-wide evidence fan.
-    limit: 6,
+    // Corpus worst is 5.7. Cohesion costs edge length, which is the tension this limit holds.
+    limit: 6.5,
   },
   {
     id: 'reading-order',
@@ -68,6 +75,7 @@ export interface LayoutMetrics {
   collisions: number
   /** Worst region's empty fraction, or 0 with no labelled region. */
   regionWaste: number
+  straddledGroups: number
   edgeSpan: number
   beforeStart: number
 }
@@ -77,6 +85,7 @@ export type Violation = { id: PrincipleId; value: number; limit: number }
 const METRIC_OF: Record<PrincipleId, keyof LayoutMetrics> = {
   'no-collision': 'collisions',
   'tight-regions': 'regionWaste',
+  'group-cohesion': 'straddledGroups',
   'short-edges': 'edgeSpan',
   'reading-order': 'beforeStart',
 }
@@ -101,11 +110,22 @@ export function violations(flow: PocFlow, scene: Scene, direction: Direction): V
 export function measureScene(flow: PocFlow, scene: Scene, direction: Direction): LayoutMetrics {
   const cards = scene.boxes.filter((box) => box.kind === 'step')
   const axes = direction === 'lr'
-    ? { along: (card: Box) => card.x, extent: (card: Box) => card.w }
-    : { along: (card: Box) => card.y, extent: (card: Box) => card.h }
+    ? {
+      along: (card: Box) => card.x,
+      extent: (card: Box) => card.w,
+      across: (card: Box) => card.y,
+      spanAlong: (rect: Rect) => ({ min: rect.x, max: rect.x + rect.w }),
+    }
+    : {
+      along: (card: Box) => card.y,
+      extent: (card: Box) => card.h,
+      across: (card: Box) => card.x,
+      spanAlong: (rect: Rect) => ({ min: rect.y, max: rect.y + rect.h }),
+    }
   return {
     collisions: countCollisions(cards),
     regionWaste: worstRegionWaste(scene.bands, cards),
+    straddledGroups: countStraddledGroups(scene.bands, cards, axes.across, axes.spanAlong),
     edgeSpan: meanEdgeSpan(scene, cards, axes.along),
     beforeStart: countBeforeStart(flow, cards, axes.along, axes.extent),
   }
@@ -155,6 +175,41 @@ function centreInside(card: Box, region: Rect): boolean {
   const cy = card.y + card.h / 2
   return cx >= region.x && cx <= region.x + region.w
     && cy >= region.y && cy <= region.y + region.h
+}
+
+/**
+ * One group drawn as two regions side by side, at the same point in the flow.
+ *
+ * That is the shape a reader cannot explain: the same label twice at one rank with a lane between.
+ * Members genuinely ranks apart are fine, and stay counted as separate places.
+ */
+function countStraddledGroups(
+  bands: readonly Band[],
+  cards: readonly Box[],
+  across: Reader,
+  spanAlong: (rect: Rect) => { min: number; max: number },
+): number {
+  const far = Math.max(...cards.map(across), 0)
+  const regions = bands
+    .filter((band) => band.style === 'group' && band.label !== undefined)
+    .map((band) => {
+      const inside = cards.filter((card) => centreInside(card, band))
+      return {
+        label: band.label as string,
+        lane: inside.some((card) => across(card) >= far) ? 1 : 0,
+        span: spanAlong(band),
+      }
+    })
+  let straddles = 0
+  for (let a = 0; a < regions.length; a++) {
+    for (let b = a + 1; b < regions.length; b++) {
+      const one = regions[a] as (typeof regions)[number]
+      const two = regions[b] as (typeof regions)[number]
+      if (one.label !== two.label || one.lane === two.lane) continue
+      if (one.span.min < two.span.max && two.span.min < one.span.max) straddles++
+    }
+  }
+  return straddles
 }
 
 /**

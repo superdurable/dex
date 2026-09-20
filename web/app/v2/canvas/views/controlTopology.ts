@@ -20,6 +20,7 @@ import {
   subflowBoxes,
 } from './shared'
 import { STEP_W, stepBox, stepContent } from './stepBox'
+import type { StepGroup } from './groups'
 import type { Band, Box, Scene, ViewOpts, ViewSpec } from './types'
 import { boundsOf } from './types'
 
@@ -189,6 +190,55 @@ function recoverySteps(flow: PocFlow): Set<string> {
 }
 
 /**
+ * A declared group wants to be ONE PLACE, so a STRUCTURAL TWIN joins its group-mate in the gutter.
+ *
+ * A twin shares the group, the downstream target, and an adjacent rank — the refund flow's
+ * BillingFailedStep and SubscriptionFailedStep both catch a failure and both continue to
+ * DraftCustomerMessageStep, so drawing one inline and one aside split a region for no reason a reader
+ * could see. Reachability alone separated them: one is also a guarded branch target.
+ *
+ * Deliberately narrow. NotARefundStep is in the same group but continues somewhere else, many ranks
+ * earlier, so it stays on the spine rather than dragging a long edge across the gutter. Cohesion is
+ * local: a group is pulled together where the graph already agrees, never forced.
+ */
+function cohesionMoves(flow: PocFlow, groups: StepGroup[], aside: Set<string>): Set<string> {
+  const ranks = cyclicRanks(
+    flow.steps.map((step) => step.id),
+    flow.transitions
+      .filter((transition) => !transition.isSelfLoop)
+      .map((transition) => ({ from: transition.fromStepId, to: transition.toStepId })),
+    flow.startStepId,
+  )
+  const targetsOf = (id: string): string =>
+    flow.transitions
+      .filter((t) => t.fromStepId === id && t.kind === 'transition' && !t.isSelfLoop)
+      .map((t) => t.toStepId)
+      .sort()
+      .join(',')
+
+  const moves = new Set<string>()
+  for (const group of groups) {
+    const members = flow.steps
+      .filter((step) => group.stepTypes.includes(step.stepType))
+      .map((step) => step.id)
+    const settled = members.filter((id) => aside.has(id))
+    if (settled.length === 0) continue
+    for (const id of members) {
+      const rank = ranks.get(id)
+      if (aside.has(id) || rank === undefined) continue
+      const twin = settled.some((other) => {
+        const theirs = ranks.get(other)
+        return theirs !== undefined
+          && Math.abs(theirs - rank) <= 1
+          && targetsOf(other) === targetsOf(id)
+      })
+      if (twin) moves.add(id)
+    }
+  }
+  return moves
+}
+
+/**
  * A region is contiguous: a gap wide enough to hold another card is a hole, not part of it.
  */
 function contiguousRuns(
@@ -218,7 +268,8 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
     return { boxes: [], links: [], bands: [], width: 640, height: 200, notes: ['No steps.'] }
   }
 
-  const aside = recoverySteps(flow)
+  const recovery = recoverySteps(flow)
+  const aside = new Set([...recovery, ...cohesionMoves(flow, opts.groups ?? [], recovery)])
   const main = flow.steps.filter((s) => !aside.has(s.id))
   const links = controlLinks(flow, opts)
   const control = links.filter((l) => l.family === 'control')
@@ -837,3 +888,4 @@ export const controlTopologyView: ViewSpec = {
   risk: 'Loop-heavy and hub-prone, and silent about who has to act unless colour carries it.',
   layout,
 }
+
