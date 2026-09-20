@@ -34,9 +34,10 @@ export function v2QueuePath(flowType?: string, flowID?: string) {
   return v2ModePath('queue', flowType, flowID);
 }
 
-/** The v1 run page is where Timeline, event details, Stop and Time Travel live. */
-export function v1RunPath(flowID: string) {
-  return `/v1/flows/${encodeURIComponent(flowID)}`;
+/** The Deep Dive is keyed per run: Time Travel and continue-as-new walk the run chain. */
+export function v2DebugPath(flowType: string, flowID: string, runID?: string) {
+  const base = `${v2RunPath(flowType, flowID)}/debug`;
+  return runID === undefined ? base : `${base}/${encodeURIComponent(runID)}`;
 }
 
 export function v2ListColumns(definition: FlowV2Definition) {

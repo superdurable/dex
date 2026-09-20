@@ -12,10 +12,10 @@ import type {
   FlowV2Definition,
 } from '@superdurable/flow-definition-renderer';
 import {
-  v1RunPath,
   v2ActionUserFields,
   v2ActionUserInput,
   v2HomePath,
+  v2DebugPath,
   v2ListColumns,
   v2QueuePath,
   v2RunPath,
@@ -44,8 +44,11 @@ describe('Dex Web v2 contract helpers', () => {
     expect(v2QueuePath('Refund Flow')).toBe('/v2/queue/Refund%20Flow');
   });
 
-  it('links a run to the v1 page that owns Timeline and controls', () => {
-    expect(v1RunPath('refund/42')).toBe('/v1/flows/refund%2F42');
+  it('nests the Deep Dive under the run it belongs to, optionally keyed by run', () => {
+    expect(v2DebugPath('Refund Flow', 'refund/42'))
+      .toBe('/v2/run/Refund%20Flow/refund%2F42/debug');
+    expect(v2DebugPath('Refund Flow', 'refund/42', 'run/7'))
+      .toBe('/v2/run/Refund%20Flow/refund%2F42/debug/run%2F7');
   });
 
   it('shows only eligible Actions and hides Attribute-sourced inputs', () => {

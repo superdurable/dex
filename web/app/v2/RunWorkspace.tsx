@@ -8,8 +8,9 @@
 
 import { useCallback, useRef, useState, type CSSProperties } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { v1RunPath, v2HomePath, v2RunPath } from './contract';
+import { v2DebugPath, v2HomePath, v2RunPath } from './contract';
 import './css/v2.css';
+import { DEBUG_COPY } from './debug/copy';
 import { V2Canvas } from './V2Canvas';
 import {
   CASE_HEIGHT_KEY,
@@ -111,8 +112,8 @@ export function RunWorkspace() {
                   flowType={entry.flowType}
                   onStranded={rememberStranded}
                   footer={(
-                    <Link className="v2-seemore" to={v1RunPath(flowId)}>
-                      Timeline, events and controls
+                    <Link className="v2-seemore" to={v2DebugPath(entry.flowType, flowId)}>
+                      {DEBUG_COPY.openLabel}
                     </Link>
                   )}
                 />

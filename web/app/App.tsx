@@ -6,8 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { AppHeader } from './components/AppHeader';
+import { DebugWorkspace } from './v2/debug/DebugWorkspace';
 import { CurrentRunRedirect } from './flows/CurrentRunRedirect';
 import { FlowSearchPage } from './flows/FlowSearchPage';
 import { RunDetailsPage } from './flows/RunDetailsPage';
@@ -31,6 +32,8 @@ export function App() {
               <Route path="/v2/run" element={<RunWorkspace />} />
               <Route path="/v2/run/:flowType" element={<RunWorkspace />} />
               <Route path="/v2/run/:flowType/:flowId" element={<RunWorkspace />} />
+              <Route path="/v2/run/:flowType/:flowId/debug" element={<DebugWorkspace />} />
+              <Route path="/v2/run/:flowType/:flowId/debug/:runId" element={<DebugWorkspace />} />
               <Route path="/v2/queue" element={<QueueWorkspace />} />
               <Route path="/v2/queue/:flowType" element={<QueueWorkspace />} />
               <Route path="/v2/queue/:flowType/:flowId" element={<QueueWorkspace />} />
@@ -55,5 +58,19 @@ function CurrentFlowRoute() {
 
 function FlowRunRoute() {
   const { flowId = '', runId = '' } = useParams();
-  return <RunDetailsPage flowId={flowId} runId={runId} />;
+  const flowPath = `/v1/flows/${encodeURIComponent(flowId)}`;
+  return (
+    <RunDetailsPage
+      breadcrumb={(
+        <div className="breadcrumbs">
+          <Link to="/">Flows</Link><span>/</span>
+          <Link to={flowPath}>{flowId}</Link><span>/</span>
+          <span className="mono">{runId}</span>
+        </div>
+      )}
+      flowId={flowId}
+      runId={runId}
+      runPath={(chainRunID) => `${flowPath}/${encodeURIComponent(chainRunID)}`}
+    />
+  );
 }
