@@ -6,25 +6,32 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import type { ReactNode } from 'react';
 import { formatTimeOfDay } from '@/lib/format';
 import type { V2CatalogEntry, V2Flow } from '@/lib/types';
 import { usePreferences } from '../../providers';
 import { QUEUE_COPY } from '../queue/copy';
-import type { FlowSearch } from '../workspace/useFlowSearch';
-import { RUN_COPY } from './copy';
-import { groupRuns } from './runOrder';
+import { RUN_COPY } from '../run/copy';
+import { groupRuns } from '../run/runOrder';
+import type { FlowSearch } from './useFlowSearch';
 
 /**
- * Pick a run, nothing more. The filter builder, Search and pager belong to the Queue:
- * an Admin driving one run does not scope a search, and they cost the canvas its width.
+ * One list of runs, shared by Run and Inbox so the two cannot drift into two visual languages.
+ *
+ * Everything either view needs to differ on arrives as a prop: the heading, the note beside it,
+ * and an optional scope control. The rows themselves are identical by construction.
  */
-export function RunSwitcher({
+export function RunList({
   entry,
   flowTypes,
   search,
   selectedFlowID,
   strandedFlowIDs,
   attentionAttributeKey,
+  heading,
+  headerNote,
+  scope,
+  emptyText,
   onSelectFlowType,
   onSelectRun,
 }: {
@@ -35,6 +42,11 @@ export function RunSwitcher({
   strandedFlowIDs: ReadonlySet<string>;
   /** First indexed Attribute, shown under the run id as its own value. */
   attentionAttributeKey: string | null;
+  heading: string;
+  headerNote?: string;
+  /** What the list is narrowed to, and the control that narrowed it. */
+  scope?: ReactNode;
+  emptyText: string;
   onSelectFlowType: (flowType: string) => void;
   onSelectRun: (flowID: string) => void;
 }) {
@@ -48,12 +60,13 @@ export function RunSwitcher({
       : liveness === 'stale'
         ? QUEUE_COPY.stale
         : flows.length === 0
-          ? RUN_COPY.noRuns
+          ? emptyText
           : '';
   return (
-    <aside className="rsw" aria-label={RUN_COPY.runsHeading}>
+    <aside className="rsw" aria-label={heading}>
       <div className="sq-head">
-        <span className="sq-title" title={RUN_COPY.selectPrompt}>{RUN_COPY.runsHeading}</span>
+        <span className="sq-title" title={RUN_COPY.selectPrompt}>{heading}</span>
+        {headerNote !== undefined && <span className="sq-live">{headerNote}</span>}
         <button className="sq-refresh" disabled={loading} onClick={search.runSearch} type="button">
           {loading ? QUEUE_COPY.loading : QUEUE_COPY.refresh}
         </button>
@@ -70,15 +83,14 @@ export function RunSwitcher({
           ))}
         </select>
       )}
+      {scope}
       {stateText !== '' && (
-      <p className="sq-state" data-liveness={liveness}>
-        {stateText}
-      </p>
+        <p className="sq-state" data-liveness={liveness}>{stateText}</p>
       )}
       <div className="rsw-scroll">
         {groups.map((group) => (
           <section className="rsw-group" data-group={group.key} key={group.key}>
-            <h3 className="rsw-grouphead">{group.label}</h3>
+            {groups.length > 1 && <h3 className="rsw-grouphead">{group.label}</h3>}
             <ul className="rsw-list">
               {group.flows.map((flow) => (
                 <li

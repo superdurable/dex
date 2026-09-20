@@ -11,9 +11,10 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import type { FlowSummary } from '@/lib/types';
 import { v2HomePath, v2RunPath } from './contract';
 import './css/v2.css';
+import { RUN_COPY } from './run/copy';
 import { RunDetailDrawer, type StepBand } from './run/RunDetailDrawer';
 import type { StepContextView } from './run/stepContext';
-import { RunSwitcher } from './run/RunSwitcher';
+import { RunList } from './workspace/RunList';
 import { V2Canvas } from './V2Canvas';
 import {
   DRAWER_WIDTH_DEFAULT,
@@ -95,10 +96,12 @@ export function RunWorkspace() {
   return (
     <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
       <div className="v2-run-body" data-has-run={showDrawer ? 'true' : undefined} ref={bodyRef}>
-        <RunSwitcher
+        <RunList
           attentionAttributeKey={entry.definition.indexedAttributes[0]?.attributeKey ?? null}
+          emptyText={RUN_COPY.noRuns}
           entry={entry}
           flowTypes={catalog.flows}
+          heading={RUN_COPY.runsHeading}
           search={search}
           selectedFlowID={flowId}
           strandedFlowIDs={strandedFlowIDs}

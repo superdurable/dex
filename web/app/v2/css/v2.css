@@ -242,6 +242,49 @@
   grid-template-columns: 15rem minmax(0, 1fr) var(--v2-drawer-w, 25rem);
 }
 
+.v2-inbox-case {
+  display: flex;
+  overflow-y: auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Centred rather than hard-left: a capped reading column with a void beside it reads as broken. */
+.v2-inbox-case .v2-case {
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  max-height: none;
+  height: auto;
+  border-top: 0;
+}
+
+.v2-inbox-empty {
+  padding: 18px 20px;
+}
+
+/* Collapsed by default so the list reads as a list; the sentence stays visible either way. */
+.fb {
+  margin: 8px 0 6px;
+}
+
+.fb-summary {
+  color: var(--p-ink-3);
+  cursor: pointer;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.fb-summary:hover {
+  color: var(--p-ink-1);
+}
+
+.fb[open] .fb-summary {
+  margin-bottom: 8px;
+  color: var(--p-ink-2);
+}
+
 .rsw {
   display: flex;
   overflow: hidden;

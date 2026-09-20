@@ -14,8 +14,7 @@
  */
 export const QUEUE_COPY = {
   appName: 'Inbox',
-  strapline: 'What has arrived for you, read from the running process.',
-  noGraph: 'No process diagram here by design: this view shows the work, not the shape of the process.',
+  liveNote: 'live',
 
   /** Derived from the live filter rows: the sentence must not outlive a filter the reader deleted. */
   scope(clauses: readonly string[]): string {
@@ -40,6 +39,7 @@ export const QUEUE_COPY = {
 
   selectPrompt: 'Select a run to see what it reports and which Actions are available.',
   seeProcess: 'See the process',
+  close: 'Close this item',
 
   /**
    * Dex routes a Flow RPC to the worker that owns the run, so this run is unreadable for
