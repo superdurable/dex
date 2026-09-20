@@ -188,6 +188,31 @@ function recoverySteps(flow: PocFlow): Set<string> {
   return new Set([...unreachable, ...hubs])
 }
 
+/**
+ * A region is contiguous: a gap wide enough to hold another card is a hole, not part of it.
+ */
+function contiguousRuns(
+  members: { x: number; y: number; h: number }[],
+  lr: boolean,
+): { x: number; y: number; h: number }[][] {
+  const start = (m: { x: number; y: number }) => (lr ? m.y : m.x)
+  const extent = (m: { h: number }) => (lr ? m.h : STEP_W)
+  const sorted = [...members].sort((a, b) => start(a) - start(b))
+  const runs: { x: number; y: number; h: number }[][] = []
+  for (const member of sorted) {
+    const current = runs[runs.length - 1]
+    const last = current?.[current.length - 1]
+    if (current === undefined || last === undefined) {
+      runs.push([member])
+      continue
+    }
+    const hole = start(member) - (start(last) + extent(last))
+    if (hole > extent(member)) runs.push([member])
+    else current.push(member)
+  }
+  return runs
+}
+
 function layout(flow: PocFlow, opts: ViewOpts): Scene {
   if (flow.steps.length === 0) {
     return { boxes: [], links: [], bands: [], width: 640, height: 200, notes: ['No steps.'] }
@@ -686,16 +711,16 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
     }
     let rects = [...rows.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([, rs]) => {
-        const x0 = Math.min(...rs.map((r) => r.x))
-        const y0 = Math.min(...rs.map((r) => r.y))
+      .flatMap(([, rs]) => contiguousRuns(rs, lr).map((run) => {
+        const x0 = Math.min(...run.map((r) => r.x))
+        const y0 = Math.min(...run.map((r) => r.y))
         return {
           x: x0,
           y: y0,
-          w: Math.max(...rs.map((r) => r.x + STEP_W)) - x0,
-          h: Math.max(...rs.map((r) => r.y + r.h)) - y0,
+          w: Math.max(...run.map((r) => r.x + STEP_W)) - x0,
+          h: Math.max(...run.map((r) => r.y + r.h)) - y0,
         }
-      })
+      }))
 
     // Greedy pairwise merge until nothing more can join without capturing a foreign card.
     for (let pass = 0; pass < rects.length; pass++) {
@@ -712,6 +737,11 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
           h: Math.max(p.y + p.h, q.y + q.h) - y0,
         }
         if (swallows(union)) continue
+        // Stacked rows merge; side-by-side rects do not, or the union reinstates the hole.
+        const overlapsAcross = lr
+          ? p.y < q.y + q.h && q.y < p.y + p.h
+          : p.x < q.x + q.w && q.x < p.x + p.w
+        if (!overlapsAcross) continue
         rects = [...rects.slice(0, a), union, ...rects.slice(a + 2)]
         merged = true
       }
