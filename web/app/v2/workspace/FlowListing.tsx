@@ -58,6 +58,9 @@ export function FlowListing({
       <div className="sq-head">
         <span className="sq-title">{entry.flowType}</span>
         <span className="sq-live">{headerNote}</span>
+        <button className="sq-refresh" disabled={loading} onClick={search.runSearch} type="button">
+          {loading ? QUEUE_COPY.loading : QUEUE_COPY.refresh}
+        </button>
       </div>
       {flowTypes.length > 1 && (
         <div className="sv-choose">

@@ -23,6 +23,7 @@ import { useWebCatalog } from './WebCatalogProvider';
 import { FlowListing } from './workspace/FlowListing';
 import { SelectedRunPanel } from './workspace/SelectedRunPanel';
 import { useFlowSearch } from './workspace/useFlowSearch';
+import { useStrandedRuns } from './workspace/useStrandedRuns';
 
 export function HomePage() {
   const { ready, canUseV2, error } = useWebCatalog();
@@ -37,6 +38,7 @@ export function RunWorkspace() {
   const { ready, canUseV2, catalog, error } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   const search = useFlowSearch(flowType || undefined, entry?.definition);
+  const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const listPaneRef = useRef<HTMLElement>(null);
@@ -72,6 +74,7 @@ export function RunWorkspace() {
   if (!flowType) return <Navigate to={v2RunPath(catalog.flows[0].flowType)} replace />;
   if (!entry) return <Navigate to={v2RunPath()} replace />;
 
+  const selectedFlow = search.flows.find((flow) => flow.flowId === flowId);
   const paneStyle = {
     '--v2-list-w': `${listWidth}px`,
     ...(Number.isFinite(caseHeight) && caseHeight > 0 ? { '--v2-case-h': `${caseHeight}px` } : {}),
@@ -86,6 +89,7 @@ export function RunWorkspace() {
             headerNote="current runs"
             search={search}
             selectedFlowID={flowId}
+            strandedFlowIDs={strandedFlowIDs}
             onSelectFlowType={(next) => navigate(v2RunPath(next))}
             onSelectRun={(nextFlowID) => navigate(v2RunPath(entry.flowType, nextFlowID))}
           >
@@ -103,7 +107,9 @@ export function RunWorkspace() {
                 <SelectedRunPanel
                   definition={entry.definition}
                   flowId={flowId}
+                  flowStatusCode={selectedFlow?.flowStatusCode}
                   flowType={entry.flowType}
+                  onStranded={rememberStranded}
                   footer={(
                     <Link className="v2-seemore" to={v1RunPath(flowId)}>
                       Timeline, events and controls

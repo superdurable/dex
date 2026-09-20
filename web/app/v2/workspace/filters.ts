@@ -80,3 +80,28 @@ export function updateFilter(
 export function newFilterRow(field: string, operator: string, value: string): FilterRow {
   return { id: `${Date.now()}-${Math.random()}`, field, operator, value };
 }
+
+const OPERATOR_PHRASE: Record<string, string> = {
+  eq: 'is',
+  in: 'is one of',
+  contains: 'contains',
+  gt: 'is after',
+  gte: 'is at least',
+  lt: 'is before',
+  lte: 'is at most',
+};
+
+/** One clause per filter the reader can actually see, so the scope sentence cannot overstate. */
+export function describeFilters(
+  filters: readonly FilterRow[],
+  definition: FlowV2Definition,
+): string[] {
+  const labels = new Map(filterFields(definition).map((field) => [field.key, field.label]));
+  return filters
+    .filter((filter) => filter.value.trim() !== '')
+    .map((filter) => {
+      const field = labels.get(filter.field) ?? filter.field;
+      const operator = OPERATOR_PHRASE[filter.operator] ?? filter.operator;
+      return `${field.toLowerCase()} ${operator} ${filter.value.trim()}`;
+    });
+}

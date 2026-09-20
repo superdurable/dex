@@ -17,9 +17,12 @@ export const QUEUE_COPY = {
   strapline: 'Open runs of one Flow type, read from the running process.',
   noGraph: 'No process diagram here by design: this view shows the work, not the shape of the process.',
 
-  openOnly(statusLabel: string): string {
-    return `Showing runs with execution status ${statusLabel}. Closed runs are not work, so they are filtered out — edit the filter to see them.`;
+  /** Derived from the live filter rows: the sentence must not outlive a filter the reader deleted. */
+  scope(clauses: readonly string[]): string {
+    if (clauses.length === 0) return 'Showing every run of this Flow type, open or closed.';
+    return `Showing runs where ${clauses.join(' and ')}.`;
   },
+  unfilteredHint: 'Closed runs are not work. Filter on execution status to hide them.',
 
   /** Counts describe the page, never the queue: the server paginates and we do not total it. */
   onThisPage(count: number): string {
@@ -29,6 +32,8 @@ export const QUEUE_COPY = {
   loading: 'Asking the process…',
   unreachable: 'Cannot reach the process, so this list is not the whole picture.',
   stale: 'Showing the last answer — the process did not respond just now.',
+  staleShort: 'stale',
+  refresh: 'Ask again',
 
   /** Actions are gated on live Attributes, so the list cannot promise one is available. */
   actionsProvenance: 'Which Actions are available is decided per run when you open it.',

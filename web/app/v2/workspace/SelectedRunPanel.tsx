@@ -18,7 +18,7 @@ import { readResponseJSON } from '@/lib/http';
 import type { V2Display } from '@/lib/types';
 import { parseTypedValue, v2ActionUserFields, v2ActionUserInput, visibleV2Actions } from '../contract';
 import { QUEUE_COPY } from '../queue/copy';
-import { isStrandedRunFailure, readFailureReason } from '../queue/liveness';
+import { absorb, classifyReadFailure, nothingHeld, readFailureReason } from '../queue/liveness';
 
 export function SelectedRunPanel({
   flowType,
@@ -37,9 +37,9 @@ export function SelectedRunPanel({
   /** Reported up so the list can mark the row; a search cannot discover this. */
   onStranded?: (flowID: string) => void;
 }) {
-  const [result, setResult] = useState<V2Display | null>(null);
-  const [error, setError] = useState('');
-  const [isStranded, setIsStranded] = useState(false);
+  const [held, setHeld] = useState(() => nothingHeld<V2Display>());
+  /** A write that failed is not a stale read, so it does not touch held. */
+  const [actionError, setActionError] = useState('');
   const [busyKey, setBusyKey] = useState('');
   const [editingKey, setEditingKey] = useState('');
   const [editValue, setEditValue] = useState('');
@@ -47,28 +47,30 @@ export function SelectedRunPanel({
   const [actionValues, setActionValues] = useState<Record<string, Record<string, string>>>({});
 
   const loadDisplay = useCallback(async () => {
-    setError('');
-    setIsStranded(false);
     try {
       const query = new URLSearchParams({ flowType, flowId });
       const response = await fetch(`/api/v2/display?${query}`);
-      setResult(await readResponseJSON<V2Display>(response));
+      const display = await readResponseJSON<V2Display>(response);
+      setHeld((prior) => absorb(prior, { state: 'ok', value: display }));
     } catch (loadError) {
       // Only knowable once somebody opens the run: a search says nothing about its worker.
-      if (isStrandedRunFailure(loadError, flowStatusCode)) {
-        setIsStranded(true);
-        onStranded?.(flowId);
-        return;
-      }
-      setError(readFailureReason(loadError));
+      const outcome = classifyReadFailure<V2Display>(loadError, flowStatusCode);
+      if (outcome.state === 'stranded') onStranded?.(flowId);
+      setHeld((prior) => absorb(prior, outcome));
     }
   }, [flowId, flowStatusCode, flowType, onStranded]);
 
+  // A new run must not inherit the previous run's values while its own read is in flight.
+  useEffect(() => { setHeld(nothingHeld<V2Display>()); }, [flowId, flowType]);
+
   useEffect(() => { void loadDisplay(); }, [loadDisplay]);
+
+  const result = held.value;
+  const isStranded = held.liveness === 'stranded';
 
   async function saveField(attributeKey: string, valueType: V2ValueType) {
     setBusyKey(attributeKey);
-    setError('');
+    setActionError('');
     setFieldErrors((current) => ({ ...current, [attributeKey]: '' }));
     try {
       const response = await fetch('/api/v2/display', {
@@ -93,7 +95,7 @@ export function SelectedRunPanel({
 
   async function invokeAction(action: FlowV2Action) {
     setBusyKey(action.rpcName);
-    setError('');
+    setActionError('');
     try {
       const input = v2ActionUserInput(action, actionValues[action.rpcName] ?? {});
       const response = await fetch('/api/v2/actions', {
@@ -106,7 +108,7 @@ export function SelectedRunPanel({
       await readResponseJSON(response);
       await loadDisplay();
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : 'Action failed');
+      setActionError(readFailureReason(actionError));
     } finally {
       setBusyKey('');
     }
@@ -117,11 +119,14 @@ export function SelectedRunPanel({
       <div className="sc-head">
         <span className="sc-title">{flowId}</span>
         {result && <span className="sc-status">{result.flowStatus}</span>}
+        {held.liveness === 'stale' && <span className="sc-stale">{QUEUE_COPY.staleShort}</span>}
         {footer}
       </div>
       {isStranded && <p className="sc-state" data-liveness="stranded">{QUEUE_COPY.stranded}</p>}
-      {error && <p className="v2-error">{error}</p>}
-      {!result && !error && !isStranded && <p className="sc-state">{QUEUE_COPY.loading}</p>}
+      {held.liveness === 'unreachable' && <p className="v2-error">{held.reason}</p>}
+      {held.liveness === 'stale' && <p className="sc-why">{held.reason}</p>}
+      {held.liveness === 'loading' && <p className="sc-state">{QUEUE_COPY.loading}</p>}
+      {actionError && <p className="v2-error">{actionError}</p>}
       {result && !isStranded && (
         <>
           <div className="sc-block">

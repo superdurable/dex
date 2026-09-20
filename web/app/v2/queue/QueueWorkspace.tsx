@@ -6,15 +6,16 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import { v2QueuePath, v2RunPath } from '../contract';
 import '../css/v2.css';
 import { useWebCatalog } from '../WebCatalogProvider';
 import { FlowListing } from '../workspace/FlowListing';
-import { newFilterRow } from '../workspace/filters';
+import { describeFilters, newFilterRow } from '../workspace/filters';
 import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { useFlowSearch } from '../workspace/useFlowSearch';
+import { useStrandedRuns } from '../workspace/useStrandedRuns';
 import { QUEUE_COPY } from './copy';
 import { openFlowStatusLabel } from './liveness';
 
@@ -33,12 +34,7 @@ export function QueueWorkspace() {
   const search = useFlowSearch(flowType || undefined, entry?.definition, [
     newFilterRow('executionStatus', 'eq', openFlowStatusLabel()),
   ]);
-  const [strandedFlowIDs, setStrandedFlowIDs] = useState<ReadonlySet<string>>(() => new Set());
-  const rememberStranded = useCallback((strandedFlowID: string) => {
-    setStrandedFlowIDs((prior) => (
-      prior.has(strandedFlowID) ? prior : new Set([...prior, strandedFlowID])
-    ));
-  }, []);
+  const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
 
   if (!ready) return <div className="page-loading">Loading Dex Web…</div>;
   if (!canUseV2) return <Navigate to="/v1/flows" replace />;
@@ -68,7 +64,7 @@ export function QueueWorkspace() {
             entry={entry}
             flowTypes={catalog.flows}
             headerNote="live — read from a running process"
-            scope={<QueueScope search={search} />}
+            scope={<QueueScope definition={entry.definition} search={search} />}
             search={search}
             selectedFlowID={flowId}
             strandedFlowIDs={strandedFlowIDs}
@@ -98,8 +94,15 @@ export function QueueWorkspace() {
 }
 
 /** Four states, never collapsed: an empty page and an unreachable process call for opposite actions. */
-function QueueScope({ search }: { search: ReturnType<typeof useFlowSearch> }) {
+function QueueScope({
+  definition,
+  search,
+}: {
+  definition: FlowV2Definition;
+  search: ReturnType<typeof useFlowSearch>;
+}) {
   const { liveness, flows } = search;
+  const clauses = describeFilters(search.filters, definition);
   const headline = liveness === 'loading'
     ? QUEUE_COPY.loading
     : liveness === 'unreachable'
@@ -112,9 +115,9 @@ function QueueScope({ search }: { search: ReturnType<typeof useFlowSearch> }) {
   return (
     <p className="sq-state" data-liveness={liveness}>
       {headline}
-      <span className="sq-why">{QUEUE_COPY.openOnly(openFlowStatusLabel())}</span>
+      <span className="sq-why">{QUEUE_COPY.scope(clauses)}</span>
+      {clauses.length === 0 && <span className="sq-why">{QUEUE_COPY.unfilteredHint}</span>}
       <span className="sq-why">{QUEUE_COPY.actionsProvenance}</span>
-      {search.searchError && <span className="sq-why">{search.searchError}</span>}
     </p>
   );
 }

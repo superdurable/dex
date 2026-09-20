@@ -79,7 +79,6 @@
   cursor: not-allowed;
 }
 
-.sv-nonone,
 .sv-nograph {
   color: var(--p-ink-3);
   font-size: 10.5px;
@@ -150,21 +149,6 @@
   display: block;
   color: var(--p-ink-3);
   font-size: 9.5px;
-}
-
-.sq-group {
-  margin-bottom: 14px;
-}
-
-.sq-grouphead {
-  margin-bottom: 4px;
-  color: var(--p-ink-1);
-  font-size: 10.5px;
-}
-
-/* Blocked work is the only kind that gets emphasis. The other two are real but not urgent. */
-.sq-group[data-kind='blocked'] .sq-grouphead {
-  color: var(--p-external);
 }
 
 .sq-list {
@@ -241,7 +225,6 @@
   font-weight: 600;
 }
 
-.sc-subtitle,
 .sc-status {
   color: var(--p-ink-2);
   font-size: 11px;
@@ -280,22 +263,6 @@
   text-transform: uppercase;
 }
 
-.sc-reason,
-.sc-recommend {
-  color: var(--p-ink-0);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.sc-verbatim {
-  padding-left: 10px;
-  border-left: 2px solid var(--p-line);
-  color: var(--p-ink-1);
-  font-size: 12px;
-  font-style: italic;
-  line-height: 1.5;
-}
-
 /*
  * THE ONE THING THIS VIEW HAS THAT A TRANSCRIPT DOES NOT: a table. These are quantities to weigh against each
  * other, and comparison wants columns — which was the open question the earlier finding could not settle.
@@ -304,6 +271,22 @@
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: 3px 14px;
+}
+
+/* One Action per form; inputs stack above the button that submits them. */
+.sc-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.sc-actions label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
 }
 
 .sc-fact {
@@ -327,104 +310,8 @@
   font-weight: 600;
 }
 
-.sc-rest {
-  margin-top: 16px;
-}
-
-.sc-rest summary {
-  cursor: default;
-}
-
-.sc-decide {
-  padding-top: 14px;
-  border-top: 1px solid var(--p-line-soft);
-}
-
 .sc-none {
   color: var(--p-ink-2);
   font-size: 11.5px;
   line-height: 1.5;
-}
-
-.sc-verdicts {
-  display: flex;
-  gap: 8px;
-}
-
-.sc-verdict {
-  padding: 5px 14px;
-  border: 1px solid var(--p-line);
-  border-radius: 5px;
-  color: var(--p-ink-0);
-  font-size: 12px;
-}
-
-.sc-verdict:hover:enabled {
-  background: var(--p-surface-3);
-}
-
-.sc-verdict:disabled {
-  color: var(--p-ink-3);
-}
-
-.sc-sending,
-.sc-outcome {
-  margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.sc-sending {
-  color: var(--p-ink-2);
-}
-
-.sc-outcome[data-outcome='accepted'] {
-  color: var(--p-run-done);
-}
-
-/* Refused and lost are different facts and neither is a success. */
-.sc-outcome[data-outcome='refused'],
-.sc-outcome[data-outcome='lost'] {
-  color: var(--p-run-failed);
-}
-
-.sc-asked {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.sc-q {
-  color: var(--p-ink-2);
-  font-size: 11px;
-}
-
-.sc-a {
-  color: var(--p-ink-0);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.sc-askrow {
-  display: flex;
-  gap: 8px;
-}
-
-.sc-askbox {
-  flex: 1 1 auto;
-  padding: 5px 9px;
-  border: 1px solid var(--p-line);
-  border-radius: 5px;
-  background: var(--p-surface-1);
-  color: var(--p-ink-0);
-  font-size: 12px;
-}
-
-.sc-asksend {
-  padding: 5px 12px;
-  border: 1px solid var(--p-line);
-  border-radius: 5px;
-  color: var(--p-ink-1);
-  font-size: 11.5px;
 }
