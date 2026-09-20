@@ -6,24 +6,29 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { useState } from 'react';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import { SEARCH_COPY } from './searchCopy';
 import {
   SINCE_WINDOWS,
+  attributeByKey,
+  defaultOperator,
   filterableAttributes,
-  keywordAttribute,
+  hasAdvancedQuery,
+  operatorsFor,
   statusOptions,
+  valueInputKind,
+  type RunOperator,
   type RunQuery,
   type SinceWindow,
 } from './runQuery';
 
 /**
- * Find a run using only what Dex can search: a keyword over the Flow's one full-text
- * Attribute, a status, a time window, and one exact Attribute value.
+ * Status and time in front; attribute comparisons and an exact run id behind a disclosure.
  *
- * The keyword box is absent when the Flow declares no full-text Attribute, so the UI never
- * offers a search it cannot perform — and the placeholder names the Attribute it searches
- * rather than relying on help text that can drift from the contract.
+ * Two controls answer most questions about a list of runs, and they are the two every Flow has
+ * whether or not it declared anything indexable. What only some Flows can answer, and what needs a
+ * reader to choose an operator, goes one click away rather than into the default view.
  */
 export function RunSearch({
   definition,
@@ -40,9 +45,17 @@ export function RunSearch({
   onSubmit: () => void;
   onClear: () => void;
 }) {
-  const fulltext = keywordAttribute(definition);
+  /**
+   * The disclosure owns its own open state after the first render.
+   *
+   * Deriving `open` from the query collapsed the panel the moment somebody chose an Attribute,
+   * because a chosen Attribute with no value yet is not an active filter.
+   */
+  const [advancedOpen, setAdvancedOpen] = useState(() => hasAdvancedQuery(query));
   const attributes = filterableAttributes(definition);
-  const chosen = attributes.find((a) => a.attributeKey === query.attributeKey);
+  const chosen = attributeByKey(definition, query.attributeKey);
+  const operators = chosen === null ? [] : operatorsFor(chosen.indexType);
+  const kind = valueInputKind(chosen?.valueType);
   const set = (patch: Partial<RunQuery>) => onChange({ ...query, ...patch });
   return (
     <form
@@ -52,17 +65,7 @@ export function RunSearch({
         onSubmit();
       }}
     >
-      {fulltext !== null && (
-        <input
-          aria-label={SEARCH_COPY.keywordLabel(fulltext.description)}
-          className="rsq-keyword"
-          placeholder={SEARCH_COPY.keywordPlaceholder(fulltext.description)}
-          type="search"
-          value={query.keyword}
-          onChange={(event) => set({ keyword: event.target.value })}
-        />
-      )}
-      <div className="rsq-row">
+      <div className="rsq-basic">
         <select
           aria-label={SEARCH_COPY.statusLabel}
           value={query.status}
@@ -81,30 +84,69 @@ export function RunSearch({
           ))}
         </select>
       </div>
-      {attributes.length > 0 && (
-        <div className="rsq-row">
-          <select
-            aria-label={SEARCH_COPY.attributeLabel}
-            value={query.attributeKey}
-            onChange={(event) => set({ attributeKey: event.target.value, attributeValue: '' })}
-          >
-            <option value="">{SEARCH_COPY.anyAttribute}</option>
-            {attributes.map((attribute) => (
-              <option key={attribute.attributeKey} value={attribute.attributeKey}>
-                {attribute.description}
-              </option>
-            ))}
-          </select>
+
+      <details
+        className="rsq-adv"
+        open={advancedOpen}
+        onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+      >
+        <summary className="rsq-advhead">{SEARCH_COPY.advanced}</summary>
+
+        <label className="rsq-field">
+          <span className="rsq-label">{SEARCH_COPY.runIdLabel}</span>
           <input
-            aria-label={SEARCH_COPY.attributeValueLabel}
-            disabled={query.attributeKey === ''}
-            placeholder={chosen === undefined ? SEARCH_COPY.pickAttribute : SEARCH_COPY.exactValue}
-            type={chosen?.indexType === 'double' || chosen?.indexType === 'int' ? 'number' : 'text'}
-            value={query.attributeValue}
-            onChange={(event) => set({ attributeValue: event.target.value })}
+            className="t-mono"
+            placeholder={SEARCH_COPY.runIdPlaceholder}
+            type="search"
+            value={query.runId}
+            onChange={(event) => set({ runId: event.target.value })}
           />
-        </div>
-      )}
+        </label>
+
+        {attributes.length > 0 && (
+          <div className="rsq-field">
+            <span className="rsq-label">{SEARCH_COPY.attributeLabel}</span>
+            <select
+              aria-label={SEARCH_COPY.attributeLabel}
+              value={query.attributeKey}
+              onChange={(event) => {
+                const next = attributeByKey(definition, event.target.value);
+                set({
+                  attributeKey: event.target.value,
+                  attributeOperator: next === null ? 'eq' : defaultOperator(next.indexType),
+                  attributeValue: '',
+                });
+              }}
+            >
+              <option value="">{SEARCH_COPY.anyAttribute}</option>
+              {attributes.map((attribute) => (
+                <option key={attribute.attributeKey} value={attribute.attributeKey}>
+                  {attribute.description}
+                </option>
+              ))}
+            </select>
+            <div className="rsq-compare">
+              <select
+                aria-label={SEARCH_COPY.operatorLabel}
+                disabled={chosen === null}
+                value={query.attributeOperator}
+                onChange={(event) => set({ attributeOperator: event.target.value as RunOperator })}
+              >
+                {operators.map((operator) => (
+                  <option key={operator.value} value={operator.value}>{operator.label}</option>
+                ))}
+              </select>
+              <ValueInput
+                disabled={chosen === null}
+                kind={kind}
+                value={query.attributeValue}
+                onChange={(value) => set({ attributeValue: value })}
+              />
+            </div>
+          </div>
+        )}
+      </details>
+
       <div className="rsq-actions">
         <button className="v2-primary" disabled={busy} type="submit">
           {busy ? SEARCH_COPY.searching : SEARCH_COPY.search}
@@ -112,5 +154,38 @@ export function RunSearch({
         <button className="v2-ghost" onClick={onClear} type="button">{SEARCH_COPY.clear}</button>
       </div>
     </form>
+  );
+}
+
+/** The value control the Attribute's own type calls for, so an impossible value cannot be sent. */
+function ValueInput({ disabled, kind, value, onChange }: {
+  disabled: boolean;
+  kind: 'text' | 'number' | 'datetime' | 'bool';
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  if (kind === 'bool') {
+    return (
+      <select
+        aria-label={SEARCH_COPY.attributeValueLabel}
+        disabled={disabled}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{SEARCH_COPY.anyValue}</option>
+        <option value="true">{SEARCH_COPY.boolTrue}</option>
+        <option value="false">{SEARCH_COPY.boolFalse}</option>
+      </select>
+    );
+  }
+  return (
+    <input
+      aria-label={SEARCH_COPY.attributeValueLabel}
+      disabled={disabled}
+      placeholder={disabled ? SEARCH_COPY.pickAttribute : SEARCH_COPY.value}
+      type={kind === 'number' ? 'number' : kind === 'datetime' ? 'datetime-local' : 'text'}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
   );
 }

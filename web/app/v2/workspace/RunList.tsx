@@ -73,25 +73,32 @@ export function RunList({
         </button>
       </div>
       {flowTypes.length > 1 && (
-        <select
-          aria-label="Flow type"
-          className="rsw-flowtype"
-          value={entry.flowType}
-          onChange={(event) => onSelectFlowType(event.target.value)}
-        >
-          {flowTypes.map((candidate) => (
-            <option key={candidate.flowType} value={candidate.flowType}>{candidate.flowType}</option>
-          ))}
-        </select>
+        <section className="rsw-zone" data-zone="pick">
+          <select
+            aria-label={SEARCH_COPY.flowTypeLabel}
+            className="rsw-flowtype"
+            value={entry.flowType}
+            onChange={(event) => onSelectFlowType(event.target.value)}
+          >
+            {flowTypes.map((candidate) => (
+              <option key={candidate.flowType} value={candidate.flowType}>{candidate.flowType}</option>
+            ))}
+          </select>
+        </section>
       )}
-      {scope}
-      <p className="rsw-scopenote">
-        {SEARCH_COPY.scopeNote(entry.definition.indexedAttributes.map((a) => a.description))}
-      </p>
+      {scope !== undefined && (
+        <section className="rsw-zone" data-zone="find">
+          <h3 className="rsw-zonehead">{SEARCH_COPY.findHeading}</h3>
+          {scope}
+          <p className="rsw-scopenote">
+            {SEARCH_COPY.scopeNote(entry.definition.indexedAttributes.map((a) => a.description))}
+          </p>
+        </section>
+      )}
       {stateText !== '' && (
         <p className="sq-state" data-liveness={liveness}>{stateText}</p>
       )}
-      <div className="rsw-scroll">
+      <div className="rsw-scroll" data-zone="list">
         {groups.map((group) => (
           <section className="rsw-group" data-group={group.key} key={group.key}>
             {groups.length > 1 && <h3 className="rsw-grouphead">{group.label}</h3>}

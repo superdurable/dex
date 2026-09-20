@@ -6,27 +6,36 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
+import type { FlowV2Definition, V2ValueType } from '@superdurable/flow-definition-renderer';
 import { FLOW_STATUS } from '@/lib/types';
 import { newFilterRow, type FilterRow } from './filters';
 
 /**
- * Four controls, not a query builder.
+ * Two controls in front, three behind a disclosure. Not a query builder.
  *
- * Every one compiles to a filter Dex can actually index: there is no field here that the Flow
- * did not declare, and no operator the index type does not support.
+ * Every one compiles to a filter Dex can actually index: there is no field here that the Flow did
+ * not declare, and no operator offered that the index type will reject.
  */
 export interface RunQuery {
-  /** Free text, only meaningful when the Flow declares a fulltext Attribute. */
-  keyword: string;
   /** An execution status label, or '' for any. */
   status: string;
   /** A relative window, or '' for any. Relative because nobody remembers a timestamp. */
   since: SinceWindow;
+  /** An exact run id. Its own control because looking one up is not the same as narrowing a list. */
+  runId: string;
   /** One declared Indexed Attribute, or '' for none. */
   attributeKey: string;
+  attributeOperator: RunOperator;
   attributeValue: string;
 }
+
+/**
+ * The four comparisons worth offering.
+ *
+ * `in` is deliberately absent: it needs a comma convention explained in placeholder text, and a
+ * second value control the moment anybody wants two ranges. Add it when a real query needs it.
+ */
+export type RunOperator = 'eq' | 'contains' | 'gte' | 'lte';
 
 export type SinceWindow = '' | '1h' | '24h' | '7d' | '30d';
 
@@ -39,11 +48,19 @@ export const SINCE_WINDOWS: { value: SinceWindow; label: string; hours: number }
 ];
 
 export const EMPTY_RUN_QUERY: RunQuery = {
-  keyword: '',
   status: '',
   since: '',
+  runId: '',
   attributeKey: '',
+  attributeOperator: 'eq',
   attributeValue: '',
+};
+
+const OPERATOR_LABEL: Record<RunOperator, string> = {
+  eq: 'equals',
+  contains: 'contains',
+  gte: 'at least',
+  lte: 'at most',
 };
 
 /** Every status Dex can report, so the picker is a real enum rather than a typed string. */
@@ -51,23 +68,41 @@ export function statusOptions(): string[] {
   return Object.values(FLOW_STATUS).filter((label) => label !== 'Unspecified');
 }
 
-/** The one Attribute a keyword box can legitimately search, or null when the Flow declares none. */
-export function keywordAttribute(definition: FlowV2Definition) {
-  return definition.indexedAttributes.find((attribute) => attribute.indexType === 'fulltext') ?? null;
-}
-
-/** Attributes worth offering as an exact filter: the keyword box already owns fulltext. */
+/** Every declared Indexed Attribute. The operator picker keeps each one to comparisons it supports. */
 export function filterableAttributes(definition: FlowV2Definition) {
-  return definition.indexedAttributes.filter((attribute) => attribute.indexType !== 'fulltext');
+  return definition.indexedAttributes;
 }
 
 /**
- * The operator each index type actually supports. A value filter therefore never asks the
- * server for something it will reject.
+ * What each index type can actually be asked.
+ *
+ * `contains` is rejected server-side unless the index is fulltext, and ordering makes no sense on a
+ * keyword, so offering the whole set everywhere would hand the reader queries that only fail.
  */
-function operatorFor(indexType: string): string {
-  if (indexType === 'fulltext') return 'contains';
-  return 'eq';
+export function operatorsFor(indexType: string): { value: RunOperator; label: string }[] {
+  const ordered: RunOperator[] = indexType === 'fulltext'
+    ? ['contains', 'eq']
+    : indexType === 'int' || indexType === 'double' || indexType === 'datetime'
+      ? ['eq', 'gte', 'lte']
+      : ['eq'];
+  return ordered.map((value) => ({ value, label: OPERATOR_LABEL[value] }));
+}
+
+/** The comparison a reader most likely wants for this index type, used when they pick an attribute. */
+export function defaultOperator(indexType: string): RunOperator {
+  return indexType === 'fulltext' ? 'contains' : 'eq';
+}
+
+export function attributeByKey(definition: FlowV2Definition, key: string) {
+  return definition.indexedAttributes.find((attribute) => attribute.attributeKey === key) ?? null;
+}
+
+/** Which input the value deserves, so a bool or a date cannot be typed as free text. */
+export function valueInputKind(valueType: V2ValueType | undefined): 'text' | 'number' | 'datetime' | 'bool' {
+  if (valueType === 'int64' || valueType === 'double') return 'number';
+  if (valueType === 'datetime') return 'datetime';
+  if (valueType === 'bool') return 'bool';
+  return 'text';
 }
 
 /** Compile the controls into the filter rows the search endpoint already understands. */
@@ -77,12 +112,6 @@ export function toFilterRows(
   nowMs: number,
 ): FilterRow[] {
   const rows: FilterRow[] = [];
-
-  const keyword = query.keyword.trim();
-  const fulltext = keywordAttribute(definition);
-  if (keyword !== '' && fulltext !== null) {
-    rows.push(newFilterRow(fulltext.attributeKey, 'contains', keyword));
-  }
 
   if (query.status !== '') {
     rows.push(newFilterRow('executionStatus', 'eq', query.status));
@@ -94,13 +123,19 @@ export function toFilterRows(
     rows.push(newFilterRow('startTime', 'gte', from.toISOString()));
   }
 
+  const runId = query.runId.trim();
+  if (runId !== '') {
+    rows.push(newFilterRow('flowId', 'eq', runId));
+  }
+
   const value = query.attributeValue.trim();
-  if (query.attributeKey !== '' && value !== '') {
-    const attribute = definition.indexedAttributes
-      .find((candidate) => candidate.attributeKey === query.attributeKey);
-    if (attribute !== undefined) {
-      rows.push(newFilterRow(attribute.attributeKey, operatorFor(attribute.indexType), value));
-    }
+  const attribute = attributeByKey(definition, query.attributeKey);
+  if (attribute !== null && value !== '') {
+    const legal = operatorsFor(attribute.indexType).map((operator) => operator.value);
+    const operator = legal.includes(query.attributeOperator)
+      ? query.attributeOperator
+      : defaultOperator(attribute.indexType);
+    rows.push(newFilterRow(attribute.attributeKey, operator, value));
   }
 
   return rows;
@@ -108,14 +143,20 @@ export function toFilterRows(
 
 /** True when nothing is narrowing the list, so a view can say so rather than imply a scope. */
 export function isEmptyQuery(query: RunQuery): boolean {
-  return toFilterRowsCount(query) === 0;
+  return activeParts(query) === 0;
 }
 
-function toFilterRowsCount(query: RunQuery): number {
+/** Whether anything behind the disclosure is set, so a closed panel cannot hide an active filter. */
+export function hasAdvancedQuery(query: RunQuery): boolean {
+  return query.runId.trim() !== ''
+    || (query.attributeKey !== '' && query.attributeValue.trim() !== '');
+}
+
+function activeParts(query: RunQuery): number {
   return [
-    query.keyword.trim(),
     query.status,
     query.since,
+    query.runId.trim(),
     query.attributeKey !== '' ? query.attributeValue.trim() : '',
   ].filter((part) => part !== '').length;
 }

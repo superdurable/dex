@@ -10,11 +10,14 @@ import { describe, expect, it } from 'vitest';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import {
   EMPTY_RUN_QUERY,
+  defaultOperator,
   filterableAttributes,
+  hasAdvancedQuery,
   isEmptyQuery,
-  keywordAttribute,
+  operatorsFor,
   statusOptions,
   toFilterRows,
+  valueInputKind,
 } from './runQuery';
 
 const indexed = (attributeKey: string, indexType: string, valueType: string) => ({
@@ -43,80 +46,120 @@ const rows = (q: Partial<typeof EMPTY_RUN_QUERY>, definition = searchable) =>
   toFilterRows({ ...EMPTY_RUN_QUERY, ...q }, definition, NOW)
     .map((row) => `${row.field} ${row.operator} ${row.value}`);
 
-describe('keywordAttribute', () => {
-  it('finds the one Attribute a keyword box may search', () => {
-    expect(keywordAttribute(searchable)?.attributeKey).toBe('customer-email');
+describe('operatorsFor', () => {
+  it('offers contains only where the index is full-text', () => {
+    expect(operatorsFor('fulltext').map((o) => o.value)).toEqual(['contains', 'eq']);
+    expect(operatorsFor('keyword').map((o) => o.value)).toEqual(['eq']);
   });
 
-  it('returns null when the Flow declares no fulltext Attribute', () => {
-    expect(keywordAttribute(keywordOnly)).toBeNull();
+  it('offers ordering only where values order', () => {
+    expect(operatorsFor('double').map((o) => o.value)).toEqual(['eq', 'gte', 'lte']);
+    expect(operatorsFor('int').map((o) => o.value)).toEqual(['eq', 'gte', 'lte']);
+    expect(operatorsFor('datetime').map((o) => o.value)).toEqual(['eq', 'gte', 'lte']);
+  });
+
+  it('never offers an operator the server rejects for that index', () => {
+    expect(operatorsFor('keyword').map((o) => o.value)).not.toContain('contains');
+    expect(operatorsFor('double').map((o) => o.value)).not.toContain('contains');
+  });
+
+  it('defaults to the comparison that index type is for', () => {
+    expect(defaultOperator('fulltext')).toBe('contains');
+    expect(defaultOperator('keyword')).toBe('eq');
+    expect(defaultOperator('double')).toBe('eq');
+  });
+});
+
+describe('valueInputKind', () => {
+  it('types the value control from the Attribute, not the reader', () => {
+    expect(valueInputKind('double')).toBe('number');
+    expect(valueInputKind('int64')).toBe('number');
+    expect(valueInputKind('datetime')).toBe('datetime');
+    expect(valueInputKind('bool')).toBe('bool');
+    expect(valueInputKind('string')).toBe('text');
+    expect(valueInputKind(undefined)).toBe('text');
+  });
+});
+
+describe('filterableAttributes', () => {
+  it('offers every declared Indexed Attribute, full-text included', () => {
+    expect(filterableAttributes(searchable).map((a) => a.attributeKey))
+      .toEqual(['customer-email', 'refund-amount', 'case-status']);
   });
 });
 
 describe('toFilterRows', () => {
-  it('sends a keyword to the fulltext Attribute as contains', () => {
-    expect(rows({ keyword: 'northwind.com' })).toEqual(['customer-email contains northwind.com']);
+  it('compiles status to an exact execution-status filter', () => {
+    expect(rows({ status: 'Running' })).toEqual(['executionStatus eq Running']);
   });
 
-  it('drops a keyword the Flow cannot search rather than sending a query the server rejects', () => {
-    expect(rows({ keyword: 'northwind.com' }, keywordOnly)).toEqual([]);
-  });
-
-  it('turns a relative window into an absolute lower bound', () => {
+  it('compiles a relative window to an absolute start time', () => {
     expect(rows({ since: '24h' })).toEqual(['startTime gte 2026-09-19T12:00:00.000Z']);
   });
 
-  it('treats "any time" as no filter at all', () => {
-    expect(rows({ since: '' })).toEqual([]);
+  it('looks a run up by exact id', () => {
+    expect(rows({ runId: ' adv-1 ' })).toEqual(['flowId eq adv-1']);
   });
 
-  it('uses eq for a keyword or numeric Attribute, never contains', () => {
-    expect(rows({ attributeKey: 'refund-amount', attributeValue: '1450' }))
-      .toEqual(['refund-amount eq 1450']);
-    expect(rows({ attributeKey: 'case-status', attributeValue: 'resolved' }))
-      .toEqual(['case-status eq resolved']);
+  it('carries the chosen operator through', () => {
+    expect(rows({ attributeKey: 'refund-amount', attributeOperator: 'gte', attributeValue: '450' }))
+      .toEqual(['refund-amount gte 450']);
+    expect(rows({ attributeKey: 'customer-email', attributeOperator: 'contains', attributeValue: 'acme' }))
+      .toEqual(['customer-email contains acme']);
   });
 
-  it('ignores an Attribute chosen with no value, and a value with no Attribute', () => {
-    expect(rows({ attributeKey: 'case-status', attributeValue: '   ' })).toEqual([]);
-    expect(rows({ attributeValue: 'resolved' })).toEqual([]);
+  it('substitutes the default when the operator is illegal for the index', () => {
+    expect(rows({ attributeKey: 'case-status', attributeOperator: 'contains', attributeValue: 'open' }))
+      .toEqual(['case-status eq open']);
   });
 
-  it('ignores an Attribute the Flow does not declare', () => {
-    expect(rows({ attributeKey: 'not-a-thing', attributeValue: 'x' })).toEqual([]);
+  it('ignores an attribute with no value, and a value with no attribute', () => {
+    expect(rows({ attributeKey: 'refund-amount', attributeValue: '  ' })).toEqual([]);
+    expect(rows({ attributeValue: '450' })).toEqual([]);
   });
 
-  it('ANDs every control that is set', () => {
+  it('ignores an attribute the Flow does not declare', () => {
+    expect(rows({ attributeKey: 'refund-amount', attributeValue: '450' }, keywordOnly)).toEqual([]);
+  });
+
+  it('combines every control that is set', () => {
     expect(rows({
-      keyword: 'northwind.com', status: 'Running', since: '1h',
-      attributeKey: 'case-status', attributeValue: 'awaiting-manager-rule',
+      status: 'Running',
+      since: '1h',
+      runId: 'adv-1',
+      attributeKey: 'refund-amount',
+      attributeOperator: 'lte',
+      attributeValue: '450',
     })).toEqual([
-      'customer-email contains northwind.com',
       'executionStatus eq Running',
       'startTime gte 2026-09-20T11:00:00.000Z',
-      'case-status eq awaiting-manager-rule',
+      'flowId eq adv-1',
+      'refund-amount lte 450',
     ]);
   });
 });
 
-describe('scope reporting', () => {
-  it('knows when nothing is narrowing the list', () => {
-    expect(isEmptyQuery(EMPTY_RUN_QUERY)).toBe(true);
-    expect(isEmptyQuery({ ...EMPTY_RUN_QUERY, status: 'Running' })).toBe(false);
-    expect(isEmptyQuery({ ...EMPTY_RUN_QUERY, keyword: '  ' })).toBe(true);
+describe('statusOptions', () => {
+  it('is a real enum with nothing unspecified in it', () => {
+    const options = statusOptions();
+    expect(options).toContain('Running');
+    expect(options).not.toContain('Unspecified');
   });
 });
 
-describe('option lists', () => {
-  it('offers real statuses and never Unspecified', () => {
-    const options = statusOptions();
-    expect(options).toContain('Running');
-    expect(options).toContain('Completed');
-    expect(options).not.toContain('Unspecified');
+describe('query emptiness', () => {
+  it('knows when nothing is narrowing the list', () => {
+    expect(isEmptyQuery(EMPTY_RUN_QUERY)).toBe(true);
+    expect(isEmptyQuery({ ...EMPTY_RUN_QUERY, status: 'Running' })).toBe(false);
+    expect(isEmptyQuery({ ...EMPTY_RUN_QUERY, runId: '  ' })).toBe(true);
   });
 
-  it('leaves fulltext out of the exact-filter picker, because the keyword box owns it', () => {
-    expect(filterableAttributes(searchable).map((a) => a.attributeKey))
-      .toEqual(['refund-amount', 'case-status']);
+  it('opens the disclosure when something inside it is set', () => {
+    expect(hasAdvancedQuery(EMPTY_RUN_QUERY)).toBe(false);
+    expect(hasAdvancedQuery({ ...EMPTY_RUN_QUERY, status: 'Running' })).toBe(false);
+    expect(hasAdvancedQuery({ ...EMPTY_RUN_QUERY, runId: 'adv-1' })).toBe(true);
+    expect(hasAdvancedQuery({
+      ...EMPTY_RUN_QUERY, attributeKey: 'refund-amount', attributeValue: '450',
+    })).toBe(true);
   });
 });

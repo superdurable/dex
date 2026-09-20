@@ -7,27 +7,30 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 /**
- * The searchable Attribute names itself in the placeholder, so what can be searched comes
- * from the contract rather than from prose somebody has to remember to update.
+ * What can be searched comes from the contract, so the words here name controls rather than fields.
  */
 export const SEARCH_COPY = {
-  keywordLabel(description: string): string {
-    return `Search ${description.toLowerCase()}`;
-  },
-  keywordPlaceholder(description: string): string {
-    return `Search ${description.toLowerCase()}…`;
-  },
   statusLabel: 'Execution status',
   anyStatus: 'Any status',
   sinceLabel: 'Started within',
+  advanced: 'Advanced search',
+  runIdLabel: 'Run ID',
+  runIdPlaceholder: 'Exact run id',
   attributeLabel: 'Attribute',
   anyAttribute: 'Any attribute',
+  operatorLabel: 'Comparison',
   attributeValueLabel: 'Attribute value',
   pickAttribute: 'Choose an attribute first',
-  exactValue: 'Exact value',
+  value: 'Value',
+  anyValue: 'Any',
+  boolTrue: 'True',
+  boolFalse: 'False',
   search: 'Search',
   searching: 'Searching…',
   clear: 'Clear',
+  findHeading: 'Find runs',
+  resultsHeading: 'Results',
+  flowTypeLabel: 'Flow type',
 
   /** Said plainly, because a search box invites the assumption that it reads everything. */
   scopeNote(attributeDescriptions: readonly string[]): string {

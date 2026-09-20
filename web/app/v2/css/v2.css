@@ -388,7 +388,7 @@
 
 .rsw-flowtype {
   width: 100%;
-  margin: 8px 0 4px;
+  margin: 0;
   padding: 4px 6px;
   border: 1px solid var(--p-line);
   border-radius: 5px;
@@ -646,16 +646,110 @@
   margin-left: auto;
 }
 
-/* ------------------------------------------ find a run: four controls, no builder */
+/* --------------------------------- three zones: pick a Flow, find runs, read the list
+
+   Each is a separate surface because they are separate acts. Stacked controls with no boundary
+   read as one long form, and the list underneath looked like a fourth field. */
+
+.rsw-zone {
+  margin-bottom: 10px;
+}
+
+.rsw-zone[data-zone='find'] {
+  padding: 8px 9px 2px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: 6px;
+  background: var(--p-surface-2);
+}
+
+.rsw-zonehead {
+  margin: 0 0 6px;
+  color: var(--p-ink-2);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/* The list owns the rest of the panel, and a rule says where the controls stop. */
+.rsw-scroll[data-zone='list'] {
+  padding-top: 8px;
+  border-top: 1px solid var(--p-line);
+}
+
+/* ------------------------------------------ find a run: two controls, three more behind one click */
 
 .rsq {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  margin: 8px 0 4px;
 }
 
-.rsq-keyword,
+.rsq-basic {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.rsq-adv {
+  margin-top: 1px;
+}
+
+.rsq-advhead {
+  padding: 3px 0;
+  color: var(--p-ink-2);
+  cursor: pointer;
+  font-size: 10.5px;
+  list-style: none;
+}
+
+.rsq-advhead::marker,
+.rsq-advhead::-webkit-details-marker {
+  display: none;
+}
+
+/* A caret the reader can see, since the native marker is suppressed. */
+.rsq-advhead::before {
+  display: inline-block;
+  margin-right: 5px;
+  content: '▸';
+  transition: transform 0.12s ease;
+}
+
+.rsq-adv[open] > .rsq-advhead::before {
+  transform: rotate(90deg);
+}
+
+.rsq-advhead:hover {
+  color: var(--p-ink-0);
+}
+
+.rsq-field {
+  display: block;
+  margin-top: 6px;
+}
+
+.rsq-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--p-ink-3);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The operator takes the width of its longest word; the value gets everything left. */
+.rsq-compare {
+  display: grid;
+  gap: 5px;
+  margin-top: 4px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.rsq-compare select {
+  width: auto;
+}
+
 .rsq select,
 .rsq input {
   width: 100%;
@@ -668,14 +762,9 @@
   font-size: 11.5px;
 }
 
+.rsq select:disabled,
 .rsq input:disabled {
   color: var(--p-ink-3);
-}
-
-.rsq-row {
-  display: grid;
-  gap: 5px;
-  grid-template-columns: 1fr 1fr;
 }
 
 .rsq-actions {
@@ -686,7 +775,7 @@
 
 /* Said once, from the contract: a search box invites the assumption that it reads everything. */
 .rsw-scopenote {
-  margin: 2px 0 8px;
+  margin: 8px 0 6px;
   color: var(--p-ink-3);
   font-size: 10px;
   line-height: 1.45;
