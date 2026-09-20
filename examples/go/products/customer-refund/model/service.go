@@ -32,11 +32,12 @@ const (
 )
 
 type RefundCase struct {
-	CaseID       string `json:"caseId"`
-	Customer     string `json:"customer"`
-	CustomerNote string `json:"customerNote"`
-	AmountCents  int64  `json:"amountCents"`
-	OrderAgeDays int64  `json:"orderAgeDays"`
+	CaseID        string `json:"caseId"`
+	Customer      string `json:"customer"`
+	CustomerEmail string `json:"customerEmail"`
+	CustomerNote  string `json:"customerNote"`
+	AmountCents   int64  `json:"amountCents"`
+	OrderAgeDays  int64  `json:"orderAgeDays"`
 }
 
 type Evidence struct {

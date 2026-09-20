@@ -35,6 +35,7 @@ const (
 	statusExecuting            = "executing"
 	statusAwaitingManagerRule  = "awaiting-manager-rule"
 	statusAwaitingManagerAgent = "awaiting-manager-agent"
+	statusAwaitingMessageOK    = "awaiting-message-approval"
 	statusResolved             = "resolved"
 	statusDenied               = "denied"
 	statusRefunded             = "refunded"
@@ -53,6 +54,12 @@ const (
 )
 
 var agenticInputEmail = dex.DefineAttribute[string]("in-email")
+
+// dex:indexed-attribute attribute-key:customer-email index-key:customer-email index-type:fulltext value-type:string description:"Customer email address"
+var agenticCustomerEmail = dex.DefineAttribute[string](
+	"customer-email",
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexFullText}),
+)
 
 var agenticChargeReference = dex.DefineAttribute[string]("in-charge-ref")
 
@@ -114,6 +121,15 @@ var agenticEmailSent = dex.DefineAttribute[string]("email-sent")
 
 var agenticOperatorNote = dex.DefineAttribute[string]("operator-note")
 
+// dex:indexed-attribute attribute-key:refund-amount index-key:refund-amount index-type:double value-type:double description:"Refund amount in dollars"
+var agenticRefundAmount = dex.DefineAttribute[float64](
+	"refund-amount",
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexDouble}),
+)
+
+// The message a person confirms or rewrites before it reaches the customer.
+var agenticCustomerMessageDraft = dex.DefineAttribute[string]("customer-message-draft")
+
 // dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:case-status
 var agenticCaseStatus = dex.DefineAttribute[string](
 	"case-status",
@@ -122,8 +138,19 @@ var agenticCaseStatus = dex.DefineAttribute[string](
 
 var agenticManagerApproval = dex.DefineChannelMap[string]("manager-approval")
 
+var agenticMessageApproval = dex.DefineChannelMap[string]("message-approval")
+
 type RejectRefundInput struct {
 	Reason         string `json:"reason"`
+	GateRequestKey string `json:"gateRequestKey"`
+}
+
+type ConfirmCustomerMessageInput struct {
+	GateRequestKey string `json:"gateRequestKey"`
+}
+
+type EditCustomerMessageInput struct {
+	Message        string `json:"message"`
 	GateRequestKey string `json:"gateRequestKey"`
 }
 
@@ -161,6 +188,8 @@ func (flow *AgenticCustomerRefundFlow) GetSteps() []dex.StepDef {
 		dex.DefineStep(agenticOfferAccountCreditStep{service: flow.service}),
 		dex.DefineStep(agenticVerifyBillingStep{service: flow.service}),
 		dex.DefineStep(agenticApplySubscriptionStep{service: flow.service}),
+		dex.DefineStep(agenticDraftCustomerMessageStep{}),
+		dex.DefineStep(agenticConfirmCustomerMessageStep{}),
 		dex.DefineStep(agenticSendCustomerMessageStep{service: flow.service}),
 		dex.DefineStep(agenticNonConvergenceStep{}),
 		dex.DefineStep(agenticNotARefundStep{}),
@@ -178,11 +207,20 @@ func (flow *AgenticCustomerRefundFlow) GetRPCs() []dex.RPCDef {
 			dex.LockAttribute(agenticGateRequestKey),
 		},
 	}
+	messageOptions := &dex.RPCOptions{
+		LockAttributes: []dex.AttributeLock{
+			dex.LockAttribute(agenticCaseStatus),
+			dex.LockAttribute(agenticGateRequestKey),
+			dex.LockAttribute(agenticCustomerMessageDraft),
+		},
+	}
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.GetDexSummary, nil),
 		dex.DefineRPC(flow.GetDexDisplay, nil),
 		dex.DefineRPC(flow.ApproveRefund, actionOptions),
 		dex.DefineRPC(flow.RejectRefund, actionOptions),
+		dex.DefineRPC(flow.ConfirmCustomerMessage, messageOptions),
+		dex.DefineRPC(flow.EditCustomerMessage, messageOptions),
 	}
 }
 
@@ -221,8 +259,11 @@ func (*AgenticCustomerRefundFlow) GetPersistenceSchema() dex.PersistenceSchema {
 			agenticEmailSent,
 			agenticOperatorNote,
 			agenticCaseStatus,
+			agenticRefundAmount,
+			agenticCustomerEmail,
+			agenticCustomerMessageDraft,
 		},
-		Channels: []dex.ChannelDef{agenticManagerApproval},
+		Channels: []dex.ChannelDef{agenticManagerApproval, agenticMessageApproval},
 	}
 }
 
@@ -258,6 +299,7 @@ func (*AgenticCustomerRefundFlow) GetDexSummary(
 	}}, nil
 }
 
+// dex:field attribute-key:customer-email value-type:string editable:false description:"Customer email"
 // dex:field attribute-key:in-email value-type:string editable:false description:"Customer request"
 // dex:field attribute-key:in-charge-ref value-type:string editable:false description:"Charge reference"
 // dex:field attribute-key:evidence-state value-type:string editable:false description:"Evidence state"
@@ -270,6 +312,7 @@ func (*AgenticCustomerRefundFlow) GetDexSummary(
 // dex:field attribute-key:billing-outcome value-type:string editable:false description:"Billing effect"
 // dex:field attribute-key:subscription-applied value-type:string editable:false description:"Subscription effect"
 // dex:field attribute-key:email-sent value-type:string editable:false description:"Customer message effect"
+// dex:field attribute-key:customer-message-draft value-type:string editable:true description:"Customer message"
 // dex:field attribute-key:operator-note value-type:string editable:true description:"Operator note"
 func (*AgenticCustomerRefundFlow) GetDexDisplay(
 	ctx dex.Context,
@@ -279,6 +322,7 @@ func (*AgenticCustomerRefundFlow) GetDexDisplay(
 		key       string
 		attribute dex.Attribute[string]
 	}{
+		{"customer-email", agenticCustomerEmail},
 		{"in-email", agenticInputEmail},
 		{"in-charge-ref", agenticChargeReference},
 		{"evidence-state", agenticEvidenceState},
@@ -291,6 +335,7 @@ func (*AgenticCustomerRefundFlow) GetDexDisplay(
 		{"billing-outcome", agenticBillingOutcome},
 		{"subscription-applied", agenticSubscriptionApplied},
 		{"email-sent", agenticEmailSent},
+		{"customer-message-draft", agenticCustomerMessageDraft},
 		{"operator-note", agenticOperatorNote},
 	}
 	output := make(map[string]any, len(fields))
@@ -302,6 +347,7 @@ func (*AgenticCustomerRefundFlow) GetDexDisplay(
 		output[field.key] = value
 	}
 	return &dex.RPCResult[map[string]any]{Output: map[string]any{
+		"customer-email":           output["customer-email"],
 		"in-email":                 output["in-email"],
 		"in-charge-ref":            output["in-charge-ref"],
 		"evidence-state":           output["evidence-state"],
@@ -314,6 +360,7 @@ func (*AgenticCustomerRefundFlow) GetDexDisplay(
 		"billing-outcome":          output["billing-outcome"],
 		"subscription-applied":     output["subscription-applied"],
 		"email-sent":               output["email-sent"],
+		"customer-message-draft":   output["customer-message-draft"],
 		"operator-note":            output["operator-note"],
 	}}, nil
 }
@@ -361,6 +408,53 @@ func (*AgenticCustomerRefundFlow) RejectRefund(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
+// dex:action action-label:"Send as written"
+// dex:when attribute-key:case-status operator:in values:["awaiting-message-approval"]
+// dex:input description:"Message gate" required:true source:attribute attribute-key:gate-request-key value-type:string field-name:gateRequestKey
+func (*AgenticCustomerRefundFlow) ConfirmCustomerMessage(
+	ctx dex.Context,
+	input ConfirmCustomerMessageInput,
+) (*dex.RPCResult[dex.None], error) {
+	gateRequestKey, err := agenticValidateOpenMessageGate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if input.GateRequestKey != gateRequestKey {
+		return nil, fmt.Errorf("message gate changed; refresh the case before confirming")
+	}
+	if err := agenticMessageApproval.Publish(ctx, gateRequestKey, "confirm"); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// dex:action action-label:"Rewrite and send"
+// dex:when attribute-key:case-status operator:in values:["awaiting-message-approval"]
+// dex:input field-name:message value-type:string source:user required:true description:"Message to send"
+// dex:input description:"Message gate" required:true source:attribute attribute-key:gate-request-key value-type:string field-name:gateRequestKey
+func (*AgenticCustomerRefundFlow) EditCustomerMessage(
+	ctx dex.Context,
+	input EditCustomerMessageInput,
+) (*dex.RPCResult[dex.None], error) {
+	gateRequestKey, err := agenticValidateOpenMessageGate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if input.GateRequestKey != gateRequestKey {
+		return nil, fmt.Errorf("message gate changed; refresh the case before rewriting")
+	}
+	if input.Message == "" {
+		return nil, fmt.Errorf("message is required")
+	}
+	if err := agenticCustomerMessageDraft.Set(ctx, input.Message); err != nil {
+		return nil, err
+	}
+	if err := agenticMessageApproval.Publish(ctx, gateRequestKey, "edited"); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
 // dex:group group-id:intake group-label:"Intake"
 // dex:explanation text:"Store the inbound refund request and open or reject the case."
 type agenticReceiveRequestStep struct {
@@ -375,6 +469,9 @@ func (agenticReceiveRequestStep) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
+	if err := agenticCustomerEmail.Set(ctx, refundCase.CustomerEmail); err != nil {
+		return nil, err
+	}
 	if err := agenticInputEmail.Set(ctx, refundCase.CustomerNote); err != nil {
 		return nil, err
 	}
@@ -540,6 +637,9 @@ func (step agenticGetPaymentStep) Execute(
 		return nil, err
 	}
 	if err := agenticPaymentAgeDays.Set(ctx, refundCase.OrderAgeDays); err != nil {
+		return nil, err
+	}
+	if err := agenticRefundAmount.Set(ctx, float64(refundCase.AmountCents)/100); err != nil {
 		return nil, err
 	}
 	if err := agenticPaymentAmount.Set(ctx, fmt.Sprintf("%.2f", float64(refundCase.AmountCents)/100)); err != nil {
@@ -713,7 +813,7 @@ func (agenticReCheckStep) Execute(
 		if err := agenticCaseStatus.Set(ctx, statusDenied); err != nil {
 			return nil, err
 		}
-		return dex.GoTo(agenticSendCustomerMessageStep{}, refundCase), nil
+		return dex.GoTo(agenticDraftCustomerMessageStep{}, refundCase), nil
 	}
 	if err := agenticBoundAction.Set(ctx, actionIssueRefund); err != nil {
 		return nil, err
@@ -930,11 +1030,101 @@ func (step agenticApplySubscriptionStep) Execute(
 	if err := agenticSubscriptionApplied.Set(ctx, "yes"); err != nil {
 		return nil, err
 	}
+	return dex.GoTo(agenticDraftCustomerMessageStep{}, refundCase), nil
+}
+
+// dex:group group-id:resolution group-label:"Resolution"
+// dex:explanation text:"Draft the customer message and open it for a person to confirm."
+type agenticDraftCustomerMessageStep struct {
+	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
+}
+
+func (agenticDraftCustomerMessageStep) GetStepType() string {
+	return "DraftCustomerMessageStep"
+}
+
+func (agenticDraftCustomerMessageStep) Execute(
+	ctx dex.Context,
+	refundCase refundmodel.RefundCase,
+) (*dex.StepDecision, error) {
+	status, err := agenticCaseStatus.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	message := "We have finished reviewing your request."
+	switch status {
+	case statusRefunded:
+		message = "Your refund has been issued."
+	case statusCredited:
+		message = "We applied account credit."
+	case statusDenied:
+		message = "We cannot approve this refund."
+	case statusBusinessFailure:
+		message = "We could not process a refund on this charge."
+	}
+	if err := agenticCustomerMessageDraft.Set(ctx, message); err != nil {
+		return nil, err
+	}
+	// Same counter and key Attribute as the approval gate; the channel is what differs,
+	// so the two gates cannot consume each other's answer.
+	gateEntries, _, getErr := agenticOptionalAttribute(ctx, agenticGateEntries)
+	if getErr != nil {
+		return nil, getErr
+	}
+	gateEntries++
+	if err := agenticGateEntries.Set(ctx, gateEntries); err != nil {
+		return nil, err
+	}
+	if err := agenticGateRequestKey.Set(ctx, fmt.Sprintf("%s:gate:%d", refundCase.CaseID, gateEntries)); err != nil {
+		return nil, err
+	}
+	if err := agenticCaseStatus.Set(ctx, statusAwaitingMessageOK); err != nil {
+		return nil, err
+	}
+	return dex.GoTo(agenticConfirmCustomerMessageStep{}, refundCase), nil
+}
+
+// dex:group group-id:resolution group-label:"Resolution"
+// dex:explanation text:"Wait for a person to confirm or rewrite the customer message."
+type agenticConfirmCustomerMessageStep struct {
+	dex.StepDefaults
+}
+
+func (agenticConfirmCustomerMessageStep) GetStepType() string {
+	return "ConfirmCustomerMessageStep"
+}
+
+func (agenticConfirmCustomerMessageStep) WaitFor(
+	ctx dex.Context,
+	_ refundmodel.RefundCase,
+) (*dex.Wait, error) {
+	gateRequestKey, err := agenticGateRequestKey.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dex.Until(agenticMessageApproval.ForOne(gateRequestKey)), nil
+}
+
+func (agenticConfirmCustomerMessageStep) Execute(
+	ctx dex.Context,
+	refundCase refundmodel.RefundCase,
+) (*dex.StepDecision, error) {
+	gateRequestKey, err := agenticGateRequestKey.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	verdicts, err := agenticMessageApproval.GetConditionResults(ctx, gateRequestKey)
+	if err != nil {
+		return nil, err
+	}
+	if len(verdicts) != 1 {
+		return nil, fmt.Errorf("message gate expected one verdict")
+	}
 	return dex.GoTo(agenticSendCustomerMessageStep{}, refundCase), nil
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
-// dex:explanation text:"Send the customer the resolution message."
+// dex:explanation text:"Send the customer the message a person confirmed."
 type agenticSendCustomerMessageStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
@@ -956,16 +1146,10 @@ func (step agenticSendCustomerMessageStep) Execute(
 	if err != nil {
 		return nil, err
 	}
-	message := "We have finished reviewing your request."
-	switch status {
-	case statusRefunded:
-		message = "Your refund has been issued."
-	case statusCredited:
-		message = "We applied account credit."
-	case statusDenied:
-		message = "We cannot approve this refund."
-	case statusBusinessFailure:
-		message = "We could not process a refund on this charge."
+	// Whatever the person confirmed, not a freshly composed message.
+	message, err := agenticCustomerMessageDraft.Get(ctx)
+	if err != nil {
+		return nil, err
 	}
 	if err := step.service.SendCustomerMessage(refundCase, message); err != nil {
 		return nil, err
@@ -1038,7 +1222,7 @@ func (agenticBillingFailedStep) Execute(
 	if err := agenticCaseStatus.Set(ctx, statusBusinessFailure); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticSendCustomerMessageStep{}, refundCase), nil
+	return dex.GoTo(agenticDraftCustomerMessageStep{}, refundCase), nil
 }
 
 // dex:group group-id:failure group-label:"Failure"
@@ -1061,7 +1245,7 @@ func (agenticSubscriptionFailedStep) Execute(
 	if err := agenticCaseStatus.Set(ctx, statusFollowUpSubscription); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticSendCustomerMessageStep{}, refundCase), nil
+	return dex.GoTo(agenticDraftCustomerMessageStep{}, refundCase), nil
 }
 
 // dex:group group-id:failure group-label:"Failure"
@@ -1151,6 +1335,24 @@ func agenticChooseAction(
 		return actionOfferAccountCredit, "outside the standard refund window", nil
 	}
 	return actionIssueRefund, "available evidence supports a refund", nil
+}
+
+func agenticValidateOpenMessageGate(ctx dex.Context) (string, error) {
+	status, err := agenticCaseStatus.Get(ctx)
+	if err != nil {
+		return "", err
+	}
+	if status != statusAwaitingMessageOK {
+		return "", fmt.Errorf("case is not awaiting a customer message decision")
+	}
+	gateRequestKey, err := agenticGateRequestKey.Get(ctx)
+	if err != nil {
+		return "", err
+	}
+	if gateRequestKey == "" {
+		return "", fmt.Errorf("message gate is missing")
+	}
+	return gateRequestKey, nil
 }
 
 func agenticValidateOpenGate(ctx dex.Context) (string, error) {

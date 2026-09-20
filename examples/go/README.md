@@ -41,6 +41,24 @@ make bins
 The Worker synchronizes all registered Indexed Attributes with Dex before it
 opens its listener; no backend CLI registration is required.
 
+Because that sync happens first, changing a Flow type's Indexed Attributes while
+a store already holds runs of that Flow type can stop the Worker before it binds.
+The symptom is silence: the process stays alive, logs nothing after Gin's startup
+banner, and never opens `DEX_EXAMPLES_HTTP_ADDRESS`, so every request fails to
+connect rather than returning an error. Adding, removing or retyping a
+`dex.Indexed` Attribute counts as such a change.
+
+Point Dex at an empty store to confirm it, since a fresh store has nothing to
+reconcile:
+
+```bash
+dexcli dev -dex-port 8901 -web-port 8902   # a new port means a new store directory
+```
+
+If the Worker binds there and not against the original store, the schema change
+is the cause and not the code. Existing runs stay in the old store, so keep the
+old port if you need them.
+
 The defaults connect to Dex at `localhost:8801`. These environment variables override the local addresses:
 
 - `DEX_FLOW_SERVICE_ADDRESS`: Dex gRPC target.

@@ -3,7 +3,7 @@
 This product contains two Go Flows for the same customer-refund problem.
 
 - `deterministic/workflow.go` is a fixed seven-Step policy. It verifies the 30-day window, uses a persisted provider idempotency key, and preserves declined or unknown outcomes.
-- `agentic/workflow.go` loops through durable evidence, records a recommendation, applies a guardrail, opens a keyed approval gate, and separates intent from idempotent effects.
+- `agentic/workflow.go` loops through durable evidence, records a recommendation, applies a guardrail, opens a keyed approval gate, and separates intent from idempotent effects. It then opens a **second** keyed gate so a person confirms or rewrites the customer message before it is sent.
 
 Both files are self-contained FDG 2.0 sources. Every Step declares `dex:group`
 and a one-sentence `dex:explanation`. Generate their definitions from the
@@ -19,11 +19,47 @@ Start the example server and create runs with:
 ```bash
 curl -X POST http://127.0.0.1:8080/products/customer-refund/deterministic/start \
   -H 'content-type: application/json' \
-  -d '{"case":{"caseId":"order-42","customer":"customer-1","customerNote":"Please refund this charge","amountCents":4200,"orderAgeDays":12}}'
+  -d '{"case":{"caseId":"order-42","customer":"customer-1","customerEmail":"customer-1@example.com","customerNote":"Please refund this charge","amountCents":4200,"orderAgeDays":12}}'
 
 curl -X POST http://127.0.0.1:8080/products/customer-refund/agentic/start \
   -H 'content-type: application/json' \
-  -d '{"case":{"caseId":"rule-escalation","customer":"customer-2","customerNote":"Please review this charge","amountCents":1400000,"orderAgeDays":8}}'
+  -d '{"case":{"caseId":"rule-escalation","customer":"customer-2","customerEmail":"customer-2@example.com","customerNote":"Please review this charge","amountCents":1400000,"orderAgeDays":8}}'
 ```
 
-The agentic Flow exposes `ApproveRefund` as a no-input Action. `RejectRefund` asks for a reason and binds the hidden `gate-request-key` snapshot supplied by Dex Web. Both RPCs re-check the current status before publishing a verdict.
+## Two human gates
+
+The agentic Flow stops for a person twice, and a run can only ever be at one of
+them:
+
+| status | Actions | Channel |
+|---|---|---|
+| `awaiting-manager-rule` / `awaiting-manager-agent` | `ApproveRefund`, `RejectRefund` | `manager-approval` |
+| `awaiting-message-approval` | `ConfirmCustomerMessage`, `EditCustomerMessage` | `message-approval` |
+
+`ApproveRefund` takes no input. The other three bind the hidden
+`gate-request-key` snapshot supplied by Dex Web, and every one re-checks the
+current status before publishing, so a tab left open across a decision is turned
+away rather than answering a question that has moved on.
+
+Both gates share one counter and one `gate-request-key`, which is why the keys
+read `case:gate:1` and `case:gate:2`. They cannot consume each other's answer
+because each waits on its own Channel.
+
+`DraftCustomerMessageStep` composes the message and mints the gate; the gate Step
+only reads the key. Nothing writes inside a `wait_for` phase — a Step that does
+so without declaring its loads in `StepOptions` registers an empty wait condition
+and parks forever.
+
+## Searching for a run
+
+The agentic Flow declares three Indexed Attributes, which are the only fields
+Dex Web can search on:
+
+| Attribute | index | queries it allows |
+|---|---|---|
+| `customer-email` | fulltext | whole address, or just the domain |
+| `refund-amount` | double | ranges, in dollars rather than cents |
+| `case-status` | keyword | exact, or one of several |
+
+Read [the Go examples README](../../README.md#run-locally) before changing any of
+them: the Worker reconciles Indexed Attributes against the store at startup.
