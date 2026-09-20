@@ -19,6 +19,17 @@ export function formatDate(value: string | null, timezone: TimezonePreference): 
   }).format(date);
 }
 
+/** Time only, for a narrow column where the date would not fit and rarely differs. */
+export function formatTimeOfDay(value: string | null, timezone: TimezonePreference): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat(undefined, {
+    timeStyle: 'short',
+    timeZone: timezone === 'UTC' ? 'UTC' : undefined,
+  }).format(date);
+}
+
 export function formatDuration(start: string | null, close: string | null): string {
   if (!start) return '—';
   const startMs = Date.parse(start);

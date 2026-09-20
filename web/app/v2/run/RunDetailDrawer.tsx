@@ -67,6 +67,8 @@ export function RunDetailDrawer({
         flowId={flowId}
         flowStatusCode={flowStatusCode}
         flowType={flowType}
+        order="actions-first"
+        showHeading={false}
         reloadKey={reloadKey}
         onStranded={onStranded}
       />

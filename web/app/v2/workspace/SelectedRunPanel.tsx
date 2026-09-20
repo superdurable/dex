@@ -27,6 +27,8 @@ export function SelectedRunPanel({
   flowStatusCode,
   footer,
   reloadKey = 0,
+  order,
+  showHeading = true,
   onStranded,
 }: {
   flowType: string;
@@ -37,6 +39,13 @@ export function SelectedRunPanel({
   footer?: ReactNode;
   /** Bumped by the view's shared clock, so the fields and the canvas move together. */
   reloadKey?: number;
+  /**
+   * Admin already knows the case, so Run puts the decision first. A participant needs the
+   * evidence before the decision, so the Queue reads the other way.
+   */
+  order: 'actions-first' | 'evidence-first';
+  /** False when the host already names the run, so it is not named twice. */
+  showHeading?: boolean;
   /** Reported up so the list can mark the row; a search cannot discover this. */
   onStranded?: (flowID: string) => void;
 }) {
@@ -119,12 +128,14 @@ export function SelectedRunPanel({
 
   return (
     <div className="v2-case sc">
-      <div className="sc-head">
-        <span className="sc-title">{flowId}</span>
-        {result && <span className="sc-status">{result.flowStatus}</span>}
-        {held.liveness === 'stale' && <span className="sc-stale">{QUEUE_COPY.staleShort}</span>}
-        {footer}
-      </div>
+      {(showHeading || footer || held.liveness === 'stale') && (
+        <div className="sc-head">
+          {showHeading && <span className="sc-title">{flowId}</span>}
+          {showHeading && result && <span className="sc-status">{result.flowStatus}</span>}
+          {held.liveness === 'stale' && <span className="sc-stale">{QUEUE_COPY.staleShort}</span>}
+          {footer}
+        </div>
+      )}
       {isStranded && <p className="sc-state" data-liveness="stranded">{QUEUE_COPY.stranded}</p>}
       {held.liveness === 'unreachable' && <p className="v2-error">{held.reason}</p>}
       {held.liveness === 'stale' && <p className="sc-why">{held.reason}</p>}
@@ -132,6 +143,51 @@ export function SelectedRunPanel({
       {actionError && <p className="v2-error">{actionError}</p>}
       {result && !isStranded && (
         <>
+          {order === 'actions-first' ? (<>
+          <div className="sc-block">
+            <div className="sc-blockhead">Actions</div>
+            {visibleV2Actions(definition.actions, result.eligibleActions).map((action) => {
+              const userFields = v2ActionUserFields(action);
+              return (
+                <form
+                  className="sc-actions"
+                  key={action.rpcName}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void invokeAction(action);
+                  }}
+                >
+                  {userFields.map((field) => (
+                    <label key={field.fieldName}>
+                      <span className="sc-fname">{field.description}</span>
+                      <ActionInput
+                        field={field}
+                        value={actionValues[action.rpcName]?.[field.fieldName] ?? ''}
+                        onChange={(value) => setActionValues((current) => ({
+                          ...current,
+                          [action.rpcName]: {
+                            ...current[action.rpcName],
+                            [field.fieldName]: value,
+                          },
+                        }))}
+                      />
+                    </label>
+                  ))}
+                  <button
+                    className="v2-primary"
+                    disabled={!result.isActive || busyKey === action.rpcName}
+                    type="submit"
+                  >
+                    {busyKey === action.rpcName ? 'Working…' : action.label}
+                  </button>
+                </form>
+              );
+            })}
+            {definition.actions.length > 0 && result.eligibleActions.length === 0 && (
+              <p className="sc-state">No Actions are available in the current state.</p>
+            )}
+          </div>
+
           <div className="sc-block">
             <div className="sc-blockhead">Display</div>
             <dl className="sc-facts">
@@ -184,6 +240,60 @@ export function SelectedRunPanel({
               })}
             </dl>
           </div>
+</>) : (<>
+          <div className="sc-block">
+            <div className="sc-blockhead">Display</div>
+            <dl className="sc-facts">
+              {definition.display.fields.map((field) => {
+                const isEditing = editingKey === field.attributeKey;
+                return (
+                  <div className="sc-fact" key={field.attributeKey}>
+                    <dt className="sc-fname">{field.description}</dt>
+                    <dd className="sc-fvalue">
+                      {isEditing ? (
+                        <>
+                          <TypedInput field={field} value={editValue} onChange={setEditValue} />
+                          <button
+                            className="v2-primary"
+                            disabled={busyKey === field.attributeKey}
+                            onClick={() => void saveField(field.attributeKey, field.valueType)}
+                            type="button"
+                          >
+                            Save
+                          </button>
+                          <button className="v2-ghost" onClick={() => setEditingKey('')} type="button">Cancel</button>
+                          {fieldErrors[field.attributeKey] && (
+                            <small className="v2-error">{fieldErrors[field.attributeKey]}</small>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <span>{displayValue(result.display[field.attributeKey])}</span>
+                          {field.editable && result.isActive && (
+                            <button
+                              className="v2-ghost"
+                              onClick={() => {
+                                setEditingKey(field.attributeKey);
+                                setFieldErrors((current) => ({ ...current, [field.attributeKey]: '' }));
+                                setEditValue(editableValue(
+                                  result.display[field.attributeKey],
+                                  field.valueType,
+                                ));
+                              }}
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </dd>
+                  </div>
+                );
+              })}
+            </dl>
+          </div>
+
           <div className="sc-block">
             <div className="sc-blockhead">Actions</div>
             {visibleV2Actions(definition.actions, result.eligibleActions).map((action) => {
@@ -227,6 +337,7 @@ export function SelectedRunPanel({
               <p className="sc-state">No Actions are available in the current state.</p>
             )}
           </div>
+</>)}
         </>
       )}
     </div>

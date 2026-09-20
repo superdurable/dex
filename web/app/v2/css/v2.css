@@ -257,18 +257,50 @@
   align-items: stretch;
 }
 
-.rsw-list {
+.rsw-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
 }
 
+/* A stronger rule between groups than between rows: the split is the coarser fact. */
+.rsw-group + .rsw-group {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--p-line);
+}
+
+.rsw-grouphead {
+  margin-bottom: 2px;
+  color: var(--p-ink-3);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rsw-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Lines, not boxes: a run is an entry in a list, not a card competing with the canvas. */
+.rsw-item + .rsw-item {
+  border-top: 1px solid var(--p-line-soft);
+}
+
 .rsw-row {
   display: grid;
   width: 100%;
-  gap: 2px;
-  padding: 6px 8px;
-  border-radius: 5px;
+  border: 0;
+  border-left: 2px solid transparent;
+  padding: 7px 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  gap: 1px 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
   text-align: left;
 }
 
@@ -276,13 +308,39 @@
   background: var(--p-surface-2);
 }
 
-.sq-item[data-selected='true'] .rsw-row {
+.rsw-item[data-selected='true'] .rsw-row {
+  border-left-color: var(--p-run-active);
   background: var(--p-surface-3);
+}
+
+.rsw-id {
+  color: var(--p-ink-0);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+}
+
+.rsw-time {
+  color: var(--p-ink-3);
+  font-size: 9.5px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .rsw-state {
   color: var(--p-ink-2);
   font-size: 10px;
+  grid-column: 1 / -1;
+}
+
+.rsw-stranded {
+  color: var(--p-run-failed);
+  font-size: 9.5px;
+  grid-column: 1 / -1;
+}
+
+.rsw-item[data-stranded='true'] .rsw-id,
+.rsw-item[data-stranded='true'] .rsw-state {
+  color: var(--p-ink-3);
 }
 
 .v2-run-empty {
@@ -306,14 +364,6 @@
   border-top: 0;
 }
 
-.rdw .sc-block:last-of-type {
-  position: sticky;
-  bottom: 0;
-  margin-top: auto;
-  padding-top: 10px;
-  border-top: 1px solid var(--p-line-soft);
-  background: var(--p-surface-1);
-}
 
 .rhd {
   position: sticky;
@@ -335,6 +385,26 @@
   font-size: 12.5px;
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+
+/* Mono plus a border reads as an engineering surface without a label saying so. */
+.rhd-inspect {
+  display: inline-flex;
+  margin-left: auto;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--p-line);
+  border-radius: 4px;
+  color: var(--p-ink-2);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.rhd-inspect:hover {
+  border-color: var(--p-ink-3);
+  color: var(--p-ink-0);
 }
 
 .rhd-facts {

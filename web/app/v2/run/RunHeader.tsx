@@ -13,7 +13,6 @@ import { formatDate, formatDuration } from '@/lib/format';
 import type { FlowSummary } from '@/lib/types';
 import { usePreferences } from '../../providers';
 import { v2DebugPath } from '../contract';
-import { DEBUG_COPY } from '../debug/copy';
 import { isOpenFlowStatusCode } from '../queue/liveness';
 import { RUN_COPY } from './copy';
 
@@ -40,8 +39,13 @@ export function RunHeader({
       <div className="rhd-line">
         <span className="rhd-id t-mono" title={flowId}>{flowId}</span>
         {summary && <span className="sc-status">{summary.flowStatus}</span>}
-        <Link className="v2-seemore" to={v2DebugPath(flowType, flowId, summary?.runId)}>
-          {DEBUG_COPY.openLabel}
+        <Link
+          className="rhd-inspect t-mono"
+          title={RUN_COPY.inspectHint}
+          to={v2DebugPath(flowType, flowId, summary?.runId)}
+        >
+          {RUN_COPY.inspect}
+          <span aria-hidden="true">›</span>
         </Link>
       </div>
       {summary && (

@@ -6,10 +6,13 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { formatTimeOfDay } from '@/lib/format';
 import type { V2CatalogEntry, V2Flow } from '@/lib/types';
+import { usePreferences } from '../../providers';
 import { QUEUE_COPY } from '../queue/copy';
 import type { FlowSearch } from '../workspace/useFlowSearch';
 import { RUN_COPY } from './copy';
+import { groupRuns } from './runOrder';
 
 /**
  * Pick a run, nothing more. The filter builder, Search and pager belong to the Queue:
@@ -35,7 +38,9 @@ export function RunSwitcher({
   onSelectFlowType: (flowType: string) => void;
   onSelectRun: (flowID: string) => void;
 }) {
+  const { timezone } = usePreferences();
   const { flows, liveness, loading } = search;
+  const groups = groupRuns(flows);
   return (
     <aside className="rsw" aria-label={RUN_COPY.runsHeading}>
       <div className="sq-head">
@@ -68,26 +73,34 @@ export function RunSwitcher({
               ? QUEUE_COPY.stale
               : flows.length === 0
                 ? RUN_COPY.noRuns
-                : QUEUE_COPY.onThisPage(flows.length)}
+                : RUN_COPY.order}
       </p>
-      <ol className="v2-list rsw-list">
-        {flows.map((flow) => (
-          <li
-            className="sq-item"
-            data-selected={flow.flowId === selectedFlowID ? 'true' : undefined}
-            data-stranded={strandedFlowIDs.has(flow.flowId) ? 'true' : undefined}
-            key={flow.flowId}
-          >
-            <button className="rsw-row" onClick={() => onSelectRun(flow.flowId)} type="button">
-              <span className="sq-run t-mono" title={flow.flowId}>{flow.flowId}</span>
-              <span className="rsw-state">{runStateText(flow, attentionAttributeKey)}</span>
-              {strandedFlowIDs.has(flow.flowId) && (
-                <span className="sq-unknown">{QUEUE_COPY.strandedRow}</span>
-              )}
-            </button>
-          </li>
+      <div className="rsw-scroll">
+        {groups.map((group) => (
+          <section className="rsw-group" data-group={group.key} key={group.key}>
+            <h3 className="rsw-grouphead">{group.label}</h3>
+            <ul className="rsw-list">
+              {group.flows.map((flow) => (
+                <li
+                  className="rsw-item"
+                  data-selected={flow.flowId === selectedFlowID ? 'true' : undefined}
+                  data-stranded={strandedFlowIDs.has(flow.flowId) ? 'true' : undefined}
+                  key={flow.flowId}
+                >
+                  <button className="rsw-row" onClick={() => onSelectRun(flow.flowId)} type="button">
+                    <span className="rsw-id t-mono" title={flow.flowId}>{flow.flowId}</span>
+                    <span className="rsw-time">{formatTimeOfDay(flow.startTime, timezone)}</span>
+                    <span className="rsw-state">{runStateText(flow, attentionAttributeKey)}</span>
+                    {strandedFlowIDs.has(flow.flowId) && (
+                      <span className="rsw-stranded">{QUEUE_COPY.strandedRow}</span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         ))}
-      </ol>
+      </div>
     </aside>
   );
 }

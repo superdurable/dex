@@ -78,6 +78,7 @@ export function QueueWorkspace() {
             flowId={flowId}
             flowStatusCode={selectedFlow?.flowStatusCode}
             flowType={entry.flowType}
+            order="evidence-first"
             onStranded={rememberStranded}
             footer={(
               <Link className="v2-seemore" to={v2RunPath(entry.flowType, flowId)}>

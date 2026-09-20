@@ -9,6 +9,8 @@
 export const RUN_COPY = {
   runsHeading: 'Runs',
   noRuns: 'No runs of this Flow type.',
+  /** The order is stated rather than left for the reader to infer. */
+  order: 'Open first, then newest.',
   selectPrompt: 'Select a run to see where it is and what it needs.',
   /** The step the canvas is showing, which is not always the one that needs somebody. */
   showingStep: 'Showing',
@@ -18,7 +20,8 @@ export const RUN_COPY = {
   noActions: 'No Actions are available in the current state.',
   stop: 'Stop',
   stopped: 'Stopping…',
-  deepDive: 'Deep dive',
+  inspect: 'Inspect',
+  inspectHint: 'The full technical record for this run',
   elapsed: 'Running for',
   closed: 'Closed',
 } as const;
