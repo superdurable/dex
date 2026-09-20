@@ -11,6 +11,7 @@ import type { FlowSummary } from '@/lib/types';
 import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { RUN_COPY } from './copy';
 import { RunHeader } from './RunHeader';
+import { hasMultipleActions, type ActionableStep } from './actionableSteps';
 import type { StepContextView } from './stepContext';
 
 /** What the canvas is currently showing, so the drawer can say so without owning selection. */
@@ -34,6 +35,7 @@ export function RunDetailDrawer({
   summary,
   flowStatusCode,
   band,
+  actionable,
   stepContext,
   reloadKey,
   onStranded,
@@ -47,6 +49,7 @@ export function RunDetailDrawer({
   summary: FlowSummary | null;
   flowStatusCode?: number;
   band: StepBand | null;
+  actionable: readonly ActionableStep[];
   stepContext: StepContextView | null;
   reloadKey: number;
   onStranded?: (flowID: string) => void;
@@ -76,6 +79,7 @@ export function RunDetailDrawer({
           </button>
         </div>
       )}
+      {hasRun && hasMultipleActions(actionable) && <ActionProgress steps={actionable} />}
       {hasRun && band && (
         <div className="rdw-band" data-tone={band.tone ?? undefined}>
           <span className="rdw-bandlabel">
@@ -94,7 +98,11 @@ export function RunDetailDrawer({
           order="actions-first"
           showHeading={false}
           reloadKey={reloadKey}
-          onActed={onClose}
+          onActed={() => {
+          // Closing was right when one Action ended the run. With another gate pending,
+          // advancing is the point: the reader should not have to find it again.
+          if (actionable.filter((step) => step.state !== 'done').length <= 1) onClose();
+        }}
           onStranded={onStranded}
         />
       )}
@@ -118,6 +126,33 @@ function StepContextBlock({ view }: { view: StepContextView }) {
           </div>
         ))}
       </dl>
+    </div>
+  );
+}
+
+/**
+ * Progress through a Flow's human gates. Only one is ever open, so this reads as a sequence
+ * rather than a list of things that could be done now.
+ */
+function ActionProgress({ steps }: { steps: readonly ActionableStep[] }) {
+  const current = steps.findIndex((step) => step.state === 'current');
+  const remaining = steps.filter((step) => step.state !== 'done').length;
+  return (
+    <div className="apg">
+      <div className="apg-head">
+        <span className="apg-label">{RUN_COPY.actionProgress}</span>
+        <span className="apg-count">
+          {current < 0 ? RUN_COPY.allActionsDone : RUN_COPY.actionsLeft(remaining)}
+        </span>
+      </div>
+      <ol className="apg-list">
+        {steps.map((step, index) => (
+          <li className="apg-step" data-state={step.state} key={step.stepId}>
+            <span className="apg-mark" aria-hidden="true">{step.state === 'done' ? '✓' : index + 1}</span>
+            <span className="apg-name t-mono">{step.stepType}</span>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

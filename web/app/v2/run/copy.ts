@@ -22,6 +22,11 @@ export const RUN_COPY = {
   stopped: 'Stopping…',
   inspect: 'Inspect',
   inspectHint: 'The full technical record for this run',
+  actionProgress: 'Your actions',
+  allActionsDone: 'all done',
+  actionsLeft(n: number): string {
+    return n === 1 ? '1 left' : `${n} left`;
+  },
   thisStep: 'This step',
   stepOnly: 'Step in this flow',
   noPurpose: 'This Flow does not say what this Step is for.',

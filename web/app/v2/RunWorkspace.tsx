@@ -13,6 +13,7 @@ import { v2HomePath, v2RunPath } from './contract';
 import './css/v2.css';
 import { RUN_COPY } from './run/copy';
 import { RunDetailDrawer, type StepBand } from './run/RunDetailDrawer';
+import type { ActionableStep } from './run/actionableSteps';
 import type { StepContextView } from './run/stepContext';
 import { RunList } from './workspace/RunList';
 import { V2Canvas } from './V2Canvas';
@@ -52,6 +53,7 @@ export function RunWorkspace() {
   const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
   const [band, setBand] = useState<StepBand | null>(null);
   const [stepView, setStepView] = useState<StepContextView | null>(null);
+  const [actionable, setActionable] = useState<ActionableStep[]>([]);
   const [summary, setSummary] = useState<FlowSummary | null>(null);
   const [tick, setTick] = useState(0);
   /** Bumped to tell the canvas to drop its Step selection. */
@@ -125,6 +127,7 @@ export function RunWorkspace() {
           <V2Canvas
             flowId={flowId}
             flowType={entry.flowType}
+            onActionable={setActionable}
             onBand={setBand}
             onStepContext={setStepView}
             deselectKey={deselectKey}
@@ -148,6 +151,7 @@ export function RunWorkspace() {
               onCommit={commitDrawerWidth}
             />
             <RunDetailDrawer
+              actionable={actionable}
               band={band}
               definition={entry.definition}
               flowId={showRun ? flowId : ''}

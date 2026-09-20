@@ -37,6 +37,7 @@ import type { Detail, Direction } from './canvas/views/types';
 import { Controls } from './flow/Controls';
 import { Legend } from './flow/Legend';
 import { groupsFromDefinition } from './groupsFromGraph';
+import { actionableSteps, type ActionableStep } from './run/actionableSteps';
 import type { StepBand } from './run/RunDetailDrawer';
 import { stepContext, type StepContextView } from './run/stepContext';
 import {
@@ -50,6 +51,7 @@ import {
 export function V2Canvas({
   flowType,
   flowId = '',
+  onActionable,
   onBand,
   onStepContext,
   onSummary,
@@ -70,6 +72,8 @@ export function V2Canvas({
   onBand?: (band: StepBand | null) => void;
   /** Flow-level meaning of the selected Step, for a host that explains it. */
   onStepContext?: (context: StepContextView | null) => void;
+  /** Every Step of this Flow that waits for a person, with its progress. */
+  onActionable?: (steps: ActionableStep[]) => void;
   onSummary?: (summary: FlowSummary | null) => void;
   /** Fired on every run poll, so a host can refresh on the same beat. */
   onTick?: () => void;
@@ -216,6 +220,11 @@ export function V2Canvas({
     if (!focusBlockingStep || !flow || blockingStepType === null) return null;
     return flow.steps.find((step) => step.stepType === blockingStepType)?.id ?? null;
   }, [blockingStepType, flow, focusBlockingStep]);
+
+  useEffect(() => {
+    if (!onActionable) return;
+    onActionable(flow ? actionableSteps(flow, overlay) : []);
+  }, [flow, onActionable, overlay]);
 
   useEffect(() => {
     if (!onStepContext) return;

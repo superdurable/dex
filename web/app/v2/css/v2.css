@@ -691,3 +691,84 @@
   font-size: 10px;
   line-height: 1.45;
 }
+
+/* ------------------------------ progress through a run's human gates */
+
+.apg {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+
+.apg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.apg-label {
+  color: var(--p-ink-3);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.apg-count {
+  margin-left: auto;
+  color: var(--p-ink-3);
+  font-size: 10px;
+}
+
+.apg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 7px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apg-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.apg-mark {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--p-line);
+  border-radius: 50%;
+  color: var(--p-ink-3);
+  font-size: 9px;
+}
+
+.apg-name {
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+}
+
+/* The open gate is the one thing here worth emphasis. */
+.apg-step[data-state='current'] .apg-mark {
+  border-color: var(--p-external);
+  background: var(--p-external);
+  color: var(--p-surface-1);
+}
+
+.apg-step[data-state='current'] .apg-name {
+  color: var(--p-ink-0);
+  font-weight: 600;
+}
+
+.apg-step[data-state='done'] .apg-mark {
+  border-color: var(--p-run-done);
+  color: var(--p-run-done);
+}
+
+.apg-step[data-state='upcoming'] .apg-name {
+  color: var(--p-ink-3);
+}
