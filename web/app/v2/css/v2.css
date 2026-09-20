@@ -536,8 +536,13 @@
 /* -------------------------------------- flow-level meaning of the open Step */
 
 .scx {
-  padding-top: 14px;
+  padding: 14px 16px 20px;
   border-top: 1px solid var(--p-line-soft);
+}
+
+/* Standalone: no run selected, so the Step is all the drawer has to say. */
+.rdw[data-step-only='true'] .scx {
+  border-top: 0;
 }
 
 .scx-step {
@@ -577,4 +582,23 @@
   font-size: 11.5px;
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+.rdw-steponly {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+
+.rdw-steponlylabel {
+  color: var(--p-ink-3);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rdw-steponly .rhd-close {
+  margin-left: auto;
 }

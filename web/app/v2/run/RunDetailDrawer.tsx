@@ -41,6 +41,7 @@ export function RunDetailDrawer({
   onClose,
 }: {
   flowType: string;
+  /** Empty when nothing is selected: the drawer then explains the Step alone. */
   flowId: string;
   definition: FlowV2Definition;
   summary: FlowSummary | null;
@@ -52,16 +53,30 @@ export function RunDetailDrawer({
   onStopped: () => void;
   onClose: () => void;
 }) {
+  const hasRun = flowId !== '';
   return (
-    <section className="rdw" aria-label={flowId}>
-      <RunHeader
-        flowId={flowId}
-        flowType={flowType}
-        summary={summary}
-        onClose={onClose}
-        onStopped={onStopped}
-      />
-      {band && (
+    <section
+      aria-label={hasRun ? flowId : stepContext?.stepType ?? RUN_COPY.thisStep}
+      className="rdw"
+      data-step-only={hasRun ? undefined : 'true'}
+    >
+      {hasRun ? (
+        <RunHeader
+          flowId={flowId}
+          flowType={flowType}
+          summary={summary}
+          onClose={onClose}
+          onStopped={onStopped}
+        />
+      ) : (
+        <div className="rdw-steponly">
+          <span className="rdw-steponlylabel">{RUN_COPY.stepOnly}</span>
+          <button aria-label={RUN_COPY.close} className="rhd-close" onClick={onClose} type="button">
+            ✕
+          </button>
+        </div>
+      )}
+      {hasRun && band && (
         <div className="rdw-band" data-tone={band.tone ?? undefined}>
           <span className="rdw-bandlabel">
             {band.isBlocking ? RUN_COPY.waitingAt : RUN_COPY.showingStep}
@@ -70,17 +85,19 @@ export function RunDetailDrawer({
           {band.reason && <span className="rdw-bandwhy">{band.reason}</span>}
         </div>
       )}
-      <SelectedRunPanel
-        definition={definition}
-        flowId={flowId}
-        flowStatusCode={flowStatusCode}
-        flowType={flowType}
-        order="actions-first"
-        showHeading={false}
-        reloadKey={reloadKey}
-        onActed={onClose}
-        onStranded={onStranded}
-      />
+      {hasRun && (
+        <SelectedRunPanel
+          definition={definition}
+          flowId={flowId}
+          flowStatusCode={flowStatusCode}
+          flowType={flowType}
+          order="actions-first"
+          showHeading={false}
+          reloadKey={reloadKey}
+          onActed={onClose}
+          onStranded={onStranded}
+        />
+      )}
       {stepContext !== null && <StepContextBlock view={stepContext} />}
     </section>
   );

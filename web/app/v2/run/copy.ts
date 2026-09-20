@@ -23,6 +23,7 @@ export const RUN_COPY = {
   inspect: 'Inspect',
   inspectHint: 'The full technical record for this run',
   thisStep: 'This step',
+  stepOnly: 'Step in this flow',
   noPurpose: 'This Flow does not say what this Step is for.',
   close: 'Close the run panel',
   elapsed: 'Running for',

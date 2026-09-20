@@ -50,6 +50,8 @@ export function RunWorkspace() {
   const [stepView, setStepView] = useState<StepContextView | null>(null);
   const [summary, setSummary] = useState<FlowSummary | null>(null);
   const [tick, setTick] = useState(0);
+  /** Bumped to tell the canvas to drop its Step selection. */
+  const [deselectKey, setDeselectKey] = useState(0);
   /** Dismissing the drawer keeps the run on the canvas; it just hands the width back. */
   const [drawerOpen, setDrawerOpen] = useState(true);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -86,7 +88,9 @@ export function RunWorkspace() {
   if (!entry) return <Navigate to={v2RunPath()} replace />;
 
   const selectedFlow = search.flows.find((flow) => flow.flowId === flowId);
-  const showDrawer = Boolean(flowId) && drawerOpen;
+  // A Step click alone opens the drawer: its Flow-level meaning needs no run.
+  const showRun = Boolean(flowId) && drawerOpen;
+  const showDrawer = showRun || stepView !== null;
   const paneStyle = { '--v2-drawer-w': `${drawerWidth}px` } as CSSProperties;
   return (
     <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
@@ -107,7 +111,8 @@ export function RunWorkspace() {
             flowType={entry.flowType}
             onBand={setBand}
             onStepContext={setStepView}
-            focusBlockingStep={showDrawer}
+            deselectKey={deselectKey}
+            focusBlockingStep={showRun}
             onSummary={setSummary}
             showStepPanel={false}
             onTick={onTick}
@@ -129,13 +134,16 @@ export function RunWorkspace() {
             <RunDetailDrawer
               band={band}
               definition={entry.definition}
-              flowId={flowId}
+              flowId={showRun ? flowId : ''}
               flowStatusCode={selectedFlow?.flowStatusCode}
               flowType={entry.flowType}
               reloadKey={tick}
               stepContext={stepView}
               summary={summary}
-              onClose={() => setDrawerOpen(false)}
+              onClose={() => {
+                setDrawerOpen(false);
+                setDeselectKey((previous) => previous + 1);
+              }}
               onStopped={search.runSearch}
               onStranded={rememberStranded}
             />

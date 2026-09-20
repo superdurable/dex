@@ -54,11 +54,14 @@ export function V2Canvas({
   onStepContext,
   onSummary,
   onTick,
+  deselectKey = 0,
   focusBlockingStep = false,
   showStepPanel = true,
 }: {
   flowType: string;
   flowId?: string;
+  /** Bumped by the host to clear the Step selection. */
+  deselectKey?: number;
   /** Zoom in on the waiting Step instead of merely panning to it. */
   focusBlockingStep?: boolean;
   /** False when the host renders step detail itself, so the canvas keeps its width. */
@@ -200,6 +203,14 @@ export function V2Canvas({
     setSelectedId(focusBlockingStep ? step.id : null);
     setSelectedGroupId(null);
   }, [blockingStepType, flow, flowId, focusBlockingStep]);
+
+  // The host closed its drawer, so nothing is being explained any more.
+  const firstDeselect = useRef(deselectKey);
+  useEffect(() => {
+    if (deselectKey === firstDeselect.current) return;
+    setSelectedId(null);
+    setSelectedGroupId(null);
+  }, [deselectKey]);
 
   const focusNodeId = useMemo(() => {
     if (!focusBlockingStep || !flow || blockingStepType === null) return null;
