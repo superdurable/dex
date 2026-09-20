@@ -7,22 +7,22 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useCallback, useRef, useState, type CSSProperties } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { v2DebugPath, v2HomePath, v2RunPath } from './contract';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import type { FlowSummary } from '@/lib/types';
+import { v2HomePath, v2RunPath } from './contract';
 import './css/v2.css';
-import { DEBUG_COPY } from './debug/copy';
+import { RunDetailDrawer, type StepBand } from './run/RunDetailDrawer';
+import { RUN_COPY } from './run/copy';
+import { RunSwitcher } from './run/RunSwitcher';
 import { V2Canvas } from './V2Canvas';
 import {
-  CASE_HEIGHT_KEY,
-  LIST_WIDTH_DEFAULT,
-  LIST_WIDTH_KEY,
+  DRAWER_WIDTH_DEFAULT,
+  DRAWER_WIDTH_KEY,
   V2SplitHandle,
   readStoredPixels,
   writeStoredPixels,
 } from './V2SplitHandle';
 import { useWebCatalog } from './WebCatalogProvider';
-import { FlowListing } from './workspace/FlowListing';
-import { SelectedRunPanel } from './workspace/SelectedRunPanel';
 import { useFlowSearch } from './workspace/useFlowSearch';
 import { useStrandedRuns } from './workspace/useStrandedRuns';
 
@@ -33,6 +33,12 @@ export function HomePage() {
   return <Navigate to={v2HomePath(canUseV2)} replace />;
 }
 
+/**
+ * The Admin semantic view: pick a run, see where it is on the canvas, act on it in the drawer.
+ *
+ * Selection is narrow and the canvas is wide on purpose. Scoping a search belongs to the Queue,
+ * and the technical record belongs to the Deep Dive.
+ */
 export function RunWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
@@ -40,26 +46,24 @@ export function RunWorkspace() {
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   const search = useFlowSearch(flowType || undefined, entry?.definition);
   const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
+  const [band, setBand] = useState<StepBand | null>(null);
+  const [summary, setSummary] = useState<FlowSummary | null>(null);
+  const [tick, setTick] = useState(0);
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const listPaneRef = useRef<HTMLElement>(null);
-  const [listWidth, setListWidth] = useState(() => {
-    const stored = readStoredPixels(LIST_WIDTH_KEY);
-    return Number.isFinite(stored) ? stored : LIST_WIDTH_DEFAULT;
+  const [drawerWidth, setDrawerWidth] = useState(() => {
+    const stored = readStoredPixels(DRAWER_WIDTH_KEY);
+    return Number.isFinite(stored) ? stored : DRAWER_WIDTH_DEFAULT;
   });
-  const [caseHeight, setCaseHeight] = useState(() => readStoredPixels(CASE_HEIGHT_KEY));
 
-  const commitListWidth = useCallback((width: number) => {
+  const commitDrawerWidth = useCallback((width: number) => {
     const next = Math.round(width);
-    setListWidth(next);
-    writeStoredPixels(LIST_WIDTH_KEY, next);
+    setDrawerWidth(next);
+    writeStoredPixels(DRAWER_WIDTH_KEY, next);
   }, []);
 
-  const commitCaseHeight = useCallback((height: number) => {
-    const next = Math.round(height);
-    setCaseHeight(next);
-    writeStoredPixels(CASE_HEIGHT_KEY, next);
-  }, []);
+  // One clock: the canvas owns the run poll and the drawer refreshes on the same beat.
+  const onTick = useCallback(() => setTick((previous) => previous + 1), []);
 
   if (!ready) return <div className="page-loading">Loading Dex Web…</div>;
   if (!canUseV2) return <Navigate to="/v1/flows" replace />;
@@ -76,65 +80,58 @@ export function RunWorkspace() {
   if (!entry) return <Navigate to={v2RunPath()} replace />;
 
   const selectedFlow = search.flows.find((flow) => flow.flowId === flowId);
-  const paneStyle = {
-    '--v2-list-w': `${listWidth}px`,
-    ...(Number.isFinite(caseHeight) && caseHeight > 0 ? { '--v2-case-h': `${caseHeight}px` } : {}),
-  } as CSSProperties;
+  const paneStyle = { '--v2-drawer-w': `${drawerWidth}px` } as CSSProperties;
   return (
-    <div className="v2-shell sv" ref={shellRef} style={paneStyle}>
-      <div className="sv-body" ref={bodyRef}>
-        <aside className="sq" ref={listPaneRef} data-has-case={flowId ? 'true' : undefined}>
-          <FlowListing
-            entry={entry}
-            flowTypes={catalog.flows}
-            headerNote="current runs"
-            search={search}
-            selectedFlowID={flowId}
-            strandedFlowIDs={strandedFlowIDs}
-            onSelectFlowType={(next) => navigate(v2RunPath(next))}
-            onSelectRun={(nextFlowID) => navigate(v2RunPath(entry.flowType, nextFlowID))}
-          >
-            {flowId ? (
-              <>
-                <V2SplitHandle
-                  axis="row"
-                  cssVariable="--v2-case-h"
-                  targetRef={shellRef}
-                  measureRef={listPaneRef}
-                  value={Number.isFinite(caseHeight) ? caseHeight : 0}
-                  ariaLabel="Resize the Display pane"
-                  onCommit={commitCaseHeight}
-                />
-                <SelectedRunPanel
-                  definition={entry.definition}
-                  flowId={flowId}
-                  flowStatusCode={selectedFlow?.flowStatusCode}
-                  flowType={entry.flowType}
-                  onStranded={rememberStranded}
-                  footer={(
-                    <Link className="v2-seemore" to={v2DebugPath(entry.flowType, flowId)}>
-                      {DEBUG_COPY.openLabel}
-                    </Link>
-                  )}
-                />
-              </>
-            ) : (
-              <p className="sq-state">Select a run to edit fields and invoke Actions.</p>
-            )}
-          </FlowListing>
-          <V2SplitHandle
-            axis="column"
-            cssVariable="--v2-list-w"
-            targetRef={shellRef}
-            measureRef={bodyRef}
-            value={listWidth}
-            ariaLabel="Resize the listing pane"
-            onCommit={commitListWidth}
-          />
-        </aside>
+    <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
+      <div className="v2-run-body" data-has-run={flowId ? 'true' : undefined} ref={bodyRef}>
+        <RunSwitcher
+          attentionAttributeKey={entry.definition.indexedAttributes[0]?.attributeKey ?? null}
+          entry={entry}
+          flowTypes={catalog.flows}
+          search={search}
+          selectedFlowID={flowId}
+          strandedFlowIDs={strandedFlowIDs}
+          onSelectFlowType={(next) => navigate(v2RunPath(next))}
+          onSelectRun={(nextFlowID) => navigate(v2RunPath(entry.flowType, nextFlowID))}
+        />
         <section className="v2-canvas" aria-label="Flow definition">
-          <V2Canvas flowType={entry.flowType} flowId={flowId} />
+          <V2Canvas
+            flowId={flowId}
+            flowType={entry.flowType}
+            onBand={setBand}
+            onSummary={setSummary}
+            showStepPanel={false}
+            onTick={onTick}
+          />
         </section>
+        {flowId ? (
+          <>
+            <V2SplitHandle
+              axis="column"
+              cssVariable="--v2-drawer-w"
+              edge="start"
+              invert
+              targetRef={shellRef}
+              measureRef={bodyRef}
+              value={drawerWidth}
+              ariaLabel="Resize the run drawer"
+              onCommit={commitDrawerWidth}
+            />
+            <RunDetailDrawer
+              band={band}
+              definition={entry.definition}
+              flowId={flowId}
+              flowStatusCode={selectedFlow?.flowStatusCode}
+              flowType={entry.flowType}
+              reloadKey={tick}
+              summary={summary}
+              onStopped={search.runSearch}
+              onStranded={rememberStranded}
+            />
+          </>
+        ) : (
+          <p className="sc-none v2-run-empty">{RUN_COPY.selectPrompt}</p>
+        )}
       </div>
     </div>
   );

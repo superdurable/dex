@@ -9,9 +9,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { hydrateBlobs } from '@/lib/blobs';
 import { readResponseJSON } from '@/lib/http';
-import type { FlowDefinitionCatalog, FlowHistoryEvent } from '@/lib/types';
+import type { FlowDefinitionCatalog, FlowHistoryEvent, FlowSummary } from '@/lib/types';
 import { safeDecode } from './canvas/model/decode';
-import type { RunOverlay } from './canvas/model/run';
+import {
+  activeStepTypes,
+  executionsOf,
+  reasonLine,
+  type RunOverlay,
+} from './canvas/model/run';
 import {
   loadCurrentRun,
   loadRunHistory,
@@ -26,11 +31,13 @@ import { DetailPanel } from './canvas/panel/DetailPanel';
 import { buildPanel, type SectionId } from './canvas/panel/panelModel';
 import { ArrowDefs } from './canvas/render/ArrowDefs';
 import { Stage } from './canvas/render/Stage';
+import type { CanvasViewportHandle } from './canvas/render/viewport';
 import { viewById } from './canvas/views';
 import type { Detail, Direction } from './canvas/views/types';
 import { Controls } from './flow/Controls';
 import { Legend } from './flow/Legend';
 import { groupsFromDefinition } from './groupsFromGraph';
+import type { StepBand } from './run/RunDetailDrawer';
 import {
   PANEL_WIDTH_DEFAULT,
   PANEL_WIDTH_KEY,
@@ -39,8 +46,26 @@ import {
   writeStoredPixels,
 } from './V2SplitHandle';
 
-export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?: string }) {
+export function V2Canvas({
+  flowType,
+  flowId = '',
+  onBand,
+  onSummary,
+  onTick,
+  showStepPanel = true,
+}: {
+  flowType: string;
+  flowId?: string;
+  /** False when the host renders step detail itself, so the canvas keeps its width. */
+  showStepPanel?: boolean;
+  /** What the canvas is showing, so a host drawer can label it without owning selection. */
+  onBand?: (band: StepBand | null) => void;
+  onSummary?: (summary: FlowSummary | null) => void;
+  /** Fired on every run poll, so a host can refresh on the same beat. */
+  onTick?: () => void;
+}) {
   const canvasRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<CanvasViewportHandle | null>(null);
   const [catalog, setCatalog] = useState<FlowDefinitionCatalog | null>(null);
   const [detail, setDetail] = useState<Detail>('collapsed');
   const [direction, setDirection] = useState<Direction>('tb');
@@ -104,6 +129,8 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
           activeSteps: state?.activeStepExecutions ?? [],
         }));
         setRunError('');
+        onSummary?.(summary);
+        onTick?.();
         if (summary.flowStatusCode === 1 && timer === undefined) {
           timer = window.setInterval(() => { void load(); }, 5000);
         }
@@ -148,6 +175,40 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
 
   const overlay: RunOverlay | null = bundle?.overlay ?? null;
   const selectedStep = flow?.steps.find((step) => step.id === selectedId) ?? null;
+
+  /** The Step the run is actually waiting on, which is what an Admin came to see. */
+  const blockingStepType = overlay ? (activeStepTypes(overlay)[0] ?? null) : null;
+
+  // Choosing a run should land on where it stopped, once, without fighting later clicks.
+  const revealedFor = useRef('');
+  useEffect(() => {
+    if (!flow || blockingStepType === null) return;
+    if (revealedFor.current === `${flowId}|${blockingStepType}`) return;
+    const step = flow.steps.find((candidate) => candidate.stepType === blockingStepType);
+    if (!step) return;
+    revealedFor.current = `${flowId}|${blockingStepType}`;
+    setSelectedId(step.id);
+    setSelectedGroupId(null);
+    viewportRef.current?.reveal(step.id);
+  }, [blockingStepType, flow, flowId]);
+
+  useEffect(() => {
+    if (!onBand) return;
+    if (!selectedStep || !overlay) {
+      onBand(null);
+      return;
+    }
+    const executions = executionsOf(overlay, selectedStep.stepType);
+    const latest = executions[executions.length - 1];
+    const reason = latest ? reasonLine(latest, Date.now()) : null;
+    onBand({
+      stepType: selectedStep.stepType,
+      explanation: selectedStep.explanation ?? null,
+      reason: reason?.text ?? null,
+      tone: reason?.tone ?? null,
+      isBlocking: selectedStep.stepType === blockingStepType,
+    });
+  }, [blockingStepType, onBand, overlay, selectedStep]);
 
   const scene = useMemo(() => {
     if (!flow) return null;
@@ -271,7 +332,8 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
     return <div className="v2-empty">No valid Flow Definition Graph 2.0 file for this Flow type.</div>;
   }
 
-  const canvasStyle = panel
+  const ownsPanel = showStepPanel && panel !== null;
+  const canvasStyle = ownsPanel
     ? ({ '--v2-panel-w': `${Math.round(panelWidth)}px` } as CSSProperties)
     : undefined;
 
@@ -283,12 +345,13 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
       </div>
       {runError ? <p className="v2-error v2-run-error">{runError}</p> : null}
       <Stage
+        handleRef={viewportRef}
         scene={scene}
         detail={detail}
         direction={direction}
         selectedId={selectedId}
         selectedGroupId={selectedGroupId}
-        insetRightPx={panel ? panelWidth : null}
+        insetRightPx={ownsPanel ? panelWidth : null}
         onSelectGroup={(id) => {
           setSelectedGroupId(id);
           setSelectedId(null);
@@ -329,9 +392,9 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
             ) : null}
           </div>
         )}
-        fitKey={`${flowType}|${flowId}|${detail}|${direction}|${selected.file}|${overlay?.executions.length ?? 0}|${panel ? `panel:${Math.round(panelWidth)}` : 'graph'}`}
+        fitKey={`${flowType}|${flowId}|${detail}|${direction}|${selected.file}|${overlay?.executions.length ?? 0}|${ownsPanel ? `panel:${Math.round(panelWidth)}` : 'graph'}`}
       />
-      {panel ? (
+      {ownsPanel && panel ? (
         <>
           <V2SplitHandle
             axis="column"

@@ -26,6 +26,7 @@ export function SelectedRunPanel({
   definition,
   flowStatusCode,
   footer,
+  reloadKey = 0,
   onStranded,
 }: {
   flowType: string;
@@ -34,6 +35,8 @@ export function SelectedRunPanel({
   /** From the search row, so a dead worker can be told apart from a closed run. */
   flowStatusCode?: number;
   footer?: ReactNode;
+  /** Bumped by the view's shared clock, so the fields and the canvas move together. */
+  reloadKey?: number;
   /** Reported up so the list can mark the row; a search cannot discover this. */
   onStranded?: (flowID: string) => void;
 }) {
@@ -63,7 +66,7 @@ export function SelectedRunPanel({
   // A new run must not inherit the previous run's values while its own read is in flight.
   useEffect(() => { setHeld(nothingHeld<V2Display>()); }, [flowId, flowType]);
 
-  useEffect(() => { void loadDisplay(); }, [loadDisplay]);
+  useEffect(() => { void loadDisplay(); }, [loadDisplay, reloadKey]);
 
   const result = held.value;
   const isStranded = held.liveness === 'stranded';
