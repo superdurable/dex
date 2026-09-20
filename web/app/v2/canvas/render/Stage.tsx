@@ -198,6 +198,7 @@ function Inner({
   scene,
   detail,
   direction,
+  dimUnrelated = true,
   focusNodeId,
   insetRightPx,
   legend,
@@ -236,6 +237,8 @@ function Inner({
   onInspect?: (id: string) => void
   /** Rendered as a node at the diagram's top-left, so it zooms and pans with the drawing. */
   legend?: () => JSX.Element
+  /** False when the selection was made for the reader, so the graph is not faded for them. */
+  dimUnrelated?: boolean
   /** When set, fit targets this node at reading zoom instead of the whole graph. */
   focusNodeId?: string | null
   /** Publishes fit and zoom so a keyboard shortcut has something to drive. */
@@ -463,7 +466,7 @@ function Inner({
            * edge the run took stays bright even while a selection is dimming everything else, because
            * "where has this run been" must not be erasable by clicking a card.
            */
-          className: `pedge pedge-${l.family}${l.selfLoop === true ? ' pedge-loop' : ''}${l.onPath === undefined ? '' : ' pedge-path'}${lit ? ' pedge-lit' : ''}${selectedId !== null && !lit && l.onPath === undefined ? ' pedge-dim' : ''}`,
+          className: `pedge pedge-${l.family}${l.selfLoop === true ? ' pedge-loop' : ''}${l.onPath === undefined ? '' : ' pedge-path'}${lit ? ' pedge-lit' : ''}${dimUnrelated && selectedId !== null && !lit && l.onPath === undefined ? ' pedge-dim' : ''}`,
           /**
            * The LABEL only — never `detail`. `detail` holds the full guard text for the panel, and
            * printing it here put source expressions back on the canvas by the side door.
@@ -621,6 +624,8 @@ export function Stage(props: {
   /** Rendered as a node at the diagram's top-left, so it zooms and pans with the drawing. */
   legend?: () => JSX.Element
   /** Publishes fit and zoom so a keyboard shortcut has something to drive. */
+  /** False when the selection was made for the reader, so the graph is not faded for them. */
+  dimUnrelated?: boolean
   /** When set, fit targets this node at reading zoom instead of the whole graph. */
   focusNodeId?: string | null
   handleRef?: Ref<CanvasViewportHandle>

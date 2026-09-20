@@ -84,6 +84,8 @@ export function V2Canvas({
   const [detail, setDetail] = useState<Detail>('collapsed');
   const [direction, setDirection] = useState<Direction>('tb');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Auto-focus selects a Step for the reader; only their own click should fade the rest. */
+  const [selectedByReader, setSelectedByReader] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
   const [inspectSection, setInspectSection] = useState<SectionId | null>(null);
@@ -205,6 +207,7 @@ export function V2Canvas({
     // Selection only. The zoom is declarative via focusNodeId, so the pane resize that
     // follows the drawer opening refits to the Step instead of racing an imperative call.
     setSelectedId(focusBlockingStep ? step.id : null);
+    setSelectedByReader(false);
     setSelectedGroupId(null);
   }, [blockingStepType, flow, flowId, focusBlockingStep]);
 
@@ -385,6 +388,7 @@ export function V2Canvas({
       </div>
       {runError ? <p className="v2-error v2-run-error">{runError}</p> : null}
       <Stage
+        dimUnrelated={selectedByReader}
         focusNodeId={focusNodeId}
         handleRef={viewportRef}
         scene={scene}
@@ -401,6 +405,7 @@ export function V2Canvas({
         }}
         onSelect={(id) => {
           setSelectedId(id);
+          setSelectedByReader(id !== null);
           setSelectedGroupId(null);
           setSelectedExecutionId(null);
           setInspectSection(null);

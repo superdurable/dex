@@ -315,7 +315,12 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
    *     group for band edges they do not have, so a step sat as far from its own group partner as from
    *     an unrelated step.
    */
-  const rankBase = anyAnatomy ? 56 : 30
+  /*
+   * 44 is the floor. Measured over the two-gate refund graph: 36 overlaps two band pairs by 6px
+   * and 30 by 12px, which is the defect the two attempts above were fixing. See the band-overlap
+   * test beside this file.
+   */
+  const rankBase = anyAnatomy ? 44 : 30
   /**
    * A WRAPPED continuation needs the allowance too.
    *

@@ -1095,7 +1095,7 @@
    React re-rendering. Solid = control flow, dashed = everything else: one pre-attentive channel
    carrying the most important distinction. */
 
-.react-flow__edge-path {
+.pedge .react-flow__edge-path {
   stroke-width: calc(1.9px * var(--zoom-comp));
 }
 .pedge-control .react-flow__edge-path {
