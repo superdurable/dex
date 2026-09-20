@@ -24,7 +24,9 @@ import {
   writeStoredPixels,
 } from './V2SplitHandle';
 import { useWebCatalog } from './WebCatalogProvider';
+import { RunSearch } from './workspace/RunSearch';
 import { useFlowSearch } from './workspace/useFlowSearch';
+import { useRunQuery } from './workspace/useRunQuery';
 import { useStrandedRuns } from './workspace/useStrandedRuns';
 
 export function HomePage() {
@@ -45,7 +47,8 @@ export function RunWorkspace() {
   const navigate = useNavigate();
   const { ready, canUseV2, catalog, error } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
-  const search = useFlowSearch(flowType || undefined, entry?.definition);
+  const runQuery = useRunQuery(entry?.definition);
+  const search = useFlowSearch(flowType || undefined, entry?.definition, runQuery.appliedFilters);
   const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
   const [band, setBand] = useState<StepBand | null>(null);
   const [stepView, setStepView] = useState<StepContextView | null>(null);
@@ -102,6 +105,16 @@ export function RunWorkspace() {
           entry={entry}
           flowTypes={catalog.flows}
           heading={RUN_COPY.runsHeading}
+          scope={(
+            <RunSearch
+              busy={search.loading}
+              definition={entry.definition}
+              query={runQuery.query}
+              onChange={runQuery.setQuery}
+              onClear={runQuery.clear}
+              onSubmit={runQuery.submit}
+            />
+          )}
           search={search}
           selectedFlowID={flowId}
           strandedFlowIDs={strandedFlowIDs}

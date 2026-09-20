@@ -10,9 +10,10 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { v2QueuePath, v2RunPath } from '../contract';
 import '../css/v2.css';
 import { useWebCatalog } from '../WebCatalogProvider';
-import { FilterBuilder } from '../workspace/FilterBuilder';
-import { describeFilters, newFilterRow } from '../workspace/filters';
 import { RunList } from '../workspace/RunList';
+import { RunSearch } from '../workspace/RunSearch';
+import { EMPTY_RUN_QUERY } from '../workspace/runQuery';
+import { useRunQuery } from '../workspace/useRunQuery';
 import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { useFlowSearch } from '../workspace/useFlowSearch';
 import { useStrandedRuns } from '../workspace/useStrandedRuns';
@@ -31,9 +32,9 @@ export function QueueWorkspace() {
   const navigate = useNavigate();
   const { ready, canUseV2, catalog, error } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
-  const search = useFlowSearch(flowType || undefined, entry?.definition, [
-    newFilterRow('executionStatus', 'eq', openFlowStatusLabel()),
-  ]);
+  // An inbox opens on what is still open; the control is there to widen it.
+  const runQuery = useRunQuery(entry?.definition, { ...EMPTY_RUN_QUERY, status: openFlowStatusLabel() });
+  const search = useFlowSearch(flowType || undefined, entry?.definition, runQuery.appliedFilters);
   const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
 
   if (!ready) return <div className="page-loading">Loading Dex Web…</div>;
@@ -51,7 +52,6 @@ export function QueueWorkspace() {
   if (!entry) return <Navigate to={v2QueuePath()} replace />;
 
   const selectedFlow = search.flows.find((flow) => flow.flowId === flowId);
-  const clauses = describeFilters(search.filters, entry.definition);
   return (
     <div className="v2-shell v2-run">
       <div className="v2-run-body" data-has-run={flowId ? 'true' : undefined}>
@@ -63,10 +63,13 @@ export function QueueWorkspace() {
           heading={QUEUE_COPY.appName}
           headerNote={QUEUE_COPY.liveNote}
           scope={(
-            <FilterBuilder
+            <RunSearch
+              busy={search.loading}
               definition={entry.definition}
-              search={search}
-              summary={QUEUE_COPY.scope(clauses)}
+              query={runQuery.query}
+              onChange={runQuery.setQuery}
+              onClear={runQuery.clear}
+              onSubmit={runQuery.submit}
             />
           )}
           search={search}

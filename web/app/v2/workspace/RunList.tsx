@@ -13,6 +13,7 @@ import { usePreferences } from '../../providers';
 import { QUEUE_COPY } from '../queue/copy';
 import { RUN_COPY } from '../run/copy';
 import { groupRuns } from '../run/runOrder';
+import { SEARCH_COPY } from './searchCopy';
 import type { FlowSearch } from './useFlowSearch';
 
 /**
@@ -84,6 +85,9 @@ export function RunList({
         </select>
       )}
       {scope}
+      <p className="rsw-scopenote">
+        {SEARCH_COPY.scopeNote(entry.definition.indexedAttributes.map((a) => a.description))}
+      </p>
       {stateText !== '' && (
         <p className="sq-state" data-liveness={liveness}>{stateText}</p>
       )}

@@ -14,8 +14,6 @@ import { absorb, nothingHeld, readFailureReason, type Liveness } from '../queue/
 import { filterValueType, parseFilterValues, type FilterRow } from './filters';
 
 export interface FlowSearch {
-  filters: FilterRow[];
-  setFilters: (filters: FilterRow[]) => void;
   flows: V2Flow[];
   loading: boolean;
   searchError: string;
@@ -31,9 +29,9 @@ export interface FlowSearch {
 export function useFlowSearch(
   flowType: string | undefined,
   definition: FlowV2Definition | undefined,
-  initialFilters: FilterRow[] = [],
+  /** Owned by whatever renders the search controls, so there is one source of scope. */
+  filters: readonly FilterRow[],
 ): FlowSearch {
-  const [filters, setFilters] = useState<FilterRow[]>(initialFilters);
   const [held, setHeld] = useState(() => nothingHeld<V2Flow[]>());
   const [loading, setLoading] = useState(false);
   const [nextPageToken, setNextPageToken] = useState('');
@@ -73,10 +71,10 @@ export function useFlowSearch(
     }
   }, [definition, filters, flowType]);
 
-  // Re-run on Flow type only; editing a filter should not fire a request per keystroke.
+  // `filters` only changes when the reader submits, so this cannot fire per keystroke.
   useEffect(() => {
     if (flowType && definition) void executeSearch();
-  }, [definition, flowType]);
+  }, [definition, filters, flowType]);
 
   const runSearch = useCallback(() => {
     setPageTokens(['']);
@@ -96,8 +94,6 @@ export function useFlowSearch(
   }, [executeSearch, page, pageTokens]);
 
   return {
-    filters,
-    setFilters,
     flows: held.value ?? [],
     loading,
     searchError: held.liveness === 'stale' || held.liveness === 'unreachable' ? held.reason ?? '' : '',

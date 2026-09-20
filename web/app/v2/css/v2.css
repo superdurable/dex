@@ -645,3 +645,49 @@
 .rdw-steponly .rhd-close {
   margin-left: auto;
 }
+
+/* ------------------------------------------ find a run: four controls, no builder */
+
+.rsq {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 8px 0 4px;
+}
+
+.rsq-keyword,
+.rsq select,
+.rsq input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+}
+
+.rsq input:disabled {
+  color: var(--p-ink-3);
+}
+
+.rsq-row {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.rsq-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* Said once, from the contract: a search box invites the assumption that it reads everything. */
+.rsw-scopenote {
+  margin: 2px 0 8px;
+  color: var(--p-ink-3);
+  font-size: 10px;
+  line-height: 1.45;
+}
