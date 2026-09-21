@@ -221,8 +221,12 @@
 }
 
 .sc-title {
+  min-width: 0;
+  overflow: hidden;
   font-size: 14px;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sc-status {

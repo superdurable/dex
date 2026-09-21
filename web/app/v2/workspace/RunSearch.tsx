@@ -24,7 +24,7 @@ import {
 } from './runQuery';
 
 /**
- * Status and time in front; attribute comparisons and an exact run id behind a disclosure.
+ * Status and time in front; attribute comparisons and an exact Flow ID behind a disclosure.
  *
  * Two controls answer most questions about a list of runs, and they are the two every Flow has
  * whether or not it declared anything indexable. What only some Flows can answer, and what needs a
@@ -93,13 +93,13 @@ export function RunSearch({
         <summary className="rsq-advhead">{SEARCH_COPY.advanced}</summary>
 
         <label className="rsq-field">
-          <span className="rsq-label">{SEARCH_COPY.runIdLabel}</span>
+          <span className="rsq-label">{SEARCH_COPY.flowIdLabel}</span>
           <input
             className="t-mono"
-            placeholder={SEARCH_COPY.runIdPlaceholder}
+            placeholder={SEARCH_COPY.flowIdPlaceholder}
             type="search"
-            value={query.runId}
-            onChange={(event) => set({ runId: event.target.value })}
+            value={query.flowId}
+            onChange={(event) => set({ flowId: event.target.value })}
           />
         </label>
 

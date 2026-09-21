@@ -31,6 +31,10 @@ export const RUN_COPY = {
   stepOnly: 'Step in this flow',
   noPurpose: 'This Flow does not say what this Step is for.',
   close: 'Close the run panel',
+  expandList: 'Show the run list',
+  expandDrawer: 'Show the run details',
+  resizeList: 'Resize the run list',
+  resizeDrawer: 'Resize the run drawer',
   elapsed: 'Running for',
   closed: 'Closed',
 } as const;

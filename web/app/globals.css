@@ -215,32 +215,6 @@ a {
   background: white;
 }
 
-.app-themebar {
-  display: flex;
-  gap: 1px;
-  padding: 1px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
-
-.app-themebtn {
-  padding: 2px 7px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.app-themebtn:hover {
-  color: var(--ink);
-}
-
-.app-themebtn[data-on='true'] {
-  background: white;
-  color: var(--brand-dark);
-}
-
 .v2-modes {
   display: flex;
   gap: 1px;
@@ -268,18 +242,6 @@ a {
 .v2-mode[aria-pressed='true'] {
   background: white;
   color: var(--brand-dark);
-}
-
-.app-themebtn:focus-visible {
-  outline: 1px solid var(--brand);
-  outline-offset: 1px;
-}
-
-.app-themebtn-echo {
-  margin-left: 4px;
-  color: var(--muted);
-  font-size: 9px;
-  letter-spacing: 0.04em;
 }
 
 [data-theme='dark'] .app-header {
@@ -317,23 +279,6 @@ a {
   color: #eff4fc;
 }
 
-[data-theme='dark'] .app-themebar {
-  border-color: #2b313d;
-}
-
-[data-theme='dark'] .app-themebtn {
-  color: #8c9198;
-}
-
-[data-theme='dark'] .app-themebtn:hover {
-  color: #bec3ca;
-}
-
-[data-theme='dark'] .app-themebtn[data-on='true'] {
-  background: #1f252d;
-  color: #eff4fc;
-}
-
 [data-theme='dark'] .v2-modes {
   border-color: #2b313d;
 }
@@ -349,10 +294,6 @@ a {
 [data-theme='dark'] .v2-mode[aria-pressed='true'] {
   background: #1f252d;
   color: #eff4fc;
-}
-
-[data-theme='dark'] .app-themebtn-echo {
-  color: #6c7077;
 }
 
 [data-theme='dark'] .brand-mark {

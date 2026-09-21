@@ -33,6 +33,8 @@ export function RunList({
   headerNote,
   scope,
   emptyText,
+  collapsed = false,
+  onExpand,
   onSelectFlowType,
   onSelectRun,
 }: {
@@ -41,13 +43,15 @@ export function RunList({
   search: FlowSearch;
   selectedFlowID: string;
   strandedFlowIDs: ReadonlySet<string>;
-  /** First indexed Attribute, shown under the run id as its own value. */
+  /** First indexed Attribute, shown under the Flow ID as its own value. */
   attentionAttributeKey: string | null;
   heading: string;
   headerNote?: string;
   /** What the list is narrowed to, and the control that narrowed it. */
   scope?: ReactNode;
   emptyText: string;
+  collapsed?: boolean;
+  onExpand?: () => void;
   onSelectFlowType: (flowType: string) => void;
   onSelectRun: (flowID: string) => void;
 }) {
@@ -64,7 +68,13 @@ export function RunList({
           ? emptyText
           : '';
   return (
-    <aside className="rsw" aria-label={heading}>
+    <aside className="rsw" aria-label={heading} data-collapsed={collapsed ? 'true' : undefined}>
+      {collapsed ? (
+        <button className="v2-rail" onClick={onExpand} title={RUN_COPY.expandList} type="button">
+          {heading}
+        </button>
+      ) : (
+        <>
       <div className="sq-head">
         <span className="sq-title" title={RUN_COPY.selectPrompt}>{heading}</span>
         {headerNote !== undefined && <span className="sq-live">{headerNote}</span>}
@@ -118,6 +128,8 @@ export function RunList({
           </section>
         ))}
       </div>
+        </>
+      )}
     </aside>
   );
 }

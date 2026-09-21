@@ -21,8 +21,8 @@ export interface RunQuery {
   status: string;
   /** A relative window, or '' for any. Relative because nobody remembers a timestamp. */
   since: SinceWindow;
-  /** An exact run id. Its own control because looking one up is not the same as narrowing a list. */
-  runId: string;
+  /** An exact Flow ID. Its own control because looking one up is not the same as narrowing a list. */
+  flowId: string;
   /** One declared Indexed Attribute, or '' for none. */
   attributeKey: string;
   attributeOperator: RunOperator;
@@ -50,7 +50,7 @@ export const SINCE_WINDOWS: { value: SinceWindow; label: string; hours: number }
 export const EMPTY_RUN_QUERY: RunQuery = {
   status: '',
   since: '',
-  runId: '',
+  flowId: '',
   attributeKey: '',
   attributeOperator: 'eq',
   attributeValue: '',
@@ -123,9 +123,9 @@ export function toFilterRows(
     rows.push(newFilterRow('startTime', 'gte', from.toISOString()));
   }
 
-  const runId = query.runId.trim();
-  if (runId !== '') {
-    rows.push(newFilterRow('flowId', 'eq', runId));
+  const flowId = query.flowId.trim();
+  if (flowId !== '') {
+    rows.push(newFilterRow('flowId', 'eq', flowId));
   }
 
   const value = query.attributeValue.trim();
@@ -148,7 +148,7 @@ export function isEmptyQuery(query: RunQuery): boolean {
 
 /** Whether anything behind the disclosure is set, so a closed panel cannot hide an active filter. */
 export function hasAdvancedQuery(query: RunQuery): boolean {
-  return query.runId.trim() !== ''
+  return query.flowId.trim() !== ''
     || (query.attributeKey !== '' && query.attributeValue.trim() !== '');
 }
 
@@ -156,7 +156,7 @@ function activeParts(query: RunQuery): number {
   return [
     query.status,
     query.since,
-    query.runId.trim(),
+    query.flowId.trim(),
     query.attributeKey !== '' ? query.attributeValue.trim() : '',
   ].filter((part) => part !== '').length;
 }

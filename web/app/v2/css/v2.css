@@ -82,8 +82,16 @@
   cursor: col-resize;
 }
 
-.v2-split[data-axis='column'][data-edge='start'] {
-  right: var(--v2-panel-w, 360px);
+.v2-split[data-axis='column'][data-pane='list'] {
+  left: var(--v2-list-w, 15rem);
+  right: auto;
+  width: 9px;
+  margin-left: -4px;
+  z-index: 7;
+}
+
+.v2-split[data-axis='column'][data-pane='drawer'] {
+  right: var(--v2-drawer-w, 25rem);
   left: auto;
   width: 9px;
   margin-right: -4px;
@@ -233,13 +241,13 @@
 .v2-run-body {
   position: relative;
   display: grid;
-  grid-template-columns: 15rem minmax(0, 1fr);
+  grid-template-columns: var(--v2-list-w, 15rem) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
 }
 
-.v2-run-body[data-has-run='true'] {
-  grid-template-columns: 15rem minmax(0, 1fr) var(--v2-drawer-w, 25rem);
+.v2-run-body[data-has-drawer='true'] {
+  grid-template-columns: var(--v2-list-w, 15rem) minmax(0, 1fr) var(--v2-drawer-w, 25rem);
 }
 
 .v2-inbox-case {
@@ -293,6 +301,38 @@
   min-height: 0;
   padding: 14px 12px;
   border-right: 1px solid var(--p-line-soft);
+}
+
+.rsw[data-collapsed='true'] {
+  padding: 8px 0;
+}
+
+.v2-rail {
+  display: flex;
+  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px 0;
+  border: 0;
+  background: transparent;
+  color: var(--p-ink-1);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.v2-rail:hover {
+  color: var(--p-ink-0);
+  background: var(--p-surface-2);
 }
 
 .rsw .sv-choose {
@@ -357,9 +397,12 @@
 }
 
 .rsw-id {
+  min-width: 0;
+  overflow: hidden;
   color: var(--p-ink-0);
   font-size: 11.5px;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rsw-time {
@@ -407,6 +450,12 @@
   border-left: 1px solid var(--p-line-soft);
 }
 
+[data-theme='light'] .v2-shell .rsw,
+[data-theme='light'] .v2-shell .rdw,
+[data-theme='light'] .v2-shell .v2-inbox-case {
+  background: var(--p-surface-2);
+}
+
 /* Sizes to content: growing it left a gap above whatever follows in the drawer. */
 .rdw .v2-case {
   flex: 0 0 auto;
@@ -427,20 +476,25 @@
 
 .rhd-line {
   display: flex;
+  min-width: 0;
   align-items: baseline;
   gap: 8px;
 }
 
 .rhd-id {
+  min-width: 0;
+  overflow: hidden;
   color: var(--p-ink-0);
   font-size: 13.5px;
   font-weight: 600;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Mono plus a border reads as an engineering surface without a label saying so. */
 .rhd-inspect {
   display: inline-flex;
+  flex-shrink: 0;
   margin-left: auto;
   align-items: baseline;
   gap: 4px;
@@ -459,6 +513,7 @@
 }
 
 .rhd-close {
+  flex-shrink: 0;
   padding: 0 4px;
   border: 0;
   background: transparent;
@@ -493,9 +548,12 @@
 }
 
 .rhd-facts dd {
+  min-width: 0;
+  overflow: hidden;
   color: var(--p-ink-1);
   font-size: 11.5px;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rhd-stop {

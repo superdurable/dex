@@ -97,8 +97,8 @@ describe('toFilterRows', () => {
     expect(rows({ since: '24h' })).toEqual(['startTime gte 2026-09-19T12:00:00.000Z']);
   });
 
-  it('looks a run up by exact id', () => {
-    expect(rows({ runId: ' adv-1 ' })).toEqual(['flowId eq adv-1']);
+  it('looks a Flow up by exact Flow ID', () => {
+    expect(rows({ flowId: ' adv-1 ' })).toEqual(['flowId eq adv-1']);
   });
 
   it('carries the chosen operator through', () => {
@@ -126,7 +126,7 @@ describe('toFilterRows', () => {
     expect(rows({
       status: 'Running',
       since: '1h',
-      runId: 'adv-1',
+      flowId: 'adv-1',
       attributeKey: 'refund-amount',
       attributeOperator: 'lte',
       attributeValue: '450',
@@ -151,13 +151,13 @@ describe('query emptiness', () => {
   it('knows when nothing is narrowing the list', () => {
     expect(isEmptyQuery(EMPTY_RUN_QUERY)).toBe(true);
     expect(isEmptyQuery({ ...EMPTY_RUN_QUERY, status: 'Running' })).toBe(false);
-    expect(isEmptyQuery({ ...EMPTY_RUN_QUERY, runId: '  ' })).toBe(true);
+    expect(isEmptyQuery({ ...EMPTY_RUN_QUERY, flowId: '  ' })).toBe(true);
   });
 
   it('opens the disclosure when something inside it is set', () => {
     expect(hasAdvancedQuery(EMPTY_RUN_QUERY)).toBe(false);
     expect(hasAdvancedQuery({ ...EMPTY_RUN_QUERY, status: 'Running' })).toBe(false);
-    expect(hasAdvancedQuery({ ...EMPTY_RUN_QUERY, runId: 'adv-1' })).toBe(true);
+    expect(hasAdvancedQuery({ ...EMPTY_RUN_QUERY, flowId: 'adv-1' })).toBe(true);
     expect(hasAdvancedQuery({
       ...EMPTY_RUN_QUERY, attributeKey: 'refund-amount', attributeValue: '450',
     })).toBe(true);

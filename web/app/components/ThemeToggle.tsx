@@ -14,33 +14,22 @@ const LABEL: Record<ThemeChoice, string> = {
   system: 'Auto',
 };
 
-const TITLE: Record<ThemeChoice, string> = {
-  light: 'Always use the light theme.',
-  dark: 'Always use the dark theme.',
-  system: 'Follow this device, and keep following it when the device changes.',
-};
-
 export function ThemeToggle() {
   const state = useTheme();
   return (
-    <div className="app-themebar" role="radiogroup" aria-label="Colour theme">
-      {THEME_CHOICES.map((choice) => (
-        <button
-          key={choice}
-          type="button"
-          role="radio"
-          aria-checked={state.choice === choice}
-          className="app-themebtn"
-          data-on={state.choice === choice ? 'true' : undefined}
-          title={TITLE[choice]}
-          onClick={() => state.set(choice)}
-        >
-          {LABEL[choice]}
-          {choice === 'system' && state.choice === 'system' ? (
-            <span className="app-themebtn-echo">{state.theme}</span>
-          ) : null}
-        </button>
-      ))}
-    </div>
+    <label className="timezone-control">
+      <span>Theme</span>
+      <select
+        aria-label="Colour theme"
+        value={state.choice}
+        onChange={(event) => state.set(event.target.value as ThemeChoice)}
+      >
+        {THEME_CHOICES.map((choice) => (
+          <option key={choice} value={choice}>
+            {LABEL[choice]}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
