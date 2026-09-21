@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-package dev
+package update
 
 import (
 	"context"
@@ -26,8 +26,9 @@ type releaseChecker struct {
 	releasesURL string
 }
 
-type githubRelease struct {
+type Release struct {
 	TagName      string `json:"tag_name"`
+	Body         string `json:"body"`
 	IsDraft      bool   `json:"draft"`
 	IsPrerelease bool   `json:"prerelease"`
 }
@@ -39,37 +40,28 @@ func newReleaseChecker() *releaseChecker {
 	}
 }
 
-func (c *releaseChecker) Latest(ctx context.Context) (_ string, returnErr error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.releasesURL, nil)
+func (checker *releaseChecker) Releases(ctx context.Context) (_ []Release, returnErr error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, checker.releasesURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("create GitHub releases request: %w", err)
+		return nil, fmt.Errorf("create GitHub releases request: %w", err)
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("User-Agent", "dexcli")
-	response, err := c.httpClient.Do(request)
+	response, err := checker.httpClient.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("fetch GitHub releases: %w", err)
+		return nil, fmt.Errorf("fetch GitHub releases: %w", err)
 	}
 	defer func() {
 		returnErr = errors.Join(returnErr, response.Body.Close())
 	}()
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("fetch GitHub releases: unexpected status %s", response.Status)
+		return nil, fmt.Errorf("fetch GitHub releases: unexpected status %s", response.Status)
 	}
-	var releases []githubRelease
+	var releases []Release
 	if err := json.NewDecoder(response.Body).Decode(&releases); err != nil {
-		return "", fmt.Errorf("decode GitHub releases: %w", err)
+		return nil, fmt.Errorf("decode GitHub releases: %w", err)
 	}
-	latestVersion := ""
-	for _, release := range releases {
-		if release.IsDraft || release.IsPrerelease || !isCLIReleaseTag(release.TagName) {
-			continue
-		}
-		if latestVersion == "" || isNewerVersion(release.TagName, latestVersion) {
-			latestVersion = release.TagName
-		}
-	}
-	return latestVersion, nil
+	return releases, nil
 }
 
 func isReleaseVersion(version string) bool {

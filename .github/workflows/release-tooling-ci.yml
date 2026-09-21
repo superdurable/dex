@@ -6,12 +6,14 @@ on:
     paths:
       - "script/release/**"
       - ".github/workflows/release-changed-components.yml"
+      - ".github/workflows/cli-release.yml"
       - ".github/workflows/release-tooling-ci.yml"
       - "CONTRIBUTING.md"
   pull_request:
     paths:
       - "script/release/**"
       - ".github/workflows/release-changed-components.yml"
+      - ".github/workflows/cli-release.yml"
       - ".github/workflows/release-tooling-ci.yml"
       - "CONTRIBUTING.md"
   workflow_dispatch:
