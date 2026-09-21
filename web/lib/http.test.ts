@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { describe, expect, it } from 'vitest';
-import { isTransientGatewayResponse, readResponseJSON } from './http';
+import { DexAPIError, isTransientGatewayResponse, readResponseJSON } from './http';
 
 describe('isTransientGatewayResponse', () => {
   it('recognizes temporary gateway responses', () => {
@@ -58,6 +58,32 @@ describe('readResponseJSON', () => {
     await expect(readResponseJSON(response)).rejects.toThrow(
       'Dex API returned a non-JSON response (HTTP 500) for /api/flows/search: Error: connect ECONNREFUSED 127.0.0.1:8802',
     );
+  });
+
+  it('carries the gRPC code and HTTP status a Dex error body reported', async () => {
+    const response = jsonResponse({ error: 'Flow is not active', grpcCode: 9 }, 409);
+    const failure = await readResponseJSON(response).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(DexAPIError);
+    expect(failure).toBeInstanceOf(Error);
+    const dexFailure = failure as DexAPIError;
+    expect(dexFailure.message).toBe('Flow is not active');
+    expect(dexFailure.grpcCode).toBe(9);
+    expect(dexFailure.httpStatus).toBe(409);
+  });
+
+  it('leaves the gRPC code undefined rather than zero when the body omits it', async () => {
+    const response = jsonResponse({ error: 'Flow not found' }, 404);
+    const failure = (await readResponseJSON(response).catch((error: unknown) => error)) as DexAPIError;
+    expect(failure.grpcCode).toBeUndefined();
+    expect(failure.httpStatus).toBe(404);
+  });
+
+  it('keeps the generated message when the body carries a code but no error text', async () => {
+    const response = jsonResponse({ grpcCode: 14 }, 502);
+    Object.defineProperty(response, 'url', { value: 'http://127.0.0.1:5173/api/v2/display' });
+    const failure = (await readResponseJSON(response).catch((error: unknown) => error)) as DexAPIError;
+    expect(failure.message).toBe('Dex API returned an error (HTTP 502) for /api/v2/display');
+    expect(failure.grpcCode).toBe(14);
   });
 });
 

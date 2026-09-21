@@ -158,7 +158,7 @@
 .v2-primary {
   padding: 4px 9px;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .v2-ghost {
@@ -176,7 +176,7 @@
 .v2-error {
   margin: 0 0 8px;
   color: var(--p-run-failed);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .v2-shell .sq-list {
@@ -213,11 +213,643 @@
 
 .v2-column {
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .v2-empty {
   padding: 18px 8px;
   color: var(--p-ink-3);
+  font-size: 13px;
+}
+
+/* ------------------------------ run mode: switcher | canvas | run drawer */
+
+.v2-shell.v2-run {
+  min-height: 0;
+  height: 100%;
+  font-family: var(--font-sans);
+}
+
+.v2-run-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.v2-run-body[data-has-run='true'] {
+  grid-template-columns: 15rem minmax(0, 1fr) var(--v2-drawer-w, 25rem);
+}
+
+.v2-inbox-case {
+  display: flex;
+  overflow-y: auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Centred rather than hard-left: a capped reading column with a void beside it reads as broken. */
+.v2-inbox-case .v2-case {
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  max-height: none;
+  height: auto;
+  border-top: 0;
+}
+
+.v2-inbox-empty {
+  padding: 18px 20px;
+}
+
+/* Collapsed by default so the list reads as a list; the sentence stays visible either way. */
+.fb {
+  margin: 8px 0 6px;
+}
+
+.fb-summary {
+  color: var(--p-ink-3);
+  cursor: pointer;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.fb-summary:hover {
+  color: var(--p-ink-1);
+}
+
+.fb[open] .fb-summary {
+  margin-bottom: 8px;
+  color: var(--p-ink-2);
+}
+
+.rsw {
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px 12px;
+  border-right: 1px solid var(--p-line-soft);
+}
+
+.rsw .sv-choose {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.rsw-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* A stronger rule between groups than between rows: the split is the coarser fact. */
+.rsw-group + .rsw-group {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--p-line);
+}
+
+.rsw-grouphead {
+  margin-bottom: 2px;
+  color: var(--p-ink-3);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rsw-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Lines, not boxes: a run is an entry in a list, not a card competing with the canvas. */
+.rsw-item + .rsw-item {
+  border-top: 1px solid var(--p-line-soft);
+}
+
+.rsw-row {
+  display: grid;
+  width: 100%;
+  border: 0;
+  border-left: 2px solid transparent;
+  padding: 7px 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  gap: 1px 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  text-align: left;
+}
+
+.rsw-row:hover {
+  background: var(--p-surface-2);
+}
+
+.rsw-item[data-selected='true'] .rsw-row {
+  border-left-color: var(--p-run-active);
+  background: var(--p-surface-3);
+}
+
+.rsw-id {
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.rsw-time {
+  color: var(--p-ink-3);
+  font-size: 10.5px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.rsw-state {
+  color: var(--p-ink-2);
+  font-size: 11px;
+  grid-column: 1 / -1;
+}
+
+.rsw-stranded {
+  color: var(--p-run-failed);
+  font-size: 10.5px;
+  grid-column: 1 / -1;
+}
+
+.rsw-item[data-stranded='true'] .rsw-id,
+.rsw-item[data-stranded='true'] .rsw-state {
+  color: var(--p-ink-3);
+}
+
+.rsw-flowtype {
+  width: 100%;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+}
+
+/* The drawer scrolls; the Actions block does not leave the viewport. */
+.rdw {
+  display: flex;
+  overflow-y: auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--p-line-soft);
+}
+
+/* Sizes to content: growing it left a gap above whatever follows in the drawer. */
+.rdw .v2-case {
+  flex: 0 0 auto;
+  max-height: none;
+  height: auto;
+  border-top: 0;
+}
+
+
+.rhd {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--p-line-soft);
+  background: var(--p-surface-1);
+}
+
+.rhd-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.rhd-id {
+  color: var(--p-ink-0);
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Mono plus a border reads as an engineering surface without a label saying so. */
+.rhd-inspect {
+  display: inline-flex;
+  margin-left: auto;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--p-line);
+  border-radius: 4px;
+  color: var(--p-ink-2);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.rhd-inspect:hover {
+  border-color: var(--p-ink-3);
+  color: var(--p-ink-0);
+}
+
+.rhd-close {
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--p-ink-3);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rhd-close:hover {
+  color: var(--p-ink-0);
+}
+
+.rhd-facts {
+  display: grid;
+  margin-top: 8px;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+}
+
+.rhd-facts > div {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.rhd-facts dt {
+  color: var(--p-ink-3);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.rhd-facts dd {
+  color: var(--p-ink-1);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.rhd-stop {
+  margin-top: 10px;
+  padding: 4px 12px;
+  border: 1px solid var(--p-run-failed);
+  border-radius: 5px;
+  color: var(--p-run-failed);
   font-size: 12px;
+}
+
+/* Follows the canvas selection; the facts and Actions below it do not move. */
+.rdw-band {
+  display: grid;
+  gap: 2px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--p-line-soft);
+  background: var(--p-surface-2);
+}
+
+.rdw-bandlabel {
+  color: var(--p-ink-3);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.rdw-band[data-tone='blocked'] .rdw-bandlabel {
+  color: var(--p-external);
+}
+
+.rdw-band[data-tone='failed'] .rdw-bandlabel {
+  color: var(--p-run-failed);
+}
+
+.rdw-bandstep {
+  color: var(--p-ink-0);
+  font-size: 12.5px;
+}
+
+.rdw-bandwhy {
+  color: var(--p-ink-2);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* -------------------------------------------------- queue mode, no canvas */
+
+.v2-shell.v2-queue {
+  display: flex;
+  flex-direction: column;
+}
+
+.v2-queue .sq {
+  border-right: 1px solid var(--p-line-soft);
+}
+
+.v2-queue .v2-case {
+  max-height: none;
+  height: 100%;
+  border-top: none;
+  padding: 16px 20px 20px;
+}
+
+.v2-queue .sc-none {
+  padding: 18px 20px;
+}
+
+.v2-seemore {
+  margin-left: auto;
+  color: var(--p-ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.v2-seemore:hover {
+  color: var(--p-ink-1);
+}
+
+
+/* -------------------------------------- flow-level meaning of the open Step */
+
+.scx {
+  padding: 14px 16px 20px;
+  border-top: 1px solid var(--p-line-soft);
+}
+
+/* Standalone: no run selected, so the Step is all the drawer has to say. */
+.rdw[data-step-only='true'] .scx {
+  border-top: 0;
+}
+
+.scx-step {
+  color: var(--p-ink-0);
+  font-size: 12px;
+}
+
+.scx-purpose {
+  margin-top: 3px;
+  color: var(--p-ink-1);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.scx-facts {
+  display: grid;
+  margin-top: 10px;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+}
+
+.scx-fact {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.scx-fact dt {
+  color: var(--p-ink-3);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.scx-fact dd {
+  color: var(--p-ink-1);
+  font-size: 11.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.rdw-steponly {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+
+.rdw-steponlylabel {
+  color: var(--p-ink-3);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rdw-steponly .rhd-close {
+  margin-left: auto;
+}
+
+/* --------------------------------- three zones: pick a Flow, find runs, read the list
+
+   Each is a separate surface because they are separate acts. Stacked controls with no boundary
+   read as one long form, and the list underneath looked like a fourth field. */
+
+.rsw-zone {
+  margin-bottom: 10px;
+}
+
+.rsw-zone[data-zone='find'] {
+  padding: 8px 9px 2px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: 6px;
+  background: var(--p-surface-2);
+}
+
+.rsw-zonehead {
+  margin: 0 0 6px;
+  color: var(--p-ink-2);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/* The list owns the rest of the panel, and a rule says where the controls stop. */
+.rsw-scroll[data-zone='list'] {
+  padding-top: 8px;
+  border-top: 1px solid var(--p-line);
+}
+
+/* ------------------------------------------ find a run: two controls, three more behind one click */
+
+.rsq {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.rsq-basic {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.rsq-adv {
+  margin-top: 1px;
+}
+
+.rsq-advhead {
+  padding: 3px 0;
+  color: var(--p-ink-2);
+  cursor: pointer;
+  font-size: 10.5px;
+  list-style: none;
+}
+
+.rsq-advhead::marker,
+.rsq-advhead::-webkit-details-marker {
+  display: none;
+}
+
+/* A caret the reader can see, since the native marker is suppressed. */
+.rsq-advhead::before {
+  display: inline-block;
+  margin-right: 5px;
+  content: '▸';
+  transition: transform 0.12s ease;
+}
+
+.rsq-adv[open] > .rsq-advhead::before {
+  transform: rotate(90deg);
+}
+
+.rsq-advhead:hover {
+  color: var(--p-ink-0);
+}
+
+.rsq-field {
+  display: block;
+  margin-top: 6px;
+}
+
+.rsq-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--p-ink-3);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The operator takes the width of its longest word; the value gets everything left. */
+.rsq-compare {
+  display: grid;
+  gap: 5px;
+  margin-top: 4px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.rsq-compare select {
+  width: auto;
+}
+
+.rsq select,
+.rsq input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+}
+
+.rsq select:disabled,
+.rsq input:disabled {
+  color: var(--p-ink-3);
+}
+
+.rsq-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* ------------------------------ progress through a run's human gates */
+
+.apg {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+
+.apg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.apg-label {
+  color: var(--p-ink-3);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.apg-count {
+  margin-left: auto;
+  color: var(--p-ink-3);
+  font-size: 10px;
+}
+
+.apg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 7px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apg-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.apg-mark {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--p-line);
+  border-radius: 50%;
+  color: var(--p-ink-3);
+  font-size: 9px;
+}
+
+.apg-name {
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+}
+
+/* The open gate is the one thing here worth emphasis. */
+.apg-step[data-state='current'] .apg-mark {
+  border-color: var(--p-external);
+  background: var(--p-external);
+  color: var(--p-surface-1);
+}
+
+.apg-step[data-state='current'] .apg-name {
+  color: var(--p-ink-0);
+  font-weight: 600;
+}
+
+.apg-step[data-state='done'] .apg-mark {
+  border-color: var(--p-run-done);
+  color: var(--p-run-done);
+}
+
+.apg-step[data-state='upcoming'] .apg-name {
+  color: var(--p-ink-3);
 }

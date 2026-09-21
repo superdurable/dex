@@ -6,15 +6,17 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { AppHeader } from './components/AppHeader';
+import { DebugWorkspace } from './v2/debug/DebugWorkspace';
 import { CurrentRunRedirect } from './flows/CurrentRunRedirect';
 import { FlowSearchPage } from './flows/FlowSearchPage';
 import { RunDetailsPage } from './flows/RunDetailsPage';
 import { PreferencesProvider } from './providers';
 import { FlowRenderingPage } from './rendering/FlowRenderingPage';
 import { ThemeProvider } from './theme';
-import { HomePage, V2Workspace } from './v2/V2Workspace';
+import { QueueWorkspace } from './v2/queue/QueueWorkspace';
+import { HomePage, RunWorkspace } from './v2/RunWorkspace';
 import { WebCatalogProvider } from './v2/WebCatalogProvider';
 
 export function App() {
@@ -26,9 +28,15 @@ export function App() {
           <main className="app-main">
             <Routes>
               <Route path="/" element={<HomePage />} />
-              <Route path="/v2" element={<V2Workspace />} />
-              <Route path="/v2/:flowType" element={<V2Workspace />} />
-              <Route path="/v2/:flowType/:flowId" element={<V2Workspace />} />
+              <Route path="/v2" element={<Navigate to="/v2/run" replace />} />
+              <Route path="/v2/run" element={<RunWorkspace />} />
+              <Route path="/v2/run/:flowType" element={<RunWorkspace />} />
+              <Route path="/v2/run/:flowType/:flowId" element={<RunWorkspace />} />
+              <Route path="/v2/run/:flowType/:flowId/debug" element={<DebugWorkspace />} />
+              <Route path="/v2/run/:flowType/:flowId/debug/:runId" element={<DebugWorkspace />} />
+              <Route path="/v2/queue" element={<QueueWorkspace />} />
+              <Route path="/v2/queue/:flowType" element={<QueueWorkspace />} />
+              <Route path="/v2/queue/:flowType/:flowId" element={<QueueWorkspace />} />
               <Route path="/v1" element={<Navigate to="/v1/flows" replace />} />
               <Route path="/v1/flows" element={<FlowSearchPage />} />
               <Route path="/v1/rendering" element={<FlowRenderingPage />} />
@@ -50,5 +58,19 @@ function CurrentFlowRoute() {
 
 function FlowRunRoute() {
   const { flowId = '', runId = '' } = useParams();
-  return <RunDetailsPage flowId={flowId} runId={runId} />;
+  const flowPath = `/v1/flows/${encodeURIComponent(flowId)}`;
+  return (
+    <RunDetailsPage
+      breadcrumb={(
+        <div className="breadcrumbs">
+          <Link to="/">Flows</Link><span>/</span>
+          <Link to={flowPath}>{flowId}</Link><span>/</span>
+          <span className="mono">{runId}</span>
+        </div>
+      )}
+      flowId={flowId}
+      runId={runId}
+      runPath={(chainRunID) => `${flowPath}/${encodeURIComponent(chainRunID)}`}
+    />
+  );
 }

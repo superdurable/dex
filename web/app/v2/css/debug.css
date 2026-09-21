@@ -1,0 +1,434 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+/*
+ * Colour and type for the Deep Dive, which reuses the v1 detail components.
+ *
+ * globals.css still owns their LAYOUT and still serves /v1 unchanged, so this file
+ * only re-points colour and type, scoped under .v2-debug. Same precedent as the
+ * .v2-shell .ppan block in canvas.css.
+ *
+ * Mapped by semantic family, not by literal: v1's greens carry three different
+ * meanings (interactive, succeeded, emphasis) and v2 reserves green for done.
+ */
+
+.v2-debug {
+  /*
+   * v2 has no interactive token: --p-* are all status colours and --p-external means
+   * "external party", not "clickable". Its own chrome already treats this blue as
+   * interactive via --accent-wash and --focus-ring, so name it once here.
+   */
+  --v2-debug-accent: var(--hue-progress-ink);
+
+  overflow-y: auto;
+  height: 100%;
+  background: var(--p-surface-1);
+  color: var(--p-ink-1);
+  font-family: var(--font-sans);
+}
+
+.v2-debug .run-page {
+  max-width: none;
+  padding: 0 20px 28px;
+}
+
+.v2-debug-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+
+.v2-debug-back {
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+.v2-debug-back:hover {
+  color: var(--p-ink-0);
+}
+
+.v2-debug-label {
+  color: var(--p-ink-0);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.v2-debug-note {
+  color: var(--p-ink-3);
+  font-size: 10px;
+}
+
+/* ------------------------------------------------------------------ type */
+
+/*
+ * v1's h1 is clamp(28px, 4vw, 42px) against v2's 15px ceiling. Left large enough
+ * to head a page, small enough to sit beside v2 chrome.
+ */
+.v2-debug h1 {
+  color: var(--p-ink-0);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.v2-debug h2 {
+  color: var(--p-ink-0);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.v2-debug h3 {
+  color: var(--p-ink-1);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.v2-debug .eyebrow {
+  color: var(--p-ink-3);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+}
+
+.v2-debug .muted {
+  color: var(--p-ink-2);
+}
+
+.v2-debug .mono,
+.v2-debug code,
+.v2-debug pre {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+/* --------------------------------------------------------------- surfaces */
+
+.v2-debug .card,
+.v2-debug .overview-card,
+.v2-debug .summary-strip,
+.v2-debug .graph-view,
+.v2-debug .timeline-wrap,
+.v2-debug .run-sidebar {
+  border: 1px solid var(--p-line-soft);
+  border-radius: var(--p-radius);
+  background: var(--p-surface-2);
+  box-shadow: none;
+}
+
+.v2-debug .live-state-block,
+.v2-debug .active-step-card,
+.v2-debug .event-card,
+.v2-debug .sub-flow-record,
+.v2-debug .channel-message-row {
+  border-color: var(--p-line-soft);
+  background: var(--p-surface-3);
+}
+
+.v2-debug pre,
+.v2-debug .definition-list,
+.v2-debug .metric-grid {
+  border-color: var(--p-line-soft);
+  background: var(--p-surface-3);
+  color: var(--p-ink-1);
+}
+
+.v2-debug hr,
+.v2-debug .run-header,
+.v2-debug .run-tabs {
+  border-color: var(--p-line-soft);
+}
+
+/* ---------------------------------------------------------------- controls */
+
+/* Neutral by default: green here would collide with v2 reserving green for done. */
+.v2-debug .button,
+.v2-debug .section-expand-toggle,
+.v2-debug .graph-minimap-toggle {
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-3);
+  color: var(--p-ink-1);
+  box-shadow: none;
+}
+
+.v2-debug .button:hover:enabled {
+  border-color: var(--p-ink-3);
+  color: var(--p-ink-0);
+}
+
+.v2-debug .button.primary {
+  border-color: var(--v2-debug-accent);
+  background: var(--p-surface-3);
+  color: var(--v2-debug-accent);
+}
+
+.v2-debug .button.danger {
+  border-color: var(--p-run-failed);
+  background: var(--p-surface-3);
+  color: var(--p-run-failed);
+}
+
+.v2-debug .button:disabled {
+  color: var(--p-ink-3);
+}
+
+.v2-debug .run-tabs button {
+  border: 0;
+  background: transparent;
+  color: var(--p-ink-2);
+  font-size: 11.5px;
+}
+
+.v2-debug .run-tabs button:hover {
+  color: var(--p-ink-0);
+}
+
+.v2-debug .run-tabs button.active {
+  color: var(--p-ink-0);
+}
+
+.v2-debug .run-tabs button.active::after {
+  background: var(--v2-debug-accent);
+}
+
+.v2-debug a {
+  color: var(--v2-debug-accent);
+}
+
+.v2-debug .breadcrumbs,
+.v2-debug .breadcrumbs a {
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+}
+
+/* ------------------------------------------------------- run-state tones */
+
+/*
+ * One row per meaning. v1 spelled these as 74 distinct literals; v2 already has
+ * a token per run state and the graph/timeline tones reuse them.
+ */
+.v2-debug .status-badge,
+.v2-debug .event-type,
+.v2-debug .timeline-dot,
+.v2-debug .phase {
+  border-color: var(--p-line-soft);
+  background: var(--p-surface-3);
+  color: var(--p-ink-2);
+}
+
+.v2-debug .status-running,
+.v2-debug .phase-active,
+.v2-debug .tone-execute,
+.v2-debug .event-type.tone-execute {
+  border-color: var(--p-run-active);
+  color: var(--p-run-active);
+}
+
+.v2-debug .status-completed,
+.v2-debug .event-type.tone-completed {
+  border-color: var(--p-run-done);
+  color: var(--p-run-done);
+}
+
+.v2-debug .status-failed,
+.v2-debug .status-terminated,
+.v2-debug .event-type.tone-failed,
+.v2-debug .run-error {
+  border-color: var(--p-run-failed);
+  color: var(--p-run-failed);
+}
+
+.v2-debug .phase-waiting,
+.v2-debug .tone-wait-for,
+.v2-debug .event-type.tone-wait-for {
+  border-color: var(--p-clock);
+  color: var(--p-clock);
+}
+
+.v2-debug .status-canceled,
+.v2-debug .status-timed-out {
+  border-color: var(--p-unknown);
+  color: var(--p-unknown);
+}
+
+/* ------------------------------------------------------------ graph nodes */
+
+.v2-debug .react-flow__node.step-flow-node {
+  border-color: var(--p-line);
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+}
+
+.v2-debug .react-flow__node.node-running,
+.v2-debug .graph-node-current {
+  border-color: var(--p-run-active);
+}
+
+.v2-debug .react-flow__node.node-completed {
+  border-color: var(--p-run-done);
+}
+
+.v2-debug .react-flow__node.node-failed {
+  border-color: var(--p-run-failed);
+}
+
+.v2-debug .react-flow__node.node-waiting {
+  border-color: var(--p-clock);
+}
+
+.v2-debug .react-flow__edge-path {
+  stroke: var(--p-edge-control);
+}
+
+.v2-debug .graph-canvas,
+.v2-debug .graph-minimap {
+  background: var(--p-bg);
+}
+
+.v2-debug .graph-legend,
+.v2-debug .view-toolbar {
+  border-color: var(--p-line-soft);
+  background: var(--p-surface-2);
+  color: var(--p-ink-2);
+}
+
+/* --------------------------------------------------------------- timeline */
+
+.v2-debug .timeline-rail,
+.v2-debug .timeline-step-link {
+  border-color: var(--p-line);
+  background: var(--p-line-soft);
+}
+
+.v2-debug .timeline-time,
+.v2-debug .event-id,
+.v2-debug .timeline-step-duration {
+  color: var(--p-ink-3);
+}
+
+.v2-debug .timeline-row.selected .event-card {
+  border-color: var(--v2-debug-accent);
+}
+
+.v2-debug .selected-event-connector path {
+  stroke: var(--v2-debug-accent);
+}
+
+/* ----------------------------------------------------------------- modals */
+
+.v2-debug .modal,
+.v2-debug .modal-card {
+  border-color: var(--p-line);
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+}
+
+.v2-debug .modal-backdrop {
+  background: color-mix(in oklch, var(--p-bg) 78%, transparent);
+}
+
+.v2-debug input,
+.v2-debug select,
+.v2-debug textarea {
+  border: 1px solid var(--p-line);
+  border-radius: 4px;
+  background: var(--p-surface-1);
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+}
+
+.v2-debug .error-banner {
+  border-color: var(--p-run-failed);
+  background: var(--p-surface-3);
+  color: var(--p-run-failed);
+}
+
+/*
+ * The rest, found by probing for a near-white background in dark mode rather than by
+ * reading selectors — these are the families globals.css paints with literals.
+ */
+.v2-debug .semantic-record,
+.v2-debug .semantic-section,
+.v2-debug .channel-record,
+.v2-debug .sidebar-stack,
+.v2-debug .selected-event-anchor,
+.v2-debug .overview-selected-event,
+.v2-debug .event-detail-tabs,
+.v2-debug code {
+  border-color: var(--p-line-soft);
+  background: var(--p-surface-3);
+  color: var(--p-ink-1);
+}
+
+.v2-debug .event-detail-tabs button.active {
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+}
+
+.v2-debug .graph-methods {
+  background: transparent;
+}
+
+.v2-debug .graph-method {
+  border-color: var(--p-line-soft);
+  background: var(--p-surface-3);
+  color: var(--p-ink-2);
+}
+
+.v2-debug .graph-method-wait-for {
+  border-color: var(--p-clock);
+  color: var(--p-clock);
+}
+
+.v2-debug .graph-method-execute {
+  border-color: var(--p-run-done);
+  color: var(--p-run-done);
+}
+
+.v2-debug .legend-source,
+.v2-debug .legend-subflow {
+  background: var(--p-surface-3);
+}
+
+.v2-debug .react-flow__controls-button {
+  border-color: var(--p-line-soft);
+  background: var(--p-surface-2);
+  fill: var(--p-ink-1);
+}
+
+/* Every .tone-* variant carries its own light tint, so outrank them all at once. */
+.v2-debug .event-type[class*='tone-'],
+.v2-debug .timeline-dot[class*='tone-'] {
+  background: var(--p-surface-3);
+}
+
+.v2-debug .json-toggle,
+.v2-debug .json-view-body,
+.v2-debug .json-view-body .event-detail-tabs,
+.v2-debug .json-view-raw {
+  border-color: var(--p-line-soft);
+  background: var(--p-surface-3);
+  color: var(--p-ink-1);
+}
+
+.v2-debug .json-toggle span {
+  color: var(--p-ink-2);
+}
+
+/* Unclassed chips: .event-highlights > span, and the Overview metric cells. */
+.v2-debug .event-highlights > span,
+.v2-debug .metric-grid > div,
+.v2-debug .definition-list > div {
+  border-color: var(--p-line-soft);
+  background: var(--p-surface-2);
+  color: var(--p-ink-2);
+}

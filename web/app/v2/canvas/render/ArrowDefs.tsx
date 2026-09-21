@@ -35,7 +35,11 @@ import type { JSX } from 'react'
  * file that cannot read it — exactly what the no-hex compliance check exists to catch. Four
  * definitions now cover seven families.
  *
- * SIZE IS ABSOLUTE. `markerUnits` defaults to `strokeWidth`, which multiplies the arrowhead by the
+ * SIZE IS ABSOLUTE, and therefore generous. `markerUnits="userSpaceOnUse"` means a head does not
+ * take the stroke's zoom compensation, so it shrinks with the graph while the line does not —
+ * direction was unreadable below about 0.6 zoom until these were enlarged.
+ *
+ * `markerUnits` defaults to `strokeWidth`, which multiplies the arrowhead by the
  * line's thickness — so the deliberately-thickest line on the canvas, a failure edge at 2.4px, got a
  * ~17px arrowhead, and `--zoom-comp` compounded it further. Every marker is `userSpaceOnUse`, so an
  * arrowhead is one size everywhere and thickness and head size stop fighting.
@@ -53,8 +57,8 @@ export function ArrowDefs(): JSX.Element {
           viewBox="0 0 10 10"
           refX="9"
           refY="5"
-          markerWidth="7"
-          markerHeight="7"
+          markerWidth="11"
+          markerHeight="11"
           markerUnits="userSpaceOnUse"
           orient="auto-start-reverse"
         >
@@ -71,8 +75,8 @@ export function ArrowDefs(): JSX.Element {
           viewBox="0 0 12 12"
           refX="10"
           refY="6"
-          markerWidth="9"
-          markerHeight="9"
+          markerWidth="13"
+          markerHeight="13"
           markerUnits="userSpaceOnUse"
           orient="auto-start-reverse"
         >
@@ -90,8 +94,8 @@ export function ArrowDefs(): JSX.Element {
           viewBox="0 0 10 10"
           refX="5"
           refY="5"
-          markerWidth="6"
-          markerHeight="6"
+          markerWidth="9"
+          markerHeight="9"
           markerUnits="userSpaceOnUse"
           orient="auto"
         >
@@ -115,8 +119,8 @@ export function ArrowDefs(): JSX.Element {
           viewBox="0 0 10 10"
           refX="8"
           refY="5"
-          markerWidth="7"
-          markerHeight="7"
+          markerWidth="11"
+          markerHeight="11"
           markerUnits="userSpaceOnUse"
           orient="auto-start-reverse"
         >

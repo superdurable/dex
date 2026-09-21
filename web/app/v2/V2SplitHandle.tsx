@@ -20,6 +20,8 @@ export const CASE_HEIGHT_FRAC = 0.42;
 export const PANEL_WIDTH_DEFAULT = 360;
 export const PANEL_WIDTH_MIN = 280;
 export const PANEL_CANVAS_REMAIN_MIN = 240;
+export const DRAWER_WIDTH_KEY = 'dex-web.v2-drawer-w';
+export const DRAWER_WIDTH_DEFAULT = 400;
 export const DEF_HEIGHT_KEY = 'dex-web.v2-def-h';
 export const DEF_HEIGHT_DEFAULT = 220;
 export const DEF_HEIGHT_MIN = 96;
@@ -93,7 +95,7 @@ export function V2SplitHandle({
   edge = 'end',
 }: {
   axis: 'column' | 'row';
-  cssVariable: '--v2-list-w' | '--v2-case-h' | '--v2-panel-w' | '--v2-def-h';
+  cssVariable: '--v2-list-w' | '--v2-case-h' | '--v2-panel-w' | '--v2-def-h' | '--v2-drawer-w';
   targetRef: RefObject<HTMLElement | null>;
   measureRef: RefObject<HTMLElement | null>;
   value: number;
@@ -113,7 +115,9 @@ export function V2SplitHandle({
   const clampLive = useCallback((desired: number) => {
     const box = measureRef.current?.getBoundingClientRect();
     if (!box) return desired;
-    if (cssVariable === '--v2-panel-w') return clampPanelWidth(desired, box.width);
+    if (cssVariable === '--v2-panel-w' || cssVariable === '--v2-drawer-w') {
+      return clampPanelWidth(desired, box.width);
+    }
     if (cssVariable === '--v2-def-h') return clampDefHeight(desired, box.height);
     return axis === 'column'
       ? clampListWidth(desired, box.width)
@@ -127,7 +131,7 @@ export function V2SplitHandle({
     if (!box) return;
     let floor = LIST_WIDTH_MIN;
     let ceiling = box.width;
-    if (cssVariable === '--v2-panel-w') {
+    if (cssVariable === '--v2-panel-w' || cssVariable === '--v2-drawer-w') {
       floor = PANEL_WIDTH_MIN;
       ceiling = Math.max(floor, Math.min(box.width * 0.7, box.width - PANEL_CANVAS_REMAIN_MIN));
     } else if (cssVariable === '--v2-def-h') {
@@ -148,7 +152,7 @@ export function V2SplitHandle({
     if (event.button !== 0) return;
     const box = measureRef.current?.getBoundingClientRect();
     if (!box) return;
-    const fallback = cssVariable === '--v2-panel-w'
+    const fallback = cssVariable === '--v2-panel-w' || cssVariable === '--v2-drawer-w'
       ? PANEL_WIDTH_DEFAULT
       : cssVariable === '--v2-def-h'
         ? Math.min(DEF_HEIGHT_DEFAULT, Math.max(DEF_HEIGHT_MIN, box.height - EXEC_REMAIN_MIN))

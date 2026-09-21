@@ -20,6 +20,7 @@ import {
   subflowBoxes,
 } from './shared'
 import { STEP_W, stepBox, stepContent } from './stepBox'
+import type { StepGroup } from './groups'
 import type { Band, Box, Scene, ViewOpts, ViewSpec } from './types'
 import { boundsOf } from './types'
 
@@ -188,12 +189,73 @@ function recoverySteps(flow: PocFlow): Set<string> {
   return new Set([...unreachable, ...hubs])
 }
 
+/**
+ * A group that is MOSTLY ERROR HANDLING is error handling, so all of it shares the recovery lane.
+ *
+ * Lane by group rather than by step. Reachability decides a step's lane correctly and still drew the
+ * refund flow's Failure group as five regions in three columns, because only three of its members are
+ * reached by failing — the other two are guarded branch targets that happen to be terminal. Judged as
+ * a group instead, Failure is one vertical strip, which is what the declaration already claimed.
+ *
+ * Majority, not presence: one compensating Step must not drag its whole phase aside. Measured over the
+ * corpus, Failure is the only group that reaches the threshold, so no other drawing moves.
+ */
+function cohesionMoves(flow: PocFlow, groups: StepGroup[], aside: Set<string>): Set<string> {
+  const targetCount = (id: string): number =>
+    new Set(
+      flow.transitions
+        .filter((t) => t.fromStepId === id && t.kind === 'transition' && !t.isSelfLoop)
+        .map((t) => t.toStepId),
+    ).size
+
+  const moves = new Set<string>()
+  for (const group of groups) {
+    const members = flow.steps.filter((step) => group.stepTypes.includes(step.stepType))
+    const handling = members.filter(
+      (step) => step.recoveryRole !== 'none' || aside.has(step.id),
+    )
+    if (handling.length * 2 <= members.length) continue
+    for (const step of members) {
+      // A branch point belongs where the spine reads it, however its group is classified.
+      if (aside.has(step.id) || step.isStart || targetCount(step.id) > 1) continue
+      moves.add(step.id)
+    }
+  }
+  return moves
+}
+
+/**
+ * A region is contiguous: a gap wide enough to hold another card is a hole, not part of it.
+ */
+function contiguousRuns(
+  members: { x: number; y: number; h: number }[],
+  lr: boolean,
+): { x: number; y: number; h: number }[][] {
+  const start = (m: { x: number; y: number }) => (lr ? m.y : m.x)
+  const extent = (m: { h: number }) => (lr ? m.h : STEP_W)
+  const sorted = [...members].sort((a, b) => start(a) - start(b))
+  const runs: { x: number; y: number; h: number }[][] = []
+  for (const member of sorted) {
+    const current = runs[runs.length - 1]
+    const last = current?.[current.length - 1]
+    if (current === undefined || last === undefined) {
+      runs.push([member])
+      continue
+    }
+    const hole = start(member) - (start(last) + extent(last))
+    if (hole > extent(member)) runs.push([member])
+    else current.push(member)
+  }
+  return runs
+}
+
 function layout(flow: PocFlow, opts: ViewOpts): Scene {
   if (flow.steps.length === 0) {
     return { boxes: [], links: [], bands: [], width: 640, height: 200, notes: ['No steps.'] }
   }
 
-  const aside = recoverySteps(flow)
+  const recovery = recoverySteps(flow)
+  const aside = new Set([...recovery, ...cohesionMoves(flow, opts.groups ?? [], recovery)])
   const main = flow.steps.filter((s) => !aside.has(s.id))
   const links = controlLinks(flow, opts)
   const control = links.filter((l) => l.family === 'control')
@@ -315,7 +377,12 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
    *     group for band edges they do not have, so a step sat as far from its own group partner as from
    *     an unrelated step.
    */
-  const rankBase = anyAnatomy ? 56 : 30
+  /*
+   * 44 is the floor. Measured over the two-gate refund graph: 36 overlaps two band pairs by 6px
+   * and 30 by 12px, which is the defect the two attempts above were fixing. See the band-overlap
+   * test beside this file.
+   */
+  const rankBase = anyAnatomy ? 44 : 30
   /**
    * A WRAPPED continuation needs the allowance too.
    *
@@ -681,19 +748,26 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
     }
     let rects = [...rows.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([, rs]) => {
-        const x0 = Math.min(...rs.map((r) => r.x))
-        const y0 = Math.min(...rs.map((r) => r.y))
+      .flatMap(([, rs]) => contiguousRuns(rs, lr).map((run) => {
+        const x0 = Math.min(...run.map((r) => r.x))
+        const y0 = Math.min(...run.map((r) => r.y))
         return {
           x: x0,
           y: y0,
-          w: Math.max(...rs.map((r) => r.x + STEP_W)) - x0,
-          h: Math.max(...rs.map((r) => r.y + r.h)) - y0,
+          w: Math.max(...run.map((r) => r.x + STEP_W)) - x0,
+          h: Math.max(...run.map((r) => r.y + r.h)) - y0,
         }
-      })
+      }))
 
-    // Greedy pairwise merge until nothing more can join without capturing a foreign card.
-    for (let pass = 0; pass < rects.length; pass++) {
+    /**
+     * Greedy pairwise merge until nothing more can join without capturing a foreign card.
+     *
+     * The bound is the STARTING count. Comparing against the live length under-converged: every
+     * merge shortens the list while the counter rises, so a group of seven rows stopped after four
+     * merges and shipped three regions where one was available.
+     */
+    const passes = rects.length
+    for (let pass = 0; pass < passes; pass++) {
       let merged = false
       for (let a = 0; a < rects.length - 1 && !merged; a++) {
         const p = rects[a] as { x: number; y: number; w: number; h: number }
@@ -707,6 +781,11 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
           h: Math.max(p.y + p.h, q.y + q.h) - y0,
         }
         if (swallows(union)) continue
+        // Stacked rows merge; side-by-side rects do not, or the union reinstates the hole.
+        const overlapsAcross = lr
+          ? p.y < q.y + q.h && q.y < p.y + p.h
+          : p.x < q.x + q.w && q.x < p.x + p.w
+        if (!overlapsAcross) continue
         rects = [...rects.slice(0, a), union, ...rects.slice(a + 2)]
         merged = true
       }
@@ -802,3 +881,4 @@ export const controlTopologyView: ViewSpec = {
   risk: 'Loop-heavy and hub-prone, and silent about who has to act unless colour carries it.',
   layout,
 }
+

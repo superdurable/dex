@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { describe, expect, it } from 'vitest';
+import refundGraph from '../../../../../docs/src/data/flow-definitions/customer-refund-agentic.json';
 import { safeDecode } from '../model/decode';
 import type { FlowDefinitionGraph } from '../model/fdg';
 import { controlTopologyView } from './controlTopology';
@@ -39,7 +40,60 @@ describe('control topology group bands', () => {
     expect(failure.length).toBeGreaterThan(1);
     expect(scene.bands.filter((band) => band.style === 'group' && !band.label)).toEqual([]);
   });
+
+  /*
+   * The guard the row gap needs, run over the real two-gate refund graph rather than a fixture.
+   *
+   * A hand-built linear flow does not reproduce this: the collision needs wrapped wide ranks and a
+   * band spanning non-adjacent ranks, which is a shape easier to import than to describe. Verified
+   * to fail at rankBase 36 and below, which is how the floor of 44 was chosen.
+   */
+  it('never overlaps two group bands on the shipped refund graph', () => {
+    const scene = refundScene();
+    const groups = scene.bands.filter((band) => band.style === 'group');
+
+    expect(groups.length).toBeGreaterThan(1);
+    expect(overlappingPairs(groups)).toEqual([]);
+  });
+
+  it('never overlaps two Step boxes on the shipped refund graph', () => {
+    expect(overlappingPairs(refundScene().boxes)).toEqual([]);
+  });
 });
+
+interface FdgGroup { id: string; label: string; stepIds: string[] }
+
+function refundScene() {
+  const graph = refundGraph as unknown as FlowDefinitionGraph & { groups?: FdgGroup[] };
+  const flow = safeDecode(graph, { generated: true, note: 'customer-refund-agentic' });
+  const groups = (graph.groups ?? []).map((group: FdgGroup) => ({
+    id: group.id,
+    label: group.label,
+    reason: group.label,
+    stepTypes: group.stepIds.flatMap((stepId: string) => {
+      const step = flow.steps.find((candidate) => candidate.id === stepId);
+      return step === undefined ? [] : [step.stepType];
+    }),
+  }));
+  return controlTopologyView.layout(flow, viewOpts(groups));
+}
+
+interface Rect { id: string; x: number; y: number; w: number; h: number }
+
+/** Pairs sharing more than a hairline of area, named so a failure says which collided. */
+function overlappingPairs(rects: readonly Rect[]): string[] {
+  const hits: string[] = [];
+  for (let left = 0; left < rects.length; left += 1) {
+    for (let right = left + 1; right < rects.length; right += 1) {
+      const a = rects[left];
+      const b = rects[right];
+      const overlapX = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+      const overlapY = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+      if (overlapX > 0.5 && overlapY > 0.5) hits.push(`${a.id} + ${b.id}`);
+    }
+  }
+  return hits;
+}
 
 function viewOpts(groups: StepGroup[]): ViewOpts {
   return { detail: 'collapsed', direction: 'tb', selectedId: null, run: null, groups };

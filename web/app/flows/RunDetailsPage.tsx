@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { Link } from 'react-router-dom';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -98,7 +98,19 @@ function selectedEventConnectorTone(event: FlowHistoryEvent): SelectedEventConne
   return 'default';
 }
 
-export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: string }) {
+export function RunDetailsPage({
+  flowId,
+  runId,
+  breadcrumb,
+  runPath,
+}: {
+  flowId: string;
+  runId: string;
+  /** Supplied by the host shell, which owns where "up" goes. */
+  breadcrumb: ReactNode;
+  /** Where a sibling run in this chain lives under the host's routes. */
+  runPath: (chainRunID: string) => string;
+}) {
   const { timezone } = usePreferences();
   const [summary, setSummary] = useState<FlowSummary | null>(null);
   const [history, setHistory] = useState<FlowHistoryEvent[]>([]);
@@ -449,11 +461,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   return (
     <div className="run-page">
       <section className="run-header">
-        <div className="breadcrumbs">
-          <Link to="/">Flows</Link><span>/</span>
-          <Link to={`/v1/flows/${encodeURIComponent(flowId)}`}>{flowId}</Link><span>/</span>
-          <span className="mono">{runId}</span>
-        </div>
+        {breadcrumb}
         <div className="run-title-row">
           <div>
             <p className="eyebrow">{summary?.flowType || 'Flow execution'}</p>
@@ -461,10 +469,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
           </div>
           <div className="run-actions">
             {continuedToRunId && (
-              <Link
-                className="button primary"
-                to={`/v1/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(continuedToRunId)}`}
-              >
+              <Link className="button primary" to={runPath(continuedToRunId)}>
                 Next run
               </Link>
             )}

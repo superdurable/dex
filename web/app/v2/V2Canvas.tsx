@@ -9,9 +9,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { hydrateBlobs } from '@/lib/blobs';
 import { readResponseJSON } from '@/lib/http';
-import type { FlowDefinitionCatalog, FlowHistoryEvent } from '@/lib/types';
+import type { FlowDefinitionCatalog, FlowHistoryEvent, FlowSummary } from '@/lib/types';
 import { safeDecode } from './canvas/model/decode';
-import type { RunOverlay } from './canvas/model/run';
+import {
+  activeStepTypes,
+  executionsOf,
+  reasonLine,
+  type RunOverlay,
+} from './canvas/model/run';
 import {
   loadCurrentRun,
   loadRunHistory,
@@ -26,11 +31,15 @@ import { DetailPanel } from './canvas/panel/DetailPanel';
 import { buildPanel, type SectionId } from './canvas/panel/panelModel';
 import { ArrowDefs } from './canvas/render/ArrowDefs';
 import { Stage } from './canvas/render/Stage';
+import type { CanvasViewportHandle } from './canvas/render/viewport';
 import { viewById } from './canvas/views';
 import type { Detail, Direction } from './canvas/views/types';
 import { Controls } from './flow/Controls';
 import { Legend } from './flow/Legend';
 import { groupsFromDefinition } from './groupsFromGraph';
+import { actionableSteps, type ActionableStep } from './run/actionableSteps';
+import type { StepBand } from './run/RunDetailDrawer';
+import { stepContext, type StepContextView } from './run/stepContext';
 import {
   PANEL_WIDTH_DEFAULT,
   PANEL_WIDTH_KEY,
@@ -39,12 +48,44 @@ import {
   writeStoredPixels,
 } from './V2SplitHandle';
 
-export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?: string }) {
+export function V2Canvas({
+  flowType,
+  flowId = '',
+  onActionable,
+  onBand,
+  onStepContext,
+  onSummary,
+  onTick,
+  deselectKey = 0,
+  focusBlockingStep = false,
+  showStepPanel = true,
+}: {
+  flowType: string;
+  flowId?: string;
+  /** Bumped by the host to clear the Step selection. */
+  deselectKey?: number;
+  /** Zoom in on the waiting Step instead of merely panning to it. */
+  focusBlockingStep?: boolean;
+  /** False when the host renders step detail itself, so the canvas keeps its width. */
+  showStepPanel?: boolean;
+  /** What the canvas is showing, so a host drawer can label it without owning selection. */
+  onBand?: (band: StepBand | null) => void;
+  /** Flow-level meaning of the selected Step, for a host that explains it. */
+  onStepContext?: (context: StepContextView | null) => void;
+  /** Every Step of this Flow that waits for a person, with its progress. */
+  onActionable?: (steps: ActionableStep[]) => void;
+  onSummary?: (summary: FlowSummary | null) => void;
+  /** Fired on every run poll, so a host can refresh on the same beat. */
+  onTick?: () => void;
+}) {
   const canvasRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<CanvasViewportHandle | null>(null);
   const [catalog, setCatalog] = useState<FlowDefinitionCatalog | null>(null);
   const [detail, setDetail] = useState<Detail>('collapsed');
   const [direction, setDirection] = useState<Direction>('tb');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Auto-focus selects a Step for the reader; only their own click should fade the rest. */
+  const [selectedByReader, setSelectedByReader] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
   const [inspectSection, setInspectSection] = useState<SectionId | null>(null);
@@ -104,6 +145,8 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
           activeSteps: state?.activeStepExecutions ?? [],
         }));
         setRunError('');
+        onSummary?.(summary);
+        onTick?.();
         if (summary.flowStatusCode === 1 && timer === undefined) {
           timer = window.setInterval(() => { void load(); }, 5000);
         }
@@ -148,6 +191,67 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
 
   const overlay: RunOverlay | null = bundle?.overlay ?? null;
   const selectedStep = flow?.steps.find((step) => step.id === selectedId) ?? null;
+
+  /** The Step the run is actually waiting on, which is what an Admin came to see. */
+  const blockingStepType = overlay ? (activeStepTypes(overlay)[0] ?? null) : null;
+
+  // Choosing a run should land on where it stopped, once, without fighting later clicks.
+  const revealedFor = useRef('');
+  useEffect(() => {
+    if (!flow || blockingStepType === null) return;
+    const key = `${flowId}|${blockingStepType}|${String(focusBlockingStep)}`;
+    if (revealedFor.current === key) return;
+    const step = flow.steps.find((candidate) => candidate.stepType === blockingStepType);
+    if (!step) return;
+    revealedFor.current = key;
+    // Selection only. The zoom is declarative via focusNodeId, so the pane resize that
+    // follows the drawer opening refits to the Step instead of racing an imperative call.
+    setSelectedId(focusBlockingStep ? step.id : null);
+    setSelectedByReader(false);
+    setSelectedGroupId(null);
+  }, [blockingStepType, flow, flowId, focusBlockingStep]);
+
+  // The host closed its drawer, so nothing is being explained any more.
+  const firstDeselect = useRef(deselectKey);
+  useEffect(() => {
+    if (deselectKey === firstDeselect.current) return;
+    setSelectedId(null);
+    setSelectedGroupId(null);
+  }, [deselectKey]);
+
+  const focusNodeId = useMemo(() => {
+    if (!focusBlockingStep || !flow || blockingStepType === null) return null;
+    return flow.steps.find((step) => step.stepType === blockingStepType)?.id ?? null;
+  }, [blockingStepType, flow, focusBlockingStep]);
+
+  useEffect(() => {
+    if (!onActionable) return;
+    onActionable(flow ? actionableSteps(flow, overlay) : []);
+  }, [flow, onActionable, overlay]);
+
+  useEffect(() => {
+    if (!onStepContext) return;
+    onStepContext(
+      flow && selectedStep ? stepContext(flow, selectedStep, groups) : null,
+    );
+  }, [flow, groups, onStepContext, selectedStep]);
+
+  useEffect(() => {
+    if (!onBand) return;
+    if (!selectedStep || !overlay) {
+      onBand(null);
+      return;
+    }
+    const executions = executionsOf(overlay, selectedStep.stepType);
+    const latest = executions[executions.length - 1];
+    const reason = latest ? reasonLine(latest, Date.now()) : null;
+    onBand({
+      stepType: selectedStep.stepType,
+      reason: reason?.text ?? null,
+      tone: reason?.tone ?? null,
+      isBlocking: selectedStep.stepType === blockingStepType,
+    });
+  }, [blockingStepType, onBand, overlay, selectedStep]);
 
   const scene = useMemo(() => {
     if (!flow) return null;
@@ -271,7 +375,8 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
     return <div className="v2-empty">No valid Flow Definition Graph 2.0 file for this Flow type.</div>;
   }
 
-  const canvasStyle = panel
+  const ownsPanel = showStepPanel && panel !== null;
+  const canvasStyle = ownsPanel
     ? ({ '--v2-panel-w': `${Math.round(panelWidth)}px` } as CSSProperties)
     : undefined;
 
@@ -283,12 +388,15 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
       </div>
       {runError ? <p className="v2-error v2-run-error">{runError}</p> : null}
       <Stage
+        dimUnrelated={selectedByReader}
+        focusNodeId={focusNodeId}
+        handleRef={viewportRef}
         scene={scene}
         detail={detail}
         direction={direction}
         selectedId={selectedId}
         selectedGroupId={selectedGroupId}
-        insetRightPx={panel ? panelWidth : null}
+        insetRightPx={ownsPanel ? panelWidth : null}
         onSelectGroup={(id) => {
           setSelectedGroupId(id);
           setSelectedId(null);
@@ -297,6 +405,7 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
         }}
         onSelect={(id) => {
           setSelectedId(id);
+          setSelectedByReader(id !== null);
           setSelectedGroupId(null);
           setSelectedExecutionId(null);
           setInspectSection(null);
@@ -329,9 +438,9 @@ export function V2Canvas({ flowType, flowId = '' }: { flowType: string; flowId?:
             ) : null}
           </div>
         )}
-        fitKey={`${flowType}|${flowId}|${detail}|${direction}|${selected.file}|${overlay?.executions.length ?? 0}|${panel ? `panel:${Math.round(panelWidth)}` : 'graph'}`}
+        fitKey={`${flowType}|${flowId}|${detail}|${direction}|${selected.file}|${overlay?.executions.length ?? 0}|${ownsPanel ? `panel:${Math.round(panelWidth)}` : 'graph'}`}
       />
-      {panel ? (
+      {ownsPanel && panel ? (
         <>
           <V2SplitHandle
             axis="column"

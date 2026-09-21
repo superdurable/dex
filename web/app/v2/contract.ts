@@ -11,14 +11,33 @@ import type {
   FlowV2Definition,
 } from '@superdurable/flow-definition-renderer';
 
+/** Run drives one run on the definition canvas; Queue clears work without a diagram. */
+export type V2Mode = 'run' | 'queue';
+
 export function v2HomePath(canUseV2: boolean) {
-  return canUseV2 ? '/v2' : '/v1/flows';
+  return canUseV2 ? v2ModePath('run') : '/v1/flows';
 }
 
-export function v2FlowPath(flowType: string, flowID?: string) {
-  const typePath = `/v2/${encodeURIComponent(flowType)}`;
+export function v2ModePath(mode: V2Mode, flowType?: string, flowID?: string) {
+  const modePath = `/v2/${mode}`;
+  if (flowType === undefined) return modePath;
+  const typePath = `${modePath}/${encodeURIComponent(flowType)}`;
   if (flowID === undefined) return typePath;
   return `${typePath}/${encodeURIComponent(flowID)}`;
+}
+
+export function v2RunPath(flowType?: string, flowID?: string) {
+  return v2ModePath('run', flowType, flowID);
+}
+
+export function v2QueuePath(flowType?: string, flowID?: string) {
+  return v2ModePath('queue', flowType, flowID);
+}
+
+/** The Deep Dive is keyed per run: Time Travel and continue-as-new walk the run chain. */
+export function v2DebugPath(flowType: string, flowID: string, runID?: string) {
+  const base = `${v2RunPath(flowType, flowID)}/debug`;
+  return runID === undefined ? base : `${base}/${encodeURIComponent(runID)}`;
 }
 
 export function v2ListColumns(definition: FlowV2Definition) {

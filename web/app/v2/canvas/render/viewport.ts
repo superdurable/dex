@@ -19,6 +19,8 @@ export interface CanvasViewportHandle {
   fit(): void
   /** Current zoom, for the readout. */
   zoom(): number
-  /** Pan the minimum distance that brings a node fully into view. */
+  /** Pan the minimum distance that brings a node fully into view. Never zooms. */
   reveal(nodeId: string): void
+  /** Zoom in on one node, for when reading it is the point. */
+  focus(nodeId: string): void
 }
