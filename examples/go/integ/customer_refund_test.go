@@ -153,6 +153,42 @@ func TestAgenticCustomerRefundEscalatesUnavailableEvidence(t *testing.T) {
 	require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID).Status)
 }
 
+func TestAgenticCustomerRefundSearchAttributes(t *testing.T) {
+	ctx := integrationContext(t)
+	flowID := newFlowID(t, "agentic-refund-search")
+	_, err := integClient.StartFlow(ctx, registry.AgenticRefund, flowID, refundmodel.RefundCase{
+		CaseID:        "search-case",
+		Customer:      "customer",
+		CustomerEmail: "synthetic-search@example.com",
+		CustomerNote:  "review",
+		AmountCents:   1_400_000,
+		OrderAgeDays:  8,
+	}, dex.StartFlowOptions{})
+	require.NoError(t, err)
+	waitForAgenticGate(t, ctx, flowID)
+	for _, query := range []string{
+		"FlowType = 'AgenticCustomerRefundFlow' AND CustomKeyword = 'synthetic-search@example.com'",
+		"FlowType = 'AgenticCustomerRefundFlow' AND CustomKeyword2 = 'awaiting-manager-rule'",
+		"FlowType = 'AgenticCustomerRefundFlow' AND CustomDouble = 14000",
+	} {
+		query := query
+		var searchErr error
+		require.Eventually(t, func() bool {
+			page, err := integClient.SearchFlows(ctx, query, 20, "")
+			searchErr = err
+			if err != nil {
+				return false
+			}
+			for _, entry := range page.Flows {
+				if entry.FlowID == flowID {
+					return true
+				}
+			}
+			return false
+		}, 20*time.Second, 200*time.Millisecond, "SearchFlows failed for %q: %v", query, searchErr)
+	}
+}
+
 func startAgenticEscalation(
 	t *testing.T,
 	ctx context.Context,

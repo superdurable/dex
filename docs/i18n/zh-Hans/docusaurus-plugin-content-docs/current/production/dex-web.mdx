@@ -28,7 +28,7 @@ Version 2 directive 使用具名值。同一行内的参数位置没有语义。
 ```go
 // dex:group group-id:control group-label:"Control"
 // dex:explanation text:"Apply refund guardrails and set the recommended action."
-// dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:case-status
+// dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:CustomKeyword2
 // dex:field attribute-key:operator-note value-type:string editable:true description:"Operator note"
 // dex:field attribute-key:case-status value-type:string editable:false description:"Case status" slot:status
 // dex:action action-label:"Reject" role:manager
@@ -46,6 +46,8 @@ Version 2 directive 使用具名值。同一行内的参数位置没有语义。
 ## 搜索与 Summary
 
 Indexed Attribute 声明绑定 Dex Attribute key、物理搜索 index key、index type、应用 value type 和 description。Analyzer 会把每个值与 Go 定义和 SDK 计算出的有效 index 配置比较。
+
+物理 key 可以是 **CustomKeyword2** 这样的通用 namespace 槽位。此工作区已选定 Flow type 来限定它的含义，因此不同 Flow type 复用该槽位不会改变 UI 行为。
 
 **v2** 列表每次搜索一个 Flow type。过滤条件包括 Flow ID、execution status、开始和结束时间，以及声明的 indexed Attribute。Dex Web 会把这些控件编译成 visibility query，不接收浏览器提供的原始 query。不同字段使用 AND，同一字段的多个值使用 OR。
 

@@ -28,7 +28,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class ClientApisFlow implements Flow<String> {
-    static final String KEYWORD_KEY = "CustomKeywordField";
+    static final String KEYWORD_KEY = "CustomKeyword";
 
     public final Attribute<String> keyword = Attribute.define(
             KEYWORD_KEY,

@@ -564,7 +564,7 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 	foundInSearch := false
 	for time.Now().Before(deadline) {
 		page, searchErr := client.SearchFlows(
-			ctx, "Title = 'Senior DeepVerify'", 50, "",
+			ctx, "FlowType = 'jobpost.JobPostingFlow' AND CustomText = 'Senior DeepVerify'", 50, "",
 		)
 		if searchErr == nil {
 			for _, entry := range page.Flows {
@@ -580,7 +580,7 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 		time.Sleep(500 * time.Millisecond)
 	}
 	if !foundInSearch {
-		return fail(name, "not found in SearchFlows Title='Senior DeepVerify'", nil)
+		return fail(name, "not found in SearchFlows FlowType='jobpost.JobPostingFlow' AND CustomText='Senior DeepVerify'", nil)
 	}
 	if err := client.StopFlow(ctx, flowID, dex.StopOptions{}); err != nil {
 		return fail(name, "stop", err)

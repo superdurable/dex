@@ -39,7 +39,7 @@ public class AttributeFlow implements Flow<String> {
     private final Attribute<String> status = Attribute.define(
             "primitive-attribute-status",
             String.class,
-            new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderStatus"));
+            new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword"));
     private final Attribute<String> email = Attribute.define(
             "primitive-attribute-email",
             String.class).syncToAttributeStore();
@@ -47,7 +47,7 @@ public class AttributeFlow implements Flow<String> {
             AttributeMap.define(
                     "primitive-attribute-progress",
                     String.class,
-                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderProgress"));
+                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword2"));
     private final FlowConfig attributeStoreConfig = FlowConfig.newBuilder()
             .attributeStoreNames("profiles")
             .build();

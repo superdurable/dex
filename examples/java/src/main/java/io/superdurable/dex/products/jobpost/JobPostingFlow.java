@@ -42,15 +42,12 @@ public class JobPostingFlow implements Flow<Void> {
     public final Attribute<String> title = Attribute.define(
             "Title",
             String.class,
-            new AttributeIndex(AttributeIndex.Type.FULL_TEXT));
-    public final Attribute<String> jobDescription = Attribute.define(
-            "JobDescription",
-            String.class,
-            new AttributeIndex(AttributeIndex.Type.FULL_TEXT));
+            new AttributeIndex(AttributeIndex.Type.FULL_TEXT, "CustomText"));
+    public final Attribute<String> jobDescription = Attribute.define("JobDescription", String.class);
     public final Attribute<Long> lastUpdateTimeMillis = Attribute.define(
             "LastUpdateTimeMillis",
             Long.class,
-            new AttributeIndex(AttributeIndex.Type.INT));
+            new AttributeIndex(AttributeIndex.Type.INT, "CustomInt"));
     public final Attribute<String> notes = Attribute.define("Notes", String.class);
     public final Attribute<Integer> updateVersion = Attribute.define("UpdateVersion", Integer.class);
     public final Attribute<Void> updatePostingLock =

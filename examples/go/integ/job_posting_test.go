@@ -96,6 +96,28 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 		},
 		dex.WaitForStepCompletionOptions{},
 	))
+	var searchPage dex.SearchFlowsPage
+	var searchErr error
+	require.Eventually(t, func() bool {
+		searchPage, searchErr = integClient.SearchFlows(
+			ctx,
+			"FlowType = 'jobpost.JobPostingFlow' AND CustomText = 'Principal'",
+			20,
+			"",
+		)
+		if searchErr != nil {
+			return false
+		}
+		for _, entry := range searchPage.Flows {
+			if entry.FlowID != flowID {
+				continue
+			}
+			_, hasTitleIndex := entry.IndexedAttributes["CustomText"]
+			_, hasDescriptionIndex := entry.IndexedAttributes["JobDescription"]
+			return hasTitleIndex && !hasDescriptionIndex
+		}
+		return false
+	}, 20*time.Second, 200*time.Millisecond, "SearchFlows failed: %v", searchErr)
 
 	var actual jobpost.JobInfo
 	require.NoError(t, integClient.InvokeRPC(

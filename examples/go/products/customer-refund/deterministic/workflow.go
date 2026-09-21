@@ -57,10 +57,10 @@ var deterministicRecommendation = dex.DefineAttribute[string]("recommended-actio
 
 var deterministicOperatorNote = dex.DefineAttribute[string]("operator-note")
 
-// dex:indexed-attribute attribute-key:case-status index-key:case-status index-type:keyword value-type:string description:"Current case status"
+// dex:indexed-attribute attribute-key:case-status index-key:CustomKeyword2 index-type:keyword value-type:string description:"Current case status"
 var deterministicCaseStatus = dex.DefineAttribute[string](
 	"case-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword2"}),
 )
 
 type CustomerRefundFlow struct {

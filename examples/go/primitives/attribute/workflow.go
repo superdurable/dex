@@ -27,7 +27,7 @@ import (
 var (
 	Status = dex.DefineAttribute[string](
 		"primitive-attribute-status",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderStatus"}),
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword"}),
 	)
 	Email = dex.DefineAttribute[string](
 		"primitive-attribute-email",
@@ -35,7 +35,7 @@ var (
 	)
 	Progress = dex.DefineAttributeMap[string](
 		"primitive-attribute-progress",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderProgress"}),
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword2"}),
 	)
 	AttributeStoreConfig = &dex.FlowConfig{AttributeStoreNames: []string{"profiles"}}
 )

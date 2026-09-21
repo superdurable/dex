@@ -22,7 +22,7 @@ package clientapis
 
 import "github.com/superdurable/dex/sdk-go/dex"
 
-const keywordKey = "CustomKeywordField"
+const keywordKey = "CustomKeyword"
 
 var Keyword = dex.DefineAttribute[string](
 	keywordKey,

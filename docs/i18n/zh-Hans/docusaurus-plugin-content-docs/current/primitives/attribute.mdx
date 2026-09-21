@@ -50,7 +50,7 @@ class AttributeFlow(Flow[str]):
     status = Attribute(
         "primitive-attribute-status",
         str,
-        index=AttributeIndex(IndexType.KEYWORD, "OrderStatus"),
+        index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword"),
     )
 
     def __init__(self) -> None:
@@ -69,7 +69,7 @@ class AttributeFlow(Flow[str]):
 ```go
 var Status = dex.DefineAttribute[string](
 	"primitive-attribute-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderStatus"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword"}),
 )
 
 type AttributeFlow struct {
@@ -108,7 +108,7 @@ public final class AttributeFlow implements Flow<String> {
             Attribute.define(
                     "primitive-attribute-status",
                     String.class,
-                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderStatus"));
+                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword"));
     private final AttributeStep start = new AttributeStep();
 
     @Override
@@ -164,7 +164,7 @@ class AttributeStep implements Step<string> {
 export class AttributeFlow implements Flow<string> {
   public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
     type: IndexType.KEYWORD,
-    indexKey: "OrderStatus",
+    indexKey: "CustomKeyword",
   });
   private readonly start = new AttributeStep(this);
 
@@ -192,10 +192,10 @@ pub struct AttributeFlow {
 impl Default for AttributeFlow {
     fn default() -> Self {
         let status = Attribute::new("primitive-attribute-status")
-            .indexed(AttributeIndex::keyword().with_key("OrderStatus"));
+            .indexed(AttributeIndex::keyword().with_key("CustomKeyword"));
         let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
         let progress = AttributeMap::new("primitive-attribute-progress")
-            .indexed(AttributeIndex::keyword().with_key("OrderProgress"));
+            .indexed(AttributeIndex::keyword().with_key("CustomKeyword2"));
         Self {
             start: AttributeStep {
                 status: status.clone(),
@@ -324,9 +324,11 @@ Dex 让你可以为 Attribute 配置 index。有了 indexing，就可以在 **Se
 | **INT**、**DOUBLE**、**BOOL** | 对应的 scalar value。 |
 | **DATETIME** | 一个日期与时间值。 |
 
-**index key** 是 search schema 中的 key，也是 query 中使用的 key。index key 跨 Flow type 共用。
+**index key** 是 search schema 中的 key，也是 query 中使用的 key。index key 会消耗 namespace 级、数量有限的 Search Attribute 槽位，并且跨 Flow type 共用。
 
-普通 Attribute 默认用 Attribute name 作为 index key。你也可以设置显式 index key。
+普通 Attribute 默认用 Attribute name 作为 index key。你也可以设置显式 index key。请在 namespace 的所有 Flow type 之间规划这些槽位。首个通用槽位使用 **CustomKeyword**、**CustomText**、**CustomInt** 等名称；同一类型的后续槽位使用 **CustomKeyword2** 这样的编号名称。同一个 Flow 中的两个逻辑 Attribute 需要不同的物理 key。只有当 **AccountID** 这类业务 key 的类型、含义和 query 语义在整个 namespace 内都稳定时，才使用它。
+
+通用 key 在不同 Flow type 中可以有不同的业务含义。任何使用通用 key 的 raw visibility query 都必须同时限定 **FlowType**。Dex Web 已经在选定的 Flow type 内搜索。不要索引敏感数据或 PII。Customer Refund 示例中的 customer-email 值仅为合成数据。
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -335,7 +337,7 @@ Dex 让你可以为 Attribute 配置 index。有了 indexing，就可以在 **Se
 status = Attribute(
     "primitive-attribute-status",
     str,
-    index=AttributeIndex(IndexType.KEYWORD, "OrderStatus"),
+    index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword"),
 )
 ```
 
@@ -345,7 +347,7 @@ status = Attribute(
 ```go
 var Status = dex.DefineAttribute[string](
 	"primitive-attribute-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderStatus"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword"}),
 )
 ```
 
@@ -356,7 +358,7 @@ var Status = dex.DefineAttribute[string](
 private final Attribute<String> status = Attribute.define(
         "primitive-attribute-status",
         String.class,
-        new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderStatus"));
+        new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword"));
 ```
 
 </SdkSnippet>
@@ -365,7 +367,7 @@ private final Attribute<String> status = Attribute.define(
 ```typescript
 public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "OrderStatus",
+  indexKey: "CustomKeyword",
 });
 ```
 
@@ -374,16 +376,16 @@ public readonly status = new Attribute("primitive-attribute-status", stringCodec
 
 ```rust
 let status = Attribute::new("primitive-attribute-status")
-    .indexed(AttributeIndex::keyword().with_key("OrderStatus"));
+    .indexed(AttributeIndex::keyword().with_key("CustomKeyword"));
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-上面的 status Attribute 使用 **OrderStatus** 作为 index key。要找 status 为 completed 的 Flow execution，可以使用这个 query：
+上面的 status Attribute 使用 **CustomKeyword** 作为 index key。要找 status 为 completed 的 **AttributeFlow** execution，可以使用这个 query：
 
 ```text
-OrderStatus = 'completed'
+FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'
 ```
 
 将这个 query 传给 **SearchFlows**：
@@ -393,7 +395,7 @@ OrderStatus = 'completed'
 
 ```python
 page = await app_state.client.search_flows(
-    "OrderStatus = 'completed'",
+    "FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'",
     20,
     "",
 )
@@ -405,7 +407,7 @@ page = await app_state.client.search_flows(
 ```go
 page, err := controller.client.SearchFlows(
 	request.Request.Context(),
-	"OrderStatus = 'completed'",
+	"FlowType = 'attribute.AttributeFlow' AND CustomKeyword = 'completed'",
 	20,
 	"",
 )
@@ -415,21 +417,21 @@ page, err := controller.client.SearchFlows(
 <SdkSnippet lang="java">
 
 ```java
-final SearchFlowsPage page = client.searchFlows("OrderStatus = 'completed'", 20, "");
+final SearchFlowsPage page = client.searchFlows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```typescript
-const page = await client.searchFlows("OrderStatus = 'completed'", 20, "");
+const page = await client.searchFlows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
 
 ```rust
-client.search_flows("OrderStatus = 'completed'", 20)
+client.search_flows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'", 20)
 ```
 
 </SdkSnippet>
@@ -440,10 +442,10 @@ client.search_flows("OrderStatus = 'completed'", 20)
 这不会把 Map 自动变成 **KEYWORD_ARRAY**。**KEYWORD_ARRAY** 只会 index 一次 write 传入的 string array；Dex 不会合并所有 Map instance 的值。下面的例子写入 payment instance 的值 authorized 后，可以用下面的 query 查询当前 search value：
 
 ```text
-OrderProgress = 'authorized'
+FlowType = 'AttributeFlow' AND CustomKeyword2 = 'authorized'
 ```
 
-如果之后另一个 Map instance 写入不同的值，它会替换 **OrderProgress** 的 search value。需要搜索一组值时，应使用带 **KEYWORD_ARRAY** 的普通 Attribute。不要用 AttributeMap index 查找所有有某个值的 instance。
+如果之后另一个 Map instance 写入不同的值，它会替换 **CustomKeyword2** 的 search value。需要搜索一组值时，应使用带 **KEYWORD_ARRAY** 的普通 Attribute。不要用 AttributeMap index 查找所有有某个值的 instance。
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -452,7 +454,7 @@ OrderProgress = 'authorized'
 progress = AttributeMap(
     "primitive-attribute-progress",
     str,
-    index=AttributeIndex(IndexType.KEYWORD, "OrderProgress"),
+    index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword2"),
 )
 ```
 
@@ -462,7 +464,7 @@ progress = AttributeMap(
 ```go
 var Progress = dex.DefineAttributeMap[string](
 	"primitive-attribute-progress",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderProgress"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword2"}),
 )
 ```
 
@@ -474,7 +476,7 @@ private final AttributeMap<String> progress =
         AttributeMap.define(
                 "primitive-attribute-progress",
                 String.class,
-                new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderProgress"));
+                new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword2"));
 ```
 
 </SdkSnippet>
@@ -483,7 +485,7 @@ private final AttributeMap<String> progress =
 ```typescript
 public readonly progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "OrderProgress",
+  indexKey: "CustomKeyword2",
 });
 ```
 
@@ -492,7 +494,7 @@ public readonly progress = new AttributeMap("primitive-attribute-progress", stri
 
 ```rust
 let progress = AttributeMap::new("primitive-attribute-progress")
-    .indexed(AttributeIndex::keyword().with_key("OrderProgress"));
+    .indexed(AttributeIndex::keyword().with_key("CustomKeyword2"));
 ```
 
 </SdkSnippet>

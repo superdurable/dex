@@ -193,7 +193,7 @@ func TestDealDSLComprehensiveProcess(t *testing.T) {
 	require.Eventually(t, func() bool {
 		searchPage, searchErr = integClient.SearchFlows(
 			ctx,
-			dealdsl.BuyerIDSearchKey+" = '"+buyerFullID+"'",
+			"FlowType = 'dealdsl.DealDSLFlow' AND "+dealdsl.BuyerIDSearchKey+" = '"+buyerFullID+"'",
 			100,
 			"",
 		)

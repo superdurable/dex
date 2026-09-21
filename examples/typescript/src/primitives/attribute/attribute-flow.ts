@@ -35,12 +35,12 @@ import {
 
 const status = new Attribute("primitive-attribute-status", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "OrderStatus",
+  indexKey: "CustomKeyword",
 });
 const email = new Attribute("primitive-attribute-email", stringCodec).syncToAttributeStore();
 const progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "OrderProgress",
+  indexKey: "CustomKeyword2",
 });
 
 class AttributeStep implements Step<string> {

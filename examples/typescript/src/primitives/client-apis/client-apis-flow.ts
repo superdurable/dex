@@ -27,7 +27,7 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-export const KEYWORD_KEY = "CustomKeywordField";
+export const KEYWORD_KEY = "CustomKeyword";
 
 class ClientApisStep implements Step<string> {
   public readonly inputCodec = stringCodec;

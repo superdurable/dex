@@ -117,8 +117,8 @@ public class JobPostingController {
         response.put(
                 "message",
                 "Java Client 0.0.3 does not expose SearchFlows; "
-                        + "Title and JobDescription are FULL_TEXT AttributeIndexes "
-                        + "for when SearchFlows is available.");
+                        + "Title uses the CustomText FULL_TEXT AttributeIndex; "
+                        + "JobDescription is not searchable.");
         response.put("query", query);
         return ResponseEntity.ok(response);
     }

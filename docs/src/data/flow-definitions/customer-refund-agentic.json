@@ -3773,21 +3773,21 @@
     "indexedAttributes": [
       {
         "attributeKey": "customer-email",
-        "indexKey": "customer-email",
-        "indexType": "fulltext",
+        "indexKey": "CustomKeyword",
+        "indexType": "keyword",
         "valueType": "string",
         "description": "Customer email address"
       },
       {
         "attributeKey": "refund-amount",
-        "indexKey": "refund-amount",
+        "indexKey": "CustomDouble",
         "indexType": "double",
         "valueType": "double",
         "description": "Refund amount in dollars"
       },
       {
         "attributeKey": "case-status",
-        "indexKey": "case-status",
+        "indexKey": "CustomKeyword2",
         "indexType": "keyword",
         "valueType": "string",
         "description": "Current case status"

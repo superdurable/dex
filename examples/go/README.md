@@ -41,6 +41,10 @@ make bins
 The Worker synchronizes all registered Indexed Attributes with Dex before it
 opens its listener; no backend CLI registration is required.
 
+The examples share namespace-level slots by index type: `CustomKeyword`,
+`CustomText`, `CustomInt`, and numbered later slots such as `CustomKeyword2`.
+Raw SearchFlows queries must include FlowType before filtering a generic slot.
+
 Because that sync happens first, changing a Flow type's Indexed Attributes while
 a store already holds runs of that Flow type can stop the Worker before it binds.
 The symptom is silence: the process stays alive, logs nothing after Gin's startup

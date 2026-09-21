@@ -13,7 +13,7 @@ import flowDefinition from '@site/src/data/flow-definitions/job-post.json';
 
 这个流程在职位发布信息的整个生命周期内代表同一个实体。它必须：
 
-1. 使用职位名称、描述、最后更新时间和初始值为 0 的更新版本创建 Flow。名称和描述是支持全文检索的 Attribute。
+1. 使用职位名称、描述、最后更新时间和初始值为 0 的更新版本创建 Flow。名称使用 **CustomText** 全文检索 Search Attribute。描述会持久化，但不会建立索引。
 2. 只运行一次 **InitStep**，并行启动 **UpdateLinkedInPosting** 和 **UpdateIndeedPosting**。之后每个 Step 在自己的 Channel 上等待，且不会占用 Worker。
 3. 通过读取 RPC 返回当前名称、描述和备注。
 4. 通过更新 RPC 接收新的名称、描述和备注。RPC 使用专用且值为 null 的 **UpdatePostingLock** Attribute，确保同一时间只有一个已接受的更新可以分配版本并发布消息。
@@ -75,7 +75,7 @@ lock 决定成功提交的 RPC 顺序，而不是客户端请求到达顺序。�
 - **FIFO Channel consumer 循环**每次处理一条消息，再回到同一个 Step。即使 RPC 快速连续到达，每个目标也会先观察 v1，再观察 v2。
 - **并行故障隔离**让 LinkedIn 和 Indeed 拥有独立的等待、execution、重试历史和进度。较慢的目标不会阻塞另一个目标。
 - **持久化重试**处理临时外部故障，在进程重启后也不会丢失进度。
-- **索引状态**直接支持名称和描述搜索，不需要应用维护第二份目录。
+- **索引状态**直接支持名称搜索，不需要应用维护第二份目录。
 
 目标 Step 不需要 Attribute lock。每个目标只有一条串行 consumer 链，顺序由 Channel 提供。增加目标 lock 可以避免重叠，但它本身无法保存更新快照或保证 FIFO 交付。
 

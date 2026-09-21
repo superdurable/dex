@@ -14,7 +14,7 @@ same atomic operation.
 `Status` is a `str`-backed enum so it stays JSON encodable when it is nested
 inside `EngagementDescription`.
 
-The engagement status uses the `CustomKeywordField` Indexed Attribute, which
+The engagement status uses the `CustomKeyword` Indexed Attribute, which
 the Worker synchronizes automatically.
 
 With the sample server running:

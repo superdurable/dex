@@ -11,21 +11,21 @@
     "span": {
       "startLine": 101,
       "startColumn": 1,
-      "endLine": 174,
+      "endLine": 170,
       "endColumn": 10
     }
   },
   "nodes": [
     {
-      "id": "decision:rpc:get:145:16",
+      "id": "decision:rpc:get:141:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:get",
       "phase": "rpc",
       "span": {
-        "startLine": 145,
+        "startLine": 141,
         "startColumn": 16,
-        "endLine": 145,
+        "endLine": 141,
         "endColumn": 54
       },
       "decision": {
@@ -33,15 +33,15 @@
       }
     },
     {
-      "id": "decision:rpc:update:167:16",
+      "id": "decision:rpc:update:163:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:update",
       "phase": "rpc",
       "span": {
-        "startLine": 167,
+        "startLine": 163,
         "startColumn": 16,
-        "endLine": 167,
+        "endLine": 163,
         "endColumn": 34
       },
       "decision": {
@@ -103,8 +103,8 @@
       "span": {
         "startLine": 103,
         "startColumn": 5,
-        "endLine": 107,
-        "endColumn": 6
+        "endLine": 103,
+        "endColumn": 55
       },
       "resource": {
         "valueType": "str"
@@ -115,9 +115,9 @@
       "kind": "attribute",
       "name": "LastUpdateTimeMillis",
       "span": {
-        "startLine": 108,
+        "startLine": 104,
         "startColumn": 5,
-        "endLine": 112,
+        "endLine": 108,
         "endColumn": 6
       },
       "resource": {
@@ -129,9 +129,9 @@
       "kind": "attribute",
       "name": "Notes",
       "span": {
-        "startLine": 113,
+        "startLine": 109,
         "startColumn": 5,
-        "endLine": 113,
+        "endLine": 109,
         "endColumn": 36
       },
       "resource": {
@@ -146,7 +146,7 @@
         "startLine": 102,
         "startColumn": 5,
         "endLine": 102,
-        "endColumn": 73
+        "endColumn": 87
       },
       "resource": {
         "valueType": "str"
@@ -213,9 +213,9 @@
       "kind": "rpc",
       "name": "get",
       "span": {
-        "startLine": 144,
+        "startLine": 140,
         "startColumn": 5,
-        "endLine": 145,
+        "endLine": 141,
         "endColumn": 54
       }
     },
@@ -224,9 +224,9 @@
       "kind": "rpc",
       "name": "get_with_strong_consistency",
       "span": {
-        "startLine": 148,
+        "startLine": 144,
         "startColumn": 5,
-        "endLine": 149,
+        "endLine": 145,
         "endColumn": 33
       }
     },
@@ -235,9 +235,9 @@
       "kind": "rpc",
       "name": "update",
       "span": {
-        "startLine": 152,
+        "startLine": 148,
         "startColumn": 5,
-        "endLine": 167,
+        "endLine": 163,
         "endColumn": 34
       }
     },
@@ -248,9 +248,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 126,
+        "startLine": 122,
         "startColumn": 36,
-        "endLine": 126,
+        "endLine": 122,
         "endColumn": 45
       }
     },
@@ -260,9 +260,9 @@
       "name": "UpdateIndeedPosting",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 128,
+        "startLine": 124,
         "startColumn": 13,
-        "endLine": 128,
+        "endLine": 124,
         "endColumn": 39
       }
     },
@@ -272,9 +272,9 @@
       "name": "UpdateLinkedInPosting",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 127,
+        "startLine": 123,
         "startColumn": 13,
-        "endLine": 127,
+        "endLine": 123,
         "endColumn": 41
       }
     },
@@ -397,9 +397,9 @@
       "to": "rpc:update",
       "label": "get",
       "span": {
-        "startLine": 153,
+        "startLine": 149,
         "startColumn": 19,
-        "endLine": 153,
+        "endLine": 149,
         "endColumn": 51
       },
       "metadata": {
@@ -471,9 +471,9 @@
       "to": "resource:attribute:JobPostingFlow.job_description",
       "label": "set",
       "span": {
-        "startLine": 155,
+        "startLine": 151,
         "startColumn": 9,
-        "endLine": 155,
+        "endLine": 151,
         "endColumn": 67
       },
       "metadata": {
@@ -487,9 +487,9 @@
       "to": "resource:attribute:JobPostingFlow.last_update_time_millis",
       "label": "set",
       "span": {
-        "startLine": 156,
+        "startLine": 152,
         "startColumn": 9,
-        "endLine": 156,
+        "endLine": 152,
         "endColumn": 75
       },
       "metadata": {
@@ -503,9 +503,9 @@
       "to": "resource:attribute:JobPostingFlow.notes",
       "label": "set",
       "span": {
-        "startLine": 158,
+        "startLine": 154,
         "startColumn": 13,
-        "endLine": 158,
+        "endLine": 154,
         "endColumn": 49
       },
       "metadata": {
@@ -519,9 +519,9 @@
       "to": "resource:attribute:JobPostingFlow.title",
       "label": "set",
       "span": {
-        "startLine": 154,
+        "startLine": 150,
         "startColumn": 9,
-        "endLine": 154,
+        "endLine": 150,
         "endColumn": 51
       },
       "metadata": {
@@ -535,9 +535,9 @@
       "to": "resource:attribute:UPDATE_POSTING_LOCK",
       "label": "lock",
       "span": {
-        "startLine": 151,
+        "startLine": 147,
         "startColumn": 27,
-        "endLine": 151,
+        "endLine": 147,
         "endColumn": 53
       },
       "metadata": {
@@ -551,9 +551,9 @@
       "to": "resource:attribute:UPDATE_VERSION",
       "label": "set",
       "span": {
-        "startLine": 159,
+        "startLine": 155,
         "startColumn": 9,
-        "endLine": 159,
+        "endLine": 155,
         "endColumn": 50
       },
       "metadata": {
@@ -567,9 +567,9 @@
       "to": "resource:channel:INDEED_POSTING_UPDATES",
       "label": "publish",
       "span": {
-        "startLine": 166,
+        "startLine": 162,
         "startColumn": 9,
-        "endLine": 166,
+        "endLine": 162,
         "endColumn": 61
       },
       "metadata": {
@@ -583,9 +583,9 @@
       "to": "resource:channel:LINKEDIN_POSTING_UPDATES",
       "label": "publish",
       "span": {
-        "startLine": 165,
+        "startLine": 161,
         "startColumn": 9,
-        "endLine": 165,
+        "endLine": 161,
         "endColumn": 63
       },
       "metadata": {

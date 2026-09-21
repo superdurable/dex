@@ -37,7 +37,7 @@ import java.time.Duration;
 
 @Component
 public class EngagementFlow implements Flow<EngagementInput> {
-    public static final String STATUS_SEARCH_KEY = "CustomKeywordField";
+    public static final String STATUS_SEARCH_KEY = "CustomKeyword";
 
     public final Attribute<String> employerId = Attribute.define("EmployerId", String.class);
     public final Attribute<String> jobSeekerId = Attribute.define("JobSeekerId", String.class);
