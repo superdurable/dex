@@ -118,11 +118,18 @@ jobs:
               release="${release#*:}"
               tag="${release%%:*}"
               baseline="${release#*:}"
-              arguments=(--target "${GITHUB_SHA}" --title "${tag}" --generate-notes)
+              generated_notes="$(mktemp)"
+              release_notes="$(mktemp)"
+              arguments=(--method POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f "tag_name=${tag}" -f "target_commitish=${GITHUB_SHA}")
               if [[ -n "${baseline}" ]]; then
-                arguments+=(--notes-start-tag "${baseline}")
+                arguments+=(-f "previous_tag_name=${baseline}")
               fi
-              gh release create "${tag}" "${arguments[@]}"
+              gh api "${arguments[@]}" --jq .body > "${generated_notes}"
+              {
+                printf '## Breaking Changes\n\nNone.\n\n'
+                cat "${generated_notes}"
+              } > "${release_notes}"
+              gh release create "${tag}" --target "${GITHUB_SHA}" --title "${tag}" --notes-file "${release_notes}"
             fi
           done
 

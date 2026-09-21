@@ -62,6 +62,23 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "tag=cli-${version}" >> "${GITHUB_OUTPUT}"
+      - name: Maintain Breaking Changes section
+        if: github.event_name == 'release' || inputs.publish == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          release_notes="$(mktemp)"
+          gh release view "${RELEASE_TAG}" --json body --jq .body > "${release_notes}"
+          if grep -qx '## Breaking Changes' "${release_notes}"; then
+            exit 0
+          fi
+          {
+            printf '## Breaking Changes\n\nNone.\n\n'
+            cat "${release_notes}"
+          } > "${release_notes}.updated"
+          gh release edit "${RELEASE_TAG}" --notes-file "${release_notes}.updated"
       - name: Build embedded Web assets
         working-directory: web
         run: |

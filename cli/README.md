@@ -23,15 +23,20 @@ The Homebrew formula installs all runtime dependencies. Node.js is not required
 at runtime.
 
 When a released `dexcli` starts a local development environment, it checks the
-published `cli-v*` GitHub Releases in the background. If a newer version is
-available, the terminal shows a colored upgrade reminder:
+published `cli-v*` GitHub Releases in the background. Every version entry point
+also checks: `dexcli version`, `dexcli --version`, `dexcli -v`, and
+`dexcli version check`. If newer versions are available, the terminal shows a
+colored upgrade reminder and the release notes for every skipped version:
 
 ```bash
 brew update && brew upgrade dexcli
 ```
 
-The check never delays startup. It is skipped for development builds and when
-GitHub cannot be reached.
+The update reminder and release notes are written to stderr, so version output
+and the JSON returned by `dexcli version check` remain script-safe. The
+`Breaking Changes` section is displayed in bold bright red. The `dev` check
+never delays startup. Checks are skipped for development builds and when GitHub
+cannot be reached.
 
 ## Start locally
 
