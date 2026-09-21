@@ -16,6 +16,8 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).with_name("changed_components.py")
 DOCKER_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/docker-image-release.yml"
+CLI_RELEASE_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/cli-release.yml"
+CHANGED_COMPONENTS_WORKFLOW = SCRIPT.parents[2] / ".github/workflows/release-changed-components.yml"
 COMPONENT_KEYS = ("go", "rust", "java", "python", "typescript", "server", "cli")
 BASELINE_TAGS = (
     "sdk-go/v0.1.0",
@@ -178,6 +180,18 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn("startsWith(github.event.release.tag_name, 'server/v')", workflow)
         self.assertIn('image_tag="${RELEASE_TAG#server/}"', workflow)
         self.assertNotIn("server-v", workflow)
+
+    def test_release_workflows_maintain_breaking_changes_section(self) -> None:
+        coordinated_workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("releases/generate-notes", coordinated_workflow)
+        self.assertIn("previous_tag_name=${baseline}", coordinated_workflow)
+        self.assertIn("## Breaking Changes\\n\\nNone.", coordinated_workflow)
+        self.assertIn("--notes-file", coordinated_workflow)
+
+        cli_workflow = CLI_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("Maintain Breaking Changes section", cli_workflow)
+        self.assertIn("grep -qx '## Breaking Changes'", cli_workflow)
+        self.assertIn("## Breaking Changes\\n\\nNone.", cli_workflow)
 
 
 if __name__ == "__main__":

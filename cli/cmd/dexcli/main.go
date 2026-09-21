@@ -13,12 +13,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/superdurable/dex/cli/internal/command"
 	"github.com/superdurable/dex/cli/internal/dev"
+	"github.com/superdurable/dex/cli/internal/update"
 	"github.com/superdurable/dex/protos/codec-server"
 )
 
@@ -38,6 +40,10 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) error {
+	return runWithUpdateNotice(ctx, args, update.PrintNotice)
+}
+
+func runWithUpdateNotice(ctx context.Context, args []string, printUpdateNotice func(context.Context, io.Writer, string)) error {
 	if len(args) == 0 {
 		printUsage(os.Stdout)
 		return nil
@@ -49,12 +55,15 @@ func run(ctx context.Context, args []string) error {
 		return codecserver.Execute(ctx, args[1:], os.Stdout, os.Stderr)
 	case "version":
 		if len(args) > 1 {
+			printUpdateNotice(ctx, os.Stderr, version)
 			return command.NewApp(os.Stdin, os.Stdout, os.Stderr, version).Execute(ctx, args)
 		}
 		fmt.Fprintf(os.Stdout, "dexcli %s (commit %s, built %s)\n", version, commit, date)
+		printUpdateNotice(ctx, os.Stderr, version)
 		return nil
 	case "--version", "-v":
 		fmt.Fprintf(os.Stdout, "dexcli %s (commit %s, built %s)\n", version, commit, date)
+		printUpdateNotice(ctx, os.Stderr, version)
 		return nil
 	case "help", "--help", "-h":
 		printUsage(os.Stdout)
@@ -64,7 +73,7 @@ func run(ctx context.Context, args []string) error {
 	}
 }
 
-func printUsage(output *os.File) {
+func printUsage(output io.Writer) {
 	fmt.Fprintln(output, "Usage: dexcli <command>")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Commands:")

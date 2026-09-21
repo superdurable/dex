@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/superdurable/dex/cli/internal/update"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/bootstrap"
@@ -351,20 +352,8 @@ func (s *supervisor) printReady(webURL string, dexAddress string, blobStoreDirec
 }
 
 func (s *supervisor) printUpdateNotice(ctx context.Context) {
-	if !isReleaseVersion(s.cfg.version) {
-		return
-	}
 	go func() {
-		latestVersion, err := newReleaseChecker().Latest(ctx)
-		if err != nil || !isNewerVersion(latestVersion, s.cfg.version) {
-			return
-		}
-		fmt.Fprintf(
-			s.stderr,
-			"\n\033[1;33mA new dexcli version is available: %s (you have %s).\033[0m\n\033[1;36mUpgrade with: brew update && brew upgrade dexcli\033[0m\n",
-			latestVersion,
-			s.cfg.version,
-		)
+		update.PrintNotice(ctx, s.stderr, s.cfg.version)
 	}()
 }
 
