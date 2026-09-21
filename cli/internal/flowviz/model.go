@@ -67,8 +67,10 @@ type ViewField struct {
 }
 
 type Action struct {
-	RPCName   string          `json:"rpcName"`
-	Label     string          `json:"label"`
+	RPCName string `json:"rpcName"`
+	Label   string `json:"label"`
+	// Who outside the Flow answers this Action. Empty when the Flow names no parties.
+	Role      string          `json:"role,omitempty"`
 	Condition ActionCondition `json:"condition"`
 	Input     ActionInput     `json:"input"`
 }

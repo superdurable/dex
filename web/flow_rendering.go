@@ -25,6 +25,8 @@ import (
 const maxFlowDefinitionBytes = 8 << 20
 
 var flowDefinitionGroupIDPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
+var v2RoleNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
+
 var v2IndexKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 
 type flowDefinitionHandler struct {
@@ -329,6 +331,9 @@ func validateV2Definition(definition api.V2Definition) error {
 			return fmt.Errorf("Action RPC name and label must be non-empty and unique")
 		}
 		actionNames[action.RPCName] = true
+		if action.Role != "" && !v2RoleNamePattern.MatchString(action.Role) {
+			return fmt.Errorf("Action %q has an invalid role %q", action.RPCName, action.Role)
+		}
 		if action.Condition.AttributeKey == "" || action.Condition.Operator != "in" || len(action.Condition.Values) == 0 {
 			return fmt.Errorf("Action %q has an invalid condition", action.RPCName)
 		}

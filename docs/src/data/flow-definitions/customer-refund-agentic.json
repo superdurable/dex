@@ -3933,6 +3933,7 @@
       {
         "rpcName": "ApproveRefund",
         "label": "Approve",
+        "role": "manager",
         "condition": {
           "attributeKey": "case-status",
           "operator": "in",
@@ -3948,6 +3949,7 @@
       {
         "rpcName": "RejectRefund",
         "label": "Reject",
+        "role": "manager",
         "condition": {
           "attributeKey": "case-status",
           "operator": "in",
@@ -3980,6 +3982,7 @@
       {
         "rpcName": "ConfirmCustomerMessage",
         "label": "Send as written",
+        "role": "support-agent",
         "condition": {
           "attributeKey": "case-status",
           "operator": "in",
@@ -4004,6 +4007,7 @@
       {
         "rpcName": "EditCustomerMessage",
         "label": "Rewrite and send",
+        "role": "support-agent",
         "condition": {
           "attributeKey": "case-status",
           "operator": "in",

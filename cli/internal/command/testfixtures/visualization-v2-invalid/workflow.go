@@ -54,6 +54,7 @@ func (flow *InvalidV2Flow) GetRPCs() []dex.RPCDef {
 		dex.DefineRPC(flow.GetDexSummary, nil),
 		dex.DefineRPC(flow.GetDexDisplay, nil),
 		dex.DefineRPC(flow.BreakActionInput, nil),
+		dex.DefineRPC(flow.RejectBadRole, nil),
 	}
 }
 
@@ -96,6 +97,15 @@ func mutateStateFromView(ctx dex.Context) error {
 func (*InvalidV2Flow) BreakActionInput(
 	_ dex.Context,
 	_ BrokenActionInput,
+) (*dex.RPCResult[dex.None], error) {
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// dex:action action-label:"Bad role" role:Manager
+// dex:when attribute-key:state operator:in values:["open"]
+func (*InvalidV2Flow) RejectBadRole(
+	_ dex.Context,
+	_ dex.None,
 ) (*dex.RPCResult[dex.None], error) {
 	return &dex.RPCResult[dex.None]{}, nil
 }

@@ -500,7 +500,15 @@ func (analyzer *goAnalyzer) collectV2Actions(
 			continue
 		}
 		actionDirective := actionDirectives[0]
-		if !analyzer.validateV2Directive(actionDirective, []string{"action-label"}, []string{"action-label"}) {
+		if !analyzer.validateV2Directive(
+			actionDirective,
+			[]string{"action-label", "role"},
+			[]string{"action-label"},
+		) {
+			continue
+		}
+		role, roleOK := analyzer.v2ActionRole(actionDirective)
+		if !roleOK {
 			continue
 		}
 		whenDirectives := directivesNamed(directives, "when")
@@ -520,6 +528,7 @@ func (analyzer *goAnalyzer) collectV2Actions(
 		actions = append(actions, Action{
 			RPCName:   rpcName,
 			Label:     actionDirective.arguments["action-label"].text,
+			Role:      role,
 			Condition: condition,
 			Input:     input,
 		})
@@ -533,6 +542,22 @@ func (analyzer *goAnalyzer) collectV2Actions(
 		}
 	}
 	return actions
+}
+
+// Reads the optional `role`: who, outside the Flow, is expected to answer this Action.
+//
+// Open rather than a closed set, because the parties to a process are the domain's business and no
+// list written here would fit the next Flow. Kebab-case so it can be a value in a picker.
+func (analyzer *goAnalyzer) v2ActionRole(directive v2Directive) (string, bool) {
+	argument, declared := directive.arguments["role"]
+	if !declared {
+		return "", true
+	}
+	if !v2GroupIDPattern.MatchString(argument.text) {
+		analyzer.addV2DirectiveError(directive, fmt.Sprintf("role %q must be kebab-case", argument.text))
+		return "", false
+	}
+	return argument.text, true
 }
 
 func (analyzer *goAnalyzer) v2ActionCondition(

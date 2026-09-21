@@ -368,7 +368,7 @@ func (*AgenticCustomerRefundFlow) GetDexDisplay(
 	}}, nil
 }
 
-// dex:action action-label:"Approve"
+// dex:action action-label:"Approve" role:manager
 // dex:when values:["awaiting-manager-rule","awaiting-manager-agent"] operator:in attribute-key:case-status
 func (*AgenticCustomerRefundFlow) ApproveRefund(
 	ctx dex.Context,
@@ -384,7 +384,7 @@ func (*AgenticCustomerRefundFlow) ApproveRefund(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-// dex:action action-label:"Reject"
+// dex:action action-label:"Reject" role:manager
 // dex:when attribute-key:case-status operator:in values:["awaiting-manager-rule","awaiting-manager-agent"]
 // dex:input field-name:reason value-type:string source:user required:true description:"Rejection reason"
 // dex:input description:"Approval gate" required:true source:attribute attribute-key:gate-request-key value-type:string field-name:gateRequestKey
@@ -411,7 +411,7 @@ func (*AgenticCustomerRefundFlow) RejectRefund(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-// dex:action action-label:"Send as written"
+// dex:action action-label:"Send as written" role:support-agent
 // dex:when attribute-key:case-status operator:in values:["awaiting-message-approval"]
 // dex:input description:"Message gate" required:true source:attribute attribute-key:gate-request-key value-type:string field-name:gateRequestKey
 func (*AgenticCustomerRefundFlow) ConfirmCustomerMessage(
@@ -431,7 +431,7 @@ func (*AgenticCustomerRefundFlow) ConfirmCustomerMessage(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-// dex:action action-label:"Rewrite and send"
+// dex:action action-label:"Rewrite and send" role:support-agent
 // dex:when attribute-key:case-status operator:in values:["awaiting-message-approval"]
 // dex:input field-name:message value-type:string source:user required:true description:"Message to send"
 // dex:input description:"Message gate" required:true source:attribute attribute-key:gate-request-key value-type:string field-name:gateRequestKey

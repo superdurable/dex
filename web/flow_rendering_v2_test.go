@@ -113,6 +113,24 @@ func TestLoadFlowDefinitionsAcceptsRepeatedReasonSlot(t *testing.T) {
 	}
 }
 
+func TestLoadFlowDefinitionsRejectsInvalidV2ActionRole(t *testing.T) {
+	directory := t.TempDir()
+	withRole := strings.Replace(
+		validFlowDefinitionV2("RefundFlow", true),
+		`"actions":[]`,
+		`"actions":[{"rpcName":"ApproveRefund","label":"Approve","role":"Manager",`+
+			`"condition":{"attributeKey":"case-status","operator":"in","values":["open"]},`+
+			`"input":{"kind":"none","fields":[]}}]`,
+		1,
+	)
+	writeFlowDefinitionTestFile(t, directory, "role.json", withRole)
+
+	_, err := loadFlowDefinitions(directory)
+	if err == nil || !strings.Contains(err.Error(), `invalid role "Manager"`) {
+		t.Fatalf("invalid role error = %v", err)
+	}
+}
+
 func TestLoadFlowDefinitionsPreservesInt64ConditionValues(t *testing.T) {
 	directory := t.TempDir()
 	definition := strings.Replace(

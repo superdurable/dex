@@ -69,8 +69,10 @@ type V2ViewField struct {
 
 // V2Action describes one operator RPC.
 type V2Action struct {
-	RPCName   string            `json:"rpcName"`
-	Label     string            `json:"label"`
+	RPCName string `json:"rpcName"`
+	Label   string `json:"label"`
+	// Role is who outside the Flow answers this Action. Empty when the Flow names no parties.
+	Role      string            `json:"role,omitempty"`
 	Condition V2ActionCondition `json:"condition"`
 	Input     V2ActionInput     `json:"input"`
 }
