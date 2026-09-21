@@ -6,16 +6,24 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { useRef, type CSSProperties } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import {
+  LIST_WIDTH_DEFAULT,
+  LIST_WIDTH_KEY,
+  V2SplitHandle,
+  useCollapsibleColumn,
+} from '../V2SplitHandle';
 import { v2QueuePath, v2RunPath } from '../contract';
 import '../css/v2.css';
+import { RUN_COPY } from '../run/copy';
 import { useWebCatalog } from '../WebCatalogProvider';
 import { RunList } from '../workspace/RunList';
 import { RunSearch } from '../workspace/RunSearch';
 import { EMPTY_RUN_QUERY } from '../workspace/runQuery';
-import { useRunQuery } from '../workspace/useRunQuery';
 import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { useFlowSearch } from '../workspace/useFlowSearch';
+import { useRunQuery } from '../workspace/useRunQuery';
 import { useStrandedRuns } from '../workspace/useStrandedRuns';
 import { QUEUE_COPY } from './copy';
 import { openFlowStatusLabel } from './liveness';
@@ -36,6 +44,9 @@ export function QueueWorkspace() {
   const runQuery = useRunQuery(entry?.definition, { ...EMPTY_RUN_QUERY, status: openFlowStatusLabel() });
   const search = useFlowSearch(flowType || undefined, entry?.definition, runQuery.appliedFilters);
   const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
+  const shellRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const listPane = useCollapsibleColumn(LIST_WIDTH_KEY, LIST_WIDTH_DEFAULT);
 
   if (!ready) return <div className="page-loading">Loading Dex Web…</div>;
   if (!canUseV2) return <Navigate to="/v1/flows" replace />;
@@ -52,16 +63,19 @@ export function QueueWorkspace() {
   if (!entry) return <Navigate to={v2QueuePath()} replace />;
 
   const selectedFlow = search.flows.find((flow) => flow.flowId === flowId);
+  const paneStyle = { '--v2-list-w': `${listPane.width}px` } as CSSProperties;
   return (
-    <div className="v2-shell v2-run">
-      <div className="v2-run-body" data-has-run={flowId ? 'true' : undefined}>
+    <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
+      <div className="v2-run-body" ref={bodyRef}>
         <RunList
           attentionAttributeKey={entry.definition.indexedAttributes[0]?.attributeKey ?? null}
+          collapsed={listPane.isCollapsed}
           emptyText={QUEUE_COPY.clear}
           entry={entry}
           flowTypes={catalog.flows}
           heading={QUEUE_COPY.appName}
           headerNote={QUEUE_COPY.liveNote}
+          onExpand={listPane.expand}
           scope={(
             <RunSearch
               busy={search.loading}
@@ -77,6 +91,18 @@ export function QueueWorkspace() {
           strandedFlowIDs={strandedFlowIDs}
           onSelectFlowType={(next) => navigate(v2QueuePath(next))}
           onSelectRun={(nextFlowID) => navigate(v2QueuePath(entry.flowType, nextFlowID))}
+        />
+        <V2SplitHandle
+          axis="column"
+          cssVariable="--v2-list-w"
+          edge="end"
+          pane="list"
+          targetRef={shellRef}
+          measureRef={bodyRef}
+          value={listPane.width}
+          ariaLabel={RUN_COPY.resizeList}
+          onCommit={listPane.commit}
+          onToggle={listPane.isCollapsed ? listPane.expand : listPane.collapse}
         />
         <section className="v2-inbox-case" aria-label={flowId || QUEUE_COPY.appName}>
           {flowId ? (

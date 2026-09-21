@@ -246,25 +246,26 @@
   --hue-provisional-ink: #477200; /* 5.71 / 5.31                            */
   --hue-provisional-fill: #dcf8be;
 
-  --surface-canvas: #f2f3f6;
-  --surface-page: #f8f9fb;
+  /* Match Dex Web v1 / docs: green canvas, white cards, sage groups. */
+  --surface-canvas: #f5f8f2;
+  --surface-page: #ffffff;
   --surface-card: #ffffff;
-  --surface-raised: #fdfdff;
-  --surface-hover: #eef0f4;
-  --ink-faint: #a0a5ac;
-  --ink-soft: #787c83;
-  --ink-mid: #585c63;
-  --ink-strong: #31343a;
-  --ink-max: #0a0d12;
-  --line-soft: #e2e6ed;
-  --line-mid: #cfd3d9;
-  --line-strong: #b2b6bc;
+  --surface-raised: #f7faf3;
+  --surface-hover: #eef5e6;
+  --ink-faint: #9aa194;
+  --ink-soft: #6b7464;
+  --ink-mid: #4a5344;
+  --ink-strong: #243024;
+  --ink-max: #141a14;
+  --line-soft: #dce6d7;
+  --line-mid: #c5d4bc;
+  --line-strong: #9aaf8e;
 
   --wash-pct: 9%;
   --wash-strong-pct: 18%;
   --color-attention-on: var(--surface-card);
-  --band-0: #dcdee1;
-  --band-1: #d2d4d8;
+  --band-0: #d6e4c4;
+  --band-1: #c3d6ae;
   --accent-wash: rgba(53, 101, 157, 0.08);
   --accent-wash-strong: rgba(53, 101, 157, 0.16);
   --shadow-pop: 0 0 0 1px var(--line-mid), 0 10px 28px -12px rgba(15, 23, 36, 0.22);

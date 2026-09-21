@@ -25,6 +25,7 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
   type JSX,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -259,6 +260,11 @@ function Inner({
 }): JSX.Element {
   const rf = useReactFlow()
   const paneRef = useRef<HTMLDivElement | null>(null)
+  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (selectedId !== null) setSelectedLinkId(null)
+  }, [selectedId])
 
   const nodes = useMemo<Node[]>(() => {
     /**
@@ -435,6 +441,7 @@ function Inner({
       })
       .map((l) => {
         const lit = selectedId !== null && (l.from === selectedId || l.to === selectedId)
+        const picked = l.id === selectedLinkId
         const h = handles(l)
         return {
           id: l.id,
@@ -458,7 +465,8 @@ function Inner({
           markerEnd: EDGE_MARKER[l.family],
           markerStart: l.family === 'rpc' || l.family === 'gate' ? RPC_TAIL : undefined,
           // Above the band nodes, which are opaque and would otherwise cover the edges.
-          zIndex: 1,
+          selected: picked,
+          zIndex: picked ? 2 : 1,
           // Colour and width come from CSS so the zoom compensation variable can reach them
           // without re-rendering React on every wheel tick.
           /**
@@ -466,7 +474,7 @@ function Inner({
            * edge the run took stays bright even while a selection is dimming everything else, because
            * "where has this run been" must not be erasable by clicking a card.
            */
-          className: `pedge pedge-${l.family}${l.selfLoop === true ? ' pedge-loop' : ''}${l.onPath === undefined ? '' : ' pedge-path'}${lit ? ' pedge-lit' : ''}${dimUnrelated && selectedId !== null && !lit && l.onPath === undefined ? ' pedge-dim' : ''}`,
+          className: `pedge pedge-${l.family}${l.selfLoop === true ? ' pedge-loop' : ''}${l.onPath === undefined ? '' : ' pedge-path'}${lit || picked ? ' pedge-lit' : ''}${dimUnrelated && selectedId !== null && !lit && !picked && l.onPath === undefined ? ' pedge-dim' : ''}`,
           /**
            * The LABEL only — never `detail`. `detail` holds the full guard text for the panel, and
            * printing it here put source expressions back on the canvas by the side door.
@@ -480,7 +488,7 @@ function Inner({
           labelBgStyle: { fill: 'var(--p-surface-2)' },
         }
       })
-  }, [scene, selectedId, direction])
+  }, [scene, selectedId, selectedLinkId, direction])
 
   /**
    * The imperative handle. `reveal` pans the minimum distance that brings a node into view, which is the
@@ -562,7 +570,7 @@ function Inner({
    */
   const applyZoomVars = useCallback((zoom: number) => {
     const el = paneRef.current
-    if (el === null) return
+    if (el === null || !Number.isFinite(zoom)) return
     el.style.setProperty('--zoom-comp', chromeCompensation(zoom).toFixed(3))
     el.style.setProperty('--edge-boost', edgeContrastBoost(zoom).toFixed(3))
   }, [])
@@ -596,7 +604,14 @@ function Inner({
         preventScrolling={interactive}
         proOptions={{ hideAttribution: true }}
         onMove={handleMove}
-        onPaneClick={() => onSelect?.(null, false)}
+        onPaneClick={() => {
+          setSelectedLinkId(null)
+          onSelect?.(null, false)
+        }}
+        onEdgeClick={(_, edge) => {
+          setSelectedLinkId(edge.id)
+          onSelect?.(null, false)
+        }}
       >
         <Background variant={BackgroundVariant.Dots} gap={26} size={1} />
         {interactive ? <Controls showInteractive={false} /> : null}

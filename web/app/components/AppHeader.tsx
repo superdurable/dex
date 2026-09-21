@@ -98,7 +98,8 @@ export function AppHeader() {
           </select>
         </label>
         )}
-        <ThemeToggle />
+        {/* v1 has no finished dark theme; only v2 exposes the control. */}
+        {isV2 && <ThemeToggle />}
       </nav>
     </header>
   );

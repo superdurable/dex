@@ -962,7 +962,8 @@
   border-radius: 3px;
 }
 .plegend-mark[data-mark='start'] {
-  box-shadow: inset 3px 0 0 var(--p-ink-1);
+  background: var(--hue-clock-fill);
+  box-shadow: inset 3px 0 0 var(--hue-clock-ink);
 }
 .plegend-mark[data-mark='hub'] {
   border-style: dashed;
@@ -1122,12 +1123,33 @@
   stroke: var(--p-edge-subflow);
   stroke-dasharray: 6 4;
 }
-.pedge-lit .react-flow__edge-path {
-  stroke-width: calc(2.6px * var(--zoom-comp));
+.pstage-pane .react-flow__edge.pedge-lit .react-flow__edge-path,
+.pstage-pane .react-flow__edge.selected .react-flow__edge-path {
+  /* Marching dash like the v1 Timeline step link. No CSS filter: drop-shadow on an SVG
+     path inside React Flow's transformed viewport blanks the whole edge layer. */
+  animation: pedge-lit-flow 650ms linear infinite;
   opacity: 1;
+  stroke: var(--p-ink-1);
+  stroke-dasharray: 8 5;
+  stroke-width: calc(3.4px * var(--zoom-comp));
 }
-.pedge-dim .react-flow__edge-path {
+
+.pedge-dim:not(.selected):not(.pedge-lit) .react-flow__edge-path {
   opacity: 0.45;
+}
+
+@keyframes pedge-lit-flow {
+  to {
+    stroke-dashoffset: -13;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pstage-pane .react-flow__edge.pedge-lit .react-flow__edge-path,
+  .pstage-pane .react-flow__edge.selected .react-flow__edge-path {
+    animation: none;
+    stroke-dasharray: none;
+  }
 }
 /* React Flow's own theming surface. Bare --xy-* names; there is no
    `--xy-background-pattern-color-default`, the fallback is per-variant. */
@@ -1207,7 +1229,11 @@
   opacity: 0.82;
 }
 .pbox[data-emphasis='start'] {
-  box-shadow: inset 3px 0 0 var(--p-ink-1);
+  background: var(--hue-clock-fill);
+  box-shadow: inset 3px 0 0 var(--hue-clock-ink);
+}
+.pbox[data-emphasis='start'][data-selected='true'] {
+  box-shadow: inset 3px 0 0 var(--hue-clock-ink), 0 0 0 1px var(--p-ink-2);
 }
 .pbox[data-emphasis='hub'] {
   border-style: dashed;
@@ -1567,6 +1593,41 @@
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.09em;
+}
+
+[data-theme='light'] .v2-shell .pbox {
+  background: var(--p-surface-2);
+}
+
+[data-theme='light'] .v2-shell .pbox[data-emphasis='start'] {
+  background: var(--hue-clock-fill);
+}
+
+[data-theme='light'] .v2-shell .pbox:not([data-selected='true']):not([data-emphasis='start']) {
+  box-shadow: 0 1px 2px rgba(36, 48, 36, 0.07);
+}
+
+[data-theme='light'] .v2-shell .pbox[data-emphasis='start']:not([data-selected='true']) {
+  box-shadow: inset 3px 0 0 var(--hue-clock-ink), 0 1px 2px rgba(36, 48, 36, 0.07);
+}
+
+[data-theme='light'] .v2-shell .pbox-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+[data-theme='light'] .v2-shell .pbox-sub {
+  color: var(--p-ink-2);
+}
+
+[data-theme='light'] .v2-shell .pband-group {
+  border-color: var(--p-line);
+}
+
+[data-theme='light'] .v2-shell .pband-group > .pband-label {
+  color: var(--p-ink-1);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 /*
@@ -2925,7 +2986,7 @@
 }
 
 /* Everything the run did NOT take, while a run is on screen: present, quiet, still traceable. */
-.pcanvas[data-run='true'] .pedge:not(.pedge-path):not(.pedge-lit) .react-flow__edge-path {
+.pcanvas[data-run='true'] .pedge:not(.pedge-path):not(.pedge-lit):not(.selected) .react-flow__edge-path {
   opacity: 0.34;
 }
 

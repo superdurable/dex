@@ -43,6 +43,7 @@ export const FOCUS_ZOOM = 1.45
  * Returns a multiplier to apply to edge opacity, in [1, 1.9].
  */
 export function edgeContrastBoost(zoom: number): number {
+  if (!Number.isFinite(zoom)) return 1
   const t = Math.min(1, Math.max(0, (1 - zoom) / (1 - 0.2)))
   const eased = t ** (1 / 2.2)
   return 1 + eased * 0.9
@@ -56,6 +57,6 @@ export function edgeContrastBoost(zoom: number): number {
  * legible and thicker strokes would just look clumsy.
  */
 export function chromeCompensation(zoom: number): number {
-  if (zoom >= 1) return 1
+  if (!Number.isFinite(zoom) || zoom >= 1) return 1
   return Math.min(2.6, 1 / Math.max(zoom, 0.2))
 }

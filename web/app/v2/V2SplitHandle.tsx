@@ -6,13 +6,18 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useEffect, useRef, type PointerEvent, type KeyboardEvent, type RefObject } from 'react';
+import {
+  useCallback, useEffect, useRef, useState,
+  type PointerEvent, type KeyboardEvent, type RefObject,
+} from 'react';
 
 export const LIST_WIDTH_KEY = 'dex-web.v2-list-w';
 export const CASE_HEIGHT_KEY = 'dex-web.v2-case-h';
 export const PANEL_WIDTH_KEY = 'dex-web.v2-panel-w';
-export const LIST_WIDTH_DEFAULT = 512;
-export const LIST_WIDTH_MIN = 352;
+export const LIST_WIDTH_DEFAULT = 240;
+export const LIST_WIDTH_MIN = 168;
+export const COLUMN_COLLAPSED = 36;
+export const COLUMN_SNAP = 100;
 export const CANVAS_WIDTH_MIN = 280;
 export const CASE_HEIGHT_MIN = 140;
 export const LIST_REMAIN_MIN = 200;
@@ -26,6 +31,30 @@ export const DEF_HEIGHT_KEY = 'dex-web.v2-def-h';
 export const DEF_HEIGHT_DEFAULT = 220;
 export const DEF_HEIGHT_MIN = 96;
 export const EXEC_REMAIN_MIN = 180;
+
+export function isCollapsedColumn(width: number): boolean {
+  return width <= COLUMN_SNAP;
+}
+
+export function useCollapsibleColumn(key: string, expandedDefault: number) {
+  const [width, setWidth] = useState(() => {
+    const stored = readStoredPixels(key);
+    return Number.isFinite(stored) ? stored : expandedDefault;
+  });
+  const lastExpandedRef = useRef(isCollapsedColumn(width) ? expandedDefault : width);
+
+  const commit = useCallback((next: number) => {
+    const rounded = Math.round(next);
+    if (!isCollapsedColumn(rounded)) lastExpandedRef.current = rounded;
+    setWidth(rounded);
+    writeStoredPixels(key, rounded);
+  }, [key]);
+
+  const expand = useCallback(() => commit(lastExpandedRef.current), [commit]);
+  const collapse = useCallback(() => commit(COLUMN_COLLAPSED), [commit]);
+
+  return { width, commit, expand, collapse, isCollapsed: isCollapsedColumn(width) };
+}
 
 export function readStoredPixels(key: string): number {
   try {
@@ -46,12 +75,7 @@ export function writeStoredPixels(key: string, value: number): void {
 }
 
 export function clampListWidth(desired: number, containerWidth: number): number {
-  const container = finiteSize(containerWidth);
-  const floor = LIST_WIDTH_MIN;
-  const ceiling = Math.min(container * 0.6, container - CANVAS_WIDTH_MIN);
-  if (ceiling <= floor) return Math.max(160, ceiling);
-  const want = Number.isFinite(desired) && desired > 0 ? desired : LIST_WIDTH_DEFAULT;
-  return Math.min(Math.max(want, floor), ceiling);
+  return clampCollapsibleColumn(desired, containerWidth, LIST_WIDTH_MIN, LIST_WIDTH_DEFAULT, 0.45);
 }
 
 export function clampCaseHeight(desired: number, paneHeight: number): number {
@@ -63,11 +87,26 @@ export function clampCaseHeight(desired: number, paneHeight: number): number {
 }
 
 export function clampPanelWidth(desired: number, canvasWidth: number): number {
-  const container = finiteSize(canvasWidth);
-  const floor = PANEL_WIDTH_MIN;
-  const ceiling = Math.max(floor, Math.min(container * 0.7, container - PANEL_CANVAS_REMAIN_MIN));
-  const want = Number.isFinite(desired) && desired > 0 ? desired : PANEL_WIDTH_DEFAULT;
-  return Math.min(Math.max(want, floor), ceiling);
+  return clampCollapsibleColumn(desired, canvasWidth, PANEL_WIDTH_MIN, PANEL_WIDTH_DEFAULT, 0.55);
+}
+
+export function clampDrawerWidth(desired: number, containerWidth: number): number {
+  return clampCollapsibleColumn(desired, containerWidth, PANEL_WIDTH_MIN, DRAWER_WIDTH_DEFAULT, 0.5);
+}
+
+function clampCollapsibleColumn(
+  desired: number,
+  containerWidth: number,
+  expandedMin: number,
+  fallback: number,
+  maxFraction: number,
+): number {
+  const container = finiteSize(containerWidth);
+  const ceiling = Math.min(container * maxFraction, container - CANVAS_WIDTH_MIN);
+  const want = Number.isFinite(desired) && desired > 0 ? desired : fallback;
+  if (want <= COLUMN_SNAP) return COLUMN_COLLAPSED;
+  if (ceiling <= expandedMin) return Math.max(COLUMN_COLLAPSED, ceiling);
+  return Math.min(Math.max(want, expandedMin), ceiling);
 }
 
 export function clampDefHeight(desired: number, bodyHeight: number): number {
@@ -93,6 +132,8 @@ export function V2SplitHandle({
   onCommit,
   invert = false,
   edge = 'end',
+  pane,
+  onToggle,
 }: {
   axis: 'column' | 'row';
   cssVariable: '--v2-list-w' | '--v2-case-h' | '--v2-panel-w' | '--v2-def-h' | '--v2-drawer-w';
@@ -104,6 +145,8 @@ export function V2SplitHandle({
   /** When true, dragging toward the start of the axis grows the measured size. */
   invert?: boolean;
   edge?: 'start' | 'end' | 'between';
+  pane?: 'list' | 'drawer';
+  onToggle?: () => void;
 }) {
   const dragRef = useRef<{ startPointer: number; startSize: number } | null>(null);
   const liveRef = useRef(value);
@@ -115,9 +158,8 @@ export function V2SplitHandle({
   const clampLive = useCallback((desired: number) => {
     const box = measureRef.current?.getBoundingClientRect();
     if (!box) return desired;
-    if (cssVariable === '--v2-panel-w' || cssVariable === '--v2-drawer-w') {
-      return clampPanelWidth(desired, box.width);
-    }
+    if (cssVariable === '--v2-drawer-w') return clampDrawerWidth(desired, box.width);
+    if (cssVariable === '--v2-panel-w') return clampPanelWidth(desired, box.width);
     if (cssVariable === '--v2-def-h') return clampDefHeight(desired, box.height);
     return axis === 'column'
       ? clampListWidth(desired, box.width)
@@ -129,17 +171,17 @@ export function V2SplitHandle({
     targetRef.current?.style.setProperty(cssVariable, `${Math.round(next)}px`);
     const box = measureRef.current?.getBoundingClientRect();
     if (!box) return;
-    let floor = LIST_WIDTH_MIN;
+    let floor = COLUMN_COLLAPSED;
     let ceiling = box.width;
-    if (cssVariable === '--v2-panel-w' || cssVariable === '--v2-drawer-w') {
-      floor = PANEL_WIDTH_MIN;
-      ceiling = Math.max(floor, Math.min(box.width * 0.7, box.width - PANEL_CANVAS_REMAIN_MIN));
+    if (cssVariable === '--v2-drawer-w') {
+      ceiling = Math.min(box.width * 0.5, box.width - CANVAS_WIDTH_MIN);
+    } else if (cssVariable === '--v2-panel-w') {
+      ceiling = Math.min(box.width * 0.55, box.width - CANVAS_WIDTH_MIN);
     } else if (cssVariable === '--v2-def-h') {
       floor = DEF_HEIGHT_MIN;
       ceiling = Math.max(floor, box.height - EXEC_REMAIN_MIN);
     } else if (axis === 'column') {
-      floor = LIST_WIDTH_MIN;
-      ceiling = Math.min(box.width * 0.6, box.width - CANVAS_WIDTH_MIN);
+      ceiling = Math.min(box.width * 0.45, box.width - CANVAS_WIDTH_MIN);
     } else {
       floor = CASE_HEIGHT_MIN;
       ceiling = Math.max(floor, box.height - LIST_REMAIN_MIN);
@@ -215,13 +257,11 @@ export function V2SplitHandle({
     onCommit(clampLive(next));
   }, [axis, clampLive, invert, onCommit]);
 
-  const valueMin = cssVariable === '--v2-panel-w'
-    ? PANEL_WIDTH_MIN
-    : cssVariable === '--v2-def-h'
-      ? DEF_HEIGHT_MIN
-      : axis === 'column'
-        ? LIST_WIDTH_MIN
-        : CASE_HEIGHT_MIN;
+  const valueMin = cssVariable === '--v2-def-h'
+    ? DEF_HEIGHT_MIN
+    : axis === 'column'
+      ? COLUMN_COLLAPSED
+      : CASE_HEIGHT_MIN;
 
   return (
     <div
@@ -233,11 +273,13 @@ export function V2SplitHandle({
       tabIndex={0}
       data-axis={axis}
       data-edge={edge}
+      data-pane={pane}
       className="v2-split"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      onDoubleClick={onToggle}
       onKeyDown={onKeyDown}
     />
   );

@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 
 export type ThemeChoice = 'light' | 'dark' | 'system';
 export type Theme = 'light' | 'dark';
@@ -25,6 +26,10 @@ export interface ThemeState {
 }
 
 const ThemeContext = createContext<ThemeState | null>(null);
+
+function isV2Path(pathname: string): boolean {
+  return pathname === '/v2' || pathname.startsWith('/v2/');
+}
 
 export function isThemeChoice(value: unknown): value is ThemeChoice {
   return value === 'light' || value === 'dark' || value === 'system';
@@ -57,13 +62,16 @@ function writeDocumentTheme(theme: Theme): void {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
+  const location = useLocation();
   const [choice, setChoice] = useState<ThemeChoice>(readThemeChoice);
   const [osIsLight, setOsIsLight] = useState(readOsIsLight);
   const theme = resolveTheme(choice, osIsLight);
+  // v1 never finished dark mode; keep its chrome on the light paper regardless of the stored choice.
+  const applied = isV2Path(location.pathname) ? theme : 'light';
 
   useEffect(() => {
-    writeDocumentTheme(theme);
-  }, [theme]);
+    writeDocumentTheme(applied);
+  }, [applied]);
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return;

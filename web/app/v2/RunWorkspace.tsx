@@ -20,9 +20,10 @@ import { V2Canvas } from './V2Canvas';
 import {
   DRAWER_WIDTH_DEFAULT,
   DRAWER_WIDTH_KEY,
+  LIST_WIDTH_DEFAULT,
+  LIST_WIDTH_KEY,
   V2SplitHandle,
-  readStoredPixels,
-  writeStoredPixels,
+  useCollapsibleColumn,
 } from './V2SplitHandle';
 import { useWebCatalog } from './WebCatalogProvider';
 import { RunSearch } from './workspace/RunSearch';
@@ -62,16 +63,8 @@ export function RunWorkspace() {
   const [drawerOpen, setDrawerOpen] = useState(true);
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const [drawerWidth, setDrawerWidth] = useState(() => {
-    const stored = readStoredPixels(DRAWER_WIDTH_KEY);
-    return Number.isFinite(stored) ? stored : DRAWER_WIDTH_DEFAULT;
-  });
-
-  const commitDrawerWidth = useCallback((width: number) => {
-    const next = Math.round(width);
-    setDrawerWidth(next);
-    writeStoredPixels(DRAWER_WIDTH_KEY, next);
-  }, []);
+  const listPane = useCollapsibleColumn(LIST_WIDTH_KEY, LIST_WIDTH_DEFAULT);
+  const drawerPane = useCollapsibleColumn(DRAWER_WIDTH_KEY, DRAWER_WIDTH_DEFAULT);
 
   // One clock: the canvas owns the run poll and the drawer refreshes on the same beat.
   const onTick = useCallback(() => setTick((previous) => previous + 1), []);
@@ -97,16 +90,21 @@ export function RunWorkspace() {
   // A Step click alone opens the drawer: its Flow-level meaning needs no run.
   const showRun = Boolean(flowId) && drawerOpen;
   const showDrawer = showRun || stepView !== null;
-  const paneStyle = { '--v2-drawer-w': `${drawerWidth}px` } as CSSProperties;
+  const paneStyle = {
+    '--v2-list-w': `${listPane.width}px`,
+    '--v2-drawer-w': `${drawerPane.width}px`,
+  } as CSSProperties;
   return (
     <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
-      <div className="v2-run-body" data-has-run={showDrawer ? 'true' : undefined} ref={bodyRef}>
+      <div className="v2-run-body" data-has-drawer={showDrawer ? 'true' : undefined} ref={bodyRef}>
         <RunList
           attentionAttributeKey={entry.definition.indexedAttributes[0]?.attributeKey ?? null}
+          collapsed={listPane.isCollapsed}
           emptyText={RUN_COPY.noRuns}
           entry={entry}
           flowTypes={catalog.flows}
           heading={RUN_COPY.runsHeading}
+          onExpand={listPane.expand}
           scope={(
             <RunSearch
               busy={search.loading}
@@ -122,6 +120,18 @@ export function RunWorkspace() {
           strandedFlowIDs={strandedFlowIDs}
           onSelectFlowType={(next) => navigate(v2RunPath(next))}
           onSelectRun={(nextFlowID) => navigate(v2RunPath(entry.flowType, nextFlowID))}
+        />
+        <V2SplitHandle
+          axis="column"
+          cssVariable="--v2-list-w"
+          edge="end"
+          pane="list"
+          targetRef={shellRef}
+          measureRef={bodyRef}
+          value={listPane.width}
+          ariaLabel={RUN_COPY.resizeList}
+          onCommit={listPane.commit}
+          onToggle={listPane.isCollapsed ? listPane.expand : listPane.collapse}
         />
         <section className="v2-canvas" aria-label="Flow definition">
           <V2Canvas
@@ -144,29 +154,42 @@ export function RunWorkspace() {
               cssVariable="--v2-drawer-w"
               edge="start"
               invert
+              pane="drawer"
               targetRef={shellRef}
               measureRef={bodyRef}
-              value={drawerWidth}
-              ariaLabel="Resize the run drawer"
-              onCommit={commitDrawerWidth}
+              value={drawerPane.width}
+              ariaLabel={RUN_COPY.resizeDrawer}
+              onCommit={drawerPane.commit}
+              onToggle={drawerPane.isCollapsed ? drawerPane.expand : drawerPane.collapse}
             />
-            <RunDetailDrawer
-              actionable={actionable}
-              band={band}
-              definition={entry.definition}
-              flowId={showRun ? flowId : ''}
-              flowStatusCode={selectedFlow?.flowStatusCode}
-              flowType={entry.flowType}
-              reloadKey={tick}
-              stepContext={stepView}
-              summary={summary}
-              onClose={() => {
-                setDrawerOpen(false);
-                setDeselectKey((previous) => previous + 1);
-              }}
-              onStopped={search.runSearch}
-              onStranded={rememberStranded}
-            />
+            {drawerPane.isCollapsed ? (
+              <button
+                className="v2-rail"
+                onClick={drawerPane.expand}
+                title={RUN_COPY.expandDrawer}
+                type="button"
+              >
+                {flowId || RUN_COPY.thisStep}
+              </button>
+            ) : (
+              <RunDetailDrawer
+                actionable={actionable}
+                band={band}
+                definition={entry.definition}
+                flowId={showRun ? flowId : ''}
+                flowStatusCode={selectedFlow?.flowStatusCode}
+                flowType={entry.flowType}
+                reloadKey={tick}
+                stepContext={stepView}
+                summary={summary}
+                onClose={() => {
+                  setDrawerOpen(false);
+                  setDeselectKey((previous) => previous + 1);
+                }}
+                onStopped={search.runSearch}
+                onStranded={rememberStranded}
+              />
+            )}
           </>
         ) : null}
       </div>

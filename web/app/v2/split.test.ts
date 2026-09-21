@@ -10,17 +10,18 @@ import { describe, expect, it } from 'vitest';
 import {
   CASE_HEIGHT_FRAC,
   CASE_HEIGHT_MIN,
+  COLUMN_COLLAPSED,
+  COLUMN_SNAP,
   DEF_HEIGHT_DEFAULT,
   DEF_HEIGHT_MIN,
+  DRAWER_WIDTH_DEFAULT,
   EXEC_REMAIN_MIN,
   LIST_REMAIN_MIN,
   LIST_WIDTH_DEFAULT,
-  LIST_WIDTH_MIN,
-  PANEL_CANVAS_REMAIN_MIN,
   PANEL_WIDTH_DEFAULT,
-  PANEL_WIDTH_MIN,
   clampCaseHeight,
   clampDefHeight,
+  clampDrawerWidth,
   clampListWidth,
   clampPanelWidth,
 } from './V2SplitHandle';
@@ -28,12 +29,19 @@ import {
 describe('v2 split clamps', () => {
   it('keeps the listing readable and the canvas usable', () => {
     expect(clampListWidth(LIST_WIDTH_DEFAULT, 1400)).toBe(LIST_WIDTH_DEFAULT);
-    expect(clampListWidth(80, 1400)).toBe(LIST_WIDTH_MIN);
-    expect(clampListWidth(1200, 1400)).toBe(Math.min(1400 * 0.6, 1400 - 280));
+    expect(clampListWidth(80, 1400)).toBe(COLUMN_COLLAPSED);
+    expect(clampListWidth(200, 1400)).toBe(200);
+    expect(clampListWidth(1200, 1400)).toBe(Math.min(1400 * 0.45, 1400 - 280));
+  });
+
+  it('snaps a dragged column shut rather than leaving a sliver', () => {
+    expect(clampListWidth(COLUMN_SNAP, 1400)).toBe(COLUMN_COLLAPSED);
+    expect(clampDrawerWidth(80, 1400)).toBe(COLUMN_COLLAPSED);
+    expect(clampDrawerWidth(DRAWER_WIDTH_DEFAULT, 1400)).toBe(DRAWER_WIDTH_DEFAULT);
   });
 
   it('yields to the canvas when the window cannot seat both floors', () => {
-    expect(clampListWidth(512, 500)).toBe(Math.max(160, 500 - 280));
+    expect(clampListWidth(512, 500)).toBe(Math.max(COLUMN_COLLAPSED, 500 - 280));
   });
 
   it('keeps Display from swallowing the run list', () => {
@@ -44,8 +52,8 @@ describe('v2 split clamps', () => {
 
   it('keeps the Step panel readable without covering the whole canvas', () => {
     expect(clampPanelWidth(PANEL_WIDTH_DEFAULT, 1200)).toBe(PANEL_WIDTH_DEFAULT);
-    expect(clampPanelWidth(80, 1200)).toBe(PANEL_WIDTH_MIN);
-    expect(clampPanelWidth(1000, 1200)).toBe(Math.min(1200 * 0.7, 1200 - PANEL_CANVAS_REMAIN_MIN));
+    expect(clampPanelWidth(80, 1200)).toBe(COLUMN_COLLAPSED);
+    expect(clampPanelWidth(1000, 1200)).toBe(Math.min(1200 * 0.55, 1200 - 280));
   });
 
   it('keeps Definition and Execution both usable inside the panel', () => {

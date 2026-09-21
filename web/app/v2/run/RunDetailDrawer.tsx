@@ -68,7 +68,6 @@ export function RunDetailDrawer({
           flowId={flowId}
           flowType={flowType}
           summary={summary}
-          onClose={onClose}
           onStopped={onStopped}
         />
       ) : (
