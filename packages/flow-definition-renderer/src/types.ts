@@ -128,6 +128,8 @@ export interface FlowV2Field {
   valueType: V2ValueType;
   editable: boolean;
   description: string;
+  /** Named position this field takes in a row or drawer. Absent means the ordinary detail list. */
+  slot?: string;
 }
 
 export interface FlowV2View {

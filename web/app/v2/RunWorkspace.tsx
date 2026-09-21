@@ -98,7 +98,6 @@ export function RunWorkspace() {
     <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
       <div className="v2-run-body" data-has-drawer={showDrawer ? 'true' : undefined} ref={bodyRef}>
         <RunList
-          attentionAttributeKey={entry.definition.indexedAttributes[0]?.attributeKey ?? null}
           collapsed={listPane.isCollapsed}
           emptyText={RUN_COPY.noRuns}
           entry={entry}

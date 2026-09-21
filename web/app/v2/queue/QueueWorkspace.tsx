@@ -68,7 +68,6 @@ export function QueueWorkspace() {
     <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
       <div className="v2-run-body" ref={bodyRef}>
         <RunList
-          attentionAttributeKey={entry.definition.indexedAttributes[0]?.attributeKey ?? null}
           collapsed={listPane.isCollapsed}
           emptyText={QUEUE_COPY.clear}
           entry={entry}

@@ -7,13 +7,14 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { ReactNode } from 'react';
-import { formatTimeOfDay } from '@/lib/format';
+import { formatTimeOfDay, type TimezonePreference } from '@/lib/format';
 import type { V2CatalogEntry, V2Flow } from '@/lib/types';
 import { usePreferences } from '../../providers';
 import { QUEUE_COPY } from '../queue/copy';
 import { RUN_COPY } from '../run/copy';
 import { groupRuns } from '../run/runOrder';
 import { SEARCH_COPY } from './searchCopy';
+import { runRow, slotsOf, type SlotMap } from './slots';
 import type { FlowSearch } from './useFlowSearch';
 
 /**
@@ -28,7 +29,6 @@ export function RunList({
   search,
   selectedFlowID,
   strandedFlowIDs,
-  attentionAttributeKey,
   heading,
   headerNote,
   scope,
@@ -43,8 +43,6 @@ export function RunList({
   search: FlowSearch;
   selectedFlowID: string;
   strandedFlowIDs: ReadonlySet<string>;
-  /** First indexed Attribute, shown under the Flow ID as its own value. */
-  attentionAttributeKey: string | null;
   heading: string;
   headerNote?: string;
   /** What the list is narrowed to, and the control that narrowed it. */
@@ -58,6 +56,7 @@ export function RunList({
   const { timezone } = usePreferences();
   const { flows, liveness, loading } = search;
   const groups = groupRuns(flows);
+  const slots = slotsOf(entry.definition);
   const stateText = liveness === 'loading'
     ? QUEUE_COPY.loading
     : liveness === 'unreachable'
@@ -114,14 +113,13 @@ export function RunList({
                   data-stranded={strandedFlowIDs.has(flow.flowId) ? 'true' : undefined}
                   key={flow.flowId}
                 >
-                  <button className="rsw-row" onClick={() => onSelectRun(flow.flowId)} type="button">
-                    <span className="rsw-id t-mono" title={flow.flowId}>{flow.flowId}</span>
-                    <span className="rsw-time">{formatTimeOfDay(flow.startTime, timezone)}</span>
-                    <span className="rsw-state">{runStateText(flow, attentionAttributeKey)}</span>
-                    {strandedFlowIDs.has(flow.flowId) && (
-                      <span className="rsw-stranded">{QUEUE_COPY.strandedRow}</span>
-                    )}
-                  </button>
+                  <RunRowButton
+                    flow={flow}
+                    slots={slots}
+                    stranded={strandedFlowIDs.has(flow.flowId)}
+                    timezone={timezone}
+                    onSelect={onSelectRun}
+                  />
                 </li>
               ))}
             </ul>
@@ -134,10 +132,31 @@ export function RunList({
   );
 }
 
-/** The Flow's own indexed value when it has one, else the execution status. */
-function runStateText(flow: V2Flow, attentionAttributeKey: string | null): string {
-  if (attentionAttributeKey === null) return flow.flowStatus;
-  const value = flow.indexedAttributes[attentionAttributeKey];
-  if (value === null || value === undefined || value === '') return flow.flowStatus;
-  return String(value);
+/**
+ * Three things: what names the run, when it started, where it has got to.
+ *
+ * No denser than the row it replaces. What the Flow declares for `recommendation` and `reason` is
+ * deliberately left to the drawer — a list of reasons stops being a list.
+ */
+function RunRowButton({ flow, slots, stranded, timezone, onSelect }: {
+  flow: V2Flow;
+  slots: SlotMap;
+  stranded: boolean;
+  timezone: TimezonePreference;
+  onSelect: (flowID: string) => void;
+}) {
+  const row = runRow(flow, slots);
+  return (
+    <button className="rsw-row" onClick={() => onSelect(flow.flowId)} type="button">
+      <span
+        className={row.titleIsFlowID ? 'rsw-id t-mono' : 'rsw-id'}
+        title={flow.flowId}
+      >
+        {row.title}
+      </span>
+      <span className="rsw-time">{formatTimeOfDay(flow.startTime, timezone)}</span>
+      <span className="rsw-state">{row.status}</span>
+      {stranded && <span className="rsw-stranded">{QUEUE_COPY.strandedRow}</span>}
+    </button>
+  );
 }
