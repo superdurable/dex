@@ -27,6 +27,7 @@ import {
   goTo,
   goToMany,
   jsonCodec,
+  optionalCodec,
   rpc,
   voidCodec,
   type Context,
@@ -91,8 +92,8 @@ export class SubscriptionFlow implements Flow<Customer> {
     return { output: this.customerDetails.get(context).subscription };
   }
 
-  @rpc({ outputCodec: customerCodec })
-  public getCustomer(context: Context): RPCResult<Customer> {
+  @rpc({ outputCodec: optionalCodec(customerCodec) })
+  public getCustomer(context: Context): RPCResult<Customer | undefined> {
     return { output: this.customerDetails.get(context) };
   }
 
