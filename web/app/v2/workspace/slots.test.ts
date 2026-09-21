@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import type { V2Flow } from '@/lib/types';
-import { runRow, slotsOf } from './slots';
+import { leadFields, runRow, slotsOf } from './slots';
 
 const field = (attributeKey: string, slot?: string) => ({
   attributeKey, valueType: 'string', editable: false, description: attributeKey, slot,
@@ -110,5 +110,35 @@ describe('runRow', () => {
     const amount = definition([field('refund-amount', 'status')]);
     expect(runRow(flow({ indexedAttributes: { 'refund-amount': 17500 } }), slotsOf(amount)).status)
       .toBe('17500');
+  });
+});
+
+describe('leadFields', () => {
+  it('orders by slot, not by how the author happened to type them', () => {
+    const shuffled = definition([
+      field('guardrail-rule', 'reason'),
+      field('case-status', 'status'),
+      field('customer-email', 'title'),
+      field('recommended-action', 'recommendation'),
+      field('in-email', 'subtitle'),
+    ]);
+    expect(leadFields(shuffled).map((f) => f.attributeKey)).toEqual([
+      'customer-email', 'in-email', 'case-status', 'recommended-action', 'guardrail-rule',
+    ]);
+  });
+
+  it('keeps several reasons together, in declaration order', () => {
+    expect(leadFields(refund).map((f) => f.attributeKey)).toEqual([
+      'customer-email', 'in-email', 'case-status',
+      'recommended-action', 'recommendation-rationale', 'guardrail-rule',
+    ]);
+  });
+
+  it('leaves unslotted fields out, so the detail list still has them', () => {
+    expect(leadFields(refund).map((f) => f.attributeKey)).not.toContain('operator-note');
+  });
+
+  it('is empty for a Flow that declares no slots', () => {
+    expect(leadFields(definition([field('a'), field('b')]))).toEqual([]);
   });
 });

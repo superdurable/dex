@@ -3203,12 +3203,6 @@
   color: var(--p-ink-1);
 }
 
-/* The fact that makes the decision hard. Weight, not colour: colour means who must act. */
-.prun-fact[data-pivotal='true'] dd {
-  color: var(--p-ink-0);
-  font-weight: 600;
-}
-
 .prun-cite {
   display: inline-flex;
 }

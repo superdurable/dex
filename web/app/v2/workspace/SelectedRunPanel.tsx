@@ -19,6 +19,7 @@ import type { V2Display } from '@/lib/types';
 import { parseTypedValue, v2ActionUserFields, v2ActionUserInput, visibleV2Actions } from '../contract';
 import { QUEUE_COPY } from '../queue/copy';
 import { absorb, classifyReadFailure, nothingHeld, readFailureReason } from '../queue/liveness';
+import { leadFields } from './slots';
 
 export function SelectedRunPanel({
   flowType,
@@ -145,9 +146,59 @@ export function SelectedRunPanel({
       {held.liveness === 'stale' && <p className="sc-why">{held.reason}</p>}
       {held.liveness === 'loading' && <p className="sc-state">{QUEUE_COPY.loading}</p>}
       {actionError && <p className="v2-error">{actionError}</p>}
-      {result && !isStranded && (
-        <>
-          {order === 'actions-first' ? (<>
+      {result && !isStranded && (() => {
+        const fieldFact = (field: FlowV2Definition['display']['fields'][number]) => {
+          const isEditing = editingKey === field.attributeKey;
+          return (
+            <div className="sc-fact" key={field.attributeKey}>
+              <dt className="sc-fname">{field.description}</dt>
+              <dd className="sc-fvalue">
+                {isEditing ? (
+                  <>
+                    <TypedInput field={field} value={editValue} onChange={setEditValue} />
+                    <button
+                      className="v2-primary"
+                      disabled={busyKey === field.attributeKey}
+                      onClick={() => void saveField(field.attributeKey, field.valueType)}
+                      type="button"
+                    >
+                      Save
+                    </button>
+                    <button className="v2-ghost" onClick={() => setEditingKey('')} type="button">Cancel</button>
+                    {fieldErrors[field.attributeKey] && (
+                      <small className="v2-error">{fieldErrors[field.attributeKey]}</small>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span>{displayValue(result.display[field.attributeKey])}</span>
+                    {field.editable && result.isActive && (
+                      <button
+                        className="v2-ghost"
+                        onClick={() => {
+                          setEditingKey(field.attributeKey);
+                          setFieldErrors((current) => ({ ...current, [field.attributeKey]: '' }));
+                          setEditValue(editableValue(
+                            result.display[field.attributeKey],
+                            field.valueType,
+                          ));
+                        }}
+                        type="button"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </>
+                )}
+              </dd>
+            </div>
+          );
+        };
+
+        const lead = leadFields(definition);
+        const detail = definition.display.fields.filter((field) => !lead.includes(field));
+
+        const actionsBlock = (
           <div className="sc-block">
             <div className="sc-blockhead">Actions</div>
             {visibleV2Actions(definition.actions, result.eligibleActions).map((action) => {
@@ -191,159 +242,20 @@ export function SelectedRunPanel({
               <p className="sc-state">No Actions are available in the current state.</p>
             )}
           </div>
+        );
 
+        const displayBlock = (
           <div className="sc-block">
             <div className="sc-blockhead">Display</div>
-            <dl className="sc-facts">
-              {definition.display.fields.map((field) => {
-                const isEditing = editingKey === field.attributeKey;
-                return (
-                  <div className="sc-fact" key={field.attributeKey}>
-                    <dt className="sc-fname">{field.description}</dt>
-                    <dd className="sc-fvalue">
-                      {isEditing ? (
-                        <>
-                          <TypedInput field={field} value={editValue} onChange={setEditValue} />
-                          <button
-                            className="v2-primary"
-                            disabled={busyKey === field.attributeKey}
-                            onClick={() => void saveField(field.attributeKey, field.valueType)}
-                            type="button"
-                          >
-                            Save
-                          </button>
-                          <button className="v2-ghost" onClick={() => setEditingKey('')} type="button">Cancel</button>
-                          {fieldErrors[field.attributeKey] && (
-                            <small className="v2-error">{fieldErrors[field.attributeKey]}</small>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <span>{displayValue(result.display[field.attributeKey])}</span>
-                          {field.editable && result.isActive && (
-                            <button
-                              className="v2-ghost"
-                              onClick={() => {
-                                setEditingKey(field.attributeKey);
-                                setFieldErrors((current) => ({ ...current, [field.attributeKey]: '' }));
-                                setEditValue(editableValue(
-                                  result.display[field.attributeKey],
-                                  field.valueType,
-                                ));
-                              }}
-                              type="button"
-                            >
-                              Edit
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </dd>
-                  </div>
-                );
-              })}
-            </dl>
+            {lead.length > 0 && <dl className="sc-facts" data-lead="true">{lead.map(fieldFact)}</dl>}
+            {detail.length > 0 && <dl className="sc-facts">{detail.map(fieldFact)}</dl>}
           </div>
-</>) : (<>
-          <div className="sc-block">
-            <div className="sc-blockhead">Display</div>
-            <dl className="sc-facts">
-              {definition.display.fields.map((field) => {
-                const isEditing = editingKey === field.attributeKey;
-                return (
-                  <div className="sc-fact" key={field.attributeKey}>
-                    <dt className="sc-fname">{field.description}</dt>
-                    <dd className="sc-fvalue">
-                      {isEditing ? (
-                        <>
-                          <TypedInput field={field} value={editValue} onChange={setEditValue} />
-                          <button
-                            className="v2-primary"
-                            disabled={busyKey === field.attributeKey}
-                            onClick={() => void saveField(field.attributeKey, field.valueType)}
-                            type="button"
-                          >
-                            Save
-                          </button>
-                          <button className="v2-ghost" onClick={() => setEditingKey('')} type="button">Cancel</button>
-                          {fieldErrors[field.attributeKey] && (
-                            <small className="v2-error">{fieldErrors[field.attributeKey]}</small>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <span>{displayValue(result.display[field.attributeKey])}</span>
-                          {field.editable && result.isActive && (
-                            <button
-                              className="v2-ghost"
-                              onClick={() => {
-                                setEditingKey(field.attributeKey);
-                                setFieldErrors((current) => ({ ...current, [field.attributeKey]: '' }));
-                                setEditValue(editableValue(
-                                  result.display[field.attributeKey],
-                                  field.valueType,
-                                ));
-                              }}
-                              type="button"
-                            >
-                              Edit
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </dd>
-                  </div>
-                );
-              })}
-            </dl>
-          </div>
+        );
 
-          <div className="sc-block">
-            <div className="sc-blockhead">Actions</div>
-            {visibleV2Actions(definition.actions, result.eligibleActions).map((action) => {
-              const userFields = v2ActionUserFields(action);
-              return (
-                <form
-                  className="sc-actions"
-                  key={action.rpcName}
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void invokeAction(action);
-                  }}
-                >
-                  {userFields.map((field) => (
-                    <label key={field.fieldName}>
-                      <span className="sc-fname">{field.description}</span>
-                      <ActionInput
-                        field={field}
-                        value={actionValues[action.rpcName]?.[field.fieldName] ?? ''}
-                        onChange={(value) => setActionValues((current) => ({
-                          ...current,
-                          [action.rpcName]: {
-                            ...current[action.rpcName],
-                            [field.fieldName]: value,
-                          },
-                        }))}
-                      />
-                    </label>
-                  ))}
-                  <button
-                    className="v2-primary"
-                    disabled={!result.isActive || busyKey === action.rpcName}
-                    type="submit"
-                  >
-                    {busyKey === action.rpcName ? 'Working…' : action.label}
-                  </button>
-                </form>
-              );
-            })}
-            {definition.actions.length > 0 && result.eligibleActions.length === 0 && (
-              <p className="sc-state">No Actions are available in the current state.</p>
-            )}
-          </div>
-</>)}
-        </>
-      )}
+        return order === 'actions-first'
+          ? <>{actionsBlock}{displayBlock}</>
+          : <>{displayBlock}{actionsBlock}</>;
+      })()}
     </div>
   );
 }

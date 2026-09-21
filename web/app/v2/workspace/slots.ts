@@ -85,3 +85,20 @@ function firstValue(flow: V2Flow, fields: SlottedField[] | undefined): string | 
   }
   return null;
 }
+
+/**
+ * The slotted Display fields, in slot order rather than declaration order.
+ *
+ * Slot order is the order a reader needs them: what this is, what it is about, where it has got to,
+ * what is proposed, and why. Declaration order is whatever the author happened to type.
+ */
+export function leadFields(
+  definition: FlowV2Definition,
+): FlowV2Definition['display']['fields'] {
+  const bySlot = new Map<string, FlowV2Definition['display']['fields']>();
+  for (const field of definition.display.fields) {
+    if (field.slot === undefined || !isSlotName(field.slot)) continue;
+    bySlot.set(field.slot, [...(bySlot.get(field.slot) ?? []), field]);
+  }
+  return SLOT_NAMES.flatMap((slot) => bySlot.get(slot) ?? []);
+}
