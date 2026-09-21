@@ -62,6 +62,8 @@ type ViewField struct {
 	ValueType    string `json:"valueType"`
 	Editable     bool   `json:"editable"`
 	Description  string `json:"description"`
+	// The named position this field takes in a row or drawer. Empty means the ordinary detail list.
+	Slot string `json:"slot,omitempty"`
 }
 
 type Action struct {

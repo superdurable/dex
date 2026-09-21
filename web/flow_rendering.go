@@ -360,6 +360,7 @@ func validateV2View(
 	forbiddenKeys map[string]bool,
 ) error {
 	seen := make(map[string]bool, len(view.Fields))
+	claimedSlots := make(map[string]string, len(view.Fields))
 	for _, field := range view.Fields {
 		if field.AttributeKey == "" || !validV2ViewType(field.ValueType) || seen[field.AttributeKey] {
 			return fmt.Errorf("field %q has invalid metadata", field.AttributeKey)
@@ -370,8 +371,41 @@ func validateV2View(
 		if forbiddenKeys[field.AttributeKey] {
 			return fmt.Errorf("field %q duplicates an indexed Attribute", field.AttributeKey)
 		}
+		if err := claimV2Slot(field, claimedSlots); err != nil {
+			return err
+		}
 		seen[field.AttributeKey] = true
 	}
+	return nil
+}
+
+// Slots a field may claim, mapped to whether only one field per view may claim each.
+//
+// Repeated here rather than imported from the analyzer because a Flow Definition Graph can reach the
+// server from anywhere, so the server cannot assume the analyzer wrote it.
+var v2ViewSlots = map[string]bool{
+	"title":          true,
+	"subtitle":       true,
+	"status":         true,
+	"recommendation": true,
+	"reason":         false,
+}
+
+func claimV2Slot(field api.V2ViewField, claimedSlots map[string]string) error {
+	if field.Slot == "" {
+		return nil
+	}
+	unique, known := v2ViewSlots[field.Slot]
+	if !known {
+		return fmt.Errorf("field %q claims unknown slot %q", field.AttributeKey, field.Slot)
+	}
+	if !unique {
+		return nil
+	}
+	if holder, taken := claimedSlots[field.Slot]; taken {
+		return fmt.Errorf("slot %q is claimed by both %q and %q", field.Slot, holder, field.AttributeKey)
+	}
+	claimedSlots[field.Slot] = field.AttributeKey
 	return nil
 }
 

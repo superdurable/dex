@@ -151,6 +151,8 @@ func TestVisualizeV2ReportsMalformedNamedDirectives(t *testing.T) {
 	require.Contains(t, messages, "GetDexDisplay must be read-only")
 	require.Contains(t, messages, `dex:input input field "missing" is not in the RPC input struct`)
 	require.Contains(t, messages, "Action RPC UnregisteredAction must be registered in GetRPCs")
+	require.Contains(t, messages, `dex:field slot "headline" is not a slot this view has`)
+	require.Contains(t, messages, `dex:field slot "title" is already taken by Attribute "state"`)
 	encoded, err := flowviz.MarshalJSON(graph)
 	require.NoError(t, err)
 	require.Contains(t, string(encoded), `"groups": []`)

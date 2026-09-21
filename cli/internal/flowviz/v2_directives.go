@@ -385,9 +385,11 @@ func (analyzer *goAnalyzer) collectV2View(
 		indexedKeys[attribute.AttributeKey] = true
 	}
 	seen := make(map[string]bool)
+	claimedSlots := make(map[string]string)
 	for _, directive := range directivesNamed(analyzer.parseV2Directives(method.Doc), "field") {
-		allowed := []string{"attribute-key", "value-type", "editable", "description"}
-		if !analyzer.validateV2Directive(directive, allowed, allowed) {
+		required := []string{"attribute-key", "value-type", "editable", "description"}
+		allowed := append(append([]string{}, required...), "slot")
+		if !analyzer.validateV2Directive(directive, allowed, required) {
 			continue
 		}
 		attributeKey := directive.arguments["attribute-key"].text
@@ -423,15 +425,58 @@ func (analyzer *goAnalyzer) collectV2View(
 			analyzer.addV2DirectiveError(directive, fmt.Sprintf("Summary field %q duplicates an indexed Attribute", attributeKey))
 			continue
 		}
+		slot, slotOK := analyzer.v2FieldSlot(directive, claimedSlots, attributeKey)
+		if !slotOK {
+			continue
+		}
 		view.Fields = append(view.Fields, ViewField{
 			AttributeKey: attributeKey,
 			ValueType:    valueType,
 			Editable:     isEditable,
 			Description:  directive.arguments["description"].text,
+			Slot:         slot,
 		})
 	}
 	analyzer.validateV2ViewOutputKeys(method, view.Fields)
 	return view
+}
+
+// Slots a field may claim, mapped to whether only one field may claim each.
+//
+// Closed because the renderer is written against it. An unknown value would be ignored silently and
+// the author would never learn the field did not land where they meant it to.
+var v2FieldSlots = map[string]bool{
+	"title":          true,
+	"subtitle":       true,
+	"status":         true,
+	"recommendation": true,
+	"reason":         false,
+}
+
+// Reads and checks `slot`, which is optional. Returns false when the directive is already reported.
+func (analyzer *goAnalyzer) v2FieldSlot(
+	directive v2Directive,
+	claimedSlots map[string]string,
+	attributeKey string,
+) (string, bool) {
+	argument, declared := directive.arguments["slot"]
+	if !declared {
+		return "", true
+	}
+	slot := argument.text
+	unique, known := v2FieldSlots[slot]
+	if !known {
+		analyzer.addV2DirectiveError(directive, fmt.Sprintf("slot %q is not a slot this view has", slot))
+		return "", false
+	}
+	if unique {
+		if holder, taken := claimedSlots[slot]; taken {
+			analyzer.addV2DirectiveError(directive, fmt.Sprintf("slot %q is already taken by Attribute %q", slot, holder))
+			return "", false
+		}
+		claimedSlots[slot] = attributeKey
+	}
+	return slot, true
 }
 
 func (analyzer *goAnalyzer) collectV2Actions(

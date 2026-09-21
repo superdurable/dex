@@ -63,6 +63,8 @@ type V2ViewField struct {
 	ValueType    string `json:"valueType"`
 	Editable     bool   `json:"editable"`
 	Description  string `json:"description"`
+	// Slot is the named position this field takes in a row or drawer. Empty means the detail list.
+	Slot string `json:"slot,omitempty"`
 }
 
 // V2Action describes one operator RPC.

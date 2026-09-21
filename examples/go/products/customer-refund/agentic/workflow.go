@@ -299,14 +299,15 @@ func (*AgenticCustomerRefundFlow) GetDexSummary(
 	}}, nil
 }
 
-// dex:field attribute-key:customer-email value-type:string editable:false description:"Customer email"
-// dex:field attribute-key:in-email value-type:string editable:false description:"Customer request"
+// dex:field attribute-key:customer-email value-type:string editable:false description:"Customer email" slot:title
+// dex:field attribute-key:case-status value-type:string editable:false description:"Case status" slot:status
+// dex:field attribute-key:in-email value-type:string editable:false description:"Customer request" slot:subtitle
 // dex:field attribute-key:in-charge-ref value-type:string editable:false description:"Charge reference"
 // dex:field attribute-key:evidence-state value-type:string editable:false description:"Evidence state"
-// dex:field attribute-key:recommended-action value-type:string editable:false description:"Recommendation"
-// dex:field attribute-key:recommendation-rationale value-type:string editable:false description:"Recommendation rationale"
+// dex:field attribute-key:recommended-action value-type:string editable:false description:"Recommendation" slot:recommendation
+// dex:field attribute-key:recommendation-rationale value-type:string editable:false description:"Recommendation rationale" slot:reason
 // dex:field attribute-key:guardrail-verdict value-type:string editable:false description:"Guardrail verdict"
-// dex:field attribute-key:guardrail-rule value-type:string editable:false description:"Guardrail rule"
+// dex:field attribute-key:guardrail-rule value-type:string editable:false description:"Guardrail rule" slot:reason
 // dex:field attribute-key:manager-verdict value-type:string editable:false description:"Manager verdict"
 // dex:field attribute-key:gate-request-key value-type:string editable:false description:"Approval gate"
 // dex:field attribute-key:billing-outcome value-type:string editable:false description:"Billing effect"
@@ -323,6 +324,7 @@ func (*AgenticCustomerRefundFlow) GetDexDisplay(
 		attribute dex.Attribute[string]
 	}{
 		{"customer-email", agenticCustomerEmail},
+		{"case-status", agenticCaseStatus},
 		{"in-email", agenticInputEmail},
 		{"in-charge-ref", agenticChargeReference},
 		{"evidence-state", agenticEvidenceState},
@@ -348,6 +350,7 @@ func (*AgenticCustomerRefundFlow) GetDexDisplay(
 	}
 	return &dex.RPCResult[map[string]any]{Output: map[string]any{
 		"customer-email":           output["customer-email"],
+		"case-status":              output["case-status"],
 		"in-email":                 output["in-email"],
 		"in-charge-ref":            output["in-charge-ref"],
 		"evidence-state":           output["evidence-state"],
