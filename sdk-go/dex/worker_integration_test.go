@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"net"
 	"reflect"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -40,6 +41,9 @@ var (
 	workerTestCommands = DefineChannel[string]("commands")
 	workerTestByOrder  = DefineChannelMap[string]("commands-by-order")
 	workerTestThinking = DefineStream[string]("thinking", 1<<20)
+	workerActionStatus = DefineAttribute[string]("action-status")
+	workerActionRegion = DefineAttribute[string]("action-region")
+	workerActionNote   = DefineAttribute[string]("action-note")
 )
 
 type workerTestInput struct {
@@ -72,6 +76,129 @@ func (concreteValueHydrator) HydrateValuesInPlace(
 	}
 	return nil
 }
+
+type workerActionProjectionInput struct {
+	Mode string
+}
+
+type workerActionProjectionStep struct {
+	StepDefaults
+}
+
+func (workerActionProjectionStep) WaitFor(
+	ctx Context,
+	input workerActionProjectionInput,
+) (*Wait, error) {
+	if err := applyWorkerActionProjectionWrites(ctx, input.Mode); err != nil {
+		return nil, err
+	}
+	return SkipWaitImmediately(), nil
+}
+
+func (workerActionProjectionStep) Execute(
+	ctx Context,
+	input workerActionProjectionInput,
+) (*StepDecision, error) {
+	if err := applyWorkerActionProjectionWrites(ctx, input.Mode); err != nil {
+		return nil, err
+	}
+	return DeadEnd(), nil
+}
+
+var workerActionProjectionStart = workerActionProjectionStep{}
+
+type workerActionProjectionFlow struct {
+	FlowDefaults
+}
+
+func (workerActionProjectionFlow) GetSteps() []StepDef {
+	return []StepDef{DefineStartStep(workerActionProjectionStart)}
+}
+
+func (flow workerActionProjectionFlow) GetRPCs() []RPCDef {
+	return []RPCDef{
+		DefineRPC(flow.UpdateProjection, &RPCOptions{Action: DefineAction(
+			"Update projection",
+			WhenAttributeMatches(
+				workerActionStatus,
+				AttributeMatchEqual("A"),
+				AttributeMatchEqual("B"),
+			),
+			ActionRequiresPermission("permission-z"),
+		)}),
+		DefineRPC(flow.ApproveRegion, &RPCOptions{Action: DefineAction(
+			"Approve region",
+			WhenAttributeMatches(workerActionRegion, AttributeMatchEqual("C")),
+			ActionRequiresPermission("permission-x"),
+		)}),
+		DefineRPC(flow.ReviewRegion, &RPCOptions{Action: DefineAction(
+			"Review region",
+			WhenAttributeMatches(workerActionRegion, AttributeMatchEqual("C")),
+			ActionRequiresPermission("permission-x"),
+		)}),
+	}
+}
+
+func (workerActionProjectionFlow) GetPersistenceSchema() PersistenceSchema {
+	return PersistenceSchema{Attributes: []AttributeDef{
+		workerActionStatus,
+		workerActionRegion,
+		workerActionNote,
+	}}
+}
+
+func (workerActionProjectionFlow) UpdateProjection(
+	ctx Context,
+	input workerActionProjectionInput,
+) (*RPCResult[None], error) {
+	if err := applyWorkerActionProjectionWrites(ctx, input.Mode); err != nil {
+		return nil, err
+	}
+	return &RPCResult[None]{}, nil
+}
+
+func (workerActionProjectionFlow) ApproveRegion(
+	Context,
+	None,
+) (*RPCResult[None], error) {
+	return &RPCResult[None]{}, nil
+}
+
+func (workerActionProjectionFlow) ReviewRegion(
+	Context,
+	None,
+) (*RPCResult[None], error) {
+	return &RPCResult[None]{}, nil
+}
+
+func applyWorkerActionProjectionWrites(ctx Context, mode string) error {
+	switch mode {
+	case "none":
+		return nil
+	case "status-a":
+		return workerActionStatus.Set(ctx, "A")
+	case "status-d":
+		return workerActionStatus.Set(ctx, "D")
+	case "both":
+		if err := workerActionStatus.Set(ctx, "A"); err != nil {
+			return err
+		}
+		return workerActionRegion.Set(ctx, "C")
+	case "last-status-wins":
+		if err := workerActionStatus.Set(ctx, "B"); err != nil {
+			return err
+		}
+		return workerActionStatus.Set(ctx, "D")
+	case "delete-status":
+		return workerActionStatus.Delete(ctx)
+	case "unrelated":
+		return workerActionNote.Set(ctx, "note")
+	default:
+		return fmt.Errorf("unknown projection test mode %q", mode)
+	}
+}
+
+var workerActionFlow = workerActionProjectionFlow{}
 
 type workerWaitingStep struct {
 	StepDefaults
@@ -554,6 +681,222 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	require.True(t, rpcResponse.UpsertAttributes[0].GetSyncConfig().GetEnabled())
 	require.Len(t, rpcResponse.RecordEvents, 1)
 	require.Len(t, rpcResponse.StepDecision.NextSteps, 1)
+}
+
+func TestWorkerActionPermissionProjectionWrites(t *testing.T) {
+	client, closeService := newWorkerClientForFlows(t, []Flow{workerActionFlow}, nil)
+	defer closeService()
+
+	tests := []struct {
+		name              string
+		method            string
+		mode              string
+		attributes        []*dexpb.KV
+		expectedWriteKeys []string
+		expectedValues    []any
+	}{
+		{
+			name:   "WaitFor missing to empty",
+			method: "wait-for",
+			mode:   "none",
+		},
+		{
+			name:   "Execute unchanged",
+			method: "execute",
+			mode:   "none",
+			attributes: workerActionProjectionAttributes(t,
+				map[string]any{
+					workerActionStatus.AttributeName(): "A",
+					WorkQueuePermissionsIndexKey:       []string{"permission-z"},
+				},
+			),
+		},
+		{
+			name:   "RPC logical set unchanged",
+			method: "rpc",
+			mode:   "none",
+			attributes: workerActionProjectionAttributes(t,
+				map[string]any{
+					workerActionStatus.AttributeName(): "A",
+					workerActionRegion.AttributeName(): "C",
+					WorkQueuePermissionsIndexKey: []string{
+						"permission-z",
+						"permission-x",
+						"permission-x",
+					},
+				},
+			),
+		},
+		{
+			name:   "WaitFor nonempty replacement",
+			method: "wait-for",
+			mode:   "both",
+			expectedWriteKeys: []string{
+				workerActionStatus.AttributeName(),
+				workerActionRegion.AttributeName(),
+				WorkQueuePermissionsIndexKey,
+			},
+			expectedValues: []any{"A", "C", []string{"permission-x", "permission-z"}},
+		},
+		{
+			name:   "Execute nonempty to empty",
+			method: "execute",
+			mode:   "last-status-wins",
+			attributes: workerActionProjectionAttributes(t,
+				map[string]any{
+					workerActionStatus.AttributeName(): "A",
+					WorkQueuePermissionsIndexKey:       []string{"permission-z"},
+				},
+			),
+			expectedWriteKeys: []string{
+				workerActionStatus.AttributeName(),
+				WorkQueuePermissionsIndexKey,
+			},
+			expectedValues: []any{"D", nil},
+		},
+		{
+			name:   "RPC unrelated business write",
+			method: "rpc",
+			mode:   "unrelated",
+			attributes: workerActionProjectionAttributes(t,
+				map[string]any{
+					workerActionStatus.AttributeName(): "A",
+					WorkQueuePermissionsIndexKey:       []string{"permission-z"},
+				},
+			),
+			expectedWriteKeys: []string{workerActionNote.AttributeName()},
+			expectedValues:    []any{"note"},
+		},
+		{
+			name:   "RPC source written to same value",
+			method: "rpc",
+			mode:   "status-a",
+			attributes: workerActionProjectionAttributes(t,
+				map[string]any{
+					workerActionStatus.AttributeName(): "A",
+					WorkQueuePermissionsIndexKey:       []string{"permission-z"},
+				},
+			),
+			expectedWriteKeys: []string{workerActionStatus.AttributeName()},
+			expectedValues:    []any{"A"},
+		},
+		{
+			name:   "RPC deleted source",
+			method: "rpc",
+			mode:   "delete-status",
+			attributes: workerActionProjectionAttributes(t,
+				map[string]any{
+					workerActionStatus.AttributeName(): "A",
+					WorkQueuePermissionsIndexKey:       []string{"permission-z"},
+				},
+			),
+			expectedWriteKeys: []string{
+				workerActionStatus.AttributeName(),
+				WorkQueuePermissionsIndexKey,
+			},
+			expectedValues: []any{nil, nil},
+		},
+		{
+			name:   "RPC malformed current projection repaired",
+			method: "rpc",
+			mode:   "none",
+			attributes: workerActionProjectionAttributes(t,
+				map[string]any{
+					workerActionStatus.AttributeName(): "A",
+					WorkQueuePermissionsIndexKey:       "malformed",
+				},
+			),
+			expectedWriteKeys: []string{WorkQueuePermissionsIndexKey},
+			expectedValues:    []any{[]string{"permission-z"}},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			writes := invokeWorkerActionProjection(
+				t,
+				client,
+				testCase.method,
+				testCase.mode,
+				testCase.attributes,
+			)
+			require.Len(t, writes, len(testCase.expectedWriteKeys))
+			for index, expectedKey := range testCase.expectedWriteKeys {
+				require.Equal(t, expectedKey, writes[index].GetKey())
+				expectedValue := testCase.expectedValues[index]
+				if expectedValue == nil {
+					_, deleted := writes[index].GetValue().GetKind().(*dexpb.Value_NullValue)
+					require.True(t, deleted)
+					continue
+				}
+				encoded := mustEncodeWorkerTestValue(t, expectedValue)
+				require.True(t, reflect.DeepEqual(encoded, writes[index].GetValue()))
+			}
+		})
+	}
+}
+
+func invokeWorkerActionProjection(
+	t *testing.T,
+	client dexpb.WorkerServiceClient,
+	method string,
+	mode string,
+	attributes []*dexpb.KV,
+) []*dexpb.AttributeWrite {
+	input := workerActionProjectionInput{Mode: mode}
+	switch method {
+	case "wait-for":
+		response := invokeWaitForResult(t, client, &dexpb.InvokeWaitForMethodRequest{
+			Context:    workerStepContext(),
+			FlowType:   GetFinalFlowType(workerActionFlow),
+			StepType:   GetFinalStepType(workerActionProjectionStart),
+			StepInput:  mustEncodeWorkerTestValue(t, input),
+			Attributes: attributes,
+		})
+		return response.UpsertAttributes
+	case "execute":
+		response := invokeExecuteResult(t, client, &dexpb.InvokeExecuteMethodRequest{
+			Context:          workerStepContext(),
+			FlowType:         GetFinalFlowType(workerActionFlow),
+			StepType:         GetFinalStepType(workerActionProjectionStart),
+			StepInput:        mustEncodeWorkerTestValue(t, input),
+			Attributes:       attributes,
+			ConditionResults: &dexpb.ConditionResults{},
+		})
+		return response.UpsertAttributes
+	case "rpc":
+		response, err := client.InvokeWorkerRPC(context.Background(), &dexpb.InvokeWorkerRPCRequest{
+			Context:    workerRPCContext(),
+			FlowType:   GetFinalFlowType(workerActionFlow),
+			RpcName:    "UpdateProjection",
+			Input:      mustEncodeWorkerTestValue(t, input),
+			Attributes: attributes,
+		})
+		require.NoError(t, err)
+		return response.UpsertAttributes
+	default:
+		t.Fatalf("unknown Worker method %q", method)
+		return nil
+	}
+}
+
+func workerActionProjectionAttributes(
+	t *testing.T,
+	values map[string]any,
+) []*dexpb.KV {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	attributes := make([]*dexpb.KV, 0, len(keys))
+	for _, key := range keys {
+		attributes = append(attributes, &dexpb.KV{
+			Key:   key,
+			Value: mustEncodeWorkerTestValue(t, values[key]),
+		})
+	}
+	return attributes
 }
 
 func TestWorkerStepProgressFrames(t *testing.T) {
@@ -1550,10 +1893,18 @@ func newWorkerTestClient(
 	t *testing.T,
 	hydrator valueHydrator,
 ) (dexpb.WorkerServiceClient, func()) {
+	return newWorkerClientForFlows(t, []Flow{workerFlow}, hydrator)
+}
+
+func newWorkerClientForFlows(
+	t *testing.T,
+	flows []Flow,
+	hydrator valueHydrator,
+) (dexpb.WorkerServiceClient, func()) {
 	if hydrator == nil {
 		hydrator = concreteValueHydrator{}
 	}
-	registered, err := NewRegistry([]Flow{workerFlow})
+	registered, err := NewRegistry(flows)
 	require.NoError(t, err)
 	listener := bufconn.Listen(1 << 20)
 	grpcServer := grpc.NewServer()

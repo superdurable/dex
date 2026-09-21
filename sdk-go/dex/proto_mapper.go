@@ -767,6 +767,10 @@ func mapSubFlowOptions(
 	if err := validateSubFlowAttributes(target, options.Attributes); err != nil {
 		return nil, err
 	}
+	attributes, err = target.appendInitialWorkQueuePermissions(attributes)
+	if err != nil {
+		return nil, err
+	}
 	config, err := mapFlowConfig(options.ConfigOverride)
 	if err != nil {
 		return nil, err

@@ -955,6 +955,24 @@ func (invocation *invocationContext) mappedAttributeWrites() []*dexpb.AttributeW
 	return writes
 }
 
+func (invocation *invocationContext) mappedAttributeWritesWithActionProjection() (
+	[]*dexpb.AttributeWrite,
+	error,
+) {
+	writes := invocation.mappedAttributeWrites()
+	projection, err := invocation.flow.projectWorkQueuePermissions(
+		invocation.attributes,
+		writes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if projection != nil {
+		writes = append(writes, projection)
+	}
+	return writes, nil
+}
+
 func (invocation *invocationContext) mappedLocalWrites() []*dexpb.KV {
 	writes := make([]*dexpb.KV, 0, len(invocation.localWriteOrder))
 	for _, key := range invocation.localWriteOrder {
