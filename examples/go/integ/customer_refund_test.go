@@ -76,8 +76,10 @@ func TestAgenticCustomerRefundAutomaticAndUnknownOutcomes(t *testing.T) {
 		name               string
 		caseID             string
 		wantBillingOutcome string
+		// An unknown billing effect gives up at NonConvergenceStep, so it never drafts a message.
+		messagesCustomer bool
 	}{
-		{name: "automatic refund", wantBillingOutcome: "confirmed"},
+		{name: "automatic refund", wantBillingOutcome: "confirmed", messagesCustomer: true},
 		{name: "unknown effect", caseID: "unproven", wantBillingOutcome: "unknown"},
 	}
 	for _, test := range tests {
@@ -93,6 +95,9 @@ func TestAgenticCustomerRefundAutomaticAndUnknownOutcomes(t *testing.T) {
 				OrderAgeDays: 8,
 			}, dex.StartFlowOptions{})
 			require.NoError(t, err)
+			if test.messagesCustomer {
+				confirmAgenticMessage(t, ctx, flowID, "")
+			}
 			require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID).Status)
 			var display map[string]any
 			require.NoError(t, integClient.InvokeRPC(
@@ -108,11 +113,12 @@ func TestAgenticCustomerRefundApproveAndRejectActions(t *testing.T) {
 		ctx := integrationContext(t)
 		flowID := newFlowID(t, "agentic-approve")
 		startAgenticEscalation(t, ctx, flowID, flowID, 1_400_000)
-		waitForAgenticGate(t, ctx, flowID)
+		approvalGateKey := waitForAgenticGate(t, ctx, flowID)
 
 		require.NoError(t, integClient.InvokeRPC(
 			ctx, flowID, registry.AgenticRefund.ApproveRefund, nil, nil,
 		))
+		confirmAgenticMessage(t, ctx, flowID, approvalGateKey)
 		require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID).Status)
 	})
 
@@ -130,6 +136,7 @@ func TestAgenticCustomerRefundApproveAndRejectActions(t *testing.T) {
 			ctx, flowID, registry.AgenticRefund.RejectRefund,
 			agentic.RejectRefundInput{Reason: "duplicate request", GateRequestKey: gateRequestKey}, nil,
 		))
+		confirmAgenticMessage(t, ctx, flowID, gateRequestKey)
 		require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID).Status)
 	})
 }
@@ -138,10 +145,11 @@ func TestAgenticCustomerRefundEscalatesUnavailableEvidence(t *testing.T) {
 	ctx := integrationContext(t)
 	flowID := newFlowID(t, "agentic-evidence")
 	startAgenticEscalation(t, ctx, flowID, "agent-uncertain", 4200)
-	waitForAgenticGate(t, ctx, flowID)
+	approvalGateKey := waitForAgenticGate(t, ctx, flowID)
 	require.NoError(t, integClient.InvokeRPC(
 		ctx, flowID, registry.AgenticRefund.ApproveRefund, nil, nil,
 	))
+	confirmAgenticMessage(t, ctx, flowID, approvalGateKey)
 	require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID).Status)
 }
 
@@ -158,6 +166,35 @@ func startAgenticEscalation(
 		OrderAgeDays: 8,
 	}, dex.StartFlowOptions{})
 	require.NoError(t, err)
+}
+
+// Answer the customer-message gate, which every path that writes to the customer stops at.
+//
+// Both gates publish through the same gate-request-key and the drafting Step mints a fresh one, so
+// the message gate is the first key that is not the approval key just answered. Pass "" when the run
+// never opened an approval gate.
+func confirmAgenticMessage(t *testing.T, ctx context.Context, flowID string, answeredKey string) {
+	t.Helper()
+	gateRequestKey := ""
+	var invokeErr error
+	require.Eventually(t, func() bool {
+		var display map[string]any
+		invokeErr = integClient.InvokeRPC(ctx, flowID, registry.AgenticRefund.GetDexDisplay, nil, &display)
+		if invokeErr != nil {
+			return false
+		}
+		key, _ := display["gate-request-key"].(string)
+		if key == "" || key == answeredKey {
+			return false
+		}
+		gateRequestKey = key
+		return true
+	}, 30*time.Second, 200*time.Millisecond, "GetDexDisplay failed: %v", invokeErr)
+
+	require.NoError(t, integClient.InvokeRPC(
+		ctx, flowID, registry.AgenticRefund.ConfirmCustomerMessage,
+		agentic.ConfirmCustomerMessageInput{GateRequestKey: gateRequestKey}, nil,
+	))
 }
 
 func waitForAgenticGate(t *testing.T, ctx context.Context, flowID string) string {

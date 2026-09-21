@@ -28,6 +28,7 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 		wantGroupIDs       []string
 		wantSummaryFields  []string
 		wantActionRPCNames []string
+		wantIndexTypes     map[string]string
 	}{
 		{
 			name: "deterministic",
@@ -37,15 +38,23 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 			wantGroupIDs:       []string{"intake", "evidence", "control", "resolution", "failure", "close"},
 			wantSummaryFields:  []string{"charge-reference", "refund-amount", "recommended-action"},
 			wantActionRPCNames: []string{},
+			wantIndexTypes:     map[string]string{"case-status": "keyword"},
 		},
 		{
 			name: "agentic",
 			source: filepath.Join(repositoryRoot,
 				"examples/go/products/customer-refund/agentic/workflow.go"),
-			wantFlowType:       "AgenticCustomerRefundFlow",
-			wantGroupIDs:       []string{"intake", "reasoning", "evidence", "control", "resolution", "failure", "close"},
-			wantSummaryFields:  []string{"in-charge-ref", "ev-payment-amount", "recommended-action", "guardrail-rule"},
-			wantActionRPCNames: []string{"ApproveRefund", "RejectRefund"},
+			wantFlowType:      "AgenticCustomerRefundFlow",
+			wantGroupIDs:      []string{"intake", "reasoning", "evidence", "control", "resolution", "failure", "close"},
+			wantSummaryFields: []string{"in-charge-ref", "ev-payment-amount", "recommended-action", "guardrail-rule"},
+			wantActionRPCNames: []string{
+				"ApproveRefund", "RejectRefund", "ConfirmCustomerMessage", "EditCustomerMessage",
+			},
+			wantIndexTypes: map[string]string{
+				"case-status":    "keyword",
+				"customer-email": "fulltext",
+				"refund-amount":  "double",
+			},
 		},
 	}
 	for _, test := range tests {
@@ -61,9 +70,13 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 			require.Equal(t, test.wantGroupIDs, v2GroupIDs(graph.Groups))
 			require.Equal(t, test.wantSummaryFields, v2ViewFieldKeys(graph.V2.Summary.Fields))
 			require.Equal(t, test.wantActionRPCNames, v2ActionRPCNames(graph.V2.Actions))
-			require.Equal(t, "case-status", graph.V2.IndexedAttributes[0].AttributeKey)
-			require.Equal(t, "case-status", graph.V2.IndexedAttributes[0].IndexKey)
-			require.Equal(t, "keyword", graph.V2.IndexedAttributes[0].IndexType)
+			// Keyed rather than positional: declaring another Indexed Attribute must not move this.
+			indexTypes := make(map[string]string, len(graph.V2.IndexedAttributes))
+			for _, attribute := range graph.V2.IndexedAttributes {
+				require.Equal(t, attribute.AttributeKey, attribute.IndexKey)
+				indexTypes[attribute.AttributeKey] = attribute.IndexType
+			}
+			require.Equal(t, test.wantIndexTypes, indexTypes)
 			for _, node := range graph.Nodes {
 				if node.Kind != "step" {
 					continue
