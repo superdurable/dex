@@ -720,6 +720,30 @@
   background: var(--p-surface-2);
 }
 
+/* Who the reader is, asked before what they are looking for. */
+.rsw-role {
+  display: block;
+}
+
+.rsw-role select {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+}
+
+.rsw-rolenote {
+  display: block;
+  margin-top: 4px;
+  color: var(--p-ink-3);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .rsw-zonehead {
   margin: 0 0 6px;
   color: var(--p-ink-2);

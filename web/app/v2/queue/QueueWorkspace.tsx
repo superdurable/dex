@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useRef, type CSSProperties } from 'react';
+import { useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
   LIST_WIDTH_DEFAULT,
@@ -20,6 +20,7 @@ import { RUN_COPY } from '../run/copy';
 import { useWebCatalog } from '../WebCatalogProvider';
 import { RunList } from '../workspace/RunList';
 import { RunSearch } from '../workspace/RunSearch';
+import { roleActionLabels, roleFilter, rolesOf } from '../workspace/roles';
 import { EMPTY_RUN_QUERY } from '../workspace/runQuery';
 import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { useFlowSearch } from '../workspace/useFlowSearch';
@@ -42,7 +43,18 @@ export function QueueWorkspace() {
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   // An inbox opens on what is still open; the control is there to widen it.
   const runQuery = useRunQuery(entry?.definition, { ...EMPTY_RUN_QUERY, status: openFlowStatusLabel() });
-  const search = useFlowSearch(flowType || undefined, entry?.definition, runQuery.appliedFilters);
+  const [role, setRole] = useState('');
+  /**
+   * The role narrows on the server, beside whatever the reader searched for.
+   *
+   * A role that cannot be reduced to one filter contributes nothing, so the list stays wide rather
+   * than narrowing to a part of the role's work.
+   */
+  const filters = useMemo(() => {
+    const forRole = roleFilter(entry?.definition, role);
+    return forRole === null ? runQuery.appliedFilters : [...runQuery.appliedFilters, forRole];
+  }, [entry?.definition, role, runQuery.appliedFilters]);
+  const search = useFlowSearch(flowType || undefined, entry?.definition, filters);
   const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -75,6 +87,26 @@ export function QueueWorkspace() {
           heading={QUEUE_COPY.appName}
           headerNote={QUEUE_COPY.liveNote}
           onExpand={listPane.expand}
+          roleControl={rolesOf(entry.definition).length > 0 ? (
+            <label className="rsw-role">
+              <span className="rsw-zonehead">{QUEUE_COPY.roleLabel}</span>
+              <select
+                aria-label={QUEUE_COPY.roleLabel}
+                value={role}
+                onChange={(event) => setRole(event.target.value)}
+              >
+                <option value="">{QUEUE_COPY.anyRole}</option>
+                {rolesOf(entry.definition).map((candidate) => (
+                  <option key={candidate} value={candidate}>{candidate}</option>
+                ))}
+              </select>
+              {role !== '' && (
+                <small className="rsw-rolenote">
+                  {QUEUE_COPY.roleAnswers(roleActionLabels(entry.definition, role))}
+                </small>
+              )}
+            </label>
+          ) : undefined}
           scope={(
             <RunSearch
               busy={search.loading}

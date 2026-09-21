@@ -17,6 +17,14 @@ export const QUEUE_COPY = {
   liveNote: 'live',
 
   /** Derived from the live filter rows: the sentence must not outlive a filter the reader deleted. */
+  roleLabel: 'Working as',
+  anyRole: 'Anyone',
+
+  /** Named Actions, so choosing a party says what it will show rather than implying a permission. */
+  roleAnswers(labels: readonly string[]): string {
+    if (labels.length === 0) return 'This party answers nothing in this Flow.';
+    return `Runs waiting on ${labels.join(' or ')}.`;
+  },
   clear: 'Nothing open on this page.',
   loading: 'Asking the process…',
   unreachable: 'Cannot reach the process, so this list is not the whole picture.',

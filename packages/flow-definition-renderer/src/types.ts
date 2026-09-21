@@ -149,6 +149,8 @@ export interface FlowV2ActionInputField {
 export interface FlowV2Action {
   rpcName: string;
   label: string;
+  /** Which party outside the Flow answers this Action. Absent when the Flow names no parties. */
+  role?: string;
   condition: {
     attributeKey: string;
     operator: 'in';

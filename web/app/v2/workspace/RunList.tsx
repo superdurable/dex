@@ -32,6 +32,7 @@ export function RunList({
   heading,
   headerNote,
   scope,
+  roleControl,
   emptyText,
   collapsed = false,
   onExpand,
@@ -47,6 +48,8 @@ export function RunList({
   headerNote?: string;
   /** What the list is narrowed to, and the control that narrowed it. */
   scope?: ReactNode;
+  /** Which party the reader is. Only the participant view asks. */
+  roleControl?: ReactNode;
   emptyText: string;
   collapsed?: boolean;
   onExpand?: () => void;
@@ -91,6 +94,9 @@ export function RunList({
             ))}
           </select>
         </section>
+      )}
+      {roleControl !== undefined && (
+        <section className="rsw-zone" data-zone="role">{roleControl}</section>
       )}
       {scope !== undefined && (
         <section className="rsw-zone" data-zone="find">
