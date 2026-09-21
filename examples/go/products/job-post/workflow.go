@@ -32,15 +32,12 @@ import (
 var (
 	Title = dex.DefineAttribute[string](
 		"Title",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexFullText}),
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexFullText, IndexKey: "CustomText"}),
 	)
-	JobDescription = dex.DefineAttribute[string](
-		"JobDescription",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexFullText}),
-	)
+	JobDescription       = dex.DefineAttribute[string]("JobDescription")
 	LastUpdateTimeMillis = dex.DefineAttribute[int64](
 		"LastUpdateTimeMillis",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexInt}),
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexInt, IndexKey: "CustomInt"}),
 	)
 	Notes                  = dex.DefineAttribute[string]("Notes")
 	UpdateVersion          = dex.DefineAttribute[int]("UpdateVersion")

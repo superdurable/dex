@@ -75,17 +75,18 @@ the PostgreSQL definition cannot change an existing execution.
 Execution status and state come entirely from Dex visibility plus one batched
 attribute read per flow. Visibility is eventually consistent; the REST API,
 UI, and E2E checks use bounded retries when a new execution has not appeared.
-Seller ProcessID filters and buyer ProcessID filters are combined directly with
-the buyer's `BuyerID` in Dex `SearchFlows` queries.
+Seller ProcessID filters and buyer ProcessID filters are combined with the
+FlowType and buyer's `CustomKeyword3` value in Dex `SearchFlows` queries.
 
-The persistence schema declares these keyword Indexed Attributes, which the
+The persistence schema allocates six namespace-level keyword slots, which the
 Worker synchronizes automatically before starting:
 
-- `ProcessID`
-- `BuyerID`
-- `CurrentState`
-- `PendingPreConditionState`
-- `PendingPreConditionName`
+- `CustomKeyword` for ProcessID
+- `CustomKeyword2` for ItemID
+- `CustomKeyword3` for BuyerID
+- `CustomKeyword4` for CurrentState
+- `CustomKeyword5` for PendingPreConditionState
+- `CustomKeyword6` for PendingPreConditionName
 
 Durable attribute keys are `stateData`, `processDefinition`, `processID`,
 `buyerID`, `currentState`, `currentActionIndexToExecute`,

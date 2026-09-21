@@ -43,7 +43,7 @@ from dex_examples.products.order_processing.order_request import OrderRequest
 order_status = Attribute(
     "order-status",
     str,
-    AttributeIndex(IndexType.KEYWORD),
+    AttributeIndex(IndexType.KEYWORD, "CustomKeyword"),
 )
 seller_ok = Channel[str]("seller-ok", str)
 

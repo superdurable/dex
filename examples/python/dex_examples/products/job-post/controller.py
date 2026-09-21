@@ -26,8 +26,8 @@ from dex_examples.shared.query import optional_query, required_int_query, requir
 from dex_examples.products.job_post.job_info import JobInfo
 
 SEARCH_MESSAGE = (
-    "The Python SDK does not expose SearchFlows yet; Title and JobDescription "
-    "are FULL_TEXT AttributeIndexes for when SearchFlows is available."
+    "The Python SDK does not expose SearchFlows yet; Title uses the CustomText "
+    "FULL_TEXT AttributeIndex and JobDescription is not searchable."
 )
 
 

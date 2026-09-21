@@ -19,7 +19,7 @@ use dex_sdk::{
     StepList,
 };
 
-const KEYWORD_KEY: &str = "CustomKeywordField";
+const KEYWORD_KEY: &str = "CustomKeyword";
 
 static KEYWORD: LazyLock<Attribute<String>> =
     LazyLock::new(|| Attribute::new(KEYWORD_KEY).indexed(AttributeIndex::keyword()));

@@ -32,6 +32,10 @@ dexcli dev
 The Worker synchronizes all registered Indexed Attributes with Dex before it
 opens its listener; no backend CLI registration is required.
 
+The examples share namespace-level slots by index type: `CustomKeyword`,
+`CustomText`, `CustomInt`, and numbered later slots such as `CustomKeyword2`.
+Use a fresh local store and a new port after changing an example's index schema.
+
 Use JDK 17+ to run Gradle; the examples build and run on the newest Java
 release by default (the toolchain downloads automatically), and
 `-PjavaVersion=17` (or 21, 25, ...) selects another JDK.

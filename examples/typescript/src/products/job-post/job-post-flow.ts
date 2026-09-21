@@ -51,6 +51,7 @@ import {
 
 const title = new Attribute("Title", stringCodec, {
   type: IndexType.FULL_TEXT,
+  indexKey: "CustomText",
 });
 const updatePostingLock = new Attribute("UpdatePostingLock", voidCodec);
 const linkedInPostingUpdates = new Channel("LinkedInPostingUpdates", postingUpdateCodec);
@@ -58,11 +59,10 @@ const indeedPostingUpdates = new Channel("IndeedPostingUpdates", postingUpdateCo
 
 export class JobPostingFlow implements Flow {
   public readonly title = title;
-  public readonly jobDescription = new Attribute("JobDescription", stringCodec, {
-    type: IndexType.FULL_TEXT,
-  });
+  public readonly jobDescription = new Attribute("JobDescription", stringCodec);
   public readonly lastUpdateTimeMillis = new Attribute("LastUpdateTimeMillis", int64Codec, {
     type: IndexType.INT,
+    indexKey: "CustomInt",
   });
   public readonly notes = new Attribute("Notes", optionalStringCodec);
   public readonly updateVersion = new Attribute("UpdateVersion", doubleCodec);

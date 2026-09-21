@@ -57,9 +57,15 @@ Dex Web can search on:
 
 | Attribute | index | queries it allows |
 |---|---|---|
-| `customer-email` | fulltext | whole address, or just the domain |
-| `refund-amount` | double | ranges, in dollars rather than cents |
-| `case-status` | keyword | exact, or one of several |
+| `customer-email` | `CustomKeyword` keyword | exact email address |
+| `refund-amount` | `CustomDouble` double | ranges, in dollars rather than cents |
+| `case-status` | `CustomKeyword2` keyword | exact, or one of several |
+
+The email is synthetic sample data only. Do not index email addresses or other
+PII in production; follow Temporal's Search Attribute guidance.
+
+Raw searches for these generic slots must also filter
+`FlowType = 'AgenticCustomerRefundFlow'`.
 
 Read [the Go examples README](../../README.md#run-locally) before changing any of
 them: the Worker reconciles Indexed Attributes against the store at startup.

@@ -78,6 +78,8 @@ It combines these design patterns:
 
 The portable SDK examples use one action list per state. The Go product example extends the same loop with separate pre-actions and post-actions, a PostgreSQL definition catalog, search endpoints, and a browser UI.
 
+The Go product maps its six Keyword Attributes to **CustomKeyword** through **CustomKeyword6** in declaration order. Its raw searches always constrain **FlowType** before filtering one of those namespace-level slots.
+
 ## Core implementation
 
 Each tab includes the Flow signature, persistence schema, and the complete four-Step interpreter path. Every snippet comes from the linked runnable example.

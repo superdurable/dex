@@ -28,7 +28,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-const StatusSearchKey = "CustomKeywordField"
+const StatusSearchKey = "CustomKeyword"
 
 var (
 	EmployerID       = dex.DefineAttribute[string]("EmployerId")

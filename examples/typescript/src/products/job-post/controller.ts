@@ -95,8 +95,8 @@ export function createJobPostingRouter(client: Client): Router {
     response.json({
       message:
         "Java Client 0.0.3 does not expose SearchFlows; "
-        + "Title and JobDescription are FULL_TEXT AttributeIndexes "
-        + "for when SearchFlows is available.",
+        + "Title uses the CustomText FULL_TEXT AttributeIndex; "
+        + "JobDescription is not searchable.",
       query,
     });
   });

@@ -99,16 +99,12 @@ class UpdateIndeedPosting(Step[None]):
 
 
 class JobPostingFlow(Flow[None]):
-    title = Attribute("Title", str, AttributeIndex(IndexType.FULL_TEXT))
-    job_description = Attribute(
-        "JobDescription",
-        str,
-        AttributeIndex(IndexType.FULL_TEXT),
-    )
+    title = Attribute("Title", str, AttributeIndex(IndexType.FULL_TEXT, "CustomText"))
+    job_description = Attribute("JobDescription", str)
     last_update_time_millis = Attribute(
         "LastUpdateTimeMillis",
         int,
-        AttributeIndex(IndexType.INT),
+        AttributeIndex(IndexType.INT, "CustomInt"),
     )
     notes = Attribute("Notes", str)
     update_version = UPDATE_VERSION

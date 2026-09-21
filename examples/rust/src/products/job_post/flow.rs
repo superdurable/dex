@@ -222,11 +222,12 @@ fn job_board_update_options() -> StepOptions<()> {
 
 static POST: LazyLock<Attribute<JobPost>> = LazyLock::new(|| Attribute::new("job-post"));
 
-static TITLE: LazyLock<Attribute<String>> =
-    LazyLock::new(|| Attribute::new("job-post-title").indexed(AttributeIndex::full_text()));
+static TITLE: LazyLock<Attribute<String>> = LazyLock::new(|| {
+    Attribute::new("job-post-title").indexed(AttributeIndex::full_text().with_key("CustomText"))
+});
 
 static DESCRIPTION: LazyLock<Attribute<String>> =
-    LazyLock::new(|| Attribute::new("job-post-description").indexed(AttributeIndex::full_text()));
+    LazyLock::new(|| Attribute::new("job-post-description"));
 
 pub static UPDATE_VERSION: LazyLock<Attribute<i32>> =
     LazyLock::new(|| Attribute::new("UpdateVersion"));

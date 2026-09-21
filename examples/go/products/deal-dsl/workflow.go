@@ -28,12 +28,12 @@ import (
 )
 
 const (
-	ProcessIDSearchKey                = "ProcessID"
-	ItemIDSearchKey                   = "ItemID"
-	BuyerIDSearchKey                  = "BuyerID"
-	CurrentStateSearchKey             = "CurrentState"
-	PendingPreConditionStateSearchKey = "PendingPreConditionState"
-	PendingPreConditionNameSearchKey  = "PendingPreConditionName"
+	ProcessIDSearchKey                = "CustomKeyword"
+	ItemIDSearchKey                   = "CustomKeyword2"
+	BuyerIDSearchKey                  = "CustomKeyword3"
+	CurrentStateSearchKey             = "CustomKeyword4"
+	PendingPreConditionStateSearchKey = "CustomKeyword5"
+	PendingPreConditionNameSearchKey  = "CustomKeyword6"
 )
 
 var (

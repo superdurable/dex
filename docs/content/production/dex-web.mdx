@@ -28,7 +28,7 @@ Version 2 directives use named values. Parameter position within one line has no
 ```go
 // dex:group group-id:control group-label:"Control"
 // dex:explanation text:"Apply refund guardrails and set the recommended action."
-// dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:case-status
+// dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:CustomKeyword2
 // dex:field attribute-key:operator-note value-type:string editable:true description:"Operator note"
 // dex:action action-label:"Reject"
 // dex:when attribute-key:case-status operator:in values:["awaiting-manager-rule","awaiting-manager-agent"]
@@ -45,6 +45,8 @@ Every registered Step has one group declaration and one explanation declaration.
 ## Search and Summary
 
 An indexed Attribute declaration binds the Dex Attribute key, physical search index key, index type, application value type, and description. The analyzer compares every value with the Go definition and the SDK's effective index configuration.
+
+The physical key can be a generic namespace slot such as **CustomKeyword2**. The selected Flow type scopes its meaning in this workspace, so the UI behavior does not change when different Flow types reuse that slot.
 
 The **v2** list searches one Flow type at a time. Filters include Flow ID, execution status, start and close time, and the declared indexed Attributes. Dex Web compiles these controls into a visibility query. It does not accept a raw query from the browser. Different fields use AND; multiple values for one field use OR.
 

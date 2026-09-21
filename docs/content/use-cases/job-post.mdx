@@ -12,7 +12,7 @@ Keep one job posting durable and searchable while delivering every accepted upda
 
 The process represents one job posting for its full lifecycle. It must:
 
-1. Create the Flow with a title, description, last-update timestamp, and update version 0. The title and description are full-text indexed Attributes.
+1. Create the Flow with a title, description, last-update timestamp, and update version 0. Title uses the **CustomText** full-text Search Attribute. Description is persisted but is not indexed.
 2. Run **InitStep** once. It starts **UpdateLinkedInPosting** and **UpdateIndeedPosting** in parallel. Each Step then waits on its own Channel without occupying a Worker.
 3. Return the current title, description, and notes through a read RPC.
 4. Accept a replacement title, description, and notes through an update RPC. The RPC locks the dedicated, null-valued **UpdatePostingLock** Attribute so only one accepted update can allocate a version and publish at a time.
@@ -74,7 +74,7 @@ It combines these design patterns:
 - **FIFO Channel consumer loop** processes one message and moves back to the same Step. Each destination observes v1 before v2 even when RPCs arrive quickly.
 - **Parallel failure isolation** gives LinkedIn and Indeed separate waits, executions, retry histories, and progress. A slow destination does not block the other.
 - **Durable retry** handles transient external failures without holding a process or losing progress across restarts.
-- **Indexed state** supports title and description search without a second application-side catalog.
+- **Indexed state** supports title search without a second application-side catalog.
 
 The destination Steps do not need Attribute locks. Each has one sequential consumer chain, and its Channel supplies the ordering. Adding destination locks would prevent overlap but would not by itself preserve an update snapshot or FIFO delivery.
 

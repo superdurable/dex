@@ -877,7 +877,7 @@
     "indexedAttributes": [
       {
         "attributeKey": "case-status",
-        "indexKey": "case-status",
+        "indexKey": "CustomKeyword2",
         "indexType": "keyword",
         "valueType": "string",
         "description": "Current case status"

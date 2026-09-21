@@ -29,7 +29,7 @@ from dex import (
     graceful_complete,
 )
 
-KEYWORD_KEY = "CustomKeywordField"
+KEYWORD_KEY = "CustomKeyword"
 
 
 class ClientApisStep(Step[str]):

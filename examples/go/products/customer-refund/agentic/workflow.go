@@ -55,10 +55,10 @@ const (
 
 var agenticInputEmail = dex.DefineAttribute[string]("in-email")
 
-// dex:indexed-attribute attribute-key:customer-email index-key:customer-email index-type:fulltext value-type:string description:"Customer email address"
+// dex:indexed-attribute attribute-key:customer-email index-key:CustomKeyword index-type:keyword value-type:string description:"Customer email address"
 var agenticCustomerEmail = dex.DefineAttribute[string](
 	"customer-email",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexFullText}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword"}),
 )
 
 var agenticChargeReference = dex.DefineAttribute[string]("in-charge-ref")
@@ -121,19 +121,19 @@ var agenticEmailSent = dex.DefineAttribute[string]("email-sent")
 
 var agenticOperatorNote = dex.DefineAttribute[string]("operator-note")
 
-// dex:indexed-attribute attribute-key:refund-amount index-key:refund-amount index-type:double value-type:double description:"Refund amount in dollars"
+// dex:indexed-attribute attribute-key:refund-amount index-key:CustomDouble index-type:double value-type:double description:"Refund amount in dollars"
 var agenticRefundAmount = dex.DefineAttribute[float64](
 	"refund-amount",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexDouble}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexDouble, IndexKey: "CustomDouble"}),
 )
 
 // The message a person confirms or rewrites before it reaches the customer.
 var agenticCustomerMessageDraft = dex.DefineAttribute[string]("customer-message-draft")
 
-// dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:case-status
+// dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:CustomKeyword2
 var agenticCaseStatus = dex.DefineAttribute[string](
 	"case-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword2"}),
 )
 
 var agenticManagerApproval = dex.DefineChannelMap[string]("manager-approval")

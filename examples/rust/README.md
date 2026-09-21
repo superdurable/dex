@@ -30,6 +30,10 @@ dexcli dev
 cargo run --locked
 ```
 
+The examples share namespace-level slots by index type: `CustomKeyword`,
+`CustomText`, `CustomInt`, and numbered later slots such as `CustomKeyword2`.
+Use a fresh local store and a new port after changing an example's index schema.
+
 The Worker connects to `127.0.0.1:8801`, listens on `127.0.0.1:8803`, serves HTTP
 on `127.0.0.1:8080`, and stores large payload blobs under
 `/tmp/dex-rust-examples-blobs`. Override these with `DEX_SERVER_ADDRESS`,

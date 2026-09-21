@@ -50,7 +50,7 @@ class AttributeFlow(Flow[str]):
     status = Attribute(
         "primitive-attribute-status",
         str,
-        index=AttributeIndex(IndexType.KEYWORD, "OrderStatus"),
+        index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword"),
     )
 
     def __init__(self) -> None:
@@ -69,7 +69,7 @@ class AttributeFlow(Flow[str]):
 ```go
 var Status = dex.DefineAttribute[string](
 	"primitive-attribute-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderStatus"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword"}),
 )
 
 type AttributeFlow struct {
@@ -108,7 +108,7 @@ public final class AttributeFlow implements Flow<String> {
             Attribute.define(
                     "primitive-attribute-status",
                     String.class,
-                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderStatus"));
+                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword"));
     private final AttributeStep start = new AttributeStep();
 
     @Override
@@ -164,7 +164,7 @@ class AttributeStep implements Step<string> {
 export class AttributeFlow implements Flow<string> {
   public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
     type: IndexType.KEYWORD,
-    indexKey: "OrderStatus",
+    indexKey: "CustomKeyword",
   });
   private readonly start = new AttributeStep(this);
 
@@ -192,10 +192,10 @@ pub struct AttributeFlow {
 impl Default for AttributeFlow {
     fn default() -> Self {
         let status = Attribute::new("primitive-attribute-status")
-            .indexed(AttributeIndex::keyword().with_key("OrderStatus"));
+            .indexed(AttributeIndex::keyword().with_key("CustomKeyword"));
         let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
         let progress = AttributeMap::new("primitive-attribute-progress")
-            .indexed(AttributeIndex::keyword().with_key("OrderProgress"));
+            .indexed(AttributeIndex::keyword().with_key("CustomKeyword2"));
         Self {
             start: AttributeStep {
                 status: status.clone(),
@@ -324,9 +324,11 @@ Dex lets you configure indexes for Attributes. With indexing, you can use the fi
 | **INT**, **DOUBLE**, **BOOL** | The corresponding scalar value. |
 | **DATETIME** | A date and time value. |
 
-An **index key** is the key in the search schema and the key you use in a query. Index keys are shared across Flow types.
+An **index key** is the key in the search schema and the key you use in a query. Index keys consume a finite, namespace-level Search Attribute pool and are shared across Flow types.
 
-A regular Attribute uses its Attribute name as the index key by default. You can set an explicit index key instead.
+A regular Attribute uses its Attribute name as the index key by default. You can set an explicit index key instead. Plan the pool across every Flow type in the namespace. Use generic first slots such as **CustomKeyword**, **CustomText**, and **CustomInt**. Number later slots of the same type, such as **CustomKeyword2**. Two logical Attributes in the same Flow need separate physical keys. Use a business key such as **AccountID** only when its type, meaning, and query semantics remain stable throughout the namespace.
+
+A generic key can have a different business meaning in each Flow type. Every raw visibility query that uses one must also constrain **FlowType**. Dex Web already searches within the selected Flow type. Do not index sensitive data or PII. The customer-email value in the Customer Refund example is synthetic data only.
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -335,7 +337,7 @@ A regular Attribute uses its Attribute name as the index key by default. You can
 status = Attribute(
     "primitive-attribute-status",
     str,
-    index=AttributeIndex(IndexType.KEYWORD, "OrderStatus"),
+    index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword"),
 )
 ```
 
@@ -345,7 +347,7 @@ status = Attribute(
 ```go
 var Status = dex.DefineAttribute[string](
 	"primitive-attribute-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderStatus"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword"}),
 )
 ```
 
@@ -356,7 +358,7 @@ var Status = dex.DefineAttribute[string](
 private final Attribute<String> status = Attribute.define(
         "primitive-attribute-status",
         String.class,
-        new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderStatus"));
+        new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword"));
 ```
 
 </SdkSnippet>
@@ -365,7 +367,7 @@ private final Attribute<String> status = Attribute.define(
 ```typescript
 public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "OrderStatus",
+  indexKey: "CustomKeyword",
 });
 ```
 
@@ -374,16 +376,16 @@ public readonly status = new Attribute("primitive-attribute-status", stringCodec
 
 ```rust
 let status = Attribute::new("primitive-attribute-status")
-    .indexed(AttributeIndex::keyword().with_key("OrderStatus"));
+    .indexed(AttributeIndex::keyword().with_key("CustomKeyword"));
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-For example, the status Attribute above uses **OrderStatus** as its index key. To find Flow executions whose status is completed, use this query:
+For example, the status Attribute above uses **CustomKeyword** as its index key. To find completed **AttributeFlow** executions, use this query:
 
 ```text
-OrderStatus = 'completed'
+FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'
 ```
 
 Pass the query to **SearchFlows**:
@@ -393,7 +395,7 @@ Pass the query to **SearchFlows**:
 
 ```python
 page = await app_state.client.search_flows(
-    "OrderStatus = 'completed'",
+    "FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'",
     20,
     "",
 )
@@ -405,7 +407,7 @@ page = await app_state.client.search_flows(
 ```go
 page, err := controller.client.SearchFlows(
 	request.Request.Context(),
-	"OrderStatus = 'completed'",
+	"FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'",
 	20,
 	"",
 )
@@ -415,21 +417,21 @@ page, err := controller.client.SearchFlows(
 <SdkSnippet lang="java">
 
 ```java
-final SearchFlowsPage page = client.searchFlows("OrderStatus = 'completed'", 20, "");
+final SearchFlowsPage page = client.searchFlows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```typescript
-const page = await client.searchFlows("OrderStatus = 'completed'", 20, "");
+const page = await client.searchFlows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
 
 ```rust
-client.search_flows("OrderStatus = 'completed'", 20)
+client.search_flows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'", 20)
 ```
 
 </SdkSnippet>
@@ -440,10 +442,10 @@ An indexed **AttributeMap** must use an explicit index key. It is not an index o
 This does not turn the Map into a **KEYWORD_ARRAY**. **KEYWORD_ARRAY** indexes the string array from one write; Dex does not combine the values from all Map instances. After the example below writes the payment instance with value authorized, you can query the current search value with:
 
 ```text
-OrderProgress = 'authorized'
+FlowType = 'AttributeFlow' AND CustomKeyword2 = 'authorized'
 ```
 
-If another Map instance later writes a different value, that value replaces the search value for **OrderProgress**. Use a regular Attribute with **KEYWORD_ARRAY** when you need to search a collection of values. Do not use an AttributeMap index to find every instance with a value.
+If another Map instance later writes a different value, that value replaces the search value for **CustomKeyword2**. Use a regular Attribute with **KEYWORD_ARRAY** when you need to search a collection of values. Do not use an AttributeMap index to find every instance with a value.
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -452,7 +454,7 @@ If another Map instance later writes a different value, that value replaces the 
 progress = AttributeMap(
     "primitive-attribute-progress",
     str,
-    index=AttributeIndex(IndexType.KEYWORD, "OrderProgress"),
+    index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword2"),
 )
 ```
 
@@ -462,7 +464,7 @@ progress = AttributeMap(
 ```go
 var Progress = dex.DefineAttributeMap[string](
 	"primitive-attribute-progress",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderProgress"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword2"}),
 )
 ```
 
@@ -474,7 +476,7 @@ private final AttributeMap<String> progress =
         AttributeMap.define(
                 "primitive-attribute-progress",
                 String.class,
-                new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderProgress"));
+                new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword2"));
 ```
 
 </SdkSnippet>
@@ -483,7 +485,7 @@ private final AttributeMap<String> progress =
 ```typescript
 public readonly progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "OrderProgress",
+  indexKey: "CustomKeyword2",
 });
 ```
 
@@ -492,7 +494,7 @@ public readonly progress = new AttributeMap("primitive-attribute-progress", stri
 
 ```rust
 let progress = AttributeMap::new("primitive-attribute-progress")
-    .indexed(AttributeIndex::keyword().with_key("OrderProgress"));
+    .indexed(AttributeIndex::keyword().with_key("CustomKeyword2"));
 ```
 
 </SdkSnippet>
