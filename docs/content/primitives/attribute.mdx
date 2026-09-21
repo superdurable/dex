@@ -407,7 +407,7 @@ page = await app_state.client.search_flows(
 ```go
 page, err := controller.client.SearchFlows(
 	request.Request.Context(),
-	"FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'",
+	"FlowType = 'attribute.AttributeFlow' AND CustomKeyword = 'completed'",
 	20,
 	"",
 )

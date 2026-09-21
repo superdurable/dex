@@ -101,7 +101,7 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 	require.Eventually(t, func() bool {
 		searchPage, searchErr = integClient.SearchFlows(
 			ctx,
-			"FlowType = 'JobPostingFlow' AND CustomText = 'Principal'",
+			"FlowType = 'jobpost.JobPostingFlow' AND CustomText = 'Principal'",
 			20,
 			"",
 		)
