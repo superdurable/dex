@@ -385,9 +385,11 @@ func (analyzer *goAnalyzer) collectV2View(
 		indexedKeys[attribute.AttributeKey] = true
 	}
 	seen := make(map[string]bool)
+	claimedSlots := make(map[string]string)
 	for _, directive := range directivesNamed(analyzer.parseV2Directives(method.Doc), "field") {
-		allowed := []string{"attribute-key", "value-type", "editable", "description"}
-		if !analyzer.validateV2Directive(directive, allowed, allowed) {
+		required := []string{"attribute-key", "value-type", "editable", "description"}
+		allowed := append(append([]string{}, required...), "slot")
+		if !analyzer.validateV2Directive(directive, allowed, required) {
 			continue
 		}
 		attributeKey := directive.arguments["attribute-key"].text
@@ -423,15 +425,58 @@ func (analyzer *goAnalyzer) collectV2View(
 			analyzer.addV2DirectiveError(directive, fmt.Sprintf("Summary field %q duplicates an indexed Attribute", attributeKey))
 			continue
 		}
+		slot, slotOK := analyzer.v2FieldSlot(directive, claimedSlots, attributeKey)
+		if !slotOK {
+			continue
+		}
 		view.Fields = append(view.Fields, ViewField{
 			AttributeKey: attributeKey,
 			ValueType:    valueType,
 			Editable:     isEditable,
 			Description:  directive.arguments["description"].text,
+			Slot:         slot,
 		})
 	}
 	analyzer.validateV2ViewOutputKeys(method, view.Fields)
 	return view
+}
+
+// Slots a field may claim, mapped to whether only one field may claim each.
+//
+// Closed because the renderer is written against it. An unknown value would be ignored silently and
+// the author would never learn the field did not land where they meant it to.
+var v2FieldSlots = map[string]bool{
+	"title":          true,
+	"subtitle":       true,
+	"status":         true,
+	"recommendation": true,
+	"reason":         false,
+}
+
+// Reads and checks `slot`, which is optional. Returns false when the directive is already reported.
+func (analyzer *goAnalyzer) v2FieldSlot(
+	directive v2Directive,
+	claimedSlots map[string]string,
+	attributeKey string,
+) (string, bool) {
+	argument, declared := directive.arguments["slot"]
+	if !declared {
+		return "", true
+	}
+	slot := argument.text
+	unique, known := v2FieldSlots[slot]
+	if !known {
+		analyzer.addV2DirectiveError(directive, fmt.Sprintf("slot %q is not a slot this view has", slot))
+		return "", false
+	}
+	if unique {
+		if holder, taken := claimedSlots[slot]; taken {
+			analyzer.addV2DirectiveError(directive, fmt.Sprintf("slot %q is already taken by Attribute %q", slot, holder))
+			return "", false
+		}
+		claimedSlots[slot] = attributeKey
+	}
+	return slot, true
 }
 
 func (analyzer *goAnalyzer) collectV2Actions(
@@ -455,7 +500,15 @@ func (analyzer *goAnalyzer) collectV2Actions(
 			continue
 		}
 		actionDirective := actionDirectives[0]
-		if !analyzer.validateV2Directive(actionDirective, []string{"action-label"}, []string{"action-label"}) {
+		if !analyzer.validateV2Directive(
+			actionDirective,
+			[]string{"action-label", "role"},
+			[]string{"action-label"},
+		) {
+			continue
+		}
+		role, roleOK := analyzer.v2ActionRole(actionDirective)
+		if !roleOK {
 			continue
 		}
 		whenDirectives := directivesNamed(directives, "when")
@@ -475,6 +528,7 @@ func (analyzer *goAnalyzer) collectV2Actions(
 		actions = append(actions, Action{
 			RPCName:   rpcName,
 			Label:     actionDirective.arguments["action-label"].text,
+			Role:      role,
 			Condition: condition,
 			Input:     input,
 		})
@@ -488,6 +542,22 @@ func (analyzer *goAnalyzer) collectV2Actions(
 		}
 	}
 	return actions
+}
+
+// Reads the optional `role`: who, outside the Flow, is expected to answer this Action.
+//
+// Open rather than a closed set, because the parties to a process are the domain's business and no
+// list written here would fit the next Flow. Kebab-case so it can be a value in a picker.
+func (analyzer *goAnalyzer) v2ActionRole(directive v2Directive) (string, bool) {
+	argument, declared := directive.arguments["role"]
+	if !declared {
+		return "", true
+	}
+	if !v2GroupIDPattern.MatchString(argument.text) {
+		analyzer.addV2DirectiveError(directive, fmt.Sprintf("role %q must be kebab-case", argument.text))
+		return "", false
+	}
+	return argument.text, true
 }
 
 func (analyzer *goAnalyzer) v2ActionCondition(

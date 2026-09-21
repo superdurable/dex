@@ -277,6 +277,20 @@
   gap: 3px 14px;
 }
 
+/* The slotted fields, read first: what this is, what it is about, where it got to, and why.
+   Separated by a rule rather than a heading, since the slots already say what they are. */
+.sc-facts[data-lead='true'] {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--p-line-soft);
+  margin-bottom: 8px;
+}
+
+.sc-facts[data-lead='true'] .sc-fvalue {
+  color: var(--p-ink-0);
+  font-weight: 500;
+}
+
+
 /* One Action per form; inputs stack above the button that submits them. */
 .sc-actions {
   display: flex;
@@ -307,11 +321,6 @@
 .sc-fvalue {
   color: var(--p-ink-0);
   font-size: 12.5px;
-}
-
-.sc-facts[data-pivotal='true'] .sc-fvalue {
-  font-size: 13px;
-  font-weight: 600;
 }
 
 .sc-none {

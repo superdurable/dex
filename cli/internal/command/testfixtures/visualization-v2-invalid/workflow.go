@@ -24,6 +24,12 @@ var mismatchedIndex = dex.DefineAttribute[string](
 
 var flag = dex.DefineAttribute[bool]("flag")
 
+// Two otherwise-valid fields, so the slot checks are reached at all: a field with an earlier
+// error never gets that far.
+var label = dex.DefineAttribute[string]("label")
+
+var note = dex.DefineAttribute[string]("note")
+
 type BrokenActionInput struct {
 	Reason string `json:"reason"`
 }
@@ -48,11 +54,12 @@ func (flow *InvalidV2Flow) GetRPCs() []dex.RPCDef {
 		dex.DefineRPC(flow.GetDexSummary, nil),
 		dex.DefineRPC(flow.GetDexDisplay, nil),
 		dex.DefineRPC(flow.BreakActionInput, nil),
+		dex.DefineRPC(flow.RejectBadRole, nil),
 	}
 }
 
 func (*InvalidV2Flow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{state, mismatchedIndex, flag}}
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{state, mismatchedIndex, flag, label, note}}
 }
 
 // dex:field attribute-key:state value-type:string editable:false
@@ -63,7 +70,9 @@ func (*InvalidV2Flow) GetDexSummary(
 	return &dex.RPCResult[map[string]any]{Output: map[string]any{"state": nil}}, nil
 }
 
-// dex:field attribute-key:state value-type:string editable:false description:"State"
+// dex:field attribute-key:state value-type:string editable:false description:"State" slot:title
+// dex:field attribute-key:label value-type:string editable:false description:"Label" slot:title
+// dex:field attribute-key:note value-type:string editable:false description:"Note" slot:headline
 // dex:field attribute-key:flag value-type:string editable:false description:"Wrong field type"
 // dex:field attribute-key:state value-type:string editable:false description:"unterminated
 func (*InvalidV2Flow) GetDexDisplay(
@@ -73,7 +82,9 @@ func (*InvalidV2Flow) GetDexDisplay(
 	if err := mutateStateFromView(ctx); err != nil {
 		return nil, err
 	}
-	return &dex.RPCResult[map[string]any]{Output: map[string]any{"state": nil, "flag": nil}}, nil
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{
+		"state": nil, "flag": nil, "label": nil, "note": nil,
+	}}, nil
 }
 
 func mutateStateFromView(ctx dex.Context) error {
@@ -86,6 +97,15 @@ func mutateStateFromView(ctx dex.Context) error {
 func (*InvalidV2Flow) BreakActionInput(
 	_ dex.Context,
 	_ BrokenActionInput,
+) (*dex.RPCResult[dex.None], error) {
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// dex:action action-label:"Bad role" role:Manager
+// dex:when attribute-key:state operator:in values:["open"]
+func (*InvalidV2Flow) RejectBadRole(
+	_ dex.Context,
+	_ dex.None,
 ) (*dex.RPCResult[dex.None], error) {
 	return &dex.RPCResult[dex.None]{}, nil
 }

@@ -30,7 +30,8 @@ Version 2 directive 使用具名值。同一行内的参数位置没有语义。
 // dex:explanation text:"Apply refund guardrails and set the recommended action."
 // dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:case-status
 // dex:field attribute-key:operator-note value-type:string editable:true description:"Operator note"
-// dex:action action-label:"Reject"
+// dex:field attribute-key:case-status value-type:string editable:false description:"Case status" slot:status
+// dex:action action-label:"Reject" role:manager
 // dex:when attribute-key:case-status operator:in values:["awaiting-manager-rule","awaiting-manager-agent"]
 // dex:input field-name:reason value-type:string source:user required:true description:"Rejection reason"
 ```
@@ -56,7 +57,13 @@ Indexed Attribute 声明绑定 Dex Attribute key、物理搜索 index key、inde
 
 在 **v2** 中，选中 Step 会打开分为 **Definition** 与 **Execution** 的面板。Definition 展示 Step 的 **explanation**、WaitFor 与 Execute 分支；过长内容可滚动，以便 Execution 仍可见。Execute 分支超过三条时默认折叠。若该 Step 执行过多次，Execution 提供下拉框选择某次执行，再以与 **v1** Selected event 相同的结构化方式展示所选 WaitFor 或 Execute history 事件的 **Input**、**Output** 和 **Context**。执行 payload 默认 Details，可切换为已水合 payload 的 Raw JSON。十进制数字形式的 AttributeMap / ChannelMap instance 按数值排序，行为与 **v1** 一致。Execute 显示该次 run 决策里的 live next Steps，而不是 FDG 上的全部出口。若 Continue-as-New 把该 Step 留在上一 hop，使用 Load more from previous run。
 
-Display 字段按照 directive 行排序。String、integer、double、boolean 和 datetime 字段可以编辑。JSON、object、array 和 AttributeMap 只读。缺失字段必须返回 null。后端会拒绝遗漏、未声明或类型错误的值。
+字段还可以声明它所填充的 slot：**title**、**subtitle**、**status**、**recommendation** 或 **reason**。slot 说明该字段承担什么角色，因此一套模板可以服务所有 Flow，而每个 Flow 把自己的 Attribute 映射进去。slot 是可选的，多数字段不填任何 slot。
+
+run 列表的每一行读取 **title** 和 **status**；当 Flow 两者都未声明时，回退为 Flow ID 与 execution status。选中 run 的面板读取全部五个 slot，按 slot 顺序排在其余字段之前。**title**、**subtitle**、**status** 和 **recommendation** 各只允许一个字段。**reason** 允许多个，因为一条 recommendation 可以有不止一个依据。
+
+一行只携带 indexed Attribute 和 Summary 字段。若某个 slot 绑定的 Attribute 两者都不属于，它只在面板中显示，不在行中显示。slot 不是索引：它只说明值应出现在哪里，不表示该值可被搜索。
+
+其余 Display 字段按照 directive 行排序。String、integer、double、boolean 和 datetime 字段可以编辑。JSON、object、array 和 AttributeMap 只读。缺失字段必须返回 null。后端会拒绝遗漏、未声明或类型错误的值。
 
 只有 current run 仍为 active 时才能编辑。Dex Web 通过 **SetAttributes** 写入 Attribute；如果该 Attribute 已建立索引，还会附带声明的 index 配置。
 
@@ -66,6 +73,12 @@ Action 是带 Action directive 和一个 condition 的 RPC。第一版只支持 
 
 无输入 Action 接受 **dex.None**，直接显示为按钮。有输入 Action 接受具名 Go struct。来自用户的字段按 directive 顺序渲染控件；来自 Attribute 的字段保持隐藏，并使用当前选中 run 的 Attribute snapshot。
 
+Action 可以用 **role** 声明预期由哪一方来处理。role 名称自由取值、使用 kebab-case，因为流程的参与方属于业务领域，而不属于 Dex Web。Inbox 会列出该 Flow 声明的 role，并把这些 Action 的 condition 合并为一次搜索，从而只显示正在等待这些 Action 的 run。
+
+这种合并要求该 role 的所有 condition 都测试同一个 Attribute。多个 filter 之间以 AND 连接，两个 Attribute 需要查询不支持的 OR。此时 Inbox 不做收窄，而不是只显示该 role 的一部分工作。
+
+condition 匹配是必要条件，而非充分条件。带 key 的 gate 还需要它当前的 key，而列表读取的是最终一致的索引。因此 role 收窄到的是很可能需要该参与方处理的 run，真正可用的 Action 仍由打开后的该 run 决定。
+
 浏览器中的 condition 只控制展示。每个 Action RPC 都必须在修改持久化状态或发布 Channel message 前再次检查当前状态。当检查与 effect 必须保持原子性时，应使用 lock。
 
-第一版不增加登录或 role 系统。请继续把它部署在 Dex Web 所在的可信网络或 reverse-proxy 边界之后。
+第一版不增加登录，也不增加访问控制。声明的 **role** 只标识参与方，本身不授予任何权限：在 Inbox 中选择某个 role，表示读者此次要处理哪一类工作。请继续把它部署在 Dex Web 所在的可信网络或 reverse-proxy 边界之后。

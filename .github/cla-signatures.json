@@ -9,6 +9,11 @@
       "github_handle": "yes-un",
       "agreement_type": "corporate",
       "agreement_date": "2026-08-21"
+    },
+    {
+      "github_handle": "zzheng-aiplay",
+      "agreement_type": "corporate",
+      "agreement_date": "2026-09-21"
     }
   ],
   "exempt_bot_handles": [

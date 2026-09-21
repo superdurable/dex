@@ -57,6 +57,80 @@ func TestLoadFlowDefinitionsRejectsMalformedV2Contract(t *testing.T) {
 	}
 }
 
+// A Flow Definition Graph can reach the server from anywhere, so the slot rules are enforced here
+// too rather than trusted to whatever produced the file.
+func TestLoadFlowDefinitionsRejectsUnknownV2Slot(t *testing.T) {
+	directory := t.TempDir()
+	unknown := strings.Replace(
+		validFlowDefinitionV2("RefundFlow", true),
+		`"description":"Note"`,
+		`"description":"Note","slot":"headline"`,
+		1,
+	)
+	writeFlowDefinitionTestFile(t, directory, "slot.json", unknown)
+
+	_, err := loadFlowDefinitions(directory)
+	if err == nil || !strings.Contains(err.Error(), `claims unknown slot "headline"`) {
+		t.Fatalf("unknown slot error = %v", err)
+	}
+}
+
+func TestLoadFlowDefinitionsRejectsRepeatedUniqueV2Slot(t *testing.T) {
+	directory := t.TempDir()
+	repeated := strings.Replace(
+		validFlowDefinitionV2("RefundFlow", true),
+		`{"attributeKey":"operator-note","valueType":"string","editable":true,"description":"Note"}`,
+		`{"attributeKey":"operator-note","valueType":"string","editable":true,"description":"Note","slot":"title"},`+
+			`{"attributeKey":"case-note","valueType":"string","editable":true,"description":"Other","slot":"title"}`,
+		1,
+	)
+	writeFlowDefinitionTestFile(t, directory, "slot.json", repeated)
+
+	_, err := loadFlowDefinitions(directory)
+	if err == nil || !strings.Contains(err.Error(), `slot "title" is claimed by both`) {
+		t.Fatalf("repeated slot error = %v", err)
+	}
+}
+
+func TestLoadFlowDefinitionsAcceptsRepeatedReasonSlot(t *testing.T) {
+	directory := t.TempDir()
+	// `reason` is the one slot several fields may fill: a recommendation can rest on more than one.
+	twoReasons := strings.Replace(
+		validFlowDefinitionV2("RefundFlow", true),
+		`{"attributeKey":"operator-note","valueType":"string","editable":true,"description":"Note"}`,
+		`{"attributeKey":"operator-note","valueType":"string","editable":true,"description":"Note","slot":"reason"},`+
+			`{"attributeKey":"case-note","valueType":"string","editable":true,"description":"Other","slot":"reason"}`,
+		1,
+	)
+	writeFlowDefinitionTestFile(t, directory, "slot.json", twoReasons)
+
+	handler, err := loadFlowDefinitions(directory)
+	if err != nil {
+		t.Fatalf("two reasons should load: %v", err)
+	}
+	if handler == nil {
+		t.Fatal("handler is nil")
+	}
+}
+
+func TestLoadFlowDefinitionsRejectsInvalidV2ActionRole(t *testing.T) {
+	directory := t.TempDir()
+	withRole := strings.Replace(
+		validFlowDefinitionV2("RefundFlow", true),
+		`"actions":[]`,
+		`"actions":[{"rpcName":"ApproveRefund","label":"Approve","role":"Manager",`+
+			`"condition":{"attributeKey":"case-status","operator":"in","values":["open"]},`+
+			`"input":{"kind":"none","fields":[]}}]`,
+		1,
+	)
+	writeFlowDefinitionTestFile(t, directory, "role.json", withRole)
+
+	_, err := loadFlowDefinitions(directory)
+	if err == nil || !strings.Contains(err.Error(), `invalid role "Manager"`) {
+		t.Fatalf("invalid role error = %v", err)
+	}
+}
+
 func TestLoadFlowDefinitionsPreservesInt64ConditionValues(t *testing.T) {
 	directory := t.TempDir()
 	definition := strings.Replace(

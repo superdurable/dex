@@ -128,6 +128,8 @@ export interface FlowV2Field {
   valueType: V2ValueType;
   editable: boolean;
   description: string;
+  /** Named position this field takes in a row or drawer. Absent means the ordinary detail list. */
+  slot?: string;
 }
 
 export interface FlowV2View {
@@ -147,6 +149,8 @@ export interface FlowV2ActionInputField {
 export interface FlowV2Action {
   rpcName: string;
   label: string;
+  /** Which party outside the Flow answers this Action. Absent when the Flow names no parties. */
+  role?: string;
   condition: {
     attributeKey: string;
     operator: 'in';

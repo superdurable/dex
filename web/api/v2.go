@@ -63,12 +63,16 @@ type V2ViewField struct {
 	ValueType    string `json:"valueType"`
 	Editable     bool   `json:"editable"`
 	Description  string `json:"description"`
+	// Slot is the named position this field takes in a row or drawer. Empty means the detail list.
+	Slot string `json:"slot,omitempty"`
 }
 
 // V2Action describes one operator RPC.
 type V2Action struct {
-	RPCName   string            `json:"rpcName"`
-	Label     string            `json:"label"`
+	RPCName string `json:"rpcName"`
+	Label   string `json:"label"`
+	// Role is who outside the Flow answers this Action. Empty when the Flow names no parties.
+	Role      string            `json:"role,omitempty"`
 	Condition V2ActionCondition `json:"condition"`
 	Input     V2ActionInput     `json:"input"`
 }
