@@ -19,6 +19,7 @@ import type { V2Display } from '@/lib/types';
 import { parseTypedValue, v2ActionUserFields, v2ActionUserInput, visibleV2Actions } from '../contract';
 import { QUEUE_COPY } from '../queue/copy';
 import { absorb, classifyReadFailure, nothingHeld, readFailureReason } from '../queue/liveness';
+import { RUN_COPY } from '../run/copy';
 import { leadFields } from './slots';
 
 export function SelectedRunPanel({
@@ -200,7 +201,7 @@ export function SelectedRunPanel({
 
         const actionsBlock = (
           <div className="sc-block">
-            <div className="sc-blockhead">Actions</div>
+            <div className="sc-blockhead">{RUN_COPY.actions}</div>
             {visibleV2Actions(definition.actions, result.eligibleActions).map((action) => {
               const userFields = v2ActionUserFields(action);
               return (
@@ -246,7 +247,6 @@ export function SelectedRunPanel({
 
         const displayBlock = (
           <div className="sc-block">
-            <div className="sc-blockhead">Display</div>
             {lead.length > 0 && <dl className="sc-facts" data-lead="true">{lead.map(fieldFact)}</dl>}
             {detail.length > 0 && <dl className="sc-facts">{detail.map(fieldFact)}</dl>}
           </div>

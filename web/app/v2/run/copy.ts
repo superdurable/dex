@@ -28,6 +28,7 @@ export const RUN_COPY = {
     return n === 1 ? '1 left' : `${n} left`;
   },
   thisStep: 'This step',
+  actions: 'Actions',
   stepOnly: 'Step in this flow',
   noPurpose: 'This Flow does not say what this Step is for.',
   close: 'Close the run panel',
