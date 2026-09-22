@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -206,12 +207,100 @@ func TestPersistenceDoesNotEnforceIndexOwnership(t *testing.T) {
 	require.Len(t, manager.GetAllAttributes(), 2)
 }
 
+func TestPersistenceProjectsActionPermissionsWithoutRedundantUpserts(t *testing.T) {
+	provider := &s2WorkflowProvider{}
+	manager := newTestPersistenceManager(provider, []*dexpb.KV{
+		stringKV("status", "A"),
+		stringKV("region", "C"),
+		{
+			Key: service.SearchAttributeDexWorkQueuePermissions,
+			Value: &dexpb.Value{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{
+				Encoding: "json",
+				Payload:  []byte(`["permission-z","permission-x","permission-x"]`),
+			}}},
+		},
+	})
+	mappings := &dexpb.ActionPermissionMappings{Mappings: []*dexpb.ActionPermissionMapping{
+		{
+			AttributeKey:       "status",
+			EqualValues:        []*dexpb.Value{actionPermissionStringValue("A")},
+			RequiredPermission: "permission-x",
+		},
+		{
+			AttributeKey:       "region",
+			EqualValues:        []*dexpb.Value{actionPermissionStringValue("C")},
+			RequiredPermission: "permission-z",
+		},
+		{
+			AttributeKey:       "region",
+			EqualValues:        []*dexpb.Value{actionPermissionStringValue("C")},
+			RequiredPermission: "permission-z",
+		},
+	}}
+
+	err := manager.ApplyAttributeWritesWithActionPermissionMappings(
+		persistenceTestContext(),
+		[]*dexpb.AttributeWrite{stringAttribute("status", "A", nil)},
+		mappings,
+	)
+	require.NoError(t, err)
+	require.Empty(t, provider.upserts)
+
+	err = manager.ApplyAttributeWritesWithActionPermissionMappings(
+		persistenceTestContext(),
+		[]*dexpb.AttributeWrite{stringAttribute("status", "B", nil)},
+		mappings,
+	)
+	require.NoError(t, err)
+	require.Equal(t, []string{"permission-z"}, provider.upserts[0][service.SearchAttributeDexWorkQueuePermissions])
+
+	err = manager.ApplyAttributeWritesWithActionPermissionMappings(
+		persistenceTestContext(),
+		[]*dexpb.AttributeWrite{{
+			Key: "region",
+			Value: &dexpb.Value{Kind: &dexpb.Value_NullValue{
+				NullValue: structpb.NullValue_NULL_VALUE,
+			}},
+		}},
+		&dexpb.ActionPermissionMappings{},
+	)
+	require.NoError(t, err)
+	require.Nil(t, provider.upserts[1][service.SearchAttributeDexWorkQueuePermissions])
+	_, found := manager.GetAttribute(service.SearchAttributeDexWorkQueuePermissions)
+	require.False(t, found)
+}
+
+func TestPersistenceActionPermissionProjectionIsAtomic(t *testing.T) {
+	provider := &s2WorkflowProvider{upsertErr: errors.New("backend unavailable")}
+	manager := newTestPersistenceManager(provider, []*dexpb.KV{stringKV("status", "A")})
+
+	err := manager.ApplyAttributeWritesWithActionPermissionMappings(
+		persistenceTestContext(),
+		[]*dexpb.AttributeWrite{stringAttribute("status", "B", nil)},
+		&dexpb.ActionPermissionMappings{Mappings: []*dexpb.ActionPermissionMapping{{
+			AttributeKey:       "status",
+			EqualValues:        []*dexpb.Value{actionPermissionStringValue("B")},
+			RequiredPermission: "permission-x",
+		}}},
+	)
+	require.ErrorContains(t, err, "backend unavailable")
+	stored, found := manager.GetAttribute("status")
+	require.True(t, found)
+	require.Equal(t, "A", stored.GetStringValue())
+	_, found = manager.GetAttribute(service.SearchAttributeDexWorkQueuePermissions)
+	require.False(t, found)
+}
+
 func stringAttribute(key, value string, indexConfig *dexpb.IndexConfig) *dexpb.AttributeWrite {
 	return &dexpb.AttributeWrite{
 		Key:         key,
 		Value:       &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: value}},
 		IndexConfig: indexConfig,
 	}
+}
+
+func actionPermissionStringValue(value string) *dexpb.Value {
+	return &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: value}}
 }
 
 func newTestPersistenceManager(

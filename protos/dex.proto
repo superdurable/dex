@@ -158,6 +158,16 @@ message AttributeWrite {
   AttributeSyncConfig sync_config = 4;
 }
 
+message ActionPermissionMapping {
+  string attribute_key = 1;
+  repeated Value equal_values = 2;
+  string required_permission = 3;
+}
+
+message ActionPermissionMappings {
+  repeated ActionPermissionMapping mappings = 1;
+}
+
 message AttributeSyncConfig {
   // Enqueues this write for the Flow's current Attribute Store target.
   bool enabled = 1;
@@ -457,6 +467,7 @@ message SetAttributesRequest {
   string run_id = 2;
   repeated AttributeWrite attributes = 3;
   string request_id = 4;
+  ActionPermissionMappings action_permission_mappings = 5;
 }
 
 message LoadBlobRequestEntry {
@@ -1027,6 +1038,7 @@ message InvokeWaitForMethodResponse {
   repeated KV record_events = 5;
   repeated ChannelMessage publish_to_channel = 6;
   repeated ChannelMessageDeletion delete_from_channel = 7;
+  ActionPermissionMappings action_permission_mappings = 8;
 }
 
 message StepMethodHeartbeat {
@@ -1071,6 +1083,7 @@ message InvokeExecuteMethodResponse {
   repeated KV upsert_step_exe_locals = 5;
   repeated ChannelMessage publish_to_channel = 6;
   repeated ChannelMessageDeletion delete_from_channel = 7;
+  ActionPermissionMappings action_permission_mappings = 8;
 }
 
 message InvokeExecuteMethodOutput {
@@ -1101,6 +1114,7 @@ message InvokeWorkerRPCResponse {
   repeated KV record_events = 4;
   repeated ChannelMessageDeletion delete_from_channel = 5;
   repeated ChannelMessage publish_to_channel = 6;
+  ActionPermissionMappings action_permission_mappings = 7;
 }
 
 message StepDecision {
@@ -1461,6 +1475,7 @@ message ExecuteRpcSignalRequest {
   bool is_set_attribute_api = 7;
   repeated ChannelMessageDeletion delete_from_channel = 8;
   bool is_delete_channel_message_api = 9;
+  ActionPermissionMappings action_permission_mappings = 10;
 }
 
 message SkipTimerSignalRequest {

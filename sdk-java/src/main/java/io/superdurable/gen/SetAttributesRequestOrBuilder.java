@@ -69,4 +69,19 @@ public interface SetAttributesRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getRequestIdBytes();
+
+  /**
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+   * @return Whether the actionPermissionMappings field is set.
+   */
+  boolean hasActionPermissionMappings();
+  /**
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+   * @return The actionPermissionMappings.
+   */
+  io.superdurable.gen.ActionPermissionMappings getActionPermissionMappings();
+  /**
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+   */
+  io.superdurable.gen.ActionPermissionMappingsOrBuilder getActionPermissionMappingsOrBuilder();
 }

@@ -336,6 +336,39 @@ func (flow *registeredFlow) appendInitialWorkQueuePermissions(
 	return writes, nil
 }
 
+func (flow *registeredFlow) actionPermissionMappingsForWrites(
+	writes []*dexpb.AttributeWrite,
+) *dexpb.ActionPermissionMappings {
+	if len(flow.actions) == 0 {
+		return nil
+	}
+	actionSourceKeys := make(map[string]struct{}, len(flow.actions))
+	for _, action := range flow.actions {
+		actionSourceKeys[action.condition.attribute.attributeName()] = struct{}{}
+	}
+	for _, write := range writes {
+		if write == nil {
+			continue
+		}
+		if _, found := actionSourceKeys[write.GetKey()]; found {
+			return flow.actionPermissionMappings()
+		}
+	}
+	return nil
+}
+
+func (flow *registeredFlow) actionPermissionMappings() *dexpb.ActionPermissionMappings {
+	mappings := make([]*dexpb.ActionPermissionMapping, 0, len(flow.actions))
+	for _, action := range flow.actions {
+		mappings = append(mappings, &dexpb.ActionPermissionMapping{
+			AttributeKey:       action.condition.attribute.attributeName(),
+			EqualValues:        action.condition.operands,
+			RequiredPermission: action.requiredPermission,
+		})
+	}
+	return &dexpb.ActionPermissionMappings{Mappings: mappings}
+}
+
 func supportsActionAttributeType(valueType reflect.Type) bool {
 	if valueType == nil {
 		return false

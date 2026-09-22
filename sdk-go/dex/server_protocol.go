@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	minimumSupportedServerProtocolVersion uint32 = 1
-	maximumSupportedServerProtocolVersion uint32 = 1
+	minimumSupportedServerProtocolVersion uint32 = 2
+	maximumSupportedServerProtocolVersion uint32 = 2
 	goSDKModulePath                              = "github.com/superdurable/dex/sdk-go"
 )
 

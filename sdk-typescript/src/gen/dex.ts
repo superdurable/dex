@@ -284,6 +284,16 @@ export interface AttributeWrite {
   syncConfig: AttributeSyncConfig | undefined;
 }
 
+export interface ActionPermissionMapping {
+  attributeKey: string;
+  equalValues: Value[];
+  requiredPermission: string;
+}
+
+export interface ActionPermissionMappings {
+  mappings: ActionPermissionMapping[];
+}
+
 export interface AttributeSyncConfig {
   /** Enqueues this write for the Flow's current Attribute Store target. */
   enabled: boolean;
@@ -524,6 +534,7 @@ export interface SetAttributesRequest {
   runId: string;
   attributes: AttributeWrite[];
   requestId: string;
+  actionPermissionMappings: ActionPermissionMappings | undefined;
 }
 
 export interface LoadBlobRequestEntry {
@@ -1071,6 +1082,7 @@ export interface InvokeWaitForMethodResponse {
   recordEvents: KV[];
   publishToChannel: ChannelMessage[];
   deleteFromChannel: ChannelMessageDeletion[];
+  actionPermissionMappings: ActionPermissionMappings | undefined;
 }
 
 export interface StepMethodHeartbeat {
@@ -1124,6 +1136,7 @@ export interface InvokeExecuteMethodResponse {
   upsertStepExeLocals: KV[];
   publishToChannel: ChannelMessage[];
   deleteFromChannel: ChannelMessageDeletion[];
+  actionPermissionMappings: ActionPermissionMappings | undefined;
 }
 
 export interface InvokeExecuteMethodOutput {
@@ -1163,6 +1176,7 @@ export interface InvokeWorkerRPCResponse {
   recordEvents: KV[];
   deleteFromChannel: ChannelMessageDeletion[];
   publishToChannel: ChannelMessage[];
+  actionPermissionMappings: ActionPermissionMappings | undefined;
 }
 
 export interface StepDecision {
@@ -1503,6 +1517,7 @@ export interface ExecuteRpcSignalRequest {
   isSetAttributeApi: boolean;
   deleteFromChannel: ChannelMessageDeletion[];
   isDeleteChannelMessageApi: boolean;
+  actionPermissionMappings: ActionPermissionMappings | undefined;
 }
 
 export interface SkipTimerSignalRequest {
@@ -1982,6 +1997,122 @@ export const AttributeWrite: MessageFns<AttributeWrite> = {
     message.syncConfig = (object.syncConfig !== undefined && object.syncConfig !== null)
       ? AttributeSyncConfig.fromPartial(object.syncConfig)
       : undefined;
+    return message;
+  },
+};
+
+function createBaseActionPermissionMapping(): ActionPermissionMapping {
+  return { attributeKey: "", equalValues: [], requiredPermission: "" };
+}
+
+export const ActionPermissionMapping: MessageFns<ActionPermissionMapping> = {
+  encode(message: ActionPermissionMapping, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.attributeKey !== "") {
+      writer.uint32(10).string(message.attributeKey);
+    }
+    for (const v of message.equalValues) {
+      Value.encode(v!, writer.uint32(18).fork()).join();
+    }
+    if (message.requiredPermission !== "") {
+      writer.uint32(26).string(message.requiredPermission);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ActionPermissionMapping {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseActionPermissionMapping();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.attributeKey = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.equalValues.push(Value.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.requiredPermission = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ActionPermissionMapping>, I>>(base?: I): ActionPermissionMapping {
+    return ActionPermissionMapping.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ActionPermissionMapping>, I>>(object: I): ActionPermissionMapping {
+    const message = createBaseActionPermissionMapping();
+    message.attributeKey = object.attributeKey ?? "";
+    message.equalValues = object.equalValues?.map((e) => Value.fromPartial(e)) || [];
+    message.requiredPermission = object.requiredPermission ?? "";
+    return message;
+  },
+};
+
+function createBaseActionPermissionMappings(): ActionPermissionMappings {
+  return { mappings: [] };
+}
+
+export const ActionPermissionMappings: MessageFns<ActionPermissionMappings> = {
+  encode(message: ActionPermissionMappings, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.mappings) {
+      ActionPermissionMapping.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ActionPermissionMappings {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseActionPermissionMappings();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.mappings.push(ActionPermissionMapping.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ActionPermissionMappings>, I>>(base?: I): ActionPermissionMappings {
+    return ActionPermissionMappings.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ActionPermissionMappings>, I>>(object: I): ActionPermissionMappings {
+    const message = createBaseActionPermissionMappings();
+    message.mappings = object.mappings?.map((e) => ActionPermissionMapping.fromPartial(e)) || [];
     return message;
   },
 };
@@ -4765,7 +4896,7 @@ export const GetAttributesResponse: MessageFns<GetAttributesResponse> = {
 };
 
 function createBaseSetAttributesRequest(): SetAttributesRequest {
-  return { flowId: "", runId: "", attributes: [], requestId: "" };
+  return { flowId: "", runId: "", attributes: [], requestId: "", actionPermissionMappings: undefined };
 }
 
 export const SetAttributesRequest: MessageFns<SetAttributesRequest> = {
@@ -4781,6 +4912,9 @@ export const SetAttributesRequest: MessageFns<SetAttributesRequest> = {
     }
     if (message.requestId !== "") {
       writer.uint32(34).string(message.requestId);
+    }
+    if (message.actionPermissionMappings !== undefined) {
+      ActionPermissionMappings.encode(message.actionPermissionMappings, writer.uint32(42).fork()).join();
     }
     return writer;
   },
@@ -4824,6 +4958,14 @@ export const SetAttributesRequest: MessageFns<SetAttributesRequest> = {
           message.requestId = reader.string();
           continue;
         }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.actionPermissionMappings = ActionPermissionMappings.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4842,6 +4984,10 @@ export const SetAttributesRequest: MessageFns<SetAttributesRequest> = {
     message.runId = object.runId ?? "";
     message.attributes = object.attributes?.map((e) => AttributeWrite.fromPartial(e)) || [];
     message.requestId = object.requestId ?? "";
+    message.actionPermissionMappings =
+      (object.actionPermissionMappings !== undefined && object.actionPermissionMappings !== null)
+        ? ActionPermissionMappings.fromPartial(object.actionPermissionMappings)
+        : undefined;
     return message;
   },
 };
@@ -10965,6 +11111,7 @@ function createBaseInvokeWaitForMethodResponse(): InvokeWaitForMethodResponse {
     recordEvents: [],
     publishToChannel: [],
     deleteFromChannel: [],
+    actionPermissionMappings: undefined,
   };
 }
 
@@ -10990,6 +11137,9 @@ export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse
     }
     for (const v of message.deleteFromChannel) {
       ChannelMessageDeletion.encode(v!, writer.uint32(58).fork()).join();
+    }
+    if (message.actionPermissionMappings !== undefined) {
+      ActionPermissionMappings.encode(message.actionPermissionMappings, writer.uint32(66).fork()).join();
     }
     return writer;
   },
@@ -11057,6 +11207,14 @@ export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse
           message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.actionPermissionMappings = ActionPermissionMappings.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -11083,6 +11241,10 @@ export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
     message.deleteFromChannel = object.deleteFromChannel?.map((e) => ChannelMessageDeletion.fromPartial(e)) || [];
+    message.actionPermissionMappings =
+      (object.actionPermissionMappings !== undefined && object.actionPermissionMappings !== null)
+        ? ActionPermissionMappings.fromPartial(object.actionPermissionMappings)
+        : undefined;
     return message;
   },
 };
@@ -11663,6 +11825,7 @@ function createBaseInvokeExecuteMethodResponse(): InvokeExecuteMethodResponse {
     upsertStepExeLocals: [],
     publishToChannel: [],
     deleteFromChannel: [],
+    actionPermissionMappings: undefined,
   };
 }
 
@@ -11688,6 +11851,9 @@ export const InvokeExecuteMethodResponse: MessageFns<InvokeExecuteMethodResponse
     }
     for (const v of message.deleteFromChannel) {
       ChannelMessageDeletion.encode(v!, writer.uint32(58).fork()).join();
+    }
+    if (message.actionPermissionMappings !== undefined) {
+      ActionPermissionMappings.encode(message.actionPermissionMappings, writer.uint32(66).fork()).join();
     }
     return writer;
   },
@@ -11755,6 +11921,14 @@ export const InvokeExecuteMethodResponse: MessageFns<InvokeExecuteMethodResponse
           message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.actionPermissionMappings = ActionPermissionMappings.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -11781,6 +11955,10 @@ export const InvokeExecuteMethodResponse: MessageFns<InvokeExecuteMethodResponse
     message.upsertStepExeLocals = object.upsertStepExeLocals?.map((e) => KV.fromPartial(e)) || [];
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
     message.deleteFromChannel = object.deleteFromChannel?.map((e) => ChannelMessageDeletion.fromPartial(e)) || [];
+    message.actionPermissionMappings =
+      (object.actionPermissionMappings !== undefined && object.actionPermissionMappings !== null)
+        ? ActionPermissionMappings.fromPartial(object.actionPermissionMappings)
+        : undefined;
     return message;
   },
 };
@@ -12206,6 +12384,7 @@ function createBaseInvokeWorkerRPCResponse(): InvokeWorkerRPCResponse {
     recordEvents: [],
     deleteFromChannel: [],
     publishToChannel: [],
+    actionPermissionMappings: undefined,
   };
 }
 
@@ -12228,6 +12407,9 @@ export const InvokeWorkerRPCResponse: MessageFns<InvokeWorkerRPCResponse> = {
     }
     for (const v of message.publishToChannel) {
       ChannelMessage.encode(v!, writer.uint32(50).fork()).join();
+    }
+    if (message.actionPermissionMappings !== undefined) {
+      ActionPermissionMappings.encode(message.actionPermissionMappings, writer.uint32(58).fork()).join();
     }
     return writer;
   },
@@ -12287,6 +12469,14 @@ export const InvokeWorkerRPCResponse: MessageFns<InvokeWorkerRPCResponse> = {
           message.publishToChannel.push(ChannelMessage.decode(reader, reader.uint32()));
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.actionPermissionMappings = ActionPermissionMappings.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -12311,6 +12501,10 @@ export const InvokeWorkerRPCResponse: MessageFns<InvokeWorkerRPCResponse> = {
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
     message.deleteFromChannel = object.deleteFromChannel?.map((e) => ChannelMessageDeletion.fromPartial(e)) || [];
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
+    message.actionPermissionMappings =
+      (object.actionPermissionMappings !== undefined && object.actionPermissionMappings !== null)
+        ? ActionPermissionMappings.fromPartial(object.actionPermissionMappings)
+        : undefined;
     return message;
   },
 };
@@ -16271,6 +16465,7 @@ function createBaseExecuteRpcSignalRequest(): ExecuteRpcSignalRequest {
     isSetAttributeApi: false,
     deleteFromChannel: [],
     isDeleteChannelMessageApi: false,
+    actionPermissionMappings: undefined,
   };
 }
 
@@ -16302,6 +16497,9 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
     }
     if (message.isDeleteChannelMessageApi !== false) {
       writer.uint32(72).bool(message.isDeleteChannelMessageApi);
+    }
+    if (message.actionPermissionMappings !== undefined) {
+      ActionPermissionMappings.encode(message.actionPermissionMappings, writer.uint32(82).fork()).join();
     }
     return writer;
   },
@@ -16385,6 +16583,14 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
           message.isDeleteChannelMessageApi = reader.bool();
           continue;
         }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.actionPermissionMappings = ActionPermissionMappings.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -16414,6 +16620,10 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
     message.isSetAttributeApi = object.isSetAttributeApi ?? false;
     message.deleteFromChannel = object.deleteFromChannel?.map((e) => ChannelMessageDeletion.fromPartial(e)) || [];
     message.isDeleteChannelMessageApi = object.isDeleteChannelMessageApi ?? false;
+    message.actionPermissionMappings =
+      (object.actionPermissionMappings !== undefined && object.actionPermissionMappings !== null)
+        ? ActionPermissionMappings.fromPartial(object.actionPermissionMappings)
+        : undefined;
     return message;
   },
 };

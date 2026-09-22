@@ -52,6 +52,7 @@ private static final long serialVersionUID = 0L;
             io.superdurable.gen.SetAttributesRequest.class, io.superdurable.gen.SetAttributesRequest.Builder.class);
   }
 
+  private int bitField0_;
   public static final int FLOW_ID_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
   private volatile java.lang.Object flowId_ = "";
@@ -210,6 +211,32 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER = 5;
+  private io.superdurable.gen.ActionPermissionMappings actionPermissionMappings_;
+  /**
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+   * @return Whether the actionPermissionMappings field is set.
+   */
+  @java.lang.Override
+  public boolean hasActionPermissionMappings() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+   * @return The actionPermissionMappings.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.ActionPermissionMappings getActionPermissionMappings() {
+    return actionPermissionMappings_ == null ? io.superdurable.gen.ActionPermissionMappings.getDefaultInstance() : actionPermissionMappings_;
+  }
+  /**
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.ActionPermissionMappingsOrBuilder getActionPermissionMappingsOrBuilder() {
+    return actionPermissionMappings_ == null ? io.superdurable.gen.ActionPermissionMappings.getDefaultInstance() : actionPermissionMappings_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -236,6 +263,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 4, requestId_);
     }
+    if (((bitField0_ & 0x00000001) != 0)) {
+      output.writeMessage(5, getActionPermissionMappings());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -257,6 +287,10 @@ private static final long serialVersionUID = 0L;
         }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(4, requestId_);
+    }
+    if (((bitField0_ & 0x00000001) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(5, getActionPermissionMappings());
     }
     return size;
   }
@@ -290,6 +324,11 @@ private static final long serialVersionUID = 0L;
         .equals(other.getAttributesList())) return false;
     if (!getRequestId()
         .equals(other.getRequestId())) return false;
+    if (hasActionPermissionMappings() != other.hasActionPermissionMappings()) return false;
+    if (hasActionPermissionMappings()) {
+      if (!getActionPermissionMappings()
+          .equals(other.getActionPermissionMappings())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -311,6 +350,10 @@ private static final long serialVersionUID = 0L;
     }
     hash = (37 * hash) + REQUEST_ID_FIELD_NUMBER;
     hash = (53 * hash) + getRequestId().hashCode();
+    if (hasActionPermissionMappings()) {
+      hash = (37 * hash) + ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER;
+      hash = (53 * hash) + getActionPermissionMappings().hashCode();
+    }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -430,13 +473,20 @@ private static final long serialVersionUID = 0L;
 
     // Construct using io.superdurable.gen.SetAttributesRequest.newBuilder()
     private Builder() {
-
+      maybeForceBuilderInitialization();
     }
 
     private Builder(
         com.google.protobuf.GeneratedMessage.BuilderParent parent) {
       super(parent);
-
+      maybeForceBuilderInitialization();
+    }
+    private void maybeForceBuilderInitialization() {
+      if (com.google.protobuf.GeneratedMessage
+              .alwaysUseFieldBuilders) {
+        internalGetAttributesFieldBuilder();
+        internalGetActionPermissionMappingsFieldBuilder();
+      }
     }
     @java.lang.Override
     public Builder clear() {
@@ -452,6 +502,11 @@ private static final long serialVersionUID = 0L;
       }
       bitField0_ = (bitField0_ & ~0x00000004);
       requestId_ = "";
+      actionPermissionMappings_ = null;
+      if (actionPermissionMappingsBuilder_ != null) {
+        actionPermissionMappingsBuilder_.dispose();
+        actionPermissionMappingsBuilder_ = null;
+      }
       return this;
     }
 
@@ -507,6 +562,14 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000008) != 0)) {
         result.requestId_ = requestId_;
       }
+      int to_bitField0_ = 0;
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.actionPermissionMappings_ = actionPermissionMappingsBuilder_ == null
+            ? actionPermissionMappings_
+            : actionPermissionMappingsBuilder_.build();
+        to_bitField0_ |= 0x00000001;
+      }
+      result.bitField0_ |= to_bitField0_;
     }
 
     @java.lang.Override
@@ -562,6 +625,9 @@ private static final long serialVersionUID = 0L;
         bitField0_ |= 0x00000008;
         onChanged();
       }
+      if (other.hasActionPermissionMappings()) {
+        mergeActionPermissionMappings(other.getActionPermissionMappings());
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -616,6 +682,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000008;
               break;
             } // case 34
+            case 42: {
+              input.readMessage(
+                  internalGetActionPermissionMappingsFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 42
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1087,6 +1160,127 @@ private static final long serialVersionUID = 0L;
       bitField0_ |= 0x00000008;
       onChanged();
       return this;
+    }
+
+    private io.superdurable.gen.ActionPermissionMappings actionPermissionMappings_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.ActionPermissionMappings, io.superdurable.gen.ActionPermissionMappings.Builder, io.superdurable.gen.ActionPermissionMappingsOrBuilder> actionPermissionMappingsBuilder_;
+    /**
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+     * @return Whether the actionPermissionMappings field is set.
+     */
+    public boolean hasActionPermissionMappings() {
+      return ((bitField0_ & 0x00000010) != 0);
+    }
+    /**
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+     * @return The actionPermissionMappings.
+     */
+    public io.superdurable.gen.ActionPermissionMappings getActionPermissionMappings() {
+      if (actionPermissionMappingsBuilder_ == null) {
+        return actionPermissionMappings_ == null ? io.superdurable.gen.ActionPermissionMappings.getDefaultInstance() : actionPermissionMappings_;
+      } else {
+        return actionPermissionMappingsBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+     */
+    public Builder setActionPermissionMappings(io.superdurable.gen.ActionPermissionMappings value) {
+      if (actionPermissionMappingsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        actionPermissionMappings_ = value;
+      } else {
+        actionPermissionMappingsBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+     */
+    public Builder setActionPermissionMappings(
+        io.superdurable.gen.ActionPermissionMappings.Builder builderForValue) {
+      if (actionPermissionMappingsBuilder_ == null) {
+        actionPermissionMappings_ = builderForValue.build();
+      } else {
+        actionPermissionMappingsBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+     */
+    public Builder mergeActionPermissionMappings(io.superdurable.gen.ActionPermissionMappings value) {
+      if (actionPermissionMappingsBuilder_ == null) {
+        if (((bitField0_ & 0x00000010) != 0) &&
+          actionPermissionMappings_ != null &&
+          actionPermissionMappings_ != io.superdurable.gen.ActionPermissionMappings.getDefaultInstance()) {
+          getActionPermissionMappingsBuilder().mergeFrom(value);
+        } else {
+          actionPermissionMappings_ = value;
+        }
+      } else {
+        actionPermissionMappingsBuilder_.mergeFrom(value);
+      }
+      if (actionPermissionMappings_ != null) {
+        bitField0_ |= 0x00000010;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+     */
+    public Builder clearActionPermissionMappings() {
+      bitField0_ = (bitField0_ & ~0x00000010);
+      actionPermissionMappings_ = null;
+      if (actionPermissionMappingsBuilder_ != null) {
+        actionPermissionMappingsBuilder_.dispose();
+        actionPermissionMappingsBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+     */
+    public io.superdurable.gen.ActionPermissionMappings.Builder getActionPermissionMappingsBuilder() {
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return internalGetActionPermissionMappingsFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+     */
+    public io.superdurable.gen.ActionPermissionMappingsOrBuilder getActionPermissionMappingsOrBuilder() {
+      if (actionPermissionMappingsBuilder_ != null) {
+        return actionPermissionMappingsBuilder_.getMessageOrBuilder();
+      } else {
+        return actionPermissionMappings_ == null ?
+            io.superdurable.gen.ActionPermissionMappings.getDefaultInstance() : actionPermissionMappings_;
+      }
+    }
+    /**
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 5;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.ActionPermissionMappings, io.superdurable.gen.ActionPermissionMappings.Builder, io.superdurable.gen.ActionPermissionMappingsOrBuilder> 
+        internalGetActionPermissionMappingsFieldBuilder() {
+      if (actionPermissionMappingsBuilder_ == null) {
+        actionPermissionMappingsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.ActionPermissionMappings, io.superdurable.gen.ActionPermissionMappings.Builder, io.superdurable.gen.ActionPermissionMappingsOrBuilder>(
+                getActionPermissionMappings(),
+                getParentForChildren(),
+                isClean());
+        actionPermissionMappings_ = null;
+      }
+      return actionPermissionMappingsBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.SetAttributesRequest)

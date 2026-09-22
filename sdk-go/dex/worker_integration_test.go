@@ -147,6 +147,13 @@ func (workerActionProjectionFlow) GetPersistenceSchema() PersistenceSchema {
 	}}
 }
 
+func (workerActionProjectionFlow) HandleTimeout(ctx Context) (*StepDecision, error) {
+	if err := workerActionStatus.Set(ctx, "A"); err != nil {
+		return nil, err
+	}
+	return DeadEnd(), nil
+}
+
 func (workerActionProjectionFlow) UpdateProjection(
 	ctx Context,
 	input workerActionProjectionInput,
@@ -683,7 +690,7 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	require.Len(t, rpcResponse.StepDecision.NextSteps, 1)
 }
 
-func TestWorkerActionPermissionProjectionWrites(t *testing.T) {
+func TestWorkerActionPermissionMappingEmission(t *testing.T) {
 	client, closeService := newWorkerClientForFlows(t, []Flow{workerActionFlow}, nil)
 	defer closeService()
 
@@ -694,6 +701,7 @@ func TestWorkerActionPermissionProjectionWrites(t *testing.T) {
 		attributes        []*dexpb.KV
 		expectedWriteKeys []string
 		expectedValues    []any
+		expectsMappings   bool
 	}{
 		{
 			name:   "WaitFor missing to empty",
@@ -734,9 +742,16 @@ func TestWorkerActionPermissionProjectionWrites(t *testing.T) {
 			expectedWriteKeys: []string{
 				workerActionStatus.AttributeName(),
 				workerActionRegion.AttributeName(),
-				WorkQueuePermissionsIndexKey,
 			},
-			expectedValues: []any{"A", "C", []string{"permission-x", "permission-z"}},
+			expectedValues:  []any{"A", "C"},
+			expectsMappings: true,
+		},
+		{
+			name:              "timeout Execute source write",
+			method:            "timeout",
+			expectedWriteKeys: []string{workerActionStatus.AttributeName()},
+			expectedValues:    []any{"A"},
+			expectsMappings:   true,
 		},
 		{
 			name:   "Execute nonempty to empty",
@@ -750,9 +765,9 @@ func TestWorkerActionPermissionProjectionWrites(t *testing.T) {
 			),
 			expectedWriteKeys: []string{
 				workerActionStatus.AttributeName(),
-				WorkQueuePermissionsIndexKey,
 			},
-			expectedValues: []any{"D", nil},
+			expectedValues:  []any{"D"},
+			expectsMappings: true,
 		},
 		{
 			name:   "RPC unrelated business write",
@@ -779,6 +794,7 @@ func TestWorkerActionPermissionProjectionWrites(t *testing.T) {
 			),
 			expectedWriteKeys: []string{workerActionStatus.AttributeName()},
 			expectedValues:    []any{"A"},
+			expectsMappings:   true,
 		},
 		{
 			name:   "RPC deleted source",
@@ -792,12 +808,12 @@ func TestWorkerActionPermissionProjectionWrites(t *testing.T) {
 			),
 			expectedWriteKeys: []string{
 				workerActionStatus.AttributeName(),
-				WorkQueuePermissionsIndexKey,
 			},
-			expectedValues: []any{nil, nil},
+			expectedValues:  []any{nil},
+			expectsMappings: true,
 		},
 		{
-			name:   "RPC malformed current projection repaired",
+			name:   "RPC without source write ignores malformed projection",
 			method: "rpc",
 			mode:   "none",
 			attributes: workerActionProjectionAttributes(t,
@@ -806,20 +822,19 @@ func TestWorkerActionPermissionProjectionWrites(t *testing.T) {
 					WorkQueuePermissionsIndexKey:       "malformed",
 				},
 			),
-			expectedWriteKeys: []string{WorkQueuePermissionsIndexKey},
-			expectedValues:    []any{[]string{"permission-z"}},
 		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			writes := invokeWorkerActionProjection(
+			result := invokeWorkerActionProjection(
 				t,
 				client,
 				testCase.method,
 				testCase.mode,
 				testCase.attributes,
 			)
+			writes := result.writes
 			require.Len(t, writes, len(testCase.expectedWriteKeys))
 			for index, expectedKey := range testCase.expectedWriteKeys {
 				require.Equal(t, expectedKey, writes[index].GetKey())
@@ -832,8 +847,23 @@ func TestWorkerActionPermissionProjectionWrites(t *testing.T) {
 				encoded := mustEncodeWorkerTestValue(t, expectedValue)
 				require.True(t, reflect.DeepEqual(encoded, writes[index].GetValue()))
 			}
+			if !testCase.expectsMappings {
+				require.Nil(t, result.mappings)
+				return
+			}
+			require.Len(t, result.mappings.GetMappings(), 3)
+			require.Equal(t, workerActionStatus.AttributeName(), result.mappings.GetMappings()[0].GetAttributeKey())
+			require.Equal(t, "permission-z", result.mappings.GetMappings()[0].GetRequiredPermission())
+			require.Len(t, result.mappings.GetMappings()[0].GetEqualValues(), 2)
+			require.Equal(t, workerActionRegion.AttributeName(), result.mappings.GetMappings()[1].GetAttributeKey())
+			require.Equal(t, "permission-x", result.mappings.GetMappings()[1].GetRequiredPermission())
 		})
 	}
+}
+
+type workerActionProjectionResult struct {
+	writes   []*dexpb.AttributeWrite
+	mappings *dexpb.ActionPermissionMappings
 }
 
 func invokeWorkerActionProjection(
@@ -842,7 +872,7 @@ func invokeWorkerActionProjection(
 	method string,
 	mode string,
 	attributes []*dexpb.KV,
-) []*dexpb.AttributeWrite {
+) workerActionProjectionResult {
 	input := workerActionProjectionInput{Mode: mode}
 	switch method {
 	case "wait-for":
@@ -853,7 +883,9 @@ func invokeWorkerActionProjection(
 			StepInput:  mustEncodeWorkerTestValue(t, input),
 			Attributes: attributes,
 		})
-		return response.UpsertAttributes
+		return workerActionProjectionResult{
+			writes: response.UpsertAttributes, mappings: response.ActionPermissionMappings,
+		}
 	case "execute":
 		response := invokeExecuteResult(t, client, &dexpb.InvokeExecuteMethodRequest{
 			Context:          workerStepContext(),
@@ -863,7 +895,19 @@ func invokeWorkerActionProjection(
 			Attributes:       attributes,
 			ConditionResults: &dexpb.ConditionResults{},
 		})
-		return response.UpsertAttributes
+		return workerActionProjectionResult{
+			writes: response.UpsertAttributes, mappings: response.ActionPermissionMappings,
+		}
+	case "timeout":
+		response := invokeExecuteResult(t, client, &dexpb.InvokeExecuteMethodRequest{
+			Context:          workerStepContext(),
+			FlowType:         GetFinalFlowType(workerActionFlow),
+			StepType:         timeoutHandlerStepType,
+			ConditionResults: &dexpb.ConditionResults{},
+		})
+		return workerActionProjectionResult{
+			writes: response.UpsertAttributes, mappings: response.ActionPermissionMappings,
+		}
 	case "rpc":
 		response, err := client.InvokeWorkerRPC(context.Background(), &dexpb.InvokeWorkerRPCRequest{
 			Context:    workerRPCContext(),
@@ -873,10 +917,12 @@ func invokeWorkerActionProjection(
 			Attributes: attributes,
 		})
 		require.NoError(t, err)
-		return response.UpsertAttributes
+		return workerActionProjectionResult{
+			writes: response.UpsertAttributes, mappings: response.ActionPermissionMappings,
+		}
 	default:
 		t.Fatalf("unknown Worker method %q", method)
-		return nil
+		return workerActionProjectionResult{}
 	}
 }
 
@@ -1346,7 +1392,7 @@ func TestWorkerSynchronizesAttributeIndexesBeforeListening(t *testing.T) {
 		"WorkerTestStatus": dexpb.IndexType_INDEX_TYPE_KEYWORD,
 	}, request.AttributeIndexes)
 	require.False(t, <-flowService.wasListening)
-	require.Equal(t, uint32(1), worker.negotiatedProtocolVersion)
+	require.Equal(t, uint32(2), worker.negotiatedProtocolVersion)
 	require.Equal(t, "dev", worker.sdkVersion)
 	require.Equal(t, []string{"GetServerInfo", "SyncAttributeIndexes"}, flowService.recordedCalls())
 	require.Eventually(t, func() bool {
@@ -1372,8 +1418,17 @@ func TestWorkerProtocolFailureKeepsIndexesUnsynchronizedAndPortClosed(t *testing
 			name: "Server minimum exceeds SDK maximum",
 			serverInfo: &dexpb.ServerInfo{
 				ServerVersion:                   "future",
-				MinimumSupportedProtocolVersion: 2,
-				CurrentProtocolVersion:          2,
+				MinimumSupportedProtocolVersion: 3,
+				CurrentProtocolVersion:          3,
+			},
+			errorDetail: "do not overlap",
+		},
+		{
+			name: "Server current is below SDK minimum",
+			serverInfo: &dexpb.ServerInfo{
+				ServerVersion:                   "old",
+				MinimumSupportedProtocolVersion: 1,
+				CurrentProtocolVersion:          1,
 			},
 			errorDetail: "do not overlap",
 		},
@@ -1597,8 +1652,8 @@ func (service *workerSyncFlowService) GetServerInfo(
 	}
 	return &dexpb.ServerInfo{
 		ServerVersion:                   "test",
-		MinimumSupportedProtocolVersion: 1,
-		CurrentProtocolVersion:          1,
+		MinimumSupportedProtocolVersion: 2,
+		CurrentProtocolVersion:          2,
 	}, nil
 }
 

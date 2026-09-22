@@ -11,10 +11,14 @@
 package interpreter
 
 import (
+	"encoding/json"
+	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/index"
 	"github.com/superdurable/dex/service/common/utils"
 	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
@@ -162,8 +166,25 @@ func (am *PersistenceManager) ApplyAttributeWrites(
 	ctx interfaces.UnifiedContext,
 	writes []*dexpb.AttributeWrite,
 ) error {
+	return am.ApplyAttributeWritesWithActionPermissionMappings(ctx, writes, nil)
+}
+
+func (am *PersistenceManager) ApplyAttributeWritesWithActionPermissionMappings(
+	ctx interfaces.UnifiedContext,
+	writes []*dexpb.AttributeWrite,
+	mappings *dexpb.ActionPermissionMappings,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if mappings != nil {
+		projectionWrite, err := am.actionPermissionProjectionWrite(writes, mappings)
+		if err != nil {
+			return err
+		}
+		if projectionWrite != nil {
+			writes = append(writes, projectionWrite)
+		}
 	}
 	if len(writes) == 0 {
 		return nil
@@ -191,6 +212,115 @@ func (am *PersistenceManager) ApplyAttributeWrites(
 	)
 
 	return nil
+}
+
+func (am *PersistenceManager) actionPermissionProjectionWrite(
+	writes []*dexpb.AttributeWrite,
+	mappings *dexpb.ActionPermissionMappings,
+) (*dexpb.AttributeWrite, error) {
+	permissionSet := make(map[string]struct{}, len(mappings.GetMappings()))
+	for _, mapping := range mappings.GetMappings() {
+		value := am.attributeValueAfterWrites(mapping.GetAttributeKey(), writes)
+		for _, equalValue := range mapping.GetEqualValues() {
+			if equalActionPermissionValues(value, equalValue) {
+				permissionSet[mapping.GetRequiredPermission()] = struct{}{}
+				break
+			}
+		}
+	}
+	permissions := make([]string, 0, len(permissionSet))
+	for permission := range permissionSet {
+		permissions = append(permissions, permission)
+	}
+	sort.Strings(permissions)
+	currentPermissions, isCurrentValueValid := decodeWorkQueuePermissions(
+		am.attributes[service.SearchAttributeDexWorkQueuePermissions],
+	)
+	if isCurrentValueValid && reflect.DeepEqual(currentPermissions, permissions) {
+		return nil, nil
+	}
+	value := &dexpb.Value{Kind: &dexpb.Value_NullValue{}}
+	if len(permissions) > 0 {
+		payload, err := json.Marshal(permissions)
+		if err != nil {
+			return nil, fmt.Errorf("encode Action permission projection: %w", err)
+		}
+		value = &dexpb.Value{Kind: &dexpb.Value_ObjValue{
+			ObjValue: &dexpb.EncodedObject{Encoding: "json", Payload: payload},
+		}}
+	}
+	return &dexpb.AttributeWrite{
+		Key:   service.SearchAttributeDexWorkQueuePermissions,
+		Value: value,
+		IndexConfig: &dexpb.IndexConfig{
+			Enable:   true,
+			Type:     dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+			IndexKey: service.SearchAttributeDexWorkQueuePermissions,
+		},
+	}, nil
+}
+
+func (am *PersistenceManager) attributeValueAfterWrites(
+	key string,
+	writes []*dexpb.AttributeWrite,
+) *dexpb.Value {
+	for writeIndex := len(writes) - 1; writeIndex >= 0; writeIndex-- {
+		write := writes[writeIndex]
+		if write == nil || write.GetKey() != key {
+			continue
+		}
+		if utils.IsNullValue(write.GetValue()) {
+			return nil
+		}
+		return write.GetValue()
+	}
+	return am.attributes[key]
+}
+
+func equalActionPermissionValues(left *dexpb.Value, right *dexpb.Value) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	switch leftValue := left.GetKind().(type) {
+	case *dexpb.Value_StringValue:
+		rightValue, ok := right.GetKind().(*dexpb.Value_StringValue)
+		return ok && leftValue.StringValue == rightValue.StringValue
+	case *dexpb.Value_BoolValue:
+		rightValue, ok := right.GetKind().(*dexpb.Value_BoolValue)
+		return ok && leftValue.BoolValue == rightValue.BoolValue
+	case *dexpb.Value_IntValue:
+		rightValue, ok := right.GetKind().(*dexpb.Value_IntValue)
+		return ok && leftValue.IntValue == rightValue.IntValue
+	case *dexpb.Value_DoubleValue:
+		rightValue, ok := right.GetKind().(*dexpb.Value_DoubleValue)
+		return ok && leftValue.DoubleValue == rightValue.DoubleValue
+	default:
+		return false
+	}
+}
+
+func decodeWorkQueuePermissions(value *dexpb.Value) ([]string, bool) {
+	if value == nil || utils.IsNullValue(value) {
+		return []string{}, true
+	}
+	object := value.GetObjValue()
+	if object == nil || object.GetEncoding() != "json" {
+		return nil, false
+	}
+	var permissions []string
+	if err := json.Unmarshal(object.GetPayload(), &permissions); err != nil {
+		return nil, false
+	}
+	permissionSet := make(map[string]struct{}, len(permissions))
+	for _, permission := range permissions {
+		permissionSet[permission] = struct{}{}
+	}
+	permissions = permissions[:0]
+	for permission := range permissionSet {
+		permissions = append(permissions, permission)
+	}
+	sort.Strings(permissions)
+	return permissions, true
 }
 
 func (am *PersistenceManager) CanLockKeys(keys []string) bool {

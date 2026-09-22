@@ -179,7 +179,7 @@ func (a *Activities) IWaitForM(
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
-	if err := validateWorkerWaitForResponse(resp); err != nil {
+	if err := validateWorkerWaitForResponse(resp, a.unifiedClient.GetBackendType()); err != nil {
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
 	if err := a.offloadSubFlowStartInputs(
@@ -353,6 +353,7 @@ func (a *Activities) IExecuteM(
 	if err := validateExecuteResponse(
 		resp,
 		a.cfg.Interpreter.InterpreterActivityConfig.EffectiveMinimumStepHeartbeatTimeout(),
+		a.unifiedClient.GetBackendType(),
 	); err != nil {
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
@@ -772,6 +773,7 @@ func (a *Activities) IWRPC(
 		input.GetRequest(),
 		&a.cfg.Api,
 		&a.cfg.Interpreter.InterpreterActivityConfig,
+		a.unifiedClient.GetBackendType(),
 		a.blobStore,
 		input.GetRequest().GetRequestId(),
 		&a.cfg.BlobStore,
@@ -1284,11 +1286,23 @@ func valuePayloadEqual(left, right *dexpb.Value) bool {
 		bytes.Equal(leftObj.GetPayload(), rightObj.GetPayload())
 }
 
-func validateWorkerWaitForResponse(resp *dexpb.InvokeWaitForMethodResponse) error {
+func validateWorkerWaitForResponse(
+	resp *dexpb.InvokeWaitForMethodResponse,
+	backendType service.BackendType,
+) error {
 	if resp == nil {
 		return fmt.Errorf("nil InvokeWaitForMethodResponse")
 	}
 	if err := workerclient.RejectWorkerAttributeWriteBlobIDs(resp.GetUpsertAttributes()); err != nil {
+		return err
+	}
+	if err := workerclient.ValidateRuntimeAttributeWrites(resp.GetUpsertAttributes()); err != nil {
+		return err
+	}
+	if err := workerclient.ValidateActionPermissionMappings(
+		resp.GetActionPermissionMappings(),
+		backendType,
+	); err != nil {
 		return err
 	}
 	if err := workerclient.RejectWorkerKVBlobIDs(resp.GetUpsertStepExeLocals()); err != nil {
@@ -1306,18 +1320,31 @@ func validateWorkerWaitForResponse(resp *dexpb.InvokeWaitForMethodResponse) erro
 func validateExecuteResponse(
 	resp *dexpb.InvokeExecuteMethodResponse,
 	minimumHeartbeatTimeout time.Duration,
+	backendType service.BackendType,
 ) error {
 	if err := validateStepDecision(resp.GetStepDecision(), minimumHeartbeatTimeout); err != nil {
 		return err
 	}
-	return validateWorkerExecuteResponse(resp)
+	return validateWorkerExecuteResponse(resp, backendType)
 }
 
-func validateWorkerExecuteResponse(resp *dexpb.InvokeExecuteMethodResponse) error {
+func validateWorkerExecuteResponse(
+	resp *dexpb.InvokeExecuteMethodResponse,
+	backendType service.BackendType,
+) error {
 	if resp == nil {
 		return fmt.Errorf("nil InvokeExecuteMethodResponse")
 	}
 	if err := workerclient.RejectWorkerAttributeWriteBlobIDs(resp.GetUpsertAttributes()); err != nil {
+		return err
+	}
+	if err := workerclient.ValidateRuntimeAttributeWrites(resp.GetUpsertAttributes()); err != nil {
+		return err
+	}
+	if err := workerclient.ValidateActionPermissionMappings(
+		resp.GetActionPermissionMappings(),
+		backendType,
+	); err != nil {
 		return err
 	}
 	if err := workerclient.RejectWorkerKVBlobIDs(resp.GetUpsertStepExeLocals()); err != nil {

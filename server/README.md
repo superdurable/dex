@@ -79,7 +79,7 @@ after scheduling trim and can be retried later.
 ## Client protocol compatibility
 
 `GetServerInfo` reports the Server artifact version and its inclusive supported
-protocol interval. The initial interval is `[1,1]`. The artifact version is
+protocol interval. The current interval is `[1,2]`. The artifact version is
 diagnostic only: local builds use `dev`, while release images inject the release
 tag through the `DexServerVersion` linker variable.
 
