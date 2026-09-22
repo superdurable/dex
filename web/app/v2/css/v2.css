@@ -175,10 +175,22 @@
   color: var(--p-ink-1);
 }
 
+/**
+ * The one brand green in the product.
+ *
+ * This button was achromatic, so nothing on a v2 screen carried the brand at
+ * all. It is the CTA and the mark, and nothing else: a status hue means "this
+ * is what the run is doing", and an imperative is not a status.
+ */
 .v2-primary {
-  border: 1px solid var(--p-ink-2);
-  background: var(--p-surface-3);
-  color: var(--p-ink-0);
+  border: 1px solid var(--color-cta);
+  background: var(--color-cta);
+  color: var(--color-cta-on);
+}
+
+.v2-primary:hover:not(:disabled) {
+  border-color: var(--color-cta-hover);
+  background: var(--color-cta-hover);
 }
 
 .v2-error {

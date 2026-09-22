@@ -123,6 +123,13 @@
   --color-accent-subtle: var(--hue-progress-fill); /* running wash (1.16 canvas)             */
   --color-focus: var(--hue-progress-ink); /* 9.59 surface / 11.16 canvas                    */
 
+  /* ---- the ONE brand green. The primary button and the mark, nothing else.
+     Not a state: green-as-state is `success` below, and it is the SAME hue at a
+     different lightness. This is the only token licensed to be loud.        */
+  --color-cta: #51d28e; /* 8.92 card — near-black ink sits on it, 10.38      */
+  --color-cta-hover: #6ee3a2; /* 12.47                                       */
+  --color-cta-on: var(--surface-canvas); /* ink ON the CTA. See the light twin. */
+
   /* ---- the six node states. Three are deliberately hueless. ------------
      `waiting` carries no hue because it means "blocked on a timer or a
      sibling" — which is emphatically NOT the same thing as needing a human,
@@ -282,6 +289,19 @@
    * over — which tinted a region with an actor's colour.                   */
   --band-0: #f2f4f7;
   --band-1: #e9ebee;
+
+  /* On a light ground the CTA inverts: a mid-dark fill carrying WHITE text,
+     because a bright green caps at L 0.55 before white stops being legible. */
+  --color-cta: #008650; /* white on it, 4.64                                 */
+  --color-cta-hover: #007546; /* 5.78                                        */
+  --color-cta-on: #ffffff;
+
+  /* These four had no light value at all, so light silently inherited the
+     dark one — a blue tuned for near-black, and two shadows built for it.  */
+  --color-accent-hover: #22538c; /* 7.82 card                                */
+  --attention-wash: rgba(132, 91, 0, 0.14); /* a light ground takes less hue  */
+  --focus-ring: 0 0 0 3px rgba(52, 101, 159, 0.32);
+  --shadow-drawer: -18px 0 34px -22px rgba(15, 23, 36, 0.2);
   --accent-wash: rgba(52, 101, 159, 0.08);
   --accent-wash-strong: rgba(52, 101, 159, 0.16);
   --shadow-pop: 0 0 0 1px var(--line-mid), 0 10px 28px -12px rgba(15, 23, 36, 0.22);

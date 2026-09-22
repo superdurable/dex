@@ -1508,7 +1508,7 @@
 }
 
 .pbox-rpc[data-selected='true'] {
-  background: color-mix(in srgb, var(--p-rpc) 100%, white 25%);
+  background: color-mix(in srgb, var(--p-rpc) 100%, var(--p-surface-1) 25%);
 }
 
 /* The outside-the-flow lane: BPMN's collapsed pool for an external participant. */
@@ -1621,11 +1621,11 @@
 }
 
 [data-theme='light'] .v2-shell .pbox:not([data-selected='true']):not([data-emphasis='start']) {
-  box-shadow: 0 1px 2px rgba(36, 48, 36, 0.07);
+  box-shadow: 0 1px 2px rgba(15, 23, 36, 0.07);
 }
 
 [data-theme='light'] .v2-shell .pbox[data-emphasis='start']:not([data-selected='true']) {
-  box-shadow: inset 3px 0 0 var(--hue-clock-ink), 0 1px 2px rgba(36, 48, 36, 0.07);
+  box-shadow: inset 3px 0 0 var(--hue-clock-ink), 0 1px 2px rgba(15, 23, 36, 0.07);
 }
 
 [data-theme='light'] .v2-shell .pbox-title {
