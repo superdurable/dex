@@ -142,15 +142,14 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 		}
 		flowRenderingSource := strings.TrimSpace(cfg.Web.FlowRenderingSource)
 		webConfig := &dexweb.Config{
-			BindAddress:                        cfg.Web.EffectiveBindAddress(),
-			Port:                               cfg.Web.EffectivePort(),
-			FlowRenderingSource:                flowRenderingSource,
-			FlowRenderingDirectory:             cfg.Web.FlowRenderingDirectory,
-			WorkQueuePermissionMode:            strings.TrimSpace(cfg.Web.WorkQueuePermissionMode),
-			IsWorkQueuePermissionHeaderTrusted: cfg.Web.IsWorkQueuePermissionHeaderTrusted,
+			BindAddress:             cfg.Web.EffectiveBindAddress(),
+			Port:                    cfg.Web.EffectivePort(),
+			FlowRenderingSource:     flowRenderingSource,
+			FlowRenderingDirectory:  cfg.Web.FlowRenderingDirectory,
+			WorkQueuePermissionMode: strings.TrimSpace(cfg.Web.WorkQueuePermissionMode),
 		}
-		if flowRenderingSource == dexweb.FlowRenderingSourceS3 {
-			storage, findErr := bootstrap.FindS3Storage(cfg, cfg.Web.FlowRenderingS3.StorageID)
+		if flowRenderingSource == dexweb.FlowRenderingSourceBlobStore {
+			storage, findErr := bootstrap.FindS3Storage(cfg, cfg.Web.FlowRenderingBlobStore.StorageID)
 			if findErr != nil {
 				_ = connection.Close()
 				return nil, findErr
@@ -167,7 +166,7 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 			}
 			sharedS3Clients[storage.StorageId] = s3Client
 			webConfig.FlowRenderingObjectStore = objectStore
-			webConfig.FlowRenderingPrefix = cfg.Web.FlowRenderingS3.Prefix
+			webConfig.FlowRenderingPrefix = cfg.Web.FlowRenderingBlobStore.Prefix
 		}
 		webServer, err := dexweb.NewServer(
 			webConfig,

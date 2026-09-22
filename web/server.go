@@ -28,8 +28,8 @@ import (
 const DefaultPort = 8802
 
 const (
-	FlowRenderingSourceDirectory = "directory"
-	FlowRenderingSourceS3        = "s3"
+	FlowRenderingSourceLocal     = "local"
+	FlowRenderingSourceBlobStore = "blobstore"
 )
 
 type Config struct {
@@ -39,16 +39,14 @@ type Config struct {
 	Port int
 	// FlowRenderingDirectory defaults empty and supplies Flow Definition Graph JSON files to Dex Web.
 	FlowRenderingDirectory string
-	// FlowRenderingSource defaults to directory and selects directory or s3.
+	// FlowRenderingSource defaults to local and selects local or blobstore.
 	FlowRenderingSource string
-	// FlowRenderingObjectStore is required by the s3 source and stays server-side.
+	// FlowRenderingObjectStore is required by the blobstore source and stays server-side.
 	FlowRenderingObjectStore FlowDefinitionObjectStore
-	// FlowRenderingPrefix is the immutable-bundle root used by the s3 source.
+	// FlowRenderingPrefix is the immutable-bundle root used by the blobstore source.
 	FlowRenderingPrefix string
 	// WorkQueuePermissionMode defaults to local-selector.
 	WorkQueuePermissionMode string
-	// IsWorkQueuePermissionHeaderTrusted confirms a trusted proxy strips and injects the permission header.
-	IsWorkQueuePermissionHeaderTrusted bool
 }
 
 type Server struct {
@@ -199,17 +197,17 @@ func (p staticFlowDefinitionProvider) Load(context.Context) (*FlowDefinitionSnap
 func newFlowDefinitionProvider(cfg *Config) (FlowDefinitionProvider, error) {
 	source := strings.TrimSpace(cfg.FlowRenderingSource)
 	if source == "" {
-		source = FlowRenderingSourceDirectory
+		source = FlowRenderingSourceLocal
 	}
 	switch source {
-	case FlowRenderingSourceDirectory:
+	case FlowRenderingSourceLocal:
 		if cfg.FlowRenderingObjectStore != nil || strings.TrimSpace(cfg.FlowRenderingPrefix) != "" {
-			return nil, fmt.Errorf("directory and S3 Flow Definition sources are mutually exclusive")
+			return nil, fmt.Errorf("local and blobstore Flow Definition sources are mutually exclusive")
 		}
 		return NewDirectoryFlowDefinitionProvider(cfg.FlowRenderingDirectory)
-	case FlowRenderingSourceS3:
+	case FlowRenderingSourceBlobStore:
 		if strings.TrimSpace(cfg.FlowRenderingDirectory) != "" {
-			return nil, fmt.Errorf("directory and S3 Flow Definition sources are mutually exclusive")
+			return nil, fmt.Errorf("local and blobstore Flow Definition sources are mutually exclusive")
 		}
 		return NewS3FlowDefinitionProvider(cfg.FlowRenderingObjectStore, cfg.FlowRenderingPrefix)
 	default:
@@ -228,9 +226,6 @@ func validatePermissionConfig(cfg *Config) error {
 	mode := effectivePermissionMode(cfg)
 	if mode != api.V2PermissionModeLocalSelector && mode != api.V2PermissionModeTrustedHeader {
 		return fmt.Errorf("unsupported Work Queue permission mode %q", mode)
-	}
-	if mode == api.V2PermissionModeTrustedHeader && !cfg.IsWorkQueuePermissionHeaderTrusted {
-		return fmt.Errorf("trusted-header requires an explicitly trusted proxy header boundary")
 	}
 	return nil
 }

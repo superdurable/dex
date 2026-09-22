@@ -96,7 +96,7 @@ func NewDirectoryFlowDefinitionProvider(directory string) (*DirectoryFlowDefinit
 
 func (p *DirectoryFlowDefinitionProvider) Load(_ context.Context) (*FlowDefinitionSnapshot, error) {
 	if p.directory == "" {
-		return buildFlowDefinitionSnapshot(nil, "directory", "", "")
+		return buildFlowDefinitionSnapshot(nil, "local", "", "")
 	}
 	manifestPath := filepath.Join(p.directory, flowDefinitionManifestName)
 	manifestBytes, err := p.readManifest(manifestPath)
@@ -105,7 +105,7 @@ func (p *DirectoryFlowDefinitionProvider) Load(_ context.Context) (*FlowDefiniti
 		if readErr != nil {
 			return nil, classifyDefinitionReadError(readErr)
 		}
-		return buildFlowDefinitionSnapshot(files, "directory", p.directory, "")
+		return buildFlowDefinitionSnapshot(files, "local", p.directory, "")
 	}
 	if err != nil {
 		return nil, unavailableDefinitionSource(fmt.Errorf("read Flow Definition manifest: %w", err))
@@ -137,7 +137,7 @@ func (p *DirectoryFlowDefinitionProvider) loadManifest(data []byte) (*FlowDefini
 	if err != nil {
 		return nil, classifyDefinitionReadError(fmt.Errorf("read Flow Definition release %s: %w", manifest.ReleaseID, err))
 	}
-	return buildManifestSnapshot(files, "directory", p.directory, manifest)
+	return buildManifestSnapshot(files, "local", p.directory, manifest)
 }
 
 func readDirectoryDefinitionFiles(directory string) ([]flowDefinitionFile, error) {
@@ -266,7 +266,7 @@ func (p *S3FlowDefinitionProvider) Load(ctx context.Context) (*FlowDefinitionSna
 		}
 		files = append(files, flowDefinitionFile{path: strings.TrimPrefix(key, bundlePrefix), data: object.Data})
 	}
-	snapshot, err := buildManifestSnapshot(files, "s3", p.prefix, manifest)
+	snapshot, err := buildManifestSnapshot(files, "blobstore", p.prefix, manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +361,7 @@ func buildFlowDefinitionSnapshot(
 		DefinitionCount:    len(files),
 		Definitions:        make([]flowDefinition, 0, len(files)),
 	}
-	if source == "directory" {
+	if source == "local" {
 		catalog.Directory = location
 	}
 	v2Definitions := make(map[string]api.V2Definition)

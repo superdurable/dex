@@ -18,43 +18,53 @@ import (
 )
 
 func TestWebEnvironmentOverridesYAML(t *testing.T) {
-	t.Setenv("DEX_WEB_FLOW_RENDERING_SOURCE", "s3")
+	t.Setenv("DEX_WEB_FLOW_RENDERING_SOURCE", "blobstore")
 	t.Setenv("DEX_WEB_FLOW_RENDERING_STORAGE_ID", "p0")
 	t.Setenv("DEX_WEB_FLOW_RENDERING_PREFIX", "_superverse/dex-web/flow-definitions")
 	t.Setenv("DEX_WEB_WORK_QUEUE_PERMISSION_MODE", "trusted-header")
-	t.Setenv("DEX_WEB_TRUST_WORK_QUEUE_PERMISSION_HEADER", "true")
 	path := writeTestConfig(t, `
 web:
-  flowRenderingSource: directory
+  flowRenderingSource: local
   workQueuePermissionMode: local-selector
 `)
 	cfg, err := NewConfig(path)
 	require.NoError(t, err)
-	require.Equal(t, "s3", cfg.Web.FlowRenderingSource)
-	require.Equal(t, "p0", cfg.Web.FlowRenderingS3.StorageID)
-	require.Equal(t, "_superverse/dex-web/flow-definitions", cfg.Web.FlowRenderingS3.Prefix)
+	require.Equal(t, "blobstore", cfg.Web.FlowRenderingSource)
+	require.Equal(t, "p0", cfg.Web.FlowRenderingBlobStore.StorageID)
+	require.Equal(t, "_superverse/dex-web/flow-definitions", cfg.Web.FlowRenderingBlobStore.Prefix)
 	require.Equal(t, "trusted-header", cfg.Web.WorkQueuePermissionMode)
-	require.True(t, cfg.Web.IsWorkQueuePermissionHeaderTrusted)
 }
 
-func TestWebConfigRejectsUnsafeSourceAndPermissionCombinations(t *testing.T) {
+func TestWebConfigRejectsMixedDefinitionSources(t *testing.T) {
 	path := writeTestConfig(t, `
 web:
-  flowRenderingSource: s3
+  flowRenderingSource: blobstore
   flowRenderingDirectory: /tmp/definitions
-  flowRenderingS3:
+  flowRenderingBlobStore:
     storageId: p0
     prefix: definitions
 `)
 	_, err := NewConfig(path)
 	require.ErrorContains(t, err, "mutually exclusive")
+}
 
-	path = writeTestConfig(t, `
+func TestWebConfigAcceptsTrustedHeaderPermissionMode(t *testing.T) {
+	path := writeTestConfig(t, `
 web:
   workQueuePermissionMode: trusted-header
 `)
-	_, err = NewConfig(path)
-	require.ErrorContains(t, err, "trustWorkQueuePermissionHeader=true")
+	_, err := NewConfig(path)
+	require.NoError(t, err)
+}
+
+func TestWebConfigRejectsLegacyDefinitionSources(t *testing.T) {
+	for _, source := range []string{"directory", "s3"} {
+		t.Run(source, func(t *testing.T) {
+			path := writeTestConfig(t, "web:\n  flowRenderingSource: "+source+"\n")
+			_, err := NewConfig(path)
+			require.ErrorContains(t, err, "must be local or blobstore")
+		})
+	}
 }
 
 func TestConfigRejectsReservedSuperVerseWorkflowNamespace(t *testing.T) {

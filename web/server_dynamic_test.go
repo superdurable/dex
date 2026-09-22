@@ -41,7 +41,7 @@ func (failingFlowDefinitionProvider) Load(context.Context) (*FlowDefinitionSnaps
 }
 
 func TestReadinessReportsDefinitionSnapshot(t *testing.T) {
-	snapshot, err := buildFlowDefinitionSnapshot(nil, "directory", "", "")
+	snapshot, err := buildFlowDefinitionSnapshot(nil, "local", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestReadinessReportsDefinitionSnapshot(t *testing.T) {
 }
 
 func TestFlowDefinitionResponseReportsRevisionETag(t *testing.T) {
-	snapshot, err := buildFlowDefinitionSnapshot(nil, "directory", "", "")
+	snapshot, err := buildFlowDefinitionSnapshot(nil, "local", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestReadinessFailsForInvalidDefinitionSource(t *testing.T) {
 }
 
 func TestReadinessFailsForUnavailableFlowService(t *testing.T) {
-	snapshot, err := buildFlowDefinitionSnapshot(nil, "directory", "", "")
+	snapshot, err := buildFlowDefinitionSnapshot(nil, "local", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

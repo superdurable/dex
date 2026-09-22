@@ -73,14 +73,13 @@ selector is a local development boundary. In hosted deployments,
 authorizes Search and Actions only from
 `X-Dex-Work-Queue-Permissions`. A trusted reverse proxy must strip any
 client-supplied value before injecting its own. Port 8802 must not be reachable
-around that proxy. Set `trustWorkQueuePermissionHeader: true` to acknowledge
-that boundary; Dex otherwise refuses the configuration.
+around that proxy.
 Dex does not expose an `/api/v2/access` endpoint; hosted identity and role
 resolution stay in the reverse proxy and hosting control plane.
 
 ## Dynamic definition bundles
 
-Directory and S3 sources support atomic bundles:
+Local and blobstore sources support atomic bundles:
 
 ```text
 <root>/
@@ -100,8 +99,8 @@ Directory and S3 sources support atomic bundles:
 }
 ```
 
-For a directory source, `bundlePrefix` is
-`releases/<release-id>/`. For S3 it includes the configured root prefix as in
+For a local source, `bundlePrefix` is
+`releases/<release-id>/`. For blobstore it includes the configured root prefix as in
 the example. Release directories are immutable: upload and verify every JSON
 object before replacing `active-manifest`. Dex validates the UUID, exact
 prefix, file count, every FDG, and the digest before installing a snapshot.
@@ -111,16 +110,15 @@ Each path and exact payload is framed as an unsigned 64-bit big-endian byte
 length followed by those bytes; SHA-256 is computed over the concatenated
 frames and encoded as lowercase `sha256:<hex>`.
 
-An S3 source reuses one existing `blobStore.supportedStorages` entry:
+A blobstore source reuses one existing S3 `blobStore.supportedStorages` entry:
 
 ```yaml
 web:
-  flowRenderingSource: s3
-  flowRenderingS3:
+  flowRenderingSource: blobstore
+  flowRenderingBlobStore:
     storageId: p0
     prefix: _superverse/dex-web/flow-definitions
   workQueuePermissionMode: trusted-header
-  trustWorkQueuePermissionHeader: true
 ```
 
 It conditionally reads the manifest by ETag on every definition-dependent
@@ -134,7 +132,6 @@ DEX_WEB_FLOW_RENDERING_DIRECTORY
 DEX_WEB_FLOW_RENDERING_STORAGE_ID
 DEX_WEB_FLOW_RENDERING_PREFIX
 DEX_WEB_WORK_QUEUE_PERMISSION_MODE
-DEX_WEB_TRUST_WORK_QUEUE_PERMISSION_HEADER
 ```
 
 `GET /api/flow-definitions` and `GET /api/v2/catalog` return the active revision
