@@ -68,7 +68,7 @@ run 列表的每一行读取 **title** 和 **status**；当 Flow 两者都未声
 
 其余 Display 字段按照 directive 行排序。String、integer、double、boolean 和 datetime 字段可以编辑。JSON、object、array 和 AttributeMap 只读。缺失字段必须返回 null。后端会拒绝遗漏、未声明或类型错误的值。
 
-只有 current run 仍为 active 时才能编辑。Dex Web 通过 **SetAttributes** 写入 Attribute；如果该 Attribute 已建立索引，还会附带声明的 index 配置。
+只有 current run 仍为 active 时才能编辑。Dex Web 通过 **SetAttributes** 写入 Attribute；如果该 Attribute 已建立索引，还会附带声明的 index 配置。仅当被编辑的 Attribute 是 Action condition source 时，Dex Web 才会同时发送完整的 Action permission mapping；其它编辑不会发送。
 
 ## Action
 
@@ -76,7 +76,11 @@ Action 是通过 **RPCOptions.Action** 注册的 RPC。**DefineAction** 接收 l
 
 无输入 Action 接受 **dex.None**，直接显示为按钮。有输入 Action 接受具名 Go struct。来自用户的字段按 directive 顺序渲染控件；来自 Attribute 的字段保持隐藏，并使用当前选中 run 的 Attribute snapshot。
 
-每个 Action 要求一个 permission，例如 **refund.manage**。Permission key 以小写字母开头，只包含小写字母、数字、点或连字符。Go Worker 会在相关状态变化后计算所有 Action condition，并把当前可用 Action 的 permission 去重后投影到内部 KeywordList Search Attribute **DexWorkQueuePermissions**。
+每个 Action 要求一个 permission，例如 **refund.manage**。Permission key 以小写字母开头，只包含小写字母、数字、点或连字符。当一次成功的 Worker invocation 写入 Action condition source 时，Worker 会在 response 中附带完整 mapping。无关写入和 query-only RPC 不会附带 mapping。
+
+Server 会把业务写入覆盖到权威 Attribute state 上，并在同一个 Workflow Task 中计算 mapping。它对当前可用 Action 的 permission 排序、去重，仅在 union 变化时完整替换内部 KeywordList Search Attribute **DexWorkQueuePermissions**；空 union 会删除该投影。维护投影不要求应用 Step 锁住每个 Action source。
+
+Action definition 是 active Flow 的稳定契约。部署时删除或修改全部 mapping，并不会自动迁移已有状态。后续 source write、显式空 mapping 或新的 Flow run 才会应用新定义。
 
 Work Queue 会列出所选 Flow type 声明的 permission。在 **Working as** 中选择一个 permission 后，浏览器通过 **POST /api/v2/search** 的 **workQueuePermissions** 发送它。Superverse 等调用方也可以发送从多个用户 role 得到的多个 permission。只要 run 的投影列表包含任意一个请求 permission 就会匹配；这组 permission 与 Flow type 和其他 filter 之间使用 AND。
 

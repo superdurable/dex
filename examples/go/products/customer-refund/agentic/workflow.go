@@ -503,10 +503,6 @@ func (agenticReceiveRequestStep) GetStepType() string {
 	return "ReceiveRequestStep"
 }
 
-func (agenticReceiveRequestStep) GetStepOptions() *dex.StepOptions {
-	return agenticCaseStatusStepOptions()
-}
-
 func (agenticReceiveRequestStep) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
@@ -543,10 +539,6 @@ type agenticDecisionStep struct {
 
 func (agenticDecisionStep) GetStepType() string {
 	return "AgentDecisionStep"
-}
-
-func (agenticDecisionStep) GetStepOptions() *dex.StepOptions {
-	return agenticCaseStatusStepOptions()
 }
 
 func (agenticDecisionStep) Execute(
@@ -788,10 +780,6 @@ func (agenticGuardrailStep) GetStepType() string {
 	return "GuardrailStep"
 }
 
-func (agenticGuardrailStep) GetStepOptions() *dex.StepOptions {
-	return agenticCaseStatusStepOptions()
-}
-
 func (agenticGuardrailStep) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
@@ -849,10 +837,6 @@ type agenticReCheckStep struct {
 
 func (agenticReCheckStep) GetStepType() string {
 	return "ReCheckStep"
-}
-
-func (agenticReCheckStep) GetStepOptions() *dex.StepOptions {
-	return agenticCaseStatusStepOptions()
 }
 
 func (agenticReCheckStep) Execute(
@@ -957,8 +941,6 @@ func (agenticIssueRefundStep) GetStepType() string {
 
 func (agenticIssueRefundStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
-		WaitForLockAttributes: []dex.AttributeLock{dex.LockAttribute(agenticCaseStatus)},
-		ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(agenticCaseStatus)},
 		ExecuteRetry: &dex.RetryPolicy{
 			InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: 10 * time.Second, MaximumAttempts: 4,
 		},
@@ -1002,10 +984,6 @@ func (agenticOfferAccountCreditStep) GetStepType() string {
 	return "OfferAccountCreditStep"
 }
 
-func (agenticOfferAccountCreditStep) GetStepOptions() *dex.StepOptions {
-	return agenticCaseStatusStepOptions()
-}
-
 func (step agenticOfferAccountCreditStep) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
@@ -1036,10 +1014,6 @@ type agenticVerifyBillingStep struct {
 
 func (agenticVerifyBillingStep) GetStepType() string {
 	return "VerifyBillingStep"
-}
-
-func (agenticVerifyBillingStep) GetStepOptions() *dex.StepOptions {
-	return agenticCaseStatusStepOptions()
 }
 
 func (step agenticVerifyBillingStep) Execute(
@@ -1105,10 +1079,6 @@ type agenticDraftCustomerMessageStep struct {
 
 func (agenticDraftCustomerMessageStep) GetStepType() string {
 	return "DraftCustomerMessageStep"
-}
-
-func (agenticDraftCustomerMessageStep) GetStepOptions() *dex.StepOptions {
-	return agenticCaseStatusStepOptions()
 }
 
 func (agenticDraftCustomerMessageStep) Execute(
@@ -1203,11 +1173,7 @@ func (agenticSendCustomerMessageStep) GetStepType() string {
 }
 
 func (agenticSendCustomerMessageStep) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{
-		WaitForLockAttributes: []dex.AttributeLock{dex.LockAttribute(agenticCaseStatus)},
-		ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(agenticCaseStatus)},
-		ExecuteFailure:        dex.ProceedToOnExecuteFailure(agenticEmailFailedStep{}, nil),
-	}
+	return &dex.StepOptions{ExecuteFailure: dex.ProceedToOnExecuteFailure(agenticEmailFailedStep{}, nil)}
 }
 
 func (step agenticSendCustomerMessageStep) Execute(
@@ -1247,10 +1213,6 @@ func (agenticNonConvergenceStep) GetStepType() string {
 	return "NonConvergenceStep"
 }
 
-func (agenticNonConvergenceStep) GetStepOptions() *dex.StepOptions {
-	return agenticCaseStatusStepOptions()
-}
-
 func (agenticNonConvergenceStep) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
@@ -1288,10 +1250,6 @@ func (agenticBillingFailedStep) GetStepType() string {
 	return "BillingFailedStep"
 }
 
-func (agenticBillingFailedStep) GetStepOptions() *dex.StepOptions {
-	return agenticCaseStatusStepOptions()
-}
-
 func (agenticBillingFailedStep) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
@@ -1315,10 +1273,6 @@ func (agenticSubscriptionFailedStep) GetStepType() string {
 	return "SubscriptionFailedStep"
 }
 
-func (agenticSubscriptionFailedStep) GetStepOptions() *dex.StepOptions {
-	return agenticCaseStatusStepOptions()
-}
-
 func (agenticSubscriptionFailedStep) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
@@ -1340,10 +1294,6 @@ type agenticEmailFailedStep struct {
 
 func (agenticEmailFailedStep) GetStepType() string {
 	return "EmailFailedStep"
-}
-
-func (agenticEmailFailedStep) GetStepOptions() *dex.StepOptions {
-	return agenticCaseStatusStepOptions()
 }
 
 func (agenticEmailFailedStep) Execute(
@@ -1374,13 +1324,6 @@ func (agenticCloseCaseStep) Execute(
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
 	return dex.GracefulComplete("refund:" + refundCase.CaseID), nil
-}
-
-func agenticCaseStatusStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{
-		WaitForLockAttributes: []dex.AttributeLock{dex.LockAttribute(agenticCaseStatus)},
-		ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(agenticCaseStatus)},
-	}
 }
 
 func agenticChooseAction(

@@ -58,12 +58,17 @@ type stop startup. Invalid analyzer output remains visible on **v1** Flow
 Rendering but does not appear as a **v2** Flow type.
 
 The v2 Work Queue is available at `/v2/work-queue`. Its **Working as** control
-selects one Action permission and filters on the Worker-maintained
-`DexWorkQueuePermissions` Search Attribute. `POST /api/v2/search` also accepts
-several `workQueuePermissions`; they are matched with OR, then combined with
-the Flow type and other filters using AND. This selector is not authentication
-or authorization. The embedding application remains responsible for mapping
-authenticated user roles to the permissions it submits.
+selects one Action permission and filters on the Server-maintained
+`DexWorkQueuePermissions` Search Attribute. The Worker submits the complete
+Action permission mapping only when an invocation writes an Action condition
+source. Dex Web submits the same mapping only when `SetAttributes` edits one of
+those sources. The Server overlays the writes on authoritative Attribute state
+and atomically replaces the projection when its value changes. `POST
+/api/v2/search` also accepts several `workQueuePermissions`; they are matched
+with OR, then combined with the Flow type and other filters using AND. This
+selector is not authentication or authorization. The embedding application
+remains responsible for mapping authenticated user roles to the permissions it
+submits.
 
 ## Run through the Dex Server image
 

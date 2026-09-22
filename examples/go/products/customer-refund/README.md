@@ -41,9 +41,17 @@ them:
 current status before publishing, so a tab left open across a decision is turned
 away rather than answering a question that has moved on.
 
-Each Action condition is declared in its Go `RPCOptions.Action`. The Worker
-projects the permissions for currently available Actions into
-`DexWorkQueuePermissions`. Dex Web Work Queue can filter by one permission;
+Each Action condition is declared in its Go `RPCOptions.Action`. When a
+successful Worker invocation writes an Action condition source, the Worker
+sends the complete Action-to-permission mapping with that response. The Server
+overlays the writes on the authoritative Attribute state and atomically updates
+`DexWorkQueuePermissions` only when the resulting permission union changes.
+Unrelated writes and query-only RPCs do not send the mapping. Dex Web does the
+same when `SetAttributes` edits an Action source.
+
+The projection does not require every Step that writes `case-status` to lock
+that Attribute. The Action RPCs still lock the business state they check and
+the gate effects they publish. Dex Web Work Queue can filter by one permission;
 trusted application callers can send several permissions to `/api/v2/search`
 and receive their union. The projection and **Working as** selector do not
 authenticate a caller or grant a permission.

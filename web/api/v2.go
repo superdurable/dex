@@ -388,8 +388,14 @@ func (h *v2Handler) editDisplay(response http.ResponseWriter, request *http.Requ
 			Enable: true, Type: indexType, IndexKey: indexedAttribute.IndexKey,
 		}
 	}
+	actionPermissionMappings, err := actionPermissionMappingsForAttributeWrite(definition, body.AttributeKey)
+	if err != nil {
+		WriteError(response, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
 	_, err = h.client.SetAttributes(request.Context(), &dexpb.SetAttributesRequest{
 		FlowId: body.FlowID, Attributes: []*dexpb.AttributeWrite{write}, RequestId: uuid.NewString(),
+		ActionPermissionMappings: actionPermissionMappings,
 	})
 	if err != nil {
 		writeGRPCError(response, err, "SetAttributes")
@@ -398,6 +404,61 @@ func (h *v2Handler) editDisplay(response http.ResponseWriter, request *http.Requ
 	writeJSON(response, http.StatusOK, map[string]interface{}{
 		"attributeKey": body.AttributeKey, "value": body.Value,
 	})
+}
+
+func actionPermissionMappingsForAttributeWrite(
+	definition V2Definition,
+	attributeKey string,
+) (*dexpb.ActionPermissionMappings, error) {
+	isActionSource := false
+	for _, action := range definition.Actions {
+		if action.Condition.AttributeKey == attributeKey {
+			isActionSource = true
+			break
+		}
+	}
+	if !isActionSource {
+		return nil, nil
+	}
+
+	mappings := make([]*dexpb.ActionPermissionMapping, 0, len(definition.Actions))
+	for _, action := range definition.Actions {
+		equalValues := make([]*dexpb.Value, 0, len(action.Condition.Values))
+		for _, conditionValue := range action.Condition.Values {
+			value, err := encodeActionPermissionConditionValue(conditionValue)
+			if err != nil {
+				return nil, fmt.Errorf("Action %q condition: %w", action.RPCName, err)
+			}
+			equalValues = append(equalValues, value)
+		}
+		mappings = append(mappings, &dexpb.ActionPermissionMapping{
+			AttributeKey:       action.Condition.AttributeKey,
+			EqualValues:        equalValues,
+			RequiredPermission: action.RequiredPermission,
+		})
+	}
+	return &dexpb.ActionPermissionMappings{Mappings: mappings}, nil
+}
+
+func encodeActionPermissionConditionValue(value interface{}) (*dexpb.Value, error) {
+	switch typed := value.(type) {
+	case string:
+		return &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: typed}}, nil
+	case bool:
+		return &dexpb.Value{Kind: &dexpb.Value_BoolValue{BoolValue: typed}}, nil
+	case int, int32, int64, json.Number:
+		if integer, ok := jsonNumberInt64(value); ok {
+			return &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: integer}}, nil
+		}
+		if number, ok := jsonNumberFloat64(value); ok {
+			return &dexpb.Value{Kind: &dexpb.Value_DoubleValue{DoubleValue: number}}, nil
+		}
+	case float32, float64:
+		if number, ok := jsonNumberFloat64(value); ok {
+			return &dexpb.Value{Kind: &dexpb.Value_DoubleValue{DoubleValue: number}}, nil
+		}
+	}
+	return nil, fmt.Errorf("value must be a string, integer, finite double, or boolean")
 }
 
 func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Request) {

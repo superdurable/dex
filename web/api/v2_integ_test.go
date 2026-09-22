@@ -224,10 +224,23 @@ func TestV2FacadeUsesCurrentRunAndStructuredContract(t *testing.T) {
 	if len(client.setRequests) != 2 || client.setRequests[0].GetAttributes()[0].GetKey() != "operator-note" {
 		t.Fatalf("SetAttributes requests = %+v", client.setRequests)
 	}
+	if client.setRequests[0].GetActionPermissionMappings() != nil {
+		t.Fatalf("unrelated edit included Action permission mappings: %+v", client.setRequests[0])
+	}
 	indexedWrite := client.setRequests[1].GetAttributes()[0]
 	if indexedWrite.GetIndexConfig().GetIndexKey() != "case-status-index" ||
 		indexedWrite.GetIndexConfig().GetType() != dexpb.IndexType_INDEX_TYPE_KEYWORD {
 		t.Fatalf("indexed Attribute write = %+v", indexedWrite)
+	}
+	mappings := client.setRequests[1].GetActionPermissionMappings().GetMappings()
+	if len(mappings) != 3 ||
+		mappings[0].GetAttributeKey() != "case-status" ||
+		mappings[0].GetRequiredPermission() != "refund.manage" ||
+		mappings[1].GetAttributeKey() != "case-status" ||
+		mappings[2].GetAttributeKey() != "message-priority" ||
+		mappings[2].GetRequiredPermission() != "refund.message" ||
+		mappings[2].GetEqualValues()[0].GetIntValue() != int64(9223372036854775807) {
+		t.Fatalf("Action permission mappings = %+v", mappings)
 	}
 	lastRPC := client.rpcRequests[len(client.rpcRequests)-1]
 	if lastRPC.GetRpcName() != "ApproveRefund" || lastRPC.GetInput().GetNullValue() != structpb.NullValue_NULL_VALUE {
@@ -560,6 +573,13 @@ func testV2Definition() V2Definition {
 				FieldName: "gateRequestKey", ValueType: "string", Source: "attribute",
 				AttributeKey: "gate-request-key", Required: true, Description: "Approval gate",
 			}}},
+		}, {
+			RPCName: "NotifyCustomer", Label: "Notify", RequiredPermission: "refund.message",
+			Condition: V2ActionCondition{
+				AttributeKey: "message-priority", Operator: "in",
+				Values: []interface{}{json.Number("9223372036854775807")},
+			},
+			Input: V2ActionInput{Kind: "none"},
 		}},
 	}
 }
