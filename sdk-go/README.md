@@ -41,6 +41,73 @@ atomic commit and Channel deletion validation. Attribute locks add isolation
 only among cooperating Steps and RPCs using the same lock. Write-only publish
 and delete operations do not require loading.
 
+## Action permission projection
+
+An RPC can declare a state-dependent Action in `GetRPCs`. The Go SDK evaluates
+all registered Actions after each successful Attribute mutation and maintains
+the Temporal KeywordList Search Attribute `DexWorkQueuePermissions`:
+
+```go
+var permissionProjectionLocks = []dex.AttributeLock{
+	dex.LockAttribute(caseStatus),
+	dex.LockAttribute(caseRegion),
+}
+
+func (flow RefundFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.ApproveRefund, &dex.RPCOptions{
+			LockAttributes: permissionProjectionLocks,
+			Action: dex.DefineAction(
+				"Approve",
+				dex.WhenAttributeMatches(
+					caseStatus,
+					dex.AttributeMatchEqual("awaiting-manager"),
+					dex.AttributeMatchEqual("awaiting-agent"),
+				),
+				dex.ActionRequiresPermission("refund.approve"),
+			),
+		}),
+	}
+}
+```
+
+An Action has a non-empty display label, one Attribute condition, and exactly
+one required permission. A condition accepts one or more
+`AttributeMatchEqual` values and matches when any value equals the current
+Attribute value. The source must be a registered ordinary scalar Attribute.
+String, boolean, integer, finite floating-point, and named forms of those types
+are supported. A missing or deleted Attribute does not match. Permissions use
+lowercase alphanumeric segments separated by dots or hyphens, such as
+`refund.approve`.
+
+The projection is the sorted union of every matching Action permission.
+Duplicate permissions are removed. The SDK computes against the complete
+post-invocation state: the current Attribute snapshot plus the invocation's
+last staged write for each Attribute. StartFlow and SubFlow initial Attributes
+are evaluated the same way. The SDK sends one complete replacement after
+business Attribute writes only when the logical set changes. It sends a delete
+when a non-empty set becomes empty, and sends nothing for empty-to-empty or an
+unchanged set, regardless of existing order or duplicates.
+
+Every Step or RPC that can modify a projection source must lock every
+projection source in that Flow. Configure both `WaitForLockAttributes` and
+`ExecuteLockAttributes` for a Step, and `RPCOptions.LockAttributes` for an RPC.
+The SDK does not inject or validate this locking contract. Without the complete
+lock set, concurrent invocations can each calculate a complete replacement from
+different snapshots and overwrite one another.
+
+`DexWorkQueuePermissions` is reserved for SDK-managed projection and is
+available as `dex.WorkQueuePermissionsIndexKey` for Work Queue searches. An
+application cannot register that name as an Attribute or custom IndexKey. The
+projection identifies candidate Runs only; an Action gateway must authorize the
+selected RPC against its statically registered permission. Search Attribute
+contents are never proof that a caller is authorized.
+
+This MVP requires the Temporal backend because it uses a KeywordList Search
+Attribute. Cadence does not support this Action projection. The current SDK
+cannot negotiate backend capabilities, so applications must not register
+Actions against a Cadence deployment.
+
 ## Step and timeout-handler state loading
 
 `StepOptions` provides the same five selections independently for `WaitFor` and

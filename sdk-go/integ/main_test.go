@@ -152,6 +152,11 @@ func TestMain(tests *testing.M) {
 
 func integrationFlows() []dex.Flow {
 	return []dex.Flow{
+		actionPermissionFlow{},
+		actionScalarFlow{},
+		actionStepFlow{},
+		actionSubFlowParent{},
+		actionSubFlowChild{},
 		abnormalExitFlow{},
 		basicFlow{},
 		multiOutputFlow{},

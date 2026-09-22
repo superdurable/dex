@@ -24,6 +24,7 @@ type registeredRPC struct {
 	input       reflect.Type
 	output      reflect.Type
 	options     *RPCOptions
+	action      *registeredAction
 }
 
 var (

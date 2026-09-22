@@ -131,8 +131,12 @@ func (service *workerService) invokeWaitForMethod(
 			Err:      err,
 		})
 	}
+	attributeWrites, err := invocation.mappedAttributeWritesWithActionProjection()
+	if err != nil {
+		return newWorkerFailure(codes.Internal, err)
+	}
 	return output.sendResult(&dexpb.InvokeWaitForMethodResponse{
-		UpsertAttributes:    invocation.mappedAttributeWrites(),
+		UpsertAttributes:    attributeWrites,
 		WaitingCondition:    waiting,
 		UpsertStepExeLocals: invocation.mappedLocalWrites(),
 		RecordEvents:        invocation.recordedEvents,
@@ -228,9 +232,13 @@ func (service *workerService) invokeExecuteMethod(
 			Err:      err,
 		})
 	}
+	attributeWrites, err := invocation.mappedAttributeWritesWithActionProjection()
+	if err != nil {
+		return newWorkerFailure(codes.Internal, err)
+	}
 	return output.sendResult(&dexpb.InvokeExecuteMethodResponse{
 		StepDecision:      mapped,
-		UpsertAttributes:  invocation.mappedAttributeWrites(),
+		UpsertAttributes:  attributeWrites,
 		RecordEvents:      invocation.recordedEvents,
 		PublishToChannel:  invocation.publications,
 		DeleteFromChannel: invocation.deletions,
@@ -309,9 +317,13 @@ func (service *workerService) invokeTimeoutHandler(
 			Err:      err,
 		})
 	}
+	attributeWrites, err := invocation.mappedAttributeWritesWithActionProjection()
+	if err != nil {
+		return newWorkerFailure(codes.Internal, err)
+	}
 	return output.sendResult(&dexpb.InvokeExecuteMethodResponse{
 		StepDecision:        mapped,
-		UpsertAttributes:    invocation.mappedAttributeWrites(),
+		UpsertAttributes:    attributeWrites,
 		UpsertStepExeLocals: invocation.mappedLocalWrites(),
 		RecordEvents:        invocation.recordedEvents,
 		PublishToChannel:    invocation.publications,
@@ -396,7 +408,11 @@ func (service *workerService) invokeWorkerRPC(
 			Err:      err,
 		})
 	}
-	response.UpsertAttributes = invocation.mappedAttributeWrites()
+	attributeWrites, err := invocation.mappedAttributeWritesWithActionProjection()
+	if err != nil {
+		return nil, newWorkerFailure(codes.Internal, err)
+	}
+	response.UpsertAttributes = attributeWrites
 	response.RecordEvents = invocation.recordedEvents
 	response.PublishToChannel = invocation.publications
 	response.DeleteFromChannel = invocation.deletions

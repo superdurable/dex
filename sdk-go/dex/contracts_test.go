@@ -156,7 +156,18 @@ func (contractFlow) GetSteps() []dex.StepDef {
 func (flow contractFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.Update, nil),
-		dex.DefineRPC(flow.Describe, &dex.RPCOptions{}),
+		dex.DefineRPC(flow.Describe, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(statusAttribute)},
+			Action: dex.DefineAction(
+				"Describe",
+				dex.WhenAttributeMatches(
+					statusAttribute,
+					dex.AttributeMatchEqual("ready"),
+					dex.AttributeMatchEqual("pending"),
+				),
+				dex.ActionRequiresPermission("order.describe"),
+			),
+		}),
 	}
 }
 
@@ -216,6 +227,9 @@ func compileBufferedTextStream(context dex.Context) error {
 var _ = compileBufferedTextStream
 
 func TestPublicContractsCompile(t *testing.T) {
+	if dex.WorkQueuePermissionsIndexKey != "DexWorkQueuePermissions" {
+		t.Fatal("unexpected Work Queue permissions index key")
+	}
 	_ = dex.MovementOf(noPayload, nil)
 	_ = noPayloadChannel.ForOne()
 

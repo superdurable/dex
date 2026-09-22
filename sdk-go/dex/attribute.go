@@ -10,7 +10,11 @@
 
 package dex
 
-import "github.com/superdurable/dex/sdk-go/gen/dexpb"
+import (
+	"reflect"
+
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+)
 
 // Attribute defines a typed persisted value.
 //
@@ -49,6 +53,7 @@ func DefineAttribute[T any](key string, options ...AttributeOption) Attribute[T]
 // DefineAttributeMap, then pass them to PersistenceSchema and Client methods.
 type AttributeDef interface {
 	attributeName() string
+	attributeValueType() reflect.Type
 	attributeIndex() *AttributeIndex
 	attributeIsMap() bool
 	attributeSyncToAttributeStore() bool
@@ -98,6 +103,10 @@ func (a Attribute[T]) AttributeName() string {
 
 func (a Attribute[T]) attributeName() string {
 	return a.name
+}
+
+func (Attribute[T]) attributeValueType() reflect.Type {
+	return reflect.TypeFor[T]()
 }
 
 func (a Attribute[T]) attributeIndex() *AttributeIndex {
@@ -212,6 +221,10 @@ func (a AttributeMap[T]) AttributeName() string {
 
 func (a AttributeMap[T]) attributeName() string {
 	return a.name
+}
+
+func (AttributeMap[T]) attributeValueType() reflect.Type {
+	return reflect.TypeFor[T]()
 }
 
 func (a AttributeMap[T]) attributeIndex() *AttributeIndex {

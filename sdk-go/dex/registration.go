@@ -39,6 +39,7 @@ type registeredFlow struct {
 	startingStep   *registeredStep
 	steps          map[string]*registeredStep
 	rpcs           map[string]*registeredRPC
+	actions        []*registeredAction
 	attributes     map[string]registeredAttribute
 	channels       map[string]registeredChannel
 	streams        map[string]registeredStream
@@ -58,6 +59,7 @@ type registeredAttribute struct {
 	name                 string
 	index                *AttributeIndex
 	isMap                bool
+	valueType            reflect.Type
 	syncToAttributeStore bool
 }
 
@@ -163,6 +165,9 @@ func (registry *Registry) registerFlow(
 	if err := registered.registerRPCs(flow.GetRPCs()); err != nil {
 		return nil, fmt.Errorf("dex: flow %q: %w", flowType, err)
 	}
+	if len(registered.actions) > 0 {
+		indexTypes[WorkQueuePermissionsIndexKey] = IndexKeywordArray
+	}
 	return registered, nil
 }
 
@@ -213,6 +218,9 @@ func (flow *registeredFlow) registerAttribute(
 	if _, found := flow.attributes[name]; found {
 		return fmt.Errorf("duplicate attribute %q", name)
 	}
+	if name == WorkQueuePermissionsIndexKey {
+		return fmt.Errorf("attribute name %q is reserved by Dex", name)
+	}
 	index := definition.attributeIndex()
 	isMap := definition.attributeIsMap()
 	if index != nil {
@@ -222,6 +230,9 @@ func (flow *registeredFlow) registerAttribute(
 		indexKey := effectiveIndexKey(name, index, isMap)
 		if indexKey == "" {
 			return fmt.Errorf("indexed attribute map %q requires an index key", name)
+		}
+		if indexKey == WorkQueuePermissionsIndexKey {
+			return fmt.Errorf("index key %q is reserved by Dex", indexKey)
 		}
 		if existing, found := indexTypes[indexKey]; found &&
 			existing != index.Type {
@@ -239,6 +250,7 @@ func (flow *registeredFlow) registerAttribute(
 		name:                 name,
 		index:                index,
 		isMap:                isMap,
+		valueType:            definition.attributeValueType(),
 		syncToAttributeStore: definition.attributeSyncToAttributeStore(),
 	}
 	return nil
@@ -339,6 +351,14 @@ func (flow *registeredFlow) registerRPC(definition RPCDef, index int) error {
 	if err := flow.validateRPCOptions(definition.rpcOptions()); err != nil {
 		return fmt.Errorf("RPC %q options: %w", durableName, err)
 	}
+	var action *registeredAction
+	if options := definition.rpcOptions(); options != nil && options.Action != nil {
+		action, err = flow.compileAction(options.Action)
+		if err != nil {
+			return fmt.Errorf("RPC %q Action: %w", durableName, err)
+		}
+		flow.actions = append(flow.actions, action)
+	}
 	flow.rpcs[durableName] = &registeredRPC{
 		handler:     definition,
 		durableName: durableName,
@@ -346,6 +366,7 @@ func (flow *registeredFlow) registerRPC(definition RPCDef, index int) error {
 		input:       definition.rpcInputType(),
 		output:      definition.rpcOutputType(),
 		options:     definition.rpcOptions(),
+		action:      action,
 	}
 	return nil
 }

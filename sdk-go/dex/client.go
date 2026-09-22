@@ -392,6 +392,12 @@ func (client *Client) StartFlow(
 	if err != nil {
 		return "", err
 	}
+	flowOptions.Attributes, err = registered.appendInitialWorkQueuePermissions(
+		flowOptions.Attributes,
+	)
+	if err != nil {
+		return "", err
+	}
 	requestID, err := resolveStartRequestID(options.RequestID)
 	if err != nil {
 		return "", err

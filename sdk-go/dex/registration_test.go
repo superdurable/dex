@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
 type registrationInput struct {
@@ -25,6 +26,12 @@ type registrationInput struct {
 }
 
 type registrationOutput struct {
+	Value string
+}
+
+type registrationNamedStatus string
+
+type registrationComplexStatus struct {
 	Value string
 }
 
@@ -150,6 +157,14 @@ func (flow *registrationFlow) GetPersistenceSchema() PersistenceSchema {
 }
 
 func (flow *registrationFlow) Update(
+	_ Context,
+	input registrationInput,
+) (*RPCResult[registrationOutput], error) {
+	flow.rpcCalls++
+	return &RPCResult[registrationOutput]{Output: registrationOutput{Value: input.Value}}, nil
+}
+
+func (flow *registrationFlow) Query(
 	_ Context,
 	input registrationInput,
 ) (*RPCResult[registrationOutput], error) {
@@ -497,6 +512,276 @@ func TestRegistryRejectsInvalidRPCDefinitions(t *testing.T) {
 			assembled, err := NewRegistry([]Flow{flow})
 			require.Nil(t, assembled)
 			require.ErrorContains(t, err, testCase.error)
+		})
+	}
+}
+
+func TestRegistryRegistersActionPermissionProjection(t *testing.T) {
+	status := DefineAttribute[registrationNamedStatus]("status")
+	flow := &registrationFlow{
+		flowType: "action-projection",
+		schema: PersistenceSchema{
+			Attributes: []AttributeDef{status},
+		},
+	}
+	flow.rpcs = []RPCDef{
+		DefineRPC(flow.Update, &RPCOptions{Action: DefineAction(
+			"Approve",
+			WhenAttributeMatches(
+				status,
+				AttributeMatchEqual(registrationNamedStatus("A")),
+				AttributeMatchEqual(registrationNamedStatus("B")),
+			),
+			ActionRequiresPermission("refund.approve"),
+		)}),
+		DefineRPC(flow.Query, &RPCOptions{Action: DefineAction(
+			"Review",
+			WhenAttributeMatches(
+				status,
+				AttributeMatchEqual(registrationNamedStatus("A")),
+			),
+			ActionRequiresPermission("refund.approve"),
+		)}),
+	}
+
+	registry, err := NewRegistry([]Flow{flow})
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+		registry.attributeIndexes[WorkQueuePermissionsIndexKey],
+	)
+	require.Len(t, registry.flows[flow.flowType].actions, 2)
+}
+
+func TestRegistryRejectsInvalidActions(t *testing.T) {
+	status := DefineAttribute[string]("status")
+	missingStatus := DefineAttribute[string]("missing-status")
+	items := DefineAttributeMap[int]("items")
+	complexStatus := DefineAttribute[registrationComplexStatus]("complex-status")
+	sliceStatus := DefineAttribute[[]string]("slice-status")
+	mapStatus := DefineAttribute[map[string]string]("map-status")
+	anyStatus := DefineAttribute[any]("any-status")
+
+	var nilAction *actionImpl
+	var nilCondition *attributeActionCondition[string]
+	tests := []struct {
+		name   string
+		action ActionDef
+		error  string
+	}{
+		{
+			name:   "nil Action",
+			action: nilAction,
+			error:  "Action definition is nil",
+		},
+		{
+			name: "empty label",
+			action: DefineAction(
+				"  ",
+				WhenAttributeMatches(status, AttributeMatchEqual("A")),
+				ActionRequiresPermission("permission-x"),
+			),
+			error: "Action label must not be empty",
+		},
+		{
+			name: "nil condition",
+			action: DefineAction(
+				"Approve",
+				nilCondition,
+				ActionRequiresPermission("permission-x"),
+			),
+			error: "Action condition is nil",
+		},
+		{
+			name: "missing permission",
+			action: DefineAction(
+				"Approve",
+				WhenAttributeMatches(status, AttributeMatchEqual("A")),
+			),
+			error: "Action requires exactly one permission",
+		},
+		{
+			name: "duplicate permission",
+			action: DefineAction(
+				"Approve",
+				WhenAttributeMatches(status, AttributeMatchEqual("A")),
+				ActionRequiresPermission("permission-x"),
+				ActionRequiresPermission("permission-y"),
+			),
+			error: "Action requires exactly one permission",
+		},
+		{
+			name: "no matches",
+			action: DefineAction(
+				"Approve",
+				WhenAttributeMatches(status),
+				ActionRequiresPermission("permission-x"),
+			),
+			error: "requires at least one match",
+		},
+		{
+			name: "not equal",
+			action: DefineAction(
+				"Approve",
+				WhenAttributeMatches(status, AttributeMatchNotEqual("A")),
+				ActionRequiresPermission("permission-x"),
+			),
+			error: "supports only AttributeMatchEqual",
+		},
+		{
+			name: "ordering operator",
+			action: DefineAction(
+				"Approve",
+				WhenAttributeMatches(status, AttributeMatchGreaterThan("A")),
+				ActionRequiresPermission("permission-x"),
+			),
+			error: "supports only AttributeMatchEqual",
+		},
+		{
+			name: "unregistered source",
+			action: DefineAction(
+				"Approve",
+				WhenAttributeMatches(missingStatus, AttributeMatchEqual("A")),
+				ActionRequiresPermission("permission-x"),
+			),
+			error: `Attribute "missing-status" is not declared`,
+		},
+		{
+			name: "AttributeMap source",
+			action: DefineAction(
+				"Approve",
+				WhenAttributeMatches(
+					DefineAttribute[int](items.AttributeName()),
+					AttributeMatchEqual(1),
+				),
+				ActionRequiresPermission("permission-x"),
+			),
+			error: `Attribute "items" is not declared`,
+		},
+		{
+			name: "struct source",
+			action: DefineAction(
+				"Approve",
+				WhenAttributeMatches(
+					complexStatus,
+					AttributeMatchEqual(registrationComplexStatus{}),
+				),
+				ActionRequiresPermission("permission-x"),
+			),
+			error: "unsupported type",
+		},
+		{
+			name: "slice source",
+			action: DefineAction(
+				"Approve",
+				WhenAttributeMatches(sliceStatus, AttributeMatchEqual([]string{"A"})),
+				ActionRequiresPermission("permission-x"),
+			),
+			error: "unsupported type",
+		},
+		{
+			name: "map source",
+			action: DefineAction(
+				"Approve",
+				WhenAttributeMatches(
+					mapStatus,
+					AttributeMatchEqual(map[string]string{"status": "A"}),
+				),
+				ActionRequiresPermission("permission-x"),
+			),
+			error: "unsupported type",
+		},
+		{
+			name: "any source",
+			action: DefineAction(
+				"Approve",
+				WhenAttributeMatches(anyStatus, AttributeMatchEqual[any]("A")),
+				ActionRequiresPermission("permission-x"),
+			),
+			error: "unsupported type",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			flow := &registrationFlow{
+				flowType: "invalid-action",
+				schema: PersistenceSchema{Attributes: []AttributeDef{
+					status,
+					items,
+					complexStatus,
+					sliceStatus,
+					mapStatus,
+					anyStatus,
+				}},
+			}
+			flow.rpcs = []RPCDef{DefineRPC(flow.Update, &RPCOptions{Action: testCase.action})}
+			registry, err := NewRegistry([]Flow{flow})
+			require.Nil(t, registry)
+			require.ErrorContains(t, err, testCase.error)
+		})
+	}
+}
+
+func TestRegistryRejectsInvalidActionPermissions(t *testing.T) {
+	invalidPermissions := []string{
+		"",
+		"Refund.approve",
+		"refund approve",
+		"refund_approve",
+		"refund/approve",
+		"refund..approve",
+		"refund--approve",
+		".refund",
+		"refund-",
+	}
+	for _, permission := range invalidPermissions {
+		t.Run(permission, func(t *testing.T) {
+			status := DefineAttribute[string]("status")
+			flow := &registrationFlow{
+				flowType: "invalid-permission",
+				schema:   PersistenceSchema{Attributes: []AttributeDef{status}},
+			}
+			flow.rpcs = []RPCDef{DefineRPC(flow.Update, &RPCOptions{Action: DefineAction(
+				"Approve",
+				WhenAttributeMatches(status, AttributeMatchEqual("A")),
+				ActionRequiresPermission(permission),
+			)})}
+			registry, err := NewRegistry([]Flow{flow})
+			require.Nil(t, registry)
+			require.ErrorContains(t, err, "Action permission")
+		})
+	}
+}
+
+func TestRegistryRejectsWorkQueuePermissionsAttributeConflicts(t *testing.T) {
+	tests := []struct {
+		name      string
+		attribute AttributeDef
+	}{
+		{
+			name:      "Attribute name",
+			attribute: DefineAttribute[string](WorkQueuePermissionsIndexKey),
+		},
+		{
+			name: "custom IndexKey",
+			attribute: DefineAttribute[string]("status", Indexed(AttributeIndex{
+				Type:     IndexKeyword,
+				IndexKey: WorkQueuePermissionsIndexKey,
+			})),
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			registry, err := NewRegistry([]Flow{&registrationFlow{
+				flowType: "reserved-action-index",
+				schema: PersistenceSchema{
+					Attributes: []AttributeDef{testCase.attribute},
+				},
+			}})
+			require.Nil(t, registry)
+			require.ErrorContains(t, err, "is reserved by Dex")
 		})
 	}
 }

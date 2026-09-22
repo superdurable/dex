@@ -340,6 +340,10 @@ type AlreadyStartedOptions struct {
 // Return these options with DefineRPC from Flow.GetRPCs. The Client applies the same immutable
 // settings to every invocation. Its context may still impose a shorter caller-side deadline.
 type RPCOptions struct {
+	// Action declares this RPC as a state-dependent Action with one required permission.
+	// Nil leaves the RPC outside Work Queue permission projection. The projection identifies
+	// candidate Runs only; the RPC gateway must independently authorize every invocation.
+	Action ActionDef
 	// Timeout limits the RPC handler; zero uses the server default.
 	Timeout time.Duration
 	// LockAttributes are acquired atomically for the RPC invocation.

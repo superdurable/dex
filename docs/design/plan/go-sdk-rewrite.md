@@ -390,6 +390,55 @@ timeouts once. The later non-generic client accepts the same direct bound Flow
 method value and resolves the registered descriptor by canonical method
 identity. It does not receive or override RPC options.
 
+### RPC Action permission projection
+
+`RPCOptions.Action` attaches one state-dependent Action contract to a
+registered RPC. `DefineAction` accepts a non-empty label, one condition, and
+exactly one `ActionRequiresPermission` option. Permission keys match
+`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`. Roles are intentionally outside this
+contract.
+
+`WhenAttributeMatches` reuses the typed `AttributeMatch` representation and
+encoding validation. It accepts one or more `AttributeMatchEqual` operands with
+OR semantics. Registration rejects ordering and NotEqual operators, missing or
+foreign Attributes, AttributeMaps, and non-scalar values. Supported source
+types are strings, booleans, signed and unsigned integers representable by the
+value codec, finite floating-point values, and named forms of those types.
+
+When a Registry contains an Action, `SyncAttributeIndexes` includes the
+internal KeywordList index `DexWorkQueuePermissions`. The name is exposed as
+`WorkQueuePermissionsIndexKey` for search queries and reserved against
+application Attribute names and custom IndexKeys. This first implementation is
+Temporal-only and does not add an IDL capability flag.
+
+StartFlow and SubFlow creation evaluate Actions from initial Attributes. A
+successful WaitFor, Execute, timeout-handler Execute, or RPC evaluates from the
+complete incoming ordinary Attribute snapshot overlaid with the invocation's
+last staged writes. The result is the deduplicated, byte-sorted union of all
+matching Action permissions. The SDK appends one full replacement after
+business writes only when the logical set changes. Missing and deleted values
+both represent the empty set. A non-empty-to-empty transition appends a null
+delete. An unchanged set emits no derived write even when the stored array has
+different order or duplicate elements. An invalid stored representation is
+repaired with a replacement or delete.
+
+The derived write uses the existing AttributeWrite transport so the Server
+commits it in the same Workflow Task as application state. Mapping rules stay
+inside the application Registry and Go Worker; the Server neither stores nor
+interprets them. Continue-as-New carries the ordinary Attribute and Search
+Attribute state, and later invocations resume differential evaluation.
+
+Every Step or RPC that may modify one source Attribute must explicitly lock all
+projection source Attributes. Steps configure both WaitFor and Execute locks;
+RPCs configure `LockAttributes`. The SDK deliberately does not infer write sets
+or inject locks. Omitting a lock allows concurrent complete replacements to be
+calculated from inconsistent snapshots.
+
+The Search Attribute is Work Queue candidate data, not authorization evidence.
+The Action gateway must enforce the required permission from the registered RPC
+contract before invocation. Server-side reserved-field protection and explicit
+derived-state IDL are follow-up work.
+
 ### Handler lifecycle and concurrency
 
 Registration retains the exact Flow and Step values supplied by the
