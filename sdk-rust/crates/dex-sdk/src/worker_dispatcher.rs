@@ -141,6 +141,7 @@ impl WorkerDispatcher {
                 record_events: outputs.events,
                 publish_to_channel: outputs.publications,
                 delete_from_channel: outputs.channel_deletions,
+                action_permission_mappings: None,
             })
         })
         .await
@@ -233,6 +234,7 @@ impl WorkerDispatcher {
                 upsert_step_exe_locals: outputs.locals,
                 publish_to_channel: outputs.publications,
                 delete_from_channel: outputs.channel_deletions,
+                action_permission_mappings: None,
             })
         })
         .await
@@ -302,6 +304,7 @@ impl WorkerDispatcher {
                 upsert_step_exe_locals: outputs.locals,
                 publish_to_channel: outputs.publications,
                 delete_from_channel: outputs.channel_deletions,
+                action_permission_mappings: None,
             })
         })
         .await
@@ -373,6 +376,7 @@ impl WorkerDispatcher {
                 record_events: outputs.events,
                 delete_from_channel: outputs.channel_deletions,
                 publish_to_channel: outputs.publications,
+                action_permission_mappings: None,
             })
         })
         .await
