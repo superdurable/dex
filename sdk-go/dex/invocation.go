@@ -955,22 +955,12 @@ func (invocation *invocationContext) mappedAttributeWrites() []*dexpb.AttributeW
 	return writes
 }
 
-func (invocation *invocationContext) mappedAttributeWritesWithActionProjection() (
+func (invocation *invocationContext) mappedAttributeWritesWithActionPermissionMappings() (
 	[]*dexpb.AttributeWrite,
-	error,
+	*dexpb.ActionPermissionMappings,
 ) {
 	writes := invocation.mappedAttributeWrites()
-	projection, err := invocation.flow.projectWorkQueuePermissions(
-		invocation.attributes,
-		writes,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if projection != nil {
-		writes = append(writes, projection)
-	}
-	return writes, nil
+	return writes, invocation.flow.actionPermissionMappingsForWrites(writes)
 }
 
 func (invocation *invocationContext) mappedLocalWrites() []*dexpb.KV {

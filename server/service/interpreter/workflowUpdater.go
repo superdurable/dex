@@ -225,9 +225,10 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 	if missing := u.channelStore.CanDeleteAll(response.GetDeleteFromChannel()); missing != nil {
 		return nil, u.channelMessageNotFoundError(missing)
 	}
-	err = u.persistenceManager.ApplyAttributeWrites(
+	err = u.persistenceManager.ApplyAttributeWritesWithActionPermissionMappings(
 		ctx,
 		response.GetUpsertAttributes(),
+		response.GetActionPermissionMappings(),
 	)
 	if err != nil {
 		return nil, err

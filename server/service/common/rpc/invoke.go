@@ -32,6 +32,7 @@ func InvokeWorkerRpc(
 	req *dexpb.InvokeRPCRequest,
 	apiCfg *config.ApiConfig,
 	interpreterActivityCfg *config.InterpreterActivityConfig,
+	backendType service.BackendType,
 	blobStore blobstore.BlobStore,
 	invocationId string,
 	blobStoreCfg *config.BlobStoreConfig,
@@ -117,6 +118,7 @@ func InvokeWorkerRpc(
 	if err := validateWorkerRpcResponse(
 		resp,
 		interpreterActivityCfg.EffectiveMinimumStepHeartbeatTimeout(),
+		backendType,
 	); err != nil {
 		return nil, err
 	}
@@ -193,6 +195,7 @@ func offloadRPCSideEffects(
 func validateWorkerRpcResponse(
 	resp *dexpb.InvokeWorkerRPCResponse,
 	minimumHeartbeatTimeout time.Duration,
+	backendType service.BackendType,
 ) error {
 	if resp == nil {
 		return fmt.Errorf("nil InvokeWorkerRPCResponse")
@@ -201,6 +204,15 @@ func validateWorkerRpcResponse(
 		return err
 	}
 	if err := workerclient.RejectWorkerAttributeWriteBlobIDs(resp.GetUpsertAttributes()); err != nil {
+		return err
+	}
+	if err := workerclient.ValidateRuntimeAttributeWrites(resp.GetUpsertAttributes()); err != nil {
+		return err
+	}
+	if err := workerclient.ValidateActionPermissionMappings(
+		resp.GetActionPermissionMappings(),
+		backendType,
+	); err != nil {
 		return err
 	}
 	if err := workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents()); err != nil {

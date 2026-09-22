@@ -955,9 +955,10 @@ func (i *Interpreter) processStepExecution(
 		var returnedWaitingCondition *dexpb.WaitingCondition
 		if waitForMethErr == nil {
 			returnedWaitingCondition = activityOutput.Response.GetWaitingCondition()
-			if err := persistenceManager.ApplyAttributeWrites(
+			if err := persistenceManager.ApplyAttributeWritesWithActionPermissionMappings(
 				ctx,
 				activityOutput.Response.GetUpsertAttributes(),
+				activityOutput.Response.GetActionPermissionMappings(),
 			); err != nil {
 				return nil, service.StepExecutionStatusInternalError, err
 			}
@@ -1289,9 +1290,10 @@ func (i *Interpreter) invokeExecuteMethod(
 		return nil, service.StepExecutionStatusFailedNoProceed, exeMethErr
 	}
 	executeResponse := activityOutput.GetResponse()
-	if err := persistenceManager.ApplyAttributeWrites(
+	if err := persistenceManager.ApplyAttributeWritesWithActionPermissionMappings(
 		ctx,
 		executeResponse.GetUpsertAttributes(),
+		executeResponse.GetActionPermissionMappings(),
 	); err != nil {
 		return nil, service.StepExecutionStatusInternalError, err
 	}

@@ -298,9 +298,10 @@ func (sr *SignalReceiver) processExecuteRPC(
 	ctx interfaces.UnifiedContext,
 	request *dexpb.ExecuteRpcSignalRequest,
 ) error {
-	if err := sr.persistenceManager.ApplyAttributeWrites(
+	if err := sr.persistenceManager.ApplyAttributeWritesWithActionPermissionMappings(
 		ctx,
 		request.GetUpsertAttributes(),
+		request.GetActionPermissionMappings(),
 	); err != nil {
 		return err
 	}
