@@ -126,8 +126,11 @@
   /* ---- the ONE brand green. The primary button and the mark, nothing else.
      Not a state: green-as-state is `success` below, and it is the SAME hue at a
      different lightness. This is the only token licensed to be loud.        */
-  --color-cta: #51d28e; /* 8.92 card — near-black ink sits on it, 10.38      */
-  --color-cta-hover: #6ee3a2; /* 12.47                                       */
+  /* Same value as globals.css `--brand-head`: the mark and the button are one
+     green. Duplicated because the header is outside this scope, not because
+     they are independent — change both or neither.                         */
+  --color-cta: #70eea9; /* 11.79 card — near-black ink sits on it, 13.72     */
+  --color-cta-hover: #87fab9; /* 15.54                                       */
   --color-cta-on: var(--surface-canvas); /* ink ON the CTA. See the light twin. */
 
   /* ---- the six node states. Three are deliberately hueless. ------------
@@ -292,6 +295,7 @@
 
   /* On a light ground the CTA inverts: a mid-dark fill carrying WHITE text,
      because a bright green caps at L 0.55 before white stops being legible. */
+  /* Same value as globals.css `--brand-head`. See the dark twin.           */
   --color-cta: #008650; /* white on it, 4.64                                 */
   --color-cta-hover: #007546; /* 5.78                                        */
   --color-cta-on: #ffffff;

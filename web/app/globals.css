@@ -14,12 +14,22 @@
   --line: #dce6d7;
   --paper: #ffffff;
   --canvas: #f5f8f2;
-  --brand: #4f8127;
-  --brand-dark: #2f6332;
-  --brand-bright: #8fc93d;
-  --brand-soft: #eff7e5;
+  /* Re-aimed from the old H 134 yellow-green onto the v2 brand hue, H 157, so
+     the header reads as the same family as the canvas it sits above. */
+  --brand: #008650;
+  --brand-dark: #00321b;
+  --brand-bright: #51d28e;
+  --brand-soft: #ddf6e6;
+  /* The mark's two flats. `--brand-head` IS the primary button's green — the logo
+     and the CTA are one colour, which is the whole licence for spending brand
+     green at all. The header sits outside `.v2-shell` so it cannot read
+     `--color-cta`; the two files therefore carry the same value and each names
+     the other. If you change one, change
+     web/app/v2/css/tokens.css `--color-cta`. */
+  --brand-track: #00321b;
+  --brand-head: #008650;
   --stream-soft: #e8f4f5;
-  --accent: #79ae35;
+  --accent: #007546;
   --danger: #b63b3b;
   --danger-soft: #fbeaea;
   --shadow: 0 12px 36px rgba(45, 79, 42, 0.08);
@@ -113,25 +123,14 @@ a {
   gap: 11px;
 }
 
+/* No chip, no crop, no overflow. The old mark was a 72px raster jammed into a
+   46px box with negative offsets; an inline SVG just sits at its own size. */
 .brand-mark {
-  position: relative;
-  display: block;
-  width: 46px;
-  height: 46px;
-  overflow: hidden;
-  border: 1px solid #e3ecd9;
-  border-radius: 14px;
-  background: white;
-  box-shadow: 0 7px 20px rgba(58, 100, 42, 0.13);
-}
-
-.brand-logo {
-  position: absolute;
-  top: -7px;
-  left: -12px;
-  width: 72px;
-  height: 72px;
-  max-width: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
 }
 
 .brand-name {
@@ -210,6 +209,43 @@ a {
   box-shadow: 0 0 0 3px rgba(143, 201, 61, 0.16);
 }
 
+/* Icon-only, 28px square to match the mark, and a real focus ring — the
+   <select> it replaces inherited the browser's. */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  border-color: var(--brand);
+  color: var(--ink);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+[data-theme='dark'] .theme-toggle {
+  border-color: #303133;
+  background: #1a1c1e;
+  color: #8f9193;
+}
+
+[data-theme='dark'] .theme-toggle:hover {
+  border-color: #4c4e50;
+  color: #f2f4f7;
+}
+
 .timezone-control {
   display: flex;
   align-items: center;
@@ -254,6 +290,18 @@ a {
   color: var(--brand-dark);
 }
 
+/* Both flats lift on a dark ground. The deep track is 1.33:1 on the dark header
+   if left alone — invisible — so it is not optional. The pair still clears 3:1
+   against each other, so the head reads as a separate object and not a bulge. */
+[data-theme='dark'] {
+  /* The track moves rather than the head, because the head is pinned to the CTA.
+     At L 0.52 it clears 3:1 against both the head (3.65) and the header (3.58);
+     the previous L 0.56 only managed 2.33 against the CTA green, which is how
+     the mark and the button came to disagree in dark and not in light. */
+  --brand-track: #367854;
+  --brand-head: #70eea9;
+}
+
 [data-theme='dark'] .app-header {
   color-scheme: dark;
   border-bottom-color: #212734;
@@ -279,7 +327,44 @@ a {
   color: #8c9198;
 }
 
-[data-theme='dark'] .timezone-control {
+[data-theme='dark'] /* Icon-only, 28px square to match the mark, and a real focus ring — the
+   <select> it replaces inherited the browser's. */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  border-color: var(--brand);
+  color: var(--ink);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+[data-theme='dark'] .theme-toggle {
+  border-color: #303133;
+  background: #1a1c1e;
+  color: #8f9193;
+}
+
+[data-theme='dark'] .theme-toggle:hover {
+  border-color: #4c4e50;
+  color: #f2f4f7;
+}
+
+.timezone-control {
   color: #8c9198;
 }
 
@@ -304,13 +389,6 @@ a {
 [data-theme='dark'] .v2-mode[aria-pressed='true'] {
   background: #1f252d;
   color: #eff4fc;
-}
-
-[data-theme='dark'] .brand-mark {
-  /* Keep the existing green mark on a white chip in both themes. */
-  background: #ffffff;
-  border-color: #2b313d;
-  box-shadow: none;
 }
 
 .app-main {

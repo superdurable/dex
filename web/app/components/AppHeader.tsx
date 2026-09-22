@@ -7,10 +7,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { isEmbedded, webPath } from '@/lib/webConfig';
+import { isEmbedded } from '@/lib/webConfig';
 import { usePreferences } from '../providers';
 import { v2HomePath, v2ModePath, type V2Mode } from '../v2/contract';
 import { useWebCatalog } from '../v2/WebCatalogProvider';
+import { DexMark } from './DexMark';
 import { ThemeToggle } from './ThemeToggle';
 
 const V2_MODES: { mode: V2Mode; label: string }[] = [
@@ -34,13 +35,7 @@ export function AppHeader() {
       {!embedded && (
         <div className="header-brand">
           <Link to={home} className="brand-mark" aria-label="Super Durable home">
-            <img
-              className="brand-logo"
-              src={webPath('/super-durable-logo.png')}
-              alt=""
-              width={72}
-              height={72}
-            />
+            <DexMark size={28} />
           </Link>
           <Link to={home} className="brand-name">
             <span>Super Durable</span>
