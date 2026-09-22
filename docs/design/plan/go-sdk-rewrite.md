@@ -411,33 +411,32 @@ internal KeywordList index `DexWorkQueuePermissions`. The name is exposed as
 application Attribute names and custom IndexKeys. This first implementation is
 Temporal-only and does not add an IDL capability flag.
 
-StartFlow and SubFlow creation evaluate Actions from initial Attributes. A
-successful WaitFor, Execute, timeout-handler Execute, or RPC evaluates from the
-complete incoming ordinary Attribute snapshot overlaid with the invocation's
-last staged writes. The result is the deduplicated, byte-sorted union of all
-matching Action permissions. The SDK appends one full replacement after
-business writes only when the logical set changes. Missing and deleted values
-both represent the empty set. A non-empty-to-empty transition appends a null
-delete. An unchanged set emits no derived write even when the stored array has
-different order or duplicate elements. An invalid stored representation is
-repaired with a replacement or delete.
+StartFlow and SubFlow creation evaluate Actions from initial Attributes. When a
+successful WaitFor, Execute, timeout-handler Execute, or RPC writes any Action
+source, the Worker attaches the complete Action mapping to the top-level
+response. Unrelated Attribute writes and query-only RPCs omit it.
 
-The derived write uses the existing AttributeWrite transport so the Server
-commits it in the same Workflow Task as application state. Mapping rules stay
-inside the application Registry and Go Worker; the Server neither stores nor
-interprets them. Continue-as-New carries the ordinary Attribute and Search
-Attribute state, and later invocations resume differential evaluation.
+The Server overlays business writes on its authoritative Attribute state. It
+then computes the deduplicated, byte-sorted union of matching permissions and
+appends a full replacement in the same Workflow Task. Missing and deleted
+values do not match. An empty result deletes the projection. An unchanged
+logical set emits no Search Attribute upsert. The Server does not persist the
+mapping.
 
-Every Step or RPC that may modify one source Attribute must explicitly lock all
-projection source Attributes. Steps configure both WaitFor and Execute locks;
-RPCs configure `LockAttributes`. The SDK deliberately does not infer write sets
-or inject locks. Omitting a lock allows concurrent complete replacements to be
-calculated from inconsistent snapshots.
+Runtime Worker responses and SetAttributes requests cannot write
+`DexWorkQueuePermissions` directly. SetAttributes carries the complete mapping
+only when it modifies an Action source. Projection-only locks are unnecessary;
+business locks still provide application isolation where required.
+
+Action definitions are stable for a running Flow. Removing or changing every
+mapping does not migrate existing runs until a source write, explicit empty
+mapping, or new run supplies the new contract. Continue-as-New carries the
+ordinary Attribute and Search Attribute state.
 
 The Search Attribute is Work Queue candidate data, not authorization evidence.
 The Action gateway must enforce the required permission from the registered RPC
-contract before invocation. Server-side reserved-field protection and explicit
-derived-state IDL are follow-up work.
+contract before invocation. The projection remains eventually consistent
+candidate data.
 
 ### Handler lifecycle and concurrency
 

@@ -9,7 +9,6 @@
 package integ
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -26,13 +25,8 @@ var (
 	actionPermissionAttribute1 = dex.DefineAttribute[string]("action-permission-attribute-1")
 	actionPermissionAttribute2 = dex.DefineAttribute[string]("action-permission-attribute-2")
 	actionPermissionSelfState  = dex.DefineAttribute[string]("action-permission-self-state")
-	actionPermissionLocks      = []dex.AttributeLock{
-		dex.LockAttribute(actionPermissionAttribute1),
-		dex.LockAttribute(actionPermissionAttribute2),
-		dex.LockAttribute(actionPermissionSelfState),
-	}
-	actionStepStatus  = dex.DefineAttribute[string]("action-step-status")
-	actionParentState = dex.DefineAttribute[string]("action-parent-state")
+	actionStepStatus           = dex.DefineAttribute[string]("action-step-status")
+	actionParentState          = dex.DefineAttribute[string]("action-parent-state")
 )
 
 type actionPermissionUpdate struct {
@@ -53,7 +47,6 @@ func (actionPermissionFlow) GetSteps() []dex.StepDef {
 func (flow actionPermissionFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.UpdateState, &dex.RPCOptions{
-			LockAttributes: actionPermissionLocks,
 			Action: dex.DefineAction(
 				"Update state",
 				dex.WhenAttributeMatches(
@@ -88,7 +81,6 @@ func (flow actionPermissionFlow) GetRPCs() []dex.RPCDef {
 			dex.ActionRequiresPermission("permission-x"),
 		)}),
 		dex.DefineRPC(flow.CompleteSelfAction, &dex.RPCOptions{
-			LockAttributes: actionPermissionLocks,
 			Action: dex.DefineAction(
 				"Complete self action",
 				dex.WhenAttributeMatches(
@@ -98,15 +90,9 @@ func (flow actionPermissionFlow) GetRPCs() []dex.RPCDef {
 				dex.ActionRequiresPermission("permission-self"),
 			),
 		}),
-		dex.DefineRPC(flow.SetAttribute1, &dex.RPCOptions{
-			LockAttributes: actionPermissionLocks,
-		}),
-		dex.DefineRPC(flow.SetAttribute2, &dex.RPCOptions{
-			LockAttributes: actionPermissionLocks,
-		}),
-		dex.DefineRPC(flow.FailStateUpdate, &dex.RPCOptions{
-			LockAttributes: actionPermissionLocks,
-		}),
+		dex.DefineRPC(flow.SetAttribute1, nil),
+		dex.DefineRPC(flow.SetAttribute2, nil),
+		dex.DefineRPC(flow.FailStateUpdate, nil),
 	}
 }
 
@@ -340,13 +326,6 @@ func (actionStepFlow) GetExecutedAction(dex.Context, dex.None) (*dex.RPCResult[d
 
 type actionPermissionStep struct {
 	dex.StepDefaults
-}
-
-func (actionPermissionStep) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{
-		WaitForLockAttributes: []dex.AttributeLock{dex.LockAttribute(actionStepStatus)},
-		ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(actionStepStatus)},
-	}
 }
 
 func (actionPermissionStep) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
@@ -652,20 +631,12 @@ func TestActionPermissionProjectionConcurrentRPCs(t *testing.T) {
 
 	errorsByRPC := make(chan error, 2)
 	go func() {
-		errorsByRPC <- invokeActionStringRPCWithLockRetry(
-			ctx,
-			flowID,
-			flow.SetAttribute1,
-			"A",
-		)
+		var output dex.None
+		errorsByRPC <- integClient.InvokeRPC(ctx, flowID, flow.SetAttribute1, "A", &output)
 	}()
 	go func() {
-		errorsByRPC <- invokeActionStringRPCWithLockRetry(
-			ctx,
-			flowID,
-			flow.SetAttribute2,
-			"C",
-		)
+		var output dex.None
+		errorsByRPC <- integClient.InvokeRPC(ctx, flowID, flow.SetAttribute2, "C", &output)
 	}()
 	require.NoError(t, <-errorsByRPC)
 	require.NoError(t, <-errorsByRPC)
@@ -727,29 +698,6 @@ func invokeActionStateUpdate(t *testing.T, flowID string, input actionPermission
 		input,
 		&output,
 	))
-}
-
-func invokeActionStringRPCWithLockRetry(
-	ctx context.Context,
-	flowID string,
-	rpc dex.RPC[string, dex.None],
-	value string,
-) error {
-	for {
-		var output dex.None
-		err := integClient.InvokeRPC(ctx, flowID, rpc, value, &output)
-		var conflict *dex.RPCLockConflictError
-		if !errors.As(err, &conflict) {
-			return err
-		}
-		timer := time.NewTimer(10 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
 }
 
 func mustInitialActionAttribute[T any](

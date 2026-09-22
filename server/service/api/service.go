@@ -1103,6 +1103,15 @@ func (s *serviceImpl) SetAttributes(
 	if err := validateAttributeWrites(req.GetAttributes()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
+	if err := workerclient.ValidateRuntimeAttributeWrites(req.GetAttributes()); err != nil {
+		return nil, makeInvalidRequestError(err.Error())
+	}
+	if err := workerclient.ValidateActionPermissionMappings(
+		req.GetActionPermissionMappings(),
+		s.client.GetBackendType(),
+	); err != nil {
+		return nil, makeInvalidRequestError(err.Error())
+	}
 	attributes := req.GetAttributes()
 	if err := blobstore.OffloadLargeAttributeWrites(
 		ctx,
@@ -1121,8 +1130,9 @@ func (s *serviceImpl) SetAttributes(
 		req.GetRunId(),
 		service.ExecuteRpcSignalChannelName,
 		&dexpb.ExecuteRpcSignalRequest{
-			IsSetAttributeApi: true,
-			UpsertAttributes:  attributes,
+			IsSetAttributeApi:        true,
+			UpsertAttributes:         attributes,
+			ActionPermissionMappings: req.GetActionPermissionMappings(),
 		},
 	); err != nil {
 		return nil, s.handleError(err)
@@ -1583,6 +1593,7 @@ func (s *serviceImpl) doInvokeRPC(
 		req,
 		s.apiCfg,
 		&s.interpreterCfg.InterpreterActivityConfig,
+		s.client.GetBackendType(),
 		s.store,
 		req.GetRequestId(),
 		s.blobStoreCfg,
@@ -1599,11 +1610,12 @@ func (s *serviceImpl) doInvokeRPC(
 		len(decision.GetCancelStepTypes()) > 0 ||
 		decision.GetCloseDecision() != nil {
 		signalRequest := &dexpb.ExecuteRpcSignalRequest{
-			UpsertAttributes:  workerResponse.GetUpsertAttributes(),
-			StepDecision:      workerResponse.GetStepDecision(),
-			RecordEvents:      workerResponse.GetRecordEvents(),
-			DeleteFromChannel: workerResponse.GetDeleteFromChannel(),
-			PublishToChannel:  workerResponse.GetPublishToChannel(),
+			UpsertAttributes:         workerResponse.GetUpsertAttributes(),
+			StepDecision:             workerResponse.GetStepDecision(),
+			RecordEvents:             workerResponse.GetRecordEvents(),
+			DeleteFromChannel:        workerResponse.GetDeleteFromChannel(),
+			PublishToChannel:         workerResponse.GetPublishToChannel(),
+			ActionPermissionMappings: workerResponse.GetActionPermissionMappings(),
 		}
 		if s.apiCfg.IncludeRPCInputOutputIntoHistory {
 			signalRequest.RpcInput = req.GetInput()

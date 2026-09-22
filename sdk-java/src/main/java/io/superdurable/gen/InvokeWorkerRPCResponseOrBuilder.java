@@ -135,4 +135,19 @@ public interface InvokeWorkerRPCResponseOrBuilder extends
    */
   io.superdurable.gen.ChannelMessageOrBuilder getPublishToChannelOrBuilder(
       int index);
+
+  /**
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 7;</code>
+   * @return Whether the actionPermissionMappings field is set.
+   */
+  boolean hasActionPermissionMappings();
+  /**
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 7;</code>
+   * @return The actionPermissionMappings.
+   */
+  io.superdurable.gen.ActionPermissionMappings getActionPermissionMappings();
+  /**
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 7;</code>
+   */
+  io.superdurable.gen.ActionPermissionMappingsOrBuilder getActionPermissionMappingsOrBuilder();
 }

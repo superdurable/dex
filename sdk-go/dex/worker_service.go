@@ -131,17 +131,16 @@ func (service *workerService) invokeWaitForMethod(
 			Err:      err,
 		})
 	}
-	attributeWrites, err := invocation.mappedAttributeWritesWithActionProjection()
-	if err != nil {
-		return newWorkerFailure(codes.Internal, err)
-	}
+	attributeWrites, actionPermissionMappings :=
+		invocation.mappedAttributeWritesWithActionPermissionMappings()
 	return output.sendResult(&dexpb.InvokeWaitForMethodResponse{
-		UpsertAttributes:    attributeWrites,
-		WaitingCondition:    waiting,
-		UpsertStepExeLocals: invocation.mappedLocalWrites(),
-		RecordEvents:        invocation.recordedEvents,
-		PublishToChannel:    invocation.publications,
-		DeleteFromChannel:   invocation.deletions,
+		UpsertAttributes:         attributeWrites,
+		WaitingCondition:         waiting,
+		UpsertStepExeLocals:      invocation.mappedLocalWrites(),
+		RecordEvents:             invocation.recordedEvents,
+		PublishToChannel:         invocation.publications,
+		DeleteFromChannel:        invocation.deletions,
+		ActionPermissionMappings: actionPermissionMappings,
 	})
 }
 
@@ -232,16 +231,15 @@ func (service *workerService) invokeExecuteMethod(
 			Err:      err,
 		})
 	}
-	attributeWrites, err := invocation.mappedAttributeWritesWithActionProjection()
-	if err != nil {
-		return newWorkerFailure(codes.Internal, err)
-	}
+	attributeWrites, actionPermissionMappings :=
+		invocation.mappedAttributeWritesWithActionPermissionMappings()
 	return output.sendResult(&dexpb.InvokeExecuteMethodResponse{
-		StepDecision:      mapped,
-		UpsertAttributes:  attributeWrites,
-		RecordEvents:      invocation.recordedEvents,
-		PublishToChannel:  invocation.publications,
-		DeleteFromChannel: invocation.deletions,
+		StepDecision:             mapped,
+		UpsertAttributes:         attributeWrites,
+		RecordEvents:             invocation.recordedEvents,
+		PublishToChannel:         invocation.publications,
+		DeleteFromChannel:        invocation.deletions,
+		ActionPermissionMappings: actionPermissionMappings,
 	})
 }
 
@@ -317,17 +315,16 @@ func (service *workerService) invokeTimeoutHandler(
 			Err:      err,
 		})
 	}
-	attributeWrites, err := invocation.mappedAttributeWritesWithActionProjection()
-	if err != nil {
-		return newWorkerFailure(codes.Internal, err)
-	}
+	attributeWrites, actionPermissionMappings :=
+		invocation.mappedAttributeWritesWithActionPermissionMappings()
 	return output.sendResult(&dexpb.InvokeExecuteMethodResponse{
-		StepDecision:        mapped,
-		UpsertAttributes:    attributeWrites,
-		UpsertStepExeLocals: invocation.mappedLocalWrites(),
-		RecordEvents:        invocation.recordedEvents,
-		PublishToChannel:    invocation.publications,
-		DeleteFromChannel:   invocation.deletions,
+		StepDecision:             mapped,
+		UpsertAttributes:         attributeWrites,
+		UpsertStepExeLocals:      invocation.mappedLocalWrites(),
+		RecordEvents:             invocation.recordedEvents,
+		PublishToChannel:         invocation.publications,
+		DeleteFromChannel:        invocation.deletions,
+		ActionPermissionMappings: actionPermissionMappings,
 	})
 }
 
@@ -408,11 +405,10 @@ func (service *workerService) invokeWorkerRPC(
 			Err:      err,
 		})
 	}
-	attributeWrites, err := invocation.mappedAttributeWritesWithActionProjection()
-	if err != nil {
-		return nil, newWorkerFailure(codes.Internal, err)
-	}
+	attributeWrites, actionPermissionMappings :=
+		invocation.mappedAttributeWritesWithActionPermissionMappings()
 	response.UpsertAttributes = attributeWrites
+	response.ActionPermissionMappings = actionPermissionMappings
 	response.RecordEvents = invocation.recordedEvents
 	response.PublishToChannel = invocation.publications
 	response.DeleteFromChannel = invocation.deletions

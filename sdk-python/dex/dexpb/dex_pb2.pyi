@@ -352,6 +352,22 @@ class AttributeWrite(_message.Message):
     sync_config: AttributeSyncConfig
     def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[Value, _Mapping]] = ..., index_config: _Optional[_Union[IndexConfig, _Mapping]] = ..., sync_config: _Optional[_Union[AttributeSyncConfig, _Mapping]] = ...) -> None: ...
 
+class ActionPermissionMapping(_message.Message):
+    __slots__ = ("attribute_key", "equal_values", "required_permission")
+    ATTRIBUTE_KEY_FIELD_NUMBER: _ClassVar[int]
+    EQUAL_VALUES_FIELD_NUMBER: _ClassVar[int]
+    REQUIRED_PERMISSION_FIELD_NUMBER: _ClassVar[int]
+    attribute_key: str
+    equal_values: _containers.RepeatedCompositeFieldContainer[Value]
+    required_permission: str
+    def __init__(self, attribute_key: _Optional[str] = ..., equal_values: _Optional[_Iterable[_Union[Value, _Mapping]]] = ..., required_permission: _Optional[str] = ...) -> None: ...
+
+class ActionPermissionMappings(_message.Message):
+    __slots__ = ("mappings",)
+    MAPPINGS_FIELD_NUMBER: _ClassVar[int]
+    mappings: _containers.RepeatedCompositeFieldContainer[ActionPermissionMapping]
+    def __init__(self, mappings: _Optional[_Iterable[_Union[ActionPermissionMapping, _Mapping]]] = ...) -> None: ...
+
 class AttributeSyncConfig(_message.Message):
     __slots__ = ("enabled",)
     ENABLED_FIELD_NUMBER: _ClassVar[int]
@@ -743,16 +759,18 @@ class GetAttributesResponse(_message.Message):
     def __init__(self, attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
 
 class SetAttributesRequest(_message.Message):
-    __slots__ = ("flow_id", "run_id", "attributes", "request_id")
+    __slots__ = ("flow_id", "run_id", "attributes", "request_id", "action_permission_mappings")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     run_id: str
     attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     request_id: str
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., request_id: _Optional[str] = ...) -> None: ...
+    action_permission_mappings: ActionPermissionMappings
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., request_id: _Optional[str] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ...) -> None: ...
 
 class LoadBlobRequestEntry(_message.Message):
     __slots__ = ("flow_id", "blob_value")
@@ -1553,7 +1571,7 @@ class InvokeWaitForMethodRequest(_message.Message):
     def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ..., loaded_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., loaded_attribute_map_instances: _Optional[_Iterable[str]] = ..., loaded_channel_names: _Optional[_Iterable[str]] = ..., loaded_channel_map_instances: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class InvokeWaitForMethodResponse(_message.Message):
-    __slots__ = ("local_activity_metadata", "upsert_attributes", "waiting_condition", "upsert_step_exe_locals", "record_events", "publish_to_channel", "delete_from_channel")
+    __slots__ = ("local_activity_metadata", "upsert_attributes", "waiting_condition", "upsert_step_exe_locals", "record_events", "publish_to_channel", "delete_from_channel", "action_permission_mappings")
     LOCAL_ACTIVITY_METADATA_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     WAITING_CONDITION_FIELD_NUMBER: _ClassVar[int]
@@ -1561,6 +1579,7 @@ class InvokeWaitForMethodResponse(_message.Message):
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
+    ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
     local_activity_metadata: LocalActivityMetadata
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     waiting_condition: WaitingCondition
@@ -1568,7 +1587,8 @@ class InvokeWaitForMethodResponse(_message.Message):
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
     delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
-    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ...) -> None: ...
+    action_permission_mappings: ActionPermissionMappings
+    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ...) -> None: ...
 
 class StepMethodHeartbeat(_message.Message):
     __slots__ = ("value",)
@@ -1639,7 +1659,7 @@ class InvokeExecuteMethodRequest(_message.Message):
     def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., condition_results: _Optional[_Union[ConditionResults, _Mapping]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ..., loaded_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., loaded_attribute_map_instances: _Optional[_Iterable[str]] = ..., loaded_channel_names: _Optional[_Iterable[str]] = ..., loaded_channel_map_instances: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class InvokeExecuteMethodResponse(_message.Message):
-    __slots__ = ("local_activity_metadata", "step_decision", "upsert_attributes", "record_events", "upsert_step_exe_locals", "publish_to_channel", "delete_from_channel")
+    __slots__ = ("local_activity_metadata", "step_decision", "upsert_attributes", "record_events", "upsert_step_exe_locals", "publish_to_channel", "delete_from_channel", "action_permission_mappings")
     LOCAL_ACTIVITY_METADATA_FIELD_NUMBER: _ClassVar[int]
     STEP_DECISION_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
@@ -1647,6 +1667,7 @@ class InvokeExecuteMethodResponse(_message.Message):
     UPSERT_STEP_EXE_LOCALS_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
+    ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
     local_activity_metadata: LocalActivityMetadata
     step_decision: StepDecision
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
@@ -1654,7 +1675,8 @@ class InvokeExecuteMethodResponse(_message.Message):
     upsert_step_exe_locals: _containers.RepeatedCompositeFieldContainer[KV]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
     delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
-    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ...) -> None: ...
+    action_permission_mappings: ActionPermissionMappings
+    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ...) -> None: ...
 
 class InvokeExecuteMethodOutput(_message.Message):
     __slots__ = ("heartbeat", "stream_write", "result")
@@ -1705,20 +1727,22 @@ class InvokeWorkerRPCRequest(_message.Message):
     def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., rpc_name: _Optional[str] = ..., input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., channel_infos: _Optional[_Mapping[str, ChannelInfo]] = ..., loaded_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., loaded_attribute_map_instances: _Optional[_Iterable[str]] = ..., loaded_channel_names: _Optional[_Iterable[str]] = ..., loaded_channel_map_instances: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class InvokeWorkerRPCResponse(_message.Message):
-    __slots__ = ("output", "step_decision", "upsert_attributes", "record_events", "delete_from_channel", "publish_to_channel")
+    __slots__ = ("output", "step_decision", "upsert_attributes", "record_events", "delete_from_channel", "publish_to_channel", "action_permission_mappings")
     OUTPUT_FIELD_NUMBER: _ClassVar[int]
     STEP_DECISION_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
+    ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
     output: Value
     step_decision: StepDecision
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
-    def __init__(self, output: _Optional[_Union[Value, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
+    action_permission_mappings: ActionPermissionMappings
+    def __init__(self, output: _Optional[_Union[Value, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ...) -> None: ...
 
 class StepDecision(_message.Message):
     __slots__ = ("next_steps", "close_decision", "cancel_step_types", "cancel_sibling_step_types")
@@ -2223,7 +2247,7 @@ class ReportSubFlowCompletionActivityOutput(_message.Message):
     def __init__(self, status: _Optional[_Union[SubFlowCompletionDeliveryStatus, str]] = ...) -> None: ...
 
 class ExecuteRpcSignalRequest(_message.Message):
-    __slots__ = ("rpc_input", "rpc_output", "upsert_attributes", "step_decision", "record_events", "publish_to_channel", "is_set_attribute_api", "delete_from_channel", "is_delete_channel_message_api")
+    __slots__ = ("rpc_input", "rpc_output", "upsert_attributes", "step_decision", "record_events", "publish_to_channel", "is_set_attribute_api", "delete_from_channel", "is_delete_channel_message_api", "action_permission_mappings")
     RPC_INPUT_FIELD_NUMBER: _ClassVar[int]
     RPC_OUTPUT_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
@@ -2233,6 +2257,7 @@ class ExecuteRpcSignalRequest(_message.Message):
     IS_SET_ATTRIBUTE_API_FIELD_NUMBER: _ClassVar[int]
     DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     IS_DELETE_CHANNEL_MESSAGE_API_FIELD_NUMBER: _ClassVar[int]
+    ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
     rpc_input: Value
     rpc_output: Value
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
@@ -2242,7 +2267,8 @@ class ExecuteRpcSignalRequest(_message.Message):
     is_set_attribute_api: bool
     delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
     is_delete_channel_message_api: bool
-    def __init__(self, rpc_input: _Optional[_Union[Value, _Mapping]] = ..., rpc_output: _Optional[_Union[Value, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., is_set_attribute_api: _Optional[bool] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., is_delete_channel_message_api: _Optional[bool] = ...) -> None: ...
+    action_permission_mappings: ActionPermissionMappings
+    def __init__(self, rpc_input: _Optional[_Union[Value, _Mapping]] = ..., rpc_output: _Optional[_Union[Value, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., is_set_attribute_api: _Optional[bool] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., is_delete_channel_message_api: _Optional[bool] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ...) -> None: ...
 
 class SkipTimerSignalRequest(_message.Message):
     __slots__ = ("step_execution_id", "timer_condition_id", "timer_condition_index")

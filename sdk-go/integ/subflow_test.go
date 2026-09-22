@@ -359,7 +359,8 @@ func TestSubFlowDefaultReuseRestartsFailedExecutionAcrossParentReset(t *testing.
 	})
 	require.NoError(t, err)
 	waitForFlow(t, flowID, true)
-	require.NotEqual(t, firstRunID, getSubFlowRunID(t, childID))
+	secondRunID := awaitSubFlowRunID(t, childID, firstRunID)
+	require.NotEqual(t, firstRunID, secondRunID)
 }
 
 func TestSubFlowPartialResultsSurviveContinueAsNewWithoutRestart(t *testing.T) {

@@ -12,8 +12,15 @@ package workerclient
 
 import (
 	"fmt"
+	"math"
+	"regexp"
 
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+)
+
+var actionPermissionPattern = regexp.MustCompile(
+	`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`,
 )
 
 // ValidateAttributeWrites validates untrusted start Attributes and rejects server-owned blob IDs.
@@ -60,6 +67,82 @@ func RejectWorkerAttributeWriteBlobIDs(writes []*dexpb.AttributeWrite) error {
 		}
 	}
 	return nil
+}
+
+// ValidateRuntimeAttributeWrites rejects direct writes to the server-managed permission projection.
+func ValidateRuntimeAttributeWrites(writes []*dexpb.AttributeWrite) error {
+	for _, write := range writes {
+		if write == nil {
+			continue
+		}
+		if write.GetKey() == service.SearchAttributeDexWorkQueuePermissions ||
+			write.GetIndexConfig().GetIndexKey() == service.SearchAttributeDexWorkQueuePermissions {
+			return fmt.Errorf(
+				"%s is managed by the Server",
+				service.SearchAttributeDexWorkQueuePermissions,
+			)
+		}
+	}
+	return nil
+}
+
+// ValidateActionPermissionMappings validates untrusted Action projection inputs.
+func ValidateActionPermissionMappings(
+	mappings *dexpb.ActionPermissionMappings,
+	backendType service.BackendType,
+) error {
+	if mappings == nil {
+		return nil
+	}
+	if backendType == service.BackendTypeCadence && len(mappings.GetMappings()) > 0 {
+		return fmt.Errorf("Action permission mappings require the Temporal backend")
+	}
+	for mappingIndex, mapping := range mappings.GetMappings() {
+		if mapping == nil || mapping.GetAttributeKey() == "" {
+			return fmt.Errorf("Action permission mapping %d has an empty Attribute key", mappingIndex)
+		}
+		if mapping.GetAttributeKey() == service.SearchAttributeDexWorkQueuePermissions {
+			return fmt.Errorf(
+				"Action permission mapping %d uses server-managed Attribute %s",
+				mappingIndex,
+				service.SearchAttributeDexWorkQueuePermissions,
+			)
+		}
+		if !actionPermissionPattern.MatchString(mapping.GetRequiredPermission()) {
+			return fmt.Errorf(
+				"Action permission mapping %d has invalid permission %q",
+				mappingIndex,
+				mapping.GetRequiredPermission(),
+			)
+		}
+		if len(mapping.GetEqualValues()) == 0 {
+			return fmt.Errorf("Action permission mapping %d has no equal values", mappingIndex)
+		}
+		for valueIndex, value := range mapping.GetEqualValues() {
+			if !isValidActionPermissionEqualValue(value) {
+				return fmt.Errorf(
+					"Action permission mapping %d equal value %d is not a finite scalar",
+					mappingIndex,
+					valueIndex,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+func isValidActionPermissionEqualValue(value *dexpb.Value) bool {
+	if value == nil {
+		return false
+	}
+	switch typedValue := value.GetKind().(type) {
+	case *dexpb.Value_StringValue, *dexpb.Value_IntValue, *dexpb.Value_BoolValue:
+		return true
+	case *dexpb.Value_DoubleValue:
+		return !math.IsNaN(typedValue.DoubleValue) && !math.IsInf(typedValue.DoubleValue, 0)
+	default:
+		return false
+	}
 }
 
 // RejectWorkerKVBlobIDs rejects blob-id arms on KV values.

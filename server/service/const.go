@@ -35,9 +35,10 @@ const (
 	WaitForStepCompletionUpdateType = "WaitForStepCompletion"
 	WaitForAttributeUpdateType      = "WaitForAttribute"
 
-	SearchAttributeActiveStepTypes = "ActiveStepTypes"
-	SearchAttributeDexParentFlowID = "DexParentFlowID"
-	SearchAttributeDexWorkflowType = "FlowType"
+	SearchAttributeActiveStepTypes         = "ActiveStepTypes"
+	SearchAttributeDexParentFlowID         = "DexParentFlowID"
+	SearchAttributeDexWorkflowType         = "FlowType"
+	SearchAttributeDexWorkQueuePermissions = "DexWorkQueuePermissions"
 
 	BackendTypeCadence  BackendType = "cadence"
 	BackendTypeTemporal BackendType = "temporal"
