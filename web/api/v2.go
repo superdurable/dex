@@ -15,6 +15,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,10 +30,13 @@ import (
 )
 
 const (
-	v2DefaultPageSize = 50
-	v2RPCConcurrency  = 8
-	v2RPCTimeout      = 5 * time.Second
+	v2DefaultPageSize           = 50
+	v2RPCConcurrency            = 8
+	v2RPCTimeout                = 5 * time.Second
+	v2WorkQueuePermissionsIndex = "DexWorkQueuePermissions"
 )
+
+var v2PermissionPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
 
 // V2Definition describes one Flow type's Dex Web v2 contract.
 type V2Definition struct {
@@ -63,18 +67,17 @@ type V2ViewField struct {
 	ValueType    string `json:"valueType"`
 	Editable     bool   `json:"editable"`
 	Description  string `json:"description"`
-	// Slot is the named position this field takes in a row or drawer. Empty means the detail list.
-	Slot string `json:"slot,omitempty"`
+	// UISlot is the named position this field takes in a row or drawer. Empty means the detail list.
+	UISlot string `json:"uiSlot,omitempty"`
 }
 
 // V2Action describes one operator RPC.
 type V2Action struct {
-	RPCName string `json:"rpcName"`
-	Label   string `json:"label"`
-	// Role is who outside the Flow answers this Action. Empty when the Flow names no parties.
-	Role      string            `json:"role,omitempty"`
-	Condition V2ActionCondition `json:"condition"`
-	Input     V2ActionInput     `json:"input"`
+	RPCName            string            `json:"rpcName"`
+	Label              string            `json:"label"`
+	RequiredPermission string            `json:"requiredPermission"`
+	Condition          V2ActionCondition `json:"condition"`
+	Input              V2ActionInput     `json:"input"`
 }
 
 // V2ActionCondition describes an Action's visibility predicate.
@@ -117,10 +120,11 @@ type v2Filter struct {
 }
 
 type v2SearchRequest struct {
-	FlowType      string     `json:"flowType"`
-	Filters       []v2Filter `json:"filters"`
-	PageSize      int32      `json:"pageSize"`
-	NextPageToken string     `json:"nextPageToken"`
+	FlowType             string     `json:"flowType"`
+	WorkQueuePermissions []string   `json:"workQueuePermissions"`
+	Filters              []v2Filter `json:"filters"`
+	PageSize             int32      `json:"pageSize"`
+	NextPageToken        string     `json:"nextPageToken"`
 }
 
 type v2SearchResponse struct {
@@ -221,7 +225,7 @@ func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) 
 	if body.PageSize == 0 || body.PageSize > v2DefaultPageSize {
 		body.PageSize = v2DefaultPageSize
 	}
-	query, err := compileV2Query(body.FlowType, body.Filters, definition)
+	query, err := compileV2Query(body.FlowType, body.WorkQueuePermissions, body.Filters, definition)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -548,10 +552,18 @@ func (h *v2Handler) requireActiveFlow(ctx context.Context, flowID string, flowTy
 
 func compileV2Query(
 	flowType string,
+	workQueuePermissions []string,
 	filters []v2Filter,
 	definition V2Definition,
 ) (string, error) {
 	conditions := []string{"FlowType = " + quoteVisibilityString(flowType)}
+	permissionCondition, err := compileWorkQueuePermissions(workQueuePermissions)
+	if err != nil {
+		return "", err
+	}
+	if permissionCondition != "" {
+		conditions = append(conditions, permissionCondition)
+	}
 	for _, filter := range filters {
 		if len(filter.Values) == 0 {
 			return "", fmt.Errorf("filter %q must contain at least one value", filter.Field)
@@ -570,6 +582,33 @@ func compileV2Query(
 		conditions = append(conditions, condition)
 	}
 	return strings.Join(conditions, " AND "), nil
+}
+
+func compileWorkQueuePermissions(permissions []string) (string, error) {
+	permissionSet := make(map[string]struct{}, len(permissions))
+	for _, permission := range permissions {
+		if !v2PermissionPattern.MatchString(permission) {
+			return "", fmt.Errorf("invalid Work Queue permission %q", permission)
+		}
+		permissionSet[permission] = struct{}{}
+	}
+	if len(permissionSet) == 0 {
+		return "", nil
+	}
+	orderedPermissions := make([]string, 0, len(permissionSet))
+	for permission := range permissionSet {
+		orderedPermissions = append(orderedPermissions, permission)
+	}
+	sort.Strings(orderedPermissions)
+	fieldExpression := quoteVisibilityField(v2WorkQueuePermissionsIndex)
+	parts := make([]string, 0, len(orderedPermissions))
+	for _, permission := range orderedPermissions {
+		parts = append(parts, fieldExpression+" = "+quoteVisibilityString(permission))
+	}
+	if len(parts) == 1 {
+		return parts[0], nil
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", nil
 }
 
 func v2FilterField(

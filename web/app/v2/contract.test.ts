@@ -17,7 +17,7 @@ import {
   v2HomePath,
   v2DebugPath,
   v2ListColumns,
-  v2QueuePath,
+  v2WorkQueuePath,
   v2RunPath,
   visibleV2Actions,
 } from './contract';
@@ -39,9 +39,9 @@ describe('Dex Web v2 contract helpers', () => {
 
   it('builds Flow-ID-only routes per mode', () => {
     expect(v2RunPath('Refund Flow', 'refund/42')).toBe('/v2/run/Refund%20Flow/refund%2F42');
-    expect(v2QueuePath('Refund Flow', 'refund/42')).toBe('/v2/queue/Refund%20Flow/refund%2F42');
+    expect(v2WorkQueuePath('Refund Flow', 'refund/42')).toBe('/v2/work-queue/Refund%20Flow/refund%2F42');
     expect(v2RunPath()).toBe('/v2/run');
-    expect(v2QueuePath('Refund Flow')).toBe('/v2/queue/Refund%20Flow');
+    expect(v2WorkQueuePath('Refund Flow')).toBe('/v2/work-queue/Refund%20Flow');
   });
 
   it('nests the Deep Dive under the run it belongs to, optionally keyed by run', () => {
@@ -67,6 +67,7 @@ describe('Dex Web v2 contract helpers', () => {
     const countAction: FlowV2Action = {
       rpcName: 'RetryRefund',
       label: 'Retry',
+      requiredPermission: 'refund.retry',
       condition: { attributeKey: 'case-status', operator: 'in', values: ['failed'] },
       input: {
         kind: 'object',
@@ -85,6 +86,7 @@ describe('Dex Web v2 contract helpers', () => {
 const approveAction: FlowV2Action = {
   rpcName: 'ApproveRefund',
   label: 'Approve',
+  requiredPermission: 'refund.manage',
   condition: { attributeKey: 'case-status', operator: 'in', values: ['awaiting-manager'] },
   input: { kind: 'none' },
 };
@@ -92,6 +94,7 @@ const approveAction: FlowV2Action = {
 const rejectAction: FlowV2Action = {
   rpcName: 'RejectRefund',
   label: 'Reject',
+  requiredPermission: 'refund.manage',
   condition: { attributeKey: 'case-status', operator: 'in', values: ['awaiting-manager'] },
   input: {
     kind: 'object',

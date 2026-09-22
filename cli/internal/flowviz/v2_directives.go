@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"math"
@@ -24,6 +25,7 @@ import (
 )
 
 var v2GroupIDPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
+var actionPermissionPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
 
 type v2DirectiveArgument struct {
 	text  string
@@ -37,14 +39,20 @@ type v2Directive struct {
 }
 
 type v2AttributeDeclaration struct {
-	key        string
-	valueType  string
-	isMap      bool
-	isIndexed  bool
-	indexKey   string
-	indexType  string
-	directives []v2Directive
-	span       *Span
+	variableName string
+	key          string
+	valueType    string
+	isMap        bool
+	isIndexed    bool
+	indexKey     string
+	indexType    string
+	directives   []v2Directive
+	span         *Span
+}
+
+type v2RPCRegistration struct {
+	name             string
+	actionExpression ast.Expr
 }
 
 type v2StructField struct {
@@ -58,17 +66,17 @@ func (analyzer *goAnalyzer) analyzeVisualizationV2(flowType string) {
 	attributes := analyzer.collectV2Attributes()
 	analyzer.graph.Groups = analyzer.collectV2Groups()
 	analyzer.applyV2Explanations()
-	registeredRPCNames := analyzer.registeredV2RPCNames(flowType)
-	registeredRPCs := make(map[string]bool, len(registeredRPCNames))
-	for _, rpcName := range registeredRPCNames {
-		registeredRPCs[rpcName] = true
+	registeredRPCs := analyzer.registeredV2RPCs(flowType)
+	registeredRPCNames := make(map[string]bool, len(registeredRPCs))
+	for _, rpc := range registeredRPCs {
+		registeredRPCNames[rpc.name] = true
 	}
 	indexedAttributes := analyzer.collectV2IndexedAttributes(attributes)
 	summary := analyzer.collectV2View(
 		flowType,
 		"GetDexSummary",
 		attributes,
-		registeredRPCs,
+		registeredRPCNames,
 		indexedAttributes,
 		false,
 	)
@@ -76,11 +84,11 @@ func (analyzer *goAnalyzer) analyzeVisualizationV2(flowType string) {
 		flowType,
 		"GetDexDisplay",
 		attributes,
-		registeredRPCs,
+		registeredRPCNames,
 		indexedAttributes,
 		true,
 	)
-	actions := analyzer.collectV2Actions(flowType, attributes, registeredRPCNames)
+	actions := analyzer.collectV2Actions(flowType, attributes, registeredRPCs)
 	analyzer.graph.V2 = &V2Definition{
 		IndexedAttributes: indexedAttributes,
 		Summary:           summary,
@@ -245,14 +253,15 @@ func (analyzer *goAnalyzer) collectV2Attributes() map[string]v2AttributeDeclarat
 					attributeDirectives = nil
 				}
 				attributes[attributeKey] = v2AttributeDeclaration{
-					key:        attributeKey,
-					valueType:  valueType,
-					isMap:      resource.Map,
-					isIndexed:  isIndexed,
-					indexKey:   indexKey,
-					indexType:  indexType,
-					directives: attributeDirectives,
-					span:       analyzer.span(valueSpec),
+					variableName: name.Name,
+					key:          attributeKey,
+					valueType:    valueType,
+					isMap:        resource.Map,
+					isIndexed:    isIndexed,
+					indexKey:     indexKey,
+					indexType:    indexType,
+					directives:   attributeDirectives,
+					span:         analyzer.span(valueSpec),
 				}
 			}
 		}
@@ -385,10 +394,10 @@ func (analyzer *goAnalyzer) collectV2View(
 		indexedKeys[attribute.AttributeKey] = true
 	}
 	seen := make(map[string]bool)
-	claimedSlots := make(map[string]string)
+	claimedUISlots := make(map[string]string)
 	for _, directive := range directivesNamed(analyzer.parseV2Directives(method.Doc), "field") {
 		required := []string{"attribute-key", "value-type", "editable", "description"}
-		allowed := append(append([]string{}, required...), "slot")
+		allowed := append(append([]string{}, required...), "ui-slot")
 		if !analyzer.validateV2Directive(directive, allowed, required) {
 			continue
 		}
@@ -425,8 +434,8 @@ func (analyzer *goAnalyzer) collectV2View(
 			analyzer.addV2DirectiveError(directive, fmt.Sprintf("Summary field %q duplicates an indexed Attribute", attributeKey))
 			continue
 		}
-		slot, slotOK := analyzer.v2FieldSlot(directive, claimedSlots, attributeKey)
-		if !slotOK {
+		uiSlot, uiSlotOK := analyzer.v2FieldUISlot(directive, claimedUISlots, attributeKey)
+		if !uiSlotOK {
 			continue
 		}
 		view.Fields = append(view.Fields, ViewField{
@@ -434,18 +443,18 @@ func (analyzer *goAnalyzer) collectV2View(
 			ValueType:    valueType,
 			Editable:     isEditable,
 			Description:  directive.arguments["description"].text,
-			Slot:         slot,
+			UISlot:       uiSlot,
 		})
 	}
 	analyzer.validateV2ViewOutputKeys(method, view.Fields)
 	return view
 }
 
-// Slots a field may claim, mapped to whether only one field may claim each.
+// UI slots a field may claim, mapped to whether only one field may claim each.
 //
 // Closed because the renderer is written against it. An unknown value would be ignored silently and
 // the author would never learn the field did not land where they meant it to.
-var v2FieldSlots = map[string]bool{
+var v2FieldUISlots = map[string]bool{
 	"title":          true,
 	"subtitle":       true,
 	"status":         true,
@@ -453,71 +462,52 @@ var v2FieldSlots = map[string]bool{
 	"reason":         false,
 }
 
-// Reads and checks `slot`, which is optional. Returns false when the directive is already reported.
-func (analyzer *goAnalyzer) v2FieldSlot(
+// Reads and checks `ui-slot`, which is optional. Returns false when already reported.
+func (analyzer *goAnalyzer) v2FieldUISlot(
 	directive v2Directive,
-	claimedSlots map[string]string,
+	claimedUISlots map[string]string,
 	attributeKey string,
 ) (string, bool) {
-	argument, declared := directive.arguments["slot"]
+	argument, declared := directive.arguments["ui-slot"]
 	if !declared {
 		return "", true
 	}
-	slot := argument.text
-	unique, known := v2FieldSlots[slot]
+	uiSlot := argument.text
+	unique, known := v2FieldUISlots[uiSlot]
 	if !known {
-		analyzer.addV2DirectiveError(directive, fmt.Sprintf("slot %q is not a slot this view has", slot))
+		analyzer.addV2DirectiveError(directive, fmt.Sprintf("ui-slot %q is not a UI slot this view has", uiSlot))
 		return "", false
 	}
 	if unique {
-		if holder, taken := claimedSlots[slot]; taken {
-			analyzer.addV2DirectiveError(directive, fmt.Sprintf("slot %q is already taken by Attribute %q", slot, holder))
+		if holder, taken := claimedUISlots[uiSlot]; taken {
+			analyzer.addV2DirectiveError(directive, fmt.Sprintf("ui-slot %q is already taken by Attribute %q", uiSlot, holder))
 			return "", false
 		}
-		claimedSlots[slot] = attributeKey
+		claimedUISlots[uiSlot] = attributeKey
 	}
-	return slot, true
+	return uiSlot, true
 }
 
 func (analyzer *goAnalyzer) collectV2Actions(
 	flowType string,
 	attributes map[string]v2AttributeDeclaration,
-	registeredRPCNames []string,
+	registeredRPCs []v2RPCRegistration,
 ) []Action {
 	actions := make([]Action, 0)
-	for _, rpcName := range registeredRPCNames {
-		method := analyzer.methods[flowType][rpcName]
+	for _, rpc := range registeredRPCs {
+		method := analyzer.methods[flowType][rpc.name]
 		if method == nil {
 			continue
 		}
 		directives := analyzer.parseV2Directives(method.Doc)
-		actionDirectives := directivesNamed(directives, "action")
-		if len(actionDirectives) == 0 {
+		if len(directivesNamed(directives, "action")) > 0 || len(directivesNamed(directives, "when")) > 0 {
+			analyzer.graph.AddDiagnostic("error", "v2_action", "dex:action and dex:when are replaced by RPCOptions.Action", analyzer.span(method))
+		}
+		if rpc.actionExpression == nil {
 			continue
 		}
-		if len(actionDirectives) != 1 {
-			analyzer.graph.AddDiagnostic("error", "v2_action", fmt.Sprintf("RPC %s must declare exactly one dex:action", rpcName), analyzer.span(method))
-			continue
-		}
-		actionDirective := actionDirectives[0]
-		if !analyzer.validateV2Directive(
-			actionDirective,
-			[]string{"action-label", "role"},
-			[]string{"action-label"},
-		) {
-			continue
-		}
-		role, roleOK := analyzer.v2ActionRole(actionDirective)
-		if !roleOK {
-			continue
-		}
-		whenDirectives := directivesNamed(directives, "when")
-		if len(whenDirectives) != 1 {
-			analyzer.graph.AddDiagnostic("error", "v2_action", fmt.Sprintf("Action RPC %s must declare exactly one dex:when", rpcName), analyzer.span(method))
-			continue
-		}
-		condition, conditionOK := analyzer.v2ActionCondition(whenDirectives[0], attributes)
-		if !conditionOK {
+		action, actionOK := analyzer.v2ActionFromExpression(rpc.name, rpc.actionExpression, attributes)
+		if !actionOK {
 			continue
 		}
 		inputDirectives := directivesNamed(directives, "input")
@@ -525,77 +515,119 @@ func (analyzer *goAnalyzer) collectV2Actions(
 		if !inputOK {
 			continue
 		}
-		actions = append(actions, Action{
-			RPCName:   rpcName,
-			Label:     actionDirective.arguments["action-label"].text,
-			Role:      role,
-			Condition: condition,
-			Input:     input,
-		})
-	}
-	for methodName, method := range analyzer.methods[flowType] {
-		if len(directivesNamed(analyzer.parseV2Directives(method.Doc), "action")) == 0 {
-			continue
-		}
-		if !containsString(registeredRPCNames, methodName) {
-			analyzer.graph.AddDiagnostic("error", "v2_action", fmt.Sprintf("Action RPC %s must be registered in GetRPCs", methodName), analyzer.span(method))
-		}
+		action.Input = input
+		actions = append(actions, action)
 	}
 	return actions
 }
 
-// Reads the optional `role`: who, outside the Flow, is expected to answer this Action.
-//
-// Open rather than a closed set, because the parties to a process are the domain's business and no
-// list written here would fit the next Flow. Kebab-case so it can be a value in a picker.
-func (analyzer *goAnalyzer) v2ActionRole(directive v2Directive) (string, bool) {
-	argument, declared := directive.arguments["role"]
-	if !declared {
-		return "", true
+func (analyzer *goAnalyzer) v2ActionFromExpression(
+	rpcName string,
+	expression ast.Expr,
+	attributes map[string]v2AttributeDeclaration,
+) (Action, bool) {
+	call, ok := expression.(*ast.CallExpr)
+	if !ok || analyzer.callName(call) != "DefineAction" || len(call.Args) < 3 {
+		analyzer.graph.AddDiagnostic("error", "v2_action", fmt.Sprintf("RPC %s Action must directly call dex.DefineAction", rpcName), analyzer.span(expression))
+		return Action{}, false
 	}
-	if !v2GroupIDPattern.MatchString(argument.text) {
-		analyzer.addV2DirectiveError(directive, fmt.Sprintf("role %q must be kebab-case", argument.text))
-		return "", false
+	label, isStatic := analyzer.staticString(call.Args[0])
+	if !isStatic || strings.TrimSpace(label) == "" {
+		analyzer.graph.AddDiagnostic("error", "v2_action", fmt.Sprintf("RPC %s Action label must be a non-empty compile-time string", rpcName), analyzer.span(call.Args[0]))
+		return Action{}, false
 	}
-	return argument.text, true
+	condition, conditionOK := analyzer.v2ActionConditionFromExpression(call.Args[1], attributes)
+	if !conditionOK {
+		return Action{}, false
+	}
+	permission := ""
+	permissionCount := 0
+	for _, optionExpression := range call.Args[2:] {
+		optionCall, optionOK := optionExpression.(*ast.CallExpr)
+		if !optionOK || analyzer.callName(optionCall) != "ActionRequiresPermission" || len(optionCall.Args) != 1 {
+			analyzer.graph.AddDiagnostic("error", "v2_action", fmt.Sprintf("RPC %s Action options must directly call dex.ActionRequiresPermission", rpcName), analyzer.span(optionExpression))
+			return Action{}, false
+		}
+		staticPermission, permissionOK := analyzer.staticString(optionCall.Args[0])
+		if !permissionOK {
+			analyzer.graph.AddDiagnostic("error", "v2_action", fmt.Sprintf("RPC %s Action permission must be a compile-time string", rpcName), analyzer.span(optionCall.Args[0]))
+			return Action{}, false
+		}
+		permission = staticPermission
+		permissionCount++
+	}
+	if permissionCount != 1 || !actionPermissionPattern.MatchString(permission) {
+		analyzer.graph.AddDiagnostic("error", "v2_action", fmt.Sprintf("RPC %s Action requires exactly one valid permission", rpcName), analyzer.span(call))
+		return Action{}, false
+	}
+	return Action{
+		RPCName:            rpcName,
+		Label:              label,
+		RequiredPermission: permission,
+		Condition:          condition,
+	}, true
 }
 
-func (analyzer *goAnalyzer) v2ActionCondition(
-	directive v2Directive,
+func (analyzer *goAnalyzer) v2ActionConditionFromExpression(
+	expression ast.Expr,
 	attributes map[string]v2AttributeDeclaration,
 ) (ActionCondition, bool) {
-	allowed := []string{"attribute-key", "operator", "values"}
-	if !analyzer.validateV2Directive(directive, allowed, allowed) {
+	call, ok := expression.(*ast.CallExpr)
+	if !ok || analyzer.callName(call) != "WhenAttributeMatches" || len(call.Args) < 2 {
+		analyzer.graph.AddDiagnostic("error", "v2_action", "Action condition must directly call dex.WhenAttributeMatches", analyzer.span(expression))
 		return ActionCondition{}, false
 	}
-	attributeKey := directive.arguments["attribute-key"].text
-	attribute, found := attributes[attributeKey]
-	if !found || attribute.isMap {
-		analyzer.addV2DirectiveError(directive, fmt.Sprintf("condition Attribute %q must be a scalar Attribute in this file", attributeKey))
-		return ActionCondition{}, false
-	}
-	operator := directive.arguments["operator"].text
-	if operator != "in" {
-		analyzer.addV2DirectiveError(directive, "operator must be in")
-		return ActionCondition{}, false
-	}
-	argument := directive.arguments["values"]
-	if !argument.array {
-		analyzer.addV2DirectiveError(directive, "values must be a JSON array")
-		return ActionCondition{}, false
-	}
-	values, err := decodeV2JSONArray(argument.text)
-	if err != nil || len(values) == 0 {
-		analyzer.addV2DirectiveError(directive, "values must be a non-empty JSON array")
-		return ActionCondition{}, false
-	}
-	for _, value := range values {
-		if !v2JSONValueMatchesType(value, attribute.valueType) {
-			analyzer.addV2DirectiveError(directive, fmt.Sprintf("condition value does not match Attribute %q type %q", attributeKey, attribute.valueType))
-			return ActionCondition{}, false
+	resourceID := analyzer.resourceForExpression(call.Args[0])
+	variableName := strings.TrimPrefix(resourceID, "resource:attribute:")
+	var attribute v2AttributeDeclaration
+	found := false
+	for _, candidate := range attributes {
+		if candidate.variableName == variableName {
+			attribute = candidate
+			found = true
+			break
 		}
 	}
-	return ActionCondition{AttributeKey: attributeKey, Operator: operator, Values: values}, true
+	if !found || attribute.isMap {
+		analyzer.graph.AddDiagnostic("error", "v2_action", "Action condition must reference a scalar Attribute declared in this file", analyzer.span(call.Args[0]))
+		return ActionCondition{}, false
+	}
+	values := make([]any, 0, len(call.Args)-1)
+	for _, matchExpression := range call.Args[1:] {
+		matchCall, matchOK := matchExpression.(*ast.CallExpr)
+		if !matchOK || analyzer.callName(matchCall) != "AttributeMatchEqual" || len(matchCall.Args) != 1 {
+			analyzer.graph.AddDiagnostic("error", "v2_action", "Action condition matches must directly call dex.AttributeMatchEqual", analyzer.span(matchExpression))
+			return ActionCondition{}, false
+		}
+		value, valueOK := analyzer.staticV2Scalar(matchCall.Args[0])
+		if !valueOK || !v2JSONValueMatchesType(value, attribute.valueType) {
+			analyzer.graph.AddDiagnostic("error", "v2_action", fmt.Sprintf("Action condition value must be a matching compile-time %s", attribute.valueType), analyzer.span(matchCall.Args[0]))
+			return ActionCondition{}, false
+		}
+		values = append(values, value)
+	}
+	return ActionCondition{AttributeKey: attribute.key, Operator: "in", Values: values}, true
+}
+
+func (analyzer *goAnalyzer) staticV2Scalar(expression ast.Expr) (any, bool) {
+	typeAndValue, ok := analyzer.typeInfo.Types[expression]
+	if !ok || typeAndValue.Value == nil {
+		return nil, false
+	}
+	switch typeAndValue.Value.Kind() {
+	case constant.String:
+		return constant.StringVal(typeAndValue.Value), true
+	case constant.Bool:
+		return constant.BoolVal(typeAndValue.Value), true
+	case constant.Int:
+		value, exact := constant.Int64Val(typeAndValue.Value)
+		return value, exact
+	case constant.Float:
+		value, exact := constant.Float64Val(typeAndValue.Value)
+		return value, exact && !math.IsInf(value, 0) && !math.IsNaN(value)
+	default:
+		return nil, false
+	}
 }
 
 func (analyzer *goAnalyzer) v2ActionInput(
@@ -744,13 +776,13 @@ func (analyzer *goAnalyzer) v2RPCInputStruct(method *ast.FuncDecl) ([]v2StructFi
 	return nil, false
 }
 
-func (analyzer *goAnalyzer) registeredV2RPCNames(flowType string) []string {
+func (analyzer *goAnalyzer) registeredV2RPCs(flowType string) []v2RPCRegistration {
 	method := analyzer.methods[flowType]["GetRPCs"]
 	if method == nil || method.Body == nil {
 		analyzer.graph.AddDiagnostic("error", "v2_rpc_registration", "Flow must define GetRPCs in the Flow file", nil)
 		return nil
 	}
-	names := make([]string, 0)
+	registrations := make([]v2RPCRegistration, 0)
 	ast.Inspect(method.Body, func(current ast.Node) bool {
 		call, ok := current.(*ast.CallExpr)
 		if !ok || analyzer.callName(call) != "DefineRPC" || len(call.Args) == 0 {
@@ -758,11 +790,32 @@ func (analyzer *goAnalyzer) registeredV2RPCNames(flowType string) []string {
 		}
 		selector, selectorOK := call.Args[0].(*ast.SelectorExpr)
 		if selectorOK {
-			names = append(names, selector.Sel.Name)
+			registration := v2RPCRegistration{name: selector.Sel.Name}
+			if len(call.Args) > 1 {
+				registration.actionExpression = analyzer.v2RPCActionExpression(call.Args[1])
+			}
+			registrations = append(registrations, registration)
 		}
 		return false
 	})
-	return names
+	return registrations
+}
+
+func (analyzer *goAnalyzer) v2RPCActionExpression(optionsExpression ast.Expr) ast.Expr {
+	if unary, ok := optionsExpression.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+		optionsExpression = unary.X
+	}
+	options, ok := optionsExpression.(*ast.CompositeLit)
+	if !ok {
+		return nil
+	}
+	for _, element := range options.Elts {
+		keyValue, keyValueOK := element.(*ast.KeyValueExpr)
+		if keyValueOK && analyzer.expressionString(keyValue.Key) == "Action" {
+			return keyValue.Value
+		}
+	}
+	return nil
 }
 
 func (analyzer *goAnalyzer) validateV2RPCSignature(method *ast.FuncDecl, inputKind string, outputKind string) bool {

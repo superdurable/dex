@@ -10,8 +10,10 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import { readResponseJSON } from '@/lib/http';
 import type { V2Flow, V2SearchResult } from '@/lib/types';
-import { absorb, nothingHeld, readFailureReason, type Liveness } from '../queue/liveness';
+import { absorb, nothingHeld, readFailureReason, type Liveness } from '../work-queue/liveness';
 import { filterValueType, parseFilterValues, type FilterRow } from './filters';
+
+const EMPTY_WORK_QUEUE_PERMISSIONS: readonly string[] = [];
 
 export interface FlowSearch {
   flows: V2Flow[];
@@ -31,6 +33,7 @@ export function useFlowSearch(
   definition: FlowV2Definition | undefined,
   /** Owned by whatever renders the search controls, so there is one source of scope. */
   filters: readonly FilterRow[],
+  workQueuePermissions: readonly string[] = EMPTY_WORK_QUEUE_PERMISSIONS,
 ): FlowSearch {
   const [held, setHeld] = useState(() => nothingHeld<V2Flow[]>());
   const [loading, setLoading] = useState(false);
@@ -47,6 +50,7 @@ export function useFlowSearch(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           flowType,
+          workQueuePermissions,
           filters: filters.map((filter) => ({
             field: filter.field,
             operator: filter.operator,
@@ -69,7 +73,7 @@ export function useFlowSearch(
     } finally {
       setLoading(false);
     }
-  }, [definition, filters, flowType]);
+  }, [definition, filters, flowType, workQueuePermissions]);
 
   // `filters` only changes when the reader submits, so this cannot fire per keystroke.
   useEffect(() => {

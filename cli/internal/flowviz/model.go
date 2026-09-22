@@ -62,17 +62,16 @@ type ViewField struct {
 	ValueType    string `json:"valueType"`
 	Editable     bool   `json:"editable"`
 	Description  string `json:"description"`
-	// The named position this field takes in a row or drawer. Empty means the ordinary detail list.
-	Slot string `json:"slot,omitempty"`
+	// The named UI position this field takes in a row or drawer. Empty means the ordinary detail list.
+	UISlot string `json:"uiSlot,omitempty"`
 }
 
 type Action struct {
-	RPCName string `json:"rpcName"`
-	Label   string `json:"label"`
-	// Who outside the Flow answers this Action. Empty when the Flow names no parties.
-	Role      string          `json:"role,omitempty"`
-	Condition ActionCondition `json:"condition"`
-	Input     ActionInput     `json:"input"`
+	RPCName            string          `json:"rpcName"`
+	Label              string          `json:"label"`
+	RequiredPermission string          `json:"requiredPermission"`
+	Condition          ActionCondition `json:"condition"`
+	Input              ActionInput     `json:"input"`
 }
 
 type ActionCondition struct {

@@ -53,8 +53,16 @@ func (flow *InvalidV2Flow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.GetDexSummary, nil),
 		dex.DefineRPC(flow.GetDexDisplay, nil),
-		dex.DefineRPC(flow.BreakActionInput, nil),
-		dex.DefineRPC(flow.RejectBadRole, nil),
+		dex.DefineRPC(flow.BreakActionInput, &dex.RPCOptions{Action: dex.DefineAction(
+			"Break input",
+			dex.WhenAttributeMatches(state, dex.AttributeMatchEqual("open")),
+			dex.ActionRequiresPermission("refund.manage"),
+		)}),
+		dex.DefineRPC(flow.RejectBadPermission, &dex.RPCOptions{Action: dex.DefineAction(
+			"Bad permission",
+			dex.WhenAttributeMatches(state, dex.AttributeMatchEqual("open")),
+			dex.ActionRequiresPermission("Manager"),
+		)}),
 	}
 }
 
@@ -70,9 +78,9 @@ func (*InvalidV2Flow) GetDexSummary(
 	return &dex.RPCResult[map[string]any]{Output: map[string]any{"state": nil}}, nil
 }
 
-// dex:field attribute-key:state value-type:string editable:false description:"State" slot:title
-// dex:field attribute-key:label value-type:string editable:false description:"Label" slot:title
-// dex:field attribute-key:note value-type:string editable:false description:"Note" slot:headline
+// dex:field attribute-key:state value-type:string editable:false description:"State" ui-slot:title
+// dex:field attribute-key:label value-type:string editable:false description:"Label" ui-slot:title
+// dex:field attribute-key:note value-type:string editable:false description:"Note" ui-slot:headline
 // dex:field attribute-key:flag value-type:string editable:false description:"Wrong field type"
 // dex:field attribute-key:state value-type:string editable:false description:"unterminated
 func (*InvalidV2Flow) GetDexDisplay(
@@ -91,8 +99,6 @@ func mutateStateFromView(ctx dex.Context) error {
 	return state.Set(ctx, "changed")
 }
 
-// dex:action action-label:"Break input"
-// dex:when attribute-key:state operator:in values:["open"]
 // dex:input field-name:missing value-type:string source:user required:true description:"Missing field"
 func (*InvalidV2Flow) BreakActionInput(
 	_ dex.Context,
@@ -101,18 +107,7 @@ func (*InvalidV2Flow) BreakActionInput(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-// dex:action action-label:"Bad role" role:Manager
-// dex:when attribute-key:state operator:in values:["open"]
-func (*InvalidV2Flow) RejectBadRole(
-	_ dex.Context,
-	_ dex.None,
-) (*dex.RPCResult[dex.None], error) {
-	return &dex.RPCResult[dex.None]{}, nil
-}
-
-// dex:action action-label:"Unregistered"
-// dex:when attribute-key:state operator:in values:["open"]
-func (*InvalidV2Flow) UnregisteredAction(
+func (*InvalidV2Flow) RejectBadPermission(
 	_ dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[dex.None], error) {

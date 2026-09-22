@@ -250,7 +250,7 @@
   grid-template-columns: var(--v2-list-w, 15rem) minmax(0, 1fr) var(--v2-drawer-w, 25rem);
 }
 
-.v2-inbox-case {
+.v2-work-queue-case {
   display: flex;
   overflow-y: auto;
   flex-direction: column;
@@ -259,7 +259,7 @@
 }
 
 /* Centred rather than hard-left: a capped reading column with a void beside it reads as broken. */
-.v2-inbox-case .v2-case {
+.v2-work-queue-case .v2-case {
   width: 100%;
   max-width: 46rem;
   margin: 0 auto;
@@ -268,7 +268,7 @@
   border-top: 0;
 }
 
-.v2-inbox-empty {
+.v2-work-queue-empty {
   padding: 18px 20px;
 }
 
@@ -452,7 +452,7 @@
 
 [data-theme='light'] .v2-shell .rsw,
 [data-theme='light'] .v2-shell .rdw,
-[data-theme='light'] .v2-shell .v2-inbox-case {
+[data-theme='light'] .v2-shell .v2-work-queue-case {
   background: var(--p-surface-2);
 }
 
@@ -721,11 +721,11 @@
 }
 
 /* Who the reader is, asked before what they are looking for. */
-.rsw-role {
+.rsw-permission {
   display: block;
 }
 
-.rsw-role select {
+.rsw-permission select {
   width: 100%;
   min-width: 0;
   padding: 4px 6px;
@@ -736,7 +736,7 @@
   font-size: 11.5px;
 }
 
-.rsw-rolenote {
+.rsw-permission-note {
   display: block;
   margin-top: 4px;
   color: var(--p-ink-3);

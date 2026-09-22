@@ -31,15 +31,22 @@ curl -X POST http://127.0.0.1:8080/products/customer-refund/agentic/start \
 The agentic Flow stops for a person twice, and a run can only ever be at one of
 them:
 
-| status | Actions | Channel |
-|---|---|---|
-| `awaiting-manager-rule` / `awaiting-manager-agent` | `ApproveRefund`, `RejectRefund` | `manager-approval` |
-| `awaiting-message-approval` | `ConfirmCustomerMessage`, `EditCustomerMessage` | `message-approval` |
+| status | Actions | permission | Channel |
+|---|---|---|---|
+| `awaiting-manager-rule` / `awaiting-manager-agent` | `ApproveRefund`, `RejectRefund` | `refund.manage` | `manager-approval` |
+| `awaiting-message-approval` | `ConfirmCustomerMessage`, `EditCustomerMessage` | `refund.message` | `message-approval` |
 
 `ApproveRefund` takes no input. The other three bind the hidden
 `gate-request-key` snapshot supplied by Dex Web, and every one re-checks the
 current status before publishing, so a tab left open across a decision is turned
 away rather than answering a question that has moved on.
+
+Each Action condition is declared in its Go `RPCOptions.Action`. The Worker
+projects the permissions for currently available Actions into
+`DexWorkQueuePermissions`. Dex Web Work Queue can filter by one permission;
+trusted application callers can send several permissions to `/api/v2/search`
+and receive their union. The projection and **Working as** selector do not
+authenticate a caller or grant a permission.
 
 Both gates share one counter and one `gate-request-key`, which is why the keys
 read `case:gate:1` and `case:gate:2`. They cannot consume each other's answer

@@ -15,7 +15,7 @@ import { RunDetailsPage } from './flows/RunDetailsPage';
 import { PreferencesProvider } from './providers';
 import { FlowRenderingPage } from './rendering/FlowRenderingPage';
 import { ThemeProvider } from './theme';
-import { QueueWorkspace } from './v2/queue/QueueWorkspace';
+import { WorkQueueWorkspace } from './v2/work-queue/WorkQueueWorkspace';
 import { HomePage, RunWorkspace } from './v2/RunWorkspace';
 import { WebCatalogProvider } from './v2/WebCatalogProvider';
 
@@ -34,9 +34,9 @@ export function App() {
               <Route path="/v2/run/:flowType/:flowId" element={<RunWorkspace />} />
               <Route path="/v2/run/:flowType/:flowId/debug" element={<DebugWorkspace />} />
               <Route path="/v2/run/:flowType/:flowId/debug/:runId" element={<DebugWorkspace />} />
-              <Route path="/v2/queue" element={<QueueWorkspace />} />
-              <Route path="/v2/queue/:flowType" element={<QueueWorkspace />} />
-              <Route path="/v2/queue/:flowType/:flowId" element={<QueueWorkspace />} />
+              <Route path="/v2/work-queue" element={<WorkQueueWorkspace />} />
+              <Route path="/v2/work-queue/:flowType" element={<WorkQueueWorkspace />} />
+              <Route path="/v2/work-queue/:flowType/:flowId" element={<WorkQueueWorkspace />} />
               <Route path="/v1" element={<Navigate to="/v1/flows" replace />} />
               <Route path="/v1/flows" element={<FlowSearchPage />} />
               <Route path="/v1/rendering" element={<FlowRenderingPage />} />

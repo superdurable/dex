@@ -7,23 +7,23 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 /**
- * Every string the queue can say, in one table so the wording can be audited.
+ * Every string Work Queue can say, in one table so the wording can be audited.
  *
  * Nothing here claims a person is needed. A Flow Definition Graph declares when an Action
  * may be offered, not who must act, so the queue says what it read and where it read it.
  */
-export const QUEUE_COPY = {
-  appName: 'Inbox',
+export const WORK_QUEUE_COPY = {
+  appName: 'Work Queue',
   liveNote: 'live',
 
   /** Derived from the live filter rows: the sentence must not outlive a filter the reader deleted. */
-  roleLabel: 'Working as',
-  anyRole: 'Anyone',
+  permissionLabel: 'Working as',
+  anyPermission: 'Anyone',
 
   /** Named Actions, so choosing a party says what it will show rather than implying a permission. */
-  roleAnswers(labels: readonly string[]): string {
-    if (labels.length === 0) return 'This party answers nothing in this Flow.';
-    return `Runs waiting on ${labels.join(' or ')}.`;
+  permissionActions(labels: readonly string[]): string {
+    if (labels.length === 0) return 'This permission discovers no Actions in this Flow.';
+    return `May include runs offering ${labels.join(' or ')}.`;
   },
   clear: 'Nothing open on this page.',
   loading: 'Asking the process…',

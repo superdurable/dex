@@ -26,14 +26,15 @@ Version 2 directives use named values. Parameter position within one line has no
 <SdkSnippet lang="go">
 
 ```go
-// dex:group group-id:control group-label:"Control"
-// dex:explanation text:"Apply refund guardrails and set the recommended action."
-// dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:CustomKeyword2
-// dex:field attribute-key:operator-note value-type:string editable:true description:"Operator note"
-// dex:field attribute-key:case-status value-type:string editable:false description:"Case status" slot:status
-// dex:action action-label:"Reject" role:manager
-// dex:when attribute-key:case-status operator:in values:["awaiting-manager-rule","awaiting-manager-agent"]
-// dex:input field-name:reason value-type:string source:user required:true description:"Rejection reason"
+// dex:field attribute-key:customer-email value-type:string editable:false description:"Customer email" ui-slot:title
+// dex:field attribute-key:case-status value-type:string editable:false description:"Case status" ui-slot:status
+// dex:field attribute-key:in-email value-type:string editable:false description:"Customer request" ui-slot:subtitle
+// dex:field attribute-key:in-charge-ref value-type:string editable:false description:"Charge reference"
+// dex:field attribute-key:evidence-state value-type:string editable:false description:"Evidence state"
+// dex:field attribute-key:recommended-action value-type:string editable:false description:"Recommendation" ui-slot:recommendation
+// dex:field attribute-key:recommendation-rationale value-type:string editable:false description:"Recommendation rationale" ui-slot:reason
+// dex:field attribute-key:guardrail-verdict value-type:string editable:false description:"Guardrail verdict"
+// dex:field attribute-key:guardrail-rule value-type:string editable:false description:"Guardrail rule" ui-slot:reason
 ```
 
 </SdkSnippet>
@@ -59,11 +60,11 @@ Selecting a row keeps the Flow ID in the URL, not a run ID. **GetDexDisplay**, A
 
 On **v2**, selecting a Step opens a panel split into **Definition** and **Execution**. Definition shows the Step **explanation**, WaitFor, and Execute branches from the Flow Definition Graph. Long Definition content scrolls so Execution stays visible. When a Step has more than three Execute branches, the branch list starts collapsed. Execution has a dropdown when the Step ran more than once, then **Input**, **Output**, and **Context** for the selected WaitFor or Execute history event in the same structured form as **v1** Selected event. The execution payload defaults to Details and can switch to Raw JSON of the hydrated payload. AttributeMap and ChannelMap instances that are decimal numbers sort by numeric value, matching **v1**. Execute shows the live next Steps from that run's decision, not every FDG exit. When Continue-as-New moved a Step into a previous run, use Load more from previous run.
 
-A field can also name the slot it fills: **title**, **subtitle**, **status**, **recommendation**, or **reason**. A slot says what part the field plays, so one template serves every Flow while each Flow maps its own Attributes onto it. Slots are optional and most fields fill none.
+A field can also name the UI slot it fills: **title**, **subtitle**, **status**, **recommendation**, or **reason**. A UI slot says what part the field plays, so one template serves every Flow while each Flow maps its own Attributes onto it. UI slots are optional and most fields fill none.
 
-Dex Web reads **title** and **status** for each row in the run list, and falls back to the Flow ID and the execution status when a Flow declares neither. The selected-run panel reads all five, in slot order, ahead of the remaining fields. **title**, **subtitle**, **status**, and **recommendation** admit one field each. **reason** admits several, because a recommendation can rest on more than one.
+Dex Web reads **title** and **status** for each row in the run list, and falls back to the Flow ID and the execution status when a Flow declares neither. The selected-run panel reads all five, in UI slot order, ahead of the remaining fields. **title**, **subtitle**, **status**, and **recommendation** admit one field each. **reason** admits several, because a recommendation can rest on more than one.
 
-A row carries indexed Attributes and Summary fields only. A slot on an Attribute that appears in neither is read in the panel and not in the row. A slot is not an index: it says where a value belongs, never that it is searchable.
+A row carries indexed Attributes and Summary fields only. A UI slot on an Attribute that appears in neither is read in the panel and not in the row. A UI slot is not an index: it says where a value belongs, never that it is searchable.
 
 Display fields are otherwise ordered by their directive lines. Primitive string, integer, double, boolean, and datetime fields can be editable. JSON, objects, arrays, and AttributeMap values remain read-only. Missing fields must be returned as null. The backend rejects omitted, undeclared, or mistyped values.
 
@@ -71,16 +72,16 @@ Edits are available only while the current run is active. Dex Web writes the Att
 
 ## Actions
 
-An Action is an RPC with an Action directive and one condition. The first version supports the **in** operator. Dex Web re-reads the condition Attribute before invoking the RPC.
+An Action is an RPC registered with **RPCOptions.Action**. **DefineAction** receives its label, an Attribute condition, and one **ActionRequiresPermission** option. The visualizer reads this typed Go registration directly. Dex Web re-reads the condition Attribute before invoking the RPC.
 
 An Action without input accepts **dex.None** and renders as a direct button. An Action with input accepts a named Go struct. User-sourced fields render controls in directive order. Attribute-sourced fields stay hidden and use the selected run's Attribute snapshot.
 
-An Action can name the party expected to answer it with **role**. Role names are free-form and kebab-case, because the parties to a process belong to the domain rather than to Dex Web. The Inbox offers the roles a Flow declares and narrows to the runs those Actions are waiting on, by combining their conditions into one search.
+Each Action requires one permission such as **refund.manage**. Permission keys begin with a lowercase letter and contain lowercase letters, digits, dots, or hyphens. The Go Worker evaluates every Action condition after relevant state changes and projects the deduplicated permissions of currently available Actions into the internal **DexWorkQueuePermissions** KeywordList Search Attribute.
 
-That combination needs every one of the role's conditions to test the same Attribute. Filters are joined with AND, so two Attributes would need an OR that the query does not have. The Inbox then leaves the list unnarrowed rather than showing part of the role's work.
+Work Queue offers the permissions declared by the selected Flow type. Choosing **Working as** one permission sends it as **workQueuePermissions** to **POST /api/v2/search**. The API also accepts several permissions for callers such as Superverse that derive them from multiple user roles. A run matches when its projected list contains any requested permission. This permission group is joined with the Flow type and other filters using AND.
 
-A matched condition is necessary, not sufficient. A keyed gate also needs its current key, and the list reads an eventually consistent index. So a role narrows to what probably needs that party, and the run itself decides what is available once it is open.
+A matching projection is necessary, not sufficient. A keyed gate also needs its current key, and the list reads an eventually consistent index. The run decides which Actions are available once it is open.
 
 The browser condition only controls presentation. Every Action RPC must check the current state again before changing durable state or publishing a Channel message. Use locks when that check and the effect must be atomic.
 
-The first version adds no login and no access control. A declared **role** names a party and grants nothing: choosing one in the Inbox states which work a reader came to do. Deploy it behind the same trusted network or reverse-proxy boundary used for Dex Web.
+Work Queue does not add login or enforce authorization. **Working as** selects work; it does not grant the chosen permission. The trusted application boundary, such as Superverse, remains responsible for authenticating users, mapping roles to permissions, and limiting which permissions it sends. Deploy Dex Web behind that boundary.
