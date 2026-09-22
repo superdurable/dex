@@ -76,6 +76,9 @@ func NewBlobStore(
 	if !storeConfig.EffectiveEnabled() {
 		return nil, nil
 	}
+	if temporalOrCadenceNamespace == "_superverse" {
+		return nil, errors.New("_superverse is reserved for hosted objects")
+	}
 
 	var activeStorage *config.BlobStoreConfigEntry
 	supportedStores := map[string]config.BlobStoreConfigEntry{}

@@ -11,6 +11,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -30,10 +31,14 @@ import (
 )
 
 const (
-	v2DefaultPageSize           = 50
-	v2RPCConcurrency            = 8
-	v2RPCTimeout                = 5 * time.Second
-	v2WorkQueuePermissionsIndex = "DexWorkQueuePermissions"
+	v2DefaultPageSize             = 50
+	v2RPCConcurrency              = 8
+	v2RPCTimeout                  = 5 * time.Second
+	v2WorkQueuePermissionsIndex   = "DexWorkQueuePermissions"
+	V2PermissionModeLocalSelector = "local-selector"
+	V2PermissionModeTrustedHeader = "trusted-header"
+	V2DefinitionRevisionHeader    = "X-Dex-Flow-Definition-Revision"
+	V2WorkQueuePermissionsHeader  = "X-Dex-Work-Queue-Permissions"
 )
 
 var v2PermissionPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
@@ -104,8 +109,23 @@ type V2ActionInputField struct {
 }
 
 type v2Handler struct {
-	client      dexpb.FlowServiceClient
-	definitions map[string]V2Definition
+	client          dexpb.FlowServiceClient
+	loadDefinitions V2DefinitionLoader
+	permissionMode  string
+}
+
+// V2DefinitionSnapshot is one request's immutable catalog revision.
+type V2DefinitionSnapshot struct {
+	Definitions map[string]V2Definition
+	Revision    string
+}
+
+// V2DefinitionLoader loads one validated definition snapshot.
+type V2DefinitionLoader func(context.Context) (V2DefinitionSnapshot, error)
+
+// V2HandlerConfig controls server-side Work Queue permission enforcement.
+type V2HandlerConfig struct {
+	PermissionMode string
 }
 
 type v2CatalogEntry struct {
@@ -163,11 +183,12 @@ type v2EditRequest struct {
 }
 
 type v2ActionRequest struct {
-	FlowType          string                 `json:"flowType"`
-	FlowID            string                 `json:"flowId"`
-	RPCName           string                 `json:"rpcName"`
-	Input             map[string]interface{} `json:"input"`
-	AttributeSnapshot map[string]interface{} `json:"attributeSnapshot"`
+	FlowType             string                 `json:"flowType"`
+	FlowID               string                 `json:"flowId"`
+	RPCName              string                 `json:"rpcName"`
+	WorkQueuePermissions []string               `json:"workQueuePermissions"`
+	Input                map[string]interface{} `json:"input"`
+	AttributeSnapshot    map[string]interface{} `json:"attributeSnapshot"`
 }
 
 func RegisterV2Handlers(
@@ -175,13 +196,34 @@ func RegisterV2Handlers(
 	client dexpb.FlowServiceClient,
 	definitions map[string]V2Definition,
 ) {
+	RegisterDynamicV2Handlers(
+		mux,
+		client,
+		func(context.Context) (V2DefinitionSnapshot, error) {
+			return V2DefinitionSnapshot{Definitions: definitions}, nil
+		},
+		V2HandlerConfig{},
+	)
+}
+
+// RegisterDynamicV2Handlers registers v2 routes backed by a per-request definition loader.
+func RegisterDynamicV2Handlers(
+	mux *http.ServeMux,
+	client dexpb.FlowServiceClient,
+	loader V2DefinitionLoader,
+	config V2HandlerConfig,
+) {
 	if mux == nil {
 		panic("HTTP mux must not be nil")
 	}
 	if client == nil {
 		panic("Dex FlowService client must not be nil")
 	}
-	handler := &v2Handler{client: client, definitions: definitions}
+	permissionMode := V2PermissionModeLocalSelector
+	if config.PermissionMode != "" {
+		permissionMode = config.PermissionMode
+	}
+	handler := &v2Handler{client: client, loadDefinitions: loader, permissionMode: permissionMode}
 	mux.HandleFunc("GET /api/v2/catalog", handler.catalog)
 	mux.HandleFunc("POST /api/v2/search", handler.search)
 	mux.HandleFunc("GET /api/v2/display", handler.display)
@@ -189,31 +231,45 @@ func RegisterV2Handlers(
 	mux.HandleFunc("POST /api/v2/actions", handler.invokeAction)
 }
 
-func (h *v2Handler) catalog(response http.ResponseWriter, _ *http.Request) {
-	flowTypes := make([]string, 0, len(h.definitions))
-	for flowType := range h.definitions {
+func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request) {
+	snapshot, ok := h.loadSnapshot(response, request, false)
+	if !ok {
+		return
+	}
+	flowTypes := make([]string, 0, len(snapshot.Definitions))
+	for flowType := range snapshot.Definitions {
 		flowTypes = append(flowTypes, flowType)
 	}
 	sort.Strings(flowTypes)
 	entries := make([]v2CatalogEntry, 0, len(flowTypes))
 	for _, flowType := range flowTypes {
 		entries = append(entries, v2CatalogEntry{
-			FlowType: flowType, Definition: h.definitions[flowType],
+			FlowType: flowType, Definition: snapshot.Definitions[flowType],
 		})
 	}
+	setDefinitionETag(response, snapshot.Revision)
 	writeJSON(response, http.StatusOK, map[string]interface{}{
-		"enabled": len(entries) > 0,
-		"flows":   entries,
+		"enabled":            len(entries) > 0,
+		"flows":              entries,
+		"definitionRevision": snapshot.Revision,
 	})
 }
 
 func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) {
+	snapshot, ok := h.loadSnapshot(response, request, true)
+	if !ok {
+		return
+	}
 	var body v2SearchRequest
 	if err := decodeJSON(response, request, &body); err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	definition, ok := h.definitions[body.FlowType]
+	permissions, permitted := h.resolvePermissions(response, request, body.WorkQueuePermissions)
+	if !permitted {
+		return
+	}
+	definition, ok := snapshot.Definitions[body.FlowType]
 	if !ok {
 		WriteError(response, http.StatusBadRequest, "flowType has no valid Flow Definition Graph 2.0 contract", nil)
 		return
@@ -225,7 +281,11 @@ func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) 
 	if body.PageSize == 0 || body.PageSize > v2DefaultPageSize {
 		body.PageSize = v2DefaultPageSize
 	}
-	query, err := compileV2Query(body.FlowType, body.WorkQueuePermissions, body.Filters, definition)
+	if h.permissionMode == V2PermissionModeTrustedHeader && len(permissions) == 0 {
+		writeJSON(response, http.StatusOK, v2SearchResponse{Flows: []v2Flow{}})
+		return
+	}
+	query, err := compileV2Query(body.FlowType, permissions, body.Filters, definition)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -298,6 +358,10 @@ func (h *v2Handler) loadSummaries(
 }
 
 func (h *v2Handler) display(response http.ResponseWriter, request *http.Request) {
+	snapshot, ok := h.loadSnapshot(response, request, true)
+	if !ok {
+		return
+	}
 	for parameter, values := range request.URL.Query() {
 		if (parameter != "flowType" && parameter != "flowId") || len(values) != 1 {
 			WriteError(response, http.StatusBadRequest, "display accepts only one flowType and flowId", nil)
@@ -306,7 +370,7 @@ func (h *v2Handler) display(response http.ResponseWriter, request *http.Request)
 	}
 	flowType := request.URL.Query().Get("flowType")
 	flowID := request.URL.Query().Get("flowId")
-	definition, ok := h.definitions[flowType]
+	definition, ok := snapshot.Definitions[flowType]
 	if !ok || flowID == "" {
 		WriteError(response, http.StatusBadRequest, "flowType and flowId are required", nil)
 		return
@@ -326,7 +390,7 @@ func (h *v2Handler) display(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	snapshotKeys := v2SnapshotKeys(definition)
-	snapshot := make(map[string]interface{}, len(snapshotKeys))
+	attributeSnapshot := make(map[string]interface{}, len(snapshotKeys))
 	if len(snapshotKeys) > 0 {
 		attributes, attributeErr := h.client.GetAttributes(request.Context(), &dexpb.GetAttributesRequest{
 			FlowId: flowID, Keys: snapshotKeys,
@@ -335,11 +399,11 @@ func (h *v2Handler) display(response http.ResponseWriter, request *http.Request)
 			writeGRPCError(response, attributeErr, "GetAttributes")
 			return
 		}
-		snapshot = keyValueMap(attributes.GetAttributes())
+		attributeSnapshot = keyValueMap(attributes.GetAttributes())
 	}
 	eligibleActions := make([]string, 0, len(definition.Actions))
 	for _, action := range definition.Actions {
-		if actionConditionMatches(action.Condition, snapshot[action.Condition.AttributeKey]) {
+		if actionConditionMatches(action.Condition, attributeSnapshot[action.Condition.AttributeKey]) {
 			eligibleActions = append(eligibleActions, action.RPCName)
 		}
 	}
@@ -347,18 +411,22 @@ func (h *v2Handler) display(response http.ResponseWriter, request *http.Request)
 	writeJSON(response, http.StatusOK, v2DisplayResponse{
 		FlowID: flowID, FlowType: flowType,
 		FlowStatus: flowStatusLabel(summary.GetFlowStatus()), FlowStatusCode: int32(summary.GetFlowStatus()),
-		IsActive: isActive, Display: displayValues, AttributeSnapshot: v2ResponseSnapshot(snapshot),
+		IsActive: isActive, Display: displayValues, AttributeSnapshot: v2ResponseSnapshot(attributeSnapshot),
 		EligibleActions: eligibleActions,
 	})
 }
 
 func (h *v2Handler) editDisplay(response http.ResponseWriter, request *http.Request) {
+	snapshot, ok := h.loadSnapshot(response, request, true)
+	if !ok {
+		return
+	}
 	var body v2EditRequest
 	if err := decodeJSON(response, request, &body); err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	definition, ok := h.definitions[body.FlowType]
+	definition, ok := snapshot.Definitions[body.FlowType]
 	if !ok || body.FlowID == "" || body.AttributeKey == "" {
 		WriteError(response, http.StatusBadRequest, "flowType, flowId, and attributeKey are required", nil)
 		return
@@ -462,12 +530,20 @@ func encodeActionPermissionConditionValue(value interface{}) (*dexpb.Value, erro
 }
 
 func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Request) {
+	snapshot, ok := h.loadSnapshot(response, request, true)
+	if !ok {
+		return
+	}
 	var body v2ActionRequest
 	if err := decodeJSON(response, request, &body); err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	definition, ok := h.definitions[body.FlowType]
+	permissions, permitted := h.resolvePermissions(response, request, body.WorkQueuePermissions)
+	if !permitted {
+		return
+	}
+	definition, ok := snapshot.Definitions[body.FlowType]
 	if !ok || body.FlowID == "" || body.RPCName == "" {
 		WriteError(response, http.StatusBadRequest, "flowType, flowId, and rpcName are required", nil)
 		return
@@ -476,6 +552,12 @@ func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Req
 	if !ok {
 		WriteError(response, http.StatusBadRequest, "rpcName is not a declared Action", nil)
 		return
+	}
+	if snapshot.Revision != "" || h.permissionMode == V2PermissionModeTrustedHeader {
+		if !containsPermission(permissions, action.RequiredPermission) {
+			WriteError(response, http.StatusForbidden, "Action permission denied", nil)
+			return
+		}
 	}
 	if err := h.requireActiveFlow(request.Context(), body.FlowID, body.FlowType); err != nil {
 		writeGRPCError(response, err, "GetFlowSummary")
@@ -511,6 +593,87 @@ func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Req
 		return
 	}
 	writeJSON(response, http.StatusOK, map[string]bool{"invoked": true})
+}
+
+func (h *v2Handler) loadSnapshot(
+	response http.ResponseWriter,
+	request *http.Request,
+	requireRevision bool,
+) (V2DefinitionSnapshot, bool) {
+	snapshot, err := h.loadDefinitions(request.Context())
+	if err != nil {
+		code := "FLOW_DEFINITION_SOURCE_UNAVAILABLE"
+		message := "Flow Definition source is unavailable"
+		var coded interface{ DefinitionErrorCode() string }
+		if errors.As(err, &coded) {
+			code = coded.DefinitionErrorCode()
+			if code == "FLOW_DEFINITION_INVALID" {
+				message = "Flow Definition source is invalid"
+			}
+		}
+		WriteCodedError(response, http.StatusServiceUnavailable, code, message)
+		return V2DefinitionSnapshot{}, false
+	}
+	if requireRevision && snapshot.Revision != "" && request.Header.Get(V2DefinitionRevisionHeader) != snapshot.Revision {
+		WriteCodedError(
+			response,
+			http.StatusConflict,
+			"FLOW_DEFINITION_CHANGED",
+			"Flow Definition updated; reload and confirm the operation again",
+		)
+		return V2DefinitionSnapshot{}, false
+	}
+	return snapshot, true
+}
+
+func (h *v2Handler) resolvePermissions(
+	response http.ResponseWriter,
+	request *http.Request,
+	localPermissions []string,
+) ([]string, bool) {
+	permissions := localPermissions
+	if h.permissionMode == V2PermissionModeTrustedHeader {
+		values, present := request.Header[http.CanonicalHeaderKey(V2WorkQueuePermissionsHeader)]
+		if !present || len(values) != 1 {
+			WriteError(response, http.StatusForbidden, "Trusted Work Queue permissions are required", nil)
+			return nil, false
+		}
+		permissions = nil
+		if strings.TrimSpace(values[0]) != "" {
+			for _, permission := range strings.Split(values[0], ",") {
+				permission = strings.TrimSpace(permission)
+				if permission == "" {
+					WriteError(response, http.StatusForbidden, "Trusted Work Queue permissions are malformed", nil)
+					return nil, false
+				}
+				permissions = append(permissions, permission)
+			}
+		}
+	}
+	if _, err := compileWorkQueuePermissions(permissions); err != nil {
+		statusCode := http.StatusBadRequest
+		if h.permissionMode == V2PermissionModeTrustedHeader {
+			statusCode = http.StatusForbidden
+		}
+		WriteError(response, statusCode, err.Error(), nil)
+		return nil, false
+	}
+	return permissions, true
+}
+
+func containsPermission(permissions []string, required string) bool {
+	for _, permission := range permissions {
+		if permission == required {
+			return true
+		}
+	}
+	return false
+}
+
+func setDefinitionETag(response http.ResponseWriter, revision string) {
+	if revision != "" {
+		response.Header().Set("ETag", strconv.Quote(revision))
+	}
 }
 
 func (h *v2Handler) invokeView(

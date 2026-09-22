@@ -266,6 +266,161 @@ func TestV2SearchRejectsInvalidWorkQueuePermission(t *testing.T) {
 	}
 }
 
+func TestV2DynamicRevisionAndTrustedHeaderPermissions(t *testing.T) {
+	client := &v2TestClient{currentCaseStatus: "awaiting-manager"}
+	mux := http.NewServeMux()
+	loader := V2DefinitionLoader(func(context.Context) (V2DefinitionSnapshot, error) {
+		return V2DefinitionSnapshot{
+			Definitions: map[string]V2Definition{"RefundFlow": testV2Definition()},
+			Revision:    "sha256:current",
+		}, nil
+	})
+	RegisterDynamicV2Handlers(mux, client, loader, V2HandlerConfig{PermissionMode: V2PermissionModeTrustedHeader})
+	catalogRequest := httptest.NewRequest(http.MethodGet, "/api/v2/catalog", nil)
+	catalogResponse := httptest.NewRecorder()
+	mux.ServeHTTP(catalogResponse, catalogRequest)
+	if catalogResponse.Code != http.StatusOK || catalogResponse.Header().Get("ETag") != `"sha256:current"` ||
+		!strings.Contains(catalogResponse.Body.String(), `"definitionRevision":"sha256:current"`) {
+		t.Fatalf("catalog response = %d headers=%v body=%q", catalogResponse.Code, catalogResponse.Header(), catalogResponse.Body.String())
+	}
+
+	staleRequest := httptest.NewRequest(http.MethodPost, "/api/v2/search", strings.NewReader(`{
+		"flowType":"RefundFlow","workQueuePermissions":["refund.manage"],"filters":[]
+	}`))
+	staleResponse := httptest.NewRecorder()
+	mux.ServeHTTP(staleResponse, staleRequest)
+	if staleResponse.Code != http.StatusConflict || !strings.Contains(staleResponse.Body.String(), "FLOW_DEFINITION_CHANGED") {
+		t.Fatalf("stale response = %d %q", staleResponse.Code, staleResponse.Body.String())
+	}
+	for _, stale := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodGet, path: "/api/v2/display?flowType=RefundFlow&flowId=refund-1"},
+		{method: http.MethodPatch, path: "/api/v2/display", body: `{
+			"flowType":"RefundFlow","flowId":"refund-1","attributeKey":"operator-note","value":"done"
+		}`},
+		{method: http.MethodPost, path: "/api/v2/actions", body: `{
+			"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund","input":{},"attributeSnapshot":{}
+		}`},
+	} {
+		request := httptest.NewRequest(stale.method, stale.path, strings.NewReader(stale.body))
+		request.Header.Set(V2DefinitionRevisionHeader, "sha256:stale")
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, request)
+		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "FLOW_DEFINITION_CHANGED") {
+			t.Fatalf("stale %s %s response = %d %q", stale.method, stale.path, response.Code, response.Body.String())
+		}
+	}
+
+	missingHeader := httptest.NewRequest(http.MethodPost, "/api/v2/search", strings.NewReader(`{
+		"flowType":"RefundFlow","workQueuePermissions":["refund.manage"],"filters":[]
+	}`))
+	missingHeader.Header.Set(V2DefinitionRevisionHeader, "sha256:current")
+	missingResponse := httptest.NewRecorder()
+	mux.ServeHTTP(missingResponse, missingHeader)
+	if missingResponse.Code != http.StatusForbidden {
+		t.Fatalf("missing trusted permission status = %d body=%q", missingResponse.Code, missingResponse.Body.String())
+	}
+
+	malformedHeader := httptest.NewRequest(http.MethodPost, "/api/v2/search", strings.NewReader(`{
+		"flowType":"RefundFlow","filters":[]
+	}`))
+	malformedHeader.Header.Set(V2DefinitionRevisionHeader, "sha256:current")
+	malformedHeader.Header.Set(V2WorkQueuePermissionsHeader, "refund.manage,,refund.message")
+	malformedResponse := httptest.NewRecorder()
+	mux.ServeHTTP(malformedResponse, malformedHeader)
+	if malformedResponse.Code != http.StatusForbidden {
+		t.Fatalf("malformed trusted permission status = %d body=%q", malformedResponse.Code, malformedResponse.Body.String())
+	}
+
+	emptyHeader := httptest.NewRequest(http.MethodPost, "/api/v2/search", strings.NewReader(`{
+		"flowType":"RefundFlow","filters":[]
+	}`))
+	emptyHeader.Header.Set(V2DefinitionRevisionHeader, "sha256:current")
+	emptyHeader.Header[V2WorkQueuePermissionsHeader] = []string{""}
+	emptyResponse := httptest.NewRecorder()
+	searchCount := len(client.searchRequests)
+	mux.ServeHTTP(emptyResponse, emptyHeader)
+	if emptyResponse.Code != http.StatusOK || len(client.searchRequests) != searchCount ||
+		!strings.Contains(emptyResponse.Body.String(), `"flows":[]`) {
+		t.Fatalf("empty trusted permission response = %d %q", emptyResponse.Code, emptyResponse.Body.String())
+	}
+
+	validRequest := httptest.NewRequest(http.MethodPost, "/api/v2/search", strings.NewReader(`{
+		"flowType":"RefundFlow","workQueuePermissions":["refund.message"],"filters":[]
+	}`))
+	validRequest.Header.Set(V2DefinitionRevisionHeader, "sha256:current")
+	validRequest.Header.Set(V2WorkQueuePermissionsHeader, "refund.manage")
+	validResponse := httptest.NewRecorder()
+	mux.ServeHTTP(validResponse, validRequest)
+	if validResponse.Code != http.StatusOK {
+		t.Fatalf("valid trusted search status = %d body=%q", validResponse.Code, validResponse.Body.String())
+	}
+	query := client.searchRequests[len(client.searchRequests)-1].GetQuery()
+	if !strings.Contains(query, "refund.manage") || strings.Contains(query, "refund.message") {
+		t.Fatalf("trusted query = %q", query)
+	}
+
+	deniedAction := httptest.NewRequest(http.MethodPost, "/api/v2/actions", strings.NewReader(`{
+		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund",
+		"workQueuePermissions":["refund.manage"],"input":{},"attributeSnapshot":{}
+	}`))
+	deniedAction.Header.Set(V2DefinitionRevisionHeader, "sha256:current")
+	deniedAction.Header.Set(V2WorkQueuePermissionsHeader, "refund.message")
+	deniedResponse := httptest.NewRecorder()
+	mux.ServeHTTP(deniedResponse, deniedAction)
+	if deniedResponse.Code != http.StatusForbidden {
+		t.Fatalf("forged Action status = %d body=%q", deniedResponse.Code, deniedResponse.Body.String())
+	}
+
+	allowedAction := httptest.NewRequest(http.MethodPost, "/api/v2/actions", strings.NewReader(`{
+		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund",
+		"input":{},"attributeSnapshot":{}
+	}`))
+	allowedAction.Header.Set(V2DefinitionRevisionHeader, "sha256:current")
+	allowedAction.Header.Set(V2WorkQueuePermissionsHeader, "refund.manage")
+	allowedResponse := httptest.NewRecorder()
+	mux.ServeHTTP(allowedResponse, allowedAction)
+	if allowedResponse.Code != http.StatusOK {
+		t.Fatalf("allowed Action status = %d body=%q", allowedResponse.Code, allowedResponse.Body.String())
+	}
+}
+
+func TestV2DynamicLocalActionUsesSelectedPermission(t *testing.T) {
+	client := &v2TestClient{currentCaseStatus: "awaiting-manager"}
+	mux := http.NewServeMux()
+	RegisterDynamicV2Handlers(mux, client, func(context.Context) (V2DefinitionSnapshot, error) {
+		return V2DefinitionSnapshot{
+			Definitions: map[string]V2Definition{"RefundFlow": testV2Definition()},
+			Revision:    "sha256:current",
+		}, nil
+	}, V2HandlerConfig{PermissionMode: V2PermissionModeLocalSelector})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v2/actions", strings.NewReader(`{
+		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund",
+		"workQueuePermissions":["refund.message"],"input":{},"attributeSnapshot":{}
+	}`))
+	request.Header.Set(V2DefinitionRevisionHeader, "sha256:current")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("local denied Action status = %d body=%q", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v2/actions", strings.NewReader(`{
+		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund",
+		"workQueuePermissions":["refund.manage"],"input":{},"attributeSnapshot":{}
+	}`))
+	request.Header.Set(V2DefinitionRevisionHeader, "sha256:current")
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("local allowed Action status = %d body=%q", response.Code, response.Body.String())
+	}
+}
+
 func TestV2FacadeRejectsRunIDAndStaleActionState(t *testing.T) {
 	client := &v2TestClient{currentCaseStatus: "resolved"}
 	mux := http.NewServeMux()

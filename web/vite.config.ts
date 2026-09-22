@@ -22,6 +22,7 @@ export default defineConfig({
     proxy: {
       '/api': process.env.DEX_WEB_PROXY ?? 'http://127.0.0.1:8902',
       '/healthz': process.env.DEX_WEB_PROXY ?? 'http://127.0.0.1:8902',
+			'/readyz': process.env.DEX_WEB_PROXY ?? 'http://127.0.0.1:8902',
     },
   },
   build: {

@@ -247,7 +247,7 @@ integTestsNoSearch: prepareIntegrationCoverage
 
 unitTests:
 	@GOWORK=off go test -v ./config $$(GOWORK=off go list ./service/... | grep -v ./service/common/blobstore)
-	@GOWORK=off go test -v ./service/common/blobstore -run '^TestDeterministicBlobObjectID'
+	@GOWORK=off go test -v ./service/common/blobstore -run '^(TestDeterministicBlobObjectID|TestBlobStoreRejectsReserved)'
 
 # Requires MySQL, PostgreSQL, Temporal, and Cadence in label-gated CI.
 attributeSyncIntegTests: prepareIntegrationCoverage

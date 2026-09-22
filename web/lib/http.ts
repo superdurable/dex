@@ -13,23 +13,26 @@
 export class DexAPIError extends Error {
   readonly httpStatus: number;
   readonly grpcCode: number | undefined;
+  readonly code: string | undefined;
 
-  constructor(message: string, httpStatus: number, grpcCode?: number) {
+  constructor(message: string, httpStatus: number, grpcCode?: number, code?: string) {
     super(message);
     this.name = 'DexAPIError';
     this.httpStatus = httpStatus;
     this.grpcCode = grpcCode;
+    this.code = code;
     Object.setPrototypeOf(this, DexAPIError.prototype);
   }
 }
 
 export async function readResponseJSON<T>(response: Response): Promise<T> {
-  const data = await parseResponseJSON<T & { error?: string; grpcCode?: number }>(response);
+  const data = await parseResponseJSON<T & { error?: string; grpcCode?: number; code?: string }>(response);
   if (!response.ok) {
     throw new DexAPIError(
       data.error?.trim() || failedRequestMessage(response),
       response.status,
       typeof data.grpcCode === 'number' ? data.grpcCode : undefined,
+      data.code,
     );
   }
   return data;

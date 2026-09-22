@@ -17,6 +17,66 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestWebEnvironmentOverridesYAML(t *testing.T) {
+	t.Setenv("DEX_WEB_FLOW_RENDERING_SOURCE", "blobstore")
+	t.Setenv("DEX_WEB_FLOW_RENDERING_STORAGE_ID", "p0")
+	t.Setenv("DEX_WEB_FLOW_RENDERING_PREFIX", "_superverse/dex-web/flow-definitions")
+	t.Setenv("DEX_WEB_WORK_QUEUE_PERMISSION_MODE", "trusted-header")
+	path := writeTestConfig(t, `
+web:
+  flowRenderingSource: local
+  workQueuePermissionMode: local-selector
+`)
+	cfg, err := NewConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, "blobstore", cfg.Web.FlowRenderingSource)
+	require.Equal(t, "p0", cfg.Web.FlowRenderingBlobStore.StorageID)
+	require.Equal(t, "_superverse/dex-web/flow-definitions", cfg.Web.FlowRenderingBlobStore.Prefix)
+	require.Equal(t, "trusted-header", cfg.Web.WorkQueuePermissionMode)
+}
+
+func TestWebConfigRejectsMixedDefinitionSources(t *testing.T) {
+	path := writeTestConfig(t, `
+web:
+  flowRenderingSource: blobstore
+  flowRenderingDirectory: /tmp/definitions
+  flowRenderingBlobStore:
+    storageId: p0
+    prefix: definitions
+`)
+	_, err := NewConfig(path)
+	require.ErrorContains(t, err, "mutually exclusive")
+}
+
+func TestWebConfigAcceptsTrustedHeaderPermissionMode(t *testing.T) {
+	path := writeTestConfig(t, `
+web:
+  workQueuePermissionMode: trusted-header
+`)
+	_, err := NewConfig(path)
+	require.NoError(t, err)
+}
+
+func TestWebConfigRejectsLegacyDefinitionSources(t *testing.T) {
+	for _, source := range []string{"directory", "s3"} {
+		t.Run(source, func(t *testing.T) {
+			path := writeTestConfig(t, "web:\n  flowRenderingSource: "+source+"\n")
+			_, err := NewConfig(path)
+			require.ErrorContains(t, err, "must be local or blobstore")
+		})
+	}
+}
+
+func TestConfigRejectsReservedSuperVerseWorkflowNamespace(t *testing.T) {
+	path := writeTestConfig(t, `
+interpreter:
+  temporal:
+    namespace: _superverse
+`)
+	_, err := NewConfig(path)
+	require.ErrorContains(t, err, "reserved")
+}
+
 func TestRetryPolicyConfigUsesDurations(t *testing.T) {
 	path := writeTestConfig(t, `
 api:

@@ -6,9 +6,18 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { readResponseJSON } from '@/lib/http';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
+import { DexAPIError, readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog, V2Catalog } from '@/lib/types';
+import { workQueuePermissionMode, type WorkQueuePermissionMode } from './webConfig';
 
 interface WebCatalogValue {
   ready: boolean;
@@ -16,6 +25,9 @@ interface WebCatalogValue {
   catalog: V2Catalog | null;
   definitions: FlowDefinitionCatalog | null;
   error: string;
+  definitionUpdateKey: number;
+  permissionMode: WorkQueuePermissionMode;
+  handleDefinitionError: (error: unknown) => boolean;
 }
 
 const WebCatalogContext = createContext<WebCatalogValue | null>(null);
@@ -26,21 +38,39 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
   const [operatorAPIAvailable, setOperatorAPIAvailable] = useState(false);
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
+  const [definitionUpdateKey, setDefinitionUpdateKey] = useState(0);
+  const [notice, setNotice] = useState('');
+  const permissionMode = workQueuePermissionMode();
+
+  const loadCatalog = useCallback(async (signal?: AbortSignal) => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const [nextDefinitions, nextCatalog] = await Promise.all([
+        fetch('/api/flow-definitions', { signal })
+          .then((response) => readResponseJSON<FlowDefinitionCatalog>(response)),
+        fetch('/api/v2/catalog', { signal })
+          .then((response) => readResponseJSON<V2Catalog>(response))
+          .then((value) => ({ ok: true as const, value }))
+          .catch(() => ({
+            ok: false as const,
+            value: { enabled: false, flows: [], definitionRevision: '' },
+          })),
+      ]);
+      const revisionsMatch = !nextCatalog.ok ||
+        nextDefinitions.definitionRevision === nextCatalog.value.definitionRevision;
+      if (revisionsMatch) {
+        setDefinitions(nextDefinitions);
+        setCatalog(nextCatalog.value);
+        setOperatorAPIAvailable(nextCatalog.ok);
+        setError('');
+        return;
+      }
+    }
+    throw new Error('Flow Definition changed repeatedly while loading the catalog');
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    void Promise.all([
-      fetch('/api/flow-definitions', { signal: controller.signal })
-        .then((response) => readResponseJSON<FlowDefinitionCatalog>(response)),
-      fetch('/api/v2/catalog', { signal: controller.signal })
-        .then((response) => readResponseJSON<V2Catalog>(response))
-        .then((value) => ({ ok: true as const, value }))
-        .catch(() => ({ ok: false as const, value: { enabled: false, flows: [] } })),
-    ]).then(([nextDefinitions, nextCatalog]) => {
-      setDefinitions(nextDefinitions);
-      setCatalog(nextCatalog.value);
-      setOperatorAPIAvailable(nextCatalog.ok);
-    }).catch((loadError: unknown) => {
+    void loadCatalog(controller.signal).catch((loadError: unknown) => {
       if (!controller.signal.aborted) {
         setError(loadError instanceof Error ? loadError.message : 'Dex Web catalog failed to load');
       }
@@ -48,7 +78,19 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
       if (!controller.signal.aborted) setReady(true);
     });
     return () => controller.abort();
-  }, []);
+  }, [loadCatalog]);
+
+  const handleDefinitionError = useCallback((failedRequest: unknown) => {
+    if (!(failedRequest instanceof DexAPIError) || failedRequest.code !== 'FLOW_DEFINITION_CHANGED') {
+      return false;
+    }
+    setNotice('Flow Definition updated. Review the refreshed definition and confirm the Action again.');
+    setDefinitionUpdateKey((current) => current + 1);
+    void loadCatalog().catch((loadError: unknown) => {
+      setError(loadError instanceof Error ? loadError.message : 'Dex Web catalog failed to reload');
+    });
+    return true;
+  }, [loadCatalog]);
 
   const value = useMemo<WebCatalogValue>(() => ({
     ready,
@@ -56,9 +98,26 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
     catalog,
     definitions,
     error,
-  }), [catalog, definitions, error, operatorAPIAvailable, ready]);
+    definitionUpdateKey,
+    permissionMode,
+    handleDefinitionError,
+  }), [
+    catalog,
+    definitionUpdateKey,
+    definitions,
+    error,
+    handleDefinitionError,
+    operatorAPIAvailable,
+    permissionMode,
+    ready,
+  ]);
 
-  return <WebCatalogContext.Provider value={value}>{children}</WebCatalogContext.Provider>;
+  return (
+    <WebCatalogContext.Provider value={value}>
+      {notice && <div className="error-banner" role="status">{notice}</div>}
+      {children}
+    </WebCatalogContext.Provider>
+  );
 }
 
 export function useWebCatalog() {

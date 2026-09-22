@@ -16,7 +16,24 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/service/common/log/loggerimpl"
+	"github.com/superdurable/dex/service/common/ptr"
+	"go.temporal.io/sdk/client"
 )
+
+func TestBlobStoreRejectsReservedSuperVerseNamespace(t *testing.T) {
+	logger, err := loggerimpl.NewDevelopment()
+	require.NoError(t, err)
+	_, err = NewBlobStore(nil, "_superverse", &config.BlobStoreConfig{
+		Enabled: ptr.Any(true),
+		SupportedStorages: []config.BlobStoreConfigEntry{{
+			Status: config.StorageStatusActive, StorageId: "local",
+			StorageType: config.StorageTypeLocal, LocalDirectory: t.TempDir(),
+		}},
+	}, logger, client.MetricsNopHandler)
+	require.ErrorContains(t, err, "reserved")
+}
 
 func TestDeterministicBlobObjectIDStableVector(t *testing.T) {
 	objectID, err := deterministicBlobObjectID("run-123activity-456", []byte("payload"), 10)
