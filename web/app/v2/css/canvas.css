@@ -962,10 +962,7 @@
   border-radius: 3px;
 }
 .plegend-mark[data-mark='start'] {
-  border-width: 1px;
-  border-color: var(--p-rpc);
-  border-left-width: 4px;
-  background: var(--hue-door-fill);
+  border-left: 6px solid var(--p-rpc);
 }
 .plegend-mark[data-mark='hub'] {
   border-style: dashed;
@@ -1233,9 +1230,13 @@
 /**
  * WHERE THE FLOW BEGINS.
  *
- * Three channels at once, because one 3px rail in a near-neutral was not
- * findable on a dense canvas: a 9px left band, a 2px border instead of the
- * default hairline, and the door wash behind it.
+ * ONE channel: an 18px left band, and the card is otherwise identical to its
+ * neighbours. A 3px rail in a near-neutral clock grey was not findable; a wash
+ * behind the whole card was findable but made the start compete with the amber
+ * human gate for "the most coloured box on screen", and the gate should win
+ * that. So the gate keeps the loudest FILL and the start takes the loudest
+ * EDGE — the same one-fact-one-channel split that keeps run state and `isStart`
+ * out of each other's way.
  *
  * The hue is `door`, which already means "the way in from outside" — the RPC
  * pennant wears it. That is the point rather than a collision: the start IS a
@@ -1259,8 +1260,7 @@
  * the band.
  */
 .pbox[data-start='true'] {
-  border-left: 9px solid var(--p-rpc);
-  background: var(--hue-door-fill);
+  border-left: 18px solid var(--p-rpc);
 }
 .pbox[data-emphasis='hub'] {
   border-style: dashed;
@@ -1643,16 +1643,10 @@
   background: var(--p-surface-2);
 }
 
-[data-theme='light'] .v2-shell .pbox[data-start='true'] {
-  background: var(--hue-door-fill);
-}
-
-[data-theme='light'] .v2-shell .pbox:not([data-selected='true']):not([data-start='true']) {
-  box-shadow: 0 1px 2px rgba(15, 23, 36, 0.07);
-}
-
-/* The band is a border now, so light keeps only the lift it gives every other box. */
-[data-theme='light'] .v2-shell .pbox[data-start='true']:not([data-selected='true']) {
+/* The start mark is a border now, so it needs no exception here: every unselected
+   box gets the same lift, the start one included. This used to be two rules that
+   carved out the start Step and then handed it back the identical shadow. */
+[data-theme='light'] .v2-shell .pbox:not([data-selected='true']) {
   box-shadow: 0 1px 2px rgba(15, 23, 36, 0.07);
 }
 
