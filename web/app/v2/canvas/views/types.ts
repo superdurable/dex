@@ -195,7 +195,17 @@ export interface Box {
    * badge slot held only one of them it said "needs you" and never mentioned the other.
    */
   recovery?: { glyph: string; title: string }
-  emphasis?: 'start' | 'hub' | 'muted' | 'active' | 'failed' | 'planned'
+  /**
+   * Where the Flow begins. A DEFINITION fact, known before any run, so it gets its own channel
+   * rather than a turn in `emphasis`.
+   *
+   * `emphasis` holds one value and run state wins it, which is right — "this failed" outranks "this
+   * is the first Step". But the two are orthogonal, so sharing the slot meant the start mark
+   * vanished exactly when the start Step was planned, failed, or the one being awaited. Same
+   * reasoning as `agentRole` beside `actor`.
+   */
+  isStart?: boolean
+  emphasis?: 'hub' | 'muted' | 'active' | 'failed' | 'planned'
   sections?: { label: string; rows: BoxRow[] }[]
   /**
    * The proportional state bar for a StepType that ran more than once.

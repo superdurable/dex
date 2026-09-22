@@ -467,13 +467,19 @@ export function stepBox(
     recovery: c.recovery,
     bar: c.bar,
     /**
+     * Where the Flow begins is known before any run, so it does not queue for the emphasis slot.
+     * It used to, and it lost: `c.emphasis` is set whenever the Step is planned, failed, or the one
+     * being awaited, so the start mark went missing on exactly the Steps a reader was watching.
+     */
+    isStart: step.isStart || undefined,
+    /**
      * During a run, run state wins the emphasis slot.
      *
-     * Structural marks (start, hub) are about the DEFINITION and are still true, but "this failed" or
-     * "this is what we are waiting on" is what a reader needs at that moment. Only a CONTROL hub gets
-     * the structural warning anyway — a compensation target collecting failures is correct saga
-     * structure, not a drawing problem.
+     * A hub is a claim about the DEFINITION and is still true, but "this failed" or "this is what we
+     * are waiting on" is what a reader needs at that moment. Only a CONTROL hub gets the structural
+     * warning anyway — a compensation target collecting failures is correct saga structure, not a
+     * drawing problem.
      */
-    emphasis: c.emphasis ?? (step.isStart ? 'start' : step.isHub ? 'hub' : undefined),
+    emphasis: c.emphasis ?? (step.isHub ? 'hub' : undefined),
   }
 }
