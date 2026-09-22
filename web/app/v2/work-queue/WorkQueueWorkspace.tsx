@@ -14,19 +14,19 @@ import {
   V2SplitHandle,
   useCollapsibleColumn,
 } from '../V2SplitHandle';
-import { v2QueuePath, v2RunPath } from '../contract';
+import { v2RunPath, v2WorkQueuePath } from '../contract';
 import '../css/v2.css';
 import { RUN_COPY } from '../run/copy';
 import { useWebCatalog } from '../WebCatalogProvider';
 import { RunList } from '../workspace/RunList';
 import { RunSearch } from '../workspace/RunSearch';
-import { roleActionLabels, roleFilter, rolesOf } from '../workspace/roles';
+import { permissionActionLabels, permissionsOf } from '../workspace/permissions';
 import { EMPTY_RUN_QUERY } from '../workspace/runQuery';
 import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { useFlowSearch } from '../workspace/useFlowSearch';
 import { useRunQuery } from '../workspace/useRunQuery';
 import { useStrandedRuns } from '../workspace/useStrandedRuns';
-import { QUEUE_COPY } from './copy';
+import { WORK_QUEUE_COPY } from './copy';
 import { openFlowStatusLabel } from './liveness';
 
 /**
@@ -36,25 +36,24 @@ import { openFlowStatusLabel } from './liveness';
  * Shares its list and its case panel with Run, so the two cannot drift apart. What differs is
  * deliberate: the scope control, and evidence before the decision.
  */
-export function QueueWorkspace() {
+export function WorkQueueWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
   const { ready, canUseV2, catalog, error } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
-  // An inbox opens on what is still open; the control is there to widen it.
+  // A work queue opens on active work; the control widens it.
   const runQuery = useRunQuery(entry?.definition, { ...EMPTY_RUN_QUERY, status: openFlowStatusLabel() });
-  const [role, setRole] = useState('');
-  /**
-   * The role narrows on the server, beside whatever the reader searched for.
-   *
-   * A role that cannot be reduced to one filter contributes nothing, so the list stays wide rather
-   * than narrowing to a part of the role's work.
-   */
-  const filters = useMemo(() => {
-    const forRole = roleFilter(entry?.definition, role);
-    return forRole === null ? runQuery.appliedFilters : [...runQuery.appliedFilters, forRole];
-  }, [entry?.definition, role, runQuery.appliedFilters]);
-  const search = useFlowSearch(flowType || undefined, entry?.definition, filters);
+  const [permission, setPermission] = useState('');
+  const workQueuePermissions = useMemo(
+    () => permission === '' ? [] : [permission],
+    [permission],
+  );
+  const search = useFlowSearch(
+    flowType || undefined,
+    entry?.definition,
+    runQuery.appliedFilters,
+    workQueuePermissions,
+  );
   const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -67,12 +66,12 @@ export function QueueWorkspace() {
   if (catalog.flows.length === 0) {
     return (
       <div className="v2-shell v2-run">
-        <div className="v2-empty">Load a valid Flow Definition Graph 2.0 file to work an inbox in v2.</div>
+        <div className="v2-empty">Load a valid Flow Definition Graph 2.0 file to use Work Queue.</div>
       </div>
     );
   }
-  if (!flowType) return <Navigate to={v2QueuePath(catalog.flows[0].flowType)} replace />;
-  if (!entry) return <Navigate to={v2QueuePath()} replace />;
+  if (!flowType) return <Navigate to={v2WorkQueuePath(catalog.flows[0].flowType)} replace />;
+  if (!entry) return <Navigate to={v2WorkQueuePath()} replace />;
 
   const selectedFlow = search.flows.find((flow) => flow.flowId === flowId);
   const paneStyle = { '--v2-list-w': `${listPane.width}px` } as CSSProperties;
@@ -81,28 +80,30 @@ export function QueueWorkspace() {
       <div className="v2-run-body" ref={bodyRef}>
         <RunList
           collapsed={listPane.isCollapsed}
-          emptyText={QUEUE_COPY.clear}
+          emptyText={WORK_QUEUE_COPY.clear}
           entry={entry}
           flowTypes={catalog.flows}
-          heading={QUEUE_COPY.appName}
-          headerNote={QUEUE_COPY.liveNote}
+          heading={WORK_QUEUE_COPY.appName}
+          headerNote={WORK_QUEUE_COPY.liveNote}
           onExpand={listPane.expand}
-          roleControl={rolesOf(entry.definition).length > 0 ? (
-            <label className="rsw-role">
-              <span className="rsw-zonehead">{QUEUE_COPY.roleLabel}</span>
+          permissionControl={permissionsOf(entry.definition).length > 0 ? (
+            <label className="rsw-permission">
+              <span className="rsw-zonehead">{WORK_QUEUE_COPY.permissionLabel}</span>
               <select
-                aria-label={QUEUE_COPY.roleLabel}
-                value={role}
-                onChange={(event) => setRole(event.target.value)}
+                aria-label={WORK_QUEUE_COPY.permissionLabel}
+                value={permission}
+                onChange={(event) => setPermission(event.target.value)}
               >
-                <option value="">{QUEUE_COPY.anyRole}</option>
-                {rolesOf(entry.definition).map((candidate) => (
+                <option value="">{WORK_QUEUE_COPY.anyPermission}</option>
+                {permissionsOf(entry.definition).map((candidate) => (
                   <option key={candidate} value={candidate}>{candidate}</option>
                 ))}
               </select>
-              {role !== '' && (
-                <small className="rsw-rolenote">
-                  {QUEUE_COPY.roleAnswers(roleActionLabels(entry.definition, role))}
+              {permission !== '' && (
+                <small className="rsw-permission-note">
+                  {WORK_QUEUE_COPY.permissionActions(
+                    permissionActionLabels(entry.definition, permission),
+                  )}
                 </small>
               )}
             </label>
@@ -120,8 +121,8 @@ export function QueueWorkspace() {
           search={search}
           selectedFlowID={flowId}
           strandedFlowIDs={strandedFlowIDs}
-          onSelectFlowType={(next) => navigate(v2QueuePath(next))}
-          onSelectRun={(nextFlowID) => navigate(v2QueuePath(entry.flowType, nextFlowID))}
+          onSelectFlowType={(next) => navigate(v2WorkQueuePath(next))}
+          onSelectRun={(nextFlowID) => navigate(v2WorkQueuePath(entry.flowType, nextFlowID))}
         />
         <V2SplitHandle
           axis="column"
@@ -135,7 +136,7 @@ export function QueueWorkspace() {
           onCommit={listPane.commit}
           onToggle={listPane.isCollapsed ? listPane.expand : listPane.collapse}
         />
-        <section className="v2-inbox-case" aria-label={flowId || QUEUE_COPY.appName}>
+        <section className="v2-work-queue-case" aria-label={flowId || WORK_QUEUE_COPY.appName}>
           {flowId ? (
             <SelectedRunPanel
               definition={entry.definition}
@@ -147,12 +148,12 @@ export function QueueWorkspace() {
               footer={(
                 <>
                   <Link className="v2-seemore" to={v2RunPath(entry.flowType, flowId)}>
-                    {QUEUE_COPY.seeProcess}
+                    {WORK_QUEUE_COPY.seeProcess}
                   </Link>
                   <button
-                    aria-label={QUEUE_COPY.close}
+                    aria-label={WORK_QUEUE_COPY.close}
                     className="rhd-close"
-                    onClick={() => navigate(v2QueuePath(entry.flowType))}
+                    onClick={() => navigate(v2WorkQueuePath(entry.flowType))}
                     type="button"
                   >
                     ✕
@@ -161,7 +162,7 @@ export function QueueWorkspace() {
               )}
             />
           ) : (
-            <p className="sc-none v2-inbox-empty">{QUEUE_COPY.selectPrompt}</p>
+            <p className="sc-none v2-work-queue-empty">{WORK_QUEUE_COPY.selectPrompt}</p>
           )}
         </section>
       </div>

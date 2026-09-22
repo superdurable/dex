@@ -10,15 +10,15 @@ import type { ReactNode } from 'react';
 import { formatTimeOfDay, type TimezonePreference } from '@/lib/format';
 import type { V2CatalogEntry, V2Flow } from '@/lib/types';
 import { usePreferences } from '../../providers';
-import { QUEUE_COPY } from '../queue/copy';
+import { WORK_QUEUE_COPY } from '../work-queue/copy';
 import { RUN_COPY } from '../run/copy';
 import { groupRuns } from '../run/runOrder';
 import { SEARCH_COPY } from './searchCopy';
-import { runRow, slotsOf, type SlotMap } from './slots';
+import { runRow, uiSlotsOf, type UISlotMap } from './uiSlots';
 import type { FlowSearch } from './useFlowSearch';
 
 /**
- * One list of runs, shared by Run and Inbox so the two cannot drift into two visual languages.
+ * One run list keeps Run and Work Queue in the same visual language.
  *
  * Everything either view needs to differ on arrives as a prop: the heading, the note beside it,
  * and an optional scope control. The rows themselves are identical by construction.
@@ -32,7 +32,7 @@ export function RunList({
   heading,
   headerNote,
   scope,
-  roleControl,
+  permissionControl,
   emptyText,
   collapsed = false,
   onExpand,
@@ -48,8 +48,8 @@ export function RunList({
   headerNote?: string;
   /** What the list is narrowed to, and the control that narrowed it. */
   scope?: ReactNode;
-  /** Which party the reader is. Only the participant view asks. */
-  roleControl?: ReactNode;
+  /** Which permission scopes the Work Queue. */
+  permissionControl?: ReactNode;
   emptyText: string;
   collapsed?: boolean;
   onExpand?: () => void;
@@ -59,13 +59,13 @@ export function RunList({
   const { timezone } = usePreferences();
   const { flows, liveness, loading } = search;
   const groups = groupRuns(flows);
-  const slots = slotsOf(entry.definition);
+  const uiSlots = uiSlotsOf(entry.definition);
   const stateText = liveness === 'loading'
-    ? QUEUE_COPY.loading
+    ? WORK_QUEUE_COPY.loading
     : liveness === 'unreachable'
-      ? QUEUE_COPY.unreachable
+      ? WORK_QUEUE_COPY.unreachable
       : liveness === 'stale'
-        ? QUEUE_COPY.stale
+        ? WORK_QUEUE_COPY.stale
         : flows.length === 0
           ? emptyText
           : '';
@@ -95,8 +95,8 @@ export function RunList({
           </select>
         </section>
       )}
-      {roleControl !== undefined && (
-        <section className="rsw-zone" data-zone="role">{roleControl}</section>
+      {permissionControl !== undefined && (
+        <section className="rsw-zone" data-zone="permission">{permissionControl}</section>
       )}
       {scope !== undefined && (
         <section className="rsw-zone" data-zone="find">
@@ -121,7 +121,7 @@ export function RunList({
                 >
                   <RunRowButton
                     flow={flow}
-                    slots={slots}
+                    uiSlots={uiSlots}
                     stranded={strandedFlowIDs.has(flow.flowId)}
                     timezone={timezone}
                     onSelect={onSelectRun}
@@ -144,14 +144,14 @@ export function RunList({
  * No denser than the row it replaces. What the Flow declares for `recommendation` and `reason` is
  * deliberately left to the drawer — a list of reasons stops being a list.
  */
-function RunRowButton({ flow, slots, stranded, timezone, onSelect }: {
+function RunRowButton({ flow, uiSlots, stranded, timezone, onSelect }: {
   flow: V2Flow;
-  slots: SlotMap;
+  uiSlots: UISlotMap;
   stranded: boolean;
   timezone: TimezonePreference;
   onSelect: (flowID: string) => void;
 }) {
-  const row = runRow(flow, slots);
+  const row = runRow(flow, uiSlots);
   return (
     <button className="rsw-row" onClick={() => onSelect(flow.flowId)} type="button">
       <span
@@ -162,7 +162,7 @@ function RunRowButton({ flow, slots, stranded, timezone, onSelect }: {
       </span>
       <span className="rsw-time">{formatTimeOfDay(flow.startTime, timezone)}</span>
       <span className="rsw-state">{row.status}</span>
-      {stranded && <span className="rsw-stranded">{QUEUE_COPY.strandedRow}</span>}
+      {stranded && <span className="rsw-stranded">{WORK_QUEUE_COPY.strandedRow}</span>}
     </button>
   );
 }

@@ -26,14 +26,15 @@ Version 2 directive 使用具名值。同一行内的参数位置没有语义。
 <SdkSnippet lang="go">
 
 ```go
-// dex:group group-id:control group-label:"Control"
-// dex:explanation text:"Apply refund guardrails and set the recommended action."
-// dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:CustomKeyword2
-// dex:field attribute-key:operator-note value-type:string editable:true description:"Operator note"
-// dex:field attribute-key:case-status value-type:string editable:false description:"Case status" slot:status
-// dex:action action-label:"Reject" role:manager
-// dex:when attribute-key:case-status operator:in values:["awaiting-manager-rule","awaiting-manager-agent"]
-// dex:input field-name:reason value-type:string source:user required:true description:"Rejection reason"
+// dex:field attribute-key:customer-email value-type:string editable:false description:"Customer email" ui-slot:title
+// dex:field attribute-key:case-status value-type:string editable:false description:"Case status" ui-slot:status
+// dex:field attribute-key:in-email value-type:string editable:false description:"Customer request" ui-slot:subtitle
+// dex:field attribute-key:in-charge-ref value-type:string editable:false description:"Charge reference"
+// dex:field attribute-key:evidence-state value-type:string editable:false description:"Evidence state"
+// dex:field attribute-key:recommended-action value-type:string editable:false description:"Recommendation" ui-slot:recommendation
+// dex:field attribute-key:recommendation-rationale value-type:string editable:false description:"Recommendation rationale" ui-slot:reason
+// dex:field attribute-key:guardrail-verdict value-type:string editable:false description:"Guardrail verdict"
+// dex:field attribute-key:guardrail-rule value-type:string editable:false description:"Guardrail rule" ui-slot:reason
 ```
 
 </SdkSnippet>
@@ -59,28 +60,32 @@ Indexed Attribute 声明绑定 Dex Attribute key、物理搜索 index key、inde
 
 在 **v2** 中，选中 Step 会打开分为 **Definition** 与 **Execution** 的面板。Definition 展示 Step 的 **explanation**、WaitFor 与 Execute 分支；过长内容可滚动，以便 Execution 仍可见。Execute 分支超过三条时默认折叠。若该 Step 执行过多次，Execution 提供下拉框选择某次执行，再以与 **v1** Selected event 相同的结构化方式展示所选 WaitFor 或 Execute history 事件的 **Input**、**Output** 和 **Context**。执行 payload 默认 Details，可切换为已水合 payload 的 Raw JSON。十进制数字形式的 AttributeMap / ChannelMap instance 按数值排序，行为与 **v1** 一致。Execute 显示该次 run 决策里的 live next Steps，而不是 FDG 上的全部出口。若 Continue-as-New 把该 Step 留在上一 hop，使用 Load more from previous run。
 
-字段还可以声明它所填充的 slot：**title**、**subtitle**、**status**、**recommendation** 或 **reason**。slot 说明该字段承担什么角色，因此一套模板可以服务所有 Flow，而每个 Flow 把自己的 Attribute 映射进去。slot 是可选的，多数字段不填任何 slot。
+字段还可以声明它所填充的 UI slot：**title**、**subtitle**、**status**、**recommendation** 或 **reason**。UI slot 说明该字段承担什么角色，因此一套模板可以服务所有 Flow，而每个 Flow 把自己的 Attribute 映射进去。UI slot 是可选的，多数字段不填任何 UI slot。
 
-run 列表的每一行读取 **title** 和 **status**；当 Flow 两者都未声明时，回退为 Flow ID 与 execution status。选中 run 的面板读取全部五个 slot，按 slot 顺序排在其余字段之前。**title**、**subtitle**、**status** 和 **recommendation** 各只允许一个字段。**reason** 允许多个，因为一条 recommendation 可以有不止一个依据。
+run 列表的每一行读取 **title** 和 **status**；当 Flow 两者都未声明时，回退为 Flow ID 与 execution status。选中 run 的面板读取全部五个 UI slot，按 UI slot 顺序排在其余字段之前。**title**、**subtitle**、**status** 和 **recommendation** 各只允许一个字段。**reason** 允许多个，因为一条 recommendation 可以有不止一个依据。
 
-一行只携带 indexed Attribute 和 Summary 字段。若某个 slot 绑定的 Attribute 两者都不属于，它只在面板中显示，不在行中显示。slot 不是索引：它只说明值应出现在哪里，不表示该值可被搜索。
+一行只携带 indexed Attribute 和 Summary 字段。若某个 UI slot 绑定的 Attribute 两者都不属于，它只在面板中显示，不在行中显示。UI slot 不是索引：它只说明值应出现在哪里，不表示该值可被搜索。
 
 其余 Display 字段按照 directive 行排序。String、integer、double、boolean 和 datetime 字段可以编辑。JSON、object、array 和 AttributeMap 只读。缺失字段必须返回 null。后端会拒绝遗漏、未声明或类型错误的值。
 
-只有 current run 仍为 active 时才能编辑。Dex Web 通过 **SetAttributes** 写入 Attribute；如果该 Attribute 已建立索引，还会附带声明的 index 配置。
+只有 current run 仍为 active 时才能编辑。Dex Web 通过 **SetAttributes** 写入 Attribute；如果该 Attribute 已建立索引，还会附带声明的 index 配置。仅当被编辑的 Attribute 是 Action condition source 时，Dex Web 才会同时发送完整的 Action permission mapping；其它编辑不会发送。
 
 ## Action
 
-Action 是带 Action directive 和一个 condition 的 RPC。第一版只支持 **in** operator。Dex Web 会在调用 RPC 前重新读取 condition Attribute。
+Action 是通过 **RPCOptions.Action** 注册的 RPC。**DefineAction** 接收 label、Attribute condition 和一个 **ActionRequiresPermission** option。Visualizer 会直接读取这个强类型 Go 注册。Dex Web 会在调用 RPC 前重新读取 condition Attribute。
 
 无输入 Action 接受 **dex.None**，直接显示为按钮。有输入 Action 接受具名 Go struct。来自用户的字段按 directive 顺序渲染控件；来自 Attribute 的字段保持隐藏，并使用当前选中 run 的 Attribute snapshot。
 
-Action 可以用 **role** 声明预期由哪一方来处理。role 名称自由取值、使用 kebab-case，因为流程的参与方属于业务领域，而不属于 Dex Web。Inbox 会列出该 Flow 声明的 role，并把这些 Action 的 condition 合并为一次搜索，从而只显示正在等待这些 Action 的 run。
+每个 Action 要求一个 permission，例如 **refund.manage**。Permission key 以小写字母开头，只包含小写字母、数字、点或连字符。当一次成功的 Worker invocation 写入 Action condition source 时，Worker 会在 response 中附带完整 mapping。无关写入和 query-only RPC 不会附带 mapping。
 
-这种合并要求该 role 的所有 condition 都测试同一个 Attribute。多个 filter 之间以 AND 连接，两个 Attribute 需要查询不支持的 OR。此时 Inbox 不做收窄，而不是只显示该 role 的一部分工作。
+Server 会把业务写入覆盖到权威 Attribute state 上，并在同一个 Workflow Task 中计算 mapping。它对当前可用 Action 的 permission 排序、去重，仅在 union 变化时完整替换内部 KeywordList Search Attribute **DexWorkQueuePermissions**；空 union 会删除该投影。维护投影不要求应用 Step 锁住每个 Action source。
 
-condition 匹配是必要条件，而非充分条件。带 key 的 gate 还需要它当前的 key，而列表读取的是最终一致的索引。因此 role 收窄到的是很可能需要该参与方处理的 run，真正可用的 Action 仍由打开后的该 run 决定。
+Action definition 是 active Flow 的稳定契约。部署时删除或修改全部 mapping，并不会自动迁移已有状态。后续 source write、显式空 mapping 或新的 Flow run 才会应用新定义。
+
+Work Queue 会列出所选 Flow type 声明的 permission。在 **Working as** 中选择一个 permission 后，浏览器通过 **POST /api/v2/search** 的 **workQueuePermissions** 发送它。Superverse 等调用方也可以发送从多个用户 role 得到的多个 permission。只要 run 的投影列表包含任意一个请求 permission 就会匹配；这组 permission 与 Flow type 和其他 filter 之间使用 AND。
+
+投影匹配是必要条件，而非充分条件。带 key 的 gate 还需要它当前的 key，而列表读取的是最终一致的索引。真正可用的 Action 仍由打开后的该 run 决定。
 
 浏览器中的 condition 只控制展示。每个 Action RPC 都必须在修改持久化状态或发布 Channel message 前再次检查当前状态。当检查与 effect 必须保持原子性时，应使用 lock。
 
-第一版不增加登录，也不增加访问控制。声明的 **role** 只标识参与方，本身不授予任何权限：在 Inbox 中选择某个 role，表示读者此次要处理哪一类工作。请继续把它部署在 Dex Web 所在的可信网络或 reverse-proxy 边界之后。
+Work Queue 不增加登录，也不执行授权。**Working as** 只是选择工作，不会授予所选 permission。Superverse 等可信应用边界仍负责用户认证、把 role 映射到 permission，并限制它发送哪些 permission。请把 Dex Web 部署在该边界之后。

@@ -11,8 +11,8 @@ import type {
   FlowV2Definition,
 } from '@superdurable/flow-definition-renderer';
 
-/** Run drives one run on the definition canvas; Queue clears work without a diagram. */
-export type V2Mode = 'run' | 'queue';
+/** Run drives one run on the definition canvas; Work Queue clears work without a diagram. */
+export type V2Mode = 'run' | 'work-queue';
 
 export function v2HomePath(canUseV2: boolean) {
   return canUseV2 ? v2ModePath('run') : '/v1/flows';
@@ -30,8 +30,8 @@ export function v2RunPath(flowType?: string, flowID?: string) {
   return v2ModePath('run', flowType, flowID);
 }
 
-export function v2QueuePath(flowType?: string, flowID?: string) {
-  return v2ModePath('queue', flowType, flowID);
+export function v2WorkQueuePath(flowType?: string, flowID?: string) {
+  return v2ModePath('work-queue', flowType, flowID);
 }
 
 /** The Deep Dive is keyed per run: Time Travel and continue-as-new walk the run chain. */

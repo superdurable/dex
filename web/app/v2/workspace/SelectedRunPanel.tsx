@@ -17,10 +17,10 @@ import { displayValue } from '@/lib/format';
 import { readResponseJSON } from '@/lib/http';
 import type { V2Display } from '@/lib/types';
 import { parseTypedValue, v2ActionUserFields, v2ActionUserInput, visibleV2Actions } from '../contract';
-import { QUEUE_COPY } from '../queue/copy';
-import { absorb, classifyReadFailure, nothingHeld, readFailureReason } from '../queue/liveness';
+import { WORK_QUEUE_COPY } from '../work-queue/copy';
+import { absorb, classifyReadFailure, nothingHeld, readFailureReason } from '../work-queue/liveness';
 import { RUN_COPY } from '../run/copy';
-import { leadFields } from './slots';
+import { leadFields } from './uiSlots';
 
 export function SelectedRunPanel({
   flowType,
@@ -138,14 +138,14 @@ export function SelectedRunPanel({
         <div className="sc-head">
           {showHeading && <span className="sc-title">{flowId}</span>}
           {showHeading && result && <span className="sc-status">{result.flowStatus}</span>}
-          {held.liveness === 'stale' && <span className="sc-stale">{QUEUE_COPY.staleShort}</span>}
+          {held.liveness === 'stale' && <span className="sc-stale">{WORK_QUEUE_COPY.staleShort}</span>}
           {footer}
         </div>
       )}
-      {isStranded && <p className="sc-state" data-liveness="stranded">{QUEUE_COPY.stranded}</p>}
+      {isStranded && <p className="sc-state" data-liveness="stranded">{WORK_QUEUE_COPY.stranded}</p>}
       {held.liveness === 'unreachable' && <p className="v2-error">{held.reason}</p>}
       {held.liveness === 'stale' && <p className="sc-why">{held.reason}</p>}
-      {held.liveness === 'loading' && <p className="sc-state">{QUEUE_COPY.loading}</p>}
+      {held.liveness === 'loading' && <p className="sc-state">{WORK_QUEUE_COPY.loading}</p>}
       {actionError && <p className="v2-error">{actionError}</p>}
       {result && !isStranded && (() => {
         const fieldFact = (field: FlowV2Definition['display']['fields'][number]) => {

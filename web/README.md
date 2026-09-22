@@ -57,6 +57,19 @@ Version 2 files can coexist. Duplicate valid Version 2 definitions for one Flow
 type stop startup. Invalid analyzer output remains visible on **v1** Flow
 Rendering but does not appear as a **v2** Flow type.
 
+The v2 Work Queue is available at `/v2/work-queue`. Its **Working as** control
+selects one Action permission and filters on the Server-maintained
+`DexWorkQueuePermissions` Search Attribute. The Worker submits the complete
+Action permission mapping only when an invocation writes an Action condition
+source. Dex Web submits the same mapping only when `SetAttributes` edits one of
+those sources. The Server overlays the writes on authoritative Attribute state
+and atomically replaces the projection when its value changes. `POST
+/api/v2/search` also accepts several `workQueuePermissions`; they are matched
+with OR, then combined with the Flow type and other filters using AND. This
+selector is not authentication or authorization. The embedding application
+remains responsible for mapping authenticated user roles to the permissions it
+submits.
+
 ## Run through the Dex Server image
 
 The `dex-server` Docker image embeds these production assets and starts Dex Web,
@@ -121,6 +134,8 @@ contract, supports inline edits for declared primitive fields, and renders
 conditional none/object Actions beside the Flow Definition Graph.
 Attribute-sourced Action inputs remain hidden. The UI condition is
 presentational; Action RPCs must re-check current state.
+Version 2 definitions use `uiSlot` for reusable display placement and expose
+each Action's `requiredPermission` from the Go SDK Action registration.
 
 v1 pages live under `/v1/flows` and `/v1/rendering`. The Flows page provides Basic and Advanced visibility queries, pagination,
 saved queries, configurable columns, Indexed Attributes, and timezone

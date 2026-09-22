@@ -16,28 +16,28 @@ import type { V2Flow } from '@/lib/types';
  * indexed Attributes and a Summary read, a drawer holds the whole Display. So one declaration serves
  * both surfaces and each draws the slots it can reach.
  */
-export type SlotName = 'title' | 'subtitle' | 'status' | 'recommendation' | 'reason';
+export type UISlotName = 'title' | 'subtitle' | 'status' | 'recommendation' | 'reason';
 
-export interface SlottedField {
+export interface UISlottedField {
   attributeKey: string;
   description: string;
 }
 
 /** Fields per slot, in declaration order. Only `reason` is ever longer than one. */
-export type SlotMap = Partial<Record<SlotName, SlottedField[]>>;
+export type UISlotMap = Partial<Record<UISlotName, UISlottedField[]>>;
 
-const SLOT_NAMES: readonly SlotName[] = ['title', 'subtitle', 'status', 'recommendation', 'reason'];
+const UI_SLOT_NAMES: readonly UISlotName[] = ['title', 'subtitle', 'status', 'recommendation', 'reason'];
 
-function isSlotName(value: string): value is SlotName {
-  return (SLOT_NAMES as readonly string[]).includes(value);
+function isUISlotName(value: string): value is UISlotName {
+  return (UI_SLOT_NAMES as readonly string[]).includes(value);
 }
 
-export function slotsOf(definition: FlowV2Definition | undefined): SlotMap {
-  const map: SlotMap = {};
+export function uiSlotsOf(definition: FlowV2Definition | undefined): UISlotMap {
+  const map: UISlotMap = {};
   for (const field of definition?.display.fields ?? []) {
-    const slot = field.slot;
-    if (slot === undefined || !isSlotName(slot)) continue;
-    map[slot] = [...(map[slot] ?? []), {
+    const uiSlot = field.uiSlot;
+    if (uiSlot === undefined || !isUISlotName(uiSlot)) continue;
+    map[uiSlot] = [...(map[uiSlot] ?? []), {
       attributeKey: field.attributeKey,
       description: field.description,
     }];
@@ -60,9 +60,9 @@ export interface RunRow {
   status: string;
 }
 
-export function runRow(flow: V2Flow, slots: SlotMap): RunRow {
-  const title = firstValue(flow, slots.title);
-  const status = firstValue(flow, slots.status);
+export function runRow(flow: V2Flow, uiSlots: UISlotMap): RunRow {
+  const title = firstValue(flow, uiSlots.title);
+  const status = firstValue(flow, uiSlots.status);
   return {
     title: title ?? flow.flowId,
     titleIsFlowID: title === null,
@@ -77,7 +77,7 @@ export function runRow(flow: V2Flow, slots: SlotMap): RunRow {
  * source is equally live. A slot whose Attribute is Display-only resolves to null here and is drawn
  * by the drawer instead.
  */
-function firstValue(flow: V2Flow, fields: SlottedField[] | undefined): string | null {
+function firstValue(flow: V2Flow, fields: UISlottedField[] | undefined): string | null {
   for (const field of fields ?? []) {
     const value = flow.indexedAttributes[field.attributeKey] ?? flow.summary?.[field.attributeKey];
     if (value === null || value === undefined || value === '') continue;
@@ -95,10 +95,10 @@ function firstValue(flow: V2Flow, fields: SlottedField[] | undefined): string | 
 export function leadFields(
   definition: FlowV2Definition,
 ): FlowV2Definition['display']['fields'] {
-  const bySlot = new Map<string, FlowV2Definition['display']['fields']>();
+  const byUISlot = new Map<string, FlowV2Definition['display']['fields']>();
   for (const field of definition.display.fields) {
-    if (field.slot === undefined || !isSlotName(field.slot)) continue;
-    bySlot.set(field.slot, [...(bySlot.get(field.slot) ?? []), field]);
+    if (field.uiSlot === undefined || !isUISlotName(field.uiSlot)) continue;
+    byUISlot.set(field.uiSlot, [...(byUISlot.get(field.uiSlot) ?? []), field]);
   }
-  return SLOT_NAMES.flatMap((slot) => bySlot.get(slot) ?? []);
+  return UI_SLOT_NAMES.flatMap((uiSlot) => byUISlot.get(uiSlot) ?? []);
 }

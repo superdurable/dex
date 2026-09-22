@@ -28,7 +28,7 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 		wantGroupIDs       []string
 		wantSummaryFields  []string
 		wantActionRPCNames []string
-		wantActionRoles    []string
+		wantPermissions    []string
 		wantIndexTypes     map[string]string
 		wantIndexKeys      map[string]string
 	}{
@@ -40,7 +40,7 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 			wantGroupIDs:       []string{"intake", "evidence", "control", "resolution", "failure", "close"},
 			wantSummaryFields:  []string{"charge-reference", "refund-amount", "recommended-action"},
 			wantActionRPCNames: []string{},
-			wantActionRoles:    []string{},
+			wantPermissions:    []string{},
 			wantIndexTypes:     map[string]string{"case-status": "keyword"},
 			wantIndexKeys:      map[string]string{"case-status": "CustomKeyword2"},
 		},
@@ -54,7 +54,7 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 			wantActionRPCNames: []string{
 				"ApproveRefund", "RejectRefund", "ConfirmCustomerMessage", "EditCustomerMessage",
 			},
-			wantActionRoles: []string{"manager", "manager", "support-agent", "support-agent"},
+			wantPermissions: []string{"refund.manage", "refund.manage", "refund.message", "refund.message"},
 			wantIndexTypes: map[string]string{
 				"case-status":    "keyword",
 				"customer-email": "keyword",
@@ -80,7 +80,7 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 			require.Equal(t, test.wantGroupIDs, v2GroupIDs(graph.Groups))
 			require.Equal(t, test.wantSummaryFields, v2ViewFieldKeys(graph.V2.Summary.Fields))
 			require.Equal(t, test.wantActionRPCNames, v2ActionRPCNames(graph.V2.Actions))
-			require.Equal(t, test.wantActionRoles, v2ActionRoles(graph.V2.Actions))
+			require.Equal(t, test.wantPermissions, v2ActionPermissions(graph.V2.Actions))
 			// Keyed rather than positional: declaring another Indexed Attribute must not move this.
 			indexTypes := make(map[string]string, len(graph.V2.IndexedAttributes))
 			for _, attribute := range graph.V2.IndexedAttributes {
@@ -161,10 +161,9 @@ func TestVisualizeV2ReportsMalformedNamedDirectives(t *testing.T) {
 	require.Contains(t, messages, `dex:field value-type "string" does not match Attribute "flag" type "bool"`)
 	require.Contains(t, messages, "GetDexDisplay must be read-only")
 	require.Contains(t, messages, `dex:input input field "missing" is not in the RPC input struct`)
-	require.Contains(t, messages, "Action RPC UnregisteredAction must be registered in GetRPCs")
-	require.Contains(t, messages, `dex:action role "Manager" must be kebab-case`)
-	require.Contains(t, messages, `dex:field slot "headline" is not a slot this view has`)
-	require.Contains(t, messages, `dex:field slot "title" is already taken by Attribute "state"`)
+	require.Contains(t, messages, "RPC RejectBadPermission Action requires exactly one valid permission")
+	require.Contains(t, messages, `dex:field ui-slot "headline" is not a UI slot this view has`)
+	require.Contains(t, messages, `dex:field ui-slot "title" is already taken by Attribute "state"`)
 	encoded, err := flowviz.MarshalJSON(graph)
 	require.NoError(t, err)
 	require.Contains(t, string(encoded), `"groups": []`)
@@ -195,12 +194,12 @@ func v2ActionRPCNames(actions []flowviz.Action) []string {
 	return names
 }
 
-func v2ActionRoles(actions []flowviz.Action) []string {
-	roles := make([]string, 0, len(actions))
+func v2ActionPermissions(actions []flowviz.Action) []string {
+	permissions := make([]string, 0, len(actions))
 	for _, action := range actions {
-		roles = append(roles, action.Role)
+		permissions = append(permissions, action.RequiredPermission)
 	}
-	return roles
+	return permissions
 }
 
 func v2ActionInputNames(fields []flowviz.ActionInputField) []string {

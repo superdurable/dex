@@ -14,7 +14,7 @@ import { ThemeToggle } from './ThemeToggle';
 
 const V2_MODES: { mode: V2Mode; label: string }[] = [
   { mode: 'run', label: 'Run' },
-  { mode: 'queue', label: 'Inbox' },
+  { mode: 'work-queue', label: 'Work Queue' },
 ];
 
 export function AppHeader() {
@@ -23,7 +23,7 @@ export function AppHeader() {
   const location = useLocation();
   const navigate = useNavigate();
   const isV2 = location.pathname === '/v2' || location.pathname.startsWith('/v2/');
-  const activeMode: V2Mode = location.pathname.startsWith('/v2/queue') ? 'queue' : 'run';
+  const activeMode: V2Mode = location.pathname.startsWith('/v2/work-queue') ? 'work-queue' : 'run';
   // Absolute timestamps are a Deep Dive concern; the other views show relative or local time.
   const isDebug = location.pathname.includes('/debug');
   const home = canUseV2 && isV2 ? v2HomePath(canUseV2) : '/v1/flows';

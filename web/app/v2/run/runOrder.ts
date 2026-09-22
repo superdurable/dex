@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { V2Flow } from '@/lib/types';
-import { isOpenFlowStatusCode } from '../queue/liveness';
+import { isOpenFlowStatusCode } from '../work-queue/liveness';
 
 export type RunGroupKey = 'open' | 'closed';
 

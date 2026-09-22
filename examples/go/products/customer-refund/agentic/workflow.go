@@ -201,26 +201,69 @@ func (flow *AgenticCustomerRefundFlow) GetSteps() []dex.StepDef {
 }
 
 func (flow *AgenticCustomerRefundFlow) GetRPCs() []dex.RPCDef {
-	actionOptions := &dex.RPCOptions{
-		LockAttributes: []dex.AttributeLock{
-			dex.LockAttribute(agenticCaseStatus),
-			dex.LockAttribute(agenticGateRequestKey),
-		},
-	}
-	messageOptions := &dex.RPCOptions{
-		LockAttributes: []dex.AttributeLock{
-			dex.LockAttribute(agenticCaseStatus),
-			dex.LockAttribute(agenticGateRequestKey),
-			dex.LockAttribute(agenticCustomerMessageDraft),
-		},
-	}
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.GetDexSummary, nil),
 		dex.DefineRPC(flow.GetDexDisplay, nil),
-		dex.DefineRPC(flow.ApproveRefund, actionOptions),
-		dex.DefineRPC(flow.RejectRefund, actionOptions),
-		dex.DefineRPC(flow.ConfirmCustomerMessage, messageOptions),
-		dex.DefineRPC(flow.EditCustomerMessage, messageOptions),
+		dex.DefineRPC(flow.ApproveRefund, &dex.RPCOptions{
+			Action: dex.DefineAction(
+				"Approve",
+				dex.WhenAttributeMatches(
+					agenticCaseStatus,
+					dex.AttributeMatchEqual(statusAwaitingManagerRule),
+					dex.AttributeMatchEqual(statusAwaitingManagerAgent),
+				),
+				dex.ActionRequiresPermission("refund.manage"),
+			),
+			LockAttributes: []dex.AttributeLock{
+				dex.LockAttribute(agenticCaseStatus),
+				dex.LockAttribute(agenticGateRequestKey),
+			},
+		}),
+		dex.DefineRPC(flow.RejectRefund, &dex.RPCOptions{
+			Action: dex.DefineAction(
+				"Reject",
+				dex.WhenAttributeMatches(
+					agenticCaseStatus,
+					dex.AttributeMatchEqual(statusAwaitingManagerRule),
+					dex.AttributeMatchEqual(statusAwaitingManagerAgent),
+				),
+				dex.ActionRequiresPermission("refund.manage"),
+			),
+			LockAttributes: []dex.AttributeLock{
+				dex.LockAttribute(agenticCaseStatus),
+				dex.LockAttribute(agenticGateRequestKey),
+			},
+		}),
+		dex.DefineRPC(flow.ConfirmCustomerMessage, &dex.RPCOptions{
+			Action: dex.DefineAction(
+				"Send as written",
+				dex.WhenAttributeMatches(
+					agenticCaseStatus,
+					dex.AttributeMatchEqual(statusAwaitingMessageOK),
+				),
+				dex.ActionRequiresPermission("refund.message"),
+			),
+			LockAttributes: []dex.AttributeLock{
+				dex.LockAttribute(agenticCaseStatus),
+				dex.LockAttribute(agenticGateRequestKey),
+				dex.LockAttribute(agenticCustomerMessageDraft),
+			},
+		}),
+		dex.DefineRPC(flow.EditCustomerMessage, &dex.RPCOptions{
+			Action: dex.DefineAction(
+				"Rewrite and send",
+				dex.WhenAttributeMatches(
+					agenticCaseStatus,
+					dex.AttributeMatchEqual(statusAwaitingMessageOK),
+				),
+				dex.ActionRequiresPermission("refund.message"),
+			),
+			LockAttributes: []dex.AttributeLock{
+				dex.LockAttribute(agenticCaseStatus),
+				dex.LockAttribute(agenticGateRequestKey),
+				dex.LockAttribute(agenticCustomerMessageDraft),
+			},
+		}),
 	}
 }
 
@@ -299,15 +342,15 @@ func (*AgenticCustomerRefundFlow) GetDexSummary(
 	}}, nil
 }
 
-// dex:field attribute-key:customer-email value-type:string editable:false description:"Customer email" slot:title
-// dex:field attribute-key:case-status value-type:string editable:false description:"Case status" slot:status
-// dex:field attribute-key:in-email value-type:string editable:false description:"Customer request" slot:subtitle
+// dex:field attribute-key:customer-email value-type:string editable:false description:"Customer email" ui-slot:title
+// dex:field attribute-key:case-status value-type:string editable:false description:"Case status" ui-slot:status
+// dex:field attribute-key:in-email value-type:string editable:false description:"Customer request" ui-slot:subtitle
 // dex:field attribute-key:in-charge-ref value-type:string editable:false description:"Charge reference"
 // dex:field attribute-key:evidence-state value-type:string editable:false description:"Evidence state"
-// dex:field attribute-key:recommended-action value-type:string editable:false description:"Recommendation" slot:recommendation
-// dex:field attribute-key:recommendation-rationale value-type:string editable:false description:"Recommendation rationale" slot:reason
+// dex:field attribute-key:recommended-action value-type:string editable:false description:"Recommendation" ui-slot:recommendation
+// dex:field attribute-key:recommendation-rationale value-type:string editable:false description:"Recommendation rationale" ui-slot:reason
 // dex:field attribute-key:guardrail-verdict value-type:string editable:false description:"Guardrail verdict"
-// dex:field attribute-key:guardrail-rule value-type:string editable:false description:"Guardrail rule" slot:reason
+// dex:field attribute-key:guardrail-rule value-type:string editable:false description:"Guardrail rule" ui-slot:reason
 // dex:field attribute-key:manager-verdict value-type:string editable:false description:"Manager verdict"
 // dex:field attribute-key:gate-request-key value-type:string editable:false description:"Approval gate"
 // dex:field attribute-key:billing-outcome value-type:string editable:false description:"Billing effect"
@@ -368,8 +411,6 @@ func (*AgenticCustomerRefundFlow) GetDexDisplay(
 	}}, nil
 }
 
-// dex:action action-label:"Approve" role:manager
-// dex:when values:["awaiting-manager-rule","awaiting-manager-agent"] operator:in attribute-key:case-status
 func (*AgenticCustomerRefundFlow) ApproveRefund(
 	ctx dex.Context,
 	_ dex.None,
@@ -384,8 +425,6 @@ func (*AgenticCustomerRefundFlow) ApproveRefund(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-// dex:action action-label:"Reject" role:manager
-// dex:when attribute-key:case-status operator:in values:["awaiting-manager-rule","awaiting-manager-agent"]
 // dex:input field-name:reason value-type:string source:user required:true description:"Rejection reason"
 // dex:input description:"Approval gate" required:true source:attribute attribute-key:gate-request-key value-type:string field-name:gateRequestKey
 func (*AgenticCustomerRefundFlow) RejectRefund(
@@ -411,8 +450,6 @@ func (*AgenticCustomerRefundFlow) RejectRefund(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-// dex:action action-label:"Send as written" role:support-agent
-// dex:when attribute-key:case-status operator:in values:["awaiting-message-approval"]
 // dex:input description:"Message gate" required:true source:attribute attribute-key:gate-request-key value-type:string field-name:gateRequestKey
 func (*AgenticCustomerRefundFlow) ConfirmCustomerMessage(
 	ctx dex.Context,
@@ -431,8 +468,6 @@ func (*AgenticCustomerRefundFlow) ConfirmCustomerMessage(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-// dex:action action-label:"Rewrite and send" role:support-agent
-// dex:when attribute-key:case-status operator:in values:["awaiting-message-approval"]
 // dex:input field-name:message value-type:string source:user required:true description:"Message to send"
 // dex:input description:"Message gate" required:true source:attribute attribute-key:gate-request-key value-type:string field-name:gateRequestKey
 func (*AgenticCustomerRefundFlow) EditCustomerMessage(

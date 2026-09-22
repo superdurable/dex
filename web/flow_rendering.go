@@ -25,7 +25,7 @@ import (
 const maxFlowDefinitionBytes = 8 << 20
 
 var flowDefinitionGroupIDPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
-var v2RoleNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
+var v2ActionPermissionPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
 
 var v2IndexKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 
@@ -331,8 +331,8 @@ func validateV2Definition(definition api.V2Definition) error {
 			return fmt.Errorf("Action RPC name and label must be non-empty and unique")
 		}
 		actionNames[action.RPCName] = true
-		if action.Role != "" && !v2RoleNamePattern.MatchString(action.Role) {
-			return fmt.Errorf("Action %q has an invalid role %q", action.RPCName, action.Role)
+		if !v2ActionPermissionPattern.MatchString(action.RequiredPermission) {
+			return fmt.Errorf("Action %q has an invalid required permission %q", action.RPCName, action.RequiredPermission)
 		}
 		if action.Condition.AttributeKey == "" || action.Condition.Operator != "in" || len(action.Condition.Values) == 0 {
 			return fmt.Errorf("Action %q has an invalid condition", action.RPCName)
@@ -365,7 +365,7 @@ func validateV2View(
 	forbiddenKeys map[string]bool,
 ) error {
 	seen := make(map[string]bool, len(view.Fields))
-	claimedSlots := make(map[string]string, len(view.Fields))
+	claimedUISlots := make(map[string]string, len(view.Fields))
 	for _, field := range view.Fields {
 		if field.AttributeKey == "" || !validV2ViewType(field.ValueType) || seen[field.AttributeKey] {
 			return fmt.Errorf("field %q has invalid metadata", field.AttributeKey)
@@ -376,7 +376,7 @@ func validateV2View(
 		if forbiddenKeys[field.AttributeKey] {
 			return fmt.Errorf("field %q duplicates an indexed Attribute", field.AttributeKey)
 		}
-		if err := claimV2Slot(field, claimedSlots); err != nil {
+		if err := claimV2UISlot(field, claimedUISlots); err != nil {
 			return err
 		}
 		seen[field.AttributeKey] = true
@@ -384,11 +384,11 @@ func validateV2View(
 	return nil
 }
 
-// Slots a field may claim, mapped to whether only one field per view may claim each.
+// UI slots a field may claim, mapped to whether only one field per view may claim each.
 //
 // Repeated here rather than imported from the analyzer because a Flow Definition Graph can reach the
 // server from anywhere, so the server cannot assume the analyzer wrote it.
-var v2ViewSlots = map[string]bool{
+var v2ViewUISlots = map[string]bool{
 	"title":          true,
 	"subtitle":       true,
 	"status":         true,
@@ -396,21 +396,21 @@ var v2ViewSlots = map[string]bool{
 	"reason":         false,
 }
 
-func claimV2Slot(field api.V2ViewField, claimedSlots map[string]string) error {
-	if field.Slot == "" {
+func claimV2UISlot(field api.V2ViewField, claimedUISlots map[string]string) error {
+	if field.UISlot == "" {
 		return nil
 	}
-	unique, known := v2ViewSlots[field.Slot]
+	unique, known := v2ViewUISlots[field.UISlot]
 	if !known {
-		return fmt.Errorf("field %q claims unknown slot %q", field.AttributeKey, field.Slot)
+		return fmt.Errorf("field %q claims unknown UI slot %q", field.AttributeKey, field.UISlot)
 	}
 	if !unique {
 		return nil
 	}
-	if holder, taken := claimedSlots[field.Slot]; taken {
-		return fmt.Errorf("slot %q is claimed by both %q and %q", field.Slot, holder, field.AttributeKey)
+	if holder, taken := claimedUISlots[field.UISlot]; taken {
+		return fmt.Errorf("UI slot %q is claimed by both %q and %q", field.UISlot, holder, field.AttributeKey)
 	}
-	claimedSlots[field.Slot] = field.AttributeKey
+	claimedUISlots[field.UISlot] = field.AttributeKey
 	return nil
 }
 

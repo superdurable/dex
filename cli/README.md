@@ -254,6 +254,13 @@ Repeated directive lines retain source order; no `order` property is generated.
 Every Version 2 Step, Attribute, RPC, input struct, and directive must be in the
 same source file.
 
+Version 2 reads Action labels, conditions, and required permissions from direct
+Go `RPCOptions.Action` registrations. Each Action must use exactly one
+`ActionRequiresPermission`. Permission keys start with a lowercase letter and
+contain lowercase letters, digits, dots, or hyphens. Display field directives
+use `ui-slot`, emitted as `uiSlot`; the former `slot`, Action, and condition
+directives are not supported.
+
 ```text
 dexcli visualize SOURCE [--language auto|go|python] [--schema-version 1.0|2.0]
                          [--open=true|false]

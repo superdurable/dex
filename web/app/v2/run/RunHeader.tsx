@@ -13,7 +13,7 @@ import { formatDate, formatDuration } from '@/lib/format';
 import type { FlowSummary } from '@/lib/types';
 import { usePreferences } from '../../providers';
 import { v2DebugPath } from '../contract';
-import { isOpenFlowStatusCode } from '../queue/liveness';
+import { isOpenFlowStatusCode } from '../work-queue/liveness';
 import { RUN_COPY } from './copy';
 
 /**
@@ -81,4 +81,3 @@ export function RunHeader({
     </div>
   );
 }
-

@@ -167,6 +167,7 @@ func TestV2FacadeUsesCurrentRunAndStructuredContract(t *testing.T) {
 
 	searchResponse := performV2JSON(t, mux, http.MethodPost, "/api/v2/search", `{
 		"flowType":"RefundFlow",
+		"workQueuePermissions":["refund.message","refund.manage","refund.message"],
 		"filters":[{"field":"case-status","operator":"in","values":["awaiting-manager","review"]}]
 	}`)
 	if searchResponse.Code != http.StatusOK {
@@ -178,7 +179,8 @@ func TestV2FacadeUsesCurrentRunAndStructuredContract(t *testing.T) {
 		t.Fatalf("search result = %+v", searchResult)
 	}
 	query := client.searchRequests[0].GetQuery()
-	if !strings.Contains(query, "`case-status-index`") || !strings.Contains(query, " OR ") || strings.Contains(query, "RunId") {
+	permissionUnion := "(DexWorkQueuePermissions = 'refund.manage' OR DexWorkQueuePermissions = 'refund.message')"
+	if !strings.Contains(query, permissionUnion) || !strings.Contains(query, "`case-status-index`") || strings.Contains(query, "RunId") {
 		t.Fatalf("compiled query = %q", query)
 	}
 
@@ -222,14 +224,45 @@ func TestV2FacadeUsesCurrentRunAndStructuredContract(t *testing.T) {
 	if len(client.setRequests) != 2 || client.setRequests[0].GetAttributes()[0].GetKey() != "operator-note" {
 		t.Fatalf("SetAttributes requests = %+v", client.setRequests)
 	}
+	if client.setRequests[0].GetActionPermissionMappings() != nil {
+		t.Fatalf("unrelated edit included Action permission mappings: %+v", client.setRequests[0])
+	}
 	indexedWrite := client.setRequests[1].GetAttributes()[0]
 	if indexedWrite.GetIndexConfig().GetIndexKey() != "case-status-index" ||
 		indexedWrite.GetIndexConfig().GetType() != dexpb.IndexType_INDEX_TYPE_KEYWORD {
 		t.Fatalf("indexed Attribute write = %+v", indexedWrite)
 	}
+	mappings := client.setRequests[1].GetActionPermissionMappings().GetMappings()
+	if len(mappings) != 3 ||
+		mappings[0].GetAttributeKey() != "case-status" ||
+		mappings[0].GetRequiredPermission() != "refund.manage" ||
+		mappings[1].GetAttributeKey() != "case-status" ||
+		mappings[2].GetAttributeKey() != "message-priority" ||
+		mappings[2].GetRequiredPermission() != "refund.message" ||
+		mappings[2].GetEqualValues()[0].GetIntValue() != int64(9223372036854775807) {
+		t.Fatalf("Action permission mappings = %+v", mappings)
+	}
 	lastRPC := client.rpcRequests[len(client.rpcRequests)-1]
 	if lastRPC.GetRpcName() != "ApproveRefund" || lastRPC.GetInput().GetNullValue() != structpb.NullValue_NULL_VALUE {
 		t.Fatalf("Action RPC request = %+v", lastRPC)
+	}
+}
+
+func TestV2SearchRejectsInvalidWorkQueuePermission(t *testing.T) {
+	client := &v2TestClient{}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": testV2Definition()})
+
+	response := performV2JSON(t, mux, http.MethodPost, "/api/v2/search", `{
+		"flowType":"RefundFlow",
+		"workQueuePermissions":["refund.manage","Refund.Admin"],
+		"filters":[]
+	}`)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
+	}
+	if len(client.searchRequests) != 0 {
+		t.Fatalf("SearchFlows requests = %+v", client.searchRequests)
 	}
 }
 
@@ -523,13 +556,13 @@ func testV2Definition() V2Definition {
 			AttributeKey: "case-status", ValueType: "string", Editable: true, Description: "Case status",
 		}}},
 		Actions: []V2Action{{
-			RPCName: "ApproveRefund", Label: "Approve",
+			RPCName: "ApproveRefund", Label: "Approve", RequiredPermission: "refund.manage",
 			Condition: V2ActionCondition{
 				AttributeKey: "case-status", Operator: "in", Values: []interface{}{"awaiting-manager"},
 			},
 			Input: V2ActionInput{Kind: "none"},
 		}, {
-			RPCName: "RejectRefund", Label: "Reject",
+			RPCName: "RejectRefund", Label: "Reject", RequiredPermission: "refund.manage",
 			Condition: V2ActionCondition{
 				AttributeKey: "case-status", Operator: "in", Values: []interface{}{"awaiting-manager"},
 			},
@@ -540,6 +573,13 @@ func testV2Definition() V2Definition {
 				FieldName: "gateRequestKey", ValueType: "string", Source: "attribute",
 				AttributeKey: "gate-request-key", Required: true, Description: "Approval gate",
 			}}},
+		}, {
+			RPCName: "NotifyCustomer", Label: "Notify", RequiredPermission: "refund.message",
+			Condition: V2ActionCondition{
+				AttributeKey: "message-priority", Operator: "in",
+				Values: []interface{}{json.Number("9223372036854775807")},
+			},
+			Input: V2ActionInput{Kind: "none"},
 		}},
 	}
 }

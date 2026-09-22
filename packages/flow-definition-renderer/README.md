@@ -10,6 +10,9 @@ Consumers must provide React 19, React Flow, and Dagre. The repository uses a
 local file dependency and preserves symlinks in Vite, Docusaurus, and
 TypeScript so each consumer resolves its own locked dependency versions.
 
+Version 2 display fields expose optional `uiSlot` placement. Action nodes expose
+the `requiredPermission` projected by the Go SDK for Work Queue searches.
+
 ```tsx
 import {
   FlowDefinitionGraphView,
