@@ -30,6 +30,7 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 		wantActionRPCNames []string
 		wantActionRoles    []string
 		wantIndexTypes     map[string]string
+		wantIndexKeys      map[string]string
 	}{
 		{
 			name: "deterministic",
@@ -41,6 +42,7 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 			wantActionRPCNames: []string{},
 			wantActionRoles:    []string{},
 			wantIndexTypes:     map[string]string{"case-status": "keyword"},
+			wantIndexKeys:      map[string]string{"case-status": "CustomKeyword2"},
 		},
 		{
 			name: "agentic",
@@ -55,8 +57,13 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 			wantActionRoles: []string{"manager", "manager", "support-agent", "support-agent"},
 			wantIndexTypes: map[string]string{
 				"case-status":    "keyword",
-				"customer-email": "fulltext",
+				"customer-email": "keyword",
 				"refund-amount":  "double",
+			},
+			wantIndexKeys: map[string]string{
+				"case-status":    "CustomKeyword2",
+				"customer-email": "CustomKeyword",
+				"refund-amount":  "CustomDouble",
 			},
 		},
 	}
@@ -77,7 +84,7 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 			// Keyed rather than positional: declaring another Indexed Attribute must not move this.
 			indexTypes := make(map[string]string, len(graph.V2.IndexedAttributes))
 			for _, attribute := range graph.V2.IndexedAttributes {
-				require.Equal(t, attribute.AttributeKey, attribute.IndexKey)
+				require.Equal(t, test.wantIndexKeys[attribute.AttributeKey], attribute.IndexKey)
 				indexTypes[attribute.AttributeKey] = attribute.IndexType
 			}
 			require.Equal(t, test.wantIndexTypes, indexTypes)
