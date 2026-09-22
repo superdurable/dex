@@ -25,6 +25,9 @@
   --muted-strong: #445d48;
   --cyan: #89c82e;
   --forest: #2e6d3a;
+  /* The mark's two flats. Same values as the app's header mark. */
+  --brand-track: #00321b;
+  --brand-head: #008650;
   --lime-soft: #edf8da;
   --water-soft: #e6f6f7;
   --surface: rgba(255, 255, 255, 0.72);
@@ -71,6 +74,8 @@
   --muted-strong: #bdccbd;
   --cyan: #9bd64d;
   --forest: #91d17e;
+  --brand-track: #42845f;
+  --brand-head: #70eea9;
   --lime-soft: #1a3520;
   --water-soft: #102e31;
   --surface: rgba(15, 35, 23, 0.78);
@@ -201,34 +206,37 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
+/* No chip, no crop. An inline SVG sits at its own size; the raster it replaces
+   had no alpha and needed a white circle plus negative offsets to be legible. */
 .brand-symbol {
-  position: relative;
-  display: block;
-  width: 39px;
-  height: 39px;
-  overflow: hidden;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 3px 14px rgba(52, 105, 47, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
 }
 
-.brand-symbol img {
-  position: absolute;
-  top: -5px;
-  left: -12px;
-  width: 64px;
-  height: 64px;
-  max-width: none;
-  object-fit: cover;
-  object-position: top center;
-}
-
+/* Two lines: the product, then who makes it. */
 .wordmark-text {
-  color: var(--forest);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  color: var(--text);
+  line-height: 1;
+}
+
+.wordmark-text > b {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .wordmark-text > span {
-  color: #8acb2c;
+  color: var(--muted-strong);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.115em;
+  text-transform: uppercase;
 }
 
 .desktop-nav > a,

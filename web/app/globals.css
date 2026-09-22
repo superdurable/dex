@@ -33,6 +33,10 @@
   --danger: #b63b3b;
   --danger-soft: #fbeaea;
   --shadow: 0 12px 36px rgba(45, 79, 42, 0.08);
+  /* The header's tallest child is a 34px select, so 70px was carrying 18px of
+     slack per side. 52px leaves 9px. Two viewport-offset rules below used to
+     hardcode 70 independently, as did two sticky offsets. */
+  --header-h: 52px;
 }
 
 * {
@@ -86,7 +90,7 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 70px;
+  min-height: var(--header-h);
   padding: 0 28px;
   border-bottom: 1px solid rgba(215, 228, 208, 0.92);
   background: rgba(255, 255, 255, 0.91);
@@ -133,30 +137,29 @@ a {
   height: 28px;
 }
 
+/* Two lines: the product, then who makes it. Stacking is what lets Dex be set
+   larger than the company without the line growing wider than the mark is tall. */
 .brand-name {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
   color: var(--brand-dark);
-  font-size: 14px;
-  font-weight: 790;
-  letter-spacing: 0.055em;
-  line-height: 1.1;
-}
-
-.brand-name > span {
-  text-transform: uppercase;
-}
-
-.brand-name > i {
-  color: #8da09b;
-  font-style: normal;
-  font-weight: 600;
+  line-height: 1;
 }
 
 .brand-name > b {
-  font-size: 15px;
-  letter-spacing: -0.015em;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.brand-name > span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.115em;
+  text-transform: uppercase;
 }
 
 .header-nav {
@@ -313,10 +316,6 @@ a {
   color: #eff4fc;
 }
 
-[data-theme='dark'] .brand-name > i {
-  color: #8c9198;
-}
-
 [data-theme='dark'] .header-nav > a {
   color: #bec3ca;
 }
@@ -392,11 +391,11 @@ a {
 }
 
 .app-main {
-  min-height: calc(100vh - 70px);
+  min-height: calc(100vh - var(--header-h));
 }
 
 .app-main:has(.v2-shell) {
-  height: calc(100vh - 70px);
+  height: calc(100vh - var(--header-h));
   min-height: 0;
   overflow: hidden;
 }
@@ -450,9 +449,9 @@ a {
 
 .flow-definition-browser {
   position: sticky;
-  top: 84px;
+  top: calc(var(--header-h) + 14px);
   display: flex;
-  max-height: calc(100vh - 108px);
+  max-height: calc(100vh - var(--header-h) - 38px);
   overflow: hidden;
   flex-direction: column;
 }
@@ -1461,8 +1460,8 @@ pre {
 
 .sidebar-stack {
   position: sticky;
-  top: 88px;
-  max-height: calc(100vh - 104px);
+  top: calc(var(--header-h) + 18px);
+  max-height: calc(100vh - var(--header-h) - 34px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior-y: contain;

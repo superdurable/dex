@@ -1,16 +1,23 @@
 import React, {type ReactNode} from 'react';
-import useBaseUrl from '@docusaurus/useBaseUrl';
+import DexMark from '@site/src/components/DexMark';
 
+/**
+ * Dex leads; Super Durable is the maker credit.
+ *
+ * Two lines rather than one, because the product being branded is Dex and the
+ * single line put the company first and the product nowhere. Stacking is what
+ * lets Dex be set larger than the company without the lockup growing wider than
+ * the mark is tall.
+ */
 export default function Brand(): ReactNode {
-  const logo = useBaseUrl('/img/brand/super-durable-logo.png');
-
   return (
     <>
       <span className="brand-symbol" aria-hidden="true">
-        <img src={logo} alt="" />
+        <DexMark size={30} />
       </span>
       <span className="wordmark-text">
-        <span>SUPER</span> DURABLE
+        <b>Dex</b>
+        <span>Super Durable</span>
       </span>
     </>
   );

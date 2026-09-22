@@ -37,10 +37,12 @@ export function AppHeader() {
           <Link to={home} className="brand-mark" aria-label="Super Durable home">
             <DexMark size={28} />
           </Link>
+          {/* Dex leads and Super Durable is the maker credit. The product being
+              branded is Dex; the old single line put the company first and the
+              product last, behind an interpunct. */}
           <Link to={home} className="brand-name">
-            <span>Super Durable</span>
-            <i aria-hidden="true">·</i>
             <b>Dex</b>
+            <span>Super Durable</span>
           </Link>
         </div>
       )}
