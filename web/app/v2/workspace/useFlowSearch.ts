@@ -11,6 +11,8 @@ import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import { readResponseJSON } from '@/lib/http';
 import type { V2Flow, V2SearchResult } from '@/lib/types';
 import { absorb, nothingHeld, readFailureReason, type Liveness } from '../work-queue/liveness';
+import { useWebCatalog } from '../WebCatalogProvider';
+import { definitionRevisionHeaders } from '../webConfig';
 import { filterValueType, parseFilterValues, type FilterRow } from './filters';
 
 const EMPTY_WORK_QUEUE_PERMISSIONS: readonly string[] = [];
@@ -35,6 +37,7 @@ export function useFlowSearch(
   filters: readonly FilterRow[],
   workQueuePermissions: readonly string[] = EMPTY_WORK_QUEUE_PERMISSIONS,
 ): FlowSearch {
+  const { catalog, definitionUpdateKey, handleDefinitionError } = useWebCatalog();
   const [held, setHeld] = useState(() => nothingHeld<V2Flow[]>());
   const [loading, setLoading] = useState(false);
   const [nextPageToken, setNextPageToken] = useState('');
@@ -47,7 +50,10 @@ export function useFlowSearch(
     try {
       const response = await fetch('/api/v2/search', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...definitionRevisionHeaders(catalog?.definitionRevision ?? ''),
+        },
         body: JSON.stringify({
           flowType,
           workQueuePermissions,
@@ -65,6 +71,10 @@ export function useFlowSearch(
       setNextPageToken(result.nextPageToken);
       setPage(nextPage);
     } catch (failedSearch) {
+      if (handleDefinitionError(failedSearch)) {
+        setHeld(nothingHeld<V2Flow[]>());
+        return;
+      }
       // Keep the rows that were true a moment ago; absorb marks them stale.
       setHeld((prior) => absorb(prior, {
         state: 'unreachable',
@@ -73,7 +83,7 @@ export function useFlowSearch(
     } finally {
       setLoading(false);
     }
-  }, [definition, filters, flowType, workQueuePermissions]);
+  }, [catalog?.definitionRevision, definition, definitionUpdateKey, filters, flowType, handleDefinitionError, workQueuePermissions]);
 
   // `filters` only changes when the reader submits, so this cannot fire per keystroke.
   useEffect(() => {

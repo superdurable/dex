@@ -17,6 +17,56 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestWebEnvironmentOverridesYAML(t *testing.T) {
+	t.Setenv("DEX_WEB_FLOW_RENDERING_SOURCE", "s3")
+	t.Setenv("DEX_WEB_FLOW_RENDERING_STORAGE_ID", "p0")
+	t.Setenv("DEX_WEB_FLOW_RENDERING_PREFIX", "_superverse/dex-web/flow-definitions")
+	t.Setenv("DEX_WEB_WORK_QUEUE_PERMISSION_MODE", "trusted-header")
+	t.Setenv("DEX_WEB_TRUST_WORK_QUEUE_PERMISSION_HEADER", "true")
+	path := writeTestConfig(t, `
+web:
+  flowRenderingSource: directory
+  workQueuePermissionMode: local-selector
+`)
+	cfg, err := NewConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, "s3", cfg.Web.FlowRenderingSource)
+	require.Equal(t, "p0", cfg.Web.FlowRenderingS3.StorageID)
+	require.Equal(t, "_superverse/dex-web/flow-definitions", cfg.Web.FlowRenderingS3.Prefix)
+	require.Equal(t, "trusted-header", cfg.Web.WorkQueuePermissionMode)
+	require.True(t, cfg.Web.IsWorkQueuePermissionHeaderTrusted)
+}
+
+func TestWebConfigRejectsUnsafeSourceAndPermissionCombinations(t *testing.T) {
+	path := writeTestConfig(t, `
+web:
+  flowRenderingSource: s3
+  flowRenderingDirectory: /tmp/definitions
+  flowRenderingS3:
+    storageId: p0
+    prefix: definitions
+`)
+	_, err := NewConfig(path)
+	require.ErrorContains(t, err, "mutually exclusive")
+
+	path = writeTestConfig(t, `
+web:
+  workQueuePermissionMode: trusted-header
+`)
+	_, err = NewConfig(path)
+	require.ErrorContains(t, err, "trustWorkQueuePermissionHeader=true")
+}
+
+func TestConfigRejectsReservedSuperVerseWorkflowNamespace(t *testing.T) {
+	path := writeTestConfig(t, `
+interpreter:
+  temporal:
+    namespace: _superverse
+`)
+	_, err := NewConfig(path)
+	require.ErrorContains(t, err, "reserved")
+}
+
 func TestRetryPolicyConfigUsesDurations(t *testing.T) {
 	path := writeTestConfig(t, `
 api:

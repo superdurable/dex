@@ -34,6 +34,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
@@ -126,6 +127,7 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 		panic("Dex Server config must not be nil")
 	}
 	serverApplication := &application{}
+	sharedS3Clients := make(map[string]*s3.Client)
 	if services.isWebEnabled {
 		connection, err := grpc.NewClient(
 			cfg.GetWebFlowServiceTargetWithDefault(),
@@ -138,12 +140,37 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 		if err != nil {
 			return nil, fmt.Errorf("create Dex Web FlowService client: %w", err)
 		}
+		flowRenderingSource := strings.TrimSpace(cfg.Web.FlowRenderingSource)
+		webConfig := &dexweb.Config{
+			BindAddress:                        cfg.Web.EffectiveBindAddress(),
+			Port:                               cfg.Web.EffectivePort(),
+			FlowRenderingSource:                flowRenderingSource,
+			FlowRenderingDirectory:             cfg.Web.FlowRenderingDirectory,
+			WorkQueuePermissionMode:            strings.TrimSpace(cfg.Web.WorkQueuePermissionMode),
+			IsWorkQueuePermissionHeaderTrusted: cfg.Web.IsWorkQueuePermissionHeaderTrusted,
+		}
+		if flowRenderingSource == dexweb.FlowRenderingSourceS3 {
+			storage, findErr := bootstrap.FindS3Storage(cfg, cfg.Web.FlowRenderingS3.StorageID)
+			if findErr != nil {
+				_ = connection.Close()
+				return nil, findErr
+			}
+			s3Client, clientErr := bootstrap.NewS3ClientForStorage(context.Background(), storage)
+			if clientErr != nil {
+				_ = connection.Close()
+				return nil, clientErr
+			}
+			objectStore, storeErr := dexweb.NewS3FlowDefinitionObjectStore(s3Client, storage.S3Bucket)
+			if storeErr != nil {
+				_ = connection.Close()
+				return nil, storeErr
+			}
+			sharedS3Clients[storage.StorageId] = s3Client
+			webConfig.FlowRenderingObjectStore = objectStore
+			webConfig.FlowRenderingPrefix = cfg.Web.FlowRenderingS3.Prefix
+		}
 		webServer, err := dexweb.NewServer(
-			&dexweb.Config{
-				BindAddress:            cfg.Web.EffectiveBindAddress(),
-				Port:                   cfg.Web.EffectivePort(),
-				FlowRenderingDirectory: cfg.Web.FlowRenderingDirectory,
-			},
+			webConfig,
 			dexpb.NewFlowServiceClient(connection),
 			assets.Files,
 		)
@@ -158,10 +185,13 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 		serverApplication.componentCount++
 	}
 	if services.isAPIEnabled || services.isInterpreterEnabled {
-		dexRuntime, err := bootstrap.New(cfg, &bootstrap.Options{Services: bootstrap.Services{
-			API:         services.isAPIEnabled,
-			Interpreter: services.isInterpreterEnabled,
-		}})
+		dexRuntime, err := bootstrap.New(cfg, &bootstrap.Options{
+			Services: bootstrap.Services{
+				API:         services.isAPIEnabled,
+				Interpreter: services.isInterpreterEnabled,
+			},
+			S3Clients: sharedS3Clients,
+		})
 		if err != nil {
 			return nil, errors.Join(err, serverApplication.closeWebConnection())
 		}

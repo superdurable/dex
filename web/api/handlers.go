@@ -478,6 +478,11 @@ func WriteError(response http.ResponseWriter, statusCode int, message string, gr
 	writeJSON(response, statusCode, errorResponse{Error: message, GRPCCode: grpcCode})
 }
 
+// WriteCodedError writes a stable application error code for browser recovery behavior.
+func WriteCodedError(response http.ResponseWriter, statusCode int, code string, message string) {
+	writeJSON(response, statusCode, errorResponse{Error: message, Code: code})
+}
+
 func writeJSON(response http.ResponseWriter, statusCode int, value interface{}) {
 	response.Header().Set("Content-Type", "application/json; charset=utf-8")
 	response.WriteHeader(statusCode)

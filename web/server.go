@@ -11,6 +11,8 @@ package web
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -25,6 +27,11 @@ import (
 
 const DefaultPort = 8802
 
+const (
+	FlowRenderingSourceDirectory = "directory"
+	FlowRenderingSourceS3        = "s3"
+)
+
 type Config struct {
 	// BindAddress defaults to 127.0.0.1 and controls the HTTP bind IP.
 	BindAddress string
@@ -32,6 +39,16 @@ type Config struct {
 	Port int
 	// FlowRenderingDirectory defaults empty and supplies Flow Definition Graph JSON files to Dex Web.
 	FlowRenderingDirectory string
+	// FlowRenderingSource defaults to directory and selects directory or s3.
+	FlowRenderingSource string
+	// FlowRenderingObjectStore is required by the s3 source and stays server-side.
+	FlowRenderingObjectStore FlowDefinitionObjectStore
+	// FlowRenderingPrefix is the immutable-bundle root used by the s3 source.
+	FlowRenderingPrefix string
+	// WorkQueuePermissionMode defaults to local-selector.
+	WorkQueuePermissionMode string
+	// IsWorkQueuePermissionHeaderTrusted confirms a trusted proxy strips and injects the permission header.
+	IsWorkQueuePermissionHeaderTrusted bool
 }
 
 type Server struct {
@@ -49,7 +66,10 @@ func NewServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS) (*Serv
 	if assets == nil {
 		panic("Web assets must not be nil")
 	}
-	flowDefinitions, err := loadFlowDefinitions(cfg.FlowRenderingDirectory)
+	if err := validatePermissionConfig(cfg); err != nil {
+		return nil, err
+	}
+	flowDefinitions, err := newFlowDefinitionProvider(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -64,14 +84,17 @@ func NewFlowRenderingServer(cfg *Config, graph []byte, assets fs.FS) (*Server, e
 	if assets == nil {
 		panic("Web assets must not be nil")
 	}
-	flowDefinitions, err := newFlowDefinitionHandler(graph)
+	if err := validatePermissionConfig(cfg); err != nil {
+		return nil, err
+	}
+	snapshot, err := snapshotFromGraph(graph)
 	if err != nil {
 		return nil, err
 	}
-	return newServer(cfg, nil, assets, flowDefinitions)
+	return newServer(cfg, nil, assets, staticFlowDefinitionProvider{snapshot: snapshot})
 }
 
-func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDefinitions *flowDefinitionHandler) (*Server, error) {
+func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDefinitions FlowDefinitionProvider) (*Server, error) {
 	assetRoot, err := fs.Sub(assets, "dist")
 	if err != nil {
 		panic(fmt.Sprintf("open embedded Web assets: %v", err))
@@ -79,10 +102,20 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 	mux := http.NewServeMux()
 	if client != nil {
 		api.RegisterHandlers(mux, client)
-		api.RegisterV2Handlers(mux, client, flowDefinitions.V2Definitions())
+		api.RegisterDynamicV2Handlers(mux, client, api.V2DefinitionLoader(func(ctx context.Context) (api.V2DefinitionSnapshot, error) {
+			snapshot, loadErr := flowDefinitions.Load(ctx)
+			if loadErr != nil {
+				return api.V2DefinitionSnapshot{}, loadErr
+			}
+			return api.V2DefinitionSnapshot{
+				Definitions: snapshot.V2Definitions,
+				Revision:    snapshot.DefinitionRevision,
+			}, nil
+		}), api.V2HandlerConfig{PermissionMode: effectivePermissionMode(cfg)})
 	}
-	mux.Handle("GET /api/flow-definitions", flowDefinitions)
-	mux.Handle("/", spaHandler(assetRoot))
+	mux.HandleFunc("GET /api/flow-definitions", serveFlowDefinitions(flowDefinitions))
+	mux.HandleFunc("GET /readyz", readinessHandler(client, flowDefinitions))
+	mux.Handle("/", spaHandler(assetRoot, effectivePermissionMode(cfg)))
 	return &Server{
 		cfg: cfg,
 		httpServer: &http.Server{
@@ -121,12 +154,13 @@ func (s *Server) Handler() http.Handler {
 	return s.httpServer.Handler
 }
 
-func spaHandler(assets fs.FS) http.Handler {
+func spaHandler(assets fs.FS, permissionMode string) http.Handler {
 	files := http.FileServer(http.FS(assets))
 	index, err := fs.ReadFile(assets, "index.html")
 	if err != nil {
 		panic(fmt.Sprintf("read embedded Web index: %v", err))
 	}
+	index = injectWebConfig(index, permissionMode)
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
 			response.WriteHeader(http.StatusMethodNotAllowed)
@@ -152,6 +186,126 @@ func spaHandler(assets fs.FS) http.Handler {
 		}
 		serveIndex(response, request, index)
 	})
+}
+
+type staticFlowDefinitionProvider struct {
+	snapshot *FlowDefinitionSnapshot
+}
+
+func (p staticFlowDefinitionProvider) Load(context.Context) (*FlowDefinitionSnapshot, error) {
+	return p.snapshot, nil
+}
+
+func newFlowDefinitionProvider(cfg *Config) (FlowDefinitionProvider, error) {
+	source := strings.TrimSpace(cfg.FlowRenderingSource)
+	if source == "" {
+		source = FlowRenderingSourceDirectory
+	}
+	switch source {
+	case FlowRenderingSourceDirectory:
+		if cfg.FlowRenderingObjectStore != nil || strings.TrimSpace(cfg.FlowRenderingPrefix) != "" {
+			return nil, fmt.Errorf("directory and S3 Flow Definition sources are mutually exclusive")
+		}
+		return NewDirectoryFlowDefinitionProvider(cfg.FlowRenderingDirectory)
+	case FlowRenderingSourceS3:
+		if strings.TrimSpace(cfg.FlowRenderingDirectory) != "" {
+			return nil, fmt.Errorf("directory and S3 Flow Definition sources are mutually exclusive")
+		}
+		return NewS3FlowDefinitionProvider(cfg.FlowRenderingObjectStore, cfg.FlowRenderingPrefix)
+	default:
+		return nil, fmt.Errorf("unsupported Flow Definition source %q", source)
+	}
+}
+
+func effectivePermissionMode(cfg *Config) string {
+	if cfg.WorkQueuePermissionMode == "" {
+		return api.V2PermissionModeLocalSelector
+	}
+	return cfg.WorkQueuePermissionMode
+}
+
+func validatePermissionConfig(cfg *Config) error {
+	mode := effectivePermissionMode(cfg)
+	if mode != api.V2PermissionModeLocalSelector && mode != api.V2PermissionModeTrustedHeader {
+		return fmt.Errorf("unsupported Work Queue permission mode %q", mode)
+	}
+	if mode == api.V2PermissionModeTrustedHeader && !cfg.IsWorkQueuePermissionHeaderTrusted {
+		return fmt.Errorf("trusted-header requires an explicitly trusted proxy header boundary")
+	}
+	return nil
+}
+
+func serveFlowDefinitions(provider FlowDefinitionProvider) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		snapshot, err := provider.Load(request.Context())
+		if err != nil {
+			writeFlowDefinitionSourceError(response, err)
+			return
+		}
+		setSnapshotETag(response, snapshot.DefinitionRevision)
+		response.Header().Set("Content-Type", "application/json; charset=utf-8")
+		response.WriteHeader(http.StatusOK)
+		_, _ = response.Write(snapshot.Response)
+	}
+}
+
+func readinessHandler(client dexpb.FlowServiceClient, provider FlowDefinitionProvider) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		snapshot, err := provider.Load(request.Context())
+		if err != nil {
+			writeFlowDefinitionSourceError(response, err)
+			return
+		}
+		if client != nil {
+			if _, err := client.SearchFlows(request.Context(), &dexpb.SearchFlowsRequest{PageSize: 1}); err != nil {
+				api.WriteCodedError(response, http.StatusServiceUnavailable, "FLOW_SERVICE_UNAVAILABLE", "Dex FlowService is unavailable")
+				return
+			}
+		}
+		setSnapshotETag(response, snapshot.DefinitionRevision)
+		writeWebJSON(response, http.StatusOK, map[string]interface{}{
+			"status":             "ready",
+			"definitionRevision": snapshot.DefinitionRevision,
+			"source":             snapshot.Source,
+			"definitionCount":    snapshot.DefinitionCount,
+		})
+	}
+}
+
+func writeFlowDefinitionSourceError(response http.ResponseWriter, err error) {
+	code := flowDefinitionSourceUnavailable
+	message := "Flow Definition source is unavailable"
+	var coded interface{ DefinitionErrorCode() string }
+	if errors.As(err, &coded) {
+		code = coded.DefinitionErrorCode()
+		if code == flowDefinitionSourceInvalid {
+			message = "Flow Definition source is invalid"
+		}
+	}
+	api.WriteCodedError(response, http.StatusServiceUnavailable, code, message)
+}
+
+func setSnapshotETag(response http.ResponseWriter, revision string) {
+	if revision != "" {
+		response.Header().Set("ETag", fmt.Sprintf("%q", revision))
+	}
+}
+
+func writeWebJSON(response http.ResponseWriter, statusCode int, value interface{}) {
+	response.Header().Set("Content-Type", "application/json; charset=utf-8")
+	response.WriteHeader(statusCode)
+	if err := json.NewEncoder(response).Encode(value); err != nil {
+		panic(fmt.Sprintf("encode HTTP response: %v", err))
+	}
+}
+
+func injectWebConfig(index []byte, permissionMode string) []byte {
+	configJSON, err := json.Marshal(map[string]string{"workQueuePermissionMode": permissionMode})
+	if err != nil {
+		panic(fmt.Sprintf("encode Dex Web bootstrap config: %v", err))
+	}
+	script := []byte("<script>window.__DEX_WEB_CONFIG__=" + string(configJSON) + ";</script>")
+	return bytes.Replace(index, []byte("</head>"), append(script, []byte("</head>")...), 1)
 }
 
 func serveIndex(response http.ResponseWriter, request *http.Request, index []byte) {

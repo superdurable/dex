@@ -41,6 +41,7 @@ export function RunDetailDrawer({
   onStranded,
   onStopped,
   onClose,
+  workQueuePermissions,
 }: {
   flowType: string;
   /** Empty when nothing is selected: the drawer then explains the Step alone. */
@@ -55,6 +56,7 @@ export function RunDetailDrawer({
   onStranded?: (flowID: string) => void;
   onStopped: () => void;
   onClose: () => void;
+  workQueuePermissions?: readonly string[];
 }) {
   const hasRun = flowId !== '';
   return (
@@ -103,6 +105,7 @@ export function RunDetailDrawer({
           if (actionable.filter((step) => step.state !== 'done').length <= 1) onClose();
         }}
           onStranded={onStranded}
+          workQueuePermissions={workQueuePermissions}
         />
       )}
       {stepContext !== null && <StepContextBlock view={stepContext} />}

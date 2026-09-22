@@ -285,6 +285,28 @@ func TestBlobStoreIntegration(t *testing.T) {
 		assert.Equal(t, int64(0), count)
 	})
 
+	t.Run("CleanupPreservesReservedFlowDefinitions", func(t *testing.T) {
+		implementation := blobStore.(*blobStoreImpl)
+		reservedKey := "_superverse/dex-web/flow-definitions/releases/test/flow.json"
+		require.NoError(t, putObject(ctx, implementation.s3Client, testBucket, reservedKey, []byte("definition")))
+		t.Cleanup(func() {
+			_, deleteErr := implementation.s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+				Bucket: aws.String(testBucket), Key: aws.String(reservedKey),
+			})
+			require.NoError(t, deleteErr)
+		})
+
+		flowID := "prefix-isolation-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+		_, _, err := blobStore.WriteObject(ctx, flowID, "write", []byte(testData))
+		require.NoError(t, err)
+		workflowPath := fmt.Sprintf("%s$%s", formatBlobStorageDate(time.Now()), encodeFlowIDPathPart(flowID))
+		require.NoError(t, blobStore.DeleteWorkflowObjects(ctx, testStorageId, workflowPath))
+
+		data, err := getObject(ctx, implementation.s3Client, testBucket, reservedKey)
+		require.NoError(t, err)
+		require.Equal(t, []byte("definition"), data)
+	})
+
 	t.Run("DeleteWorkflowObjectsMultiple", func(t *testing.T) {
 		// Create a workflow with more objects to test pagination handling
 		multiDeleteWorkflowId := "multi-delete-workflow-" + strconv.FormatInt(time.Now().UnixNano(), 10)

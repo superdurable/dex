@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
@@ -52,6 +53,8 @@ type Options struct {
 	APIListener net.Listener
 	// ShutdownTimeout defaults to 10 seconds for graceful API shutdown.
 	ShutdownTimeout time.Duration
+	// S3Clients reuses already constructed clients by blob storage ID. Default empty constructs them lazily.
+	S3Clients map[string]*s3.Client
 }
 
 type Runtime struct {

@@ -21,6 +21,8 @@ import { WORK_QUEUE_COPY } from '../work-queue/copy';
 import { absorb, classifyReadFailure, nothingHeld, readFailureReason } from '../work-queue/liveness';
 import { RUN_COPY } from '../run/copy';
 import { leadFields } from './uiSlots';
+import { useWebCatalog } from '../WebCatalogProvider';
+import { definitionRevisionHeaders } from '../webConfig';
 
 export function SelectedRunPanel({
   flowType,
@@ -33,6 +35,7 @@ export function SelectedRunPanel({
   showHeading = true,
   onActed,
   onStranded,
+  workQueuePermissions = [],
 }: {
   flowType: string;
   flowId: string;
@@ -53,7 +56,9 @@ export function SelectedRunPanel({
   onActed?: () => void;
   /** Reported up so the list can mark the row; a search cannot discover this. */
   onStranded?: (flowID: string) => void;
+  workQueuePermissions?: readonly string[];
 }) {
+  const { catalog, definitionUpdateKey, handleDefinitionError, permissionMode } = useWebCatalog();
   const [held, setHeld] = useState(() => nothingHeld<V2Display>());
   /** A write that failed is not a stale read, so it does not touch held. */
   const [actionError, setActionError] = useState('');
@@ -66,19 +71,29 @@ export function SelectedRunPanel({
   const loadDisplay = useCallback(async () => {
     try {
       const query = new URLSearchParams({ flowType, flowId });
-      const response = await fetch(`/api/v2/display?${query}`);
+      const response = await fetch(`/api/v2/display?${query}`, {
+        headers: definitionRevisionHeaders(catalog?.definitionRevision ?? ''),
+      });
       const display = await readResponseJSON<V2Display>(response);
       setHeld((prior) => absorb(prior, { state: 'ok', value: display }));
     } catch (loadError) {
+      if (handleDefinitionError(loadError)) {
+        setHeld(nothingHeld<V2Display>());
+        return;
+      }
       // Only knowable once somebody opens the run: a search says nothing about its worker.
       const outcome = classifyReadFailure<V2Display>(loadError, flowStatusCode);
       if (outcome.state === 'stranded') onStranded?.(flowId);
       setHeld((prior) => absorb(prior, outcome));
     }
-  }, [flowId, flowStatusCode, flowType, onStranded]);
+  }, [catalog?.definitionRevision, flowId, flowStatusCode, flowType, handleDefinitionError, onStranded]);
 
   // A new run must not inherit the previous run's values while its own read is in flight.
-  useEffect(() => { setHeld(nothingHeld<V2Display>()); }, [flowId, flowType]);
+  useEffect(() => {
+    setHeld(nothingHeld<V2Display>());
+    setActionValues({});
+    setEditingKey('');
+  }, [definitionUpdateKey, flowId, flowType]);
 
   useEffect(() => { void loadDisplay(); }, [loadDisplay, reloadKey]);
 
@@ -91,7 +106,11 @@ export function SelectedRunPanel({
     setFieldErrors((current) => ({ ...current, [attributeKey]: '' }));
     try {
       const response = await fetch('/api/v2/display', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...definitionRevisionHeaders(catalog?.definitionRevision ?? ''),
+        },
         body: JSON.stringify({
           flowType, flowId, attributeKey,
           value: parseTypedValue(editValue, valueType),
@@ -101,6 +120,7 @@ export function SelectedRunPanel({
       setEditingKey('');
       await loadDisplay();
     } catch (saveError) {
+      if (handleDefinitionError(saveError)) return;
       setFieldErrors((current) => ({
         ...current,
         [attributeKey]: saveError instanceof Error ? saveError.message : 'Edit failed',
@@ -116,9 +136,14 @@ export function SelectedRunPanel({
     try {
       const input = v2ActionUserInput(action, actionValues[action.rpcName] ?? {});
       const response = await fetch('/api/v2/actions', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...definitionRevisionHeaders(catalog?.definitionRevision ?? ''),
+        },
         body: JSON.stringify({
           flowType, flowId, rpcName: action.rpcName,
+          workQueuePermissions,
           input, attributeSnapshot: result?.attributeSnapshot ?? {},
         }),
       });
@@ -126,6 +151,7 @@ export function SelectedRunPanel({
       await loadDisplay();
       onActed?.();
     } catch (actionError) {
+      if (handleDefinitionError(actionError)) return;
       setActionError(readFailureReason(actionError));
     } finally {
       setBusyKey('');
@@ -202,7 +228,9 @@ export function SelectedRunPanel({
         const actionsBlock = (
           <div className="sc-block">
             <div className="sc-blockhead">{RUN_COPY.actions}</div>
-            {visibleV2Actions(definition.actions, result.eligibleActions).map((action) => {
+            {visibleV2Actions(definition.actions, result.eligibleActions)
+              .filter((action) => permissionMode === 'trusted-header' || workQueuePermissions.includes(action.requiredPermission))
+              .map((action) => {
               const userFields = v2ActionUserFields(action);
               return (
                 <form

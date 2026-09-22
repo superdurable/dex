@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import type { FlowSummary } from '@/lib/types';
 import { v2HomePath, v2RunPath } from './contract';
@@ -30,6 +30,8 @@ import { RunSearch } from './workspace/RunSearch';
 import { useFlowSearch } from './workspace/useFlowSearch';
 import { useRunQuery } from './workspace/useRunQuery';
 import { useStrandedRuns } from './workspace/useStrandedRuns';
+import { permissionActionLabels, permissionsOf } from './workspace/permissions';
+import { WORK_QUEUE_COPY } from './work-queue/copy';
 
 export function HomePage() {
   const { ready, canUseV2, error } = useWebCatalog();
@@ -47,10 +49,20 @@ export function HomePage() {
 export function RunWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
-  const { ready, canUseV2, catalog, error } = useWebCatalog();
+  const { ready, canUseV2, catalog, error, definitionUpdateKey, permissionMode } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   const runQuery = useRunQuery(entry?.definition);
-  const search = useFlowSearch(flowType || undefined, entry?.definition, runQuery.appliedFilters);
+  const [permission, setPermission] = useState('');
+  const workQueuePermissions = useMemo(
+    () => permission === '' ? [] : [permission],
+    [permission],
+  );
+  const search = useFlowSearch(
+    flowType || undefined,
+    entry?.definition,
+    runQuery.appliedFilters,
+    workQueuePermissions,
+  );
   const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
   const [band, setBand] = useState<StepBand | null>(null);
   const [stepView, setStepView] = useState<StepContextView | null>(null);
@@ -71,6 +83,9 @@ export function RunWorkspace() {
 
   // A newly chosen run always opens its drawer, even if the last one was dismissed.
   useEffect(() => { setDrawerOpen(true); }, [flowId]);
+  useEffect(() => {
+    if (definitionUpdateKey > 0) navigate(v2RunPath(flowType || undefined), { replace: true });
+  }, [definitionUpdateKey, flowType, navigate]);
 
   if (!ready) return <div className="page-loading">Loading Dex Web…</div>;
   if (!canUseV2) return <Navigate to="/v1/flows" replace />;
@@ -104,6 +119,28 @@ export function RunWorkspace() {
           flowTypes={catalog.flows}
           heading={RUN_COPY.runsHeading}
           onExpand={listPane.expand}
+          permissionControl={permissionMode === 'local-selector' && permissionsOf(entry.definition).length > 0 ? (
+            <label className="rsw-permission">
+              <span className="rsw-zonehead">{WORK_QUEUE_COPY.permissionLabel}</span>
+              <select
+                aria-label={WORK_QUEUE_COPY.permissionLabel}
+                value={permission}
+                onChange={(event) => setPermission(event.target.value)}
+              >
+                <option value="">{WORK_QUEUE_COPY.anyPermission}</option>
+                {permissionsOf(entry.definition).map((candidate) => (
+                  <option key={candidate} value={candidate}>{candidate}</option>
+                ))}
+              </select>
+              {permission !== '' && (
+                <small className="rsw-permission-note">
+                  {WORK_QUEUE_COPY.permissionActions(
+                    permissionActionLabels(entry.definition, permission),
+                  )}
+                </small>
+              )}
+            </label>
+          ) : undefined}
           scope={(
             <RunSearch
               busy={search.loading}
@@ -187,6 +224,7 @@ export function RunWorkspace() {
                 }}
                 onStopped={search.runSearch}
                 onStranded={rememberStranded}
+                workQueuePermissions={workQueuePermissions}
               />
             )}
           </>

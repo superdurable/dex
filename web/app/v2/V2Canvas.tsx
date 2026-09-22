@@ -28,6 +28,7 @@ import {
   type RunOverlayBundle,
 } from './canvas/overlayFromHistory';
 import { DetailPanel } from './canvas/panel/DetailPanel';
+import { useWebCatalog } from './WebCatalogProvider';
 import { buildPanel, type SectionId } from './canvas/panel/panelModel';
 import { ArrowDefs } from './canvas/render/ArrowDefs';
 import { Stage } from './canvas/render/Stage';
@@ -78,6 +79,7 @@ export function V2Canvas({
   /** Fired on every run poll, so a host can refresh on the same beat. */
   onTick?: () => void;
 }) {
+  const { definitions } = useWebCatalog();
   const canvasRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<CanvasViewportHandle | null>(null);
   const [catalog, setCatalog] = useState<FlowDefinitionCatalog | null>(null);
@@ -107,17 +109,9 @@ export function V2Canvas({
   const blobCache = useRef(new Map<string, unknown>());
 
   useEffect(() => {
-    const controller = new AbortController();
-    void fetch('/api/flow-definitions', { signal: controller.signal })
-      .then((response) => readResponseJSON<FlowDefinitionCatalog>(response))
-      .then(setCatalog)
-      .catch((loadError: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(loadError instanceof Error ? loadError.message : 'Flow definition failed to load');
-        }
-      });
-    return () => controller.abort();
-  }, []);
+    setCatalog(definitions);
+    setError('');
+  }, [definitions]);
 
   useEffect(() => {
     setCurrentBundle(null);

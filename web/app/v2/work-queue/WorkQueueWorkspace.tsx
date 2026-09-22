@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
   LIST_WIDTH_DEFAULT,
@@ -39,7 +39,7 @@ import { openFlowStatusLabel } from './liveness';
 export function WorkQueueWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
-  const { ready, canUseV2, catalog, error } = useWebCatalog();
+  const { ready, canUseV2, catalog, error, definitionUpdateKey, permissionMode } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   // A work queue opens on active work; the control widens it.
   const runQuery = useRunQuery(entry?.definition, { ...EMPTY_RUN_QUERY, status: openFlowStatusLabel() });
@@ -58,6 +58,10 @@ export function WorkQueueWorkspace() {
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const listPane = useCollapsibleColumn(LIST_WIDTH_KEY, LIST_WIDTH_DEFAULT);
+
+  useEffect(() => {
+    if (definitionUpdateKey > 0) navigate(v2WorkQueuePath(flowType || undefined), { replace: true });
+  }, [definitionUpdateKey, flowType, navigate]);
 
   if (!ready) return <div className="page-loading">Loading Dex Web…</div>;
   if (!canUseV2) return <Navigate to="/v1/flows" replace />;
@@ -86,7 +90,7 @@ export function WorkQueueWorkspace() {
           heading={WORK_QUEUE_COPY.appName}
           headerNote={WORK_QUEUE_COPY.liveNote}
           onExpand={listPane.expand}
-          permissionControl={permissionsOf(entry.definition).length > 0 ? (
+          permissionControl={permissionMode === 'local-selector' && permissionsOf(entry.definition).length > 0 ? (
             <label className="rsw-permission">
               <span className="rsw-zonehead">{WORK_QUEUE_COPY.permissionLabel}</span>
               <select
@@ -145,6 +149,7 @@ export function WorkQueueWorkspace() {
               flowType={entry.flowType}
               order="evidence-first"
               onStranded={rememberStranded}
+              workQueuePermissions={workQueuePermissions}
               footer={(
                 <>
                   <Link className="v2-seemore" to={v2RunPath(entry.flowType, flowId)}>

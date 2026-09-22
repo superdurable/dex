@@ -164,6 +164,7 @@ export interface V2CatalogEntry {
 export interface V2Catalog {
   enabled: boolean;
   flows: V2CatalogEntry[];
+  definitionRevision: string;
 }
 
 export interface V2Flow {
@@ -197,5 +198,8 @@ export interface V2Display {
 export interface FlowDefinitionCatalog {
   configured: boolean;
   directory?: string;
+  source?: string;
+  definitionRevision?: string;
+  definitionCount: number;
   definitions: FlowDefinitionEntry[];
 }

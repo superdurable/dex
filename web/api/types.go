@@ -10,6 +10,7 @@ package api
 
 type errorResponse struct {
 	Error    string `json:"error"`
+	Code     string `json:"code,omitempty"`
 	GRPCCode *int32 `json:"grpcCode,omitempty"`
 }
 

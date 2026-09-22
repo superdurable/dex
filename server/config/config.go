@@ -327,8 +327,23 @@ type (
 		Port int `yaml:"port"`
 		// FlowServiceTarget is the plaintext FlowService gRPC target. Default localhost:<api.port>. Immutable after startup.
 		FlowServiceTarget string `yaml:"flowServiceTarget"`
-		// FlowRenderingDirectory supplies Flow Definition Graph JSON files. Default empty disables static definitions. Immutable after startup.
+		// FlowRenderingSource selects directory or s3. Default directory. Immutable after startup.
+		FlowRenderingSource string `yaml:"flowRenderingSource"`
+		// FlowRenderingDirectory supplies Flow Definition Graph JSON files. Default empty disables definitions. Immutable after startup.
 		FlowRenderingDirectory string `yaml:"flowRenderingDirectory"`
+		// FlowRenderingS3 selects an existing S3 blob storage and immutable-bundle root. Nil unless source is s3.
+		FlowRenderingS3 *WebFlowRenderingS3Config `yaml:"flowRenderingS3"`
+		// WorkQueuePermissionMode selects local-selector or trusted-header. Default local-selector. Immutable after startup.
+		WorkQueuePermissionMode string `yaml:"workQueuePermissionMode"`
+		// IsWorkQueuePermissionHeaderTrusted confirms a trusted proxy strips and injects the permission header. Default false.
+		IsWorkQueuePermissionHeaderTrusted bool `yaml:"trustWorkQueuePermissionHeader"`
+	}
+
+	WebFlowRenderingS3Config struct {
+		// StorageID references blobStore.supportedStorages. Required for the s3 source. Immutable after startup.
+		StorageID string `yaml:"storageId"`
+		// Prefix is the fixed object root containing active-manifest and releases. Required for the s3 source.
+		Prefix string `yaml:"prefix"`
 	}
 
 	WorkerConfig struct {
@@ -473,6 +488,16 @@ func NewConfig(configPath string) (*Config, error) {
 	if err := d.Decode(&cfg); err != nil {
 		return nil, err
 	}
+	applyWebEnvironment(cfg)
+	if err := cfg.validateWeb(); err != nil {
+		return nil, err
+	}
+	if cfg.Interpreter.Temporal != nil && cfg.Interpreter.Temporal.Namespace == "_superverse" {
+		return nil, fmt.Errorf("Temporal namespace _superverse is reserved for hosted objects")
+	}
+	if cfg.Interpreter.Cadence != nil && cfg.Interpreter.Cadence.Domain == "_superverse" {
+		return nil, fmt.Errorf("Cadence domain _superverse is reserved for hosted objects")
+	}
 	if err := cfg.validateRetryPolicies(); err != nil {
 		return nil, err
 	}
@@ -481,6 +506,68 @@ func NewConfig(configPath string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func applyWebEnvironment(cfg *Config) {
+	if value, ok := os.LookupEnv("DEX_WEB_FLOW_RENDERING_SOURCE"); ok {
+		cfg.Web.FlowRenderingSource = value
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_FLOW_RENDERING_DIRECTORY"); ok {
+		cfg.Web.FlowRenderingDirectory = value
+	}
+	storageID, hasStorageID := os.LookupEnv("DEX_WEB_FLOW_RENDERING_STORAGE_ID")
+	prefix, hasPrefix := os.LookupEnv("DEX_WEB_FLOW_RENDERING_PREFIX")
+	if hasStorageID || hasPrefix {
+		if cfg.Web.FlowRenderingS3 == nil {
+			cfg.Web.FlowRenderingS3 = &WebFlowRenderingS3Config{}
+		}
+		if hasStorageID {
+			cfg.Web.FlowRenderingS3.StorageID = storageID
+		}
+		if hasPrefix {
+			cfg.Web.FlowRenderingS3.Prefix = prefix
+		}
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_WORK_QUEUE_PERMISSION_MODE"); ok {
+		cfg.Web.WorkQueuePermissionMode = value
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_TRUST_WORK_QUEUE_PERMISSION_HEADER"); ok {
+		cfg.Web.IsWorkQueuePermissionHeaderTrusted = strings.EqualFold(strings.TrimSpace(value), "true")
+	}
+}
+
+func (c Config) validateWeb() error {
+	source := strings.TrimSpace(c.Web.FlowRenderingSource)
+	if source == "" {
+		source = "directory"
+	}
+	switch source {
+	case "directory":
+		if c.Web.FlowRenderingS3 != nil {
+			return fmt.Errorf("web directory and S3 Flow Definition sources are mutually exclusive")
+		}
+	case "s3":
+		if strings.TrimSpace(c.Web.FlowRenderingDirectory) != "" {
+			return fmt.Errorf("web directory and S3 Flow Definition sources are mutually exclusive")
+		}
+		if c.Web.FlowRenderingS3 == nil || strings.TrimSpace(c.Web.FlowRenderingS3.StorageID) == "" ||
+			strings.TrimSpace(c.Web.FlowRenderingS3.Prefix) == "" {
+			return fmt.Errorf("web S3 Flow Definition source requires storageId and prefix")
+		}
+	default:
+		return fmt.Errorf("web.flowRenderingSource must be directory or s3")
+	}
+	mode := strings.TrimSpace(c.Web.WorkQueuePermissionMode)
+	if mode == "" {
+		mode = "local-selector"
+	}
+	if mode != "local-selector" && mode != "trusted-header" {
+		return fmt.Errorf("web.workQueuePermissionMode must be local-selector or trusted-header")
+	}
+	if mode == "trusted-header" && !c.Web.IsWorkQueuePermissionHeaderTrusted {
+		return fmt.Errorf("web.trusted-header requires trustWorkQueuePermissionHeader=true")
+	}
+	return nil
 }
 
 func (c Config) validateRetryPolicies() error {

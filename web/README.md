@@ -36,17 +36,18 @@ dexcli dev
 Open [http://127.0.0.1:8802](http://127.0.0.1:8802). No Node.js process runs in
 this mode.
 
-To load static Flow Definition Graph JSON files into the independent **Flow
-Rendering** page, provide a directory at startup:
+To load Flow Definition Graph JSON files into the independent **Flow Rendering**
+page, provide a directory at startup:
 
 ```bash
 dexcli dev --flow-rendering-dir ./build/flow-definitions
 ```
 
-Dex scans JSON files recursively and takes a snapshot at startup. Generate them
-with `dexcli visualize SOURCE --json --out ./build/flow-definitions/name` and restart
-Dex after changing the files. Invalid JSON, unsupported schema versions, or a
-non-directory path stop startup with an error.
+Without an `active-manifest`, Dex recursively scans JSON files on every
+definition-dependent request. Generate them with `dexcli visualize SOURCE
+--json --out ./build/flow-definitions/name`; changes become visible without a
+Dex Web restart. Invalid JSON, unsupported schema versions, and source read
+failures return a typed 503 and make `/readyz` fail.
 
 Starting Dex with `--flow-rendering-dir` opens **v2** at `/v2`. The top-right
 Version menu returns to **v1**. Without that directory, Dex Web opens **v1** at
@@ -54,10 +55,11 @@ Version menu returns to **v1**. Without that directory, Dex Web opens **v1** at
 that type's Flow Definition Graph on the right. Summary, Display, edits, and
 Actions target the current run without accepting a Run ID. Version 1 and
 Version 2 files can coexist. Duplicate valid Version 2 definitions for one Flow
-type stop startup. Invalid analyzer output remains visible on **v1** Flow
+type make the definition source invalid. Invalid analyzer output remains visible on **v1** Flow
 Rendering but does not appear as a **v2** Flow type.
 
-The v2 Work Queue is available at `/v2/work-queue`. Its **Working as** control
+The v2 Work Queue is available at `/v2/work-queue`. In the default
+`local-selector` mode, its **Working as** control
 selects one Action permission and filters on the Server-maintained
 `DexWorkQueuePermissions` Search Attribute. The Worker submits the complete
 Action permission mapping only when an invocation writes an Action condition
@@ -66,9 +68,81 @@ those sources. The Server overlays the writes on authoritative Attribute state
 and atomically replaces the projection when its value changes. `POST
 /api/v2/search` also accepts several `workQueuePermissions`; they are matched
 with OR, then combined with the Flow type and other filters using AND. This
-selector is not authentication or authorization. The embedding application
-remains responsible for mapping authenticated user roles to the permissions it
-submits.
+selector is a local development boundary. In hosted deployments,
+`trusted-header` hides the selector, ignores request-body permissions, and
+authorizes Search and Actions only from
+`X-Dex-Work-Queue-Permissions`. A trusted reverse proxy must strip any
+client-supplied value before injecting its own. Port 8802 must not be reachable
+around that proxy. Set `trustWorkQueuePermissionHeader: true` to acknowledge
+that boundary; Dex otherwise refuses the configuration.
+Dex does not expose an `/api/v2/access` endpoint; hosted identity and role
+resolution stay in the reverse proxy and hosting control plane.
+
+## Dynamic definition bundles
+
+Directory and S3 sources support atomic bundles:
+
+```text
+<root>/
+  active-manifest
+  releases/<release-id>/**/*.json
+```
+
+`active-manifest` uses this strict schema:
+
+```json
+{
+  "schemaVersion": "1.0",
+  "releaseId": "550e8400-e29b-41d4-a716-446655440000",
+  "bundlePrefix": "_superverse/dex-web/flow-definitions/releases/550e8400-e29b-41d4-a716-446655440000/",
+  "bundleDigest": "sha256:<64 lowercase hex characters>",
+  "definitionCount": 2
+}
+```
+
+For a directory source, `bundlePrefix` is
+`releases/<release-id>/`. For S3 it includes the configured root prefix as in
+the example. Release directories are immutable: upload and verify every JSON
+object before replacing `active-manifest`. Dex validates the UUID, exact
+prefix, file count, every FDG, and the digest before installing a snapshot.
+
+The digest input is the JSON files sorted by slash-separated relative path.
+Each path and exact payload is framed as an unsigned 64-bit big-endian byte
+length followed by those bytes; SHA-256 is computed over the concatenated
+frames and encoded as lowercase `sha256:<hex>`.
+
+An S3 source reuses one existing `blobStore.supportedStorages` entry:
+
+```yaml
+web:
+  flowRenderingSource: s3
+  flowRenderingS3:
+    storageId: p0
+    prefix: _superverse/dex-web/flow-definitions
+  workQueuePermissionMode: trusted-header
+  trustWorkQueuePermissionHeader: true
+```
+
+It conditionally reads the manifest by ETag on every definition-dependent
+request and reuses only an unchanged, already validated snapshot. A changed,
+incomplete, or invalid release returns 503 instead of serving the previous
+catalog as current. Environment variables override YAML:
+
+```text
+DEX_WEB_FLOW_RENDERING_SOURCE
+DEX_WEB_FLOW_RENDERING_DIRECTORY
+DEX_WEB_FLOW_RENDERING_STORAGE_ID
+DEX_WEB_FLOW_RENDERING_PREFIX
+DEX_WEB_WORK_QUEUE_PERMISSION_MODE
+DEX_WEB_TRUST_WORK_QUEUE_PERMISSION_HEADER
+```
+
+`GET /api/flow-definitions` and `GET /api/v2/catalog` return the active revision
+as `ETag`; the v2 catalog also returns `definitionRevision`. The browser sends
+that revision as `X-Dex-Flow-Definition-Revision` for Search, Display, edits,
+and Actions. A stale request receives `409 FLOW_DEFINITION_CHANGED`; the UI
+reloads the catalog, clears stale operation state, and requires Action
+confirmation again.
 
 ## Run through the Dex Server image
 
@@ -84,8 +158,9 @@ docker run IMAGE --services web
 
 Set `web.flowServiceTarget` in the mounted server YAML to the API service
 address. Web starts even when that upstream is unavailable. `/healthz` reports
-the Web process itself; `/api/*` returns an upstream error until FlowService is
-available.
+process liveness. `/readyz` validates the current definition snapshot and a
+FlowService search, returning `definitionRevision`, source, and definition
+count; `/api/*` returns an upstream error until FlowService is available.
 
 To populate Web with a 90-execution Flow containing serial, fan-out, and fan-in
 sections, run the [Large Step Graph demo](./demo/large-step-graph).
@@ -141,7 +216,7 @@ v1 pages live under `/v1/flows` and `/v1/rendering`. The Flows page provides Bas
 saved queries, configurable columns, Indexed Attributes, and timezone
 preferences.
 
-The Flow Rendering page displays source definition JSON loaded at startup. Its
+The Flow Rendering page displays the currently active source definition JSON. Its
 legend independently filters control flow, WaitFor, RPCs, resources, SubFlows,
 and diagnostics. Control flow, WaitFor, RPCs, Channels, Attributes, SubFlows,
 and diagnostics start visible. Streams start hidden. Flow timeout handlers are

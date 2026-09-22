@@ -71,6 +71,16 @@ describe('readResponseJSON', () => {
     expect(dexFailure.httpStatus).toBe(409);
   });
 
+	it('carries the definition recovery code', async () => {
+		const response = jsonResponse({
+			error: 'Flow Definition updated',
+			code: 'FLOW_DEFINITION_CHANGED',
+		}, 409);
+		const failure = (await readResponseJSON(response).catch((error: unknown) => error)) as DexAPIError;
+		expect(failure.code).toBe('FLOW_DEFINITION_CHANGED');
+		expect(failure.httpStatus).toBe(409);
+	});
+
   it('leaves the gRPC code undefined rather than zero when the body omits it', async () => {
     const response = jsonResponse({ error: 'Flow not found' }, 404);
     const failure = (await readResponseJSON(response).catch((error: unknown) => error)) as DexAPIError;
