@@ -57,7 +57,7 @@ type submitStep struct {
 	parentFlow *AdvancedShortLiveParentFlow
 }
 
-func (submitStep) GetStepType() string { return "SubmitStep" }
+func (submitStep) GetStepType() string { return "Submit" }
 
 func (step submitStep) Execute(_ dex.Context, input SubmitRequestInput) (*dex.StepDecision, error) {
 	if len(input.ParentIDs) == 0 {

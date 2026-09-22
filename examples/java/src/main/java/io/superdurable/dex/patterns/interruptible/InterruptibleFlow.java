@@ -39,8 +39,8 @@ public class InterruptibleFlow implements Flow<Void> {
             Attribute.define(DA_INTERRUPT_SIGNAL, String.class);
 
     private final Init init = new Init();
-    private final WorkAStep workAStep = new WorkAStep();
-    private final WorkBStep workBStep = new WorkBStep();
+    private final WorkA workAStep = new WorkA();
+    private final WorkB workBStep = new WorkB();
 
     @Override
     public StepList<Void> getSteps() {
@@ -67,12 +67,12 @@ public class InterruptibleFlow implements Flow<Void> {
         public StepDecision execute(final Context context, final Void unused) {
             final WorkJobParametersInput input = new WorkJobParametersInput(15, 1);
             return StepDecision.goToMany(
-                    StepMovement.of(WorkAStep.class, input),
-                    StepMovement.of(WorkBStep.class, input));
+                    StepMovement.of(WorkA.class, input),
+                    StepMovement.of(WorkB.class, input));
         }
     }
 
-    final class WorkAStep implements Step<WorkJobParametersInput> {
+    final class WorkA implements Step<WorkJobParametersInput> {
         @Override
         public Class<WorkJobParametersInput> getInputType() {
             return WorkJobParametersInput.class;
@@ -94,7 +94,7 @@ public class InterruptibleFlow implements Flow<Void> {
             }
 
             if (input.progress > input.jobUpperBound) {
-                System.out.println("WorkAStep completed");
+                System.out.println("WorkA completed");
                 return StepDecision.gracefulComplete();
             }
             System.out.printf(
@@ -105,11 +105,11 @@ public class InterruptibleFlow implements Flow<Void> {
 
             final WorkJobParametersInput next =
                     new WorkJobParametersInput(input.jobUpperBound, input.progress + 1);
-            return StepDecision.goTo(WorkAStep.class, next);
+            return StepDecision.goTo(WorkA.class, next);
         }
     }
 
-    final class WorkBStep implements Step<WorkJobParametersInput> {
+    final class WorkB implements Step<WorkJobParametersInput> {
         @Override
         public Class<WorkJobParametersInput> getInputType() {
             return WorkJobParametersInput.class;
@@ -131,7 +131,7 @@ public class InterruptibleFlow implements Flow<Void> {
             }
 
             if (input.progress > input.jobUpperBound) {
-                System.out.println("WorkBStep completed");
+                System.out.println("WorkB completed");
                 return StepDecision.gracefulComplete();
             }
 
@@ -143,7 +143,7 @@ public class InterruptibleFlow implements Flow<Void> {
 
             final WorkJobParametersInput next =
                     new WorkJobParametersInput(input.jobUpperBound, input.progress + 1);
-            return StepDecision.goTo(WorkBStep.class, next);
+            return StepDecision.goTo(WorkB.class, next);
         }
     }
 }

@@ -32,7 +32,7 @@ import java.time.Duration;
 
 @Component
 public final class SubFlowParentFlow implements Flow<Integer> {
-    private final SubFlowParentStep start = new SubFlowParentStep();
+    private final SubFlowParent start = new SubFlowParent();
 
     @Override
     public StepList<Integer> getSteps() {
@@ -44,7 +44,7 @@ public final class SubFlowParentFlow implements Flow<Integer> {
         return PersistenceSchema.of();
     }
 
-    static final class SubFlowParentStep implements Step<Integer> {
+    static final class SubFlowParent implements Step<Integer> {
         private final SubFlowOptions options = SubFlowOptions.newBuilder()
                 .timeout(Duration.ofHours(1))
                 .timeoutPolicy(FlowTimeoutPolicy.CANCEL)

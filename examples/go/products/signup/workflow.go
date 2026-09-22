@@ -61,7 +61,7 @@ func NewUserOnboardingFlow(applicationService service.MyService) *UserOnboarding
 func (flow *UserOnboardingFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(submitStep{service: flow.service}),
-		dex.DefineStep(verifyEmailStep{service: flow.service}),
+		dex.DefineStep(verifyEmail{service: flow.service}),
 		dex.DefineStep(accomplishTask1Step{service: flow.service}),
 		dex.DefineStep(accomplishTask2Step{service: flow.service}),
 	}
@@ -146,22 +146,22 @@ func (step submitStep) Execute(
 		return nil, err
 	}
 	step.service.SendEmail(input.Email, "verify your email", "start your onboarding")
-	return dex.GoTo(verifyEmailStep{}, nil), nil
+	return dex.GoTo(verifyEmail{}, nil), nil
 }
 
-type verifyEmailStep struct {
+type verifyEmail struct {
 	dex.StepDefaults
 	service service.MyService
 }
 
-func (verifyEmailStep) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
+func (verifyEmail) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
 	if err := Status.Set(ctx, StatusWaitingForVerification); err != nil {
 		return nil, err
 	}
 	return dex.AnyOf(dex.Timer(24*time.Second), VerifyEmail.ForOne()), nil
 }
 
-func (step verifyEmailStep) Execute(
+func (step verifyEmail) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
@@ -178,7 +178,7 @@ func (step verifyEmailStep) Execute(
 		return dex.GoTo(accomplishTask1Step{}, nil), nil
 	}
 	step.service.SendEmail(form.Email, "verification reminder", "please verify your email")
-	return dex.GoTo(verifyEmailStep{}, nil), nil
+	return dex.GoTo(verifyEmail{}, nil), nil
 }
 
 type accomplishTask1Step struct {

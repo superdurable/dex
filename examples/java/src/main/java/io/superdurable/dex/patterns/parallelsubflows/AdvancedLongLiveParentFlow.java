@@ -36,11 +36,11 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
     public final Attribute<Boolean> stopped = Attribute.define("Stopped", Boolean.class);
 
     private final InitStep initStep = new InitStep();
-    private final HandleRequestStep handleRequestStep = new HandleRequestStep();
-    private final HandleSubFlowStep handleSubFlowStep;
+    private final HandleRequest handleRequestStep = new HandleRequest();
+    private final HandleSubFlow handleSubFlowStep;
 
     public AdvancedLongLiveParentFlow(final ExampleSubFlow exampleSubFlow) {
-        handleSubFlowStep = new HandleSubFlowStep(exampleSubFlow);
+        handleSubFlowStep = new HandleSubFlow(exampleSubFlow);
     }
 
     @Override
@@ -82,13 +82,13 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
             final int concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
             final StepMovement<?>[] movements = new StepMovement<?>[concurrency];
             for (int index = 0; index < concurrency; index++) {
-                movements[index] = StepMovement.of(HandleRequestStep.class, null);
+                movements[index] = StepMovement.of(HandleRequest.class, null);
             }
             return StepDecision.goToMany(movements);
         }
     }
 
-    final class HandleRequestStep implements Step<Void> {
+    final class HandleRequest implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;
@@ -102,14 +102,14 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             final List<String> requests = requestChannel.getConditionResults(context);
-            return StepDecision.goTo(HandleSubFlowStep.class, requests.get(0));
+            return StepDecision.goTo(HandleSubFlow.class, requests.get(0));
         }
     }
 
-    final class HandleSubFlowStep implements Step<String> {
+    final class HandleSubFlow implements Step<String> {
         private final ExampleSubFlow exampleSubFlow;
 
-        HandleSubFlowStep(final ExampleSubFlow exampleSubFlow) {
+        HandleSubFlow(final ExampleSubFlow exampleSubFlow) {
             this.exampleSubFlow = exampleSubFlow;
         }
 
@@ -128,7 +128,7 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
             if (Boolean.TRUE.equals(stopped.get(context))) {
                 return StepDecision.gracefulComplete(null);
             }
-            return StepDecision.goTo(HandleRequestStep.class, null);
+            return StepDecision.goTo(HandleRequest.class, null);
         }
     }
 }

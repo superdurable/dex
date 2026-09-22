@@ -39,7 +39,7 @@ class Quote:
     price: int
 
 
-class RouteStep(Step[str]):
+class Route(Step[str]):
     def __init__(self, flow: StepDecisionFlow) -> None:
         self.flow = flow
 
@@ -48,23 +48,23 @@ class RouteStep(Step[str]):
             return graceful_complete("done")
         if mode == "dead-end":
             return go_to_many(
-                StepMovement.of(BranchWorkerStep, "left"),
-                StepMovement.of(BranchWorkerStep, "right"),
+                StepMovement.of(BranchWorker, "left"),
+                StepMovement.of(BranchWorker, "right"),
             )
         quote = Quote(carrier="winner", price=9)
         return go_to_many(
-            StepMovement.of(CarrierAStep, Quote(carrier="A", price=10)),
-            StepMovement.of(CarrierBStep, Quote(carrier="B", price=12)),
-            StepMovement.of(WinnerStep, quote),
+            StepMovement.of(CarrierA, Quote(carrier="A", price=10)),
+            StepMovement.of(CarrierB, Quote(carrier="B", price=12)),
+            StepMovement.of(Winner, quote),
         )
 
 
-class BranchWorkerStep(Step[str]):
+class BranchWorker(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         return dead_end()
 
 
-class CarrierAStep(Step[Quote]):
+class CarrierA(Step[Quote]):
     def wait_for(self, context: Context, quote: Quote) -> Wait:
         return Wait.until(Timer.by_duration(timedelta(seconds=2)))
 
@@ -72,7 +72,7 @@ class CarrierAStep(Step[Quote]):
         return dead_end()
 
 
-class CarrierBStep(Step[Quote]):
+class CarrierB(Step[Quote]):
     def wait_for(self, context: Context, quote: Quote) -> Wait:
         return Wait.until(Timer.by_duration(timedelta(seconds=2)))
 
@@ -80,30 +80,30 @@ class CarrierBStep(Step[Quote]):
         return dead_end()
 
 
-class WinnerStep(Step[Quote]):
+class Winner(Step[Quote]):
     def __init__(self, flow: StepDecisionFlow) -> None:
         self.flow = flow
 
     def execute(self, context: Context, quote: Quote) -> StepDecision:
-        return go_to(RecordQuoteStep, quote).with_canceling_steps(
-            CarrierAStep,
+        return go_to(RecordQuote, quote).with_canceling_steps(
+            CarrierA,
             self.flow.carrier_b,
         )
 
 
-class RecordQuoteStep(Step[Quote]):
+class RecordQuote(Step[Quote]):
     def execute(self, context: Context, quote: Quote) -> StepDecision:
         return graceful_complete(quote)
 
 
 class StepDecisionFlow(Flow[str]):
     def __init__(self) -> None:
-        self.branch_worker = BranchWorkerStep()
-        self.carrier_a = CarrierAStep()
-        self.carrier_b = CarrierBStep()
-        self.winner = WinnerStep(self)
-        self.record_quote = RecordQuoteStep()
-        self.route = RouteStep(self)
+        self.branch_worker = BranchWorker()
+        self.carrier_a = CarrierA()
+        self.carrier_b = CarrierB()
+        self.winner = Winner(self)
+        self.record_quote = RecordQuote()
+        self.route = Route(self)
 
     def get_steps(self) -> StepList[str]:
         return StepList.start_step(self.route).other_steps(

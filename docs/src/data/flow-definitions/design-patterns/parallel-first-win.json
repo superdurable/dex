@@ -17,22 +17,22 @@
   },
   "nodes": [
     {
-      "id": "decision:step:DoWorkStep:37:16",
+      "id": "decision:step:DoWork:37:16",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:DoWorkStep",
+      "parentId": "step:DoWork",
       "phase": "execute",
       "span": {
         "startLine": 37,
         "startColumn": 16,
         "endLine": 37,
-        "endColumn": 81
+        "endColumn": 77
       },
       "decision": {
         "type": "gracefulComplete",
         "cancellations": [
           {
-            "stepId": "step:DoWorkStep",
+            "stepId": "step:DoWork",
             "scope": "siblings"
           }
         ]
@@ -55,9 +55,9 @@
       }
     },
     {
-      "id": "step:DoWorkStep",
+      "id": "step:DoWork",
       "kind": "step",
-      "name": "DoWorkStep",
+      "name": "DoWork",
       "phase": "execute",
       "span": {
         "startLine": 53,
@@ -84,28 +84,28 @@
     {
       "id": "edge:0001",
       "kind": "cancel",
-      "from": "decision:step:DoWorkStep:37:16",
-      "to": "step:DoWorkStep",
+      "from": "decision:step:DoWork:37:16",
+      "to": "step:DoWork",
       "label": "with_canceling_sibling_steps",
       "span": {
         "startLine": 37,
         "startColumn": 70,
         "endLine": 37,
-        "endColumn": 80
+        "endColumn": 76
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
       "from": "decision:step:InitStep:42:16",
-      "to": "step:DoWorkStep",
+      "to": "step:DoWork",
       "label": "fan-out",
       "multiplicity": "×N",
       "span": {
         "startLine": 43,
         "startColumn": 15,
         "endLine": 43,
-        "endColumn": 49
+        "endColumn": 45
       }
     }
   ],

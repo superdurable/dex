@@ -40,7 +40,7 @@ export function createOrderProcessingRouter(
     const runId = await client.startFlow(flow, flowId, input, startOptions());
     await client.waitForStepCompletion(
       flowId,
-      StepExecutionId.of("ChargeStep"),
+      StepExecutionId.of("Charge"),
       {},
     );
     response.json({ flowID: flowId, runID: runId });

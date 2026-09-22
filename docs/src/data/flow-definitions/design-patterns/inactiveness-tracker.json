@@ -7,7 +7,7 @@
   },
   "flow": {
     "name": "InactivenessTrackerFlow",
-    "startStepId": "step:TrackerStep",
+    "startStepId": "step:Tracker",
     "span": {
       "startLine": 66,
       "startColumn": 1,
@@ -17,23 +17,23 @@
   },
   "nodes": [
     {
-      "id": "decision-dispatch:step:TrackerStep",
+      "id": "decision-dispatch:step:Tracker",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "step:TrackerStep",
+      "parentId": "step:Tracker",
       "phase": "execute",
       "span": {
         "startLine": 60,
         "startColumn": 5,
         "endLine": 63,
-        "endColumn": 40
+        "endColumn": 36
       }
     },
     {
-      "id": "decision:step:ProcessInactivenessStep:42:16",
+      "id": "decision:step:ProcessInactiveness:42:16",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:ProcessInactivenessStep",
+      "parentId": "step:ProcessInactiveness",
       "phase": "execute",
       "span": {
         "startLine": 42,
@@ -46,34 +46,34 @@
       }
     },
     {
-      "id": "decision:step:TrackerStep:62:20",
+      "id": "decision:step:Tracker:62:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:TrackerStep",
+      "parentId": "step:Tracker",
       "condition": "context.has_timer_fired()",
       "phase": "execute",
       "span": {
         "startLine": 62,
         "startColumn": 20,
         "endLine": 62,
-        "endColumn": 56
+        "endColumn": 52
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:TrackerStep:63:16",
+      "id": "decision:step:Tracker:63:16",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:TrackerStep",
+      "parentId": "step:Tracker",
       "condition": "not (context.has_timer_fired())",
       "phase": "execute",
       "span": {
         "startLine": 63,
         "startColumn": 16,
         "endLine": 63,
-        "endColumn": 40
+        "endColumn": 36
       },
       "decision": {
         "type": "goTo"
@@ -105,9 +105,9 @@
       }
     },
     {
-      "id": "step:ProcessInactivenessStep",
+      "id": "step:ProcessInactiveness",
       "kind": "step",
-      "name": "ProcessInactivenessStep",
+      "name": "ProcessInactiveness",
       "phase": "execute",
       "span": {
         "startLine": 80,
@@ -117,9 +117,9 @@
       }
     },
     {
-      "id": "step:TrackerStep",
+      "id": "step:Tracker",
       "kind": "step",
-      "name": "TrackerStep",
+      "name": "Tracker",
       "phase": "wait_for+execute",
       "start": true,
       "span": {
@@ -130,10 +130,10 @@
       }
     },
     {
-      "id": "wait:TrackerStep:55:16:0",
+      "id": "wait:Tracker:55:16:0",
       "kind": "wait",
       "name": "anyOf",
-      "parentId": "step:TrackerStep",
+      "parentId": "step:Tracker",
       "phase": "wait_for",
       "span": {
         "startLine": 55,
@@ -174,34 +174,34 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:TrackerStep:62:20",
-      "to": "step:ProcessInactivenessStep",
+      "from": "decision:step:Tracker:62:20",
+      "to": "step:ProcessInactiveness",
       "label": "go_to",
       "span": {
         "startLine": 62,
         "startColumn": 20,
         "endLine": 62,
-        "endColumn": 56
+        "endColumn": 52
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:TrackerStep:63:16",
-      "to": "step:TrackerStep",
+      "from": "decision:step:Tracker:63:16",
+      "to": "step:Tracker",
       "label": "go_to",
       "span": {
         "startLine": 63,
         "startColumn": 16,
         "endLine": 63,
-        "endColumn": 40
+        "endColumn": 36
       }
     },
     {
       "id": "edge:0003",
       "kind": "wait_condition",
       "from": "resource:channel:InactivenessTrackerFlow.active_channel",
-      "to": "wait:TrackerStep:55:16:0",
+      "to": "wait:Tracker:55:16:0",
       "label": "Active.for 1",
       "span": {
         "startLine": 57,

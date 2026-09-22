@@ -29,30 +29,30 @@ import {
   type StepOptions,
 } from "@superdurable/dex";
 
-class RouteDurabilityStep implements Step<string> {
+class RouteDurability implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public constructor(private readonly flow: DurabilityFlow) {}
 
   public getStepType(): string {
-    return "RouteDurabilityStep";
+    return "RouteDurability";
   }
 
   public execute(_context: Context, mode: string): StepDecision {
     if (mode === "async") {
-      return goTo(AsyncWorkStep, mode);
+      return goTo(AsyncWork, mode);
     }
-    return goTo(SyncWorkStep, mode);
+    return goTo(SyncWork, mode);
   }
 }
 
-class SyncWorkStep implements Step<string> {
+class SyncWork implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public constructor(private readonly flow: DurabilityFlow) {}
 
   public getStepType(): string {
-    return "SyncWorkStep";
+    return "SyncWork";
   }
 
   public getStepOptions(): StepOptions {
@@ -60,17 +60,17 @@ class SyncWorkStep implements Step<string> {
   }
 
   public execute(_context: Context, mode: string): StepDecision {
-    return goTo(FinishDurabilityStep, `sync:${mode}`);
+    return goTo(FinishDurability, `sync:${mode}`);
   }
 }
 
-class AsyncWorkStep implements Step<string> {
+class AsyncWork implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public constructor(private readonly flow: DurabilityFlow) {}
 
   public getStepType(): string {
-    return "AsyncWorkStep";
+    return "AsyncWork";
   }
 
   public getStepOptions(): StepOptions {
@@ -78,15 +78,15 @@ class AsyncWorkStep implements Step<string> {
   }
 
   public execute(_context: Context, mode: string): StepDecision {
-    return goTo(FinishDurabilityStep, `async:${mode}`);
+    return goTo(FinishDurability, `async:${mode}`);
   }
 }
 
-class FinishDurabilityStep implements Step<string> {
+class FinishDurability implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public getStepType(): string {
-    return "FinishDurabilityStep";
+    return "FinishDurability";
   }
 
   public waitFor(_context: Context, _label: string): Wait {
@@ -99,10 +99,10 @@ class FinishDurabilityStep implements Step<string> {
 }
 
 export class DurabilityFlow implements Flow<string> {
-  private readonly route = new RouteDurabilityStep(this);
-  private readonly syncWork = new SyncWorkStep(this);
-  private readonly asyncWork = new AsyncWorkStep(this);
-  private readonly finish = new FinishDurabilityStep();
+  private readonly route = new RouteDurability(this);
+  private readonly syncWork = new SyncWork(this);
+  private readonly asyncWork = new AsyncWork(this);
+  private readonly finish = new FinishDurability();
 
   public get syncWorkStep(): Step<string> {
     return this.syncWork;

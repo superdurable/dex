@@ -78,7 +78,7 @@ func NewJobPostingFlow(applicationService service.MyService) *JobPostingFlow {
 
 func (flow *JobPostingFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(InitStep{}),
+		dex.DefineStartStep(Init{}),
 		dex.DefineStep(UpdateLinkedInPosting{service: flow.service}),
 		dex.DefineStep(UpdateIndeedPosting{service: flow.service}),
 	}
@@ -190,15 +190,15 @@ func readJobInfo(ctx dex.Context) (JobInfo, error) {
 	return JobInfo{Title: title, Description: description, Notes: notes}, nil
 }
 
-type InitStep struct {
+type Init struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 }
 
-func (InitStep) GetStepType() string {
-	return "InitStep"
+func (Init) GetStepType() string {
+	return "Init"
 }
 
-func (InitStep) Execute(
+func (Init) Execute(
 	_ dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {

@@ -33,8 +33,8 @@ public class AwaitParallelStepsFlow implements Flow<Integer> {
     public final Channel<Void> completeCh = Channel.define("parallel-complete", Void.class);
 
     private final InitStep init = new InitStep();
-    private final DoWorkStep work = new DoWorkStep();
-    private final AwaitStep await = new AwaitStep();
+    private final DoWork work = new DoWork();
+    private final Await await = new Await();
 
     @Override
     public StepList<Integer> getSteps() {
@@ -55,15 +55,15 @@ public class AwaitParallelStepsFlow implements Flow<Integer> {
         @Override
         public StepDecision execute(final Context context, final Integer count) {
             final StepMovement<?>[] movements = new StepMovement<?>[count + 1];
-            movements[0] = StepMovement.of(AwaitStep.class, count);
+            movements[0] = StepMovement.of(Await.class, count);
             for (int index = 0; index < count; index++) {
-                movements[index + 1] = StepMovement.of(DoWorkStep.class, index);
+                movements[index + 1] = StepMovement.of(DoWork.class, index);
             }
             return StepDecision.goToMany(movements);
         }
     }
 
-    final class DoWorkStep implements Step<Integer> {
+    final class DoWork implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
@@ -82,7 +82,7 @@ public class AwaitParallelStepsFlow implements Flow<Integer> {
         }
     }
 
-    final class AwaitStep implements Step<Integer> {
+    final class Await implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;

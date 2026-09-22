@@ -35,7 +35,7 @@ public class ExampleFlow implements Flow<Integer> {
     public static final Channel<Void> notify = Channel.define("notify", Void.class);
 
     private final ExampleStep exampleStep = new ExampleStep();
-    private final FinishStep finishStep = new FinishStep();
+    private final Finish finishStep = new Finish();
 
     @Override
     public StepList<Integer> getSteps() {
@@ -72,11 +72,11 @@ public class ExampleFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.goTo(FinishStep.class, input + 1);
+            return StepDecision.goTo(Finish.class, input + 1);
         }
     }
 
-    static final class FinishStep implements Step<Integer> {
+    static final class Finish implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;

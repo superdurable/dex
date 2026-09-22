@@ -33,43 +33,43 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-class WorkAStep implements Step<string> {
+class WorkA implements Step<string> {
   public readonly inputCodec = stringCodec;
   public getStepType(): string {
-    return "WorkAStep";
+    return "WorkA";
   }
   public execute(_context: Context, input: string): StepDecision {
     return gracefulComplete(`A:${input}`);
   }
 }
 
-class WorkBStep implements Step<string> {
+class WorkB implements Step<string> {
   public readonly inputCodec = stringCodec;
   public getStepType(): string {
-    return "WorkBStep";
+    return "WorkB";
   }
   public execute(_context: Context, input: string): StepDecision {
     return gracefulComplete(`B:${input}`);
   }
 }
 
-class StaticInitStep implements Step<string> {
+class StaticInit implements Step<string> {
   public readonly inputCodec = stringCodec;
   public getStepType(): string {
-    return "InitStep";
+    return "Init";
   }
   public execute(_context: Context, input: string): StepDecision {
     return goToMany(
-      StepMovement.of(WorkAStep, input),
-      StepMovement.of(WorkBStep, input),
+      StepMovement.of(WorkA, input),
+      StepMovement.of(WorkB, input),
     );
   }
 }
 
 export class StaticParallelStepsFlow implements Flow<string> {
-  private readonly init = new StaticInitStep();
-  private readonly workA = new WorkAStep();
-  private readonly workB = new WorkBStep();
+  private readonly init = new StaticInit();
+  private readonly workA = new WorkA();
+  private readonly workB = new WorkB();
   public getFlowType(): string {
     return "StaticParallelStepsFlow";
   }
@@ -81,10 +81,10 @@ export class StaticParallelStepsFlow implements Flow<string> {
   }
 }
 
-class DynamicDoWorkStep implements Step<number> {
+class DynamicDoWork implements Step<number> {
   public readonly inputCodec = doubleCodec;
   public getStepType(): string {
-    return "DoWorkStep";
+    return "DoWork";
   }
   public async execute(_context: Context, input: number): Promise<StepDecision> {
     await new Promise<void>((resolve) => {
@@ -94,23 +94,23 @@ class DynamicDoWorkStep implements Step<number> {
   }
 }
 
-class DynamicInitStep implements Step<number> {
+class DynamicInit implements Step<number> {
   public readonly inputCodec = doubleCodec;
   public getStepType(): string {
-    return "InitStep";
+    return "Init";
   }
   public execute(_context: Context, count: number): StepDecision {
     return goToMany(
       ...Array.from({ length: count }, (_, index) =>
-        StepMovement.of(DynamicDoWorkStep, index),
+        StepMovement.of(DynamicDoWork, index),
       ),
     );
   }
 }
 
 export class DynamicParallelStepsFlow implements Flow<number> {
-  private readonly init = new DynamicInitStep();
-  private readonly work = new DynamicDoWorkStep();
+  private readonly init = new DynamicInit();
+  private readonly work = new DynamicDoWork();
   public getFlowType(): string {
     return "DynamicParallelStepsFlow";
   }
@@ -124,10 +124,10 @@ export class DynamicParallelStepsFlow implements Flow<number> {
 
 const completeCh = new Channel("parallel-complete", voidCodec);
 
-class AwaitDoWorkStep implements Step<number> {
+class AwaitDoWork implements Step<number> {
   public readonly inputCodec = doubleCodec;
   public getStepType(): string {
-    return "DoWorkStep";
+    return "DoWork";
   }
   public async execute(context: Context, _input: number): Promise<StepDecision> {
     await new Promise<void>((resolve) => {
@@ -138,10 +138,10 @@ class AwaitDoWorkStep implements Step<number> {
   }
 }
 
-class AwaitStep implements Step<number> {
+class Await implements Step<number> {
   public readonly inputCodec = doubleCodec;
   public getStepType(): string {
-    return "AwaitStep";
+    return "Await";
   }
   public waitFor(_context: Context, count: number): Wait {
     return Wait.until(completeCh.forN(count));
@@ -151,25 +151,25 @@ class AwaitStep implements Step<number> {
   }
 }
 
-class AwaitInitStep implements Step<number> {
+class AwaitInit implements Step<number> {
   public readonly inputCodec = doubleCodec;
   public getStepType(): string {
-    return "InitStep";
+    return "Init";
   }
   public execute(_context: Context, count: number): StepDecision {
     return goToMany(
-      StepMovement.of(AwaitStep, count),
+      StepMovement.of(Await, count),
       ...Array.from({ length: count }, (_, index) =>
-        StepMovement.of(AwaitDoWorkStep, index),
+        StepMovement.of(AwaitDoWork, index),
       ),
     );
   }
 }
 
 export class AwaitParallelStepsFlow implements Flow<number> {
-  private readonly init = new AwaitInitStep();
-  private readonly work = new AwaitDoWorkStep();
-  private readonly awaitStep = new AwaitStep();
+  private readonly init = new AwaitInit();
+  private readonly work = new AwaitDoWork();
+  private readonly awaitStep = new Await();
   public getFlowType(): string {
     return "AwaitParallelStepsFlow";
   }
@@ -181,36 +181,36 @@ export class AwaitParallelStepsFlow implements Flow<number> {
   }
 }
 
-class FirstWinDoWorkStep implements Step<number> {
+class FirstWinDoWork implements Step<number> {
   public readonly inputCodec = doubleCodec;
   public getStepType(): string {
-    return "DoWorkStep";
+    return "DoWork";
   }
   public async execute(_context: Context, input: number): Promise<StepDecision> {
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 50 + Math.floor(Math.random() * 450));
     });
-    return withCancelingSiblingSteps(gracefulComplete(input), FirstWinDoWorkStep);
+    return withCancelingSiblingSteps(gracefulComplete(input), FirstWinDoWork);
   }
 }
 
-class FirstWinInitStep implements Step<number> {
+class FirstWinInit implements Step<number> {
   public readonly inputCodec = doubleCodec;
   public getStepType(): string {
-    return "InitStep";
+    return "Init";
   }
   public execute(_context: Context, count: number): StepDecision {
     return goToMany(
       ...Array.from({ length: count }, (_, index) =>
-        StepMovement.of(FirstWinDoWorkStep, index),
+        StepMovement.of(FirstWinDoWork, index),
       ),
     );
   }
 }
 
 export class FirstWinParallelStepsFlow implements Flow<number> {
-  private readonly init = new FirstWinInitStep();
-  private readonly work = new FirstWinDoWorkStep();
+  private readonly init = new FirstWinInit();
+  private readonly work = new FirstWinDoWork();
   public getFlowType(): string {
     return "FirstWinParallelStepsFlow";
   }

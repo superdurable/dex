@@ -30,7 +30,7 @@ import java.time.Duration;
 
 @Component
 public final class StepHeartbeatFlow implements Flow<Integer> {
-    private final HeartbeatStep start = new HeartbeatStep();
+    private final Heartbeat start = new Heartbeat();
 
     @Override
     public StepList<Integer> getSteps() {
@@ -42,7 +42,7 @@ public final class StepHeartbeatFlow implements Flow<Integer> {
         return PersistenceSchema.of();
     }
 
-    final class HeartbeatStep implements Step<Integer> {
+    final class Heartbeat implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;

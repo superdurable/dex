@@ -41,11 +41,11 @@ const waitTypesInputCodec = jsonCodec<WaitTypesInput>();
 const channelA = new Channel("SignalA", stringCodec);
 const channelB = new Channel("SignalB", stringCodec);
 
-class WaitTypesStep implements Step<WaitTypesInput> {
+class WaitTypes implements Step<WaitTypesInput> {
   public readonly inputCodec = waitTypesInputCodec;
 
   public getStepType(): string {
-    return "WaitTypesStep";
+    return "WaitTypes";
   }
 
   public waitFor(_context: Context, input: WaitTypesInput): Wait {
@@ -80,7 +80,7 @@ class WaitTypesStep implements Step<WaitTypesInput> {
 }
 
 export class WaitTypesFlow implements Flow<WaitTypesInput> {
-  private readonly waitTypes = new WaitTypesStep();
+  private readonly waitTypes = new WaitTypes();
 
   public getFlowType(): string {
     return "WaitTypesFlow";

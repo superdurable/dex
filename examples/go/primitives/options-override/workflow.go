@@ -36,8 +36,8 @@ func NewOptionsOverrideFlow() *OptionsOverrideFlow {
 
 func (*OptionsOverrideFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(overrideFirstStep{}),
-		dex.DefineStep(overrideSecondStep{}),
+		dex.DefineStartStep(overrideFirst{}),
+		dex.DefineStep(overrideSecond{}),
 	}
 }
 
@@ -45,36 +45,36 @@ func (*OptionsOverrideFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type overrideFirstStep struct {
+type overrideFirst struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (overrideFirstStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
+func (overrideFirst) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
 	override := &dex.StepOptions{
 		WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
 		WaitForFailure: dex.ProceedOnWaitForFailure,
 	}
 	payload := input + "_state1"
-	return dex.GoTo(overrideSecondStep{}, payload, dex.WithStepOptions(override)), nil
+	return dex.GoTo(overrideSecond{}, payload, dex.WithStepOptions(override)), nil
 }
 
-type overrideSecondStep struct {
+type overrideSecond struct {
 	dex.StepDefaults
 }
 
-func (overrideSecondStep) WaitFor(_ dex.Context, input string) (*dex.Wait, error) {
+func (overrideSecond) WaitFor(_ dex.Context, input string) (*dex.Wait, error) {
 	_ = input
 	return nil, fmt.Errorf("state 2 wait failure")
 }
 
-func (overrideSecondStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+func (overrideSecond) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
 	if !ctx.WaitForMethodFailed() {
 		return nil, fmt.Errorf("waitFor failure was not reported")
 	}
 	return dex.GracefulComplete(input + "_state2"), nil
 }
 
-func (overrideSecondStep) GetStepOptions() *dex.StepOptions {
+func (overrideSecond) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 1},
 		WaitForFailure: dex.FailFlowOnWaitForFailure,

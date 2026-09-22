@@ -40,7 +40,7 @@ type iterationStep struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (iterationStep) GetStepType() string { return "IterationStep" }
+func (iterationStep) GetStepType() string { return "Iteration" }
 
 func (iterationStep) Execute(ctx dex.Context, pageToken string) (*dex.StepDecision, error) {
 	documents, nextPageToken := readPage(pageToken)

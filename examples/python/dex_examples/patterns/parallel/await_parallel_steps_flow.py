@@ -33,7 +33,7 @@ from dex import (
 )
 
 
-class DoWorkStep(Step[int]):
+class DoWork(Step[int]):
     def __init__(self, complete_ch: Channel[None]) -> None:
         self.complete_ch = complete_ch
 
@@ -45,7 +45,7 @@ class DoWorkStep(Step[int]):
         return dead_end()
 
 
-class AwaitStep(Step[int]):
+class Await(Step[int]):
     def __init__(self, complete_ch: Channel[None]) -> None:
         self.complete_ch = complete_ch
 
@@ -58,9 +58,9 @@ class AwaitStep(Step[int]):
 
 class InitStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
-        movements: list[StepMovement[Any]] = [StepMovement.of(AwaitStep, input)]
+        movements: list[StepMovement[Any]] = [StepMovement.of(Await, input)]
         movements.extend(
-            StepMovement.of(DoWorkStep, index) for index in range(input)
+            StepMovement.of(DoWork, index) for index in range(input)
         )
         return go_to_many(*movements)
 
@@ -70,8 +70,8 @@ class AwaitParallelStepsFlow(Flow[int]):
 
     def __init__(self) -> None:
         self.init = InitStep()
-        self.work = DoWorkStep(self.complete_ch)
-        self.await_step = AwaitStep(self.complete_ch)
+        self.work = DoWork(self.complete_ch)
+        self.await_step = Await(self.complete_ch)
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.init).other_steps(self.work, self.await_step)

@@ -30,7 +30,7 @@ import java.time.Duration;
 
 @Component
 public class PollingWithTimerFlow implements Flow<Void> {
-    private final PollingStep pollingStep = new PollingStep();
+    private final Polling pollingStep = new Polling();
 
     @Override
     public StepList<Void> getSteps() {
@@ -42,14 +42,14 @@ public class PollingWithTimerFlow implements Flow<Void> {
         return PersistenceSchema.of();
     }
 
-    final class PollingStep implements Step<Void> {
+    final class Polling implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;
         }
 
         @Override
-        public String getStepType() { return "PollingStep"; }
+        public String getStepType() { return "Polling"; }
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
@@ -61,7 +61,7 @@ public class PollingWithTimerFlow implements Flow<Void> {
             if (isSystemReady()) {
                 return StepDecision.gracefulComplete();
             }
-            return StepDecision.goTo(PollingStep.class, null);
+            return StepDecision.goTo(Polling.class, null);
         }
 
         private boolean isSystemReady() {

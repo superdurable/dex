@@ -63,18 +63,18 @@ class ChannelWaitStep(Step[int]):
 ```go
 var Approval = dex.DefineChannel[string]("Approval")
 
-type channelWaitStep struct {
+type channelWait struct {
 	dex.StepDefaults
 }
 
-func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
+func (channelWait) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	return dex.AnyOf(
 		Approval.ForOne(),
 		dex.Timer(time.Duration(input)*time.Second),
 	), nil
 }
 
-func (channelWaitStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+func (channelWait) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
 	if ctx.HasTimerFired() {
 		return dex.GracefulComplete("approval timed out"), nil
 	}
@@ -143,7 +143,7 @@ class ChannelWait implements Step<number> {
   }
 }
 
-const channelWaitStep = new ChannelWait();
+const channelWait = new ChannelWait();
 ```
 
 </SdkSnippet>
@@ -203,7 +203,7 @@ def execute(self, context: Context, input: int) -> StepDecision:
   <SdkSnippet lang="go">
 
 ```go
-func (subFlowParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+func (subFlowParent) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
 	result, err := dex.SubFlowResult(ctx)
 	if err != nil {
 		return nil, err
@@ -377,14 +377,14 @@ def execute(self, context: Context, input: int) -> StepDecision:
   <SdkSnippet lang="go">
 
 ```go
-func (noteWaitStep) WaitFor(ctx dex.Context, input int) (*dex.Wait, error) {
+func (noteWait) WaitFor(ctx dex.Context, input int) (*dex.Wait, error) {
 	if err := ctx.SetStepExecutionLocal("note", fmt.Sprintf("approval:%d", input)); err != nil {
 		return nil, err
 	}
 	return dex.Until(Approval.ForOne()), nil
 }
 
-func (noteWaitStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+func (noteWait) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
 	var note string
 	found, err := ctx.GetStepExecutionLocal("note", &note)
 	if err != nil {

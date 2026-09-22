@@ -30,8 +30,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class ProceedOnWaitFailureFlow implements Flow<String> {
-    private final FinishStep finish = new FinishStep();
-    private final FailingWaitStep failingWait = new FailingWaitStep();
+    private final Finish finish = new Finish();
+    private final FailingWait failingWait = new FailingWait();
 
     @Override
     public StepList<String> getSteps() {
@@ -43,7 +43,7 @@ public final class ProceedOnWaitFailureFlow implements Flow<String> {
         return PersistenceSchema.of();
     }
 
-    final class FailingWaitStep implements Step<String> {
+    final class FailingWait implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -67,11 +67,11 @@ public final class ProceedOnWaitFailureFlow implements Flow<String> {
             if (!context.waitForMethodFailed()) {
                 throw new IllegalStateException("waitFor failure was not reported");
             }
-            return StepDecision.goTo(FinishStep.class, input + "_recovered");
+            return StepDecision.goTo(Finish.class, input + "_recovered");
         }
     }
 
-    static final class FinishStep implements Step<String> {
+    static final class Finish implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;

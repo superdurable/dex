@@ -36,7 +36,7 @@ func NewFlowGracefulTimeout() *FlowGracefulTimeout {
 
 func (*FlowGracefulTimeout) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(longWaitStep{}),
+		dex.DefineStartStep(longWait{}),
 	}
 }
 
@@ -44,11 +44,11 @@ func (*FlowGracefulTimeout) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type longWaitStep struct {
+type longWait struct {
 	dex.StepDefaults
 }
 
-func (longWaitStep) WaitFor(
+func (longWait) WaitFor(
 	_ dex.Context,
 	workflowSuccessful bool,
 ) (*dex.Wait, error) {
@@ -58,7 +58,7 @@ func (longWaitStep) WaitFor(
 	return dex.Until(dex.Timer(65 * time.Second)), nil
 }
 
-func (longWaitStep) Execute(
+func (longWait) Execute(
 	_ dex.Context,
 	_ bool,
 ) (*dex.StepDecision, error) {

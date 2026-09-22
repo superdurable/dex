@@ -39,8 +39,8 @@ notify = Channel("notify", None)
 
 class ExampleFlow(Flow[int]):
     def __init__(self) -> None:
-        self.finish = FinishStep()
-        self.example = ExampleStep(self.finish)
+        self.finish = Finish()
+        self.example = Example(self.finish)
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.example).other_steps(self.finish)
@@ -63,8 +63,8 @@ type ExampleFlow struct {
 
 func (*ExampleFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(ExampleStep{}),
-		dex.DefineStep(FinishStep{}),
+		dex.DefineStartStep(Example{}),
+		dex.DefineStep(Finish{}),
 	}
 }
 

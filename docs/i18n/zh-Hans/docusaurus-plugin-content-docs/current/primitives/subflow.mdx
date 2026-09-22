@@ -28,7 +28,7 @@ examples={{
 <SdkSnippet lang="python">
 
 ```python
-class SubFlowParentStep(Step[int]):
+class SubFlowParent(Step[int]):
     def __init__(self, target: Flow[int]) -> None:
         self.target = target
         self.options = SubFlowOptions(
@@ -49,12 +49,12 @@ class SubFlowParentStep(Step[int]):
 <SdkSnippet lang="go">
 
 ```go
-type subFlowParentStep struct {
+type subFlowParent struct {
 	dex.StepDefaults
 	child *SubFlowChildFlow
 }
 
-func (step subFlowParentStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
+func (step subFlowParent) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	timeout := time.Hour
 	return dex.Until(dex.SubFlow(step.child, input, dex.SubFlowOptions{
 		Timeout:       &timeout,
@@ -62,7 +62,7 @@ func (step subFlowParentStep) WaitFor(_ dex.Context, input int) (*dex.Wait, erro
 	})), nil
 }
 
-func (subFlowParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+func (subFlowParent) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
 	result, err := dex.SubFlowResult(ctx)
 	if err != nil {
 		return nil, err
@@ -83,7 +83,7 @@ func (subFlowParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, err
 <SdkSnippet lang="java">
 
 ```java
-static final class SubFlowParentStep implements Step<Integer> {
+static final class SubFlowParent implements Step<Integer> {
     private final SubFlowOptions options = SubFlowOptions.newBuilder()
             .timeout(Duration.ofHours(1))
             .timeoutPolicy(FlowTimeoutPolicy.CANCEL)
@@ -112,13 +112,13 @@ static final class SubFlowParentStep implements Step<Integer> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-class SubFlowParentStep implements Step<number> {
+class SubFlowParent implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public constructor(private readonly target: SubFlowChildFlow) {}
 
   public getStepType(): string {
-    return "SubFlowParentStep";
+    return "SubFlowParent";
   }
 
   public waitFor(_context: Context, input: number): Wait {
@@ -144,9 +144,9 @@ class SubFlowParentStep implements Step<number> {
 
 ```rust
 #[derive(Default)]
-struct SubFlowParentStep;
+struct SubFlowParent;
 
-impl Step for SubFlowParentStep {
+impl Step for SubFlowParent {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {

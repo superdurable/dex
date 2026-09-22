@@ -101,11 +101,11 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 <SdkSnippet lang="go">
 
 ```go
-func (syncWorkStep) GetStepOptions() *dex.StepOptions {
+func (syncWork) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
 }
 
-func (asyncWorkStep) GetStepOptions() *dex.StepOptions {
+func (asyncWork) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilityAsync}
 }
 ```
@@ -355,7 +355,7 @@ def get_step_options(self) -> StepOptions:
   <SdkSnippet lang="go">
 
 ```go
-func (channelWaitStep) GetStepOptions() *dex.StepOptions {
+func (channelWait) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteLoadChannels: []dex.ChannelDef{Queued},
 	}
@@ -426,7 +426,7 @@ override := &dex.StepOptions{
 	WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
 	WaitForFailure: dex.ProceedOnWaitForFailure,
 }
-return dex.GoTo(overrideSecondStep{}, payload, dex.WithStepOptions(override)), nil
+return dex.GoTo(overrideSecond{}, payload, dex.WithStepOptions(override)), nil
 ```
 
 </SdkSnippet>
@@ -437,7 +437,7 @@ final StepOptions options = StepOptions.newBuilder()
         .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
         .waitForFailure(WaitForFailurePolicy.PROCEED)
         .build();
-return StepDecision.goToMany(StepMovement.of(OverrideSecondStep.class, output, options));
+return StepDecision.goToMany(StepMovement.of(OverrideSecond.class, output, options));
 ```
 
 </SdkSnippet>
@@ -448,7 +448,7 @@ options = StepOptions(
     wait_for_retry=RetryPolicy(maximum_attempts=2),
     wait_for_failure=WaitForFailurePolicy.PROCEED,
 )
-return go_to_many(StepMovement.of(OverrideSecondStep, output, options))
+return go_to_many(StepMovement.of(OverrideSecond, output, options))
 ```
 
 </SdkSnippet>
@@ -459,7 +459,7 @@ const override: StepOptions = {
   waitForRetry: { maximumAttempts: 2 },
   waitForFailure: "proceed",
 };
-return goToMany(StepMovement.of(OverrideSecondStep, payload, override));
+return goToMany(StepMovement.of(OverrideSecond, payload, override));
 ```
 
 </SdkSnippet>
@@ -470,7 +470,7 @@ let override_options = StepOptions::new()
     .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
     .wait_for_failure(WaitForFailurePolicy::Proceed);
 Ok(StepDecision::go_to_many([StepMovement::to_with_options(
-    &OverrideSecondStep,
+    &OverrideSecond,
     payload,
     override_options,
 )]))

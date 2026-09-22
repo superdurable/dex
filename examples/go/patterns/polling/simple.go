@@ -37,7 +37,7 @@ func NewPollingWithTimerFlow() *PollingWithTimerFlow {
 
 func (*PollingWithTimerFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(pollingWithTimerStep{}),
+		dex.DefineStartStep(pollingWithTimer{}),
 	}
 }
 
@@ -45,27 +45,27 @@ func (*PollingWithTimerFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type pollingWithTimerStep struct {
+type pollingWithTimer struct {
 	dex.StepDefaults
 }
 
-func (pollingWithTimerStep) GetStepType() string { return "PollingStep" }
+func (pollingWithTimer) GetStepType() string { return "Polling" }
 
-func (pollingWithTimerStep) WaitFor(
+func (pollingWithTimer) WaitFor(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.Wait, error) {
 	return dex.Until(dex.Timer(10 * time.Second)), nil
 }
 
-func (pollingWithTimerStep) Execute(
+func (pollingWithTimer) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
 	if isSystemReady() {
 		return dex.GracefulComplete(nil), nil
 	}
-	return dex.GoTo(pollingWithTimerStep{}, nil), nil
+	return dex.GoTo(pollingWithTimer{}, nil), nil
 }
 
 func isSystemReady() bool {

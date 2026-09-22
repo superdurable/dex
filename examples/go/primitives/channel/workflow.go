@@ -45,7 +45,7 @@ func NewChannelFlow() *ChannelFlow {
 }
 
 func (*ChannelFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(channelWaitStep{})}
+	return []dex.StepDef{dex.DefineStartStep(channelWait{})}
 }
 
 func (flow *ChannelFlow) GetRPCs() []dex.RPCDef {
@@ -75,24 +75,24 @@ func (*ChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	}
 }
 
-type channelWaitStep struct {
+type channelWait struct {
 	dex.StepDefaults
 }
 
-func (channelWaitStep) GetStepOptions() *dex.StepOptions {
+func (channelWait) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteLoadChannels: []dex.ChannelDef{QueuedMessages},
 	}
 }
 
-func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
+func (channelWait) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	return dex.AnyOf(
 		ApprovalMessages.ForOne(),
 		dex.Timer(time.Duration(input)*time.Second),
 	), nil
 }
 
-func (channelWaitStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+func (channelWait) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
 	pendingQueuedMessages, err := QueuedMessages.PendingMessages(ctx)
 	if err != nil {
 		return nil, err

@@ -9,7 +9,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**InitStep** 启动多个 **DoWorkStep** execution。每个 worker 随机等待一小段时间，从而形成真正的竞速。最先返回 decision 的 execution 会取消同类的 sibling execution。Flow 保留第一个结果，并停止已经无法影响结果的工作。
+**Init** 启动多个 **DoWork** execution。每个 worker 随机等待一小段时间，从而形成真正的竞速。最先返回 decision 的 execution 会取消同类的 sibling execution。Flow 保留第一个结果，并停止已经无法影响结果的工作。
 
 ## 核心实现
 
@@ -26,18 +26,18 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 <SdkSnippet lang="python">
 
 ```python
-class DoWorkStep(Step[int]):
+class DoWork(Step[int]):
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, input: int
     ) -> StepDecision:
         await asyncio.sleep(random.uniform(0.05, 0.5))
-        return graceful_complete(input).with_canceling_sibling_steps(DoWorkStep)
+        return graceful_complete(input).with_canceling_sibling_steps(DoWork)
 
 
-class InitStep(Step[int]):
+class Init(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         return go_to_many(
-            *(StepMovement.of(DoWorkStep, index) for index in range(input))
+            *(StepMovement.of(DoWork, index) for index in range(input))
         )
 ```
 
@@ -45,25 +45,25 @@ class InitStep(Step[int]):
 <SdkSnippet lang="go">
 
 ```go
-type firstWinInitStep struct{ dex.StepDefaultsNoWaitFor[int] }
+type firstWinInit struct{ dex.StepDefaultsNoWaitFor[int] }
 
-func (firstWinInitStep) GetStepType() string { return "InitStep" }
+func (firstWinInit) GetStepType() string { return "Init" }
 
-func (firstWinInitStep) Execute(_ dex.Context, count int) (*dex.StepDecision, error) {
+func (firstWinInit) Execute(_ dex.Context, count int) (*dex.StepDecision, error) {
 	movements := make([]dex.StepMovement, 0, count)
 	for index := 0; index < count; index++ {
-		movements = append(movements, dex.MovementOf(firstWinWorkStep{}, index))
+		movements = append(movements, dex.MovementOf(firstWinWork{}, index))
 	}
 	return dex.GoToMany(movements...), nil
 }
 
-type firstWinWorkStep struct{ dex.StepDefaultsNoWaitFor[int] }
+type firstWinWork struct{ dex.StepDefaultsNoWaitFor[int] }
 
-func (firstWinWorkStep) GetStepType() string { return "DoWorkStep" }
+func (firstWinWork) GetStepType() string { return "DoWork" }
 
-func (firstWinWorkStep) Execute(_ dex.Context, index int) (*dex.StepDecision, error) {
+func (firstWinWork) Execute(_ dex.Context, index int) (*dex.StepDecision, error) {
 	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
-	return dex.GracefulComplete(index).CancelSiblingSteps(firstWinWorkStep{}), nil
+	return dex.GracefulComplete(index).CancelSiblingSteps(firstWinWork{}), nil
 }
 ```
 
@@ -71,7 +71,7 @@ func (firstWinWorkStep) Execute(_ dex.Context, index int) (*dex.StepDecision, er
 <SdkSnippet lang="java">
 
 ```java
-final class InitStep implements Step<Integer> {
+final class Init implements Step<Integer> {
     @Override
     public Class<Integer> getInputType() {
         return Integer.class;
@@ -81,13 +81,13 @@ final class InitStep implements Step<Integer> {
     public StepDecision execute(final Context context, final Integer count) {
         final StepMovement<?>[] movements = new StepMovement<?>[count];
         for (int index = 0; index < count; index++) {
-            movements[index] = StepMovement.of(DoWorkStep.class, index);
+            movements[index] = StepMovement.of(DoWork.class, index);
         }
         return StepDecision.goToMany(movements);
     }
 }
 
-final class DoWorkStep implements Step<Integer> {
+final class DoWork implements Step<Integer> {
     @Override
     public Class<Integer> getInputType() {
         return Integer.class;
@@ -102,7 +102,7 @@ final class DoWorkStep implements Step<Integer> {
             throw new IllegalStateException(error);
         }
         return StepDecision.gracefulComplete(input)
-                .withCancelingSiblingSteps(DoWorkStep.class);
+                .withCancelingSiblingSteps(DoWork.class);
     }
 }
 ```
@@ -114,27 +114,27 @@ final class DoWorkStep implements Step<Integer> {
 class FirstWinInitStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
   public getStepType(): string {
-    return "InitStep";
+    return "Init";
   }
   public execute(_context: Context, count: number): StepDecision {
     return goToMany(
       ...Array.from({ length: count }, (_, index) =>
-        StepMovement.of(FirstWinDoWorkStep, index),
+        StepMovement.of(FirstWinDoWork, index),
       ),
     );
   }
 }
 
-class FirstWinDoWorkStep implements Step<number> {
+class FirstWinDoWork implements Step<number> {
   public readonly inputCodec = doubleCodec;
   public getStepType(): string {
-    return "DoWorkStep";
+    return "DoWork";
   }
   public async execute(_context: Context, input: number): Promise<StepDecision> {
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 50 + Math.floor(Math.random() * 450));
     });
-    return withCancelingSiblingSteps(gracefulComplete(input), FirstWinDoWorkStep);
+    return withCancelingSiblingSteps(gracefulComplete(input), FirstWinDoWork);
   }
 }
 ```
@@ -148,7 +148,7 @@ struct FirstWinInit;
 impl Step for FirstWinInit {
     type Input = usize;
     fn step_type(&self) -> &'static str {
-        "InitStep"
+        "Init"
     }
     fn execute(&self, _: &mut Context, count: usize) -> HandlerResult<StepDecision> {
         Ok(StepDecision::go_to_many(
@@ -162,7 +162,7 @@ struct FirstWinWork;
 impl Step for FirstWinWork {
     type Input = usize;
     fn step_type(&self) -> &'static str {
-        "DoWorkStep"
+        "DoWork"
     }
     fn execute(&self, _: &mut Context, input: usize) -> HandlerResult<StepDecision> {
         thread::sleep(Duration::from_millis(fastrand::u64(50..500)));

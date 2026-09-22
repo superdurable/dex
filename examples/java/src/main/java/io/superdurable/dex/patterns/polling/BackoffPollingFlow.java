@@ -33,7 +33,7 @@ import java.time.Duration;
 @Component
 public class BackoffPollingFlow implements Flow<Void> {
     private final ServiceDependency service;
-    private final PollingStep pollingStep = new PollingStep();
+    private final Polling pollingStep = new Polling();
 
     public BackoffPollingFlow(final ServiceDependency service) {
         this.service = service;
@@ -49,14 +49,14 @@ public class BackoffPollingFlow implements Flow<Void> {
         return PersistenceSchema.of();
     }
 
-    final class PollingStep implements Step<Void> {
+    final class Polling implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;
         }
 
         @Override
-        public String getStepType() { return "PollingStep"; }
+        public String getStepType() { return "Polling"; }
 
         @Override
         public StepOptions getStepOptions() {

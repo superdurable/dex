@@ -37,8 +37,8 @@ func NewAwaitParallelStepsFlow() *AwaitParallelStepsFlow {
 
 func (*AwaitParallelStepsFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(awaitInitStep{}),
-		dex.DefineStep(awaitWorkStep{}),
+		dex.DefineStartStep(awaitInit{}),
+		dex.DefineStep(awaitWork{}),
 		dex.DefineStep(awaitStep{}),
 	}
 }
@@ -47,23 +47,23 @@ func (*AwaitParallelStepsFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Channels: []dex.ChannelDef{CompleteCh}}
 }
 
-type awaitInitStep struct{ dex.StepDefaultsNoWaitFor[int] }
+type awaitInit struct{ dex.StepDefaultsNoWaitFor[int] }
 
-func (awaitInitStep) GetStepType() string { return "InitStep" }
+func (awaitInit) GetStepType() string { return "Init" }
 
-func (awaitInitStep) Execute(_ dex.Context, count int) (*dex.StepDecision, error) {
+func (awaitInit) Execute(_ dex.Context, count int) (*dex.StepDecision, error) {
 	movements := []dex.StepMovement{dex.MovementOf(awaitStep{}, count)}
 	for index := 0; index < count; index++ {
-		movements = append(movements, dex.MovementOf(awaitWorkStep{}, index))
+		movements = append(movements, dex.MovementOf(awaitWork{}, index))
 	}
 	return dex.GoToMany(movements...), nil
 }
 
-type awaitWorkStep struct{ dex.StepDefaultsNoWaitFor[int] }
+type awaitWork struct{ dex.StepDefaultsNoWaitFor[int] }
 
-func (awaitWorkStep) GetStepType() string { return "DoWorkStep" }
+func (awaitWork) GetStepType() string { return "DoWork" }
 
-func (awaitWorkStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+func (awaitWork) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
 	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
 	if err := CompleteCh.Publish(ctx, nil); err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func (awaitWorkStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) 
 
 type awaitStep struct{ dex.StepDefaults }
 
-func (awaitStep) GetStepType() string { return "AwaitStep" }
+func (awaitStep) GetStepType() string { return "Await" }
 
 func (awaitStep) WaitFor(_ dex.Context, count int) (*dex.Wait, error) {
 	return dex.Until(CompleteCh.ForN(count)), nil

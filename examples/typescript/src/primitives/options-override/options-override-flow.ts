@@ -29,13 +29,13 @@ import {
   type StepOptions,
 } from "@superdurable/dex";
 
-class OverrideFirstStep implements Step<string> {
+class OverrideFirst implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public constructor(private readonly flow: OptionsOverrideFlow) {}
 
   public getStepType(): string {
-    return "OverrideFirstStep";
+    return "OverrideFirst";
   }
 
   public execute(_context: Context, input: string): StepDecision {
@@ -44,15 +44,15 @@ class OverrideFirstStep implements Step<string> {
       waitForFailure: "proceed",
     };
     const payload = `${input}_state1`;
-    return goToMany(StepMovement.of(OverrideSecondStep, payload, override));
+    return goToMany(StepMovement.of(OverrideSecond, payload, override));
   }
 }
 
-class OverrideSecondStep implements Step<string> {
+class OverrideSecond implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public getStepType(): string {
-    return "OverrideSecondStep";
+    return "OverrideSecond";
   }
 
   public waitFor(_context: Context, _input: string): Wait {
@@ -75,8 +75,8 @@ class OverrideSecondStep implements Step<string> {
 }
 
 export class OptionsOverrideFlow implements Flow<string> {
-  private readonly second = new OverrideSecondStep();
-  private readonly first = new OverrideFirstStep(this);
+  private readonly second = new OverrideSecond();
+  private readonly first = new OverrideFirst(this);
 
   public get secondStep(): Step<string> {
     return this.second;

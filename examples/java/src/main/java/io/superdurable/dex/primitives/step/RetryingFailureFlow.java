@@ -33,7 +33,7 @@ public final class RetryingFailureFlow implements Flow<Integer> {
     private static final Duration RETRY_INTERVAL = Duration.ofSeconds(1);
     private static final int MAXIMUM_ATTEMPTS = 5;
 
-    private final RetryingExecuteStep start = new RetryingExecuteStep();
+    private final RetryingExecute start = new RetryingExecute();
 
     @Override
     public StepList<Integer> getSteps() {
@@ -45,7 +45,7 @@ public final class RetryingFailureFlow implements Flow<Integer> {
         return PersistenceSchema.of();
     }
 
-    final class RetryingExecuteStep implements Step<Integer> {
+    final class RetryingExecute implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;

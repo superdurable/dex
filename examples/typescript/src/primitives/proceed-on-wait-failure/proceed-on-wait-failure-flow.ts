@@ -27,11 +27,11 @@ import {
   type StepOptions,
 } from "@superdurable/dex";
 
-class FinishStep implements Step<string> {
+class Finish implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public getStepType(): string {
-    return "FinishStep";
+    return "Finish";
   }
 
   public execute(_context: Context, input: string): StepDecision {
@@ -39,13 +39,13 @@ class FinishStep implements Step<string> {
   }
 }
 
-class FailingWaitStep implements Step<string> {
+class FailingWait implements Step<string> {
   public readonly inputCodec = stringCodec;
 
-  public constructor(private readonly finish: FinishStep) {}
+  public constructor(private readonly finish: Finish) {}
 
   public getStepType(): string {
-    return "FailingWaitStep";
+    return "FailingWait";
   }
 
   public getStepOptions(): StepOptions {
@@ -63,13 +63,13 @@ class FailingWaitStep implements Step<string> {
     if (!context.waitForMethodFailed()) {
       throw new Error("waitFor failure was not reported");
     }
-    return goTo(FinishStep, `${input}_recovered`);
+    return goTo(Finish, `${input}_recovered`);
   }
 }
 
 export class ProceedOnWaitFailureFlow implements Flow<string> {
-  private readonly finish = new FinishStep();
-  private readonly failingWait = new FailingWaitStep(this.finish);
+  private readonly finish = new Finish();
+  private readonly failingWait = new FailingWait(this.finish);
 
   public getFlowType(): string {
     return "ProceedOnWaitFailureFlow";

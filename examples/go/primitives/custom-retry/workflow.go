@@ -36,25 +36,25 @@ func NewCustomRetryFlow() *CustomRetryFlow {
 }
 
 func (*CustomRetryFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(customRetryStep{})}
+	return []dex.StepDef{dex.DefineStartStep(customRetry{})}
 }
 
 func (*CustomRetryFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type customRetryStep struct {
+type customRetry struct {
 	dex.DefaultStepType
 	dex.NoWaitFor[int]
 }
 
-func (customRetryStep) GetStepOptions() *dex.StepOptions {
+func (customRetry) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 5},
 	}
 }
 
-func (customRetryStep) Execute(ctx dex.Context, readyAfterAttempt int) (*dex.StepDecision, error) {
+func (customRetry) Execute(ctx dex.Context, readyAfterAttempt int) (*dex.StepDecision, error) {
 	if ctx.Attempt() < int32(readyAfterAttempt) {
 		cause := fmt.Errorf("not ready on attempt %d", ctx.Attempt())
 		return nil, dex.RetryAfter(7*time.Second, dex.ErrorWithStack(cause))

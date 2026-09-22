@@ -16,17 +16,17 @@
 
 import { StepList, goTo, gracefulComplete, stringCodec, type Context, type Flow, type PersistenceSchema, type Step, type StepDecision } from "@superdurable/dex";
 
-class IterationStep implements Step<string> {
+class Iteration implements Step<string> {
   public readonly inputCodec = stringCodec;
-  public getStepType(): string { return "IterationStep"; }
+  public getStepType(): string { return "Iteration"; }
   public execute(_context: Context, pageToken: string): StepDecision {
     const nextPageToken = pageToken === "" ? "page-2" : pageToken === "page-2" ? "page-3" : "";
-    return nextPageToken === "" ? gracefulComplete() : goTo(IterationStep, nextPageToken);
+    return nextPageToken === "" ? gracefulComplete() : goTo(Iteration, nextPageToken);
   }
 }
 
 export class IterationFlow implements Flow<string> {
-  private readonly iterationStep = new IterationStep();
+  private readonly iterationStep = new Iteration();
   public getFlowType(): string { return "IterationFlow"; }
   public getSteps() { return StepList.startStep(this.iterationStep); }
   public getPersistenceSchema(): PersistenceSchema { return {}; }

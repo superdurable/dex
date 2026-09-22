@@ -33,13 +33,13 @@ import {
   type ServiceDependency,
 } from "../shared/service-dependency.js";
 
-class PollingStep implements Step<void> {
+class Polling implements Step<void> {
   public constructor(
     private readonly flow: BackoffPollingFlow,
     private readonly service: ServiceDependency,
   ) {}
 
-  public getStepType(): string { return "PollingStep"; }
+  public getStepType(): string { return "Polling"; }
 
   public getStepOptions(): StepOptions {
     return {
@@ -63,10 +63,10 @@ class PollingStep implements Step<void> {
 }
 
 export class BackoffPollingFlow implements Flow<void> {
-  private readonly pollingStep: PollingStep;
+  private readonly pollingStep: Polling;
 
   public constructor(service: ServiceDependency = serviceDependency) {
-    this.pollingStep = new PollingStep(this, service);
+    this.pollingStep = new Polling(this, service);
   }
 
   public getFlowType(): string {

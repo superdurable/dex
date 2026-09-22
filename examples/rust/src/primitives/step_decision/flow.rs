@@ -27,12 +27,12 @@ pub struct Quote {
 
 #[derive(Default)]
 pub struct StepDecisionFlow {
-    route: RouteStep,
-    carrier_a: CarrierAStep,
-    carrier_b: CarrierBStep,
-    winner: WinnerStep,
-    record_quote: RecordQuoteStep,
-    branch_worker: BranchWorkerStep,
+    route: Route,
+    carrier_a: CarrierA,
+    carrier_b: CarrierB,
+    winner: Winner,
+    record_quote: RecordQuote,
+    branch_worker: BranchWorker,
 }
 
 impl Flow for StepDecisionFlow {
@@ -49,17 +49,17 @@ impl Flow for StepDecisionFlow {
 }
 
 #[derive(Default)]
-struct RouteStep;
+struct Route;
 
-impl Step for RouteStep {
+impl Step for Route {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, mode: Self::Input) -> HandlerResult<StepDecision> {
         match mode.as_str() {
             "graceful" => Ok(StepDecision::graceful_complete(String::from("done"))),
             "dead-end" => Ok(StepDecision::go_to_many([
-                StepMovement::to(&BranchWorkerStep, "left".to_string()),
-                StepMovement::to(&BranchWorkerStep, "right".to_string()),
+                StepMovement::to(&BranchWorker, "left".to_string()),
+                StepMovement::to(&BranchWorker, "right".to_string()),
             ])),
             _ => {
                 let quote = Quote {
@@ -68,20 +68,20 @@ impl Step for RouteStep {
                 };
                 Ok(StepDecision::go_to_many([
                     StepMovement::to(
-                        &CarrierAStep,
+                        &CarrierA,
                         Quote {
                             carrier: "A".to_string(),
                             price: 10,
                         },
                     ),
                     StepMovement::to(
-                        &CarrierBStep,
+                        &CarrierB,
                         Quote {
                             carrier: "B".to_string(),
                             price: 12,
                         },
                     ),
-                    StepMovement::to(&WinnerStep, quote),
+                    StepMovement::to(&Winner, quote),
                 ]))
             }
         }
@@ -89,9 +89,9 @@ impl Step for RouteStep {
 }
 
 #[derive(Default)]
-struct BranchWorkerStep;
+struct BranchWorker;
 
-impl Step for BranchWorkerStep {
+impl Step for BranchWorker {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
@@ -100,9 +100,9 @@ impl Step for BranchWorkerStep {
 }
 
 #[derive(Default)]
-struct CarrierAStep;
+struct CarrierA;
 
-impl Step for CarrierAStep {
+impl Step for CarrierA {
     type Input = Quote;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
@@ -115,9 +115,9 @@ impl Step for CarrierAStep {
 }
 
 #[derive(Default)]
-struct CarrierBStep;
+struct CarrierB;
 
-impl Step for CarrierBStep {
+impl Step for CarrierB {
     type Input = Quote;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
@@ -130,22 +130,22 @@ impl Step for CarrierBStep {
 }
 
 #[derive(Default)]
-struct WinnerStep;
+struct Winner;
 
-impl Step for WinnerStep {
+impl Step for Winner {
     type Input = Quote;
 
     fn execute(&self, _context: &mut Context, quote: Self::Input) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::go_to(&RecordQuoteStep, quote)
-            .cancel_step(&CarrierAStep)
-            .cancel_step(&CarrierBStep))
+        Ok(StepDecision::go_to(&RecordQuote, quote)
+            .cancel_step(&CarrierA)
+            .cancel_step(&CarrierB))
     }
 }
 
 #[derive(Default)]
-struct RecordQuoteStep;
+struct RecordQuote;
 
-impl Step for RecordQuoteStep {
+impl Step for RecordQuote {
     type Input = Quote;
 
     fn execute(&self, _context: &mut Context, quote: Self::Input) -> HandlerResult<StepDecision> {

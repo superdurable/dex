@@ -17,7 +17,7 @@ from dex import Context, Flow, Step, StepDecision, StepList, SubFlow, Wait, grac
 from dex_examples.patterns.parallel_subflows.example_subflow import ExampleSubFlow
 
 
-class SubFlowsStep(Step[list[str]]):
+class SubFlows(Step[list[str]]):
     def __init__(self, example_subflow: ExampleSubFlow) -> None:
         self.example_subflow = example_subflow
 
@@ -32,7 +32,7 @@ class SubFlowsStep(Step[list[str]]):
 
 class BasicParentFlow(Flow[list[str]]):
     def __init__(self, example_subflow: ExampleSubFlow) -> None:
-        self.subflows = SubFlowsStep(example_subflow)
+        self.subflows = SubFlows(example_subflow)
 
     def get_steps(self) -> StepList[list[str]]:
         return StepList.start_step(self.subflows)

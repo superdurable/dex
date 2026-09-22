@@ -47,8 +47,8 @@ func NewInterruptibleFlow() *InterruptibleFlow {
 func (*InterruptibleFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(initStep{}),
-		dex.DefineStep(workAStep{}),
-		dex.DefineStep(workBStep{}),
+		dex.DefineStep(workA{}),
+		dex.DefineStep(workB{}),
 	}
 }
 
@@ -96,23 +96,23 @@ func (initStep) Execute(
 ) (*dex.StepDecision, error) {
 	input := WorkJobParametersInput{JobUpperBound: 15, Progress: 1}
 	return dex.GoToMany(
-		dex.MovementOf(workAStep{}, input),
-		dex.MovementOf(workBStep{}, input),
+		dex.MovementOf(workA{}, input),
+		dex.MovementOf(workB{}, input),
 	), nil
 }
 
-type workAStep struct {
+type workA struct {
 	dex.StepDefaults
 }
 
-func (workAStep) WaitFor(
+func (workA) WaitFor(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.Wait, error) {
 	return dex.Until(dex.Timer(1500 * time.Millisecond)), nil
 }
 
-func (workAStep) Execute(
+func (workA) Execute(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.StepDecision, error) {
@@ -135,21 +135,21 @@ func (workAStep) Execute(
 		JobUpperBound: input.JobUpperBound,
 		Progress:      input.Progress + 1,
 	}
-	return dex.GoTo(workAStep{}, next), nil
+	return dex.GoTo(workA{}, next), nil
 }
 
-type workBStep struct {
+type workB struct {
 	dex.StepDefaults
 }
 
-func (workBStep) WaitFor(
+func (workB) WaitFor(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.Wait, error) {
 	return dex.Until(dex.Timer(3 * time.Second)), nil
 }
 
-func (workBStep) Execute(
+func (workB) Execute(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.StepDecision, error) {
@@ -172,7 +172,7 @@ func (workBStep) Execute(
 		JobUpperBound: input.JobUpperBound,
 		Progress:      input.Progress + 1,
 	}
-	return dex.GoTo(workBStep{}, next), nil
+	return dex.GoTo(workB{}, next), nil
 }
 
 var (

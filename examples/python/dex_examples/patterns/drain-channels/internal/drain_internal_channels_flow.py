@@ -48,7 +48,7 @@ class Finalize(Step[None]):
         return graceful_complete()
 
 
-class MainStep(Step[str]):
+class Main(Step[str]):
     def __init__(
         self,
         finalize: Finalize,
@@ -79,11 +79,11 @@ class MainStep(Step[str]):
         )
 
         if execution_count <= 3:
-            return go_to(MainStep, input)
+            return go_to(Main, input)
         return go_to(Finalize, None)
 
 
-class SideStep(Step[None]):
+class Side(Step[None]):
     def __init__(
         self,
         mongo_collection: ServiceDependency,
@@ -108,14 +108,14 @@ class SideStep(Step[None]):
 
         if document.final_command:
             return graceful_complete()
-        return go_to(SideStep, None)
+        return go_to(Side, None)
 
 
 class Init(Step[str]):
     def __init__(
         self,
-        side_step: SideStep,
-        main_step: MainStep,
+        side_step: Side,
+        main_step: Main,
         execution_counter: Attribute[int],
     ) -> None:
         self.side_step = side_step
@@ -125,8 +125,8 @@ class Init(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         self.execution_counter.set(context, 0)
         return go_to_many(
-            StepMovement.of(SideStep, None),
-            StepMovement.of(MainStep, input),
+            StepMovement.of(Side, None),
+            StepMovement.of(Main, input),
         )
 
 
@@ -142,13 +142,13 @@ class DrainInternalChannelFlow(Flow[str]):
 
     def __init__(self, service: ServiceDependency) -> None:
         self.finalize = Finalize(self.side_step_data)
-        self.main_step = MainStep(
+        self.main_step = Main(
             self.finalize,
             service,
             self.side_step_data,
             self.main_step_execution_counter,
         )
-        self.side_step = SideStep(service, self.side_step_data)
+        self.side_step = Side(service, self.side_step_data)
         self.init = Init(
             self.side_step,
             self.main_step,

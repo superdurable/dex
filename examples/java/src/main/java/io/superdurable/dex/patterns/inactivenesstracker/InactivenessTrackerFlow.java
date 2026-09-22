@@ -37,9 +37,9 @@ public class InactivenessTrackerFlow implements Flow<Void> {
 
     public final Channel<Void> activeChannel = Channel.define(ACTIVE_CHANNEL, Void.class);
 
-    private final TrackerStep trackerStep = new TrackerStep();
-    private final ProcessInactivenessStep processInactivenessStep =
-            new ProcessInactivenessStep();
+    private final Tracker trackerStep = new Tracker();
+    private final ProcessInactiveness processInactivenessStep =
+            new ProcessInactiveness();
 
     @Override
     public StepList<Void> getSteps() {
@@ -56,7 +56,7 @@ public class InactivenessTrackerFlow implements Flow<Void> {
         activeChannel.publish(context, null);
     }
 
-    final class TrackerStep implements Step<Void> {
+    final class Tracker implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;
@@ -72,13 +72,13 @@ public class InactivenessTrackerFlow implements Flow<Void> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             if (context.hasTimerFired()) {
-                return StepDecision.goTo(ProcessInactivenessStep.class, null);
+                return StepDecision.goTo(ProcessInactiveness.class, null);
             }
-            return StepDecision.goTo(TrackerStep.class, null);
+            return StepDecision.goTo(Tracker.class, null);
         }
     }
 
-    final class ProcessInactivenessStep implements Step<Void> {
+    final class ProcessInactiveness implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;

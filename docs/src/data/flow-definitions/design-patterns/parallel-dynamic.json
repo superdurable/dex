@@ -17,10 +17,10 @@
   },
   "nodes": [
     {
-      "id": "decision:step:DoWorkStep:37:16",
+      "id": "decision:step:DoWork:37:16",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:DoWorkStep",
+      "parentId": "step:DoWork",
       "phase": "execute",
       "span": {
         "startLine": 37,
@@ -49,9 +49,9 @@
       }
     },
     {
-      "id": "step:DoWorkStep",
+      "id": "step:DoWork",
       "kind": "step",
-      "name": "DoWorkStep",
+      "name": "DoWork",
       "phase": "execute",
       "span": {
         "startLine": 53,
@@ -79,14 +79,14 @@
       "id": "edge:0001",
       "kind": "transition",
       "from": "decision:step:InitStep:42:16",
-      "to": "step:DoWorkStep",
+      "to": "step:DoWork",
       "label": "fan-out",
       "multiplicity": "×N",
       "span": {
         "startLine": 43,
         "startColumn": 15,
         "endLine": 43,
-        "endColumn": 49
+        "endColumn": 45
       }
     }
   ],

@@ -7,7 +7,7 @@
   },
   "flow": {
     "name": "BackoffPollingFlow",
-    "startStepId": "step:PollingStep",
+    "startStepId": "step:Polling",
     "span": {
       "startLine": 63,
       "startColumn": 1,
@@ -17,10 +17,10 @@
   },
   "nodes": [
     {
-      "id": "decision:step:PollingStep:60:16",
+      "id": "decision:step:Polling:60:16",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:PollingStep",
+      "parentId": "step:Polling",
       "phase": "execute",
       "span": {
         "startLine": 60,
@@ -33,9 +33,9 @@
       }
     },
     {
-      "id": "step:PollingStep",
+      "id": "step:Polling",
       "kind": "step",
-      "name": "PollingStep",
+      "name": "Polling",
       "phase": "execute",
       "start": true,
       "span": {

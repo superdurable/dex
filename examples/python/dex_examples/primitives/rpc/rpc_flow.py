@@ -36,8 +36,8 @@ from dex import (
 )
 
 
-class RpcWaitStep(Step[int]):
-    def __init__(self, internal: Channel[None], second: "RpcCompleteStep") -> None:
+class RpcWait(Step[int]):
+    def __init__(self, internal: Channel[None], second: "RpcComplete") -> None:
         self.internal = internal
         self.second = second
 
@@ -45,15 +45,15 @@ class RpcWaitStep(Step[int]):
         return Wait.until(self.internal.for_one())
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        return go_to(RpcCompleteStep, 0)
+        return go_to(RpcComplete, 0)
 
 
-class RpcCompleteStep(Step[int]):
+class RpcComplete(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         return graceful_complete(input + 1)
 
 
-class ExampleStep(Step[str]):
+class Example(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         return graceful_complete(input)
 
@@ -63,9 +63,9 @@ class RpcFlow(Flow[int]):
     data = Attribute("rpc-data", str)
 
     def __init__(self) -> None:
-        self.second = RpcCompleteStep()
-        self.example_step = ExampleStep()
-        self.first = RpcWaitStep(self.example_ch, self.second)
+        self.second = RpcComplete()
+        self.example_step = Example()
+        self.first = RpcWait(self.example_ch, self.second)
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.first).other_steps(self.second, self.example_step)
@@ -77,4 +77,4 @@ class RpcFlow(Flow[int]):
     def trigger(self, context: Context, input: str) -> RPCResult[str]:
         self.data.set(context, input)
         self.example_ch.publish(context, None)
-        return RPCResult(input, next_steps=(StepMovement.of(ExampleStep, input),))
+        return RPCResult(input, next_steps=(StepMovement.of(Example, input),))

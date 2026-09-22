@@ -26,7 +26,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class IterationFlow implements Flow<String> {
-    private final IterationStep iterationStep = new IterationStep();
+    private final Iteration iterationStep = new Iteration();
 
     @Override
     public StepList<String> getSteps() { return StepList.startStep(iterationStep); }
@@ -34,9 +34,9 @@ public class IterationFlow implements Flow<String> {
     @Override
     public PersistenceSchema getPersistenceSchema() { return PersistenceSchema.of(); }
 
-    final class IterationStep implements Step<String> {
+    final class Iteration implements Step<String> {
         @Override public Class<String> getInputType() { return String.class; }
-        @Override public String getStepType() { return "IterationStep"; }
+        @Override public String getStepType() { return "Iteration"; }
 
         @Override
         public StepDecision execute(final Context context, final String pageToken) {
@@ -44,7 +44,7 @@ public class IterationFlow implements Flow<String> {
             System.out.printf("Migrating page %s%n", pageToken);
             return nextPageToken.isEmpty()
                     ? StepDecision.gracefulComplete()
-                    : StepDecision.goTo(IterationStep.class, nextPageToken);
+                    : StepDecision.goTo(Iteration.class, nextPageToken);
         }
     }
 }

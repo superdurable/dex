@@ -31,18 +31,18 @@ func NewSubFlowChildFlow() *SubFlowChildFlow {
 }
 
 func (*SubFlowChildFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(subFlowChildStep{})}
+	return []dex.StepDef{dex.DefineStartStep(subFlowChild{})}
 }
 
 func (*SubFlowChildFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type subFlowChildStep struct {
+type subFlowChild struct {
 	dex.StepDefaultsNoWaitFor[int]
 }
 
-func (subFlowChildStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+func (subFlowChild) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(input + 1), nil
 }
 

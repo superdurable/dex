@@ -31,8 +31,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class OptionsOverrideFlow implements Flow<String> {
-    private final OverrideFirstStep first = new OverrideFirstStep();
-    private final OverrideSecondStep second = new OverrideSecondStep();
+    private final OverrideFirst first = new OverrideFirst();
+    private final OverrideSecond second = new OverrideSecond();
 
     @Override
     public StepList<String> getSteps() {
@@ -44,7 +44,7 @@ public final class OptionsOverrideFlow implements Flow<String> {
         return PersistenceSchema.of();
     }
 
-    final class OverrideFirstStep implements Step<String> {
+    final class OverrideFirst implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -58,11 +58,11 @@ public final class OptionsOverrideFlow implements Flow<String> {
                     .build();
             final String payload = input + "_state1";
             return StepDecision.goToMany(
-                    StepMovement.of(OverrideSecondStep.class, payload, override));
+                    StepMovement.of(OverrideSecond.class, payload, override));
         }
     }
 
-    final class OverrideSecondStep implements Step<String> {
+    final class OverrideSecond implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;

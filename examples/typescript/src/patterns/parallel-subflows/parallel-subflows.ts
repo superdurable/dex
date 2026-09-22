@@ -76,11 +76,11 @@ const submitRequestInputCodec: Codec<SubmitRequestInput> = jsonCodec<SubmitReque
 
 const requestChannel = new Channel("RequestChannel", stringCodec);
 
-class DoWorkStep implements Step<string> {
+class DoWork implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public getStepType(): string {
-    return "DoWorkStep";
+    return "DoWork";
   }
 
   public async execute(_context: Context, request: string): Promise<StepDecision> {
@@ -90,7 +90,7 @@ class DoWorkStep implements Step<string> {
 }
 
 export class ExampleSubFlow implements Flow<string> {
-  private readonly doWork = new DoWorkStep();
+  private readonly doWork = new DoWork();
 
   public getFlowType(): string {
     return "ExampleSubFlow";
@@ -146,17 +146,17 @@ export class BasicParentFlow implements Flow<readonly string[]> {
 const subFlowCompletedCh = new Channel("SubFlowCompletedCh", booleanCodec);
 const allDoneCh = new Channel("AllDoneCh", booleanCodec);
 
-class WaitForHalfInitStep implements Step<readonly string[]> {
+class WaitForHalfInit implements Step<readonly string[]> {
   public readonly inputCodec = stringArrayCodec;
 
   public getStepType(): string {
-    return "InitStep";
+    return "Init";
   }
 
   public execute(_context: Context, requests: readonly string[]): StepDecision {
     if (requests.length === 0) return gracefulComplete();
     return goToMany(
-      StepMovement.of(WaitSubFlowsStep, requests.length),
+      StepMovement.of(WaitSubFlows, requests.length),
       ...requests.map((request) => StepMovement.of(SubFlowStep, request)),
     );
   }
@@ -185,11 +185,11 @@ class SubFlowStep implements Step<string> {
   }
 }
 
-class WaitSubFlowsStep implements Step<number> {
+class WaitSubFlows implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public getStepType(): string {
-    return "WaitSubFlowsStep";
+    return "WaitSubFlows";
   }
 
   public waitFor(_context: Context, total: number): Wait {
@@ -204,9 +204,9 @@ class WaitSubFlowsStep implements Step<number> {
 }
 
 export class WaitForHalfParentFlow implements Flow<readonly string[]> {
-  private readonly init = new WaitForHalfInitStep();
+  private readonly init = new WaitForHalfInit();
   private readonly subFlow: SubFlowStep;
-  private readonly waitSubFlows = new WaitSubFlowsStep();
+  private readonly waitSubFlows = new WaitSubFlows();
 
   public constructor(exampleSubFlow: ExampleSubFlow) {
     this.subFlow = new SubFlowStep(exampleSubFlow);
@@ -225,13 +225,13 @@ export class WaitForHalfParentFlow implements Flow<readonly string[]> {
   }
 }
 
-class LongLiveInitStep implements Step<ParentInput> {
+class LongLiveInit implements Step<ParentInput> {
   public readonly inputCodec = parentInputCodec;
 
   public constructor(private readonly flow: AdvancedLongLiveParentFlow) {}
 
   public getStepType(): string {
-    return "InitStep";
+    return "Init";
   }
 
   public execute(context: Context, input: ParentInput): StepDecision {
@@ -240,17 +240,17 @@ class LongLiveInitStep implements Step<ParentInput> {
     const concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
     return goToMany(
       ...Array.from({ length: concurrency }, () =>
-        StepMovement.of(LongLiveHandleRequestStep, undefined),
+        StepMovement.of(LongLiveHandleRequest, undefined),
       ),
     );
   }
 }
 
-class LongLiveHandleRequestStep implements Step<void> {
+class LongLiveHandleRequest implements Step<void> {
   public readonly inputCodec = voidCodec;
 
   public getStepType(): string {
-    return "HandleRequestStep";
+    return "HandleRequest";
   }
 
   public waitFor(_context: Context, _input: void): Wait {
@@ -260,11 +260,11 @@ class LongLiveHandleRequestStep implements Step<void> {
   public execute(context: Context, _input: void): StepDecision {
     const request = requestChannel.results(context)[0];
     if (request === undefined) throw new Error("request is missing");
-    return goTo(LongLiveHandleSubFlowStep, request);
+    return goTo(LongLiveHandleSubFlow, request);
   }
 }
 
-class LongLiveHandleSubFlowStep implements Step<string> {
+class LongLiveHandleSubFlow implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public constructor(
@@ -273,7 +273,7 @@ class LongLiveHandleSubFlowStep implements Step<string> {
   ) {}
 
   public getStepType(): string {
-    return "HandleSubFlowStep";
+    return "HandleSubFlow";
   }
 
   public waitFor(_context: Context, request: string): Wait {
@@ -283,18 +283,18 @@ class LongLiveHandleSubFlowStep implements Step<string> {
   public execute(context: Context, _request: string): StepDecision {
     return this.flow.stopped.get(context) === true
       ? gracefulComplete()
-      : goTo(LongLiveHandleRequestStep, undefined);
+      : goTo(LongLiveHandleRequest, undefined);
   }
 }
 
 export class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
   public readonly stopped = new Attribute("Stopped", booleanCodec);
-  private readonly init = new LongLiveInitStep(this);
-  private readonly handleRequest = new LongLiveHandleRequestStep();
-  private readonly handleSubFlow: LongLiveHandleSubFlowStep;
+  private readonly init = new LongLiveInit(this);
+  private readonly handleRequest = new LongLiveHandleRequest();
+  private readonly handleSubFlow: LongLiveHandleSubFlow;
 
   public constructor(exampleSubFlow: ExampleSubFlow) {
-    this.handleSubFlow = new LongLiveHandleSubFlowStep(this, exampleSubFlow);
+    this.handleSubFlow = new LongLiveHandleSubFlow(this, exampleSubFlow);
   }
 
   public getFlowType(): string {
@@ -322,13 +322,13 @@ export class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
   }
 }
 
-class ShortLiveInitStep implements Step<ParentInput> {
+class ShortLiveInit implements Step<ParentInput> {
   public readonly inputCodec = parentInputCodec;
 
   public constructor(private readonly flow: AdvancedShortLiveParentFlow) {}
 
   public getStepType(): string {
-    return "InitStep";
+    return "Init";
   }
 
   public execute(context: Context, input: ParentInput): StepDecision {
@@ -337,19 +337,19 @@ class ShortLiveInitStep implements Step<ParentInput> {
     const concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
     return goToMany(
       ...Array.from({ length: concurrency }, () =>
-        StepMovement.of(ShortLiveHandleRequestStep, undefined),
+        StepMovement.of(ShortLiveHandleRequest, undefined),
       ),
     );
   }
 }
 
-class ShortLiveHandleRequestStep implements Step<void> {
+class ShortLiveHandleRequest implements Step<void> {
   public readonly inputCodec = voidCodec;
 
   public constructor(private readonly flow: AdvancedShortLiveParentFlow) {}
 
   public getStepType(): string {
-    return "HandleRequestStep";
+    return "HandleRequest";
   }
 
   public getStepOptions(): StepOptions {
@@ -364,11 +364,11 @@ class ShortLiveHandleRequestStep implements Step<void> {
     const request = requestChannel.results(context)[0];
     if (request === undefined) throw new Error("request is missing");
     this.flow.currSubFlowNum.set(context, (this.flow.currSubFlowNum.get(context) ?? 0) + 1);
-    return goTo(ShortLiveHandleSubFlowStep, request);
+    return goTo(ShortLiveHandleSubFlow, request);
   }
 }
 
-class ShortLiveHandleSubFlowStep implements Step<string> {
+class ShortLiveHandleSubFlow implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public constructor(
@@ -377,7 +377,7 @@ class ShortLiveHandleSubFlowStep implements Step<string> {
   ) {}
 
   public getStepType(): string {
-    return "HandleSubFlowStep";
+    return "HandleSubFlow";
   }
 
   public getStepOptions(): StepOptions {
@@ -394,22 +394,22 @@ class ShortLiveHandleSubFlowStep implements Step<string> {
     if (current === 0) {
       return forceCompleteIfChannelsEmpty(
         null,
-        StepMovement.of(ShortLiveHandleRequestStep, undefined),
+        StepMovement.of(ShortLiveHandleRequest, undefined),
         requestChannel,
       );
     }
-    return goTo(ShortLiveHandleRequestStep, undefined);
+    return goTo(ShortLiveHandleRequest, undefined);
   }
 }
 
 export class AdvancedShortLiveParentFlow implements Flow<ParentInput> {
   public readonly currSubFlowNum = new Attribute("CurrSubFlowNum", doubleCodec);
-  private readonly init = new ShortLiveInitStep(this);
-  private readonly handleRequest = new ShortLiveHandleRequestStep(this);
-  private readonly handleSubFlow: ShortLiveHandleSubFlowStep;
+  private readonly init = new ShortLiveInit(this);
+  private readonly handleRequest = new ShortLiveHandleRequest(this);
+  private readonly handleSubFlow: ShortLiveHandleSubFlow;
 
   public constructor(exampleSubFlow: ExampleSubFlow) {
-    this.handleSubFlow = new ShortLiveHandleSubFlowStep(this, exampleSubFlow);
+    this.handleSubFlow = new ShortLiveHandleSubFlow(this, exampleSubFlow);
   }
 
   public getFlowType(): string {

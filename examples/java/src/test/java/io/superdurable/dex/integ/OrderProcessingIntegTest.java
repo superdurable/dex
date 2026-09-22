@@ -45,7 +45,7 @@ public class OrderProcessingIntegTest {
         assertFalse(runId.isEmpty());
         environment.client().waitForStepCompletion(
                 flowId,
-                StepExecutionId.of("ChargeStep"),
+                StepExecutionId.of("Charge"),
                 waitOptions());
         assertEquals("ok", environment.client().invokeRPC(
                 environment.client().newRpcStub(OrderProcessingFlow.class, flowId)::approve,
@@ -67,14 +67,14 @@ public class OrderProcessingIntegTest {
                 environment.startOptions());
         environment.client().waitForStepCompletion(
                 flowId,
-                StepExecutionId.of("ChargeStep"),
+                StepExecutionId.of("Charge"),
                 waitOptions());
         environment.awaitCondition(
                 () -> {
                     try {
                         environment.client().skipTimer(
                                 flowId,
-                                StepExecutionId.of("ShipStep"),
+                                StepExecutionId.of("Ship"),
                                 TimerId.byConditionIndex(0));
                         return Boolean.TRUE;
                     } catch (final RuntimeException ignored) {
@@ -86,7 +86,7 @@ public class OrderProcessingIntegTest {
                 "skip timer did not succeed");
         environment.client().waitForStepCompletion(
                 flowId,
-                StepExecutionId.of("ShipStep"),
+                StepExecutionId.of("Ship"),
                 waitOptions());
         assertEquals("ok", environment.client().invokeRPC(
                 environment.client().newRpcStub(OrderProcessingFlow.class, flowId)::approve,
@@ -108,7 +108,7 @@ public class OrderProcessingIntegTest {
                 environment.startOptions());
         environment.client().waitForStepCompletion(
                 flowId,
-                StepExecutionId.of("ChargeStep"),
+                StepExecutionId.of("Charge"),
                 waitOptions());
         assertEquals("ok", environment.client().invokeRPC(
                 environment.client().newRpcStub(OrderProcessingFlow.class, flowId)::approve,

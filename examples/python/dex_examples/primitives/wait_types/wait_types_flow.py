@@ -42,7 +42,7 @@ class WaitTypesInput:
     timeout_seconds: int
 
 
-class WaitTypesStep(Step[WaitTypesInput]):
+class WaitTypes(Step[WaitTypesInput]):
     def wait_for(self, context: Context, input: WaitTypesInput) -> Wait:
         timeout = timedelta(seconds=input.timeout_seconds)
         if input.mode == "any":
@@ -73,7 +73,7 @@ class WaitTypesStep(Step[WaitTypesInput]):
 
 class WaitTypesFlow(Flow[WaitTypesInput]):
     def __init__(self) -> None:
-        self.wait_types = WaitTypesStep()
+        self.wait_types = WaitTypes()
 
     def get_steps(self) -> StepList[WaitTypesInput]:
         return StepList.start_step(self.wait_types)

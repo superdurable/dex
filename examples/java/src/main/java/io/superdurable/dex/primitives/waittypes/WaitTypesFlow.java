@@ -53,7 +53,7 @@ final class WaitTypesInput {
 public class WaitTypesFlow implements Flow<WaitTypesInput> {
     public final Channel<String> channelA = Channel.define("SignalA", String.class);
     public final Channel<String> channelB = Channel.define("SignalB", String.class);
-    private final WaitTypesStep waitTypes = new WaitTypesStep();
+    private final WaitTypes waitTypes = new WaitTypes();
 
     @Override
     public StepList<WaitTypesInput> getSteps() {
@@ -75,7 +75,7 @@ public class WaitTypesFlow implements Flow<WaitTypesInput> {
         channelB.publish(context, "signal-b");
     }
 
-    final class WaitTypesStep implements Step<WaitTypesInput> {
+    final class WaitTypes implements Step<WaitTypesInput> {
         @Override
         public Class<WaitTypesInput> getInputType() {
             return WaitTypesInput.class;

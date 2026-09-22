@@ -51,7 +51,7 @@ test("orderProcessingHappyPath", async () => {
   assert.ok(runId.length > 0);
   await environment.client.waitForStepCompletion(
     flowId,
-    StepExecutionId.of("ChargeStep"),
+    StepExecutionId.of("Charge"),
     { maximumWaitTimeMs: 30_000 },
   );
   assert.equal(
@@ -81,7 +81,7 @@ test("orderProcessingReminderThenShip", async () => {
   );
   await environment.client.waitForStepCompletion(
     flowId,
-    StepExecutionId.of("ChargeStep"),
+    StepExecutionId.of("Charge"),
     { maximumWaitTimeMs: 30_000 },
   );
   await awaitCondition(
@@ -89,7 +89,7 @@ test("orderProcessingReminderThenShip", async () => {
       try {
         await environment.client.skipTimer(
           flowId,
-          StepExecutionId.of("ShipStep"),
+          StepExecutionId.of("Ship"),
           TimerId.byConditionIndex(0),
         );
         return true;
@@ -103,7 +103,7 @@ test("orderProcessingReminderThenShip", async () => {
   );
   await environment.client.waitForStepCompletion(
     flowId,
-    StepExecutionId.of("ShipStep"),
+    StepExecutionId.of("Ship"),
     { maximumWaitTimeMs: 30_000 },
   );
   assert.equal(
@@ -133,7 +133,7 @@ test("orderProcessingShipFailureRefunds", async () => {
   );
   await environment.client.waitForStepCompletion(
     flowId,
-    StepExecutionId.of("ChargeStep"),
+    StepExecutionId.of("Charge"),
     { maximumWaitTimeMs: 30_000 },
   );
   assert.equal(

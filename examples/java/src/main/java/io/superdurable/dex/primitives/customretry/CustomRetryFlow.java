@@ -31,7 +31,7 @@ import java.time.Duration;
 
 @Component
 public final class CustomRetryFlow implements Flow<Integer> {
-    private final CustomRetryStep start = new CustomRetryStep();
+    private final CustomRetry start = new CustomRetry();
 
     @Override
     public StepList<Integer> getSteps() {
@@ -43,7 +43,7 @@ public final class CustomRetryFlow implements Flow<Integer> {
         return PersistenceSchema.of();
     }
 
-    final class CustomRetryStep implements Step<Integer> {
+    final class CustomRetry implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;

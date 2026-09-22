@@ -29,7 +29,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class FirstWinParallelStepsFlow implements Flow<Integer> {
     private final InitStep init = new InitStep();
-    private final DoWorkStep work = new DoWorkStep();
+    private final DoWork work = new DoWork();
 
     @Override
     public StepList<Integer> getSteps() {
@@ -51,13 +51,13 @@ public class FirstWinParallelStepsFlow implements Flow<Integer> {
         public StepDecision execute(final Context context, final Integer count) {
             final StepMovement<?>[] movements = new StepMovement<?>[count];
             for (int index = 0; index < count; index++) {
-                movements[index] = StepMovement.of(DoWorkStep.class, index);
+                movements[index] = StepMovement.of(DoWork.class, index);
             }
             return StepDecision.goToMany(movements);
         }
     }
 
-    final class DoWorkStep implements Step<Integer> {
+    final class DoWork implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
@@ -72,7 +72,7 @@ public class FirstWinParallelStepsFlow implements Flow<Integer> {
                 throw new IllegalStateException(error);
             }
             return StepDecision.gracefulComplete(input)
-                    .withCancelingSiblingSteps(DoWorkStep.class);
+                    .withCancelingSiblingSteps(DoWork.class);
         }
     }
 

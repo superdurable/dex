@@ -48,7 +48,7 @@ class PendingMessage:
     value: str
 
 
-class ChannelWaitStep(Step[int]):
+class ChannelWait(Step[int]):
     def __init__(
         self,
         approval_messages: Channel[str],
@@ -83,7 +83,7 @@ class ChannelFlow(Flow[int]):
     prioritized_messages = Channel("PrioritizedMessages", str)
 
     def __init__(self) -> None:
-        self.wait_for_approval = ChannelWaitStep(
+        self.wait_for_approval = ChannelWait(
             self.approval_messages, self.queued_messages
         )
 

@@ -32,10 +32,10 @@ import java.time.Duration;
 
 @Component
 public final class DurabilityFlow implements Flow<String> {
-    private final RouteDurabilityStep route = new RouteDurabilityStep();
-    private final SyncWorkStep syncWork = new SyncWorkStep();
-    private final AsyncWorkStep asyncWork = new AsyncWorkStep();
-    private final FinishDurabilityStep finish = new FinishDurabilityStep();
+    private final RouteDurability route = new RouteDurability();
+    private final SyncWork syncWork = new SyncWork();
+    private final AsyncWork asyncWork = new AsyncWork();
+    private final FinishDurability finish = new FinishDurability();
 
     @Override
     public StepList<String> getSteps() {
@@ -47,7 +47,7 @@ public final class DurabilityFlow implements Flow<String> {
         return PersistenceSchema.of();
     }
 
-    final class RouteDurabilityStep implements Step<String> {
+    final class RouteDurability implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -56,13 +56,13 @@ public final class DurabilityFlow implements Flow<String> {
         @Override
         public StepDecision execute(final Context context, final String mode) {
             if ("async".equals(mode)) {
-                return StepDecision.goTo(AsyncWorkStep.class, mode);
+                return StepDecision.goTo(AsyncWork.class, mode);
             }
-            return StepDecision.goTo(SyncWorkStep.class, mode);
+            return StepDecision.goTo(SyncWork.class, mode);
         }
     }
 
-    final class SyncWorkStep implements Step<String> {
+    final class SyncWork implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -70,7 +70,7 @@ public final class DurabilityFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String mode) {
-            return StepDecision.goTo(FinishDurabilityStep.class, "sync:" + mode);
+            return StepDecision.goTo(FinishDurability.class, "sync:" + mode);
         }
 
         @Override
@@ -81,7 +81,7 @@ public final class DurabilityFlow implements Flow<String> {
         }
     }
 
-    final class AsyncWorkStep implements Step<String> {
+    final class AsyncWork implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -89,7 +89,7 @@ public final class DurabilityFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String mode) {
-            return StepDecision.goTo(FinishDurabilityStep.class, "async:" + mode);
+            return StepDecision.goTo(FinishDurability.class, "async:" + mode);
         }
 
         @Override
@@ -100,7 +100,7 @@ public final class DurabilityFlow implements Flow<String> {
         }
     }
 
-    static final class FinishDurabilityStep implements Step<String> {
+    static final class FinishDurability implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;

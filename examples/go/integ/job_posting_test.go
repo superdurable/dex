@@ -47,7 +47,7 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 	require.NoError(t, integClient.WaitForStepCompletion(
 		ctx,
 		flowID,
-		dex.StepExecutionID{StepType: "InitStep"},
+		dex.StepExecutionID{StepType: "Init"},
 		dex.WaitForStepCompletionOptions{},
 	))
 

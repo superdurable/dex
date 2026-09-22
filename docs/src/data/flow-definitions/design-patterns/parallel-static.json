@@ -33,10 +33,10 @@
       }
     },
     {
-      "id": "decision:step:WorkAStep:30:16",
+      "id": "decision:step:WorkA:30:16",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:WorkAStep",
+      "parentId": "step:WorkA",
       "phase": "execute",
       "span": {
         "startLine": 30,
@@ -49,10 +49,10 @@
       }
     },
     {
-      "id": "decision:step:WorkBStep:35:16",
+      "id": "decision:step:WorkB:35:16",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:WorkBStep",
+      "parentId": "step:WorkB",
       "phase": "execute",
       "span": {
         "startLine": 35,
@@ -78,9 +78,9 @@
       }
     },
     {
-      "id": "step:WorkAStep",
+      "id": "step:WorkA",
       "kind": "step",
-      "name": "WorkAStep",
+      "name": "WorkA",
       "phase": "execute",
       "span": {
         "startLine": 53,
@@ -90,9 +90,9 @@
       }
     },
     {
-      "id": "step:WorkBStep",
+      "id": "step:WorkB",
       "kind": "step",
-      "name": "WorkBStep",
+      "name": "WorkB",
       "phase": "execute",
       "span": {
         "startLine": 53,
@@ -107,26 +107,26 @@
       "id": "edge:0001",
       "kind": "transition",
       "from": "decision:step:InitStep:40:16",
-      "to": "step:WorkAStep",
+      "to": "step:WorkA",
       "label": "fan-out",
       "span": {
         "startLine": 41,
         "startColumn": 13,
         "endLine": 41,
-        "endColumn": 46
+        "endColumn": 42
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
       "from": "decision:step:InitStep:40:16",
-      "to": "step:WorkBStep",
+      "to": "step:WorkB",
       "label": "fan-out",
       "span": {
         "startLine": 42,
         "startColumn": 13,
         "endLine": 42,
-        "endColumn": 46
+        "endColumn": 42
       }
     }
   ],

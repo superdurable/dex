@@ -26,7 +26,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class SubFlowChildFlow implements Flow<Integer> {
-    private final SubFlowChildStep start = new SubFlowChildStep();
+    private final SubFlowChild start = new SubFlowChild();
 
     @Override
     public StepList<Integer> getSteps() {
@@ -38,7 +38,7 @@ public final class SubFlowChildFlow implements Flow<Integer> {
         return PersistenceSchema.of();
     }
 
-    static final class SubFlowChildStep implements Step<Integer> {
+    static final class SubFlowChild implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;

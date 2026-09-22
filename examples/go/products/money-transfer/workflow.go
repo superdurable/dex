@@ -46,12 +46,12 @@ func NewMoneyTransferFlow(applicationService service.MyService) *MoneyTransferFl
 
 func (flow *MoneyTransferFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(checkBalanceStep{service: flow.service}),
-		dex.DefineStep(createDebitMemoStep{service: flow.service}),
-		dex.DefineStep(debitStep{service: flow.service}),
-		dex.DefineStep(createCreditMemoStep{service: flow.service}),
+		dex.DefineStartStep(checkBalance{service: flow.service}),
+		dex.DefineStep(createDebitMemo{service: flow.service}),
+		dex.DefineStep(debit{service: flow.service}),
+		dex.DefineStep(createCreditMemo{service: flow.service}),
 		dex.DefineStep(creditStep{service: flow.service}),
-		dex.DefineStep(compensateStep{service: flow.service}),
+		dex.DefineStep(compensate{service: flow.service}),
 	}
 }
 
@@ -59,32 +59,32 @@ func (*MoneyTransferFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type checkBalanceStep struct {
+type checkBalance struct {
 	dex.StepDefaultsNoWaitFor[TransferRequest]
 	service service.MyService
 }
 
-func (step checkBalanceStep) Execute(
+func (step checkBalance) Execute(
 	_ dex.Context,
 	request TransferRequest,
 ) (*dex.StepDecision, error) {
 	if !step.service.CheckBalance(request.FromAccount, request.Amount) {
 		return dex.ForceFail("insufficient funds"), nil
 	}
-	return dex.GoTo(createDebitMemoStep{}, request), nil
+	return dex.GoTo(createDebitMemo{}, request), nil
 }
 
-type createDebitMemoStep struct {
+type createDebitMemo struct {
 	dex.DefaultStepType
 	dex.NoWaitFor[TransferRequest]
 	service service.MyService
 }
 
-func (createDebitMemoStep) GetStepOptions() *dex.StepOptions {
+func (createDebitMemo) GetStepOptions() *dex.StepOptions {
 	return compensatedStepOptions(time.Hour)
 }
 
-func (step createDebitMemoStep) Execute(
+func (step createDebitMemo) Execute(
 	_ dex.Context,
 	request TransferRequest,
 ) (*dex.StepDecision, error) {
@@ -95,40 +95,40 @@ func (step createDebitMemoStep) Execute(
 	); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(debitStep{}, request), nil
+	return dex.GoTo(debit{}, request), nil
 }
 
-type debitStep struct {
+type debit struct {
 	dex.DefaultStepType
 	dex.NoWaitFor[TransferRequest]
 	service service.MyService
 }
 
-func (debitStep) GetStepOptions() *dex.StepOptions {
+func (debit) GetStepOptions() *dex.StepOptions {
 	return compensatedStepOptions(time.Hour)
 }
 
-func (step debitStep) Execute(
+func (step debit) Execute(
 	_ dex.Context,
 	request TransferRequest,
 ) (*dex.StepDecision, error) {
 	if err := step.service.Debit(request.FromAccount, request.Amount); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(createCreditMemoStep{}, request), nil
+	return dex.GoTo(createCreditMemo{}, request), nil
 }
 
-type createCreditMemoStep struct {
+type createCreditMemo struct {
 	dex.DefaultStepType
 	dex.NoWaitFor[TransferRequest]
 	service service.MyService
 }
 
-func (createCreditMemoStep) GetStepOptions() *dex.StepOptions {
+func (createCreditMemo) GetStepOptions() *dex.StepOptions {
 	return compensatedStepOptions(time.Hour)
 }
 
-func (step createCreditMemoStep) Execute(
+func (step createCreditMemo) Execute(
 	_ dex.Context,
 	request TransferRequest,
 ) (*dex.StepDecision, error) {
@@ -167,19 +167,19 @@ func (step creditStep) Execute(
 	)), nil
 }
 
-type compensateStep struct {
+type compensate struct {
 	dex.DefaultStepType
 	dex.NoWaitFor[TransferRequest]
 	service service.MyService
 }
 
-func (compensateStep) GetStepOptions() *dex.StepOptions {
+func (compensate) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{TotalDuration: 24 * time.Hour},
 	}
 }
 
-func (step compensateStep) Execute(
+func (step compensate) Execute(
 	_ dex.Context,
 	request TransferRequest,
 ) (*dex.StepDecision, error) {
@@ -217,7 +217,7 @@ func compensatedStepOptions(totalDuration time.Duration) *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{TotalDuration: totalDuration},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
-			compensateStep{},
+			compensate{},
 			&dex.StepOptions{
 				ExecuteRetry: &dex.RetryPolicy{TotalDuration: 24 * time.Hour},
 			},

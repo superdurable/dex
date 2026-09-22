@@ -32,32 +32,32 @@ type FirstWinParallelStepsFlow struct{ dex.FlowDefaults }
 func NewFirstWinParallelStepsFlow() *FirstWinParallelStepsFlow { return &FirstWinParallelStepsFlow{} }
 
 func (*FirstWinParallelStepsFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(firstWinInitStep{}), dex.DefineStep(firstWinWorkStep{})}
+	return []dex.StepDef{dex.DefineStartStep(firstWinInit{}), dex.DefineStep(firstWinWork{})}
 }
 
 func (*FirstWinParallelStepsFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type firstWinInitStep struct{ dex.StepDefaultsNoWaitFor[int] }
+type firstWinInit struct{ dex.StepDefaultsNoWaitFor[int] }
 
-func (firstWinInitStep) GetStepType() string { return "InitStep" }
+func (firstWinInit) GetStepType() string { return "Init" }
 
-func (firstWinInitStep) Execute(_ dex.Context, count int) (*dex.StepDecision, error) {
+func (firstWinInit) Execute(_ dex.Context, count int) (*dex.StepDecision, error) {
 	movements := make([]dex.StepMovement, 0, count)
 	for index := 0; index < count; index++ {
-		movements = append(movements, dex.MovementOf(firstWinWorkStep{}, index))
+		movements = append(movements, dex.MovementOf(firstWinWork{}, index))
 	}
 	return dex.GoToMany(movements...), nil
 }
 
-type firstWinWorkStep struct{ dex.StepDefaultsNoWaitFor[int] }
+type firstWinWork struct{ dex.StepDefaultsNoWaitFor[int] }
 
-func (firstWinWorkStep) GetStepType() string { return "DoWorkStep" }
+func (firstWinWork) GetStepType() string { return "DoWork" }
 
-func (firstWinWorkStep) Execute(_ dex.Context, index int) (*dex.StepDecision, error) {
+func (firstWinWork) Execute(_ dex.Context, index int) (*dex.StepDecision, error) {
 	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
-	return dex.GracefulComplete(index).CancelSiblingSteps(firstWinWorkStep{}), nil
+	return dex.GracefulComplete(index).CancelSiblingSteps(firstWinWork{}), nil
 }
 
 var _ dex.Flow = (*FirstWinParallelStepsFlow)(nil)

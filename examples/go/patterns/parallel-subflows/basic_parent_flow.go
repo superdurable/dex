@@ -32,21 +32,21 @@ func NewBasicParentFlow(exampleFlow *ExampleSubFlow) *BasicParentFlow {
 }
 
 func (flow *BasicParentFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(subFlowsStep{exampleFlow: flow.exampleFlow})}
+	return []dex.StepDef{dex.DefineStartStep(subFlows{exampleFlow: flow.exampleFlow})}
 }
 
 func (*BasicParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type subFlowsStep struct {
+type subFlows struct {
 	dex.StepDefaults
 	exampleFlow *ExampleSubFlow
 }
 
-func (subFlowsStep) GetStepType() string { return "SubFlowsStep" }
+func (subFlows) GetStepType() string { return "SubFlows" }
 
-func (step subFlowsStep) WaitFor(_ dex.Context, requests []string) (*dex.Wait, error) {
+func (step subFlows) WaitFor(_ dex.Context, requests []string) (*dex.Wait, error) {
 	conditions := make([]dex.Condition, 0, len(requests))
 	for _, request := range requests {
 		conditions = append(conditions, dex.SubFlow(step.exampleFlow, request))
@@ -54,7 +54,7 @@ func (step subFlowsStep) WaitFor(_ dex.Context, requests []string) (*dex.Wait, e
 	return dex.AllOf(conditions...), nil
 }
 
-func (subFlowsStep) Execute(_ dex.Context, _ []string) (*dex.StepDecision, error) {
+func (subFlows) Execute(_ dex.Context, _ []string) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(nil), nil
 }
 

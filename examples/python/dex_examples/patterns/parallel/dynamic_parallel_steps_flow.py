@@ -29,7 +29,7 @@ from dex import (
 )
 
 
-class DoWorkStep(Step[int]):
+class DoWork(Step[int]):
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, input: int
     ) -> StepDecision:
@@ -40,14 +40,14 @@ class DoWorkStep(Step[int]):
 class InitStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         return go_to_many(
-            *(StepMovement.of(DoWorkStep, index) for index in range(input))
+            *(StepMovement.of(DoWork, index) for index in range(input))
         )
 
 
 class DynamicParallelStepsFlow(Flow[int]):
     def __init__(self) -> None:
         self.init = InitStep()
-        self.work = DoWorkStep()
+        self.work = DoWork()
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.init).other_steps(self.work)

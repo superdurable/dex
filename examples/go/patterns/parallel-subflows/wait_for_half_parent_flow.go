@@ -47,9 +47,9 @@ func NewWaitForHalfParentFlow(
 
 func (flow *WaitForHalfParentFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(waitForHalfInitStep{}),
-		dex.DefineStep(subFlowStep{getClient: flow.getClient, exampleFlow: flow.exampleFlow}),
-		dex.DefineStep(waitSubFlowsStep{}),
+		dex.DefineStartStep(waitForHalfInit{}),
+		dex.DefineStep(subFlow{getClient: flow.getClient, exampleFlow: flow.exampleFlow}),
+		dex.DefineStep(waitSubFlows{}),
 	}
 }
 
@@ -57,37 +57,37 @@ func (*WaitForHalfParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Channels: []dex.ChannelDef{SubFlowCompletedCh, AllDoneCh}}
 }
 
-type waitForHalfInitStep struct {
+type waitForHalfInit struct {
 	dex.StepDefaultsNoWaitFor[[]string]
 }
 
-func (waitForHalfInitStep) GetStepType() string { return "InitStep" }
+func (waitForHalfInit) GetStepType() string { return "Init" }
 
-func (waitForHalfInitStep) Execute(_ dex.Context, requests []string) (*dex.StepDecision, error) {
+func (waitForHalfInit) Execute(_ dex.Context, requests []string) (*dex.StepDecision, error) {
 	if len(requests) == 0 {
 		return dex.GracefulComplete(nil), nil
 	}
 	movements := make([]dex.StepMovement, 0, len(requests)+1)
-	movements = append(movements, dex.MovementOf(waitSubFlowsStep{}, len(requests)))
+	movements = append(movements, dex.MovementOf(waitSubFlows{}, len(requests)))
 	for _, request := range requests {
-		movements = append(movements, dex.MovementOf(subFlowStep{}, request))
+		movements = append(movements, dex.MovementOf(subFlow{}, request))
 	}
 	return dex.GoToMany(movements...), nil
 }
 
-type subFlowStep struct {
+type subFlow struct {
 	dex.StepDefaults
 	getClient   func() *dex.Client
 	exampleFlow *ExampleSubFlow
 }
 
-func (subFlowStep) GetStepType() string { return "SubFlowStep" }
+func (subFlow) GetStepType() string { return "SubFlow" }
 
-func (step subFlowStep) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
+func (step subFlow) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
 	return dex.AnyOf(dex.SubFlow(step.exampleFlow, request), AllDoneCh.ForOne()), nil
 }
 
-func (step subFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+func (step subFlow) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
 	result, err := dex.SubFlowResult(ctx)
 	if err != nil {
 		return nil, err
@@ -114,15 +114,15 @@ func (step subFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, e
 	return dex.GracefulComplete(nil), nil
 }
 
-type waitSubFlowsStep struct{ dex.StepDefaults }
+type waitSubFlows struct{ dex.StepDefaults }
 
-func (waitSubFlowsStep) GetStepType() string { return "WaitSubFlowsStep" }
+func (waitSubFlows) GetStepType() string { return "WaitSubFlows" }
 
-func (waitSubFlowsStep) WaitFor(_ dex.Context, total int) (*dex.Wait, error) {
+func (waitSubFlows) WaitFor(_ dex.Context, total int) (*dex.Wait, error) {
 	return dex.Until(SubFlowCompletedCh.ForN((total + 1) / 2)), nil
 }
 
-func (waitSubFlowsStep) Execute(ctx dex.Context, total int) (*dex.StepDecision, error) {
+func (waitSubFlows) Execute(ctx dex.Context, total int) (*dex.StepDecision, error) {
 	remaining := total - (total+1)/2
 	for index := 0; index < remaining; index++ {
 		if err := AllDoneCh.Publish(ctx, true); err != nil {

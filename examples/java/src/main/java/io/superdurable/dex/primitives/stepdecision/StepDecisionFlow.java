@@ -31,12 +31,12 @@ import java.time.Duration;
 
 @Component
 public final class StepDecisionFlow implements Flow<String> {
-    private final RouteStep route = new RouteStep();
-    private final CarrierAStep carrierA = new CarrierAStep();
-    private final CarrierBStep carrierB = new CarrierBStep();
-    private final WinnerStep winner = new WinnerStep();
-    private final RecordQuoteStep recordQuote = new RecordQuoteStep();
-    private final BranchWorkerStep branchWorker = new BranchWorkerStep();
+    private final Route route = new Route();
+    private final CarrierA carrierA = new CarrierA();
+    private final CarrierB carrierB = new CarrierB();
+    private final Winner winner = new Winner();
+    private final RecordQuote recordQuote = new RecordQuote();
+    private final BranchWorker branchWorker = new BranchWorker();
 
     @Override
     public StepList<String> getSteps() {
@@ -67,7 +67,7 @@ public final class StepDecisionFlow implements Flow<String> {
         }
     }
 
-    final class RouteStep implements Step<String> {
+    final class Route implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -80,19 +80,19 @@ public final class StepDecisionFlow implements Flow<String> {
                     return StepDecision.gracefulComplete("done");
                 case "dead-end":
                     return StepDecision.goToMany(
-                            StepMovement.of(BranchWorkerStep.class, "left"),
-                            StepMovement.of(BranchWorkerStep.class, "right"));
+                            StepMovement.of(BranchWorker.class, "left"),
+                            StepMovement.of(BranchWorker.class, "right"));
                 default:
                     final Quote quote = new Quote("winner", 9);
                     return StepDecision.goToMany(
-                            StepMovement.of(CarrierAStep.class, new Quote("A", 10)),
-                            StepMovement.of(CarrierBStep.class, new Quote("B", 12)),
-                            StepMovement.of(WinnerStep.class, quote));
+                            StepMovement.of(CarrierA.class, new Quote("A", 10)),
+                            StepMovement.of(CarrierB.class, new Quote("B", 12)),
+                            StepMovement.of(Winner.class, quote));
             }
         }
     }
 
-    static final class BranchWorkerStep implements Step<String> {
+    static final class BranchWorker implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -104,7 +104,7 @@ public final class StepDecisionFlow implements Flow<String> {
         }
     }
 
-    static final class CarrierAStep implements Step<Quote> {
+    static final class CarrierA implements Step<Quote> {
         @Override
         public Class<Quote> getInputType() {
             return Quote.class;
@@ -121,7 +121,7 @@ public final class StepDecisionFlow implements Flow<String> {
         }
     }
 
-    static final class CarrierBStep implements Step<Quote> {
+    static final class CarrierB implements Step<Quote> {
         @Override
         public Class<Quote> getInputType() {
             return Quote.class;
@@ -138,7 +138,7 @@ public final class StepDecisionFlow implements Flow<String> {
         }
     }
 
-    final class WinnerStep implements Step<Quote> {
+    final class Winner implements Step<Quote> {
         @Override
         public Class<Quote> getInputType() {
             return Quote.class;
@@ -146,12 +146,12 @@ public final class StepDecisionFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final Quote quote) {
-            return StepDecision.goTo(RecordQuoteStep.class, quote)
-                    .withCancelingSteps(CarrierAStep.class, CarrierBStep.class);
+            return StepDecision.goTo(RecordQuote.class, quote)
+                    .withCancelingSteps(CarrierA.class, CarrierB.class);
         }
     }
 
-    final class RecordQuoteStep implements Step<Quote> {
+    final class RecordQuote implements Step<Quote> {
         @Override
         public Class<Quote> getInputType() {
             return Quote.class;

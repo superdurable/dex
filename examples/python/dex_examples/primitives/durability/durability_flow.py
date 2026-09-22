@@ -31,17 +31,17 @@ from dex import (
 )
 
 
-class RouteDurabilityStep(Step[str]):
+class RouteDurability(Step[str]):
     def __init__(self, flow: DurabilityFlow) -> None:
         self.flow = flow
 
     def execute(self, context: Context, mode: str) -> StepDecision:
         if mode == "async":
-            return go_to(AsyncWorkStep, mode)
-        return go_to(SyncWorkStep, mode)
+            return go_to(AsyncWork, mode)
+        return go_to(SyncWork, mode)
 
 
-class SyncWorkStep(Step[str]):
+class SyncWork(Step[str]):
     def __init__(self, flow: DurabilityFlow) -> None:
         self.flow = flow
 
@@ -49,10 +49,10 @@ class SyncWorkStep(Step[str]):
         return StepOptions(execute_durability=StepDurability.SYNC)
 
     def execute(self, context: Context, mode: str) -> StepDecision:
-        return go_to(FinishDurabilityStep, f"sync:{mode}")
+        return go_to(FinishDurability, f"sync:{mode}")
 
 
-class AsyncWorkStep(Step[str]):
+class AsyncWork(Step[str]):
     def __init__(self, flow: DurabilityFlow) -> None:
         self.flow = flow
 
@@ -60,10 +60,10 @@ class AsyncWorkStep(Step[str]):
         return StepOptions(execute_durability=StepDurability.ASYNC)
 
     def execute(self, context: Context, mode: str) -> StepDecision:
-        return go_to(FinishDurabilityStep, f"async:{mode}")
+        return go_to(FinishDurability, f"async:{mode}")
 
 
-class FinishDurabilityStep(Step[str]):
+class FinishDurability(Step[str]):
     def wait_for(self, context: Context, label: str) -> Wait:
         return Wait.until(Timer.by_duration(timedelta(seconds=1)))
 
@@ -73,10 +73,10 @@ class FinishDurabilityStep(Step[str]):
 
 class DurabilityFlow(Flow[str]):
     def __init__(self) -> None:
-        self.finish = FinishDurabilityStep()
-        self.sync_work = SyncWorkStep(self)
-        self.async_work = AsyncWorkStep(self)
-        self.route = RouteDurabilityStep(self)
+        self.finish = FinishDurability()
+        self.sync_work = SyncWork(self)
+        self.async_work = AsyncWork(self)
+        self.route = RouteDurability(self)
 
     def get_steps(self) -> StepList[str]:
         return StepList.start_step(self.route).other_steps(

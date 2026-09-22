@@ -23,7 +23,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class BasicParentFlow implements Flow<String[]> {
-    private final SubFlowsStep subFlowsStep = new SubFlowsStep();
+    private final SubFlows subFlowsStep = new SubFlows();
 
     @Override
     public StepList<String[]> getSteps() {
@@ -35,7 +35,7 @@ public final class BasicParentFlow implements Flow<String[]> {
         return PersistenceSchema.of();
     }
 
-    static final class SubFlowsStep implements Step<String[]> {
+    static final class SubFlows implements Step<String[]> {
         @Override
         public Class<String[]> getInputType() {
             return String[].class;

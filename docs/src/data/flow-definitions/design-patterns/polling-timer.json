@@ -7,7 +7,7 @@
   },
   "flow": {
     "name": "PollingWithTimerFlow",
-    "startStepId": "step:PollingStep",
+    "startStepId": "step:Polling",
     "span": {
       "startLine": 51,
       "startColumn": 1,
@@ -17,23 +17,23 @@
   },
   "nodes": [
     {
-      "id": "decision-dispatch:step:PollingStep",
+      "id": "decision-dispatch:step:Polling",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "step:PollingStep",
+      "parentId": "step:Polling",
       "phase": "execute",
       "span": {
         "startLine": 40,
         "startColumn": 5,
         "endLine": 43,
-        "endColumn": 40
+        "endColumn": 36
       }
     },
     {
-      "id": "decision:step:PollingStep:42:20",
+      "id": "decision:step:Polling:42:20",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:PollingStep",
+      "parentId": "step:Polling",
       "condition": "self._is_system_ready()",
       "phase": "execute",
       "span": {
@@ -47,26 +47,26 @@
       }
     },
     {
-      "id": "decision:step:PollingStep:43:16",
+      "id": "decision:step:Polling:43:16",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:PollingStep",
+      "parentId": "step:Polling",
       "condition": "not (self._is_system_ready())",
       "phase": "execute",
       "span": {
         "startLine": 43,
         "startColumn": 16,
         "endLine": 43,
-        "endColumn": 40
+        "endColumn": 36
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "step:PollingStep",
+      "id": "step:Polling",
       "kind": "step",
-      "name": "PollingStep",
+      "name": "Polling",
       "phase": "wait_for+execute",
       "start": true,
       "span": {
@@ -77,10 +77,10 @@
       }
     },
     {
-      "id": "wait:PollingStep:38:16:0",
+      "id": "wait:Polling:38:16:0",
       "kind": "wait",
       "name": "until",
-      "parentId": "step:PollingStep",
+      "parentId": "step:Polling",
       "phase": "wait_for",
       "span": {
         "startLine": 38,
@@ -110,14 +110,14 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:PollingStep:43:16",
-      "to": "step:PollingStep",
+      "from": "decision:step:Polling:43:16",
+      "to": "step:Polling",
       "label": "go_to",
       "span": {
         "startLine": 43,
         "startColumn": 16,
         "endLine": 43,
-        "endColumn": 40
+        "endColumn": 36
       }
     }
   ],

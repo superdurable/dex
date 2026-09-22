@@ -48,8 +48,8 @@ order_status = Attribute(
 seller_ok = Channel[str]("seller-ok", str)
 
 
-class ChargeStep(Step[OrderRequest]):
-    def __init__(self, service: MyDependencyService, ship: ShipStep) -> None:
+class Charge(Step[OrderRequest]):
+    def __init__(self, service: MyDependencyService, ship: Ship) -> None:
         self.service = service
         self.ship = ship
 
@@ -64,11 +64,11 @@ class ChargeStep(Step[OrderRequest]):
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
         self.service.charge_user(input.email, input.customer_id, input.amount)
         order_status.set(context, "charged")
-        return go_to(ShipStep, input)
+        return go_to(Ship, input)
 
 
-class ShipStep(Step[OrderRequest]):
-    def __init__(self, service: MyDependencyService, refund: RefundStep) -> None:
+class Ship(Step[OrderRequest]):
+    def __init__(self, service: MyDependencyService, refund: Refund) -> None:
         self.service = service
         self.refund = refund
 
@@ -79,7 +79,7 @@ class ShipStep(Step[OrderRequest]):
                 total_duration=timedelta(seconds=3),
             )
         ).on_execute_failure_proceed_to(
-            RefundStep,
+            Refund,
             StepOptions(
                 execute_retry=RetryPolicy(
                     # total_duration=timedelta(hours=1),
@@ -101,13 +101,13 @@ class ShipStep(Step[OrderRequest]):
                 "Reminder: approve shipment",
                 "Please approve or provide a tracking number.",
             )
-            return go_to(ShipStep, input)
+            return go_to(Ship, input)
         self.service.ship_item(input.order_id, input.test_fail_at_shipping)
         order_status.set(context, "shipped")
         return graceful_complete(f"shipped:{input.order_id}")
 
 
-class RefundStep(Step[OrderRequest]):
+class Refund(Step[OrderRequest]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
 
@@ -120,9 +120,9 @@ class RefundStep(Step[OrderRequest]):
 class OrderProcessingFlow(Flow[OrderRequest]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
-        self.refund = RefundStep(service)
-        self.ship = ShipStep(service, self.refund)
-        self.charge = ChargeStep(service, self.ship)
+        self.refund = Refund(service)
+        self.ship = Ship(service, self.refund)
+        self.charge = Charge(service, self.ship)
 
     def get_steps(self) -> StepList[OrderRequest]:
         return StepList.start_step(self.charge).other_steps(self.ship, self.refund)

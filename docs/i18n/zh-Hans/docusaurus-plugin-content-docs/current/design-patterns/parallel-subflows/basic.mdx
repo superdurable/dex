@@ -10,7 +10,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**SubFlowsStep.WaitFor** 为每个请求创建一个 SubFlow 条件，并用 **allOf** 组合。只有所有子 Flow 都结束后，父 Flow 才会继续。当不需要部分完成或取消时，这是最简单的父子 fan-out。
+**SubFlows.WaitFor** 为每个请求创建一个 SubFlow 条件，并用 **allOf** 组合。只有所有子 Flow 都结束后，父 Flow 才会继续。当不需要部分完成或取消时，这是最简单的父子 fan-out。
 
 ## 核心实现
 
@@ -18,7 +18,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 <SdkSnippet lang="python">
 
 ```python
-class SubFlowsStep(Step[list[str]]):
+class SubFlows(Step[list[str]]):
     def __init__(self, example_subflow: ExampleSubFlow) -> None:
         self.example_subflow = example_subflow
 
@@ -33,7 +33,7 @@ class SubFlowsStep(Step[list[str]]):
 
 class BasicParentFlow(Flow[list[str]]):
     def __init__(self, example_subflow: ExampleSubFlow) -> None:
-        self.subflows = SubFlowsStep(example_subflow)
+        self.subflows = SubFlows(example_subflow)
 
     def get_steps(self) -> StepList[list[str]]:
         return StepList.start_step(self.subflows)
@@ -65,7 +65,7 @@ type subFlowsStep struct {
 	exampleFlow *ExampleSubFlow
 }
 
-func (subFlowsStep) GetStepType() string { return "SubFlowsStep" }
+func (subFlowsStep) GetStepType() string { return "SubFlows" }
 
 func (step subFlowsStep) WaitFor(_ dex.Context, requests []string) (*dex.Wait, error) {
 	conditions := make([]dex.Condition, 0, len(requests))
@@ -86,7 +86,7 @@ func (subFlowsStep) Execute(_ dex.Context, _ []string) (*dex.StepDecision, error
 ```java
 @Component
 public final class BasicParentFlow implements Flow<String[]> {
-    private final SubFlowsStep subFlowsStep = new SubFlowsStep();
+    private final SubFlows subFlowsStep = new SubFlows();
 
     @Override
     public StepList<String[]> getSteps() {
@@ -98,7 +98,7 @@ public final class BasicParentFlow implements Flow<String[]> {
         return PersistenceSchema.of();
     }
 
-    static final class SubFlowsStep implements Step<String[]> {
+    static final class SubFlows implements Step<String[]> {
         @Override
         public Class<String[]> getInputType() {
             return String[].class;
@@ -125,13 +125,13 @@ public final class BasicParentFlow implements Flow<String[]> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-class SubFlowsStep implements Step<readonly string[]> {
+class SubFlows implements Step<readonly string[]> {
   public readonly inputCodec = stringArrayCodec;
 
   public constructor(private readonly exampleSubFlow: ExampleSubFlow) {}
 
   public getStepType(): string {
-    return "SubFlowsStep";
+    return "SubFlows";
   }
 
   public waitFor(_context: Context, requests: readonly string[]): Wait {
@@ -144,10 +144,10 @@ class SubFlowsStep implements Step<readonly string[]> {
 }
 
 export class BasicParentFlow implements Flow<readonly string[]> {
-  private readonly subFlows: SubFlowsStep;
+  private readonly subFlows: SubFlows;
 
   public constructor(exampleSubFlow: ExampleSubFlow) {
-    this.subFlows = new SubFlowsStep(exampleSubFlow);
+    this.subFlows = new SubFlows(exampleSubFlow);
   }
 
   public getFlowType(): string {
@@ -170,7 +170,7 @@ export class BasicParentFlow implements Flow<readonly string[]> {
 ```rust
 #[derive(Default)]
 pub struct BasicParentFlow {
-    sub_flows: SubFlowsStep,
+    sub_flows: SubFlows,
 }
 
 impl Flow for BasicParentFlow {
@@ -182,9 +182,9 @@ impl Flow for BasicParentFlow {
 }
 
 #[derive(Default)]
-struct SubFlowsStep;
+struct SubFlows;
 
-impl Step for SubFlowsStep {
+impl Step for SubFlows {
     type Input = Vec<String>;
 
     fn wait_for(&self, _context: &mut Context, requests: Self::Input) -> HandlerResult<Wait> {

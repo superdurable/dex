@@ -30,11 +30,11 @@ import {
 
 const approval = new Channel("Approval", stringCodec);
 
-class NoteWaitStep implements Step<number> {
+class NoteWait implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public getStepType(): string {
-    return "NoteWaitStep";
+    return "NoteWait";
   }
 
   public waitFor(context: Context, input: number): Wait {
@@ -49,7 +49,7 @@ class NoteWaitStep implements Step<number> {
 }
 
 export class StepExecutionLocalFlow implements Flow<number> {
-  private readonly noteWait = new NoteWaitStep();
+  private readonly noteWait = new NoteWait();
 
   public getFlowType(): string {
     return "StepExecutionLocalFlow";

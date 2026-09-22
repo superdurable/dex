@@ -10,7 +10,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/manu
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**ManualRecoveryFlow** 从 **DoWorkStep** 开始。它的失败策略执行三次指数退避重试，然后转到 **ManualStep**。**ManualStep** 等待 **Retry** Channel 或 **Skip** Channel。操作人员解决问题后，Retry 回到 **DoWorkStep**；Skip 使用明确原因使 Flow 失败。
+**ManualRecoveryFlow** 从 **DoWork** 开始。它的失败策略执行三次指数退避重试，然后转到 **ManualStep**。**ManualStep** 等待 **Retry** Channel 或 **Skip** Channel。操作人员解决问题后，Retry 回到 **DoWork**；Skip 使用明确原因使 Flow 失败。
 
 ## 核心实现
 
@@ -27,7 +27,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/manu
 <SdkSnippet lang="python">
 
 ```python
-class DoWorkStep(Step[bool]):
+class DoWork(Step[bool]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
@@ -52,7 +52,7 @@ class ManualStep(Step[bool]):
 
     def execute(self, context: Context, input: bool) -> StepDecision:
         if retry_channel.results(context):
-            return go_to(DoWorkStep, False)
+            return go_to(DoWork, False)
         return force_fail("manual recovery skipped")
 ```
 
@@ -60,14 +60,14 @@ class ManualStep(Step[bool]):
 <SdkSnippet lang="go">
 
 ```go
-func (doWorkStep) GetStepOptions() *dex.StepOptions {
+func (doWork) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: 4 * time.Second, MaximumAttempts: 4},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(manualStep{}, nil),
 	}
 }
 
-func (doWorkStep) Execute(_ dex.Context, shouldFail bool) (*dex.StepDecision, error) {
+func (doWork) Execute(_ dex.Context, shouldFail bool) (*dex.StepDecision, error) {
 	if shouldFail {
 		return nil, fmt.Errorf("work failed")
 	}
@@ -87,7 +87,7 @@ func (manualStep) Execute(ctx dex.Context, _ bool) (*dex.StepDecision, error) {
 		return nil, err
 	}
 	if len(retryResults) > 0 {
-		return dex.GoTo(doWorkStep{}, false), nil
+		return dex.GoTo(doWork{}, false), nil
 	}
 	return dex.ForceFail("manual recovery skipped"), nil
 }
@@ -97,7 +97,7 @@ func (manualStep) Execute(ctx dex.Context, _ bool) (*dex.StepDecision, error) {
 <SdkSnippet lang="java">
 
 ```java
-final class DoWorkStep implements Step<Boolean> {
+final class DoWork implements Step<Boolean> {
     @Override
     public StepOptions getStepOptions() {
         return StepOptions.newBuilder()
@@ -131,7 +131,7 @@ final class ManualStep implements Step<Boolean> {
     @Override
     public StepDecision execute(final Context context, final Boolean input) {
         if (!retryChannel.getConditionResults(context).isEmpty()) {
-            return StepDecision.goTo(DoWorkStep.class, false);
+            return StepDecision.goTo(DoWork.class, false);
         }
         return StepDecision.forceFail("manual recovery skipped");
     }
@@ -142,7 +142,7 @@ final class ManualStep implements Step<Boolean> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-class DoWorkStep implements Step<boolean> {
+class DoWork implements Step<boolean> {
   public readonly inputCodec = booleanCodec;
 
   public getStepOptions(): StepOptions {
@@ -170,7 +170,7 @@ class ManualStep implements Step<boolean> {
 
   public execute(context: Context, _input: boolean): StepDecision {
     if (retryChannel.results(context).length > 0) {
-      return goTo(DoWorkStep, false);
+      return goTo(DoWork, false);
     }
     return forceFail("manual recovery skipped");
   }
@@ -181,7 +181,7 @@ class ManualStep implements Step<boolean> {
 <SdkSnippet lang="rust">
 
 ```rust
-impl Step for DoWorkStep {
+impl Step for DoWork {
     type Input = bool;
 
     fn options(&self) -> StepOptions<Self::Input> {
@@ -192,7 +192,7 @@ impl Step for DoWorkStep {
 
     fn execute(&self, _context: &mut Context, should_fail: Self::Input) -> HandlerResult<StepDecision> {
         if should_fail {
-            return Err(HandlerError::new("DoWorkStep", "work failed"));
+            return Err(HandlerError::new("DoWork", "work failed"));
         }
         Ok(StepDecision::graceful_complete("work completed"))
     }
@@ -209,7 +209,7 @@ impl Step for ManualStep {
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
         if !retry().condition_results(context)?.is_empty() {
-            return Ok(StepDecision::go_to(&DoWorkStep, false));
+            return Ok(StepDecision::go_to(&DoWork, false));
         }
         Ok(StepDecision::force_fail("manual recovery skipped"))
     }

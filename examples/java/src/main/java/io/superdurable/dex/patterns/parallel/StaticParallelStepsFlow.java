@@ -28,8 +28,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class StaticParallelStepsFlow implements Flow<String> {
     private final InitStep init = new InitStep();
-    private final WorkAStep workA = new WorkAStep();
-    private final WorkBStep workB = new WorkBStep();
+    private final WorkA workA = new WorkA();
+    private final WorkB workB = new WorkB();
 
     @Override
     public StepList<String> getSteps() {
@@ -50,12 +50,12 @@ public class StaticParallelStepsFlow implements Flow<String> {
         @Override
         public StepDecision execute(final Context context, final String input) {
             return StepDecision.goToMany(
-                    StepMovement.of(WorkAStep.class, input),
-                    StepMovement.of(WorkBStep.class, input));
+                    StepMovement.of(WorkA.class, input),
+                    StepMovement.of(WorkB.class, input));
         }
     }
 
-    final class WorkAStep implements Step<String> {
+    final class WorkA implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -67,7 +67,7 @@ public class StaticParallelStepsFlow implements Flow<String> {
         }
     }
 
-    final class WorkBStep implements Step<String> {
+    final class WorkB implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;

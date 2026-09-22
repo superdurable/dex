@@ -39,7 +39,7 @@ func NewWaitTypesFlow() *WaitTypesFlow {
 }
 
 func (*WaitTypesFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(waitTypesStep{})}
+	return []dex.StepDef{dex.DefineStartStep(waitTypes{})}
 }
 
 func (flow *WaitTypesFlow) GetRPCs() []dex.RPCDef {
@@ -58,11 +58,11 @@ type WaitTypesInput struct {
 	TimeoutSeconds int
 }
 
-type waitTypesStep struct {
+type waitTypes struct {
 	dex.StepDefaults
 }
 
-func (waitTypesStep) WaitFor(_ dex.Context, input WaitTypesInput) (*dex.Wait, error) {
+func (waitTypes) WaitFor(_ dex.Context, input WaitTypesInput) (*dex.Wait, error) {
 	timeout := time.Duration(input.TimeoutSeconds) * time.Second
 	switch input.Mode {
 	case "any":
@@ -90,7 +90,7 @@ func (waitTypesStep) WaitFor(_ dex.Context, input WaitTypesInput) (*dex.Wait, er
 	}
 }
 
-func (waitTypesStep) Execute(_ dex.Context, input WaitTypesInput) (*dex.StepDecision, error) {
+func (waitTypes) Execute(_ dex.Context, input WaitTypesInput) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(input.Mode), nil
 }
 

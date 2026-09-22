@@ -95,7 +95,7 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 				require.Equal(t, "mutation", connectorNode.Metadata["connectorOperationKind"])
 				require.True(t, hasTransitionFromStepToTarget(
 					graph,
-					"step:agenticPrepareCustomerMessageStep",
+					"step:agenticPrepareCustomerMessage",
 					"step:GenerateCustomerMessageStep",
 				), "concrete StepRef transition into Connector factory is missing")
 			}
@@ -160,15 +160,15 @@ func TestVisualizeV2ConnectorFactoryExample(t *testing.T) {
 	require.Equal(t, "query", reconcileNode.Metadata["connectorOperationKind"])
 
 	require.Equal(t, map[string]string{
-		"completed": "step:CustomerSummaryCompletedStep",
-		"failed":    "step:CustomerSummaryFailedStep",
+		"completed": "step:CustomerSummaryCompleted",
+		"failed":    "step:CustomerSummaryFailed",
 		"uncertain": "step:ReconcileCustomerSummary",
-		"defect":    "step:CustomerSummaryFailedStep",
+		"defect":    "step:CustomerSummaryFailed",
 	}, connectorBranchTargets(graph, "step:GenerateCustomerSummary"))
 	require.Equal(t, map[string]string{
-		"found":  "step:CustomerSummaryReconciledStep",
-		"failed": "step:CustomerSummaryReconcileFailedStep",
-		"defect": "step:CustomerSummaryReconcileFailedStep",
+		"found":  "step:CustomerSummaryReconciled",
+		"failed": "step:CustomerSummaryReconcileFailed",
+		"defect": "step:CustomerSummaryReconcileFailed",
 	}, connectorBranchTargets(graph, "step:ReconcileCustomerSummary"))
 
 	resultEdge := graphEdge(t, graph, "resource_write", "step:GenerateCustomerSummary", "resource:attribute:generatedCustomerSummary", "Set")
@@ -185,7 +185,7 @@ func TestVisualizeV2ConnectorFactoryExample(t *testing.T) {
 	require.Equal(t, true, textEdge.Metadata["repeatable"])
 	require.Equal(t, "progress", textEdge.Metadata["role"])
 	require.Equal(t, "text", textEdge.Metadata["format"])
-	failureEdge := graphEdge(t, graph, "failure_transition", "step:GenerateCustomerSummary", "step:CustomerSummaryExecuteFailedStep", "Execute failure")
+	failureEdge := graphEdge(t, graph, "failure_transition", "step:GenerateCustomerSummary", "step:CustomerSummaryExecuteFailed", "Execute failure")
 	require.Equal(t, true, failureEdge.Metadata["skipWaitFor"])
 
 	graph.Source.Path = "examples/go/products/connector-factory/workflow.go"

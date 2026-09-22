@@ -37,7 +37,7 @@ use dex_sdk::{
 
 #[derive(Default)]
 pub struct FlowGracefulTimeout {
-    long_wait_step: LongWaitStep,
+    long_wait_step: LongWait,
 }
 
 impl Flow for FlowGracefulTimeout {
@@ -53,9 +53,9 @@ impl Flow for FlowGracefulTimeout {
 }
 
 #[derive(Default)]
-struct LongWaitStep;
+struct LongWait;
 
-impl Step for LongWaitStep {
+impl Step for LongWait {
     type Input = bool;
 
     fn wait_for(&self, _context: &mut Context, successful: bool) -> HandlerResult<Wait> {

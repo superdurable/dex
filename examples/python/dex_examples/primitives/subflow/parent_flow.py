@@ -34,7 +34,7 @@ from dex import (
 from dex_examples.primitives.subflow.child_flow import SubFlowChildFlow
 
 
-class SubFlowParentStep(Step[int]):
+class SubFlowParent(Step[int]):
     def __init__(self, target: Flow[int]) -> None:
         self.target = target
         self.options = SubFlowOptions(
@@ -53,7 +53,7 @@ class SubFlowParentStep(Step[int]):
 
 class SubFlowParentFlow(Flow[int]):
     def __init__(self, target: SubFlowChildFlow) -> None:
-        self.start = SubFlowParentStep(target)
+        self.start = SubFlowParent(target)
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.start)

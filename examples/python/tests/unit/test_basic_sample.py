@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dex import Registry
 
-from dex_examples.primitives.channel.channel_flow import ChannelFlow, ChannelWaitStep
+from dex_examples.primitives.channel.channel_flow import ChannelFlow, ChannelWait
 
 
 def test_channel_flow_declares_a_start_step() -> None:
@@ -28,7 +28,7 @@ def test_channel_flow_declares_a_start_step() -> None:
 
     assert [definition.step for definition in definitions] == [flow.wait_for_approval]
     assert [definition.is_start_step for definition in definitions] == [True]
-    assert isinstance(flow.wait_for_approval, ChannelWaitStep)
+    assert isinstance(flow.wait_for_approval, ChannelWait)
 
 
 def test_channel_flow_registers_its_channel_and_rpc() -> None:

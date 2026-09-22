@@ -40,8 +40,8 @@ public class ManualRecoveryFlow implements Flow<Boolean> {
     public final Channel<Void> skipChannel =
             Channel.define(SKIP_CHANNEL, Void.class);
 
-    private final DoWorkStep doWorkStep = new DoWorkStep();
-    private final ManualStep manualStep = new ManualStep();
+    private final DoWork doWorkStep = new DoWork();
+    private final Manual manualStep = new Manual();
 
     @Override
     public StepList<Boolean> getSteps() {
@@ -53,7 +53,7 @@ public class ManualRecoveryFlow implements Flow<Boolean> {
         return PersistenceSchema.of(retryChannel, skipChannel);
     }
 
-    final class DoWorkStep implements Step<Boolean> {
+    final class DoWork implements Step<Boolean> {
         @Override
         public Class<Boolean> getInputType() {
             return Boolean.class;
@@ -68,7 +68,7 @@ public class ManualRecoveryFlow implements Flow<Boolean> {
                             .maximumInterval(Duration.ofSeconds(4))
                             .maximumAttempts(4)
                             .build())
-                    .onExecuteFailureProceedTo(ManualStep.class)
+                    .onExecuteFailureProceedTo(Manual.class)
                     .build();
         }
 
@@ -81,7 +81,7 @@ public class ManualRecoveryFlow implements Flow<Boolean> {
         }
     }
 
-    final class ManualStep implements Step<Boolean> {
+    final class Manual implements Step<Boolean> {
         @Override
         public Class<Boolean> getInputType() {
             return Boolean.class;
@@ -97,7 +97,7 @@ public class ManualRecoveryFlow implements Flow<Boolean> {
         @Override
         public StepDecision execute(final Context context, final Boolean input) {
             if (!retryChannel.getConditionResults(context).isEmpty()) {
-                return StepDecision.goTo(DoWorkStep.class, false);
+                return StepDecision.goTo(DoWork.class, false);
             }
             return StepDecision.forceFail("manual recovery skipped");
         }

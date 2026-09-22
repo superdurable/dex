@@ -58,9 +58,9 @@ func NewEngagementFlow(applicationService service.MyService) *EngagementFlow {
 func (flow *EngagementFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(initializeStep{}),
-		dex.DefineStep(processTimeoutStep{service: flow.service}),
+		dex.DefineStep(processTimeout{service: flow.service}),
 		dex.DefineStep(reminderStep{service: flow.service}),
-		dex.DefineStep(notifyExternalSystemStep{service: flow.service}),
+		dex.DefineStep(notifyExternalSystem{service: flow.service}),
 	}
 }
 
@@ -127,7 +127,7 @@ func (*EngagementFlow) Decline(
 	return &dex.RPCResult[Status]{
 		Output: StatusDeclined,
 		NextSteps: []dex.StepMovement{
-			dex.MovementOf(notifyExternalSystemStep{}, StatusDeclined),
+			dex.MovementOf(notifyExternalSystem{}, StatusDeclined),
 		},
 	}, nil
 }
@@ -155,7 +155,7 @@ func (*EngagementFlow) Accept(
 	return &dex.RPCResult[Status]{
 		Output: StatusAccepted,
 		NextSteps: []dex.StepMovement{
-			dex.MovementOf(notifyExternalSystemStep{}, StatusAccepted),
+			dex.MovementOf(notifyExternalSystem{}, StatusAccepted),
 		},
 	}, nil
 }
@@ -226,18 +226,18 @@ func (initializeStep) Execute(
 		return nil, err
 	}
 	return dex.GoToMany(
-		dex.MovementOf(processTimeoutStep{}, nil),
+		dex.MovementOf(processTimeout{}, nil),
 		dex.MovementOf(reminderStep{}, nil),
-		dex.MovementOf(notifyExternalSystemStep{}, StatusInitiated),
+		dex.MovementOf(notifyExternalSystem{}, StatusInitiated),
 	), nil
 }
 
-type processTimeoutStep struct {
+type processTimeout struct {
 	dex.StepDefaults
 	service service.MyService
 }
 
-func (processTimeoutStep) WaitFor(
+func (processTimeout) WaitFor(
 	dex.Context,
 	dex.None,
 ) (*dex.Wait, error) {
@@ -247,7 +247,7 @@ func (processTimeoutStep) WaitFor(
 	), nil
 }
 
-func (step processTimeoutStep) Execute(
+func (step processTimeout) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
@@ -312,12 +312,12 @@ func (step reminderStep) Execute(
 	return dex.GoTo(reminderStep{}, nil), nil
 }
 
-type notifyExternalSystemStep struct {
+type notifyExternalSystem struct {
 	dex.StepDefaultsNoWaitFor[Status]
 	service service.MyService
 }
 
-func (step notifyExternalSystemStep) Execute(
+func (step notifyExternalSystem) Execute(
 	ctx dex.Context,
 	status Status,
 ) (*dex.StepDecision, error) {

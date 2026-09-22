@@ -81,13 +81,13 @@ func (*CustomerRefundFlow) GetFlowType() string {
 
 func (flow *CustomerRefundFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(deterministicReceiveRequestStep{}),
-		dex.DefineStep(deterministicCheckOrderStep{}),
-		dex.DefineStep(deterministicCheckPolicyStep{}),
-		dex.DefineStep(deterministicIssueRefundStep{service: flow.service}),
-		dex.DefineStep(deterministicDenyRefundStep{}),
-		dex.DefineStep(deterministicNotifyCustomerStep{service: flow.service}),
-		dex.DefineStep(deterministicCloseCaseStep{}),
+		dex.DefineStartStep(deterministicReceiveRequest{}),
+		dex.DefineStep(deterministicCheckOrder{}),
+		dex.DefineStep(deterministicCheckPolicy{}),
+		dex.DefineStep(deterministicIssueRefund{service: flow.service}),
+		dex.DefineStep(deterministicDenyRefund{}),
+		dex.DefineStep(deterministicNotifyCustomer{service: flow.service}),
+		dex.DefineStep(deterministicCloseCase{}),
 	}
 }
 
@@ -190,15 +190,15 @@ func (*CustomerRefundFlow) GetDexDisplay(
 
 // dex:group group-label:"Intake" group-id:intake
 // dex:explanation text:"Store the inbound refund request and start the case."
-type deterministicReceiveRequestStep struct {
+type deterministicReceiveRequest struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (deterministicReceiveRequestStep) GetStepType() string {
-	return "ReceiveRequestStep"
+func (deterministicReceiveRequest) GetStepType() string {
+	return "ReceiveRequest"
 }
 
-func (deterministicReceiveRequestStep) Execute(
+func (deterministicReceiveRequest) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -216,20 +216,20 @@ func (deterministicReceiveRequestStep) Execute(
 			return nil, err
 		}
 	}
-	return dex.GoTo(deterministicCheckOrderStep{}, refundCase), nil
+	return dex.GoTo(deterministicCheckOrder{}, refundCase), nil
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
 // dex:explanation text:"Check the order and charge evidence for the refund."
-type deterministicCheckOrderStep struct {
+type deterministicCheckOrder struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (deterministicCheckOrderStep) GetStepType() string {
-	return "CheckOrderStep"
+func (deterministicCheckOrder) GetStepType() string {
+	return "CheckOrder"
 }
 
-func (deterministicCheckOrderStep) Execute(
+func (deterministicCheckOrder) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -245,20 +245,20 @@ func (deterministicCheckOrderStep) Execute(
 	if err := deterministicCaseStatus.Set(ctx, statusOrderChecked); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(deterministicCheckPolicyStep{}, refundCase), nil
+	return dex.GoTo(deterministicCheckPolicy{}, refundCase), nil
 }
 
 // dex:group group-id:control group-label:"Control"
 // dex:explanation text:"Evaluate refund policy and choose approve or deny."
-type deterministicCheckPolicyStep struct {
+type deterministicCheckPolicy struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (deterministicCheckPolicyStep) GetStepType() string {
-	return "CheckPolicyStep"
+func (deterministicCheckPolicy) GetStepType() string {
+	return "CheckPolicy"
 }
 
-func (deterministicCheckPolicyStep) Execute(
+func (deterministicCheckPolicy) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -273,7 +273,7 @@ func (deterministicCheckPolicyStep) Execute(
 		if err := deterministicCaseStatus.Set(ctx, statusOrderNotFound); err != nil {
 			return nil, err
 		}
-		return dex.GoTo(deterministicNotifyCustomerStep{}, refundCase), nil
+		return dex.GoTo(deterministicNotifyCustomer{}, refundCase), nil
 	}
 	orderAgeDays, err := deterministicOrderAgeDays.Get(ctx)
 	if err != nil {
@@ -283,32 +283,32 @@ func (deterministicCheckPolicyStep) Execute(
 		if err := deterministicRecommendation.Set(ctx, "refund"); err != nil {
 			return nil, err
 		}
-		return dex.GoTo(deterministicIssueRefundStep{}, refundCase), nil
+		return dex.GoTo(deterministicIssueRefund{}, refundCase), nil
 	}
 	if err := deterministicRecommendation.Set(ctx, "deny-outside-window"); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(deterministicDenyRefundStep{}, refundCase), nil
+	return dex.GoTo(deterministicDenyRefund{}, refundCase), nil
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
 // dex:explanation text:"Issue the refund through billing."
-type deterministicIssueRefundStep struct {
+type deterministicIssueRefund struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (deterministicIssueRefundStep) GetStepType() string {
-	return "IssueRefundStep"
+func (deterministicIssueRefund) GetStepType() string {
+	return "IssueRefund"
 }
 
-func (deterministicIssueRefundStep) GetStepOptions() *dex.StepOptions {
+func (deterministicIssueRefund) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{ExecuteRetry: &dex.RetryPolicy{
 		InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: 10 * time.Second, MaximumAttempts: 4,
 	}}
 }
 
-func (step deterministicIssueRefundStep) Execute(
+func (step deterministicIssueRefund) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -329,41 +329,41 @@ func (step deterministicIssueRefundStep) Execute(
 	if err := deterministicCaseStatus.Set(ctx, status); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(deterministicNotifyCustomerStep{}, refundCase), nil
+	return dex.GoTo(deterministicNotifyCustomer{}, refundCase), nil
 }
 
 // dex:group group-id:failure group-label:"Failure"
 // dex:explanation text:"Record a policy denial for the refund request."
-type deterministicDenyRefundStep struct {
+type deterministicDenyRefund struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (deterministicDenyRefundStep) GetStepType() string {
-	return "DenyRefundStep"
+func (deterministicDenyRefund) GetStepType() string {
+	return "DenyRefund"
 }
 
-func (deterministicDenyRefundStep) Execute(
+func (deterministicDenyRefund) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
 	if err := deterministicCaseStatus.Set(ctx, statusDenied); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(deterministicNotifyCustomerStep{}, refundCase), nil
+	return dex.GoTo(deterministicNotifyCustomer{}, refundCase), nil
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
 // dex:explanation text:"Notify the customer of the refund decision."
-type deterministicNotifyCustomerStep struct {
+type deterministicNotifyCustomer struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (deterministicNotifyCustomerStep) GetStepType() string {
-	return "NotifyCustomerStep"
+func (deterministicNotifyCustomer) GetStepType() string {
+	return "NotifyCustomer"
 }
 
-func (step deterministicNotifyCustomerStep) Execute(
+func (step deterministicNotifyCustomer) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -385,20 +385,20 @@ func (step deterministicNotifyCustomerStep) Execute(
 	if err := step.service.SendCustomerMessage(refundCase, message); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(deterministicCloseCaseStep{}, refundCase), nil
+	return dex.GoTo(deterministicCloseCase{}, refundCase), nil
 }
 
 // dex:group group-id:close group-label:"Close"
 // dex:explanation text:"Close the refund case after notification."
-type deterministicCloseCaseStep struct {
+type deterministicCloseCase struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (deterministicCloseCaseStep) GetStepType() string {
-	return "CloseCaseStep"
+func (deterministicCloseCase) GetStepType() string {
+	return "CloseCase"
 }
 
-func (deterministicCloseCaseStep) Execute(
+func (deterministicCloseCase) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -430,11 +430,11 @@ var (
 	_ dex.Flow                          = (*CustomerRefundFlow)(nil)
 	_ dex.RPC[dex.None, map[string]any] = (*CustomerRefundFlow)(nil).GetDexSummary
 	_ dex.RPC[dex.None, map[string]any] = (*CustomerRefundFlow)(nil).GetDexDisplay
-	_ dex.Step[refundmodel.RefundCase]  = deterministicReceiveRequestStep{}
-	_ dex.Step[refundmodel.RefundCase]  = deterministicCheckOrderStep{}
-	_ dex.Step[refundmodel.RefundCase]  = deterministicCheckPolicyStep{}
-	_ dex.Step[refundmodel.RefundCase]  = deterministicIssueRefundStep{}
-	_ dex.Step[refundmodel.RefundCase]  = deterministicDenyRefundStep{}
-	_ dex.Step[refundmodel.RefundCase]  = deterministicNotifyCustomerStep{}
-	_ dex.Step[refundmodel.RefundCase]  = deterministicCloseCaseStep{}
+	_ dex.Step[refundmodel.RefundCase]  = deterministicReceiveRequest{}
+	_ dex.Step[refundmodel.RefundCase]  = deterministicCheckOrder{}
+	_ dex.Step[refundmodel.RefundCase]  = deterministicCheckPolicy{}
+	_ dex.Step[refundmodel.RefundCase]  = deterministicIssueRefund{}
+	_ dex.Step[refundmodel.RefundCase]  = deterministicDenyRefund{}
+	_ dex.Step[refundmodel.RefundCase]  = deterministicNotifyCustomer{}
+	_ dex.Step[refundmodel.RefundCase]  = deterministicCloseCase{}
 )

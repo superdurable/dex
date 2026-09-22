@@ -26,7 +26,7 @@ static KEYWORD: LazyLock<Attribute<String>> =
 
 #[derive(Default)]
 pub struct ClientApisFlow {
-    index: ClientApisStep,
+    index: ClientApis,
 }
 
 impl Flow for ClientApisFlow {
@@ -42,9 +42,9 @@ impl Flow for ClientApisFlow {
 }
 
 #[derive(Default)]
-struct ClientApisStep;
+struct ClientApis;
 
-impl Step for ClientApisStep {
+impl Step for ClientApis {
     type Input = String;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {

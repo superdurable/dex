@@ -39,8 +39,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Default)]
 pub struct DrainInternalChannelFlow {
     init: Init,
-    main: MainStep,
-    side: SideStep,
+    main: Main,
+    side: Side,
     finalize: Finalize,
 }
 
@@ -67,16 +67,16 @@ impl Step for Init {
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
         Ok(StepDecision::go_to_many([
-            StepMovement::to(&MainStep, input),
-            StepMovement::to(&SideStep, ()),
+            StepMovement::to(&Main, input),
+            StepMovement::to(&Side, ()),
         ]))
     }
 }
 
 #[derive(Default)]
-struct MainStep;
+struct Main;
 
-impl Step for MainStep {
+impl Step for Main {
     type Input = Vec<String>;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
@@ -88,9 +88,9 @@ impl Step for MainStep {
 }
 
 #[derive(Default)]
-struct SideStep;
+struct Side;
 
-impl Step for SideStep {
+impl Step for Side {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
@@ -106,7 +106,7 @@ impl Step for SideStep {
         match command {
             SideStepData::Message(value) => {
                 context.record_event("drained-internal", value)?;
-                Ok(StepDecision::go_to(&SideStep, ()))
+                Ok(StepDecision::go_to(&Side, ()))
             }
             SideStepData::Final => Ok(StepDecision::graceful_complete(())),
         }

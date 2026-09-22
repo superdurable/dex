@@ -31,40 +31,40 @@ type StaticParallelStepsFlow struct{ dex.FlowDefaults }
 func NewStaticParallelStepsFlow() *StaticParallelStepsFlow { return &StaticParallelStepsFlow{} }
 
 func (*StaticParallelStepsFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(staticInitStep{}), dex.DefineStep(workAStep{}), dex.DefineStep(workBStep{})}
+	return []dex.StepDef{dex.DefineStartStep(staticInit{}), dex.DefineStep(workA{}), dex.DefineStep(workB{})}
 }
 
 func (*StaticParallelStepsFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type staticInitStep struct {
+type staticInit struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (staticInitStep) GetStepType() string { return "InitStep" }
+func (staticInit) GetStepType() string { return "Init" }
 
-func (staticInitStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
-	return dex.GoToMany(dex.MovementOf(workAStep{}, input), dex.MovementOf(workBStep{}, input)), nil
+func (staticInit) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
+	return dex.GoToMany(dex.MovementOf(workA{}, input), dex.MovementOf(workB{}, input)), nil
 }
 
-type workAStep struct {
+type workA struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (workAStep) GetStepType() string { return "WorkAStep" }
+func (workA) GetStepType() string { return "WorkA" }
 
-func (workAStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
+func (workA) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(fmt.Sprintf("A:%s", input)), nil
 }
 
-type workBStep struct {
+type workB struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (workBStep) GetStepType() string { return "WorkBStep" }
+func (workB) GetStepType() string { return "WorkB" }
 
-func (workBStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
+func (workB) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(fmt.Sprintf("B:%s", input)), nil
 }
 

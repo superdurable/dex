@@ -29,25 +29,25 @@ from dex import (
 )
 
 
-class DoWorkStep(Step[int]):
+class DoWork(Step[int]):
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, input: int
     ) -> StepDecision:
         await asyncio.sleep(random.uniform(0.05, 0.5))
-        return graceful_complete(input).with_canceling_sibling_steps(DoWorkStep)
+        return graceful_complete(input).with_canceling_sibling_steps(DoWork)
 
 
 class InitStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         return go_to_many(
-            *(StepMovement.of(DoWorkStep, index) for index in range(input))
+            *(StepMovement.of(DoWork, index) for index in range(input))
         )
 
 
 class FirstWinParallelStepsFlow(Flow[int]):
     def __init__(self) -> None:
         self.init = InitStep()
-        self.work = DoWorkStep()
+        self.work = DoWork()
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.init).other_steps(self.work)

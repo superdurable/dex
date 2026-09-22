@@ -62,8 +62,8 @@ func NewSubscriptionFlow(applicationService service.MyService) *SubscriptionFlow
 func (flow *SubscriptionFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(initializeStep{}),
-		dex.DefineStep(trialStep{service: flow.service}),
-		dex.DefineStep(chargeCurrentBillStep{service: flow.service}),
+		dex.DefineStep(trial{service: flow.service}),
+		dex.DefineStep(chargeCurrentBill{service: flow.service}),
 		dex.DefineStep(cancelStep{service: flow.service}),
 		dex.DefineStep(updateChargeAmountStep{}),
 	}
@@ -142,18 +142,18 @@ func (initializeStep) Execute(
 		return nil, err
 	}
 	return dex.GoToMany(
-		dex.MovementOf(trialStep{}, nil),
+		dex.MovementOf(trial{}, nil),
 		dex.MovementOf(cancelStep{}, nil),
 		dex.MovementOf(updateChargeAmountStep{}, nil),
 	), nil
 }
 
-type trialStep struct {
+type trial struct {
 	dex.StepDefaults
 	service service.MyService
 }
 
-func (step trialStep) WaitFor(
+func (step trial) WaitFor(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.Wait, error) {
@@ -166,21 +166,21 @@ func (step trialStep) WaitFor(
 	return dex.Until(dex.Timer(customer.Subscription.TrialPeriod)), nil
 }
 
-func (trialStep) Execute(
+func (trial) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
-	return dex.GoTo(chargeCurrentBillStep{}, nil), nil
+	return dex.GoTo(chargeCurrentBill{}, nil), nil
 }
 
 const subscriptionOverKey = "subscription-over"
 
-type chargeCurrentBillStep struct {
+type chargeCurrentBill struct {
 	dex.StepDefaults
 	service service.MyService
 }
 
-func (chargeCurrentBillStep) WaitFor(
+func (chargeCurrentBill) WaitFor(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.Wait, error) {
@@ -204,7 +204,7 @@ func (chargeCurrentBillStep) WaitFor(
 	return dex.Until(dex.Timer(customer.Subscription.BillingPeriod)), nil
 }
 
-func (step chargeCurrentBillStep) Execute(
+func (step chargeCurrentBill) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
@@ -221,7 +221,7 @@ func (step chargeCurrentBillStep) Execute(
 		// use force completing because the cancel state is still waiting for signal
 		return dex.ForceComplete("subscription ended"), nil
 	}
-	return dex.GoTo(chargeCurrentBillStep{}, nil), nil
+	return dex.GoTo(chargeCurrentBill{}, nil), nil
 }
 
 type cancelStep struct {

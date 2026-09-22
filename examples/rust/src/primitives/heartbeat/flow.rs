@@ -21,7 +21,7 @@ use dex_sdk::{
 
 #[derive(Default)]
 pub struct HeartbeatFlow {
-    start: HeartbeatStep,
+    start: Heartbeat,
 }
 
 impl Flow for HeartbeatFlow {
@@ -33,9 +33,9 @@ impl Flow for HeartbeatFlow {
 }
 
 #[derive(Default)]
-struct HeartbeatStep;
+struct Heartbeat;
 
-impl Step for HeartbeatStep {
+impl Step for Heartbeat {
     type Input = i32;
 
     fn options(&self) -> StepOptions<Self::Input> {

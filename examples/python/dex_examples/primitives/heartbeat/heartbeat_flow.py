@@ -30,7 +30,7 @@ from dex import (
 )
 
 
-class HeartbeatStep(Step[int]):
+class Heartbeat(Step[int]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_method_timeout=timedelta(seconds=60),
@@ -52,7 +52,7 @@ class HeartbeatStep(Step[int]):
 
 class HeartbeatFlow(Flow[int]):
     def __init__(self) -> None:
-        self.start = HeartbeatStep()
+        self.start = Heartbeat()
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.start)

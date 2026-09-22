@@ -30,7 +30,7 @@ import java.time.Duration;
 
 @Component
 public class FlowGracefulTimeout implements Flow<Boolean> {
-    private final LongWaitStep longWaitStep = new LongWaitStep();
+    private final LongWait longWaitStep = new LongWait();
 
     @Override
     public StepList<Boolean> getSteps() {
@@ -42,7 +42,7 @@ public class FlowGracefulTimeout implements Flow<Boolean> {
         return PersistenceSchema.of();
     }
 
-    final class LongWaitStep implements Step<Boolean> {
+    final class LongWait implements Step<Boolean> {
         @Override
         public Class<Boolean> getInputType() {
             return Boolean.class;
