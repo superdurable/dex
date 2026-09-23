@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { FlowDefinitionGraphView, ProcessCanvasView } from '@superdurable/flow-definition-renderer';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog } from '@/lib/types';
+import { dexFetch } from '@/lib/webConfig';
 
 export function FlowRenderingPage() {
   const [catalog, setCatalog] = useState<FlowDefinitionCatalog | null>(null);
@@ -122,7 +123,7 @@ async function loadCatalog(
   setError: (message: string) => void,
 ): Promise<void> {
   try {
-    const response = await fetch('/api/flow-definitions', { signal });
+    const response = await dexFetch('/api/flow-definitions', { signal });
     setCatalog(await readResponseJSON<FlowDefinitionCatalog>(response));
   } catch (loadError) {
     if (signal.aborted) return;

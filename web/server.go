@@ -47,6 +47,8 @@ type Config struct {
 	FlowRenderingPrefix string
 	// WorkQueuePermissionMode defaults to local-selector.
 	WorkQueuePermissionMode string
+	// TrustForwardedEmbeddingHeaders defaults false and enables trusted proxy-provided Web presentation metadata.
+	TrustForwardedEmbeddingHeaders bool
 }
 
 type Server struct {
@@ -117,7 +119,7 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 	return &Server{
 		cfg: cfg,
 		httpServer: &http.Server{
-			Handler:           mux,
+			Handler:           forwardedEmbeddingHandler(cfg, mux),
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       90 * time.Second,
 		},
@@ -158,7 +160,6 @@ func spaHandler(assets fs.FS, permissionMode string) http.Handler {
 	if err != nil {
 		panic(fmt.Sprintf("read embedded Web index: %v", err))
 	}
-	index = injectWebConfig(index, permissionMode)
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
 			response.WriteHeader(http.StatusMethodNotAllowed)
@@ -166,7 +167,7 @@ func spaHandler(assets fs.FS, permissionMode string) http.Handler {
 		}
 		requestPath := strings.TrimPrefix(path.Clean(request.URL.Path), "/")
 		if requestPath == "." || requestPath == "" {
-			serveIndex(response, request, index)
+			serveIndex(response, request, injectWebConfig(index, permissionMode, webRequestConfigFromContext(request.Context())))
 			return
 		}
 		file, err := assets.Open(requestPath)
@@ -182,7 +183,7 @@ func spaHandler(assets fs.FS, permissionMode string) http.Handler {
 			api.WriteError(response, http.StatusNotFound, "API route not found", nil)
 			return
 		}
-		serveIndex(response, request, index)
+		serveIndex(response, request, injectWebConfig(index, permissionMode, webRequestConfigFromContext(request.Context())))
 	})
 }
 
@@ -294,15 +295,35 @@ func writeWebJSON(response http.ResponseWriter, statusCode int, value interface{
 	}
 }
 
-func injectWebConfig(index []byte, permissionMode string) []byte {
-	configJSON, err := json.Marshal(map[string]string{"workQueuePermissionMode": permissionMode})
+func injectWebConfig(index []byte, permissionMode string, requestConfig webRequestConfig) []byte {
+	config := webBootstrapConfig{
+		WorkQueuePermissionMode: permissionMode,
+		BasePath:                requestConfig.basePath,
+		Embedded:                requestConfig.isEmbedded,
+	}
+	if requestConfig.csrfToken != "" {
+		config.CSRFHeaderName = browserCSRFHeader
+		config.CSRFToken = requestConfig.csrfToken
+	}
+	configJSON, err := json.Marshal(config)
 	if err != nil {
 		panic(fmt.Sprintf("encode Dex Web bootstrap config: %v", err))
 	}
 	script := []byte("<script>window.__DEX_WEB_CONFIG__=" + string(configJSON) + ";</script>")
-	return bytes.Replace(index, []byte("</head>"), append(script, []byte("</head>")...), 1)
+	configuredIndex := bytes.Replace(index, []byte("</head>"), append(script, []byte("</head>")...), 1)
+	return prefixAssetReferences(configuredIndex, requestConfig.basePath)
 }
 
 func serveIndex(response http.ResponseWriter, request *http.Request, index []byte) {
+	requestConfig := webRequestConfigFromContext(request.Context())
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("Vary", forwardedEmbeddingVaryHeader)
+	if requestConfig.isEmbedded {
+		response.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
+		response.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	} else {
+		response.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		response.Header().Set("X-Frame-Options", "DENY")
+	}
 	http.ServeContent(response, request, "index.html", time.Time{}, bytes.NewReader(index))
 }

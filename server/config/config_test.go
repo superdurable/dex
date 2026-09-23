@@ -22,6 +22,7 @@ func TestWebEnvironmentOverridesYAML(t *testing.T) {
 	t.Setenv("DEX_WEB_FLOW_RENDERING_STORAGE_ID", "p0")
 	t.Setenv("DEX_WEB_FLOW_RENDERING_PREFIX", "_superverse/dex-web/flow-definitions")
 	t.Setenv("DEX_WEB_WORK_QUEUE_PERMISSION_MODE", "trusted-header")
+	t.Setenv("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS", "true")
 	path := writeTestConfig(t, `
 web:
   flowRenderingSource: local
@@ -33,6 +34,13 @@ web:
 	require.Equal(t, "p0", cfg.Web.FlowRenderingBlobStore.StorageID)
 	require.Equal(t, "_superverse/dex-web/flow-definitions", cfg.Web.FlowRenderingBlobStore.Prefix)
 	require.Equal(t, "trusted-header", cfg.Web.WorkQueuePermissionMode)
+	require.True(t, cfg.Web.TrustForwardedEmbeddingHeaders)
+}
+
+func TestWebEnvironmentRejectsInvalidForwardedEmbeddingTrust(t *testing.T) {
+	t.Setenv("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS", "sometimes")
+	_, err := NewConfig(writeTestConfig(t, "web: {}\n"))
+	require.ErrorContains(t, err, "DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS must be a boolean")
 }
 
 func TestWebConfigRejectsMixedDefinitionSources(t *testing.T) {
@@ -52,9 +60,11 @@ func TestWebConfigAcceptsTrustedHeaderPermissionMode(t *testing.T) {
 	path := writeTestConfig(t, `
 web:
   workQueuePermissionMode: trusted-header
+  trustForwardedEmbeddingHeaders: true
 `)
-	_, err := NewConfig(path)
+	cfg, err := NewConfig(path)
 	require.NoError(t, err)
+	require.True(t, cfg.Web.TrustForwardedEmbeddingHeaders)
 }
 
 func TestWebConfigRejectsLegacyDefinitionSources(t *testing.T) {

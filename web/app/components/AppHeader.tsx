@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { isEmbedded, webPath } from '@/lib/webConfig';
 import { usePreferences } from '../providers';
 import { v2HomePath, v2ModePath, type V2Mode } from '../v2/contract';
 import { useWebCatalog } from '../v2/WebCatalogProvider';
@@ -20,6 +21,7 @@ const V2_MODES: { mode: V2Mode; label: string }[] = [
 export function AppHeader() {
   const { timezone, setTimezone } = usePreferences();
   const { canUseV2 } = useWebCatalog();
+  const embedded = isEmbedded();
   const location = useLocation();
   const navigate = useNavigate();
   const isV2 = location.pathname === '/v2' || location.pathname.startsWith('/v2/');
@@ -28,25 +30,27 @@ export function AppHeader() {
   const isDebug = location.pathname.includes('/debug');
   const home = canUseV2 && isV2 ? v2HomePath(canUseV2) : '/v1/flows';
   return (
-    <header className="app-header">
-      <div className="header-brand">
-        <Link to={home} className="brand-mark" aria-label="Super Durable home">
-          <img
-            className="brand-logo"
-            src="/super-durable-logo.png"
-            alt=""
-            width={72}
-            height={72}
-          />
-        </Link>
-        <Link to={home} className="brand-name">
-          <span>Super Durable</span>
-          <i aria-hidden="true">·</i>
-          <b>Dex</b>
-        </Link>
-      </div>
+    <header className={`app-header${embedded ? ' embedded' : ''}`}>
+      {!embedded && (
+        <div className="header-brand">
+          <Link to={home} className="brand-mark" aria-label="Super Durable home">
+            <img
+              className="brand-logo"
+              src={webPath('/super-durable-logo.png')}
+              alt=""
+              width={72}
+              height={72}
+            />
+          </Link>
+          <Link to={home} className="brand-name">
+            <span>Super Durable</span>
+            <i aria-hidden="true">·</i>
+            <b>Dex</b>
+          </Link>
+        </div>
+      )}
       <nav className="header-nav" aria-label="Primary navigation">
-        {!isV2 && (
+        {!embedded && !isV2 && (
           <>
             <Link to="/v1/flows">Flows</Link>
             <Link to="/v1/rendering">Flow Rendering</Link>
@@ -67,11 +71,13 @@ export function AppHeader() {
             ))}
           </div>
         )}
-        <span className="connection-pill">
-          <span className="connection-dot" />
-          Dex server
-        </span>
-        {canUseV2 && (
+        {!embedded && (
+          <span className="connection-pill">
+            <span className="connection-dot" />
+            Dex server
+          </span>
+        )}
+        {!embedded && canUseV2 && (
           <label className="timezone-control">
             <span>Version</span>
             <select

@@ -89,3 +89,35 @@ Work Queue 会列出所选 Flow type 声明的 permission。在 **Working as** �
 浏览器中的 condition 只控制展示。每个 Action RPC 都必须在修改持久化状态或发布 Channel message 前再次检查当前状态。当检查与 effect 必须保持原子性时，应使用 lock。
 
 Work Queue 不增加登录，也不执行授权。**Working as** 只是选择工作，不会授予所选 permission。Superverse 等可信应用边界仍负责用户认证、把 role 映射到 permission，并限制它发送哪些 permission。请把 Dex Web 部署在该边界之后。
+
+## 可信 reverse-proxy mount
+
+经过认证的 host application 可以把 Dex Web 暴露在 **/apps/project-1/dex** 这类每个
+request 独立的 URL 下。只有当 8802 端口仅允许可信 reverse proxy 访问时，才启用
+**web.trustForwardedEmbeddingHeaders** 或
+**DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS**。默认值为 false；未启用 trust 时，Dex
+会拒绝所有包含 forwarded embedding metadata 的 request。
+
+Proxy 在转发前移除 public prefix，删除浏览器提供的以下 header，并为每个必需 header
+注入一个 canonical value：
+
+~~~text
+X-Forwarded-Prefix: /apps/project-1/dex
+X-Dex-Web-Embedded: true
+X-Dex-Web-CSRF-Token: host-generated-token
+~~~
+
+Prefix 必须是 **/** 或没有 trailing slash、query、fragment、authority、dot segment 与
+encoded separator 的绝对 canonical path。Embedded value 只能是 **true** 或 **false**。
+Dex 将 CSRF bootstrap token 视为 optional，但 hosted page 应当提供它。
+Token 必须使用不含空格的 visible ASCII。
+
+Response bootstrap 只为当前 request 配置 router、asset、link 和 API request。Embedded
+page 会删除重复的 product chrome，并允许同源 iframe。Standalone page 会拒绝 iframe。
+HTML 不会被 cache，并对可信 metadata 设置 Vary，因此两个 project 可以共用一个 Dex Web
+service，而不会复用对方的 mount path 或 token。
+
+对于 POST、PATCH、PUT、DELETE 和其他 mutation method，浏览器会把 bootstrap token 放在
+**X-CSRF-Token** 中。Host proxy 应先根据已认证 session 验证它，再移除该 header 后继续
+转发。Dex 负责把 token 传给浏览器，但不负责 host user authentication、project
+authorization 或 host CSRF state validation。

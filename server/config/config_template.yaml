@@ -36,6 +36,8 @@ web:
   #   storageId: p0
   #   prefix: _superverse/dex-web/flow-definitions
   workQueuePermissionMode: local-selector
+  # Enable only behind a proxy that replaces embedding headers and blocks direct Web access.
+  trustForwardedEmbeddingHeaders: false
 worker:
   # Refresh individual endpoints behind headless WorkerService DNS.
   headlessAddressRefreshInterval: 60s

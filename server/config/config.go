@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -335,6 +336,8 @@ type (
 		FlowRenderingBlobStore *WebFlowRenderingBlobStoreConfig `yaml:"flowRenderingBlobStore"`
 		// WorkQueuePermissionMode selects local-selector or trusted-header. Default local-selector. Immutable after startup.
 		WorkQueuePermissionMode string `yaml:"workQueuePermissionMode"`
+		// TrustForwardedEmbeddingHeaders accepts trusted proxy embedding metadata. Default false. Immutable after startup.
+		TrustForwardedEmbeddingHeaders bool `yaml:"trustForwardedEmbeddingHeaders"`
 	}
 
 	WebFlowRenderingBlobStoreConfig struct {
@@ -486,7 +489,9 @@ func NewConfig(configPath string) (*Config, error) {
 	if err := d.Decode(&cfg); err != nil {
 		return nil, err
 	}
-	applyWebEnvironment(cfg)
+	if err := applyWebEnvironment(cfg); err != nil {
+		return nil, err
+	}
 	if err := cfg.validateWeb(); err != nil {
 		return nil, err
 	}
@@ -506,7 +511,7 @@ func NewConfig(configPath string) (*Config, error) {
 	return cfg, nil
 }
 
-func applyWebEnvironment(cfg *Config) {
+func applyWebEnvironment(cfg *Config) error {
 	if value, ok := os.LookupEnv("DEX_WEB_FLOW_RENDERING_SOURCE"); ok {
 		cfg.Web.FlowRenderingSource = value
 	}
@@ -529,6 +534,14 @@ func applyWebEnvironment(cfg *Config) {
 	if value, ok := os.LookupEnv("DEX_WEB_WORK_QUEUE_PERMISSION_MODE"); ok {
 		cfg.Web.WorkQueuePermissionMode = value
 	}
+	if value, ok := os.LookupEnv("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS"); ok {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS must be a boolean: %w", err)
+		}
+		cfg.Web.TrustForwardedEmbeddingHeaders = parsed
+	}
+	return nil
 }
 
 func (c Config) validateWeb() error {

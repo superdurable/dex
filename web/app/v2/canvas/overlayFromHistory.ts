@@ -15,6 +15,7 @@ import type {
   FlowSummary,
   HistoryPage,
 } from '@/lib/types';
+import { dexFetch } from '@/lib/webConfig';
 import type { FdgConditionKind } from './model/fdg';
 import type { PhaseStatus, RunCondition, RunOverlay, StepExecution } from './model/run';
 
@@ -49,7 +50,7 @@ export async function loadRunHistory(flowId: string, runId: string): Promise<Flo
       estimatePageSize: '200',
     });
     if (nextPageToken) params.set('nextPageToken', nextPageToken);
-    return readResponseJSON<HistoryPage>(await fetch(`/api/flows/history?${params}`, { cache: 'no-store' }));
+    return readResponseJSON<HistoryPage>(await dexFetch(`/api/flows/history?${params}`, { cache: 'no-store' }));
   });
   return complete.events;
 }
@@ -60,7 +61,7 @@ export async function loadCurrentRun(flowId: string): Promise<{
   state: FlowState | null;
 }> {
   const summary = await readResponseJSON<FlowSummary>(
-    await fetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, { cache: 'no-store' }),
+    await dexFetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, { cache: 'no-store' }),
   );
   const events = await loadRunHistory(flowId, summary.runId);
   if (summary.flowStatusCode !== 1) {
@@ -68,7 +69,7 @@ export async function loadCurrentRun(flowId: string): Promise<{
   }
   try {
     const state = await readResponseJSON<FlowState>(
-      await fetch(
+      await dexFetch(
         `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(summary.runId)}`,
         { cache: 'no-store' },
       ),

@@ -142,11 +142,12 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 		}
 		flowRenderingSource := strings.TrimSpace(cfg.Web.FlowRenderingSource)
 		webConfig := &dexweb.Config{
-			BindAddress:             cfg.Web.EffectiveBindAddress(),
-			Port:                    cfg.Web.EffectivePort(),
-			FlowRenderingSource:     flowRenderingSource,
-			FlowRenderingDirectory:  cfg.Web.FlowRenderingDirectory,
-			WorkQueuePermissionMode: strings.TrimSpace(cfg.Web.WorkQueuePermissionMode),
+			BindAddress:                    cfg.Web.EffectiveBindAddress(),
+			Port:                           cfg.Web.EffectivePort(),
+			FlowRenderingSource:            flowRenderingSource,
+			FlowRenderingDirectory:         cfg.Web.FlowRenderingDirectory,
+			WorkQueuePermissionMode:        strings.TrimSpace(cfg.Web.WorkQueuePermissionMode),
+			TrustForwardedEmbeddingHeaders: cfg.Web.TrustForwardedEmbeddingHeaders,
 		}
 		if flowRenderingSource == dexweb.FlowRenderingSourceBlobStore {
 			storage, findErr := bootstrap.FindS3Storage(cfg, cfg.Web.FlowRenderingBlobStore.StorageID)

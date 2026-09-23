@@ -89,3 +89,39 @@ A matching projection is necessary, not sufficient. A keyed gate also needs its 
 The browser condition only controls presentation. Every Action RPC must check the current state again before changing durable state or publishing a Channel message. Use locks when that check and the effect must be atomic.
 
 Work Queue does not add login or enforce authorization. **Working as** selects work; it does not grant the chosen permission. The trusted application boundary, such as Superverse, remains responsible for authenticating users, mapping roles to permissions, and limiting which permissions it sends. Deploy Dex Web behind that boundary.
+
+## Trusted reverse-proxy mounts
+
+An authenticated host application can expose Dex Web below a request-specific
+URL such as **/apps/project-1/dex**. Enable
+**web.trustForwardedEmbeddingHeaders** or
+**DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS** only when port 8802 is private to
+the trusted reverse proxy. The default is false, and Dex rejects requests that
+contain forwarded embedding metadata while trust is disabled.
+
+The proxy removes the public prefix before forwarding the path to Dex, strips
+all browser-supplied copies of the following headers, and injects one canonical
+value for each required header:
+
+~~~text
+X-Forwarded-Prefix: /apps/project-1/dex
+X-Dex-Web-Embedded: true
+X-Dex-Web-CSRF-Token: host-generated-token
+~~~
+
+The prefix is **/** or an absolute canonical path without a trailing slash,
+query, fragment, authority, dot segment, or encoded separator. The embedded
+value is exactly **true** or **false**. The CSRF bootstrap token is optional to
+Dex but recommended for hosted pages; it must use visible ASCII without spaces.
+
+The response bootstrap configures routing, assets, links, and API requests for
+that request only. Embedded pages remove redundant product chrome and allow
+same-origin framing. Standalone pages deny framing. HTML is not cached and
+varies on the trusted metadata, so two projects can share one Dex Web service
+without reusing each other's mount path or token.
+
+For POST, PATCH, PUT, DELETE, and other mutating methods, the browser sends the
+bootstrap token as **X-CSRF-Token**. The host proxy validates it against the
+authenticated session before forwarding and then removes it. Dex transports
+the token to the browser but does not authenticate host users, authorize
+projects, or validate host CSRF state.
