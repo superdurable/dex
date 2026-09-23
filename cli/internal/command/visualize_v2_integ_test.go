@@ -12,6 +12,7 @@ package command
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -122,7 +123,7 @@ func TestVisualizeV2ConnectorFactoryExample(t *testing.T) {
 	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 	require.Equal(t, "CustomerSummaryConnectorFlow", graph.Flow.Name)
 	require.Equal(t, "step:GenerateCustomerSummary", graph.Flow.StartStepID)
-	require.Equal(t, []string{"generation", "recovery", "failure"}, v2GroupIDs(graph.Groups))
+	require.Equal(t, []string{"generation", "recovery", "failure", "execute-failure"}, v2GroupIDs(graph.Groups))
 
 	generateNode := graphNodeByID(t, graph, "step:GenerateCustomerSummary")
 	require.Equal(t, "execute", generateNode.Phase)
@@ -163,12 +164,17 @@ func TestVisualizeV2ConnectorFactoryExample(t *testing.T) {
 	failureEdge := graphEdge(t, graph, "failure_transition", "step:GenerateCustomerSummary", "step:CustomerSummaryExecuteFailedStep", "Execute failure")
 	require.Equal(t, true, failureEdge.Metadata["skipWaitFor"])
 
+	graph.Source.Path = "examples/go/products/connector-factory/workflow.go"
 	firstJSON, err := flowviz.MarshalJSON(graph)
 	require.NoError(t, err)
+	golden, err := os.ReadFile(filepath.Join(repositoryRoot, "docs/src/data/flow-definitions/connector-factory.json"))
+	require.NoError(t, err)
+	require.Equal(t, string(golden), string(firstJSON))
 	secondGraph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{
 		SchemaVersion: flowviz.SchemaVersionV2,
 	})
 	require.NoError(t, err)
+	secondGraph.Source.Path = graph.Source.Path
 	secondJSON, err := flowviz.MarshalJSON(secondGraph)
 	require.NoError(t, err)
 	require.Equal(t, firstJSON, secondJSON)
@@ -184,9 +190,26 @@ func TestVisualizeV2RejectsDynamicConnectorFactoryFields(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, graph.Valid)
 	codes := diagnosticCodes(graph.Diagnostics)
-	require.Contains(t, codes, "connector_factory_branches")
+	require.Contains(t, codes, "connector_factory_config")
+	require.Contains(t, codes, "connector_factory_branch")
 	require.Contains(t, codes, "connector_factory_step_type")
 	require.Contains(t, codes, "connector_factory_target")
+}
+
+func TestVisualizeV2PreservesGenericConnectorFactoryEscapeHatch(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	graph, err := flowviz.Analyze(
+		context.Background(),
+		filepath.Join(repositoryRoot, "cli/internal/command/testfixtures/connector-factory/generic/workflow.go"),
+		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
+	)
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	require.Equal(t, map[string]string{
+		"found":  "step:finishStep",
+		"failed": "step:finishStep",
+		"defect": "step:finishStep",
+	}, connectorBranchTargets(graph, "step:GenericRetrieveResponse"))
 }
 
 func TestVisualizeDoesNotRecognizeSpoofedConnectorFactory(t *testing.T) {

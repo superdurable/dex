@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
+	"reflect"
+	"strings"
 )
 
 const (
@@ -41,23 +43,40 @@ type goConnectorBranch struct {
 	span   *Span
 }
 
+type goConnectorFactoryConfig struct {
+	kind       string
+	fieldNames map[string]string
+	branches   []goConnectorFactoryBranchField
+}
+
+type goConnectorFactoryBranchField struct {
+	id        string
+	fieldName string
+}
+
 func (analyzer *goAnalyzer) connectorFactoryCall(expression ast.Expr) (string, *ast.CallExpr, bool) {
 	call, ok := unwrappedExpression(expression).(*ast.CallExpr)
 	if !ok {
 		return "", nil, false
 	}
 	packagePath, functionName := analyzer.goCallIdentity(call)
-	if packagePath != connectorSDKPackage {
+	if packagePath == connectorSDKPackage {
+		switch functionName {
+		case "MustNewQueryStep":
+			return connectorQueryFactory, call, true
+		case "MustNewMutationStep":
+			return connectorMutationFactory, call, true
+		}
+	}
+	if len(call.Args) != 1 {
 		return "", nil, false
 	}
-	switch functionName {
-	case "MustNewQueryStep":
-		return connectorQueryFactory, call, true
-	case "MustNewMutationStep":
-		return connectorMutationFactory, call, true
-	default:
+	configType := analyzer.typeInfo.Types[call.Args[0]].Type
+	config, ok := connectorFactoryConfig(configType)
+	if !ok || !isConnectorFactoryStepType(analyzer.typeInfo.Types[call].Type, config.kind) {
 		return "", nil, false
 	}
+	return config.kind, call, true
 }
 
 func (analyzer *goAnalyzer) parseConnectorFactoryStep(kind string, call *ast.CallExpr) (goConnectorFactoryStep, bool) {
@@ -66,7 +85,13 @@ func (analyzer *goAnalyzer) parseConnectorFactoryStep(kind string, call *ast.Cal
 		return goConnectorFactoryStep{}, false
 	}
 	config, ok := connectorCompositeLiteral(call.Args[0])
-	if !ok || !analyzer.isConnectorConfigType(config, kind) {
+	if !ok {
+		analyzer.addConnectorFactoryDiagnostic("connector_factory_config", "Connector Step factory config must be an inline Connector SDK config literal", call.Args[0])
+		return goConnectorFactoryStep{}, false
+	}
+	configMetadata, operationSpecific := connectorFactoryConfig(analyzer.typeInfo.Types[config].Type)
+	generic := analyzer.isConnectorConfigType(config, kind)
+	if (!operationSpecific || configMetadata.kind != kind) && !generic {
 		analyzer.addConnectorFactoryDiagnostic("connector_factory_config", "Connector Step factory config must be an inline Connector SDK config literal", call.Args[0])
 		return goConnectorFactoryStep{}, false
 	}
@@ -74,19 +99,100 @@ func (analyzer *goAnalyzer) parseConnectorFactoryStep(kind string, call *ast.Cal
 	if !ok {
 		return goConnectorFactoryStep{}, false
 	}
-	stepType, static := analyzer.staticString(fields["StepType"])
+	fieldName := func(metadataName string, fallback string) string {
+		if operationSpecific && configMetadata.fieldNames[metadataName] != "" {
+			return configMetadata.fieldNames[metadataName]
+		}
+		return fallback
+	}
+	stepTypeExpression := fields[fieldName("stepType", "StepType")]
+	stepType, static := analyzer.staticString(stepTypeExpression)
 	if !static || stepType == "" {
-		analyzer.addConnectorFactoryDiagnostic("connector_factory_step_type", "Connector factory StepType must be a non-empty compile-time string", fields["StepType"])
+		analyzer.addConnectorFactoryDiagnostic("connector_factory_step_type", "Connector factory StepType must be a non-empty compile-time string", stepTypeExpression)
 		return goConnectorFactoryStep{}, false
 	}
 	definition := goConnectorFactoryStep{stepType: stepType}
-	definition.presentation = analyzer.parseConnectorPresentation(fields["Presentation"])
-	definition.branches = analyzer.parseConnectorBranches(fields["Branches"])
-	definition.resultAttributeID = analyzer.parseConnectorResource(fields["ResultAttribute"], "attribute", "ResultAttribute")
-	definition.progressStreamID = analyzer.parseConnectorResource(fields["ProgressStream"], "stream", "ProgressStream")
-	definition.textStreamID = analyzer.parseConnectorResource(fields["TextStream"], "stream", "TextStream")
-	definition.executeFailureTarget = analyzer.parseConnectorExecuteFailure(fields["StepOptionsOverride"])
+	definition.presentation = analyzer.parseConnectorPresentation(fields[fieldName("presentation", "Presentation")])
+	if operationSpecific {
+		definition.branches = analyzer.parseConnectorNamedBranches(fields, configMetadata.branches)
+	} else {
+		definition.branches = analyzer.parseConnectorBranches(fields["Branches"])
+	}
+	definition.resultAttributeID = analyzer.parseConnectorResource(fields[fieldName("resultAttribute", "ResultAttribute")], "attribute", "ResultAttribute")
+	definition.progressStreamID = analyzer.parseConnectorResource(fields[fieldName("progressStream", "ProgressStream")], "stream", "ProgressStream")
+	definition.textStreamID = analyzer.parseConnectorResource(fields[fieldName("textStream", "TextStream")], "stream", "TextStream")
+	definition.executeFailureTarget = analyzer.parseConnectorExecuteFailure(fields[fieldName("stepOptionsOverride", "StepOptionsOverride")])
 	return definition, true
+}
+
+func connectorFactoryConfig(value types.Type) (goConnectorFactoryConfig, bool) {
+	value = types.Unalias(value)
+	if pointer, ok := value.(*types.Pointer); ok {
+		value = types.Unalias(pointer.Elem())
+	}
+	named, ok := value.(*types.Named)
+	if !ok {
+		return goConnectorFactoryConfig{}, false
+	}
+	structure, ok := named.Underlying().(*types.Struct)
+	if !ok {
+		return goConnectorFactoryConfig{}, false
+	}
+	config := goConnectorFactoryConfig{fieldNames: make(map[string]string)}
+	valid := true
+	branchIDs := make(map[string]bool)
+	for index := 0; index < structure.NumFields(); index++ {
+		field := structure.Field(index)
+		metadata := reflect.StructTag(structure.Tag(index)).Get("connector")
+		if metadata == "" {
+			continue
+		}
+		key, value, found := strings.Cut(metadata, "=")
+		switch key {
+		case "factory":
+			packagePath, typeName := namedGoTypeIdentity(field.Type())
+			if packagePath != connectorSDKPackage || !field.Embedded() {
+				valid = false
+				continue
+			}
+			markerKind := ""
+			if value == connectorQueryFactory && typeName == "QueryFactoryConfigMarker" {
+				markerKind = connectorQueryFactory
+			}
+			if value == connectorMutationFactory && typeName == "MutationFactoryConfigMarker" {
+				markerKind = connectorMutationFactory
+			}
+			if markerKind == "" || config.kind != "" {
+				valid = false
+				continue
+			}
+			config.kind = markerKind
+		case "branch":
+			if !found || value == "" || branchIDs[value] {
+				valid = false
+				continue
+			}
+			branchIDs[value] = true
+			config.branches = append(config.branches, goConnectorFactoryBranchField{id: value, fieldName: field.Name()})
+		default:
+			if found || config.fieldNames[key] != "" {
+				valid = false
+				continue
+			}
+			config.fieldNames[key] = field.Name()
+		}
+	}
+	return config, valid && config.kind != "" && len(config.branches) != 0 &&
+		config.fieldNames["stepType"] != "" && config.fieldNames["presentation"] != ""
+}
+
+func isConnectorFactoryStepType(value types.Type, kind string) bool {
+	packagePath, typeName := namedGoTypeIdentity(value)
+	expected := "QueryStep"
+	if kind == connectorMutationFactory {
+		expected = "MutationStep"
+	}
+	return packagePath == connectorSDKPackage && typeName == expected
 }
 
 func (analyzer *goAnalyzer) isConnectorConfigType(literal *ast.CompositeLit, kind string) bool {
@@ -159,6 +265,32 @@ func (analyzer *goAnalyzer) parseConnectorBranches(expression ast.Expr) []goConn
 			analyzer.addConnectorFactoryDiagnostic("connector_factory_target", fmt.Sprintf("Connector factory branch %q target must be a concrete Step or static StepRef", branchID), call.Args[1])
 		}
 		branches = append(branches, goConnectorBranch{id: branchID, target: target, span: analyzer.span(call)})
+	}
+	return branches
+}
+
+func (analyzer *goAnalyzer) parseConnectorNamedBranches(
+	fields map[string]ast.Expr,
+	branchFields []goConnectorFactoryBranchField,
+) []goConnectorBranch {
+	branches := make([]goConnectorBranch, 0, len(branchFields))
+	for _, branchField := range branchFields {
+		expression := fields[branchField.fieldName]
+		call, ok := unwrappedExpression(expression).(*ast.CallExpr)
+		if !ok {
+			analyzer.addConnectorFactoryDiagnostic("connector_factory_branch", fmt.Sprintf("Connector factory branch %q must directly call Connector SDK GoTo", branchField.id), expression)
+			continue
+		}
+		packagePath, functionName := analyzer.goCallIdentity(call)
+		if packagePath != connectorSDKPackage || functionName != "GoTo" || len(call.Args) != 1 {
+			analyzer.addConnectorFactoryDiagnostic("connector_factory_branch", fmt.Sprintf("Connector factory branch %q must directly call Connector SDK GoTo", branchField.id), expression)
+			continue
+		}
+		target, targetOK := analyzer.connectorBranchTarget(call.Args[0])
+		if !targetOK {
+			analyzer.addConnectorFactoryDiagnostic("connector_factory_target", fmt.Sprintf("Connector factory branch %q target must be a concrete Step or static StepRef", branchField.id), call.Args[0])
+		}
+		branches = append(branches, goConnectorBranch{id: branchField.id, target: target, span: analyzer.span(call)})
 	}
 	return branches
 }

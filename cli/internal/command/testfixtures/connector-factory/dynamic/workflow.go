@@ -9,64 +9,51 @@
 package connectorfactorydynamic
 
 import (
-	openai "github.com/superdurable/dex-connectors-library/connectors/openai"
+	openaifactory "github.com/superdurable/dex-connectors-library/connectors/openai"
 	connector "github.com/superdurable/dex-connectors-library/sdk/go"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-var result = dex.DefineAttribute[connector.MutationResult[openai.Response]]("result")
+var result = dex.DefineAttribute[connector.MutationResult[openaifactory.Response]]("result")
 
-type factoryOutput = connector.MutationStepOutput[string, openai.Response]
-
-var dynamicBranches = []connector.BranchTarget[factoryOutput]{
-	connector.GoToBranch[factoryOutput](openai.CreateResponseBranchCompleted, finishStep{}),
-	connector.GoToBranch[factoryOutput](openai.CreateResponseBranchFailed, finishStep{}),
-	connector.GoToBranch[factoryOutput](openai.CreateResponseBranchUncertain, finishStep{}),
-	connector.GoToBranch[factoryOutput](openai.CreateResponseBranchDefect, finishStep{}),
-}
+type factoryOutput = openaifactory.CreateResponseStepOutput[string]
 
 type dynamicFactoryFlow struct {
 	dex.FlowDefaults
-	client     *openai.Client
-	connection connector.ConnectionRef
+	connection openaifactory.Connection
 }
 
 func (flow *dynamicFactoryFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(connector.MustNewMutationStep(connector.MutationStepConfig[string, openai.CreateRequest, openai.Response]{
-			StepType: "DynamicBranches",
-			Presentation: connector.StepPresentation{
-				GroupID: "factory", GroupLabel: "Factory", Explanation: "Use a dynamic branch slice.",
-			},
-			Operation: flow.client.CreateResponse(), Connection: flow.connection,
-			BuildInput: buildInput, Branches: dynamicBranches, ResultAttribute: &result,
-		})),
-		dex.DefineStep(connector.MustNewMutationStep(connector.MutationStepConfig[string, openai.CreateRequest, openai.Response]{
+		dex.DefineStartStep(openaifactory.NewCreateResponseStep(flow.dynamicConfig())),
+		dex.DefineStep(openaifactory.NewCreateResponseStep(openaifactory.CreateResponseStepConfig[string]{
 			StepType: flow.dynamicStepType(),
 			Presentation: connector.StepPresentation{
 				GroupID: "factory", GroupLabel: "Factory", Explanation: "Use a dynamic Step type.",
 			},
-			Operation: flow.client.CreateResponse(), Connection: flow.connection, BuildInput: buildInput,
-			Branches: []connector.BranchTarget[factoryOutput]{
-				connector.GoToBranch(openai.CreateResponseBranchCompleted, finishStep{}),
-				connector.GoToBranch(openai.CreateResponseBranchFailed, finishStep{}),
-				connector.GoToBranch(openai.CreateResponseBranchUncertain, finishStep{}),
-				connector.GoToBranch(openai.CreateResponseBranchDefect, finishStep{}),
-			},
+			Connection: flow.connection, BuildInput: buildInput,
+			Completed: connector.GoTo(finishStep{}), Failed: connector.GoTo(finishStep{}),
+			Uncertain: connector.GoTo(finishStep{}), Defect: connector.GoTo(finishStep{}),
 			ResultAttribute: &result,
 		})),
-		dex.DefineStep(connector.MustNewMutationStep(connector.MutationStepConfig[string, openai.CreateRequest, openai.Response]{
+		dex.DefineStep(openaifactory.NewCreateResponseStep(openaifactory.CreateResponseStepConfig[string]{
 			StepType: "DynamicTarget",
 			Presentation: connector.StepPresentation{
 				GroupID: "factory", GroupLabel: "Factory", Explanation: "Use a dynamic branch target.",
 			},
-			Operation: flow.client.CreateResponse(), Connection: flow.connection, BuildInput: buildInput,
-			Branches: []connector.BranchTarget[factoryOutput]{
-				connector.GoToBranch(openai.CreateResponseBranchCompleted, flow.dynamicTarget()),
-				connector.GoToBranch(openai.CreateResponseBranchFailed, finishStep{}),
-				connector.GoToBranch(openai.CreateResponseBranchUncertain, finishStep{}),
-				connector.GoToBranch(openai.CreateResponseBranchDefect, finishStep{}),
+			Connection: flow.connection, BuildInput: buildInput,
+			Completed: connector.GoTo(flow.dynamicTarget()), Failed: connector.GoTo(finishStep{}),
+			Uncertain: connector.GoTo(finishStep{}), Defect: connector.GoTo(finishStep{}),
+			ResultAttribute: &result,
+		})),
+		dex.DefineStep(openaifactory.NewCreateResponseStep(openaifactory.CreateResponseStepConfig[string]{
+			StepType: "MissingBranch",
+			Presentation: connector.StepPresentation{
+				GroupID: "factory", GroupLabel: "Factory", Explanation: "Omit a required branch target.",
 			},
+			Connection: flow.connection, BuildInput: buildInput,
+			Completed: connector.GoTo(finishStep{}), Failed: connector.GoTo(finishStep{}),
+			Uncertain:       connector.GoTo(finishStep{}),
 			ResultAttribute: &result,
 		})),
 		dex.DefineStep(finishStep{}),
@@ -81,8 +68,21 @@ func (*dynamicFactoryFlow) dynamicStepType() string { return "DynamicStepType" }
 
 func (*dynamicFactoryFlow) dynamicTarget() dex.Step[factoryOutput] { return finishStep{} }
 
-func buildInput(value string) (openai.CreateRequest, error) {
-	return openai.CreateRequest{Model: "gpt-5-mini", Input: value}, nil
+func (flow *dynamicFactoryFlow) dynamicConfig() openaifactory.CreateResponseStepConfig[string] {
+	return openaifactory.CreateResponseStepConfig[string]{
+		StepType: "DynamicConfig",
+		Presentation: connector.StepPresentation{
+			GroupID: "factory", GroupLabel: "Factory", Explanation: "Use a dynamic config.",
+		},
+		Connection: flow.connection, BuildInput: buildInput,
+		Completed: connector.GoTo(finishStep{}), Failed: connector.GoTo(finishStep{}),
+		Uncertain: connector.GoTo(finishStep{}), Defect: connector.GoTo(finishStep{}),
+		ResultAttribute: &result,
+	}
+}
+
+func buildInput(value string) (openaifactory.CreateRequest, error) {
+	return openaifactory.CreateRequest{Model: "gpt-5-mini", Input: value}, nil
 }
 
 // dex:group group-id:finish group-label:"Finish"

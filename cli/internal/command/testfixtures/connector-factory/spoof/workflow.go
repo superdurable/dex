@@ -15,10 +15,10 @@ type spoofFlow struct {
 }
 
 func (*spoofFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(MustNewQueryStep())}
+	return []dex.StepDef{dex.DefineStartStep(NewCreateResponseStep())}
 }
 
-func MustNewQueryStep() spoofStep { return spoofStep{} }
+func NewCreateResponseStep() spoofStep { return spoofStep{} }
 
 // dex:group group-id:spoof group-label:"Spoof"
 // dex:explanation text:"Complete the local same-name function fixture."

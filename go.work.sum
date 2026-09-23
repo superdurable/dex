@@ -467,8 +467,8 @@ github.com/substrait-io/substrait-go/v4 v4.3.0 h1:Y0aFCLWnU8ypRAF/wg8khMvo7LnMdI
 github.com/substrait-io/substrait-go/v4 v4.3.0/go.mod h1:GzpaFqO5VRtMkEjATgRxGK5p82OmEtCmszAVYxE+iWc=
 github.com/substrait-io/substrait-protobuf/go v0.71.0 h1:vkYGEEPJ8lWSwaJvX7Y+hEmwmrz5/qeDmGI43JpKJZE=
 github.com/substrait-io/substrait-protobuf/go v0.71.0/go.mod h1:hn+Szm1NmZZc91FwWK9EXD/lmuGBSRTJ5IvHhlG1YnQ=
-github.com/superdurable/dex-connectors-library v0.1.0 h1:RCizUbfWgv6UzIJdMz2SPIDlpNmJ7JvSFTY+KQr0Baw=
-github.com/superdurable/dex-connectors-library v0.1.0/go.mod h1:tcTHrrJtLXZpFKhq6oiAbpR5i5AtNAo6J1YoforqpCs=
+github.com/superdurable/dex-connectors-library/connectors/openai v0.1.0 h1:FvVp17mrE75n+AqaeuItTjcp/+85TU1NJfSWFNDrLeI=
+github.com/superdurable/dex-connectors-library/connectors/openai v0.1.0/go.mod h1:51uzSEQi2Avp8mS28C5wIEHnhUI6/OZStQWDqtmOyrE=
 github.com/tidwall/gjson v1.14.2 h1:6BBkirS0rAHjumnjHF6qgy5d2YAJ1TLIaFE2lzfOLqo=
 github.com/tidwall/match v1.1.1 h1:+Ho715JplO36QYgwN9PGYNhgZvoUSc9X2c80KVTi+GA=
 github.com/tidwall/pretty v1.2.0 h1:RWIZEg2iJ8/g6fDDYzMpobmaoGh5OLl4AXtGUGPcqCs=

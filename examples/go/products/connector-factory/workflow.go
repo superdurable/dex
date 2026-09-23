@@ -54,44 +54,38 @@ type Output struct {
 	Summary    string `json:"summary"`
 }
 
-type generateCustomerSummaryOutput = factorysdk.MutationStepOutput[Input, openai.Response]
+type generateCustomerSummaryOutput = openai.CreateResponseStepOutput[Input]
 
-type reconcileCustomerSummaryOutput = factorysdk.QueryStepOutput[generateCustomerSummaryOutput, openai.Response]
+type reconcileCustomerSummaryOutput = openai.RetrieveResponseStepOutput[generateCustomerSummaryOutput]
 
 type CustomerSummaryConnectorFlow struct {
 	dex.FlowDefaults
-	openAI     *openai.Client
-	connection factorysdk.ConnectionRef
+	connection openai.Connection
 }
 
 func NewCustomerSummaryConnectorFlow(openAI *openai.Client, connection factorysdk.ConnectionRef) *CustomerSummaryConnectorFlow {
-	if openAI == nil {
-		panic("customer summary Flow requires an OpenAI connector")
-	}
-	if err := connection.Validate(); err != nil {
+	typedConnection, err := openai.NewConnection(openAI, connection)
+	if err != nil {
 		panic("customer summary Flow requires a valid connection")
 	}
-	return &CustomerSummaryConnectorFlow{openAI: openAI, connection: connection}
+	return &CustomerSummaryConnectorFlow{connection: typedConnection}
 }
 
 func (flow *CustomerSummaryConnectorFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(factorysdk.MustNewMutationStep(factorysdk.MutationStepConfig[Input, openai.CreateRequest, openai.Response]{
+		dex.DefineStartStep(openai.NewCreateResponseStep(openai.CreateResponseStepConfig[Input]{
 			StepType: generateCustomerSummaryStepType,
 			Presentation: factorysdk.StepPresentation{
 				GroupID:     "generation",
 				GroupLabel:  "Generation",
 				Explanation: "Generate a customer summary with streamed model progress.",
 			},
-			Operation:  flow.openAI.CreateResponse(),
-			Connection: flow.connection,
-			BuildInput: buildGenerateCustomerSummaryInput,
-			Branches: []factorysdk.BranchTarget[generateCustomerSummaryOutput]{
-				factorysdk.GoToBranch(openai.CreateResponseBranchCompleted, CustomerSummaryCompletedStep{}),
-				factorysdk.GoToBranch(openai.CreateResponseBranchFailed, CustomerSummaryFailedStep{}),
-				factorysdk.GoToBranch(openai.CreateResponseBranchUncertain, factorysdk.StepRef[generateCustomerSummaryOutput](reconcileCustomerSummaryStepType)),
-				factorysdk.GoToBranch(openai.CreateResponseBranchDefect, CustomerSummaryFailedStep{}),
-			},
+			Connection:      flow.connection,
+			BuildInput:      buildGenerateCustomerSummaryInput,
+			Completed:       factorysdk.GoTo(CustomerSummaryCompletedStep{}),
+			Failed:          factorysdk.GoTo(CustomerSummaryFailedStep{}),
+			Uncertain:       factorysdk.GoTo(factorysdk.StepRef[generateCustomerSummaryOutput](reconcileCustomerSummaryStepType)),
+			Defect:          factorysdk.GoTo(CustomerSummaryFailedStep{}),
 			ResultAttribute: &generatedCustomerSummary,
 			ProgressStream:  &customerSummaryProgress,
 			TextStream:      &customerSummaryText,
@@ -99,21 +93,18 @@ func (flow *CustomerSummaryConnectorFlow) GetSteps() []dex.StepDef {
 				ExecuteFailure: dex.ProceedToOnExecuteFailure(CustomerSummaryExecuteFailedStep{}, nil),
 			},
 		})),
-		dex.DefineStep(factorysdk.MustNewQueryStep(factorysdk.QueryStepConfig[generateCustomerSummaryOutput, openai.RetrieveRequest, openai.Response]{
+		dex.DefineStep(openai.NewRetrieveResponseStep(openai.RetrieveResponseStepConfig[generateCustomerSummaryOutput]{
 			StepType: reconcileCustomerSummaryStepType,
 			Presentation: factorysdk.StepPresentation{
 				GroupID:     "recovery",
 				GroupLabel:  "Recovery",
 				Explanation: "Retrieve an uncertain model response without repeating the mutation.",
 			},
-			Operation:  flow.openAI.RetrieveResponse(),
-			Connection: flow.connection,
-			BuildInput: buildReconcileCustomerSummaryInput,
-			Branches: []factorysdk.BranchTarget[reconcileCustomerSummaryOutput]{
-				factorysdk.GoToBranch(openai.RetrieveResponseBranchFound, CustomerSummaryReconciledStep{}),
-				factorysdk.GoToBranch(openai.RetrieveResponseBranchFailed, CustomerSummaryReconcileFailedStep{}),
-				factorysdk.GoToBranch(openai.RetrieveResponseBranchDefect, CustomerSummaryReconcileFailedStep{}),
-			},
+			Connection:      flow.connection,
+			BuildInput:      buildReconcileCustomerSummaryInput,
+			Found:           factorysdk.GoTo(CustomerSummaryReconciledStep{}),
+			Failed:          factorysdk.GoTo(CustomerSummaryReconcileFailedStep{}),
+			Defect:          factorysdk.GoTo(CustomerSummaryReconcileFailedStep{}),
 			ResultAttribute: &reconciledCustomerSummary,
 		})),
 		dex.DefineStep(CustomerSummaryCompletedStep{}),
@@ -248,7 +239,7 @@ func (CustomerSummaryReconcileFailedStep) Execute(_ dex.Context, output reconcil
 	return dex.ForceFail(failureMessage("customer summary reconciliation", output.Result.Failure)), nil
 }
 
-// dex:group group-id:failure group-label:"Failure"
+// dex:group group-id:execute-failure group-label:"Execute Failure"
 // dex:explanation text:"Fail after the generation Step exhausts its retry policy."
 type CustomerSummaryExecuteFailedStep struct {
 	dex.StepDefaultsNoWaitFor[Input]

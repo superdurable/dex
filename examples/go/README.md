@@ -153,7 +153,7 @@ details.
 - [Job posting](./products/job-post)
 - [Deal DSL](./products/deal-dsl) (separate UI and `dex-deal-dsl` binary)
 - [Customer refund](./products/customer-refund) (deterministic and agentic FDG 2.0 Flows)
-- [Connector factory](./products/connector-factory) (Query/Mutation factories, recovery, Result Attributes, and Streams)
+- [Connector factory](./products/connector-factory) (OpenAI operation-specific factories, recovery, Result Attributes, and Streams)
 
 ## Patterns
 

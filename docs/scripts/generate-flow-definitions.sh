@@ -33,6 +33,7 @@ generate_flow_definition examples/python/dex_examples/products/subscription/subs
 generate_flow_definition examples/python/dex_examples/products/signup/user_signup_flow.py user-onboarding-process
 generate_flow_definition_v2 examples/go/products/customer-refund/deterministic/workflow.go customer-refund
 generate_flow_definition_v2 examples/go/products/customer-refund/agentic/workflow.go customer-refund-agentic
+generate_flow_definition_v2 examples/go/products/connector-factory/workflow.go connector-factory
 
 generate_flow_definition examples/python/dex_examples/products/order-processing/order_processing_flow.py intro/order-processing
 
