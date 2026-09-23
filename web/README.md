@@ -77,6 +77,49 @@ around that proxy.
 Dex does not expose an `/api/v2/access` endpoint; hosted identity and role
 resolution stay in the reverse proxy and hosting control plane.
 
+## Trusted reverse-proxy mounts
+
+Dex Web can be mounted at a request-specific path below an authenticated host
+application. Enable this only when port 8802 is reachable exclusively from the
+trusted reverse proxy:
+
+```yaml
+web:
+  trustForwardedEmbeddingHeaders: true
+```
+
+The equivalent environment variable is
+`DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS=true`. The default is false. When it
+is false, Dex rejects requests containing any forwarded embedding header.
+
+The proxy strips client-supplied values, removes its public mount prefix before
+forwarding, and injects exactly one value for each required header:
+
+```text
+X-Forwarded-Prefix: /apps/project-1/dex
+X-Dex-Web-Embedded: true
+X-Dex-Web-CSRF-Token: host-generated-token
+```
+
+`X-Forwarded-Prefix` is the browser-visible absolute path. It is `/` or a
+canonical path without a trailing slash, query, fragment, authority, dot
+segment, or encoded path separator. `X-Dex-Web-Embedded` accepts only `true` or
+`false`. The CSRF bootstrap token is optional to Dex, but hosted deployments
+should provide a non-empty, visible-ASCII value.
+
+Dex injects the request-specific base path and presentation mode into the SPA.
+The router, assets, navigation links, API calls, and recovery requests use that
+path without sharing state between simultaneous mounts. Embedded pages remove
+redundant product chrome and allow same-origin framing. Standalone pages deny
+framing. HTML is served with `Cache-Control: no-store` and varies on all three
+forwarded headers.
+
+For every browser method other than GET, HEAD, or OPTIONS, the SPA copies the
+bootstrap token to `X-CSRF-Token`. The host proxy must validate that browser
+header against the authenticated session before forwarding the request, then
+strip it. Dex transports the token for the host boundary; it does not implement
+host authentication, session management, or CSRF validation.
+
 ## Dynamic definition bundles
 
 Local and blobstore sources support atomic bundles:
@@ -132,6 +175,7 @@ DEX_WEB_FLOW_RENDERING_DIRECTORY
 DEX_WEB_FLOW_RENDERING_STORAGE_ID
 DEX_WEB_FLOW_RENDERING_PREFIX
 DEX_WEB_WORK_QUEUE_PERMISSION_MODE
+DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS
 ```
 
 `GET /api/flow-definitions` and `GET /api/v2/catalog` return the active revision

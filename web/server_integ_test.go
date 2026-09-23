@@ -17,6 +17,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,6 +116,83 @@ func TestWebServerBridgesDexAndServesSPA(t *testing.T) {
 	missingAPI.Body.Close()
 	if missingAPI.StatusCode != http.StatusNotFound || !strings.Contains(missingBody, "API route not found") {
 		t.Fatalf("unknown API: status=%d body=%q", missingAPI.StatusCode, missingBody)
+	}
+}
+
+func TestWebServerSupportsConcurrentTrustedProxyMounts(t *testing.T) {
+	harness := newHarnessWithConfig(t, &flowService{}, &dexweb.Config{
+		BindAddress:                    "127.0.0.1",
+		Port:                           dexweb.DefaultPort,
+		TrustForwardedEmbeddingHeaders: true,
+	})
+	backend, err := url.Parse(harness.http.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(backend)
+	mounts := map[string]string{
+		"/runtime/project-a/dex": "csrf-project-a",
+		"/runtime/project-b/dex": "csrf-project-b",
+	}
+	frontend := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		for prefix, csrfToken := range mounts {
+			if request.URL.Path != prefix && !strings.HasPrefix(request.URL.Path, prefix+"/") {
+				continue
+			}
+			request.URL.Path = strings.TrimPrefix(request.URL.Path, prefix)
+			if request.URL.Path == "" {
+				request.URL.Path = "/"
+			}
+			request.Header.Del("X-Forwarded-Prefix")
+			request.Header.Del("X-Dex-Web-Embedded")
+			request.Header.Del("X-Dex-Web-CSRF-Token")
+			request.Header.Set("X-Forwarded-Prefix", prefix)
+			request.Header.Set("X-Dex-Web-Embedded", "true")
+			request.Header.Set("X-Dex-Web-CSRF-Token", csrfToken)
+			proxy.ServeHTTP(response, request)
+			return
+		}
+		http.NotFound(response, request)
+	}))
+	t.Cleanup(frontend.Close)
+
+	for prefix, csrfToken := range mounts {
+		request, requestErr := http.NewRequest(http.MethodGet, frontend.URL+prefix+"/v2/run", nil)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		request.Header.Set("X-Forwarded-Prefix", "/forged")
+		request.Header.Set("X-Dex-Web-CSRF-Token", "forged-token")
+		response, requestErr := http.DefaultClient.Do(request)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		body := readBody(t, response)
+		response.Body.Close()
+		for _, expected := range []string{
+			`"basePath":"` + prefix + `"`,
+			`"embedded":true`,
+			`"csrfToken":"` + csrfToken + `"`,
+			`src="` + prefix + `/assets/`,
+		} {
+			if !strings.Contains(body, expected) {
+				t.Fatalf("proxy mount %s body missing %q: %s", prefix, expected, body)
+			}
+		}
+		for otherPrefix := range mounts {
+			if otherPrefix != prefix && strings.Contains(body, otherPrefix) {
+				t.Fatalf("proxy mount %s leaked %s: %s", prefix, otherPrefix, body)
+			}
+		}
+		if response.Header.Get("Content-Security-Policy") != "frame-ancestors 'self'" {
+			t.Fatalf("proxy mount %s CSP = %q", prefix, response.Header.Get("Content-Security-Policy"))
+		}
+
+		definitionResponse := get(t, frontend.URL+prefix+"/api/flow-definitions")
+		if definitionResponse.StatusCode != http.StatusOK {
+			t.Fatalf("proxy mount %s definition status = %d body=%q", prefix, definitionResponse.StatusCode, readBody(t, definitionResponse))
+		}
+		definitionResponse.Body.Close()
 	}
 }
 

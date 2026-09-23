@@ -101,6 +101,7 @@ web:
   port: 8802
   flowServiceTarget: dex-api:8801
   flowRenderingDirectory: ""
+  trustForwardedEmbeddingHeaders: false
 ~~~
 
 The bind address defaults to all interfaces and the port defaults to 8802. An
@@ -244,3 +245,10 @@ Do not expose Dex Web or the FlowService API directly to the public Internet.
 Protect server and Worker endpoints with network policy, authenticated
 transport, and narrowly scoped service identities. Audit access to production
 Flow details according to your data-handling policy.
+
+Dex Web can use trusted proxy metadata for a request-specific mount path and
+embedded presentation. Set **web.trustForwardedEmbeddingHeaders** to true only
+when the proxy is the sole network path to port 8802. The proxy must strip
+browser-supplied embedding headers before adding its own values. See
+[Dex Web](/production/dex-web#trusted-reverse-proxy-mounts) for the header,
+prefix, framing, and CSRF contract.

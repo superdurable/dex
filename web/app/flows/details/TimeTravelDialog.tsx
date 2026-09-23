@@ -15,6 +15,7 @@ import {
   TIME_TRAVEL_TYPE,
 } from '@/lib/timeTravel';
 import type { FlowHistoryEvent, FlowSummary } from '@/lib/types';
+import { dexFetch } from '@/lib/webConfig';
 
 const timeTravelTypes = [
   { value: TIME_TRAVEL_TYPE.BEGINNING, label: 'Beginning' },
@@ -83,7 +84,7 @@ export function TimeTravelDialog({
       payload.stepMethod = stepMethod;
     }
     try {
-      const response = await fetch('/api/flows/time-travel', {
+      const response = await dexFetch('/api/flows/time-travel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

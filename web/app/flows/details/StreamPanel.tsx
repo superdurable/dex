@@ -12,6 +12,7 @@ import { hydrateBlobs } from '@/lib/blobs';
 import { formatDate } from '@/lib/format';
 import { readResponseJSON } from '@/lib/http';
 import type { StreamMessage } from '@/lib/types';
+import { webPath } from '@/lib/webConfig';
 import { StructuredValue } from '../../components/StructuredValue';
 import { usePreferences } from '../../providers';
 
@@ -45,7 +46,7 @@ export async function listenToStream({
       streamName,
       resumeToken,
     });
-    const response = await fetcher(`/api/flows/stream?${params}`, {
+    const response = await fetcher(webPath(`/api/flows/stream?${params}`), {
       cache: 'no-store',
       signal,
     });

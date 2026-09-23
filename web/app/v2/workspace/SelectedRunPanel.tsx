@@ -22,7 +22,7 @@ import { absorb, classifyReadFailure, nothingHeld, readFailureReason } from '../
 import { RUN_COPY } from '../run/copy';
 import { leadFields } from './uiSlots';
 import { useWebCatalog } from '../WebCatalogProvider';
-import { definitionRevisionHeaders } from '../webConfig';
+import { definitionRevisionHeaders, dexFetch } from '@/lib/webConfig';
 
 export function SelectedRunPanel({
   flowType,
@@ -71,7 +71,7 @@ export function SelectedRunPanel({
   const loadDisplay = useCallback(async () => {
     try {
       const query = new URLSearchParams({ flowType, flowId });
-      const response = await fetch(`/api/v2/display?${query}`, {
+      const response = await dexFetch(`/api/v2/display?${query}`, {
         headers: definitionRevisionHeaders(catalog?.definitionRevision ?? ''),
       });
       const display = await readResponseJSON<V2Display>(response);
@@ -105,7 +105,7 @@ export function SelectedRunPanel({
     setActionError('');
     setFieldErrors((current) => ({ ...current, [attributeKey]: '' }));
     try {
-      const response = await fetch('/api/v2/display', {
+      const response = await dexFetch('/api/v2/display', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -135,7 +135,7 @@ export function SelectedRunPanel({
     setActionError('');
     try {
       const input = v2ActionUserInput(action, actionValues[action.rpcName] ?? {});
-      const response = await fetch('/api/v2/actions', {
+      const response = await dexFetch('/api/v2/actions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

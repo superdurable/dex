@@ -88,6 +88,7 @@ web:
   port: 8802
   flowServiceTarget: dex-api:8801
   flowRenderingDirectory: ""
+  trustForwardedEmbeddingHeaders: false
 ~~~
 
 bind address 默认监听所有 interface，port 默认是 8802。空的
@@ -209,3 +210,9 @@ Flow data 的 operator。
 不要将 Dex Web 或 FlowService API 直接公开到公网上。使用 network policy、认证传输和
 权限最小化的 service identity 保护 Server 和 Worker endpoint。按照你的 data-handling
 policy 审计对生产 Flow detail 的访问。
+
+Dex Web 可以使用可信 proxy metadata，为每个 request 设置独立 mount path 和 embedded
+presentation。只有当 proxy 是访问 8802 端口的唯一 network path 时，才把
+**web.trustForwardedEmbeddingHeaders** 设为 true。Proxy 必须先删除浏览器提供的 embedding
+header，再注入自己的值。Header、prefix、framing 与 CSRF contract 见
+[Dex Web](/production/dex-web#可信-reverse-proxy-mount)。

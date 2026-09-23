@@ -83,6 +83,16 @@ a {
   backdrop-filter: blur(18px);
 }
 
+.app-header.embedded {
+  justify-content: flex-end;
+  min-height: 48px;
+  padding: 0 16px;
+}
+
+.app-header.embedded .header-nav {
+  gap: 14px;
+}
+
 .header-brand,
 .header-nav,
 .run-title-row,

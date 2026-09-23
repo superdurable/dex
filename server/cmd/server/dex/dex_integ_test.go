@@ -151,6 +151,58 @@ func TestWebOnlyStartsBeforeFlowService(t *testing.T) {
 	require.NoError(t, <-serverExit)
 }
 
+func TestWebCommandEnablesTrustedProxyMounts(t *testing.T) {
+	webPort := reservePort(t)
+	configPath := filepath.Join(t.TempDir(), "web-trusted-proxy.yaml")
+	configBody := fmt.Sprintf(
+		"web:\n  bindAddress: 127.0.0.1\n  port: %d\n  flowServiceTarget: 127.0.0.1:1\n  trustForwardedEmbeddingHeaders: true\n",
+		webPort,
+	)
+	require.NoError(t, os.WriteFile(configPath, []byte(configBody), 0o600))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	serverExit := make(chan error, 1)
+	go func() {
+		serverExit <- BuildCLI(ctx).Run([]string{
+			"dex-server",
+			"--config", configPath,
+			"start",
+			"--services=web",
+		})
+	}()
+	defer func() {
+		cancel()
+		require.NoError(t, <-serverExit)
+	}()
+
+	httpClient := &http.Client{Timeout: time.Second}
+	webAddress := "http://127.0.0.1:" + strconv.Itoa(webPort)
+	require.Eventually(t, func() bool {
+		response, requestErr := httpClient.Get(webAddress + "/healthz")
+		if requestErr != nil {
+			return false
+		}
+		defer response.Body.Close()
+		return response.StatusCode == http.StatusOK
+	}, 5*time.Second, 25*time.Millisecond)
+
+	request, err := http.NewRequest(http.MethodGet, webAddress+"/v2/run", nil)
+	require.NoError(t, err)
+	request.Header.Set("X-Forwarded-Prefix", "/apps/project-1/dex")
+	request.Header.Set("X-Dex-Web-Embedded", "true")
+	request.Header.Set("X-Dex-Web-CSRF-Token", "csrf-project-1")
+	response, err := httpClient.Do(request)
+	require.NoError(t, err)
+	indexBody, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.Contains(t, string(indexBody), `"basePath":"/apps/project-1/dex"`)
+	require.Contains(t, string(indexBody), `"csrfToken":"csrf-project-1"`)
+	require.Equal(t, "frame-ancestors 'self'", response.Header.Get("Content-Security-Policy"))
+
+}
+
 func TestWebConfigDefaultsAndOverrides(t *testing.T) {
 	defaultConfig := config.Config{}
 	require.Equal(t, config.DefaultWebBindAddress, defaultConfig.Web.EffectiveBindAddress())

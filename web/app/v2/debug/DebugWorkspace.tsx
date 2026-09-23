@@ -11,6 +11,7 @@ import { Link, useParams } from 'react-router-dom';
 import { RunDetailsPage } from '@/app/flows/RunDetailsPage';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
+import { dexFetch } from '@/lib/webConfig';
 import { v2DebugPath, v2RunPath } from '../contract';
 import '../css/v2.css';
 import '../css/debug.css';
@@ -33,7 +34,7 @@ export function DebugWorkspace() {
       return undefined;
     }
     const controller = new AbortController();
-    void fetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, {
+    void dexFetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, {
       signal: controller.signal,
     })
       .then((response) => readResponseJSON<FlowSummary>(response))
