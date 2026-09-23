@@ -1250,8 +1250,9 @@ use `*dex.ValueMappingError`. Only errors received from FlowService become
 The Client builds each non-wait protobuf request once. gRPC's pre-commit
 transparent retry therefore reuses the same request and request ID. Durable
 Step and Attribute waits automatically reattach after a transport long-poll
-timeout. Every reattachment sends the same logical wait and the remaining total
-handler budget, allowing the server to reuse its selected Update ID.
+timeout. Every reattachment sends the same logical wait and remaining caller-visible
+budget, allowing the server to reuse its selected Update ID. A positive budget does
+not guarantee immediate accepted-handler completion or slot release.
 
 ### Request ID ownership
 
@@ -1396,15 +1397,18 @@ defaults to one; a non-nil value must be positive. Its wire execution number
 remains decimal text because that is the server contract. Both wait option
 types accept an optional Request ID override. Otherwise the server derives a
 stable logical ID from the Step execution or Attribute condition.
-`MaximumWaitTime` is the total Temporal Update handler budget across transport
-long polls and Continue-as-New. Zero waits indefinitely; positive values must
-be whole seconds within int32 range. The Client retries
+`MaximumWaitTime` bounds the caller-visible wait. Zero waits indefinitely;
+positive values must be whole seconds within int32 range. The accepted handler
+checks its deadline only on a later Workflow Task and may retain its in-flight slot.
+Positive values are an exceptional safety valve. Short budgets can create many
+Update generations and Temporal history events; prefer at least one minute when
+nonzero and use `context.Context` for routine response deadlines.
+The Client retries
 `*dex.LongPollTimeoutError` internally with the same logical wait and remaining
 budget. Budget expiry returns
 `*dex.WaitHandlerTimeoutError`. `context.Context` remains an independent local
-cancellation mechanism. An abandoned infinite wait remains an accepted Update
-until its condition is met or the Flow closes, so it continues to count against
-Temporal's in-flight Update limit.
+cancellation mechanism. Reattachments reuse the accepted Update until it completes
+with a deadline error; only then does the server create a new `-N` generation.
 
 WaitForFlow uses the same server-capped duration. A successful response maps
 status and error metadata, then hydrates every requested completion output

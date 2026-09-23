@@ -222,15 +222,12 @@ instances. Keys are decoded and sorted. Use
 `forceCompleteIfChannelsEmpty(...)` for conditional completion.
 
 Request IDs are optional for both durable waits. When omitted, the server
-derives a namespaced stable ID from the Step execution or Attribute condition,
-such as `wait-for-attribute:myInt>10`. Reuse an override only for the same
-logical wait. The Client automatically reattaches transport long polls. If an
-earlier Update with that ID exhausted its handler budget, the server appends an
-increasing `-N` suffix and starts a new Update. `maximumWaitTimeMs` is optional
-and is the total handler budget across reattachments; omit it or use zero to
-wait indefinitely. A positive budget expiry throws `WaitHandlerTimeoutError`.
-An abandoned infinite wait remains accepted and counts against Temporal's
-in-flight Update limit until it completes or the Flow closes.
+derives a stable ID from the Step execution or Attribute condition. Reuse an
+override only for the same wait. `maximumWaitTimeMs` is optional. Omit it or use
+zero for normal use, and bound one response with the caller deadline. Positive
+values are an exceptional safety valve: short budgets can add many Temporal
+Update events to Workflow history. If a positive value is truly needed, prefer
+at least one minute. A positive expiry throws `WaitHandlerTimeoutError`.
 
 ### Async handlers
 

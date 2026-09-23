@@ -7648,14 +7648,12 @@ type WaitForStepCompletionRequest struct {
 	// Identifies a step execution by type and its per-type execution number.
 	StepType            string `protobuf:"bytes,2,opt,name=step_type,json=stepType,proto3" json:"step_type,omitempty"`
 	StepExecutionNumber string `protobuf:"bytes,3,opt,name=step_execution_number,json=stepExecutionNumber,proto3" json:"step_execution_number,omitempty"`
-	// Limits how long one accepted Temporal Update handler remains in flight.
-	// Zero is recommended for ordinary waits and waits indefinitely.
-	// A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
-	// The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
-	// Retrying after expiry creates a new -N Update generation.
+	// Sets the caller-visible maximum wait time in seconds.
+	// Zero waits indefinitely and is recommended for normal use.
+	// Positive values are an exceptional safety valve, not a normal request timeout.
+	// Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
 	WaitTimeSeconds int32 `protobuf:"varint,5,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
 	// Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
-	// Reusing a handler-timed-out logical key advances an increasing -N generation.
 	RequestId     string `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7766,14 +7764,12 @@ type WaitForAttributeRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	FlowId string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
 	Match  *AttributeMatch        `protobuf:"bytes,2,opt,name=match,proto3" json:"match,omitempty"`
-	// Limits how long one accepted Temporal Update handler remains in flight.
-	// Zero is recommended for ordinary waits and waits indefinitely.
-	// A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
-	// The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
-	// Retrying after expiry creates a new -N Update generation.
+	// Sets the caller-visible maximum wait time in seconds.
+	// Zero waits indefinitely and is recommended for normal use.
+	// Positive values are an exceptional safety valve, not a normal request timeout.
+	// Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
 	WaitTimeSeconds int32 `protobuf:"varint,3,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
 	// Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
-	// Reusing a handler-timed-out logical key advances an increasing -N generation.
 	RequestId     string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

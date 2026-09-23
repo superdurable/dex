@@ -26,7 +26,7 @@ export const ErrorSubStatus = Object.freeze({
   LONG_POLL_TIMEOUT: "longPollTimeout",
   /** A pending Channel message ID no longer exists. */
   CHANNEL_MESSAGE_NOT_FOUND: "channelMessageNotFound",
-  /** A durable wait reached its caller-defined total handler budget. */
+  /** A caller-defined wait budget expired. */
   WAIT_HANDLER_TIMEOUT: "waitHandlerTimeout",
 } as const);
 
@@ -120,7 +120,7 @@ export class RpcLockConflictError extends DexServiceError {}
 /** Indicates that a retryable long poll ended before its condition was observed. */
 export class LongPollTimeoutError extends DexServiceError {}
 
-/** Indicates that a durable wait reached its caller-defined total handler budget. */
+/** Indicates that a caller-defined wait budget expired. */
 export class WaitHandlerTimeoutError extends DexServiceError {}
 
 /** Indicates that a requested Channel message is no longer pending. */

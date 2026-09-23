@@ -55,6 +55,8 @@ const (
 	waitForAttributeUpdateIDNamespace      = "wait-for-attribute:"
 )
 
+var errWaitHandlerDeadlineExceeded = errors.New("wait handler deadline exceeded")
+
 type serviceImpl struct {
 	client             uclient.UnifiedClient
 	store              blobstore.BlobStore
@@ -325,9 +327,9 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 	if err != nil || stepExecutionNumber <= 0 {
 		return nil, makeInvalidRequestError("step execution number must be a positive integer")
 	}
+	handlerDeadline := waitHandlerDeadline(req.GetWaitTimeSeconds())
 	waitCtx, cancel := s.waitContext(ctx)
 	defer cancel()
-	handlerDeadline := waitHandlerDeadline(req.GetWaitTimeSeconds())
 	baseUpdateID := waitForStepCompletionUpdateID(req)
 	updateIDGeneration := 0
 	var response dexpb.WaitForStepCompletionResponse
@@ -340,8 +342,9 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 			).ToGRPCError()
 		}
 		req.WaitTimeSeconds = remainingSeconds
+		updateCtx, cancelUpdate := waitUpdateContext(waitCtx, handlerDeadline)
 		err := s.client.SynchronousUpdateWorkflow(
-			waitCtx,
+			updateCtx,
 			&response,
 			req.GetFlowId(),
 			"",
@@ -349,8 +352,18 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 			service.WaitForStepCompletionUpdateType,
 			req,
 		)
+		updateCause := context.Cause(updateCtx)
+		cancelUpdate()
 		if err == nil {
 			return &response, nil
+		}
+		if errors.Is(updateCause, errWaitHandlerDeadlineExceeded) {
+			return nil, serviceerrors.DeadlineExceededWaitHandler(
+				"step completion wait timed out",
+			).ToGRPCError()
+		}
+		if waitCtx.Err() != nil {
+			return nil, waitContextStatus(waitCtx.Err())
 		}
 		if isWaitHandlerTimeoutUpdateError(s.client, err) {
 			updateIDGeneration++
@@ -444,9 +457,9 @@ func (s *serviceImpl) WaitForAttribute(
 	if err := validateAttributeMatch(match); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
+	handlerDeadline := waitHandlerDeadline(req.GetWaitTimeSeconds())
 	waitCtx, cancel := s.waitContext(ctx)
 	defer cancel()
-	handlerDeadline := waitHandlerDeadline(req.GetWaitTimeSeconds())
 	baseUpdateID := waitForAttributeUpdateID(req)
 	updateIDGeneration := 0
 	var response dexpb.WaitForAttributeResponse
@@ -459,8 +472,9 @@ func (s *serviceImpl) WaitForAttribute(
 			).ToGRPCError()
 		}
 		req.WaitTimeSeconds = remainingSeconds
+		updateCtx, cancelUpdate := waitUpdateContext(waitCtx, handlerDeadline)
 		err := s.client.SynchronousUpdateWorkflow(
-			waitCtx,
+			updateCtx,
 			&response,
 			req.GetFlowId(),
 			"",
@@ -468,8 +482,18 @@ func (s *serviceImpl) WaitForAttribute(
 			service.WaitForAttributeUpdateType,
 			req,
 		)
+		updateCause := context.Cause(updateCtx)
+		cancelUpdate()
 		if err == nil {
 			return &response, nil
+		}
+		if errors.Is(updateCause, errWaitHandlerDeadlineExceeded) {
+			return nil, serviceerrors.DeadlineExceededWaitHandler(
+				"attribute wait timed out",
+			).ToGRPCError()
+		}
+		if waitCtx.Err() != nil {
+			return nil, waitContextStatus(waitCtx.Err())
 		}
 		if isWaitHandlerTimeoutUpdateError(s.client, err) {
 			updateIDGeneration++
@@ -1812,6 +1836,16 @@ func waitHandlerDeadline(requestedSeconds int32) time.Time {
 		return time.Time{}
 	}
 	return time.Now().Add(time.Duration(requestedSeconds) * time.Second)
+}
+
+func waitUpdateContext(parent context.Context, handlerDeadline time.Time) (context.Context, context.CancelFunc) {
+	if handlerDeadline.IsZero() {
+		return context.WithCancel(parent)
+	}
+	if parentDeadline, ok := parent.Deadline(); ok && !handlerDeadline.Before(parentDeadline) {
+		return context.WithCancel(parent)
+	}
+	return context.WithDeadlineCause(parent, handlerDeadline, errWaitHandlerDeadlineExceeded)
 }
 
 func remainingWaitHandlerSeconds(deadline time.Time) (int32, bool) {

@@ -12,7 +12,7 @@ The caller waits for revision greater than its last observed value. The wait ret
 
 Revision is a watermark, not an event stream. If state advances quickly from 0 to 1 to 2 to 3, one wait for a value greater than 0 may return 3. Callers must not expect to observe every intermediate value.
 
-Dex derives the Request ID from the complete Attribute condition. Repeating the same condition on one active Flow shares one accepted durable Update, including across Continue-As-New. Leave **MaximumWaitTime** at 0 for ordinary waits. Consider a positive value only when dynamic predicates, many concurrent consumers, abandoned callers, or conditions that may never match could consume the Flow's in-flight capacity. An expiry releases the slot, but continued waiting creates a new -N Update generation. See [Choose the durable handler lifetime](/design-patterns/responsive-update#choose-the-durable-handler-lifetime) for the capacity and cost tradeoff.
+Leave **MaximumWaitTime** at 0 for normal use and bound individual responses with the caller deadline. Positive values are rare because short budgets can add many Temporal Update events to Workflow history. If a positive value is necessary, prefer at least one minute. It returns a typed timeout to the caller. See [Choose the wait budget](/design-patterns/responsive-update#choose-the-wait-budget) for details.
 
 ## Advance revision under a lock
 

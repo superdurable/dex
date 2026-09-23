@@ -34,7 +34,7 @@ pub enum ErrorSubStatus {
     LongPollTimeout,
     /// A pending Channel message ID no longer exists.
     ChannelMessageNotFound,
-    /// A durable wait handler reached its caller-defined total budget.
+    /// A caller-defined wait budget expired.
     WaitHandlerTimeout,
 }
 
@@ -173,7 +173,7 @@ pub enum SdkError {
         /// Structured deletion failure.
         service: ServiceError,
     },
-    /// A durable wait handler reached its caller-defined total budget.
+    /// A caller-defined wait budget expired.
     WaitHandlerTimeout {
         /// Structured timeout failure.
         service: ServiceError,

@@ -24,7 +24,9 @@ const StartingVersionV1 = 1
 
 const DeterministicStepActivityIDVersion = 2
 
-const MaxOfAllVersions = DeterministicStepActivityIDVersion
+const TimerlessWaitUpdatesVersion = 3
+
+const MaxOfAllVersions = TimerlessWaitUpdatesVersion
 
 // GlobalVersioner is the forward hook for determinism-safe interpreter changes.
 // See https://stackoverflow.com/questions/73941723 for the pattern.
@@ -41,4 +43,8 @@ func NewGlobalVersioner(
 
 func (v *GlobalVersioner) UsesDeterministicStepActivityIDs() bool {
 	return v.version >= DeterministicStepActivityIDVersion
+}
+
+func (v *GlobalVersioner) UsesTimerlessWaitUpdates() bool {
+	return v.version >= TimerlessWaitUpdatesVersion
 }

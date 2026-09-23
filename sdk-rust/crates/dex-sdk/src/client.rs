@@ -638,17 +638,16 @@ impl Client {
         )
     }
 
-    /// Blocks until one Step execution completes or its total handler budget expires.
+    /// Blocks until one Step execution completes or its caller-visible wait budget expires.
     ///
     /// The server derives a stable Request ID from the Step execution when none is supplied.
-    /// Transport long polls automatically reattach to the same logical wait.
-    /// Leave the maximum wait time at zero for ordinary infinite waits. A positive value releases
-    /// per-Flow in-flight Update capacity for abandoned waits. The budget spans Continue-as-New and
-    /// is distinct from the caller's lifetime. Retrying after expiry creates a new Update generation.
+    /// Leave the maximum wait time at zero for normal use. Positive values are exceptional because
+    /// short budgets can add many Temporal Update events to Workflow history. Prefer at least one
+    /// minute when nonzero.
     ///
     /// # Errors
     ///
-    /// Returns [`SdkError::WaitHandlerTimeout`] when a positive handler budget expires,
+    /// Returns [`SdkError::WaitHandlerTimeout`] when a positive wait budget expires,
     /// FlowNotActive when appropriate, or another service error. Successful completion returns
     /// `()` and does not decode Step output.
     pub fn wait_for_step_completion(
@@ -691,12 +690,10 @@ impl Client {
     ///
     /// Returns the current value observed by the successful wait. The server derives a stable
     /// Request ID from the condition when none is supplied. Leave the maximum wait time at zero for
-    /// ordinary infinite waits. A positive value releases per-Flow in-flight Update capacity for
-    /// rarely matching waits. The budget spans transport reattachments and Continue-as-New, and is
-    /// distinct from the caller's lifetime. Retrying after expiry creates a new Update generation.
-    /// String and
-    /// Boolean Attributes support equality matches. Integer and floating-point
-    /// Attributes support every match. A positive handler-budget expiry returns
+    /// normal use. Positive values are exceptional because short budgets can add many Temporal
+    /// Update events to Workflow history. Prefer at least one minute when nonzero. String and Boolean
+    /// Attributes support equality matches. Integer and floating-point Attributes support every
+    /// match. A positive wait-budget expiry returns
     /// [`SdkError::WaitHandlerTimeout`].
     pub fn wait_for_attribute_match<T: Value>(
         &self,

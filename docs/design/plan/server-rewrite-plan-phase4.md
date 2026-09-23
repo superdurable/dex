@@ -499,12 +499,14 @@ compile only after S5 migrates updater/query/CAN files.
 
 ### Wait update lifecycle and CAN preemption
 
-- The API computes one absolute effective deadline from caller context,
-  `wait_time_seconds`, and `Api.MaxWaitSeconds`; reject a negative request duration.
-  Every retry passes only the remaining duration, rounded up to a whole second so a
-  positive remainder never becomes an immediate check. The API context still
-  enforces the exact sub-second deadline, and CAN retries never reset the user's wait
-  budget.
+- Global version 3 enables timerless deadlines and wait-handler counting. Versions
+  1 and 2 retain timer commands and their previous counter behavior for replay.
+  A Continue-As-New run selects version 3 independently.
+- The API computes one absolute handler deadline from `wait_time_seconds`; reject a
+  negative request duration. It derives an ordinary Go context capped by that
+  deadline for each sync Update call. The exact deadline returns
+  `WAIT_HANDLER_TIME_OUT`; caller cancellation and `Api.MaxWaitSeconds` keep their
+  existing classifications. Context expiry does not cancel an accepted Update.
 - Define a private Temporal application-error type such as
   `DEX_CAN_PREEMPTED`. UnifiedClient/API consumes it internally: retry
   `SynchronousUpdateWorkflow` against the main workflow without pinning a run
@@ -515,16 +517,23 @@ compile only after S5 migrates updater/query/CAN files.
   return all other errors immediately. Never expose this sentinel as the gRPC
   response.
 - Each handler validates before yielding, increments CAN inflight, and defers
-  decrement. It checks the current value once, then waits on
+  decrement. Global version 3 increments the sync-update continue-as-new counter on
+  every handler exit before decrementing inflight. Validation rejection and
+  reattachment do not execute or recount the handler. It checks the current value
+  once, then waits on
   `match || hasTerminalRequest(...) || IsThresholdMet()`.
 - Outcome order after Await returns: a real match wins; terminal returns
   `FailedPrecondition`; timeout returns `DeadlineExceeded` +
   `LONG_POLL_TIME_OUT`; CAN threshold returns `DEX_CAN_PREEMPTED`. This order avoids
   losing a completion/attribute write that became visible in the same workflow task
   as CAN.
-- Zero timeout performs one immediate check and never installs a timer. Caller
-  cancellation is returned as `Canceled`; an already accepted handler still exits
-  through its bounded deadline, terminal request, or CAN predicate.
+- Zero waits indefinitely. A positive deadline installs no timer and is observed only
+  on a later Workflow Task. The caller can receive `WAIT_HANDLER_TIME_OUT` while the
+  accepted handler still occupies its slot. A new `-N` generation starts only after
+  that handler actually completes with a deadline error.
+- Positive budgets are an exceptional safety valve, not a routine request timeout.
+  Short budgets can create many Update generations and history events. Prefer zero;
+  when a positive value is necessary, start at 60 seconds or longer.
 - Cadence implements no handlers. The API returns `codes.Unimplemented` before
   dialing.
 

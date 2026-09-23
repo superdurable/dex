@@ -849,19 +849,16 @@ func (client *Client) UpdateFlowConfig(
 	return translateRPCError(err, "UpdateFlowConfig", flowID, flowTargetActive)
 }
 
-// WaitForStepCompletion blocks until a Step execution completes, the handler budget expires,
+// WaitForStepCompletion blocks until a Step execution completes, the caller-visible wait budget expires,
 // or ctx ends.
 //
 // stepExecution identifies the Step type and execution number; nil means execution
 // one. A nil error means the requested execution completed, but this method does not return its output.
 // When options.RequestID is empty, the server derives a stable RequestID from the Step execution.
-// The Client automatically reattaches transport long polls with the same logical wait.
-// Leave MaximumWaitTime zero for an ordinary infinite wait. A positive value is a per-Flow
-// in-flight Update capacity safeguard for abandoned or rarely completing waits. It spans
-// transport reattachments and Continue-As-New. It is distinct from ctx: ending ctx after
-// acceptance does not cancel the durable handler. Retrying after a positive budget expires
-// creates a new Update generation and returns WaitHandlerTimeoutError. Invalid identifiers,
-// inactive Flows, context, transport, and server errors are also returned.
+// Leave MaximumWaitTime zero for normal use and bound one response with ctx. Positive values are
+// exceptional because short budgets can add many Temporal Update events to Workflow history; prefer
+// at least one minute when nonzero. A positive value returns WaitHandlerTimeoutError to the caller.
+// Invalid identifiers, inactive Flows, context, transport, and server errors are also returned.
 func (client *Client) WaitForStepCompletion(
 	ctx context.Context,
 	flowID string,
@@ -1140,12 +1137,11 @@ func streamMessagesPageTarget(
 // match must contain an operand matching the registered Attribute type. The
 // matched current value is decoded into valuePtr before this method returns.
 // valuePtr must be a non-nil pointer of the registered type. When options.RequestID is empty, the
-// server derives one from the Attribute condition. Transport long-poll retries reattach to it.
-// Leave MaximumWaitTime zero for an ordinary infinite wait. A positive value is a per-Flow
-// in-flight Update capacity safeguard for abandoned or rarely matching waits. It spans transport
-// reattachments and Continue-As-New. It is distinct from ctx: ending ctx after acceptance does not
-// cancel the durable handler. Retrying after a positive budget expires creates a new Update generation
-// and returns WaitHandlerTimeoutError. Use context.WithTimeout or context.WithDeadline to cancel locally.
+// server derives one from the Attribute condition.
+// Leave MaximumWaitTime zero for normal use and bound one response with ctx. Positive values are
+// exceptional because short budgets can add many Temporal Update events to Workflow history; prefer
+// at least one minute when nonzero. A positive value returns WaitHandlerTimeoutError to the caller.
+// Use context.WithTimeout or context.WithDeadline to bound the caller-visible response.
 func (client *Client) WaitForAttributeMatch(
 	ctx context.Context,
 	flowID string,
@@ -1171,7 +1167,7 @@ func (client *Client) WaitForAttributeMatch(
 // instance identifies the map entry. Slash is prohibited because it is reserved.
 // The matched current value is decoded into valuePtr. The match operand and
 // valuePtr must use the registered AttributeMap value type. options has the same required RequestID,
-// automatic reattachment, handler-budget, and error behavior as WaitForAttributeMatch.
+// wait-budget, and error behavior as WaitForAttributeMatch.
 func (client *Client) WaitForAttributeMapInstanceMatch(
 	ctx context.Context,
 	flowID string,

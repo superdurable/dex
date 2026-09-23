@@ -738,23 +738,22 @@ class AsyncClient:
         step_execution_id: StepExecutionId,
         options: WaitForStepCompletionOptions,
     ) -> None:
-        """Await one Step execution's completion or its handler budget expiry.
+        """Await one Step execution's completion or its wait budget expiry.
 
         The server derives a stable Request ID from the Step execution when none
-        is supplied. Transport long polls automatically reattach to the same wait.
-        Leave the maximum wait time at zero for ordinary infinite waits. A positive
-        value releases per-Flow in-flight Update capacity for abandoned waits.
-        The budget spans Continue-as-New and is distinct from the caller's lifetime.
-        Retrying after expiry creates a new Update generation.
+        is supplied. Leave the maximum wait time at zero for normal use. Positive
+        values are exceptional because short budgets can add many Temporal Update
+        events to Workflow history; prefer at least one minute when nonzero. A
+        positive value bounds the caller-visible wait.
 
         Args:
             flow_id: The non-empty active Flow ID.
             step_execution_id: The Step type and positive execution number.
-            options: The optional Request ID override and total handler wait budget.
+            options: The optional Request ID override and total wait budget.
 
         Raises:
-            ValueError: If the Request ID or handler wait budget is invalid.
-            WaitHandlerTimeoutError: If a positive handler budget expires first.
+            ValueError: If the Request ID or wait budget is invalid.
+            WaitHandlerTimeoutError: If a positive wait budget expires first.
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
@@ -792,24 +791,24 @@ class AsyncClient:
 
         The Client returns the value observed by the successful wait. The server
         derives a stable Request ID from the condition when none is supplied.
-        Leave the maximum wait time at zero for ordinary infinite waits. A positive
-        value releases per-Flow in-flight Update capacity for rarely matching waits.
-        The budget spans transport reattachments and Continue-as-New, and is distinct
-        from the caller's lifetime. Retrying after expiry creates a new Update generation.
+        Leave the maximum wait time at zero for normal use. Positive values are
+        exceptional because short budgets can add many Temporal Update events to
+        Workflow history; prefer at least one minute when nonzero. A positive value
+        bounds the caller-visible wait.
         JSON, bytes, and null operands raise ``ValueError`` before transport.
 
         Args:
             flow_id: The non-empty active Flow ID.
             attribute: The registered singleton Attribute to observe.
             match: The scalar predicate to await.
-            options: The optional Request ID override and total handler wait budget.
+            options: The optional Request ID override and total wait budget.
 
         Returns:
             The current Attribute value that satisfied ``match``.
 
         Raises:
             ValueError: If an identifier, option, or match operand is invalid.
-            WaitHandlerTimeoutError: If a positive handler budget expires first.
+            WaitHandlerTimeoutError: If a positive wait budget expires first.
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
@@ -841,7 +840,7 @@ class AsyncClient:
 
         Raises:
             ValueError: If an identifier, option, or match operand is invalid.
-            WaitHandlerTimeoutError: If a positive handler budget expires first.
+            WaitHandlerTimeoutError: If a positive wait budget expires first.
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
@@ -871,7 +870,7 @@ class AsyncClient:
         Raises:
             TypeError: If arguments do not match the Attribute definition.
             ValueError: If an identifier, option, or expected value is invalid.
-            WaitHandlerTimeoutError: If a positive handler budget expires first.
+            WaitHandlerTimeoutError: If a positive wait budget expires first.
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """

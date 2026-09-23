@@ -248,8 +248,31 @@ func countTemporalUpdateEvents(
 	runId string,
 	requestId string,
 ) (accepted int, completed int) {
+	counts := inspectTemporalUpdateHistory(t, ctx, runtime, flowId, runId, requestId)
+	return counts.accepted, counts.completed
+}
+
+type temporalUpdateHistoryCounts struct {
+	accepted               int
+	completed              int
+	acceptedAt             time.Time
+	oneSecondTimerStarted  int
+	oneSecondTimerCanceled int
+}
+
+func inspectTemporalUpdateHistory(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+	runID string,
+	requestID string,
+) temporalUpdateHistoryCounts {
 	t.Helper()
 	api := runtime.UnifiedClient.GetApiService().(workflowservice.WorkflowServiceClient)
+	counts := temporalUpdateHistoryCounts{}
+	isUpdatePending := false
+	oneSecondTimerStartedEventIDs := map[int64]struct{}{}
 	var nextPageToken []byte
 	for {
 		response, err := api.GetWorkflowExecutionHistory(
@@ -257,8 +280,8 @@ func countTemporalUpdateEvents(
 			&workflowservice.GetWorkflowExecutionHistoryRequest{
 				Namespace: testNamespace,
 				Execution: &temporalcommon.WorkflowExecution{
-					WorkflowId: flowId,
-					RunId:      runId,
+					WorkflowId: flowID,
+					RunId:      runID,
 				},
 				MaximumPageSize: 1000,
 				NextPageToken:   nextPageToken,
@@ -268,25 +291,41 @@ func countTemporalUpdateEvents(
 		for _, event := range response.GetHistory().GetEvents() {
 			switch event.GetEventType() {
 			case temporalenums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
-				eventRequestId := event.GetWorkflowExecutionUpdateAcceptedEventAttributes().
+				eventRequestID := event.GetWorkflowExecutionUpdateAcceptedEventAttributes().
 					GetAcceptedRequest().
 					GetMeta().
 					GetUpdateId()
-				if eventRequestId == requestId {
-					accepted++
+				if eventRequestID == requestID {
+					counts.accepted++
+					counts.acceptedAt = event.GetEventTime().AsTime()
+					isUpdatePending = true
 				}
 			case temporalenums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
-				eventRequestId := event.GetWorkflowExecutionUpdateCompletedEventAttributes().
+				eventRequestID := event.GetWorkflowExecutionUpdateCompletedEventAttributes().
 					GetMeta().
 					GetUpdateId()
-				if eventRequestId == requestId {
-					completed++
+				if eventRequestID == requestID {
+					counts.completed++
+					isUpdatePending = false
+				}
+			case temporalenums.EVENT_TYPE_TIMER_STARTED:
+				if isUpdatePending && event.GetTimerStartedEventAttributes().
+					GetStartToFireTimeout().AsDuration() == time.Second {
+					counts.oneSecondTimerStarted++
+					oneSecondTimerStartedEventIDs[event.GetEventId()] = struct{}{}
+				}
+			case temporalenums.EVENT_TYPE_TIMER_CANCELED:
+				if isUpdatePending {
+					startedEventID := event.GetTimerCanceledEventAttributes().GetStartedEventId()
+					if _, exists := oneSecondTimerStartedEventIDs[startedEventID]; exists {
+						counts.oneSecondTimerCanceled++
+					}
 				}
 			}
 		}
 		nextPageToken = response.GetNextPageToken()
 		if len(nextPageToken) == 0 {
-			return accepted, completed
+			return counts
 		}
 	}
 }

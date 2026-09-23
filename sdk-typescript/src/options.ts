@@ -22,30 +22,28 @@ export interface ClientOptions {
 /**
  * Configures one durable Step completion wait.
  * The server derives a stable Request ID from the Step execution when none is supplied.
- * Leave the maximum wait time at zero for ordinary infinite waits.
- * A positive value releases per-Flow in-flight Update capacity for abandoned or rarely completing waits.
- * It spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
- * Retrying after expiry creates a new Update generation.
+ * Leave the maximum wait time at zero for normal use. Positive values are exceptional because short
+ * budgets can add many Temporal Update events to Workflow history. Prefer at least one minute.
+ * A positive value bounds the caller-visible wait.
  */
 export interface WaitForStepCompletionOptions {
   /** Overrides the stable Request ID that the server derives from the Step execution. */
   readonly requestId?: string;
-  /** Accepted handler lifetime in milliseconds. Omit or use zero for the recommended ordinary infinite wait. */
+  /** Caller-visible wait budget. Prefer zero, or at least one minute when positive, to limit Update history growth. */
   readonly maximumWaitTimeMs?: number;
 }
 
 /**
  * Configures one durable Attribute match wait.
  * The server derives a stable Request ID from the Attribute condition when none is supplied.
- * Leave the maximum wait time at zero for ordinary infinite waits.
- * A positive value releases per-Flow in-flight Update capacity for abandoned or rarely matching waits.
- * It spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
- * Retrying after expiry creates a new Update generation.
+ * Leave the maximum wait time at zero for normal use. Positive values are exceptional because short
+ * budgets can add many Temporal Update events to Workflow history. Prefer at least one minute.
+ * A positive value bounds the caller-visible wait.
  */
 export interface WaitForAttributeOptions {
   /** Overrides the stable Request ID that the server derives from the Attribute condition. */
   readonly requestId?: string;
-  /** Accepted handler lifetime in milliseconds. Omit or use zero for the recommended ordinary infinite wait. */
+  /** Caller-visible wait budget. Prefer zero, or at least one minute when positive, to limit Update history growth. */
   readonly maximumWaitTimeMs?: number;
 }
 

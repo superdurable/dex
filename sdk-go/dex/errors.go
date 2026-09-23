@@ -262,7 +262,7 @@ type LongPollTimeoutError struct {
 	*ServiceError
 }
 
-// WaitHandlerTimeoutError reports that a durable wait handler reached its deadline.
+// WaitHandlerTimeoutError reports that a caller-visible wait budget expired.
 type WaitHandlerTimeoutError struct {
 	// ServiceError contains the timed-out wait metadata.
 	*ServiceError
@@ -315,7 +315,7 @@ const (
 	ErrorSubStatusLongPollTimeout
 	// ErrorSubStatusChannelMessageNotFound identifies a pending message that no longer exists.
 	ErrorSubStatusChannelMessageNotFound
-	// ErrorSubStatusWaitHandlerTimeout identifies a durable wait handler deadline.
+	// ErrorSubStatusWaitHandlerTimeout identifies an expired caller-visible wait budget.
 	ErrorSubStatusWaitHandlerTimeout
 )
 

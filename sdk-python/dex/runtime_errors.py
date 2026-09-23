@@ -24,7 +24,7 @@ class ErrorSubStatus(Enum):
         WORKER_API_ERROR: An application Worker rejected or failed an invocation.
         LONG_POLL_TIMEOUT: A wait ended without observing its condition.
         CHANNEL_MESSAGE_NOT_FOUND: A pending Channel message ID no longer exists.
-        WAIT_HANDLER_TIMEOUT: A durable wait reached its total handler budget.
+        WAIT_HANDLER_TIMEOUT: A caller-visible wait budget expired.
     """
 
     UNCATEGORIZED = "uncategorized"
@@ -166,7 +166,7 @@ class LongPollTimeoutError(DexServiceError):
 
 
 class WaitHandlerTimeoutError(DexServiceError):
-    """Indicate that a durable wait reached its caller-defined total budget."""
+    """Indicate that a caller-defined wait budget expired."""
 
     pass
 

@@ -237,6 +237,7 @@ func (i *Interpreter) StartEngineFlow(
 		i.activities,
 		ctx,
 		provider,
+		globalVersioner,
 		persistenceManager,
 		stepRequestQueue,
 		continueAsNewer,

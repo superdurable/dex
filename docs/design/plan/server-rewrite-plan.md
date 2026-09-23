@@ -399,16 +399,18 @@ always-on, no version gate:
   workflow`. There is no `run_id` in this API: the empty client run id targets the
   current run, while the handler resolves completion from the
   `step_execution_id`/`step_type` indexes restored across continue-as-new. Pass the
-  target + capped deadline
-  (`min(wait_time_seconds, Api.MaxWaitSeconds)`). Result → `WaitForStepCompletionResponse`.
-  Workflow-side timeout → `DeadlineExceeded` + `LONG_POLL_TIME_OUT`.
+  target + deadline. A positive `wait_time_seconds` caps the caller-visible wait;
+  `Api.MaxWaitSeconds` independently caps each transport long poll. Result →
+  `WaitForStepCompletionResponse`. Wait-budget expiry → `DeadlineExceeded` +
+  `WAIT_HANDLER_TIME_OUT`.
 - Require exactly one target through the Phase 0 `oneof`.
   `step_execution_id` returns that exact completion. For `step_type`, bind the
   target to that type's first-started monotonic execution id and wait for that exact
   execution; a later execution cannot win by finishing first. An already retained
   completion returns immediately.
-- Reject negative `wait_time_seconds`; zero performs an immediate retained-state
-  check, and a positive value is capped by `Api.MaxWaitSeconds`.
+- Reject negative `wait_time_seconds`; zero waits indefinitely.
+- Treat positive wait budgets as an exceptional safety valve. Short values can create
+  many Update generations and history events; prefer at least 60 seconds when nonzero.
 - `StartFlow.wait_for_completion_step_execution_ids` /
   `wait_for_completion_step_types` are the retention whitelist. Retain completion
   markers (including a nil output) only for registered targets, restore them across
@@ -421,8 +423,9 @@ always-on, no version gate:
 **`WaitForAttribute` (sync update, Temporal-only):**
 - If backend is Cadence → `codes.Unimplemented`.
 - Require a match, a non-empty key, a valid operator, and a scalar operand.
-- Reject negative `wait_time_seconds`; zero performs one immediate comparison, and
-  a positive value is capped by `Api.MaxWaitSeconds`.
+- Reject negative `wait_time_seconds`; zero waits indefinitely.
+- Treat positive wait budgets as an exceptional safety valve. Short values can create
+  many Update generations and history events; prefer at least 60 seconds when nonzero.
 - Else `SynchronousUpdateWorkflow(..., service.WaitForAttributeUpdateType,
   {match, deadline})`. The handler awaits until the typed match succeeds or
   workflow time passes the captured deadline. It uses common `Await`/`Now` and
@@ -852,10 +855,10 @@ payloads route into the unified channel store. Arbitrary signal names are ignore
   `WorkflowProvider` for InvokeRPC, WaitForStepCompletion, and WaitForAttribute.
   Cadence implements them as no-ops because its API paths reject these calls.
   Regenerate `interfaces_mock.go`.
-- Keep timeout mechanics out of handler registration. Capture workflow start time once
-  and use common `WorkflowProvider.Await` with a predicate checking `Now()` against
-  the deadline. This creates no durable timer; timeout alone need not wake an idle
-  workflow.
+- Gate timerless waits at global version 3. Versions 1 and 2 preserve their timer
+  commands for replay. Version 3 captures an absolute workflow deadline and uses
+  common `WorkflowProvider.Await` with a predicate checking `Now()`. This creates no
+  durable timer; timeout alone does not wake an idle workflow.
 - **WaitForStepCompletion handler:** `Await` where `cond` = the
   target `step_execution_id`/`step_type` present in the completed-output map
   (surfaced from `outputCollector.go`, indexed and retained per the API contract).
@@ -874,6 +877,10 @@ payloads route into the unified channel store. Arbitrary signal names are ignore
   boundary) with the original caller context/absolute deadline. Match and terminal
   state win over CAN when visible in the same workflow task. Do not expose the
   sentinel over gRPC or reset the wait budget.
+
+- At global version 3, every accepted wait handler increments the sync-update
+  continue-as-new counter exactly once on exit, before decrementing inflight.
+  Validation rejection and transport reattachment do not execute the handler.
 - **Delete** the standalone WaitForStateCompletion system-workflow definition and its
   registration in the Temporal & Cadence interpreter workers.
 
