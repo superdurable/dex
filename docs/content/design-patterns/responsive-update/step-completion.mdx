@@ -8,7 +8,7 @@ Use **WaitForStepCompletion** when a Flow has a durable client-visible milestone
 
 The **WaitForStepCompletionFlow** sample persists a record in **PersistData**, then starts **BackgroundWork**. Its controller waits for **PersistData** before querying the persisted record. Choose a Step only after it has committed the state that makes the response valid.
 
-Dex derives the Request ID from the Step execution, so callers waiting for the same milestone share one accepted durable Update. Leave **MaximumWaitTime** at 0 for the normal infinite handler wait. A local HTTP or client deadline can still bound one response without cancelling that accepted handler. Set a positive value only when one Flow may accumulate abandoned or rarely completing Step waits. An expiry releases the in-flight slot, but continued waiting creates a new -N Update generation. See [Choose the durable handler lifetime](/design-patterns/responsive-update#choose-the-durable-handler-lifetime) for the capacity and cost tradeoff.
+Dex derives the Request ID from the Step execution, so callers waiting for the same milestone share one accepted durable Update. Leave **MaximumWaitTime** at 0 for an infinite wait. A positive value returns a typed timeout to the caller, but does not schedule a durable timer or immediately release the accepted handler. The handler observes its deadline on a later Workflow Task. Calls reattach to it until it finishes; only then can Dex create a new -N Update generation. See [Choose the durable handler lifetime](/design-patterns/responsive-update#choose-the-durable-handler-lifetime) for details.
 
 ## Core implementation
 

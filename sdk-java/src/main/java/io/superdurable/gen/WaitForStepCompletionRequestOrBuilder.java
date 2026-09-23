@@ -56,11 +56,11 @@ public interface WaitForStepCompletionRequestOrBuilder extends
 
   /**
    * <pre>
-   * Limits how long one accepted Temporal Update handler remains in flight.
-   * Zero is recommended for ordinary waits and waits indefinitely.
-   * A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
-   * The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
-   * Retrying after expiry creates a new -N Update generation.
+   * Sets the caller-visible timeout and the accepted Temporal Update handler deadline.
+   * Zero waits indefinitely.
+   * The caller times out promptly, but the handler checks its deadline only on a later Workflow Task.
+   * Reattachments reuse the accepted Update until it completes with a deadline error.
+   * Only then does another retry create a new -N Update generation.
    * </pre>
    *
    * <code>int32 wait_time_seconds = 5;</code>
@@ -71,7 +71,7 @@ public interface WaitForStepCompletionRequestOrBuilder extends
   /**
    * <pre>
    * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
-   * Reusing a handler-timed-out logical key advances an increasing -N generation.
+   * Reusing a logical key after its handler completes with timeout advances a -N generation.
    * </pre>
    *
    * <code>string request_id = 6;</code>
@@ -81,7 +81,7 @@ public interface WaitForStepCompletionRequestOrBuilder extends
   /**
    * <pre>
    * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
-   * Reusing a handler-timed-out logical key advances an increasing -N generation.
+   * Reusing a logical key after its handler completes with timeout advances a -N generation.
    * </pre>
    *
    * <code>string request_id = 6;</code>

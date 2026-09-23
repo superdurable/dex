@@ -43,7 +43,7 @@ option java_outer_classname = "DexProto";
 //   Aborted           — locking RPC attribute lock contention
 //                       sub_status WORKER_API_ERROR
 //   ResourceExhausted — worker connection pool / message size limits
-//   DeadlineExceeded  — transport long poll or durable wait handler deadline
+//   DeadlineExceeded  — transport long poll or caller-visible wait deadline
 //                       sub_status LONG_POLL_TIME_OUT or WAIT_HANDLER_TIME_OUT
 //   Canceled          — caller canceled the RPC context
 //   Unavailable       — Temporal/Cadence backend or Stream Store backend unavailable;
@@ -61,7 +61,7 @@ option java_outer_classname = "DexProto";
 //     WORKER_API_ERROR + OriginalWorker* when present.
 //   WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
 //     retries CONTINUE_AS_NEW_PREEMPTED (not exposed as Internal). Transport
-//     timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Handler timeout →
+//     timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Wait-budget timeout →
 //     DeadlineExceeded + WAIT_HANDLER_TIME_OUT. WaitForAttribute rejects waiting
 //     on blob-backed stored attributes with FailedPrecondition.
 //   WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
@@ -908,14 +908,14 @@ message WaitForStepCompletionRequest {
   // Identifies a step execution by type and its per-type execution number.
   string step_type = 2;
   string step_execution_number = 3;
-  // Limits how long one accepted Temporal Update handler remains in flight.
-  // Zero is recommended for ordinary waits and waits indefinitely.
-  // A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
-  // The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
-  // Retrying after expiry creates a new -N Update generation.
+  // Sets the caller-visible timeout and the accepted Temporal Update handler deadline.
+  // Zero waits indefinitely.
+  // The caller times out promptly, but the handler checks its deadline only on a later Workflow Task.
+  // Reattachments reuse the accepted Update until it completes with a deadline error.
+  // Only then does another retry create a new -N Update generation.
   int32 wait_time_seconds = 5;
   // Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
-  // Reusing a handler-timed-out logical key advances an increasing -N generation.
+  // Reusing a logical key after its handler completes with timeout advances a -N generation.
   string request_id = 6;
 }
 
@@ -924,14 +924,14 @@ message WaitForStepCompletionResponse {}
 message WaitForAttributeRequest {
   string flow_id = 1;
   AttributeMatch match = 2;
-  // Limits how long one accepted Temporal Update handler remains in flight.
-  // Zero is recommended for ordinary waits and waits indefinitely.
-  // A positive value releases per-Flow in-flight capacity for abandoned or rarely matching waits.
-  // The limit spans transport reattachments and Continue-as-New, unlike a caller or transport deadline.
-  // Retrying after expiry creates a new -N Update generation.
+  // Sets the caller-visible timeout and the accepted Temporal Update handler deadline.
+  // Zero waits indefinitely.
+  // The caller times out promptly, but the handler checks its deadline only on a later Workflow Task.
+  // Reattachments reuse the accepted Update until it completes with a deadline error.
+  // Only then does another retry create a new -N Update generation.
   int32 wait_time_seconds = 3;
   // Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
-  // Reusing a handler-timed-out logical key advances an increasing -N generation.
+  // Reusing a logical key after its handler completes with timeout advances a -N generation.
   string request_id = 4;
 }
 

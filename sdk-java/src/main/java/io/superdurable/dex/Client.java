@@ -773,17 +773,16 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Blocks until a specific Step execution completes or its total handler budget expires.
+     * Blocks until a specific Step execution completes or its caller-visible wait budget expires.
      * The server derives a stable Request ID from the Step execution when none is supplied.
      * Transport long polls automatically reattach to the same logical wait.
-     * Leave the maximum wait time at zero for ordinary infinite waits.
-     * A positive value releases per-Flow in-flight Update capacity for abandoned waits.
-     * The handler budget spans Continue-as-New and is distinct from the calling thread's lifetime.
-     * Retrying after expiry creates a new Update generation.
+     * Leave the maximum wait time at zero to wait indefinitely. A positive deadline is checked by the
+     * accepted handler only on a later Workflow Task, so the handler may retain its in-flight slot.
+     * Reattachments reuse that Update until it completes. Only then can a new generation start.
      *
      * @param flowId the target Flow ID
      * @param stepExecutionId the Step execution to observe
-     * @param options the optional Request ID override and total handler wait budget
+     * @param options the optional Request ID override and caller-visible wait budget
      * @throws IllegalArgumentException if the budget is unsupported
      * @throws WaitHandlerTimeoutException if a positive handler budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
@@ -818,10 +817,9 @@ public final class Client implements AutoCloseable {
      * Blocks until a singleton Attribute satisfies a scalar match or its handler budget expires.
      * The server derives a stable Request ID from the condition when none is supplied.
      * Transport long polls automatically reattach to the same logical wait.
-     * Leave the maximum wait time at zero for ordinary infinite waits.
-     * A positive value releases per-Flow in-flight Update capacity for rarely matching waits.
-     * The handler budget spans Continue-as-New and is distinct from the calling thread's lifetime.
-     * Retrying after expiry creates a new Update generation.
+     * Leave the maximum wait time at zero to wait indefinitely. A positive deadline is checked by the
+     * accepted handler only on a later Workflow Task, so the handler may retain its in-flight slot.
+     * Reattachments reuse that Update until it completes. Only then can a new generation start.
      *
      * @param flowId the target Flow ID
      * @param attribute the registered Attribute definition

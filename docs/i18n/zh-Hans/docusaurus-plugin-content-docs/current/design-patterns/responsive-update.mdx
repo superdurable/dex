@@ -18,14 +18,16 @@ title: 响应式更新
 
 对于 Step 和 Attribute 等待，Dex 会从 Step execution 或完整的 Attribute 条件派生逻辑 Temporal Update ID。同一 active Flow 上相同的逻辑等待会重新附着到已接受的 Update。该标识跨 transport long poll 和 Continue-As-New 保持不变，因此普通调用方不需要提供 Request ID。
 
-**MaximumWaitTime** 控制已接受的 durable Update handler 的生命周期。它不同于调用方 context、HTTP deadline 或 transport long-poll timeout。结束本地调用不会取消 Temporal 已接受的 handler。
+**MaximumWaitTime** 限制调用方可见的等待时间，并在已接受的 durable Update handler 上记录 deadline。它不同于调用方 context、HTTP deadline 或 transport long-poll timeout。正值 budget 到期时，调用方会收到有类型的 wait-handler timeout；Temporal 不会取消已接受的 handler。
+
+Dex 不会为该 deadline 创建 durable timer。只有其他事件触发新的 Workflow Task 时，已接受的 handler 才会检查 deadline。在此之前，handler 仍处于 accepted 状态并继续占用 in-flight Update slot。
 
 | **MaximumWaitTime** | 适用场景 | 资源行为 |
 | --- | --- | --- |
 | 0 | 推荐用于普通等待。一个 Flow 只有少量不同的等待，并且它们应一直保持 durable，直到完成或命中。 | 每个不同的已接受等待占用一个 in-flight Update slot。重新附着到相同逻辑等待会复用该 slot。 |
-| 正值 | 一个 Flow 可能积累被放弃的调用方、动态 predicate、大量并发 consumer，或永远不会命中的条件。 | handler 最终过期并释放其 in-flight slot。如果调用方继续等待，Dex 会创建下一个 -N Update generation。 |
+| 正值 | 调用方需要有类型的 timeout，但可以接受 handler 继续 pending。 | 调用方会在 budget 到期时返回。只有后续 Workflow Task 观察到 deadline 后，handler 才释放 slot。 |
 
-不要把很短的正值当作常规 request timeout。每个过期后的 generation 都是另一个已接受的 Update 和 history entry，也可能是另一个 Temporal Cloud Action。只有重复的 Update 使用相同 Update ID 时，Temporal Cloud 才会去重。
+在已接受的 handler 结束前发起的调用会重新附着到同一个 Update。只有旧 handler 实际以 deadline error 完成后，Dex 才会创建下一个 -N Update generation。每个新 generation 都是另一个已接受的 Update 和 history entry，也可能是另一个 Temporal Cloud Action。只有重复的 Update 使用相同 Update ID 时，Temporal Cloud 才会去重。
 
 Temporal 当前的 self-hosted 默认值是每个 Workflow Execution 最多 10 个 in-flight Update、总计 2,000 个 Update。这些限制可以配置，并取决于具体部署，不是 Dex 的保证。请参阅 [Temporal self-hosted 默认值](https://docs.temporal.io/production-deployment/self-hosted-guide/defaults)和 [Temporal Cloud Action 计费规则](https://docs.temporal.io/cloud/actions)。
 

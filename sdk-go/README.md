@@ -383,13 +383,13 @@ bytes, null, non-finite doubles, and invalid ordering fail before the RPC.
 Request IDs are optional for both durable waits. When omitted, the server
 derives a namespaced stable ID from the Step execution or Attribute condition,
 such as `wait-for-attribute:myInt>10`. Reuse an override only for the same
-logical wait. The Client automatically reattaches transport long polls. If an
-earlier Update with that ID exhausted its handler budget, the server appends an
-increasing `-N` suffix and starts a new Update. `MaximumWaitTime` is optional
-and is the total handler budget across reattachments; zero waits indefinitely.
-A positive budget expiry returns `*dex.WaitHandlerTimeoutError`. An abandoned
-infinite wait remains accepted and counts against Temporal's in-flight Update
-limit until it matches or the Flow closes.
+logical wait. The Client automatically reattaches transport long polls.
+`MaximumWaitTime` is optional and bounds the caller-visible wait; zero waits
+indefinitely. A positive expiry returns `*dex.WaitHandlerTimeoutError`, but the
+accepted handler checks its deadline only on a later Workflow Task and may keep
+its in-flight Update slot until then. Reattachments keep using that Update. The
+server appends an increasing `-N` suffix only after the handler completes with
+a deadline error.
 
 Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and

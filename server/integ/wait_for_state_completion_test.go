@@ -21,8 +21,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/deadend"
+	"github.com/superdurable/dex/integ/workflow/signal"
 	"github.com/superdurable/dex/integ/workflow/wait_for_state_completion"
 	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -49,6 +52,10 @@ func TestWaitForStateCompletionTemporal(t *testing.T) {
 		doTestWaitForStateCompletionConcurrent(t)
 		smallWaitForFastTest()
 		doTestWaitForStateCompletionInvalidArgs(t)
+		smallWaitForFastTest()
+		doTestWaitForStateCompletionCounterSuccess(t)
+		smallWaitForFastTest()
+		doTestWaitForStateCompletionCounterFailure(t)
 		smallWaitForFastTest()
 	}
 }
@@ -151,7 +158,7 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 	defer cancel()
 
 	flowId := wait_for_state_completion.WorkflowType + "-timeout-" + uuid.NewString()
-	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           wait_for_state_completion.WorkflowType,
@@ -163,12 +170,13 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	requestID := uuid.NewString()
 	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 		FlowId:              flowId,
 		StepType:            wait_for_state_completion.State1,
 		StepExecutionNumber: "999",
 		WaitTimeSeconds:     1,
-		RequestId:           uuid.NewString(),
+		RequestId:           requestID,
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
@@ -179,6 +187,40 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 		errResp.GetSubStatus(),
 	)
 	require.Equal(t, "step completion wait timed out", errResp.GetDetail())
+	counts := inspectTemporalUpdateHistory(
+		t,
+		ctx,
+		runtime,
+		flowId,
+		startResponse.GetRunId(),
+		requestID,
+	)
+	require.Equal(t, 1, counts.accepted)
+	require.Zero(t, counts.completed)
+	require.Zero(t, counts.oneSecondTimerStarted)
+	require.Zero(t, counts.oneSecondTimerCanceled)
+
+	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowId,
+		Attributes: []*dexpb.AttributeWrite{
+			{Key: "wait-for-step-completion-wake", Value: stringValue("wake")},
+		},
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		counts = inspectTemporalUpdateHistory(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			startResponse.GetRunId(),
+			requestID,
+		)
+		return counts.completed == 1
+	}, 5*time.Second, 50*time.Millisecond)
+	require.Zero(t, counts.oneSecondTimerStarted)
+	require.Zero(t, counts.oneSecondTimerCanceled)
 
 	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowId,
@@ -461,4 +503,124 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
+}
+
+func doTestWaitForStateCompletionCounterSuccess(t *testing.T) {
+	workerTarget := startWorker(t, deadend.NewHandler())
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	flowClient := runtime.FlowClient
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := "wait-for-step-completion-counter-success-" + uuid.NewString()
+	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           deadend.WorkflowType,
+		FlowTimeoutSeconds: 30,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+			FlowConfigOverride: &dexpb.FlowConfig{
+				ContinueAsNewThreshold: ptr.Any(int32(3)),
+			},
+		}, workerTarget),
+	})
+	require.NoError(t, err)
+
+	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId: newRequestID(),
+		FlowId:    flowId,
+		RpcName:   deadend.RPCTriggerState,
+	})
+	require.NoError(t, err)
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
+		FlowId:              flowId,
+		StepType:            deadend.State1,
+		StepExecutionNumber: "1",
+		RequestId:           uuid.NewString(),
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		description, describeErr := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
+		return describeErr == nil && description.RunId != startResponse.GetRunId()
+	}, 5*time.Second, 50*time.Millisecond)
+	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId:   flowId,
+		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
+	})
+	require.NoError(t, err)
+}
+
+func doTestWaitForStateCompletionCounterFailure(t *testing.T) {
+	workerTarget := startWorker(t, signal.NewHandler())
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	flowClient := runtime.FlowClient
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	flowConfig := syncDurabilityConfig()
+	flowConfig.ContinueAsNewThreshold = ptr.Any(int32(2))
+
+	flowId := startParkedWaitForAttributeFlow(
+		t,
+		ctx,
+		flowClient,
+		workerTarget,
+		flowConfig,
+	)
+	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
+	require.NoError(t, err)
+	requestID := uuid.NewString()
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
+		FlowId:              flowId,
+		StepType:            signal.State2,
+		StepExecutionNumber: "999",
+		WaitTimeSeconds:     1,
+		RequestId:           requestID,
+	})
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+
+	validationRequestID := uuid.NewString()
+	var rejectedResponse dexpb.WaitForAttributeResponse
+	err = runtime.UnifiedClient.SynchronousUpdateWorkflow(
+		ctx,
+		&rejectedResponse,
+		flowId,
+		"",
+		validationRequestID,
+		service.WaitForAttributeUpdateType,
+		&dexpb.WaitForAttributeRequest{FlowId: flowId},
+	)
+	require.Error(t, err)
+	rejectedCounts := inspectTemporalUpdateHistory(
+		t,
+		ctx,
+		runtime,
+		flowId,
+		description.RunId,
+		validationRequestID,
+	)
+	require.Zero(t, rejectedCounts.accepted)
+	require.Zero(t, rejectedCounts.completed)
+	_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+		FlowId: flowId,
+		Messages: []*dexpb.ChannelMessage{
+			{ChannelName: signal.UnhandledSignalName, Value: stringValue("wake")},
+		},
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		counts := inspectTemporalUpdateHistory(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			description.RunId,
+			requestID,
+		)
+		return counts.completed == 1
+	}, 5*time.Second, 50*time.Millisecond)
+	require.Eventually(t, func() bool {
+		current, describeErr := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
+		return describeErr == nil && current.RunId != description.RunId
+	}, 5*time.Second, 50*time.Millisecond)
+	stopParkedWaitForAttributeFlow(t, ctx, flowClient, flowId)
 }

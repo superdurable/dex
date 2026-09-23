@@ -8,7 +8,7 @@ title: 等待 Step 完成
 
 **WaitForStepCompletionFlow** 示例会在 **PersistData** 中持久化记录，再启动 **BackgroundWork**。它的 controller 在查询已持久化记录前等待 **PersistData**。只有当一个 Step 已提交了使响应有效的状态后，才应把它选作这个边界。
 
-Dex 会从 Step execution 派生 Request ID，因此等待同一里程碑的调用方会共享一个已接受的 durable Update。普通的无限 handler 等待应让 **MaximumWaitTime** 保持为 0。本地 HTTP 或 client deadline 仍可限制一次响应的时长，而不会取消该已接受的 handler。只有当一个 Flow 可能积累被放弃或很少完成的 Step 等待时，才设置正值。过期会释放 in-flight slot，但继续等待会创建新的 -N Update generation。容量和成本的取舍请参阅[选择 durable handler 的生命周期](/design-patterns/responsive-update#选择-durable-handler-的生命周期)。
+Dex 会从 Step execution 派生 Request ID，因此等待同一里程碑的调用方会共享一个已接受的 durable Update。无限等待应让 **MaximumWaitTime** 保持为 0。正值会向调用方返回有类型的 timeout，但不会创建 durable timer，也不会立即释放已接受的 handler。handler 会在后续 Workflow Task 中观察 deadline。在它结束前，调用会继续附着到同一个 Update；只有结束后 Dex 才能创建新的 -N Update generation。详情请参阅[选择 durable handler 的生命周期](/design-patterns/responsive-update#选择-durable-handler-的生命周期)。
 
 ## 核心实现
 

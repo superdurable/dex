@@ -51,7 +51,7 @@ class FlowServiceStub:
     Aborted           — locking RPC attribute lock contention
     sub_status WORKER_API_ERROR
     ResourceExhausted — worker connection pool / message size limits
-    DeadlineExceeded  — transport long poll or durable wait handler deadline
+    DeadlineExceeded  — transport long poll or caller-visible wait deadline
     sub_status LONG_POLL_TIME_OUT or WAIT_HANDLER_TIME_OUT
     Canceled          — caller canceled the RPC context
     Unavailable       — Temporal/Cadence backend or Stream Store backend unavailable;
@@ -69,7 +69,7 @@ class FlowServiceStub:
     WORKER_API_ERROR + OriginalWorker* when present.
     WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
     retries CONTINUE_AS_NEW_PREEMPTED (not exposed as Internal). Transport
-    timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Handler timeout →
+    timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Wait-budget timeout →
     DeadlineExceeded + WAIT_HANDLER_TIME_OUT. WaitForAttribute rejects waiting
     on blob-backed stored attributes with FailedPrecondition.
     WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
@@ -250,7 +250,7 @@ class FlowServiceServicer:
     Aborted           — locking RPC attribute lock contention
     sub_status WORKER_API_ERROR
     ResourceExhausted — worker connection pool / message size limits
-    DeadlineExceeded  — transport long poll or durable wait handler deadline
+    DeadlineExceeded  — transport long poll or caller-visible wait deadline
     sub_status LONG_POLL_TIME_OUT or WAIT_HANDLER_TIME_OUT
     Canceled          — caller canceled the RPC context
     Unavailable       — Temporal/Cadence backend or Stream Store backend unavailable;
@@ -268,7 +268,7 @@ class FlowServiceServicer:
     WORKER_API_ERROR + OriginalWorker* when present.
     WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
     retries CONTINUE_AS_NEW_PREEMPTED (not exposed as Internal). Transport
-    timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Handler timeout →
+    timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Wait-budget timeout →
     DeadlineExceeded + WAIT_HANDLER_TIME_OUT. WaitForAttribute rejects waiting
     on blob-backed stored attributes with FailedPrecondition.
     WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
@@ -615,7 +615,7 @@ class FlowService:
     Aborted           — locking RPC attribute lock contention
     sub_status WORKER_API_ERROR
     ResourceExhausted — worker connection pool / message size limits
-    DeadlineExceeded  — transport long poll or durable wait handler deadline
+    DeadlineExceeded  — transport long poll or caller-visible wait deadline
     sub_status LONG_POLL_TIME_OUT or WAIT_HANDLER_TIME_OUT
     Canceled          — caller canceled the RPC context
     Unavailable       — Temporal/Cadence backend or Stream Store backend unavailable;
@@ -633,7 +633,7 @@ class FlowService:
     WORKER_API_ERROR + OriginalWorker* when present.
     WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
     retries CONTINUE_AS_NEW_PREEMPTED (not exposed as Internal). Transport
-    timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Handler timeout →
+    timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Wait-budget timeout →
     DeadlineExceeded + WAIT_HANDLER_TIME_OUT. WaitForAttribute rejects waiting
     on blob-backed stored attributes with FailedPrecondition.
     WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
