@@ -649,7 +649,9 @@ export class Client {
    * Waits until one Step execution completes or its caller-visible wait budget expires.
    * The server derives a stable Request ID from the Step execution when none is supplied.
    * Transport long polls automatically reattach to the same logical wait.
-   * Leave the maximum wait time at zero to wait indefinitely. The accepted handler checks a positive
+   * Leave the maximum wait time at zero for normal use. Positive values are exceptional because short
+   * budgets can create many Update generations and Temporal history events. Prefer at least one minute.
+   * The accepted handler checks a positive
    * deadline only on a later Workflow Task and may retain its in-flight slot. Reattachments reuse that
    * Update until it completes; only then can a new generation start.
    * @param flowId - Non-empty active Flow ID.
@@ -692,7 +694,9 @@ export class Client {
    * Returns the current value observed by the successful wait operation.
    * The server derives a stable Request ID from the condition when none is supplied.
    * Transport long polls automatically reattach to the same logical wait.
-   * Leave the maximum wait time at zero to wait indefinitely. The accepted handler checks a positive
+   * Leave the maximum wait time at zero for normal use. Positive values are exceptional because short
+   * budgets can create many Update generations and Temporal history events. Prefer at least one minute.
+   * The accepted handler checks a positive
    * deadline only on a later Workflow Task and may retain its in-flight slot. Reattachments reuse that
    * Update until it completes; only then can a new generation start.
    * @typeParam T - Attribute value type.

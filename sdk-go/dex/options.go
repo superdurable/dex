@@ -374,10 +374,12 @@ type WaitForFlowOptions struct {
 // When RequestID is empty, the server derives a stable ID from the Step
 // execution. Reuse an override only when retrying the same Step completion
 // wait. MaximumWaitTime bounds the caller-visible wait. Leave it zero to wait
-// indefinitely. A positive value returns a typed timeout, but the accepted
-// handler checks its deadline only on a later Workflow Task and may retain its
-// in-flight Update slot until then. Reattachments reuse that Update. A new
-// generation starts only after the handler completes with a deadline error.
+// indefinitely. Positive values are an exceptional safety valve. Short budgets
+// can create many Update generations and Temporal history events; prefer at
+// least one minute when nonzero. A positive value returns a typed timeout, but
+// the accepted handler checks its deadline only on a later Workflow Task and may
+// retain its in-flight Update slot until then. Reattachments reuse that Update.
+// A new generation starts only after the handler completes with a deadline error.
 // The duration must use whole seconds within int32 range.
 //
 //	options := dex.WaitForStepCompletionOptions{
@@ -387,7 +389,7 @@ type WaitForStepCompletionOptions struct {
 	// RequestID overrides the stable ID derived from the Step execution.
 	RequestID string
 	// MaximumWaitTime bounds the caller-visible wait. Zero waits indefinitely.
-	// The accepted handler observes a positive deadline only on a later Workflow Task.
+	// Positive values are rare; prefer at least one minute to limit Update history growth.
 	MaximumWaitTime time.Duration
 }
 
@@ -396,10 +398,12 @@ type WaitForStepCompletionOptions struct {
 // When RequestID is empty, the server derives a stable ID from the Attribute
 // condition. Reuse an override only when retrying the same Attribute match.
 // MaximumWaitTime bounds the caller-visible wait. Leave it zero to wait
-// indefinitely. A positive value returns a typed timeout, but the accepted
-// handler checks its deadline only on a later Workflow Task and may retain its
-// in-flight Update slot until then. Reattachments reuse that Update. A new
-// generation starts only after the handler completes with a deadline error.
+// indefinitely. Positive values are an exceptional safety valve. Short budgets
+// can create many Update generations and Temporal history events; prefer at
+// least one minute when nonzero. A positive value returns a typed timeout, but
+// the accepted handler checks its deadline only on a later Workflow Task and may
+// retain its in-flight Update slot until then. Reattachments reuse that Update.
+// A new generation starts only after the handler completes with a deadline error.
 // The duration must use whole seconds within int32 range.
 //
 //	options := dex.WaitForAttributeOptions{
@@ -409,7 +413,7 @@ type WaitForAttributeOptions struct {
 	// RequestID overrides the stable ID derived from the Attribute condition.
 	RequestID string
 	// MaximumWaitTime bounds the caller-visible wait. Zero waits indefinitely.
-	// The accepted handler observes a positive deadline only on a later Workflow Task.
+	// Positive values are rare; prefer at least one minute to limit Update history growth.
 	MaximumWaitTime time.Duration
 }
 

@@ -20,12 +20,14 @@ For Step and Attribute waits, Dex derives a logical Temporal Update ID from the 
 
 **MaximumWaitTime** bounds the caller-visible wait and records a deadline on the accepted durable Update handler. It is separate from a caller context, HTTP deadline, or transport long-poll timeout. When a positive budget elapses, the caller receives a typed wait-handler timeout. Temporal does not cancel the accepted handler.
 
+A positive **MaximumWaitTime** is an exceptional safety valve, not a normal request timeout. For routine response deadlines, leave it at 0 and use the caller context or HTTP deadline. If an accepted handler eventually expires, a later call can create a new -N Update generation. Every generation adds Temporal Update accepted and completed events to Workflow history and may count as another Temporal Cloud Action. Short positive budgets can therefore grow history quickly. If a positive value is genuinely necessary, start with at least one minute and use a shorter value only for a measured requirement.
+
 Dex does not create a durable timer for this deadline. The accepted handler checks it only when another event causes a Workflow Task. Until that happens, the handler remains accepted and continues to occupy its in-flight Update slot.
 
 | **MaximumWaitTime** | Use it when | Resource behavior |
 | --- | --- | --- |
 | 0 | Recommended for ordinary waits. A Flow has only a few distinct waits that should remain durable until they complete or match. | Each distinct accepted wait occupies one in-flight Update slot. Reattachments to the same logical wait reuse it. |
-| Positive | The caller needs a typed timeout even though the accepted handler may remain pending. | The caller returns at the budget. The handler releases its slot only after a later Workflow Task observes the deadline. |
+| Positive | Rarely: the accepted handler itself needs a bounded lifetime, not merely a bounded caller response. Prefer at least one minute. | The caller returns at the budget. The handler releases its slot only after a later Workflow Task observes the deadline. Repeated expiry can add many Update events to history. |
 
 Calls made before the accepted handler finishes reattach to the same Update. Dex creates the next -N Update generation only after the old handler actually completes with a deadline error. Every new generation is another accepted Update and history entry. It may also be another Temporal Cloud Action. Temporal Cloud de-duplicates repeated Updates only when they use the same Update ID.
 

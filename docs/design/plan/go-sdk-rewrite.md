@@ -1400,6 +1400,9 @@ stable logical ID from the Step execution or Attribute condition.
 `MaximumWaitTime` bounds the caller-visible wait. Zero waits indefinitely;
 positive values must be whole seconds within int32 range. The accepted handler
 checks its deadline only on a later Workflow Task and may retain its in-flight slot.
+Positive values are an exceptional safety valve. Short budgets can create many
+Update generations and Temporal history events; prefer at least one minute when
+nonzero and use `context.Context` for routine response deadlines.
 The Client retries
 `*dex.LongPollTimeoutError` internally with the same logical wait and remaining
 budget. Budget expiry returns

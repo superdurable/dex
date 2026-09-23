@@ -776,7 +776,9 @@ public final class Client implements AutoCloseable {
      * Blocks until a specific Step execution completes or its caller-visible wait budget expires.
      * The server derives a stable Request ID from the Step execution when none is supplied.
      * Transport long polls automatically reattach to the same logical wait.
-     * Leave the maximum wait time at zero to wait indefinitely. A positive deadline is checked by the
+     * Leave the maximum wait time at zero for normal use and bound one response with the caller deadline.
+     * Positive values are exceptional because short budgets can create many Update generations and
+     * Temporal history events. Prefer at least one minute when nonzero. A positive deadline is checked by the
      * accepted handler only on a later Workflow Task, so the handler may retain its in-flight slot.
      * Reattachments reuse that Update until it completes. Only then can a new generation start.
      *
@@ -817,7 +819,9 @@ public final class Client implements AutoCloseable {
      * Blocks until a singleton Attribute satisfies a scalar match or its handler budget expires.
      * The server derives a stable Request ID from the condition when none is supplied.
      * Transport long polls automatically reattach to the same logical wait.
-     * Leave the maximum wait time at zero to wait indefinitely. A positive deadline is checked by the
+     * Leave the maximum wait time at zero for normal use and bound one response with the caller deadline.
+     * Positive values are exceptional because short budgets can create many Update generations and
+     * Temporal history events. Prefer at least one minute when nonzero. A positive deadline is checked by the
      * accepted handler only on a later Workflow Task, so the handler may retain its in-flight slot.
      * Reattachments reuse that Update until it completes. Only then can a new generation start.
      *

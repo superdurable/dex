@@ -531,6 +531,9 @@ compile only after S5 migrates updater/query/CAN files.
   on a later Workflow Task. The caller can receive `WAIT_HANDLER_TIME_OUT` while the
   accepted handler still occupies its slot. A new `-N` generation starts only after
   that handler actually completes with a deadline error.
+- Positive budgets are an exceptional safety valve, not a routine request timeout.
+  Short budgets can create many Update generations and history events. Prefer zero;
+  when a positive value is necessary, start at 60 seconds or longer.
 - Cadence implements no handlers. The API returns `codes.Unimplemented` before
   dialing.
 

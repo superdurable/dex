@@ -14,10 +14,12 @@ use crate::{SdkError, SdkResult};
 /// Configures one durable Step completion wait.
 ///
 /// The server derives a stable Request ID from the Step execution when none is supplied.
-/// Leave the maximum wait time at zero to wait indefinitely. A positive value bounds the
-/// caller-visible wait. The accepted handler checks its deadline only on a later Workflow Task and
-/// may retain its in-flight Update slot until then. Reattachments reuse that Update. A new
-/// generation starts only after the handler completes with a deadline error.
+/// Leave the maximum wait time at zero for normal use. Positive values are exceptional because
+/// short budgets can create many Update generations and Temporal history events. Prefer at least
+/// one minute when nonzero. A positive value bounds the caller-visible wait. The accepted handler
+/// checks its deadline only on a later Workflow Task and may retain its in-flight Update slot until
+/// then. Reattachments reuse that Update. A new generation starts only after the handler completes
+/// with a deadline error.
 pub struct WaitForStepCompletionOptions {
     pub(crate) request_id: String,
     pub(crate) maximum_wait_time: Duration,
@@ -37,7 +39,8 @@ impl WaitForStepCompletionOptions {
 
     /// Sets the caller-visible wait budget. Zero waits indefinitely.
     ///
-    /// The accepted handler observes a positive deadline only on a later Workflow Task.
+    /// Positive values are rare. Prefer at least one minute to limit Temporal Update history growth.
+    /// The accepted handler observes the deadline only on a later Workflow Task.
     pub fn maximum_wait_time(mut self, maximum_wait_time: Duration) -> Self {
         self.maximum_wait_time = maximum_wait_time;
         self
@@ -48,10 +51,12 @@ impl WaitForStepCompletionOptions {
 /// Configures one durable Attribute match wait.
 ///
 /// The server derives a stable Request ID from the Attribute condition when none is supplied.
-/// Leave the maximum wait time at zero to wait indefinitely. A positive value bounds the
-/// caller-visible wait. The accepted handler checks its deadline only on a later Workflow Task and
-/// may retain its in-flight Update slot until then. Reattachments reuse that Update. A new
-/// generation starts only after the handler completes with a deadline error.
+/// Leave the maximum wait time at zero for normal use. Positive values are exceptional because
+/// short budgets can create many Update generations and Temporal history events. Prefer at least
+/// one minute when nonzero. A positive value bounds the caller-visible wait. The accepted handler
+/// checks its deadline only on a later Workflow Task and may retain its in-flight Update slot until
+/// then. Reattachments reuse that Update. A new generation starts only after the handler completes
+/// with a deadline error.
 pub struct WaitForAttributeOptions {
     pub(crate) request_id: String,
     pub(crate) maximum_wait_time: Duration,
@@ -71,7 +76,8 @@ impl WaitForAttributeOptions {
 
     /// Sets the caller-visible wait budget. Zero waits indefinitely.
     ///
-    /// The accepted handler observes a positive deadline only on a later Workflow Task.
+    /// Positive values are rare. Prefer at least one minute to limit Temporal Update history growth.
+    /// The accepted handler observes the deadline only on a later Workflow Task.
     pub fn maximum_wait_time(mut self, maximum_wait_time: Duration) -> Self {
         self.maximum_wait_time = maximum_wait_time;
         self

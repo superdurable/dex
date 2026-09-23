@@ -409,6 +409,8 @@ always-on, no version gate:
   execution; a later execution cannot win by finishing first. An already retained
   completion returns immediately.
 - Reject negative `wait_time_seconds`; zero waits indefinitely.
+- Treat positive wait budgets as an exceptional safety valve. Short values can create
+  many Update generations and history events; prefer at least 60 seconds when nonzero.
 - `StartFlow.wait_for_completion_step_execution_ids` /
   `wait_for_completion_step_types` are the retention whitelist. Retain completion
   markers (including a nil output) only for registered targets, restore them across
@@ -422,6 +424,8 @@ always-on, no version gate:
 - If backend is Cadence → `codes.Unimplemented`.
 - Require a match, a non-empty key, a valid operator, and a scalar operand.
 - Reject negative `wait_time_seconds`; zero waits indefinitely.
+- Treat positive wait budgets as an exceptional safety valve. Short values can create
+  many Update generations and history events; prefer at least 60 seconds when nonzero.
 - Else `SynchronousUpdateWorkflow(..., service.WaitForAttributeUpdateType,
   {match, deadline})`. The handler awaits until the typed match succeeds or
   workflow time passes the captured deadline. It uses common `Await`/`Now` and

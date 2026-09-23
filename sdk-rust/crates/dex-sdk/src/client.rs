@@ -642,9 +642,11 @@ impl Client {
     ///
     /// The server derives a stable Request ID from the Step execution when none is supplied.
     /// Transport long polls automatically reattach to the same logical wait.
-    /// Leave the maximum wait time at zero to wait indefinitely. The accepted handler checks a
-    /// positive deadline only on a later Workflow Task and may retain its in-flight slot.
-    /// Reattachments reuse that Update until it completes; only then can a new generation start.
+    /// Leave the maximum wait time at zero for normal use. Positive values are exceptional because
+    /// short budgets can create many Update generations and Temporal history events. Prefer at least
+    /// one minute when nonzero. The accepted handler checks a positive deadline only on a later
+    /// Workflow Task and may retain its in-flight slot. Reattachments reuse that Update until it
+    /// completes; only then can a new generation start.
     ///
     /// # Errors
     ///
@@ -690,13 +692,13 @@ impl Client {
     /// Blocks until a singleton Attribute in the current run satisfies `attribute_match`.
     ///
     /// Returns the current value observed by the successful wait. The server derives a stable
-    /// Request ID from the condition when none is supplied. Leave the maximum wait time at zero to
-    /// wait indefinitely. The accepted handler checks a positive deadline only on a later Workflow
-    /// Task and may retain its in-flight slot. Reattachments reuse that Update until it completes;
-    /// only then can a new generation start.
-    /// String and
-    /// Boolean Attributes support equality matches. Integer and floating-point
-    /// Attributes support every match. A positive handler-budget expiry returns
+    /// Request ID from the condition when none is supplied. Leave the maximum wait time at zero for
+    /// normal use. Positive values are exceptional because short budgets can create many Update
+    /// generations and Temporal history events. Prefer at least one minute when nonzero. The
+    /// accepted handler checks a positive deadline only on a later Workflow Task and may retain its
+    /// in-flight slot. Reattachments reuse that Update until it completes; only then can a new
+    /// generation start. String and Boolean Attributes support equality matches. Integer and
+    /// floating-point Attributes support every match. A positive handler-budget expiry returns
     /// [`SdkError::WaitHandlerTimeout`].
     pub fn wait_for_attribute_match<T: Value>(
         &self,

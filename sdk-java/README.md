@@ -408,8 +408,12 @@ Request IDs are optional for both durable waits. When omitted, the server
 derives a namespaced stable ID from the Step execution or Attribute condition,
 such as `wait-for-attribute:myInt>10`. Reuse an override only for the same
 logical wait. The Client automatically reattaches transport long polls. The
-maximum wait time is optional and bounds the caller-visible wait; zero waits
-indefinitely. A positive expiry throws `WaitHandlerTimeoutException`, but the
+maximum wait time is optional. Leave it at zero for normal use and bound one
+response with the caller deadline. Positive values are an exceptional safety
+valve: short budgets can repeatedly create new `-N` Update generations, adding
+many Temporal Update events to Workflow history. If a positive value is truly
+needed, prefer at least one minute. A positive expiry throws
+`WaitHandlerTimeoutException`, but the
 accepted handler checks its deadline only on a later Workflow Task and may keep
 its in-flight Update slot until then. Reattachments keep using that Update. The
 server appends an increasing `-N` suffix only after the handler completes with

@@ -24,16 +24,19 @@ class WaitForStepCompletionOptions:
 
     The server derives a stable Request ID from the Step execution when
     ``request_id`` is empty. Reuse an override only for the same logical wait.
-    Leave ``maximum_wait_time`` at zero to wait indefinitely. A positive value
-    bounds the caller-visible wait. The accepted handler checks its deadline only
-    on a later Workflow Task and may retain its in-flight Update slot until then.
-    Reattachments reuse that Update. A new generation starts only after the
-    handler completes with a deadline error.
+    Leave ``maximum_wait_time`` at zero for normal use. Positive values are an
+    exceptional safety valve. Short budgets can create many Update generations
+    and Temporal history events; prefer at least one minute when nonzero. A
+    positive value bounds the caller-visible wait. The accepted handler checks
+    its deadline only on a later Workflow Task and may retain its in-flight
+    Update slot until then. Reattachments reuse that Update. A new generation
+    starts only after the handler completes with a deadline error.
 
     Attributes:
         request_id: An optional override for the server-derived stable ID.
         maximum_wait_time: The caller-visible wait budget. Zero waits indefinitely.
-            The accepted handler observes a positive deadline only on a later
+            Positive values are rare; prefer at least one minute to limit Temporal
+            Update history growth. The handler observes the deadline on a later
             Workflow Task.
     """
 
@@ -47,16 +50,19 @@ class WaitForAttributeOptions:
 
     The server derives a stable Request ID from the Attribute condition when
     ``request_id`` is empty. Reuse an override only for the same logical predicate.
-    Leave ``maximum_wait_time`` at zero to wait indefinitely. A positive value
-    bounds the caller-visible wait. The accepted handler checks its deadline only
-    on a later Workflow Task and may retain its in-flight Update slot until then.
-    Reattachments reuse that Update. A new generation starts only after the
-    handler completes with a deadline error.
+    Leave ``maximum_wait_time`` at zero for normal use. Positive values are an
+    exceptional safety valve. Short budgets can create many Update generations
+    and Temporal history events; prefer at least one minute when nonzero. A
+    positive value bounds the caller-visible wait. The accepted handler checks
+    its deadline only on a later Workflow Task and may retain its in-flight
+    Update slot until then. Reattachments reuse that Update. A new generation
+    starts only after the handler completes with a deadline error.
 
     Attributes:
         request_id: An optional override for the server-derived stable ID.
         maximum_wait_time: The caller-visible wait budget. Zero waits indefinitely.
-            The accepted handler observes a positive deadline only on a later
+            Positive values are rare; prefer at least one minute to limit Temporal
+            Update history growth. The handler observes the deadline on a later
             Workflow Task.
     """
 

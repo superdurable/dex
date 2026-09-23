@@ -742,10 +742,13 @@ class AsyncClient:
 
         The server derives a stable Request ID from the Step execution when none
         is supplied. Transport long polls automatically reattach to the same wait.
-        Leave the maximum wait time at zero to wait indefinitely. A positive value
-        bounds the caller-visible wait. The accepted handler checks its deadline only
-        on a later Workflow Task and may retain its in-flight slot. Reattachments
-        reuse that Update until it completes; only then can a new generation start.
+        Leave the maximum wait time at zero for normal use. Positive values are
+        exceptional because short budgets can create many Update generations and
+        Temporal history events; prefer at least one minute when nonzero. A
+        positive value bounds the caller-visible wait. The accepted handler checks
+        its deadline only on a later Workflow Task and may retain its in-flight
+        slot. Reattachments reuse that Update until it completes; only then can a
+        new generation start.
 
         Args:
             flow_id: The non-empty active Flow ID.
@@ -792,10 +795,13 @@ class AsyncClient:
 
         The Client returns the value observed by the successful wait. The server
         derives a stable Request ID from the condition when none is supplied.
-        Leave the maximum wait time at zero to wait indefinitely. A positive value
-        bounds the caller-visible wait. The accepted handler checks its deadline only
-        on a later Workflow Task and may retain its in-flight slot. Reattachments
-        reuse that Update until it completes; only then can a new generation start.
+        Leave the maximum wait time at zero for normal use. Positive values are
+        exceptional because short budgets can create many Update generations and
+        Temporal history events; prefer at least one minute when nonzero. A
+        positive value bounds the caller-visible wait. The accepted handler checks
+        its deadline only on a later Workflow Task and may retain its in-flight
+        slot. Reattachments reuse that Update until it completes; only then can a
+        new generation start.
         JSON, bytes, and null operands raise ``ValueError`` before transport.
 
         Args:
