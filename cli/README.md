@@ -254,6 +254,17 @@ Repeated directive lines retain source order; no `order` property is generated.
 Every Version 2 Step, Attribute, RPC, input struct, and directive must be in the
 same source file.
 
+Version 2 also recognizes `MustNewQueryStep` and `MustNewMutationStep` from the
+exact `github.com/superdurable/dex-connectors-library/sdk/go` import path when
+the factory call is the direct Step registration argument. `StepType`,
+presentation, branch IDs, `GoToBranch` targets, `StepRef` names, Result
+Attributes, Streams, and `ProceedToOnExecuteFailure` targets must be statically
+visible in the inline config literal. Factory presentation supplies the Step
+group and explanation, so factory Steps do not need local directives. Branches
+become labeled transition edges; Result Attributes and structured/text Streams
+become write edges. Dynamic config, branch slices, targets, or resource
+references produce blocking diagnostics.
+
 Version 2 reads Action labels, conditions, and required permissions from direct
 Go `RPCOptions.Action` registrations. Each Action must use exactly one
 `ActionRequiresPermission`. Permission keys start with a lowercase letter and

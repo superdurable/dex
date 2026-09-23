@@ -112,6 +112,99 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 	}
 }
 
+func TestVisualizeV2ConnectorFactoryExample(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	source := filepath.Join(repositoryRoot, "examples/go/products/connector-factory/workflow.go")
+	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{
+		SchemaVersion: flowviz.SchemaVersionV2,
+	})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	require.Equal(t, "CustomerSummaryConnectorFlow", graph.Flow.Name)
+	require.Equal(t, "step:GenerateCustomerSummary", graph.Flow.StartStepID)
+	require.Equal(t, []string{"generation", "recovery", "failure"}, v2GroupIDs(graph.Groups))
+
+	generateNode := graphNodeByID(t, graph, "step:GenerateCustomerSummary")
+	require.Equal(t, "execute", generateNode.Phase)
+	require.Equal(t, true, generateNode.Metadata["connectorFactory"])
+	require.Equal(t, "mutation", generateNode.Metadata["connectorOperationKind"])
+	require.Equal(t, "Generate a customer summary with streamed model progress.", generateNode.Metadata["explanation"])
+
+	reconcileNode := graphNodeByID(t, graph, "step:ReconcileCustomerSummary")
+	require.Equal(t, true, reconcileNode.Metadata["connectorFactory"])
+	require.Equal(t, "query", reconcileNode.Metadata["connectorOperationKind"])
+
+	require.Equal(t, map[string]string{
+		"completed": "step:CustomerSummaryCompletedStep",
+		"failed":    "step:CustomerSummaryFailedStep",
+		"uncertain": "step:ReconcileCustomerSummary",
+		"defect":    "step:CustomerSummaryFailedStep",
+	}, connectorBranchTargets(graph, "step:GenerateCustomerSummary"))
+	require.Equal(t, map[string]string{
+		"found":  "step:CustomerSummaryReconciledStep",
+		"failed": "step:CustomerSummaryReconcileFailedStep",
+		"defect": "step:CustomerSummaryReconcileFailedStep",
+	}, connectorBranchTargets(graph, "step:ReconcileCustomerSummary"))
+
+	resultEdge := graphEdge(t, graph, "resource_write", "step:GenerateCustomerSummary", "resource:attribute:generatedCustomerSummary", "Set")
+	require.Equal(t, "execute", resultEdge.Metadata["phase"])
+	reconciledResultEdge := graphEdge(t, graph, "resource_write", "step:ReconcileCustomerSummary", "resource:attribute:reconciledCustomerSummary", "Set")
+	require.Equal(t, "execute", reconciledResultEdge.Metadata["phase"])
+	structuredEdge := graphEdge(t, graph, "resource_write", "step:GenerateCustomerSummary", "resource:stream:customerSummaryProgress", "Write")
+	require.Equal(t, true, structuredEdge.Metadata["bestEffort"])
+	require.Equal(t, true, structuredEdge.Metadata["repeatable"])
+	require.Equal(t, "progress", structuredEdge.Metadata["role"])
+	require.Equal(t, "structured", structuredEdge.Metadata["format"])
+	textEdge := graphEdge(t, graph, "resource_write", "step:GenerateCustomerSummary", "resource:stream:customerSummaryText", "Write")
+	require.Equal(t, true, textEdge.Metadata["bestEffort"])
+	require.Equal(t, true, textEdge.Metadata["repeatable"])
+	require.Equal(t, "progress", textEdge.Metadata["role"])
+	require.Equal(t, "text", textEdge.Metadata["format"])
+	failureEdge := graphEdge(t, graph, "failure_transition", "step:GenerateCustomerSummary", "step:CustomerSummaryExecuteFailedStep", "Execute failure")
+	require.Equal(t, true, failureEdge.Metadata["skipWaitFor"])
+
+	firstJSON, err := flowviz.MarshalJSON(graph)
+	require.NoError(t, err)
+	secondGraph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{
+		SchemaVersion: flowviz.SchemaVersionV2,
+	})
+	require.NoError(t, err)
+	secondJSON, err := flowviz.MarshalJSON(secondGraph)
+	require.NoError(t, err)
+	require.Equal(t, firstJSON, secondJSON)
+}
+
+func TestVisualizeV2RejectsDynamicConnectorFactoryFields(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	graph, err := flowviz.Analyze(
+		context.Background(),
+		filepath.Join(repositoryRoot, "cli/internal/command/testfixtures/connector-factory/dynamic/workflow.go"),
+		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
+	)
+	require.NoError(t, err)
+	require.False(t, graph.Valid)
+	codes := diagnosticCodes(graph.Diagnostics)
+	require.Contains(t, codes, "connector_factory_branches")
+	require.Contains(t, codes, "connector_factory_step_type")
+	require.Contains(t, codes, "connector_factory_target")
+}
+
+func TestVisualizeDoesNotRecognizeSpoofedConnectorFactory(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	graph, err := flowviz.Analyze(
+		context.Background(),
+		filepath.Join(repositoryRoot, "cli/internal/command/testfixtures/connector-factory/spoof/workflow.go"),
+		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV1},
+	)
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	node := graphNodeByID(t, graph, "step:spoofStep")
+	require.NotEqual(t, true, node.Metadata["connectorFactory"])
+	for _, code := range diagnosticCodes(graph.Diagnostics) {
+		require.NotContains(t, code, "connector_factory")
+	}
+}
+
 func TestVisualizeV2PreservesDirectiveLineOrderWithoutParameterOrder(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
 	source := filepath.Join(repositoryRoot, "examples/go/products/customer-refund/agentic/workflow.go")
@@ -200,6 +293,38 @@ func v2ActionPermissions(actions []flowviz.Action) []string {
 		permissions = append(permissions, action.RequiredPermission)
 	}
 	return permissions
+}
+
+func graphNodeByID(t *testing.T, graph *flowviz.Graph, nodeID string) flowviz.Node {
+	t.Helper()
+	for _, node := range graph.Nodes {
+		if node.ID == nodeID {
+			return node
+		}
+	}
+	require.FailNow(t, "graph node not found", nodeID)
+	return flowviz.Node{}
+}
+
+func connectorBranchTargets(graph *flowviz.Graph, stepID string) map[string]string {
+	targets := make(map[string]string)
+	for _, edge := range graph.Edges {
+		if edge.Kind == "transition" && edge.From == stepID && edge.Metadata["connectorBranch"] == true {
+			targets[edge.Label] = edge.To
+		}
+	}
+	return targets
+}
+
+func graphEdge(t *testing.T, graph *flowviz.Graph, kind string, from string, to string, label string) flowviz.Edge {
+	t.Helper()
+	for _, edge := range graph.Edges {
+		if edge.Kind == kind && edge.From == from && edge.To == to && edge.Label == label {
+			return edge
+		}
+	}
+	require.FailNow(t, "graph edge not found", "%s %s -> %s (%s)", kind, from, to, label)
+	return flowviz.Edge{}
 }
 
 func v2ActionInputNames(fields []flowviz.ActionInputField) []string {

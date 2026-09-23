@@ -26,26 +26,28 @@ import (
 )
 
 const goSDKPackage = "github.com/superdurable/dex/sdk-go/dex"
+const connectorSDKPackage = "github.com/superdurable/dex-connectors-library/sdk/go"
 
 type goAnalyzer struct {
-	graph             *Graph
-	file              *ast.File
-	packageFiles      []*ast.File
-	fileSet           *token.FileSet
-	typeInfo          *types.Info
-	sourcePath        string
-	dexAliases        map[string]bool
-	methods           map[string]map[string]*ast.FuncDecl
-	externalMethods   map[string]map[string]*goExternalMethod
-	externalResources map[types.Object]goExternalResource
-	externalTypes     map[string]string
-	externalSteps     map[string]bool
-	reportedExternal  map[string]bool
-	steps             map[string]string
-	resources         map[types.Object]string
-	resourceVars      map[string]string
-	schemaVersion     string
-	registeredSteps   []string
+	graph              *Graph
+	file               *ast.File
+	packageFiles       []*ast.File
+	fileSet            *token.FileSet
+	typeInfo           *types.Info
+	sourcePath         string
+	dexAliases         map[string]bool
+	methods            map[string]map[string]*ast.FuncDecl
+	externalMethods    map[string]map[string]*goExternalMethod
+	externalResources  map[types.Object]goExternalResource
+	externalTypes      map[string]string
+	externalSteps      map[string]bool
+	reportedExternal   map[string]bool
+	steps              map[string]string
+	resources          map[types.Object]string
+	resourceVars       map[string]string
+	connectorFactories map[string]goConnectorFactoryStep
+	schemaVersion      string
+	registeredSteps    []string
 }
 
 type goExternalMethod struct {
@@ -138,24 +140,25 @@ func newGoAnalyzer(
 		packageFiles = []*ast.File{file}
 	}
 	return &goAnalyzer{
-		graph:             graph,
-		file:              file,
-		packageFiles:      packageFiles,
-		fileSet:           fileSet,
-		typeInfo:          typeInfo,
-		sourcePath:        filepath.Clean(sourcePath),
-		dexAliases:        make(map[string]bool),
-		methods:           make(map[string]map[string]*ast.FuncDecl),
-		externalMethods:   make(map[string]map[string]*goExternalMethod),
-		externalResources: make(map[types.Object]goExternalResource),
-		externalTypes:     make(map[string]string),
-		externalSteps:     make(map[string]bool),
-		reportedExternal:  make(map[string]bool),
-		steps:             make(map[string]string),
-		resources:         make(map[types.Object]string),
-		resourceVars:      make(map[string]string),
-		schemaVersion:     schemaVersion,
-		registeredSteps:   make([]string, 0),
+		graph:              graph,
+		file:               file,
+		packageFiles:       packageFiles,
+		fileSet:            fileSet,
+		typeInfo:           typeInfo,
+		sourcePath:         filepath.Clean(sourcePath),
+		dexAliases:         make(map[string]bool),
+		methods:            make(map[string]map[string]*ast.FuncDecl),
+		externalMethods:    make(map[string]map[string]*goExternalMethod),
+		externalResources:  make(map[types.Object]goExternalResource),
+		externalTypes:      make(map[string]string),
+		externalSteps:      make(map[string]bool),
+		reportedExternal:   make(map[string]bool),
+		steps:              make(map[string]string),
+		resources:          make(map[types.Object]string),
+		resourceVars:       make(map[string]string),
+		connectorFactories: make(map[string]goConnectorFactoryStep),
+		schemaVersion:      schemaVersion,
+		registeredSteps:    make([]string, 0),
 	}
 }
 
@@ -387,6 +390,29 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 			analyzer.addDynamicTargetDiagnostic("step registration has no static target", call)
 			return false
 		}
+		if factoryKind, factoryCall, factory := analyzer.connectorFactoryCall(call.Args[0]); factory {
+			definition, ok := analyzer.parseConnectorFactoryStep(factoryKind, factoryCall)
+			if !ok {
+				return false
+			}
+			nodeID := "step:" + definition.stepType
+			isStart := callName == "DefineStartStep"
+			analyzer.steps[definition.stepType] = nodeID
+			analyzer.connectorFactories[definition.stepType] = definition
+			analyzer.registeredSteps = append(analyzer.registeredSteps, definition.stepType)
+			analyzer.graph.AddNode(Node{
+				ID: nodeID, Kind: "step", Name: definition.stepType, Start: isStart, Span: analyzer.span(call),
+				Metadata: map[string]any{"connectorFactory": true, "connectorOperationKind": factoryKind},
+			})
+			if isStart {
+				if analyzer.graph.Flow.StartStepID != "" {
+					analyzer.graph.AddDiagnostic("error", "multiple_start_steps", "Flow defines more than one start Step", analyzer.span(call))
+				} else {
+					analyzer.graph.Flow.StartStepID = nodeID
+				}
+			}
+			return false
+		}
 		stepType := analyzer.expressionTypeName(call.Args[0])
 		if stepType == "" {
 			analyzer.addDynamicTargetDiagnostic("registered Step type must be static", call.Args[0])
@@ -434,6 +460,10 @@ func (analyzer *goAnalyzer) hasStaticEmptyStepRegistration(getSteps *ast.FuncDec
 }
 
 func (analyzer *goAnalyzer) analyzeStep(stepType string, nodeID string) {
+	if factory, ok := analyzer.connectorFactories[stepType]; ok {
+		analyzer.analyzeConnectorFactoryStep(nodeID, factory)
+		return
+	}
 	if analyzer.externalSteps[stepType] {
 		return
 	}
@@ -1120,6 +1150,10 @@ func (analyzer *goAnalyzer) resolveTransitionTarget(target string, span *Span) s
 
 func (analyzer *goAnalyzer) resourceForExpression(expression ast.Expr) string {
 	switch current := expression.(type) {
+	case *ast.UnaryExpr:
+		return analyzer.resourceForExpression(current.X)
+	case *ast.ParenExpr:
+		return analyzer.resourceForExpression(current.X)
 	case *ast.Ident:
 		if object := analyzer.typeInfo.Uses[current]; object != nil {
 			if nodeID := analyzer.resources[object]; nodeID != "" {
@@ -1140,6 +1174,11 @@ func (analyzer *goAnalyzer) expressionTypeName(expression ast.Expr) string {
 	case *ast.UnaryExpr:
 		return analyzer.expressionTypeName(current.X)
 	case *ast.CallExpr:
+		if typeAndValue, ok := analyzer.typeInfo.Types[current]; ok {
+			if name := namedTypeName(typeAndValue.Type); name != "" {
+				return name
+			}
+		}
 		if name := baseTypeName(unwrapCallFun(current.Fun)); name != "" && !analyzer.dexAliases[name] {
 			return name
 		}
