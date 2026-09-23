@@ -255,6 +255,7 @@ func countTemporalUpdateEvents(
 type temporalUpdateHistoryCounts struct {
 	accepted               int
 	completed              int
+	acceptedAt             time.Time
 	oneSecondTimerStarted  int
 	oneSecondTimerCanceled int
 }
@@ -296,6 +297,7 @@ func inspectTemporalUpdateHistory(
 					GetUpdateId()
 				if eventRequestID == requestID {
 					counts.accepted++
+					counts.acceptedAt = event.GetEventTime().AsTime()
 					isUpdatePending = true
 				}
 			case temporalenums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:

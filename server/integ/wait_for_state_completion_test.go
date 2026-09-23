@@ -199,6 +199,9 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 	require.Zero(t, counts.completed)
 	require.Zero(t, counts.oneSecondTimerStarted)
 	require.Zero(t, counts.oneSecondTimerCanceled)
+	require.Eventually(t, func() bool {
+		return !time.Now().Before(counts.acceptedAt.Add(time.Second))
+	}, 2*time.Second, 10*time.Millisecond)
 
 	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		RequestId: newRequestID(),
