@@ -45,9 +45,11 @@ Each Action condition is declared in its Go `RPCOptions.Action`. When a
 successful Worker invocation writes an Action condition source, the Worker
 sends the complete Action-to-permission mapping with that response. The Server
 overlays the writes on the authoritative Attribute state and atomically updates
-`DexWorkQueuePermissions` only when the resulting permission union changes.
-Unrelated writes and query-only RPCs do not send the mapping. Dex Web does the
-same when `SetAttributes` edits an Action source.
+`DexWorkQueuePermissions` only when the permission history gains a new value.
+Once an Action condition matches, its permission remains searchable for that
+Flow execution, including after the Action is handled. Unrelated writes and
+query-only RPCs do not send the mapping. Dex Web does the same when
+`SetAttributes` edits an Action source.
 
 The projection does not require every Step that writes `case-status` to lock
 that Attribute. The Action RPCs still lock the business state they check and

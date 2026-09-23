@@ -207,7 +207,7 @@ func TestPersistenceDoesNotEnforceIndexOwnership(t *testing.T) {
 	require.Len(t, manager.GetAllAttributes(), 2)
 }
 
-func TestPersistenceProjectsActionPermissionsWithoutRedundantUpserts(t *testing.T) {
+func TestPersistenceAccumulatesActionPermissionsWithoutRedundantUpserts(t *testing.T) {
 	provider := &s2WorkflowProvider{}
 	manager := newTestPersistenceManager(provider, []*dexpb.KV{
 		stringKV("status", "A"),
@@ -225,6 +225,11 @@ func TestPersistenceProjectsActionPermissionsWithoutRedundantUpserts(t *testing.
 			AttributeKey:       "status",
 			EqualValues:        []*dexpb.Value{actionPermissionStringValue("A")},
 			RequiredPermission: "permission-x",
+		},
+		{
+			AttributeKey:       "status",
+			EqualValues:        []*dexpb.Value{actionPermissionStringValue("B")},
+			RequiredPermission: "permission-y",
 		},
 		{
 			AttributeKey:       "region",
@@ -252,7 +257,11 @@ func TestPersistenceProjectsActionPermissionsWithoutRedundantUpserts(t *testing.
 		mappings,
 	)
 	require.NoError(t, err)
-	require.Equal(t, []string{"permission-z"}, provider.upserts[0][service.SearchAttributeDexWorkQueuePermissions])
+	require.Equal(
+		t,
+		[]string{"permission-x", "permission-y", "permission-z"},
+		provider.upserts[0][service.SearchAttributeDexWorkQueuePermissions],
+	)
 
 	err = manager.ApplyAttributeWritesWithActionPermissionMappings(
 		persistenceTestContext(),
@@ -265,9 +274,12 @@ func TestPersistenceProjectsActionPermissionsWithoutRedundantUpserts(t *testing.
 		&dexpb.ActionPermissionMappings{},
 	)
 	require.NoError(t, err)
-	require.Nil(t, provider.upserts[1][service.SearchAttributeDexWorkQueuePermissions])
-	_, found := manager.GetAttribute(service.SearchAttributeDexWorkQueuePermissions)
-	require.False(t, found)
+	require.Len(t, provider.upserts, 1)
+	stored, found := manager.GetAttribute(service.SearchAttributeDexWorkQueuePermissions)
+	require.True(t, found)
+	permissions, isValid := decodeWorkQueuePermissions(stored)
+	require.True(t, isValid)
+	require.Equal(t, []string{"permission-x", "permission-y", "permission-z"}, permissions)
 }
 
 func TestPersistenceActionPermissionProjectionIsAtomic(t *testing.T) {

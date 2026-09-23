@@ -65,7 +65,8 @@ selects one Action permission and filters on the Server-maintained
 Action permission mapping only when an invocation writes an Action condition
 source. Dex Web submits the same mapping only when `SetAttributes` edits one of
 those sources. The Server overlays the writes on authoritative Attribute state
-and atomically replaces the projection when its value changes. `POST
+and atomically adds newly matching permissions to the projection. Once added,
+a permission remains searchable for that Flow execution. `POST
 /api/v2/search` also accepts several `workQueuePermissions`; they are matched
 with OR, then combined with the Flow type and other filters using AND. This
 selector is a local development boundary. In hosted deployments,

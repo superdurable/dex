@@ -218,7 +218,15 @@ func (am *PersistenceManager) actionPermissionProjectionWrite(
 	writes []*dexpb.AttributeWrite,
 	mappings *dexpb.ActionPermissionMappings,
 ) (*dexpb.AttributeWrite, error) {
-	permissionSet := make(map[string]struct{}, len(mappings.GetMappings()))
+	currentPermissions, isCurrentValueValid := decodeWorkQueuePermissions(
+		am.attributes[service.SearchAttributeDexWorkQueuePermissions],
+	)
+	permissionSet := make(map[string]struct{}, len(currentPermissions)+len(mappings.GetMappings()))
+	if isCurrentValueValid {
+		for _, permission := range currentPermissions {
+			permissionSet[permission] = struct{}{}
+		}
+	}
 	for _, mapping := range mappings.GetMappings() {
 		value := am.attributeValueAfterWrites(mapping.GetAttributeKey(), writes)
 		for _, equalValue := range mapping.GetEqualValues() {
@@ -233,9 +241,6 @@ func (am *PersistenceManager) actionPermissionProjectionWrite(
 		permissions = append(permissions, permission)
 	}
 	sort.Strings(permissions)
-	currentPermissions, isCurrentValueValid := decodeWorkQueuePermissions(
-		am.attributes[service.SearchAttributeDexWorkQueuePermissions],
-	)
 	if isCurrentValueValid && reflect.DeepEqual(currentPermissions, permissions) {
 		return nil, nil
 	}

@@ -23,7 +23,7 @@ export const WORK_QUEUE_COPY = {
   /** Named Actions, so choosing a party says what it will show rather than implying a permission. */
   permissionActions(labels: readonly string[]): string {
     if (labels.length === 0) return 'This permission discovers no Actions in this Flow.';
-    return `May include runs offering ${labels.join(' or ')}.`;
+    return `Includes runs that offer or previously offered ${labels.join(' or ')}.`;
   },
   clear: 'Nothing open on this page.',
   loading: 'Asking the process…',
