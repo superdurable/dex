@@ -12,7 +12,7 @@ package io.superdurable.dex.exceptions;
 
 import io.grpc.Status;
 
-/** Thrown when a caller-defined wait budget expires. The accepted handler may remain pending. */
+/** Thrown when a caller-defined wait budget expires. */
 public final class WaitHandlerTimeoutException extends DexServiceException {
     /**
      * Creates a typed durable wait timeout.

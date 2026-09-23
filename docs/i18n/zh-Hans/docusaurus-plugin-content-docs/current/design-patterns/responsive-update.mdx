@@ -14,24 +14,16 @@ title: 响应式更新
 
 前两种等待观察 durable 状态。它们适合定义客户端可见的边界，而不是代替应用超时或最终 Flow 结果。Stream 承载有序的增量消息；客户端保存最新的 resume token，并在下一次读取时带上它。
 
-## 选择 durable handler 的生命周期
+## 选择等待 budget
 
-对于 Step 和 Attribute 等待，Dex 会从 Step execution 或完整的 Attribute 条件派生逻辑 Temporal Update ID。同一 active Flow 上相同的逻辑等待会重新附着到已接受的 Update。该标识跨 transport long poll 和 Continue-As-New 保持不变，因此普通调用方不需要提供 Request ID。
+**MaximumWaitTime** 限制调用方可见的等待时间。它不同于调用方 context、HTTP deadline 或 transport long-poll timeout。正值 budget 到期时，调用方会收到有类型的 timeout。
 
-**MaximumWaitTime** 限制调用方可见的等待时间，并在已接受的 durable Update handler 上记录 deadline。它不同于调用方 context、HTTP deadline 或 transport long-poll timeout。正值 budget 到期时，调用方会收到有类型的 wait-handler timeout；Temporal 不会取消已接受的 handler。
+正值 **MaximumWaitTime** 是极少使用的安全阀，不是常规 request timeout。普通响应超时应让它保持为 0，并使用调用方 context 或 HTTP deadline。较短的正值可能让重复等待向 Workflow history 增加大量 Temporal Update accepted 和 completed events，也可能增加 Temporal Cloud Actions。确实需要正值时，应从至少 1 分钟开始；只有经过实际测量并有明确需求时才使用更短的值。
 
-正值 **MaximumWaitTime** 是极少使用的安全阀，不是常规 request timeout。普通响应超时应让它保持为 0，并使用调用方 context 或 HTTP deadline。已接受的 handler 最终超时后，后续调用可以创建新的 -N Update generation。每个 generation 都会向 Workflow history 增加 Temporal Update accepted 和 completed events，也可能计为另一个 Temporal Cloud Action。因此，较短的正值会让 history 快速增长。确实需要正值时，应从至少 1 分钟开始；只有经过实际测量并有明确需求时才使用更短的值。
-
-Dex 不会为该 deadline 创建 durable timer。只有其他事件触发新的 Workflow Task 时，已接受的 handler 才会检查 deadline。在此之前，handler 仍处于 accepted 状态并继续占用 in-flight Update slot。
-
-| **MaximumWaitTime** | 适用场景 | 资源行为 |
+| **MaximumWaitTime** | 适用场景 | 行为 |
 | --- | --- | --- |
-| 0 | 推荐用于普通等待。一个 Flow 只有少量不同的等待，并且它们应一直保持 durable，直到完成或命中。 | 每个不同的已接受等待占用一个 in-flight Update slot。重新附着到相同逻辑等待会复用该 slot。 |
-| 正值 | 极少使用：需要限制 accepted handler 本身的生命周期，而不只是限制调用方响应时间。建议至少 1 分钟。 | 调用方会在 budget 到期时返回。只有后续 Workflow Task 观察到 deadline 后，handler 才释放 slot。反复过期会向 history 增加大量 Update events。 |
-
-在已接受的 handler 结束前发起的调用会重新附着到同一个 Update。只有旧 handler 实际以 deadline error 完成后，Dex 才会创建下一个 -N Update generation。每个新 generation 都是另一个已接受的 Update 和 history entry，也可能是另一个 Temporal Cloud Action。只有重复的 Update 使用相同 Update ID 时，Temporal Cloud 才会去重。
-
-Temporal 当前的 self-hosted 默认值是每个 Workflow Execution 最多 10 个 in-flight Update、总计 2,000 个 Update。这些限制可以配置，并取决于具体部署，不是 Dex 的保证。请参阅 [Temporal self-hosted 默认值](https://docs.temporal.io/production-deployment/self-hosted-guide/defaults)和 [Temporal Cloud Action 计费规则](https://docs.temporal.io/cloud/actions)。
+| 0 | 推荐用于普通等待。 | 一直等待 Step 完成或 Attribute 命中。使用调用方 deadline 限制单次响应时间。 |
+| 正值 | 极少使用：等待本身需要调用方可见的最长时长。建议至少 1 分钟。 | budget 到期时返回有类型的 timeout。较短的值可能向 Workflow history 增加大量 Temporal Update events。 |
 
 ## 相关内容
 

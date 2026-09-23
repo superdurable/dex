@@ -17,11 +17,9 @@ import java.time.Duration;
  * The server derives a stable Request ID from the Attribute condition when none is supplied.
  * Reuse an override only for the same logical predicate.
  * Leave the maximum wait time at zero to wait indefinitely.
- * Positive values are an exceptional safety valve. Short budgets can create many Update generations
- * and Temporal history events, so prefer at least one minute when nonzero.
- * A positive value bounds the caller-visible wait. The accepted handler checks its deadline only on
- * a later Workflow Task and may retain its in-flight Update slot until then. Reattachments reuse that
- * Update. A new generation starts only after the handler completes with a deadline error.
+ * Positive values are an exceptional safety valve. Short budgets can add many Temporal Update events
+ * to Workflow history, so prefer at least one minute when nonzero.
+ * A positive value bounds the caller-visible wait.
  */
 public final class WaitForAttributeOptions {
     private final String requestId;
@@ -72,7 +70,6 @@ public final class WaitForAttributeOptions {
         /**
          * Bounds the caller-visible wait. Zero waits indefinitely.
          * Positive values are rare. Prefer at least one minute to limit Temporal Update history growth.
-         * The accepted handler observes the deadline only on a later Workflow Task.
          *
          * @param value a nonnegative whole-second duration within the protocol range
          * @return this builder

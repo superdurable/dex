@@ -23,10 +23,8 @@ export interface ClientOptions {
  * Configures one durable Step completion wait.
  * The server derives a stable Request ID from the Step execution when none is supplied.
  * Leave the maximum wait time at zero for normal use. Positive values are exceptional because short
- * budgets can create many Update generations and Temporal history events. Prefer at least one minute.
- * A positive value bounds the caller-visible wait. The accepted handler checks its deadline only on
- * a later Workflow Task and may retain its in-flight Update slot until then. Reattachments reuse that
- * Update. A new generation starts only after the handler completes with a deadline error.
+ * budgets can add many Temporal Update events to Workflow history. Prefer at least one minute.
+ * A positive value bounds the caller-visible wait.
  */
 export interface WaitForStepCompletionOptions {
   /** Overrides the stable Request ID that the server derives from the Step execution. */
@@ -39,10 +37,8 @@ export interface WaitForStepCompletionOptions {
  * Configures one durable Attribute match wait.
  * The server derives a stable Request ID from the Attribute condition when none is supplied.
  * Leave the maximum wait time at zero for normal use. Positive values are exceptional because short
- * budgets can create many Update generations and Temporal history events. Prefer at least one minute.
- * A positive value bounds the caller-visible wait. The accepted handler checks its deadline only on
- * a later Workflow Task and may retain its in-flight Update slot until then. Reattachments reuse that
- * Update. A new generation starts only after the handler completes with a deadline error.
+ * budgets can add many Temporal Update events to Workflow history. Prefer at least one minute.
+ * A positive value bounds the caller-visible wait.
  */
 export interface WaitForAttributeOptions {
   /** Overrides the stable Request ID that the server derives from the Attribute condition. */

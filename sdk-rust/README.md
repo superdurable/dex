@@ -104,19 +104,12 @@ sorted. Conditional completion is
 `StepDecision::force_complete_if_channels_empty`.
 
 Request IDs are optional for both durable waits. When omitted, the server
-derives a namespaced stable ID from the Step execution or Attribute condition,
-such as `wait-for-attribute:myInt>10`. Reuse an override only for the same
-logical wait. The Client automatically reattaches transport long polls.
-`maximum_wait_time` is optional. Leave it at zero for normal use and bound one
-response with the caller deadline. Positive values are an exceptional safety
-valve: short budgets can repeatedly create new `-N` Update generations, adding
-many Temporal Update events to Workflow history. If a positive value is truly
-needed, prefer at least one minute. A positive expiry returns
-`SdkError::WaitHandlerTimeout`, but the
-accepted handler checks its deadline only on a later Workflow Task and may keep
-its in-flight Update slot until then. Reattachments keep using that Update. The
-server appends an increasing `-N` suffix only after the handler completes with
-a deadline error.
+derives a stable ID from the Step execution or Attribute condition. Reuse an
+override only for the same wait. `maximum_wait_time` is optional. Leave it at
+zero for normal use and bound one response with the caller deadline. Positive
+values are an exceptional safety valve: short budgets can add many Temporal
+Update events to Workflow history. If a positive value is truly needed, prefer
+at least one minute. A positive expiry returns `SdkError::WaitHandlerTimeout`.
 
 `Client::wait_for_flow` and `wait_for_flow_with_timeout` return a
 `FlowResult` after hydrating every output-bearing completion. Use the

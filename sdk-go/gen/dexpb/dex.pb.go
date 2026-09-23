@@ -7648,16 +7648,12 @@ type WaitForStepCompletionRequest struct {
 	// Identifies a step execution by type and its per-type execution number.
 	StepType            string `protobuf:"bytes,2,opt,name=step_type,json=stepType,proto3" json:"step_type,omitempty"`
 	StepExecutionNumber string `protobuf:"bytes,3,opt,name=step_execution_number,json=stepExecutionNumber,proto3" json:"step_execution_number,omitempty"`
-	// Sets the caller-visible timeout and the accepted Temporal Update handler deadline.
+	// Sets the caller-visible maximum wait time in seconds.
 	// Zero waits indefinitely and is recommended for normal use.
 	// Positive values are an exceptional safety valve, not a normal request timeout.
-	// Short budgets can create many Update generations and history events; prefer at least 60 seconds.
-	// The caller times out promptly, but the handler checks its deadline only on a later Workflow Task.
-	// Reattachments reuse the accepted Update until it completes with a deadline error.
-	// Only then does another retry create a new -N Update generation.
+	// Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
 	WaitTimeSeconds int32 `protobuf:"varint,5,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
 	// Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
-	// Reusing a logical key after its handler completes with timeout advances a -N generation.
 	RequestId     string `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7768,16 +7764,12 @@ type WaitForAttributeRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	FlowId string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
 	Match  *AttributeMatch        `protobuf:"bytes,2,opt,name=match,proto3" json:"match,omitempty"`
-	// Sets the caller-visible timeout and the accepted Temporal Update handler deadline.
+	// Sets the caller-visible maximum wait time in seconds.
 	// Zero waits indefinitely and is recommended for normal use.
 	// Positive values are an exceptional safety valve, not a normal request timeout.
-	// Short budgets can create many Update generations and history events; prefer at least 60 seconds.
-	// The caller times out promptly, but the handler checks its deadline only on a later Workflow Task.
-	// Reattachments reuse the accepted Update until it completes with a deadline error.
-	// Only then does another retry create a new -N Update generation.
+	// Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
 	WaitTimeSeconds int32 `protobuf:"varint,3,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
 	// Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
-	// Reusing a logical key after its handler completes with timeout advances a -N generation.
 	RequestId     string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

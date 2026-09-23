@@ -775,18 +775,15 @@ public final class Client implements AutoCloseable {
     /**
      * Blocks until a specific Step execution completes or its caller-visible wait budget expires.
      * The server derives a stable Request ID from the Step execution when none is supplied.
-     * Transport long polls automatically reattach to the same logical wait.
      * Leave the maximum wait time at zero for normal use and bound one response with the caller deadline.
-     * Positive values are exceptional because short budgets can create many Update generations and
-     * Temporal history events. Prefer at least one minute when nonzero. A positive deadline is checked by the
-     * accepted handler only on a later Workflow Task, so the handler may retain its in-flight slot.
-     * Reattachments reuse that Update until it completes. Only then can a new generation start.
+     * Positive values are exceptional because short budgets can add many Temporal Update events to
+     * Workflow history. Prefer at least one minute when nonzero.
      *
      * @param flowId the target Flow ID
      * @param stepExecutionId the Step execution to observe
      * @param options the optional Request ID override and caller-visible wait budget
      * @throws IllegalArgumentException if the budget is unsupported
-     * @throws WaitHandlerTimeoutException if a positive handler budget expires first
+     * @throws WaitHandlerTimeoutException if a positive wait budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
      */
@@ -816,23 +813,20 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Blocks until a singleton Attribute satisfies a scalar match or its handler budget expires.
+     * Blocks until a singleton Attribute satisfies a scalar match or its wait budget expires.
      * The server derives a stable Request ID from the condition when none is supplied.
-     * Transport long polls automatically reattach to the same logical wait.
      * Leave the maximum wait time at zero for normal use and bound one response with the caller deadline.
-     * Positive values are exceptional because short budgets can create many Update generations and
-     * Temporal history events. Prefer at least one minute when nonzero. A positive deadline is checked by the
-     * accepted handler only on a later Workflow Task, so the handler may retain its in-flight slot.
-     * Reattachments reuse that Update until it completes. Only then can a new generation start.
+     * Positive values are exceptional because short budgets can add many Temporal Update events to
+     * Workflow history. Prefer at least one minute when nonzero.
      *
      * @param flowId the target Flow ID
      * @param attribute the registered Attribute definition
      * @param match the scalar predicate to await
-     * @param options the optional Request ID override and total handler wait budget
+     * @param options the optional Request ID override and total wait budget
      * @param <T> the Attribute value type
      * @return the current Attribute value that satisfied the match
      * @throws IllegalArgumentException if the budget, match operand, or operator is invalid
-     * @throws WaitHandlerTimeoutException if a positive handler budget expires first
+     * @throws WaitHandlerTimeoutException if a positive wait budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
      */
@@ -856,7 +850,7 @@ public final class Client implements AutoCloseable {
      * @param <T> the Attribute value type
      * @return the current AttributeMap value that satisfied the match
      * @throws IllegalArgumentException if the budget, match operand, or operator is invalid
-     * @throws WaitHandlerTimeoutException if a positive handler budget expires first
+     * @throws WaitHandlerTimeoutException if a positive wait budget expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
      */

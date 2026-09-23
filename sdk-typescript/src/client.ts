@@ -648,16 +648,12 @@ export class Client {
   /**
    * Waits until one Step execution completes or its caller-visible wait budget expires.
    * The server derives a stable Request ID from the Step execution when none is supplied.
-   * Transport long polls automatically reattach to the same logical wait.
    * Leave the maximum wait time at zero for normal use. Positive values are exceptional because short
-   * budgets can create many Update generations and Temporal history events. Prefer at least one minute.
-   * The accepted handler checks a positive
-   * deadline only on a later Workflow Task and may retain its in-flight slot. Reattachments reuse that
-   * Update until it completes; only then can a new generation start.
+   * budgets can add many Temporal Update events to Workflow history. Prefer at least one minute.
    * @param flowId - Non-empty active Flow ID.
    * @param stepExecutionId - Step type and positive execution number.
    * @param options - Optional Request ID override and caller-visible wait budget.
-   * @throws {@link WaitHandlerTimeoutError} when a positive handler budget expires first.
+   * @throws {@link WaitHandlerTimeoutError} when a positive wait budget expires first.
    */
   public async waitForStepCompletion(
     flowId: string,
@@ -693,17 +689,13 @@ export class Client {
    * Waits until a singleton Attribute in the current run satisfies a match.
    * Returns the current value observed by the successful wait operation.
    * The server derives a stable Request ID from the condition when none is supplied.
-   * Transport long polls automatically reattach to the same logical wait.
    * Leave the maximum wait time at zero for normal use. Positive values are exceptional because short
-   * budgets can create many Update generations and Temporal history events. Prefer at least one minute.
-   * The accepted handler checks a positive
-   * deadline only on a later Workflow Task and may retain its in-flight slot. Reattachments reuse that
-   * Update until it completes; only then can a new generation start.
+   * budgets can add many Temporal Update events to Workflow history. Prefer at least one minute.
    * @typeParam T - Attribute value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered singleton Attribute to observe.
    * @param match - Scalar predicate whose operand has the Attribute value type.
-   * @param options - Optional Request ID override and total handler wait budget.
+   * @param options - Optional Request ID override and total wait budget.
    * @returns The matched current Attribute value.
    */
   public waitForAttributeMatch<T>(
@@ -721,7 +713,7 @@ export class Client {
    * @param attribute - Registered AttributeMap to observe.
    * @param instance - The map instance to observe. Slash is prohibited because it is a reserved character.
    * @param match - Scalar predicate whose operand has the AttributeMap value type.
-   * @param options - Optional Request ID override and total handler wait budget.
+   * @param options - Optional Request ID override and total wait budget.
    * @returns The matched current AttributeMap value.
    */
   public waitForAttributeMatch<T>(

@@ -181,13 +181,10 @@ private static final long serialVersionUID = 0L;
   private int waitTimeSeconds_ = 0;
   /**
    * <pre>
-   * Sets the caller-visible timeout and the accepted Temporal Update handler deadline.
+   * Sets the caller-visible maximum wait time in seconds.
    * Zero waits indefinitely and is recommended for normal use.
    * Positive values are an exceptional safety valve, not a normal request timeout.
-   * Short budgets can create many Update generations and history events; prefer at least 60 seconds.
-   * The caller times out promptly, but the handler checks its deadline only on a later Workflow Task.
-   * Reattachments reuse the accepted Update until it completes with a deadline error.
-   * Only then does another retry create a new -N Update generation.
+   * Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
    * </pre>
    *
    * <code>int32 wait_time_seconds = 5;</code>
@@ -204,7 +201,6 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
-   * Reusing a logical key after its handler completes with timeout advances a -N generation.
    * </pre>
    *
    * <code>string request_id = 6;</code>
@@ -226,7 +222,6 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
-   * Reusing a logical key after its handler completes with timeout advances a -N generation.
    * </pre>
    *
    * <code>string request_id = 6;</code>
@@ -879,13 +874,10 @@ private static final long serialVersionUID = 0L;
     private int waitTimeSeconds_ ;
     /**
      * <pre>
-     * Sets the caller-visible timeout and the accepted Temporal Update handler deadline.
+     * Sets the caller-visible maximum wait time in seconds.
      * Zero waits indefinitely and is recommended for normal use.
      * Positive values are an exceptional safety valve, not a normal request timeout.
-     * Short budgets can create many Update generations and history events; prefer at least 60 seconds.
-     * The caller times out promptly, but the handler checks its deadline only on a later Workflow Task.
-     * Reattachments reuse the accepted Update until it completes with a deadline error.
-     * Only then does another retry create a new -N Update generation.
+     * Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
      * </pre>
      *
      * <code>int32 wait_time_seconds = 5;</code>
@@ -897,13 +889,10 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Sets the caller-visible timeout and the accepted Temporal Update handler deadline.
+     * Sets the caller-visible maximum wait time in seconds.
      * Zero waits indefinitely and is recommended for normal use.
      * Positive values are an exceptional safety valve, not a normal request timeout.
-     * Short budgets can create many Update generations and history events; prefer at least 60 seconds.
-     * The caller times out promptly, but the handler checks its deadline only on a later Workflow Task.
-     * Reattachments reuse the accepted Update until it completes with a deadline error.
-     * Only then does another retry create a new -N Update generation.
+     * Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
      * </pre>
      *
      * <code>int32 wait_time_seconds = 5;</code>
@@ -919,13 +908,10 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Sets the caller-visible timeout and the accepted Temporal Update handler deadline.
+     * Sets the caller-visible maximum wait time in seconds.
      * Zero waits indefinitely and is recommended for normal use.
      * Positive values are an exceptional safety valve, not a normal request timeout.
-     * Short budgets can create many Update generations and history events; prefer at least 60 seconds.
-     * The caller times out promptly, but the handler checks its deadline only on a later Workflow Task.
-     * Reattachments reuse the accepted Update until it completes with a deadline error.
-     * Only then does another retry create a new -N Update generation.
+     * Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
      * </pre>
      *
      * <code>int32 wait_time_seconds = 5;</code>
@@ -942,7 +928,6 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
-     * Reusing a logical key after its handler completes with timeout advances a -N generation.
      * </pre>
      *
      * <code>string request_id = 6;</code>
@@ -963,7 +948,6 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
-     * Reusing a logical key after its handler completes with timeout advances a -N generation.
      * </pre>
      *
      * <code>string request_id = 6;</code>
@@ -985,7 +969,6 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
-     * Reusing a logical key after its handler completes with timeout advances a -N generation.
      * </pre>
      *
      * <code>string request_id = 6;</code>
@@ -1003,7 +986,6 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
-     * Reusing a logical key after its handler completes with timeout advances a -N generation.
      * </pre>
      *
      * <code>string request_id = 6;</code>
@@ -1018,7 +1000,6 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
-     * Reusing a logical key after its handler completes with timeout advances a -N generation.
      * </pre>
      *
      * <code>string request_id = 6;</code>

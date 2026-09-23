@@ -381,19 +381,12 @@ instance must be non-empty and must not contain `/`. Objects,
 bytes, null, non-finite doubles, and invalid ordering fail before the RPC.
 
 Request IDs are optional for both durable waits. When omitted, the server
-derives a namespaced stable ID from the Step execution or Attribute condition,
-such as `wait-for-attribute:myInt>10`. Reuse an override only for the same
-logical wait. The Client automatically reattaches transport long polls.
-`MaximumWaitTime` is optional. Leave it at zero for normal use and bound one
-response with the caller context. Positive values are an exceptional safety
-valve: short budgets can repeatedly create new `-N` Update generations, adding
-many Temporal Update events to Workflow history. If a positive value is truly
-needed, prefer at least one minute. A positive expiry returns
-`*dex.WaitHandlerTimeoutError`, but the
-accepted handler checks its deadline only on a later Workflow Task and may keep
-its in-flight Update slot until then. Reattachments keep using that Update. The
-server appends an increasing `-N` suffix only after the handler completes with
-a deadline error.
+derives a stable ID from the Step execution or Attribute condition. Reuse an
+override only for the same wait. `MaximumWaitTime` is optional. Leave it at zero
+for normal use and bound one response with the caller context. Positive values
+are an exceptional safety valve: short budgets can add many Temporal Update
+events to Workflow history. If a positive value is truly needed, prefer at
+least one minute. A positive expiry returns `*dex.WaitHandlerTimeoutError`.
 
 Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and
@@ -680,8 +673,7 @@ Initial indexed values are validated by `dex.InitialAttribute` and
 
 The SDK generates UUIDs for StartFlow and InvokeRPC.
 `StartFlowOptions.RequestID` may override the generated start ID. Durable waits
-use server-derived IDs unless the caller supplies an override. Automatic
-reattachments reuse the selected logical ID.
+use server-derived IDs unless the caller supplies an override.
 
 Large string and object values may be returned as blob references. Worker
 inputs and Client results hydrate before handler or application decode. Decode

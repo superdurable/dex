@@ -375,12 +375,9 @@ type WaitForFlowOptions struct {
 // execution. Reuse an override only when retrying the same Step completion
 // wait. MaximumWaitTime bounds the caller-visible wait. Leave it zero to wait
 // indefinitely. Positive values are an exceptional safety valve. Short budgets
-// can create many Update generations and Temporal history events; prefer at
-// least one minute when nonzero. A positive value returns a typed timeout, but
-// the accepted handler checks its deadline only on a later Workflow Task and may
-// retain its in-flight Update slot until then. Reattachments reuse that Update.
-// A new generation starts only after the handler completes with a deadline error.
-// The duration must use whole seconds within int32 range.
+// can add many Temporal Update events to Workflow history; prefer at least one
+// minute when nonzero. A positive value returns a typed timeout. The duration
+// must use whole seconds within int32 range.
 //
 //	options := dex.WaitForStepCompletionOptions{
 //		MaximumWaitTime: time.Hour,
@@ -399,12 +396,9 @@ type WaitForStepCompletionOptions struct {
 // condition. Reuse an override only when retrying the same Attribute match.
 // MaximumWaitTime bounds the caller-visible wait. Leave it zero to wait
 // indefinitely. Positive values are an exceptional safety valve. Short budgets
-// can create many Update generations and Temporal history events; prefer at
-// least one minute when nonzero. A positive value returns a typed timeout, but
-// the accepted handler checks its deadline only on a later Workflow Task and may
-// retain its in-flight Update slot until then. Reattachments reuse that Update.
-// A new generation starts only after the handler completes with a deadline error.
-// The duration must use whole seconds within int32 range.
+// can add many Temporal Update events to Workflow history; prefer at least one
+// minute when nonzero. A positive value returns a typed timeout. The duration
+// must use whole seconds within int32 range.
 //
 //	options := dex.WaitForAttributeOptions{
 //		MaximumWaitTime: time.Hour,

@@ -36,6 +36,6 @@ public enum ErrorSubStatus {
     /** Indicates that a pending Channel message ID no longer exists. */
     CHANNEL_MESSAGE_NOT_FOUND,
 
-    /** Indicates that a caller-visible wait budget expired. The accepted handler may remain pending. */
+    /** Indicates that a caller-visible wait budget expired. */
     WAIT_HANDLER_TIMEOUT
 }

@@ -166,7 +166,7 @@ class LongPollTimeoutError(DexServiceError):
 
 
 class WaitHandlerTimeoutError(DexServiceError):
-    """Indicate that a caller-defined wait budget expired while its handler may remain pending."""
+    """Indicate that a caller-defined wait budget expired."""
 
     pass
 

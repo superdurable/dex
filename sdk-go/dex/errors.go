@@ -263,7 +263,6 @@ type LongPollTimeoutError struct {
 }
 
 // WaitHandlerTimeoutError reports that a caller-visible wait budget expired.
-// The accepted handler may remain pending until another Workflow Task observes its deadline.
 type WaitHandlerTimeoutError struct {
 	// ServiceError contains the timed-out wait metadata.
 	*ServiceError

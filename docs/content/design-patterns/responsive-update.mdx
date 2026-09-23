@@ -14,24 +14,16 @@ Choose the boundary deliberately:
 
 The first two waits observe durable state. They are appropriate for a client-visible boundary, not a substitute for an application timeout or a final Flow result. Streams carry ordered incremental messages; clients keep the latest resume token and use it on the next read.
 
-## Choose the durable handler lifetime
+## Choose the wait budget
 
-For Step and Attribute waits, Dex derives a logical Temporal Update ID from the Step execution or the complete Attribute condition. Calls for the same logical wait on one active Flow reattach to the accepted Update. This identity survives transport long polls and Continue-As-New, so normal callers do not need to provide a Request ID.
+**MaximumWaitTime** bounds the caller-visible wait. It is separate from a caller context, HTTP deadline, or transport long-poll timeout. When a positive budget elapses, the caller receives a typed timeout.
 
-**MaximumWaitTime** bounds the caller-visible wait and records a deadline on the accepted durable Update handler. It is separate from a caller context, HTTP deadline, or transport long-poll timeout. When a positive budget elapses, the caller receives a typed wait-handler timeout. Temporal does not cancel the accepted handler.
+A positive **MaximumWaitTime** is an exceptional safety valve, not a normal request timeout. For routine response deadlines, leave it at 0 and use the caller context or HTTP deadline. Short positive budgets can cause repeated waits to add many Temporal Update accepted and completed events to Workflow history. They may also increase Temporal Cloud Actions. If a positive value is genuinely necessary, start with at least one minute and use a shorter value only for a measured requirement.
 
-A positive **MaximumWaitTime** is an exceptional safety valve, not a normal request timeout. For routine response deadlines, leave it at 0 and use the caller context or HTTP deadline. If an accepted handler eventually expires, a later call can create a new -N Update generation. Every generation adds Temporal Update accepted and completed events to Workflow history and may count as another Temporal Cloud Action. Short positive budgets can therefore grow history quickly. If a positive value is genuinely necessary, start with at least one minute and use a shorter value only for a measured requirement.
-
-Dex does not create a durable timer for this deadline. The accepted handler checks it only when another event causes a Workflow Task. Until that happens, the handler remains accepted and continues to occupy its in-flight Update slot.
-
-| **MaximumWaitTime** | Use it when | Resource behavior |
+| **MaximumWaitTime** | Use it when | Behavior |
 | --- | --- | --- |
-| 0 | Recommended for ordinary waits. A Flow has only a few distinct waits that should remain durable until they complete or match. | Each distinct accepted wait occupies one in-flight Update slot. Reattachments to the same logical wait reuse it. |
-| Positive | Rarely: the accepted handler itself needs a bounded lifetime, not merely a bounded caller response. Prefer at least one minute. | The caller returns at the budget. The handler releases its slot only after a later Workflow Task observes the deadline. Repeated expiry can add many Update events to history. |
-
-Calls made before the accepted handler finishes reattach to the same Update. Dex creates the next -N Update generation only after the old handler actually completes with a deadline error. Every new generation is another accepted Update and history entry. It may also be another Temporal Cloud Action. Temporal Cloud de-duplicates repeated Updates only when they use the same Update ID.
-
-Temporal's current self-hosted defaults allow 10 in-flight and 2,000 total Updates per Workflow Execution. These limits are configurable and deployment-specific, not Dex guarantees. See [Temporal's self-hosted defaults](https://docs.temporal.io/production-deployment/self-hosted-guide/defaults) and [Temporal Cloud Action accounting](https://docs.temporal.io/cloud/actions).
+| 0 | Recommended for ordinary waits. | Waits until the Step completes or the Attribute matches. Use the caller deadline to bound one response. |
+| Positive | Rarely, when the wait itself needs a caller-visible maximum duration. Prefer at least one minute. | Returns a typed timeout when the budget expires. Short values can add many Temporal Update events to Workflow history. |
 
 ## Related
 
