@@ -191,7 +191,7 @@ services:
       - 8233:8080
   minio:
     container_name: minio
-    image: quay.io/minio/minio:${MINIO_VERSION:-latest}
+    image: pgsty/silo:${SILO_VERSION:-RELEASE.2026-09-03T13-18-01Z}
     ports:
       - "9000:9000"
       - "9001:9001"
