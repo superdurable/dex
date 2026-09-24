@@ -145,13 +145,14 @@ func TestTemporalCloudOpsConfigValidation(t *testing.T) {
 	}
 }
 
-func TestConfigRejectsRemovedExternallyManagedIndexesOption(t *testing.T) {
+func TestConfigAcceptsExternallyManagedIndexesOption(t *testing.T) {
 	path := writeTestConfig(t, `
 interpreter:
   attributeIndexesManagedExternally: true
 `)
-	_, err := NewConfig(path)
-	require.ErrorContains(t, err, "field attributeIndexesManagedExternally not found")
+	cfg, err := NewConfig(path)
+	require.NoError(t, err)
+	require.True(t, cfg.Interpreter.AttributeIndexesManagedExternally)
 }
 
 func TestRetryPolicyConfigUsesDurations(t *testing.T) {

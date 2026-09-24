@@ -381,6 +381,9 @@ type (
 		VerboseDebug bool `yaml:"verboseDebug"`
 		// AttributeIndexSyncTimeout bounds registration and backend propagation checks. Default 2m. Immutable after startup.
 		AttributeIndexSyncTimeout time.Duration `yaml:"attributeIndexSyncTimeout"`
+		// AttributeIndexesManagedExternally makes Dex validate declared indexes without creating them.
+		// Operators must provision Dex system indexes and every indexed application Attribute before starting Dex or Workers.
+		AttributeIndexesManagedExternally bool `yaml:"attributeIndexesManagedExternally"`
 	}
 
 	TemporalConfig struct {

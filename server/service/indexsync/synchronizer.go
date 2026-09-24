@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -67,7 +68,7 @@ func New(interpreterCfg *config.Interpreter, client Client, logger log.Logger) *
 	return synchronizer
 }
 
-// Sync creates missing indexes and waits until the backend reports them.
+// Sync validates requested indexes and creates missing indexes unless externally managed.
 func (s *Synchronizer) Sync(ctx context.Context, requested map[string]dexpb.IndexType) error {
 	if err := validateRequestedIndexes(requested); err != nil {
 		return err
@@ -91,6 +92,9 @@ func (s *Synchronizer) Sync(ctx context.Context, requested map[string]dexpb.Inde
 	missing, err := s.missingIndexes(requested, existing)
 	if err != nil || len(missing) == 0 {
 		return err
+	}
+	if s.cfg.AttributeIndexesManagedExternally {
+		return missingExternallyManagedIndexesError(missing)
 	}
 
 	if addErr := s.addAttributeIndexes(syncCtx, missing); addErr != nil {
@@ -251,6 +255,19 @@ func (s *Synchronizer) missingIndexes(
 		}
 	}
 	return missing, nil
+}
+
+func missingExternallyManagedIndexesError(missing map[string]dexpb.IndexType) error {
+	names := make([]string, 0, len(missing))
+	for name := range missing {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return serviceerrors.NewErrorAndStatus(
+		codes.FailedPrecondition,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+		fmt.Sprintf("attribute indexes are managed externally but missing: %s", strings.Join(names, ", ")),
+	).ToGRPCError()
 }
 
 func validateRequestedIndexes(requested map[string]dexpb.IndexType) error {

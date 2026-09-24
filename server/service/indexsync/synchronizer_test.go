@@ -54,6 +54,39 @@ func TestSyncReturnsImmediatelyForExistingIndexes(t *testing.T) {
 	require.Equal(t, 0, client.addCallCount())
 }
 
+func TestSyncValidatesExternallyManagedIndexesWithoutCreatingThem(t *testing.T) {
+	client := &scriptedClient{listResults: []listResult{{indexes: map[string]dexpb.IndexType{}}}}
+	cfg := testConfig(time.Second)
+	cfg.AttributeIndexesManagedExternally = true
+	synchronizer := New(cfg, client, log.NewNoop())
+
+	err := synchronizer.Sync(context.Background(), map[string]dexpb.IndexType{
+		"Status": dexpb.IndexType_INDEX_TYPE_KEYWORD,
+	})
+
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.ErrorContains(t, err, "managed externally but missing: Status")
+	require.Equal(t, 1, client.listCallCount())
+	require.Equal(t, 0, client.addCallCount())
+}
+
+func TestSyncRejectsTypeConflictsForExternallyManagedIndexes(t *testing.T) {
+	client := &scriptedClient{listResults: []listResult{{indexes: map[string]dexpb.IndexType{
+		"Status": dexpb.IndexType_INDEX_TYPE_TEXT,
+	}}}}
+	cfg := testConfig(time.Second)
+	cfg.AttributeIndexesManagedExternally = true
+	synchronizer := New(cfg, client, log.NewNoop())
+
+	err := synchronizer.Sync(context.Background(), map[string]dexpb.IndexType{
+		"Status": dexpb.IndexType_INDEX_TYPE_KEYWORD,
+	})
+
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.ErrorContains(t, err, "attribute index \"Status\" has type INDEX_TYPE_TEXT")
+	require.Equal(t, 0, client.addCallCount())
+}
+
 func TestSyncWaitsForNewIndexesToBecomeVisible(t *testing.T) {
 	client := &scriptedClient{listResults: []listResult{
 		{indexes: map[string]dexpb.IndexType{}},
