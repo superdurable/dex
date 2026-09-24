@@ -19,6 +19,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -48,6 +49,9 @@ type goAnalyzer struct {
 	connectorFactories map[string]goConnectorFactoryStep
 	schemaVersion      string
 	registeredSteps    []string
+	startInputType     types.Type
+	startStepType      string
+	typeSizes          types.Sizes
 }
 
 type goExternalMethod struct {
@@ -86,7 +90,8 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVers
 		Context: ctx,
 		Dir:     filepath.Dir(sourcePath),
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedDeps,
+			packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo |
+			packages.NeedTypesSizes | packages.NeedDeps,
 		Tests: false,
 	}
 	loaded, loadErr := packages.Load(config, "file="+sourcePath)
@@ -119,7 +124,16 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVers
 	for _, packageError := range selectedPackage.Errors {
 		graph.AddDiagnostic("error", "go_type_check_failed", packageError.Msg, nil)
 	}
-	analyzer := newGoAnalyzer(graph, selectedFile, selectedPackage.Syntax, selectedPackage.Fset, selectedPackage.TypesInfo, sourcePath, schemaVersion)
+	analyzer := newGoAnalyzer(
+		graph,
+		selectedFile,
+		selectedPackage.Syntax,
+		selectedPackage.Fset,
+		selectedPackage.TypesInfo,
+		selectedPackage.TypesSizes,
+		sourcePath,
+		schemaVersion,
+	)
 	analyzer.Analyze()
 	return graph, nil
 }
@@ -130,6 +144,7 @@ func newGoAnalyzer(
 	packageFiles []*ast.File,
 	fileSet *token.FileSet,
 	typeInfo *types.Info,
+	typeSizes types.Sizes,
 	sourcePath string,
 	schemaVersion string,
 ) *goAnalyzer {
@@ -138,6 +153,9 @@ func newGoAnalyzer(
 	}
 	if len(packageFiles) == 0 {
 		packageFiles = []*ast.File{file}
+	}
+	if typeSizes == nil {
+		typeSizes = types.SizesFor("gc", runtime.GOARCH)
 	}
 	return &goAnalyzer{
 		graph:              graph,
@@ -159,6 +177,7 @@ func newGoAnalyzer(
 		connectorFactories: make(map[string]goConnectorFactoryStep),
 		schemaVersion:      schemaVersion,
 		registeredSteps:    make([]string, 0),
+		typeSizes:          typeSizes,
 	}
 }
 
@@ -405,6 +424,8 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 				Metadata: map[string]any{"connectorFactory": true, "connectorOperationKind": factoryKind},
 			})
 			if isStart {
+				analyzer.startStepType = definition.stepType
+				analyzer.startInputType = analyzer.registeredStepInputType(call.Args[0])
 				if analyzer.graph.Flow.StartStepID != "" {
 					analyzer.graph.AddDiagnostic("error", "multiple_start_steps", "Flow defines more than one start Step", analyzer.span(call))
 				} else {
@@ -431,6 +452,8 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 		analyzer.registeredSteps = append(analyzer.registeredSteps, stepType)
 		analyzer.graph.AddNode(Node{ID: nodeID, Kind: "step", Name: stepName, Start: isStart, Span: analyzer.span(call)})
 		if isStart {
+			analyzer.startStepType = stepName
+			analyzer.startInputType = analyzer.registeredStepInputType(call.Args[0])
 			if analyzer.graph.Flow.StartStepID != "" {
 				analyzer.graph.AddDiagnostic("error", "multiple_start_steps", "Flow defines more than one start Step", analyzer.span(call))
 			} else {

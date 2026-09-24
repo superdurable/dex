@@ -218,6 +218,18 @@ can be shown or hidden independently. Streams are hidden by default. Definitions
 are loaded once during startup; restart **dexcli dev** after changing the
 directory.
 
+Flow Definition Graph 2.0 also records the registered Go start Step type and a
+recursive start-input schema. The analyzer follows JSON field names, ignored
+fields, pointers, and `omitempty`; it recognizes nested and imported structs,
+string and integer enums, RFC3339 `time.Time`, slices, fixed arrays, and
+string-key maps. Integer bounds are emitted as decimal strings.
+
+Recursive types, nesting beyond 32 levels, non-string map keys, interfaces,
+functions, channels, `[]byte`, conflicting anonymous fields, JSON `,string`,
+and custom JSON codecs are not form-safe. The analyzer reports a
+`v2_start_input` warning and omits `v2.start`; the rest of the Version 2 graph
+remains available.
+
 Python analysis requires Python 3.11 or newer. Pass `--python /path/to/python`
 to select an interpreter. The analyzer parses Python with the standard-library
 AST and never imports or executes the application module. It resolves static

@@ -22,6 +22,7 @@ func TestWebEnvironmentOverridesYAML(t *testing.T) {
 	t.Setenv("DEX_WEB_FLOW_RENDERING_STORAGE_ID", "p0")
 	t.Setenv("DEX_WEB_FLOW_RENDERING_PREFIX", "_superverse/dex-web/flow-definitions")
 	t.Setenv("DEX_WEB_WORK_QUEUE_PERMISSION_MODE", "trusted-header")
+	t.Setenv("DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS", "true")
 	t.Setenv("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS", "true")
 	path := writeTestConfig(t, `
 web:
@@ -34,7 +35,24 @@ web:
 	require.Equal(t, "p0", cfg.Web.FlowRenderingBlobStore.StorageID)
 	require.Equal(t, "_superverse/dex-web/flow-definitions", cfg.Web.FlowRenderingBlobStore.Prefix)
 	require.Equal(t, "trusted-header", cfg.Web.WorkQueuePermissionMode)
+	require.True(t, cfg.Web.IsStartFlowWorkerTargetHeadless)
 	require.True(t, cfg.Web.TrustForwardedEmbeddingHeaders)
+}
+
+func TestWebStartFlowWorkerTargetHeadlessDefaultsFalseAndReadsYAML(t *testing.T) {
+	defaultConfig, err := NewConfig(writeTestConfig(t, "web: {}\n"))
+	require.NoError(t, err)
+	require.False(t, defaultConfig.Web.IsStartFlowWorkerTargetHeadless)
+
+	yamlConfig, err := NewConfig(writeTestConfig(t, "web:\n  startFlowWorkerTargetHeadless: true\n"))
+	require.NoError(t, err)
+	require.True(t, yamlConfig.Web.IsStartFlowWorkerTargetHeadless)
+}
+
+func TestWebEnvironmentRejectsInvalidStartFlowHeadlessRouting(t *testing.T) {
+	t.Setenv("DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS", "sometimes")
+	_, err := NewConfig(writeTestConfig(t, "web: {}\n"))
+	require.ErrorContains(t, err, "DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS must be a boolean")
 }
 
 func TestWebEnvironmentRejectsInvalidForwardedEmbeddingTrust(t *testing.T) {

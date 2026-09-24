@@ -953,6 +953,60 @@
         }
       ]
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "ReceiveRequest",
+      "input": {
+        "kind": "object",
+        "fields": [
+          {
+            "name": "caseId",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "customer",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "customerEmail",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "customerNote",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "amountCents",
+            "required": true,
+            "schema": {
+              "kind": "integer",
+              "minimum": "-9223372036854775808",
+              "maximum": "9223372036854775807"
+            }
+          },
+          {
+            "name": "orderAgeDays",
+            "required": true,
+            "schema": {
+              "kind": "integer",
+              "minimum": "-9223372036854775808",
+              "maximum": "9223372036854775807"
+            }
+          }
+        ]
+      }
+    }
   }
 }

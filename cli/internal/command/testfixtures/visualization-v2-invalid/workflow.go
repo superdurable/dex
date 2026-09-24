@@ -38,6 +38,10 @@ type InvalidV2Flow struct {
 	dex.FlowDefaults
 }
 
+type recursiveStartInput struct {
+	Child *recursiveStartInput `json:"child"`
+}
+
 func (*InvalidV2Flow) GetFlowType() string {
 	return "InvalidV2Flow"
 }
@@ -116,7 +120,7 @@ func (*InvalidV2Flow) RejectBadPermission(
 
 // dex:group group-id:invalid group-label:"Invalid" unexpected:true
 type invalidV2Step struct {
-	dex.StepDefaultsNoWaitFor[dex.None]
+	dex.StepDefaultsNoWaitFor[recursiveStartInput]
 }
 
 func (invalidV2Step) GetStepType() string {
@@ -125,7 +129,7 @@ func (invalidV2Step) GetStepType() string {
 
 func (invalidV2Step) Execute(
 	_ dex.Context,
-	_ dex.None,
+	_ recursiveStartInput,
 ) (*dex.StepDecision, error) {
 	return dex.ForceComplete(nil), nil
 }

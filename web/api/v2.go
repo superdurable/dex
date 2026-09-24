@@ -49,6 +49,40 @@ type V2Definition struct {
 	Summary           V2RPCView            `json:"summary"`
 	Display           V2RPCView            `json:"display"`
 	Actions           []V2Action           `json:"actions"`
+	Start             *V2StartDefinition   `json:"start,omitempty"`
+}
+
+// V2StartDefinition describes the Start Step and its JSON input.
+type V2StartDefinition struct {
+	StepType string             `json:"stepType"`
+	Input    V2StartInputSchema `json:"input"`
+}
+
+// V2StartInputSchema describes one recursive JSON input value.
+type V2StartInputSchema struct {
+	Kind        string                  `json:"kind"`
+	Nullable    bool                    `json:"nullable,omitempty"`
+	Format      string                  `json:"format,omitempty"`
+	EnumValues  []V2StartInputEnumValue `json:"enumValues,omitempty"`
+	Minimum     string                  `json:"minimum,omitempty"`
+	Maximum     string                  `json:"maximum,omitempty"`
+	Fields      []V2StartInputField     `json:"fields,omitempty"`
+	Items       *V2StartInputSchema     `json:"items,omitempty"`
+	Values      *V2StartInputSchema     `json:"values,omitempty"`
+	FixedLength *int64                  `json:"fixedLength,omitempty"`
+}
+
+// V2StartInputEnumValue describes one source-named enum option.
+type V2StartInputEnumValue struct {
+	Name  string      `json:"name"`
+	Value interface{} `json:"value"`
+}
+
+// V2StartInputField describes one JSON object field.
+type V2StartInputField struct {
+	Name     string             `json:"name"`
+	Required bool               `json:"required"`
+	Schema   V2StartInputSchema `json:"schema"`
 }
 
 // V2IndexedAttribute describes one searchable Attribute.
@@ -109,9 +143,10 @@ type V2ActionInputField struct {
 }
 
 type v2Handler struct {
-	client          dexpb.FlowServiceClient
-	loadDefinitions V2DefinitionLoader
-	permissionMode  string
+	client                          dexpb.FlowServiceClient
+	loadDefinitions                 V2DefinitionLoader
+	permissionMode                  string
+	isStartFlowWorkerTargetHeadless bool
 }
 
 // V2DefinitionSnapshot is one request's immutable catalog revision.
@@ -123,9 +158,10 @@ type V2DefinitionSnapshot struct {
 // V2DefinitionLoader loads one validated definition snapshot.
 type V2DefinitionLoader func(context.Context) (V2DefinitionSnapshot, error)
 
-// V2HandlerConfig controls server-side Work Queue permission enforcement.
+// V2HandlerConfig controls server-side v2 behavior.
 type V2HandlerConfig struct {
-	PermissionMode string
+	PermissionMode                  string
+	IsStartFlowWorkerTargetHeadless bool
 }
 
 type v2CatalogEntry struct {
@@ -223,8 +259,12 @@ func RegisterDynamicV2Handlers(
 	if config.PermissionMode != "" {
 		permissionMode = config.PermissionMode
 	}
-	handler := &v2Handler{client: client, loadDefinitions: loader, permissionMode: permissionMode}
+	handler := &v2Handler{
+		client: client, loadDefinitions: loader, permissionMode: permissionMode,
+		isStartFlowWorkerTargetHeadless: config.IsStartFlowWorkerTargetHeadless,
+	}
 	mux.HandleFunc("GET /api/v2/catalog", handler.catalog)
+	mux.HandleFunc("POST /api/v2/start", handler.startFlow)
 	mux.HandleFunc("POST /api/v2/search", handler.search)
 	mux.HandleFunc("GET /api/v2/display", handler.display)
 	mux.HandleFunc("PATCH /api/v2/display", handler.editDisplay)

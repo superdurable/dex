@@ -42,6 +42,36 @@ type V2Definition struct {
 	Summary           RPCView            `json:"summary"`
 	Display           RPCView            `json:"display"`
 	Actions           []Action           `json:"actions"`
+	Start             *StartDefinition   `json:"start,omitempty"`
+}
+
+type StartDefinition struct {
+	StepType string           `json:"stepType"`
+	Input    StartInputSchema `json:"input"`
+}
+
+type StartInputSchema struct {
+	Kind        string                `json:"kind"`
+	Nullable    bool                  `json:"nullable,omitempty"`
+	Format      string                `json:"format,omitempty"`
+	EnumValues  []StartInputEnumValue `json:"enumValues,omitempty"`
+	Minimum     string                `json:"minimum,omitempty"`
+	Maximum     string                `json:"maximum,omitempty"`
+	Fields      []StartInputField     `json:"fields,omitempty"`
+	Items       *StartInputSchema     `json:"items,omitempty"`
+	Values      *StartInputSchema     `json:"values,omitempty"`
+	FixedLength *int64                `json:"fixedLength,omitempty"`
+}
+
+type StartInputEnumValue struct {
+	Name  string `json:"name"`
+	Value any    `json:"value"`
+}
+
+type StartInputField struct {
+	Name     string           `json:"name"`
+	Required bool             `json:"required"`
+	Schema   StartInputSchema `json:"schema"`
 }
 
 type IndexedAttribute struct {

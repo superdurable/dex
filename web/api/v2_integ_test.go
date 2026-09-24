@@ -37,11 +37,27 @@ type v2TestClient struct {
 	attributeRequests  []*dexpb.GetAttributesRequest
 	setRequests        []*dexpb.SetAttributesRequest
 	rpcRequests        []*dexpb.InvokeRPCRequest
+	startRequests      []*dexpb.StartFlowRequest
 	loadBlobRequests   []*dexpb.LoadBlobsRequest
 	blobs              map[string]*dexpb.Value
 	currentCaseStatus  string
 	currentGateRequest string
 	invokeRPCHandler   func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error)
+	startFlowHandler   func(context.Context, *dexpb.StartFlowRequest) (*dexpb.StartFlowResponse, error)
+}
+
+func (client *v2TestClient) StartFlow(
+	ctx context.Context,
+	request *dexpb.StartFlowRequest,
+	_ ...grpc.CallOption,
+) (*dexpb.StartFlowResponse, error) {
+	client.mutex.Lock()
+	client.startRequests = append(client.startRequests, request)
+	client.mutex.Unlock()
+	if client.startFlowHandler != nil {
+		return client.startFlowHandler(ctx, request)
+	}
+	return &dexpb.StartFlowResponse{RunId: "started-run"}, nil
 }
 
 func (client *v2TestClient) SearchFlows(
@@ -675,6 +691,120 @@ func TestV2Int64InputPreservesPrecision(t *testing.T) {
 	}
 }
 
+func TestV2StartFlowUsesDefinitionSchemaAndServerRouting(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		isHeadless bool
+	}{
+		{name: "ordinary target"},
+		{name: "headless target", isHeadless: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			client := &v2TestClient{}
+			definition := testV2Definition()
+			definition.Start = testV2StartDefinition()
+			mux := http.NewServeMux()
+			RegisterDynamicV2Handlers(mux, client, func(context.Context) (V2DefinitionSnapshot, error) {
+				return V2DefinitionSnapshot{
+					Definitions: map[string]V2Definition{"RefundFlow": definition},
+					Revision:    "sha256:start",
+				}, nil
+			}, V2HandlerConfig{
+				PermissionMode:                  V2PermissionModeLocalSelector,
+				IsStartFlowWorkerTargetHeadless: testCase.isHeadless,
+			})
+			requestBody := `{
+				"flowType":"RefundFlow","flowId":"refund-new","workerTargetAddress":" worker:9000 ",
+				"input":{"count":18446744073709551615,"optional":null,"labels":["a","b"]}
+			}`
+			staleRequest := httptest.NewRequest(http.MethodPost, "/api/v2/start", strings.NewReader(requestBody))
+			staleRequest.Header.Set(V2DefinitionRevisionHeader, "sha256:stale")
+			staleResponse := httptest.NewRecorder()
+			mux.ServeHTTP(staleResponse, staleRequest)
+			if staleResponse.Code != http.StatusConflict || len(client.startRequests) != 0 {
+				t.Fatalf("stale response = %d %q", staleResponse.Code, staleResponse.Body.String())
+			}
+
+			request := httptest.NewRequest(http.MethodPost, "/api/v2/start", strings.NewReader(requestBody))
+			request.Header.Set(V2DefinitionRevisionHeader, "sha256:start")
+			response := httptest.NewRecorder()
+			mux.ServeHTTP(response, request)
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
+			}
+			if len(client.startRequests) != 1 {
+				t.Fatalf("StartFlow requests = %d", len(client.startRequests))
+			}
+			started := client.startRequests[0]
+			if started.GetFlowId() != "refund-new" || started.GetFlowType() != "RefundFlow" ||
+				started.GetStartStepType() != "StartRefund" || started.GetRequestId() == "" {
+				t.Fatalf("StartFlow request = %+v", started)
+			}
+			workerTarget := started.GetFlowStartOptions().GetFlowConfigOverride().GetWorkerTarget()
+			if workerTarget.GetAddress() != "worker:9000" || workerTarget.GetIsHeadlessAddress() != testCase.isHeadless {
+				t.Fatalf("Worker target = %+v", workerTarget)
+			}
+			if payload := string(started.GetStepInput().GetObjValue().GetPayload()); payload !=
+				`{"count":18446744073709551615,"optional":null,"labels":["a","b"]}` {
+				t.Fatalf("Start input = %s", payload)
+			}
+		})
+	}
+}
+
+func TestV2StartFlowRejectsBrowserRoutingOverrideAndInvalidInput(t *testing.T) {
+	client := &v2TestClient{}
+	definition := testV2Definition()
+	definition.Start = testV2StartDefinition()
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": definition})
+	for _, body := range []string{
+		`{"flowType":"RefundFlow","flowId":"","workerTargetAddress":"worker:9000","input":{"count":1,"labels":[]}}`,
+		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","isHeadlessAddress":true,"input":{"count":1,"labels":[]}}`,
+		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","input":{"count":1,"labels":[],"extra":true}}`,
+		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","input":{"count":18446744073709551616,"labels":[]}}`,
+		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"http://worker:9000","input":{"count":1,"labels":[]}}`,
+	} {
+		response := performV2JSON(t, mux, http.MethodPost, "/api/v2/start", body)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d body=%q request=%s", response.Code, response.Body.String(), body)
+		}
+	}
+	if len(client.startRequests) != 0 {
+		t.Fatalf("StartFlow requests = %+v", client.startRequests)
+	}
+}
+
+func TestV2StartFlowHandlesScalarConflictAndPermissionMode(t *testing.T) {
+	client := &v2TestClient{}
+	client.startFlowHandler = func(context.Context, *dexpb.StartFlowRequest) (*dexpb.StartFlowResponse, error) {
+		return nil, status.Error(codes.AlreadyExists, "Flow already exists")
+	}
+	definition := testV2Definition()
+	definition.Start = &V2StartDefinition{
+		StepType: "StartCount",
+		Input:    V2StartInputSchema{Kind: "integer", Minimum: "-9223372036854775808", Maximum: "9223372036854775807"},
+	}
+	loader := func(context.Context) (V2DefinitionSnapshot, error) {
+		return V2DefinitionSnapshot{Definitions: map[string]V2Definition{"RefundFlow": definition}}, nil
+	}
+	localMux := http.NewServeMux()
+	RegisterDynamicV2Handlers(localMux, client, loader, V2HandlerConfig{PermissionMode: V2PermissionModeLocalSelector})
+	conflict := performV2JSON(t, localMux, http.MethodPost, "/api/v2/start",
+		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","input":9223372036854775807}`)
+	if conflict.Code != http.StatusConflict || client.startRequests[0].GetStepInput().GetIntValue() != int64(9223372036854775807) {
+		t.Fatalf("conflict = %d %q request=%+v", conflict.Code, conflict.Body.String(), client.startRequests[0])
+	}
+
+	trustedMux := http.NewServeMux()
+	RegisterDynamicV2Handlers(trustedMux, client, loader, V2HandlerConfig{PermissionMode: V2PermissionModeTrustedHeader})
+	denied := performV2JSON(t, trustedMux, http.MethodPost, "/api/v2/start",
+		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","input":1}`)
+	if denied.Code != http.StatusForbidden || !strings.Contains(denied.Body.String(), "START_FLOW_DISABLED") {
+		t.Fatalf("denied = %d %q", denied.Code, denied.Body.String())
+	}
+}
+
 func TestV2SummaryCallsUseFiveSecondTimeout(t *testing.T) {
 	client := &v2TestClient{}
 	client.invokeRPCHandler = func(ctx context.Context, _ *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
@@ -735,6 +865,23 @@ func testV2Definition() V2Definition {
 				Values: []interface{}{json.Number("9223372036854775807")},
 			},
 			Input: V2ActionInput{Kind: "none"},
+		}},
+	}
+}
+
+func testV2StartDefinition() *V2StartDefinition {
+	return &V2StartDefinition{
+		StepType: "StartRefund",
+		Input: V2StartInputSchema{Kind: "object", Fields: []V2StartInputField{
+			{
+				Name: "count", Required: true,
+				Schema: V2StartInputSchema{Kind: "integer", Minimum: "0", Maximum: "18446744073709551615"},
+			},
+			{Name: "optional", Schema: V2StartInputSchema{Kind: "string", Nullable: true}},
+			{
+				Name: "labels", Required: true,
+				Schema: V2StartInputSchema{Kind: "array", Nullable: true, Items: &V2StartInputSchema{Kind: "string"}},
+			},
 		}},
 	}
 }

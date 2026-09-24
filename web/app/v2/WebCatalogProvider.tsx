@@ -84,7 +84,7 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
     if (!(failedRequest instanceof DexAPIError) || failedRequest.code !== 'FLOW_DEFINITION_CHANGED') {
       return false;
     }
-    setNotice('Flow Definition updated. Review the refreshed definition and confirm the Action again.');
+    setNotice('Flow Definition updated. Review the refreshed definition and confirm the operation again.');
     setDefinitionUpdateKey((current) => current + 1);
     void loadCatalog().catch((loadError: unknown) => {
       setError(loadError instanceof Error ? loadError.message : 'Dex Web catalog failed to reload');
