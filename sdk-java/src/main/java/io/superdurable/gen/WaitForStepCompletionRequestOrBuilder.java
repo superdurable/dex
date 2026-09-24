@@ -56,16 +56,25 @@ public interface WaitForStepCompletionRequestOrBuilder extends
 
   /**
    * <pre>
-   * Sets the caller-visible maximum wait time in seconds.
-   * Zero waits indefinitely and is recommended for normal use.
-   * Positive values are an exceptional safety valve, not a normal request timeout.
-   * Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
+   * Bounds the caller-visible request across transparent transport reattachments.
+   * Zero waits indefinitely.
    * </pre>
    *
-   * <code>int32 wait_time_seconds = 5;</code>
-   * @return The waitTimeSeconds.
+   * <code>int32 request_timeout_seconds = 4;</code>
+   * @return The requestTimeoutSeconds.
    */
-  int getWaitTimeSeconds();
+  int getRequestTimeoutSeconds();
+
+  /**
+   * <pre>
+   * Bounds one internal Temporal Update handler generation.
+   * Zero disables time-based handler generation rollover.
+   * </pre>
+   *
+   * <code>int32 internal_handler_timeout_seconds = 5;</code>
+   * @return The internalHandlerTimeoutSeconds.
+   */
+  int getInternalHandlerTimeoutSeconds();
 
   /**
    * <pre>

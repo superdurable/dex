@@ -105,11 +105,11 @@ sorted. Conditional completion is
 
 Request IDs are optional for both durable waits. When omitted, the server
 derives a stable ID from the Step execution or Attribute condition. Reuse an
-override only for the same wait. `maximum_wait_time` is optional. Leave it at
-zero for normal use and bound one response with the caller deadline. Positive
-values are an exceptional safety valve: short budgets can add many Temporal
-Update events to Workflow history. If a positive value is truly needed, prefer
-at least one minute. A positive expiry returns `SdkError::WaitHandlerTimeout`.
+override only for the same wait. `request_timeout` is the total SDK call budget
+across transparent transport reattachments. Zero waits indefinitely.
+`internal_handler_timeout` is an advanced Temporal Update generation lifetime;
+zero disables timed rollover. Request expiry returns
+`SdkError::RequestTimeout`. Handler rollover stays internal.
 
 `Client::wait_for_flow` and `wait_for_flow_with_timeout` return a
 `FlowResult` after hydrating every output-bearing completion. Use the

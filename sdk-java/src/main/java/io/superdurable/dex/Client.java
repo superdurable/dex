@@ -28,7 +28,7 @@ import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
-import io.superdurable.dex.exceptions.WaitHandlerTimeoutException;
+import io.superdurable.dex.exceptions.RequestTimeoutException;
 import io.superdurable.gen.AttributeSyncConfig;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.FlowAlreadyStartedOptions;
@@ -773,17 +773,16 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Blocks until a specific Step execution completes or its caller-visible wait budget expires.
+     * Blocks until a specific Step execution completes or its caller-visible request expires.
      * The server derives a stable Request ID from the Step execution when none is supplied.
-     * Leave the maximum wait time at zero for normal use and bound one response with the caller deadline.
-     * Positive values are exceptional because short budgets can add many Temporal Update events to
-     * Workflow history. Prefer at least one minute when nonzero.
+     * Request timeout covers transparent transport reattachments. Internal handler timeout controls
+     * Temporal Update generation rollover and does not end this request.
      *
      * @param flowId the target Flow ID
      * @param stepExecutionId the Step execution to observe
-     * @param options the optional Request ID override and caller-visible wait budget
-     * @throws IllegalArgumentException if the budget is unsupported
-     * @throws WaitHandlerTimeoutException if a positive wait budget expires first
+     * @param options the Request ID override and request/handler timeout controls
+     * @throws IllegalArgumentException if either timeout is unsupported
+     * @throws RequestTimeoutException if a positive request timeout expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
      */
@@ -791,16 +790,23 @@ public final class Client implements AutoCloseable {
             final String flowId,
             final StepExecutionId stepExecutionId,
             final WaitForStepCompletionOptions options) {
-        final ClientWaitBudget waitBudget = new ClientWaitBudget(options.getMaximumWaitTime());
+        final ClientRequestBudget requestBudget = new ClientRequestBudget(options.getRequestTimeout());
+        final int internalHandlerTimeoutSeconds = seconds32(options.getInternalHandlerTimeout());
         while (true) {
             try {
-                final int remainingSeconds = waitBudget.remainingSeconds();
-                call(() -> service.waitForStepCompletion(WaitForStepCompletionRequest.newBuilder()
+                final ClientRequestAttempt requestAttempt = requestBudget.nextAttempt();
+                final FlowServiceGrpc.FlowServiceBlockingStub requestService = requestAttempt.hasDeadline()
+                        ? service.withDeadlineAfter(
+                                requestAttempt.getRemainingNanos(), TimeUnit.NANOSECONDS)
+                        : service;
+                call(() -> requestService.waitForStepCompletion(
+                        WaitForStepCompletionRequest.newBuilder()
                         .setFlowId(flowId)
                         .setStepType(stepExecutionId.getStepType())
                         .setStepExecutionNumber(
                                 Integer.toString(stepExecutionId.getExecutionNumber()))
-                        .setWaitTimeSeconds(remainingSeconds)
+                        .setRequestTimeoutSeconds(requestAttempt.getRemainingSeconds())
+                        .setInternalHandlerTimeoutSeconds(internalHandlerTimeoutSeconds)
                         .setRequestId(options.getRequestId() == null ? "" : options.getRequestId())
                         .build()),
                         FlowTargetRequirement.ACTIVE,
@@ -808,25 +814,33 @@ public final class Client implements AutoCloseable {
                 return;
             } catch (LongPollTimeoutException timeout) {
                 // Reattach to the same logical wait.
+            } catch (DexServiceException failure) {
+                if (failure.getCode() == io.grpc.Status.Code.DEADLINE_EXCEEDED
+                        && requestBudget.hasExpired()) {
+                    throw new RequestTimeoutException(
+                            io.grpc.Status.Code.DEADLINE_EXCEEDED,
+                            "request timed out",
+                            failure);
+                }
+                throw failure;
             }
         }
     }
 
     /**
-     * Blocks until a singleton Attribute satisfies a scalar match or its wait budget expires.
+     * Blocks until a singleton Attribute satisfies a scalar match or its request timeout expires.
      * The server derives a stable Request ID from the condition when none is supplied.
-     * Leave the maximum wait time at zero for normal use and bound one response with the caller deadline.
-     * Positive values are exceptional because short budgets can add many Temporal Update events to
-     * Workflow history. Prefer at least one minute when nonzero.
+     * Request timeout covers transparent transport reattachments. Internal handler timeout controls
+     * Temporal Update generation rollover and does not end this request.
      *
      * @param flowId the target Flow ID
      * @param attribute the registered Attribute definition
      * @param match the scalar predicate to await
-     * @param options the optional Request ID override and total wait budget
+     * @param options the Request ID override and request/handler timeout controls
      * @param <T> the Attribute value type
      * @return the current Attribute value that satisfied the match
      * @throws IllegalArgumentException if the budget, match operand, or operator is invalid
-     * @throws WaitHandlerTimeoutException if a positive wait budget expires first
+     * @throws RequestTimeoutException if a positive request timeout expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
      */
@@ -846,11 +860,11 @@ public final class Client implements AutoCloseable {
      * @param attribute the registered Attribute-map definition
      * @param instance the map instance
      * @param match the scalar predicate to await
-     * @param options the optional Request ID override and total handler wait budget
+     * @param options the Request ID override and request/handler timeout controls
      * @param <T> the Attribute value type
      * @return the current AttributeMap value that satisfied the match
      * @throws IllegalArgumentException if the budget, match operand, or operator is invalid
-     * @throws WaitHandlerTimeoutException if a positive wait budget expires first
+     * @throws RequestTimeoutException if a positive request timeout expires first
      * @throws FlowNotActiveException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
      */
@@ -877,18 +891,24 @@ public final class Client implements AutoCloseable {
         final String key = instance == null
                 ? attribute.getName()
                 : Registry.physicalName(attribute.getName(), instance);
-        final ClientWaitBudget waitBudget = new ClientWaitBudget(options.getMaximumWaitTime());
+        final ClientRequestBudget requestBudget = new ClientRequestBudget(options.getRequestTimeout());
+        final int internalHandlerTimeoutSeconds = seconds32(options.getInternalHandlerTimeout());
         while (true) {
             try {
-                final int remainingSeconds = waitBudget.remainingSeconds();
+                final ClientRequestAttempt requestAttempt = requestBudget.nextAttempt();
+                final FlowServiceGrpc.FlowServiceBlockingStub requestService = requestAttempt.hasDeadline()
+                        ? service.withDeadlineAfter(
+                                requestAttempt.getRemainingNanos(), TimeUnit.NANOSECONDS)
+                        : service;
                 final WaitForAttributeResponse response = call(
-                        () -> service.waitForAttribute(WaitForAttributeRequest.newBuilder()
+                        () -> requestService.waitForAttribute(WaitForAttributeRequest.newBuilder()
                         .setFlowId(flowId)
                         .setMatch(io.superdurable.gen.AttributeMatch.newBuilder()
                                 .setKey(key)
                                 .setOperator(match.getOperator())
                                 .setOperand(encoded))
-                        .setWaitTimeSeconds(remainingSeconds)
+                        .setRequestTimeoutSeconds(requestAttempt.getRemainingSeconds())
+                        .setInternalHandlerTimeoutSeconds(internalHandlerTimeoutSeconds)
                         .setRequestId(options.getRequestId() == null ? "" : options.getRequestId())
                         .build()),
                         FlowTargetRequirement.ACTIVE,
@@ -899,6 +919,15 @@ public final class Client implements AutoCloseable {
                 return values.decode(response.getMatchedValue(), valueType);
             } catch (LongPollTimeoutException timeout) {
                 // Reattach to the same logical wait.
+            } catch (DexServiceException failure) {
+                if (failure.getCode() == io.grpc.Status.Code.DEADLINE_EXCEEDED
+                        && requestBudget.hasExpired()) {
+                    throw new RequestTimeoutException(
+                            io.grpc.Status.Code.DEADLINE_EXCEEDED,
+                            "request timed out",
+                            failure);
+                }
+                throw failure;
             }
         }
     }
@@ -1150,31 +1179,58 @@ public final class Client implements AutoCloseable {
         return (int) duration.getSeconds();
     }
 
-    private static final class ClientWaitBudget {
+    private static final class ClientRequestBudget {
         private final long deadlineNanos;
 
-        private ClientWaitBudget(final Duration maximumWaitTime) {
-            final int maximumWaitSeconds = seconds32(maximumWaitTime);
-            deadlineNanos = maximumWaitSeconds == 0
+        private ClientRequestBudget(final Duration requestTimeout) {
+            final int requestTimeoutSeconds = seconds32(requestTimeout);
+            deadlineNanos = requestTimeoutSeconds == 0
                     ? 0
-                    : System.nanoTime() + maximumWaitTime.toNanos();
+                    : System.nanoTime() + requestTimeout.toNanos();
         }
 
-        private int remainingSeconds() {
+        private ClientRequestAttempt nextAttempt() {
             if (deadlineNanos == 0) {
-                return 0;
+                return new ClientRequestAttempt(0, 0);
             }
             final long remainingNanos = deadlineNanos - System.nanoTime();
             if (remainingNanos <= 0) {
-                throw new WaitHandlerTimeoutException(
+                throw new RequestTimeoutException(
                         io.grpc.Status.Code.DEADLINE_EXCEEDED,
-                        "wait handler timed out",
+                        "request timed out",
                         null);
             }
-            return (int) Math.min(
+            final int remainingSeconds = (int) Math.min(
                     Integer.MAX_VALUE,
                     (remainingNanos + TimeUnit.SECONDS.toNanos(1) - 1)
                             / TimeUnit.SECONDS.toNanos(1));
+            return new ClientRequestAttempt(remainingSeconds, remainingNanos);
+        }
+
+        private boolean hasExpired() {
+            return deadlineNanos != 0 && System.nanoTime() >= deadlineNanos;
+        }
+    }
+
+    private static final class ClientRequestAttempt {
+        private final int remainingSeconds;
+        private final long remainingNanos;
+
+        private ClientRequestAttempt(final int remainingSeconds, final long remainingNanos) {
+            this.remainingSeconds = remainingSeconds;
+            this.remainingNanos = remainingNanos;
+        }
+
+        private int getRemainingSeconds() {
+            return remainingSeconds;
+        }
+
+        private long getRemainingNanos() {
+            return remainingNanos;
+        }
+
+        private boolean hasDeadline() {
+            return remainingNanos != 0;
         }
     }
 

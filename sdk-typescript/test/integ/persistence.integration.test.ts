@@ -15,7 +15,7 @@ import {
   Attribute,
   AttributeMatch,
   InitialAttribute,
-  WaitHandlerTimeoutError,
+  RequestTimeoutError,
   bytesCodec,
   stringCodec,
   voidCodec,
@@ -57,15 +57,15 @@ test("RPC sets primitive, mapped, and model data attributes", async () => {
     await client.startFlow(flow, id, "start");
     await expectError(
       client.waitForAttributeMatch(id, flow.data, AttributeMatch.equalTo("never"), {
-        requestId: `${id}-wait-never`, maximumWaitTimeMs: 1_000,
+        requestId: `${id}-wait-never`, requestTimeoutMs: 1_000,
       }),
-      WaitHandlerTimeoutError,
+      RequestTimeoutError,
     );
     const waiting = client.waitForAttributeMatch(
       id,
       flow.data,
       AttributeMatch.equalTo("query-start"),
-      { requestId: `${id}-wait-data`, maximumWaitTimeMs: 30_000 },
+      { requestId: `${id}-wait-data`, requestTimeoutMs: 30_000 },
     );
     await client.invokeRPC(flow.setData, id, "query-start");
     assert.equal(await waiting, "query-start");
@@ -74,7 +74,7 @@ test("RPC sets primitive, mapped, and model data attributes", async () => {
       flow.dataMap,
       "special % key",
       AttributeMatch.equalTo("mapped-value"),
-      { requestId: `${id}-wait-map`, maximumWaitTimeMs: 30_000 },
+      { requestId: `${id}-wait-map`, requestTimeoutMs: 30_000 },
     );
     await client.invokeRPC(flow.setMapOne, id, "mapped-value");
     await client.invokeRPC(flow.setMapSpecial, id, "mapped-value");
@@ -85,13 +85,13 @@ test("RPC sets primitive, mapped, and model data attributes", async () => {
         id,
         flow.integer,
         AttributeMatch.greaterThan(0),
-        { requestId: `${id}-wait-integer`, maximumWaitTimeMs: 30_000 },
+        { requestId: `${id}-wait-integer`, requestTimeoutMs: 30_000 },
       ),
       3,
     );
     await assert.rejects(
       client.waitForAttributeMatch(id, flow.model, AttributeMatch.equalTo({ value: 8 }), {
-        requestId: `${id}-wait-model`, maximumWaitTimeMs: 30_000,
+        requestId: `${id}-wait-model`, requestTimeoutMs: 30_000,
       }),
       /supports only string, boolean, integer, or number operands/,
     );
@@ -100,7 +100,7 @@ test("RPC sets primitive, mapped, and model data attributes", async () => {
         id,
         new Attribute("bytes", bytesCodec),
         AttributeMatch.equalTo(new Uint8Array([1])),
-        { requestId: `${id}-wait-bytes`, maximumWaitTimeMs: 30_000 },
+        { requestId: `${id}-wait-bytes`, requestTimeoutMs: 30_000 },
       ),
       /supports only string, boolean, integer, or number operands/,
     );
@@ -109,7 +109,7 @@ test("RPC sets primitive, mapped, and model data attributes", async () => {
         id,
         new Attribute("null", voidCodec),
         AttributeMatch.equalTo(undefined),
-        { requestId: `${id}-wait-null`, maximumWaitTimeMs: 30_000 },
+        { requestId: `${id}-wait-null`, requestTimeoutMs: 30_000 },
       ),
       /supports only string, boolean, integer, or number operands/,
     );

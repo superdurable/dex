@@ -12,7 +12,7 @@ The caller waits for revision greater than its last observed value. The wait ret
 
 Revision is a watermark, not an event stream. If state advances quickly from 0 to 1 to 2 to 3, one wait for a value greater than 0 may return 3. Callers must not expect to observe every intermediate value.
 
-Leave **MaximumWaitTime** at 0 for normal use and bound individual responses with the caller deadline. Positive values are rare because short budgets can add many Temporal Update events to Workflow history. If a positive value is necessary, prefer at least one minute. It returns a typed timeout to the caller. See [Choose the wait budget](/design-patterns/responsive-update#choose-the-wait-budget) for details.
+Leave **RequestTimeout** at 0 for an ordinary durable wait. Set it explicitly at an admission boundary. **InternalHandlerTimeout** is an advanced Update-generation control and normally remains 0. See [Choose the timeout boundary](/design-patterns/responsive-update#choose-the-timeout-boundary) for details.
 
 ## Advance revision under a lock
 

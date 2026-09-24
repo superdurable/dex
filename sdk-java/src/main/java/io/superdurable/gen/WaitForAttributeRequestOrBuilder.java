@@ -39,23 +39,32 @@ public interface WaitForAttributeRequestOrBuilder extends
 
   /**
    * <pre>
-   * Sets the caller-visible maximum wait time in seconds.
-   * Zero waits indefinitely and is recommended for normal use.
-   * Positive values are an exceptional safety valve, not a normal request timeout.
-   * Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
+   * Bounds the caller-visible request across transparent transport reattachments.
+   * Zero waits indefinitely.
    * </pre>
    *
-   * <code>int32 wait_time_seconds = 3;</code>
-   * @return The waitTimeSeconds.
+   * <code>int32 request_timeout_seconds = 3;</code>
+   * @return The requestTimeoutSeconds.
    */
-  int getWaitTimeSeconds();
+  int getRequestTimeoutSeconds();
+
+  /**
+   * <pre>
+   * Bounds one internal Temporal Update handler generation.
+   * Zero disables time-based handler generation rollover.
+   * </pre>
+   *
+   * <code>int32 internal_handler_timeout_seconds = 4;</code>
+   * @return The internalHandlerTimeoutSeconds.
+   */
+  int getInternalHandlerTimeoutSeconds();
 
   /**
    * <pre>
    * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
    * </pre>
    *
-   * <code>string request_id = 4;</code>
+   * <code>string request_id = 5;</code>
    * @return The requestId.
    */
   java.lang.String getRequestId();
@@ -64,7 +73,7 @@ public interface WaitForAttributeRequestOrBuilder extends
    * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
    * </pre>
    *
-   * <code>string request_id = 4;</code>
+   * <code>string request_id = 5;</code>
    * @return The bytes for requestId.
    */
   com.google.protobuf.ByteString

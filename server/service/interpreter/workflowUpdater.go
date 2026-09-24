@@ -122,7 +122,7 @@ func NewWorkflowUpdater(
 type stepCompletionWait struct {
 	updater             *WorkflowUpdater
 	request             *dexpb.WaitForStepCompletionRequest
-	timeout             waitHandlerTimeout
+	timeout             internalHandlerTimeout
 	stepExecutionNumber int32
 	matched             bool
 }
@@ -130,12 +130,12 @@ type stepCompletionWait struct {
 type attributeWait struct {
 	updater      *WorkflowUpdater
 	request      *dexpb.WaitForAttributeRequest
-	timeout      waitHandlerTimeout
+	timeout      internalHandlerTimeout
 	matchedValue *dexpb.Value
 	matchErr     error
 }
 
-type waitHandlerTimeout struct {
+type internalHandlerTimeout struct {
 	updater  *WorkflowUpdater
 	deadline time.Time
 	timer    interfaces.Future
@@ -379,10 +379,11 @@ func (u *WorkflowUpdater) validateWaitForStepCompletion(
 			"request is nil",
 		)
 	}
-	if request.GetWaitTimeSeconds() < 0 {
+	if request.GetRequestTimeoutSeconds() < 0 ||
+		request.GetInternalHandlerTimeoutSeconds() < 0 {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
-			"wait time must be non-negative",
+			"request and internal handler timeouts must be non-negative",
 		)
 	}
 	if request.GetStepType() == "" || request.GetStepExecutionNumber() == "" {
@@ -423,7 +424,10 @@ func (u *WorkflowUpdater) handleWaitForStepCompletion(
 			err.Error(),
 		)
 	}
-	timeout, cancelTimeout := u.newWaitHandlerTimeout(ctx, request.GetWaitTimeSeconds())
+	timeout, cancelTimeout := u.newInternalHandlerTimeout(
+		ctx,
+		request.GetInternalHandlerTimeoutSeconds(),
+	)
 	defer cancelTimeout()
 	wait := &stepCompletionWait{
 		updater:             u,
@@ -488,10 +492,11 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 			"attribute match is required",
 		)
 	}
-	if request.GetWaitTimeSeconds() < 0 {
+	if request.GetRequestTimeoutSeconds() < 0 ||
+		request.GetInternalHandlerTimeoutSeconds() < 0 {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
-			"wait time must be non-negative",
+			"request and internal handler timeouts must be non-negative",
 		)
 	}
 	match := request.GetMatch()
@@ -538,7 +543,10 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 		}
 		u.continueAsNewer.DecreaseInflightOperation()
 	}()
-	timeout, cancelTimeout := u.newWaitHandlerTimeout(ctx, request.GetWaitTimeSeconds())
+	timeout, cancelTimeout := u.newInternalHandlerTimeout(
+		ctx,
+		request.GetInternalHandlerTimeoutSeconds(),
+	)
 	defer cancelTimeout()
 	wait := &attributeWait{
 		updater: u,
@@ -622,11 +630,11 @@ func isBlobValue(value *dexpb.Value) bool {
 	}
 }
 
-func (u *WorkflowUpdater) newWaitHandlerTimeout(
+func (u *WorkflowUpdater) newInternalHandlerTimeout(
 	ctx interfaces.UnifiedContext,
 	timeoutSeconds int32,
-) (waitHandlerTimeout, func()) {
-	timeout := waitHandlerTimeout{updater: u}
+) (internalHandlerTimeout, func()) {
+	timeout := internalHandlerTimeout{updater: u}
 	if timeoutSeconds == 0 {
 		return timeout, func() {}
 	}
@@ -642,7 +650,7 @@ func (u *WorkflowUpdater) newWaitHandlerTimeout(
 	return timeout, cancelTimeout
 }
 
-func (t waitHandlerTimeout) hasElapsed(ctx interfaces.UnifiedContext) bool {
+func (t internalHandlerTimeout) hasElapsed(ctx interfaces.UnifiedContext) bool {
 	if t.timer != nil {
 		return t.timer.IsReady()
 	}

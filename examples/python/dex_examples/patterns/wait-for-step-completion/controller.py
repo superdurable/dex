@@ -16,14 +16,15 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-
-from dex import StepExecutionId, WaitForStepCompletionOptions
-from quart import Blueprint
+from datetime import timedelta
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.patterns.wait_for_step_completion.job_seeker_data import JobSeekerData
 from dex_examples.shared.query import required_query
+from quart import Blueprint
+
+from dex import StepExecutionId, WaitForStepCompletionOptions
 
 PERSIST_DATA_STEP = StepExecutionId("PersistData")
 
@@ -47,7 +48,7 @@ def create_wait_for_step_completion_blueprint(app_state: ExampleApp) -> Blueprin
         await app_state.client.wait_for_step_completion(
             flow_id,
             PERSIST_DATA_STEP,
-            WaitForStepCompletionOptions(),
+            WaitForStepCompletionOptions(request_timeout=timedelta(seconds=10)),
         )
         persisted = await app_state.client.invoke_rpc(
             app_state.wait_for_step_completion.get_job_seeker_data,

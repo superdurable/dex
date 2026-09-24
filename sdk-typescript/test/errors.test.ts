@@ -19,7 +19,7 @@ import {
   FlowNotFoundError,
   LongPollTimeoutError,
   RpcLockConflictError,
-  WaitHandlerTimeoutError,
+  RequestTimeoutError,
   WorkerInvocationError,
 } from "../src/errors.js";
 import { ServiceErrorResponse, ErrorSubStatus, WorkerErrorResponse } from "../src/gen/dex.js";
@@ -91,11 +91,11 @@ test("other known sub-statuses have explicit errors", () => {
   );
   assert.ok(
     translateServiceError(
-      serviceError(status.DEADLINE_EXCEEDED, ErrorSubStatus.ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT),
+      serviceError(status.DEADLINE_EXCEEDED, ErrorSubStatus.ERROR_SUB_STATUS_REQUEST_TIMEOUT),
       "waitForAttributeMatch",
       "flow-id",
       "active",
-    ) instanceof WaitHandlerTimeoutError,
+    ) instanceof RequestTimeoutError,
   );
 });
 

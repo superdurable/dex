@@ -45,14 +45,15 @@ from dex.flow_options import (
     _resolve_flow_timeout_policy,
 )
 from dex.flow_result import FlowResult, flow_result_from_proto
-from dex.runtime_errors import FlowErrorType, LongPollTimeoutError
+from dex.runtime_errors import DexServiceError, FlowErrorType, LongPollTimeoutError
 from dex.step import RetryPolicy, StepDurability
 from dex.step_execution import StepExecutionId, TimerId
 from dex.stream import Stream, StreamMessage, StreamMessagesPage
 from dex.wait_options import (
     WaitForAttributeOptions,
     WaitForStepCompletionOptions,
-    _ClientWaitBudget,
+    _ClientRequestBudget,
+    _duration_seconds32,
 )
 
 InputT = TypeVar("InputT")
@@ -734,27 +735,33 @@ class Client:
         step_execution_id: StepExecutionId,
         options: WaitForStepCompletionOptions,
     ) -> None:
-        """Block until one Step execution completes or its wait budget expires.
+        """Block until one Step execution completes or its request timeout expires.
 
         The server derives a stable Request ID from the Step execution when none
-        is supplied. Leave the maximum wait time at zero for normal use. Positive
-        values are exceptional because short budgets can add many Temporal Update
-        events to Workflow history; prefer at least one minute when nonzero. A
-        positive value bounds the caller-visible wait.
+        is supplied. Request timeout covers transparent transport reattachments.
+        Internal handler timeout controls Update generation rollover without ending
+        this request.
 
         Args:
             flow_id: The non-empty active Flow ID.
             step_execution_id: The Step type and positive execution number.
-            options: The optional Request ID override and total wait budget.
+            options: The optional Request ID, request timeout, and internal handler
+                timeout controls.
 
         Raises:
-            ValueError: If the Request ID or wait budget is invalid.
-            WaitHandlerTimeoutError: If a positive wait budget expires first.
+            ValueError: If the Request ID or request timeout is invalid.
+            RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
-        wait_budget = _ClientWaitBudget(options.maximum_wait_time)
+        request_budget = _ClientRequestBudget(options.request_timeout)
+        internal_handler_timeout_seconds = _duration_seconds32(
+            options.internal_handler_timeout
+        )
         while True:
+            request_attempt = request_budget.next_attempt(
+                "wait_for_step_completion", flow_id
+            )
             try:
                 self._call(
                     self._service.WaitForStepCompletion,
@@ -762,18 +769,29 @@ class Client:
                         flow_id=require_name(flow_id),
                         step_type=step_execution_id.step_type,
                         step_execution_number=str(step_execution_id.number),
-                        wait_time_seconds=wait_budget.remaining_seconds(
-                            "wait_for_step_completion", flow_id
+                        request_timeout_seconds=request_attempt.request_timeout_seconds,
+                        internal_handler_timeout_seconds=(
+                            internal_handler_timeout_seconds
                         ),
                         request_id=options.request_id,
                     ),
                     "wait_for_step_completion",
                     flow_id,
                     "active",
+                    request_attempt.transport_timeout_seconds,
                 )
                 return
             except LongPollTimeoutError:
                 continue
+            except DexServiceError as error:
+                if (
+                    error.code is grpc.StatusCode.DEADLINE_EXCEEDED
+                    and request_budget.has_expired()
+                ):
+                    raise request_budget.timeout_error(
+                        "wait_for_step_completion", flow_id
+                    ) from error
+                raise
 
     @overload
     def wait_for_attribute_match(
@@ -787,24 +805,23 @@ class Client:
 
         The Client returns the value observed by the successful wait. The server
         derives a stable Request ID from the condition when none is supplied.
-        Leave the maximum wait time at zero for normal use. Positive values are
-        exceptional because short budgets can add many Temporal Update events to
-        Workflow history; prefer at least one minute when nonzero. A positive value
-        bounds the caller-visible wait.
+        Request timeout covers transparent transport reattachments. Internal handler
+        timeout controls Update generation rollover without ending this request.
         JSON, bytes, and null operands raise ``ValueError`` before transport.
 
         Args:
             flow_id: The non-empty active Flow ID.
             attribute: The registered singleton Attribute to observe.
             match: The scalar predicate to await.
-            options: The optional Request ID override and total wait budget.
+            options: The optional Request ID, request timeout, and internal handler
+                timeout controls.
 
         Returns:
             The current Attribute value that satisfied ``match``.
 
         Raises:
             ValueError: If an identifier, option, or match operand is invalid.
-            WaitHandlerTimeoutError: If a positive wait budget expires first.
+            RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
@@ -822,7 +839,7 @@ class Client:
         """Wait for one AttributeMap instance in the current run to match.
 
         ``instance`` is encoded as a map key. Match restrictions, Request ID,
-        handler-budget behavior, and service errors match
+        request-timeout and handler-generation behavior, and service errors match
         :meth:`wait_for_attribute_match`.
 
         Args:
@@ -830,14 +847,14 @@ class Client:
             attribute: The registered AttributeMap to observe.
             instance: The map instance to observe. Slash is prohibited because it is a reserved character.
             match: The scalar predicate to await.
-            options: The optional Request ID override and total handler wait budget.
+            options: The optional Request ID override and total handler request timeout.
 
         Returns:
             The current AttributeMap value that satisfied ``match``.
 
         Raises:
             ValueError: If an identifier, option, or match operand is invalid.
-            WaitHandlerTimeoutError: If a positive wait budget expires first.
+            RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
@@ -867,7 +884,7 @@ class Client:
         Raises:
             TypeError: If arguments do not match the Attribute definition.
             ValueError: If an identifier, option, or expected value is invalid.
-            WaitHandlerTimeoutError: If a positive wait budget expires first.
+            RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveError: If the Flow closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
@@ -892,8 +909,14 @@ class Client:
             self._values.codec(attribute.value_type),
         )
         encoded_match.key = self._definition_name(attribute, instance)
-        wait_budget = _ClientWaitBudget(options.maximum_wait_time)
+        request_budget = _ClientRequestBudget(options.request_timeout)
+        internal_handler_timeout_seconds = _duration_seconds32(
+            options.internal_handler_timeout
+        )
         while True:
+            request_attempt = request_budget.next_attempt(
+                "wait_for_attribute_match", flow_id
+            )
             try:
                 response = cast(
                     pb.WaitForAttributeResponse,
@@ -902,14 +925,18 @@ class Client:
                         pb.WaitForAttributeRequest(
                             flow_id=require_name(flow_id),
                             match=encoded_match,
-                            wait_time_seconds=wait_budget.remaining_seconds(
-                                "wait_for_attribute_match", flow_id
+                            request_timeout_seconds=(
+                                request_attempt.request_timeout_seconds
+                            ),
+                            internal_handler_timeout_seconds=(
+                                internal_handler_timeout_seconds
                             ),
                             request_id=options.request_id,
                         ),
                         "wait_for_attribute_match",
                         flow_id,
                         "active",
+                        request_attempt.transport_timeout_seconds,
                     ),
                 )
                 if not response.HasField("matched_value"):
@@ -920,6 +947,15 @@ class Client:
                 )
             except LongPollTimeoutError:
                 continue
+            except DexServiceError as error:
+                if (
+                    error.code is grpc.StatusCode.DEADLINE_EXCEEDED
+                    and request_budget.has_expired()
+                ):
+                    raise request_budget.timeout_error(
+                        "wait_for_attribute_match", flow_id
+                    ) from error
+                raise
 
     def update_flow_config(self, flow_id: str, config: FlowConfig) -> None:
         """Replace mutable configuration for an active Flow.
@@ -1242,13 +1278,16 @@ class Client:
 
     @staticmethod
     def _call(
-        method: Callable[[Any], Any],
+        method: Callable[..., Any],
         request: Any,
         operation: str,
         flow_id: str | None,
         requirement: FlowTargetRequirement,
+        timeout: float | None = None,
     ) -> Any:
         try:
-            return method(request)
+            if timeout is None:
+                return method(request)
+            return method(request, timeout=timeout)
         except grpc.RpcError as error:
             raise translate_rpc_error(error, operation, flow_id, requirement) from error

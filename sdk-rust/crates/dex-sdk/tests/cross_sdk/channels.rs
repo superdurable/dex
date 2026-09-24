@@ -283,7 +283,7 @@ fn channel_contract_reports_results_and_skipped_timer_by_index() {
             StepExecutionId::of(&workflow.start),
             dex_sdk::WaitForStepCompletionOptions::new()
                 .request_id(format!("{flow_id}-wait-first-channel-step"))
-                .maximum_wait_time(Duration::from_secs(20)),
+                .request_timeout(Duration::from_secs(20)),
         )
         .expect("wait for first channel Step");
     environment

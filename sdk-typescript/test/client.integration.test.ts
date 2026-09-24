@@ -385,9 +385,11 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     await client.waitForStepCompletion(
       "flow-1",
       { stepType: "Start" },
-      { maximumWaitTimeMs: 1_000 },
+      { requestTimeoutMs: 1_000, internalHandlerTimeoutMs: 3_000 },
     );
     assert.equal(requests.waitForStepCompletion.at(-1)?.requestId, "");
+    assert.equal(requests.waitForStepCompletion.at(-1)?.requestTimeoutSeconds, 1);
+    assert.equal(requests.waitForStepCompletion.at(-1)?.internalHandlerTimeoutSeconds, 3);
     assert.equal(requests.start?.flowType, "TestFlow");
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.start?.stepOptions?.heartbeatTimeoutSeconds, 2);

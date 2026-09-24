@@ -14,12 +14,12 @@ use crate::{SdkError, SdkResult};
 /// Configures one durable Step completion wait.
 ///
 /// The server derives a stable Request ID from the Step execution when none is supplied.
-/// Leave the maximum wait time at zero for normal use. Positive values are exceptional because
-/// short budgets can add many Temporal Update events to Workflow history. Prefer at least one minute
-/// when nonzero. A positive value bounds the caller-visible wait.
+/// `request_timeout` bounds the SDK call across transport reattachments.
+/// `internal_handler_timeout` controls advanced Temporal Update handler generation rollover.
 pub struct WaitForStepCompletionOptions {
     pub(crate) request_id: String,
-    pub(crate) maximum_wait_time: Duration,
+    pub(crate) request_timeout: Duration,
+    pub(crate) internal_handler_timeout: Duration,
 }
 
 impl WaitForStepCompletionOptions {
@@ -34,11 +34,15 @@ impl WaitForStepCompletionOptions {
         self
     }
 
-    /// Sets the caller-visible wait budget. Zero waits indefinitely.
-    ///
-    /// Positive values are rare. Prefer at least one minute to limit Temporal Update history growth.
-    pub fn maximum_wait_time(mut self, maximum_wait_time: Duration) -> Self {
-        self.maximum_wait_time = maximum_wait_time;
+    /// Sets the total SDK call budget. Zero waits indefinitely.
+    pub fn request_timeout(mut self, request_timeout: Duration) -> Self {
+        self.request_timeout = request_timeout;
+        self
+    }
+
+    /// Sets the Temporal Update handler generation lifetime. Zero disables timed rollover.
+    pub fn internal_handler_timeout(mut self, internal_handler_timeout: Duration) -> Self {
+        self.internal_handler_timeout = internal_handler_timeout;
         self
     }
 }
@@ -47,12 +51,12 @@ impl WaitForStepCompletionOptions {
 /// Configures one durable Attribute match wait.
 ///
 /// The server derives a stable Request ID from the Attribute condition when none is supplied.
-/// Leave the maximum wait time at zero for normal use. Positive values are exceptional because
-/// short budgets can add many Temporal Update events to Workflow history. Prefer at least one minute
-/// when nonzero. A positive value bounds the caller-visible wait.
+/// `request_timeout` bounds the SDK call across transport reattachments.
+/// `internal_handler_timeout` controls advanced Temporal Update handler generation rollover.
 pub struct WaitForAttributeOptions {
     pub(crate) request_id: String,
-    pub(crate) maximum_wait_time: Duration,
+    pub(crate) request_timeout: Duration,
+    pub(crate) internal_handler_timeout: Duration,
 }
 
 impl WaitForAttributeOptions {
@@ -67,40 +71,60 @@ impl WaitForAttributeOptions {
         self
     }
 
-    /// Sets the caller-visible wait budget. Zero waits indefinitely.
-    ///
-    /// Positive values are rare. Prefer at least one minute to limit Temporal Update history growth.
-    pub fn maximum_wait_time(mut self, maximum_wait_time: Duration) -> Self {
-        self.maximum_wait_time = maximum_wait_time;
+    /// Sets the total SDK call budget. Zero waits indefinitely.
+    pub fn request_timeout(mut self, request_timeout: Duration) -> Self {
+        self.request_timeout = request_timeout;
+        self
+    }
+
+    /// Sets the Temporal Update handler generation lifetime. Zero disables timed rollover.
+    pub fn internal_handler_timeout(mut self, internal_handler_timeout: Duration) -> Self {
+        self.internal_handler_timeout = internal_handler_timeout;
         self
     }
 }
 
-pub(crate) struct ClientWaitBudget {
+pub(crate) struct ClientRequestAttempt {
+    pub(crate) request_timeout_seconds: i32,
+    pub(crate) transport_timeout: Option<Duration>,
+}
+
+pub(crate) struct ClientRequestBudget {
     deadline: Option<Instant>,
 }
 
-impl ClientWaitBudget {
-    pub(crate) fn new(maximum_wait_time: Duration) -> SdkResult<Self> {
-        crate::client::seconds32(maximum_wait_time)?;
+impl ClientRequestBudget {
+    pub(crate) fn new(request_timeout: Duration) -> SdkResult<Self> {
+        crate::client::seconds32(request_timeout)?;
         Ok(Self {
-            deadline: (!maximum_wait_time.is_zero()).then(|| Instant::now() + maximum_wait_time),
+            deadline: (!request_timeout.is_zero()).then(|| Instant::now() + request_timeout),
         })
     }
 
-    pub(crate) fn remaining_seconds(
+    pub(crate) fn next_attempt(
         &self,
         operation: &'static str,
         flow_id: &str,
-    ) -> SdkResult<i32> {
+    ) -> SdkResult<ClientRequestAttempt> {
         let Some(deadline) = self.deadline else {
-            return Ok(0);
+            return Ok(ClientRequestAttempt {
+                request_timeout_seconds: 0,
+                transport_timeout: None,
+            });
         };
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return Err(SdkError::wait_handler_timeout(operation, flow_id));
+            return Err(SdkError::request_timeout(operation, flow_id));
         }
         let seconds = remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0);
-        i32::try_from(seconds).map_err(|_| crate::client::invalid("Duration exceeds int32"))
+        Ok(ClientRequestAttempt {
+            request_timeout_seconds: i32::try_from(seconds)
+                .map_err(|_| crate::client::invalid("Duration exceeds int32"))?,
+            transport_timeout: Some(remaining),
+        })
+    }
+
+    pub(crate) fn has_deadline(&self) -> bool {
+        self.deadline.is_some()
     }
 }

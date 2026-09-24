@@ -1401,18 +1401,18 @@ defaults to one; a non-nil value must be positive. Its wire execution number
 remains decimal text because that is the server contract. Both wait option
 types accept an optional Request ID override. Otherwise the server derives a
 stable logical ID from the Step execution or Attribute condition.
-`MaximumWaitTime` bounds the caller-visible wait. Zero waits indefinitely;
-positive values must be whole seconds within int32 range. The accepted handler
-checks its deadline only on a later Workflow Task and may retain its in-flight slot.
-Positive values are an exceptional safety valve. Short budgets can create many
-Update generations and Temporal history events; prefer at least one minute when
-nonzero and use `context.Context` for routine response deadlines.
-The Client retries
-`*dex.LongPollTimeoutError` internally with the same logical wait and remaining
-budget. Budget expiry returns
-`*dex.WaitHandlerTimeoutError`. `context.Context` remains an independent local
-cancellation mechanism. Reattachments reuse the accepted Update until it completes
-with a deadline error; only then does the server create a new `-N` generation.
+`RequestTimeout` is the total caller-visible SDK budget. Zero waits indefinitely;
+positive values must be whole seconds within int32 range. Each transport attempt
+uses the remaining budget as its local deadline. The Client retries internal
+long-poll timeouts with the same logical Request ID without resetting the budget.
+Expiry returns `*dex.RequestTimeoutError`. `context.Context` remains an
+independent local cancellation mechanism, and the earlier boundary wins.
+
+`InternalHandlerTimeout` controls one accepted Temporal Update handler generation.
+Zero disables time-based rollover. When a positive value expires, the service
+continues with a new `-N` generation without returning a handler timeout. Short
+values can create many Update history events. Transport reattachment alone does
+not end a handler or create another generation.
 
 WaitForFlow uses the same server-capped duration. A successful response maps
 status and error metadata, then hydrates every requested completion output

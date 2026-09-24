@@ -137,7 +137,7 @@ class ErrorSubStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ERROR_SUB_STATUS_WORKER_API_ERROR: _ClassVar[ErrorSubStatus]
     ERROR_SUB_STATUS_LONG_POLL_TIME_OUT: _ClassVar[ErrorSubStatus]
     ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND: _ClassVar[ErrorSubStatus]
-    ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT: _ClassVar[ErrorSubStatus]
+    ERROR_SUB_STATUS_REQUEST_TIMEOUT: _ClassVar[ErrorSubStatus]
 
 class CloseDecisionType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -268,7 +268,7 @@ ERROR_SUB_STATUS_FLOW_NOT_EXISTS: ErrorSubStatus
 ERROR_SUB_STATUS_WORKER_API_ERROR: ErrorSubStatus
 ERROR_SUB_STATUS_LONG_POLL_TIME_OUT: ErrorSubStatus
 ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND: ErrorSubStatus
-ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT: ErrorSubStatus
+ERROR_SUB_STATUS_REQUEST_TIMEOUT: ErrorSubStatus
 CLOSE_DECISION_TYPE_UNSPECIFIED: CloseDecisionType
 CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY: CloseDecisionType
 CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE: CloseDecisionType
@@ -1407,34 +1407,38 @@ class UpdateFlowConfigRequest(_message.Message):
     def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ...) -> None: ...
 
 class WaitForStepCompletionRequest(_message.Message):
-    __slots__ = ("flow_id", "step_type", "step_execution_number", "wait_time_seconds", "request_id")
+    __slots__ = ("flow_id", "step_type", "step_execution_number", "request_timeout_seconds", "internal_handler_timeout_seconds", "request_id")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
     STEP_EXECUTION_NUMBER_FIELD_NUMBER: _ClassVar[int]
-    WAIT_TIME_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    INTERNAL_HANDLER_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     step_type: str
     step_execution_number: str
-    wait_time_seconds: int
+    request_timeout_seconds: int
+    internal_handler_timeout_seconds: int
     request_id: str
-    def __init__(self, flow_id: _Optional[str] = ..., step_type: _Optional[str] = ..., step_execution_number: _Optional[str] = ..., wait_time_seconds: _Optional[int] = ..., request_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, flow_id: _Optional[str] = ..., step_type: _Optional[str] = ..., step_execution_number: _Optional[str] = ..., request_timeout_seconds: _Optional[int] = ..., internal_handler_timeout_seconds: _Optional[int] = ..., request_id: _Optional[str] = ...) -> None: ...
 
 class WaitForStepCompletionResponse(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
 class WaitForAttributeRequest(_message.Message):
-    __slots__ = ("flow_id", "match", "wait_time_seconds", "request_id")
+    __slots__ = ("flow_id", "match", "request_timeout_seconds", "internal_handler_timeout_seconds", "request_id")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     MATCH_FIELD_NUMBER: _ClassVar[int]
-    WAIT_TIME_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    INTERNAL_HANDLER_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     match: AttributeMatch
-    wait_time_seconds: int
+    request_timeout_seconds: int
+    internal_handler_timeout_seconds: int
     request_id: str
-    def __init__(self, flow_id: _Optional[str] = ..., match: _Optional[_Union[AttributeMatch, _Mapping]] = ..., wait_time_seconds: _Optional[int] = ..., request_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, flow_id: _Optional[str] = ..., match: _Optional[_Union[AttributeMatch, _Mapping]] = ..., request_timeout_seconds: _Optional[int] = ..., internal_handler_timeout_seconds: _Optional[int] = ..., request_id: _Optional[str] = ...) -> None: ...
 
 class WaitForAttributeResponse(_message.Message):
     __slots__ = ("matched_value",)

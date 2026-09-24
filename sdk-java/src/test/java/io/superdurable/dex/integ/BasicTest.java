@@ -500,10 +500,10 @@ public final class BasicTest {
     private static WaitForStepCompletionOptions stepWaitOptions(
             final String flowId,
             final String suffix,
-            final Duration maximumWaitTime) {
+            final Duration requestTimeout) {
         return WaitForStepCompletionOptions.newBuilder()
                 .requestId(flowId + "-wait-" + suffix)
-                .maximumWaitTime(maximumWaitTime)
+                .requestTimeout(requestTimeout)
                 .build();
     }
 

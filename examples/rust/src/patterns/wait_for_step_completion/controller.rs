@@ -20,6 +20,7 @@ use axum::{
 };
 use dex_sdk::WaitForStepCompletionOptions;
 use serde::Deserialize;
+use std::time::Duration;
 
 use crate::patterns::wait_for_step_completion::flow::{PersistRequest, WaitForStepCompletionFlow};
 use crate::server::helpers::{
@@ -57,7 +58,7 @@ async fn start(
         client.wait_for_step_completion(
             &flow_id,
             WaitForStepCompletionFlow::persisted_step(),
-            WaitForStepCompletionOptions::new(),
+            WaitForStepCompletionOptions::new().request_timeout(Duration::from_secs(10)),
         )?;
         Ok(StartResponse { flow_id, run_id })
     }) {

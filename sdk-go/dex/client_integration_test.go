@@ -563,7 +563,11 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 		clientTestStatus,
 		AttributeMatchEqual("done"),
 		&matchedStatus,
-		WaitForAttributeOptions{RequestID: "wait-order-status"},
+		WaitForAttributeOptions{
+			RequestID:              "wait-order-status",
+			RequestTimeout:         10 * time.Second,
+			InternalHandlerTimeout: 3 * time.Second,
+		},
 	))
 	require.Equal(t, "done", matchedStatus)
 	require.Equal(
@@ -572,7 +576,8 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 		service.waitAttributeRequest.GetMatch().GetOperator(),
 	)
 	require.Equal(t, "wait-order-status", service.waitAttributeRequest.RequestId)
-	require.Zero(t, service.waitAttributeRequest.WaitTimeSeconds)
+	require.Equal(t, int32(10), service.waitAttributeRequest.RequestTimeoutSeconds)
+	require.Equal(t, int32(3), service.waitAttributeRequest.InternalHandlerTimeoutSeconds)
 }
 
 func TestClientStreamTransportAndMetadata(t *testing.T) {
@@ -823,10 +828,15 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 		ctx,
 		"order-1",
 		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
-		WaitForStepCompletionOptions{RequestID: "wait-order-step"},
+		WaitForStepCompletionOptions{
+			RequestID:              "wait-order-step",
+			RequestTimeout:         10 * time.Second,
+			InternalHandlerTimeout: 2 * time.Second,
+		},
 	))
 	require.Equal(t, "1", service.waitStepRequest.StepExecutionNumber)
-	require.Zero(t, service.waitStepRequest.WaitTimeSeconds)
+	require.Equal(t, int32(10), service.waitStepRequest.RequestTimeoutSeconds)
+	require.Equal(t, int32(2), service.waitStepRequest.InternalHandlerTimeoutSeconds)
 	require.Equal(t, "wait-order-step", service.waitStepRequest.RequestId)
 	require.NoError(t, client.TriggerContinueAsNew(ctx, "order-1"))
 	require.Equal(t, "order-1", service.continueAsNewRequest.FlowId)
@@ -1013,7 +1023,7 @@ func TestClientDurableWaitReattachment(t *testing.T) {
 		ctx,
 		"missing-request-id",
 		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
-		WaitForStepCompletionOptions{MaximumWaitTime: time.Second},
+		WaitForStepCompletionOptions{RequestTimeout: time.Second},
 	))
 	require.Empty(t, service.waitStepRequest.RequestId)
 }

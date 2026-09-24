@@ -55,7 +55,7 @@ class SyncWaitService:
         self.requests: list[pb.WaitForAttributeRequest] = []
 
     def WaitForAttribute(  # noqa: N802
-        self, request: pb.WaitForAttributeRequest
+        self, request: pb.WaitForAttributeRequest, *, timeout: float | None = None
     ) -> pb.WaitForAttributeResponse:
         self.requests.append(request)
         if len(self.requests) == 1:
@@ -68,7 +68,7 @@ class AsyncWaitService:
         self.requests: list[pb.WaitForAttributeRequest] = []
 
     async def WaitForAttribute(  # noqa: N802
-        self, request: pb.WaitForAttributeRequest
+        self, request: pb.WaitForAttributeRequest, *, timeout: float | None = None
     ) -> pb.WaitForAttributeResponse:
         self.requests.append(request)
         if len(self.requests) == 1:
@@ -81,7 +81,7 @@ class SyncStepWaitService:
         self.requests: list[pb.WaitForStepCompletionRequest] = []
 
     def WaitForStepCompletion(  # noqa: N802
-        self, request: pb.WaitForStepCompletionRequest
+        self, request: pb.WaitForStepCompletionRequest, *, timeout: float | None = None
     ) -> pb.WaitForStepCompletionResponse:
         self.requests.append(request)
         if len(self.requests) == 1:
@@ -94,7 +94,7 @@ class AsyncStepWaitService:
         self.requests: list[pb.WaitForStepCompletionRequest] = []
 
     async def WaitForStepCompletion(  # noqa: N802
-        self, request: pb.WaitForStepCompletionRequest
+        self, request: pb.WaitForStepCompletionRequest, *, timeout: float | None = None
     ) -> pb.WaitForStepCompletionResponse:
         self.requests.append(request)
         if len(self.requests) == 1:
@@ -196,9 +196,17 @@ def test_finite_step_wait_uses_server_default_request_id() -> None:
         client.wait_for_step_completion(
             "flow-1",
             StepExecutionId("Step", 1),
-            WaitForStepCompletionOptions(maximum_wait_time=timedelta(seconds=1)),
+            WaitForStepCompletionOptions(
+                request_timeout=timedelta(seconds=1),
+                internal_handler_timeout=timedelta(seconds=3),
+            ),
         )
         assert all(not request.request_id for request in service.requests)
+        assert all(request.request_timeout_seconds == 1 for request in service.requests)
+        assert all(
+            request.internal_handler_timeout_seconds == 3
+            for request in service.requests
+        )
     finally:
         client.close()
 

@@ -8,7 +8,7 @@ Use **WaitForStepCompletion** when a Flow has a durable client-visible milestone
 
 The **WaitForStepCompletionFlow** sample persists a record in **PersistData**, then starts **BackgroundWork**. Its controller waits for **PersistData** before querying the persisted record. Choose a Step only after it has committed the state that makes the response valid.
 
-Leave **MaximumWaitTime** at 0 for normal use and bound individual responses with the caller deadline. Positive values are rare because short budgets can add many Temporal Update events to Workflow history. If a positive value is necessary, prefer at least one minute. It returns a typed timeout to the caller. See [Choose the wait budget](/design-patterns/responsive-update#choose-the-wait-budget) for details.
+Leave **RequestTimeout** at 0 for an ordinary durable wait. Set it explicitly at an admission boundary; the controller below uses 10 seconds. **InternalHandlerTimeout** is an advanced Update-generation control and normally remains 0. See [Choose the timeout boundary](/design-patterns/responsive-update#choose-the-timeout-boundary) for details.
 
 ## Core implementation
 
@@ -29,10 +29,9 @@ func (controller *controller) start(request *gin.Context) {
 		httputil.RespondString(request, "", err)
 		return
 	}
-	waitContext, cancelWait := context.WithTimeout(request.Request.Context(), 5*time.Minute)
-	defer cancelWait()
 	err = controller.client.WaitForStepCompletion(
-		waitContext, flowID, sdk.StepExecutionID{StepType: "PersistData"}, sdk.WaitForStepCompletionOptions{},
+		request.Request.Context(), flowID, sdk.StepExecutionID{StepType: "PersistData"},
+		sdk.WaitForStepCompletionOptions{RequestTimeout: 10 * time.Second},
 	)
 	if err != nil {
 		httputil.RespondString(request, "", err)
@@ -74,7 +73,7 @@ async def start_wait_for_step_completion() -> str:
     await app_state.client.wait_for_step_completion(
         flow_id,
         PERSIST_DATA_STEP,
-        WaitForStepCompletionOptions(),
+        WaitForStepCompletionOptions(request_timeout=timedelta(seconds=10)),
     )
     persisted = await app_state.client.invoke_rpc(
         app_state.wait_for_step_completion.get_job_seeker_data,
@@ -101,7 +100,9 @@ ResponseEntity<String> startWaitForStepCompletion(@RequestParam final String wor
     client.waitForStepCompletion(
             workflowId,
             StepExecutionId.of("PersistData"),
-            WaitForStepCompletionOptions.newBuilder().build());
+            WaitForStepCompletionOptions.newBuilder()
+                    .requestTimeout(Duration.ofSeconds(10))
+                    .build());
     final WaitForStepCompletionFlow stub =
             client.newRpcStub(WaitForStepCompletionFlow.class, workflowId);
     final JobSeekerData persistedData = client.invokeRPC(stub::getJobSeekerData);
@@ -127,7 +128,7 @@ router.get("/start", async (request, response) => {
   await client.waitForStepCompletion(
     workflowId,
     StepExecutionId.of("PersistData"),
-    {},
+    { requestTimeoutMs: 10_000 },
   );
   const persistedData = await client.invokeRPC(
     waitForStepCompletionFlow.getJobSeekerData,
@@ -162,7 +163,7 @@ async fn start(
         client.wait_for_step_completion(
             &flow_id,
             WaitForStepCompletionFlow::persisted_step(),
-            WaitForStepCompletionOptions::new(),
+            WaitForStepCompletionOptions::new().request_timeout(Duration::from_secs(10)),
         )?;
         Ok(StartResponse { flow_id, run_id })
     }) {

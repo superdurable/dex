@@ -28,6 +28,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
+
 @RestController
 @RequestMapping("/patterns/wait-for-step-completion")
 public class WaitForStepCompletionController {
@@ -54,7 +56,9 @@ public class WaitForStepCompletionController {
         client.waitForStepCompletion(
                 workflowId,
                 StepExecutionId.of("PersistData"),
-                WaitForStepCompletionOptions.newBuilder().build());
+                WaitForStepCompletionOptions.newBuilder()
+                        .requestTimeout(Duration.ofSeconds(10))
+                        .build());
         final WaitForStepCompletionFlow stub =
                 client.newRpcStub(WaitForStepCompletionFlow.class, workflowId);
         final JobSeekerData persistedData = client.invokeRPC(stub::getJobSeekerData);

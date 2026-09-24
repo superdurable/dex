@@ -15,7 +15,7 @@ from time import monotonic
 
 import grpc
 
-from dex.runtime_errors import ErrorSubStatus, WaitHandlerTimeoutError
+from dex.runtime_errors import ErrorSubStatus, RequestTimeoutError
 
 
 @dataclass(frozen=True)
@@ -24,20 +24,20 @@ class WaitForStepCompletionOptions:
 
     The server derives a stable Request ID from the Step execution when
     ``request_id`` is empty. Reuse an override only for the same logical wait.
-    Leave ``maximum_wait_time`` at zero for normal use. Positive values are an
-    exceptional safety valve. Short budgets can add many Temporal Update events
-    to Workflow history; prefer at least one minute when nonzero. A positive
-    value bounds the caller-visible wait.
+    ``request_timeout`` bounds the entire SDK call across transparent transport
+    reattachments. ``internal_handler_timeout`` controls advanced Temporal Update
+    handler generation rollover without ending the SDK call.
 
     Attributes:
         request_id: An optional override for the server-derived stable ID.
-        maximum_wait_time: The caller-visible wait budget. Zero waits indefinitely.
-            Positive values are rare; prefer at least one minute to limit Temporal
-            Update history growth.
+        request_timeout: The total SDK call budget. Zero waits indefinitely.
+        internal_handler_timeout: The Temporal Update handler generation lifetime.
+            Zero disables time-based generation rollover.
     """
 
     request_id: str = ""
-    maximum_wait_time: timedelta = timedelta(0)
+    request_timeout: timedelta = timedelta(0)
+    internal_handler_timeout: timedelta = timedelta(0)
 
 
 @dataclass(frozen=True)
@@ -46,39 +46,57 @@ class WaitForAttributeOptions:
 
     The server derives a stable Request ID from the Attribute condition when
     ``request_id`` is empty. Reuse an override only for the same logical predicate.
-    Leave ``maximum_wait_time`` at zero for normal use. Positive values are an
-    exceptional safety valve. Short budgets can add many Temporal Update events
-    to Workflow history; prefer at least one minute when nonzero. A positive
-    value bounds the caller-visible wait.
+    ``request_timeout`` bounds the entire SDK call across transparent transport
+    reattachments. ``internal_handler_timeout`` controls advanced Temporal Update
+    handler generation rollover without ending the SDK call.
 
     Attributes:
         request_id: An optional override for the server-derived stable ID.
-        maximum_wait_time: The caller-visible wait budget. Zero waits indefinitely.
-            Positive values are rare; prefer at least one minute to limit Temporal
-            Update history growth.
+        request_timeout: The total SDK call budget. Zero waits indefinitely.
+        internal_handler_timeout: The Temporal Update handler generation lifetime.
+            Zero disables time-based generation rollover.
     """
 
     request_id: str = ""
-    maximum_wait_time: timedelta = timedelta(0)
+    request_timeout: timedelta = timedelta(0)
+    internal_handler_timeout: timedelta = timedelta(0)
 
 
-class _ClientWaitBudget:
-    def __init__(self, maximum_wait_time: timedelta) -> None:
-        seconds = maximum_wait_time.total_seconds()
-        if seconds < 0 or not seconds.is_integer() or seconds > 2_147_483_647:
-            raise ValueError("duration must be whole seconds within int32")
+@dataclass(frozen=True)
+class _ClientRequestAttempt:
+    request_timeout_seconds: int
+    transport_timeout_seconds: float | None
+
+
+class _ClientRequestBudget:
+    def __init__(self, request_timeout: timedelta) -> None:
+        seconds = _duration_seconds32(request_timeout)
         self._deadline = monotonic() + seconds if seconds else None
 
-    def remaining_seconds(self, operation: str, flow_id: str) -> int:
+    def next_attempt(self, operation: str, flow_id: str) -> _ClientRequestAttempt:
         if self._deadline is None:
-            return 0
+            return _ClientRequestAttempt(0, None)
         remaining = self._deadline - monotonic()
         if remaining <= 0:
-            raise WaitHandlerTimeoutError(
-                grpc.StatusCode.DEADLINE_EXCEEDED,
-                ErrorSubStatus.WAIT_HANDLER_TIMEOUT,
-                "wait handler timed out",
-                operation,
-                flow_id,
-            )
-        return ceil(remaining)
+            raise self.timeout_error(operation, flow_id)
+        return _ClientRequestAttempt(ceil(remaining), remaining)
+
+    def has_expired(self) -> bool:
+        return self._deadline is not None and monotonic() >= self._deadline
+
+    @staticmethod
+    def timeout_error(operation: str, flow_id: str) -> RequestTimeoutError:
+        return RequestTimeoutError(
+            grpc.StatusCode.DEADLINE_EXCEEDED,
+            ErrorSubStatus.REQUEST_TIMEOUT,
+            "request timed out",
+            operation,
+            flow_id,
+        )
+
+
+def _duration_seconds32(duration: timedelta) -> int:
+    seconds = duration.total_seconds()
+    if seconds < 0 or not seconds.is_integer() or seconds > 2_147_483_647:
+        raise ValueError("duration must be whole seconds within int32")
+    return int(seconds)

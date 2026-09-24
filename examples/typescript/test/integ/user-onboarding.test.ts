@@ -54,7 +54,7 @@ test("user onboarding verifies and completes both tasks", async () => {
       flowId,
       flow.status,
       AttributeMatch.equalTo("waiting_for_verification"),
-      { maximumWaitTimeMs: 20_000 },
+      { requestTimeoutMs: 20_000 },
     ),
     "waiting_for_verification",
   );
@@ -65,7 +65,7 @@ test("user onboarding verifies and completes both tasks", async () => {
       flowId,
       flow.status,
       AttributeMatch.equalTo("waiting_for_task_1"),
-      { maximumWaitTimeMs: 20_000 },
+      { requestTimeoutMs: 20_000 },
     ),
     "waiting_for_task_1",
   );
@@ -78,7 +78,7 @@ test("user onboarding verifies and completes both tasks", async () => {
       flowId,
       flow.status,
       AttributeMatch.equalTo("waiting_for_task_2"),
-      { maximumWaitTimeMs: 20_000 },
+      { requestTimeoutMs: 20_000 },
     ),
     "waiting_for_task_2",
   );

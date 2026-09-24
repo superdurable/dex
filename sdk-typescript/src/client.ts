@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { credentials, status, type ServiceError } from "@grpc/grpc-js";
+import { credentials, Metadata, status, type ServiceError } from "@grpc/grpc-js";
 
 import type { BlobCache } from "./blob-cache.js";
 import { AttributeMatch } from "./attribute-match.js";
@@ -48,9 +48,10 @@ import {
 import type { Empty } from "./gen/google/protobuf/empty.js";
 import {
   ErrorSubStatus,
+  DexServiceError,
   FlowErrorType,
   LongPollTimeoutError,
-  WaitHandlerTimeoutError,
+  RequestTimeoutError,
   ValueMappingError,
   type FlowErrorType as FlowErrorTypeValue,
 } from "./errors.js";
@@ -646,41 +647,58 @@ export class Client {
   }
 
   /**
-   * Waits until one Step execution completes or its caller-visible wait budget expires.
+   * Waits until one Step execution completes or its request budget expires.
    * The server derives a stable Request ID from the Step execution when none is supplied.
-   * Leave the maximum wait time at zero for normal use. Positive values are exceptional because short
-   * budgets can add many Temporal Update events to Workflow history. Prefer at least one minute.
    * @param flowId - Non-empty active Flow ID.
    * @param stepExecutionId - Step type and positive execution number.
-   * @param options - Optional Request ID override and caller-visible wait budget.
-   * @throws {@link WaitHandlerTimeoutError} when a positive wait budget expires first.
+   * @param options - Optional Request ID, request timeout, and internal handler timeout.
+   * @throws {@link RequestTimeoutError} when a positive request timeout expires first.
    */
   public async waitForStepCompletion(
     flowId: string,
     stepExecutionId: StepExecutionId,
     options: WaitForStepCompletionOptions,
   ): Promise<void> {
-    const waitBudget = new ClientWaitBudget(options.maximumWaitTimeMs);
+    const requestBudget = new ClientRequestBudget(options.requestTimeoutMs);
+    const internalHandlerTimeoutSeconds = seconds32(options.internalHandlerTimeoutMs);
     while (true) {
+      const requestAttempt = requestBudget.nextAttempt("waitForStepCompletion", flowId);
       try {
         await unary<WaitForStepCompletionResponse>(
           { operation: "waitForStepCompletion", flowId, requirement: "active" },
-          (callback) => this.service.waitForStepCompletion(
-            {
+          (callback) => {
+            const request = {
               flowId: requireName(flowId),
               stepType: stepExecutionId.stepType,
               stepExecutionNumber: String(stepExecutionId.number ?? 1),
-              waitTimeSeconds: waitBudget.remainingSeconds("waitForStepCompletion", flowId),
+              requestTimeoutSeconds: requestAttempt.requestTimeoutSeconds,
+              internalHandlerTimeoutSeconds,
               requestId: options.requestId ?? "",
-            },
-            callback,
-          ),
+            };
+            if (requestAttempt.deadline === undefined) {
+              return this.service.waitForStepCompletion(request, callback);
+            }
+            return this.service.waitForStepCompletion(
+              request,
+              new Metadata(),
+              { deadline: requestAttempt.deadline },
+              callback,
+            );
+          },
         );
         return;
       } catch (error) {
-        if (!(error instanceof LongPollTimeoutError)) {
-          throw error;
+        if (error instanceof LongPollTimeoutError) {
+          continue;
         }
+        if (
+          error instanceof DexServiceError
+          && error.code === status.DEADLINE_EXCEEDED
+          && requestBudget.hasExpired()
+        ) {
+          throw requestBudget.timeoutError("waitForStepCompletion", flowId);
+        }
+        throw error;
       }
     }
   }
@@ -689,13 +707,12 @@ export class Client {
    * Waits until a singleton Attribute in the current run satisfies a match.
    * Returns the current value observed by the successful wait operation.
    * The server derives a stable Request ID from the condition when none is supplied.
-   * Leave the maximum wait time at zero for normal use. Positive values are exceptional because short
-   * budgets can add many Temporal Update events to Workflow history. Prefer at least one minute.
+   * Request timeout covers transport reattachments. Internal handler timeout rolls generations.
    * @typeParam T - Attribute value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered singleton Attribute to observe.
    * @param match - Scalar predicate whose operand has the Attribute value type.
-   * @param options - Optional Request ID override and total wait budget.
+   * @param options - Optional Request ID override and request and internal handler timeout controls.
    * @returns The matched current Attribute value.
    */
   public waitForAttributeMatch<T>(
@@ -713,7 +730,7 @@ export class Client {
    * @param attribute - Registered AttributeMap to observe.
    * @param instance - The map instance to observe. Slash is prohibited because it is a reserved character.
    * @param match - Scalar predicate whose operand has the AttributeMap value type.
-   * @param options - Optional Request ID override and total wait budget.
+   * @param options - Optional Request ID override and request and internal handler timeout controls.
    * @returns The matched current AttributeMap value.
    */
   public waitForAttributeMatch<T>(
@@ -774,33 +791,52 @@ export class Client {
       throw new TypeError("waitForAttributeMatch requires an AttributeMatch");
     }
     const encoded = match.encode(attribute.codec);
-    const waitBudget = new ClientWaitBudget(options.maximumWaitTimeMs);
+    const requestBudget = new ClientRequestBudget(options.requestTimeoutMs);
+    const internalHandlerTimeoutSeconds = seconds32(options.internalHandlerTimeoutMs);
     while (true) {
+      const requestAttempt = requestBudget.nextAttempt("waitForAttributeMatch", flowId);
       try {
         const response = await unary<WaitForAttributeResponse>(
           { operation: "waitForAttributeMatch", flowId, requirement: "active" },
-          (callback) => this.service.waitForAttribute(
-            {
+          (callback) => {
+            const request = {
               flowId: requireName(flowId),
               match: {
                 key: physicalName(attribute.name, instance),
                 operator: encoded.operator,
                 operand: encoded.operand,
               },
-              waitTimeSeconds: waitBudget.remainingSeconds("waitForAttributeMatch", flowId),
+              requestTimeoutSeconds: requestAttempt.requestTimeoutSeconds,
+              internalHandlerTimeoutSeconds,
               requestId: options.requestId ?? "",
-            },
-            callback,
-          ),
+            };
+            if (requestAttempt.deadline === undefined) {
+              return this.service.waitForAttribute(request, callback);
+            }
+            return this.service.waitForAttribute(
+              request,
+              new Metadata(),
+              { deadline: requestAttempt.deadline },
+              callback,
+            );
+          },
         );
         if (response.matchedValue === undefined) {
           throw new Error("waitForAttributeMatch response is incomplete");
         }
         return decodeValue(attribute.codec, response.matchedValue);
       } catch (error) {
-        if (!(error instanceof LongPollTimeoutError)) {
-          throw error;
+        if (error instanceof LongPollTimeoutError) {
+          continue;
         }
+        if (
+          error instanceof DexServiceError
+          && error.code === status.DEADLINE_EXCEEDED
+          && requestBudget.hasExpired()
+        ) {
+          throw requestBudget.timeoutError("waitForAttributeMatch", flowId);
+        }
+        throw error;
       }
     }
   }
@@ -1305,33 +1341,56 @@ function isWaitForAttributeOptions(value: unknown): value is WaitForAttributeOpt
   return typeof value === "object" && value !== null;
 }
 
-class ClientWaitBudget {
+interface ClientRequestAttempt {
+  readonly requestTimeoutSeconds: number;
+  readonly deadline?: Date;
+}
+
+class ClientRequestBudget {
   private readonly deadlineMs: number | undefined;
 
-  public constructor(maximumWaitTimeMs: number | undefined) {
-    const maximumWaitSeconds = seconds(maximumWaitTimeMs);
-    if (maximumWaitSeconds > 2_147_483_647) {
-      throw new RangeError("duration exceeds the int32 seconds range");
-    }
-    this.deadlineMs = maximumWaitSeconds === 0 ? undefined : performance.now() + maximumWaitSeconds * 1_000;
+  public constructor(requestTimeoutMs: number | undefined) {
+    const requestTimeoutSeconds = seconds32(requestTimeoutMs);
+    this.deadlineMs = requestTimeoutSeconds === 0
+      ? undefined
+      : performance.now() + requestTimeoutSeconds * 1_000;
   }
 
-  public remainingSeconds(operation: string, flowId: string): number {
+  public nextAttempt(operation: string, flowId: string): ClientRequestAttempt {
     if (this.deadlineMs === undefined) {
-      return 0;
+      return { requestTimeoutSeconds: 0 };
     }
     const remainingMs = this.deadlineMs - performance.now();
     if (remainingMs <= 0) {
-      throw new WaitHandlerTimeoutError(
-        status.DEADLINE_EXCEEDED,
-        ErrorSubStatus.WAIT_HANDLER_TIMEOUT,
-        "wait handler timed out",
-        operation,
-        flowId,
-      );
+      throw this.timeoutError(operation, flowId);
     }
-    return Math.ceil(remainingMs / 1_000);
+    return {
+      requestTimeoutSeconds: Math.ceil(remainingMs / 1_000),
+      deadline: new Date(Date.now() + remainingMs),
+    };
   }
+
+  public hasExpired(): boolean {
+    return this.deadlineMs !== undefined && performance.now() >= this.deadlineMs;
+  }
+
+  public timeoutError(operation: string, flowId: string): RequestTimeoutError {
+    return new RequestTimeoutError(
+      status.DEADLINE_EXCEEDED,
+      ErrorSubStatus.REQUEST_TIMEOUT,
+      "request timed out",
+      operation,
+      flowId,
+    );
+  }
+}
+
+function seconds32(milliseconds: number | undefined): number {
+  const value = seconds(milliseconds);
+  if (value > 2_147_483_647) {
+    throw new RangeError("duration exceeds the int32 seconds range");
+  }
+  return value;
 }
 
 function heartbeatSeconds(milliseconds: number | undefined): number {

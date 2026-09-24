@@ -20,7 +20,7 @@ from dex import (
     LongPollTimeoutError,
     RetryAfterError,
     RpcLockConflictError,
-    WaitHandlerTimeoutError,
+    RequestTimeoutError,
     WorkerInvocationError,
     retry_after,
 )
@@ -103,13 +103,13 @@ def test_other_known_sub_statuses_have_explicit_errors() -> None:
     handler_timeout = translate_rpc_error(
         rich_error(
             grpc.StatusCode.DEADLINE_EXCEEDED,
-            pb.ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT,
+            pb.ERROR_SUB_STATUS_REQUEST_TIMEOUT,
         ),
         "wait_for_attribute_match",
         "flow-id",
         "active",
     )
-    assert isinstance(handler_timeout, WaitHandlerTimeoutError)
+    assert isinstance(handler_timeout, RequestTimeoutError)
 
 
 def test_retry_after_is_available_from_the_sdk_package() -> None:

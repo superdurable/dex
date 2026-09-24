@@ -25,7 +25,7 @@ use dex_protocol::dex::{
     WriteStreamRequest,
 };
 use tokio::runtime::Runtime;
-use tonic::transport::Endpoint;
+use tonic::{Code, Request, transport::Endpoint};
 use uuid::Uuid;
 
 use crate::sdk_error::{FlowTargetRequirement, ServiceError};
@@ -33,7 +33,7 @@ use crate::stop_flow_options::StopType;
 use crate::time_travel_options::{TimeTravelPoint, TimeTravelStepMethod};
 use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
-use crate::wait_options::ClientWaitBudget;
+use crate::wait_options::ClientRequestBudget;
 use crate::worker_dispatcher::{map_flow_timeout_handler_options, map_step_options};
 use crate::{
     ActiveStepSearchMode, Attribute, AttributeMap, AttributeMatch, BlobCache, ClientOptions, Flow,
@@ -638,16 +638,13 @@ impl Client {
         )
     }
 
-    /// Blocks until one Step execution completes or its caller-visible wait budget expires.
+    /// Blocks until one Step execution completes or its request budget expires.
     ///
     /// The server derives a stable Request ID from the Step execution when none is supplied.
-    /// Leave the maximum wait time at zero for normal use. Positive values are exceptional because
-    /// short budgets can add many Temporal Update events to Workflow history. Prefer at least one
-    /// minute when nonzero.
     ///
     /// # Errors
     ///
-    /// Returns [`SdkError::WaitHandlerTimeout`] when a positive wait budget expires,
+    /// Returns [`SdkError::RequestTimeout`] when a positive request timeout expires,
     /// FlowNotActive when appropriate, or another service error. Successful completion returns
     /// `()` and does not decode Step output.
     pub fn wait_for_step_completion(
@@ -656,10 +653,11 @@ impl Client {
         step_execution: StepExecutionId,
         options: WaitForStepCompletionOptions,
     ) -> SdkResult<()> {
-        let wait_budget = ClientWaitBudget::new(options.maximum_wait_time)?;
+        let request_budget = ClientRequestBudget::new(options.request_timeout)?;
+        let internal_handler_timeout_seconds = seconds32(options.internal_handler_timeout)?;
         loop {
-            let wait_time_seconds =
-                wait_budget.remaining_seconds("wait_for_step_completion", flow_id)?;
+            let request_attempt =
+                request_budget.next_attempt("wait_for_step_completion", flow_id)?;
             let request_flow_id = flow_id.to_string();
             let request_step_type = step_execution.step_type.to_string();
             let request_step_execution_number = step_execution.execution_number.to_string();
@@ -669,19 +667,33 @@ impl Client {
                 Some(flow_id),
                 FlowTargetRequirement::Active,
                 |mut service| async move {
-                    service
-                        .wait_for_step_completion(WaitForStepCompletionRequest {
-                            flow_id: request_flow_id,
-                            step_type: request_step_type,
-                            step_execution_number: request_step_execution_number,
-                            wait_time_seconds,
-                            request_id,
-                        })
-                        .await
+                    let mut request = Request::new(WaitForStepCompletionRequest {
+                        flow_id: request_flow_id,
+                        step_type: request_step_type,
+                        step_execution_number: request_step_execution_number,
+                        request_timeout_seconds: request_attempt.request_timeout_seconds,
+                        internal_handler_timeout_seconds,
+                        request_id,
+                    });
+                    if let Some(transport_timeout) = request_attempt.transport_timeout {
+                        request.set_timeout(transport_timeout);
+                    }
+                    service.wait_for_step_completion(request).await
                 },
             );
-            if !matches!(result, Err(SdkError::LongPollTimeout { .. })) {
-                return result;
+            match result {
+                Err(SdkError::LongPollTimeout { .. }) => continue,
+                Err(error)
+                    if error.service_error().is_some_and(|service| {
+                        matches!(service.code(), Code::DeadlineExceeded | Code::Cancelled)
+                    }) && request_budget.has_deadline() =>
+                {
+                    return Err(SdkError::request_timeout(
+                        "wait_for_step_completion",
+                        flow_id,
+                    ));
+                }
+                result => return result,
             }
         }
     }
@@ -689,12 +701,9 @@ impl Client {
     /// Blocks until a singleton Attribute in the current run satisfies `attribute_match`.
     ///
     /// Returns the current value observed by the successful wait. The server derives a stable
-    /// Request ID from the condition when none is supplied. Leave the maximum wait time at zero for
-    /// normal use. Positive values are exceptional because short budgets can add many Temporal
-    /// Update events to Workflow history. Prefer at least one minute when nonzero. String and Boolean
+    /// Request ID from the condition when none is supplied. String and Boolean
     /// Attributes support equality matches. Integer and floating-point Attributes support every
-    /// match. A positive wait-budget expiry returns
-    /// [`SdkError::WaitHandlerTimeout`].
+    /// match. A positive request-timeout expiry returns [`SdkError::RequestTimeout`].
     pub fn wait_for_attribute_match<T: Value>(
         &self,
         flow_id: &str,
@@ -707,7 +716,7 @@ impl Client {
 
     /// Blocks until one AttributeMap instance satisfies `attribute_match`.
     ///
-    /// This targets the current run and otherwise has the same match, handler-budget,
+    /// This targets the current run and otherwise has the same match, request-timeout and handler-generation,
     /// request-ID, return-value, and error behavior as [`Self::wait_for_attribute_match`].
     pub fn wait_for_attribute_map_instance_match<T: Value>(
         &self,
@@ -734,19 +743,25 @@ impl Client {
     ) -> SdkResult<T> {
         let mut encoded_match = attribute_match.encode()?;
         encoded_match.key = key.to_string();
-        let wait_budget = ClientWaitBudget::new(options.maximum_wait_time)?;
+        let request_budget = ClientRequestBudget::new(options.request_timeout)?;
+        let internal_handler_timeout_seconds = seconds32(options.internal_handler_timeout)?;
         let response = loop {
-            let wait_time_seconds =
-                wait_budget.remaining_seconds("wait_for_attribute_match", flow_id)?;
+            let request_attempt =
+                request_budget.next_attempt("wait_for_attribute_match", flow_id)?;
             let mut service = self.service.clone();
+            let mut request = Request::new(WaitForAttributeRequest {
+                flow_id: flow_id.to_string(),
+                r#match: Some(encoded_match.clone()),
+                request_timeout_seconds: request_attempt.request_timeout_seconds,
+                internal_handler_timeout_seconds,
+                request_id: options.request_id.clone(),
+            });
+            if let Some(transport_timeout) = request_attempt.transport_timeout {
+                request.set_timeout(transport_timeout);
+            }
             let result = self
                 .runtime
-                .block_on(service.wait_for_attribute(WaitForAttributeRequest {
-                    flow_id: flow_id.to_string(),
-                    r#match: Some(encoded_match.clone()),
-                    wait_time_seconds,
-                    request_id: options.request_id.clone(),
-                }))
+                .block_on(service.wait_for_attribute(request))
                 .map_err(|status| {
                     SdkError::from_status(
                         status,
@@ -758,6 +773,16 @@ impl Client {
             match result {
                 Ok(response) => break response.into_inner(),
                 Err(SdkError::LongPollTimeout { .. }) => continue,
+                Err(error)
+                    if error.service_error().is_some_and(|service| {
+                        matches!(service.code(), Code::DeadlineExceeded | Code::Cancelled)
+                    }) && request_budget.has_deadline() =>
+                {
+                    return Err(SdkError::request_timeout(
+                        "wait_for_attribute_match",
+                        flow_id,
+                    ));
+                }
                 Err(error) => return Err(error),
             }
         };

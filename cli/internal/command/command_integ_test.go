@@ -423,7 +423,7 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 	}
 
 	executeTestCommand(t, nil, "flow", "skip-timer", "flow-1", "--step-type", "WaitForPayment", "--execution", "2", "--condition-index", "3", "--yes", "--server", address)
-	executeTestCommand(t, nil, "flow", "wait-step", "flow-1", "--step-type", "ShipOrder", "--execution", "2", "--wait-time", "1500ms", "--server", address)
+	executeTestCommand(t, nil, "flow", "wait-step", "flow-1", "--step-type", "ShipOrder", "--execution", "2", "--request-timeout", "1500ms", "--server", address)
 	executeTestCommand(t, nil, "flow", "update-config", "flow-1", "--config", `{"continueAsNewPageSizeInBytes":1024,"attributeStoreNames":[]}`, "--yes", "--server", address)
 	executeTestCommand(t, nil, "flow", "trigger-continue-as-new", "flow-1", "--yes", "--server", address)
 
@@ -456,7 +456,7 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 	if service.skipTimerRequest.GetStepExecutionId() != "WaitForPayment-2" || service.skipTimerRequest.GetTimerConditionIndex() != 3 {
 		t.Fatalf("unexpected skip timer request: %#v", service.skipTimerRequest)
 	}
-	if service.waitStepRequest.GetStepExecutionNumber() != "2" || service.waitStepRequest.GetWaitTimeSeconds() != 2 || service.waitStepRequest.GetRequestId() == "" {
+	if service.waitStepRequest.GetStepExecutionNumber() != "2" || service.waitStepRequest.GetRequestTimeoutSeconds() != 2 || service.waitStepRequest.GetRequestId() == "" {
 		t.Fatalf("unexpected wait-step request: %#v", service.waitStepRequest)
 	}
 	if service.updateConfigRequest.GetFlowConfig().GetContinueAsNewPageSizeInBytes() != 1024 || service.updateConfigRequest.GetFlowConfig().AttributeStoreNames == nil || len(service.updateConfigRequest.GetFlowConfig().GetAttributeStoreNames().GetNames()) != 0 {

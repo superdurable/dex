@@ -406,11 +406,11 @@ and sorted. Conditional completion is
 
 Request IDs are optional for both durable waits. When omitted, the server
 derives a stable ID from the Step execution or Attribute condition. Reuse an
-override only for the same wait. The maximum wait time is optional. Leave it at
-zero for normal use and bound one response with the caller deadline. Positive
-values are an exceptional safety valve: short budgets can add many Temporal
-Update events to Workflow history. If a positive value is truly needed, prefer
-at least one minute. A positive expiry throws `WaitHandlerTimeoutException`.
+override only for the same wait. `requestTimeout` is the total SDK call budget
+across transparent transport reattachments. Zero waits indefinitely.
+`internalHandlerTimeout` is an advanced Temporal Update generation lifetime;
+zero disables timed rollover. Request expiry throws `RequestTimeoutException`.
+Handler rollover stays internal.
 
 ## Exceptions
 
@@ -440,8 +440,8 @@ configuration, and step-wait operations that require an open Flow.
 
 `FlowAlreadyStartedException` identifies duplicate starts.
 `LongPollTimeoutException` identifies an expected long-poll timeout.
-`WaitHandlerTimeoutException` identifies an exhausted caller-defined durable
-wait budget.
+`RequestTimeoutException` identifies an exhausted caller-defined request
+budget.
 `Client.waitForFlow` returns `FlowResult` for successful and unsuccessful
 terminal statuses. Inspect `getStatus`, `getErrorType`, and `getErrorMessage`
 before decoding outputs from an unsuccessful result.

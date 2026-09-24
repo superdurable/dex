@@ -14,16 +14,21 @@ title: 响应式更新
 
 前两种等待观察 durable 状态。它们适合定义客户端可见的边界，而不是代替应用超时或最终 Flow 结果。Stream 承载有序的增量消息；客户端保存最新的 resume token，并在下一次读取时带上它。
 
-## 选择等待 budget
+## 选择超时边界
 
-**MaximumWaitTime** 限制调用方可见的等待时间。它不同于调用方 context、HTTP deadline 或 transport long-poll timeout。正值 budget 到期时，调用方会收到有类型的 timeout。
+**RequestTimeout** 是 SDK 调用的总预算，覆盖所有透明 transport reattachment。正值会为每次 attempt 设置本地 transport deadline。总预算到期时，SDK 返回有类型的 request-timeout 错误。已经接受的 durable Update 仍可由使用同一 logical Request ID 的后续调用重新附着。
 
-正值 **MaximumWaitTime** 是极少使用的安全阀，不是常规 request timeout。普通响应超时应让它保持为 0，并使用调用方 context 或 HTTP deadline。较短的正值可能让重复等待向 Workflow history 增加大量 Temporal Update accepted 和 completed events，也可能增加 Temporal Cloud Actions。确实需要正值时，应从至少 1 分钟开始；只有经过实际测量并有明确需求时才使用更短的值。
+普通 durable wait 应让 **RequestTimeout** 保持为 0。此时，它会一直等待，直到成功、Flow 关闭或调用方取消。在 HTTP 或 admission 边界，应显式设置应用响应预算。controller 示例使用 10 秒。
 
-| **MaximumWaitTime** | 适用场景 | 行为 |
+Server 还会限制单次 transport attempt。这个 cap 完全是内部行为。SDK 会使用同一 logical Request ID 重新附着，因此它不会重置 **RequestTimeout**、结束 Temporal Update handler 或创建新的 Update generation。
+
+**InternalHandlerTimeout** 是高级 Temporal 控制项。正值限制单个 Update handler generation 的生命周期。到期后，service 创建下一代并继续等待，不向调用方返回 handler-timeout 错误。除非 Workflow history 增长或运维需求要求换代，否则应保持为 0。较短的值会增加 Update events，也可能增加 Temporal Cloud Actions。
+
+| 设置 | 默认值 | 行为 |
 | --- | --- | --- |
-| 0 | 推荐用于普通等待。 | 一直等待 Step 完成或 Attribute 命中。使用调用方 deadline 限制单次响应时间。 |
-| 正值 | 极少使用：等待本身需要调用方可见的最长时长。建议至少 1 分钟。 | budget 到期时返回有类型的 timeout。较短的值可能向 Workflow history 增加大量 Temporal Update events。 |
+| **RequestTimeout** | 0 | 调用方可见的 SDK 总预算。0 表示等待到成功、Flow 关闭或调用方取消。 |
+| **InternalHandlerTimeout** | 0 | Temporal Update generation 生命周期。0 表示不按时间换代。 |
+| Transport attempt cap | Server 管理 | 只触发透明 reattachment，不是应用可见的 timeout。 |
 
 ## 相关内容
 

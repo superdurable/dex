@@ -32,7 +32,7 @@ for (const scenario of cancellationScenarios) {
           : flow.blockingExecute;
         await client.waitForStepCompletion(id, StepExecutionId.of(selected.getStepType()), {
           requestId: `${id}-wait-selected-step`,
-          maximumWaitTimeMs: 30_000,
+          requestTimeoutMs: 30_000,
         });
       }
 

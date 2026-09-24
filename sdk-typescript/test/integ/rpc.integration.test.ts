@@ -50,7 +50,7 @@ test("locking RPC serializes concurrent increments", async () => {
         id,
         flow.counter,
         AttributeMatch.greaterThan(0),
-        { requestId: `${id}-wait-counter`, maximumWaitTimeMs: 30_000 },
+        { requestId: `${id}-wait-counter`, requestTimeoutMs: 30_000 },
       ),
       succeeded,
     );

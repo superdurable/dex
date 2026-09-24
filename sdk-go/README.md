@@ -386,11 +386,11 @@ bytes, null, non-finite doubles, and invalid ordering fail before the RPC.
 
 Request IDs are optional for both durable waits. When omitted, the server
 derives a stable ID from the Step execution or Attribute condition. Reuse an
-override only for the same wait. `MaximumWaitTime` is optional. Leave it at zero
-for normal use and bound one response with the caller context. Positive values
-are an exceptional safety valve: short budgets can add many Temporal Update
-events to Workflow history. If a positive value is truly needed, prefer at
-least one minute. A positive expiry returns `*dex.WaitHandlerTimeoutError`.
+override only for the same wait. `RequestTimeout` is the total SDK call budget
+across transparent transport reattachments. Zero waits indefinitely until the
+caller context is canceled. `InternalHandlerTimeout` is an advanced Temporal
+Update generation lifetime; zero disables timed rollover. Request expiry
+returns `*dex.RequestTimeoutError`. Handler rollover stays internal.
 
 Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and
@@ -619,7 +619,8 @@ WaitForFlow and TimeTravel. RPCs, timer operations, and step or attribute waits 
 `FlowNotActiveError` when no active Flow is available.
 
 Duplicate starts return `FlowAlreadyStartedError`. Server long polls return
-`LongPollTimeoutError`, including the operation and Flow ID. Worker handler
+`LongPollTimeoutError`, including the operation and Flow ID. Durable Step and
+Attribute waits reattach transparently instead of exposing that error. Worker handler
 failures return `WorkerInvocationError`; its `Worker` field preserves the
 original Worker code, type, and detail. Concurrent locking RPCs return
 `RPCLockConflictError` separately.

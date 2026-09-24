@@ -197,10 +197,10 @@ public final class StepCancellationTest {
     private static WaitForStepCompletionOptions waitOptions(
             final String flowId,
             final String suffix,
-            final Duration maximumWaitTime) {
+            final Duration requestTimeout) {
         return WaitForStepCompletionOptions.newBuilder()
                 .requestId(flowId + "-wait-" + suffix)
-                .maximumWaitTime(maximumWaitTime)
+                .requestTimeout(requestTimeout)
                 .build();
     }
 

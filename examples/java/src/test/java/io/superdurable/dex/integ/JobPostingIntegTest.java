@@ -77,7 +77,7 @@ public class JobPostingIntegTest {
 
     private static WaitForStepCompletionOptions waitOptions() {
         return WaitForStepCompletionOptions.newBuilder()
-                .maximumWaitTime(Duration.ofSeconds(30))
+                .requestTimeout(Duration.ofSeconds(30))
                 .build();
     }
 }

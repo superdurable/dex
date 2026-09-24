@@ -154,11 +154,11 @@ func testRPCStepLineageAcrossContinueAsNew(
 	require.NoError(t, err)
 	if backendType == service.BackendTypeTemporal {
 		_, err = runtime.FlowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-			FlowId:              flowID,
-			StepType:            deadend.State1,
-			StepExecutionNumber: "1",
-			WaitTimeSeconds:     30,
-			RequestId:           newRequestID(),
+			FlowId:                flowID,
+			StepType:              deadend.State1,
+			StepExecutionNumber:   "1",
+			RequestTimeoutSeconds: 30,
+			RequestId:             newRequestID(),
 		})
 		require.NoError(t, err)
 	} else {

@@ -849,15 +849,15 @@ func (client *Client) UpdateFlowConfig(
 	return translateRPCError(err, "UpdateFlowConfig", flowID, flowTargetActive)
 }
 
-// WaitForStepCompletion blocks until a Step execution completes, the caller-visible wait budget expires,
+// WaitForStepCompletion blocks until a Step execution completes, the caller-visible request expires,
 // or ctx ends.
 //
 // stepExecution identifies the Step type and execution number; nil means execution
 // one. A nil error means the requested execution completed, but this method does not return its output.
 // When options.RequestID is empty, the server derives a stable RequestID from the Step execution.
-// Leave MaximumWaitTime zero for normal use and bound one response with ctx. Positive values are
-// exceptional because short budgets can add many Temporal Update events to Workflow history; prefer
-// at least one minute when nonzero. A positive value returns WaitHandlerTimeoutError to the caller.
+// RequestTimeout bounds the complete call across transparent transport reattachments. A positive
+// value returns RequestTimeoutError. InternalHandlerTimeout controls internal Temporal Update
+// generation rollover and does not end the caller-visible request.
 // Invalid identifiers, inactive Flows, context, transport, and server errors are also returned.
 func (client *Client) WaitForStepCompletion(
 	ctx context.Context,
@@ -872,29 +872,46 @@ func (client *Client) WaitForStepCompletion(
 	if err != nil {
 		return err
 	}
-	waitBudget, err := newClientWaitBudget(options.MaximumWaitTime)
+	requestBudget, err := newClientRequestBudget(options.RequestTimeout)
+	if err != nil {
+		return err
+	}
+	internalHandlerTimeoutSeconds, err := exactDurationSeconds32(options.InternalHandlerTimeout)
 	if err != nil {
 		return err
 	}
 	for {
-		handlerWaitTimeoutSeconds, err := waitBudget.remainingSeconds()
+		remainingRequestTimeoutSeconds, err := requestBudget.remainingSeconds()
 		if err != nil {
-			return newWaitHandlerTimeoutError("WaitForStepCompletion", flowID)
+			return newRequestTimeoutError("WaitForStepCompletion", flowID)
+		}
+		requestCtx, cancelRequest, err := requestBudget.context(ctx)
+		if err != nil {
+			return newRequestTimeoutError("WaitForStepCompletion", flowID)
 		}
 		_, err = client.service.WaitForStepCompletion(
-			ctx,
+			requestCtx,
 			&dexpb.WaitForStepCompletionRequest{
-				FlowId:              flowID,
-				StepType:            stepExecution.StepType,
-				StepExecutionNumber: strconv.FormatInt(int64(executionNumber), 10),
-				WaitTimeSeconds:     handlerWaitTimeoutSeconds,
-				RequestId:           options.RequestID,
+				FlowId:                        flowID,
+				StepType:                      stepExecution.StepType,
+				StepExecutionNumber:           strconv.FormatInt(int64(executionNumber), 10),
+				RequestTimeoutSeconds:         remainingRequestTimeoutSeconds,
+				InternalHandlerTimeoutSeconds: internalHandlerTimeoutSeconds,
+				RequestId:                     options.RequestID,
 			},
 		)
+		cancelRequest()
 		if err == nil {
 			return nil
 		}
-		translated := translateWaitRPCError(ctx, err, "WaitForStepCompletion", flowID, flowTargetActive)
+		translated := translateDurableWaitRPCError(
+			ctx,
+			requestBudget,
+			err,
+			"WaitForStepCompletion",
+			flowID,
+			flowTargetActive,
+		)
 		var longPollTimeout *LongPollTimeoutError
 		if !errors.As(translated, &longPollTimeout) {
 			return translated
@@ -1138,9 +1155,9 @@ func streamMessagesPageTarget(
 // matched current value is decoded into valuePtr before this method returns.
 // valuePtr must be a non-nil pointer of the registered type. When options.RequestID is empty, the
 // server derives one from the Attribute condition.
-// Leave MaximumWaitTime zero for normal use and bound one response with ctx. Positive values are
-// exceptional because short budgets can add many Temporal Update events to Workflow history; prefer
-// at least one minute when nonzero. A positive value returns WaitHandlerTimeoutError to the caller.
+// RequestTimeout bounds the complete call across transparent transport reattachments. A positive
+// value returns RequestTimeoutError. InternalHandlerTimeout controls internal Temporal Update
+// generation rollover and does not end the caller-visible request.
 // Use context.WithTimeout or context.WithDeadline to bound the caller-visible response.
 func (client *Client) WaitForAttributeMatch(
 	ctx context.Context,
@@ -1223,32 +1240,49 @@ func (client *Client) waitForAttributeMatch(
 	if err := validateEncodedAttributeMatch(match.attributeMatchOperator(), encoded); err != nil {
 		return err
 	}
-	waitBudget, err := newClientWaitBudget(options.MaximumWaitTime)
+	requestBudget, err := newClientRequestBudget(options.RequestTimeout)
+	if err != nil {
+		return err
+	}
+	internalHandlerTimeoutSeconds, err := exactDurationSeconds32(options.InternalHandlerTimeout)
 	if err != nil {
 		return err
 	}
 	for {
-		handlerWaitTimeoutSeconds, err := waitBudget.remainingSeconds()
+		remainingRequestTimeoutSeconds, err := requestBudget.remainingSeconds()
 		if err != nil {
-			return newWaitHandlerTimeoutError("WaitForAttribute", flowID)
+			return newRequestTimeoutError("WaitForAttribute", flowID)
 		}
-		response, waitErr := client.service.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+		requestCtx, cancelRequest, err := requestBudget.context(ctx)
+		if err != nil {
+			return newRequestTimeoutError("WaitForAttribute", flowID)
+		}
+		response, waitErr := client.service.WaitForAttribute(requestCtx, &dexpb.WaitForAttributeRequest{
 			FlowId: flowID,
 			Match: &dexpb.AttributeMatch{
 				Key:      name,
 				Operator: match.attributeMatchOperator(),
 				Operand:  encoded,
 			},
-			WaitTimeSeconds: handlerWaitTimeoutSeconds,
-			RequestId:       options.RequestID,
+			RequestTimeoutSeconds:         remainingRequestTimeoutSeconds,
+			InternalHandlerTimeoutSeconds: internalHandlerTimeoutSeconds,
+			RequestId:                     options.RequestID,
 		})
+		cancelRequest()
 		if waitErr == nil {
 			if response.GetMatchedValue() == nil {
 				return fmt.Errorf("dex: WaitForAttribute response is incomplete")
 			}
 			return decodeValue(response.GetMatchedValue(), valuePtr)
 		}
-		translated := translateWaitRPCError(ctx, waitErr, "WaitForAttribute", flowID, flowTargetActive)
+		translated := translateDurableWaitRPCError(
+			ctx,
+			requestBudget,
+			waitErr,
+			"WaitForAttribute",
+			flowID,
+			flowTargetActive,
+		)
 		var longPollTimeout *LongPollTimeoutError
 		if !errors.As(translated, &longPollTimeout) {
 			return translated
@@ -1256,22 +1290,22 @@ func (client *Client) waitForAttributeMatch(
 	}
 }
 
-type clientWaitBudget struct {
+type clientRequestBudget struct {
 	deadline time.Time
 }
 
-func newClientWaitBudget(maximumWaitTime time.Duration) (*clientWaitBudget, error) {
-	if _, err := exactDurationSeconds32(maximumWaitTime); err != nil {
+func newClientRequestBudget(requestTimeout time.Duration) (*clientRequestBudget, error) {
+	if _, err := exactDurationSeconds32(requestTimeout); err != nil {
 		return nil, err
 	}
-	waitBudget := &clientWaitBudget{}
-	if maximumWaitTime > 0 {
-		waitBudget.deadline = time.Now().Add(maximumWaitTime)
+	requestBudget := &clientRequestBudget{}
+	if requestTimeout > 0 {
+		requestBudget.deadline = time.Now().Add(requestTimeout)
 	}
-	return waitBudget, nil
+	return requestBudget, nil
 }
 
-func (b *clientWaitBudget) remainingSeconds() (int32, error) {
+func (b *clientRequestBudget) remainingSeconds() (int32, error) {
 	if b.deadline.IsZero() {
 		return 0, nil
 	}
@@ -1283,15 +1317,48 @@ func (b *clientWaitBudget) remainingSeconds() (int32, error) {
 	return int32(seconds), nil
 }
 
-func newWaitHandlerTimeoutError(operation string, flowID string) error {
+func (b *clientRequestBudget) context(parent context.Context) (context.Context, context.CancelFunc, error) {
+	if b.deadline.IsZero() {
+		requestCtx, cancelRequest := context.WithCancel(parent)
+		return requestCtx, cancelRequest, nil
+	}
+	if !time.Now().Before(b.deadline) {
+		return nil, nil, context.DeadlineExceeded
+	}
+	requestCtx, cancelRequest := context.WithDeadline(parent, b.deadline)
+	return requestCtx, cancelRequest, nil
+}
+
+func (b *clientRequestBudget) hasExpired() bool {
+	return !b.deadline.IsZero() && !time.Now().Before(b.deadline)
+}
+
+func newRequestTimeoutError(operation string, flowID string) error {
 	serviceError := &ServiceError{
 		Op:        operation,
 		FlowID:    flowID,
 		Code:      codes.DeadlineExceeded,
-		SubStatus: ErrorSubStatusWaitHandlerTimeout,
-		Detail:    "wait handler timed out",
+		SubStatus: ErrorSubStatusRequestTimeout,
+		Detail:    "request timed out",
 	}
-	return &WaitHandlerTimeoutError{ServiceError: serviceError}
+	return &RequestTimeoutError{ServiceError: serviceError}
+}
+
+func translateDurableWaitRPCError(
+	ctx context.Context,
+	requestBudget *clientRequestBudget,
+	err error,
+	op string,
+	flowID string,
+	target flowTargetRequirement,
+) error {
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
+	}
+	if status.Code(err) == codes.DeadlineExceeded && requestBudget.hasExpired() {
+		return newRequestTimeoutError(op, flowID)
+	}
+	return translateRPCError(err, op, flowID, target)
 }
 
 func translateWaitRPCError(

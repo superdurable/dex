@@ -87,15 +87,16 @@ fn test_set_data_attributes() {
         .client
         .start_flow(&workflow, &flow_id, "start".to_string())
         .expect("start set-data-attributes Flow");
-    assert!(matches!(
-        environment.client.wait_for_attribute_match(
-            &flow_id,
-            &set_attributes::DATA,
-            AttributeMatch::equal_to("never".to_string()),
-            wait_options(&flow_id, "never", 1),
-        ),
-        Err(SdkError::WaitHandlerTimeout { .. })
-    ));
+    let timeout_result = environment.client.wait_for_attribute_match(
+        &flow_id,
+        &set_attributes::DATA,
+        AttributeMatch::equal_to("never".to_string()),
+        wait_options(&flow_id, "never", 1),
+    );
+    assert!(
+        matches!(&timeout_result, Err(SdkError::RequestTimeout { .. })),
+        "unexpected timeout result: {timeout_result:?}"
+    );
     std::thread::scope(|scope| {
         let waiting = scope.spawn(|| {
             environment.client.wait_for_attribute_match(
@@ -269,5 +270,5 @@ fn compile_persistence_writes(client: &Client) -> SdkResult<()> {
 fn wait_options(flow_id: &str, suffix: &str, seconds: u64) -> WaitForAttributeOptions {
     WaitForAttributeOptions::new()
         .request_id(format!("{flow_id}-wait-{suffix}"))
-        .maximum_wait_time(Duration::from_secs(seconds))
+        .request_timeout(Duration::from_secs(seconds))
 }

@@ -43,8 +43,8 @@ option java_outer_classname = "DexProto";
 //   Aborted           — locking RPC attribute lock contention
 //                       sub_status WORKER_API_ERROR
 //   ResourceExhausted — worker connection pool / message size limits
-//   DeadlineExceeded  — transport long poll or caller-visible wait deadline
-//                       sub_status LONG_POLL_TIME_OUT or WAIT_HANDLER_TIME_OUT
+//   DeadlineExceeded  — transport long poll or caller-visible request deadline
+//                       sub_status LONG_POLL_TIME_OUT or REQUEST_TIMEOUT
 //   Canceled          — caller canceled the RPC context
 //   Unavailable       — Temporal/Cadence backend or Stream Store backend unavailable;
 //                       never Dex application WorkerService
@@ -61,8 +61,8 @@ option java_outer_classname = "DexProto";
 //     WORKER_API_ERROR + OriginalWorker* when present.
 //   WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
 //     retries CONTINUE_AS_NEW_PREEMPTED (not exposed as Internal). Transport
-//     timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Wait-budget timeout →
-//     DeadlineExceeded + WAIT_HANDLER_TIME_OUT. WaitForAttribute rejects waiting
+//     timeout → DeadlineExceeded + LONG_POLL_TIME_OUT. Request timeout →
+//     DeadlineExceeded + REQUEST_TIMEOUT. WaitForAttribute rejects waiting
 //     on blob-backed stored attributes with FailedPrecondition.
 //   WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
 //     LONG_POLL_TIME_OUT.
@@ -908,11 +908,12 @@ message WaitForStepCompletionRequest {
   // Identifies a step execution by type and its per-type execution number.
   string step_type = 2;
   string step_execution_number = 3;
-  // Sets the caller-visible maximum wait time in seconds.
-  // Zero waits indefinitely and is recommended for normal use.
-  // Positive values are an exceptional safety valve, not a normal request timeout.
-  // Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
-  int32 wait_time_seconds = 5;
+  // Bounds the caller-visible request across transparent transport reattachments.
+  // Zero waits indefinitely.
+  int32 request_timeout_seconds = 4;
+  // Bounds one internal Temporal Update handler generation.
+  // Zero disables time-based handler generation rollover.
+  int32 internal_handler_timeout_seconds = 5;
   // Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
   string request_id = 6;
 }
@@ -922,13 +923,14 @@ message WaitForStepCompletionResponse {}
 message WaitForAttributeRequest {
   string flow_id = 1;
   AttributeMatch match = 2;
-  // Sets the caller-visible maximum wait time in seconds.
-  // Zero waits indefinitely and is recommended for normal use.
-  // Positive values are an exceptional safety valve, not a normal request timeout.
-  // Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
-  int32 wait_time_seconds = 3;
+  // Bounds the caller-visible request across transparent transport reattachments.
+  // Zero waits indefinitely.
+  int32 request_timeout_seconds = 3;
+  // Bounds one internal Temporal Update handler generation.
+  // Zero disables time-based handler generation rollover.
+  int32 internal_handler_timeout_seconds = 4;
   // Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
-  string request_id = 4;
+  string request_id = 5;
 }
 
 message WaitForAttributeResponse {
@@ -979,7 +981,7 @@ enum ErrorSubStatus {
   ERROR_SUB_STATUS_WORKER_API_ERROR = 4;
   ERROR_SUB_STATUS_LONG_POLL_TIME_OUT = 5;
   ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND = 6;
-  ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT = 7;
+  ERROR_SUB_STATUS_REQUEST_TIMEOUT = 7;
 }
 
 message WorkerErrorResponse {

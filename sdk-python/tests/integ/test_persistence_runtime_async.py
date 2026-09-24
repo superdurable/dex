@@ -17,7 +17,7 @@ from dex import (
     Attribute,
     AttributeMatch,
     WaitForAttributeOptions,
-    WaitHandlerTimeoutError,
+    RequestTimeoutError,
 )
 
 from .async_environment import AsyncDexDevTestEnvironment
@@ -35,7 +35,7 @@ async def _async_wait_for_attribute_match() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("async-wait-for-attribute")
         await environment.client.start_flow(flow, flow_id, "start")
-        with pytest.raises(WaitHandlerTimeoutError):
+        with pytest.raises(RequestTimeoutError):
             await environment.client.wait_for_attribute_match(
                 flow_id,
                 flow.data,

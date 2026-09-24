@@ -14,16 +14,21 @@ Choose the boundary deliberately:
 
 The first two waits observe durable state. They are appropriate for a client-visible boundary, not a substitute for an application timeout or a final Flow result. Streams carry ordered incremental messages; clients keep the latest resume token and use it on the next read.
 
-## Choose the wait budget
+## Choose the timeout boundary
 
-**MaximumWaitTime** bounds the caller-visible wait. It is separate from a caller context, HTTP deadline, or transport long-poll timeout. When a positive budget elapses, the caller receives a typed timeout.
+**RequestTimeout** is the SDK call's total budget. It covers every transparent transport reattachment. A positive value creates a local transport deadline for each attempt and returns a typed request-timeout error when the total budget expires. An already accepted durable Update remains available for a later call using the same logical Request ID.
 
-A positive **MaximumWaitTime** is an exceptional safety valve, not a normal request timeout. For routine response deadlines, leave it at 0 and use the caller context or HTTP deadline. Short positive budgets can cause repeated waits to add many Temporal Update accepted and completed events to Workflow history. They may also increase Temporal Cloud Actions. If a positive value is genuinely necessary, start with at least one minute and use a shorter value only for a measured requirement.
+Leave **RequestTimeout** at 0 for an ordinary durable wait. The wait is then unlimited until it succeeds, the Flow closes, or the caller cancels it. At an HTTP or admission boundary, set the application's response budget explicitly. The controller example uses 10 seconds.
 
-| **MaximumWaitTime** | Use it when | Behavior |
+The server also caps one transport attempt. That cap is internal. The SDK reattaches with the same logical Request ID, so the cap does not reset **RequestTimeout**, end the Temporal Update handler, or create another Update generation.
+
+**InternalHandlerTimeout** is an advanced Temporal control. A positive value limits one Update handler generation. When it expires, the service creates the next generation and keeps waiting without returning a handler-timeout error. Leave it at 0 unless Workflow-history growth or an operational requirement needs generation rollover. Short values can add many Update events and increase Temporal Cloud Actions.
+
+| Setting | Default | Behavior |
 | --- | --- | --- |
-| 0 | Recommended for ordinary waits. | Waits until the Step completes or the Attribute matches. Use the caller deadline to bound one response. |
-| Positive | Rarely, when the wait itself needs a caller-visible maximum duration. Prefer at least one minute. | Returns a typed timeout when the budget expires. Short values can add many Temporal Update events to Workflow history. |
+| **RequestTimeout** | 0 | Total caller-visible SDK budget. Zero waits until success, Flow closure, or caller cancellation. |
+| **InternalHandlerTimeout** | 0 | Temporal Update generation lifetime. Zero disables time-based rollover. |
+| Transport attempt cap | Server-managed | Causes transparent reattachment only. It is not an application-facing timeout. |
 
 ## Related
 

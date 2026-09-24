@@ -16,18 +16,19 @@ import java.time.Duration;
  * Configures one durable Attribute match wait.
  * The server derives a stable Request ID from the Attribute condition when none is supplied.
  * Reuse an override only for the same logical predicate.
- * Leave the maximum wait time at zero to wait indefinitely.
- * Positive values are an exceptional safety valve. Short budgets can add many Temporal Update events
- * to Workflow history, so prefer at least one minute when nonzero.
- * A positive value bounds the caller-visible wait.
+ * The request timeout bounds the caller-visible call across transparent transport reattachments.
+ * The internal handler timeout controls Temporal Update generation rollover and does not end the
+ * caller-visible request. Leave both values at zero for normal indefinite waiting.
  */
 public final class WaitForAttributeOptions {
     private final String requestId;
-    private final Duration maximumWaitTime;
+    private final Duration requestTimeout;
+    private final Duration internalHandlerTimeout;
 
     private WaitForAttributeOptions(final Builder builder) {
         requestId = builder.requestId;
-        maximumWaitTime = builder.maximumWaitTime;
+        requestTimeout = builder.requestTimeout;
+        internalHandlerTimeout = builder.internalHandlerTimeout;
     }
 
     /**
@@ -44,14 +45,19 @@ public final class WaitForAttributeOptions {
         return requestId;
     }
 
-    Duration getMaximumWaitTime() {
-        return maximumWaitTime;
+    Duration getRequestTimeout() {
+        return requestTimeout;
+    }
+
+    Duration getInternalHandlerTimeout() {
+        return internalHandlerTimeout;
     }
 
     /** Builds immutable Attribute wait options. */
     public static final class Builder {
         private String requestId;
-        private Duration maximumWaitTime = Duration.ZERO;
+        private Duration requestTimeout = Duration.ZERO;
+        private Duration internalHandlerTimeout = Duration.ZERO;
 
         private Builder() {
         }
@@ -68,14 +74,27 @@ public final class WaitForAttributeOptions {
         }
 
         /**
-         * Bounds the caller-visible wait. Zero waits indefinitely.
-         * Positive values are rare. Prefer at least one minute to limit Temporal Update history growth.
+         * Bounds the caller-visible request across transparent transport reattachments.
+         * Zero waits indefinitely.
          *
          * @param value a nonnegative whole-second duration within the protocol range
          * @return this builder
          */
-        public Builder maximumWaitTime(final Duration value) {
-            maximumWaitTime = value;
+        public Builder requestTimeout(final Duration value) {
+            requestTimeout = value;
+            return this;
+        }
+
+        /**
+         * Bounds one internal Temporal Update handler generation.
+         * Zero disables time-based generation rollover. Short positive values can add many Temporal
+         * Update events to Workflow history.
+         *
+         * @param value a nonnegative whole-second duration within the protocol range
+         * @return this builder
+         */
+        public Builder internalHandlerTimeout(final Duration value) {
+            internalHandlerTimeout = value;
             return this;
         }
 
