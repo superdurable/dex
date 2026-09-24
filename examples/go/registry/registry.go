@@ -150,7 +150,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	JobPosting = jobpost.NewJobPostingFlow(applicationService)
 	refundService := refundmodel.NewFakeService()
 	CustomerRefund = deterministic.NewCustomerRefundFlow(refundService)
-	AgenticRefund = agentic.NewAgenticCustomerRefundFlow(refundService)
+	AgenticRefund = agentic.NewAgenticCustomerRefundFlow(refundService, newDemoOpenAIConnection())
 
 	CronSchedule = cron.NewCronScheduleFlow()
 	PollingWithTimer = patternspolling.NewPollingWithTimerFlow()

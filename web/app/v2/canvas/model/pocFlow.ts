@@ -151,6 +151,8 @@ export interface StepModel {
   execute: ExecutePhase
   resources: ResourceRef[]
   span?: SourceSpan
+  /** True when dexcli identified this Step as a Connector SDK factory Step. */
+  isConnectorStep: boolean
   /** One-sentence Step purpose from `dex:explanation`, when the FDG carries it. */
   explanation?: string
 }

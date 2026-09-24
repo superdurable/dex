@@ -59,6 +59,12 @@ describe('control topology group bands', () => {
   it('never overlaps two Step boxes on the shipped refund graph', () => {
     expect(overlappingPairs(refundScene().boxes)).toEqual([]);
   });
+
+  it('marks the shipped OpenAI Connector Step with its semantic icon', () => {
+    const connector = refundScene().boxes.find((box) => box.id === 'step:GenerateCustomerMessageStep');
+
+    expect(connector?.icon).toBe('connector');
+  });
 });
 
 interface FdgGroup { id: string; label: string; stepIds: string[] }

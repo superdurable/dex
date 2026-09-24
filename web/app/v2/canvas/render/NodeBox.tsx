@@ -58,6 +58,19 @@ function PhaseChip({ cell }: { cell: PhaseCell }): JSX.Element {
   )
 }
 
+function ConnectorIcon(): JSX.Element {
+  return (
+    <svg
+      aria-label="Connector Step"
+      className="pbox-connector-icon"
+      role="img"
+      viewBox="0 0 16 16"
+    >
+      <path d="M5 1.5v3M11 1.5v3M3.5 4.5h9v2A4.5 4.5 0 0 1 8 11H7v3.5" />
+    </svg>
+  )
+}
+
 export function NodeBox({
   box,
   selected,
@@ -172,7 +185,10 @@ export function NodeBox({
       {...hoverProps}
     >
       <span className="pbox-head">
-        <span className="pbox-title">{box.title}</span>
+        <span className="pbox-title-line">
+          {box.icon === 'connector' ? <ConnectorIcon /> : null}
+          <span className="pbox-title">{box.title}</span>
+        </span>
         {/*
           BPMN's LOOP MARKER. BPMN puts ↻ on the activity itself rather than relying on the reader
           tracing a back edge, and that is the right call here for the same reason: the arc is a few

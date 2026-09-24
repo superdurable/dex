@@ -102,6 +102,29 @@ func (analyzer *goAnalyzer) collectV2Groups() []StepGroup {
 	groupIndexes := make(map[string]int)
 	typeDirectives := analyzer.v2TypeDirectives()
 	for _, stepType := range analyzer.registeredSteps {
+		if factory, ok := analyzer.connectorFactories[stepType]; ok {
+			groupID := factory.presentation.groupID
+			groupLabel := factory.presentation.groupLabel
+			if !v2GroupIDPattern.MatchString(groupID) {
+				analyzer.graph.AddDiagnostic("error", "v2_step_group", fmt.Sprintf("Connector factory Step %s group-id %q must be kebab-case", stepType, groupID), nil)
+				continue
+			}
+			if strings.TrimSpace(groupLabel) == "" {
+				analyzer.graph.AddDiagnostic("error", "v2_step_group", fmt.Sprintf("Connector factory Step %s group-label must not be empty", stepType), nil)
+				continue
+			}
+			groupIndex, found := groupIndexes[groupID]
+			if !found {
+				groupIndexes[groupID] = len(groups)
+				groups = append(groups, StepGroup{ID: groupID, Label: groupLabel, StepIDs: make([]string, 0)})
+				groupIndex = len(groups) - 1
+			} else if groups[groupIndex].Label != groupLabel {
+				analyzer.graph.AddDiagnostic("error", "v2_step_group", fmt.Sprintf("group %q uses conflicting labels", groupID), nil)
+				continue
+			}
+			groups[groupIndex].StepIDs = append(groups[groupIndex].StepIDs, "step:"+stepType)
+			continue
+		}
 		directives := directivesNamed(typeDirectives[stepType], "group")
 		if len(directives) != 1 {
 			analyzer.graph.AddDiagnostic(
@@ -143,6 +166,25 @@ func (analyzer *goAnalyzer) collectV2Groups() []StepGroup {
 func (analyzer *goAnalyzer) applyV2Explanations() {
 	typeDirectives := analyzer.v2TypeDirectives()
 	for _, stepType := range analyzer.registeredSteps {
+		if factory, ok := analyzer.connectorFactories[stepType]; ok {
+			explanation := strings.TrimSpace(factory.presentation.explanation)
+			if explanation == "" {
+				analyzer.graph.AddDiagnostic("error", "v2_step_explanation", fmt.Sprintf("Connector factory Step %s explanation must not be empty", stepType), nil)
+				continue
+			}
+			nodeID := "step:" + stepType
+			for index := range analyzer.graph.Nodes {
+				if analyzer.graph.Nodes[index].ID != nodeID {
+					continue
+				}
+				if analyzer.graph.Nodes[index].Metadata == nil {
+					analyzer.graph.Nodes[index].Metadata = make(map[string]any)
+				}
+				analyzer.graph.Nodes[index].Metadata["explanation"] = explanation
+				break
+			}
+			continue
+		}
 		directives := directivesNamed(typeDirectives[stepType], "explanation")
 		if len(directives) != 1 {
 			analyzer.graph.AddDiagnostic(

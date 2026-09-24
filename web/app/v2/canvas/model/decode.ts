@@ -497,6 +497,7 @@ export function decodeFlow(
         execute,
         resources: refsByOwner.get(n.id) ?? [],
         span: n.span,
+        isConnectorStep: n.metadata?.connectorFactory === true,
         explanation: typeof n.metadata?.explanation === 'string' ? n.metadata.explanation : undefined,
       }
     })

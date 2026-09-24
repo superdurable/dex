@@ -1,0 +1,558 @@
+{
+  "schemaVersion": "2.0",
+  "valid": true,
+  "source": {
+    "language": "go",
+    "path": "examples/go/products/connector-factory/workflow.go"
+  },
+  "flow": {
+    "name": "CustomerSummaryConnectorFlow",
+    "startStepId": "step:GenerateCustomerSummary",
+    "span": {
+      "startLine": 74,
+      "startColumn": 1,
+      "endLine": 116,
+      "endColumn": 2
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:rpc:GetDexDisplay:152:9",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:GetDexDisplay",
+      "phase": "rpc",
+      "span": {
+        "startLine": 152,
+        "startColumn": 9,
+        "endLine": 155,
+        "endColumn": 4
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:GetDexSummary:138:9",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:GetDexSummary",
+      "phase": "rpc",
+      "span": {
+        "startLine": 138,
+        "startColumn": 9,
+        "endLine": 138,
+        "endColumn": 101
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:CustomerSummaryCompletedStep:201:9",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:CustomerSummaryCompletedStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 201,
+        "startColumn": 9,
+        "endLine": 205,
+        "endColumn": 4
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:CustomerSummaryExecuteFailedStep:249:9",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:CustomerSummaryExecuteFailedStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 249,
+        "startColumn": 9,
+        "endLine": 249,
+        "endColumn": 80
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:CustomerSummaryFailedStep:215:9",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:CustomerSummaryFailedStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 215,
+        "startColumn": 9,
+        "endLine": 215,
+        "endColumn": 92
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:CustomerSummaryReconcileFailedStep:239:9",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:CustomerSummaryReconcileFailedStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 239,
+        "startColumn": 9,
+        "endLine": 239,
+        "endColumn": 96
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:CustomerSummaryReconciledStep:225:9",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:CustomerSummaryReconciledStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 225,
+        "startColumn": 9,
+        "endLine": 229,
+        "endColumn": 4
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "resource:attribute:generatedCustomerSummary",
+      "kind": "attribute",
+      "name": "generated-customer-summary",
+      "span": {
+        "startLine": 38,
+        "startColumn": 5,
+        "endLine": 38,
+        "endColumn": 125
+      },
+      "resource": {
+        "valueType": "factorysdk.MutationResult[openai.Response]"
+      }
+    },
+    {
+      "id": "resource:attribute:reconciledCustomerSummary",
+      "kind": "attribute",
+      "name": "reconciled-customer-summary",
+      "span": {
+        "startLine": 40,
+        "startColumn": 5,
+        "endLine": 40,
+        "endColumn": 124
+      },
+      "resource": {
+        "valueType": "factorysdk.QueryResult[openai.Response]"
+      }
+    },
+    {
+      "id": "resource:stream:customerSummaryProgress",
+      "kind": "stream",
+      "name": "customer-summary-progress",
+      "span": {
+        "startLine": 42,
+        "startColumn": 5,
+        "endLine": 42,
+        "endColumn": 110
+      },
+      "resource": {
+        "valueType": "factorysdk.ProgressUpdate"
+      }
+    },
+    {
+      "id": "resource:stream:customerSummaryText",
+      "kind": "stream",
+      "name": "customer-summary-text",
+      "span": {
+        "startLine": 44,
+        "startColumn": 5,
+        "endLine": 44,
+        "endColumn": 83
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "rpc:GetDexDisplay",
+      "kind": "rpc",
+      "name": "GetDexDisplay",
+      "span": {
+        "startLine": 143,
+        "startColumn": 1,
+        "endLine": 156,
+        "endColumn": 2
+      }
+    },
+    {
+      "id": "rpc:GetDexSummary",
+      "kind": "rpc",
+      "name": "GetDexSummary",
+      "span": {
+        "startLine": 133,
+        "startColumn": 1,
+        "endLine": 139,
+        "endColumn": 2
+      }
+    },
+    {
+      "id": "step:CustomerSummaryCompletedStep",
+      "kind": "step",
+      "name": "CustomerSummaryCompletedStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 110,
+        "startColumn": 3,
+        "endLine": 110,
+        "endColumn": 49
+      },
+      "metadata": {
+        "explanation": "Complete after OpenAI confirms the generated customer summary."
+      }
+    },
+    {
+      "id": "step:CustomerSummaryExecuteFailedStep",
+      "kind": "step",
+      "name": "CustomerSummaryExecuteFailedStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 114,
+        "startColumn": 3,
+        "endLine": 114,
+        "endColumn": 53
+      },
+      "metadata": {
+        "explanation": "Fail after the generation Step exhausts its retry policy."
+      }
+    },
+    {
+      "id": "step:CustomerSummaryFailedStep",
+      "kind": "step",
+      "name": "CustomerSummaryFailedStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 111,
+        "startColumn": 3,
+        "endLine": 111,
+        "endColumn": 46
+      },
+      "metadata": {
+        "explanation": "Fail after OpenAI rejects the generation request or local input is invalid."
+      }
+    },
+    {
+      "id": "step:CustomerSummaryReconcileFailedStep",
+      "kind": "step",
+      "name": "CustomerSummaryReconcileFailedStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 113,
+        "startColumn": 3,
+        "endLine": 113,
+        "endColumn": 55
+      },
+      "metadata": {
+        "explanation": "Fail when retrieval cannot confirm the uncertain model response."
+      }
+    },
+    {
+      "id": "step:CustomerSummaryReconciledStep",
+      "kind": "step",
+      "name": "CustomerSummaryReconciledStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 112,
+        "startColumn": 3,
+        "endLine": 112,
+        "endColumn": 50
+      },
+      "metadata": {
+        "explanation": "Complete after retrieval confirms the uncertain model response."
+      }
+    },
+    {
+      "id": "step:GenerateCustomerSummary",
+      "kind": "step",
+      "name": "GenerateCustomerSummary",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 76,
+        "startColumn": 3,
+        "endLine": 95,
+        "endColumn": 6
+      },
+      "metadata": {
+        "connectorFactory": true,
+        "connectorOperationKind": "mutation",
+        "explanation": "Generate a customer summary with streamed model progress."
+      }
+    },
+    {
+      "id": "step:ReconcileCustomerSummary",
+      "kind": "step",
+      "name": "ReconcileCustomerSummary",
+      "phase": "execute",
+      "span": {
+        "startLine": 96,
+        "startColumn": 3,
+        "endLine": 109,
+        "endColumn": 6
+      },
+      "metadata": {
+        "connectorFactory": true,
+        "connectorOperationKind": "query",
+        "explanation": "Retrieve an uncertain model response without repeating the mutation."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "resource_write",
+      "from": "step:GenerateCustomerSummary",
+      "to": "resource:attribute:generatedCustomerSummary",
+      "label": "Set",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "resource_write",
+      "from": "step:GenerateCustomerSummary",
+      "to": "resource:stream:customerSummaryProgress",
+      "label": "Write",
+      "metadata": {
+        "bestEffort": true,
+        "format": "structured",
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "resource_write",
+      "from": "step:GenerateCustomerSummary",
+      "to": "resource:stream:customerSummaryText",
+      "label": "Write",
+      "metadata": {
+        "bestEffort": true,
+        "format": "text",
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "step:GenerateCustomerSummary",
+      "to": "step:CustomerSummaryCompletedStep",
+      "label": "completed",
+      "span": {
+        "startLine": 85,
+        "startColumn": 21,
+        "endLine": 85,
+        "endColumn": 68
+      },
+      "metadata": {
+        "connectorBranch": true
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "failure_transition",
+      "from": "step:GenerateCustomerSummary",
+      "to": "step:CustomerSummaryExecuteFailedStep",
+      "label": "Execute failure",
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "step:GenerateCustomerSummary",
+      "to": "step:CustomerSummaryFailedStep",
+      "label": "defect",
+      "span": {
+        "startLine": 88,
+        "startColumn": 21,
+        "endLine": 88,
+        "endColumn": 65
+      },
+      "metadata": {
+        "connectorBranch": true
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "transition",
+      "from": "step:GenerateCustomerSummary",
+      "to": "step:CustomerSummaryFailedStep",
+      "label": "failed",
+      "span": {
+        "startLine": 86,
+        "startColumn": 21,
+        "endLine": 86,
+        "endColumn": 65
+      },
+      "metadata": {
+        "connectorBranch": true
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "transition",
+      "from": "step:GenerateCustomerSummary",
+      "to": "step:ReconcileCustomerSummary",
+      "label": "uncertain",
+      "span": {
+        "startLine": 87,
+        "startColumn": 21,
+        "endLine": 87,
+        "endColumn": 121
+      },
+      "metadata": {
+        "connectorBranch": true
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_write",
+      "from": "step:ReconcileCustomerSummary",
+      "to": "resource:attribute:reconciledCustomerSummary",
+      "label": "Set",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "transition",
+      "from": "step:ReconcileCustomerSummary",
+      "to": "step:CustomerSummaryReconcileFailedStep",
+      "label": "defect",
+      "span": {
+        "startLine": 107,
+        "startColumn": 21,
+        "endLine": 107,
+        "endColumn": 74
+      },
+      "metadata": {
+        "connectorBranch": true
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "transition",
+      "from": "step:ReconcileCustomerSummary",
+      "to": "step:CustomerSummaryReconcileFailedStep",
+      "label": "failed",
+      "span": {
+        "startLine": 106,
+        "startColumn": 21,
+        "endLine": 106,
+        "endColumn": 74
+      },
+      "metadata": {
+        "connectorBranch": true
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "transition",
+      "from": "step:ReconcileCustomerSummary",
+      "to": "step:CustomerSummaryReconciledStep",
+      "label": "found",
+      "span": {
+        "startLine": 105,
+        "startColumn": 21,
+        "endLine": 105,
+        "endColumn": 69
+      },
+      "metadata": {
+        "connectorBranch": true
+      }
+    }
+  ],
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "generation",
+      "label": "Generation",
+      "stepIds": [
+        "step:GenerateCustomerSummary",
+        "step:CustomerSummaryCompletedStep"
+      ]
+    },
+    {
+      "id": "recovery",
+      "label": "Recovery",
+      "stepIds": [
+        "step:ReconcileCustomerSummary",
+        "step:CustomerSummaryReconciledStep"
+      ]
+    },
+    {
+      "id": "failure",
+      "label": "Failure",
+      "stepIds": [
+        "step:CustomerSummaryFailedStep",
+        "step:CustomerSummaryReconcileFailedStep"
+      ]
+    },
+    {
+      "id": "execute-failure",
+      "label": "Execute Failure",
+      "stepIds": [
+        "step:CustomerSummaryExecuteFailedStep"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": [
+        {
+          "attributeKey": "generated-customer-summary",
+          "valueType": "json",
+          "editable": false,
+          "description": "Generated summary result"
+        }
+      ]
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": [
+        {
+          "attributeKey": "generated-customer-summary",
+          "valueType": "json",
+          "editable": false,
+          "description": "Generated summary result"
+        },
+        {
+          "attributeKey": "reconciled-customer-summary",
+          "valueType": "json",
+          "editable": false,
+          "description": "Reconciled summary result"
+        }
+      ]
+    },
+    "actions": []
+  }
+}

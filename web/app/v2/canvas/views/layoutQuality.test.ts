@@ -64,6 +64,7 @@ describe('layout principles hold across the shipped corpus', () => {
     const carrying = NAMED.filter(({ graph }) =>
       scenesOf(graph).some(({ scene }) => scene.bands.some((band) => band.style === 'group')));
     expect(carrying.map(({ name }) => name)).toEqual([
+      'connector-factory.json',
       'customer-refund-agentic.json',
       'customer-refund.json',
     ]);
