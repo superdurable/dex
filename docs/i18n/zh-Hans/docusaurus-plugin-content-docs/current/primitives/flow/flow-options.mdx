@@ -284,7 +284,7 @@ ID reuse policy 决定 Dex 是否会首先拒绝启动：
 
 | **IDReusePolicy** | 已有 active Flow | 已有 closed Flow |
 |-------------------|------------------|------------------|
-| **IDReuseDefault** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回 active Run ID。 | 启动新的 run。 |
+| **IDReuseDefault** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回 active Run ID。 | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回已有 Run ID。 |
 | **IDReuseAllowIfPreviousFailed** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回 active Run ID。 | 只有上一次 run 失败后才启动新的 run；否则拒绝。 |
 | **IDReuseAllowIfNotRunning** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回 active Run ID。 | 启动新的 run。 |
 | **IDReuseDisallow** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回已有 Run ID。 | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回已有 Run ID。 |
@@ -292,7 +292,7 @@ ID reuse policy 决定 Dex 是否会首先拒绝启动：
 
 #### Dex Server 的逻辑
 
-Dex Server 要求 **RequestID** 非空。省略时，SDK 会在发送请求前生成它。服务端将它记录在 Flow execution 中，再使用请求的 ID reuse policy 让已配置的 backend 启动 Flow。**IDReuseDefault** 使用服务端默认行为：没有 active execution 时启动新的 Flow execution。
+Dex Server 要求 **RequestID** 非空。省略时，SDK 会在发送请求前生成它。服务端将它记录在 Flow execution 中，再使用请求的 ID reuse policy 让已配置的 backend 启动 Flow。**IDReuseDefault** 使用服务端默认行为：拒绝所有曾经使用过的 Flow ID。需要让已关闭的 Flow ID 启动新 execution 时，必须显式选择 **IDReuseAllowIfNotRunning**。
 
 如果 backend 返回 Flow 已启动，Dex 会检查 **AlreadyStartedOptions.IgnoreError**。启用时，Dex 读取已有 run 记录的 RequestID。只有两个 RequestID 相同时才返回该 Run ID；否则仍然返回 already-started error。
 

@@ -63,9 +63,11 @@ const OPERATOR_LABEL: Record<RunOperator, string> = {
   lte: 'at most',
 };
 
-/** Every status Dex can report, so the picker is a real enum rather than a typed string. */
+/** Every status shown in the run list; continued-as-new executions belong to their successor. */
 export function statusOptions(): string[] {
-  return Object.values(FLOW_STATUS).filter((label) => label !== 'Unspecified');
+  return Object.values(FLOW_STATUS).filter(
+    (label) => label !== 'Unspecified' && label !== 'Continued as new',
+  );
 }
 
 /** Every declared Indexed Attribute. The operator picker keeps each one to comparisons it supports. */

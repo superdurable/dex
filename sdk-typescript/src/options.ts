@@ -61,7 +61,7 @@ export type ActiveStepSearchMode =
 
 /** Controls whether `startFlow` may reuse a previously used Flow ID. */
 export const IdReusePolicy = Object.freeze({
-  /** Uses the Dex server's default reuse policy. */
+  /** Uses the Dex server default, which rejects every previously used Flow ID. */
   DEFAULT: "default",
   /** Reuses an ID only after an unsuccessful closed run. */
   ALLOW_IF_PREVIOUS_FAILED: "allowIfPreviousFailed",

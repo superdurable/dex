@@ -144,6 +144,7 @@ describe('statusOptions', () => {
     const options = statusOptions();
     expect(options).toContain('Running');
     expect(options).not.toContain('Unspecified');
+    expect(options).not.toContain('Continued as new');
   });
 });
 

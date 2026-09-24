@@ -227,7 +227,7 @@ func (s *serviceImpl) StartFlow(
 				Payload: []byte(req.GetRequestId()),
 			},
 		},
-		IdReusePolicy: ptr.Any(dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING),
+		IdReusePolicy: ptr.Any(dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE),
 	}
 	ignoreAlreadyStartedError := false
 	if startOptions != nil {

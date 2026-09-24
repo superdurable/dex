@@ -305,7 +305,7 @@ func defaultSubFlowOptions() SubFlowOptions {
 type IDReusePolicy uint8
 
 const (
-	// IDReuseDefault uses the server-configured reuse policy.
+	// IDReuseDefault uses the server default, which rejects every previously used Flow ID.
 	IDReuseDefault IDReusePolicy = iota
 	// IDReuseAllowIfPreviousFailed permits reuse only after a failed run.
 	IDReuseAllowIfPreviousFailed

@@ -335,7 +335,7 @@ export function FlowSearchPage() {
                       item.id === filter.id ? { ...item, value: event.target.value } : item
                     )))}
                   >
-                    {['Running', 'Completed', 'Failed', 'TimedOut', 'Terminated', 'Canceled', 'ContinuedAsNew']
+                    {['Running', 'Completed', 'Failed', 'TimedOut', 'Terminated', 'Canceled']
                       .map((status) => <option key={status}>{status}</option>)}
                   </select>
                 ) : (
