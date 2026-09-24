@@ -34,8 +34,8 @@ pub enum ErrorSubStatus {
     LongPollTimeout,
     /// A pending Channel message ID no longer exists.
     ChannelMessageNotFound,
-    /// A caller-defined wait budget expired.
-    WaitHandlerTimeout,
+    /// A caller-defined request budget expired.
+    RequestTimeout,
 }
 
 #[derive(Debug)]
@@ -173,8 +173,8 @@ pub enum SdkError {
         /// Structured deletion failure.
         service: ServiceError,
     },
-    /// A caller-defined wait budget expired.
-    WaitHandlerTimeout {
+    /// A caller-defined request budget expired.
+    RequestTimeout {
         /// Structured timeout failure.
         service: ServiceError,
     },
@@ -214,7 +214,7 @@ impl Display for SdkError {
             | Self::RpcLockConflict { service }
             | Self::LongPollTimeout { service }
             | Self::ChannelMessageNotFound { service } => Display::fmt(service, formatter),
-            Self::WaitHandlerTimeout { service } => Display::fmt(service, formatter),
+            Self::RequestTimeout { service } => Display::fmt(service, formatter),
             Self::WorkerInvocation { service, .. } => Display::fmt(service, formatter),
             Self::InvalidStepResult { detail, .. } => formatter.write_str(detail),
             Self::FlowDefinition { message }
@@ -244,7 +244,7 @@ impl SdkError {
             | Self::RpcLockConflict { service }
             | Self::LongPollTimeout { service }
             | Self::ChannelMessageNotFound { service } => Some(service),
-            Self::WaitHandlerTimeout { service } => Some(service),
+            Self::RequestTimeout { service } => Some(service),
             Self::WorkerInvocation { service, .. } => Some(service),
             _ => None,
         }
@@ -309,17 +309,17 @@ impl SdkError {
             }
             ErrorSubStatus::LongPollTimeout => Self::LongPollTimeout { service },
             ErrorSubStatus::ChannelMessageNotFound => Self::ChannelMessageNotFound { service },
-            ErrorSubStatus::WaitHandlerTimeout => Self::WaitHandlerTimeout { service },
+            ErrorSubStatus::RequestTimeout => Self::RequestTimeout { service },
             ErrorSubStatus::Uncategorized => Self::Service { service },
         }
     }
 
-    pub(crate) fn wait_handler_timeout(operation: &'static str, flow_id: &str) -> Self {
-        let detail = "wait handler timed out".to_string();
-        Self::WaitHandlerTimeout {
+    pub(crate) fn request_timeout(operation: &'static str, flow_id: &str) -> Self {
+        let detail = "request timed out".to_string();
+        Self::RequestTimeout {
             service: ServiceError {
                 code: GrpcCode::DeadlineExceeded,
-                sub_status: ErrorSubStatus::WaitHandlerTimeout,
+                sub_status: ErrorSubStatus::RequestTimeout,
                 detail: detail.clone(),
                 operation,
                 flow_id: Some(flow_id.to_string()),
@@ -372,7 +372,7 @@ fn map_sub_status(value: i32) -> ErrorSubStatus {
         Some(ProtoErrorSubStatus::WorkerApiError) => ErrorSubStatus::WorkerApiError,
         Some(ProtoErrorSubStatus::LongPollTimeOut) => ErrorSubStatus::LongPollTimeout,
         Some(ProtoErrorSubStatus::ChannelMessageNotFound) => ErrorSubStatus::ChannelMessageNotFound,
-        Some(ProtoErrorSubStatus::WaitHandlerTimeOut) => ErrorSubStatus::WaitHandlerTimeout,
+        Some(ProtoErrorSubStatus::RequestTimeout) => ErrorSubStatus::RequestTimeout,
         _ => ErrorSubStatus::Uncategorized,
     }
 }

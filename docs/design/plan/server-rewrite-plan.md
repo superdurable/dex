@@ -399,10 +399,11 @@ always-on, no version gate:
   workflow`. There is no `run_id` in this API: the empty client run id targets the
   current run, while the handler resolves completion from the
   `step_execution_id`/`step_type` indexes restored across continue-as-new. Pass the
-  target + deadline. A positive `wait_time_seconds` caps the caller-visible wait;
+  target, request deadline, and internal handler-generation timeout. A positive
+  `request_timeout_seconds` caps the caller-visible SDK call;
   `Api.MaxWaitSeconds` independently caps each transport long poll. Result →
-  `WaitForStepCompletionResponse`. Wait-budget expiry → `DeadlineExceeded` +
-  `WAIT_HANDLER_TIME_OUT`.
+  `WaitForStepCompletionResponse`. Request expiry → `DeadlineExceeded` +
+  `REQUEST_TIMEOUT`. Internal handler expiry starts the next generation.
 - Require exactly one target through the Phase 0 `oneof`.
   `step_execution_id` returns that exact completion. For `step_type`, bind the
   target to that type's first-started monotonic execution id and wait for that exact

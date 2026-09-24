@@ -74,9 +74,9 @@ from dex.runtime_errors import (
     FlowNotFoundError,
     InvalidStepResultError,
     LongPollTimeoutError,
+    RequestTimeoutError,
     RpcLockConflictError,
     ValueMappingError,
-    WaitHandlerTimeoutError,
     WorkerInvocationError,
 )
 from dex.step import (
@@ -166,7 +166,7 @@ __all__ = [
     "IndexType",
     "JsonCodec",
     "LongPollTimeoutError",
-    "WaitHandlerTimeoutError",
+    "RequestTimeoutError",
     "PersistenceSchema",
     "RPCResult",
     "RecoveryErrorInfo",

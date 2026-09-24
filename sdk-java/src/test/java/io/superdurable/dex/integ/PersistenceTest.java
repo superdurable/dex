@@ -17,7 +17,7 @@ import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeMatch;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.WaitForAttributeOptions;
-import io.superdurable.dex.exceptions.WaitHandlerTimeoutException;
+import io.superdurable.dex.exceptions.RequestTimeoutException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -86,7 +86,7 @@ public final class PersistenceTest {
                     PersistenceSetAttributesWorkflow.class,
                     flowId);
             assertThrows(
-                    WaitHandlerTimeoutException.class,
+                    RequestTimeoutException.class,
                     () -> environment.client().waitForAttributeMatch(
                             flowId,
                             SET_ATTRIBUTES_WORKFLOW.data,
@@ -186,10 +186,10 @@ public final class PersistenceTest {
     private static WaitForAttributeOptions waitOptions(
             final String flowId,
             final String suffix,
-            final Duration maximumWaitTime) {
+            final Duration requestTimeout) {
         return WaitForAttributeOptions.newBuilder()
                 .requestId(flowId + "-wait-" + suffix)
-                .maximumWaitTime(maximumWaitTime)
+                .requestTimeout(requestTimeout)
                 .build();
     }
 }

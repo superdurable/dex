@@ -16,7 +16,7 @@ export async function compileTimerAndStepWait(client: Client): Promise<void> {
   await client.startFlow(flows.TIMER, "timer", 1);
   await client.waitForStepCompletion("timer", StepExecutionId.of("TimerStep"), {
     requestId: "wait-timer-step",
-    maximumWaitTimeMs: 10_000,
+    requestTimeoutMs: 10_000,
   });
   await client.waitForFlow("timer");
 }

@@ -262,8 +262,8 @@ type LongPollTimeoutError struct {
 	*ServiceError
 }
 
-// WaitHandlerTimeoutError reports that a caller-visible wait budget expired.
-type WaitHandlerTimeoutError struct {
+// RequestTimeoutError reports that a caller-visible request budget expired.
+type RequestTimeoutError struct {
 	// ServiceError contains the timed-out wait metadata.
 	*ServiceError
 }
@@ -285,7 +285,7 @@ func (e *LongPollTimeoutError) Unwrap() error {
 }
 
 // Unwrap returns the shared service failure.
-func (e *WaitHandlerTimeoutError) Unwrap() error {
+func (e *RequestTimeoutError) Unwrap() error {
 	return e.ServiceError
 }
 
@@ -315,8 +315,8 @@ const (
 	ErrorSubStatusLongPollTimeout
 	// ErrorSubStatusChannelMessageNotFound identifies a pending message that no longer exists.
 	ErrorSubStatusChannelMessageNotFound
-	// ErrorSubStatusWaitHandlerTimeout identifies an expired caller-visible wait budget.
-	ErrorSubStatusWaitHandlerTimeout
+	// ErrorSubStatusRequestTimeout identifies an expired caller-visible request budget.
+	ErrorSubStatusRequestTimeout
 )
 
 type flowTargetRequirement uint8
@@ -392,8 +392,8 @@ func translateRPCError(
 		}
 	case ErrorSubStatusLongPollTimeout:
 		return &LongPollTimeoutError{ServiceError: serviceError}
-	case ErrorSubStatusWaitHandlerTimeout:
-		return &WaitHandlerTimeoutError{ServiceError: serviceError}
+	case ErrorSubStatusRequestTimeout:
+		return &RequestTimeoutError{ServiceError: serviceError}
 	case ErrorSubStatusChannelMessageNotFound:
 		return &ChannelMessageNotFoundError{ServiceError: serviceError}
 	default:
@@ -426,8 +426,8 @@ func mapErrorSubStatus(subStatus dexpb.ErrorSubStatus) ErrorSubStatus {
 		return ErrorSubStatusLongPollTimeout
 	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND:
 		return ErrorSubStatusChannelMessageNotFound
-	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT:
-		return ErrorSubStatusWaitHandlerTimeout
+	case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_REQUEST_TIMEOUT:
+		return ErrorSubStatusRequestTimeout
 	default:
 		return ErrorSubStatusUncategorized
 	}

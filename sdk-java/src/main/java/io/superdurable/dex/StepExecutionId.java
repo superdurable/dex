@@ -23,7 +23,7 @@ package io.superdurable.dex;
  *         execution,
  *         WaitForStepCompletionOptions.newBuilder()
  *                 .requestId("wait-order-123-charge-2")
- *                 .maximumWaitTime(Duration.ofMinutes(1))
+ *                 .requestTimeout(Duration.ofMinutes(1))
  *                 .build());
  * }</pre>
  */

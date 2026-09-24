@@ -187,9 +187,9 @@ func executeWaitStep(c *flowCommand, ctx context.Context, args []string, options
 	flags := newFlagSet("dexcli flow wait-step", c.stderr)
 	stepType := flags.String("step-type", "", "Step type")
 	execution := flags.Int("execution", 1, "Step execution number")
-	waitTime := flags.String("wait-time", "0s", "server long-poll duration")
+	requestTimeout := flags.String("request-timeout", "0s", "total request timeout")
 	addCommonFlags(flags, &options)
-	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow wait-step FLOW_ID --step-type TYPE [--execution N] [--wait-time DURATION]"); done || err != nil {
+	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow wait-step FLOW_ID --step-type TYPE [--execution N] [--request-timeout DURATION]"); done || err != nil {
 		return err
 	}
 	flowID, err := oneFlowID(flags, "flow wait-step")
@@ -199,12 +199,12 @@ func executeWaitStep(c *flowCommand, ctx context.Context, args []string, options
 	if strings.TrimSpace(*stepType) == "" || *execution <= 0 {
 		return newUsageError("flow wait-step", fmt.Errorf("step-type is required and execution must be positive"))
 	}
-	waitSeconds, err := parseDurationSeconds(*waitTime, "wait-time")
+	requestTimeoutSeconds, err := parseDurationSeconds(*requestTimeout, "request-timeout")
 	if err != nil {
 		return newUsageError("flow wait-step", err)
 	}
 	return withFlowService(ctx, options, func(callCtx context.Context, client *flowService) error {
-		_, callErr := client.service.WaitForStepCompletion(callCtx, &dexpb.WaitForStepCompletionRequest{FlowId: flowID, StepType: *stepType, StepExecutionNumber: strconv.Itoa(*execution), WaitTimeSeconds: waitSeconds, RequestId: uuid.NewString()})
+		_, callErr := client.service.WaitForStepCompletion(callCtx, &dexpb.WaitForStepCompletionRequest{FlowId: flowID, StepType: *stepType, StepExecutionNumber: strconv.Itoa(*execution), RequestTimeoutSeconds: requestTimeoutSeconds, RequestId: uuid.NewString()})
 		if callErr != nil {
 			return newOperationError("flow wait-step", callErr)
 		}

@@ -150,7 +150,7 @@ func waitForOrderStatus(
 		OrderStatus,
 		dex.AttributeMatchEqual("shipped"),
 		&matched,
-		dex.WaitForAttributeOptions{RequestID: uuid.NewString(), MaximumWaitTime: time.Minute},
+		dex.WaitForAttributeOptions{RequestID: uuid.NewString(), RequestTimeout: 10 * time.Second},
 	)
 }
 
@@ -167,7 +167,7 @@ func waitForItemQuantity(
 		"sku-1",
 		dex.AttributeMatchEqual(3),
 		&matched,
-		dex.WaitForAttributeOptions{RequestID: uuid.NewString(), MaximumWaitTime: time.Minute},
+		dex.WaitForAttributeOptions{RequestID: uuid.NewString(), RequestTimeout: 10 * time.Second},
 	)
 }
 
@@ -272,7 +272,7 @@ func waitForOrderStep(
 		dex.StepExecutionID{
 			StepType: dex.GetFinalStepType(WaitForCommand),
 		},
-		dex.WaitForStepCompletionOptions{RequestID: uuid.NewString(), MaximumWaitTime: time.Minute},
+		dex.WaitForStepCompletionOptions{RequestID: uuid.NewString(), RequestTimeout: 10 * time.Second},
 	)
 }
 

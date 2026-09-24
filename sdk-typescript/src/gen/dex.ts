@@ -172,7 +172,7 @@ export enum ErrorSubStatus {
   ERROR_SUB_STATUS_WORKER_API_ERROR = 4,
   ERROR_SUB_STATUS_LONG_POLL_TIME_OUT = 5,
   ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND = 6,
-  ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT = 7,
+  ERROR_SUB_STATUS_REQUEST_TIMEOUT = 7,
   UNRECOGNIZED = -1,
 }
 
@@ -953,12 +953,17 @@ export interface WaitForStepCompletionRequest {
   stepType: string;
   stepExecutionNumber: string;
   /**
-   * Sets the caller-visible maximum wait time in seconds.
-   * Zero waits indefinitely and is recommended for normal use.
-   * Positive values are an exceptional safety valve, not a normal request timeout.
-   * Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
+   * Bounds the caller-visible request across transparent transport reattachments.
+   * Zero waits indefinitely.
    */
-  waitTimeSeconds: number;
+  requestTimeoutSeconds: number;
+  /**
+   * Bounds one internal Temporal Update handler generation.
+   * Use a positive value only to reclaim accepted waits left in flight after callers exit.
+   * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+   * start a new generation. Zero disables rollover; each rollover adds Update history.
+   */
+  internalHandlerTimeoutSeconds: number;
   /** Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}. */
   requestId: string;
 }
@@ -972,12 +977,17 @@ export interface WaitForAttributeRequest {
     | AttributeMatch
     | undefined;
   /**
-   * Sets the caller-visible maximum wait time in seconds.
-   * Zero waits indefinitely and is recommended for normal use.
-   * Positive values are an exceptional safety valve, not a normal request timeout.
-   * Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
+   * Bounds the caller-visible request across transparent transport reattachments.
+   * Zero waits indefinitely.
    */
-  waitTimeSeconds: number;
+  requestTimeoutSeconds: number;
+  /**
+   * Bounds one internal Temporal Update handler generation.
+   * Use a positive value only to reclaim accepted waits left in flight after callers exit.
+   * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+   * start a new generation. Zero disables rollover; each rollover adds Update history.
+   */
+  internalHandlerTimeoutSeconds: number;
   /** Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}. */
   requestId: string;
 }
@@ -9851,7 +9861,14 @@ export const UpdateFlowConfigRequest: MessageFns<UpdateFlowConfigRequest> = {
 };
 
 function createBaseWaitForStepCompletionRequest(): WaitForStepCompletionRequest {
-  return { flowId: "", stepType: "", stepExecutionNumber: "", waitTimeSeconds: 0, requestId: "" };
+  return {
+    flowId: "",
+    stepType: "",
+    stepExecutionNumber: "",
+    requestTimeoutSeconds: 0,
+    internalHandlerTimeoutSeconds: 0,
+    requestId: "",
+  };
 }
 
 export const WaitForStepCompletionRequest: MessageFns<WaitForStepCompletionRequest> = {
@@ -9865,8 +9882,11 @@ export const WaitForStepCompletionRequest: MessageFns<WaitForStepCompletionReque
     if (message.stepExecutionNumber !== "") {
       writer.uint32(26).string(message.stepExecutionNumber);
     }
-    if (message.waitTimeSeconds !== 0) {
-      writer.uint32(40).int32(message.waitTimeSeconds);
+    if (message.requestTimeoutSeconds !== 0) {
+      writer.uint32(32).int32(message.requestTimeoutSeconds);
+    }
+    if (message.internalHandlerTimeoutSeconds !== 0) {
+      writer.uint32(40).int32(message.internalHandlerTimeoutSeconds);
     }
     if (message.requestId !== "") {
       writer.uint32(50).string(message.requestId);
@@ -9905,12 +9925,20 @@ export const WaitForStepCompletionRequest: MessageFns<WaitForStepCompletionReque
           message.stepExecutionNumber = reader.string();
           continue;
         }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.requestTimeoutSeconds = reader.int32();
+          continue;
+        }
         case 5: {
           if (tag !== 40) {
             break;
           }
 
-          message.waitTimeSeconds = reader.int32();
+          message.internalHandlerTimeoutSeconds = reader.int32();
           continue;
         }
         case 6: {
@@ -9938,7 +9966,8 @@ export const WaitForStepCompletionRequest: MessageFns<WaitForStepCompletionReque
     message.flowId = object.flowId ?? "";
     message.stepType = object.stepType ?? "";
     message.stepExecutionNumber = object.stepExecutionNumber ?? "";
-    message.waitTimeSeconds = object.waitTimeSeconds ?? 0;
+    message.requestTimeoutSeconds = object.requestTimeoutSeconds ?? 0;
+    message.internalHandlerTimeoutSeconds = object.internalHandlerTimeoutSeconds ?? 0;
     message.requestId = object.requestId ?? "";
     return message;
   },
@@ -9979,7 +10008,7 @@ export const WaitForStepCompletionResponse: MessageFns<WaitForStepCompletionResp
 };
 
 function createBaseWaitForAttributeRequest(): WaitForAttributeRequest {
-  return { flowId: "", match: undefined, waitTimeSeconds: 0, requestId: "" };
+  return { flowId: "", match: undefined, requestTimeoutSeconds: 0, internalHandlerTimeoutSeconds: 0, requestId: "" };
 }
 
 export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
@@ -9990,11 +10019,14 @@ export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
     if (message.match !== undefined) {
       AttributeMatch.encode(message.match, writer.uint32(18).fork()).join();
     }
-    if (message.waitTimeSeconds !== 0) {
-      writer.uint32(24).int32(message.waitTimeSeconds);
+    if (message.requestTimeoutSeconds !== 0) {
+      writer.uint32(24).int32(message.requestTimeoutSeconds);
+    }
+    if (message.internalHandlerTimeoutSeconds !== 0) {
+      writer.uint32(32).int32(message.internalHandlerTimeoutSeconds);
     }
     if (message.requestId !== "") {
-      writer.uint32(34).string(message.requestId);
+      writer.uint32(42).string(message.requestId);
     }
     return writer;
   },
@@ -10027,11 +10059,19 @@ export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
             break;
           }
 
-          message.waitTimeSeconds = reader.int32();
+          message.requestTimeoutSeconds = reader.int32();
           continue;
         }
         case 4: {
-          if (tag !== 34) {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.internalHandlerTimeoutSeconds = reader.int32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
             break;
           }
 
@@ -10056,7 +10096,8 @@ export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
     message.match = (object.match !== undefined && object.match !== null)
       ? AttributeMatch.fromPartial(object.match)
       : undefined;
-    message.waitTimeSeconds = object.waitTimeSeconds ?? 0;
+    message.requestTimeoutSeconds = object.requestTimeoutSeconds ?? 0;
+    message.internalHandlerTimeoutSeconds = object.internalHandlerTimeoutSeconds ?? 0;
     message.requestId = object.requestId ?? "";
     return message;
   },

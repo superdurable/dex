@@ -336,7 +336,7 @@ dexcli flow stop FLOW_ID [--run-id RUN_ID]
                  [--type cancel|terminate|fail] [--reason TEXT] --yes
 dexcli flow skip-timer FLOW_ID --step-type TYPE [--execution N]
                     (--condition-id ID|--condition-index N) --yes
-dexcli flow wait-step FLOW_ID --step-type TYPE [--execution N] [--wait-time DURATION]
+dexcli flow wait-step FLOW_ID --step-type TYPE [--execution N] [--request-timeout DURATION]
 dexcli flow update-config FLOW_ID --config JSON|@FILE|- --yes
 dexcli flow trigger-continue-as-new FLOW_ID --yes
 dexcli flow time-travel FLOW_ID [--run-id RUN_ID]

@@ -116,25 +116,41 @@ private static final long serialVersionUID = 0L;
     return match_ == null ? io.superdurable.gen.AttributeMatch.getDefaultInstance() : match_;
   }
 
-  public static final int WAIT_TIME_SECONDS_FIELD_NUMBER = 3;
-  private int waitTimeSeconds_ = 0;
+  public static final int REQUEST_TIMEOUT_SECONDS_FIELD_NUMBER = 3;
+  private int requestTimeoutSeconds_ = 0;
   /**
    * <pre>
-   * Sets the caller-visible maximum wait time in seconds.
-   * Zero waits indefinitely and is recommended for normal use.
-   * Positive values are an exceptional safety valve, not a normal request timeout.
-   * Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
+   * Bounds the caller-visible request across transparent transport reattachments.
+   * Zero waits indefinitely.
    * </pre>
    *
-   * <code>int32 wait_time_seconds = 3;</code>
-   * @return The waitTimeSeconds.
+   * <code>int32 request_timeout_seconds = 3;</code>
+   * @return The requestTimeoutSeconds.
    */
   @java.lang.Override
-  public int getWaitTimeSeconds() {
-    return waitTimeSeconds_;
+  public int getRequestTimeoutSeconds() {
+    return requestTimeoutSeconds_;
   }
 
-  public static final int REQUEST_ID_FIELD_NUMBER = 4;
+  public static final int INTERNAL_HANDLER_TIMEOUT_SECONDS_FIELD_NUMBER = 4;
+  private int internalHandlerTimeoutSeconds_ = 0;
+  /**
+   * <pre>
+   * Bounds one internal Temporal Update handler generation.
+   * Use a positive value only to reclaim accepted waits left in flight after callers exit.
+   * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+   * start a new generation. Zero disables rollover; each rollover adds Update history.
+   * </pre>
+   *
+   * <code>int32 internal_handler_timeout_seconds = 4;</code>
+   * @return The internalHandlerTimeoutSeconds.
+   */
+  @java.lang.Override
+  public int getInternalHandlerTimeoutSeconds() {
+    return internalHandlerTimeoutSeconds_;
+  }
+
+  public static final int REQUEST_ID_FIELD_NUMBER = 5;
   @SuppressWarnings("serial")
   private volatile java.lang.Object requestId_ = "";
   /**
@@ -142,7 +158,7 @@ private static final long serialVersionUID = 0L;
    * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
    * </pre>
    *
-   * <code>string request_id = 4;</code>
+   * <code>string request_id = 5;</code>
    * @return The requestId.
    */
   @java.lang.Override
@@ -163,7 +179,7 @@ private static final long serialVersionUID = 0L;
    * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
    * </pre>
    *
-   * <code>string request_id = 4;</code>
+   * <code>string request_id = 5;</code>
    * @return The bytes for requestId.
    */
   @java.lang.Override
@@ -201,11 +217,14 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(2, getMatch());
     }
-    if (waitTimeSeconds_ != 0) {
-      output.writeInt32(3, waitTimeSeconds_);
+    if (requestTimeoutSeconds_ != 0) {
+      output.writeInt32(3, requestTimeoutSeconds_);
+    }
+    if (internalHandlerTimeoutSeconds_ != 0) {
+      output.writeInt32(4, internalHandlerTimeoutSeconds_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 4, requestId_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 5, requestId_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -218,12 +237,16 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(2, getMatch());
     }
-    if (waitTimeSeconds_ != 0) {
+    if (requestTimeoutSeconds_ != 0) {
       size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(3, waitTimeSeconds_);
+        .computeInt32Size(3, requestTimeoutSeconds_);
+    }
+    if (internalHandlerTimeoutSeconds_ != 0) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeInt32Size(4, internalHandlerTimeoutSeconds_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(4, requestId_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(5, requestId_);
     }
     return size;
   }
@@ -256,8 +279,10 @@ private static final long serialVersionUID = 0L;
       if (!getMatch()
           .equals(other.getMatch())) return false;
     }
-    if (getWaitTimeSeconds()
-        != other.getWaitTimeSeconds()) return false;
+    if (getRequestTimeoutSeconds()
+        != other.getRequestTimeoutSeconds()) return false;
+    if (getInternalHandlerTimeoutSeconds()
+        != other.getInternalHandlerTimeoutSeconds()) return false;
     if (!getRequestId()
         .equals(other.getRequestId())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -277,8 +302,10 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + MATCH_FIELD_NUMBER;
       hash = (53 * hash) + getMatch().hashCode();
     }
-    hash = (37 * hash) + WAIT_TIME_SECONDS_FIELD_NUMBER;
-    hash = (53 * hash) + getWaitTimeSeconds();
+    hash = (37 * hash) + REQUEST_TIMEOUT_SECONDS_FIELD_NUMBER;
+    hash = (53 * hash) + getRequestTimeoutSeconds();
+    hash = (37 * hash) + INTERNAL_HANDLER_TIMEOUT_SECONDS_FIELD_NUMBER;
+    hash = (53 * hash) + getInternalHandlerTimeoutSeconds();
     hash = (37 * hash) + REQUEST_ID_FIELD_NUMBER;
     hash = (53 * hash) + getRequestId().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
@@ -424,7 +451,8 @@ private static final long serialVersionUID = 0L;
         matchBuilder_.dispose();
         matchBuilder_ = null;
       }
-      waitTimeSeconds_ = 0;
+      requestTimeoutSeconds_ = 0;
+      internalHandlerTimeoutSeconds_ = 0;
       requestId_ = "";
       return this;
     }
@@ -470,9 +498,12 @@ private static final long serialVersionUID = 0L;
         to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000004) != 0)) {
-        result.waitTimeSeconds_ = waitTimeSeconds_;
+        result.requestTimeoutSeconds_ = requestTimeoutSeconds_;
       }
       if (((from_bitField0_ & 0x00000008) != 0)) {
+        result.internalHandlerTimeoutSeconds_ = internalHandlerTimeoutSeconds_;
+      }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.requestId_ = requestId_;
       }
       result.bitField0_ |= to_bitField0_;
@@ -498,12 +529,15 @@ private static final long serialVersionUID = 0L;
       if (other.hasMatch()) {
         mergeMatch(other.getMatch());
       }
-      if (other.getWaitTimeSeconds() != 0) {
-        setWaitTimeSeconds(other.getWaitTimeSeconds());
+      if (other.getRequestTimeoutSeconds() != 0) {
+        setRequestTimeoutSeconds(other.getRequestTimeoutSeconds());
+      }
+      if (other.getInternalHandlerTimeoutSeconds() != 0) {
+        setInternalHandlerTimeoutSeconds(other.getInternalHandlerTimeoutSeconds());
       }
       if (!other.getRequestId().isEmpty()) {
         requestId_ = other.requestId_;
-        bitField0_ |= 0x00000008;
+        bitField0_ |= 0x00000010;
         onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
@@ -545,15 +579,20 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 18
             case 24: {
-              waitTimeSeconds_ = input.readInt32();
+              requestTimeoutSeconds_ = input.readInt32();
               bitField0_ |= 0x00000004;
               break;
             } // case 24
-            case 34: {
-              requestId_ = input.readStringRequireUtf8();
+            case 32: {
+              internalHandlerTimeoutSeconds_ = input.readInt32();
               bitField0_ |= 0x00000008;
               break;
-            } // case 34
+            } // case 32
+            case 42: {
+              requestId_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 42
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -764,55 +803,102 @@ private static final long serialVersionUID = 0L;
       return matchBuilder_;
     }
 
-    private int waitTimeSeconds_ ;
+    private int requestTimeoutSeconds_ ;
     /**
      * <pre>
-     * Sets the caller-visible maximum wait time in seconds.
-     * Zero waits indefinitely and is recommended for normal use.
-     * Positive values are an exceptional safety valve, not a normal request timeout.
-     * Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
+     * Bounds the caller-visible request across transparent transport reattachments.
+     * Zero waits indefinitely.
      * </pre>
      *
-     * <code>int32 wait_time_seconds = 3;</code>
-     * @return The waitTimeSeconds.
+     * <code>int32 request_timeout_seconds = 3;</code>
+     * @return The requestTimeoutSeconds.
      */
     @java.lang.Override
-    public int getWaitTimeSeconds() {
-      return waitTimeSeconds_;
+    public int getRequestTimeoutSeconds() {
+      return requestTimeoutSeconds_;
     }
     /**
      * <pre>
-     * Sets the caller-visible maximum wait time in seconds.
-     * Zero waits indefinitely and is recommended for normal use.
-     * Positive values are an exceptional safety valve, not a normal request timeout.
-     * Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
+     * Bounds the caller-visible request across transparent transport reattachments.
+     * Zero waits indefinitely.
      * </pre>
      *
-     * <code>int32 wait_time_seconds = 3;</code>
-     * @param value The waitTimeSeconds to set.
+     * <code>int32 request_timeout_seconds = 3;</code>
+     * @param value The requestTimeoutSeconds to set.
      * @return This builder for chaining.
      */
-    public Builder setWaitTimeSeconds(int value) {
+    public Builder setRequestTimeoutSeconds(int value) {
 
-      waitTimeSeconds_ = value;
+      requestTimeoutSeconds_ = value;
       bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * Sets the caller-visible maximum wait time in seconds.
-     * Zero waits indefinitely and is recommended for normal use.
-     * Positive values are an exceptional safety valve, not a normal request timeout.
-     * Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
+     * Bounds the caller-visible request across transparent transport reattachments.
+     * Zero waits indefinitely.
      * </pre>
      *
-     * <code>int32 wait_time_seconds = 3;</code>
+     * <code>int32 request_timeout_seconds = 3;</code>
      * @return This builder for chaining.
      */
-    public Builder clearWaitTimeSeconds() {
+    public Builder clearRequestTimeoutSeconds() {
       bitField0_ = (bitField0_ & ~0x00000004);
-      waitTimeSeconds_ = 0;
+      requestTimeoutSeconds_ = 0;
+      onChanged();
+      return this;
+    }
+
+    private int internalHandlerTimeoutSeconds_ ;
+    /**
+     * <pre>
+     * Bounds one internal Temporal Update handler generation.
+     * Use a positive value only to reclaim accepted waits left in flight after callers exit.
+     * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+     * start a new generation. Zero disables rollover; each rollover adds Update history.
+     * </pre>
+     *
+     * <code>int32 internal_handler_timeout_seconds = 4;</code>
+     * @return The internalHandlerTimeoutSeconds.
+     */
+    @java.lang.Override
+    public int getInternalHandlerTimeoutSeconds() {
+      return internalHandlerTimeoutSeconds_;
+    }
+    /**
+     * <pre>
+     * Bounds one internal Temporal Update handler generation.
+     * Use a positive value only to reclaim accepted waits left in flight after callers exit.
+     * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+     * start a new generation. Zero disables rollover; each rollover adds Update history.
+     * </pre>
+     *
+     * <code>int32 internal_handler_timeout_seconds = 4;</code>
+     * @param value The internalHandlerTimeoutSeconds to set.
+     * @return This builder for chaining.
+     */
+    public Builder setInternalHandlerTimeoutSeconds(int value) {
+
+      internalHandlerTimeoutSeconds_ = value;
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Bounds one internal Temporal Update handler generation.
+     * Use a positive value only to reclaim accepted waits left in flight after callers exit.
+     * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+     * start a new generation. Zero disables rollover; each rollover adds Update history.
+     * </pre>
+     *
+     * <code>int32 internal_handler_timeout_seconds = 4;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearInternalHandlerTimeoutSeconds() {
+      bitField0_ = (bitField0_ & ~0x00000008);
+      internalHandlerTimeoutSeconds_ = 0;
       onChanged();
       return this;
     }
@@ -823,7 +909,7 @@ private static final long serialVersionUID = 0L;
      * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
      * </pre>
      *
-     * <code>string request_id = 4;</code>
+     * <code>string request_id = 5;</code>
      * @return The requestId.
      */
     public java.lang.String getRequestId() {
@@ -843,7 +929,7 @@ private static final long serialVersionUID = 0L;
      * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
      * </pre>
      *
-     * <code>string request_id = 4;</code>
+     * <code>string request_id = 5;</code>
      * @return The bytes for requestId.
      */
     public com.google.protobuf.ByteString
@@ -864,7 +950,7 @@ private static final long serialVersionUID = 0L;
      * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
      * </pre>
      *
-     * <code>string request_id = 4;</code>
+     * <code>string request_id = 5;</code>
      * @param value The requestId to set.
      * @return This builder for chaining.
      */
@@ -872,7 +958,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       requestId_ = value;
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
@@ -881,12 +967,12 @@ private static final long serialVersionUID = 0L;
      * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
      * </pre>
      *
-     * <code>string request_id = 4;</code>
+     * <code>string request_id = 5;</code>
      * @return This builder for chaining.
      */
     public Builder clearRequestId() {
       requestId_ = getDefaultInstance().getRequestId();
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000010);
       onChanged();
       return this;
     }
@@ -895,7 +981,7 @@ private static final long serialVersionUID = 0L;
      * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
      * </pre>
      *
-     * <code>string request_id = 4;</code>
+     * <code>string request_id = 5;</code>
      * @param value The bytes for requestId to set.
      * @return This builder for chaining.
      */
@@ -904,7 +990,7 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       requestId_ = value;
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }

@@ -24,7 +24,7 @@ class ErrorSubStatus(Enum):
         WORKER_API_ERROR: An application Worker rejected or failed an invocation.
         LONG_POLL_TIMEOUT: A wait ended without observing its condition.
         CHANNEL_MESSAGE_NOT_FOUND: A pending Channel message ID no longer exists.
-        WAIT_HANDLER_TIMEOUT: A caller-visible wait budget expired.
+        REQUEST_TIMEOUT: A caller-defined request budget expired.
     """
 
     UNCATEGORIZED = "uncategorized"
@@ -33,7 +33,7 @@ class ErrorSubStatus(Enum):
     WORKER_API_ERROR = "worker_api_error"
     LONG_POLL_TIMEOUT = "long_poll_timeout"
     CHANNEL_MESSAGE_NOT_FOUND = "channel_message_not_found"
-    WAIT_HANDLER_TIMEOUT = "wait_handler_timeout"
+    REQUEST_TIMEOUT = "request_timeout"
 
 
 class FlowErrorType(Enum):
@@ -165,8 +165,8 @@ class LongPollTimeoutError(DexServiceError):
     pass
 
 
-class WaitHandlerTimeoutError(DexServiceError):
-    """Indicate that a caller-defined wait budget expired."""
+class RequestTimeoutError(DexServiceError):
+    """Indicate that a caller-defined request budget expired."""
 
     pass
 

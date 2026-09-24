@@ -502,10 +502,10 @@ compile only after S5 migrates updater/query/CAN files.
 - Global version 3 enables timerless deadlines and wait-handler counting. Versions
   1 and 2 retain timer commands and their previous counter behavior for replay.
   A Continue-As-New run selects version 3 independently.
-- The API computes one absolute handler deadline from `wait_time_seconds`; reject a
-  negative request duration. It derives an ordinary Go context capped by that
-  deadline for each sync Update call. The exact deadline returns
-  `WAIT_HANDLER_TIME_OUT`; caller cancellation and `Api.MaxWaitSeconds` keep their
+- The API computes one absolute request deadline from `request_timeout_seconds`;
+  reject negative request and internal-handler durations. Each sync Update call
+  uses the earlier request or transport deadline. Request expiry returns
+  `REQUEST_TIMEOUT`; caller cancellation and `Api.MaxWaitSeconds` keep their
   existing classifications. Context expiry does not cancel an accepted Update.
 - Define a private Temporal application-error type such as
   `DEX_CAN_PREEMPTED`. UnifiedClient/API consumes it internally: retry
@@ -527,13 +527,16 @@ compile only after S5 migrates updater/query/CAN files.
   `LONG_POLL_TIME_OUT`; CAN threshold returns `DEX_CAN_PREEMPTED`. This order avoids
   losing a completion/attribute write that became visible in the same workflow task
   as CAN.
-- Zero waits indefinitely. A positive deadline installs no timer and is observed only
-  on a later Workflow Task. The caller can receive `WAIT_HANDLER_TIME_OUT` while the
-  accepted handler still occupies its slot. A new `-N` generation starts only after
-  that handler actually completes with a deadline error.
-- Positive budgets are an exceptional safety valve, not a routine request timeout.
-  Short budgets can create many Update generations and history events. Prefer zero;
-  when a positive value is necessary, start at 60 seconds or longer.
+- Zero `internal_handler_timeout_seconds` disables time-based generation rollover.
+  A positive value installs no timer and is observed on a later Workflow Task. A new
+  `-N` generation starts only after that handler completes with a deadline error.
+- Handler rollover remains internal and does not end or reset the request budget.
+  Temporal permits 10 in-flight Updates and 2,000 total Updates in History per
+  Workflow Execution. Request expiry or cancellation can leave an accepted handler
+  in flight. Use a positive value only when abandoned waits can approach the
+  concurrent limit. It does not expand that limit, and each new generation counts
+  toward the history limit. Prefer zero; when a positive value is necessary, make
+  it longer than normal request deadlines and reconnect gaps, starting at 60 seconds.
 - Cadence implements no handlers. The API returns `codes.Unimplemented` before
   dialing.
 

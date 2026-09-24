@@ -860,7 +860,7 @@ const (
 	ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR          ErrorSubStatus = 4
 	ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT        ErrorSubStatus = 5
 	ErrorSubStatus_ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND ErrorSubStatus = 6
-	ErrorSubStatus_ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT     ErrorSubStatus = 7
+	ErrorSubStatus_ERROR_SUB_STATUS_REQUEST_TIMEOUT           ErrorSubStatus = 7
 )
 
 // Enum value maps for ErrorSubStatus.
@@ -873,7 +873,7 @@ var (
 		4: "ERROR_SUB_STATUS_WORKER_API_ERROR",
 		5: "ERROR_SUB_STATUS_LONG_POLL_TIME_OUT",
 		6: "ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND",
-		7: "ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT",
+		7: "ERROR_SUB_STATUS_REQUEST_TIMEOUT",
 	}
 	ErrorSubStatus_value = map[string]int32{
 		"ERROR_SUB_STATUS_UNSPECIFIED":               0,
@@ -883,7 +883,7 @@ var (
 		"ERROR_SUB_STATUS_WORKER_API_ERROR":          4,
 		"ERROR_SUB_STATUS_LONG_POLL_TIME_OUT":        5,
 		"ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND": 6,
-		"ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT":     7,
+		"ERROR_SUB_STATUS_REQUEST_TIMEOUT":           7,
 	}
 )
 
@@ -7648,11 +7648,14 @@ type WaitForStepCompletionRequest struct {
 	// Identifies a step execution by type and its per-type execution number.
 	StepType            string `protobuf:"bytes,2,opt,name=step_type,json=stepType,proto3" json:"step_type,omitempty"`
 	StepExecutionNumber string `protobuf:"bytes,3,opt,name=step_execution_number,json=stepExecutionNumber,proto3" json:"step_execution_number,omitempty"`
-	// Sets the caller-visible maximum wait time in seconds.
-	// Zero waits indefinitely and is recommended for normal use.
-	// Positive values are an exceptional safety valve, not a normal request timeout.
-	// Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
-	WaitTimeSeconds int32 `protobuf:"varint,5,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
+	// Bounds the caller-visible request across transparent transport reattachments.
+	// Zero waits indefinitely.
+	RequestTimeoutSeconds int32 `protobuf:"varint,4,opt,name=request_timeout_seconds,json=requestTimeoutSeconds,proto3" json:"request_timeout_seconds,omitempty"`
+	// Bounds one internal Temporal Update handler generation.
+	// Use a positive value only to reclaim accepted waits left in flight after callers exit.
+	// Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+	// start a new generation. Zero disables rollover; each rollover adds Update history.
+	InternalHandlerTimeoutSeconds int32 `protobuf:"varint,5,opt,name=internal_handler_timeout_seconds,json=internalHandlerTimeoutSeconds,proto3" json:"internal_handler_timeout_seconds,omitempty"`
 	// Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
 	RequestId     string `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -7710,9 +7713,16 @@ func (x *WaitForStepCompletionRequest) GetStepExecutionNumber() string {
 	return ""
 }
 
-func (x *WaitForStepCompletionRequest) GetWaitTimeSeconds() int32 {
+func (x *WaitForStepCompletionRequest) GetRequestTimeoutSeconds() int32 {
 	if x != nil {
-		return x.WaitTimeSeconds
+		return x.RequestTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *WaitForStepCompletionRequest) GetInternalHandlerTimeoutSeconds() int32 {
+	if x != nil {
+		return x.InternalHandlerTimeoutSeconds
 	}
 	return 0
 }
@@ -7764,13 +7774,16 @@ type WaitForAttributeRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	FlowId string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
 	Match  *AttributeMatch        `protobuf:"bytes,2,opt,name=match,proto3" json:"match,omitempty"`
-	// Sets the caller-visible maximum wait time in seconds.
-	// Zero waits indefinitely and is recommended for normal use.
-	// Positive values are an exceptional safety valve, not a normal request timeout.
-	// Short values can add many Temporal Update events to Workflow history; prefer at least 60 seconds.
-	WaitTimeSeconds int32 `protobuf:"varint,3,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
+	// Bounds the caller-visible request across transparent transport reattachments.
+	// Zero waits indefinitely.
+	RequestTimeoutSeconds int32 `protobuf:"varint,3,opt,name=request_timeout_seconds,json=requestTimeoutSeconds,proto3" json:"request_timeout_seconds,omitempty"`
+	// Bounds one internal Temporal Update handler generation.
+	// Use a positive value only to reclaim accepted waits left in flight after callers exit.
+	// Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+	// start a new generation. Zero disables rollover; each rollover adds Update history.
+	InternalHandlerTimeoutSeconds int32 `protobuf:"varint,4,opt,name=internal_handler_timeout_seconds,json=internalHandlerTimeoutSeconds,proto3" json:"internal_handler_timeout_seconds,omitempty"`
 	// Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
-	RequestId     string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	RequestId     string `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7819,9 +7832,16 @@ func (x *WaitForAttributeRequest) GetMatch() *AttributeMatch {
 	return nil
 }
 
-func (x *WaitForAttributeRequest) GetWaitTimeSeconds() int32 {
+func (x *WaitForAttributeRequest) GetRequestTimeoutSeconds() int32 {
 	if x != nil {
-		return x.WaitTimeSeconds
+		return x.RequestTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *WaitForAttributeRequest) GetInternalHandlerTimeoutSeconds() int32 {
+	if x != nil {
+		return x.InternalHandlerTimeoutSeconds
 	}
 	return 0
 }
@@ -13583,21 +13603,23 @@ const file_dex_proto_rawDesc = "" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x120\n" +
 	"\vflow_config\x18\x03 \x01(\v2\x0f.dex.FlowConfigR\n" +
-	"flowConfig\"\xd3\x01\n" +
+	"flowConfig\"\xa8\x02\n" +
 	"\x1cWaitForStepCompletionRequest\x12\x17\n" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x1b\n" +
 	"\tstep_type\x18\x02 \x01(\tR\bstepType\x122\n" +
-	"\x15step_execution_number\x18\x03 \x01(\tR\x13stepExecutionNumber\x12*\n" +
-	"\x11wait_time_seconds\x18\x05 \x01(\x05R\x0fwaitTimeSeconds\x12\x1d\n" +
+	"\x15step_execution_number\x18\x03 \x01(\tR\x13stepExecutionNumber\x126\n" +
+	"\x17request_timeout_seconds\x18\x04 \x01(\x05R\x15requestTimeoutSeconds\x12G\n" +
+	" internal_handler_timeout_seconds\x18\x05 \x01(\x05R\x1dinternalHandlerTimeoutSeconds\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x06 \x01(\tR\trequestId\"\x1f\n" +
-	"\x1dWaitForStepCompletionResponse\"\xa8\x01\n" +
+	"\x1dWaitForStepCompletionResponse\"\xfd\x01\n" +
 	"\x17WaitForAttributeRequest\x12\x17\n" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12)\n" +
-	"\x05match\x18\x02 \x01(\v2\x13.dex.AttributeMatchR\x05match\x12*\n" +
-	"\x11wait_time_seconds\x18\x03 \x01(\x05R\x0fwaitTimeSeconds\x12\x1d\n" +
+	"\x05match\x18\x02 \x01(\v2\x13.dex.AttributeMatchR\x05match\x126\n" +
+	"\x17request_timeout_seconds\x18\x03 \x01(\x05R\x15requestTimeoutSeconds\x12G\n" +
+	" internal_handler_timeout_seconds\x18\x04 \x01(\x05R\x1dinternalHandlerTimeoutSeconds\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x04 \x01(\tR\trequestId\"K\n" +
+	"request_id\x18\x05 \x01(\tR\trequestId\"K\n" +
 	"\x18WaitForAttributeResponse\x12/\n" +
 	"\rmatched_value\x18\x01 \x01(\v2\n" +
 	".dex.ValueR\fmatchedValue\"\x81\x01\n" +
@@ -14145,7 +14167,7 @@ const file_dex_proto_rawDesc = "" +
 	"%ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN\x10\x03\x122\n" +
 	".ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL\x10\x04\x12&\n" +
 	"\"ATTRIBUTE_MATCH_OPERATOR_LESS_THAN\x10\x05\x12/\n" +
-	"+ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL\x10\x06*\xd3\x02\n" +
+	"+ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL\x10\x06*\xcd\x02\n" +
 	"\x0eErrorSubStatus\x12 \n" +
 	"\x1cERROR_SUB_STATUS_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eERROR_SUB_STATUS_UNCATEGORIZED\x10\x01\x12)\n" +
@@ -14153,8 +14175,8 @@ const file_dex_proto_rawDesc = "" +
 	" ERROR_SUB_STATUS_FLOW_NOT_EXISTS\x10\x03\x12%\n" +
 	"!ERROR_SUB_STATUS_WORKER_API_ERROR\x10\x04\x12'\n" +
 	"#ERROR_SUB_STATUS_LONG_POLL_TIME_OUT\x10\x05\x12.\n" +
-	"*ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND\x10\x06\x12*\n" +
-	"&ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT\x10\a*\x8b\x02\n" +
+	"*ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND\x10\x06\x12$\n" +
+	" ERROR_SUB_STATUS_REQUEST_TIMEOUT\x10\a*\x8b\x02\n" +
 	"\x11CloseDecisionType\x12#\n" +
 	"\x1fCLOSE_DECISION_TYPE_UNSPECIFIED\x10\x00\x128\n" +
 	"4CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY\x10\x01\x12)\n" +

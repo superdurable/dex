@@ -347,11 +347,16 @@ sorted. Use `force_complete_if_channels_empty(...)` for conditional completion.
 
 Request IDs are optional for both durable waits. When omitted, the server
 derives a stable ID from the Step execution or Attribute condition. Reuse an
-override only for the same wait. `maximum_wait_time` is optional. Leave it at
-zero for normal use and bound one response with the caller deadline. Positive
-values are an exceptional safety valve: short budgets can add many Temporal
-Update events to Workflow history. If a positive value is truly needed, prefer
-at least one minute. A positive expiry raises `WaitHandlerTimeoutError`.
+override only for the same wait. `request_timeout` is the total SDK call budget
+across transparent transport reattachments. Zero waits indefinitely.
+Temporal permits 10 in-flight Updates and 2,000 total Updates in History per
+Workflow Execution. A caller timeout or cancellation does not finish an
+accepted durable wait, so an abandoned handler can retain one in-flight slot.
+Set `internal_handler_timeout` only when abandoned waits can approach that
+limit. An active call transparently starts another generation, which counts
+toward the 2,000-Update history limit. Prefer a value comfortably longer than
+normal request timeouts and reconnect gaps. Zero disables timed rollover.
+Request expiry raises `RequestTimeoutError`.
 
 `Client.wait_for_flow` and `AsyncClient.wait_for_flow` return a
 `FlowResult` after hydrating every output-bearing completion. Use

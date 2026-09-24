@@ -18,7 +18,7 @@ from dex import (
     AttributeMatch,
     StartFlowOptions,
     WaitForAttributeOptions,
-    WaitHandlerTimeoutError,
+    RequestTimeoutError,
 )
 
 from .basic_persistence_flow import BasicPersistenceFlow
@@ -63,7 +63,7 @@ def test_set_data_attributes() -> None:
     with DexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("set-data-attributes")
         environment.client.start_flow(flow, flow_id, "start")
-        with pytest.raises(WaitHandlerTimeoutError):
+        with pytest.raises(RequestTimeoutError):
             environment.client.wait_for_attribute_match(
                 flow_id,
                 flow.data,

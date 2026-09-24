@@ -28,7 +28,7 @@ import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
-import io.superdurable.dex.exceptions.WaitHandlerTimeoutException;
+import io.superdurable.dex.exceptions.RequestTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
 import io.superdurable.gen.ServiceErrorResponse;
@@ -136,14 +136,14 @@ final class ClientExceptionIntegrationTest {
         assertEquals("timeout", flowTimeout.getFlowId());
         assertEquals(Status.Code.DEADLINE_EXCEEDED, flowTimeout.getCode());
 
-        final WaitHandlerTimeoutException stepTimeout = assertThrows(
-                WaitHandlerTimeoutException.class,
+        final RequestTimeoutException stepTimeout = assertThrows(
+                RequestTimeoutException.class,
                 () -> client.waitForStepCompletion(
                         "step-timeout",
                         StepExecutionId.of("WaitingStep", 1),
                         WaitForStepCompletionOptions.newBuilder()
                                 .requestId("step-timeout-request")
-                                .maximumWaitTime(Duration.ofSeconds(1))
+                                .requestTimeout(Duration.ofSeconds(1))
                                 .build()));
         assertEquals(Status.Code.DEADLINE_EXCEEDED, stepTimeout.getCode());
 
@@ -159,8 +159,11 @@ final class ClientExceptionIntegrationTest {
                 "missing-request-id",
                 StepExecutionId.of("WaitingStep", 1),
                 WaitForStepCompletionOptions.newBuilder()
-                        .maximumWaitTime(Duration.ofSeconds(1))
+                        .requestTimeout(Duration.ofSeconds(1))
+                        .internalHandlerTimeout(Duration.ofSeconds(3))
                         .build());
+        assertEquals(1, flowService.stepWaitRequest.getRequestTimeoutSeconds());
+        assertEquals(3, flowService.stepWaitRequest.getInternalHandlerTimeoutSeconds());
     }
 
     @Test
@@ -269,6 +272,7 @@ final class ClientExceptionIntegrationTest {
             extends FlowServiceGrpc.FlowServiceImplBase {
         private final AtomicInteger stepReattachCalls = new AtomicInteger();
         private final List<String> stepReattachRequestIds = new ArrayList<>();
+        private WaitForStepCompletionRequest stepWaitRequest;
         private WriteStreamRequest writeStreamRequest;
         private ReadStreamRequest readStreamRequest;
         private ListStreamMessagesRequest listStreamMessagesRequest;
@@ -468,6 +472,7 @@ final class ClientExceptionIntegrationTest {
         public void waitForStepCompletion(
                 final WaitForStepCompletionRequest request,
                 final StreamObserver<WaitForStepCompletionResponse> observer) {
+            stepWaitRequest = request;
             if (request.getFlowId().equals("step-reattach")) {
                 stepReattachRequestIds.add(request.getRequestId());
             }
@@ -482,8 +487,8 @@ final class ClientExceptionIntegrationTest {
             if (request.getFlowId().equals("step-timeout")) {
                 observer.onError(error(
                         Status.Code.DEADLINE_EXCEEDED,
-                        io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT,
-                        "wait handler timed out"));
+                        io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_REQUEST_TIMEOUT,
+                        "request timed out"));
                 return;
             }
             observer.onNext(WaitForStepCompletionResponse.getDefaultInstance());

@@ -41,6 +41,8 @@ func TestWaitForStateCompletionTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestWaitForStateCompletionTimeout(t)
 		smallWaitForFastTest()
+		doTestWaitForStateCompletionInternalHandlerTimeout(t)
+		smallWaitForFastTest()
 		doTestWaitForStateCompletionAcrossContinueAsNew(t)
 		smallWaitForFastTest()
 		doTestWaitForStateCompletionCancel(t)
@@ -103,28 +105,28 @@ func doTestWaitForStateCompletion(
 
 	if backendType == service.BackendTypeCadence {
 		_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-			FlowId:              flowId,
-			StepType:            wait_for_state_completion.State2,
-			StepExecutionNumber: "1",
-			WaitTimeSeconds:     30,
+			FlowId:                flowId,
+			StepType:              wait_for_state_completion.State2,
+			StepExecutionNumber:   "1",
+			RequestTimeoutSeconds: 30,
 		})
 		require.Equal(t, codes.Unimplemented, status.Code(err))
 	} else if waitByStepType {
 		_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-			FlowId:              flowId,
-			StepType:            wait_for_state_completion.State2,
-			StepExecutionNumber: "1",
-			WaitTimeSeconds:     30,
-			RequestId:           uuid.NewString(),
+			FlowId:                flowId,
+			StepType:              wait_for_state_completion.State2,
+			StepExecutionNumber:   "1",
+			RequestTimeoutSeconds: 30,
+			RequestId:             uuid.NewString(),
 		})
 		require.NoError(t, err)
 	} else {
 		_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-			FlowId:              flowId,
-			StepType:            wait_for_state_completion.State1,
-			StepExecutionNumber: "1",
-			WaitTimeSeconds:     30,
-			RequestId:           uuid.NewString(),
+			FlowId:                flowId,
+			StepType:              wait_for_state_completion.State1,
+			StepExecutionNumber:   "1",
+			RequestTimeoutSeconds: 30,
+			RequestId:             uuid.NewString(),
 		})
 		require.NoError(t, err)
 	}
@@ -172,21 +174,21 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 
 	requestID := uuid.NewString()
 	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-		FlowId:              flowId,
-		StepType:            wait_for_state_completion.State1,
-		StepExecutionNumber: "999",
-		WaitTimeSeconds:     1,
-		RequestId:           requestID,
+		FlowId:                flowId,
+		StepType:              wait_for_state_completion.State1,
+		StepExecutionNumber:   "1",
+		RequestTimeoutSeconds: 1,
+		RequestId:             requestID,
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
 	errResp := grpcServiceErrorResponse(t, err)
 	require.Equal(
 		t,
-		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_REQUEST_TIMEOUT,
 		errResp.GetSubStatus(),
 	)
-	require.Equal(t, "step completion wait timed out", errResp.GetDetail())
+	require.Equal(t, "step completion request timed out", errResp.GetDetail())
 	counts := inspectTemporalUpdateHistory(
 		t,
 		ctx,
@@ -203,25 +205,24 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 		return !time.Now().Before(counts.acceptedAt.Add(time.Second))
 	}, 2*time.Second, 10*time.Millisecond)
 
-	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
-		RequestId: newRequestID(),
-		FlowId:    flowId,
-		Attributes: []*dexpb.AttributeWrite{
-			{Key: "wait-for-step-completion-wake", Value: stringValue("wake")},
-		},
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
+		FlowId:                flowId,
+		StepType:              wait_for_state_completion.State1,
+		StepExecutionNumber:   "1",
+		RequestTimeoutSeconds: 15,
+		RequestId:             requestID,
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		counts = inspectTemporalUpdateHistory(
-			t,
-			ctx,
-			runtime,
-			flowId,
-			startResponse.GetRunId(),
-			requestID,
-		)
-		return counts.completed == 1
-	}, 5*time.Second, 50*time.Millisecond)
+	counts = inspectTemporalUpdateHistory(
+		t,
+		ctx,
+		runtime,
+		flowId,
+		startResponse.GetRunId(),
+		requestID,
+	)
+	require.Equal(t, 1, counts.accepted)
+	require.Equal(t, 1, counts.completed)
 	require.Zero(t, counts.oneSecondTimerStarted)
 	require.Zero(t, counts.oneSecondTimerCanceled)
 
@@ -230,6 +231,56 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 		StopType: dexpb.StopType_STOP_TYPE_TERMINATE,
 	})
 	require.NoError(t, err)
+}
+
+func doTestWaitForStateCompletionInternalHandlerTimeout(t *testing.T) {
+	workerHandler := wait_for_state_completion.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	flowClient := runtime.FlowClient
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := wait_for_state_completion.WorkflowType + "-handler-timeout-" + uuid.NewString()
+	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           wait_for_state_completion.WorkflowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      wait_for_state_completion.State1,
+		StepInput:          stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+		FlowStartOptions:   withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+	requestID := uuid.NewString()
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
+		FlowId:                        flowID,
+		StepType:                      wait_for_state_completion.State1,
+		StepExecutionNumber:           "1",
+		RequestTimeoutSeconds:         15,
+		InternalHandlerTimeoutSeconds: 1,
+		RequestId:                     requestID,
+	})
+	require.NoError(t, err)
+	baseAccepted, baseCompleted := countTemporalUpdateEvents(
+		t,
+		ctx,
+		runtime,
+		flowID,
+		startResponse.GetRunId(),
+		requestID,
+	)
+	nextAccepted, nextCompleted := countTemporalUpdateEvents(
+		t,
+		ctx,
+		runtime,
+		flowID,
+		startResponse.GetRunId(),
+		requestID+"-1",
+	)
+	require.Equal(t, 1, baseAccepted)
+	require.Equal(t, 1, baseCompleted)
+	require.Equal(t, 1, nextAccepted)
+	require.Equal(t, 1, nextCompleted)
 }
 
 func doTestWaitForStateCompletionAcrossContinueAsNew(t *testing.T) {
@@ -257,11 +308,11 @@ func doTestWaitForStateCompletionAcrossContinueAsNew(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-		FlowId:              flowId,
-		StepType:            wait_for_state_completion.State2,
-		StepExecutionNumber: "1",
-		WaitTimeSeconds:     30,
-		RequestId:           uuid.NewString(),
+		FlowId:                flowId,
+		StepType:              wait_for_state_completion.State2,
+		StepExecutionNumber:   "1",
+		RequestTimeoutSeconds: 30,
+		RequestId:             uuid.NewString(),
 	})
 	require.NoError(t, err)
 
@@ -298,11 +349,11 @@ func doTestWaitForStateCompletionCancel(t *testing.T) {
 	waitDone := make(chan error, 1)
 	go func() {
 		_, waitErr := flowClient.WaitForStepCompletion(waitCtx, &dexpb.WaitForStepCompletionRequest{
-			FlowId:              flowId,
-			StepType:            wait_for_state_completion.State2,
-			StepExecutionNumber: "1",
-			WaitTimeSeconds:     30,
-			RequestId:           uuid.NewString(),
+			FlowId:                flowId,
+			StepType:              wait_for_state_completion.State2,
+			StepExecutionNumber:   "1",
+			RequestTimeoutSeconds: 30,
+			RequestId:             uuid.NewString(),
 		})
 		waitDone <- waitErr
 	}()
@@ -334,11 +385,11 @@ func doTestWaitForStateCompletionNotFound(t *testing.T) {
 
 	flowId := wait_for_state_completion.WorkflowType + "-notfound-" + uuid.NewString()
 	_, err := flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-		FlowId:              flowId,
-		StepType:            wait_for_state_completion.State2,
-		StepExecutionNumber: "1",
-		WaitTimeSeconds:     1,
-		RequestId:           uuid.NewString(),
+		FlowId:                flowId,
+		StepType:              wait_for_state_completion.State2,
+		StepExecutionNumber:   "1",
+		RequestTimeoutSeconds: 1,
+		RequestId:             uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.NotFound, status.Code(err))
@@ -378,11 +429,11 @@ func doTestWaitForStateCompletionClosed(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-		FlowId:              flowId,
-		StepType:            wait_for_state_completion.State2,
-		StepExecutionNumber: "1",
-		WaitTimeSeconds:     30,
-		RequestId:           uuid.NewString(),
+		FlowId:                flowId,
+		StepType:              wait_for_state_completion.State2,
+		StepExecutionNumber:   "1",
+		RequestTimeoutSeconds: 30,
+		RequestId:             uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.NotFound, status.Code(err))
@@ -391,7 +442,10 @@ func doTestWaitForStateCompletionClosed(t *testing.T) {
 func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 	workerHandler := wait_for_state_completion.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType:    service.BackendTypeTemporal,
+		MaxWaitSeconds: 60,
+	})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -411,10 +465,10 @@ func doTestWaitForStateCompletionConcurrent(t *testing.T) {
 	require.NoError(t, err)
 
 	waitRequest := &dexpb.WaitForStepCompletionRequest{
-		FlowId:              flowId,
-		StepType:            wait_for_state_completion.State2,
-		StepExecutionNumber: "1",
-		WaitTimeSeconds:     30,
+		FlowId:                flowId,
+		StepType:              wait_for_state_completion.State2,
+		StepExecutionNumber:   "1",
+		RequestTimeoutSeconds: 30,
 	}
 
 	var waitGroup sync.WaitGroup
@@ -472,31 +526,41 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-		FlowId:              flowId,
-		StepType:            "",
-		StepExecutionNumber: "1",
-		WaitTimeSeconds:     1,
-		RequestId:           uuid.NewString(),
+		FlowId:                flowId,
+		StepType:              "",
+		StepExecutionNumber:   "1",
+		RequestTimeoutSeconds: 1,
+		RequestId:             uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
 	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-		FlowId:              flowId,
-		StepType:            wait_for_state_completion.State2,
-		StepExecutionNumber: "abc",
-		WaitTimeSeconds:     1,
-		RequestId:           uuid.NewString(),
+		FlowId:                flowId,
+		StepType:              wait_for_state_completion.State2,
+		StepExecutionNumber:   "abc",
+		RequestTimeoutSeconds: 1,
+		RequestId:             uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
 	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-		FlowId:              flowId,
-		StepType:            wait_for_state_completion.State2,
-		StepExecutionNumber: "1",
-		WaitTimeSeconds:     -1,
-		RequestId:           uuid.NewString(),
+		FlowId:                flowId,
+		StepType:              wait_for_state_completion.State2,
+		StepExecutionNumber:   "1",
+		RequestTimeoutSeconds: -1,
+		RequestId:             uuid.NewString(),
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
+		FlowId:                        flowId,
+		StepType:                      wait_for_state_completion.State2,
+		StepExecutionNumber:           "1",
+		InternalHandlerTimeoutSeconds: -1,
+		RequestId:                     uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
@@ -572,14 +636,46 @@ func doTestWaitForStateCompletionCounterFailure(t *testing.T) {
 	description, err := runtime.UnifiedClient.DescribeWorkflowExecution(ctx, flowId, "", nil)
 	require.NoError(t, err)
 	requestID := uuid.NewString()
-	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-		FlowId:              flowId,
-		StepType:            signal.State2,
-		StepExecutionNumber: "999",
-		WaitTimeSeconds:     1,
-		RequestId:           requestID,
-	})
-	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	timeoutDone := make(chan error, 1)
+	go func() {
+		var timeoutResponse dexpb.WaitForStepCompletionResponse
+		timeoutDone <- runtime.UnifiedClient.SynchronousUpdateWorkflow(
+			ctx,
+			&timeoutResponse,
+			flowId,
+			"",
+			requestID,
+			service.WaitForStepCompletionUpdateType,
+			&dexpb.WaitForStepCompletionRequest{
+				FlowId:                        flowId,
+				StepType:                      signal.State2,
+				StepExecutionNumber:           "999",
+				InternalHandlerTimeoutSeconds: 1,
+			},
+		)
+	}()
+	require.Eventually(t, func() bool {
+		counts := inspectTemporalUpdateHistory(
+			t,
+			ctx,
+			runtime,
+			flowId,
+			description.RunId,
+			requestID,
+		)
+		return counts.accepted == 1
+	}, 5*time.Second, 50*time.Millisecond)
+	acceptedCounts := inspectTemporalUpdateHistory(
+		t,
+		ctx,
+		runtime,
+		flowId,
+		description.RunId,
+		requestID,
+	)
+	require.Eventually(t, func() bool {
+		return !time.Now().Before(acceptedCounts.acceptedAt.Add(time.Second))
+	}, 2*time.Second, 10*time.Millisecond)
 
 	validationRequestID := uuid.NewString()
 	var rejectedResponse dexpb.WaitForAttributeResponse
@@ -593,6 +689,12 @@ func doTestWaitForStateCompletionCounterFailure(t *testing.T) {
 		&dexpb.WaitForAttributeRequest{FlowId: flowId},
 	)
 	require.Error(t, err)
+	select {
+	case timeoutErr := <-timeoutDone:
+		require.Error(t, timeoutErr)
+	case <-ctx.Done():
+		require.Fail(t, "timed out waiting for internal handler timeout")
+	}
 	rejectedCounts := inspectTemporalUpdateHistory(
 		t,
 		ctx,

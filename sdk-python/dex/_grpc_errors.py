@@ -26,8 +26,8 @@ from dex.runtime_errors import (
     FlowNotActiveError,
     FlowNotFoundError,
     LongPollTimeoutError,
+    RequestTimeoutError,
     RpcLockConflictError,
-    WaitHandlerTimeoutError,
     WorkerInvocationError,
 )
 
@@ -144,8 +144,8 @@ def translate_rpc_error(
         return LongPollTimeoutError(*parameters)
     if sub_status is ErrorSubStatus.CHANNEL_MESSAGE_NOT_FOUND:
         return ChannelMessageNotFoundError(*parameters)
-    if sub_status is ErrorSubStatus.WAIT_HANDLER_TIMEOUT:
-        return WaitHandlerTimeoutError(*parameters)
+    if sub_status is ErrorSubStatus.REQUEST_TIMEOUT:
+        return RequestTimeoutError(*parameters)
     return DexServiceError(*parameters)
 
 
@@ -249,8 +249,6 @@ def _map_sub_status(value: int) -> ErrorSubStatus:
         int(
             pb.ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND
         ): ErrorSubStatus.CHANNEL_MESSAGE_NOT_FOUND,
-        int(
-            pb.ERROR_SUB_STATUS_WAIT_HANDLER_TIME_OUT
-        ): ErrorSubStatus.WAIT_HANDLER_TIMEOUT,
+        int(pb.ERROR_SUB_STATUS_REQUEST_TIMEOUT): ErrorSubStatus.REQUEST_TIMEOUT,
     }
     return statuses.get(value, ErrorSubStatus.UNCATEGORIZED)

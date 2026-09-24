@@ -65,10 +65,10 @@ public final class TimerTest {
 
     private static WaitForStepCompletionOptions waitOptions(
             final String flowId,
-            final Duration maximumWaitTime) {
+            final Duration requestTimeout) {
         return WaitForStepCompletionOptions.newBuilder()
                 .requestId(flowId + "-wait-timer")
-                .maximumWaitTime(maximumWaitTime)
+                .requestTimeout(requestTimeout)
                 .build();
     }
 }

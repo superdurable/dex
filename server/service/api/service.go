@@ -55,7 +55,7 @@ const (
 	waitForAttributeUpdateIDNamespace      = "wait-for-attribute:"
 )
 
-var errWaitHandlerDeadlineExceeded = errors.New("wait handler deadline exceeded")
+var errWaitRequestDeadlineExceeded = errors.New("wait request deadline exceeded")
 
 type serviceImpl struct {
 	client             uclient.UnifiedClient
@@ -313,8 +313,12 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 	if s.client.GetBackendType() == service.BackendTypeCadence {
 		return nil, status.Errorf(codes.Unimplemented, "WaitForStepCompletion requires Temporal synchronous update")
 	}
-	if req == nil || req.GetFlowId() == "" || req.GetWaitTimeSeconds() < 0 {
-		return nil, makeInvalidRequestError("valid flow ID and non-negative wait time are required")
+	if req == nil || req.GetFlowId() == "" ||
+		req.GetRequestTimeoutSeconds() < 0 ||
+		req.GetInternalHandlerTimeoutSeconds() < 0 {
+		return nil, makeInvalidRequestError(
+			"valid flow ID and non-negative request and internal handler timeouts are required",
+		)
 	}
 	if req.GetStepType() == "" || req.GetStepExecutionNumber() == "" {
 		return nil, makeInvalidRequestError("step type and step execution number are required")
@@ -327,7 +331,7 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 	if err != nil || stepExecutionNumber <= 0 {
 		return nil, makeInvalidRequestError("step execution number must be a positive integer")
 	}
-	handlerDeadline := waitHandlerDeadline(req.GetWaitTimeSeconds())
+	requestDeadline := waitRequestDeadline(req.GetRequestTimeoutSeconds())
 	waitCtx, cancel := s.waitContext(ctx)
 	defer cancel()
 	baseUpdateID := waitForStepCompletionUpdateID(req)
@@ -335,14 +339,14 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 	var response dexpb.WaitForStepCompletionResponse
 	backoff := 25 * time.Millisecond
 	for {
-		remainingSeconds, hasTimeRemaining := remainingWaitHandlerSeconds(handlerDeadline)
+		remainingSeconds, hasTimeRemaining := remainingWaitRequestSeconds(requestDeadline)
 		if !hasTimeRemaining {
-			return nil, serviceerrors.DeadlineExceededWaitHandler(
-				"step completion wait timed out",
+			return nil, serviceerrors.DeadlineExceededRequest(
+				"step completion request timed out",
 			).ToGRPCError()
 		}
-		req.WaitTimeSeconds = remainingSeconds
-		updateCtx, cancelUpdate := waitUpdateContext(waitCtx, handlerDeadline)
+		req.RequestTimeoutSeconds = remainingSeconds
+		updateCtx, cancelUpdate := waitUpdateContext(waitCtx, requestDeadline)
 		err := s.client.SynchronousUpdateWorkflow(
 			updateCtx,
 			&response,
@@ -357,15 +361,15 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 		if err == nil {
 			return &response, nil
 		}
-		if errors.Is(updateCause, errWaitHandlerDeadlineExceeded) {
-			return nil, serviceerrors.DeadlineExceededWaitHandler(
-				"step completion wait timed out",
+		if errors.Is(updateCause, errWaitRequestDeadlineExceeded) {
+			return nil, serviceerrors.DeadlineExceededRequest(
+				"step completion request timed out",
 			).ToGRPCError()
 		}
 		if waitCtx.Err() != nil {
 			return nil, waitContextStatus(waitCtx.Err())
 		}
-		if isWaitHandlerTimeoutUpdateError(s.client, err) {
+		if isInternalHandlerTimeoutUpdateError(s.client, err) {
 			updateIDGeneration++
 			continue
 		}
@@ -444,8 +448,12 @@ func (s *serviceImpl) WaitForAttribute(
 	if s.client.GetBackendType() == service.BackendTypeCadence {
 		return nil, status.Errorf(codes.Unimplemented, "WaitForAttribute requires Temporal synchronous update")
 	}
-	if req == nil || req.GetFlowId() == "" || req.GetWaitTimeSeconds() < 0 {
-		return nil, makeInvalidRequestError("valid flow ID and non-negative wait time are required")
+	if req == nil || req.GetFlowId() == "" ||
+		req.GetRequestTimeoutSeconds() < 0 ||
+		req.GetInternalHandlerTimeoutSeconds() < 0 {
+		return nil, makeInvalidRequestError(
+			"valid flow ID and non-negative request and internal handler timeouts are required",
+		)
 	}
 	match := req.GetMatch()
 	if match == nil || match.GetOperand() == nil {
@@ -457,7 +465,7 @@ func (s *serviceImpl) WaitForAttribute(
 	if err := validateAttributeMatch(match); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
-	handlerDeadline := waitHandlerDeadline(req.GetWaitTimeSeconds())
+	requestDeadline := waitRequestDeadline(req.GetRequestTimeoutSeconds())
 	waitCtx, cancel := s.waitContext(ctx)
 	defer cancel()
 	baseUpdateID := waitForAttributeUpdateID(req)
@@ -465,14 +473,14 @@ func (s *serviceImpl) WaitForAttribute(
 	var response dexpb.WaitForAttributeResponse
 	backoff := 25 * time.Millisecond
 	for {
-		remainingSeconds, hasTimeRemaining := remainingWaitHandlerSeconds(handlerDeadline)
+		remainingSeconds, hasTimeRemaining := remainingWaitRequestSeconds(requestDeadline)
 		if !hasTimeRemaining {
-			return nil, serviceerrors.DeadlineExceededWaitHandler(
-				"attribute wait timed out",
+			return nil, serviceerrors.DeadlineExceededRequest(
+				"attribute request timed out",
 			).ToGRPCError()
 		}
-		req.WaitTimeSeconds = remainingSeconds
-		updateCtx, cancelUpdate := waitUpdateContext(waitCtx, handlerDeadline)
+		req.RequestTimeoutSeconds = remainingSeconds
+		updateCtx, cancelUpdate := waitUpdateContext(waitCtx, requestDeadline)
 		err := s.client.SynchronousUpdateWorkflow(
 			updateCtx,
 			&response,
@@ -487,15 +495,15 @@ func (s *serviceImpl) WaitForAttribute(
 		if err == nil {
 			return &response, nil
 		}
-		if errors.Is(updateCause, errWaitHandlerDeadlineExceeded) {
-			return nil, serviceerrors.DeadlineExceededWaitHandler(
-				"attribute wait timed out",
+		if errors.Is(updateCause, errWaitRequestDeadlineExceeded) {
+			return nil, serviceerrors.DeadlineExceededRequest(
+				"attribute request timed out",
 			).ToGRPCError()
 		}
 		if waitCtx.Err() != nil {
 			return nil, waitContextStatus(waitCtx.Err())
 		}
-		if isWaitHandlerTimeoutUpdateError(s.client, err) {
+		if isInternalHandlerTimeoutUpdateError(s.client, err) {
 			updateIDGeneration++
 			continue
 		}
@@ -568,7 +576,7 @@ func waitUpdateID(baseUpdateID string, generation int) string {
 	return baseUpdateID + "-" + strconv.Itoa(generation)
 }
 
-func isWaitHandlerTimeoutUpdateError(client uclient.UnifiedClient, err error) bool {
+func isInternalHandlerTimeoutUpdateError(client uclient.UnifiedClient, err error) bool {
 	updateType, isUpdateError := client.GetIfUpdateError(err, nil)
 	return isUpdateError && updateType == dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED
 }
@@ -1831,24 +1839,24 @@ func (s *serviceImpl) waitContext(parent context.Context) (context.Context, cont
 	return ctx, cancel
 }
 
-func waitHandlerDeadline(requestedSeconds int32) time.Time {
+func waitRequestDeadline(requestedSeconds int32) time.Time {
 	if requestedSeconds == 0 {
 		return time.Time{}
 	}
 	return time.Now().Add(time.Duration(requestedSeconds) * time.Second)
 }
 
-func waitUpdateContext(parent context.Context, handlerDeadline time.Time) (context.Context, context.CancelFunc) {
-	if handlerDeadline.IsZero() {
+func waitUpdateContext(parent context.Context, requestDeadline time.Time) (context.Context, context.CancelFunc) {
+	if requestDeadline.IsZero() {
 		return context.WithCancel(parent)
 	}
-	if parentDeadline, ok := parent.Deadline(); ok && !handlerDeadline.Before(parentDeadline) {
+	if parentDeadline, ok := parent.Deadline(); ok && !requestDeadline.Before(parentDeadline) {
 		return context.WithCancel(parent)
 	}
-	return context.WithDeadlineCause(parent, handlerDeadline, errWaitHandlerDeadlineExceeded)
+	return context.WithDeadlineCause(parent, requestDeadline, errWaitRequestDeadlineExceeded)
 }
 
-func remainingWaitHandlerSeconds(deadline time.Time) (int32, bool) {
+func remainingWaitRequestSeconds(deadline time.Time) (int32, bool) {
 	if deadline.IsZero() {
 		return 0, true
 	}
@@ -1902,7 +1910,7 @@ func (s *serviceImpl) handleError(err error) error {
 				details,
 			).ToGRPCError()
 		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED:
-			return serviceerrors.DeadlineExceededWaitHandler(details).ToGRPCError()
+			return serviceerrors.Internal(details).ToGRPCError()
 		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE:
 			return serviceerrors.AbortedLockFailure(details).ToGRPCError()
 		case dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_SERVER_INTERNAL:

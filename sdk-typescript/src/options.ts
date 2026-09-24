@@ -22,29 +22,45 @@ export interface ClientOptions {
 /**
  * Configures one durable Step completion wait.
  * The server derives a stable Request ID from the Step execution when none is supplied.
- * Leave the maximum wait time at zero for normal use. Positive values are exceptional because short
- * budgets can add many Temporal Update events to Workflow history. Prefer at least one minute.
- * A positive value bounds the caller-visible wait.
+ * `requestTimeoutMs` bounds the entire SDK call across transparent transport reattachments.
+ * Temporal permits 10 in-flight Updates per Workflow Execution. `internalHandlerTimeoutMs`
+ * reclaims accepted waits that outlive callers and could consume those slots. Active callers
+ * transparently start another generation, which adds another Update to history.
  */
 export interface WaitForStepCompletionOptions {
   /** Overrides the stable Request ID that the server derives from the Step execution. */
   readonly requestId?: string;
-  /** Caller-visible wait budget. Prefer zero, or at least one minute when positive, to limit Update history growth. */
-  readonly maximumWaitTimeMs?: number;
+  /** Total SDK call budget. Omit or use zero to wait indefinitely. */
+  readonly requestTimeoutMs?: number;
+  /**
+   * Sets the Temporal Update handler generation lifetime.
+   * Use it only when abandoned waits can approach Temporal's in-flight Update limit. Omit or use
+   * zero to disable rollover. Prefer a value longer than normal request timeouts and reconnect
+   * gaps; each generation counts toward Temporal's 2,000-Update history limit.
+   */
+  readonly internalHandlerTimeoutMs?: number;
 }
 
 /**
  * Configures one durable Attribute match wait.
  * The server derives a stable Request ID from the Attribute condition when none is supplied.
- * Leave the maximum wait time at zero for normal use. Positive values are exceptional because short
- * budgets can add many Temporal Update events to Workflow history. Prefer at least one minute.
- * A positive value bounds the caller-visible wait.
+ * `requestTimeoutMs` bounds the entire SDK call across transparent transport reattachments.
+ * Temporal permits 10 in-flight Updates per Workflow Execution. `internalHandlerTimeoutMs`
+ * reclaims accepted waits that outlive callers and could consume those slots. Active callers
+ * transparently start another generation, which adds another Update to history.
  */
 export interface WaitForAttributeOptions {
   /** Overrides the stable Request ID that the server derives from the Attribute condition. */
   readonly requestId?: string;
-  /** Caller-visible wait budget. Prefer zero, or at least one minute when positive, to limit Update history growth. */
-  readonly maximumWaitTimeMs?: number;
+  /** Total SDK call budget. Omit or use zero to wait indefinitely. */
+  readonly requestTimeoutMs?: number;
+  /**
+   * Sets the Temporal Update handler generation lifetime.
+   * Use it only when abandoned waits can approach Temporal's in-flight Update limit. Omit or use
+   * zero to disable rollover. Prefer a value longer than normal request timeouts and reconnect
+   * gaps; each generation counts toward Temporal's 2,000-Update history limit.
+   */
+  readonly internalHandlerTimeoutMs?: number;
 }
 
 /** Controls which active Steps are included in Flow search indexing. */

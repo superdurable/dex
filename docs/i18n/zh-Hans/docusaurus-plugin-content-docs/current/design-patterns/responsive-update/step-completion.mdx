@@ -8,7 +8,7 @@ title: 等待 Step 完成
 
 **WaitForStepCompletionFlow** 示例会在 **PersistData** 中持久化记录，再启动 **BackgroundWork**。它的 controller 在查询已持久化记录前等待 **PersistData**。只有当一个 Step 已提交了使响应有效的状态后，才应把它选作这个边界。
 
-常规使用应让 **MaximumWaitTime** 保持为 0，并用调用方 deadline 限制单次响应时间。正值极少使用，因为较短的 budget 可能向 Workflow history 增加大量 Temporal Update events。确实需要正值时，建议至少 1 分钟。它会向调用方返回有类型的 timeout。详情请参阅[选择等待 budget](/design-patterns/responsive-update#选择等待-budget)。
+普通 durable wait 应让 **RequestTimeout** 保持为 0。在 admission 边界应显式设置它。下面的 runnable controller 暂时保持无限等待，直到它依赖的已发布 SDK 包含这个 API。只有需要回收被放弃的 accepted handlers，以避免它们逼近 Temporal 的 in-flight Update limit 时，才应设置 **InternalHandlerTimeout**。详情请参阅[选择超时边界](/design-patterns/responsive-update#选择超时边界)。
 
 ## 核心实现
 

@@ -33,7 +33,7 @@ fn test_basic_timer_workflow() {
             StepExecutionId::of(&workflow.start),
             WaitForStepCompletionOptions::new()
                 .request_id(format!("{flow_id}-wait-timer"))
-                .maximum_wait_time(Duration::from_secs(10)),
+                .request_timeout(Duration::from_secs(10)),
         )
         .expect("wait for Timer Step");
     environment
@@ -56,7 +56,7 @@ fn compile_timer_and_step_wait(client: &Client) -> SdkResult<()> {
         StepExecutionId::of(&workflow.start),
         WaitForStepCompletionOptions::new()
             .request_id("wait-timer-step")
-            .maximum_wait_time(Duration::from_secs(10)),
+            .request_timeout(Duration::from_secs(10)),
     )?;
     let _ = client.wait_for_flow("timer")?;
     Ok(())
