@@ -13,7 +13,9 @@ package config
 import (
 	"fmt"
 	"log"
+	"net"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -379,9 +381,6 @@ type (
 		VerboseDebug bool `yaml:"verboseDebug"`
 		// AttributeIndexSyncTimeout bounds registration and backend propagation checks. Default 2m. Immutable after startup.
 		AttributeIndexSyncTimeout time.Duration `yaml:"attributeIndexSyncTimeout"`
-		// AttributeIndexesManagedExternally skips backend index discovery and creation after validating declarations.
-		// Operators must provision Dex system indexes and every indexed application Attribute before starting Dex or Workers.
-		AttributeIndexesManagedExternally bool `yaml:"attributeIndexesManagedExternally"`
 	}
 
 	TemporalConfig struct {
@@ -389,12 +388,22 @@ type (
 		HostPort string `yaml:"hostPort"`
 		// CloudAPIKey authenticates to Temporal Cloud. Empty means no cloud credentials.
 		CloudAPIKey string `yaml:"cloudAPIKey"`
+		// CloudOps configures Temporal Cloud namespace operations for attribute index synchronization.
+		// Nil uses the Temporal data-plane OperatorService for self-hosted clusters.
+		CloudOps *TemporalCloudOpsConfig `yaml:"cloudOps"`
 		// Namespace is the Temporal namespace. Default "default".
 		Namespace string `yaml:"namespace"`
 		// Prometheus configures the Temporal SDK metrics exposer. Nil disables.
 		Prometheus *prometheus.Configuration `yaml:"prometheus"`
 		// WorkerOptions are passed to the Temporal worker. Nil uses SDK defaults.
 		WorkerOptions *temporalWorker.Options
+	}
+
+	TemporalCloudOpsConfig struct {
+		// HostPort is the Temporal Cloud Operations API gRPC endpoint.
+		HostPort string `yaml:"hostPort"`
+		// APIVersion pins the Temporal Cloud Operations API contract.
+		APIVersion string `yaml:"apiVersion"`
 	}
 
 	CadenceConfig struct {
@@ -497,6 +506,18 @@ func NewConfig(configPath string) (*Config, error) {
 	}
 	if cfg.Interpreter.Temporal != nil && cfg.Interpreter.Temporal.Namespace == "_superverse" {
 		return nil, fmt.Errorf("Temporal namespace _superverse is reserved for hosted objects")
+	}
+	if cfg.Interpreter.Temporal != nil && cfg.Interpreter.Temporal.CloudOps != nil {
+		cloudOps := cfg.Interpreter.Temporal.CloudOps
+		if strings.TrimSpace(cfg.Interpreter.Temporal.CloudAPIKey) == "" {
+			return nil, fmt.Errorf("interpreter.temporal.cloudAPIKey is required when cloudOps is configured")
+		}
+		if _, _, err := net.SplitHostPort(cloudOps.HostPort); err != nil {
+			return nil, fmt.Errorf("interpreter.temporal.cloudOps.hostPort must be host:port: %w", err)
+		}
+		if matched, _ := regexp.MatchString(`^v[0-9]+\.[0-9]+\.[0-9]+$`, cloudOps.APIVersion); !matched {
+			return nil, fmt.Errorf("interpreter.temporal.cloudOps.apiVersion must be a version such as v0.19.1")
+		}
 	}
 	if cfg.Interpreter.Cadence != nil && cfg.Interpreter.Cadence.Domain == "_superverse" {
 		return nil, fmt.Errorf("Cadence domain _superverse is reserved for hosted objects")

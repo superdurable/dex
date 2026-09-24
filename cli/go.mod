@@ -133,6 +133,7 @@ require (
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.temporal.io/api v1.63.4 // indirect
+	go.temporal.io/cloud-sdk v0.19.0 // indirect
 	go.temporal.io/sdk/contrib/tally v0.1.0 // indirect
 	go.temporal.io/sdk/contrib/tools/workflowcheck v0.0.0-20220331154559-fd0d1eb548eb // indirect
 	go.uber.org/atomic v1.11.0 // indirect

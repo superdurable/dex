@@ -33,6 +33,7 @@ require (
 	github.com/aws/smithy-go v1.27.4
 	github.com/redis/go-redis/v9 v9.22.0
 	go.temporal.io/api v1.63.4
+	go.temporal.io/cloud-sdk v0.19.0
 	golang.org/x/sync v0.22.0
 )
 

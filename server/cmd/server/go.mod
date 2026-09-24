@@ -3,6 +3,7 @@ module github.com/superdurable/dex/cmd/server
 go 1.26.0
 
 require (
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.106.0
 	github.com/stretchr/testify v1.11.1
 	github.com/superdurable/dex v0.0.0
 	github.com/superdurable/dex/web v0.0.0
@@ -35,7 +36,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.24 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.31 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.32 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.106.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.5.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.33.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.38.0 // indirect
@@ -132,6 +132,7 @@ require (
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.temporal.io/api v1.63.4 // indirect
+	go.temporal.io/cloud-sdk v0.19.0 // indirect
 	go.temporal.io/sdk v1.47.1-superdurable.3 // indirect
 	go.temporal.io/sdk/contrib/tally v0.1.0 // indirect
 	go.temporal.io/sdk/contrib/tools/workflowcheck v0.0.0-20220331154559-fd0d1eb548eb // indirect

@@ -122,11 +122,9 @@ The default deadline is two minutes and is configurable with
 `interpreter.attributeIndexSyncTimeout`.
 
 Temporal Cloud API-key clients cannot use the Operator Service search-attribute
-APIs. Provision `FlowType` and `DexParentFlowID` as Keyword indexes and
-`ActiveStepTypes` as a KeywordList index through the Temporal Cloud control
-plane. Provision every indexed application Attribute the same way, then set
-`interpreter.attributeIndexesManagedExternally: true`. Dex still validates
-each declaration but does not discover, create, or verify backend indexes.
+APIs. Configure `interpreter.temporal.cloudOps` so Dex can synchronize indexes
+through the Temporal Cloud Operations API. The API key must have permission to
+read and update the configured namespace.
 
 ### External Cadence service
 

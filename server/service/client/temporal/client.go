@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -45,6 +46,7 @@ import (
 
 type temporalClient struct {
 	tClient                        client.Client
+	attributeIndexClient           uclient.AttributeIndexClient
 	namespace                      string
 	dataConverter                  converter.DataConverter
 	memoEncryption                 bool // this is a workaround for https://github.com/temporalio/sdk-go/issues/1045
@@ -58,7 +60,12 @@ type localActivityMarkerData struct {
 }
 
 func NewTemporalClient(
-	tClient client.Client, namespace string, dataConverter converter.DataConverter, memoEncryption bool, retryPolicy *config.RetryPolicy,
+	tClient client.Client,
+	namespace string,
+	dataConverter converter.DataConverter,
+	memoEncryption bool,
+	retryPolicy *config.RetryPolicy,
+	attributeIndexClient uclient.AttributeIndexClient,
 ) uclient.UnifiedClient {
 	return &temporalClient{
 		tClient:                        tClient,
@@ -66,14 +73,21 @@ func NewTemporalClient(
 		dataConverter:                  dataConverter,
 		memoEncryption:                 memoEncryption,
 		queryWorkflowFailedRetryPolicy: retryPolicy,
+		attributeIndexClient:           attributeIndexClient,
 	}
 }
 
 func (t *temporalClient) Close() {
+	if closer, ok := t.attributeIndexClient.(io.Closer); ok {
+		_ = closer.Close()
+	}
 	t.tClient.Close()
 }
 
 func (t *temporalClient) ListAttributeIndexes(ctx context.Context) (map[string]dexpb.IndexType, error) {
+	if t.attributeIndexClient != nil {
+		return t.attributeIndexClient.ListAttributeIndexes(ctx)
+	}
 	response, err := t.tClient.OperatorService().ListSearchAttributes(
 		ctx,
 		&operatorservice.ListSearchAttributesRequest{Namespace: t.namespace},
@@ -92,6 +106,9 @@ func (t *temporalClient) ListAttributeIndexes(ctx context.Context) (map[string]d
 }
 
 func (t *temporalClient) AddAttributeIndexes(ctx context.Context, indexes map[string]dexpb.IndexType) error {
+	if t.attributeIndexClient != nil {
+		return t.attributeIndexClient.AddAttributeIndexes(ctx, indexes)
+	}
 	searchAttributes := make(map[string]enums.IndexedValueType, len(indexes))
 	for name, indexType := range indexes {
 		searchAttributes[name] = mapToTemporalIndexedValueType(indexType)
@@ -107,6 +124,9 @@ func (t *temporalClient) AddAttributeIndexes(ctx context.Context, indexes map[st
 }
 
 func (t *temporalClient) NormalizeAttributeIndexType(indexType dexpb.IndexType) dexpb.IndexType {
+	if t.attributeIndexClient != nil {
+		return t.attributeIndexClient.NormalizeAttributeIndexType(indexType)
+	}
 	return indexType
 }
 

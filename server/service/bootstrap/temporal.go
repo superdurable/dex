@@ -85,12 +85,21 @@ func (r *Runtime) createTemporalServices() (
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("connect to Temporal: %w", err)
 	}
+	var attributeIndexClient uclient.AttributeIndexClient
+	if temporalConfig.CloudOps != nil {
+		attributeIndexClient, err = temporalapi.NewCloudAttributeIndexClient(temporalConfig)
+		if err != nil {
+			temporalClient.Close()
+			return nil, nil, nil, err
+		}
+	}
 	unifiedClient := temporalapi.NewTemporalClient(
 		temporalClient,
 		temporalConfig.Namespace,
 		dataConverter,
 		false,
 		r.cfg.Api.QueryWorkflowFailedRetryPolicy,
+		attributeIndexClient,
 	)
 	store, err := r.createBlobStore(
 		context.Background(),

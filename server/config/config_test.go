@@ -87,6 +87,73 @@ interpreter:
 	require.ErrorContains(t, err, "reserved")
 }
 
+func TestTemporalCloudOpsConfig(t *testing.T) {
+	path := writeTestConfig(t, `
+interpreter:
+  temporal:
+    namespace: test.account
+    cloudAPIKey: secret
+    cloudOps:
+      hostPort: saas-api.tmprl.cloud:443
+      apiVersion: v0.19.1
+`)
+	cfg, err := NewConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, "saas-api.tmprl.cloud:443", cfg.Interpreter.Temporal.CloudOps.HostPort)
+	require.Equal(t, "v0.19.1", cfg.Interpreter.Temporal.CloudOps.APIVersion)
+}
+
+func TestTemporalCloudOpsConfigValidation(t *testing.T) {
+	testCases := []struct {
+		name          string
+		temporalYAML  string
+		errorContains string
+	}{
+		{
+			name: "API key required",
+			temporalYAML: `
+    cloudOps:
+      hostPort: saas-api.tmprl.cloud:443
+      apiVersion: v0.19.1`,
+			errorContains: "cloudAPIKey is required",
+		},
+		{
+			name: "host and port required",
+			temporalYAML: `
+    cloudAPIKey: secret
+    cloudOps:
+      hostPort: saas-api.tmprl.cloud
+      apiVersion: v0.19.1`,
+			errorContains: "hostPort must be host:port",
+		},
+		{
+			name: "version required",
+			temporalYAML: `
+    cloudAPIKey: secret
+    cloudOps:
+      hostPort: saas-api.tmprl.cloud:443`,
+			errorContains: "apiVersion must be a version",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			path := writeTestConfig(t, "interpreter:\n  temporal:"+testCase.temporalYAML+"\n")
+			_, err := NewConfig(path)
+			require.ErrorContains(t, err, testCase.errorContains)
+		})
+	}
+}
+
+func TestConfigRejectsRemovedExternallyManagedIndexesOption(t *testing.T) {
+	path := writeTestConfig(t, `
+interpreter:
+  attributeIndexesManagedExternally: true
+`)
+	_, err := NewConfig(path)
+	require.ErrorContains(t, err, "field attributeIndexesManagedExternally not found")
+}
+
 func TestRetryPolicyConfigUsesDurations(t *testing.T) {
 	path := writeTestConfig(t, `
 api:
