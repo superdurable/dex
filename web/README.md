@@ -59,6 +59,44 @@ Version 2 files can coexist. Duplicate valid Version 2 definitions for one Flow
 type make the definition source invalid. Invalid analyzer output remains visible on **v1** Flow
 Rendering but does not appear as a **v2** Flow type.
 
+### Start Flow
+
+The v2 Run workspace shows **Start Flow** when the selected definition contains
+a `v2.start` schema and `web.workQueuePermissionMode` is `local-selector`. The
+dialog asks for a Flow ID, a plaintext Worker gRPC address, and the generated
+start input. It recursively renders objects, arrays, string-key maps, enums,
+booleans, datetime values, optional fields, and nullable fields. Integer input
+stays as decimal text until the request is serialized, so int64 values do not
+pass through JavaScript floating-point numbers.
+
+Dex Web checks the Worker `host:port` from the BFF when the address loses focus
+and again before starting. An unreachable port shows a warning and blocks the
+start until the operator explicitly selects **Bypass worker health check**.
+The probe opens a TCP connection and does not invoke a Worker method.
+
+`POST /api/v2/start` accepts `flowType`, `flowId`, `workerTargetAddress`, and the
+raw JSON `input`. It also accepts `bypassWorkerHealthCheck`; false performs the
+server-side port check and returns `WORKER_UNHEALTHY` with HTTP 412 when the
+target is unreachable. `POST /api/v2/worker-health` checks the same address for
+the dialog. Start requires `X-Dex-Flow-Definition-Revision`, reloads the current
+definition snapshot, validates every input field again, and rejects unknown
+fields. The Server chooses the start Step type and generates the request ID.
+The browser cannot set Worker headless routing.
+
+Configure headless routing once for every Flow started from this Dex Web
+instance:
+
+```yaml
+web:
+  startFlowWorkerTargetHeadless: false
+```
+
+The equivalent environment variable is
+`DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS`. The default is false and the value
+is immutable after startup. Set it to true when the entered Worker addresses
+are Kubernetes headless Service targets. Start Flow is unavailable in
+`trusted-header` mode.
+
 The v2 Work Queue is available at `/v2/work-queue`. In the default
 `local-selector` mode, its **Working as** control
 selects one Action permission and filters on the Server-maintained
@@ -177,6 +215,7 @@ DEX_WEB_FLOW_RENDERING_DIRECTORY
 DEX_WEB_FLOW_RENDERING_STORAGE_ID
 DEX_WEB_FLOW_RENDERING_PREFIX
 DEX_WEB_WORK_QUEUE_PERMISSION_MODE
+DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS
 DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS
 ```
 

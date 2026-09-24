@@ -80,7 +80,146 @@
         "actions": {
           "type": "array",
           "items": {"$ref": "#/$defs/action"}
+        },
+        "start": {"$ref": "#/$defs/start"}
+      }
+    },
+    "start": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepType", "input"],
+      "properties": {
+        "stepType": {"type": "string", "minLength": 1},
+        "input": {"$ref": "#/$defs/startInput"}
+      }
+    },
+    "startInput": {
+      "oneOf": [
+        {"$ref": "#/$defs/startInputNull"},
+        {"$ref": "#/$defs/startInputString"},
+        {"$ref": "#/$defs/startInputInteger"},
+        {"$ref": "#/$defs/startInputNumber"},
+        {"$ref": "#/$defs/startInputBoolean"},
+        {"$ref": "#/$defs/startInputObject"},
+        {"$ref": "#/$defs/startInputArray"},
+        {"$ref": "#/$defs/startInputMap"}
+      ]
+    },
+    "startInputNull": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {"kind": {"const": "null"}}
+    },
+    "startInputString": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"const": "string"},
+        "nullable": {"type": "boolean"},
+        "format": {"const": "date-time"},
+        "enumValues": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/startInputStringEnumValue"}
         }
+      }
+    },
+    "startInputInteger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "minimum", "maximum"],
+      "properties": {
+        "kind": {"const": "integer"},
+        "nullable": {"type": "boolean"},
+        "minimum": {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]*)$"},
+        "maximum": {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]*)$"},
+        "enumValues": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/startInputIntegerEnumValue"}
+        }
+      }
+    },
+    "startInputNumber": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"const": "number"},
+        "nullable": {"type": "boolean"}
+      }
+    },
+    "startInputBoolean": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"const": "boolean"},
+        "nullable": {"type": "boolean"}
+      }
+    },
+    "startInputObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"const": "object"},
+        "nullable": {"type": "boolean"},
+        "fields": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/startInputField"}
+        }
+      }
+    },
+    "startInputArray": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "items"],
+      "properties": {
+        "kind": {"const": "array"},
+        "nullable": {"type": "boolean"},
+        "items": {"$ref": "#/$defs/startInput"},
+        "fixedLength": {"type": "integer", "minimum": 0}
+      }
+    },
+    "startInputMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "values"],
+      "properties": {
+        "kind": {"const": "map"},
+        "nullable": {"type": "boolean"},
+        "values": {"$ref": "#/$defs/startInput"}
+      }
+    },
+    "startInputField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "required", "schema"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "required": {"type": "boolean"},
+        "schema": {"$ref": "#/$defs/startInput"}
+      }
+    },
+    "startInputStringEnumValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "value": {"type": "string"}
+      }
+    },
+    "startInputIntegerEnumValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "value": {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]*)$"}
       }
     },
     "indexedAttribute": {

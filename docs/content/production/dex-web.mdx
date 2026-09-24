@@ -44,6 +44,18 @@ Unknown or repeated parameters, missing required parameters, and invalid JSON ar
 
 Every registered Step has one group declaration and one explanation declaration. The explanation is one sentence that states what the Step does. Group order follows the first member's registration position in **GetSteps**. Step order within a group also follows **GetSteps**.
 
+## Start Flow
+
+The Run workspace shows **Start Flow** when the selected definition contains a generated start schema and the permission mode is **local-selector**. The dialog asks for a Flow ID, a plaintext Worker gRPC address, and the start input. It renders nested objects, arrays, string-key maps, enums, booleans, datetime values, optional fields, and explicit null values. Fixed arrays keep their declared length. Integer values remain decimal text in the browser until serialization, so int64 values keep their exact precision.
+
+Dex Web checks the Worker host and port from its backend when the address loses focus and again before starting. An unreachable port shows a warning and blocks the start. An operator can explicitly select **Bypass worker health check** to continue. The check opens a TCP connection and does not invoke a Worker method.
+
+The Go analyzer derives the schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. It supports nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps. A recursive or unsupported input produces a warning and omits the start schema without hiding the rest of the definition.
+
+The Server reloads the current definition revision and validates the complete input before calling **StartFlow**. It rejects unknown object fields, missing required fields, invalid nulls, type, enum, range, datetime, array, and map errors. It also repeats the Worker port check unless the operator selected the bypass. The Server selects the start Step type and creates the request ID. The browser cannot choose headless routing.
+
+Set **web.startFlowWorkerTargetHeadless** or **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** for the whole Dex Web instance. The default is false. Set it to true when operators enter Kubernetes headless Service targets. Start Flow is not available in **trusted-header** mode.
+
 ## Search and Summary
 
 An indexed Attribute declaration binds the Dex Attribute key, physical search index key, index type, application value type, and description. The analyzer compares every value with the Go definition and the SDK's effective index configuration.

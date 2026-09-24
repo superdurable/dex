@@ -88,6 +88,7 @@ web:
   port: 8802
   flowServiceTarget: dex-api:8801
   flowRenderingDirectory: ""
+  startFlowWorkerTargetHeadless: false
   trustForwardedEmbeddingHeaders: false
 ~~~
 
@@ -95,6 +96,8 @@ bind address 默认监听所有 interface，port 默认是 8802。空的
 **flowServiceTarget** 使用 localhost 和已配置的 API port。Web connection 使用
 plaintext gRPC，并复用 **api.grpcMaxMessageBytes**，因此应将其限制在可信
 network path 内。
+
+**web.startFlowWorkerTargetHeadless** 控制所有从 Dex Web 启动的 Flow 的 Worker routing。默认值为 false，启动后不可变。对应的环境变量是 **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS**。只有操作员填写 Kubernetes headless Service address 时才启用它。
 
 ## Blob Store
 

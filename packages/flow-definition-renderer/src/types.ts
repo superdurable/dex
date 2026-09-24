@@ -162,9 +162,39 @@ export interface FlowV2Action {
   };
 }
 
+export interface FlowV2StartInputEnumValue {
+  name: string;
+  value: string | number;
+}
+
+export interface FlowV2StartInputField {
+  name: string;
+  required: boolean;
+  schema: FlowV2StartInputSchema;
+}
+
+export interface FlowV2StartInputSchema {
+  kind: 'null' | 'string' | 'integer' | 'number' | 'boolean' | 'object' | 'array' | 'map';
+  nullable?: boolean;
+  format?: 'date-time';
+  enumValues?: FlowV2StartInputEnumValue[];
+  minimum?: string;
+  maximum?: string;
+  fields?: FlowV2StartInputField[];
+  items?: FlowV2StartInputSchema;
+  values?: FlowV2StartInputSchema;
+  fixedLength?: number;
+}
+
+export interface FlowV2StartDefinition {
+  stepType: string;
+  input: FlowV2StartInputSchema;
+}
+
 export interface FlowV2Definition {
   indexedAttributes: FlowV2IndexedAttribute[];
   summary: FlowV2View;
   display: FlowV2View;
   actions: FlowV2Action[];
+  start?: FlowV2StartDefinition;
 }

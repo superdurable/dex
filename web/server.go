@@ -47,6 +47,8 @@ type Config struct {
 	FlowRenderingPrefix string
 	// WorkQueuePermissionMode defaults to local-selector.
 	WorkQueuePermissionMode string
+	// StartFlowWorkerTargetHeadless defaults false and applies headless routing to Dex Web starts.
+	IsStartFlowWorkerTargetHeadless bool
 	// TrustForwardedEmbeddingHeaders defaults false and enables trusted proxy-provided Web presentation metadata.
 	TrustForwardedEmbeddingHeaders bool
 }
@@ -111,7 +113,10 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 				Definitions: snapshot.V2Definitions,
 				Revision:    snapshot.DefinitionRevision,
 			}, nil
-		}), api.V2HandlerConfig{PermissionMode: effectivePermissionMode(cfg)})
+		}), api.V2HandlerConfig{
+			PermissionMode:                  effectivePermissionMode(cfg),
+			IsStartFlowWorkerTargetHeadless: cfg.IsStartFlowWorkerTargetHeadless,
+		})
 	}
 	mux.HandleFunc("GET /api/flow-definitions", serveFlowDefinitions(flowDefinitions))
 	mux.HandleFunc("GET /readyz", readinessHandler(client, flowDefinitions))

@@ -123,6 +123,59 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 	}
 }
 
+func TestVisualizeV2BuildsRecursiveStartInputSchema(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	graph, err := flowviz.Analyze(
+		context.Background(),
+		filepath.Join(repositoryRoot, "cli/internal/command/testfixtures/visualization-v2-start/workflow.go"),
+		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
+	)
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	require.NotNil(t, graph.V2.Start)
+	require.Equal(t, "StartSchema", graph.V2.Start.StepType)
+	require.Equal(t, "object", graph.V2.Start.Input.Kind)
+	fields := make(map[string]flowviz.StartInputField, len(graph.V2.Start.Input.Fields))
+	for _, field := range graph.V2.Start.Input.Fields {
+		fields[field.Name] = field
+	}
+	require.True(t, fields["name"].Required)
+	require.True(t, fields["correlationId"].Required)
+	require.False(t, fields["optional"].Required)
+	require.True(t, fields["optional"].Schema.Nullable)
+	require.False(t, fields["omitted"].Required)
+	require.Equal(t, "date-time", fields["nested"].Schema.Fields[1].Schema.Format)
+	require.Equal(t, []flowviz.StartInputEnumValue{
+		{Name: "PriorityNormal", Value: "1"},
+		{Name: "PriorityUrgent", Value: "9223372036854775807"},
+	}, fields["priority"].Schema.EnumValues)
+	require.Equal(t, "-32768", fields["scores"].Schema.Items.Minimum)
+	require.Equal(t, int64(2), *fields["decisions"].Schema.FixedLength)
+	require.Equal(t, "18446744073709551615", fields["counters"].Schema.Values.Maximum)
+}
+
+func TestVisualizeV2BuildsTopLevelScalarAndNullStartSchemas(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	for _, testCase := range []struct {
+		name       string
+		source     string
+		wantedKind string
+	}{
+		{name: "scalar", source: "examples/go/primitives/stream/workflow.go", wantedKind: "string"},
+		{name: "null", source: "examples/go/patterns/inactiveness-tracker-timer/workflow.go", wantedKind: "null"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			graph, err := flowviz.Analyze(
+				context.Background(), filepath.Join(repositoryRoot, testCase.source),
+				flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
+			)
+			require.NoError(t, err)
+			require.NotNil(t, graph.V2.Start)
+			require.Equal(t, testCase.wantedKind, graph.V2.Start.Input.Kind)
+		})
+	}
+}
+
 func hasTransitionFromStepToTarget(graph *flowviz.Graph, sourceStepID string, targetStepID string) bool {
 	for _, edge := range graph.Edges {
 		if edge.Kind != "transition" || edge.To != targetStepID {
@@ -304,6 +357,8 @@ func TestVisualizeV2ReportsMalformedNamedDirectives(t *testing.T) {
 	require.Contains(t, messages, "RPC RejectBadPermission Action requires exactly one valid permission")
 	require.Contains(t, messages, `dex:field ui-slot "headline" is not a UI slot this view has`)
 	require.Contains(t, messages, `dex:field ui-slot "title" is already taken by Attribute "state"`)
+	require.Contains(t, diagnosticCodes(graph.Diagnostics), "v2_start_input")
+	require.Nil(t, graph.V2.Start)
 	encoded, err := flowviz.MarshalJSON(graph)
 	require.NoError(t, err)
 	require.Contains(t, string(encoded), `"groups": []`)

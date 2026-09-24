@@ -151,6 +151,65 @@ func TestLoadFlowDefinitionsPreservesInt64ConditionValues(t *testing.T) {
 	}
 }
 
+func TestLoadFlowDefinitionsAcceptsRecursiveStartInput(t *testing.T) {
+	directory := t.TempDir()
+	definition := withV2Start(validFlowDefinitionV2("RefundFlow", true),
+		`{"stepType":"StartRefund","input":{"kind":"object","fields":[`+
+			`{"name":"amount","required":true,"schema":{"kind":"integer","minimum":"0","maximum":"9223372036854775807"}},`+
+			`{"name":"labels","required":false,"schema":{"kind":"map","nullable":true,"values":{"kind":"array","items":{"kind":"string"}}}}]}}`)
+	writeFlowDefinitionTestFile(t, directory, "start.json", definition)
+
+	handler, err := loadFlowDefinitions(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handler.V2Definitions()["RefundFlow"].Start.StepType != "StartRefund" {
+		t.Fatalf("Start definition = %+v", handler.V2Definitions()["RefundFlow"].Start)
+	}
+}
+
+func TestLoadFlowDefinitionsRejectsInvalidStartInput(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		input  string
+		needle string
+	}{
+		{name: "unknown kind", input: `{"kind":"record"}`, needle: "unknown kind"},
+		{name: "repeated field", input: `{"kind":"object","fields":[` +
+			`{"name":"value","required":true,"schema":{"kind":"string"}},` +
+			`{"name":"value","required":false,"schema":{"kind":"boolean"}}]}`, needle: "repeated field"},
+		{name: "invalid range", input: `{"kind":"integer","minimum":"10","maximum":"1"}`, needle: "invalid range"},
+		{name: "invalid enum", input: `{"kind":"integer","minimum":"0","maximum":"9",` +
+			`"enumValues":[{"name":"Ten","value":"10"}]}`, needle: "outside its range"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			directory := t.TempDir()
+			definition := withV2Start(validFlowDefinitionV2("RefundFlow", true),
+				`{"stepType":"StartRefund","input":`+testCase.input+`}`)
+			writeFlowDefinitionTestFile(t, directory, "start.json", definition)
+			_, err := loadFlowDefinitions(directory)
+			if err == nil || !strings.Contains(err.Error(), testCase.needle) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadFlowDefinitionsRejectsStartInputBeyondMaximumDepth(t *testing.T) {
+	input := `{"kind":"string"}`
+	for depth := 0; depth < 34; depth++ {
+		input = `{"kind":"array","items":` + input + `}`
+	}
+	directory := t.TempDir()
+	definition := withV2Start(validFlowDefinitionV2("RefundFlow", true),
+		`{"stepType":"StartRefund","input":`+input+`}`)
+	writeFlowDefinitionTestFile(t, directory, "start.json", definition)
+	_, err := loadFlowDefinitions(directory)
+	if err == nil || !strings.Contains(err.Error(), "nesting exceeds 32 levels") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func writeFlowDefinitionTestFile(t *testing.T, directory string, name string, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(directory, name), []byte(content), 0o644); err != nil {
@@ -177,4 +236,8 @@ func validFlowDefinitionV2(flowType string, valid bool) string {
 		`"valueType":"string","editable":false,"description":"Charge"}]},` +
 		`"display":{"rpcName":"GetDexDisplay","fields":[{"attributeKey":"operator-note",` +
 		`"valueType":"string","editable":true,"description":"Note"}]},"actions":[]}}`
+}
+
+func withV2Start(definition string, start string) string {
+	return strings.Replace(definition, `"actions":[]`, `"actions":[],"start":`+start, 1)
 }

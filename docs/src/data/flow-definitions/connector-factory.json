@@ -553,6 +553,28 @@
         }
       ]
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "GenerateCustomerSummary",
+      "input": {
+        "kind": "object",
+        "fields": [
+          {
+            "name": "customerId",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "notes",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          }
+        ]
+      }
+    }
   }
 }

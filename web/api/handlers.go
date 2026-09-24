@@ -448,6 +448,8 @@ func writeGRPCError(response http.ResponseWriter, err error, operation string) {
 	switch statusError.Code() {
 	case codes.InvalidArgument:
 		httpStatus = http.StatusBadRequest
+	case codes.AlreadyExists:
+		httpStatus = http.StatusConflict
 	case codes.NotFound:
 		httpStatus = http.StatusNotFound
 	case codes.FailedPrecondition:

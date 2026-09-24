@@ -44,6 +44,18 @@ Version 2 directive 使用具名值。同一行内的参数位置没有语义。
 
 每个已注册 Step 都必须有一个 group 声明和一个 explanation 声明。explanation 用一句话说明该 Step 做什么。Group 顺序由第一个成员在 **GetSteps** 中的注册位置决定，组内 Step 顺序也使用 **GetSteps**。
 
+## 启动 Flow
+
+当所选 definition 包含自动生成的 start schema，且 permission mode 为 **local-selector** 时，Run 工作区会显示 **Start Flow**。弹窗要求填写 Flow ID、明文 Worker gRPC address 和 start input。它支持嵌套 object、array、string-key map、enum、boolean、datetime、optional field 和显式 null。固定数组保持声明的长度。Integer 在浏览器中一直保存为十进制文本，到序列化时才写入 JSON，因此 int64 不会损失精度。
+
+Worker address 失去焦点以及正式启动前，Dex Web 都会从后端检查 Worker host 和 port。端口不可达时，界面显示 warning 并阻止启动。操作员必须明确选择 **Bypass worker health check** 才能继续。该检查只建立 TCP connection，不会调用 Worker method。
+
+Go analyzer 从通过 **DefineStartStep** 注册的 Step 输入类型生成 schema。它遵循 JSON field name、忽略字段、pointer 和 **omitempty**，并支持嵌套或 imported struct、具名 string/integer constant、**time.Time**、普通数值宽度、slice、固定数组和 string-key map。递归或不支持的输入会产生 warning 并省略 start schema，但不会隐藏 definition 的其余部分。
+
+Server 会重新加载当前 definition revision，并在调用 **StartFlow** 前完整验证 input。未知 object field、缺失 required field、非法 null，以及 type、enum、range、datetime、array 或 map 错误都会被拒绝。除非操作员选择 bypass，否则 Server 还会再次检查 Worker port。Server 选择 start Step type 并生成 request ID。浏览器不能选择 headless routing。
+
+通过 **web.startFlowWorkerTargetHeadless** 或 **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** 为整个 Dex Web instance 配置 headless routing。默认值为 false。当操作员填写 Kubernetes headless Service target 时，将它设为 true。**trusted-header** mode 不提供 Start Flow。
+
 ## 搜索与 Summary
 
 Indexed Attribute 声明绑定 Dex Attribute key、物理搜索 index key、index type、应用 value type 和 description。Analyzer 会把每个值与 Go 定义和 SDK 计算出的有效 index 配置比较。

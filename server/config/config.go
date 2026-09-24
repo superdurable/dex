@@ -338,6 +338,8 @@ type (
 		FlowRenderingBlobStore *WebFlowRenderingBlobStoreConfig `yaml:"flowRenderingBlobStore"`
 		// WorkQueuePermissionMode selects local-selector or trusted-header. Default local-selector. Immutable after startup.
 		WorkQueuePermissionMode string `yaml:"workQueuePermissionMode"`
+		// StartFlowWorkerTargetHeadless applies headless routing to every Flow started from Dex Web. Default false. Immutable after startup.
+		IsStartFlowWorkerTargetHeadless bool `yaml:"startFlowWorkerTargetHeadless"`
 		// TrustForwardedEmbeddingHeaders accepts trusted proxy embedding metadata. Default false. Immutable after startup.
 		TrustForwardedEmbeddingHeaders bool `yaml:"trustForwardedEmbeddingHeaders"`
 	}
@@ -557,6 +559,13 @@ func applyWebEnvironment(cfg *Config) error {
 	}
 	if value, ok := os.LookupEnv("DEX_WEB_WORK_QUEUE_PERMISSION_MODE"); ok {
 		cfg.Web.WorkQueuePermissionMode = value
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS"); ok {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS must be a boolean: %w", err)
+		}
+		cfg.Web.IsStartFlowWorkerTargetHeadless = parsed
 	}
 	if value, ok := os.LookupEnv("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS"); ok {
 		parsed, err := strconv.ParseBool(value)
