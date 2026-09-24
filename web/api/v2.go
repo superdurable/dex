@@ -147,6 +147,7 @@ type v2Handler struct {
 	loadDefinitions                 V2DefinitionLoader
 	permissionMode                  string
 	isStartFlowWorkerTargetHeadless bool
+	checkStartFlowWorkerHealth      V2WorkerHealthChecker
 }
 
 // V2DefinitionSnapshot is one request's immutable catalog revision.
@@ -158,10 +159,14 @@ type V2DefinitionSnapshot struct {
 // V2DefinitionLoader loads one validated definition snapshot.
 type V2DefinitionLoader func(context.Context) (V2DefinitionSnapshot, error)
 
+// V2WorkerHealthChecker checks whether Dex Web can reach a Worker target.
+type V2WorkerHealthChecker func(context.Context, string) error
+
 // V2HandlerConfig controls server-side v2 behavior.
 type V2HandlerConfig struct {
 	PermissionMode                  string
 	IsStartFlowWorkerTargetHeadless bool
+	WorkerHealthChecker             V2WorkerHealthChecker
 }
 
 type v2CatalogEntry struct {
@@ -262,8 +267,13 @@ func RegisterDynamicV2Handlers(
 	handler := &v2Handler{
 		client: client, loadDefinitions: loader, permissionMode: permissionMode,
 		isStartFlowWorkerTargetHeadless: config.IsStartFlowWorkerTargetHeadless,
+		checkStartFlowWorkerHealth:      config.WorkerHealthChecker,
+	}
+	if handler.checkStartFlowWorkerHealth == nil {
+		handler.checkStartFlowWorkerHealth = checkV2WorkerPortHealth
 	}
 	mux.HandleFunc("GET /api/v2/catalog", handler.catalog)
+	mux.HandleFunc("POST /api/v2/worker-health", handler.checkWorkerHealth)
 	mux.HandleFunc("POST /api/v2/start", handler.startFlow)
 	mux.HandleFunc("POST /api/v2/search", handler.search)
 	mux.HandleFunc("GET /api/v2/display", handler.display)

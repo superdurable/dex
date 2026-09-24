@@ -10,11 +10,13 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"math/big"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -28,19 +30,33 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-const maximumV2StartInputDepth = 32
+const (
+	maximumV2StartInputDepth      = 32
+	v2WorkerHealthCheckTimeout    = 2 * time.Second
+	v2WorkerUnhealthyResponseCode = "WORKER_UNHEALTHY"
+)
 
 var integerJSONPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
 
 type v2StartRequest struct {
-	FlowType            string          `json:"flowType"`
-	FlowID              string          `json:"flowId"`
-	WorkerTargetAddress string          `json:"workerTargetAddress"`
-	Input               json.RawMessage `json:"input"`
+	FlowType                string          `json:"flowType"`
+	FlowID                  string          `json:"flowId"`
+	WorkerTargetAddress     string          `json:"workerTargetAddress"`
+	BypassWorkerHealthCheck bool            `json:"bypassWorkerHealthCheck"`
+	Input                   json.RawMessage `json:"input"`
 }
 
 type v2StartResponse struct {
 	RunID string `json:"runId"`
+}
+
+type v2WorkerHealthRequest struct {
+	WorkerTargetAddress string `json:"workerTargetAddress"`
+}
+
+type v2WorkerHealthResponse struct {
+	Healthy bool   `json:"healthy"`
+	Warning string `json:"warning,omitempty"`
 }
 
 func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Request) {
@@ -70,9 +86,7 @@ func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Reques
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	workerTarget, err := grpctarget.NormalizeWorkerTarget(&dexpb.WorkerTarget{
-		Address: body.WorkerTargetAddress, IsHeadlessAddress: h.isStartFlowWorkerTargetHeadless,
-	})
+	workerTarget, err := h.validateWorkerTarget(body.WorkerTargetAddress)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -81,6 +95,12 @@ func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Reques
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
+	}
+	if !body.BypassWorkerHealthCheck {
+		if err := h.checkWorkerTargetHealth(request.Context(), workerTarget.GetAddress()); err != nil {
+			WriteCodedError(response, http.StatusPreconditionFailed, v2WorkerUnhealthyResponseCode, workerHealthWarning(workerTarget.GetAddress(), err))
+			return
+		}
 	}
 	result, err := h.client.StartFlow(request.Context(), &dexpb.StartFlowRequest{
 		FlowId: body.FlowID, FlowType: body.FlowType, StartStepType: definition.Start.StepType,
@@ -92,6 +112,62 @@ func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Reques
 		return
 	}
 	writeJSON(response, http.StatusOK, v2StartResponse{RunID: result.GetRunId()})
+}
+
+func (h *v2Handler) checkWorkerHealth(response http.ResponseWriter, request *http.Request) {
+	if h.permissionMode != V2PermissionModeLocalSelector {
+		WriteCodedError(response, http.StatusForbidden, "START_FLOW_DISABLED", "Starting Flows is disabled in this permission mode")
+		return
+	}
+	var body v2WorkerHealthRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	workerTarget, err := h.validateWorkerTarget(body.WorkerTargetAddress)
+	if err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if err := h.checkWorkerTargetHealth(request.Context(), workerTarget.GetAddress()); err != nil {
+		writeJSON(response, http.StatusOK, v2WorkerHealthResponse{
+			Healthy: false,
+			Warning: workerHealthWarning(workerTarget.GetAddress(), err),
+		})
+		return
+	}
+	writeJSON(response, http.StatusOK, v2WorkerHealthResponse{Healthy: true})
+}
+
+func (h *v2Handler) validateWorkerTarget(address string) (*dexpb.WorkerTarget, error) {
+	workerTarget, err := grpctarget.NormalizeWorkerTarget(&dexpb.WorkerTarget{
+		Address: address, IsHeadlessAddress: h.isStartFlowWorkerTargetHeadless,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if _, _, err := net.SplitHostPort(workerTarget.GetAddress()); err != nil {
+		return nil, fmt.Errorf("worker_target %q must use host:port: %w", workerTarget.GetAddress(), err)
+	}
+	return workerTarget, nil
+}
+
+func (h *v2Handler) checkWorkerTargetHealth(ctx context.Context, address string) error {
+	checkContext, cancel := context.WithTimeout(ctx, v2WorkerHealthCheckTimeout)
+	defer cancel()
+	return h.checkStartFlowWorkerHealth(checkContext, address)
+}
+
+func checkV2WorkerPortHealth(ctx context.Context, address string) error {
+	connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
+	if err != nil {
+		return err
+	}
+	return connection.Close()
+}
+
+func workerHealthWarning(address string, err error) string {
+	return fmt.Sprintf("Dex Web cannot reach Worker %s: %v", address, err)
 }
 
 // ValidateV2StartDefinition validates a recursive Start input contract.

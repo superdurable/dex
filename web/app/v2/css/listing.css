@@ -105,8 +105,10 @@
 
 .sq-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
+  min-height: 28px;
+  margin-bottom: 9px;
 }
 
 .sq-title {

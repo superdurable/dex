@@ -22,6 +22,13 @@ interface StartFlowResult {
   runId: string;
 }
 
+interface WorkerHealthResult {
+  healthy: boolean;
+  warning?: string;
+}
+
+type WorkerHealthState = 'idle' | 'checking' | 'healthy' | 'unhealthy';
+
 export function StartFlowDialog({
   definition,
   definitionRevision,
@@ -43,7 +50,12 @@ export function StartFlowDialog({
   const [errors, setErrors] = useState<StartInputError[]>([]);
   const [submitError, setSubmitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [workerHealth, setWorkerHealth] = useState<WorkerHealthState>('idle');
+  const [workerHealthAddress, setWorkerHealthAddress] = useState('');
+  const [workerHealthWarning, setWorkerHealthWarning] = useState('');
+  const [bypassWorkerHealthCheck, setBypassWorkerHealthCheck] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const workerHealthSequence = useRef(0);
 
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) dialogRef.current.showModal();
@@ -51,6 +63,32 @@ export function StartFlowDialog({
   }, []);
 
   const updateDraft = () => setDraft({ ...draft });
+  const checkWorkerHealth = async (address: string): Promise<boolean> => {
+    const trimmedAddress = address.trim();
+    if (trimmedAddress === '') return false;
+    const sequence = workerHealthSequence.current + 1;
+    workerHealthSequence.current = sequence;
+    setWorkerHealth('checking');
+    setWorkerHealthWarning('');
+    try {
+      const result = await dexFetch('/api/v2/worker-health', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workerTargetAddress: trimmedAddress }),
+      }).then((response) => readResponseJSON<WorkerHealthResult>(response));
+      if (workerHealthSequence.current !== sequence) return false;
+      setWorkerHealthAddress(trimmedAddress);
+      setWorkerHealth(result.healthy ? 'healthy' : 'unhealthy');
+      setWorkerHealthWarning(result.warning ?? 'Dex Web cannot reach this Worker.');
+      return result.healthy;
+    } catch (error) {
+      if (workerHealthSequence.current !== sequence) return false;
+      setWorkerHealthAddress(trimmedAddress);
+      setWorkerHealth('unhealthy');
+      setWorkerHealthWarning(error instanceof Error ? error.message : 'Worker health check failed.');
+      return false;
+    }
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const nextErrors: StartInputError[] = [];
@@ -64,14 +102,24 @@ export function StartFlowDialog({
       focusPath(dialogRef.current, nextErrors[0].path);
       return;
     }
-    const requestPrefix = JSON.stringify({
-      flowType,
-      flowId: flowID.trim(),
-      workerTargetAddress: workerAddress.trim(),
-    });
-    const body = `${requestPrefix.slice(0, -1)},"input":${input.json}}`;
     setSubmitting(true);
     try {
+      const trimmedWorkerAddress = workerAddress.trim();
+      const hasCurrentHealthyCheck = workerHealth === 'healthy' && workerHealthAddress === trimmedWorkerAddress;
+      if (!bypassWorkerHealthCheck && !hasCurrentHealthyCheck) {
+        const isHealthy = await checkWorkerHealth(trimmedWorkerAddress);
+        if (!isHealthy) {
+          focusPath(dialogRef.current, 'bypassWorkerHealthCheck');
+          return;
+        }
+      }
+      const requestPrefix = JSON.stringify({
+        flowType,
+        flowId: flowID.trim(),
+        workerTargetAddress: trimmedWorkerAddress,
+        bypassWorkerHealthCheck,
+      });
+      const body = `${requestPrefix.slice(0, -1)},"input":${input.json}}`;
       const result = await dexFetch('/api/v2/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...definitionRevisionHeaders(definitionRevision) },
@@ -81,6 +129,13 @@ export function StartFlowDialog({
     } catch (error) {
       if (onDefinitionChanged(error)) {
         onClose();
+        return;
+      }
+      if (error instanceof DexAPIError && error.code === 'WORKER_UNHEALTHY') {
+        setWorkerHealth('unhealthy');
+        setWorkerHealthAddress(workerAddress.trim());
+        setWorkerHealthWarning(error.message);
+        focusPath(dialogRef.current, 'bypassWorkerHealthCheck');
         return;
       }
       setSubmitError(error instanceof DexAPIError || error instanceof Error ? error.message : 'Start Flow failed');
@@ -120,14 +175,56 @@ export function StartFlowDialog({
           </label>
           <label className="sfd-field">
             <span>Worker gRPC address</span>
-            <input
-              data-start-path="workerTargetAddress"
-              placeholder="worker:9000"
-              value={workerAddress}
-              onChange={(event) => setWorkerAddress(event.target.value)}
-            />
+            <span className="sfd-worker-control">
+              <input
+                data-start-path="workerTargetAddress"
+                placeholder="worker:9000"
+                value={workerAddress}
+                onBlur={(event) => {
+                  if (event.relatedTarget instanceof HTMLElement && event.relatedTarget.dataset.workerHealthCheck === 'true') return;
+                  if (workerAddress.trim() !== '' && workerHealth === 'idle') void checkWorkerHealth(workerAddress);
+                }}
+                onChange={(event) => {
+                  workerHealthSequence.current += 1;
+                  setWorkerAddress(event.target.value);
+                  setWorkerHealth('idle');
+                  setWorkerHealthAddress('');
+                  setWorkerHealthWarning('');
+                  setBypassWorkerHealthCheck(false);
+                }}
+              />
+              <button
+                className="button ghost"
+                data-worker-health-check="true"
+                disabled={submitting || workerHealth === 'checking' || workerAddress.trim() === ''}
+                type="button"
+                onClick={() => void checkWorkerHealth(workerAddress)}
+              >
+                {workerHealth === 'checking' ? 'Checking…' : 'Check Worker'}
+              </button>
+            </span>
             <FieldError errors={errors} path="workerTargetAddress" />
           </label>
+          {workerHealth === 'healthy' && (
+            <div className="sfd-worker-health" data-status="healthy" role="status">
+              Worker port is reachable from Dex Web.
+            </div>
+          )}
+          {workerHealth === 'unhealthy' && (
+            <div className="sfd-worker-health" data-status="unhealthy" role="alert">
+              <strong>Worker health check failed</strong>
+              <span>{workerHealthWarning}</span>
+              <label className="sfd-bypass">
+                <input
+                  checked={bypassWorkerHealthCheck}
+                  data-start-path="bypassWorkerHealthCheck"
+                  type="checkbox"
+                  onChange={(event) => setBypassWorkerHealthCheck(event.target.checked)}
+                />
+                Bypass worker health check and start anyway
+              </label>
+            </div>
+          )}
           <fieldset className="sfd-input">
             <legend>Start input</legend>
             <SchemaInput
@@ -144,8 +241,12 @@ export function StartFlowDialog({
         </div>
         <footer className="sfd-actions">
           <button disabled={submitting} onClick={onClose} type="button">Cancel</button>
-          <button className="button primary" disabled={submitting} type="submit">
-            {submitting ? 'Starting…' : 'Start Flow'}
+          <button
+            className="button primary"
+            disabled={submitting || workerHealth === 'checking' || (workerHealth === 'unhealthy' && !bypassWorkerHealthCheck)}
+            type="submit"
+          >
+            {submitting ? (workerHealth === 'checking' ? 'Checking Worker…' : 'Starting…') : 'Start Flow'}
           </button>
         </footer>
       </form>

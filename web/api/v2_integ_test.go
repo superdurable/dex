@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -712,6 +713,7 @@ func TestV2StartFlowUsesDefinitionSchemaAndServerRouting(t *testing.T) {
 			}, V2HandlerConfig{
 				PermissionMode:                  V2PermissionModeLocalSelector,
 				IsStartFlowWorkerTargetHeadless: testCase.isHeadless,
+				WorkerHealthChecker:             healthyV2WorkerHealthChecker,
 			})
 			requestBody := `{
 				"flowType":"RefundFlow","flowId":"refund-new","workerTargetAddress":" worker:9000 ",
@@ -789,7 +791,10 @@ func TestV2StartFlowHandlesScalarConflictAndPermissionMode(t *testing.T) {
 		return V2DefinitionSnapshot{Definitions: map[string]V2Definition{"RefundFlow": definition}}, nil
 	}
 	localMux := http.NewServeMux()
-	RegisterDynamicV2Handlers(localMux, client, loader, V2HandlerConfig{PermissionMode: V2PermissionModeLocalSelector})
+	RegisterDynamicV2Handlers(localMux, client, loader, V2HandlerConfig{
+		PermissionMode:      V2PermissionModeLocalSelector,
+		WorkerHealthChecker: healthyV2WorkerHealthChecker,
+	})
 	conflict := performV2JSON(t, localMux, http.MethodPost, "/api/v2/start",
 		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","input":9223372036854775807}`)
 	if conflict.Code != http.StatusConflict || client.startRequests[0].GetStepInput().GetIntValue() != int64(9223372036854775807) {
@@ -802,6 +807,49 @@ func TestV2StartFlowHandlesScalarConflictAndPermissionMode(t *testing.T) {
 		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","input":1}`)
 	if denied.Code != http.StatusForbidden || !strings.Contains(denied.Body.String(), "START_FLOW_DISABLED") {
 		t.Fatalf("denied = %d %q", denied.Code, denied.Body.String())
+	}
+}
+
+func TestV2StartFlowRequiresBypassWhenWorkerIsUnhealthy(t *testing.T) {
+	client := &v2TestClient{}
+	definition := testV2Definition()
+	definition.Start = testV2StartDefinition()
+	checkedAddresses := make([]string, 0, 2)
+	checker := func(_ context.Context, address string) error {
+		checkedAddresses = append(checkedAddresses, address)
+		return errors.New("connection refused")
+	}
+	mux := http.NewServeMux()
+	RegisterDynamicV2Handlers(mux, client, func(context.Context) (V2DefinitionSnapshot, error) {
+		return V2DefinitionSnapshot{Definitions: map[string]V2Definition{"RefundFlow": definition}}, nil
+	}, V2HandlerConfig{
+		PermissionMode:      V2PermissionModeLocalSelector,
+		WorkerHealthChecker: checker,
+	})
+
+	health := performV2JSON(t, mux, http.MethodPost, "/api/v2/worker-health",
+		`{"workerTargetAddress":" worker:9000 "}`)
+	if health.Code != http.StatusOK || !strings.Contains(health.Body.String(), `"healthy":false`) ||
+		!strings.Contains(health.Body.String(), "connection refused") {
+		t.Fatalf("health = %d %q", health.Code, health.Body.String())
+	}
+
+	requestBody := `{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","input":{"count":1,"labels":[]}}`
+	blocked := performV2JSON(t, mux, http.MethodPost, "/api/v2/start", requestBody)
+	if blocked.Code != http.StatusPreconditionFailed || !strings.Contains(blocked.Body.String(), v2WorkerUnhealthyResponseCode) {
+		t.Fatalf("blocked = %d %q", blocked.Code, blocked.Body.String())
+	}
+	if len(client.startRequests) != 0 {
+		t.Fatalf("StartFlow requests before bypass = %+v", client.startRequests)
+	}
+
+	bypassed := performV2JSON(t, mux, http.MethodPost, "/api/v2/start",
+		`{"flowType":"RefundFlow","flowId":"new","workerTargetAddress":"worker:9000","bypassWorkerHealthCheck":true,"input":{"count":1,"labels":[]}}`)
+	if bypassed.Code != http.StatusOK || len(client.startRequests) != 1 {
+		t.Fatalf("bypassed = %d %q requests=%d", bypassed.Code, bypassed.Body.String(), len(client.startRequests))
+	}
+	if len(checkedAddresses) != 2 || checkedAddresses[0] != "worker:9000" || checkedAddresses[1] != "worker:9000" {
+		t.Fatalf("checked addresses = %#v", checkedAddresses)
 	}
 }
 
@@ -884,6 +932,10 @@ func testV2StartDefinition() *V2StartDefinition {
 			},
 		}},
 	}
+}
+
+func healthyV2WorkerHealthChecker(context.Context, string) error {
+	return nil
 }
 
 func assertV2RequestsOmitRunID(t *testing.T, client *v2TestClient) {

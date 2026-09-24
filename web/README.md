@@ -69,11 +69,19 @@ booleans, datetime values, optional fields, and nullable fields. Integer input
 stays as decimal text until the request is serialized, so int64 values do not
 pass through JavaScript floating-point numbers.
 
+Dex Web checks the Worker `host:port` from the BFF when the address loses focus
+and again before starting. An unreachable port shows a warning and blocks the
+start until the operator explicitly selects **Bypass worker health check**.
+The probe opens a TCP connection and does not invoke a Worker method.
+
 `POST /api/v2/start` accepts `flowType`, `flowId`, `workerTargetAddress`, and the
-raw JSON `input`. It requires `X-Dex-Flow-Definition-Revision`, reloads the
-current definition snapshot, validates every input field again, and rejects
-unknown fields. The Server chooses the start Step type and generates the
-request ID. The browser cannot set Worker headless routing.
+raw JSON `input`. It also accepts `bypassWorkerHealthCheck`; false performs the
+server-side port check and returns `WORKER_UNHEALTHY` with HTTP 412 when the
+target is unreachable. `POST /api/v2/worker-health` checks the same address for
+the dialog. Start requires `X-Dex-Flow-Definition-Revision`, reloads the current
+definition snapshot, validates every input field again, and rejects unknown
+fields. The Server chooses the start Step type and generates the request ID.
+The browser cannot set Worker headless routing.
 
 Configure headless routing once for every Flow started from this Dex Web
 instance:
