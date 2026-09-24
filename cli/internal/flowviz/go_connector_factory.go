@@ -13,6 +13,7 @@ import (
 	"go/ast"
 	"go/types"
 	"reflect"
+	"regexp"
 	"strings"
 )
 
@@ -20,6 +21,9 @@ const (
 	connectorQueryFactory    = "query"
 	connectorMutationFactory = "mutation"
 )
+
+var connectorReleaseVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
+var officialConnectorModulePattern = regexp.MustCompile(`^github\.com/superdurable/dex-connectors-library/connectors/[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)*$`)
 
 type goConnectorFactoryStep struct {
 	stepType             string
@@ -29,6 +33,17 @@ type goConnectorFactoryStep struct {
 	progressStreamID     string
 	textStreamID         string
 	executeFailureTarget string
+	connector            *goConnectorIdentity
+}
+
+type goConnectorIdentity struct {
+	connectorID          string
+	operationID          string
+	operationKind        string
+	connectionName       string
+	modulePath           string
+	moduleVersion        string
+	configurationEnabled bool
 }
 
 type goConnectorPresentation struct {
@@ -44,14 +59,31 @@ type goConnectorBranch struct {
 }
 
 type goConnectorFactoryConfig struct {
-	kind       string
-	fieldNames map[string]string
-	branches   []goConnectorFactoryBranchField
+	kind        string
+	connectorID string
+	operationID string
+	packagePath string
+	fieldNames  map[string]string
+	branches    []goConnectorFactoryBranchField
 }
 
 type goConnectorFactoryBranchField struct {
 	id        string
 	fieldName string
+}
+
+func (analyzer *goAnalyzer) connectorFactoryMetadata(kind string, identity *goConnectorIdentity) map[string]any {
+	metadata := map[string]any{"connectorFactory": true, "connectorOperationKind": kind}
+	if identity == nil {
+		return metadata
+	}
+	metadata["connector"] = map[string]any{
+		"connectorId": identity.connectorID, "operationId": identity.operationID,
+		"operationKind": identity.operationKind, "connectionName": identity.connectionName,
+		"modulePath": identity.modulePath, "moduleVersion": identity.moduleVersion,
+		"configurationEnabled": identity.configurationEnabled,
+	}
+	return metadata
 }
 
 func (analyzer *goAnalyzer) connectorFactoryCall(expression ast.Expr) (string, *ast.CallExpr, bool) {
@@ -122,7 +154,53 @@ func (analyzer *goAnalyzer) parseConnectorFactoryStep(kind string, call *ast.Cal
 	definition.progressStreamID = analyzer.parseConnectorResource(fields[fieldName("progressStream", "ProgressStream")], "stream", "ProgressStream")
 	definition.textStreamID = analyzer.parseConnectorResource(fields[fieldName("textStream", "TextStream")], "stream", "TextStream")
 	definition.executeFailureTarget = analyzer.parseConnectorExecuteFailure(fields[fieldName("stepOptionsOverride", "StepOptionsOverride")])
+	definition.connector = analyzer.parseConnectorIdentity(configMetadata, fields, call, kind, operationSpecific)
 	return definition, true
+}
+
+func (analyzer *goAnalyzer) parseConnectorIdentity(
+	config goConnectorFactoryConfig,
+	fields map[string]ast.Expr,
+	call *ast.CallExpr,
+	kind string,
+	operationSpecific bool,
+) *goConnectorIdentity {
+	if !operationSpecific || config.connectorID == "" || config.operationID == "" {
+		analyzer.addConnectorConfigurationDiagnostic(
+			"connector_configuration_unsupported",
+			"Generic Connector factories cannot be configured automatically in Dex Web",
+			call,
+		)
+		return nil
+	}
+	identity := &goConnectorIdentity{
+		connectorID: config.connectorID, operationID: config.operationID, operationKind: kind,
+	}
+	connectionNameExpression := fields[config.fieldNames["connectionName"]]
+	connectionName, isStatic := analyzer.staticString(connectionNameExpression)
+	if !isStatic || connectionName == "" {
+		analyzer.addConnectorConfigurationDiagnostic(
+			"connector_connection_name_required",
+			"Connector Step requires a non-empty compile-time ConnectionName for automatic configuration",
+			call,
+		)
+	} else {
+		identity.connectionName = connectionName
+	}
+	module, found := analyzer.modules[config.packagePath]
+	if !found || !officialConnectorModulePattern.MatchString(module.path) ||
+		!connectorReleaseVersionPattern.MatchString(module.version) || module.replaced {
+		analyzer.addConnectorConfigurationDiagnostic(
+			"connector_release_required",
+			"Connector Step requires an exact official published module version without a local replacement for automatic configuration",
+			call,
+		)
+	} else {
+		identity.modulePath = module.path
+		identity.moduleVersion = module.version
+	}
+	identity.configurationEnabled = identity.connectionName != "" && identity.modulePath != "" && identity.moduleVersion != ""
+	return identity
 }
 
 func connectorFactoryConfig(value types.Type) (goConnectorFactoryConfig, bool) {
@@ -139,6 +217,9 @@ func connectorFactoryConfig(value types.Type) (goConnectorFactoryConfig, bool) {
 		return goConnectorFactoryConfig{}, false
 	}
 	config := goConnectorFactoryConfig{fieldNames: make(map[string]string)}
+	if named.Obj() != nil && named.Obj().Pkg() != nil {
+		config.packagePath = named.Obj().Pkg().Path()
+	}
 	valid := true
 	branchIDs := make(map[string]bool)
 	for index := 0; index < structure.NumFields(); index++ {
@@ -174,6 +255,18 @@ func connectorFactoryConfig(value types.Type) (goConnectorFactoryConfig, bool) {
 			}
 			branchIDs[value] = true
 			config.branches = append(config.branches, goConnectorFactoryBranchField{id: value, fieldName: field.Name()})
+		case "connectorId":
+			if !found || value == "" || config.connectorID != "" {
+				valid = false
+				continue
+			}
+			config.connectorID = value
+		case "operationId":
+			if !found || value == "" || config.operationID != "" {
+				valid = false
+				continue
+			}
+			config.operationID = value
 		default:
 			if found || config.fieldNames[key] != "" {
 				valid = false
@@ -427,6 +520,10 @@ func (analyzer *goAnalyzer) connectorTargetSkipsWaitFor(target string) bool {
 
 func (analyzer *goAnalyzer) addConnectorFactoryDiagnostic(code string, message string, node ast.Node) {
 	analyzer.graph.AddDiagnostic("error", code, message, analyzer.span(node))
+}
+
+func (analyzer *goAnalyzer) addConnectorConfigurationDiagnostic(code string, message string, node ast.Node) {
+	analyzer.graph.AddDiagnostic("warning", code, message, analyzer.span(node))
 }
 
 func (analyzer *goAnalyzer) goCallIdentity(call *ast.CallExpr) (string, string) {

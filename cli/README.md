@@ -84,6 +84,21 @@ Choose another blob directory with:
 dexcli dev --blob-store-dir ./dex-blobs
 ```
 
+Local Connector setup stores named connections in
+`$HOME/.dex/connectors/connections.json` by default. All local stacks share
+that file. Isolate a stack with:
+
+```bash
+dexcli dev \
+  --flow-rendering-dir ./build \
+  --connector-config-dir ./local-dex-secrets
+```
+
+Dex resolves the directory to an absolute path and shows the resulting
+`connections.json` path in Web. Restarting Dex Web reloads that file; it does
+not clear existing connections. In-progress OAuth and UI sessions are
+memory-only and must be restarted after a Web restart.
+
 `dexcli dev` enables the in-memory Stream Store without Redis. Stream messages
 are discarded when the CLI process stops. Repeated source values append
 independent messages.
@@ -130,6 +145,7 @@ must exist and be reachable before startup.
 --blob-store-dir string            persistent Dex blob storage directory (default $HOME/.dex/blobs)
 --dex-port int                     Dex gRPC port (default 8801)
 --flow-rendering-dir string        directory containing Flow Definition Graph JSON files
+--connector-config-dir string      local Connector config directory (default $HOME/.dex/connectors)
 --open                             open Dex Web after readiness (default true)
 --web-port int                     Dex Web port (default 8802)
 --sqlite-db-filename string        local SQLite file (default $HOME/.dex/dev/<port>/dex.sqlite.db)

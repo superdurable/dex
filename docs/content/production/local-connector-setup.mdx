@@ -1,0 +1,87 @@
+---
+title: Local Connector setup
+sidebar_label: Local Connector setup
+---
+
+# Local Connector setup
+
+Dex Web can configure official Connector releases for a local Go application.
+The feature runs only in loopback-bound **dexcli dev** with local Flow
+Definition Graph files. Production Dex Web, non-loopback listeners, and
+blobstore definition sources do not expose the setup APIs.
+
+## Start Dex Web
+
+Generate Flow Definition Graph 2.0 files, then start the local stack:
+
+```bash
+dexcli dev --flow-rendering-dir ./build
+```
+
+Open **Connections** at **/v2/connections**. Dex Web groups Steps by Connector
+ID and connection name. Each group shows the Flows, Steps, operations, exact
+module version, and one of these states: **Missing**, **Ready**, **Expired**,
+**Conflict**, or **Unsupported**.
+
+Automatic setup requires an operation-specific generated Connector factory, a
+compile-time connection name, and an exact published module version. A generic
+factory, local module replacement, unpublished module, missing name, or version
+conflict stays visible but cannot be configured.
+
+## Choose the storage directory
+
+The default directory is **$HOME/.dex/connectors**. The connection file is
+always named **connections.json**. Override the directory when a stack needs
+isolated connections:
+
+```bash
+dexcli dev \
+  --flow-rendering-dir ./build \
+  --connector-config-dir ./local-dex-secrets
+```
+
+Dex resolves the directory to an absolute path. The Connections page displays
+both the directory and final JSON path. Several local stacks share the default
+file. Give each stack a different directory when they must not share accounts.
+
+The directory is created with mode **0700** and the file with mode **0600**.
+Dex rejects symlink files, non-regular files, and existing credential files
+with wider permissions. Updates use a same-directory temporary file, sync, and
+atomic rename so an application never reads a partial document.
+
+Restarting Dex Web reloads existing connections and cached UI artifacts. It
+does not clear the JSON file. An OAuth flow or Connector UI session that was in
+progress is memory-only and must be started again after a restart.
+
+## Configure Gmail or GitHub
+
+Select the named connection. Dex Web verifies the official release metadata
+and checksum. It loads a compatible Studio UI in an opaque-origin sandbox when
+one exists. Otherwise it renders a generic form from the manifest.
+
+OAuth uses state, PKCE, and a ten-minute single-use session. The OAuth client
+ID and client secret remain in memory and are not written to disk. Dex stores
+the short-lived access token after checking the granted scopes. It does not
+store refresh tokens or refresh access automatically. Reauthorize when the
+connection becomes **Expired**.
+
+Deleting local credentials removes only the local record. It does not revoke
+the provider grant.
+
+## Start the Go application
+
+After setup, copy the launch command shown by Dex Web. The default path is:
+
+```bash
+DEX_CONNECTOR_CONFIG_FILE="$HOME/.dex/connectors/connections.json" <your-app-command>
+```
+
+The Connector Go SDK loads configuration when the application constructs the
+named Connection. Configuration changes require an application restart.
+Credentials are read again before each provider call, so reauthorization takes
+effect on the next call without restarting the application.
+
+The JSON file stores plaintext secrets for local development. Do not commit,
+upload, or use it as a production secret broker. Connector secrets become
+**SecretString** values at the application boundary and must not enter Flow
+state or logs.

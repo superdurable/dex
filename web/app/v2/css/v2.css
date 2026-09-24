@@ -258,6 +258,22 @@
   font-size: 13px;
 }
 
+.scx-connector {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--p-line);
+  border-radius: 6px;
+  color: var(--p-ink-1);
+  font-size: 12px;
+}
+
+.scx-connector a {
+  color: var(--color-cta);
+  font-weight: 700;
+}
+
 /* ------------------------------ run mode: switcher | canvas | run drawer */
 
 .v2-shell.v2-run {

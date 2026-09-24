@@ -153,6 +153,14 @@ export interface StepModel {
   span?: SourceSpan
   /** True when dexcli identified this Step as a Connector SDK factory Step. */
   isConnectorStep: boolean
+  /** Static Connector identity emitted by Flow Definition Graph 2.0. */
+  connector?: {
+    connectorId: string
+    operationId: string
+    operationKind: string
+    connectionName: string
+    moduleVersion: string
+  }
   /** One-sentence Step purpose from `dex:explanation`, when the FDG carries it. */
   explanation?: string
 }
