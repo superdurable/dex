@@ -12,6 +12,7 @@ package integ
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -186,7 +187,41 @@ func TestSetSearchAttributes(t *testing.T) {
 			FlowId: flowId,
 			Keys:   []string{service.SearchAttributeDexWorkQueuePermissions},
 		})
-		return getErr == nil && len(result.GetAttributes()) == 0
+		return getErr == nil && len(result.GetAttributes()) == 1 && proto.Equal(
+			result.GetAttributes()[0].GetValue(),
+			jsonObjValue([]string{"refund.approve"}),
+		)
+	}, 10*time.Second, 20*time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		description, describeErr := runtime.UnifiedClient.DescribeWorkflowExecution(
+			ctx,
+			flowId,
+			"",
+			map[string]dexpb.IndexType{
+				service.SearchAttributeDexWorkQueuePermissions: dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+			},
+		)
+		if describeErr != nil {
+			return false
+		}
+		return proto.Equal(
+			description.IndexedAttributes[service.SearchAttributeDexWorkQueuePermissions],
+			jsonObjValue([]string{"refund.approve"}),
+		)
+	}, 10*time.Second, 20*time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		result, searchErr := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
+			Query: fmt.Sprintf(
+				"WorkflowId = '%s' AND %s = 'refund.approve'",
+				flowId,
+				service.SearchAttributeDexWorkQueuePermissions,
+			),
+			PageSize: 10,
+		})
+		return searchErr == nil && len(result.GetFlowRuns()) == 1 &&
+			result.GetFlowRuns()[0].GetFlowId() == flowId
 	}, 10*time.Second, 20*time.Millisecond)
 
 	_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{

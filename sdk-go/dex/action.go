@@ -19,7 +19,8 @@ import (
 )
 
 // WorkQueuePermissionsIndexKey is the Temporal KeywordList Search Attribute
-// containing permissions for Actions available in the current Flow state.
+// containing permissions for Actions that have been available in the current
+// Flow execution.
 //
 // The index is a Work Queue discovery projection, not an authorization result.
 // An Action gateway must still authorize the selected RPC against its required

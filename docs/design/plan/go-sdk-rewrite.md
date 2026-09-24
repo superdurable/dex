@@ -417,26 +417,30 @@ source, the Worker attaches the complete Action mapping to the top-level
 response. Unrelated Attribute writes and query-only RPCs omit it.
 
 The Server overlays business writes on its authoritative Attribute state. It
-then computes the deduplicated, byte-sorted union of matching permissions and
-appends a full replacement in the same Workflow Task. Missing and deleted
-values do not match. An empty result deletes the projection. An unchanged
-logical set emits no Search Attribute upsert. The Server does not persist the
-mapping.
+then computes the deduplicated, byte-sorted union of stored permissions and
+newly matching permissions and appends it in the same Workflow Task. Missing
+and deleted values do not match, but they do not remove stored permissions. An
+unchanged logical set emits no Search Attribute upsert. The Server does not
+persist the mapping.
 
 Runtime Worker responses and SetAttributes requests cannot write
 `DexWorkQueuePermissions` directly. SetAttributes carries the complete mapping
 only when it modifies an Action source. Projection-only locks are unnecessary;
 business locks still provide application isolation where required.
 
-Action definitions are stable for a running Flow. Removing or changing every
-mapping does not migrate existing runs until a source write, explicit empty
-mapping, or new run supplies the new contract. Continue-as-New carries the
-ordinary Attribute and Search Attribute state.
+Once a permission matches, later state changes, empty mappings, and Action
+definition changes do not remove it from that Flow execution. Continue-as-New
+carries the permission history with the ordinary Attribute state. A new,
+independent Flow execution starts from its initial matching permissions. A
+changed Action definition is first evaluated when a later source write sends
+its mapping or a new Flow starts. A Server upgrade does not reconstruct
+permissions removed before the upgrade.
 
-The Search Attribute is Work Queue candidate data, not authorization evidence.
-The Action gateway must enforce the required permission from the registered RPC
-contract before invocation. The projection remains eventually consistent
-candidate data.
+The Search Attribute records where an Action is or has been available. It is
+Work Queue discovery data, not authorization evidence or proof of current
+availability. The Action gateway must enforce the required permission and
+current state from the registered RPC contract before invocation. The
+projection remains eventually consistent candidate data.
 
 ### Handler lifecycle and concurrency
 

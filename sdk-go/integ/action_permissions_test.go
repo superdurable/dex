@@ -491,31 +491,31 @@ func TestActionPermissionProjectionStateMatrix(t *testing.T) {
 		Attribute1: ptr.Any("B"),
 		Attribute2: ptr.Any("C"),
 	})
-	requireActionPermissions(t, flowID, []string{"permission-y", "permission-z"})
+	requireActionPermissions(t, flowID, []string{"permission-x", "permission-y", "permission-z"})
 
 	invokeActionStateUpdate(t, flowID, actionPermissionUpdate{
 		Attribute1: ptr.Any("D"),
 		Attribute2: ptr.Any("C"),
 	})
-	requireActionPermissions(t, flowID, []string{"permission-z"})
+	requireActionPermissions(t, flowID, []string{"permission-x", "permission-y", "permission-z"})
 
 	invokeActionStateUpdate(t, flowID, actionPermissionUpdate{
 		Attribute1: ptr.Any("D"),
 		Attribute2: ptr.Any("D"),
 	})
-	requireActionPermissions(t, flowID, nil)
+	requireActionPermissions(t, flowID, []string{"permission-x", "permission-y", "permission-z"})
 
 	invokeActionStateUpdate(t, flowID, actionPermissionUpdate{
 		DeleteAttribute1: true,
 		Attribute2:       ptr.Any("C"),
 	})
-	requireActionPermissions(t, flowID, []string{"permission-z"})
+	requireActionPermissions(t, flowID, []string{"permission-x", "permission-y", "permission-z"})
 
 	invokeActionStateUpdate(t, flowID, actionPermissionUpdate{
 		Attribute1: ptr.Any("A"),
 		Attribute2: ptr.Any("C"),
 	})
-	requireActionPermissions(t, flowID, []string{"permission-x", "permission-z"})
+	requireActionPermissions(t, flowID, []string{"permission-x", "permission-y", "permission-z"})
 
 	var noOutput dex.None
 	require.NoError(t, integClient.InvokeRPC(
@@ -525,7 +525,7 @@ func TestActionPermissionProjectionStateMatrix(t *testing.T) {
 		nil,
 		&noOutput,
 	))
-	requireActionPermissions(t, flowID, []string{"permission-x", "permission-z"})
+	requireActionPermissions(t, flowID, []string{"permission-x", "permission-y", "permission-z"})
 }
 
 func TestActionPermissionProjectionInitialAndFailedUpdates(t *testing.T) {
@@ -567,7 +567,7 @@ func TestActionPermissionProjectionInitialAndFailedUpdates(t *testing.T) {
 		nil,
 		&noOutput,
 	))
-	requireActionPermissions(t, emptyFlowID, nil)
+	requireActionPermissions(t, emptyFlowID, []string{"permission-self"})
 }
 
 func TestActionPermissionProjectionScalarTypes(t *testing.T) {
@@ -619,7 +619,7 @@ func TestActionPermissionProjectionWaitForAndExecute(t *testing.T) {
 	}, 30*time.Second, 20*time.Millisecond)
 	require.NoError(t, skipErr)
 	require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID, false).Status)
-	requireActionPermissions(t, flowID, []string{"step.executed"})
+	requireActionPermissions(t, flowID, []string{"step.executed", "step.waiting"})
 }
 
 func TestActionPermissionProjectionConcurrentRPCs(t *testing.T) {
@@ -673,6 +673,12 @@ func TestActionPermissionProjectionContinueAsNew(t *testing.T) {
 	require.NoError(t, err)
 	requireActionPermissions(t, flowID, []string{"permission-x", "permission-z"})
 
+	invokeActionStateUpdate(t, flowID, actionPermissionUpdate{
+		Attribute1: ptr.Any("D"),
+		Attribute2: ptr.Any("D"),
+	})
+	requireActionPermissions(t, flowID, []string{"permission-x", "permission-z"})
+
 	require.NoError(t, integClient.TriggerContinueAsNew(ctx, flowID))
 	continuedRunID := awaitSubFlowRunID(t, flowID, firstRunID)
 	require.NotEmpty(t, continuedRunID)
@@ -682,10 +688,10 @@ func TestActionPermissionProjectionContinueAsNew(t *testing.T) {
 		ctx,
 		flowID,
 		flow.SetAttribute1,
-		"A",
+		"B",
 		&output,
 	))
-	requireActionPermissions(t, flowID, []string{"permission-x", "permission-z"})
+	requireActionPermissions(t, flowID, []string{"permission-x", "permission-y", "permission-z"})
 }
 
 func invokeActionStateUpdate(t *testing.T, flowID string, input actionPermissionUpdate) {
