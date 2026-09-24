@@ -89,6 +89,16 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 				indexTypes[attribute.AttributeKey] = attribute.IndexType
 			}
 			require.Equal(t, test.wantIndexTypes, indexTypes)
+			if test.name == "agentic" {
+				connectorNode := graphNodeByID(t, graph, "step:GenerateCustomerMessageStep")
+				require.Equal(t, true, connectorNode.Metadata["connectorFactory"])
+				require.Equal(t, "mutation", connectorNode.Metadata["connectorOperationKind"])
+				require.True(t, hasTransitionFromStepToTarget(
+					graph,
+					"step:agenticPrepareCustomerMessageStep",
+					"step:GenerateCustomerMessageStep",
+				), "concrete StepRef transition into Connector factory is missing")
+			}
 			for _, node := range graph.Nodes {
 				if node.Kind != "step" {
 					continue
@@ -111,6 +121,20 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 			require.NotContains(t, string(firstJSON), `"order"`)
 		})
 	}
+}
+
+func hasTransitionFromStepToTarget(graph *flowviz.Graph, sourceStepID string, targetStepID string) bool {
+	for _, edge := range graph.Edges {
+		if edge.Kind != "transition" || edge.To != targetStepID {
+			continue
+		}
+		for _, node := range graph.Nodes {
+			if node.ID == edge.From && node.ParentID == sourceStepID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func TestVisualizeV2ConnectorFactoryExample(t *testing.T) {

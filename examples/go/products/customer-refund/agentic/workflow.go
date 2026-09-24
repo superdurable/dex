@@ -25,32 +25,35 @@ import (
 	"fmt"
 	"time"
 
+	openai "github.com/superdurable/dex-connectors-library/connectors/openai"
+	connector "github.com/superdurable/dex-connectors-library/sdk/go"
 	refundmodel "github.com/superdurable/dex/examples/go/products/customer-refund/model"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 const (
-	statusOpen                 = "open"
-	statusGathering            = "gathering"
-	statusExecuting            = "executing"
-	statusAwaitingManagerRule  = "awaiting-manager-rule"
-	statusAwaitingManagerAgent = "awaiting-manager-agent"
-	statusAwaitingMessageOK    = "awaiting-message-approval"
-	statusResolved             = "resolved"
-	statusDenied               = "denied"
-	statusRefunded             = "refunded"
-	statusCredited             = "credited"
-	statusBusinessFailure      = "business-failure"
-	statusOutcomeUnknown       = "outcome-unknown"
-	statusCustomerUninformed   = "customer-uninformed"
-	statusFollowUpSubscription = "follow-up-subscription"
-	statusNonConvergence       = "non-convergence"
-	statusNotARefund           = "not-a-refund"
-	actionIssueRefund          = "IssueRefund"
-	actionOfferAccountCredit   = "OfferAccountCredit"
-	actionRequestHumanApproval = "RequestHumanApproval"
-	managerThresholdCents      = int64(1_000_000)
-	decisionRoundsBudget       = int64(12)
+	statusOpen                      = "open"
+	statusGathering                 = "gathering"
+	statusExecuting                 = "executing"
+	statusAwaitingManagerRule       = "awaiting-manager-rule"
+	statusAwaitingManagerAgent      = "awaiting-manager-agent"
+	statusAwaitingMessageOK         = "awaiting-message-approval"
+	statusResolved                  = "resolved"
+	statusDenied                    = "denied"
+	statusRefunded                  = "refunded"
+	statusCredited                  = "credited"
+	statusBusinessFailure           = "business-failure"
+	statusOutcomeUnknown            = "outcome-unknown"
+	statusCustomerUninformed        = "customer-uninformed"
+	statusFollowUpSubscription      = "follow-up-subscription"
+	statusNonConvergence            = "non-convergence"
+	statusNotARefund                = "not-a-refund"
+	actionIssueRefund               = "IssueRefund"
+	actionOfferAccountCredit        = "OfferAccountCredit"
+	actionRequestHumanApproval      = "RequestHumanApproval"
+	generateCustomerMessageStepType = "GenerateCustomerMessageStep"
+	managerThresholdCents           = int64(1_000_000)
+	decisionRoundsBudget            = int64(12)
 )
 
 var agenticInputEmail = dex.DefineAttribute[string]("in-email")
@@ -130,6 +133,8 @@ var agenticRefundAmount = dex.DefineAttribute[float64](
 // The message a person confirms or rewrites before it reaches the customer.
 var agenticCustomerMessageDraft = dex.DefineAttribute[string]("customer-message-draft")
 
+var agenticGeneratedCustomerMessage = dex.DefineAttribute[connector.MutationResult[openai.Response]]("generated-customer-message")
+
 // dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:CustomKeyword2
 var agenticCaseStatus = dex.DefineAttribute[string](
 	"case-status",
@@ -154,16 +159,28 @@ type EditCustomerMessageInput struct {
 	GateRequestKey string `json:"gateRequestKey"`
 }
 
-type AgenticCustomerRefundFlow struct {
-	dex.FlowDefaults
-	service refundmodel.Service
+type agenticCustomerMessagePrompt struct {
+	RefundCase      refundmodel.RefundCase
+	Resolution      string
+	FallbackMessage string
 }
 
-func NewAgenticCustomerRefundFlow(service refundmodel.Service) *AgenticCustomerRefundFlow {
+type agenticGenerateCustomerMessageOutput = openai.CreateResponseStepOutput[agenticCustomerMessagePrompt]
+
+type AgenticCustomerRefundFlow struct {
+	dex.FlowDefaults
+	service          refundmodel.Service
+	openAIConnection openai.Connection
+}
+
+func NewAgenticCustomerRefundFlow(
+	service refundmodel.Service,
+	openAIConnection openai.Connection,
+) *AgenticCustomerRefundFlow {
 	if service == nil {
 		panic("customer refund service is required")
 	}
-	return &AgenticCustomerRefundFlow{service: service}
+	return &AgenticCustomerRefundFlow{service: service, openAIConnection: openAIConnection}
 }
 
 func (*AgenticCustomerRefundFlow) GetFlowType() string {
@@ -188,7 +205,24 @@ func (flow *AgenticCustomerRefundFlow) GetSteps() []dex.StepDef {
 		dex.DefineStep(agenticOfferAccountCreditStep{service: flow.service}),
 		dex.DefineStep(agenticVerifyBillingStep{service: flow.service}),
 		dex.DefineStep(agenticApplySubscriptionStep{service: flow.service}),
-		dex.DefineStep(agenticDraftCustomerMessageStep{}),
+		dex.DefineStep(agenticPrepareCustomerMessageStep{}),
+		dex.DefineStep(openai.NewCreateResponseStep(openai.CreateResponseStepConfig[agenticCustomerMessagePrompt]{
+			StepType: generateCustomerMessageStepType,
+			Presentation: connector.StepPresentation{
+				GroupID:     "resolution",
+				GroupLabel:  "Resolution",
+				Explanation: "Generate the customer resolution message with OpenAI.",
+			},
+			Connection:      flow.openAIConnection,
+			BuildInput:      agenticBuildCustomerMessageRequest,
+			Completed:       connector.GoTo(agenticStoreGeneratedCustomerMessageStep{}),
+			Failed:          connector.GoTo(agenticUseFallbackCustomerMessageStep{}),
+			Uncertain:       connector.GoTo(agenticUseFallbackCustomerMessageStep{}),
+			Defect:          connector.GoTo(agenticUseFallbackCustomerMessageStep{}),
+			ResultAttribute: &agenticGeneratedCustomerMessage,
+		})),
+		dex.DefineStep(agenticStoreGeneratedCustomerMessageStep{}),
+		dex.DefineStep(agenticUseFallbackCustomerMessageStep{}),
 		dex.DefineStep(agenticConfirmCustomerMessageStep{}),
 		dex.DefineStep(agenticSendCustomerMessageStep{service: flow.service}),
 		dex.DefineStep(agenticNonConvergenceStep{}),
@@ -305,6 +339,7 @@ func (*AgenticCustomerRefundFlow) GetPersistenceSchema() dex.PersistenceSchema {
 			agenticRefundAmount,
 			agenticCustomerEmail,
 			agenticCustomerMessageDraft,
+			agenticGeneratedCustomerMessage,
 		},
 		Channels: []dex.ChannelDef{agenticManagerApproval, agenticMessageApproval},
 	}
@@ -851,7 +886,7 @@ func (agenticReCheckStep) Execute(
 		if err := agenticCaseStatus.Set(ctx, statusDenied); err != nil {
 			return nil, err
 		}
-		return dex.GoTo(agenticDraftCustomerMessageStep{}, refundCase), nil
+		return dex.GoTo(agenticPrepareCustomerMessageStep{}, refundCase), nil
 	}
 	if err := agenticBoundAction.Set(ctx, actionIssueRefund); err != nil {
 		return nil, err
@@ -1068,20 +1103,20 @@ func (step agenticApplySubscriptionStep) Execute(
 	if err := agenticSubscriptionApplied.Set(ctx, "yes"); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticDraftCustomerMessageStep{}, refundCase), nil
+	return dex.GoTo(agenticPrepareCustomerMessageStep{}, refundCase), nil
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
-// dex:explanation text:"Draft the customer message and open it for a person to confirm."
-type agenticDraftCustomerMessageStep struct {
+// dex:explanation text:"Prepare the resolution context and fallback customer message."
+type agenticPrepareCustomerMessageStep struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticDraftCustomerMessageStep) GetStepType() string {
-	return "DraftCustomerMessageStep"
+func (agenticPrepareCustomerMessageStep) GetStepType() string {
+	return "PrepareCustomerMessageStep"
 }
 
-func (agenticDraftCustomerMessageStep) Execute(
+func (agenticPrepareCustomerMessageStep) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -1100,26 +1135,97 @@ func (agenticDraftCustomerMessageStep) Execute(
 	case statusBusinessFailure:
 		message = "We could not process a refund on this charge."
 	}
-	if err := agenticCustomerMessageDraft.Set(ctx, message); err != nil {
+	return dex.GoTo(
+		connector.StepRef[agenticCustomerMessagePrompt](generateCustomerMessageStepType),
+		agenticCustomerMessagePrompt{
+			RefundCase:      refundCase,
+			Resolution:      status,
+			FallbackMessage: message,
+		},
+	), nil
+}
+
+func agenticBuildCustomerMessageRequest(
+	prompt agenticCustomerMessagePrompt,
+) (openai.CreateRequest, error) {
+	if prompt.RefundCase.CaseID == "" || prompt.Resolution == "" || prompt.FallbackMessage == "" {
+		return openai.CreateRequest{}, fmt.Errorf("customer message context is incomplete")
+	}
+	return openai.CreateRequest{
+		Model:        "gpt-5-mini",
+		Instructions: "Write one concise customer-facing sentence about the refund resolution. Do not mention internal policy or tooling.",
+		Input: map[string]any{
+			"customerRequest": prompt.RefundCase.CustomerNote,
+			"resolution":      prompt.Resolution,
+		},
+	}, nil
+}
+
+// dex:group group-id:resolution group-label:"Resolution"
+// dex:explanation text:"Store the customer message generated by OpenAI and open the confirmation gate."
+type agenticStoreGeneratedCustomerMessageStep struct {
+	dex.StepDefaultsNoWaitFor[agenticGenerateCustomerMessageOutput]
+}
+
+func (agenticStoreGeneratedCustomerMessageStep) GetStepType() string {
+	return "StoreGeneratedCustomerMessageStep"
+}
+
+func (agenticStoreGeneratedCustomerMessageStep) Execute(
+	ctx dex.Context,
+	output agenticGenerateCustomerMessageOutput,
+) (*dex.StepDecision, error) {
+	message := output.Result.Value.OutputText
+	if message == "" {
+		message = output.Input.FallbackMessage
+	}
+	if err := agenticOpenCustomerMessageGate(ctx, output.Input.RefundCase, message); err != nil {
 		return nil, err
 	}
-	// Same counter and key Attribute as the approval gate; the channel is what differs,
-	// so the two gates cannot consume each other's answer.
-	gateEntries, _, getErr := agenticOptionalAttribute(ctx, agenticGateEntries)
-	if getErr != nil {
-		return nil, getErr
+	return dex.GoTo(agenticConfirmCustomerMessageStep{}, output.Input.RefundCase), nil
+}
+
+// dex:group group-id:resolution group-label:"Resolution"
+// dex:explanation text:"Use the deterministic customer message when OpenAI cannot confirm an answer."
+type agenticUseFallbackCustomerMessageStep struct {
+	dex.StepDefaultsNoWaitFor[agenticGenerateCustomerMessageOutput]
+}
+
+func (agenticUseFallbackCustomerMessageStep) GetStepType() string {
+	return "UseFallbackCustomerMessageStep"
+}
+
+func (agenticUseFallbackCustomerMessageStep) Execute(
+	ctx dex.Context,
+	output agenticGenerateCustomerMessageOutput,
+) (*dex.StepDecision, error) {
+	if err := agenticOpenCustomerMessageGate(ctx, output.Input.RefundCase, output.Input.FallbackMessage); err != nil {
+		return nil, err
+	}
+	return dex.GoTo(agenticConfirmCustomerMessageStep{}, output.Input.RefundCase), nil
+}
+
+func agenticOpenCustomerMessageGate(
+	ctx dex.Context,
+	refundCase refundmodel.RefundCase,
+	message string,
+) error {
+	if err := agenticCustomerMessageDraft.Set(ctx, message); err != nil {
+		return err
+	}
+	// Both approval gates share the counter but use different Channels.
+	gateEntries, _, err := agenticOptionalAttribute(ctx, agenticGateEntries)
+	if err != nil {
+		return err
 	}
 	gateEntries++
 	if err := agenticGateEntries.Set(ctx, gateEntries); err != nil {
-		return nil, err
+		return err
 	}
 	if err := agenticGateRequestKey.Set(ctx, fmt.Sprintf("%s:gate:%d", refundCase.CaseID, gateEntries)); err != nil {
-		return nil, err
+		return err
 	}
-	if err := agenticCaseStatus.Set(ctx, statusAwaitingMessageOK); err != nil {
-		return nil, err
-	}
-	return dex.GoTo(agenticConfirmCustomerMessageStep{}, refundCase), nil
+	return agenticCaseStatus.Set(ctx, statusAwaitingMessageOK)
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
@@ -1260,7 +1366,7 @@ func (agenticBillingFailedStep) Execute(
 	if err := agenticCaseStatus.Set(ctx, statusBusinessFailure); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticDraftCustomerMessageStep{}, refundCase), nil
+	return dex.GoTo(agenticPrepareCustomerMessageStep{}, refundCase), nil
 }
 
 // dex:group group-id:failure group-label:"Failure"
@@ -1283,7 +1389,7 @@ func (agenticSubscriptionFailedStep) Execute(
 	if err := agenticCaseStatus.Set(ctx, statusFollowUpSubscription); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticDraftCustomerMessageStep{}, refundCase), nil
+	return dex.GoTo(agenticPrepareCustomerMessageStep{}, refundCase), nil
 }
 
 // dex:group group-id:failure group-label:"Failure"

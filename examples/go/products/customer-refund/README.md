@@ -3,7 +3,7 @@
 This product contains two Go Flows for the same customer-refund problem.
 
 - `deterministic/workflow.go` is a fixed seven-Step policy. It verifies the 30-day window, uses a persisted provider idempotency key, and preserves declined or unknown outcomes.
-- `agentic/workflow.go` loops through durable evidence, records a recommendation, applies a guardrail, opens a keyed approval gate, and separates intent from idempotent effects. It then opens a **second** keyed gate so a person confirms or rewrites the customer message before it is sent.
+- `agentic/workflow.go` loops through durable evidence, records a recommendation, applies a guardrail, opens a keyed approval gate, and separates intent from idempotent effects. An OpenAI Connector Step drafts the customer response before a **second** keyed gate lets a person confirm or rewrite it.
 
 Both files are self-contained FDG 2.0 sources. Every Step declares `dex:group`
 and a one-sentence `dex:explanation`. Generate their definitions from the
@@ -62,10 +62,14 @@ Both gates share one counter and one `gate-request-key`, which is why the keys
 read `case:gate:1` and `case:gate:2`. They cannot consume each other's answer
 because each waits on its own Channel.
 
-`DraftCustomerMessageStep` composes the message and mints the gate; the gate Step
-only reads the key. Nothing writes inside a `wait_for` phase — a Step that does
-so without declaring its loads in `StepOptions` registers an empty wait condition
-and parks forever.
+`PrepareCustomerMessageStep` builds provider input and a deterministic fallback.
+`GenerateCustomerMessageStep` is an operation-specific OpenAI Connector Step.
+Its completed branch stores the generated message; failed, uncertain, and defect
+branches use the fallback without repeating the provider mutation. The registry
+wires a deterministic in-memory OpenAI transport so the example and integration
+suite need no external credential. The gate Step only reads the key. Nothing
+writes inside a `wait_for` phase — a Step that does so without declaring its
+loads in `StepOptions` registers an empty wait condition and parks forever.
 
 ## Searching for a run
 

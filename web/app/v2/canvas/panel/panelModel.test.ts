@@ -24,6 +24,7 @@ function step(wait = false): StepModel {
     hasUniformFailurePolicy: false,
     inboundCount: 0,
     inboundFailureCount: 0,
+    isConnectorStep: false,
     waitFor: wait
       ? {
           type: 'anyOf',

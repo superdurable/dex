@@ -140,6 +140,8 @@ export interface Box {
   h: number
   kind: BoxKind
   title: string
+  /** A stable semantic icon supplied by the definition, never inferred from the Step name. */
+  icon?: 'connector'
   /** The TYPE, never a value. Airflow shows the operator name here; we show the Step's role. */
   subtitle?: string
   /**

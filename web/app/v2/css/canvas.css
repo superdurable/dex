@@ -1271,7 +1271,24 @@
   gap: 6px;
   justify-content: space-between;
 }
+.pbox-title-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+.pbox-connector-icon {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
 .pbox-title {
+  min-width: 0;
   overflow: hidden;
   font-size: 12.5px;
   font-weight: 600;

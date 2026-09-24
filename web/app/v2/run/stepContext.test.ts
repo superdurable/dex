@@ -21,6 +21,7 @@ const step = (over: Partial<StepModel> & { id: string; stepType: string }): Step
   hasUniformFailurePolicy: false,
   inboundCount: 0,
   inboundFailureCount: 0,
+  isConnectorStep: false,
   waitFor: null,
   execute: { branches: [], kind: 'runs' } as StepModel['execute'],
   resources: [],

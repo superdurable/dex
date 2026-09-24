@@ -977,7 +977,7 @@ func (analyzer *goAnalyzer) transitionsFromExpression(expression ast.Expr, condi
 		if len(call.Args) == 0 {
 			return []goTransition{{kind: "transition", target: "", label: "GoTo", condition: condition, span: analyzer.span(call)}}
 		}
-		return []goTransition{{kind: "transition", target: analyzer.expressionTypeName(call.Args[0]), label: "GoTo", condition: condition, span: analyzer.span(call)}}
+		return []goTransition{{kind: "transition", target: analyzer.goTransitionTarget(call.Args[0]), label: "GoTo", condition: condition, span: analyzer.span(call)}}
 	case "GoToMany":
 		result := make([]goTransition, 0)
 		for _, argument := range call.Args {
@@ -1020,9 +1020,16 @@ func (analyzer *goAnalyzer) transitionsFromExpression(expression ast.Expr, condi
 func (analyzer *goAnalyzer) movementTransition(call *ast.CallExpr, condition string) goTransition {
 	target := ""
 	if len(call.Args) > 0 {
-		target = analyzer.expressionTypeName(call.Args[0])
+		target = analyzer.goTransitionTarget(call.Args[0])
 	}
 	return goTransition{kind: "transition", target: target, label: "fan-out", condition: condition, span: analyzer.span(call)}
+}
+
+func (analyzer *goAnalyzer) goTransitionTarget(expression ast.Expr) string {
+	if target, ok := analyzer.connectorBranchTarget(expression); ok {
+		return target
+	}
+	return analyzer.expressionTypeName(expression)
 }
 
 func (analyzer *goAnalyzer) collectLocalMovements(body *ast.BlockStmt) map[string][]goTransition {

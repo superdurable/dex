@@ -452,6 +452,7 @@ export function stepBox(
     h: c.height,
     kind: 'step',
     title: step.label,
+    ...(step.isConnectorStep ? { icon: 'connector' as const } : {}),
     subtitle: c.subtitle,
     actor: step.actor,
     ...(step.agentRole === undefined ? {} : { agentRole: step.agentRole }),
