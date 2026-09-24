@@ -44,7 +44,7 @@ async def test_deal_dsl_completes_an_item_purchase(
             flow_id,
             app.deal_dsl.current_state,
             AttributeMatch.equal_to("negotiating"),
-            WaitForAttributeOptions(request_timeout=WAIT_TIMEOUT),
+            WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
         )
         == "negotiating"
     )

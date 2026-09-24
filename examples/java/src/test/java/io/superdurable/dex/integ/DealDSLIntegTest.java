@@ -45,7 +45,7 @@ public class DealDSLIntegTest {
                 flow.currentState,
                 AttributeMatch.equalTo("negotiating"),
                 WaitForAttributeOptions.newBuilder()
-                        .requestTimeout(Duration.ofSeconds(30))
+                        .maximumWaitTime(Duration.ofSeconds(30))
                         .build()));
         final DealDSLFlow stub = environment.client().newRpcStub(DealDSLFlow.class, flowId);
         environment.client().invokeRPC(

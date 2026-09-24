@@ -62,7 +62,7 @@ async def test_order_processing_happy_path(
     await client.wait_for_step_completion(
         flow_id,
         CHARGE_STEP,
-        WaitForStepCompletionOptions(request_timeout=WAIT_TIMEOUT),
+        WaitForStepCompletionOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     assert await client.invoke_rpc(app.order_processing.approve, flow_id, "") == "ok"
     output = (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(str)
@@ -80,13 +80,13 @@ async def test_order_processing_reminder_then_ship(
     await client.wait_for_step_completion(
         flow_id,
         CHARGE_STEP,
-        WaitForStepCompletionOptions(request_timeout=WAIT_TIMEOUT),
+        WaitForStepCompletionOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     await _skip_ship_timer(client, flow_id)
     await client.wait_for_step_completion(
         flow_id,
         SHIP_STEP,
-        WaitForStepCompletionOptions(request_timeout=WAIT_TIMEOUT),
+        WaitForStepCompletionOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     assert await client.invoke_rpc(app.order_processing.approve, flow_id, "") == "ok"
     output = (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(str)
@@ -104,7 +104,7 @@ async def test_order_processing_ship_failure_refunds(
     await client.wait_for_step_completion(
         flow_id,
         CHARGE_STEP,
-        WaitForStepCompletionOptions(request_timeout=WAIT_TIMEOUT),
+        WaitForStepCompletionOptions(maximum_wait_time=WAIT_TIMEOUT),
     )
     assert await client.invoke_rpc(app.order_processing.approve, flow_id, "") == "ok"
     output = (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(str)

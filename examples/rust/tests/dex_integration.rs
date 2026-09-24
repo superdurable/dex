@@ -831,11 +831,11 @@ fn failure_recovery_retries_and_compensates() {
 }
 
 fn attribute_wait_options(seconds: u64) -> WaitForAttributeOptions {
-    WaitForAttributeOptions::new().request_timeout(Duration::from_secs(seconds))
+    WaitForAttributeOptions::new().maximum_wait_time(Duration::from_secs(seconds))
 }
 
 fn step_wait_options(seconds: u64) -> WaitForStepCompletionOptions {
-    WaitForStepCompletionOptions::new().request_timeout(Duration::from_secs(seconds))
+    WaitForStepCompletionOptions::new().maximum_wait_time(Duration::from_secs(seconds))
 }
 
 fn unique_flow_id(prefix: &str) -> String {

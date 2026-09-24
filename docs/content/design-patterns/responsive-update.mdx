@@ -18,7 +18,7 @@ The first two waits observe durable state. They are appropriate for a client-vis
 
 **RequestTimeout** is the SDK call's total budget. It covers every transparent transport reattachment. A positive value creates a local transport deadline for each attempt and returns a typed request-timeout error when the total budget expires. An already accepted durable Update remains available for a later call using the same logical Request ID.
 
-Leave **RequestTimeout** at 0 for an ordinary durable wait. The wait is then unlimited until it succeeds, the Flow closes, or the caller cancels it. At an HTTP or admission boundary, set the application's response budget explicitly. The controller example uses 10 seconds.
+Leave **RequestTimeout** at 0 for an ordinary durable wait. The wait is then unlimited until it succeeds, the Flow closes, or the caller cancels it. At an HTTP or admission boundary, set the application's response budget explicitly.
 
 The server also caps one transport attempt. That cap is internal. The SDK reattaches with the same logical Request ID, so the cap does not reset **RequestTimeout**, end the Temporal Update handler, or create another Update generation.
 

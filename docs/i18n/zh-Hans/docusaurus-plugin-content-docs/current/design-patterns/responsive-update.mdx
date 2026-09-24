@@ -18,7 +18,7 @@ title: 响应式更新
 
 **RequestTimeout** 是 SDK 调用的总预算，覆盖所有透明 transport reattachment。正值会为每次 attempt 设置本地 transport deadline。总预算到期时，SDK 返回有类型的 request-timeout 错误。已经接受的 durable Update 仍可由使用同一 logical Request ID 的后续调用重新附着。
 
-普通 durable wait 应让 **RequestTimeout** 保持为 0。此时，它会一直等待，直到成功、Flow 关闭或调用方取消。在 HTTP 或 admission 边界，应显式设置应用响应预算。controller 示例使用 10 秒。
+普通 durable wait 应让 **RequestTimeout** 保持为 0。此时，它会一直等待，直到成功、Flow 关闭或调用方取消。在 HTTP 或 admission 边界，应显式设置应用响应预算。
 
 Server 还会限制单次 transport attempt。这个 cap 完全是内部行为。SDK 会使用同一 logical Request ID 重新附着，因此它不会重置 **RequestTimeout**、结束 Temporal Update handler 或创建新的 Update generation。
 

@@ -191,14 +191,14 @@ test("product user onboarding completes every task", async () => {
     username,
     userOnboardingFlow.status,
     AttributeMatch.equalTo("waiting_for_verification"),
-    { requestTimeoutMs: 20_000 },
+    { maximumWaitTimeMs: 20_000 },
   );
   requireOk(await get("/products/signup/verify", { username }), "signup/verify");
   await server.client.waitForAttributeMatch(
     username,
     userOnboardingFlow.status,
     AttributeMatch.equalTo("waiting_for_task_1"),
-    { requestTimeoutMs: 20_000 },
+    { maximumWaitTimeMs: 20_000 },
   );
   requireOk(
     await get("/products/signup/accomplish-task-1", { username }),
@@ -208,7 +208,7 @@ test("product user onboarding completes every task", async () => {
     username,
     userOnboardingFlow.status,
     AttributeMatch.equalTo("waiting_for_task_2"),
-    { requestTimeoutMs: 20_000 },
+    { maximumWaitTimeMs: 20_000 },
   );
   requireOk(
     await get("/products/signup/accomplish-task-2", { username }),

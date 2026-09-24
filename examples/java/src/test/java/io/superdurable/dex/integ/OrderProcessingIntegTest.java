@@ -121,7 +121,7 @@ public class OrderProcessingIntegTest {
 
     private static WaitForStepCompletionOptions waitOptions() {
         return WaitForStepCompletionOptions.newBuilder()
-                .requestTimeout(Duration.ofSeconds(30))
+                .maximumWaitTime(Duration.ofSeconds(30))
                 .build();
     }
 }
