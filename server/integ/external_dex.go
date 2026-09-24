@@ -108,6 +108,7 @@ func connectToExternalDexService(t *testing.T, testConfig DexServiceTestConfig) 
 		dataConverter,
 		false,
 		cfg.Api.QueryWorkflowFailedRetryPolicy,
+		nil,
 	)
 	t.Cleanup(unifiedClient.Close)
 	connection, err := newDexClientConnection(

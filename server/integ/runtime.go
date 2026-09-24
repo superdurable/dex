@@ -291,6 +291,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			dataConverter,
 			testConfig.MemoEncryption,
 			cfg.Api.QueryWorkflowFailedRetryPolicy,
+			nil,
 		)
 		worker = temporal.NewInterpreterWorker(
 			&cfg,

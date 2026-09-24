@@ -18,11 +18,15 @@ import (
 	"github.com/superdurable/dex/service"
 )
 
-type UnifiedClient interface {
-	Close()
+type AttributeIndexClient interface {
 	ListAttributeIndexes(context.Context) (map[string]dexpb.IndexType, error)
 	AddAttributeIndexes(context.Context, map[string]dexpb.IndexType) error
 	NormalizeAttributeIndexType(dexpb.IndexType) dexpb.IndexType
+}
+
+type UnifiedClient interface {
+	AttributeIndexClient
+	Close()
 	errorHandler
 	StartInterpreterWorkflow(
 		ctx context.Context, options StartWorkflowOptions, args ...interface{},

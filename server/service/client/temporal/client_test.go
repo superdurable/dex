@@ -28,7 +28,7 @@ func TestAlreadyStartedErrorForWorkflow(t *testing.T) {
 	client := NewTemporalClient(mockRealTemporalClient, "test-ns", mockDataConverter, false, &config.RetryPolicy{
 		InitialInterval: time.Second,
 		MaximumAttempts: 5,
-	})
+	}, nil)
 
 	err := &serviceerror.WorkflowExecutionAlreadyStarted{}
 	assert.Equal(t, true, client.IsWorkflowAlreadyStartedError(err))
