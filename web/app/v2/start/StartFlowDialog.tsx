@@ -178,7 +178,7 @@ export function StartFlowDialog({
             <span className="sfd-worker-control">
               <input
                 data-start-path="workerTargetAddress"
-                placeholder="worker:9000"
+                placeholder="127.0.0.1:8803"
                 value={workerAddress}
                 onBlur={(event) => {
                   if (event.relatedTarget instanceof HTMLElement && event.relatedTarget.dataset.workerHealthCheck === 'true') return;
