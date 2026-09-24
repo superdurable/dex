@@ -15,7 +15,9 @@ use crate::{SdkError, SdkResult};
 ///
 /// The server derives a stable Request ID from the Step execution when none is supplied.
 /// `request_timeout` bounds the SDK call across transport reattachments.
-/// `internal_handler_timeout` controls advanced Temporal Update handler generation rollover.
+/// Temporal permits 10 in-flight Updates per Workflow Execution. `internal_handler_timeout`
+/// reclaims accepted waits that outlive callers and could consume those slots. Active callers
+/// transparently start another generation, which adds another Update to history.
 pub struct WaitForStepCompletionOptions {
     pub(crate) request_id: String,
     pub(crate) request_timeout: Duration,
@@ -40,7 +42,12 @@ impl WaitForStepCompletionOptions {
         self
     }
 
-    /// Sets the Temporal Update handler generation lifetime. Zero disables timed rollover.
+    /// Sets the Temporal Update handler generation lifetime.
+    ///
+    /// Use a positive value only when abandoned waits can approach Temporal's in-flight Update
+    /// limit. Active callers transparently start another generation. Zero disables rollover.
+    /// Prefer a value longer than normal request timeouts and reconnect gaps because every
+    /// generation counts toward Temporal's 2,000-Update history limit.
     pub fn internal_handler_timeout(mut self, internal_handler_timeout: Duration) -> Self {
         self.internal_handler_timeout = internal_handler_timeout;
         self
@@ -52,7 +59,9 @@ impl WaitForStepCompletionOptions {
 ///
 /// The server derives a stable Request ID from the Attribute condition when none is supplied.
 /// `request_timeout` bounds the SDK call across transport reattachments.
-/// `internal_handler_timeout` controls advanced Temporal Update handler generation rollover.
+/// Temporal permits 10 in-flight Updates per Workflow Execution. `internal_handler_timeout`
+/// reclaims accepted waits that outlive callers and could consume those slots. Active callers
+/// transparently start another generation, which adds another Update to history.
 pub struct WaitForAttributeOptions {
     pub(crate) request_id: String,
     pub(crate) request_timeout: Duration,
@@ -77,7 +86,12 @@ impl WaitForAttributeOptions {
         self
     }
 
-    /// Sets the Temporal Update handler generation lifetime. Zero disables timed rollover.
+    /// Sets the Temporal Update handler generation lifetime.
+    ///
+    /// Use a positive value only when abandoned waits can approach Temporal's in-flight Update
+    /// limit. Active callers transparently start another generation. Zero disables rollover.
+    /// Prefer a value longer than normal request timeouts and reconnect gaps because every
+    /// generation counts toward Temporal's 2,000-Update history limit.
     pub fn internal_handler_timeout(mut self, internal_handler_timeout: Duration) -> Self {
         self.internal_handler_timeout = internal_handler_timeout;
         self

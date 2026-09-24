@@ -22,12 +22,14 @@ title: 响应式更新
 
 Server 还会限制单次 transport attempt。这个 cap 完全是内部行为。SDK 会使用同一 logical Request ID 重新附着，因此它不会重置 **RequestTimeout**、结束 Temporal Update handler 或创建新的 Update generation。
 
-**InternalHandlerTimeout** 是高级 Temporal 控制项。正值限制单个 Update handler generation 的生命周期。到期后，service 创建下一代并继续等待，不向调用方返回 handler-timeout 错误。除非 Workflow history 增长或运维需求要求换代，否则应保持为 0。较短的值会增加 Update events，也可能增加 Temporal Cloud Actions。
+**InternalHandlerTimeout** 是用于保护 Update 容量的高级 Temporal 控制项。[Temporal 对每个 Workflow Execution 最多允许 10 个 in-flight Updates，并允许 History 中有 2,000 个 Updates](https://docs.temporal.io/evaluate/cloud/limits#per-workflow-execution-update-limits)。request timeout 或 cancellation 会结束 SDK 调用，但不会结束已经接受的 durable Update handler。因此，已经被调用方放弃的 wait 仍可能占用 10 个 in-flight slots 中的一个，直到条件命中或 Flow 关闭。
+
+只有当被放弃的 waits 可能累积并接近 in-flight limit 时，才应把 **InternalHandlerTimeout** 设为正值。它到期后，旧 handler generation 完成。仍然活跃的 SDK 调用会透明创建下一代并继续等待。这个机制不会提高 10 个 Updates 的限制。每次换代都会计入 History 中 2,000 个 Updates 的总限制，也可能增加 Temporal Cloud Actions。这个值应明显长于常见的 **RequestTimeout** 和预期的重连间隔。如果 waits 通常会及时完成，或 Flow 会在被放弃的 handlers 形成容量风险前关闭，应保持为 0。
 
 | 设置 | 默认值 | 行为 |
 | --- | --- | --- |
 | **RequestTimeout** | 0 | 调用方可见的 SDK 总预算。0 表示等待到成功、Flow 关闭或调用方取消。 |
-| **InternalHandlerTimeout** | 0 | Temporal Update generation 生命周期。0 表示不按时间换代。 |
+| **InternalHandlerTimeout** | 0 | 回收被放弃的 accepted handlers，避免其无限占用 in-flight Update slots。每次换代都会向 History 增加一个 Update。 |
 | Transport attempt cap | Server 管理 | 只触发透明 reattachment，不是应用可见的 timeout。 |
 
 ## 相关内容

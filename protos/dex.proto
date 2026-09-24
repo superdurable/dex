@@ -912,7 +912,9 @@ message WaitForStepCompletionRequest {
   // Zero waits indefinitely.
   int32 request_timeout_seconds = 4;
   // Bounds one internal Temporal Update handler generation.
-  // Zero disables time-based handler generation rollover.
+  // Use a positive value only to reclaim accepted waits left in flight after callers exit.
+  // Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+  // start a new generation. Zero disables rollover; each rollover adds Update history.
   int32 internal_handler_timeout_seconds = 5;
   // Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
   string request_id = 6;
@@ -927,7 +929,9 @@ message WaitForAttributeRequest {
   // Zero waits indefinitely.
   int32 request_timeout_seconds = 3;
   // Bounds one internal Temporal Update handler generation.
-  // Zero disables time-based handler generation rollover.
+  // Use a positive value only to reclaim accepted waits left in flight after callers exit.
+  // Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+  // start a new generation. Zero disables rollover; each rollover adds Update history.
   int32 internal_handler_timeout_seconds = 4;
   // Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
   string request_id = 5;

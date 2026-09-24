@@ -1409,10 +1409,14 @@ Expiry returns `*dex.RequestTimeoutError`. `context.Context` remains an
 independent local cancellation mechanism, and the earlier boundary wins.
 
 `InternalHandlerTimeout` controls one accepted Temporal Update handler generation.
-Zero disables time-based rollover. When a positive value expires, the service
-continues with a new `-N` generation without returning a handler timeout. Short
-values can create many Update history events. Transport reattachment alone does
-not end a handler or create another generation.
+Temporal permits 10 in-flight Updates and 2,000 total Updates in History per
+Workflow Execution. Request expiry or context cancellation can leave an accepted
+handler in flight. Use a positive value only when abandoned waits can approach
+the concurrent limit. When it expires, the service completes the old handler and
+continues an active call with a new `-N` generation without returning a handler
+timeout. This does not expand the concurrent limit. Each generation counts toward
+the history limit, so prefer a value longer than normal request deadlines and
+reconnect gaps. Transport reattachment alone does not create another generation.
 
 WaitForFlow uses the same server-capped duration. A successful response maps
 status and error metadata, then hydrates every requested completion output

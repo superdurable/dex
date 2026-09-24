@@ -22,12 +22,14 @@ Leave **RequestTimeout** at 0 for an ordinary durable wait. The wait is then unl
 
 The server also caps one transport attempt. That cap is internal. The SDK reattaches with the same logical Request ID, so the cap does not reset **RequestTimeout**, end the Temporal Update handler, or create another Update generation.
 
-**InternalHandlerTimeout** is an advanced Temporal control. A positive value limits one Update handler generation. When it expires, the service creates the next generation and keeps waiting without returning a handler-timeout error. Leave it at 0 unless Workflow-history growth or an operational requirement needs generation rollover. Short values can add many Update events and increase Temporal Cloud Actions.
+**InternalHandlerTimeout** is an advanced Temporal control for protecting Update capacity. [Temporal permits at most 10 in-flight Updates and 2,000 total Updates in History per Workflow Execution](https://docs.temporal.io/evaluate/cloud/limits#per-workflow-execution-update-limits). A request timeout or cancellation ends the SDK call but does not finish an accepted durable Update handler. An abandoned wait can therefore retain one of the 10 in-flight slots until the condition matches or the Flow closes.
+
+Set **InternalHandlerTimeout** to a positive value only when abandoned waits can accumulate enough to approach the in-flight limit. When it expires, the old handler generation completes. An active SDK call transparently creates the next generation and keeps waiting. This does not raise the 10-Update limit. Each rollover counts toward the 2,000 total Updates in History and may increase Temporal Cloud Actions. Prefer a value comfortably longer than normal **RequestTimeout** values and expected reconnect gaps. Keep it at 0 when waits reliably complete or the Flow closes before abandoned handlers become a capacity risk.
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
 | **RequestTimeout** | 0 | Total caller-visible SDK budget. Zero waits until success, Flow closure, or caller cancellation. |
-| **InternalHandlerTimeout** | 0 | Temporal Update generation lifetime. Zero disables time-based rollover. |
+| **InternalHandlerTimeout** | 0 | Reclaims abandoned accepted handlers before they indefinitely consume in-flight Update slots. Each rollover adds another Update to History. |
 | Transport attempt cap | Server-managed | Causes transparent reattachment only. It is not an application-facing timeout. |
 
 ## Related

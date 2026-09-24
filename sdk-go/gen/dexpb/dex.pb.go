@@ -7652,7 +7652,9 @@ type WaitForStepCompletionRequest struct {
 	// Zero waits indefinitely.
 	RequestTimeoutSeconds int32 `protobuf:"varint,4,opt,name=request_timeout_seconds,json=requestTimeoutSeconds,proto3" json:"request_timeout_seconds,omitempty"`
 	// Bounds one internal Temporal Update handler generation.
-	// Zero disables time-based handler generation rollover.
+	// Use a positive value only to reclaim accepted waits left in flight after callers exit.
+	// Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+	// start a new generation. Zero disables rollover; each rollover adds Update history.
 	InternalHandlerTimeoutSeconds int32 `protobuf:"varint,5,opt,name=internal_handler_timeout_seconds,json=internalHandlerTimeoutSeconds,proto3" json:"internal_handler_timeout_seconds,omitempty"`
 	// Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
 	RequestId     string `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -7776,7 +7778,9 @@ type WaitForAttributeRequest struct {
 	// Zero waits indefinitely.
 	RequestTimeoutSeconds int32 `protobuf:"varint,3,opt,name=request_timeout_seconds,json=requestTimeoutSeconds,proto3" json:"request_timeout_seconds,omitempty"`
 	// Bounds one internal Temporal Update handler generation.
-	// Zero disables time-based handler generation rollover.
+	// Use a positive value only to reclaim accepted waits left in flight after callers exit.
+	// Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+	// start a new generation. Zero disables rollover; each rollover adds Update history.
 	InternalHandlerTimeoutSeconds int32 `protobuf:"varint,4,opt,name=internal_handler_timeout_seconds,json=internalHandlerTimeoutSeconds,proto3" json:"internal_handler_timeout_seconds,omitempty"`
 	// Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
 	RequestId     string `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`

@@ -856,8 +856,9 @@ func (client *Client) UpdateFlowConfig(
 // one. A nil error means the requested execution completed, but this method does not return its output.
 // When options.RequestID is empty, the server derives a stable RequestID from the Step execution.
 // RequestTimeout bounds the complete call across transparent transport reattachments. A positive
-// value returns RequestTimeoutError. InternalHandlerTimeout controls internal Temporal Update
-// generation rollover and does not end the caller-visible request.
+// value returns RequestTimeoutError. InternalHandlerTimeout reclaims accepted waits that outlive
+// callers and could consume Temporal's in-flight Update limit. Active callers transparently roll
+// to a new generation, which adds another Update to history.
 // Invalid identifiers, inactive Flows, context, transport, and server errors are also returned.
 func (client *Client) WaitForStepCompletion(
 	ctx context.Context,
@@ -1156,8 +1157,9 @@ func streamMessagesPageTarget(
 // valuePtr must be a non-nil pointer of the registered type. When options.RequestID is empty, the
 // server derives one from the Attribute condition.
 // RequestTimeout bounds the complete call across transparent transport reattachments. A positive
-// value returns RequestTimeoutError. InternalHandlerTimeout controls internal Temporal Update
-// generation rollover and does not end the caller-visible request.
+// value returns RequestTimeoutError. InternalHandlerTimeout reclaims accepted waits that outlive
+// callers and could consume Temporal's in-flight Update limit. Active callers transparently roll
+// to a new generation, which adds another Update to history.
 // Use context.WithTimeout or context.WithDeadline to bound the caller-visible response.
 func (client *Client) WaitForAttributeMatch(
 	ctx context.Context,

@@ -531,8 +531,12 @@ compile only after S5 migrates updater/query/CAN files.
   A positive value installs no timer and is observed on a later Workflow Task. A new
   `-N` generation starts only after that handler completes with a deadline error.
 - Handler rollover remains internal and does not end or reset the request budget.
-  Short budgets can create many Update generations and history events. Prefer zero;
-  when a positive value is necessary, start at 60 seconds or longer.
+  Temporal permits 10 in-flight Updates and 2,000 total Updates in History per
+  Workflow Execution. Request expiry or cancellation can leave an accepted handler
+  in flight. Use a positive value only when abandoned waits can approach the
+  concurrent limit. It does not expand that limit, and each new generation counts
+  toward the history limit. Prefer zero; when a positive value is necessary, make
+  it longer than normal request deadlines and reconnect gaps, starting at 60 seconds.
 - Cadence implements no handlers. The API returns `codes.Unimplemented` before
   dialing.
 

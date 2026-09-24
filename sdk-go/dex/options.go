@@ -375,9 +375,11 @@ type WaitForFlowOptions struct {
 // execution. Reuse an override only when retrying the same Step completion
 // wait. RequestTimeout bounds the caller-visible request across transparent
 // transport reattachments. Leave it zero to wait indefinitely.
-// InternalHandlerTimeout controls internal Temporal Update generation rollover.
-// Leave it zero unless an operator has measured a need for bounded handler
-// generations. Short values can add many Update events to Workflow history.
+// InternalHandlerTimeout bounds how long accepted waits left behind by caller
+// timeout or cancellation consume Temporal's 10 in-flight Update slots per
+// Workflow Execution. Active callers transparently start a new generation.
+// Leave it zero unless abandoned waits can approach that limit. Each rollover
+// adds another Update to history, which has a 2,000-Update limit.
 // Both durations must use whole seconds within int32 range.
 //
 //	options := dex.WaitForStepCompletionOptions{
@@ -389,7 +391,8 @@ type WaitForStepCompletionOptions struct {
 	// RequestTimeout bounds the caller-visible request. Zero waits indefinitely.
 	RequestTimeout time.Duration
 	// InternalHandlerTimeout bounds one internal Temporal Update handler generation.
-	// Zero disables time-based generation rollover.
+	// Set it only to reclaim abandoned waits from Temporal's in-flight Update limit.
+	// Zero disables rollover. Each rollover adds another Update to history.
 	InternalHandlerTimeout time.Duration
 }
 
@@ -399,10 +402,12 @@ type WaitForStepCompletionOptions struct {
 // condition. Reuse an override only when retrying the same Attribute match.
 // RequestTimeout bounds the caller-visible request across transparent transport
 // reattachments. Leave it zero to wait indefinitely. InternalHandlerTimeout
-// controls internal Temporal Update generation rollover. Leave it zero unless
-// an operator has measured a need for bounded handler generations. Short values
-// can add many Update events to Workflow history. Both durations must use whole
-// seconds within int32 range.
+// bounds how long accepted waits left behind by caller timeout or cancellation
+// consume Temporal's 10 in-flight Update slots per Workflow Execution. Active
+// callers transparently start a new generation. Leave it zero unless abandoned
+// waits can approach that limit. Each rollover adds another Update to history,
+// which has a 2,000-Update limit. Both durations must use whole seconds within
+// int32 range.
 //
 //	options := dex.WaitForAttributeOptions{
 //		RequestTimeout: time.Second * 10,
@@ -413,7 +418,8 @@ type WaitForAttributeOptions struct {
 	// RequestTimeout bounds the caller-visible request. Zero waits indefinitely.
 	RequestTimeout time.Duration
 	// InternalHandlerTimeout bounds one internal Temporal Update handler generation.
-	// Zero disables time-based generation rollover.
+	// Set it only to reclaim abandoned waits from Temporal's in-flight Update limit.
+	// Zero disables rollover. Each rollover adds another Update to history.
 	InternalHandlerTimeout time.Duration
 }
 

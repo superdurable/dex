@@ -17,8 +17,11 @@ import java.time.Duration;
  * The server derives a stable Request ID from the Attribute condition when none is supplied.
  * Reuse an override only for the same logical predicate.
  * The request timeout bounds the caller-visible call across transparent transport reattachments.
- * The internal handler timeout controls Temporal Update generation rollover and does not end the
- * caller-visible request. Leave both values at zero for normal indefinite waiting.
+ * Temporal permits 10 in-flight Updates per Workflow Execution. The internal handler timeout
+ * reclaims accepted waits that outlive callers and could consume those slots. An active caller
+ * transparently starts another generation, which adds another Update to history. Leave it at zero
+ * unless abandoned waits can approach the limit. Prefer a value longer than normal request
+ * timeouts and reconnect gaps.
  */
 public final class WaitForAttributeOptions {
     private final String requestId;
@@ -87,8 +90,11 @@ public final class WaitForAttributeOptions {
 
         /**
          * Bounds one internal Temporal Update handler generation.
-         * Zero disables time-based generation rollover. Short positive values can add many Temporal
-         * Update events to Workflow history.
+         * Set a positive value only to reclaim accepted waits left in flight after callers exit.
+         * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers
+         * transparently start another generation, which counts toward Temporal's 2,000-Update
+         * history limit. Zero disables rollover. Prefer a value longer than normal request
+         * timeouts and reconnect gaps.
          *
          * @param value a nonnegative whole-second duration within the protocol range
          * @return this builder

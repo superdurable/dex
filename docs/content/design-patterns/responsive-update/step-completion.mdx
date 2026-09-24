@@ -8,7 +8,7 @@ Use **WaitForStepCompletion** when a Flow has a durable client-visible milestone
 
 The **WaitForStepCompletionFlow** sample persists a record in **PersistData**, then starts **BackgroundWork**. Its controller waits for **PersistData** before querying the persisted record. Choose a Step only after it has committed the state that makes the response valid.
 
-Leave **RequestTimeout** at 0 for an ordinary durable wait. Set it explicitly at an admission boundary. The runnable controller below remains unbounded until its published SDK dependency includes this API. **InternalHandlerTimeout** is an advanced Update-generation control and normally remains 0. See [Choose the timeout boundary](/design-patterns/responsive-update#choose-the-timeout-boundary) for details.
+Leave **RequestTimeout** at 0 for an ordinary durable wait. Set it explicitly at an admission boundary. The runnable controller below remains unbounded until its published SDK dependency includes this API. Set **InternalHandlerTimeout** only to reclaim abandoned accepted handlers that threaten Temporal's in-flight Update limit. See [Choose the timeout boundary](/design-patterns/responsive-update#choose-the-timeout-boundary) for details.
 
 ## Core implementation
 

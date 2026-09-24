@@ -959,7 +959,9 @@ export interface WaitForStepCompletionRequest {
   requestTimeoutSeconds: number;
   /**
    * Bounds one internal Temporal Update handler generation.
-   * Zero disables time-based handler generation rollover.
+   * Use a positive value only to reclaim accepted waits left in flight after callers exit.
+   * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+   * start a new generation. Zero disables rollover; each rollover adds Update history.
    */
   internalHandlerTimeoutSeconds: number;
   /** Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}. */
@@ -981,7 +983,9 @@ export interface WaitForAttributeRequest {
   requestTimeoutSeconds: number;
   /**
    * Bounds one internal Temporal Update handler generation.
-   * Zero disables time-based handler generation rollover.
+   * Use a positive value only to reclaim accepted waits left in flight after callers exit.
+   * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers transparently
+   * start a new generation. Zero disables rollover; each rollover adds Update history.
    */
   internalHandlerTimeoutSeconds: number;
   /** Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}. */
