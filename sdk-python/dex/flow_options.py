@@ -28,7 +28,7 @@ class IdReusePolicy(Enum):
     """Control whether ``start_flow`` may reuse an existing Flow ID.
 
     Attributes:
-        DEFAULT: Use the Dex server's default reuse policy.
+        DEFAULT: Use the Dex server default, which rejects every previously used Flow ID.
         ALLOW_IF_PREVIOUS_FAILED: Reuse only after an unsuccessful closed run.
         ALLOW_IF_NOT_RUNNING: Reuse after any closed run.
         ALLOW_TERMINATE_IF_RUNNING: Terminate an active run and start the new run.

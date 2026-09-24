@@ -345,12 +345,12 @@ func TestWebServerScopesSearchesToEngineWorkflows(t *testing.T) {
 		{
 			name:      "empty query",
 			body:      `{"pageSize":10}`,
-			wantQuery: `WorkflowType = "Engine"`,
+			wantQuery: `WorkflowType = "Engine" AND ExecutionStatus != "ContinuedAsNew"`,
 		},
 		{
 			name:      "user query",
 			body:      `{"query":"ExecutionStatus = \"Running\"","pageSize":10}`,
-			wantQuery: `(ExecutionStatus = "Running") AND (WorkflowType = "Engine")`,
+			wantQuery: `(ExecutionStatus = "Running") AND (WorkflowType = "Engine" AND ExecutionStatus != "ContinuedAsNew")`,
 		},
 	}
 	for _, testCase := range testCases {

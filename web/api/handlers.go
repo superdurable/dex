@@ -28,7 +28,7 @@ import (
 
 const (
 	maxRequestBytes               = 1 << 20
-	engineWorkflowVisibilityQuery = `WorkflowType = "Engine"`
+	engineWorkflowVisibilityQuery = `WorkflowType = "Engine" AND ExecutionStatus != "ContinuedAsNew"`
 	// Finish before common 60-second proxy timeouts.
 	historyEventLongPollTimeout = 50 * time.Second
 )

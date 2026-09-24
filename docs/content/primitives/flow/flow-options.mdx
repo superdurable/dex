@@ -284,7 +284,7 @@ The ID reuse policy determines whether Dex rejects the start in the first place:
 
 | **IDReusePolicy** | Existing active Flow | Existing closed Flow |
 |-------------------|----------------------|----------------------|
-| **IDReuseDefault** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Starts a new run. |
+| **IDReuseDefault** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. |
 | **IDReuseAllowIfPreviousFailed** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Starts a new run only after a failed run; otherwise rejects it. |
 | **IDReuseAllowIfNotRunning** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Starts a new run. |
 | **IDReuseDisallow** | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. |
@@ -292,7 +292,7 @@ The ID reuse policy determines whether Dex rejects the start in the first place:
 
 #### What Dex Server does
 
-Dex Server requires a non-empty **RequestID**. An SDK generates one before sending the request when you omit it. The server records it with the Flow execution, then asks the configured backend to start the Flow using the requested ID reuse policy. **IDReuseDefault** uses the server default: start a new Flow execution when no execution is active.
+Dex Server requires a non-empty **RequestID**. An SDK generates one before sending the request when you omit it. The server records it with the Flow execution, then asks the configured backend to start the Flow using the requested ID reuse policy. **IDReuseDefault** uses the server default: reject every previously used Flow ID. Choose **IDReuseAllowIfNotRunning** explicitly when a closed Flow ID should start a new execution.
 
 If the backend reports that the Flow is already started, Dex checks **AlreadyStartedOptions.IgnoreError**. When it is on, Dex reads the existing run's recorded RequestID. It returns that Run ID only when the two RequestIDs match. Otherwise it returns the already-started error.
 

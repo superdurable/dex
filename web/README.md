@@ -52,7 +52,8 @@ failures return a typed 503 and make `/readyz` fail.
 Starting Dex with `--flow-rendering-dir` opens **v2** at `/v2`. The top-right
 Version menu returns to **v1**. Without that directory, Dex Web opens **v1** at
 `/v1/flows`. v2 lists current runs for one Flow type on the left and renders
-that type's Flow Definition Graph on the right. Summary, Display, edits, and
+that type's Flow Definition Graph on the right. Run lists omit executions
+closed by continue-as-new. Summary, Display, edits, and
 Actions target the current run without accepting a Run ID. Version 1 and
 Version 2 files can coexist. Duplicate valid Version 2 definitions for one Flow
 type make the definition source invalid. Invalid analyzer output remains visible on **v1** Flow

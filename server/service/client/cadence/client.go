@@ -326,9 +326,10 @@ func (t *cadenceClient) TerminateWorkflow(ctx context.Context, workflowID string
 func (t *cadenceClient) ListWorkflow(
 	ctx context.Context, request *uclient.ListWorkflowExecutionsRequest,
 ) (*uclient.ListWorkflowExecutionsResponse, error) {
+	query := mapToCadenceVisibilityQuery(request.Query)
 	listReq := &shared.ListWorkflowExecutionsRequest{
 		PageSize:      &request.PageSize,
-		Query:         &request.Query,
+		Query:         &query,
 		NextPageToken: request.NextPageToken,
 	}
 	resp, err := t.cClient.ListWorkflow(ctx, listReq)
@@ -356,6 +357,15 @@ func (t *cadenceClient) ListWorkflow(
 		Executions:    executions,
 		NextPageToken: resp.NextPageToken,
 	}, nil
+}
+
+func mapToCadenceVisibilityQuery(query string) string {
+	return strings.ReplaceAll(
+		query,
+		`ExecutionStatus != "ContinuedAsNew"`,
+		`(CloseTime = missing OR CloseStatus = "COMPLETED" OR CloseStatus = "FAILED" OR `+
+			`CloseStatus = "CANCELED" OR CloseStatus = "TERMINATED" OR CloseStatus = "TIMED_OUT")`,
+	)
 }
 
 func (t *cadenceClient) QueryWorkflow(

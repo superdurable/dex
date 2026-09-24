@@ -116,7 +116,6 @@ func doTestBasicFlow(
 		StepInput:     flowInput,
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
-			IdReusePolicy:      dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE,
 			RetryPolicy: &dexpb.FlowRetryPolicy{
 				InitialIntervalSeconds: 11,
 				BackoffCoefficient:     11,
@@ -160,6 +159,16 @@ func doTestBasicFlow(
 		WaitTimeSeconds: 20,
 	})
 	require.NoError(t, err)
+	requireCurrentRunSearchResult(t, flowClient, flowId)
+
+	startRequest.RequestId = newRequestID()
+	_, err = flowClient.StartFlow(ctx, startRequest)
+	require.Equal(t, codes.AlreadyExists, status.Code(err))
+	require.Equal(
+		t,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_ALREADY_STARTED,
+		grpcServiceErrorResponse(t, err).GetSubStatus(),
+	)
 
 	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          "a-wrong-flow-id-" + uuid.NewString(),
@@ -186,4 +195,31 @@ func doTestBasicFlow(
 	require.Equal(t, basic.Step2, result.GetCompletedStepType())
 	require.Equal(t, basic.Step2+"-1", result.GetCompletedStepExecutionId())
 	require.True(t, proto.Equal(flowInput, result.GetCompletedStepOutput()))
+}
+
+func requireCurrentRunSearchResult(
+	t *testing.T,
+	flowClient dexpb.FlowServiceClient,
+	flowID string,
+) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		response, err := flowClient.SearchFlows(context.Background(), &dexpb.SearchFlowsRequest{
+			Query:    `ExecutionStatus != "ContinuedAsNew"`,
+			PageSize: 1000,
+		})
+		if err != nil {
+			return false
+		}
+		currentRunCount := 0
+		for _, flowRun := range response.GetFlowRuns() {
+			if flowRun.GetFlowId() == flowID {
+				currentRunCount++
+				if flowRun.GetFlowStatus() == dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW {
+					return false
+				}
+			}
+		}
+		return currentRunCount == 1
+	}, 10*time.Second, 100*time.Millisecond)
 }
