@@ -19,6 +19,7 @@ export interface StepContextView {
   /** The Step's declared purpose, or null when the Flow never said. Never invented. */
   explanation: string | null;
   facts: StepFact[];
+  connector?: StepModel['connector'];
 }
 
 /** Who moves this Step along. The graph knows this; a reader should not have to infer it. */
@@ -86,6 +87,7 @@ export function stepContext(
     stepType: step.stepType,
     explanation: step.explanation ?? null,
     facts,
+    connector: step.connector,
   };
 }
 

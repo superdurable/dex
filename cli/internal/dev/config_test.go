@@ -134,6 +134,36 @@ func TestFlowRenderingDirectoryFlag(t *testing.T) {
 	}
 }
 
+func TestConnectorConfigDirectoryFlagResolvesAbsolutePath(t *testing.T) {
+	directory := filepath.Join("testdata", "connector-secrets")
+	cfg, err := parseConfig([]string{"--connector-config-dir", directory}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := filepath.Abs(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ConnectorConfigDirectory != expected {
+		t.Fatalf("connector config directory = %q, want %q", cfg.ConnectorConfigDirectory, expected)
+	}
+}
+
+func TestConnectorConfigDirectoryDefaultsUnderDexHome(t *testing.T) {
+	cfg, err := parseConfig(nil, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeDirectory, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(homeDirectory, ".dex", "connectors")
+	if cfg.ConnectorConfigDirectory != expected {
+		t.Fatalf("connector config directory = %q, want %q", cfg.ConnectorConfigDirectory, expected)
+	}
+}
+
 func TestVerboseEngineLogFlag(t *testing.T) {
 	cfg, err := parseConfig([]string{"--verbose-engine-log"}, &bytes.Buffer{})
 	if err != nil {

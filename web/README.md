@@ -117,6 +117,22 @@ around that proxy.
 Dex does not expose an `/api/v2/access` endpoint; hosted identity and role
 resolution stay in the reverse proxy and hosting control plane.
 
+The local v2 Connections page is available at `/v2/connections` when Dex Web
+runs through loopback-bound `dexcli dev` with a local Flow Definition source.
+It groups Connector Steps by Connector ID and static connection name, resolves
+the exact official Connector release declared by the graph, verifies release
+and Studio UI checksums, and loads UI bundles in opaque-origin sandbox iframes.
+Without a Studio bundle, it renders the manifest fields directly.
+
+Connections persist in `$HOME/.dex/connectors/connections.json` by default.
+Use `--connector-config-dir` to select another directory. Restarting Dex Web
+reloads the file and cached artifacts. OAuth state, PKCE verifier, client
+secret, and UI session nonce remain memory-only and are discarded on restart.
+The page displays the absolute JSON path and the
+`DEX_CONNECTOR_CONFIG_FILE=... <your-app-command>` launch command. It never
+returns credential values. Deleting a local credential does not revoke the
+provider grant.
+
 ## Trusted reverse-proxy mounts
 
 Dex Web can be mounted at a request-specific path below an authenticated host

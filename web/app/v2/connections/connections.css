@@ -1,0 +1,229 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+.connections-page {
+  min-height: calc(100vh - var(--header-h));
+  padding: 28px;
+  color: var(--p-ink-0, var(--ink));
+  background: var(--p-bg, var(--canvas));
+}
+
+.connections-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 32px;
+  max-width: 1280px;
+  margin: 0 auto 24px;
+}
+
+.connections-kicker {
+  margin: 0 0 4px;
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.connections-hero h1,
+.connection-title h2,
+.connector-form h3 {
+  margin: 0;
+}
+
+.connections-paths {
+  display: grid;
+  grid-template-columns: auto minmax(20rem, 1fr);
+  gap: 7px 12px;
+  max-width: 760px;
+  font-size: 12px;
+}
+
+.connections-paths > span:nth-child(odd) {
+  color: var(--muted);
+}
+
+.copy-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.copy-value code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy-value button,
+.connection-delete {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+.connections-layout {
+  display: grid;
+  grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
+  min-height: 34rem;
+  max-width: 1280px;
+  margin: auto;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+
+.connections-list {
+  border-right: 1px solid var(--line);
+  background: var(--canvas);
+}
+
+.connection-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 16px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  background: transparent;
+}
+
+.connection-row[data-selected='true'] {
+  background: var(--paper);
+  box-shadow: inset 3px 0 var(--brand);
+}
+
+.connection-row span:first-child,
+.connection-uses div {
+  display: grid;
+  gap: 4px;
+}
+
+.connection-row small,
+.connections-note,
+.connector-form small {
+  color: var(--muted);
+}
+
+.connection-detail {
+  padding: 24px;
+  overflow: auto;
+}
+
+.connection-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.connection-title > div {
+  display: grid;
+  gap: 5px;
+}
+
+.connection-status {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #535c50;
+  background: #edf0eb;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.connection-status[data-status='ready'] { color: #075b39; background: #dff5e8; }
+.connection-status[data-status='expired'],
+.connection-status[data-status='conflict'] { color: #8a4b00; background: #fff0d5; }
+.connection-status[data-status='unsupported'] { color: #6b6870; background: #ebe9ef; }
+
+.connection-uses {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.connection-uses div {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.connection-warning {
+  padding: 12px;
+  border-radius: 8px;
+  color: #704300;
+  background: #fff5df;
+}
+
+.connector-studio {
+  width: 100%;
+  min-height: 240px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+}
+
+.connector-form {
+  display: grid;
+  gap: 12px;
+  max-width: 44rem;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--canvas);
+}
+
+.connector-form label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.connector-form input {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+}
+
+.connector-form .v2-primary {
+  justify-self: start;
+  padding: 8px 12px;
+}
+
+.connection-delete {
+  margin-top: 18px;
+  padding: 8px 10px;
+  color: var(--danger);
+}
+
+.connections-note,
+.connections-scopes,
+.connections-empty {
+  font-size: 12px;
+}
+
+@media (max-width: 850px) {
+  .connections-hero { display: grid; }
+  .connections-paths { grid-template-columns: 1fr; max-width: 100%; }
+  .connections-layout { grid-template-columns: 1fr; }
+  .connections-list { border-right: 0; border-bottom: 1px solid var(--line); }
+}

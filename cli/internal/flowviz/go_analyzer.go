@@ -43,6 +43,7 @@ type goAnalyzer struct {
 	externalTypes      map[string]string
 	externalSteps      map[string]bool
 	reportedExternal   map[string]bool
+	modules            map[string]goModule
 	steps              map[string]string
 	resources          map[types.Object]string
 	resourceVars       map[string]string
@@ -63,6 +64,12 @@ type goExternalResource struct {
 	kind     string
 	name     string
 	filename string
+}
+
+type goModule struct {
+	path     string
+	version  string
+	replaced bool
 }
 
 type goTransition struct {
@@ -91,7 +98,7 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVers
 		Dir:     filepath.Dir(sourcePath),
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo |
-			packages.NeedTypesSizes | packages.NeedDeps,
+			packages.NeedTypesSizes | packages.NeedDeps | packages.NeedModule,
 		Tests: false,
 	}
 	loaded, loadErr := packages.Load(config, "file="+sourcePath)
@@ -124,6 +131,8 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVers
 	for _, packageError := range selectedPackage.Errors {
 		graph.AddDiagnostic("error", "go_type_check_failed", packageError.Msg, nil)
 	}
+	modules := make(map[string]goModule)
+	indexGoModules(selectedPackage, modules, make(map[string]bool))
 	analyzer := newGoAnalyzer(
 		graph,
 		selectedFile,
@@ -131,6 +140,7 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVers
 		selectedPackage.Fset,
 		selectedPackage.TypesInfo,
 		selectedPackage.TypesSizes,
+		modules,
 		sourcePath,
 		schemaVersion,
 	)
@@ -145,6 +155,7 @@ func newGoAnalyzer(
 	fileSet *token.FileSet,
 	typeInfo *types.Info,
 	typeSizes types.Sizes,
+	modules map[string]goModule,
 	sourcePath string,
 	schemaVersion string,
 ) *goAnalyzer {
@@ -171,6 +182,7 @@ func newGoAnalyzer(
 		externalTypes:      make(map[string]string),
 		externalSteps:      make(map[string]bool),
 		reportedExternal:   make(map[string]bool),
+		modules:            modules,
 		steps:              make(map[string]string),
 		resources:          make(map[types.Object]string),
 		resourceVars:       make(map[string]string),
@@ -178,6 +190,21 @@ func newGoAnalyzer(
 		schemaVersion:      schemaVersion,
 		registeredSteps:    make([]string, 0),
 		typeSizes:          typeSizes,
+	}
+}
+
+func indexGoModules(currentPackage *packages.Package, modules map[string]goModule, visited map[string]bool) {
+	if currentPackage == nil || visited[currentPackage.PkgPath] {
+		return
+	}
+	visited[currentPackage.PkgPath] = true
+	if currentPackage.Module != nil {
+		modules[currentPackage.PkgPath] = goModule{
+			path: currentPackage.Module.Path, version: currentPackage.Module.Version, replaced: currentPackage.Module.Replace != nil,
+		}
+	}
+	for _, importedPackage := range currentPackage.Imports {
+		indexGoModules(importedPackage, modules, visited)
 	}
 }
 
@@ -421,7 +448,7 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 			analyzer.registeredSteps = append(analyzer.registeredSteps, definition.stepType)
 			analyzer.graph.AddNode(Node{
 				ID: nodeID, Kind: "step", Name: definition.stepType, Start: isStart, Span: analyzer.span(call),
-				Metadata: map[string]any{"connectorFactory": true, "connectorOperationKind": factoryKind},
+				Metadata: analyzer.connectorFactoryMetadata(factoryKind, definition.connector),
 			})
 			if isStart {
 				analyzer.startStepType = definition.stepType

@@ -43,6 +43,7 @@ var flagOrder = []string{
 	"blob-store-dir",
 	"dex-port",
 	"flow-rendering-dir",
+	"connector-config-dir",
 	"open",
 	"web-port",
 	"sqlite-db-filename",
@@ -81,6 +82,8 @@ type Config struct {
 	AttributeStoreConfigPath string
 	// FlowRenderingDirectory defaults empty and supplies Flow Definition Graph JSON files to Dex Web.
 	FlowRenderingDirectory string
+	// ConnectorConfigDirectory defaults to $HOME/.dex/connectors and stores local connector credentials.
+	ConnectorConfigDirectory string
 	// OpenBrowser defaults true and opens Dex Web after readiness.
 	OpenBrowser bool
 	// StartupTimeout defaults to 45 seconds.
@@ -120,6 +123,12 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		"flow-rendering-dir",
 		"",
 		"directory containing Flow Definition Graph JSON files",
+	)
+	flags.StringVar(
+		&cfg.ConnectorConfigDirectory,
+		"connector-config-dir",
+		cfg.ConnectorConfigDirectory,
+		"directory containing local Connector configuration",
 	)
 	flags.BoolVar(&cfg.OpenBrowser, "open", true, "open Dex Web after startup")
 	flags.IntVar(&cfg.WebPort, "web-port", cfg.WebPort, "Dex Web port")
@@ -187,6 +196,7 @@ func defaultConfig() (*Config, error) {
 		TemporalUIPort:            defaultTemporalUIPort,
 		StateDirectory:            stateDirectory,
 		BlobStoreDirectory:        filepath.Join(stateDirectory, "blobs"),
+		ConnectorConfigDirectory:  filepath.Join(stateDirectory, "connectors"),
 		OpenBrowser:               true,
 		StartupTimeout:            45 * time.Second,
 		ShutdownTimeout:           10 * time.Second,
@@ -219,6 +229,15 @@ func (c *Config) validate() error {
 		return fmt.Errorf("blob store directory is required")
 	}
 	c.FlowRenderingDirectory = strings.TrimSpace(c.FlowRenderingDirectory)
+	c.ConnectorConfigDirectory = strings.TrimSpace(c.ConnectorConfigDirectory)
+	if c.ConnectorConfigDirectory == "" {
+		return fmt.Errorf("connector config directory is required")
+	}
+	absoluteConnectorConfigDirectory, err := filepath.Abs(c.ConnectorConfigDirectory)
+	if err != nil {
+		return fmt.Errorf("resolve connector config directory: %w", err)
+	}
+	c.ConnectorConfigDirectory = absoluteConnectorConfigDirectory
 	for name, port := range map[string]int{
 		"dex-port":         c.DexPort,
 		"web-port":         c.WebPort,

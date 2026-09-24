@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
+import { Link } from 'react-router-dom';
 import type { FlowSummary } from '@/lib/types';
 import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { RUN_COPY } from './copy';
@@ -120,6 +121,13 @@ function StepContextBlock({ view }: { view: StepContextView }) {
       <div className="sc-blockhead">{RUN_COPY.thisStep}</div>
       <p className="scx-step t-mono">{view.stepType}</p>
       <p className="scx-purpose">{view.explanation ?? RUN_COPY.noPurpose}</p>
+      {view.connector && <div className="scx-connector">
+        <b>{view.connector.connectorId}</b>
+        <span>{view.connector.operationId} · {view.connector.operationKind}</span>
+        <span>Connection: {view.connector.connectionName || 'Unnamed'}</span>
+        <span>Version: {view.connector.moduleVersion || 'Unsupported'}</span>
+        <Link to="/v2/connections">Configure connection</Link>
+      </div>}
       <dl className="scx-facts">
         {view.facts.map((fact) => (
           <div className="scx-fact" key={fact.label}>

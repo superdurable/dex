@@ -3828,7 +3828,19 @@
       }
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "connector_configuration_unsupported",
+      "message": "Generic Connector factories cannot be configured automatically in Dex Web",
+      "span": {
+        "startLine": 209,
+        "startColumn": 18,
+        "endLine": 223,
+        "endColumn": 5
+      }
+    }
+  ],
   "groups": [
     {
       "id": "intake",
