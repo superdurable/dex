@@ -90,12 +90,14 @@ func (analyzer *goAnalyzer) analyzeVisualizationV2(flowType string) {
 	)
 	actions := analyzer.collectV2Actions(flowType, attributes, registeredRPCs)
 	start := analyzer.collectV2StartDefinition()
+	connectorTriggerBindings := analyzer.collectConnectorTriggerBindings(flowType)
 	analyzer.graph.V2 = &V2Definition{
-		IndexedAttributes: indexedAttributes,
-		Summary:           summary,
-		Display:           display,
-		Actions:           actions,
-		Start:             start,
+		IndexedAttributes:        indexedAttributes,
+		Summary:                  summary,
+		Display:                  display,
+		Actions:                  actions,
+		Start:                    start,
+		ConnectorTriggerBindings: connectorTriggerBindings,
 	}
 }
 

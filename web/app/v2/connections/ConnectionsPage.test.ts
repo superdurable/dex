@@ -44,7 +44,7 @@ describe('Connections contract', () => {
 
   it('advertises only host capabilities that are implemented', () => {
     expect(studioHostCapabilities({
-      manifest: { spec: { studio: { setup: { backendCapabilities: ['oauth.connection.manage', 'configuration.write'] } } } },
-    } as never)).toEqual(['oauth.connection.manage']);
+	  manifest: { spec: { studio: { setup: { backendCapabilities: ['oauth.connection.manage', 'configuration.write', 'slack.channels-list', 'slack.users-list', 'trigger.configuration.write'] } } } },
+	} as never)).toEqual(['oauth.connection.manage', 'slack.channels-list', 'slack.users-list', 'trigger.configuration.write']);
   });
 });

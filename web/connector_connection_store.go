@@ -35,8 +35,9 @@ type connectorConnectionStore struct {
 }
 
 type connectorConnectionsFile struct {
-	SchemaVersion string                     `json:"schemaVersion"`
-	Connections   []localConnectorConnection `json:"connections"`
+	SchemaVersion   string                         `json:"schemaVersion"`
+	Connections     []localConnectorConnection     `json:"connections"`
+	TriggerBindings []localConnectorTriggerBinding `json:"triggerBindings,omitempty"`
 }
 
 type localConnectorConnection struct {
@@ -48,6 +49,14 @@ type localConnectorConnection struct {
 	Configuration       map[string]json.RawMessage `json:"configuration"`
 	Credentials         map[string]json.RawMessage `json:"credentials"`
 	CredentialExpiresAt *time.Time                 `json:"credentialExpiresAt,omitempty"`
+}
+
+type localConnectorTriggerBinding struct {
+	ConnectorID    string                     `json:"connectorId"`
+	ConnectionName string                     `json:"connectionName"`
+	TriggerName    string                     `json:"triggerName"`
+	BindingName    string                     `json:"bindingName"`
+	Configuration  map[string]json.RawMessage `json:"configuration"`
 }
 
 func newConnectorConnectionStore(directory string) (*connectorConnectionStore, error) {
@@ -105,6 +114,60 @@ func (store *connectorConnectionStore) list() ([]localConnectorConnection, error
 	return file.Connections, nil
 }
 
+func (store *connectorConnectionStore) get(connectorID string, connectionName string) (localConnectorConnection, bool, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	file, err := store.load()
+	if err != nil {
+		return localConnectorConnection{}, false, err
+	}
+	for _, connection := range file.Connections {
+		if connection.ConnectorID == connectorID && connection.ConnectionName == connectionName {
+			return connection, true, nil
+		}
+	}
+	return localConnectorConnection{}, false, nil
+}
+
+func (store *connectorConnectionStore) listTriggerBindings(connectorID string, connectionName string) ([]localConnectorTriggerBinding, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	file, err := store.load()
+	if err != nil {
+		return nil, err
+	}
+	bindings := make([]localConnectorTriggerBinding, 0)
+	for _, binding := range file.TriggerBindings {
+		if binding.ConnectorID == connectorID && binding.ConnectionName == connectionName {
+			bindings = append(bindings, binding)
+		}
+	}
+	return bindings, nil
+}
+
+func (store *connectorConnectionStore) putTriggerBinding(binding localConnectorTriggerBinding) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	file, err := store.load()
+	if err != nil {
+		return err
+	}
+	found := false
+	for index := range file.TriggerBindings {
+		current := file.TriggerBindings[index]
+		if current.ConnectorID == binding.ConnectorID && current.ConnectionName == binding.ConnectionName &&
+			current.TriggerName == binding.TriggerName && current.BindingName == binding.BindingName {
+			file.TriggerBindings[index] = binding
+			found = true
+			break
+		}
+	}
+	if !found {
+		file.TriggerBindings = append(file.TriggerBindings, binding)
+	}
+	return store.write(file)
+}
+
 func (store *connectorConnectionStore) put(connection localConnectorConnection) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -147,6 +210,14 @@ func (store *connectorConnectionStore) delete(connectorID string, connectionName
 		return false, nil
 	}
 	file.Connections = filtered
+	filteredBindings := file.TriggerBindings[:0]
+	for _, binding := range file.TriggerBindings {
+		if binding.ConnectorID == connectorID && binding.ConnectionName == connectionName {
+			continue
+		}
+		filteredBindings = append(filteredBindings, binding)
+	}
+	file.TriggerBindings = filteredBindings
 	return true, store.write(file)
 }
 
@@ -186,6 +257,21 @@ func (store *connectorConnectionStore) load() (connectorConnectionsFile, error) 
 		}
 		seen[key] = true
 	}
+	seenBindings := make(map[string]bool, len(file.TriggerBindings))
+	for index, binding := range file.TriggerBindings {
+		if err := validateLocalConnectorTriggerBinding(binding); err != nil {
+			return connectorConnectionsFile{}, fmt.Errorf("validate Connector Trigger binding %d: %w", index, err)
+		}
+		connectionKey := binding.ConnectorID + "\x00" + binding.ConnectionName
+		if !seen[connectionKey] {
+			return connectorConnectionsFile{}, fmt.Errorf("Connector Trigger binding references an unknown connection")
+		}
+		key := connectionKey + "\x00" + binding.TriggerName + "\x00" + binding.BindingName
+		if seenBindings[key] {
+			return connectorConnectionsFile{}, fmt.Errorf("Connector Trigger binding %s/%s is duplicated", binding.TriggerName, binding.BindingName)
+		}
+		seenBindings[key] = true
+	}
 	return file, nil
 }
 
@@ -195,6 +281,11 @@ func (store *connectorConnectionStore) write(file connectorConnectionsFile) (ret
 			return file.Connections[left].ConnectionName < file.Connections[right].ConnectionName
 		}
 		return file.Connections[left].ConnectorID < file.Connections[right].ConnectorID
+	})
+	sort.Slice(file.TriggerBindings, func(left int, right int) bool {
+		leftKey := file.TriggerBindings[left].ConnectorID + "\x00" + file.TriggerBindings[left].ConnectionName + "\x00" + file.TriggerBindings[left].TriggerName + "\x00" + file.TriggerBindings[left].BindingName
+		rightKey := file.TriggerBindings[right].ConnectorID + "\x00" + file.TriggerBindings[right].ConnectionName + "\x00" + file.TriggerBindings[right].TriggerName + "\x00" + file.TriggerBindings[right].BindingName
+		return leftKey < rightKey
 	})
 	contents, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
@@ -257,6 +348,17 @@ func validateLocalConnectorConnection(connection localConnectorConnection) error
 	}
 	if connection.Configuration == nil || connection.Credentials == nil {
 		return fmt.Errorf("configuration and credentials are required")
+	}
+	return nil
+}
+
+func validateLocalConnectorTriggerBinding(binding localConnectorTriggerBinding) error {
+	if strings.TrimSpace(binding.ConnectorID) == "" || strings.TrimSpace(binding.ConnectionName) == "" ||
+		strings.TrimSpace(binding.TriggerName) == "" || strings.TrimSpace(binding.BindingName) == "" {
+		return fmt.Errorf("connectorId, connectionName, triggerName, and bindingName are required")
+	}
+	if binding.Configuration == nil {
+		return fmt.Errorf("configuration is required")
 	}
 	return nil
 }

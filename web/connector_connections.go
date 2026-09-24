@@ -36,6 +36,8 @@ type connectorSetup struct {
 	uiSessionsMu    sync.Mutex
 	oauthSessions   map[string]connectorOAuthSession
 	oauthSessionsMu sync.Mutex
+	slackAPIBaseURL string
+	slackHTTPClient *http.Client
 }
 
 type connectorUISession struct {
@@ -53,7 +55,20 @@ type connectorCatalogDefinition struct {
 	FlowName string `json:"flowName"`
 	Graph    struct {
 		Nodes []connectorCatalogNode `json:"nodes"`
+		V2    *struct {
+			ConnectorTriggerBindings []connectorCatalogTriggerBinding `json:"connectorTriggerBindings"`
+		} `json:"v2,omitempty"`
 	} `json:"graph"`
+}
+
+type connectorCatalogTriggerBinding struct {
+	ConnectorID          string `json:"connectorId"`
+	TriggerName          string `json:"triggerName"`
+	ConnectionName       string `json:"connectionName"`
+	BindingName          string `json:"bindingName"`
+	ModulePath           string `json:"modulePath"`
+	ModuleVersion        string `json:"moduleVersion"`
+	ConfigurationEnabled bool   `json:"configurationEnabled"`
 }
 
 type connectorCatalogNode struct {
@@ -77,15 +92,16 @@ type connectorDefinitionIdentity struct {
 }
 
 type connectorConnectionView struct {
-	ConnectorID         string                       `json:"connectorId"`
-	ConnectionName      string                       `json:"connectionName"`
-	ModulePath          string                       `json:"modulePath,omitempty"`
-	ModuleVersion       string                       `json:"moduleVersion,omitempty"`
-	Provider            string                       `json:"provider,omitempty"`
-	Status              string                       `json:"status"`
-	Configuration       map[string]json.RawMessage   `json:"configuration,omitempty"`
-	CredentialExpiresAt *time.Time                   `json:"credentialExpiresAt,omitempty"`
-	Uses                []connectorConnectionStepUse `json:"uses"`
+	ConnectorID         string                          `json:"connectorId"`
+	ConnectionName      string                          `json:"connectionName"`
+	ModulePath          string                          `json:"modulePath,omitempty"`
+	ModuleVersion       string                          `json:"moduleVersion,omitempty"`
+	Provider            string                          `json:"provider,omitempty"`
+	Status              string                          `json:"status"`
+	Configuration       map[string]json.RawMessage      `json:"configuration,omitempty"`
+	CredentialExpiresAt *time.Time                      `json:"credentialExpiresAt,omitempty"`
+	Uses                []connectorConnectionStepUse    `json:"uses"`
+	TriggerUses         []connectorConnectionTriggerUse `json:"triggerUses,omitempty"`
 }
 
 type connectorConnectionStepUse struct {
@@ -94,6 +110,12 @@ type connectorConnectionStepUse struct {
 	StepName      string `json:"stepName"`
 	OperationID   string `json:"operationId"`
 	OperationKind string `json:"operationKind"`
+}
+
+type connectorConnectionTriggerUse struct {
+	FlowName    string `json:"flowName"`
+	TriggerName string `json:"triggerName"`
+	BindingName string `json:"bindingName"`
 }
 
 type connectorConnectionListResponse struct {
@@ -121,11 +143,16 @@ type connectorUISessionRequest struct {
 }
 
 type connectorUISessionResponse struct {
-	ConnectorID    string                   `json:"connectorId"`
-	ConnectionName string                   `json:"connectionName"`
-	SessionNonce   string                   `json:"sessionNonce,omitempty"`
-	EntrypointURL  string                   `json:"entrypointUrl,omitempty"`
-	Manifest       connectorReleaseManifest `json:"manifest"`
+	ConnectorID     string                                           `json:"connectorId"`
+	ConnectionName  string                                           `json:"connectionName"`
+	SessionNonce    string                                           `json:"sessionNonce,omitempty"`
+	EntrypointURL   string                                           `json:"entrypointUrl,omitempty"`
+	Manifest        connectorReleaseManifest                         `json:"manifest"`
+	TriggerBindings map[string]map[string]map[string]json.RawMessage `json:"triggerBindings,omitempty"`
+}
+
+type connectorTriggerBindingWriteRequest struct {
+	Configuration map[string]json.RawMessage `json:"configuration"`
 }
 
 func newConnectorSetup(cfg *Config, flowDefinitions FlowDefinitionProvider) (*connectorSetup, error) {
@@ -155,6 +182,7 @@ func newConnectorSetup(cfg *Config, flowDefinitions FlowDefinitionProvider) (*co
 	return &connectorSetup{
 		store: store, flowDefinitions: flowDefinitions, releases: releases, csrfToken: csrfToken,
 		uiSessions: make(map[string]connectorUISession), oauthSessions: make(map[string]connectorOAuthSession),
+		slackAPIBaseURL: "https://slack.com/api", slackHTTPClient: &http.Client{Timeout: 20 * time.Second},
 	}, nil
 }
 
@@ -164,6 +192,9 @@ func (setup *connectorSetup) registerHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v2/connector-connections/{connectorId}/{connectionName}", setup.handleDeleteConnection)
 	mux.HandleFunc("POST /api/v2/connector-ui-sessions", setup.handleCreateUISession)
 	mux.HandleFunc("GET /api/v2/connector-ui-sessions/{sessionNonce}/{assetPath...}", setup.handleUIAsset)
+	mux.HandleFunc("PUT /api/v2/connector-trigger-bindings/{connectorId}/{connectionName}/{triggerName}/{bindingName}", setup.handlePutTriggerBinding)
+	mux.HandleFunc("GET /api/v2/connector-connections/{connectorId}/{connectionName}/slack/channels", setup.handleListSlackChannels)
+	mux.HandleFunc("GET /api/v2/connector-connections/{connectorId}/{connectionName}/slack/users", setup.handleListSlackUsers)
 	mux.HandleFunc("POST /api/v2/connector-connections/{connectorId}/{connectionName}/oauth/start", setup.handleOAuthStart)
 	mux.HandleFunc("GET /api/v2/connector-oauth/callback", setup.handleOAuthCallback)
 }
@@ -268,6 +299,20 @@ func (setup *connectorSetup) handleCreateUISession(response http.ResponseWriter,
 	result := connectorUISessionResponse{
 		ConnectorID: body.ConnectorID, ConnectionName: body.ConnectionName, Manifest: resolved.release.Manifest,
 	}
+	bindings, err := setup.store.listTriggerBindings(body.ConnectorID, body.ConnectionName)
+	if err != nil {
+		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_TRIGGER_BINDINGS_UNAVAILABLE", "Connector Trigger bindings are unavailable")
+		return
+	}
+	if len(bindings) > 0 {
+		result.TriggerBindings = make(map[string]map[string]map[string]json.RawMessage)
+		for _, binding := range bindings {
+			if result.TriggerBindings[binding.TriggerName] == nil {
+				result.TriggerBindings[binding.TriggerName] = make(map[string]map[string]json.RawMessage)
+			}
+			result.TriggerBindings[binding.TriggerName][binding.BindingName] = binding.Configuration
+		}
+	}
 	if resolved.uiRoot != "" && resolved.release.UI != nil {
 		nonce, err := randomConnectorToken(24)
 		if err != nil {
@@ -284,6 +329,48 @@ func (setup *connectorSetup) handleCreateUISession(response http.ResponseWriter,
 		result.EntrypointURL = "/api/v2/connector-ui-sessions/" + nonce + "/" + resolved.release.UI.Entrypoint
 	}
 	writeWebJSON(response, http.StatusOK, result)
+}
+
+func (setup *connectorSetup) handlePutTriggerBinding(response http.ResponseWriter, request *http.Request) {
+	snapshot, identity, ok := setup.authorizeConnectionWrite(response, request)
+	if !ok {
+		return
+	}
+	triggerName := request.PathValue("triggerName")
+	bindingName := request.PathValue("bindingName")
+	binding, found, conflict, err := connectorTriggerDefinitionForKey(
+		snapshot.Response, identity.ConnectorID, identity.ConnectionName, triggerName, bindingName,
+	)
+	if err != nil || !found || !binding.ConfigurationEnabled {
+		api.WriteCodedError(response, http.StatusNotFound, "CONNECTOR_TRIGGER_BINDING_UNSUPPORTED", "Connector Trigger binding is not configurable")
+		return
+	}
+	if conflict || binding.ModulePath != identity.ModulePath || binding.ModuleVersion != identity.ModuleVersion {
+		api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_VERSION_CONFLICT", "Connector Trigger binding conflicts with the current Flow Definition")
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 1<<20)
+	var body connectorTriggerBindingWriteRequest
+	if err := decodeStrictConnectorJSONReader(request.Body, &body); err != nil || body.Configuration == nil {
+		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector Trigger binding request is invalid")
+		return
+	}
+	if err := validateConnectorTriggerBindingConfiguration(identity.ConnectorID, triggerName, body.Configuration); err != nil {
+		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_TRIGGER_CONFIGURATION_INVALID", err.Error())
+		return
+	}
+	localBinding := localConnectorTriggerBinding{
+		ConnectorID: identity.ConnectorID, ConnectionName: identity.ConnectionName,
+		TriggerName: triggerName, BindingName: bindingName, Configuration: body.Configuration,
+	}
+	if err := setup.store.putTriggerBinding(localBinding); err != nil {
+		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_TRIGGER_BINDING_WRITE_FAILED", "Connector Trigger binding could not be saved")
+		return
+	}
+	writeWebJSON(response, http.StatusOK, map[string]any{
+		"connectorId": identity.ConnectorID, "connectionName": identity.ConnectionName,
+		"triggerName": triggerName, "bindingName": bindingName,
+	})
 }
 
 func (setup *connectorSetup) handleUIAsset(response http.ResponseWriter, request *http.Request) {
@@ -424,6 +511,29 @@ func connectorViewsFromCatalog(
 				OperationID: identity.OperationID, OperationKind: identity.OperationKind,
 			})
 		}
+		if definition.Graph.V2 == nil {
+			continue
+		}
+		for _, binding := range definition.Graph.V2.ConnectorTriggerBindings {
+			key := binding.ConnectorID + "\x00" + binding.ConnectionName
+			current := aggregates[key]
+			if current == nil {
+				current = &aggregate{
+					view: connectorConnectionView{
+						ConnectorID: binding.ConnectorID, ConnectionName: binding.ConnectionName,
+						ModulePath: binding.ModulePath, ModuleVersion: binding.ModuleVersion,
+					},
+					versions: make(map[string]bool), modules: make(map[string]bool), enabled: true,
+				}
+				aggregates[key] = current
+			}
+			current.enabled = current.enabled && binding.ConfigurationEnabled
+			current.versions[binding.ModuleVersion] = true
+			current.modules[binding.ModulePath] = true
+			current.view.TriggerUses = append(current.view.TriggerUses, connectorConnectionTriggerUse{
+				FlowName: definition.FlowName, TriggerName: binding.TriggerName, BindingName: binding.BindingName,
+			})
+		}
 	}
 	views := make([]connectorConnectionView, 0, len(aggregates))
 	for key, current := range aggregates {
@@ -450,6 +560,12 @@ func connectorViewsFromCatalog(
 			}
 			return current.view.Uses[left].FlowName < current.view.Uses[right].FlowName
 		})
+		sort.Slice(current.view.TriggerUses, func(left int, right int) bool {
+			if current.view.TriggerUses[left].FlowName != current.view.TriggerUses[right].FlowName {
+				return current.view.TriggerUses[left].FlowName < current.view.TriggerUses[right].FlowName
+			}
+			return current.view.TriggerUses[left].BindingName < current.view.TriggerUses[right].BindingName
+		})
 		views = append(views, current.view)
 	}
 	sort.Slice(views, func(left int, right int) bool {
@@ -459,6 +575,39 @@ func connectorViewsFromCatalog(
 		return views[left].ConnectorID < views[right].ConnectorID
 	})
 	return views, nil
+}
+
+func connectorTriggerDefinitionForKey(
+	catalogJSON []byte,
+	connectorID string,
+	connectionName string,
+	triggerName string,
+	bindingName string,
+) (connectorCatalogTriggerBinding, bool, bool, error) {
+	var catalog connectorCatalogDocument
+	if err := json.Unmarshal(catalogJSON, &catalog); err != nil {
+		return connectorCatalogTriggerBinding{}, false, false, fmt.Errorf("decode Flow Definition catalog for Connector Trigger bindings: %w", err)
+	}
+	var matched connectorCatalogTriggerBinding
+	found := false
+	conflict := false
+	for _, definition := range catalog.Definitions {
+		if definition.Graph.V2 == nil {
+			continue
+		}
+		for _, binding := range definition.Graph.V2.ConnectorTriggerBindings {
+			if binding.ConnectorID != connectorID || binding.ConnectionName != connectionName ||
+				binding.TriggerName != triggerName || binding.BindingName != bindingName {
+				continue
+			}
+			if found && (matched.ModulePath != binding.ModulePath || matched.ModuleVersion != binding.ModuleVersion) {
+				conflict = true
+			}
+			matched = binding
+			found = true
+		}
+	}
+	return matched, found, conflict, nil
 }
 
 func connectorDefinitionForKey(catalogJSON []byte, connectorID string, connectionName string) (connectorDefinitionIdentity, bool, bool, error) {

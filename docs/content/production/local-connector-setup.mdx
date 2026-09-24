@@ -53,20 +53,53 @@ Restarting Dex Web reloads existing connections and cached UI artifacts. It
 does not clear the JSON file. An OAuth flow or Connector UI session that was in
 progress is memory-only and must be started again after a restart.
 
-## Configure Gmail or GitHub
+## Configure an account
 
 Select the named connection. Dex Web verifies the official release metadata
 and checksum. It loads a compatible Studio UI in an opaque-origin sandbox when
 one exists. Otherwise it renders a generic form from the manifest.
 
-OAuth uses state, PKCE, and a ten-minute single-use session. The OAuth client
-ID and client secret remain in memory and are not written to disk. Dex stores
-the short-lived access token after checking the granted scopes. It does not
-store refresh tokens or refresh access automatically. Reauthorize when the
+OAuth always uses state and a ten-minute single-use session. Connectors use
+PKCE when their provider supports that authorization flow. The OAuth client ID
+and client secret remain in memory and are not written to disk. Dex stores the
+short-lived access token after checking the granted scopes. It does not store
+refresh tokens or refresh access automatically. Reauthorize when the
 connection becomes **Expired**.
 
 Deleting local credentials removes only the local record. It does not revoke
 the provider grant.
+
+## Configure Slack Trigger bindings
+
+The Slack connection and each Trigger binding are configured separately. One
+**slack-workspace** connection can therefore be reused by multiple Flows while
+each Flow keeps its own channel, requester, approval phrase, and approver list.
+
+Slack OAuth stores both the bot token and the user token. The app-level token
+cannot be issued by OAuth. Create an **xapp-** token with the
+**connections:write** scope and enter it in the secret field. Tokens stay in
+the Dex Web host and are never sent to the sandboxed Studio UI.
+
+The Slack Studio shows:
+
+- one channel, including its public or private state and stable **C…** ID;
+- optional members allowed to start the Flow, or **any real member**;
+- one or more members allowed to approve; and
+- optional case-insensitive message substring filters.
+
+The picker saves stable Slack IDs even though it displays names and avatars.
+Every raw ID remains visible and copyable. If the Slack API is unavailable,
+enter IDs manually. In Slack, open channel details and choose **Copy channel
+ID**. For a person, open the profile's menu and choose **Copy member ID**. The
+bot must already be a member of a private channel before that channel appears.
+
+The default approval substring in the Slack thread approval example is
+**approve**. Substring matching also accepts text such as **disapprove**. Use a
+more distinctive phrase when exact approval wording matters.
+
+Trigger bindings do not store an RPC name. The application maps Slack thread
+identity to a Flow ID and registers the typed RPC definition used by the
+Trigger runner.
 
 ## Start the Go application
 
@@ -85,3 +118,8 @@ The JSON file stores plaintext secrets for local development. Do not commit,
 upload, or use it as a production secret broker. Connector secrets become
 **SecretString** values at the application boundary and must not enter Flow
 state or logs.
+
+The same file stores **triggerBindings** outside each workspace connection.
+Each binding is uniquely identified by Connector ID, connection name, Trigger
+name, and binding name. Changing one Flow's binding does not change another
+Flow that shares the account.

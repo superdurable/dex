@@ -38,11 +38,22 @@ type StepGroup struct {
 }
 
 type V2Definition struct {
-	IndexedAttributes []IndexedAttribute `json:"indexedAttributes"`
-	Summary           RPCView            `json:"summary"`
-	Display           RPCView            `json:"display"`
-	Actions           []Action           `json:"actions"`
-	Start             *StartDefinition   `json:"start,omitempty"`
+	IndexedAttributes        []IndexedAttribute        `json:"indexedAttributes"`
+	Summary                  RPCView                   `json:"summary"`
+	Display                  RPCView                   `json:"display"`
+	Actions                  []Action                  `json:"actions"`
+	Start                    *StartDefinition          `json:"start,omitempty"`
+	ConnectorTriggerBindings []ConnectorTriggerBinding `json:"connectorTriggerBindings,omitempty"`
+}
+
+type ConnectorTriggerBinding struct {
+	ConnectorID          string `json:"connectorId"`
+	TriggerName          string `json:"triggerName"`
+	ConnectionName       string `json:"connectionName"`
+	BindingName          string `json:"bindingName"`
+	ModulePath           string `json:"modulePath"`
+	ModuleVersion        string `json:"moduleVersion"`
+	ConfigurationEnabled bool   `json:"configurationEnabled"`
 }
 
 type StartDefinition struct {
