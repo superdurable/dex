@@ -54,6 +54,21 @@ func TestSyncReturnsImmediatelyForExistingIndexes(t *testing.T) {
 	require.Equal(t, 0, client.addCallCount())
 }
 
+func TestSyncSkipsBackendAccessForExternallyManagedIndexes(t *testing.T) {
+	client := &scriptedClient{}
+	cfg := testConfig(time.Second)
+	cfg.AttributeIndexesManagedExternally = true
+	synchronizer := New(cfg, client, log.NewNoop())
+
+	err := synchronizer.Sync(context.Background(), map[string]dexpb.IndexType{
+		"Status": dexpb.IndexType_INDEX_TYPE_KEYWORD,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 0, client.listCallCount())
+	require.Equal(t, 0, client.addCallCount())
+}
+
 func TestSyncWaitsForNewIndexesToBecomeVisible(t *testing.T) {
 	client := &scriptedClient{listResults: []listResult{
 		{indexes: map[string]dexpb.IndexType{}},

@@ -126,6 +126,11 @@ APIs. Configure `interpreter.temporal.cloudOps` so Dex can synchronize indexes
 through the Temporal Cloud Operations API. The API key must have permission to
 read and update the configured namespace.
 
+Set `interpreter.attributeIndexesManagedExternally: true` only when another
+system provisions every Dex and application index. Dex validates declarations
+locally but does not discover, create, or verify backend indexes. This mode does
+not require `cloudOps` or Temporal Cloud Operations API permissions.
+
 ### External Cadence service
 
 1. You can run a local Cadence server following the [instructions](https://github.com/uber/cadence/tree/master/docker)

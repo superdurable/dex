@@ -75,6 +75,9 @@ func (s *Synchronizer) Sync(ctx context.Context, requested map[string]dexpb.Inde
 	if len(requested) == 0 {
 		return nil
 	}
+	if s.cfg.AttributeIndexesManagedExternally {
+		return nil
+	}
 	syncCtx, cancel := context.WithTimeout(ctx, s.cfg.EffectiveAttributeIndexSyncTimeout())
 	defer cancel()
 	select {
@@ -92,7 +95,6 @@ func (s *Synchronizer) Sync(ctx context.Context, requested map[string]dexpb.Inde
 	if err != nil || len(missing) == 0 {
 		return err
 	}
-
 	if addErr := s.addAttributeIndexes(syncCtx, missing); addErr != nil {
 		existing, listErr := s.client.ListAttributeIndexes(syncCtx)
 		if listErr == nil {

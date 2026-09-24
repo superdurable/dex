@@ -50,6 +50,8 @@ worker:
 interpreter:
   # Bounds backend index creation and propagation checks. Existing indexes return immediately.
   attributeIndexSyncTimeout: 2m
+  # Trusts externally provisioned indexes and skips backend discovery and creation.
+  attributeIndexesManagedExternally: false
   interpreterActivityConfig:
     # Minimum explicit Step heartbeat timeout. Zero uses 10s.
     minimumStepHeartbeatTimeout: 10s
