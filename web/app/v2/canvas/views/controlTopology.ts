@@ -197,8 +197,14 @@ function recoverySteps(flow: PocFlow): Set<string> {
  * reached by failing — the other two are guarded branch targets that happen to be terminal. Judged as
  * a group instead, Failure is one vertical strip, which is what the declaration already claimed.
  *
- * Majority, not presence: one compensating Step must not drag its whole phase aside. Measured over the
- * corpus, Failure is the only group that reaches the threshold, so no other drawing moves.
+ * PRESENCE, NOT MAJORITY, and the majority test is why this was fragile.
+ *
+ * A majority reads as caution and was inert: across the corpus only two groups have any handling
+ * member at all, both named Failure, so the threshold never decided a drawing. Where it does decide is
+ * at the boundary, and there it decides wrong -- demote one ExecuteFailure edge in the agentic refund
+ * flow and its Failure group drops to 2 of 5, falls below the threshold, stays on the spine and the
+ * drawing goes from 7 regions to 13. Presence keeps it at 7. One compensating Step dragging its phase
+ * aside is the risk this guarded, and no corpus flow exercises it.
  */
 function cohesionMoves(flow: PocFlow, groups: StepGroup[], aside: Set<string>): Set<string> {
   const targetCount = (id: string): number =>
@@ -214,7 +220,7 @@ function cohesionMoves(flow: PocFlow, groups: StepGroup[], aside: Set<string>): 
     const handling = members.filter(
       (step) => step.recoveryRole !== 'none' || aside.has(step.id),
     )
-    if (handling.length * 2 <= members.length) continue
+    if (handling.length === 0) continue
     for (const step of members) {
       // A branch point belongs where the spine reads it, however its group is classified.
       if (aside.has(step.id) || step.isStart || targetCount(step.id) > 1) continue
@@ -443,7 +449,7 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
    * Top-down every card is STEP_W wide, so extent-plus-gap reduces to exactly the old behaviour there.
    */
   const GAP_ACROSS = 34
-  const extentAcross = (id: string): number => (lr ? (heights.get(id) ?? 52) : STEP_W)
+  const extentAcross = (id: string): number => (lr ? (heights.get(id) ?? 62) : STEP_W)
 
   /**
    * WHICH AXIS CARRIES THE LABEL STRIP. `.pband-label` is `position:absolute; top:6px`, so a band's
@@ -498,7 +504,19 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
     for (const row of order) {
       const want = row.map((id) => {
         const near = (useParents ? adj.down.get(id) : adj.up.get(id)) ?? []
-        const xs = near.map((n) => across.get(n)).filter((v): v is number => v !== undefined)
+        /**
+         * GROUPING FIRST: align to neighbours in your OWN group when you have any.
+         *
+         * The median over ALL neighbours is what splits a group. `GrantCustomerCredits` has two
+         * children, `CreditGrantSucceededStep` in its own group and `ReconcileCreditGrant` in
+         * Recovery, so centring it between them put its groupmate one column to the left and its band
+         * into two regions. Restricting the median to same-group neighbours makes a chain inside a
+         * group share a column, and a Step with no groupmate among its neighbours is unaffected.
+         */
+        const gi = groupOf.get(id)
+        const kin = gi === undefined ? [] : near.filter((n) => groupOf.get(n) === gi)
+        const use = kin.length > 0 ? kin : near
+        const xs = use.map((n) => across.get(n)).filter((v): v is number => v !== undefined)
         return median(xs) ?? (across.get(id) as number)
       })
       // Left-to-right: honour the desired position, but never break the row's order or overlap.
@@ -591,7 +609,7 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
   let widestRow = 1
   rows.forEach((row, i) => {
     widestRow = Math.max(widestRow, row.length)
-    const thickness = lr ? STEP_W : Math.max(...row.map((id) => heights.get(id) ?? 52))
+    const thickness = lr ? STEP_W : Math.max(...row.map((id) => heights.get(id) ?? 62))
     for (const id of row) {
       const step = flow.steps.find((s) => s.id === id)
       if (step === undefined) continue
@@ -637,19 +655,47 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
     const p = posOfStep.get(id)
     return p === undefined ? undefined : lr ? p.x : p.y
   }
+  /** The along-axis thickness of a card: its height top-down, its width left-right. */
+  const extentAlong = (id: string): number => (lr ? STEP_W : (heights.get(id) ?? 62))
+  /**
+   * The mean of the feeders' CENTRES, not of their leading edges.
+   *
+   * The caller centres the gutter card on this value by subtracting half of its OWN extent, so a
+   * leading-edge mean put every gutter card half a card above the Step that feeds it -- a uniform 26px
+   * top-down. Adding the feeder's own half-extent makes the two comparable, so equal-height cards come
+   * out exactly level with what fails into them.
+   */
   const feedersMid = (stepId: string): number | undefined => {
     const froms = flow.transitions
       .filter((t) => t.toStepId === stepId && t.fromStepId !== stepId)
-      .map((t) => alongOfPos(t.fromStepId))
+      .map((t) => {
+        const at = alongOfPos(t.fromStepId)
+        return at === undefined ? undefined : at + extentAlong(t.fromStepId) / 2
+      })
       .filter((v): v is number => v !== undefined)
     if (froms.length === 0) return undefined
     return froms.reduce((a, b) => a + b, 0) / froms.length
   }
 
-  const asideIds = flow.steps.filter((s) => aside.has(s.id)).map((s) => s.id)
+  /**
+   * IN THE ORDER THEY ARE FED, because the placement below can only push DOWNWARD.
+   *
+   * `flow.steps` is sorted by stepType, so the gutter was filled alphabetically: whoever came first in
+   * the alphabet took its ideal spot and everyone else cascaded down past it, however far above they
+   * belonged. A failure Step fed by the FIRST Step of a Flow landed at the BOTTOM of the column, so its
+   * edge ran the whole height of the drawing and crossed every other failure edge on the way.
+   *
+   * Sorting by desired position first is what makes a one-directional greedy pack correct: each Step is
+   * placed at or below where it wants to be, and never below something that wanted to be lower. Flows
+   * whose gutter targets are far apart never collided and so never showed the defect.
+   */
+  const asideIds = flow.steps
+    .filter((s) => aside.has(s.id))
+    .map((s) => s.id)
+    .sort((a, b) => (feedersMid(a) ?? contentStart) - (feedersMid(b) ?? contentStart))
   const asidePlaced: { id: string; at: number; extent: number }[] = []
   for (const id of asideIds) {
-    const extent = lr ? STEP_W : (heights.get(id) ?? 52)
+    const extent = lr ? STEP_W : (heights.get(id) ?? 62)
     const want = feedersMid(id) ?? contentStart
     let at = Math.max(contentStart, want - extent / 2)
     // Never overlap a neighbour already in the gutter.
@@ -686,7 +732,7 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
   const centreAt = (id: string): number | undefined => {
     const p = posOfStep.get(id)
     if (p === undefined) return undefined
-    return lr ? p.x + STEP_W / 2 : p.y + (heights.get(id) ?? 52) / 2
+    return lr ? p.x + STEP_W / 2 : p.y + (heights.get(id) ?? 62) / 2
   }
   boxes.push(
     ...externalRpcBoxes(flow, lr ? base - RPC_GUTTER : ORIGIN_X, centreAt, lr),
@@ -744,7 +790,7 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
     for (const id of members) {
       const p = posOfStep.get(id) as { x: number; y: number }
       const key = lr ? p.x : p.y
-      rows.set(key, [...(rows.get(key) ?? []), { x: p.x, y: p.y, h: heights.get(id) ?? 52 }])
+      rows.set(key, [...(rows.get(key) ?? []), { x: p.x, y: p.y, h: heights.get(id) ?? 62 }])
     }
     let rects = [...rows.entries()]
       .sort((a, b) => a[0] - b[0])
@@ -824,7 +870,17 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
   // Buckets on the ALONG axis, which is y top-down and x left-right. Reading `b.y` unconditionally
   // measured the wrong axis in `lr` and mis-routed three of the agent flow's edges aside.
   const alongOf = (b: Box): number => (lr ? b.x : b.y)
-  const stepBoxes = boxes.filter((b) => b.kind === 'step')
+  /**
+   * ROWS ARE A PROPERTY OF THE SPINE, not of every card on screen.
+   *
+   * Bucketing all Step boxes counted the gutter as rows. A gutter card sits in its own lane on the
+   * across axis, so it is never BETWEEN two spine cards and an edge passing its rank tunnels under
+   * nothing -- but its distinct along-coordinate still pushed the two spine rows it falls between from
+   * adjacent to two apart, so every consecutive pair in the spine tripped the guardrail and left
+   * sideways. Two cards one directly above the other in one group drew as a right-face-to-left-face
+   * detour around both.
+   */
+  const stepBoxes = boxes.filter((b) => b.kind === 'step' && !aside.has(b.id))
   const rowsOrder = [...new Set(stepBoxes.map(alongOf))].sort((a, b) => a - b)
   const rowOf = new Map(stepBoxes.map((b) => [b.id, rowsOrder.indexOf(alongOf(b))]))
   /**
@@ -839,6 +895,9 @@ function layout(flow: PocFlow, opts: ViewOpts): Scene {
    */
   const routed = links.map((l) => {
     if (l.family !== 'control' || l.from === l.to) return l
+    // An endpoint in the gutter is outside the spine's row space, and a failure path travels the
+    // gutter sideways by design, so it is routed aside on that ground rather than on row distance.
+    if (aside.has(l.from) || aside.has(l.to)) return { ...l, route: 'side' as const }
     const a = rowOf.get(l.from)
     const b = rowOf.get(l.to)
     if (a === undefined || b === undefined) return l

@@ -28,7 +28,23 @@ describe('control topology group bands', () => {
     );
   });
 
-  it('labels a Failure region on the spine and in the recovery gutter', () => {
+  /*
+   * The boundary case for lane-by-group, and it used to assert the opposite.
+   *
+   * `BillingFailedStep` is reached by an ORDINARY transition and resumes the flow, so its
+   * `recoveryRole` is `none` and reachability puts it on the spine; only `SubscriptionFailedStep` is
+   * reached by failing. One handling member of two is exactly the ratio the old MAJORITY test rejected
+   * (`1 * 2 <= 2`), so the group was left split and this test asserted the split -- a Failure region on
+   * the spine and a second one in the gutter.
+   *
+   * Presence rather than majority is what changed: a group holding any Step you reach by failing shares
+   * the recovery lane, so both members go aside and the group is ONE region. Splitting a declared group
+   * across two lanes is the defect `group-cohesion` measures, so the assertion inverts.
+   *
+   * Labelling of genuinely disjoint regions is still covered by `labels every disjoint region of a split
+   * group` above, whose members cannot be pulled together.
+   */
+  it('keeps a Failure group in one region when only some members are reached by failing', () => {
     const flow = safeDecode(splitFailureGraph, { generated: true, note: 'test' });
     const scene = controlTopologyView.layout(flow, viewOpts([
       { id: 'resolution', label: 'Resolution', reason: 'Resolution', stepTypes: ['ApplyStep'] },
@@ -37,7 +53,7 @@ describe('control topology group bands', () => {
     ]));
     const failure = scene.bands.filter((band) => band.label === 'Failure');
 
-    expect(failure.length).toBeGreaterThan(1);
+    expect(failure).toHaveLength(1);
     expect(scene.bands.filter((band) => band.style === 'group' && !band.label)).toEqual([]);
   });
 

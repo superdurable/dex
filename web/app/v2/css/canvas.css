@@ -176,7 +176,7 @@
 }
 .phead h1 {
   margin: 0;
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -193,7 +193,7 @@
   background: var(--p-surface-2);
   color: var(--p-ink-1);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 14px;
   cursor: pointer;
 }
 .pfocus:hover {
@@ -207,7 +207,7 @@
   border-radius: 3px;
   color: var(--p-ink-3);
   font-family: var(--p-mono);
-  font-size: 9.5px;
+  font-size: 11.5px;
 }
 
 .ptag {
@@ -216,7 +216,7 @@
   border: 1px dotted var(--p-ink-3);
   border-radius: 4px;
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -225,7 +225,7 @@
 .phead-sub {
   margin: 5px 0 0;
   color: var(--p-ink-2);
-  font-size: 11.5px;
+  font-size: 14px;
 }
 
 /* ---------- controls ---------- */
@@ -250,7 +250,7 @@
 }
 .pctl-label {
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
 }
@@ -271,7 +271,7 @@
   background: var(--p-surface-2);
   color: var(--p-ink-1);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 14px;
   cursor: pointer;
   transition: border-color 120ms ease, color 120ms ease;
 }
@@ -347,7 +347,7 @@
   border-radius: 3px;
   color: var(--p-ink-1);
   font-family: var(--p-mono);
-  font-size: 9.5px;
+  font-size: 11.5px;
 }
 
 /* ---------- detail panel ----------
@@ -373,7 +373,7 @@
 }
 .ppan-head h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 600;
 }
 /* The durable identifier, always reachable even when a display label covers it. */
@@ -381,7 +381,7 @@
   margin: 2px 0 0;
   color: var(--p-ink-3);
   font-family: var(--p-mono);
-  font-size: 10.5px;
+  font-size: 12.5px;
 }
 .ppan-close {
   flex: 0 0 auto;
@@ -390,7 +390,7 @@
   background: var(--p-surface-2);
   color: var(--p-ink-2);
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   padding: 2px 7px;
   cursor: pointer;
 }
@@ -449,7 +449,7 @@
   background: transparent;
   color: var(--p-ink-2);
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -464,7 +464,7 @@
 .ppan-def-body h3 {
   margin: 10px 0 4px;
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -475,19 +475,19 @@
 .ppan-def-line {
   margin: 0;
   color: var(--p-ink-1);
-  font-size: 12px;
+  font-size: 14.5px;
   line-height: 1.45;
 }
 .ppan-def-list {
   margin: 4px 0 0;
   padding-left: 1.1rem;
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 13px;
 }
 .ppan-def-explanation {
   margin: 0;
   color: var(--p-ink-1);
-  font-size: 12px;
+  font-size: 14.5px;
   line-height: 1.45;
 }
 .ppan-branches-toggle {
@@ -501,7 +501,7 @@
   background: var(--p-surface-2);
   color: var(--p-ink-2);
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
 }
 .ppan-branches-toggle:hover {
@@ -524,7 +524,7 @@
 .ppan-exec-head > h3 {
   margin: 0;
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -535,7 +535,7 @@
   gap: 6px;
   min-width: 0;
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 13px;
 }
 .ppan-exec-pick select {
   max-width: min(100%, 18rem);
@@ -546,7 +546,7 @@
   background: var(--p-surface-2);
   color: var(--p-ink-0);
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
 }
 .ppan-exec-one {
   margin: 0;
@@ -554,7 +554,7 @@
   overflow: hidden;
   color: var(--p-ink-3);
   font-family: var(--p-mono);
-  font-size: 10.5px;
+  font-size: 12.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -572,7 +572,7 @@
   background: var(--p-surface-2);
   color: var(--p-ink-2);
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
 }
 .ppan-tab:hover {
@@ -604,7 +604,7 @@
 .ppan-phase-head h4 {
   margin: 0;
   color: var(--p-ink-1);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -615,7 +615,7 @@
 .ppan-body h3 {
   margin: 16px 0 6px;
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -629,7 +629,7 @@
   gap: 8px;
   padding: 3px 0;
   border-bottom: 1px solid var(--p-line-soft);
-  font-size: 11.5px;
+  font-size: 14px;
 }
 .ppan-row dt {
   color: var(--p-ink-3);
@@ -654,7 +654,7 @@
 /* Never truncated: full guards, full error messages. Wrapped, not clipped. */
 .ppan-pre {
   font-family: var(--p-mono);
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -665,7 +665,7 @@
 .ppan-note {
   margin: 8px 0 0;
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
 }
 .ppan-note strong {
@@ -674,13 +674,13 @@
 .ppan-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 13px;
 }
 .ppan-table th {
   padding: 3px 6px 3px 0;
   border-bottom: 1px solid var(--p-line);
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-align: left;
@@ -741,7 +741,7 @@
   background: var(--p-surface-2);
   color: var(--p-ink-2);
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
 }
 .ppan-view-tabs button.active,
@@ -796,14 +796,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 15px;
-  height: 15px;
+  min-width: 18px;
+  height: 18px;
   padding: 0 2px;
   border: 1px solid var(--p-line);
   border-radius: 3px;
   background: var(--p-surface-2);
   color: var(--p-ink-2);
-  font-size: 9.5px;
+  font-size: 11.5px;
   line-height: 1;
 }
 /* The wait cell reads slightly softer than execute, so the pair has a reading order. */
@@ -834,7 +834,7 @@
   margin-left: 2px;
   color: var(--p-ink-2);
   font-family: var(--p-mono);
-  font-size: 9.5px;
+  font-size: 11.5px;
   white-space: nowrap;
 }
 
@@ -847,7 +847,7 @@
   padding-top: 3px;
   border-top: 1px solid var(--p-line-soft);
   color: var(--p-ink-2);
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -871,7 +871,7 @@
 .plegend h3 {
   margin: 0 0 6px;
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -886,7 +886,7 @@
   align-items: center;
   gap: 7px;
   padding: 1.5px 0;
-  font-size: 11px;
+  font-size: 13px;
 }
 .plegend-text {
   color: var(--p-ink-1);
@@ -895,7 +895,7 @@
   margin-left: auto;
   color: var(--p-ink-3);
   font-family: var(--p-mono);
-  font-size: 10px;
+  font-size: 12px;
 }
 .plegend-swatch {
   flex: 0 0 auto;
@@ -1023,7 +1023,7 @@
   background: none;
   color: var(--p-ink-0);
   font: inherit;
-  font-size: 12px;
+  font-size: 14.5px;
   cursor: pointer;
   text-align: left;
 }
@@ -1037,14 +1037,14 @@
   border-radius: 4px;
   color: var(--p-ink-1);
   font-family: var(--p-mono);
-  font-size: 10px;
+  font-size: 12px;
   text-align: center;
 }
 .ptile-count {
   flex: 0 0 auto;
   color: var(--p-ink-3);
   font-family: var(--p-mono);
-  font-size: 10px;
+  font-size: 12px;
 }
 /* `flex: 0 0 auto` because the tile is a flex column: without it the stage shrinks to its
    content and every thumbnail collapses to a sliver. */
@@ -1058,7 +1058,7 @@
   padding: 7px 10px;
   border-top: 1px solid var(--p-line-soft);
   color: var(--p-ink-3);
-  font-size: 10.5px;
+  font-size: 12.5px;
 }
 .ptile-error {
   color: var(--p-edge-failure);
@@ -1305,8 +1305,8 @@
   gap: 5px;
 }
 .pbox-connector-icon {
-  width: 13px;
-  height: 13px;
+  width: 15.5px;
+  height: 15.5px;
   flex: 0 0 auto;
   fill: none;
   stroke: currentColor;
@@ -1317,7 +1317,7 @@
 .pbox-title {
   min-width: 0;
   overflow: hidden;
-  font-size: 12.5px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.005em;
   text-overflow: ellipsis;
@@ -1331,7 +1331,7 @@
   /* The same pair as `.badge-awaiting`: ink ON an amber fill, so it uses the one token that
    * inverts while the amber does not. It was a hand-copied hex of --p-surface-1. */
   color: var(--color-attention-on);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1349,7 +1349,7 @@
 .pbox-sub {
   overflow: hidden;
   color: var(--p-ink-3);
-  font-size: 10.5px;
+  font-size: 12.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1360,7 +1360,7 @@
   border-radius: 3px;
   color: var(--p-ink-1);
   font-family: var(--p-mono);
-  font-size: 9.5px;
+  font-size: 11.5px;
   white-space: nowrap;
 }
 .pbox-rows,
@@ -1376,7 +1376,7 @@
 }
 .pbox-section-label {
   color: var(--p-ink-3);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
 }
@@ -1384,7 +1384,7 @@
   display: flex;
   align-items: baseline;
   gap: 5px;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
   white-space: nowrap;
 }
@@ -1398,7 +1398,7 @@
   flex: 0 0 auto;
   width: 11px;
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 12px;
 }
 .pbox-text {
   overflow: hidden;
@@ -1410,7 +1410,7 @@
   padding-left: 6px;
   color: var(--p-ink-2);
   font-family: var(--p-mono);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 /* ---------- bands ---------- */
@@ -1453,7 +1453,7 @@
   top: 6px;
   left: 10px;
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1531,7 +1531,7 @@
 
 .pbox-rpc .pbox-sub {
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .pbox-rpc[data-selected='true'] {
@@ -1565,7 +1565,7 @@
   flex: 0 0 auto;
   margin-left: 5px;
   color: var(--p-ink-2);
-  font-size: 12px;
+  font-size: 14.5px;
   line-height: 1;
 }
 
@@ -1634,7 +1634,7 @@
 /* The label reads as a region name, so it is quieter and larger-tracked than a card title. */
 .pband-group > .pband-label {
   color: var(--p-ink-1);
-  font-size: 10.5px;
+  font-size: 12.5px;
   font-weight: 600;
   letter-spacing: 0.09em;
 }
@@ -1651,7 +1651,7 @@
 }
 
 [data-theme='light'] .v2-shell .pbox-title {
-  font-size: 13px;
+  font-size: 15.5px;
   font-weight: 700;
 }
 
@@ -1665,7 +1665,7 @@
 
 [data-theme='light'] .v2-shell .pband-group > .pband-label {
   color: var(--p-ink-1);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -1678,7 +1678,7 @@
   flex: 0 0 auto;
   margin-left: 5px;
   color: var(--p-edge-failure);
-  font-size: 12px;
+  font-size: 14.5px;
   line-height: 1;
 }
 
@@ -1708,14 +1708,14 @@
 }
 .pchat-head h1 {
   margin: 0;
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 .pchat-sub {
   margin: 5px 0 0;
   color: var(--p-ink-2);
-  font-size: 11.5px;
+  font-size: 14px;
 }
 .pchat-log {
   flex: 1 1 auto;
@@ -1734,7 +1734,7 @@
   border: 1px dotted var(--p-ink-3);
   border-radius: 4px;
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1742,7 +1742,7 @@
   margin: 0;
   padding: 7px 10px;
   border-radius: 9px;
-  font-size: 12.5px;
+  font-size: 15px;
   line-height: 1.5;
   max-width: 92%;
 }
@@ -1771,7 +1771,7 @@
   background: var(--p-surface-2);
   color: var(--p-ink-0);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 15px;
 }
 .pchat-input::placeholder {
   color: var(--p-ink-3);
@@ -1781,9 +1781,24 @@
 
 .pctlbar {
   position: absolute;
+  /*
+   * TOP RIGHT, flush to the canvas margin and sized to its content.
+   *
+   * It stretched `left: 12px` to `right: 132px`, which made a compact control read as a canvas-wide
+   * banner over the drawing. The 132px was clearance for `.pfocus`, a focus button anchored in this
+   * corner -- but nothing renders `.pfocus` or `.pharness` any more, so the corner is free and the
+   * reserve was protecting a button that no longer exists. Reclaiming it is also what stops the strip
+   * truncating: at the larger type the switches no longer fitted inside `100% - 144px`, so the box
+   * clamped and cut `Left-right` in half.
+   *
+   * `top: 10px` and not a second row: `Stage` reserves the top band for this bar as `fitView` padding
+   * of 8% (see its comment on the first Step landing underneath), and a row at 56px would reach past
+   * that reserve on a short viewport.
+   */
   top: 10px;
-  left: 12px;
-  right: 132px;
+  right: 12px;
+  max-width: calc(100% - 24px);
+  width: max-content;
   z-index: 5;
   display: flex;
   /*
@@ -1861,7 +1876,7 @@
 .plegend-notes p {
   margin: 8px 0 0;
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -1891,13 +1906,13 @@
 .ppan-lede {
   margin: 0 0 4px;
   color: var(--p-ink-1);
-  font-size: 12.5px;
+  font-size: 15px;
   line-height: 1.55;
 }
 .ppan-diag {
   margin: 8px 0 0;
   color: var(--p-edge-failure);
-  font-size: 11.5px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -1909,7 +1924,7 @@
   background: none;
   color: var(--p-ink-3);
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
   text-align: left;
@@ -1970,7 +1985,7 @@
 }
 .pharness-mark {
   color: var(--p-ink-3);
-  font-size: 9.5px;
+  font-size: 11.5px;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -2269,7 +2284,7 @@
 }
 .pmention-mark {
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -2283,7 +2298,7 @@
 .pmention-name {
   color: var(--p-ink-1);
   font-family: var(--p-mono);
-  font-size: 12px;
+  font-size: 14.5px;
   white-space: nowrap;
 }
 /* The matched characters. With initialism matching this is the ONLY way the user learns the shortcut
@@ -2295,7 +2310,7 @@
 .pmention-hint {
   overflow: hidden;
   color: var(--p-ink-3);
-  font-size: 11px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2371,7 +2386,7 @@
   padding: 2px 8px;
   border: 1px solid var(--p-line);
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -2396,7 +2411,7 @@
 /* Same honesty rule as the provenance chip and the fixture row: if it is not real, it says so. */
 .modechip-sim {
   color: var(--p-ink-3);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.06em;
 }
 
@@ -2406,7 +2421,7 @@
   border-radius: 6px;
   background: var(--p-surface-2);
   color: var(--p-ink-1);
-  font-size: 12px;
+  font-size: 14.5px;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -2456,7 +2471,7 @@
   border: 1px solid color-mix(in srgb, var(--p-temp) 40%, transparent);
   border-radius: 3px;
   color: var(--p-temp);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -2483,7 +2498,7 @@
   padding: 2px 7px;
   border-radius: 4px;
   color: var(--p-ink-3);
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
 }
 .themebtn:hover {
@@ -2501,7 +2516,7 @@
 .themebtn-echo {
   margin-left: 4px;
   color: var(--p-ink-3);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.04em;
 }
 
@@ -2527,13 +2542,13 @@
 }
 .runlog-title {
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .runlog-sim {
   color: var(--p-ink-3);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.06em;
 }
 .runlog-list {
@@ -2545,7 +2560,7 @@
   display: flex;
   align-items: baseline;
   gap: 7px;
-  font-size: 12px;
+  font-size: 14.5px;
   line-height: 1.5;
 }
 
@@ -2581,7 +2596,7 @@
 .runlog-done {
   margin-top: 8px;
   color: var(--p-ink-3);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 /* ==========================================================================
@@ -2614,21 +2629,21 @@
 
 .paudit-title {
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .paudit-mark {
   color: var(--p-ink-3);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.06em;
 }
 
 .paudit-clear {
   margin-left: auto;
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 12px;
   text-decoration: underline;
   text-decoration-color: var(--p-line);
   text-underline-offset: 2px;
@@ -2678,7 +2693,7 @@
   gap: 8px;
   padding: 3px 44px 3px 8px;
   cursor: default;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -2722,7 +2737,7 @@
 
 .paudit-job {
   color: var(--p-ink-0);
-  font-size: 10.5px;
+  font-size: 12.5px;
 }
 
 .paudit-status {
@@ -2744,19 +2759,19 @@
   grid-column: 1 / -1;
   padding-left: 8px;
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
 .pqueue-count {
   color: var(--p-ink-1);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .pqueue-toggle {
   margin-left: auto;
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 12px;
   text-decoration: underline;
   text-decoration-color: var(--p-line);
   text-underline-offset: 2px;
@@ -2769,7 +2784,7 @@
 .pqueue-clear {
   padding: 4px 8px 6px;
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 /* THE LIVE BLOCK. Set apart from the rows below because those cannot be wrong and these can. */
@@ -2785,13 +2800,13 @@
   gap: 6px;
   padding: 0 8px 4px;
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
 .pqueue-livemark {
   color: var(--p-ink-3);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -2804,7 +2819,7 @@
 
 .pqueue-livewhy {
   color: var(--p-ink-3);
-  font-size: 9.5px;
+  font-size: 11.5px;
 }
 
 /* A queue row carries a reason under it, so its grid has to allow the second line. */
@@ -2816,7 +2831,7 @@
 .paudit-when,
 .paudit-dur {
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -2830,7 +2845,7 @@
   top: 3px;
   right: 6px;
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .paudit-more:hover {
@@ -2848,14 +2863,14 @@
   display: grid;
   grid-template-columns: 5.5rem 1fr;
   gap: 8px;
-  font-size: 10.5px;
+  font-size: 12.5px;
 }
 
 .paudit-flabel {
   color: var(--p-ink-3);
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  font-size: 9px;
+  font-size: 11px;
   padding-top: 2px;
 }
 
@@ -2875,7 +2890,7 @@
 
 .paudit-pname {
   color: var(--p-ink-3);
-  font-size: 9.5px;
+  font-size: 11.5px;
 }
 
 .paudit-pvalue {
@@ -2923,19 +2938,19 @@
 
 .pinvest-title {
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .pinvest-mark {
   color: var(--p-ink-3);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .pinvest-ready {
   color: var(--p-ink-2);
-  font-size: 11.5px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -2957,13 +2972,13 @@
   padding-left: 8px;
   border-left: 2px solid var(--p-line);
   color: var(--p-ink-2);
-  font-size: 11.5px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
 .pinvest-a {
   color: var(--p-ink-0);
-  font-size: 12px;
+  font-size: 14.5px;
   line-height: 1.55;
 }
 
@@ -2979,7 +2994,7 @@
   border: 1px solid var(--p-line);
   border-radius: 999px;
   color: var(--p-ink-1);
-  font-size: 10.5px;
+  font-size: 12.5px;
 }
 
 .pinvest-offer:hover {
@@ -2999,7 +3014,7 @@
   border: 1px solid var(--p-line-soft);
   border-radius: 999px;
   color: var(--p-ink-2);
-  font-size: 10.5px;
+  font-size: 12.5px;
   text-align: left;
 }
 
@@ -3083,19 +3098,19 @@
 
 .prun-flow {
   color: var(--p-ink-0);
-  font-size: 13px;
+  font-size: 15.5px;
   font-weight: 600;
 }
 
 .prun-job {
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .prun-close {
   margin-left: auto;
   color: var(--p-ink-3);
-  font-size: 12px;
+  font-size: 14.5px;
 }
 
 .prun-close:hover {
@@ -3112,7 +3127,7 @@
   border-radius: 6px;
   background: var(--p-surface-3);
   color: var(--p-ink-1);
-  font-size: 11.5px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
@@ -3134,7 +3149,7 @@
   align-self: flex-start;
   margin: 0 14px 8px;
   color: var(--p-ink-2);
-  font-size: 10.5px;
+  font-size: 12.5px;
   text-decoration: underline;
   text-decoration-color: var(--p-line);
   text-underline-offset: 2px;
@@ -3156,7 +3171,7 @@
   border: 1px solid transparent;
   border-radius: 5px;
   color: var(--p-ink-3);
-  font-size: 10.5px;
+  font-size: 12.5px;
 }
 
 .prun-tab:hover {
@@ -3183,14 +3198,14 @@
 .prun-h {
   margin-bottom: 4px;
   color: var(--p-ink-3);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
 }
 
 .prun-question {
   color: var(--p-ink-1);
-  font-size: 11.5px;
+  font-size: 14px;
   font-style: italic;
   line-height: 1.5;
 }
@@ -3199,7 +3214,7 @@
 .prun-recommend {
   margin-top: 5px;
   color: var(--p-ink-0);
-  font-size: 12.5px;
+  font-size: 15px;
   line-height: 1.5;
 }
 
@@ -3212,7 +3227,7 @@
 .prun-override {
   margin-top: 5px;
   color: var(--p-temp);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -3226,7 +3241,7 @@
   display: grid;
   grid-template-columns: 7.5rem 1fr;
   gap: 8px;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -3251,7 +3266,7 @@
   padding-left: 8px;
   border-left: 2px solid var(--p-line);
   color: var(--p-ink-1);
-  font-size: 11px;
+  font-size: 13px;
   font-style: italic;
   line-height: 1.5;
 }
@@ -3271,7 +3286,7 @@
 .prun-alts summary {
   color: var(--p-ink-3);
   cursor: default;
-  font-size: 10.5px;
+  font-size: 12.5px;
 }
 
 .prun-alts summary:hover {
@@ -3287,7 +3302,7 @@
   flex-direction: column;
   gap: 3px;
   color: var(--p-ink-1);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -3303,20 +3318,20 @@
 
 .prun-goal {
   color: var(--p-ink-0);
-  font-size: 12px;
+  font-size: 14.5px;
   line-height: 1.5;
 }
 
 .prun-readonly {
   margin-bottom: 12px;
   color: var(--p-ink-3);
-  font-size: 10px;
+  font-size: 12px;
   font-style: italic;
 }
 
 .prun-empty {
   color: var(--p-ink-3);
-  font-size: 11.5px;
+  font-size: 14px;
   font-style: italic;
   line-height: 1.5;
 }
@@ -3331,12 +3346,12 @@
   display: grid;
   grid-template-columns: 1.2rem 1fr;
   gap: 6px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .prun-tnum {
   color: var(--p-ink-3);
-  font-size: 9.5px;
+  font-size: 11.5px;
   text-align: right;
 }
 
@@ -3402,14 +3417,14 @@
 
 .pconv-title {
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .pconv-mark {
   color: var(--p-ink-3);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .pconv-list,
@@ -3433,14 +3448,14 @@
 
 .pconv-who {
   color: var(--p-ink-3);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
 }
 
 .pconv-say {
   color: var(--p-ink-0);
-  font-size: 12px;
+  font-size: 14.5px;
   line-height: 1.55;
 }
 
@@ -3472,7 +3487,7 @@
 
 .pconv-prompt {
   color: var(--p-ink-0);
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.45;
 }
@@ -3490,7 +3505,7 @@
   border-radius: 6px;
   background: var(--p-surface-2);
   color: var(--p-ink-1);
-  font-size: 11.5px;
+  font-size: 14px;
 }
 
 .pconv-btn:hover {
@@ -3512,7 +3527,7 @@
 .pconv-hint {
   margin-top: 6px;
   color: var(--p-ink-2);
-  font-size: 10.5px;
+  font-size: 12.5px;
   line-height: 1.4;
 }
 
@@ -3525,14 +3540,14 @@
 
 .pconv-said {
   color: var(--p-ink-0);
-  font-size: 11.5px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
 .pconv-result {
   margin-top: 2px;
   color: var(--p-ink-2);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -3544,19 +3559,19 @@
 .pconv-done {
   margin-top: 9px;
   color: var(--p-run-done);
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .pconv-q {
   color: var(--p-ink-2);
-  font-size: 11.5px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
 .pconv-a {
   color: var(--p-ink-0);
-  font-size: 12px;
+  font-size: 14.5px;
   line-height: 1.55;
 }
 
@@ -3572,7 +3587,7 @@
   border: 1px solid var(--p-line-soft);
   border-radius: 999px;
   color: var(--p-ink-2);
-  font-size: 10.5px;
+  font-size: 12.5px;
 }
 
 .pconv-prompt-btn:hover {
@@ -3592,7 +3607,7 @@
 
 .pfamily-name {
   color: var(--p-ink-2);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -3606,7 +3621,7 @@
 /* Recommended, and still only a recommendation: the other one stays fully selectable. */
 .pchip-rec {
   color: var(--p-run-done);
-  font-size: 8.5px;
+  font-size: 10px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }

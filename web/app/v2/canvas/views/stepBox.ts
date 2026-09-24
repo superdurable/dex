@@ -41,27 +41,28 @@ import type { Box, BoxRow, ViewOpts } from './types'
  */
 
 /**
- * 200, and it is measured rather than picked.
+ * 250, because the 200 measurement was taken at a title size that no longer exists.
  *
- * It was 244, which left the median card 37% full: most cards are a title over the
- * word `runs`, and `runs` is 22px. Measured with real font metrics over all 121
- * Step nodes in the shipped corpus — at the light theme's heavier 13px/700 title,
- * which is the worse case — titles run p50 76px, p90 136px, max 178px. A 200px
- * card leaves 180px of content, so every title in the corpus fits with nothing
- * clipped; 192 clips one and 184 clips two.
+ * 200 was derived honestly and the arithmetic is preserved here, because it has to be redone rather
+ * than discarded. At the light theme's 13px/700 title, measured with real font metrics over all 121
+ * Step nodes in the shipped corpus, titles ran p50 76px, p90 136px, max 178px; a 200px card leaves
+ * 180px of content, so every title fitted, 192 clipped one and 184 clipped two.
  *
- * Nothing in the layout engine held it up: the real layout and the layoutQuality
- * gate were re-run over every definition at 244 down to 160 with zero violations,
- * and `edgeSpan` improves as the boxes narrow.
+ * The canvas type then went up 1.2x. Text scales with it: that corpus now runs about p50 88px, p90
+ * 157px, max 205px -- and 205 does not fit in 180, so the widest Step in the corpus would clip at 200.
+ * That is the defect this fixes, not a preference for roomier cards.
  *
- * Two cards get less than 180px and both were checked. A start Step spends 18px
- * on its band (canvas.css) leaving 163px, against a widest start title of 136px.
- * And a card carrying the `needs you` badge loses ~74px to it — but the badge is
- * run-only, so it never appears in the definition view this was measured against.
- * Fixing the badge to stop taxing the title is the follow-up that would let this
- * go narrower still.
+ * 250 leaves 230px of content, so the 205px worst case fits with 25px spare. The two cards that get
+ * less than the full width were re-checked at the new size: a start Step spends 18px on its band
+ * (canvas.css), leaving 212px against a widest start title of ~157px; and a card carrying the
+ * `needs you` badge loses ~74px to it, but the badge is run-only and never appears in the definition
+ * view this was measured against.
+ *
+ * Nothing in the layout engine holds it up in either direction -- the layoutQuality gate was clean from
+ * 244 down to 160 at the old type size, and is clean at 250 now. `edgeSpan` worsens as boxes widen,
+ * which is the cost this spends and the limit that reports it.
  */
-export const STEP_W = 200
+export const STEP_W = 250
 
 /**
  * Height the reason strip needs: 3 padding-top + 1 border-top + 14 line (10.5px at 1.35) + 2 flex gap,
@@ -69,7 +70,7 @@ export const STEP_W = 200
  * height bug has now bitten three times, always taking the LAST element with it, so it is pinned by a
  * test rather than trusted.
  */
-export const REASON_H = 22
+export const REASON_H = 26
 
 const CONDITION_GLYPH: Record<string, string> = {
   channel: '✉',
@@ -447,11 +448,16 @@ export function stepContent(flow: PocFlow, step: StepModel, opts: ViewOpts): Ste
             ? 'active'
             : undefined
 
-  const head = 49
-  const sectionsH = sections.reduce((acc, s) => acc + 23 + s.rows.length * 17, 0)
+  /*
+   * Scaled with the type, 1.2x, because every one of these is a measurement OF the type: `head` is a
+   * title line over a subtitle line, a row is one line of row text, a section is a label over its rows.
+   * Leaving them while the CSS grew would have clipped the text the card is sized to hold.
+   */
+  const head = 59
+  const sectionsH = sections.reduce((acc, s) => acc + 28 + s.rows.length * 20, 0)
   const height = Math.max(
-    52,
-    head + rows.length * 17 + sectionsH + (bar === undefined ? 0 : 11) + (reason === undefined ? 0 : REASON_H),
+    62,
+    head + rows.length * 20 + sectionsH + (bar === undefined ? 0 : 13) + (reason === undefined ? 0 : REASON_H),
   )
 
   return { rows, sections, badge, status, bar, barTitle, emphasis, token, reason, loops, recovery, subtitle: ROLE_PHRASE[step.actor], height }
