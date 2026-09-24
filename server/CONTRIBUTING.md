@@ -127,9 +127,9 @@ through the Temporal Cloud Operations API. The API key must have permission to
 read and update the configured namespace.
 
 Set `interpreter.attributeIndexesManagedExternally: true` only when another
-system provisions every Dex and application index. Dex then reads and validates
-the declarations but never creates missing indexes. In Temporal Cloud this mode
-still requires `cloudOps` and an API key with namespace read permission.
+system provisions every Dex and application index. Dex validates declarations
+locally but does not discover, create, or verify backend indexes. This mode does
+not require `cloudOps` or Temporal Cloud Operations API permissions.
 
 ### External Cadence service
 
