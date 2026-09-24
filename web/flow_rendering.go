@@ -229,6 +229,11 @@ func validateFlowDefinitionObjectFields(data []byte, allowed []string, required 
 }
 
 func validateV2Definition(definition api.V2Definition) error {
+	if definition.Start != nil {
+		if err := api.ValidateV2StartDefinition(*definition.Start); err != nil {
+			return fmt.Errorf("Start: %w", err)
+		}
+	}
 	indexedKeys := make(map[string]bool, len(definition.IndexedAttributes))
 	indexKeys := make(map[string]bool, len(definition.IndexedAttributes))
 	for _, attribute := range definition.IndexedAttributes {

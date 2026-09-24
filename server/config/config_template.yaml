@@ -36,6 +36,8 @@ web:
   #   storageId: p0
   #   prefix: _superverse/dex-web/flow-definitions
   workQueuePermissionMode: local-selector
+  # Apply headless routing to every Worker target submitted through Dex Web Start Flow.
+  startFlowWorkerTargetHeadless: false
   # Enable only behind a proxy that replaces embedding headers and blocks direct Web access.
   trustForwardedEmbeddingHeaders: false
 worker:

@@ -101,6 +101,7 @@ web:
   port: 8802
   flowServiceTarget: dex-api:8801
   flowRenderingDirectory: ""
+  startFlowWorkerTargetHeadless: false
   trustForwardedEmbeddingHeaders: false
 ~~~
 
@@ -108,6 +109,8 @@ The bind address defaults to all interfaces and the port defaults to 8802. An
 empty **flowServiceTarget** uses localhost and the configured API port. The Web
 connection is plaintext gRPC and uses **api.grpcMaxMessageBytes**, so keep it on
 a trusted network path.
+
+**web.startFlowWorkerTargetHeadless** controls Worker routing for every Flow started from Dex Web. It defaults to false and is immutable after startup. The environment override is **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS**. Enable it only when operators enter Kubernetes headless Service addresses.
 
 ## Blob Store
 

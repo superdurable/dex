@@ -84,6 +84,21 @@ Choose another blob directory with:
 dexcli dev --blob-store-dir ./dex-blobs
 ```
 
+Local Connector setup stores named connections in
+`$HOME/.dex/connectors/connections.json` by default. All local stacks share
+that file. Isolate a stack with:
+
+```bash
+dexcli dev \
+  --flow-rendering-dir ./build \
+  --connector-config-dir ./local-dex-secrets
+```
+
+Dex resolves the directory to an absolute path and shows the resulting
+`connections.json` path in Web. Restarting Dex Web reloads that file; it does
+not clear existing connections. In-progress OAuth and UI sessions are
+memory-only and must be restarted after a Web restart.
+
 `dexcli dev` enables the in-memory Stream Store without Redis. Stream messages
 are discarded when the CLI process stops. Repeated source values append
 independent messages.
@@ -130,6 +145,7 @@ must exist and be reachable before startup.
 --blob-store-dir string            persistent Dex blob storage directory (default $HOME/.dex/blobs)
 --dex-port int                     Dex gRPC port (default 8801)
 --flow-rendering-dir string        directory containing Flow Definition Graph JSON files
+--connector-config-dir string      local Connector config directory (default $HOME/.dex/connectors)
 --open                             open Dex Web after readiness (default true)
 --web-port int                     Dex Web port (default 8802)
 --sqlite-db-filename string        local SQLite file (default $HOME/.dex/dev/<port>/dex.sqlite.db)
@@ -217,6 +233,18 @@ diamonds. Channels, Attributes, RPCs, Streams, folded SubFlows, and diagnostics
 can be shown or hidden independently. Streams are hidden by default. Definitions
 are loaded once during startup; restart **dexcli dev** after changing the
 directory.
+
+Flow Definition Graph 2.0 also records the registered Go start Step type and a
+recursive start-input schema. The analyzer follows JSON field names, ignored
+fields, pointers, and `omitempty`; it recognizes nested and imported structs,
+string and integer enums, RFC3339 `time.Time`, slices, fixed arrays, and
+string-key maps. Integer bounds are emitted as decimal strings.
+
+Recursive types, nesting beyond 32 levels, non-string map keys, interfaces,
+functions, channels, `[]byte`, conflicting anonymous fields, JSON `,string`,
+and custom JSON codecs are not form-safe. The analyzer reports a
+`v2_start_input` warning and omits `v2.start`; the rest of the Version 2 graph
+remains available.
 
 Python analysis requires Python 3.11 or newer. Pass `--python /path/to/python`
 to select an interpreter. The analyzer parses Python with the standard-library

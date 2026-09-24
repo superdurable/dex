@@ -32,6 +32,7 @@ import { useRunQuery } from './workspace/useRunQuery';
 import { useStrandedRuns } from './workspace/useStrandedRuns';
 import { permissionActionLabels, permissionsOf } from './workspace/permissions';
 import { WORK_QUEUE_COPY } from './work-queue/copy';
+import { StartFlowDialog } from './start/StartFlowDialog';
 
 export function HomePage() {
   const { ready, canUseV2, error } = useWebCatalog();
@@ -49,7 +50,9 @@ export function HomePage() {
 export function RunWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
-  const { ready, canUseV2, catalog, error, definitionUpdateKey, permissionMode } = useWebCatalog();
+  const {
+    ready, canUseV2, catalog, error, definitionUpdateKey, permissionMode, handleDefinitionError,
+  } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   const runQuery = useRunQuery(entry?.definition);
   const [permission, setPermission] = useState('');
@@ -73,6 +76,8 @@ export function RunWorkspace() {
   const [deselectKey, setDeselectKey] = useState(0);
   /** Dismissing the drawer keeps the run on the canvas; it just hands the width back. */
   const [drawerOpen, setDrawerOpen] = useState(true);
+  const [startOpen, setStartOpen] = useState(false);
+  const [startNotice, setStartNotice] = useState('');
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const listPane = useCollapsibleColumn(LIST_WIDTH_KEY, LIST_WIDTH_DEFAULT);
@@ -84,8 +89,12 @@ export function RunWorkspace() {
   // A newly chosen run always opens its drawer, even if the last one was dismissed.
   useEffect(() => { setDrawerOpen(true); }, [flowId]);
   useEffect(() => {
-    if (definitionUpdateKey > 0) navigate(v2RunPath(flowType || undefined), { replace: true });
+    if (definitionUpdateKey > 0) {
+      setStartOpen(false);
+      navigate(v2RunPath(flowType || undefined), { replace: true });
+    }
   }, [definitionUpdateKey, flowType, navigate]);
+  useEffect(() => { setStartOpen(false); setStartNotice(''); }, [flowType]);
 
   if (!ready) return <div className="page-loading">Loading Dex Web…</div>;
   if (!canUseV2) return <Navigate to="/v1/flows" replace />;
@@ -118,6 +127,11 @@ export function RunWorkspace() {
           entry={entry}
           flowTypes={catalog.flows}
           heading={RUN_COPY.runsHeading}
+          headerAction={permissionMode === 'local-selector' && entry.definition.start ? (
+            <button className="button primary sq-start" onClick={() => setStartOpen(true)} type="button">
+              Start Flow
+            </button>
+          ) : undefined}
           onExpand={listPane.expand}
           permissionControl={permissionMode === 'local-selector' && permissionsOf(entry.definition).length > 0 ? (
             <label className="rsw-permission">
@@ -230,6 +244,20 @@ export function RunWorkspace() {
           </>
         ) : null}
       </div>
+      {startNotice && <div className="sfd-notice" role="status">{startNotice}</div>}
+      {startOpen && entry.definition.start && (
+        <StartFlowDialog
+          definition={entry.definition.start}
+          definitionRevision={catalog.definitionRevision}
+          flowType={entry.flowType}
+          onClose={() => setStartOpen(false)}
+          onDefinitionChanged={handleDefinitionError}
+          onStarted={(startedFlowID, runID) => {
+            setStartOpen(false);
+            setStartNotice(`Started Flow ${startedFlowID} (run ${runID}).`);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -89,11 +89,13 @@ func (analyzer *goAnalyzer) analyzeVisualizationV2(flowType string) {
 		true,
 	)
 	actions := analyzer.collectV2Actions(flowType, attributes, registeredRPCs)
+	start := analyzer.collectV2StartDefinition()
 	analyzer.graph.V2 = &V2Definition{
 		IndexedAttributes: indexedAttributes,
 		Summary:           summary,
 		Display:           display,
 		Actions:           actions,
+		Start:             start,
 	}
 }
 

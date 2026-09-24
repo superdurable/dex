@@ -31,6 +31,7 @@ export function RunList({
   strandedFlowIDs,
   heading,
   headerNote,
+  headerAction,
   scope,
   permissionControl,
   emptyText,
@@ -46,6 +47,7 @@ export function RunList({
   strandedFlowIDs: ReadonlySet<string>;
   heading: string;
   headerNote?: string;
+  headerAction?: ReactNode;
   /** What the list is narrowed to, and the control that narrowed it. */
   scope?: ReactNode;
   /** Which permission scopes the Work Queue. */
@@ -80,6 +82,7 @@ export function RunList({
       <div className="sq-head">
         <span className="sq-title" title={RUN_COPY.selectPrompt}>{heading}</span>
         {headerNote !== undefined && <span className="sq-live">{headerNote}</span>}
+        {headerAction}
       </div>
       {flowTypes.length > 1 && (
         <section className="rsw-zone" data-zone="pick">

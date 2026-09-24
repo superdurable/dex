@@ -18,6 +18,7 @@ import { ThemeProvider } from './theme';
 import { WorkQueueWorkspace } from './v2/work-queue/WorkQueueWorkspace';
 import { HomePage, RunWorkspace } from './v2/RunWorkspace';
 import { WebCatalogProvider } from './v2/WebCatalogProvider';
+import { ConnectionsPage } from './v2/connections/ConnectionsPage';
 
 export function App() {
   return (
@@ -37,6 +38,7 @@ export function App() {
               <Route path="/v2/work-queue" element={<WorkQueueWorkspace />} />
               <Route path="/v2/work-queue/:flowType" element={<WorkQueueWorkspace />} />
               <Route path="/v2/work-queue/:flowType/:flowId" element={<WorkQueueWorkspace />} />
+              <Route path="/v2/connections" element={<ConnectionsPage />} />
               <Route path="/v1" element={<Navigate to="/v1/flows" replace />} />
               <Route path="/v1/flows" element={<FlowSearchPage />} />
               <Route path="/v1/rendering" element={<FlowRenderingPage />} />

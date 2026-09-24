@@ -498,6 +498,7 @@ export function decodeFlow(
         resources: refsByOwner.get(n.id) ?? [],
         span: n.span,
         isConnectorStep: n.metadata?.connectorFactory === true,
+        connector: connectorIdentity(n.metadata?.connector),
         explanation: typeof n.metadata?.explanation === 'string' ? n.metadata.explanation : undefined,
       }
     })
@@ -585,6 +586,21 @@ export function decodeFlow(
     diagnostics: graph.diagnostics ?? [],
     provenance,
     dropped,
+  }
+}
+
+function connectorIdentity(value: unknown): StepModel['connector'] {
+  if (typeof value !== 'object' || value === null) return undefined
+  const connector = value as Record<string, unknown>
+  if (typeof connector.connectorId !== 'string' || typeof connector.operationId !== 'string'
+    || typeof connector.operationKind !== 'string' || typeof connector.connectionName !== 'string'
+    || typeof connector.moduleVersion !== 'string') return undefined
+  return {
+    connectorId: connector.connectorId,
+    operationId: connector.operationId,
+    operationKind: connector.operationKind,
+    connectionName: connector.connectionName,
+    moduleVersion: connector.moduleVersion,
   }
 }
 

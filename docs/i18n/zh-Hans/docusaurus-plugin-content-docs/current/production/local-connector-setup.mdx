@@ -1,0 +1,79 @@
+---
+title: 本地 Connector 配置
+sidebar_label: 本地 Connector 配置
+---
+
+# 本地 Connector 配置
+
+Dex Web 可以为本地 Go 应用配置官方 Connector release。此功能只在使用本地
+Flow Definition Graph、并绑定 loopback 地址的 **dexcli dev** 中启用。生产环境
+Dex Web、非 loopback listener 和 blobstore definition source 不会开放这些配置
+API。
+
+## 启动 Dex Web
+
+先生成 Flow Definition Graph 2.0 文件，再启动本地 stack：
+
+```bash
+dexcli dev --flow-rendering-dir ./build
+```
+
+打开 **/v2/connections** 的 **Connections** 页面。Dex Web 按 Connector ID 和
+connection name 对 Step 分组，并显示 Flow、Step、operation、精确 module version
+以及 **Missing**、**Ready**、**Expired**、**Conflict** 或 **Unsupported** 状态。
+
+自动配置要求使用 operation-specific 的生成工厂、编译期可确定的 connection
+name 和精确的已发布 module version。Generic factory、本地 module replacement、
+未发布 module、缺少 name 或版本冲突仍会显示，但不能自动配置。
+
+## 选择存储目录
+
+默认目录是 **$HOME/.dex/connectors**，文件名固定为 **connections.json**。需要
+隔离某个 stack 时可以覆盖目录：
+
+```bash
+dexcli dev \
+  --flow-rendering-dir ./build \
+  --connector-config-dir ./local-dex-secrets
+```
+
+Dex 会把目录解析为绝对路径。Connections 页面会显示目录和最终 JSON 路径。
+多个本地 stack 默认共享同一个文件；如果不能共享账号，应为每个 stack 指定
+不同目录。
+
+Dex 以 **0700** 创建目录，以 **0600** 创建文件。Symlink 文件、非普通文件和
+权限过宽的已有 credential 文件会被拒绝。更新过程使用同目录临时文件、sync
+和原子 rename，因此应用不会读到只写了一部分的文档。
+
+重启 Dex Web 会重新加载已有 connection 和缓存的 UI artifact，不会清空 JSON
+文件。进行中的 OAuth flow 与 Connector UI session 只存在内存中；重启后需要
+重新发起。
+
+## 配置 Gmail 或 GitHub
+
+选择命名 connection。Dex Web 会校验官方 release metadata 和 checksum。有兼容
+Studio UI 时，它会在 opaque-origin sandbox 中加载；否则根据 manifest 渲染通用
+表单。
+
+OAuth 使用 state、PKCE 和十分钟一次性 session。OAuth client ID 与 client
+secret 只存在内存中，不会写入磁盘。Dex 检查 granted scope 后保存短期 access
+token，不保存 refresh token，也不会自动刷新。Connection 变为 **Expired** 后
+需要重新授权。
+
+删除本地 credential 只删除本地记录，不会远程 revoke provider grant。
+
+## 启动 Go 应用
+
+配置完成后复制 Dex Web 显示的启动命令。默认路径为：
+
+```bash
+DEX_CONNECTOR_CONFIG_FILE="$HOME/.dex/connectors/connections.json" <your-app-command>
+```
+
+Connector Go SDK 在应用构造命名 Connection 时读取 configuration，因此
+configuration 变化后需要重启应用。每次 provider call 前都会重新读取
+credential，所以重新授权会在下一次调用生效，不需要重启应用。
+
+该 JSON 文件以明文保存 secret，只适用于本地开发。不要提交或上传，也不要把它
+当作生产 secret broker。Connector secret 在应用边界变为 **SecretString**，不得
+进入 Flow state 或日志。

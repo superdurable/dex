@@ -12,7 +12,7 @@ import type {
 } from '@superdurable/flow-definition-renderer';
 
 /** Run drives one run on the definition canvas; Work Queue clears work without a diagram. */
-export type V2Mode = 'run' | 'work-queue';
+export type V2Mode = 'run' | 'work-queue' | 'connections';
 
 export function v2HomePath(canUseV2: boolean) {
   return canUseV2 ? v2ModePath('run') : '/v1/flows';
