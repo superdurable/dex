@@ -7,7 +7,7 @@
   },
   "flow": {
     "name": "OrderProcessingFlow",
-    "startStepId": "step:ChargeStep",
+    "startStepId": "step:Charge",
     "span": {
       "startLine": 120,
       "startColumn": 1,
@@ -17,10 +17,10 @@
   },
   "nodes": [
     {
-      "id": "decision-dispatch:step:ShipStep",
+      "id": "decision-dispatch:step:Ship",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "step:ShipStep",
+      "parentId": "step:Ship",
       "phase": "execute",
       "span": {
         "startLine": 97,
@@ -62,26 +62,26 @@
       }
     },
     {
-      "id": "decision:step:ChargeStep:67:16",
+      "id": "decision:step:Charge:67:16",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:ChargeStep",
+      "parentId": "step:Charge",
       "phase": "execute",
       "span": {
         "startLine": 67,
         "startColumn": 16,
         "endLine": 67,
-        "endColumn": 38
+        "endColumn": 34
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:RefundStep:117:16",
+      "id": "decision:step:Refund:117:16",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:RefundStep",
+      "parentId": "step:Refund",
       "phase": "execute",
       "span": {
         "startLine": 117,
@@ -94,27 +94,27 @@
       }
     },
     {
-      "id": "decision:step:ShipStep:104:20",
+      "id": "decision:step:Ship:104:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:ShipStep",
+      "parentId": "step:Ship",
       "condition": "context.has_timer_fired()",
       "phase": "execute",
       "span": {
         "startLine": 104,
         "startColumn": 20,
         "endLine": 104,
-        "endColumn": 42
+        "endColumn": 38
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:ShipStep:107:16",
+      "id": "decision:step:Ship:107:16",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:ShipStep",
+      "parentId": "step:Ship",
       "condition": "not (context.has_timer_fired())",
       "phase": "execute",
       "span": {
@@ -178,9 +178,9 @@
       }
     },
     {
-      "id": "step:ChargeStep",
+      "id": "step:Charge",
       "kind": "step",
-      "name": "ChargeStep",
+      "name": "Charge",
       "phase": "execute",
       "start": true,
       "span": {
@@ -191,9 +191,9 @@
       }
     },
     {
-      "id": "step:RefundStep",
+      "id": "step:Refund",
       "kind": "step",
-      "name": "RefundStep",
+      "name": "Refund",
       "phase": "execute",
       "span": {
         "startLine": 128,
@@ -203,9 +203,9 @@
       }
     },
     {
-      "id": "step:ShipStep",
+      "id": "step:Ship",
       "kind": "step",
-      "name": "ShipStep",
+      "name": "Ship",
       "phase": "wait_for+execute",
       "span": {
         "startLine": 128,
@@ -215,10 +215,10 @@
       }
     },
     {
-      "id": "wait:ShipStep:92:16:0",
+      "id": "wait:Ship:92:16:0",
       "kind": "wait",
       "name": "anyOf",
-      "parentId": "step:ShipStep",
+      "parentId": "step:Ship",
       "phase": "wait_for",
       "span": {
         "startLine": 92,
@@ -259,27 +259,27 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:ChargeStep:67:16",
-      "to": "step:ShipStep",
+      "from": "decision:step:Charge:67:16",
+      "to": "step:Ship",
       "label": "go_to",
       "span": {
         "startLine": 67,
         "startColumn": 16,
         "endLine": 67,
-        "endColumn": 38
+        "endColumn": 34
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:ShipStep:104:20",
-      "to": "step:ShipStep",
+      "from": "decision:step:Ship:104:20",
+      "to": "step:Ship",
       "label": "go_to",
       "span": {
         "startLine": 104,
         "startColumn": 20,
         "endLine": 104,
-        "endColumn": 42
+        "endColumn": 38
       }
     },
     {
@@ -302,7 +302,7 @@
       "id": "edge:0004",
       "kind": "wait_condition",
       "from": "resource:channel:seller_ok",
-      "to": "wait:ShipStep:92:16:0",
+      "to": "wait:Ship:92:16:0",
       "label": "seller-ok.for 1",
       "span": {
         "startLine": 93,
@@ -330,7 +330,7 @@
     {
       "id": "edge:0006",
       "kind": "resource_write",
-      "from": "step:ChargeStep",
+      "from": "step:Charge",
       "to": "resource:attribute:order_status",
       "label": "set",
       "span": {
@@ -346,7 +346,7 @@
     {
       "id": "edge:0007",
       "kind": "resource_write",
-      "from": "step:RefundStep",
+      "from": "step:Refund",
       "to": "resource:attribute:order_status",
       "label": "set",
       "span": {
@@ -362,7 +362,7 @@
     {
       "id": "edge:0008",
       "kind": "resource_write",
-      "from": "step:ShipStep",
+      "from": "step:Ship",
       "to": "resource:attribute:order_status",
       "label": "set",
       "span": {
@@ -378,8 +378,8 @@
     {
       "id": "edge:0009",
       "kind": "failure_transition",
-      "from": "step:ShipStep",
-      "to": "step:RefundStep",
+      "from": "step:Ship",
+      "to": "step:Refund",
       "label": "Execute failure",
       "span": {
         "startLine": 76,

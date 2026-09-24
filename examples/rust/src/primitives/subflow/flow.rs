@@ -21,7 +21,7 @@ use dex_sdk::{
 
 #[derive(Default)]
 pub struct SubFlowChildFlow {
-    start: SubFlowChildStep,
+    start: SubFlowChild,
 }
 
 impl Flow for SubFlowChildFlow {
@@ -33,9 +33,9 @@ impl Flow for SubFlowChildFlow {
 }
 
 #[derive(Default)]
-struct SubFlowChildStep;
+struct SubFlowChild;
 
-impl Step for SubFlowChildStep {
+impl Step for SubFlowChild {
     type Input = i32;
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
@@ -45,13 +45,13 @@ impl Step for SubFlowChildStep {
 
 #[derive(Default)]
 pub struct SubFlowParentFlow {
-    start: SubFlowParentStep,
+    start: SubFlowParent,
 }
 
 impl SubFlowParentFlow {
     pub fn new() -> Self {
         Self {
-            start: SubFlowParentStep,
+            start: SubFlowParent,
         }
     }
 }
@@ -65,9 +65,9 @@ impl Flow for SubFlowParentFlow {
 }
 
 #[derive(Default)]
-struct SubFlowParentStep;
+struct SubFlowParent;
 
-impl Step for SubFlowParentStep {
+impl Step for SubFlowParent {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {

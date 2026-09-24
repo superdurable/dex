@@ -105,7 +105,7 @@ func (flow *DealDSLFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(initializeStep{flow: flow}),
 		dex.DefineStep(preConditionStep{flow: flow}),
-		dex.DefineStep(executeActionStep{flow: flow}),
+		dex.DefineStep(executeAction{flow: flow}),
 		dex.DefineStep(postConditionStep{flow: flow}),
 	}
 }
@@ -329,23 +329,23 @@ func (step preConditionStep) Execute(
 	}
 	if len(state.PreActions) > 0 {
 		return dex.GoTo(
-			executeActionStep{flow: step.flow},
+			executeAction{flow: step.flow},
 			actionStepInput{StateName: state.Name, Phase: preActionPhase},
 		), nil
 	}
 	return step.flow.gotoState(ctx, state)
 }
 
-type executeActionStep struct {
+type executeAction struct {
 	dex.StepDefaultsNoWaitFor[actionStepInput]
 	flow *DealDSLFlow
 }
 
-func (executeActionStep) GetStepType() string {
+func (executeAction) GetStepType() string {
 	return "ExecuteDealAction"
 }
 
-func (step executeActionStep) Execute(
+func (step executeAction) Execute(
 	ctx dex.Context,
 	input actionStepInput,
 ) (*dex.StepDecision, error) {
@@ -403,7 +403,7 @@ func (step executeActionStep) Execute(
 		return nil, err
 	}
 	if nextActionIndex < len(actions) {
-		return dex.GoTo(executeActionStep{flow: step.flow}, input), nil
+		return dex.GoTo(executeAction{flow: step.flow}, input), nil
 	}
 	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
 		return nil, err
@@ -495,7 +495,7 @@ func (flow *DealDSLFlow) gotoState(
 	}
 	if len(state.PostActions) > 0 {
 		return dex.GoTo(
-			executeActionStep{flow: flow},
+			executeAction{flow: flow},
 			actionStepInput{StateName: state.Name, Phase: postActionPhase},
 		), nil
 	}

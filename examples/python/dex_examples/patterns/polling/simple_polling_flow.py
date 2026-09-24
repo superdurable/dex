@@ -32,7 +32,7 @@ from dex import (
 POLLING_INTERVAL = timedelta(seconds=10)
 
 
-class PollingStep(Step[None]):
+class Polling(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
         return Wait.until(Timer.by_duration(POLLING_INTERVAL))
@@ -40,7 +40,7 @@ class PollingStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         if self._is_system_ready():
             return graceful_complete()
-        return go_to(PollingStep, None)
+        return go_to(Polling, None)
 
     @staticmethod
     def _is_system_ready() -> bool:
@@ -50,7 +50,7 @@ class PollingStep(Step[None]):
 
 class PollingWithTimerFlow(Flow[None]):
     def __init__(self) -> None:
-        self.polling_step = PollingStep()
+        self.polling_step = Polling()
 
     def get_steps(self) -> StepList[None]:
         return StepList.start_step(self.polling_step)

@@ -7,7 +7,7 @@
   },
   "flow": {
     "name": "ManualRecoveryFlow",
-    "startStepId": "step:DoWorkStep",
+    "startStepId": "step:DoWork",
     "span": {
       "startLine": 77,
       "startColumn": 1,
@@ -17,10 +17,10 @@
   },
   "nodes": [
     {
-      "id": "decision-dispatch:step:ManualStep",
+      "id": "decision-dispatch:step:Manual",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "step:ManualStep",
+      "parentId": "step:Manual",
       "phase": "execute",
       "span": {
         "startLine": 71,
@@ -30,10 +30,10 @@
       }
     },
     {
-      "id": "decision:step:DoWorkStep:53:16",
+      "id": "decision:step:DoWork:53:16",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:DoWorkStep",
+      "parentId": "step:DoWork",
       "phase": "execute",
       "span": {
         "startLine": 53,
@@ -46,27 +46,27 @@
       }
     },
     {
-      "id": "decision:step:ManualStep:73:20",
+      "id": "decision:step:Manual:73:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:ManualStep",
+      "parentId": "step:Manual",
       "condition": "self.retry_channel.results(context)",
       "phase": "execute",
       "span": {
         "startLine": 73,
         "startColumn": 20,
         "endLine": 73,
-        "endColumn": 44
+        "endColumn": 40
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:ManualStep:74:16",
+      "id": "decision:step:Manual:74:16",
       "kind": "decision",
       "name": "forceFail",
-      "parentId": "step:ManualStep",
+      "parentId": "step:Manual",
       "condition": "not (self.retry_channel.results(context))",
       "phase": "execute",
       "span": {
@@ -119,9 +119,9 @@
       }
     },
     {
-      "id": "step:DoWorkStep",
+      "id": "step:DoWork",
       "kind": "step",
-      "name": "DoWorkStep",
+      "name": "DoWork",
       "phase": "execute",
       "start": true,
       "span": {
@@ -132,9 +132,9 @@
       }
     },
     {
-      "id": "step:ManualStep",
+      "id": "step:Manual",
       "kind": "step",
-      "name": "ManualStep",
+      "name": "Manual",
       "phase": "wait_for+execute",
       "span": {
         "startLine": 89,
@@ -144,10 +144,10 @@
       }
     },
     {
-      "id": "wait:ManualStep:66:16:0",
+      "id": "wait:Manual:66:16:0",
       "kind": "wait",
       "name": "anyOf",
-      "parentId": "step:ManualStep",
+      "parentId": "step:Manual",
       "phase": "wait_for",
       "span": {
         "startLine": 66,
@@ -188,21 +188,21 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:ManualStep:73:20",
-      "to": "step:DoWorkStep",
+      "from": "decision:step:Manual:73:20",
+      "to": "step:DoWork",
       "label": "go_to",
       "span": {
         "startLine": 73,
         "startColumn": 20,
         "endLine": 73,
-        "endColumn": 44
+        "endColumn": 40
       }
     },
     {
       "id": "edge:0002",
       "kind": "resource_read",
       "from": "resource:channel:ManualRecoveryFlow.retry_channel",
-      "to": "step:ManualStep",
+      "to": "step:Manual",
       "label": "results",
       "span": {
         "startLine": 72,
@@ -218,7 +218,7 @@
       "id": "edge:0003",
       "kind": "wait_condition",
       "from": "resource:channel:ManualRecoveryFlow.retry_channel",
-      "to": "wait:ManualStep:66:16:0",
+      "to": "wait:Manual:66:16:0",
       "label": "manual-recovery-retry.for 1",
       "span": {
         "startLine": 67,
@@ -231,7 +231,7 @@
       "id": "edge:0004",
       "kind": "wait_condition",
       "from": "resource:channel:ManualRecoveryFlow.skip_channel",
-      "to": "wait:ManualStep:66:16:0",
+      "to": "wait:Manual:66:16:0",
       "label": "manual-recovery-skip.for 1",
       "span": {
         "startLine": 68,
@@ -259,14 +259,14 @@
     {
       "id": "edge:0006",
       "kind": "failure_transition",
-      "from": "step:DoWorkStep",
-      "to": "step:ManualStep",
+      "from": "step:DoWork",
+      "to": "step:Manual",
       "label": "Execute failure",
       "span": {
         "startLine": 41,
         "startColumn": 16,
         "endLine": 48,
-        "endColumn": 52
+        "endColumn": 48
       },
       "metadata": {
         "skipWaitFor": false

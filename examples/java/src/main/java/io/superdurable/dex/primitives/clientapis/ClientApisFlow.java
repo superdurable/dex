@@ -34,7 +34,7 @@ public final class ClientApisFlow implements Flow<String> {
             KEYWORD_KEY,
             String.class,
             new AttributeIndex(AttributeIndex.Type.KEYWORD));
-    private final ClientApisStep start = new ClientApisStep();
+    private final ClientApis start = new ClientApis();
 
     @Override
     public StepList<String> getSteps() {
@@ -46,7 +46,7 @@ public final class ClientApisFlow implements Flow<String> {
         return PersistenceSchema.of(keyword);
     }
 
-    final class ClientApisStep implements Step<String> {
+    final class ClientApis implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;

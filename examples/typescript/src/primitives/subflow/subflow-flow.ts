@@ -30,11 +30,11 @@ import {
 
 import { HOUR_MS } from "../../config/env.js";
 
-class SubFlowChildStep implements Step<number> {
+class SubFlowChild implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public getStepType(): string {
-    return "SubFlowChildStep";
+    return "SubFlowChild";
   }
 
   public execute(_context: Context, input: number): StepDecision {
@@ -43,7 +43,7 @@ class SubFlowChildStep implements Step<number> {
 }
 
 export class SubFlowChildFlow implements Flow<number> {
-  private readonly start = new SubFlowChildStep();
+  private readonly start = new SubFlowChild();
 
   public getFlowType(): string {
     return "SubFlowChildFlow";
@@ -58,13 +58,13 @@ export class SubFlowChildFlow implements Flow<number> {
   }
 }
 
-class SubFlowParentStep implements Step<number> {
+class SubFlowParent implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public constructor(private readonly target: SubFlowChildFlow) {}
 
   public getStepType(): string {
-    return "SubFlowParentStep";
+    return "SubFlowParent";
   }
 
   public waitFor(_context: Context, input: number): Wait {
@@ -85,10 +85,10 @@ class SubFlowParentStep implements Step<number> {
 }
 
 export class SubFlowParentFlow implements Flow<number> {
-  private readonly start: SubFlowParentStep;
+  private readonly start: SubFlowParent;
 
   public constructor(private readonly target: SubFlowChildFlow) {
-    this.start = new SubFlowParentStep(target);
+    this.start = new SubFlowParent(target);
   }
 
   public getFlowType(): string {

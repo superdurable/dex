@@ -51,8 +51,8 @@ func NewWaitForStepCompletionFlow(
 
 func (flow *WaitForStepCompletionFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(persistDataStep{service: flow.service}),
-		dex.DefineStep(updateExternalSystemStep{service: flow.service}),
+		dex.DefineStartStep(persistData{service: flow.service}),
+		dex.DefineStep(updateExternalSystem{service: flow.service}),
 	}
 }
 
@@ -77,16 +77,16 @@ func (*WaitForStepCompletionFlow) GetJobSeekerData(
 	return &dex.RPCResult[JobSeekerData]{Output: data}, nil
 }
 
-type persistDataStep struct {
+type persistData struct {
 	dex.StepDefaultsNoWaitFor[JobSeekerData]
 	service patternsservice.ServiceDependency
 }
 
-func (persistDataStep) GetStepType() string {
+func (persistData) GetStepType() string {
 	return "PersistData"
 }
 
-func (step persistDataStep) Execute(
+func (step persistData) Execute(
 	ctx dex.Context,
 	input JobSeekerData,
 ) (*dex.StepDecision, error) {
@@ -96,15 +96,15 @@ func (step persistDataStep) Execute(
 	if err := JobSeekerDataAttribute.Set(ctx, input); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(updateExternalSystemStep{}, input), nil
+	return dex.GoTo(updateExternalSystem{}, input), nil
 }
 
-type updateExternalSystemStep struct {
+type updateExternalSystem struct {
 	dex.StepDefaultsNoWaitFor[JobSeekerData]
 	service patternsservice.ServiceDependency
 }
 
-func (step updateExternalSystemStep) Execute(
+func (step updateExternalSystem) Execute(
 	_ dex.Context,
 	input JobSeekerData,
 ) (*dex.StepDecision, error) {

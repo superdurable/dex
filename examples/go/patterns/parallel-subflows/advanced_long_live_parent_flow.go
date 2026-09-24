@@ -38,9 +38,9 @@ func NewAdvancedLongLiveParentFlow(exampleFlow *ExampleSubFlow) *AdvancedLongLiv
 
 func (flow *AdvancedLongLiveParentFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(longLiveInitStep{}),
-		dex.DefineStep(longLiveHandleRequestStep{}),
-		dex.DefineStep(longLiveHandleSubFlowStep{exampleFlow: flow.exampleFlow}),
+		dex.DefineStartStep(longLiveInit{}),
+		dex.DefineStep(longLiveHandleRequest{}),
+		dex.DefineStep(longLiveHandleSubFlow{exampleFlow: flow.exampleFlow}),
 	}
 }
 
@@ -75,13 +75,13 @@ func (*AdvancedLongLiveParentFlow) Stop(ctx dex.Context, _ dex.None) (*dex.RPCRe
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-type longLiveInitStep struct {
+type longLiveInit struct {
 	dex.StepDefaultsNoWaitFor[ParentInput]
 }
 
-func (longLiveInitStep) GetStepType() string { return "InitStep" }
+func (longLiveInit) GetStepType() string { return "Init" }
 
-func (longLiveInitStep) Execute(ctx dex.Context, input ParentInput) (*dex.StepDecision, error) {
+func (longLiveInit) Execute(ctx dex.Context, input ParentInput) (*dex.StepDecision, error) {
 	for _, request := range input.Requests {
 		if err := LongLiveRequestChannel.Publish(ctx, request); err != nil {
 			return nil, err
@@ -93,39 +93,39 @@ func (longLiveInitStep) Execute(ctx dex.Context, input ParentInput) (*dex.StepDe
 	count := concurrency(input.Concurrency)
 	movements := make([]dex.StepMovement, 0, count)
 	for index := 0; index < count; index++ {
-		movements = append(movements, dex.MovementOf(longLiveHandleRequestStep{}, nil))
+		movements = append(movements, dex.MovementOf(longLiveHandleRequest{}, nil))
 	}
 	return dex.GoToMany(movements...), nil
 }
 
-type longLiveHandleRequestStep struct{ dex.StepDefaults }
+type longLiveHandleRequest struct{ dex.StepDefaults }
 
-func (longLiveHandleRequestStep) GetStepType() string { return "HandleRequestStep" }
+func (longLiveHandleRequest) GetStepType() string { return "HandleRequest" }
 
-func (longLiveHandleRequestStep) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
+func (longLiveHandleRequest) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
 	return dex.Until(LongLiveRequestChannel.ForOne()), nil
 }
 
-func (longLiveHandleRequestStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+func (longLiveHandleRequest) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
 	requests, err := LongLiveRequestChannel.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return dex.GoTo(longLiveHandleSubFlowStep{}, requests[0]), nil
+	return dex.GoTo(longLiveHandleSubFlow{}, requests[0]), nil
 }
 
-type longLiveHandleSubFlowStep struct {
+type longLiveHandleSubFlow struct {
 	dex.StepDefaults
 	exampleFlow *ExampleSubFlow
 }
 
-func (longLiveHandleSubFlowStep) GetStepType() string { return "HandleSubFlowStep" }
+func (longLiveHandleSubFlow) GetStepType() string { return "HandleSubFlow" }
 
-func (step longLiveHandleSubFlowStep) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
+func (step longLiveHandleSubFlow) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
 	return dex.Until(dex.SubFlow(step.exampleFlow, request)), nil
 }
 
-func (longLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+func (longLiveHandleSubFlow) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
 	stopped, err := Stopped.Get(ctx)
 	if err != nil {
 		return nil, err
@@ -133,7 +133,7 @@ func (longLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDe
 	if stopped {
 		return dex.GracefulComplete(nil), nil
 	}
-	return dex.GoTo(longLiveHandleRequestStep{}, nil), nil
+	return dex.GoTo(longLiveHandleRequest{}, nil), nil
 }
 
 var (

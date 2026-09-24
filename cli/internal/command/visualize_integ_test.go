@@ -287,10 +287,10 @@ func TestVisualizePythonFanOutExtendGenerator(t *testing.T) {
 	require.True(t, graph.Valid, graph.Diagnostics)
 
 	for _, diagnostic := range graph.Diagnostics {
-		require.NotContains(t, diagnostic.Message, "Step DoWorkStep is not reachable")
+		require.NotContains(t, diagnostic.Message, "Step DoWork is not reachable")
 	}
-	require.True(t, hasEdge(graph.Edges, "transition", "decision:step:InitStep:65:16", "step:AwaitStep"))
-	require.True(t, hasEdge(graph.Edges, "transition", "decision:step:InitStep:65:16", "step:DoWorkStep"))
+	require.True(t, hasEdge(graph.Edges, "transition", "decision:step:InitStep:65:16", "step:Await"))
+	require.True(t, hasEdge(graph.Edges, "transition", "decision:step:InitStep:65:16", "step:DoWork"))
 }
 
 func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
@@ -362,9 +362,9 @@ func TestVisualizeProducesStructuredStepInternals(t *testing.T) {
 			require.NotNil(t, waits[0].Wait)
 			require.Equal(t, "anyOf", waits[0].Wait.Type)
 			if test.name == "python" {
-				require.Equal(t, "step:ChannelWaitStep", waits[0].ParentID)
+				require.Equal(t, "step:ChannelWait", waits[0].ParentID)
 			} else {
-				require.Equal(t, "step:channelWaitStep", waits[0].ParentID)
+				require.Equal(t, "step:channelWait", waits[0].ParentID)
 			}
 			require.Equal(t, []string{"channel", "timer"}, waitConditionKinds(waits[0].Wait.Conditions))
 			require.Contains(t, waits[0].Wait.Conditions[0].Label, ".for 1")
@@ -1182,7 +1182,7 @@ var Progress = dex.DefineStream[string]("Progress", 1024)
 type ProgressFlow struct{ dex.FlowDefaults }
 
 func (*ProgressFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(finishStep{})}
+	return []dex.StepDef{dex.DefineStartStep(finish{})}
 }
 
 func (*ProgressFlow) GetPersistenceSchema() dex.PersistenceSchema {
@@ -1196,9 +1196,9 @@ func (*ProgressFlow) Report(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.Non
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-type finishStep struct{ dex.StepDefaultsNoWaitFor[dex.None] }
+type finish struct{ dex.StepDefaultsNoWaitFor[dex.None] }
 
-func (finishStep) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
+func (finish) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(nil), nil
 }
 `

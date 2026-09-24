@@ -16,7 +16,7 @@ Changing the number or order of partitions remaps keys. Use a versioned parent s
 
 ## Core implementation
 
-The submitter first invokes the selected parent's RPC. If that parent is absent or no longer active, it starts the parent with the request as its initial input. If another submitter wins the start race, the start fails and **SubmitStep** retries. Its next execution invokes the RPC on the active parent. The initial request is not lost because the parent's **InitStep** publishes it to **RequestChannel**.
+The submitter first invokes the selected parent's RPC. If that parent is absent or no longer active, it starts the parent with the request as its initial input. If another submitter wins the start race, the start fails and **SubmitStep** retries. Its next execution invokes the RPC on the active parent. The initial request is not lost because the parent's **Init** publishes it to **RequestChannel**.
 
 <SdkTabs
   examples={{

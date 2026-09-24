@@ -31,20 +31,20 @@ type ExampleSubFlow struct{ dex.FlowDefaults }
 func NewExampleSubFlow() *ExampleSubFlow { return &ExampleSubFlow{} }
 
 func (*ExampleSubFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(doWorkStep{})}
+	return []dex.StepDef{dex.DefineStartStep(doWork{})}
 }
 
 func (*ExampleSubFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type doWorkStep struct {
+type doWork struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (doWorkStep) GetStepType() string { return "DoWorkStep" }
+func (doWork) GetStepType() string { return "DoWork" }
 
-func (doWorkStep) Execute(_ dex.Context, request string) (*dex.StepDecision, error) {
+func (doWork) Execute(_ dex.Context, request string) (*dex.StepDecision, error) {
 	time.Sleep(time.Duration(50+len(request)%10*50) * time.Millisecond)
 	return dex.GracefulComplete(request), nil
 }

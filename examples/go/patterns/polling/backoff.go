@@ -52,7 +52,7 @@ type pollingStep struct {
 	service patternsservice.ServiceDependency
 }
 
-func (pollingStep) GetStepType() string { return "PollingStep" }
+func (pollingStep) GetStepType() string { return "Polling" }
 
 func (pollingStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{

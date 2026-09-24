@@ -11,9 +11,9 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**HandleRequestStep.Execute** 持有 **CurrSubFlowNum** 的 Attribute lock 并加一；**HandleSubFlowStep.Execute** 持有同一把 lock 并减一。
+**HandleRequest.Execute** 持有 **CurrSubFlowNum** 的 Attribute lock 并加一；**HandleSubFlow.Execute** 持有同一把 lock 并减一。
 
-最后一个 active worker 使用 **ForceCompleteIfChannelsEmpty**。Dex 原子检查 **RequestChannel**：为空才完成；如果 RPC 已先发布新请求，则再次调度 **HandleRequestStep**。这里不能用应用代码先查 size 再完成，否则两次操作之间会产生竞态。
+最后一个 active worker 使用 **ForceCompleteIfChannelsEmpty**。Dex 原子检查 **RequestChannel**：为空才完成；如果 RPC 已先发布新请求，则再次调度 **HandleRequest**。这里不能用应用代码先查 size 再完成，否则两次操作之间会产生竞态。
 
 ## 核心实现
 
@@ -28,7 +28,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 <SdkSnippet lang="python">
 
 ```python
-class ShortLiveHandleSubFlowStep(Step[str]):
+class ShortLiveHandleSubFlow(Step[str]):
     def __init__(
         self,
         example_subflow: ExampleSubFlow,
@@ -40,7 +40,7 @@ class ShortLiveHandleSubFlowStep(Step[str]):
         self.curr_subflow_num = curr_subflow_num
 
     def get_step_type(self) -> str:
-        return "HandleSubFlowStep"
+        return "HandleSubFlow"
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(execute_lock_attributes=(self.curr_subflow_num.lock(),))
@@ -54,32 +54,32 @@ class ShortLiveHandleSubFlowStep(Step[str]):
         if current == 0:
             return force_complete_if_channels_empty(
                 None,
-                StepMovement.of(ShortLiveHandleRequestStep, None),
+                StepMovement.of(ShortLiveHandleRequest, None),
                 self.request_channel,
             )
-        return go_to(ShortLiveHandleRequestStep, None)
+        return go_to(ShortLiveHandleRequest, None)
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
-type shortLiveHandleSubFlowStep struct {
+type shortLiveHandleSubFlow struct {
 	dex.StepDefaults
 	exampleFlow *ExampleSubFlow
 }
 
-func (shortLiveHandleSubFlowStep) GetStepType() string { return "HandleSubFlowStep" }
+func (shortLiveHandleSubFlow) GetStepType() string { return "HandleSubFlow" }
 
-func (shortLiveHandleSubFlowStep) GetStepOptions() *dex.StepOptions {
+func (shortLiveHandleSubFlow) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(CurrSubFlowNum)}}
 }
 
-func (step shortLiveHandleSubFlowStep) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
+func (step shortLiveHandleSubFlow) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
 	return dex.Until(dex.SubFlow(step.exampleFlow, request)), nil
 }
 
-func (shortLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+func (shortLiveHandleSubFlow) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
 	current, err := CurrSubFlowNum.Get(ctx)
 	if err != nil {
 		return nil, err
@@ -92,10 +92,10 @@ func (shortLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepD
 		return dex.ForceCompleteIfChannelsEmpty(
 			nil,
 			[]dex.ChannelDef{RequestChannel},
-			dex.MovementOf(shortLiveHandleRequestStep{}, nil),
+			dex.MovementOf(shortLiveHandleRequest{}, nil),
 		), nil
 	}
-	return dex.GoTo(shortLiveHandleRequestStep{}, nil), nil
+	return dex.GoTo(shortLiveHandleRequest{}, nil), nil
 }
 ```
 
@@ -103,10 +103,10 @@ func (shortLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepD
 <SdkSnippet lang="java">
 
 ```java
-final class HandleSubFlowStep implements Step<String> {
+final class HandleSubFlow implements Step<String> {
     private final ExampleSubFlow exampleSubFlow;
 
-    HandleSubFlowStep(final ExampleSubFlow exampleSubFlow) {
+    HandleSubFlow(final ExampleSubFlow exampleSubFlow) {
         this.exampleSubFlow = exampleSubFlow;
     }
 
@@ -132,10 +132,10 @@ final class HandleSubFlowStep implements Step<String> {
         if (current == 0) {
             return StepDecision.forceCompleteIfChannelsEmpty(
                     null,
-                    StepMovement.of(HandleRequestStep.class, null),
+                    StepMovement.of(HandleRequest.class, null),
                     requestChannel);
         }
-        return StepDecision.goTo(HandleRequestStep.class, null);
+        return StepDecision.goTo(HandleRequest.class, null);
     }
 }
 ```
@@ -144,7 +144,7 @@ final class HandleSubFlowStep implements Step<String> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-class ShortLiveHandleSubFlowStep implements Step<string> {
+class ShortLiveHandleSubFlow implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public constructor(
@@ -153,7 +153,7 @@ class ShortLiveHandleSubFlowStep implements Step<string> {
   ) {}
 
   public getStepType(): string {
-    return "HandleSubFlowStep";
+    return "HandleSubFlow";
   }
 
   public getStepOptions(): StepOptions {
@@ -170,11 +170,11 @@ class ShortLiveHandleSubFlowStep implements Step<string> {
     if (current === 0) {
       return forceCompleteIfChannelsEmpty(
         null,
-        StepMovement.of(ShortLiveHandleRequestStep, undefined),
+        StepMovement.of(ShortLiveHandleRequest, undefined),
         requestChannel,
       );
     }
-    return goTo(ShortLiveHandleRequestStep, undefined);
+    return goTo(ShortLiveHandleRequest, undefined);
   }
 }
 ```
@@ -184,13 +184,13 @@ class ShortLiveHandleSubFlowStep implements Step<string> {
 
 ```rust
 #[derive(Default)]
-struct ShortLiveHandleSubFlowStep;
+struct ShortLiveHandleSubFlow;
 
-impl Step for ShortLiveHandleSubFlowStep {
+impl Step for ShortLiveHandleSubFlow {
     type Input = String;
 
     fn step_type(&self) -> &'static str {
-        "HandleSubFlowStep"
+        "HandleSubFlow"
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
@@ -210,11 +210,11 @@ impl Step for ShortLiveHandleSubFlowStep {
         if current == 0 {
             return Ok(StepDecision::force_complete_if_channels_empty(
                 (),
-                StepMovement::to(&ShortLiveHandleRequestStep, ()),
+                StepMovement::to(&ShortLiveHandleRequest, ()),
                 [REQUEST_CHANNEL.when_empty()],
             ));
         }
-        Ok(StepDecision::go_to(&ShortLiveHandleRequestStep, ()))
+        Ok(StepDecision::go_to(&ShortLiveHandleRequest, ()))
     }
 }
 ```

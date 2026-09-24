@@ -37,25 +37,25 @@ func NewStepExecutionLocalFlow() *StepExecutionLocalFlow {
 }
 
 func (*StepExecutionLocalFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(noteWaitStep{})}
+	return []dex.StepDef{dex.DefineStartStep(noteWait{})}
 }
 
 func (*StepExecutionLocalFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Channels: []dex.ChannelDef{Approval}}
 }
 
-type noteWaitStep struct {
+type noteWait struct {
 	dex.StepDefaults
 }
 
-func (noteWaitStep) WaitFor(ctx dex.Context, input int) (*dex.Wait, error) {
+func (noteWait) WaitFor(ctx dex.Context, input int) (*dex.Wait, error) {
 	if err := ctx.SetStepExecutionLocal("note", fmt.Sprintf("approval:%d", input)); err != nil {
 		return nil, err
 	}
 	return dex.Until(Approval.ForOne()), nil
 }
 
-func (noteWaitStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+func (noteWait) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
 	var note string
 	found, err := ctx.GetStepExecutionLocal("note", &note)
 	if err != nil {

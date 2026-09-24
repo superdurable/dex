@@ -39,7 +39,7 @@ from dex_examples.patterns.parallel_subflows.models import (
 )
 
 
-class LongLiveInitStep(Step[ParentInput]):
+class LongLiveInit(Step[ParentInput]):
     def __init__(
         self,
         request_channel: Channel[str],
@@ -49,7 +49,7 @@ class LongLiveInitStep(Step[ParentInput]):
         self.stopped = stopped
 
     def get_step_type(self) -> str:
-        return "InitStep"
+        return "Init"
 
     def execute(self, context: Context, input: ParentInput) -> StepDecision:
         for request in input.requests:
@@ -57,25 +57,25 @@ class LongLiveInitStep(Step[ParentInput]):
         self.stopped.set(context, False)
         concurrency = input.concurrency if input.concurrency > 0 else DEFAULT_CONCURRENCY
         return go_to_many(
-            *(StepMovement.of(LongLiveHandleRequestStep, None) for _ in range(concurrency))
+            *(StepMovement.of(LongLiveHandleRequest, None) for _ in range(concurrency))
         )
 
 
-class LongLiveHandleRequestStep(Step[None]):
+class LongLiveHandleRequest(Step[None]):
     def __init__(self, request_channel: Channel[str]) -> None:
         self.request_channel = request_channel
 
     def get_step_type(self) -> str:
-        return "HandleRequestStep"
+        return "HandleRequest"
 
     def wait_for(self, context: Context, input: None) -> Wait:
         return Wait.until(self.request_channel.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        return go_to(LongLiveHandleSubFlowStep, self.request_channel.results(context)[0])
+        return go_to(LongLiveHandleSubFlow, self.request_channel.results(context)[0])
 
 
-class LongLiveHandleSubFlowStep(Step[str]):
+class LongLiveHandleSubFlow(Step[str]):
     def __init__(
         self,
         example_subflow: ExampleSubFlow,
@@ -85,7 +85,7 @@ class LongLiveHandleSubFlowStep(Step[str]):
         self.stopped = stopped
 
     def get_step_type(self) -> str:
-        return "HandleSubFlowStep"
+        return "HandleSubFlow"
 
     def wait_for(self, context: Context, request: str) -> Wait:
         return Wait.until(SubFlow.run(self.example_subflow, request))
@@ -93,7 +93,7 @@ class LongLiveHandleSubFlowStep(Step[str]):
     def execute(self, context: Context, request: str) -> StepDecision:
         if self.stopped.get(context):
             return graceful_complete()
-        return go_to(LongLiveHandleRequestStep, None)
+        return go_to(LongLiveHandleRequest, None)
 
 
 class AdvancedLongLiveParentFlow(Flow[ParentInput]):
@@ -101,9 +101,9 @@ class AdvancedLongLiveParentFlow(Flow[ParentInput]):
     stopped = Attribute("Stopped", bool)
 
     def __init__(self, example_subflow: ExampleSubFlow) -> None:
-        self.init = LongLiveInitStep(self.request_channel, self.stopped)
-        self.handle_request = LongLiveHandleRequestStep(self.request_channel)
-        self.handle_subflow = LongLiveHandleSubFlowStep(example_subflow, self.stopped)
+        self.init = LongLiveInit(self.request_channel, self.stopped)
+        self.handle_request = LongLiveHandleRequest(self.request_channel)
+        self.handle_subflow = LongLiveHandleSubFlow(example_subflow, self.stopped)
 
     def get_steps(self) -> StepList[ParentInput]:
         return StepList.start_step(self.init).other_steps(

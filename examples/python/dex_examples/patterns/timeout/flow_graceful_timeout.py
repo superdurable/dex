@@ -32,7 +32,7 @@ from dex import (
 SLOW_TASK_DURATION = timedelta(seconds=65)
 
 
-class LongWaitStep(Step[bool]):
+class LongWait(Step[bool]):
     def wait_for(self, context: Context, input: bool) -> Wait:
         if input:
             return Wait.skip_immediately()
@@ -44,7 +44,7 @@ class LongWaitStep(Step[bool]):
 
 class FlowGracefulTimeout(Flow[bool]):
     def __init__(self) -> None:
-        self.long_wait_step = LongWaitStep()
+        self.long_wait_step = LongWait()
 
     def get_steps(self) -> StepList[bool]:
         return StepList.start_step(self.long_wait_step)

@@ -27,8 +27,8 @@ static NOTIFY: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("notify"));
 
 #[derive(Default)]
 pub struct ExampleFlow {
-    example: ExampleStep,
-    finish: FinishStep,
+    example: Example,
+    finish: Finish,
 }
 
 impl ExampleFlow {
@@ -64,9 +64,9 @@ impl Flow for ExampleFlow {
 }
 
 #[derive(Default)]
-struct ExampleStep;
+struct Example;
 
-impl Step for ExampleStep {
+impl Step for Example {
     type Input = i32;
 
     fn wait_for(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
@@ -75,14 +75,14 @@ impl Step for ExampleStep {
     }
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::go_to(&FinishStep, input + 1))
+        Ok(StepDecision::go_to(&Finish, input + 1))
     }
 }
 
 #[derive(Default)]
-struct FinishStep;
+struct Finish;
 
-impl Step for FinishStep {
+impl Step for Finish {
     type Input = i32;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {

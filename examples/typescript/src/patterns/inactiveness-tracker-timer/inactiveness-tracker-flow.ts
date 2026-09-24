@@ -34,9 +34,9 @@ export const TRACKER_DURATION_MS = 5 * 60 * 1_000;
 
 const activeChannel = new Channel("Active", voidCodec);
 
-class ProcessInactivenessStep implements Step<void> {
+class ProcessInactiveness implements Step<void> {
   public getStepType(): string {
-    return "ProcessInactivenessStep";
+    return "ProcessInactiveness";
   }
 
   public execute(_context: Context, _input: void): StepDecision {
@@ -45,9 +45,9 @@ class ProcessInactivenessStep implements Step<void> {
   }
 }
 
-class TrackerStep implements Step<void> {
+class Tracker implements Step<void> {
   public getStepType(): string {
-    return "TrackerStep";
+    return "Tracker";
   }
 
   public waitFor(_context: Context, _input: void): Wait {
@@ -59,15 +59,15 @@ class TrackerStep implements Step<void> {
 
   public execute(context: Context, _input: void): StepDecision {
     if (context.hasTimerFired()) {
-      return goTo(ProcessInactivenessStep, undefined);
+      return goTo(ProcessInactiveness, undefined);
     }
-    return goTo(TrackerStep, undefined);
+    return goTo(Tracker, undefined);
   }
 }
 
 export class InactivenessTrackerFlow implements Flow<void> {
-  private readonly trackerStep = new TrackerStep();
-  private readonly processInactivenessStep = new ProcessInactivenessStep();
+  private readonly trackerStep = new Tracker();
+  private readonly processInactivenessStep = new ProcessInactiveness();
 
   public getFlowType(): string {
     return "InactivenessTrackerFlow";

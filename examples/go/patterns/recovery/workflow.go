@@ -51,13 +51,13 @@ func NewFailureRecoveryFlow() *FailureRecoveryFlow {
 
 func (flow *FailureRecoveryFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(updateItemQuantityStep{database: flow.database}),
-		dex.DefineStep(chargeForItemsStep{
+		dex.DefineStartStep(updateItemQuantity{database: flow.database}),
+		dex.DefineStep(chargeForItems{
 			database:         flow.database,
 			paymentProcessor: flow.paymentProcessor,
 		}),
-		dex.DefineStep(updateQuantityRecoveryStep{database: flow.database}),
-		dex.DefineStep(voidPaymentRecoveryStep{
+		dex.DefineStep(updateQuantityRecovery{database: flow.database}),
+		dex.DefineStep(voidPaymentRecovery{
 			database:         flow.database,
 			paymentProcessor: flow.paymentProcessor,
 		}),
@@ -70,20 +70,20 @@ func (*FailureRecoveryFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	}
 }
 
-type updateItemQuantityStep struct {
+type updateItemQuantity struct {
 	dex.DefaultStepType
 	dex.NoWaitFor[FailureRecoveryWorkflowInput]
 	database databaseConnection
 }
 
-func (updateItemQuantityStep) GetStepOptions() *dex.StepOptions {
+func (updateItemQuantity) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
-		ExecuteFailure: dex.ProceedToOnExecuteFailure(updateQuantityRecoveryStep{}, nil),
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(updateQuantityRecovery{}, nil),
 		ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 5},
 	}
 }
 
-func (step updateItemQuantityStep) Execute(
+func (step updateItemQuantity) Execute(
 	ctx dex.Context,
 	input FailureRecoveryWorkflowInput,
 ) (*dex.StepDecision, error) {
@@ -93,24 +93,24 @@ func (step updateItemQuantityStep) Execute(
 	if err := step.database.reduceQuantity(input.ItemName, input.RequestedQuantity); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(chargeForItemsStep{}, input.RequestedQuantity), nil
+	return dex.GoTo(chargeForItems{}, input.RequestedQuantity), nil
 }
 
-type chargeForItemsStep struct {
+type chargeForItems struct {
 	dex.DefaultStepType
 	dex.NoWaitFor[int]
 	database         databaseConnection
 	paymentProcessor paymentProcessor
 }
 
-func (chargeForItemsStep) GetStepOptions() *dex.StepOptions {
+func (chargeForItems) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
-		ExecuteFailure: dex.ProceedToOnExecuteFailure(voidPaymentRecoveryStep{}, nil),
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(voidPaymentRecovery{}, nil),
 		ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 5},
 	}
 }
 
-func (step chargeForItemsStep) Execute(
+func (step chargeForItems) Execute(
 	ctx dex.Context,
 	_ int,
 ) (*dex.StepDecision, error) {
@@ -126,12 +126,12 @@ func (step chargeForItemsStep) Execute(
 	return dex.GracefulComplete(nil), nil
 }
 
-type updateQuantityRecoveryStep struct {
+type updateQuantityRecovery struct {
 	dex.StepDefaultsNoWaitFor[FailureRecoveryWorkflowInput]
 	database databaseConnection
 }
 
-func (step updateQuantityRecoveryStep) Execute(
+func (step updateQuantityRecovery) Execute(
 	ctx dex.Context,
 	input FailureRecoveryWorkflowInput,
 ) (*dex.StepDecision, error) {
@@ -139,13 +139,13 @@ func (step updateQuantityRecoveryStep) Execute(
 	return dex.ForceFail("Failed to process transaction"), nil
 }
 
-type voidPaymentRecoveryStep struct {
+type voidPaymentRecovery struct {
 	dex.StepDefaultsNoWaitFor[int]
 	database         databaseConnection
 	paymentProcessor paymentProcessor
 }
 
-func (step voidPaymentRecoveryStep) Execute(
+func (step voidPaymentRecovery) Execute(
 	ctx dex.Context,
 	_ int,
 ) (*dex.StepDecision, error) {
@@ -156,7 +156,7 @@ func (step voidPaymentRecoveryStep) Execute(
 	itemValue := step.database.getItemPrice(workflow.ItemName)
 	orderValue := float64(workflow.RequestedQuantity) * itemValue
 	step.paymentProcessor.voidPayment(orderValue)
-	return dex.GoTo(updateQuantityRecoveryStep{}, workflow), nil
+	return dex.GoTo(updateQuantityRecovery{}, workflow), nil
 }
 
 type databaseConnection struct{}

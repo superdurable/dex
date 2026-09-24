@@ -32,34 +32,34 @@ type DynamicParallelStepsFlow struct{ dex.FlowDefaults }
 func NewDynamicParallelStepsFlow() *DynamicParallelStepsFlow { return &DynamicParallelStepsFlow{} }
 
 func (*DynamicParallelStepsFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(dynamicInitStep{}), dex.DefineStep(dynamicWorkStep{})}
+	return []dex.StepDef{dex.DefineStartStep(dynamicInit{}), dex.DefineStep(dynamicWork{})}
 }
 
 func (*DynamicParallelStepsFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type dynamicInitStep struct {
+type dynamicInit struct {
 	dex.StepDefaultsNoWaitFor[[]string]
 }
 
-func (dynamicInitStep) GetStepType() string { return "InitStep" }
+func (dynamicInit) GetStepType() string { return "Init" }
 
-func (dynamicInitStep) Execute(_ dex.Context, items []string) (*dex.StepDecision, error) {
+func (dynamicInit) Execute(_ dex.Context, items []string) (*dex.StepDecision, error) {
 	movements := make([]dex.StepMovement, 0, len(items))
 	for _, item := range items {
-		movements = append(movements, dex.MovementOf(dynamicWorkStep{}, item))
+		movements = append(movements, dex.MovementOf(dynamicWork{}, item))
 	}
 	return dex.GoToMany(movements...), nil
 }
 
-type dynamicWorkStep struct {
+type dynamicWork struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (dynamicWorkStep) GetStepType() string { return "DoWorkStep" }
+func (dynamicWork) GetStepType() string { return "DoWork" }
 
-func (dynamicWorkStep) Execute(_ dex.Context, item string) (*dex.StepDecision, error) {
+func (dynamicWork) Execute(_ dex.Context, item string) (*dex.StepDecision, error) {
 	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
 	return dex.GracefulComplete(item), nil
 }

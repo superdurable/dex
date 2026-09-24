@@ -25,8 +25,8 @@ pub static ACTIVE_CHANNEL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new
 
 #[derive(Default)]
 pub struct InactivenessTrackerFlow {
-    tracker_step: TrackerStep,
-    process_inactiveness_step: ProcessInactivenessStep,
+    tracker_step: Tracker,
+    process_inactiveness_step: ProcessInactiveness,
 }
 
 impl InactivenessTrackerFlow {
@@ -52,9 +52,9 @@ impl Flow for InactivenessTrackerFlow {
 }
 
 #[derive(Default)]
-struct TrackerStep;
+struct Tracker;
 
-impl Step for TrackerStep {
+impl Step for Tracker {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
@@ -66,16 +66,16 @@ impl Step for TrackerStep {
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
         if context.has_any_timer_fired() {
-            return Ok(StepDecision::go_to(&ProcessInactivenessStep, ()));
+            return Ok(StepDecision::go_to(&ProcessInactiveness, ()));
         }
-        Ok(StepDecision::go_to(&TrackerStep, ()))
+        Ok(StepDecision::go_to(&Tracker, ()))
     }
 }
 
 #[derive(Default)]
-struct ProcessInactivenessStep;
+struct ProcessInactiveness;
 
-impl Step for ProcessInactivenessStep {
+impl Step for ProcessInactiveness {
     type Input = ();
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {

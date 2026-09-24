@@ -45,15 +45,15 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     public static final Channel<String> sellerOk = Channel.define("seller-ok", String.class);
 
     private final MyDependencyService service;
-    private final ChargeStep charge;
-    private final ShipStep ship;
-    private final RefundStep refund;
+    private final Charge charge;
+    private final Ship ship;
+    private final Refund refund;
 
     public OrderProcessingFlow(final MyDependencyService service) {
         this.service = service;
-        this.refund = new RefundStep(service);
-        this.ship = new ShipStep(service, this.refund);
-        this.charge = new ChargeStep(service, this.ship);
+        this.refund = new Refund(service);
+        this.ship = new Ship(service, this.refund);
+        this.charge = new Charge(service, this.ship);
     }
 
     @Override
@@ -77,18 +77,18 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         return RPCResult.of(orderStatus.get(context));
     }
 
-    static final class ChargeStep implements Step<OrderRequest> {
+    static final class Charge implements Step<OrderRequest> {
         private final MyDependencyService service;
-        private final ShipStep ship;
+        private final Ship ship;
 
-        ChargeStep(final MyDependencyService service, final ShipStep ship) {
+        Charge(final MyDependencyService service, final Ship ship) {
             this.service = service;
             this.ship = ship;
         }
 
         @Override
         public String getStepType() {
-            return "ChargeStep";
+            return "Charge";
         }
 
         @Override
@@ -110,22 +110,22 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepDecision execute(final Context context, final OrderRequest order) {
             service.chargeUser(order.email, order.customerId, order.amount);
             orderStatus.set(context, "charged");
-            return StepDecision.goTo(ShipStep.class, order);
+            return StepDecision.goTo(Ship.class, order);
         }
     }
 
-    static final class ShipStep implements Step<OrderRequest> {
+    static final class Ship implements Step<OrderRequest> {
         private final MyDependencyService service;
-        private final RefundStep refund;
+        private final Refund refund;
 
-        ShipStep(final MyDependencyService service, final RefundStep refund) {
+        Ship(final MyDependencyService service, final Refund refund) {
             this.service = service;
             this.refund = refund;
         }
 
         @Override
         public String getStepType() {
-            return "ShipStep";
+            return "Ship";
         }
 
         @Override
@@ -141,7 +141,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
                             .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .onExecuteFailureProceedTo(
-                            RefundStep.class,
+                            Refund.class,
                             StepOptions.newBuilder()
                                     .executeRetry(RetryPolicy.newBuilder()
                                             // .totalDuration(Duration.ofHours(1))
@@ -165,7 +165,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
                         order.email,
                         "Reminder: approve shipment",
                         "Please approve or provide a tracking number.");
-                return StepDecision.goTo(ShipStep.class, order);
+                return StepDecision.goTo(Ship.class, order);
             }
             service.shipItem(order.orderId, order.testFailAtShipping);
             orderStatus.set(context, "shipped");
@@ -173,16 +173,16 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         }
     }
 
-    static final class RefundStep implements Step<OrderRequest> {
+    static final class Refund implements Step<OrderRequest> {
         private final MyDependencyService service;
 
-        RefundStep(final MyDependencyService service) {
+        Refund(final MyDependencyService service) {
             this.service = service;
         }
 
         @Override
         public String getStepType() {
-            return "RefundStep";
+            return "Refund";
         }
 
         @Override

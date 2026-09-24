@@ -40,7 +40,7 @@ from dex_examples.patterns.interruptible.work_job_parameters_input import (
 INTERRUPT_VALUE = "cancel"
 
 
-class WorkAStep(Step[WorkJobParametersInput]):
+class WorkA(Step[WorkJobParametersInput]):
     def __init__(self, interrupt_signal: Attribute[str]) -> None:
         self.interrupt_signal = interrupt_signal
 
@@ -57,7 +57,7 @@ class WorkAStep(Step[WorkJobParametersInput]):
             return graceful_complete()
 
         if input.progress > input.job_upper_bound:
-            print("WorkAStep completed")
+            print("WorkA completed")
             return graceful_complete()
 
         print(
@@ -65,12 +65,12 @@ class WorkAStep(Step[WorkJobParametersInput]):
             f"Doing job {input.progress}"
         )
         return go_to(
-            WorkAStep,
+            WorkA,
             WorkJobParametersInput(input.job_upper_bound, input.progress + 1),
         )
 
 
-class WorkBStep(Step[WorkJobParametersInput]):
+class WorkB(Step[WorkJobParametersInput]):
     def __init__(self, interrupt_signal: Attribute[str]) -> None:
         self.interrupt_signal = interrupt_signal
 
@@ -87,7 +87,7 @@ class WorkBStep(Step[WorkJobParametersInput]):
             return graceful_complete()
 
         if input.progress > input.job_upper_bound:
-            print("WorkBStep completed")
+            print("WorkB completed")
             return graceful_complete()
 
         print(
@@ -95,7 +95,7 @@ class WorkBStep(Step[WorkJobParametersInput]):
             f"Processing job {input.progress}"
         )
         return go_to(
-            WorkBStep,
+            WorkB,
             WorkJobParametersInput(input.job_upper_bound, input.progress + 1),
         )
 
@@ -103,8 +103,8 @@ class WorkBStep(Step[WorkJobParametersInput]):
 class Init(Step[None]):
     def __init__(
         self,
-        work_a_step: WorkAStep,
-        work_b_step: WorkBStep,
+        work_a_step: WorkA,
+        work_b_step: WorkB,
         interrupt_signal: Attribute[str],
     ) -> None:
         self.work_a_step = work_a_step
@@ -114,8 +114,8 @@ class Init(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         parameters = WorkJobParametersInput(15, 1)
         return go_to_many(
-            StepMovement.of(WorkAStep, parameters),
-            StepMovement.of(WorkBStep, parameters),
+            StepMovement.of(WorkA, parameters),
+            StepMovement.of(WorkB, parameters),
         )
 
 
@@ -125,8 +125,8 @@ class InterruptibleFlow(Flow[None]):
     interrupt_signal = Attribute(DA_INTERRUPT_SIGNAL, str)
 
     def __init__(self) -> None:
-        self.work_a_step = WorkAStep(self.interrupt_signal)
-        self.work_b_step = WorkBStep(self.interrupt_signal)
+        self.work_a_step = WorkA(self.interrupt_signal)
+        self.work_b_step = WorkB(self.interrupt_signal)
         self.init = Init(
             self.work_a_step,
             self.work_b_step,

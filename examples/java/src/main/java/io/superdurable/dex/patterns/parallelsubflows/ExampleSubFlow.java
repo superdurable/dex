@@ -19,14 +19,14 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class ExampleSubFlow implements Flow<String> {
-    private final DoWorkStep doWorkStep = new DoWorkStep();
+    private final DoWork doWorkStep = new DoWork();
 
     @Override
     public StepList<String> getSteps() {
         return StepList.startStep(doWorkStep);
     }
 
-    static final class DoWorkStep implements Step<String> {
+    static final class DoWork implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;

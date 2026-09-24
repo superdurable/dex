@@ -46,17 +46,17 @@ class Init implements Step<void> {
   public execute(_context: Context, _input: void): StepDecision {
     const input: WorkJobParametersInput = { jobUpperBound: 15, progress: 1 };
     return goToMany(
-      StepMovement.of(WorkAStep, input),
-      StepMovement.of(WorkBStep, input),
+      StepMovement.of(WorkA, input),
+      StepMovement.of(WorkB, input),
     );
   }
 }
 
-class WorkAStep implements Step<WorkJobParametersInput> {
+class WorkA implements Step<WorkJobParametersInput> {
   public constructor(private readonly flow: InterruptibleFlow) {}
 
   public getStepType(): string {
-    return "WorkAStep";
+    return "WorkA";
   }
 
   public waitFor(_context: Context, _input: WorkJobParametersInput): Wait {
@@ -71,7 +71,7 @@ class WorkAStep implements Step<WorkJobParametersInput> {
     }
 
     if (input.progress > input.jobUpperBound) {
-      console.log("WorkAStep completed");
+      console.log("WorkA completed");
       return gracefulComplete();
     }
 
@@ -79,18 +79,18 @@ class WorkAStep implements Step<WorkJobParametersInput> {
       `[${context.flowId}][${context.stepExecutionId}]: Doing job ${input.progress}`,
     );
 
-    return goTo(WorkAStep, {
+    return goTo(WorkA, {
       jobUpperBound: input.jobUpperBound,
       progress: input.progress + 1,
     });
   }
 }
 
-class WorkBStep implements Step<WorkJobParametersInput> {
+class WorkB implements Step<WorkJobParametersInput> {
   public constructor(private readonly flow: InterruptibleFlow) {}
 
   public getStepType(): string {
-    return "WorkBStep";
+    return "WorkB";
   }
 
   public waitFor(_context: Context, _input: WorkJobParametersInput): Wait {
@@ -105,7 +105,7 @@ class WorkBStep implements Step<WorkJobParametersInput> {
     }
 
     if (input.progress > input.jobUpperBound) {
-      console.log("WorkBStep completed");
+      console.log("WorkB completed");
       return gracefulComplete();
     }
 
@@ -113,7 +113,7 @@ class WorkBStep implements Step<WorkJobParametersInput> {
       `[${context.flowId}][${context.stepExecutionId}]: Processing job ${input.progress}`,
     );
 
-    return goTo(WorkBStep, {
+    return goTo(WorkB, {
       jobUpperBound: input.jobUpperBound,
       progress: input.progress + 1,
     });
@@ -124,8 +124,8 @@ export class InterruptibleFlow implements Flow<void> {
   public readonly interruptSignal = new Attribute(DA_INTERRUPT_SIGNAL, stringCodec);
 
   private readonly initStep = new Init(this);
-  private readonly workAStep = new WorkAStep(this);
-  private readonly workBStep = new WorkBStep(this);
+  private readonly workAStep = new WorkA(this);
+  private readonly workBStep = new WorkB(this);
 
   public get workAStepDefinition(): Step<WorkJobParametersInput> {
     return this.workAStep;

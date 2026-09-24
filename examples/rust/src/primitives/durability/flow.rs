@@ -21,10 +21,10 @@ use dex_sdk::{
 
 #[derive(Default)]
 pub struct DurabilityFlow {
-    route: RouteDurabilityStep,
-    sync_work: SyncWorkStep,
-    async_work: AsyncWorkStep,
-    finish: FinishDurabilityStep,
+    route: RouteDurability,
+    sync_work: SyncWork,
+    async_work: AsyncWork,
+    finish: FinishDurability,
 }
 
 impl Flow for DurabilityFlow {
@@ -39,24 +39,24 @@ impl Flow for DurabilityFlow {
 }
 
 #[derive(Default)]
-struct RouteDurabilityStep;
+struct RouteDurability;
 
-impl Step for RouteDurabilityStep {
+impl Step for RouteDurability {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, mode: Self::Input) -> HandlerResult<StepDecision> {
         if mode == "async" {
-            Ok(StepDecision::go_to(&AsyncWorkStep, mode))
+            Ok(StepDecision::go_to(&AsyncWork, mode))
         } else {
-            Ok(StepDecision::go_to(&SyncWorkStep, mode))
+            Ok(StepDecision::go_to(&SyncWork, mode))
         }
     }
 }
 
 #[derive(Default)]
-struct SyncWorkStep;
+struct SyncWork;
 
-impl Step for SyncWorkStep {
+impl Step for SyncWork {
     type Input = String;
 
     fn options(&self) -> StepOptions<Self::Input> {
@@ -65,16 +65,16 @@ impl Step for SyncWorkStep {
 
     fn execute(&self, _context: &mut Context, mode: Self::Input) -> HandlerResult<StepDecision> {
         Ok(StepDecision::go_to(
-            &FinishDurabilityStep,
+            &FinishDurability,
             format!("sync:{mode}"),
         ))
     }
 }
 
 #[derive(Default)]
-struct AsyncWorkStep;
+struct AsyncWork;
 
-impl Step for AsyncWorkStep {
+impl Step for AsyncWork {
     type Input = String;
 
     fn options(&self) -> StepOptions<Self::Input> {
@@ -83,16 +83,16 @@ impl Step for AsyncWorkStep {
 
     fn execute(&self, _context: &mut Context, mode: Self::Input) -> HandlerResult<StepDecision> {
         Ok(StepDecision::go_to(
-            &FinishDurabilityStep,
+            &FinishDurability,
             format!("async:{mode}"),
         ))
     }
 }
 
 #[derive(Default)]
-struct FinishDurabilityStep;
+struct FinishDurability;
 
-impl Step for FinishDurabilityStep {
+impl Step for FinishDurability {
     type Input = String;
 
     fn wait_for(&self, _context: &mut Context, _label: Self::Input) -> HandlerResult<Wait> {

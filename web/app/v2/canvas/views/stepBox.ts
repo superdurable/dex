@@ -40,7 +40,28 @@ import type { Box, BoxRow, ViewOpts } from './types'
  * than an unpredictable reflow.
  */
 
-export const STEP_W = 244
+/**
+ * 200, and it is measured rather than picked.
+ *
+ * It was 244, which left the median card 37% full: most cards are a title over the
+ * word `runs`, and `runs` is 22px. Measured with real font metrics over all 121
+ * Step nodes in the shipped corpus — at the light theme's heavier 13px/700 title,
+ * which is the worse case — titles run p50 76px, p90 136px, max 178px. A 200px
+ * card leaves 180px of content, so every title in the corpus fits with nothing
+ * clipped; 192 clips one and 184 clips two.
+ *
+ * Nothing in the layout engine held it up: the real layout and the layoutQuality
+ * gate were re-run over every definition at 244 down to 160 with zero violations,
+ * and `edgeSpan` improves as the boxes narrow.
+ *
+ * Two cards get less than 180px and both were checked. A start Step spends 18px
+ * on its band (canvas.css) leaving 163px, against a widest start title of 136px.
+ * And a card carrying the `needs you` badge loses ~74px to it — but the badge is
+ * run-only, so it never appears in the definition view this was measured against.
+ * Fixing the badge to stop taxing the title is the follow-up that would let this
+ * go narrower still.
+ */
+export const STEP_W = 200
 
 /**
  * Height the reason strip needs: 3 padding-top + 1 border-top + 14 line (10.5px at 1.35) + 2 flex gap,
@@ -467,13 +488,19 @@ export function stepBox(
     recovery: c.recovery,
     bar: c.bar,
     /**
+     * Where the Flow begins is known before any run, so it does not queue for the emphasis slot.
+     * It used to, and it lost: `c.emphasis` is set whenever the Step is planned, failed, or the one
+     * being awaited, so the start mark went missing on exactly the Steps a reader was watching.
+     */
+    isStart: step.isStart || undefined,
+    /**
      * During a run, run state wins the emphasis slot.
      *
-     * Structural marks (start, hub) are about the DEFINITION and are still true, but "this failed" or
-     * "this is what we are waiting on" is what a reader needs at that moment. Only a CONTROL hub gets
-     * the structural warning anyway — a compensation target collecting failures is correct saga
-     * structure, not a drawing problem.
+     * A hub is a claim about the DEFINITION and is still true, but "this failed" or "this is what we
+     * are waiting on" is what a reader needs at that moment. Only a CONTROL hub gets the structural
+     * warning anyway — a compensation target collecting failures is correct saga structure, not a
+     * drawing problem.
      */
-    emphasis: c.emphasis ?? (step.isStart ? 'start' : step.isHub ? 'hub' : undefined),
+    emphasis: c.emphasis ?? (step.isHub ? 'hub' : undefined),
   }
 }

@@ -49,10 +49,10 @@
       }
     },
     {
-      "id": "decision:step:CustomerSummaryCompletedStep:201:9",
+      "id": "decision:step:CustomerSummaryCompleted:201:9",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:CustomerSummaryCompletedStep",
+      "parentId": "step:CustomerSummaryCompleted",
       "phase": "execute",
       "span": {
         "startLine": 201,
@@ -65,10 +65,10 @@
       }
     },
     {
-      "id": "decision:step:CustomerSummaryExecuteFailedStep:249:9",
+      "id": "decision:step:CustomerSummaryExecuteFailed:249:9",
       "kind": "decision",
       "name": "forceFail",
-      "parentId": "step:CustomerSummaryExecuteFailedStep",
+      "parentId": "step:CustomerSummaryExecuteFailed",
       "phase": "execute",
       "span": {
         "startLine": 249,
@@ -81,10 +81,10 @@
       }
     },
     {
-      "id": "decision:step:CustomerSummaryFailedStep:215:9",
+      "id": "decision:step:CustomerSummaryFailed:215:9",
       "kind": "decision",
       "name": "forceFail",
-      "parentId": "step:CustomerSummaryFailedStep",
+      "parentId": "step:CustomerSummaryFailed",
       "phase": "execute",
       "span": {
         "startLine": 215,
@@ -97,10 +97,10 @@
       }
     },
     {
-      "id": "decision:step:CustomerSummaryReconcileFailedStep:239:9",
+      "id": "decision:step:CustomerSummaryReconcileFailed:239:9",
       "kind": "decision",
       "name": "forceFail",
-      "parentId": "step:CustomerSummaryReconcileFailedStep",
+      "parentId": "step:CustomerSummaryReconcileFailed",
       "phase": "execute",
       "span": {
         "startLine": 239,
@@ -113,10 +113,10 @@
       }
     },
     {
-      "id": "decision:step:CustomerSummaryReconciledStep:225:9",
+      "id": "decision:step:CustomerSummaryReconciled:225:9",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:CustomerSummaryReconciledStep",
+      "parentId": "step:CustomerSummaryReconciled",
       "phase": "execute",
       "span": {
         "startLine": 225,
@@ -207,75 +207,75 @@
       }
     },
     {
-      "id": "step:CustomerSummaryCompletedStep",
+      "id": "step:CustomerSummaryCompleted",
       "kind": "step",
-      "name": "CustomerSummaryCompletedStep",
+      "name": "CustomerSummaryCompleted",
       "phase": "execute",
       "span": {
         "startLine": 110,
         "startColumn": 3,
         "endLine": 110,
-        "endColumn": 49
+        "endColumn": 45
       },
       "metadata": {
         "explanation": "Complete after OpenAI confirms the generated customer summary."
       }
     },
     {
-      "id": "step:CustomerSummaryExecuteFailedStep",
+      "id": "step:CustomerSummaryExecuteFailed",
       "kind": "step",
-      "name": "CustomerSummaryExecuteFailedStep",
+      "name": "CustomerSummaryExecuteFailed",
       "phase": "execute",
       "span": {
         "startLine": 114,
         "startColumn": 3,
         "endLine": 114,
-        "endColumn": 53
+        "endColumn": 49
       },
       "metadata": {
         "explanation": "Fail after the generation Step exhausts its retry policy."
       }
     },
     {
-      "id": "step:CustomerSummaryFailedStep",
+      "id": "step:CustomerSummaryFailed",
       "kind": "step",
-      "name": "CustomerSummaryFailedStep",
+      "name": "CustomerSummaryFailed",
       "phase": "execute",
       "span": {
         "startLine": 111,
         "startColumn": 3,
         "endLine": 111,
-        "endColumn": 46
+        "endColumn": 42
       },
       "metadata": {
         "explanation": "Fail after OpenAI rejects the generation request or local input is invalid."
       }
     },
     {
-      "id": "step:CustomerSummaryReconcileFailedStep",
+      "id": "step:CustomerSummaryReconcileFailed",
       "kind": "step",
-      "name": "CustomerSummaryReconcileFailedStep",
+      "name": "CustomerSummaryReconcileFailed",
       "phase": "execute",
       "span": {
         "startLine": 113,
         "startColumn": 3,
         "endLine": 113,
-        "endColumn": 55
+        "endColumn": 51
       },
       "metadata": {
         "explanation": "Fail when retrieval cannot confirm the uncertain model response."
       }
     },
     {
-      "id": "step:CustomerSummaryReconciledStep",
+      "id": "step:CustomerSummaryReconciled",
       "kind": "step",
-      "name": "CustomerSummaryReconciledStep",
+      "name": "CustomerSummaryReconciled",
       "phase": "execute",
       "span": {
         "startLine": 112,
         "startColumn": 3,
         "endLine": 112,
-        "endColumn": 50
+        "endColumn": 46
       },
       "metadata": {
         "explanation": "Complete after retrieval confirms the uncertain model response."
@@ -360,13 +360,13 @@
       "id": "edge:0004",
       "kind": "transition",
       "from": "step:GenerateCustomerSummary",
-      "to": "step:CustomerSummaryCompletedStep",
+      "to": "step:CustomerSummaryCompleted",
       "label": "completed",
       "span": {
         "startLine": 85,
         "startColumn": 21,
         "endLine": 85,
-        "endColumn": 68
+        "endColumn": 64
       },
       "metadata": {
         "connectorBranch": true
@@ -376,7 +376,7 @@
       "id": "edge:0005",
       "kind": "failure_transition",
       "from": "step:GenerateCustomerSummary",
-      "to": "step:CustomerSummaryExecuteFailedStep",
+      "to": "step:CustomerSummaryExecuteFailed",
       "label": "Execute failure",
       "metadata": {
         "skipWaitFor": true
@@ -386,13 +386,13 @@
       "id": "edge:0006",
       "kind": "transition",
       "from": "step:GenerateCustomerSummary",
-      "to": "step:CustomerSummaryFailedStep",
+      "to": "step:CustomerSummaryFailed",
       "label": "defect",
       "span": {
         "startLine": 88,
         "startColumn": 21,
         "endLine": 88,
-        "endColumn": 65
+        "endColumn": 61
       },
       "metadata": {
         "connectorBranch": true
@@ -402,13 +402,13 @@
       "id": "edge:0007",
       "kind": "transition",
       "from": "step:GenerateCustomerSummary",
-      "to": "step:CustomerSummaryFailedStep",
+      "to": "step:CustomerSummaryFailed",
       "label": "failed",
       "span": {
         "startLine": 86,
         "startColumn": 21,
         "endLine": 86,
-        "endColumn": 65
+        "endColumn": 61
       },
       "metadata": {
         "connectorBranch": true
@@ -444,13 +444,13 @@
       "id": "edge:0010",
       "kind": "transition",
       "from": "step:ReconcileCustomerSummary",
-      "to": "step:CustomerSummaryReconcileFailedStep",
+      "to": "step:CustomerSummaryReconcileFailed",
       "label": "defect",
       "span": {
         "startLine": 107,
         "startColumn": 21,
         "endLine": 107,
-        "endColumn": 74
+        "endColumn": 70
       },
       "metadata": {
         "connectorBranch": true
@@ -460,13 +460,13 @@
       "id": "edge:0011",
       "kind": "transition",
       "from": "step:ReconcileCustomerSummary",
-      "to": "step:CustomerSummaryReconcileFailedStep",
+      "to": "step:CustomerSummaryReconcileFailed",
       "label": "failed",
       "span": {
         "startLine": 106,
         "startColumn": 21,
         "endLine": 106,
-        "endColumn": 74
+        "endColumn": 70
       },
       "metadata": {
         "connectorBranch": true
@@ -476,13 +476,13 @@
       "id": "edge:0012",
       "kind": "transition",
       "from": "step:ReconcileCustomerSummary",
-      "to": "step:CustomerSummaryReconciledStep",
+      "to": "step:CustomerSummaryReconciled",
       "label": "found",
       "span": {
         "startLine": 105,
         "startColumn": 21,
         "endLine": 105,
-        "endColumn": 69
+        "endColumn": 65
       },
       "metadata": {
         "connectorBranch": true
@@ -496,7 +496,7 @@
       "label": "Generation",
       "stepIds": [
         "step:GenerateCustomerSummary",
-        "step:CustomerSummaryCompletedStep"
+        "step:CustomerSummaryCompleted"
       ]
     },
     {
@@ -504,22 +504,22 @@
       "label": "Recovery",
       "stepIds": [
         "step:ReconcileCustomerSummary",
-        "step:CustomerSummaryReconciledStep"
+        "step:CustomerSummaryReconciled"
       ]
     },
     {
       "id": "failure",
       "label": "Failure",
       "stepIds": [
-        "step:CustomerSummaryFailedStep",
-        "step:CustomerSummaryReconcileFailedStep"
+        "step:CustomerSummaryFailed",
+        "step:CustomerSummaryReconcileFailed"
       ]
     },
     {
       "id": "execute-failure",
       "label": "Execute Failure",
       "stepIds": [
-        "step:CustomerSummaryExecuteFailedStep"
+        "step:CustomerSummaryExecuteFailed"
       ]
     }
   ],

@@ -114,7 +114,7 @@ impl Step for BackoffPoll {
 
 #[derive(Default)]
 pub struct IterationFlow {
-    iteration: IterationStep,
+    iteration: Iteration,
 }
 
 impl Flow for IterationFlow {
@@ -125,12 +125,12 @@ impl Flow for IterationFlow {
 }
 
 #[derive(Default)]
-struct IterationStep;
+struct Iteration;
 
-impl Step for IterationStep {
+impl Step for Iteration {
     type Input = String;
     fn step_type(&self) -> &'static str {
-        "IterationStep"
+        "Iteration"
     }
     fn execute(&self, _: &mut Context, page_token: String) -> HandlerResult<StepDecision> {
         let next_page_token = match page_token.as_str() {
@@ -141,10 +141,7 @@ impl Step for IterationStep {
         if next_page_token.is_empty() {
             Ok(StepDecision::graceful_complete(()))
         } else {
-            Ok(StepDecision::go_to(
-                &IterationStep,
-                next_page_token.to_owned(),
-            ))
+            Ok(StepDecision::go_to(&Iteration, next_page_token.to_owned()))
         }
     }
 }

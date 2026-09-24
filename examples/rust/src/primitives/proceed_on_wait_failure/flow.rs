@@ -19,8 +19,8 @@ use dex_sdk::{
 
 #[derive(Default)]
 pub struct ProceedOnWaitFailureFlow {
-    failing_wait: FailingWaitStep,
-    finish: FinishStep,
+    failing_wait: FailingWait,
+    finish: Finish,
 }
 
 impl Flow for ProceedOnWaitFailureFlow {
@@ -32,9 +32,9 @@ impl Flow for ProceedOnWaitFailureFlow {
 }
 
 #[derive(Default)]
-struct FailingWaitStep;
+struct FailingWait;
 
-impl Step for FailingWaitStep {
+impl Step for FailingWait {
     type Input = String;
 
     fn options(&self) -> StepOptions<Self::Input> {
@@ -57,17 +57,14 @@ impl Step for FailingWaitStep {
                 "waitFor failure was not reported",
             ));
         }
-        Ok(StepDecision::go_to(
-            &FinishStep,
-            format!("{input}_recovered"),
-        ))
+        Ok(StepDecision::go_to(&Finish, format!("{input}_recovered")))
     }
 }
 
 #[derive(Default)]
-struct FinishStep;
+struct Finish;
 
-impl Step for FinishStep {
+impl Step for Finish {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {

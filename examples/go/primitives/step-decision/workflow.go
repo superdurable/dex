@@ -36,12 +36,12 @@ func NewStepDecisionFlow() *StepDecisionFlow {
 
 func (*StepDecisionFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(routeStep{}),
-		dex.DefineStep(carrierAStep{}),
-		dex.DefineStep(carrierBStep{}),
+		dex.DefineStartStep(route{}),
+		dex.DefineStep(carrierA{}),
+		dex.DefineStep(carrierB{}),
 		dex.DefineStep(winnerStep{}),
-		dex.DefineStep(recordQuoteStep{}),
-		dex.DefineStep(branchWorkerStep{}),
+		dex.DefineStep(recordQuote{}),
+		dex.DefineStep(branchWorker{}),
 	}
 }
 
@@ -53,34 +53,34 @@ type StepDecisionInput struct {
 	Mode string
 }
 
-type routeStep struct {
+type route struct {
 	dex.StepDefaultsNoWaitFor[StepDecisionInput]
 }
 
-func (routeStep) Execute(_ dex.Context, input StepDecisionInput) (*dex.StepDecision, error) {
+func (route) Execute(_ dex.Context, input StepDecisionInput) (*dex.StepDecision, error) {
 	switch input.Mode {
 	case "graceful":
 		return dex.GracefulComplete("done"), nil
 	case "dead-end":
 		return dex.GoToMany(
-			dex.MovementOf(branchWorkerStep{}, "left"),
-			dex.MovementOf(branchWorkerStep{}, "right"),
+			dex.MovementOf(branchWorker{}, "left"),
+			dex.MovementOf(branchWorker{}, "right"),
 		), nil
 	default:
 		quote := Quote{Carrier: "winner", Price: 9}
 		return dex.GoToMany(
-			dex.MovementOf(carrierAStep{}, Quote{Carrier: "A", Price: 10}),
-			dex.MovementOf(carrierBStep{}, Quote{Carrier: "B", Price: 12}),
+			dex.MovementOf(carrierA{}, Quote{Carrier: "A", Price: 10}),
+			dex.MovementOf(carrierB{}, Quote{Carrier: "B", Price: 12}),
 			dex.MovementOf(winnerStep{}, quote),
 		), nil
 	}
 }
 
-type branchWorkerStep struct {
+type branchWorker struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (branchWorkerStep) Execute(_ dex.Context, _ string) (*dex.StepDecision, error) {
+func (branchWorker) Execute(_ dex.Context, _ string) (*dex.StepDecision, error) {
 	return dex.DeadEnd(), nil
 }
 
@@ -89,27 +89,27 @@ type Quote struct {
 	Price   int
 }
 
-type carrierAStep struct {
+type carrierA struct {
 	dex.StepDefaults
 }
 
-func (carrierAStep) WaitFor(_ dex.Context, _ Quote) (*dex.Wait, error) {
+func (carrierA) WaitFor(_ dex.Context, _ Quote) (*dex.Wait, error) {
 	return dex.AnyOf(dex.Timer(2 * time.Second)), nil
 }
 
-func (carrierAStep) Execute(_ dex.Context, _ Quote) (*dex.StepDecision, error) {
+func (carrierA) Execute(_ dex.Context, _ Quote) (*dex.StepDecision, error) {
 	return dex.DeadEnd(), nil
 }
 
-type carrierBStep struct {
+type carrierB struct {
 	dex.StepDefaults
 }
 
-func (carrierBStep) WaitFor(_ dex.Context, _ Quote) (*dex.Wait, error) {
+func (carrierB) WaitFor(_ dex.Context, _ Quote) (*dex.Wait, error) {
 	return dex.AnyOf(dex.Timer(2 * time.Second)), nil
 }
 
-func (carrierBStep) Execute(_ dex.Context, _ Quote) (*dex.StepDecision, error) {
+func (carrierB) Execute(_ dex.Context, _ Quote) (*dex.StepDecision, error) {
 	return dex.DeadEnd(), nil
 }
 
@@ -118,15 +118,15 @@ type winnerStep struct {
 }
 
 func (winnerStep) Execute(_ dex.Context, quote Quote) (*dex.StepDecision, error) {
-	return dex.GoTo(recordQuoteStep{}, quote).
-		CancelSteps(carrierAStep{}, carrierBStep{}), nil
+	return dex.GoTo(recordQuote{}, quote).
+		CancelSteps(carrierA{}, carrierB{}), nil
 }
 
-type recordQuoteStep struct {
+type recordQuote struct {
 	dex.StepDefaultsNoWaitFor[Quote]
 }
 
-func (recordQuoteStep) Execute(_ dex.Context, quote Quote) (*dex.StepDecision, error) {
+func (recordQuote) Execute(_ dex.Context, quote Quote) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(quote), nil
 }
 

@@ -7,7 +7,7 @@
   },
   "flow": {
     "name": "FlowGracefulTimeout",
-    "startStepId": "step:LongWaitStep",
+    "startStepId": "step:LongWait",
     "span": {
       "startLine": 45,
       "startColumn": 1,
@@ -17,10 +17,10 @@
   },
   "nodes": [
     {
-      "id": "decision:step:LongWaitStep:42:16",
+      "id": "decision:step:LongWait:42:16",
       "kind": "decision",
       "name": "forceComplete",
-      "parentId": "step:LongWaitStep",
+      "parentId": "step:LongWait",
       "phase": "execute",
       "span": {
         "startLine": 42,
@@ -49,9 +49,9 @@
       }
     },
     {
-      "id": "step:LongWaitStep",
+      "id": "step:LongWait",
       "kind": "step",
-      "name": "LongWaitStep",
+      "name": "LongWait",
       "phase": "wait_for+execute",
       "start": true,
       "span": {
@@ -73,10 +73,10 @@
       }
     },
     {
-      "id": "wait-dispatch:LongWaitStep",
+      "id": "wait-dispatch:LongWait",
       "kind": "wait_dispatch",
       "name": "WaitFor",
-      "parentId": "step:LongWaitStep",
+      "parentId": "step:LongWait",
       "phase": "wait_for",
       "span": {
         "startLine": 36,
@@ -86,10 +86,10 @@
       }
     },
     {
-      "id": "wait:LongWaitStep:38:20:0",
+      "id": "wait:LongWait:38:20:0",
       "kind": "wait",
       "name": "skipWaitImmediately",
-      "parentId": "step:LongWaitStep",
+      "parentId": "step:LongWait",
       "condition": "input",
       "phase": "wait_for",
       "span": {
@@ -104,10 +104,10 @@
       }
     },
     {
-      "id": "wait:LongWaitStep:39:16:1",
+      "id": "wait:LongWait:39:16:1",
       "kind": "wait",
       "name": "until",
-      "parentId": "step:LongWaitStep",
+      "parentId": "step:LongWait",
       "condition": "not (input)",
       "phase": "wait_for",
       "span": {

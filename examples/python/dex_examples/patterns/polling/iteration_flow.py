@@ -15,16 +15,16 @@
 from dex import Context, Flow, PersistenceSchema, Step, StepDecision, StepList, go_to, graceful_complete
 
 
-class IterationStep(Step[str]):
+class Iteration(Step[str]):
     def execute(self, context: Context, page_token: str) -> StepDecision:
         next_page_token = "page-2" if not page_token else "page-3" if page_token == "page-2" else ""
         print(f"Migrating page {page_token}")
-        return graceful_complete() if not next_page_token else go_to(IterationStep, next_page_token)
+        return graceful_complete() if not next_page_token else go_to(Iteration, next_page_token)
 
 
 class IterationFlow(Flow[str]):
     def __init__(self) -> None:
-        self.iteration_step = IterationStep()
+        self.iteration_step = Iteration()
 
     def get_steps(self) -> StepList[str]:
         return StepList.start_step(self.iteration_step)

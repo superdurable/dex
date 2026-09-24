@@ -21,7 +21,7 @@ use dex_sdk::{
 
 #[derive(Default)]
 pub struct RetryFlow {
-    start: RetryStep,
+    start: Retry,
 }
 
 impl Flow for RetryFlow {
@@ -33,9 +33,9 @@ impl Flow for RetryFlow {
 }
 
 #[derive(Default)]
-struct RetryStep;
+struct Retry;
 
-impl Step for RetryStep {
+impl Step for Retry {
     type Input = i32;
 
     fn options(&self) -> StepOptions<Self::Input> {

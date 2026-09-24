@@ -47,7 +47,7 @@ func NewManualRecoveryFlow() *ManualRecoveryFlow {
 
 func (*ManualRecoveryFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(doWorkStep{}),
+		dex.DefineStartStep(doWork{}),
 		dex.DefineStep(manualStep{}),
 	}
 }
@@ -85,11 +85,11 @@ func (*ManualRecoveryFlow) Skip(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-type doWorkStep struct {
+type doWork struct {
 	dex.StepDefaultsNoWaitFor[bool]
 }
 
-func (doWorkStep) GetStepOptions() *dex.StepOptions {
+func (doWork) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
 			InitialInterval:    time.Second,
@@ -101,7 +101,7 @@ func (doWorkStep) GetStepOptions() *dex.StepOptions {
 	}
 }
 
-func (doWorkStep) Execute(
+func (doWork) Execute(
 	_ dex.Context,
 	shouldFail bool,
 ) (*dex.StepDecision, error) {
@@ -134,7 +134,7 @@ func (manualStep) Execute(
 		return nil, err
 	}
 	if len(retryResults) > 0 {
-		return dex.GoTo(doWorkStep{}, false), nil
+		return dex.GoTo(doWork{}, false), nil
 	}
 	return dex.ForceFail("manual recovery skipped"), nil
 }

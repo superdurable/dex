@@ -41,11 +41,11 @@ def execute(self, context: Context, input: int) -> StepDecision:
   <SdkSnippet lang="go">
 
 ```go
-func (ExampleStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
-	return dex.GoTo(stepSecondStep{}, input+1), nil
+func (Example) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+	return dex.GoTo(stepSecond{}, input+1), nil
 }
 
-func (stepSecondStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+func (stepSecond) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(input + 1), nil
 }
 ```
@@ -127,7 +127,7 @@ class StepSecond(Step[int]):
         return graceful_complete(input + 1)
 
 
-class ExampleStep(Step[int]):
+class Example(Step[int]):
     def __init__(self, second: StepSecond) -> None:
         self.second = second
 
@@ -144,23 +144,23 @@ class ExampleStep(Step[int]):
 ```go
 var Approval = dex.DefineChannel[string]("Approval")
 
-type ExampleStep struct {
+type Example struct {
 	dex.StepDefaults
 }
 
-func (ExampleStep) WaitFor(_ dex.Context, _ int) (*dex.Wait, error) {
+func (Example) WaitFor(_ dex.Context, _ int) (*dex.Wait, error) {
 	return dex.Until(Approval.ForOne()), nil
 }
 
-func (ExampleStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
-	return dex.GoTo(stepSecondStep{}, input+1), nil
+func (Example) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+	return dex.GoTo(stepSecond{}, input+1), nil
 }
 
-type stepSecondStep struct {
+type stepSecond struct {
 	dex.StepDefaultsNoWaitFor[int]
 }
 
-func (stepSecondStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+func (stepSecond) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(input + 1), nil
 }
 ```
@@ -169,7 +169,7 @@ func (stepSecondStep) Execute(_ dex.Context, input int) (*dex.StepDecision, erro
   <SdkSnippet lang="java">
 
 ```java
-final class ExampleStep implements Step<Integer> {
+final class Example implements Step<Integer> {
     @Override
     public Class<Integer> getInputType() {
         return Integer.class;
@@ -205,13 +205,13 @@ static final class StepSecond implements Step<Integer> {
 ```typescript
 const approval = new Channel("Approval", stringCodec);
 
-class ExampleStep implements Step<number> {
+class Example implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public constructor(private readonly flow: StepFlow) {}
 
   public getStepType(): string {
-    return "ExampleStep";
+    return "Example";
   }
 
   public waitFor(_context: Context, _input: number): Wait {
@@ -243,9 +243,9 @@ class StepSecond implements Step<number> {
 static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
 
 #[derive(Default)]
-struct ExampleStep;
+struct Example;
 
-impl Step for ExampleStep {
+impl Step for Example {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
@@ -407,18 +407,18 @@ WaitFor method retry 耗尽时：
 <SdkSnippet lang="go">
 
 ```go
-func (failingWaitStep) GetStepOptions() *dex.StepOptions {
+func (failingWait) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
 		WaitForFailure: dex.ProceedOnWaitForFailure,
 	}
 }
 
-func (failingWaitStep) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
+func (failingWait) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
 	return nil, fmt.Errorf("planned WaitFor failure")
 }
 
-func (failingWaitStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+func (failingWait) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
 	if !ctx.WaitForMethodFailed() {
 		return nil, fmt.Errorf("waitFor failure was not reported")
 	}
@@ -448,7 +448,7 @@ public StepDecision execute(final Context context, final String input) {
     if (!context.waitForMethodFailed()) {
         throw new IllegalStateException("waitFor failure was not reported");
     }
-    return StepDecision.goTo(FinishStep.class, input + "_recovered");
+    return StepDecision.goTo(Finish.class, input + "_recovered");
 }
 ```
 
@@ -468,7 +468,7 @@ def wait_for(self, context: Context, input: str) -> Wait:
 def execute(self, context: Context, input: str) -> StepDecision:
     if not context.wait_for_method_failed():
         raise RuntimeError("waitFor failure was not reported")
-    return go_to(FinishStep, f"{input}_recovered")
+    return go_to(Finish, f"{input}_recovered")
 ```
 
 </SdkSnippet>
@@ -490,7 +490,7 @@ public execute(context: Context, input: string): StepDecision {
   if (!context.waitForMethodFailed()) {
     throw new Error("waitFor failure was not reported");
   }
-  return goTo(FinishStep, `${input}_recovered`);
+  return goTo(Finish, `${input}_recovered`);
 }
 ```
 
@@ -515,7 +515,7 @@ fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<St
             "waitFor failure was not reported",
         ));
     }
-    Ok(StepDecision::go_to(&FinishStep, format!("{input}_recovered")))
+    Ok(StepDecision::go_to(&Finish, format!("{input}_recovered")))
 }
 ```
 
@@ -537,9 +537,9 @@ Execute method retry 耗尽时，onExecuteFailureProceedTo / ExecuteFailure.proc
 <SdkSnippet lang="go">
 
 ```go
-func (updateItemQuantityStep) GetStepOptions() *dex.StepOptions {
+func (updateItemQuantity) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
-		ExecuteFailure: dex.ProceedToOnExecuteFailure(updateQuantityRecoveryStep{}, nil),
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(updateQuantityRecovery{}, nil),
 		ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 5},
 	}
 }

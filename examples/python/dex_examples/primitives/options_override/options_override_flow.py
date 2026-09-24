@@ -30,8 +30,8 @@ from dex import (
 )
 
 
-class OverrideFirstStep(Step[str]):
-    def __init__(self, second: OverrideSecondStep) -> None:
+class OverrideFirst(Step[str]):
+    def __init__(self, second: OverrideSecond) -> None:
         self.second = second
 
     def execute(self, context: Context, input: str) -> StepDecision:
@@ -40,10 +40,10 @@ class OverrideFirstStep(Step[str]):
             wait_for_failure=WaitForFailurePolicy.PROCEED,
         )
         payload = f"{input}_state1"
-        return go_to_many(StepMovement.of(OverrideSecondStep, payload, options=override))
+        return go_to_many(StepMovement.of(OverrideSecond, payload, options=override))
 
 
-class OverrideSecondStep(Step[str]):
+class OverrideSecond(Step[str]):
     def wait_for(self, context: Context, input: str) -> Wait:
         raise RuntimeError("state 2 wait failure")
 
@@ -61,8 +61,8 @@ class OverrideSecondStep(Step[str]):
 
 class OptionsOverrideFlow(Flow[str]):
     def __init__(self) -> None:
-        self.second = OverrideSecondStep()
-        self.first = OverrideFirstStep(self.second)
+        self.second = OverrideSecond()
+        self.first = OverrideFirst(self.second)
 
     def get_steps(self) -> StepList[str]:
         return StepList.start_step(self.first).other_steps(self.second)

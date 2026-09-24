@@ -36,7 +36,7 @@ func NewProceedOnWaitFailureFlow() *ProceedOnWaitFailureFlow {
 
 func (*ProceedOnWaitFailureFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(failingWaitStep{}),
+		dex.DefineStartStep(failingWait{}),
 		dex.DefineStep(finishStep{}),
 	}
 }
@@ -45,22 +45,22 @@ func (*ProceedOnWaitFailureFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type failingWaitStep struct {
+type failingWait struct {
 	dex.StepDefaults
 }
 
-func (failingWaitStep) GetStepOptions() *dex.StepOptions {
+func (failingWait) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
 		WaitForFailure: dex.ProceedOnWaitForFailure,
 	}
 }
 
-func (failingWaitStep) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
+func (failingWait) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
 	return nil, fmt.Errorf("planned WaitFor failure")
 }
 
-func (failingWaitStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+func (failingWait) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
 	if !ctx.WaitForMethodFailed() {
 		return nil, fmt.Errorf("waitFor failure was not reported")
 	}

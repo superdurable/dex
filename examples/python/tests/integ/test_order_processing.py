@@ -29,8 +29,8 @@ from dex import AsyncClient, StepExecutionId, TimerId, WaitForStepCompletionOpti
 
 pytestmark = pytest.mark.integ
 
-CHARGE_STEP = StepExecutionId("ChargeStep")
-SHIP_STEP = StepExecutionId("ShipStep")
+CHARGE_STEP = StepExecutionId("Charge")
+SHIP_STEP = StepExecutionId("Ship")
 SKIP_TIMEOUT = timedelta(seconds=15)
 
 

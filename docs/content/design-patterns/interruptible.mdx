@@ -10,13 +10,13 @@ Stop long-running work safely when a durable interrupt arrives.
 
 Use this pattern for work that repeats for a long time, such as polling or batch processing. A user can request an interrupt while the work is running. Each branch finishes its current unit of work, sees the durable signal before its next loop iteration, and then completes safely.
 
-**InterruptibleFlow** starts **WorkAStep** and **WorkBStep** in parallel. Each Step checks the durable **interruptSignal** before scheduling its next unit of work. The **interrupt** RPC sets that signal, letting either branch finish the Flow gracefully.
+**InterruptibleFlow** starts **WorkA** and **WorkB** in parallel. Each Step checks the durable **interruptSignal** before scheduling its next unit of work. The **interrupt** RPC sets that signal, letting either branch finish the Flow gracefully.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Core implementation
 
-Each sample shows **WorkAStep**. It waits between units of work, completes when the interrupt signal arrives, and otherwise schedules its next loop iteration. **WorkBStep** follows the same pattern. The runnable examples also include Flow registration and the **interrupt** RPC.
+Each sample shows **WorkA**. It waits between units of work, completes when the interrupt signal arrives, and otherwise schedules its next loop iteration. **WorkB** follows the same pattern. The runnable examples also include Flow registration and the **interrupt** RPC.
 
 <SdkTabs
   examples={{
@@ -29,7 +29,7 @@ Each sample shows **WorkAStep**. It waits between units of work, completes when 
 <SdkSnippet lang="python">
 
 ```python
-class WorkAStep(Step[WorkJobParametersInput]):
+class WorkA(Step[WorkJobParametersInput]):
     def __init__(self, interrupt_signal: Attribute[str]) -> None:
         self.interrupt_signal = interrupt_signal
 
@@ -46,7 +46,7 @@ class WorkAStep(Step[WorkJobParametersInput]):
             return graceful_complete()
 
         if input.progress > input.job_upper_bound:
-            print("WorkAStep completed")
+            print("WorkA completed")
             return graceful_complete()
 
         print(
@@ -54,7 +54,7 @@ class WorkAStep(Step[WorkJobParametersInput]):
             f"Doing job {input.progress}"
         )
         return go_to(
-            WorkAStep,
+            WorkA,
             WorkJobParametersInput(input.job_upper_bound, input.progress + 1),
         )
 ```
@@ -63,18 +63,18 @@ class WorkAStep(Step[WorkJobParametersInput]):
 <SdkSnippet lang="go">
 
 ```go
-type workAStep struct {
+type workA struct {
 	dex.StepDefaults
 }
 
-func (workAStep) WaitFor(
+func (workA) WaitFor(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.Wait, error) {
 	return dex.Until(dex.Timer(1500 * time.Millisecond)), nil
 }
 
-func (workAStep) Execute(
+func (workA) Execute(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.StepDecision, error) {
@@ -84,7 +84,7 @@ func (workAStep) Execute(
 		return dex.GracefulComplete(nil), nil
 	}
 	if input.Progress > input.JobUpperBound {
-		fmt.Println("WorkAStep completed")
+		fmt.Println("WorkA completed")
 		return dex.GracefulComplete(nil), nil
 	}
 	fmt.Printf(
@@ -97,7 +97,7 @@ func (workAStep) Execute(
 		JobUpperBound: input.JobUpperBound,
 		Progress:      input.Progress + 1,
 	}
-	return dex.GoTo(workAStep{}, next), nil
+	return dex.GoTo(workA{}, next), nil
 }
 ```
 
@@ -105,7 +105,7 @@ func (workAStep) Execute(
 <SdkSnippet lang="java">
 
 ```java
-final class WorkAStep implements Step<WorkJobParametersInput> {
+final class WorkA implements Step<WorkJobParametersInput> {
     @Override
     public Class<WorkJobParametersInput> getInputType() {
         return WorkJobParametersInput.class;
@@ -127,7 +127,7 @@ final class WorkAStep implements Step<WorkJobParametersInput> {
         }
 
         if (input.progress > input.jobUpperBound) {
-            System.out.println("WorkAStep completed");
+            System.out.println("WorkA completed");
             return StepDecision.gracefulComplete();
         }
         System.out.printf(
@@ -138,7 +138,7 @@ final class WorkAStep implements Step<WorkJobParametersInput> {
 
         final WorkJobParametersInput next =
                 new WorkJobParametersInput(input.jobUpperBound, input.progress + 1);
-        return StepDecision.goTo(WorkAStep.class, next);
+        return StepDecision.goTo(WorkA.class, next);
     }
 }
 ```
@@ -147,11 +147,11 @@ final class WorkAStep implements Step<WorkJobParametersInput> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-class WorkAStep implements Step<WorkJobParametersInput> {
+class WorkA implements Step<WorkJobParametersInput> {
   public constructor(private readonly flow: InterruptibleFlow) {}
 
   public getStepType(): string {
-    return "WorkAStep";
+    return "WorkA";
   }
 
   public waitFor(_context: Context, _input: WorkJobParametersInput): Wait {
@@ -166,7 +166,7 @@ class WorkAStep implements Step<WorkJobParametersInput> {
     }
 
     if (input.progress > input.jobUpperBound) {
-      console.log("WorkAStep completed");
+      console.log("WorkA completed");
       return gracefulComplete();
     }
 
@@ -174,7 +174,7 @@ class WorkAStep implements Step<WorkJobParametersInput> {
       `[${context.flowId}][${context.stepExecutionId}]: Doing job ${input.progress}`,
     );
 
-    return goTo(WorkAStep, {
+    return goTo(WorkA, {
       jobUpperBound: input.jobUpperBound,
       progress: input.progress + 1,
     });
@@ -187,9 +187,9 @@ class WorkAStep implements Step<WorkJobParametersInput> {
 
 ```rust
 #[derive(Default)]
-struct WorkAStep;
+struct WorkA;
 
-impl Step for WorkAStep {
+impl Step for WorkA {
     type Input = WorkJobParametersInput;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
@@ -202,7 +202,7 @@ impl Step for WorkAStep {
             return Ok(StepDecision::graceful_complete(()));
         }
         if input.progress > input.job_upper_bound {
-            println!("WorkAStep completed");
+            println!("WorkA completed");
             return Ok(StepDecision::graceful_complete(()));
         }
         println!(
@@ -212,7 +212,7 @@ impl Step for WorkAStep {
             input.progress
         );
         Ok(StepDecision::go_to(
-            &WorkAStep,
+            &WorkA,
             WorkJobParametersInput {
                 job_upper_bound: input.job_upper_bound,
                 progress: input.progress + 1,

@@ -7,7 +7,7 @@
   },
   "flow": {
     "name": "BasicParentFlow",
-    "startStepId": "step:SubFlowsStep",
+    "startStepId": "step:SubFlows",
     "span": {
       "startLine": 33,
       "startColumn": 1,
@@ -17,10 +17,10 @@
   },
   "nodes": [
     {
-      "id": "decision:step:SubFlowsStep:30:16",
+      "id": "decision:step:SubFlows:30:16",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:SubFlowsStep",
+      "parentId": "step:SubFlows",
       "phase": "execute",
       "span": {
         "startLine": 30,
@@ -33,9 +33,9 @@
       }
     },
     {
-      "id": "step:SubFlowsStep",
+      "id": "step:SubFlows",
       "kind": "step",
-      "name": "SubFlowsStep",
+      "name": "SubFlows",
       "phase": "wait_for+execute",
       "start": true,
       "span": {
@@ -58,10 +58,10 @@
       }
     },
     {
-      "id": "wait:SubFlowsStep:25:16:0",
+      "id": "wait:SubFlows:25:16:0",
       "kind": "wait",
       "name": "allOf",
-      "parentId": "step:SubFlowsStep",
+      "parentId": "step:SubFlows",
       "phase": "wait_for",
       "span": {
         "startLine": 25,
@@ -91,7 +91,7 @@
     {
       "id": "edge:0001",
       "kind": "subflow",
-      "from": "wait:SubFlowsStep:25:16:0",
+      "from": "wait:SubFlows:25:16:0",
       "to": "subflow:self.example_subflow:26",
       "label": "start",
       "span": {

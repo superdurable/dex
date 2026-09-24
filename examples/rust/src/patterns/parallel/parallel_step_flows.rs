@@ -98,7 +98,7 @@ struct DynamicWork;
 impl Step for DynamicWork {
     type Input = usize;
     fn step_type(&self) -> &'static str {
-        "DoWorkStep"
+        "DoWork"
     }
     fn execute(&self, _: &mut Context, input: usize) -> HandlerResult<StepDecision> {
         thread::sleep(Duration::from_millis(fastrand::u64(50..500)));
@@ -110,7 +110,7 @@ impl Step for DynamicWork {
 pub struct AwaitParallelStepsFlow {
     init: AwaitInit,
     work: AwaitWork,
-    await_step: AwaitStep,
+    await_step: Await,
 }
 impl Flow for AwaitParallelStepsFlow {
     type StartInput = usize;
@@ -131,7 +131,7 @@ impl Step for AwaitInit {
         "InitStep"
     }
     fn execute(&self, _: &mut Context, count: usize) -> HandlerResult<StepDecision> {
-        let mut movements = vec![StepMovement::to(&AwaitStep, count)];
+        let mut movements = vec![StepMovement::to(&Await, count)];
         movements.extend((0..count).map(|index| StepMovement::to(&AwaitWork, index)));
         Ok(StepDecision::go_to_many(movements))
     }
@@ -141,7 +141,7 @@ struct AwaitWork;
 impl Step for AwaitWork {
     type Input = usize;
     fn step_type(&self) -> &'static str {
-        "DoWorkStep"
+        "DoWork"
     }
     fn execute(&self, context: &mut Context, _: usize) -> HandlerResult<StepDecision> {
         thread::sleep(Duration::from_millis(fastrand::u64(50..500)));
@@ -150,11 +150,11 @@ impl Step for AwaitWork {
     }
 }
 #[derive(Default)]
-struct AwaitStep;
-impl Step for AwaitStep {
+struct Await;
+impl Step for Await {
     type Input = usize;
     fn step_type(&self) -> &'static str {
-        "AwaitStep"
+        "Await"
     }
     fn wait_for(&self, _: &mut Context, count: usize) -> HandlerResult<Wait> {
         Ok(Wait::until(COMPLETE.for_n(count)))
@@ -194,7 +194,7 @@ struct FirstWinWork;
 impl Step for FirstWinWork {
     type Input = usize;
     fn step_type(&self) -> &'static str {
-        "DoWorkStep"
+        "DoWork"
     }
     fn execute(&self, _: &mut Context, input: usize) -> HandlerResult<StepDecision> {
         thread::sleep(Duration::from_millis(fastrand::u64(50..500)));

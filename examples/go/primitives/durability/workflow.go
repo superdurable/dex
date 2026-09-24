@@ -36,10 +36,10 @@ func NewDurabilityFlow() *DurabilityFlow {
 
 func (*DurabilityFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(routeDurabilityStep{}),
-		dex.DefineStep(syncWorkStep{}),
-		dex.DefineStep(asyncWorkStep{}),
-		dex.DefineStep(finishDurabilityStep{}),
+		dex.DefineStartStep(routeDurability{}),
+		dex.DefineStep(syncWork{}),
+		dex.DefineStep(asyncWork{}),
+		dex.DefineStep(finishDurability{}),
 	}
 }
 
@@ -47,51 +47,51 @@ func (*DurabilityFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type routeDurabilityStep struct {
+type routeDurability struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (routeDurabilityStep) Execute(_ dex.Context, mode string) (*dex.StepDecision, error) {
+func (routeDurability) Execute(_ dex.Context, mode string) (*dex.StepDecision, error) {
 	if mode == "async" {
-		return dex.GoTo(asyncWorkStep{}, mode), nil
+		return dex.GoTo(asyncWork{}, mode), nil
 	}
-	return dex.GoTo(syncWorkStep{}, mode), nil
+	return dex.GoTo(syncWork{}, mode), nil
 }
 
-type syncWorkStep struct {
+type syncWork struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (syncWorkStep) GetStepOptions() *dex.StepOptions {
+func (syncWork) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
 }
 
-func (syncWorkStep) Execute(_ dex.Context, mode string) (*dex.StepDecision, error) {
-	return dex.GoTo(finishDurabilityStep{}, "sync:"+mode), nil
+func (syncWork) Execute(_ dex.Context, mode string) (*dex.StepDecision, error) {
+	return dex.GoTo(finishDurability{}, "sync:"+mode), nil
 }
 
-type asyncWorkStep struct {
+type asyncWork struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (asyncWorkStep) GetStepOptions() *dex.StepOptions {
+func (asyncWork) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilityAsync}
 }
 
-func (asyncWorkStep) Execute(_ dex.Context, mode string) (*dex.StepDecision, error) {
-	return dex.GoTo(finishDurabilityStep{}, "async:"+mode), nil
+func (asyncWork) Execute(_ dex.Context, mode string) (*dex.StepDecision, error) {
+	return dex.GoTo(finishDurability{}, "async:"+mode), nil
 }
 
-type finishDurabilityStep struct {
+type finishDurability struct {
 	dex.StepDefaults
 }
 
-func (finishDurabilityStep) WaitFor(_ dex.Context, label string) (*dex.Wait, error) {
+func (finishDurability) WaitFor(_ dex.Context, label string) (*dex.Wait, error) {
 	_ = label
 	return dex.AnyOf(dex.Timer(1 * time.Second)), nil
 }
 
-func (finishDurabilityStep) Execute(_ dex.Context, label string) (*dex.StepDecision, error) {
+func (finishDurability) Execute(_ dex.Context, label string) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(label), nil
 }
 

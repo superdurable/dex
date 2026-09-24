@@ -8,13 +8,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/grac
 
 Use Dex's built-in graceful timeout when an overall Flow deadline needs application-defined handling. The timeout belongs to the Flow execution, not to a competing Step.
 
-**FlowGracefulTimeout** starts **LongWaitStep**. When the Flow deadline expires, Dex runs **handleTimeout**. The handler response uses Execute semantics.
+**FlowGracefulTimeout** starts **LongWait**. When the Flow deadline expires, Dex runs **handleTimeout**. The handler response uses Execute semantics.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Core implementation
 
-The complete Flow definition registers **LongWaitStep** and the timeout hook. Start the Flow with a positive timeout; **HANDLER** is explicit below and is also the default when the Flow provides the hook. The example gives the hook its own attempt timeout and retry policy with **FlowTimeoutHandlerOptions**.
+The complete Flow definition registers **LongWait** and the timeout hook. Start the Flow with a positive timeout; **HANDLER** is explicit below and is also the default when the Flow provides the hook. The example gives the hook its own attempt timeout and retry policy with **FlowTimeoutHandlerOptions**.
 
 <SdkTabs examples={{
   python: 'examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py',
@@ -26,7 +26,7 @@ The complete Flow definition registers **LongWaitStep** and the timeout hook. St
 <SdkSnippet lang="python">
 
 ```python
-class LongWaitStep(Step[bool]):
+class LongWait(Step[bool]):
     def wait_for(self, context: Context, input: bool) -> Wait:
         if input:
             return Wait.skip_immediately()
@@ -38,7 +38,7 @@ class LongWaitStep(Step[bool]):
 
 class FlowGracefulTimeout(Flow[bool]):
     def __init__(self) -> None:
-        self.long_wait_step = LongWaitStep()
+        self.long_wait_step = LongWait()
 
     def get_steps(self) -> StepList[bool]:
         return StepList.start_step(self.long_wait_step)
@@ -73,22 +73,22 @@ type FlowGracefulTimeout struct {
 
 func (*FlowGracefulTimeout) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(longWaitStep{}),
+		dex.DefineStartStep(longWait{}),
 	}
 }
 
-type longWaitStep struct {
+type longWait struct {
 	dex.StepDefaults
 }
 
-func (longWaitStep) WaitFor(_ dex.Context, successful bool) (*dex.Wait, error) {
+func (longWait) WaitFor(_ dex.Context, successful bool) (*dex.Wait, error) {
 	if successful {
 		return dex.SkipWaitImmediately(), nil
 	}
 	return dex.Until(dex.Timer(65 * time.Second)), nil
 }
 
-func (longWaitStep) Execute(_ dex.Context, _ bool) (*dex.StepDecision, error) {
+func (longWait) Execute(_ dex.Context, _ bool) (*dex.StepDecision, error) {
 	return dex.ForceComplete("Workflow completed successfully"), nil
 }
 
@@ -119,14 +119,14 @@ func patternStartOptions() sdk.StartFlowOptions {
 
 ```java
 final class FlowGracefulTimeout implements Flow<Boolean> {
-    private final LongWaitStep longWaitStep = new LongWaitStep();
+    private final LongWait longWait = new LongWait();
 
     @Override
     public StepList<Boolean> getSteps() {
-        return StepList.startStep(longWaitStep);
+        return StepList.startStep(longWait);
     }
 
-    final class LongWaitStep implements Step<Boolean> {
+    final class LongWait implements Step<Boolean> {
         @Override
         public Class<Boolean> getInputType() {
             return Boolean.class;
@@ -171,7 +171,7 @@ client.startFlow(
 <SdkSnippet lang="typescript">
 
 ```typescript
-class LongWaitStep implements Step<boolean> {
+class LongWait implements Step<boolean> {
   public readonly inputCodec = booleanCodec;
 
   public waitFor(_context: Context, successful: boolean): Wait {
@@ -187,14 +187,14 @@ class LongWaitStep implements Step<boolean> {
 }
 
 class FlowGracefulTimeout implements Flow<boolean> {
-  private readonly longWaitStep = new LongWaitStep();
+  private readonly longWait = new LongWait();
 
   public getFlowType(): string {
     return "FlowGracefulTimeout";
   }
 
   public getSteps() {
-    return StepList.startStep(this.longWaitStep);
+    return StepList.startStep(this.longWait);
   }
 
   public handleTimeout(_context: Context): StepDecision {
@@ -220,7 +220,7 @@ await client.startFlow(flowGracefulTimeout, workflowId, successful, {
 ```rust
 #[derive(Default)]
 pub struct FlowGracefulTimeout {
-    long_wait_step: LongWaitStep,
+    long_wait_step: LongWait,
 }
 
 impl Flow for FlowGracefulTimeout {
@@ -235,7 +235,7 @@ impl Flow for FlowGracefulTimeout {
     }
 }
 
-impl Step for LongWaitStep {
+impl Step for LongWait {
     type Input = bool;
 
     fn wait_for(&self, _context: &mut Context, successful: bool) -> HandlerResult<Wait> {

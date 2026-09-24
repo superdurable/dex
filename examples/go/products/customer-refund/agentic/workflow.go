@@ -189,23 +189,23 @@ func (*AgenticCustomerRefundFlow) GetFlowType() string {
 
 func (flow *AgenticCustomerRefundFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(agenticReceiveRequestStep{}),
-		dex.DefineStep(agenticDecisionStep{}),
-		dex.DefineStep(agenticCheckIdentityStep{service: flow.service}),
-		dex.DefineStep(agenticGetSubscriptionStep{service: flow.service}),
-		dex.DefineStep(agenticGetPaymentStep{service: flow.service}),
-		dex.DefineStep(agenticGetUsageStep{service: flow.service}),
-		dex.DefineStep(agenticGetSupportHistoryStep{service: flow.service}),
-		dex.DefineStep(agenticCheckIncidentsStep{service: flow.service}),
-		dex.DefineStep(agenticGuardrailStep{}),
-		dex.DefineStep(agenticReCheckStep{}),
-		dex.DefineStep(agenticRequestHumanApprovalStep{}),
-		dex.DefineStep(agenticAuditIntentStep{}),
-		dex.DefineStep(agenticIssueRefundStep{service: flow.service}),
-		dex.DefineStep(agenticOfferAccountCreditStep{service: flow.service}),
-		dex.DefineStep(agenticVerifyBillingStep{service: flow.service}),
-		dex.DefineStep(agenticApplySubscriptionStep{service: flow.service}),
-		dex.DefineStep(agenticPrepareCustomerMessageStep{}),
+		dex.DefineStartStep(agenticReceiveRequest{}),
+		dex.DefineStep(agenticDecision{}),
+		dex.DefineStep(agenticCheckIdentity{service: flow.service}),
+		dex.DefineStep(agenticGetSubscription{service: flow.service}),
+		dex.DefineStep(agenticGetPayment{service: flow.service}),
+		dex.DefineStep(agenticGetUsage{service: flow.service}),
+		dex.DefineStep(agenticGetSupportHistory{service: flow.service}),
+		dex.DefineStep(agenticCheckIncidents{service: flow.service}),
+		dex.DefineStep(agenticGuardrail{}),
+		dex.DefineStep(agenticReCheck{}),
+		dex.DefineStep(agenticRequestHumanApproval{}),
+		dex.DefineStep(agenticAuditIntent{}),
+		dex.DefineStep(agenticIssueRefund{service: flow.service}),
+		dex.DefineStep(agenticOfferAccountCredit{service: flow.service}),
+		dex.DefineStep(agenticVerifyBilling{service: flow.service}),
+		dex.DefineStep(agenticApplySubscription{service: flow.service}),
+		dex.DefineStep(agenticPrepareCustomerMessage{}),
 		dex.DefineStep(openai.NewCreateResponseStep(openai.CreateResponseStepConfig[agenticCustomerMessagePrompt]{
 			StepType: generateCustomerMessageStepType,
 			Presentation: connector.StepPresentation{
@@ -215,22 +215,22 @@ func (flow *AgenticCustomerRefundFlow) GetSteps() []dex.StepDef {
 			},
 			Connection:      flow.openAIConnection,
 			BuildInput:      agenticBuildCustomerMessageRequest,
-			Completed:       connector.GoTo(agenticStoreGeneratedCustomerMessageStep{}),
-			Failed:          connector.GoTo(agenticUseFallbackCustomerMessageStep{}),
-			Uncertain:       connector.GoTo(agenticUseFallbackCustomerMessageStep{}),
-			Defect:          connector.GoTo(agenticUseFallbackCustomerMessageStep{}),
+			Completed:       connector.GoTo(agenticStoreGeneratedCustomerMessage{}),
+			Failed:          connector.GoTo(agenticUseFallbackCustomerMessage{}),
+			Uncertain:       connector.GoTo(agenticUseFallbackCustomerMessage{}),
+			Defect:          connector.GoTo(agenticUseFallbackCustomerMessage{}),
 			ResultAttribute: &agenticGeneratedCustomerMessage,
 		})),
-		dex.DefineStep(agenticStoreGeneratedCustomerMessageStep{}),
-		dex.DefineStep(agenticUseFallbackCustomerMessageStep{}),
-		dex.DefineStep(agenticConfirmCustomerMessageStep{}),
-		dex.DefineStep(agenticSendCustomerMessageStep{service: flow.service}),
-		dex.DefineStep(agenticNonConvergenceStep{}),
-		dex.DefineStep(agenticNotARefundStep{}),
-		dex.DefineStep(agenticBillingFailedStep{}),
-		dex.DefineStep(agenticSubscriptionFailedStep{}),
-		dex.DefineStep(agenticEmailFailedStep{}),
-		dex.DefineStep(agenticCloseCaseStep{}),
+		dex.DefineStep(agenticStoreGeneratedCustomerMessage{}),
+		dex.DefineStep(agenticUseFallbackCustomerMessage{}),
+		dex.DefineStep(agenticConfirmCustomerMessage{}),
+		dex.DefineStep(agenticSendCustomerMessage{service: flow.service}),
+		dex.DefineStep(agenticNonConvergence{}),
+		dex.DefineStep(agenticNotARefund{}),
+		dex.DefineStep(agenticBillingFailed{}),
+		dex.DefineStep(agenticSubscriptionFailed{}),
+		dex.DefineStep(agenticEmailFailed{}),
+		dex.DefineStep(agenticCloseCase{}),
 	}
 }
 
@@ -530,15 +530,15 @@ func (*AgenticCustomerRefundFlow) EditCustomerMessage(
 
 // dex:group group-id:intake group-label:"Intake"
 // dex:explanation text:"Store the inbound refund request and open or reject the case."
-type agenticReceiveRequestStep struct {
+type agenticReceiveRequest struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticReceiveRequestStep) GetStepType() string {
+func (agenticReceiveRequest) GetStepType() string {
 	return "ReceiveRequestStep"
 }
 
-func (agenticReceiveRequestStep) Execute(
+func (agenticReceiveRequest) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -558,25 +558,25 @@ func (agenticReceiveRequestStep) Execute(
 		if err := agenticCaseStatus.Set(ctx, statusNotARefund); err != nil {
 			return nil, err
 		}
-		return dex.GoTo(agenticNotARefundStep{}, refundCase), nil
+		return dex.GoTo(agenticNotARefund{}, refundCase), nil
 	}
 	if err := agenticCaseStatus.Set(ctx, statusOpen); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticDecisionStep{}, refundCase), nil
+	return dex.GoTo(agenticDecision{}, refundCase), nil
 }
 
 // dex:group group-id:reasoning group-label:"Reasoning"
 // dex:explanation text:"Choose the next capability from gathered evidence and guardrails."
-type agenticDecisionStep struct {
+type agenticDecision struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticDecisionStep) GetStepType() string {
+func (agenticDecision) GetStepType() string {
 	return "AgentDecisionStep"
 }
 
-func (agenticDecisionStep) Execute(
+func (agenticDecision) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -585,7 +585,7 @@ func (agenticDecisionStep) Execute(
 		return nil, err
 	}
 	if rounds >= decisionRoundsBudget {
-		return dex.GoTo(agenticNonConvergenceStep{}, refundCase), nil
+		return dex.GoTo(agenticNonConvergence{}, refundCase), nil
 	}
 	if err := agenticDecisionRounds.Set(ctx, rounds+1); err != nil {
 		return nil, err
@@ -598,42 +598,42 @@ func (agenticDecisionStep) Execute(
 		return nil, err
 	}
 	if !hasIdentity {
-		return dex.GoTo(agenticCheckIdentityStep{}, refundCase), nil
+		return dex.GoTo(agenticCheckIdentity{}, refundCase), nil
 	}
 	_, hasSubscription, err := agenticOptionalAttribute(ctx, agenticSubscriptionStatus)
 	if err != nil {
 		return nil, err
 	}
 	if !hasSubscription {
-		return dex.GoTo(agenticGetSubscriptionStep{}, refundCase), nil
+		return dex.GoTo(agenticGetSubscription{}, refundCase), nil
 	}
 	_, hasPayment, err := agenticOptionalAttribute(ctx, agenticPaymentStatus)
 	if err != nil {
 		return nil, err
 	}
 	if !hasPayment {
-		return dex.GoTo(agenticGetPaymentStep{}, refundCase), nil
+		return dex.GoTo(agenticGetPayment{}, refundCase), nil
 	}
 	_, hasUsage, err := agenticOptionalAttribute(ctx, agenticUsageStatus)
 	if err != nil {
 		return nil, err
 	}
 	if !hasUsage {
-		return dex.GoTo(agenticGetUsageStep{}, refundCase), nil
+		return dex.GoTo(agenticGetUsage{}, refundCase), nil
 	}
 	_, hasHistory, err := agenticOptionalAttribute(ctx, agenticHistoryStatus)
 	if err != nil {
 		return nil, err
 	}
 	if !hasHistory {
-		return dex.GoTo(agenticGetSupportHistoryStep{}, refundCase), nil
+		return dex.GoTo(agenticGetSupportHistory{}, refundCase), nil
 	}
 	_, hasIncidents, err := agenticOptionalAttribute(ctx, agenticIncidentStatus)
 	if err != nil {
 		return nil, err
 	}
 	if !hasIncidents {
-		return dex.GoTo(agenticCheckIncidentsStep{}, refundCase), nil
+		return dex.GoTo(agenticCheckIncidents{}, refundCase), nil
 	}
 	action, rationale, err := agenticChooseAction(ctx, refundCase)
 	if err != nil {
@@ -645,63 +645,63 @@ func (agenticDecisionStep) Execute(
 	if err := agenticRationale.Set(ctx, rationale); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticGuardrailStep{}, refundCase), nil
+	return dex.GoTo(agenticGuardrail{}, refundCase), nil
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
 // dex:explanation text:"Verify the customer identity before collecting further evidence."
-type agenticCheckIdentityStep struct {
+type agenticCheckIdentity struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (agenticCheckIdentityStep) GetStepType() string {
+func (agenticCheckIdentity) GetStepType() string {
 	return "CheckIdentityStep"
 }
 
-func (step agenticCheckIdentityStep) Execute(
+func (step agenticCheckIdentity) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
 	if err := agenticIdentityStatus.Set(ctx, step.service.LookupEvidence(refundCase).IdentityStatus); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticDecisionStep{}, refundCase), nil
+	return dex.GoTo(agenticDecision{}, refundCase), nil
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
 // dex:explanation text:"Load the customer's subscription details for the case."
-type agenticGetSubscriptionStep struct {
+type agenticGetSubscription struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (agenticGetSubscriptionStep) GetStepType() string {
+func (agenticGetSubscription) GetStepType() string {
 	return "GetSubscriptionStep"
 }
 
-func (step agenticGetSubscriptionStep) Execute(
+func (step agenticGetSubscription) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
 	if err := agenticSubscriptionStatus.Set(ctx, step.service.LookupEvidence(refundCase).SubscriptionStatus); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticDecisionStep{}, refundCase), nil
+	return dex.GoTo(agenticDecision{}, refundCase), nil
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
 // dex:explanation text:"Load the payment and charge evidence for the refund."
-type agenticGetPaymentStep struct {
+type agenticGetPayment struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (agenticGetPaymentStep) GetStepType() string {
+func (agenticGetPayment) GetStepType() string {
 	return "GetPaymentStep"
 }
 
-func (step agenticGetPaymentStep) Execute(
+func (step agenticGetPayment) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -718,21 +718,21 @@ func (step agenticGetPaymentStep) Execute(
 	if err := agenticPaymentAmount.Set(ctx, fmt.Sprintf("%.2f", float64(refundCase.AmountCents)/100)); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticDecisionStep{}, refundCase), nil
+	return dex.GoTo(agenticDecision{}, refundCase), nil
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
 // dex:explanation text:"Load usage signals that may support or deny a refund."
-type agenticGetUsageStep struct {
+type agenticGetUsage struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (agenticGetUsageStep) GetStepType() string {
+func (agenticGetUsage) GetStepType() string {
 	return "GetUsageStep"
 }
 
-func (step agenticGetUsageStep) Execute(
+func (step agenticGetUsage) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -743,21 +743,21 @@ func (step agenticGetUsageStep) Execute(
 	if err := agenticUsagePercent.Set(ctx, evidence.UsagePercent); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticDecisionStep{}, refundCase), nil
+	return dex.GoTo(agenticDecision{}, refundCase), nil
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
 // dex:explanation text:"Load prior support history for this customer."
-type agenticGetSupportHistoryStep struct {
+type agenticGetSupportHistory struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (agenticGetSupportHistoryStep) GetStepType() string {
+func (agenticGetSupportHistory) GetStepType() string {
 	return "GetSupportHistoryStep"
 }
 
-func (step agenticGetSupportHistoryStep) Execute(
+func (step agenticGetSupportHistory) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -774,21 +774,21 @@ func (step agenticGetSupportHistoryStep) Execute(
 	if err := agenticCancellationPending.Set(ctx, evidence.CancellationPending); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticDecisionStep{}, refundCase), nil
+	return dex.GoTo(agenticDecision{}, refundCase), nil
 }
 
 // dex:group group-id:evidence group-label:"Evidence"
 // dex:explanation text:"Check for active incidents that affect refund policy."
-type agenticCheckIncidentsStep struct {
+type agenticCheckIncidents struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (agenticCheckIncidentsStep) GetStepType() string {
+func (agenticCheckIncidents) GetStepType() string {
 	return "CheckIncidentsStep"
 }
 
-func (step agenticCheckIncidentsStep) Execute(
+func (step agenticCheckIncidents) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -802,20 +802,20 @@ func (step agenticCheckIncidentsStep) Execute(
 	if err := agenticEvidenceState.Set(ctx, "complete"); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticDecisionStep{}, refundCase), nil
+	return dex.GoTo(agenticDecision{}, refundCase), nil
 }
 
 // dex:group group-id:control group-label:"Control"
 // dex:explanation text:"Apply refund guardrails and set the recommended action."
-type agenticGuardrailStep struct {
+type agenticGuardrail struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticGuardrailStep) GetStepType() string {
+func (agenticGuardrail) GetStepType() string {
 	return "GuardrailStep"
 }
 
-func (agenticGuardrailStep) Execute(
+func (agenticGuardrail) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -856,25 +856,25 @@ func (agenticGuardrailStep) Execute(
 		if err := agenticGateRequestKey.Set(ctx, fmt.Sprintf("%s:gate:%d", refundCase.CaseID, gateEntries)); err != nil {
 			return nil, err
 		}
-		return dex.GoTo(agenticRequestHumanApprovalStep{}, refundCase), nil
+		return dex.GoTo(agenticRequestHumanApproval{}, refundCase), nil
 	}
 	if err := agenticBoundAction.Set(ctx, action); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticAuditIntentStep{}, refundCase), nil
+	return dex.GoTo(agenticAuditIntent{}, refundCase), nil
 }
 
 // dex:group group-id:control group-label:"Control"
 // dex:explanation text:"Re-check evidence after a capability returns to the decision loop."
-type agenticReCheckStep struct {
+type agenticReCheck struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticReCheckStep) GetStepType() string {
+func (agenticReCheck) GetStepType() string {
 	return "ReCheckStep"
 }
 
-func (agenticReCheckStep) Execute(
+func (agenticReCheck) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -886,7 +886,7 @@ func (agenticReCheckStep) Execute(
 		if err := agenticCaseStatus.Set(ctx, statusDenied); err != nil {
 			return nil, err
 		}
-		return dex.GoTo(agenticPrepareCustomerMessageStep{}, refundCase), nil
+		return dex.GoTo(agenticPrepareCustomerMessage{}, refundCase), nil
 	}
 	if err := agenticBoundAction.Set(ctx, actionIssueRefund); err != nil {
 		return nil, err
@@ -894,20 +894,20 @@ func (agenticReCheckStep) Execute(
 	if err := agenticCaseStatus.Set(ctx, statusExecuting); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticAuditIntentStep{}, refundCase), nil
+	return dex.GoTo(agenticAuditIntent{}, refundCase), nil
 }
 
 // dex:group group-id:control group-label:"Control"
 // dex:explanation text:"Ask a human to approve or reject the recommended refund action."
-type agenticRequestHumanApprovalStep struct {
+type agenticRequestHumanApproval struct {
 	dex.StepDefaults
 }
 
-func (agenticRequestHumanApprovalStep) GetStepType() string {
+func (agenticRequestHumanApproval) GetStepType() string {
 	return "RequestHumanApprovalStep"
 }
 
-func (agenticRequestHumanApprovalStep) WaitFor(
+func (agenticRequestHumanApproval) WaitFor(
 	ctx dex.Context,
 	_ refundmodel.RefundCase,
 ) (*dex.Wait, error) {
@@ -918,7 +918,7 @@ func (agenticRequestHumanApprovalStep) WaitFor(
 	return dex.Until(agenticManagerApproval.ForOne(gateRequestKey)), nil
 }
 
-func (agenticRequestHumanApprovalStep) Execute(
+func (agenticRequestHumanApproval) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -936,20 +936,20 @@ func (agenticRequestHumanApprovalStep) Execute(
 	if err := agenticManagerVerdict.Set(ctx, verdicts[0]); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticReCheckStep{}, refundCase), nil
+	return dex.GoTo(agenticReCheck{}, refundCase), nil
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
 // dex:explanation text:"Record the approved refund intent before billing changes."
-type agenticAuditIntentStep struct {
+type agenticAuditIntent struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticAuditIntentStep) GetStepType() string {
+func (agenticAuditIntent) GetStepType() string {
 	return "AuditIntentStep"
 }
 
-func (agenticAuditIntentStep) Execute(
+func (agenticAuditIntent) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -958,32 +958,32 @@ func (agenticAuditIntentStep) Execute(
 		return nil, err
 	}
 	if action == actionOfferAccountCredit {
-		return dex.GoTo(agenticOfferAccountCreditStep{}, refundCase), nil
+		return dex.GoTo(agenticOfferAccountCredit{}, refundCase), nil
 	}
-	return dex.GoTo(agenticIssueRefundStep{}, refundCase), nil
+	return dex.GoTo(agenticIssueRefund{}, refundCase), nil
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
 // dex:explanation text:"Issue the refund through billing."
-type agenticIssueRefundStep struct {
+type agenticIssueRefund struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (agenticIssueRefundStep) GetStepType() string {
+func (agenticIssueRefund) GetStepType() string {
 	return "IssueRefundStep"
 }
 
-func (agenticIssueRefundStep) GetStepOptions() *dex.StepOptions {
+func (agenticIssueRefund) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
 			InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: 10 * time.Second, MaximumAttempts: 4,
 		},
-		ExecuteFailure: dex.ProceedToOnExecuteFailure(agenticBillingFailedStep{}, nil),
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(agenticBillingFailed{}, nil),
 	}
 }
 
-func (step agenticIssueRefundStep) Execute(
+func (step agenticIssueRefund) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -1000,26 +1000,26 @@ func (step agenticIssueRefundStep) Execute(
 		if err := agenticCaseStatus.Set(ctx, statusRefunded); err != nil {
 			return nil, err
 		}
-		return dex.GoTo(agenticApplySubscriptionStep{}, refundCase), nil
+		return dex.GoTo(agenticApplySubscription{}, refundCase), nil
 	case refundmodel.BillingUnknown:
-		return dex.GoTo(agenticVerifyBillingStep{}, refundCase), nil
+		return dex.GoTo(agenticVerifyBilling{}, refundCase), nil
 	default:
-		return dex.GoTo(agenticBillingFailedStep{}, refundCase), nil
+		return dex.GoTo(agenticBillingFailed{}, refundCase), nil
 	}
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
 // dex:explanation text:"Offer account credit instead of a cash refund."
-type agenticOfferAccountCreditStep struct {
+type agenticOfferAccountCredit struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (agenticOfferAccountCreditStep) GetStepType() string {
+func (agenticOfferAccountCredit) GetStepType() string {
 	return "OfferAccountCreditStep"
 }
 
-func (step agenticOfferAccountCreditStep) Execute(
+func (step agenticOfferAccountCredit) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -1032,26 +1032,26 @@ func (step agenticOfferAccountCreditStep) Execute(
 		return nil, err
 	}
 	if outcome != refundmodel.BillingConfirmed {
-		return dex.GoTo(agenticBillingFailedStep{}, refundCase), nil
+		return dex.GoTo(agenticBillingFailed{}, refundCase), nil
 	}
 	if err := agenticCaseStatus.Set(ctx, statusCredited); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticApplySubscriptionStep{}, refundCase), nil
+	return dex.GoTo(agenticApplySubscription{}, refundCase), nil
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
 // dex:explanation text:"Verify the billing outcome after a refund or credit."
-type agenticVerifyBillingStep struct {
+type agenticVerifyBilling struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (agenticVerifyBillingStep) GetStepType() string {
+func (agenticVerifyBilling) GetStepType() string {
 	return "VerifyBillingStep"
 }
 
-func (step agenticVerifyBillingStep) Execute(
+func (step agenticVerifyBilling) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -1067,33 +1067,33 @@ func (step agenticVerifyBillingStep) Execute(
 		if err := agenticCaseStatus.Set(ctx, statusRefunded); err != nil {
 			return nil, err
 		}
-		return dex.GoTo(agenticApplySubscriptionStep{}, refundCase), nil
+		return dex.GoTo(agenticApplySubscription{}, refundCase), nil
 	}
 	if outcome == refundmodel.BillingUnknown {
 		if err := agenticCaseStatus.Set(ctx, statusOutcomeUnknown); err != nil {
 			return nil, err
 		}
-		return dex.GoTo(agenticCloseCaseStep{}, refundCase), nil
+		return dex.GoTo(agenticCloseCase{}, refundCase), nil
 	}
-	return dex.GoTo(agenticBillingFailedStep{}, refundCase), nil
+	return dex.GoTo(agenticBillingFailed{}, refundCase), nil
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
 // dex:explanation text:"Apply any subscription change required by the resolution."
-type agenticApplySubscriptionStep struct {
+type agenticApplySubscription struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (agenticApplySubscriptionStep) GetStepType() string {
+func (agenticApplySubscription) GetStepType() string {
 	return "ApplySubscriptionStep"
 }
 
-func (agenticApplySubscriptionStep) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{ExecuteFailure: dex.ProceedToOnExecuteFailure(agenticSubscriptionFailedStep{}, nil)}
+func (agenticApplySubscription) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteFailure: dex.ProceedToOnExecuteFailure(agenticSubscriptionFailed{}, nil)}
 }
 
-func (step agenticApplySubscriptionStep) Execute(
+func (step agenticApplySubscription) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -1103,20 +1103,20 @@ func (step agenticApplySubscriptionStep) Execute(
 	if err := agenticSubscriptionApplied.Set(ctx, "yes"); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticPrepareCustomerMessageStep{}, refundCase), nil
+	return dex.GoTo(agenticPrepareCustomerMessage{}, refundCase), nil
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
 // dex:explanation text:"Prepare the resolution context and fallback customer message."
-type agenticPrepareCustomerMessageStep struct {
+type agenticPrepareCustomerMessage struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticPrepareCustomerMessageStep) GetStepType() string {
+func (agenticPrepareCustomerMessage) GetStepType() string {
 	return "PrepareCustomerMessageStep"
 }
 
-func (agenticPrepareCustomerMessageStep) Execute(
+func (agenticPrepareCustomerMessage) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -1163,15 +1163,15 @@ func agenticBuildCustomerMessageRequest(
 
 // dex:group group-id:resolution group-label:"Resolution"
 // dex:explanation text:"Store the customer message generated by OpenAI and open the confirmation gate."
-type agenticStoreGeneratedCustomerMessageStep struct {
+type agenticStoreGeneratedCustomerMessage struct {
 	dex.StepDefaultsNoWaitFor[agenticGenerateCustomerMessageOutput]
 }
 
-func (agenticStoreGeneratedCustomerMessageStep) GetStepType() string {
+func (agenticStoreGeneratedCustomerMessage) GetStepType() string {
 	return "StoreGeneratedCustomerMessageStep"
 }
 
-func (agenticStoreGeneratedCustomerMessageStep) Execute(
+func (agenticStoreGeneratedCustomerMessage) Execute(
 	ctx dex.Context,
 	output agenticGenerateCustomerMessageOutput,
 ) (*dex.StepDecision, error) {
@@ -1182,27 +1182,27 @@ func (agenticStoreGeneratedCustomerMessageStep) Execute(
 	if err := agenticOpenCustomerMessageGate(ctx, output.Input.RefundCase, message); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticConfirmCustomerMessageStep{}, output.Input.RefundCase), nil
+	return dex.GoTo(agenticConfirmCustomerMessage{}, output.Input.RefundCase), nil
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
 // dex:explanation text:"Use the deterministic customer message when OpenAI cannot confirm an answer."
-type agenticUseFallbackCustomerMessageStep struct {
+type agenticUseFallbackCustomerMessage struct {
 	dex.StepDefaultsNoWaitFor[agenticGenerateCustomerMessageOutput]
 }
 
-func (agenticUseFallbackCustomerMessageStep) GetStepType() string {
+func (agenticUseFallbackCustomerMessage) GetStepType() string {
 	return "UseFallbackCustomerMessageStep"
 }
 
-func (agenticUseFallbackCustomerMessageStep) Execute(
+func (agenticUseFallbackCustomerMessage) Execute(
 	ctx dex.Context,
 	output agenticGenerateCustomerMessageOutput,
 ) (*dex.StepDecision, error) {
 	if err := agenticOpenCustomerMessageGate(ctx, output.Input.RefundCase, output.Input.FallbackMessage); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticConfirmCustomerMessageStep{}, output.Input.RefundCase), nil
+	return dex.GoTo(agenticConfirmCustomerMessage{}, output.Input.RefundCase), nil
 }
 
 func agenticOpenCustomerMessageGate(
@@ -1230,15 +1230,15 @@ func agenticOpenCustomerMessageGate(
 
 // dex:group group-id:resolution group-label:"Resolution"
 // dex:explanation text:"Wait for a person to confirm or rewrite the customer message."
-type agenticConfirmCustomerMessageStep struct {
+type agenticConfirmCustomerMessage struct {
 	dex.StepDefaults
 }
 
-func (agenticConfirmCustomerMessageStep) GetStepType() string {
+func (agenticConfirmCustomerMessage) GetStepType() string {
 	return "ConfirmCustomerMessageStep"
 }
 
-func (agenticConfirmCustomerMessageStep) WaitFor(
+func (agenticConfirmCustomerMessage) WaitFor(
 	ctx dex.Context,
 	_ refundmodel.RefundCase,
 ) (*dex.Wait, error) {
@@ -1249,7 +1249,7 @@ func (agenticConfirmCustomerMessageStep) WaitFor(
 	return dex.Until(agenticMessageApproval.ForOne(gateRequestKey)), nil
 }
 
-func (agenticConfirmCustomerMessageStep) Execute(
+func (agenticConfirmCustomerMessage) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -1264,25 +1264,25 @@ func (agenticConfirmCustomerMessageStep) Execute(
 	if len(verdicts) != 1 {
 		return nil, fmt.Errorf("message gate expected one verdict")
 	}
-	return dex.GoTo(agenticSendCustomerMessageStep{}, refundCase), nil
+	return dex.GoTo(agenticSendCustomerMessage{}, refundCase), nil
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
 // dex:explanation text:"Send the customer the message a person confirmed."
-type agenticSendCustomerMessageStep struct {
+type agenticSendCustomerMessage struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 	service refundmodel.Service
 }
 
-func (agenticSendCustomerMessageStep) GetStepType() string {
+func (agenticSendCustomerMessage) GetStepType() string {
 	return "SendCustomerMessageStep"
 }
 
-func (agenticSendCustomerMessageStep) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{ExecuteFailure: dex.ProceedToOnExecuteFailure(agenticEmailFailedStep{}, nil)}
+func (agenticSendCustomerMessage) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteFailure: dex.ProceedToOnExecuteFailure(agenticEmailFailed{}, nil)}
 }
 
-func (step agenticSendCustomerMessageStep) Execute(
+func (step agenticSendCustomerMessage) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -1306,57 +1306,57 @@ func (step agenticSendCustomerMessageStep) Execute(
 			return nil, err
 		}
 	}
-	return dex.GoTo(agenticCloseCaseStep{}, refundCase), nil
+	return dex.GoTo(agenticCloseCase{}, refundCase), nil
 }
 
 // dex:group group-id:failure group-label:"Failure"
 // dex:explanation text:"Close the loop when the agent cannot converge on an action."
-type agenticNonConvergenceStep struct {
+type agenticNonConvergence struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticNonConvergenceStep) GetStepType() string {
+func (agenticNonConvergence) GetStepType() string {
 	return "NonConvergenceStep"
 }
 
-func (agenticNonConvergenceStep) Execute(
+func (agenticNonConvergence) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
 	if err := agenticCaseStatus.Set(ctx, statusNonConvergence); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticCloseCaseStep{}, refundCase), nil
+	return dex.GoTo(agenticCloseCase{}, refundCase), nil
 }
 
 // dex:group group-id:failure group-label:"Failure"
 // dex:explanation text:"Mark the case as not a refund request."
-type agenticNotARefundStep struct {
+type agenticNotARefund struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticNotARefundStep) GetStepType() string {
+func (agenticNotARefund) GetStepType() string {
 	return "NotARefundStep"
 }
 
-func (agenticNotARefundStep) Execute(
+func (agenticNotARefund) Execute(
 	_ dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
-	return dex.GoTo(agenticCloseCaseStep{}, refundCase), nil
+	return dex.GoTo(agenticCloseCase{}, refundCase), nil
 }
 
 // dex:group group-id:failure group-label:"Failure"
 // dex:explanation text:"Handle a billing failure during refund or credit."
-type agenticBillingFailedStep struct {
+type agenticBillingFailed struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticBillingFailedStep) GetStepType() string {
+func (agenticBillingFailed) GetStepType() string {
 	return "BillingFailedStep"
 }
 
-func (agenticBillingFailedStep) Execute(
+func (agenticBillingFailed) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -1366,20 +1366,20 @@ func (agenticBillingFailedStep) Execute(
 	if err := agenticCaseStatus.Set(ctx, statusBusinessFailure); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticPrepareCustomerMessageStep{}, refundCase), nil
+	return dex.GoTo(agenticPrepareCustomerMessage{}, refundCase), nil
 }
 
 // dex:group group-id:failure group-label:"Failure"
 // dex:explanation text:"Handle a subscription update failure after a resolution."
-type agenticSubscriptionFailedStep struct {
+type agenticSubscriptionFailed struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticSubscriptionFailedStep) GetStepType() string {
+func (agenticSubscriptionFailed) GetStepType() string {
 	return "SubscriptionFailedStep"
 }
 
-func (agenticSubscriptionFailedStep) Execute(
+func (agenticSubscriptionFailed) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -1389,20 +1389,20 @@ func (agenticSubscriptionFailedStep) Execute(
 	if err := agenticCaseStatus.Set(ctx, statusFollowUpSubscription); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticPrepareCustomerMessageStep{}, refundCase), nil
+	return dex.GoTo(agenticPrepareCustomerMessage{}, refundCase), nil
 }
 
 // dex:group group-id:failure group-label:"Failure"
 // dex:explanation text:"Handle a failure sending the customer resolution message."
-type agenticEmailFailedStep struct {
+type agenticEmailFailed struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticEmailFailedStep) GetStepType() string {
+func (agenticEmailFailed) GetStepType() string {
 	return "EmailFailedStep"
 }
 
-func (agenticEmailFailedStep) Execute(
+func (agenticEmailFailed) Execute(
 	ctx dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {
@@ -1412,20 +1412,20 @@ func (agenticEmailFailedStep) Execute(
 	if err := agenticCaseStatus.Set(ctx, statusCustomerUninformed); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(agenticCloseCaseStep{}, refundCase), nil
+	return dex.GoTo(agenticCloseCase{}, refundCase), nil
 }
 
 // dex:group group-id:close group-label:"Close"
 // dex:explanation text:"Close the refund case once resolution is final."
-type agenticCloseCaseStep struct {
+type agenticCloseCase struct {
 	dex.StepDefaultsNoWaitFor[refundmodel.RefundCase]
 }
 
-func (agenticCloseCaseStep) GetStepType() string {
+func (agenticCloseCase) GetStepType() string {
 	return "CloseCaseStep"
 }
 
-func (agenticCloseCaseStep) Execute(
+func (agenticCloseCase) Execute(
 	_ dex.Context,
 	refundCase refundmodel.RefundCase,
 ) (*dex.StepDecision, error) {

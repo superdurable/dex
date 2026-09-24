@@ -39,8 +39,8 @@ use std::time::Duration;
 
 #[derive(Default)]
 pub struct ManualRecoveryFlow {
-    do_work_step: DoWorkStep,
-    manual_step: ManualStep,
+    do_work_step: DoWork,
+    manual_step: Manual,
 }
 
 impl Flow for ManualRecoveryFlow {
@@ -56,9 +56,9 @@ impl Flow for ManualRecoveryFlow {
 }
 
 #[derive(Default)]
-struct DoWorkStep;
+struct DoWork;
 
-impl Step for DoWorkStep {
+impl Step for DoWork {
     type Input = bool;
 
     fn execute(
@@ -67,7 +67,7 @@ impl Step for DoWorkStep {
         should_fail: Self::Input,
     ) -> HandlerResult<StepDecision> {
         if should_fail {
-            return Err(HandlerError::new("DoWorkStep", "work failed"));
+            return Err(HandlerError::new("DoWork", "work failed"));
         }
         Ok(StepDecision::graceful_complete(String::from(
             "work completed",
@@ -83,14 +83,14 @@ impl Step for DoWorkStep {
                     .maximum_interval(Duration::from_secs(4))
                     .maximum_attempts(4),
             )
-            .on_execute_failure_proceed_to(&ManualStep)
+            .on_execute_failure_proceed_to(&Manual)
     }
 }
 
 #[derive(Default)]
-struct ManualStep;
+struct Manual;
 
-impl Step for ManualStep {
+impl Step for Manual {
     type Input = bool;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
@@ -101,7 +101,7 @@ impl Step for ManualStep {
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
         if !RETRY.condition_results(context)?.is_empty() {
-            return Ok(StepDecision::go_to(&DoWorkStep, false));
+            return Ok(StepDecision::go_to(&DoWork, false));
         }
         Ok(StepDecision::force_fail("manual recovery skipped"))
     }

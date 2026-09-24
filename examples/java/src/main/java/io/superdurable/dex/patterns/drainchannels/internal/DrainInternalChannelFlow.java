@@ -45,8 +45,8 @@ public class DrainInternalChannelFlow implements Flow<String> {
     private final ServiceDependency externalService;
     private final ServiceDependency mongoCollection;
     private final Init init = new Init();
-    private final SideStep sideStep = new SideStep();
-    private final MainStep mainStep = new MainStep();
+    private final Side sideStep = new Side();
+    private final Main mainStep = new Main();
     private final Finalize finalize = new Finalize();
 
     public DrainInternalChannelFlow(final ServiceDependency service) {
@@ -75,12 +75,12 @@ public class DrainInternalChannelFlow implements Flow<String> {
         public StepDecision execute(final Context context, final String input) {
             mainStepExecutionCounter.set(context, 0);
             return StepDecision.goToMany(
-                    StepMovement.of(SideStep.class, null),
-                    StepMovement.of(MainStep.class, input));
+                    StepMovement.of(Side.class, null),
+                    StepMovement.of(Main.class, input));
         }
     }
 
-    final class SideStep implements Step<Void> {
+    final class Side implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;
@@ -112,11 +112,11 @@ public class DrainInternalChannelFlow implements Flow<String> {
             if (document.finalCommand) {
                 return StepDecision.gracefulComplete();
             }
-            return StepDecision.goTo(SideStep.class, null);
+            return StepDecision.goTo(Side.class, null);
         }
     }
 
-    final class MainStep implements Step<String> {
+    final class Main implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -152,7 +152,7 @@ public class DrainInternalChannelFlow implements Flow<String> {
                     "a call to send metrics or add a log to logrepo");
 
             if (executionCount <= 3) {
-                return StepDecision.goTo(MainStep.class, input);
+                return StepDecision.goTo(Main.class, input);
             }
             return StepDecision.goTo(Finalize.class, null);
         }

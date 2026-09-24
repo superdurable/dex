@@ -38,9 +38,9 @@ func NewAdvancedShortLiveParentFlow(exampleFlow *ExampleSubFlow) *AdvancedShortL
 
 func (flow *AdvancedShortLiveParentFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(shortLiveInitStep{}),
-		dex.DefineStep(shortLiveHandleRequestStep{}),
-		dex.DefineStep(shortLiveHandleSubFlowStep{exampleFlow: flow.exampleFlow}),
+		dex.DefineStartStep(shortLiveInit{}),
+		dex.DefineStep(shortLiveHandleRequest{}),
+		dex.DefineStep(shortLiveHandleSubFlow{exampleFlow: flow.exampleFlow}),
 	}
 }
 
@@ -65,13 +65,13 @@ func (*AdvancedShortLiveParentFlow) SendRequest(ctx dex.Context, request string)
 	return &dex.RPCResult[bool]{Output: true}, nil
 }
 
-type shortLiveInitStep struct {
+type shortLiveInit struct {
 	dex.StepDefaultsNoWaitFor[ParentInput]
 }
 
-func (shortLiveInitStep) GetStepType() string { return "InitStep" }
+func (shortLiveInit) GetStepType() string { return "Init" }
 
-func (shortLiveInitStep) Execute(ctx dex.Context, input ParentInput) (*dex.StepDecision, error) {
+func (shortLiveInit) Execute(ctx dex.Context, input ParentInput) (*dex.StepDecision, error) {
 	for _, request := range input.Requests {
 		if err := RequestChannel.Publish(ctx, request); err != nil {
 			return nil, err
@@ -83,24 +83,24 @@ func (shortLiveInitStep) Execute(ctx dex.Context, input ParentInput) (*dex.StepD
 	count := concurrency(input.Concurrency)
 	movements := make([]dex.StepMovement, 0, count)
 	for index := 0; index < count; index++ {
-		movements = append(movements, dex.MovementOf(shortLiveHandleRequestStep{}, nil))
+		movements = append(movements, dex.MovementOf(shortLiveHandleRequest{}, nil))
 	}
 	return dex.GoToMany(movements...), nil
 }
 
-type shortLiveHandleRequestStep struct{ dex.StepDefaults }
+type shortLiveHandleRequest struct{ dex.StepDefaults }
 
-func (shortLiveHandleRequestStep) GetStepType() string { return "HandleRequestStep" }
+func (shortLiveHandleRequest) GetStepType() string { return "HandleRequest" }
 
-func (shortLiveHandleRequestStep) GetStepOptions() *dex.StepOptions {
+func (shortLiveHandleRequest) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(CurrSubFlowNum)}}
 }
 
-func (shortLiveHandleRequestStep) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
+func (shortLiveHandleRequest) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
 	return dex.Until(RequestChannel.ForOne()), nil
 }
 
-func (shortLiveHandleRequestStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+func (shortLiveHandleRequest) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
 	requests, err := RequestChannel.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
@@ -112,25 +112,25 @@ func (shortLiveHandleRequestStep) Execute(ctx dex.Context, _ dex.None) (*dex.Ste
 	if err := CurrSubFlowNum.Set(ctx, current+1); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(shortLiveHandleSubFlowStep{}, requests[0]), nil
+	return dex.GoTo(shortLiveHandleSubFlow{}, requests[0]), nil
 }
 
-type shortLiveHandleSubFlowStep struct {
+type shortLiveHandleSubFlow struct {
 	dex.StepDefaults
 	exampleFlow *ExampleSubFlow
 }
 
-func (shortLiveHandleSubFlowStep) GetStepType() string { return "HandleSubFlowStep" }
+func (shortLiveHandleSubFlow) GetStepType() string { return "HandleSubFlow" }
 
-func (shortLiveHandleSubFlowStep) GetStepOptions() *dex.StepOptions {
+func (shortLiveHandleSubFlow) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(CurrSubFlowNum)}}
 }
 
-func (step shortLiveHandleSubFlowStep) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
+func (step shortLiveHandleSubFlow) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
 	return dex.Until(dex.SubFlow(step.exampleFlow, request)), nil
 }
 
-func (shortLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+func (shortLiveHandleSubFlow) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
 	current, err := CurrSubFlowNum.Get(ctx)
 	if err != nil {
 		return nil, err
@@ -143,10 +143,10 @@ func (shortLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepD
 		return dex.ForceCompleteIfChannelsEmpty(
 			nil,
 			[]dex.ChannelDef{RequestChannel},
-			dex.MovementOf(shortLiveHandleRequestStep{}, nil),
+			dex.MovementOf(shortLiveHandleRequest{}, nil),
 		), nil
 	}
-	return dex.GoTo(shortLiveHandleRequestStep{}, nil), nil
+	return dex.GoTo(shortLiveHandleRequest{}, nil), nil
 }
 
 var (

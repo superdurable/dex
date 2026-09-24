@@ -10,7 +10,7 @@ Keep a bounded pool of parent Steps alive while the Flow accepts more requests.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**InitStep** publishes the initial requests to **RequestChannel**, sets **Stopped** to false, and starts N **HandleRequestStep** executions. Each worker takes one FIFO message and moves to **HandleSubFlowStep**. That Step starts and waits for **ExampleSubFlow**. When the child completes, it either loops to **HandleRequestStep** or gracefully completes after **Stop** has set **Stopped** to true.
+**Init** publishes the initial requests to **RequestChannel**, sets **Stopped** to false, and starts N **HandleRequest** executions. Each worker takes one FIFO message and moves to **HandleSubFlow**. That Step starts and waits for **ExampleSubFlow**. When the child completes, it either loops to **HandleRequest** or gracefully completes after **Stop** has set **Stopped** to true.
 
 **SendRequest** checks the Channel size before publishing. It returns false when the buffer threshold is reached, so callers can apply back pressure instead of overloading the parent.
 
@@ -31,7 +31,7 @@ DEFAULT_CONCURRENCY = 10
 MAX_BUFFERED_REQUESTS = 100
 
 
-class LongLiveInitStep(Step[ParentInput]):
+class LongLiveInit(Step[ParentInput]):
     def __init__(
         self,
         request_channel: Channel[str],
@@ -41,7 +41,7 @@ class LongLiveInitStep(Step[ParentInput]):
         self.stopped = stopped
 
     def get_step_type(self) -> str:
-        return "InitStep"
+        return "Init"
 
     def execute(self, context: Context, input: ParentInput) -> StepDecision:
         for request in input.requests:
@@ -49,25 +49,25 @@ class LongLiveInitStep(Step[ParentInput]):
         self.stopped.set(context, False)
         concurrency = input.concurrency if input.concurrency > 0 else DEFAULT_CONCURRENCY
         return go_to_many(
-            *(StepMovement.of(LongLiveHandleRequestStep, None) for _ in range(concurrency))
+            *(StepMovement.of(LongLiveHandleRequest, None) for _ in range(concurrency))
         )
 
 
-class LongLiveHandleRequestStep(Step[None]):
+class LongLiveHandleRequest(Step[None]):
     def __init__(self, request_channel: Channel[str]) -> None:
         self.request_channel = request_channel
 
     def get_step_type(self) -> str:
-        return "HandleRequestStep"
+        return "HandleRequest"
 
     def wait_for(self, context: Context, input: None) -> Wait:
         return Wait.until(self.request_channel.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        return go_to(LongLiveHandleSubFlowStep, self.request_channel.results(context)[0])
+        return go_to(LongLiveHandleSubFlow, self.request_channel.results(context)[0])
 
 
-class LongLiveHandleSubFlowStep(Step[str]):
+class LongLiveHandleSubFlow(Step[str]):
     def __init__(
         self,
         example_subflow: ExampleSubFlow,
@@ -77,7 +77,7 @@ class LongLiveHandleSubFlowStep(Step[str]):
         self.stopped = stopped
 
     def get_step_type(self) -> str:
-        return "HandleSubFlowStep"
+        return "HandleSubFlow"
 
     def wait_for(self, context: Context, request: str) -> Wait:
         return Wait.until(SubFlow.run(self.example_subflow, request))
@@ -85,7 +85,7 @@ class LongLiveHandleSubFlowStep(Step[str]):
     def execute(self, context: Context, request: str) -> StepDecision:
         if self.stopped.get(context):
             return graceful_complete()
-        return go_to(LongLiveHandleRequestStep, None)
+        return go_to(LongLiveHandleRequest, None)
 
 
 class AdvancedLongLiveParentFlow(Flow[ParentInput]):
@@ -93,9 +93,9 @@ class AdvancedLongLiveParentFlow(Flow[ParentInput]):
     stopped = Attribute("Stopped", bool)
 
     def __init__(self, example_subflow: ExampleSubFlow) -> None:
-        self.init = LongLiveInitStep(self.request_channel, self.stopped)
-        self.handle_request = LongLiveHandleRequestStep(self.request_channel)
-        self.handle_subflow = LongLiveHandleSubFlowStep(example_subflow, self.stopped)
+        self.init = LongLiveInit(self.request_channel, self.stopped)
+        self.handle_request = LongLiveHandleRequest(self.request_channel)
+        self.handle_subflow = LongLiveHandleSubFlow(example_subflow, self.stopped)
 
     def get_steps(self) -> StepList[ParentInput]:
         return StepList.start_step(self.init).other_steps(
@@ -142,9 +142,9 @@ func NewAdvancedLongLiveParentFlow(exampleFlow *ExampleSubFlow) *AdvancedLongLiv
 
 func (flow *AdvancedLongLiveParentFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(longLiveInitStep{}),
-		dex.DefineStep(longLiveHandleRequestStep{}),
-		dex.DefineStep(longLiveHandleSubFlowStep{exampleFlow: flow.exampleFlow}),
+		dex.DefineStartStep(longLiveInit{}),
+		dex.DefineStep(longLiveHandleRequest{}),
+		dex.DefineStep(longLiveHandleSubFlow{exampleFlow: flow.exampleFlow}),
 	}
 }
 
@@ -179,13 +179,13 @@ func (*AdvancedLongLiveParentFlow) Stop(ctx dex.Context, _ dex.None) (*dex.RPCRe
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-type longLiveInitStep struct {
+type longLiveInit struct {
 	dex.StepDefaultsNoWaitFor[ParentInput]
 }
 
-func (longLiveInitStep) GetStepType() string { return "InitStep" }
+func (longLiveInit) GetStepType() string { return "Init" }
 
-func (longLiveInitStep) Execute(ctx dex.Context, input ParentInput) (*dex.StepDecision, error) {
+func (longLiveInit) Execute(ctx dex.Context, input ParentInput) (*dex.StepDecision, error) {
 	for _, request := range input.Requests {
 		if err := LongLiveRequestChannel.Publish(ctx, request); err != nil {
 			return nil, err
@@ -197,39 +197,39 @@ func (longLiveInitStep) Execute(ctx dex.Context, input ParentInput) (*dex.StepDe
 	count := concurrency(input.Concurrency)
 	movements := make([]dex.StepMovement, 0, count)
 	for index := 0; index < count; index++ {
-		movements = append(movements, dex.MovementOf(longLiveHandleRequestStep{}, nil))
+		movements = append(movements, dex.MovementOf(longLiveHandleRequest{}, nil))
 	}
 	return dex.GoToMany(movements...), nil
 }
 
-type longLiveHandleRequestStep struct{ dex.StepDefaults }
+type longLiveHandleRequest struct{ dex.StepDefaults }
 
-func (longLiveHandleRequestStep) GetStepType() string { return "HandleRequestStep" }
+func (longLiveHandleRequest) GetStepType() string { return "HandleRequest" }
 
-func (longLiveHandleRequestStep) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
+func (longLiveHandleRequest) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
 	return dex.Until(LongLiveRequestChannel.ForOne()), nil
 }
 
-func (longLiveHandleRequestStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+func (longLiveHandleRequest) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
 	requests, err := LongLiveRequestChannel.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return dex.GoTo(longLiveHandleSubFlowStep{}, requests[0]), nil
+	return dex.GoTo(longLiveHandleSubFlow{}, requests[0]), nil
 }
 
-type longLiveHandleSubFlowStep struct {
+type longLiveHandleSubFlow struct {
 	dex.StepDefaults
 	exampleFlow *ExampleSubFlow
 }
 
-func (longLiveHandleSubFlowStep) GetStepType() string { return "HandleSubFlowStep" }
+func (longLiveHandleSubFlow) GetStepType() string { return "HandleSubFlow" }
 
-func (step longLiveHandleSubFlowStep) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
+func (step longLiveHandleSubFlow) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
 	return dex.Until(dex.SubFlow(step.exampleFlow, request)), nil
 }
 
-func (longLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+func (longLiveHandleSubFlow) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
 	stopped, err := Stopped.Get(ctx)
 	if err != nil {
 		return nil, err
@@ -237,7 +237,7 @@ func (longLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDe
 	if stopped {
 		return dex.GracefulComplete(nil), nil
 	}
-	return dex.GoTo(longLiveHandleRequestStep{}, nil), nil
+	return dex.GoTo(longLiveHandleRequest{}, nil), nil
 }
 
 ```
@@ -253,12 +253,12 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
     public final Channel<String> requestChannel = Channel.define("RequestChannel", String.class);
     public final Attribute<Boolean> stopped = Attribute.define("Stopped", Boolean.class);
 
-    private final InitStep initStep = new InitStep();
-    private final HandleRequestStep handleRequestStep = new HandleRequestStep();
-    private final HandleSubFlowStep handleSubFlowStep;
+    private final Init initStep = new Init();
+    private final HandleRequest handleRequestStep = new HandleRequest();
+    private final HandleSubFlow handleSubFlowStep;
 
     public AdvancedLongLiveParentFlow(final ExampleSubFlow exampleSubFlow) {
-        handleSubFlowStep = new HandleSubFlowStep(exampleSubFlow);
+        handleSubFlowStep = new HandleSubFlow(exampleSubFlow);
     }
 
     @Override
@@ -285,7 +285,7 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
         stopped.set(context, true);
     }
 
-    final class InitStep implements Step<ParentInput> {
+    final class Init implements Step<ParentInput> {
         @Override
         public Class<ParentInput> getInputType() {
             return ParentInput.class;
@@ -300,13 +300,13 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
             final int concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
             final StepMovement<?>[] movements = new StepMovement<?>[concurrency];
             for (int index = 0; index < concurrency; index++) {
-                movements[index] = StepMovement.of(HandleRequestStep.class, null);
+                movements[index] = StepMovement.of(HandleRequest.class, null);
             }
             return StepDecision.goToMany(movements);
         }
     }
 
-    final class HandleRequestStep implements Step<Void> {
+    final class HandleRequest implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;
@@ -320,14 +320,14 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             final List<String> requests = requestChannel.getConditionResults(context);
-            return StepDecision.goTo(HandleSubFlowStep.class, requests.get(0));
+            return StepDecision.goTo(HandleSubFlow.class, requests.get(0));
         }
     }
 
-final class HandleSubFlowStep implements Step<String> {
+final class HandleSubFlow implements Step<String> {
     private final ExampleSubFlow exampleSubFlow;
 
-    HandleSubFlowStep(final ExampleSubFlow exampleSubFlow) {
+    HandleSubFlow(final ExampleSubFlow exampleSubFlow) {
         this.exampleSubFlow = exampleSubFlow;
     }
 
@@ -346,7 +346,7 @@ final class HandleSubFlowStep implements Step<String> {
         if (Boolean.TRUE.equals(stopped.get(context))) {
             return StepDecision.gracefulComplete(null);
         }
-        return StepDecision.goTo(HandleRequestStep.class, null);
+        return StepDecision.goTo(HandleRequest.class, null);
     }
 }
 }
@@ -360,13 +360,13 @@ const DEFAULT_CONCURRENCY = 10;
 const MAX_BUFFERED_REQUESTS = 100;
 const requestChannel = new Channel("RequestChannel", stringCodec);
 
-class LongLiveInitStep implements Step<ParentInput> {
+class LongLiveInit implements Step<ParentInput> {
   public readonly inputCodec = parentInputCodec;
 
   public constructor(private readonly flow: AdvancedLongLiveParentFlow) {}
 
   public getStepType(): string {
-    return "InitStep";
+    return "Init";
   }
 
   public execute(context: Context, input: ParentInput): StepDecision {
@@ -375,17 +375,17 @@ class LongLiveInitStep implements Step<ParentInput> {
     const concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
     return goToMany(
       ...Array.from({ length: concurrency }, () =>
-        StepMovement.of(LongLiveHandleRequestStep, undefined),
+        StepMovement.of(LongLiveHandleRequest, undefined),
       ),
     );
   }
 }
 
-class LongLiveHandleRequestStep implements Step<void> {
+class LongLiveHandleRequest implements Step<void> {
   public readonly inputCodec = voidCodec;
 
   public getStepType(): string {
-    return "HandleRequestStep";
+    return "HandleRequest";
   }
 
   public waitFor(_context: Context, _input: void): Wait {
@@ -395,11 +395,11 @@ class LongLiveHandleRequestStep implements Step<void> {
   public execute(context: Context, _input: void): StepDecision {
     const request = requestChannel.results(context)[0];
     if (request === undefined) throw new Error("request is missing");
-    return goTo(LongLiveHandleSubFlowStep, request);
+    return goTo(LongLiveHandleSubFlow, request);
   }
 }
 
-class LongLiveHandleSubFlowStep implements Step<string> {
+class LongLiveHandleSubFlow implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public constructor(
@@ -408,7 +408,7 @@ class LongLiveHandleSubFlowStep implements Step<string> {
   ) {}
 
   public getStepType(): string {
-    return "HandleSubFlowStep";
+    return "HandleSubFlow";
   }
 
   public waitFor(_context: Context, request: string): Wait {
@@ -418,18 +418,18 @@ class LongLiveHandleSubFlowStep implements Step<string> {
   public execute(context: Context, _request: string): StepDecision {
     return this.flow.stopped.get(context) === true
       ? gracefulComplete()
-      : goTo(LongLiveHandleRequestStep, undefined);
+      : goTo(LongLiveHandleRequest, undefined);
   }
 }
 
 export class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
   public readonly stopped = new Attribute("Stopped", booleanCodec);
-  private readonly init = new LongLiveInitStep(this);
-  private readonly handleRequest = new LongLiveHandleRequestStep();
-  private readonly handleSubFlow: LongLiveHandleSubFlowStep;
+  private readonly init = new LongLiveInit(this);
+  private readonly handleRequest = new LongLiveHandleRequest();
+  private readonly handleSubFlow: LongLiveHandleSubFlow;
 
   public constructor(exampleSubFlow: ExampleSubFlow) {
-    this.handleSubFlow = new LongLiveHandleSubFlowStep(this, exampleSubFlow);
+    this.handleSubFlow = new LongLiveHandleSubFlow(this, exampleSubFlow);
   }
 
   public getFlowType(): string {
@@ -474,9 +474,9 @@ pub const STOP_LONG_LIVE_FLOW: Rpc<(), ()> = Rpc::new("StopLongLiveFlow");
 
 #[derive(Default)]
 pub struct AdvancedLongLiveParentFlow {
-    init: LongLiveInitStep,
-    handle_request: LongLiveHandleRequestStep,
-    handle_sub_flow: LongLiveHandleSubFlowStep,
+    init: LongLiveInit,
+    handle_request: LongLiveHandleRequest,
+    handle_sub_flow: LongLiveHandleSubFlow,
 }
 
 impl AdvancedLongLiveParentFlow {
@@ -521,13 +521,13 @@ impl Flow for AdvancedLongLiveParentFlow {
 }
 
 #[derive(Default)]
-struct LongLiveInitStep;
+struct LongLiveInit;
 
-impl Step for LongLiveInitStep {
+impl Step for LongLiveInit {
     type Input = ParentInput;
 
     fn step_type(&self) -> &'static str {
-        "InitStep"
+        "Init"
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
@@ -541,19 +541,19 @@ impl Step for LongLiveInitStep {
             input.concurrency
         };
         Ok(StepDecision::go_to_many(
-            (0..concurrency).map(|_| StepMovement::to(&LongLiveHandleRequestStep, ())),
+            (0..concurrency).map(|_| StepMovement::to(&LongLiveHandleRequest, ())),
         ))
     }
 }
 
 #[derive(Default)]
-struct LongLiveHandleRequestStep;
+struct LongLiveHandleRequest;
 
-impl Step for LongLiveHandleRequestStep {
+impl Step for LongLiveHandleRequest {
     type Input = ();
 
     fn step_type(&self) -> &'static str {
-        "HandleRequestStep"
+        "HandleRequest"
     }
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
@@ -566,18 +566,18 @@ impl Step for LongLiveHandleRequestStep {
             .into_iter()
             .next()
             .unwrap_or_default();
-        Ok(StepDecision::go_to(&LongLiveHandleSubFlowStep, request))
+        Ok(StepDecision::go_to(&LongLiveHandleSubFlow, request))
     }
 }
 
 #[derive(Default)]
-struct LongLiveHandleSubFlowStep;
+struct LongLiveHandleSubFlow;
 
-impl Step for LongLiveHandleSubFlowStep {
+impl Step for LongLiveHandleSubFlow {
     type Input = String;
 
     fn step_type(&self) -> &'static str {
-        "HandleSubFlowStep"
+        "HandleSubFlow"
     }
 
     fn wait_for(&self, _context: &mut Context, request: String) -> HandlerResult<Wait> {
@@ -591,7 +591,7 @@ impl Step for LongLiveHandleSubFlowStep {
         if STOPPED.get(context)?.unwrap_or(false) {
             return Ok(StepDecision::graceful_complete(()));
         }
-        Ok(StepDecision::go_to(&LongLiveHandleRequestStep, ()))
+        Ok(StepDecision::go_to(&LongLiveHandleRequest, ()))
     }
 }
 ```

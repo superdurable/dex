@@ -38,18 +38,18 @@ func NewClientApisFlow() *ClientApisFlow {
 }
 
 func (*ClientApisFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(clientApisStep{})}
+	return []dex.StepDef{dex.DefineStartStep(clientApis{})}
 }
 
 func (*ClientApisFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{Keyword}}
 }
 
-type clientApisStep struct {
+type clientApis struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (clientApisStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+func (clientApis) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
 	if err := Keyword.Set(ctx, input); err != nil {
 		return nil, err
 	}

@@ -82,15 +82,15 @@ func (flow *CustomerSummaryConnectorFlow) GetSteps() []dex.StepDef {
 			},
 			Connection:      flow.connection,
 			BuildInput:      buildGenerateCustomerSummaryInput,
-			Completed:       factorysdk.GoTo(CustomerSummaryCompletedStep{}),
-			Failed:          factorysdk.GoTo(CustomerSummaryFailedStep{}),
+			Completed:       factorysdk.GoTo(CustomerSummaryCompleted{}),
+			Failed:          factorysdk.GoTo(CustomerSummaryFailed{}),
 			Uncertain:       factorysdk.GoTo(factorysdk.StepRef[generateCustomerSummaryOutput](reconcileCustomerSummaryStepType)),
-			Defect:          factorysdk.GoTo(CustomerSummaryFailedStep{}),
+			Defect:          factorysdk.GoTo(CustomerSummaryFailed{}),
 			ResultAttribute: &generatedCustomerSummary,
 			ProgressStream:  &customerSummaryProgress,
 			TextStream:      &customerSummaryText,
 			StepOptionsOverride: &dex.StepOptions{
-				ExecuteFailure: dex.ProceedToOnExecuteFailure(CustomerSummaryExecuteFailedStep{}, nil),
+				ExecuteFailure: dex.ProceedToOnExecuteFailure(CustomerSummaryExecuteFailed{}, nil),
 			},
 		})),
 		dex.DefineStep(openai.NewRetrieveResponseStep(openai.RetrieveResponseStepConfig[generateCustomerSummaryOutput]{
@@ -102,16 +102,16 @@ func (flow *CustomerSummaryConnectorFlow) GetSteps() []dex.StepDef {
 			},
 			Connection:      flow.connection,
 			BuildInput:      buildReconcileCustomerSummaryInput,
-			Found:           factorysdk.GoTo(CustomerSummaryReconciledStep{}),
-			Failed:          factorysdk.GoTo(CustomerSummaryReconcileFailedStep{}),
-			Defect:          factorysdk.GoTo(CustomerSummaryReconcileFailedStep{}),
+			Found:           factorysdk.GoTo(CustomerSummaryReconciled{}),
+			Failed:          factorysdk.GoTo(CustomerSummaryReconcileFailed{}),
+			Defect:          factorysdk.GoTo(CustomerSummaryReconcileFailed{}),
 			ResultAttribute: &reconciledCustomerSummary,
 		})),
-		dex.DefineStep(CustomerSummaryCompletedStep{}),
-		dex.DefineStep(CustomerSummaryFailedStep{}),
-		dex.DefineStep(CustomerSummaryReconciledStep{}),
-		dex.DefineStep(CustomerSummaryReconcileFailedStep{}),
-		dex.DefineStep(CustomerSummaryExecuteFailedStep{}),
+		dex.DefineStep(CustomerSummaryCompleted{}),
+		dex.DefineStep(CustomerSummaryFailed{}),
+		dex.DefineStep(CustomerSummaryReconciled{}),
+		dex.DefineStep(CustomerSummaryReconcileFailed{}),
+		dex.DefineStep(CustomerSummaryExecuteFailed{}),
 	}
 }
 
@@ -193,11 +193,11 @@ func optionalReconciledCustomerSummary(ctx dex.Context) (factorysdk.QueryResult[
 
 // dex:group group-id:generation group-label:"Generation"
 // dex:explanation text:"Complete after OpenAI confirms the generated customer summary."
-type CustomerSummaryCompletedStep struct {
+type CustomerSummaryCompleted struct {
 	dex.StepDefaultsNoWaitFor[generateCustomerSummaryOutput]
 }
 
-func (CustomerSummaryCompletedStep) Execute(_ dex.Context, output generateCustomerSummaryOutput) (*dex.StepDecision, error) {
+func (CustomerSummaryCompleted) Execute(_ dex.Context, output generateCustomerSummaryOutput) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(Output{
 		CustomerID: output.Input.CustomerID,
 		ResponseID: output.Result.Value.ID,
@@ -207,21 +207,21 @@ func (CustomerSummaryCompletedStep) Execute(_ dex.Context, output generateCustom
 
 // dex:group group-id:failure group-label:"Failure"
 // dex:explanation text:"Fail after OpenAI rejects the generation request or local input is invalid."
-type CustomerSummaryFailedStep struct {
+type CustomerSummaryFailed struct {
 	dex.StepDefaultsNoWaitFor[generateCustomerSummaryOutput]
 }
 
-func (CustomerSummaryFailedStep) Execute(_ dex.Context, output generateCustomerSummaryOutput) (*dex.StepDecision, error) {
+func (CustomerSummaryFailed) Execute(_ dex.Context, output generateCustomerSummaryOutput) (*dex.StepDecision, error) {
 	return dex.ForceFail(failureMessage("customer summary generation", output.Result.Failure)), nil
 }
 
 // dex:group group-id:recovery group-label:"Recovery"
 // dex:explanation text:"Complete after retrieval confirms the uncertain model response."
-type CustomerSummaryReconciledStep struct {
+type CustomerSummaryReconciled struct {
 	dex.StepDefaultsNoWaitFor[reconcileCustomerSummaryOutput]
 }
 
-func (CustomerSummaryReconciledStep) Execute(_ dex.Context, output reconcileCustomerSummaryOutput) (*dex.StepDecision, error) {
+func (CustomerSummaryReconciled) Execute(_ dex.Context, output reconcileCustomerSummaryOutput) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(Output{
 		CustomerID: output.Input.Input.CustomerID,
 		ResponseID: output.Result.Value.ID,
@@ -231,21 +231,21 @@ func (CustomerSummaryReconciledStep) Execute(_ dex.Context, output reconcileCust
 
 // dex:group group-id:failure group-label:"Failure"
 // dex:explanation text:"Fail when retrieval cannot confirm the uncertain model response."
-type CustomerSummaryReconcileFailedStep struct {
+type CustomerSummaryReconcileFailed struct {
 	dex.StepDefaultsNoWaitFor[reconcileCustomerSummaryOutput]
 }
 
-func (CustomerSummaryReconcileFailedStep) Execute(_ dex.Context, output reconcileCustomerSummaryOutput) (*dex.StepDecision, error) {
+func (CustomerSummaryReconcileFailed) Execute(_ dex.Context, output reconcileCustomerSummaryOutput) (*dex.StepDecision, error) {
 	return dex.ForceFail(failureMessage("customer summary reconciliation", output.Result.Failure)), nil
 }
 
 // dex:group group-id:execute-failure group-label:"Execute Failure"
 // dex:explanation text:"Fail after the generation Step exhausts its retry policy."
-type CustomerSummaryExecuteFailedStep struct {
+type CustomerSummaryExecuteFailed struct {
 	dex.StepDefaultsNoWaitFor[Input]
 }
 
-func (CustomerSummaryExecuteFailedStep) Execute(_ dex.Context, _ Input) (*dex.StepDecision, error) {
+func (CustomerSummaryExecuteFailed) Execute(_ dex.Context, _ Input) (*dex.StepDecision, error) {
 	return dex.ForceFail("customer summary generation exhausted its retry policy"), nil
 }
 

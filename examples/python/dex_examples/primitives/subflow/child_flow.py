@@ -17,14 +17,14 @@ from __future__ import annotations
 from dex import Context, Flow, Step, StepDecision, StepList, graceful_complete
 
 
-class SubFlowChildStep(Step[int]):
+class SubFlowChild(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         return graceful_complete(input + 1)
 
 
 class SubFlowChildFlow(Flow[int]):
     def __init__(self) -> None:
-        self.start = SubFlowChildStep()
+        self.start = SubFlowChild()
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.start)

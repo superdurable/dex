@@ -31,7 +31,7 @@ static DATA: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("rpc-
 pub struct RpcFlow {
     wait: RpcWait,
     complete: RpcComplete,
-    example_step: ExampleStep,
+    example_step: Example,
 }
 
 impl RpcFlow {
@@ -89,9 +89,9 @@ impl Step for RpcComplete {
 }
 
 #[derive(Default)]
-struct ExampleStep;
+struct Example;
 
-impl Step for ExampleStep {
+impl Step for Example {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {

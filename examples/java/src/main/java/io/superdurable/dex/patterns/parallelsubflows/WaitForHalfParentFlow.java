@@ -34,7 +34,7 @@ public final class WaitForHalfParentFlow implements Flow<String[]> {
 
     private final InitStep initStep = new InitStep();
     private final SubFlowStep subFlowStep;
-    private final WaitSubFlowsStep waitSubFlowsStep = new WaitSubFlowsStep();
+    private final WaitSubFlows waitSubFlowsStep = new WaitSubFlows();
 
     public WaitForHalfParentFlow(final ObjectProvider<Client> clientProvider) {
         subFlowStep = new SubFlowStep(clientProvider);
@@ -62,7 +62,7 @@ public final class WaitForHalfParentFlow implements Flow<String[]> {
                 return StepDecision.gracefulComplete(null);
             }
             final StepMovement<?>[] movements = new StepMovement<?>[requests.length + 1];
-            movements[0] = StepMovement.of(WaitSubFlowsStep.class, requests.length);
+            movements[0] = StepMovement.of(WaitSubFlows.class, requests.length);
             for (int index = 0; index < requests.length; index++) {
                 movements[index + 1] = StepMovement.of(SubFlowStep.class, requests[index]);
             }
@@ -98,7 +98,7 @@ public final class WaitForHalfParentFlow implements Flow<String[]> {
         }
     }
 
-    final class WaitSubFlowsStep implements Step<Integer> {
+    final class WaitSubFlows implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;

@@ -21,7 +21,7 @@ from datetime import timedelta
 from dex import Context, Flow, RetryPolicy, Step, StepDecision, StepList, StepOptions, graceful_complete
 
 
-class RetryStep(Step[int]):
+class Retry(Step[int]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
@@ -39,7 +39,7 @@ class RetryStep(Step[int]):
 
 class RetryFlow(Flow[int]):
     def __init__(self) -> None:
-        self.start = RetryStep()
+        self.start = Retry()
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.start)

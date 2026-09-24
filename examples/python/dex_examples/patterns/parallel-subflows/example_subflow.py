@@ -17,7 +17,7 @@ import asyncio
 from dex import AsyncContext, Flow, Step, StepDecision, StepList, graceful_complete
 
 
-class DoWorkStep(Step[str]):
+class DoWork(Step[str]):
     async def execute(self, context: AsyncContext, request: str) -> StepDecision:
         await asyncio.sleep((50 + len(request) % 10 * 50) / 1000)
         return graceful_complete(request)
@@ -25,7 +25,7 @@ class DoWorkStep(Step[str]):
 
 class ExampleSubFlow(Flow[str]):
     def __init__(self) -> None:
-        self.do_work = DoWorkStep()
+        self.do_work = DoWork()
 
     def get_steps(self) -> StepList[str]:
         return StepList.start_step(self.do_work)

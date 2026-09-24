@@ -22,7 +22,7 @@ static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Appr
 
 #[derive(Default)]
 pub struct StepFlow {
-    example: ExampleStep,
+    example: Example,
     second: StepSecond,
 }
 
@@ -39,9 +39,9 @@ impl Flow for StepFlow {
 }
 
 #[derive(Default)]
-struct ExampleStep;
+struct Example;
 
-impl Step for ExampleStep {
+impl Step for Example {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {

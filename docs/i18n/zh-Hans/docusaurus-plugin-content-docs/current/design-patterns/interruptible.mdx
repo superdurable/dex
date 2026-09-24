@@ -11,13 +11,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inte
 
 这个模式适合会长时间循环运行的工作，例如轮询或批处理。工作运行期间，用户可以请求中断。每个分支会完成当前工作单元，在下一轮循环前读取 durable 信号，然后安全地结束。
 
-**InterruptibleFlow** 会并行启动 **WorkAStep** 和 **WorkBStep**。每个 Step 会在安排下一项工作前检查 durable 的 **interruptSignal**。**interrupt** RPC 写入该信号，使任一分支都能优雅地完成 Flow。
+**InterruptibleFlow** 会并行启动 **WorkA** 和 **WorkB**。每个 Step 会在安排下一项工作前检查 durable 的 **interruptSignal**。**interrupt** RPC 写入该信号，使任一分支都能优雅地完成 Flow。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## 核心实现
 
-每个示例展示 **WorkAStep**。它在工作单元之间等待；收到中断信号时完成，否则安排下一轮循环。**WorkBStep** 采用相同模式。可运行示例还包含 Flow 注册和 **interrupt** RPC。
+每个示例展示 **WorkA**。它在工作单元之间等待；收到中断信号时完成，否则安排下一轮循环。**WorkB** 采用相同模式。可运行示例还包含 Flow 注册和 **interrupt** RPC。
 
 <SdkTabs
   examples={{
@@ -30,7 +30,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inte
 <SdkSnippet lang="python">
 
 ```python
-class WorkAStep(Step[WorkJobParametersInput]):
+class WorkA(Step[WorkJobParametersInput]):
     def __init__(self, interrupt_signal: Attribute[str]) -> None:
         self.interrupt_signal = interrupt_signal
 
@@ -47,7 +47,7 @@ class WorkAStep(Step[WorkJobParametersInput]):
             return graceful_complete()
 
         if input.progress > input.job_upper_bound:
-            print("WorkAStep completed")
+            print("WorkA completed")
             return graceful_complete()
 
         print(
@@ -55,7 +55,7 @@ class WorkAStep(Step[WorkJobParametersInput]):
             f"Doing job {input.progress}"
         )
         return go_to(
-            WorkAStep,
+            WorkA,
             WorkJobParametersInput(input.job_upper_bound, input.progress + 1),
         )
 ```
@@ -64,18 +64,18 @@ class WorkAStep(Step[WorkJobParametersInput]):
 <SdkSnippet lang="go">
 
 ```go
-type workAStep struct {
+type workA struct {
 	dex.StepDefaults
 }
 
-func (workAStep) WaitFor(
+func (workA) WaitFor(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.Wait, error) {
 	return dex.Until(dex.Timer(1500 * time.Millisecond)), nil
 }
 
-func (workAStep) Execute(
+func (workA) Execute(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.StepDecision, error) {
@@ -85,7 +85,7 @@ func (workAStep) Execute(
 		return dex.GracefulComplete(nil), nil
 	}
 	if input.Progress > input.JobUpperBound {
-		fmt.Println("WorkAStep completed")
+		fmt.Println("WorkA completed")
 		return dex.GracefulComplete(nil), nil
 	}
 	fmt.Printf(
@@ -98,7 +98,7 @@ func (workAStep) Execute(
 		JobUpperBound: input.JobUpperBound,
 		Progress:      input.Progress + 1,
 	}
-	return dex.GoTo(workAStep{}, next), nil
+	return dex.GoTo(workA{}, next), nil
 }
 ```
 
@@ -106,7 +106,7 @@ func (workAStep) Execute(
 <SdkSnippet lang="java">
 
 ```java
-final class WorkAStep implements Step<WorkJobParametersInput> {
+final class WorkA implements Step<WorkJobParametersInput> {
     @Override
     public Class<WorkJobParametersInput> getInputType() {
         return WorkJobParametersInput.class;
@@ -128,7 +128,7 @@ final class WorkAStep implements Step<WorkJobParametersInput> {
         }
 
         if (input.progress > input.jobUpperBound) {
-            System.out.println("WorkAStep completed");
+            System.out.println("WorkA completed");
             return StepDecision.gracefulComplete();
         }
         System.out.printf(
@@ -139,7 +139,7 @@ final class WorkAStep implements Step<WorkJobParametersInput> {
 
         final WorkJobParametersInput next =
                 new WorkJobParametersInput(input.jobUpperBound, input.progress + 1);
-        return StepDecision.goTo(WorkAStep.class, next);
+        return StepDecision.goTo(WorkA.class, next);
     }
 }
 ```
@@ -148,11 +148,11 @@ final class WorkAStep implements Step<WorkJobParametersInput> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-class WorkAStep implements Step<WorkJobParametersInput> {
+class WorkA implements Step<WorkJobParametersInput> {
   public constructor(private readonly flow: InterruptibleFlow) {}
 
   public getStepType(): string {
-    return "WorkAStep";
+    return "WorkA";
   }
 
   public waitFor(_context: Context, _input: WorkJobParametersInput): Wait {
@@ -167,7 +167,7 @@ class WorkAStep implements Step<WorkJobParametersInput> {
     }
 
     if (input.progress > input.jobUpperBound) {
-      console.log("WorkAStep completed");
+      console.log("WorkA completed");
       return gracefulComplete();
     }
 
@@ -175,7 +175,7 @@ class WorkAStep implements Step<WorkJobParametersInput> {
       `[${context.flowId}][${context.stepExecutionId}]: Doing job ${input.progress}`,
     );
 
-    return goTo(WorkAStep, {
+    return goTo(WorkA, {
       jobUpperBound: input.jobUpperBound,
       progress: input.progress + 1,
     });
@@ -188,9 +188,9 @@ class WorkAStep implements Step<WorkJobParametersInput> {
 
 ```rust
 #[derive(Default)]
-struct WorkAStep;
+struct WorkA;
 
-impl Step for WorkAStep {
+impl Step for WorkA {
     type Input = WorkJobParametersInput;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
@@ -203,7 +203,7 @@ impl Step for WorkAStep {
             return Ok(StepDecision::graceful_complete(()));
         }
         if input.progress > input.job_upper_bound {
-            println!("WorkAStep completed");
+            println!("WorkA completed");
             return Ok(StepDecision::graceful_complete(()));
         }
         println!(
@@ -213,7 +213,7 @@ impl Step for WorkAStep {
             input.progress
         );
         Ok(StepDecision::go_to(
-            &WorkAStep,
+            &WorkA,
             WorkJobParametersInput {
                 job_upper_bound: input.job_upper_bound,
                 progress: input.progress + 1,

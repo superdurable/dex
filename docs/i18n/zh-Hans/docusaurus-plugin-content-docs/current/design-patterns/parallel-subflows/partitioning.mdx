@@ -16,7 +16,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 ## 核心实现
 
-提交方先调用目标父 Flow 的 RPC。如果父 Flow 不存在或已不活跃，就以该请求作为初始输入启动父 Flow。如果另一个提交方抢先完成启动，本次启动会失败，并由 **SubmitStep** 重试。下一次执行会在已活跃的父 Flow 上调用 RPC。初始请求不会丢失，因为父 Flow 的 **InitStep** 会把它发布到 **RequestChannel**。
+提交方先调用目标父 Flow 的 RPC。如果父 Flow 不存在或已不活跃，就以该请求作为初始输入启动父 Flow。如果另一个提交方抢先完成启动，本次启动会失败，并由 **SubmitStep** 重试。下一次执行会在已活跃的父 Flow 上调用 RPC。初始请求不会丢失，因为父 Flow 的 **Init** 会把它发布到 **RequestChannel**。
 
 <SdkTabs
   examples={{

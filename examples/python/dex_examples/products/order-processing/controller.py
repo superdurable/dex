@@ -27,7 +27,7 @@ from dex_examples.shared.query import (
 )
 from dex_examples.products.order_processing.order_request import OrderRequest
 
-CHARGE_STEP = StepExecutionId("ChargeStep")
+CHARGE_STEP = StepExecutionId("Charge")
 
 
 def create_order_processing_blueprint(app_state: ExampleApp) -> Blueprint:

@@ -31,7 +31,7 @@ from dex import (
 approval = Channel("Approval", str)
 
 
-class NoteWaitStep(Step[int]):
+class NoteWait(Step[int]):
     def wait_for(self, context: Context, input: int) -> Wait:
         context.set_step_execution_local("note", f"approval:{input}")
         return Wait.until(approval.for_one())
@@ -43,7 +43,7 @@ class NoteWaitStep(Step[int]):
 
 class StepExecutionLocalFlow(Flow[int]):
     def __init__(self) -> None:
-        self.note_wait = NoteWaitStep()
+        self.note_wait = NoteWait()
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.note_wait)

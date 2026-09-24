@@ -37,19 +37,19 @@ func NewSubFlowParentFlow(child *SubFlowChildFlow) *SubFlowParentFlow {
 }
 
 func (flow *SubFlowParentFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(subFlowParentStep{child: flow.child})}
+	return []dex.StepDef{dex.DefineStartStep(subFlowParent{child: flow.child})}
 }
 
 func (*SubFlowParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type subFlowParentStep struct {
+type subFlowParent struct {
 	dex.StepDefaults
 	child *SubFlowChildFlow
 }
 
-func (step subFlowParentStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
+func (step subFlowParent) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	timeout := time.Hour
 	return dex.Until(dex.SubFlow(step.child, input, dex.SubFlowOptions{
 		Timeout:       &timeout,
@@ -57,7 +57,7 @@ func (step subFlowParentStep) WaitFor(_ dex.Context, input int) (*dex.Wait, erro
 	})), nil
 }
 
-func (subFlowParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+func (subFlowParent) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
 	result, err := dex.SubFlowResult(ctx)
 	if err != nil {
 		return nil, err

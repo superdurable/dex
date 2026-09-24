@@ -17,7 +17,7 @@ import redirects from './redirects.json';
 const config: Config = {
   title: 'Super Durable Docs',
   tagline: 'Durable Execution for backend engineering',
-  favicon: 'img/favicon.png',
+  favicon: 'img/brand/dex-mark.svg',
 
   future: {
     v4: true,
@@ -147,7 +147,8 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/brand/super-durable-logo.png',
+    // A raster, deliberately: social cards will not render an SVG.
+    image: 'img/brand/dex-social.png',
     colorMode: {
       defaultMode: 'light',
       respectPrefersColorScheme: true,
@@ -155,7 +156,7 @@ const config: Config = {
     navbar: {
       logo: {
         alt: 'Super Durable',
-        src: 'img/brand/super-durable-logo.png',
+        src: 'img/brand/dex-mark.svg',
         href: 'https://superdurable.io/',
         target: '_self',
       },

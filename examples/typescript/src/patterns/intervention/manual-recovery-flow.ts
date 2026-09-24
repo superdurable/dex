@@ -38,11 +38,11 @@ export const SKIP_CHANNEL = "manual-recovery-skip";
 const retryChannel = new Channel(RETRY_CHANNEL, voidCodec);
 const skipChannel = new Channel(SKIP_CHANNEL, voidCodec);
 
-class DoWorkStep implements Step<boolean> {
+class DoWork implements Step<boolean> {
   public readonly inputCodec = booleanCodec;
 
   public getStepType(): string {
-    return "DoWorkStep";
+    return "DoWork";
   }
 
   public getStepOptions() {
@@ -53,7 +53,7 @@ class DoWorkStep implements Step<boolean> {
         maximumIntervalMs: 4_000,
         maximumAttempts: 4,
       },
-      executeFailure: ExecuteFailure.proceedTo(ManualStep),
+      executeFailure: ExecuteFailure.proceedTo(Manual),
     };
   }
 
@@ -65,11 +65,11 @@ class DoWorkStep implements Step<boolean> {
   }
 }
 
-class ManualStep implements Step<boolean> {
+class Manual implements Step<boolean> {
   public readonly inputCodec = booleanCodec;
 
   public getStepType(): string {
-    return "ManualStep";
+    return "Manual";
   }
 
   public waitFor(_context: Context, _input: boolean): Wait {
@@ -81,15 +81,15 @@ class ManualStep implements Step<boolean> {
 
   public execute(context: Context, _input: boolean): StepDecision {
     if (retryChannel.results(context).length > 0) {
-      return goTo(DoWorkStep, false);
+      return goTo(DoWork, false);
     }
     return forceFail("manual recovery skipped");
   }
 }
 
 export class ManualRecoveryFlow implements Flow<boolean> {
-  private readonly doWorkStep = new DoWorkStep();
-  private readonly manualStep = new ManualStep();
+  private readonly doWorkStep = new DoWork();
+  private readonly manualStep = new Manual();
 
   public getFlowType(): string {
     return "ManualRecoveryFlow";

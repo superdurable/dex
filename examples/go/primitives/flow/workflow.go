@@ -38,7 +38,7 @@ func NewExampleFlow() *ExampleFlow {
 func (*ExampleFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(ExampleStep{}),
-		dex.DefineStep(FinishStep{}),
+		dex.DefineStep(Finish{}),
 	}
 }
 
@@ -80,14 +80,14 @@ func (ExampleStep) WaitFor(ctx dex.Context, _ int) (*dex.Wait, error) {
 }
 
 func (ExampleStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
-	return dex.GoTo(FinishStep{}, input+1), nil
+	return dex.GoTo(Finish{}, input+1), nil
 }
 
-type FinishStep struct {
+type Finish struct {
 	dex.StepDefaultsNoWaitFor[int]
 }
 
-func (FinishStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, error) {
+func (Finish) Execute(ctx dex.Context, input int) (*dex.StepDecision, error) {
 	if err := Status.Set(ctx, "done"); err != nil {
 		return nil, err
 	}

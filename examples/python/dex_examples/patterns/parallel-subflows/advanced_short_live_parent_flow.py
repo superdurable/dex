@@ -40,7 +40,7 @@ from dex_examples.patterns.parallel_subflows.models import (
 )
 
 
-class ShortLiveInitStep(Step[ParentInput]):
+class ShortLiveInit(Step[ParentInput]):
     def __init__(
         self,
         request_channel: Channel[str],
@@ -50,7 +50,7 @@ class ShortLiveInitStep(Step[ParentInput]):
         self.curr_subflow_num = curr_subflow_num
 
     def get_step_type(self) -> str:
-        return "InitStep"
+        return "Init"
 
     def execute(self, context: Context, input: ParentInput) -> StepDecision:
         for request in input.requests:
@@ -58,11 +58,11 @@ class ShortLiveInitStep(Step[ParentInput]):
         self.curr_subflow_num.set(context, 0)
         concurrency = input.concurrency if input.concurrency > 0 else DEFAULT_CONCURRENCY
         return go_to_many(
-            *(StepMovement.of(ShortLiveHandleRequestStep, None) for _ in range(concurrency))
+            *(StepMovement.of(ShortLiveHandleRequest, None) for _ in range(concurrency))
         )
 
 
-class ShortLiveHandleRequestStep(Step[None]):
+class ShortLiveHandleRequest(Step[None]):
     def __init__(
         self,
         request_channel: Channel[str],
@@ -72,7 +72,7 @@ class ShortLiveHandleRequestStep(Step[None]):
         self.curr_subflow_num = curr_subflow_num
 
     def get_step_type(self) -> str:
-        return "HandleRequestStep"
+        return "HandleRequest"
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(execute_lock_attributes=(self.curr_subflow_num.lock(),))
@@ -83,10 +83,10 @@ class ShortLiveHandleRequestStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         request = self.request_channel.results(context)[0]
         self.curr_subflow_num.set(context, (self.curr_subflow_num.get(context) or 0) + 1)
-        return go_to(ShortLiveHandleSubFlowStep, request)
+        return go_to(ShortLiveHandleSubFlow, request)
 
 
-class ShortLiveHandleSubFlowStep(Step[str]):
+class ShortLiveHandleSubFlow(Step[str]):
     def __init__(
         self,
         example_subflow: ExampleSubFlow,
@@ -98,7 +98,7 @@ class ShortLiveHandleSubFlowStep(Step[str]):
         self.curr_subflow_num = curr_subflow_num
 
     def get_step_type(self) -> str:
-        return "HandleSubFlowStep"
+        return "HandleSubFlow"
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(execute_lock_attributes=(self.curr_subflow_num.lock(),))
@@ -112,10 +112,10 @@ class ShortLiveHandleSubFlowStep(Step[str]):
         if current == 0:
             return force_complete_if_channels_empty(
                 None,
-                StepMovement.of(ShortLiveHandleRequestStep, None),
+                StepMovement.of(ShortLiveHandleRequest, None),
                 self.request_channel,
             )
-        return go_to(ShortLiveHandleRequestStep, None)
+        return go_to(ShortLiveHandleRequest, None)
 
 
 class AdvancedShortLiveParentFlow(Flow[ParentInput]):
@@ -123,11 +123,11 @@ class AdvancedShortLiveParentFlow(Flow[ParentInput]):
     curr_subflow_num = Attribute("CurrSubFlowNum", int)
 
     def __init__(self, example_subflow: ExampleSubFlow) -> None:
-        self.init = ShortLiveInitStep(self.request_channel, self.curr_subflow_num)
-        self.handle_request = ShortLiveHandleRequestStep(
+        self.init = ShortLiveInit(self.request_channel, self.curr_subflow_num)
+        self.handle_request = ShortLiveHandleRequest(
             self.request_channel, self.curr_subflow_num
         )
-        self.handle_subflow = ShortLiveHandleSubFlowStep(
+        self.handle_subflow = ShortLiveHandleSubFlow(
             example_subflow, self.request_channel, self.curr_subflow_num
         )
 

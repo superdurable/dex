@@ -37,12 +37,12 @@ from dex import (
 from dex_examples.patterns.parallel_subflows.example_subflow import ExampleSubFlow
 
 
-class WaitForHalfInitStep(Step[list[str]]):
+class WaitForHalfInit(Step[list[str]]):
     def execute(self, context: Context, requests: list[str]) -> StepDecision:
         if not requests:
             return graceful_complete()
         return go_to_many(
-            StepMovement.of(WaitSubFlowsStep, len(requests)),
+            StepMovement.of(WaitSubFlows, len(requests)),
             *(StepMovement.of(SubFlowStep, request) for request in requests),
         )
 
@@ -76,7 +76,7 @@ class SubFlowStep(Step[str]):
         return graceful_complete()
 
 
-class WaitSubFlowsStep(Step[int]):
+class WaitSubFlows(Step[int]):
     def __init__(
         self, subflow_completed_ch: Channel[bool], all_done_ch: Channel[bool]
     ) -> None:
@@ -101,11 +101,11 @@ class WaitForHalfParentFlow(Flow[list[str]]):
         client_provider: Callable[[], AsyncClient],
         example_subflow: ExampleSubFlow,
     ) -> None:
-        self.init = WaitForHalfInitStep()
+        self.init = WaitForHalfInit()
         self.subflow = SubFlowStep(
             client_provider, example_subflow, self.subflow_completed_ch, self.all_done_ch
         )
-        self.wait_subflows = WaitSubFlowsStep(
+        self.wait_subflows = WaitSubFlows(
             self.subflow_completed_ch, self.all_done_ch
         )
 

@@ -76,7 +76,7 @@ public class ChannelFlow implements Flow<Integer> {
     public final Channel<String> queuedMessages = Channel.define("QueuedMessages", String.class);
     public final Channel<String> prioritizedMessages =
             Channel.define("PrioritizedMessages", String.class);
-    private final ChannelWaitStep waitForApproval = new ChannelWaitStep();
+    private final ChannelWait waitForApproval = new ChannelWait();
 
     @Override
     public StepList<Integer> getSteps() {
@@ -135,7 +135,7 @@ public class ChannelFlow implements Flow<Integer> {
                 .toList();
     }
 
-    final class ChannelWaitStep implements Step<Integer> {
+    final class ChannelWait implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;

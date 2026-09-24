@@ -28,11 +28,11 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-class LongWaitStep implements Step<boolean> {
+class LongWait implements Step<boolean> {
   public readonly inputCodec = booleanCodec;
 
   public getStepType(): string {
-    return "LongWaitStep";
+    return "LongWait";
   }
 
   public waitFor(_context: Context, workflowSuccessful: boolean): Wait {
@@ -48,7 +48,7 @@ class LongWaitStep implements Step<boolean> {
 }
 
 export class FlowGracefulTimeout implements Flow<boolean> {
-  private readonly longWaitStep = new LongWaitStep();
+  private readonly longWaitStep = new LongWait();
 
   public getFlowType(): string {
     return "FlowGracefulTimeout";

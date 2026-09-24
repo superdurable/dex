@@ -43,10 +43,10 @@ func NewOrchestrationFlow(applicationService service.MyService) *OrchestrationFl
 
 func (flow *OrchestrationFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(callAPI1Step{service: flow.service}),
-		dex.DefineStep(callAPI2Step{service: flow.service}),
-		dex.DefineStep(callAPI3Step{service: flow.service}),
-		dex.DefineStep(callAPI4Step{service: flow.service}),
+		dex.DefineStartStep(callAPI1{service: flow.service}),
+		dex.DefineStep(callAPI2{service: flow.service}),
+		dex.DefineStep(callAPI3{service: flow.service}),
+		dex.DefineStep(callAPI4{service: flow.service}),
 	}
 }
 
@@ -100,12 +100,12 @@ func (*OrchestrationFlow) GetData(
 	return &dex.RPCResult[string]{Output: data}, nil
 }
 
-type callAPI1Step struct {
+type callAPI1 struct {
 	dex.StepDefaultsNoWaitFor[string]
 	service service.MyService
 }
 
-func (step callAPI1Step) Execute(
+func (step callAPI1) Execute(
 	ctx dex.Context,
 	input string,
 ) (*dex.StepDecision, error) {
@@ -114,17 +114,17 @@ func (step callAPI1Step) Execute(
 		return nil, err
 	}
 	return dex.GoToMany(
-		dex.MovementOf(callAPI2Step{}, nil),
-		dex.MovementOf(callAPI3Step{}, nil),
+		dex.MovementOf(callAPI2{}, nil),
+		dex.MovementOf(callAPI3{}, nil),
 	), nil
 }
 
-type callAPI2Step struct {
+type callAPI2 struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 	service service.MyService
 }
 
-func (step callAPI2Step) Execute(
+func (step callAPI2) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
@@ -136,12 +136,12 @@ func (step callAPI2Step) Execute(
 	return dex.DeadEnd(), nil
 }
 
-type callAPI3Step struct {
+type callAPI3 struct {
 	dex.StepDefaults
 	service service.MyService
 }
 
-func (callAPI3Step) WaitFor(
+func (callAPI3) WaitFor(
 	dex.Context,
 	dex.None,
 ) (*dex.Wait, error) {
@@ -151,7 +151,7 @@ func (callAPI3Step) WaitFor(
 	), nil
 }
 
-func (step callAPI3Step) Execute(
+func (step callAPI3) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
@@ -161,17 +161,17 @@ func (step callAPI3Step) Execute(
 	}
 	step.service.CallAPI3(data)
 	if ctx.HasTimerFired() {
-		return dex.GoTo(callAPI4Step{}, nil), nil
+		return dex.GoTo(callAPI4{}, nil), nil
 	}
 	return dex.GracefulComplete(data), nil
 }
 
-type callAPI4Step struct {
+type callAPI4 struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 	service service.MyService
 }
 
-func (step callAPI4Step) Execute(
+func (step callAPI4) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {

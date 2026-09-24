@@ -49,7 +49,7 @@ pub struct SubmitRequestInput {
 
 #[derive(Default)]
 pub struct ExampleSubFlow {
-    do_work: DoWorkStep,
+    do_work: DoWork,
 }
 
 impl Flow for ExampleSubFlow {
@@ -61,9 +61,9 @@ impl Flow for ExampleSubFlow {
 }
 
 #[derive(Default)]
-struct DoWorkStep;
+struct DoWork;
 
-impl Step for DoWorkStep {
+impl Step for DoWork {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, request: Self::Input) -> HandlerResult<StepDecision> {
@@ -111,9 +111,9 @@ impl Step for SubFlowsStep {
 
 #[derive(Default)]
 pub struct WaitForHalfParentFlow {
-    init: WaitForHalfInitStep,
+    init: WaitForHalfInit,
     sub_flow: SubFlowStep,
-    wait_sub_flows: WaitSubFlowsStep,
+    wait_sub_flows: WaitSubFlows,
 }
 
 impl WaitForHalfParentFlow {
@@ -144,9 +144,9 @@ impl Flow for WaitForHalfParentFlow {
 }
 
 #[derive(Default)]
-struct WaitForHalfInitStep;
+struct WaitForHalfInit;
 
-impl Step for WaitForHalfInitStep {
+impl Step for WaitForHalfInit {
     type Input = Vec<String>;
 
     fn step_type(&self) -> &'static str {
@@ -162,7 +162,7 @@ impl Step for WaitForHalfInitStep {
             return Ok(StepDecision::graceful_complete(()));
         }
         let mut movements = Vec::with_capacity(requests.len() + 1);
-        movements.push(StepMovement::to(&WaitSubFlowsStep, requests.len()));
+        movements.push(StepMovement::to(&WaitSubFlows, requests.len()));
         movements.extend(
             requests
                 .into_iter()
@@ -205,9 +205,9 @@ impl Step for SubFlowStep {
 }
 
 #[derive(Default)]
-struct WaitSubFlowsStep;
+struct WaitSubFlows;
 
-impl Step for WaitSubFlowsStep {
+impl Step for WaitSubFlows {
     type Input = usize;
 
     fn wait_for(&self, _context: &mut Context, total: Self::Input) -> HandlerResult<Wait> {
@@ -227,9 +227,9 @@ pub const STOP_LONG_LIVE_FLOW: Rpc<(), ()> = Rpc::new("StopLongLiveFlow");
 
 #[derive(Default)]
 pub struct AdvancedLongLiveParentFlow {
-    init: LongLiveInitStep,
-    handle_request: LongLiveHandleRequestStep,
-    handle_sub_flow: LongLiveHandleSubFlowStep,
+    init: LongLiveInit,
+    handle_request: LongLiveHandleRequest,
+    handle_sub_flow: LongLiveHandleSubFlow,
 }
 
 impl AdvancedLongLiveParentFlow {
@@ -274,9 +274,9 @@ impl Flow for AdvancedLongLiveParentFlow {
 }
 
 #[derive(Default)]
-struct LongLiveInitStep;
+struct LongLiveInit;
 
-impl Step for LongLiveInitStep {
+impl Step for LongLiveInit {
     type Input = ParentInput;
 
     fn step_type(&self) -> &'static str {
@@ -294,15 +294,15 @@ impl Step for LongLiveInitStep {
             input.concurrency
         };
         Ok(StepDecision::go_to_many(
-            (0..concurrency).map(|_| StepMovement::to(&LongLiveHandleRequestStep, ())),
+            (0..concurrency).map(|_| StepMovement::to(&LongLiveHandleRequest, ())),
         ))
     }
 }
 
 #[derive(Default)]
-struct LongLiveHandleRequestStep;
+struct LongLiveHandleRequest;
 
-impl Step for LongLiveHandleRequestStep {
+impl Step for LongLiveHandleRequest {
     type Input = ();
 
     fn step_type(&self) -> &'static str {
@@ -319,14 +319,14 @@ impl Step for LongLiveHandleRequestStep {
             .into_iter()
             .next()
             .unwrap_or_default();
-        Ok(StepDecision::go_to(&LongLiveHandleSubFlowStep, request))
+        Ok(StepDecision::go_to(&LongLiveHandleSubFlow, request))
     }
 }
 
 #[derive(Default)]
-struct LongLiveHandleSubFlowStep;
+struct LongLiveHandleSubFlow;
 
-impl Step for LongLiveHandleSubFlowStep {
+impl Step for LongLiveHandleSubFlow {
     type Input = String;
 
     fn step_type(&self) -> &'static str {
@@ -344,7 +344,7 @@ impl Step for LongLiveHandleSubFlowStep {
         if STOPPED.get(context)?.unwrap_or(false) {
             return Ok(StepDecision::graceful_complete(()));
         }
-        Ok(StepDecision::go_to(&LongLiveHandleRequestStep, ()))
+        Ok(StepDecision::go_to(&LongLiveHandleRequest, ()))
     }
 }
 
@@ -352,9 +352,9 @@ pub const SEND_SHORT_LIVE_REQUEST: Rpc<String, bool> = Rpc::new("SendShortLiveRe
 
 #[derive(Default)]
 pub struct AdvancedShortLiveParentFlow {
-    init: ShortLiveInitStep,
-    handle_request: ShortLiveHandleRequestStep,
-    handle_sub_flow: ShortLiveHandleSubFlowStep,
+    init: ShortLiveInit,
+    handle_request: ShortLiveHandleRequest,
+    handle_sub_flow: ShortLiveHandleSubFlow,
 }
 
 impl AdvancedShortLiveParentFlow {
@@ -392,9 +392,9 @@ impl Flow for AdvancedShortLiveParentFlow {
 }
 
 #[derive(Default)]
-struct ShortLiveInitStep;
+struct ShortLiveInit;
 
-impl Step for ShortLiveInitStep {
+impl Step for ShortLiveInit {
     type Input = ParentInput;
 
     fn step_type(&self) -> &'static str {
@@ -411,16 +411,16 @@ impl Step for ShortLiveInitStep {
         } else {
             input.concurrency
         };
-        Ok(StepDecision::go_to_many((0..concurrency).map(|_| {
-            StepMovement::to(&ShortLiveHandleRequestStep, ())
-        })))
+        Ok(StepDecision::go_to_many(
+            (0..concurrency).map(|_| StepMovement::to(&ShortLiveHandleRequest, ())),
+        ))
     }
 }
 
 #[derive(Default)]
-struct ShortLiveHandleRequestStep;
+struct ShortLiveHandleRequest;
 
-impl Step for ShortLiveHandleRequestStep {
+impl Step for ShortLiveHandleRequest {
     type Input = ();
 
     fn step_type(&self) -> &'static str {
@@ -443,14 +443,14 @@ impl Step for ShortLiveHandleRequestStep {
             .unwrap_or_default();
         let current = CURR_SUB_FLOW_NUM.get(context)?.unwrap_or(0);
         CURR_SUB_FLOW_NUM.set(context, current + 1)?;
-        Ok(StepDecision::go_to(&ShortLiveHandleSubFlowStep, request))
+        Ok(StepDecision::go_to(&ShortLiveHandleSubFlow, request))
     }
 }
 
 #[derive(Default)]
-struct ShortLiveHandleSubFlowStep;
+struct ShortLiveHandleSubFlow;
 
-impl Step for ShortLiveHandleSubFlowStep {
+impl Step for ShortLiveHandleSubFlow {
     type Input = String;
 
     fn step_type(&self) -> &'static str {
@@ -474,11 +474,11 @@ impl Step for ShortLiveHandleSubFlowStep {
         if current == 0 {
             return Ok(StepDecision::force_complete_if_channels_empty(
                 (),
-                StepMovement::to(&ShortLiveHandleRequestStep, ()),
+                StepMovement::to(&ShortLiveHandleRequest, ()),
                 [REQUEST_CHANNEL.when_empty()],
             ));
         }
-        Ok(StepDecision::go_to(&ShortLiveHandleRequestStep, ()))
+        Ok(StepDecision::go_to(&ShortLiveHandleRequest, ()))
     }
 }
 

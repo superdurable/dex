@@ -27,11 +27,11 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-class PollingStep implements Step<void> {
+class Polling implements Step<void> {
   public constructor(private readonly flow: PollingWithTimerFlow) {}
 
   public getStepType(): string {
-    return "PollingStep";
+    return "Polling";
   }
 
   public waitFor(_context: Context, _input: void): Wait {
@@ -42,7 +42,7 @@ class PollingStep implements Step<void> {
     if (this.isSystemReady()) {
       return gracefulComplete();
     }
-    return goTo(PollingStep, undefined);
+    return goTo(Polling, undefined);
   }
   private isSystemReady(): boolean {
     console.log("Executing external system check for readiness...");
@@ -51,7 +51,7 @@ class PollingStep implements Step<void> {
 }
 
 export class PollingWithTimerFlow implements Flow<void> {
-  private readonly pollingStep = new PollingStep(this);
+  private readonly pollingStep = new Polling(this);
 
   public getFlowType(): string {
     return "PollingWithTimerFlow";

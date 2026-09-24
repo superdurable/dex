@@ -60,7 +60,7 @@ export function Legend({ scene, flow }: { scene: Scene; flow: PocFlow }): JSX.El
   for (const l of drawn) edgeCounts.set(l.family, (edgeCounts.get(l.family) ?? 0) + 1)
 
   const marks: { key: string; label: string }[] = []
-  if (scene.boxes.some((b) => b.emphasis === 'start')) {
+  if (scene.boxes.some((b) => b.isStart === true)) {
     marks.push({ key: 'start', label: 'where it begins' })
   }
   if (scene.boxes.some((b) => b.emphasis === 'hub')) {

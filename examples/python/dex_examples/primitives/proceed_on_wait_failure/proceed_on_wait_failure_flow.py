@@ -31,13 +31,13 @@ from dex import (
 )
 
 
-class FinishStep(Step[str]):
+class Finish(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         return graceful_complete(input)
 
 
-class FailingWaitStep(Step[str]):
-    def __init__(self, finish: FinishStep) -> None:
+class FailingWait(Step[str]):
+    def __init__(self, finish: Finish) -> None:
         self.finish = finish
 
     def get_step_options(self) -> StepOptions:
@@ -52,13 +52,13 @@ class FailingWaitStep(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         if not context.wait_for_method_failed():
             raise RuntimeError("waitFor failure was not reported")
-        return go_to(FinishStep, f"{input}_recovered")
+        return go_to(Finish, f"{input}_recovered")
 
 
 class ProceedOnWaitFailureFlow(Flow[str]):
     def __init__(self) -> None:
-        self.finish = FinishStep()
-        self.failing_wait = FailingWaitStep(self.finish)
+        self.finish = Finish()
+        self.failing_wait = FailingWait(self.finish)
 
     def get_steps(self) -> StepList[str]:
         return StepList.start_step(self.failing_wait).other_steps(self.finish)

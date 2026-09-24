@@ -25,12 +25,12 @@ from dex import (
 )
 
 
-class WorkAStep(Step[str]):
+class WorkA(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         return graceful_complete(f"A:{input}")
 
 
-class WorkBStep(Step[str]):
+class WorkB(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         return graceful_complete(f"B:{input}")
 
@@ -38,16 +38,16 @@ class WorkBStep(Step[str]):
 class InitStep(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         return go_to_many(
-            StepMovement.of(WorkAStep, input),
-            StepMovement.of(WorkBStep, input),
+            StepMovement.of(WorkA, input),
+            StepMovement.of(WorkB, input),
         )
 
 
 class StaticParallelStepsFlow(Flow[str]):
     def __init__(self) -> None:
         self.init = InitStep()
-        self.work_a = WorkAStep()
-        self.work_b = WorkBStep()
+        self.work_a = WorkA()
+        self.work_b = WorkB()
 
     def get_steps(self) -> StepList[str]:
         return StepList.start_step(self.init).other_steps(self.work_a, self.work_b)

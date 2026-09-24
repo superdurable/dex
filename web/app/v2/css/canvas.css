@@ -962,8 +962,7 @@
   border-radius: 3px;
 }
 .plegend-mark[data-mark='start'] {
-  background: var(--hue-clock-fill);
-  box-shadow: inset 3px 0 0 var(--hue-clock-ink);
+  border-left: 6px solid var(--p-rpc);
 }
 .plegend-mark[data-mark='hub'] {
   border-style: dashed;
@@ -1228,12 +1227,40 @@
 .pbox[data-emphasis='muted'] {
   opacity: 0.82;
 }
-.pbox[data-emphasis='start'] {
-  background: var(--hue-clock-fill);
-  box-shadow: inset 3px 0 0 var(--hue-clock-ink);
-}
-.pbox[data-emphasis='start'][data-selected='true'] {
-  box-shadow: inset 3px 0 0 var(--hue-clock-ink), 0 0 0 1px var(--p-ink-2);
+/**
+ * WHERE THE FLOW BEGINS.
+ *
+ * ONE channel: an 18px left band, and the card is otherwise identical to its
+ * neighbours. A 3px rail in a near-neutral clock grey was not findable; a wash
+ * behind the whole card was findable but made the start compete with the amber
+ * human gate for "the most coloured box on screen", and the gate should win
+ * that. So the gate keeps the loudest FILL and the start takes the loudest
+ * EDGE — the same one-fact-one-channel split that keeps run state and `isStart`
+ * out of each other's way.
+ *
+ * The hue is `door`, which already means "the way in from outside" — the RPC
+ * pennant wears it. That is the point rather than a collision: the start IS a
+ * door, and it outranks an ordinary one by WEIGHT, not by a ninth hue. The
+ * pennant is a different silhouette anyway.
+ *
+ * The band is a BORDER, not `box-shadow: inset`, for two reasons. `.pbox` is
+ * `overflow: hidden`, so an inset shadow is the only shadow that survives —
+ * and `.pbox[data-agent='intake']` spends that one shadow on a grey rail at
+ * identical specificity 1780 lines below here, so a shadow would silently lose
+ * the cascade the moment agent charters land. A border cannot be taken.
+ *
+ * `box-sizing: border-box` means the band eats 8px of content width rather
+ * than widening the box, so the layout engine's column maths is untouched.
+ *
+ * It sets `border-left` ONLY, never `border-color`. Run state owns the other
+ * three sides — `[data-emphasis='failed']` paints them rose and
+ * `[data-emphasis='active']` blue, both at identical specificity and both
+ * ABOVE this rule, so claiming all four here would silently un-fail a failed
+ * start Step. One channel each: the run owns the frame, the definition owns
+ * the band.
+ */
+.pbox[data-start='true'] {
+  border-left: 18px solid var(--p-rpc);
 }
 .pbox[data-emphasis='hub'] {
   border-style: dashed;
@@ -1508,7 +1535,7 @@
 }
 
 .pbox-rpc[data-selected='true'] {
-  background: color-mix(in srgb, var(--p-rpc) 100%, white 25%);
+  background: color-mix(in srgb, var(--p-rpc) 100%, var(--p-surface-1) 25%);
 }
 
 /* The outside-the-flow lane: BPMN's collapsed pool for an external participant. */
@@ -1616,16 +1643,11 @@
   background: var(--p-surface-2);
 }
 
-[data-theme='light'] .v2-shell .pbox[data-emphasis='start'] {
-  background: var(--hue-clock-fill);
-}
-
-[data-theme='light'] .v2-shell .pbox:not([data-selected='true']):not([data-emphasis='start']) {
-  box-shadow: 0 1px 2px rgba(36, 48, 36, 0.07);
-}
-
-[data-theme='light'] .v2-shell .pbox[data-emphasis='start']:not([data-selected='true']) {
-  box-shadow: inset 3px 0 0 var(--hue-clock-ink), 0 1px 2px rgba(36, 48, 36, 0.07);
+/* The start mark is a border now, so it needs no exception here: every unselected
+   box gets the same lift, the start one included. This used to be two rules that
+   carved out the start Step and then handed it back the identical shadow. */
+[data-theme='light'] .v2-shell .pbox:not([data-selected='true']) {
+  box-shadow: 0 1px 2px rgba(15, 23, 36, 0.07);
 }
 
 [data-theme='light'] .v2-shell .pbox-title {

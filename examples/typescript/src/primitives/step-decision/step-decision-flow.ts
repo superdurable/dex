@@ -40,13 +40,13 @@ interface Quote {
 
 const quoteCodec = jsonCodec<Quote>();
 
-class RouteStep implements Step<string> {
+class Route implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public constructor(private readonly flow: StepDecisionFlow) {}
 
   public getStepType(): string {
-    return "RouteStep";
+    return "Route";
   }
 
   public execute(_context: Context, mode: string): StepDecision {
@@ -55,24 +55,24 @@ class RouteStep implements Step<string> {
     }
     if (mode === "dead-end") {
       return goToMany(
-        StepMovement.of(BranchWorkerStep, "left"),
-        StepMovement.of(BranchWorkerStep, "right"),
+        StepMovement.of(BranchWorker, "left"),
+        StepMovement.of(BranchWorker, "right"),
       );
     }
     const quote: Quote = { carrier: "winner", price: 9 };
     return goToMany(
-      StepMovement.of(CarrierAStep, { carrier: "A", price: 10 }),
-      StepMovement.of(CarrierBStep, { carrier: "B", price: 12 }),
-      StepMovement.of(WinnerStep, quote),
+      StepMovement.of(CarrierA, { carrier: "A", price: 10 }),
+      StepMovement.of(CarrierB, { carrier: "B", price: 12 }),
+      StepMovement.of(Winner, quote),
     );
   }
 }
 
-class BranchWorkerStep implements Step<string> {
+class BranchWorker implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public getStepType(): string {
-    return "BranchWorkerStep";
+    return "BranchWorker";
   }
 
   public execute(_context: Context, _input: string): StepDecision {
@@ -80,11 +80,11 @@ class BranchWorkerStep implements Step<string> {
   }
 }
 
-class CarrierAStep implements Step<Quote> {
+class CarrierA implements Step<Quote> {
   public readonly inputCodec = quoteCodec;
 
   public getStepType(): string {
-    return "CarrierAStep";
+    return "CarrierA";
   }
 
   public waitFor(_context: Context, _quote: Quote): Wait {
@@ -96,11 +96,11 @@ class CarrierAStep implements Step<Quote> {
   }
 }
 
-class CarrierBStep implements Step<Quote> {
+class CarrierB implements Step<Quote> {
   public readonly inputCodec = quoteCodec;
 
   public getStepType(): string {
-    return "CarrierBStep";
+    return "CarrierB";
   }
 
   public waitFor(_context: Context, _quote: Quote): Wait {
@@ -112,29 +112,29 @@ class CarrierBStep implements Step<Quote> {
   }
 }
 
-class WinnerStep implements Step<Quote> {
+class Winner implements Step<Quote> {
   public readonly inputCodec = quoteCodec;
 
   public constructor(private readonly flow: StepDecisionFlow) {}
 
   public getStepType(): string {
-    return "WinnerStep";
+    return "Winner";
   }
 
   public execute(_context: Context, quote: Quote): StepDecision {
     return withCancelingSteps(
-      goTo(RecordQuoteStep, quote),
-      CarrierAStep,
-      CarrierBStep,
+      goTo(RecordQuote, quote),
+      CarrierA,
+      CarrierB,
     );
   }
 }
 
-class RecordQuoteStep implements Step<Quote> {
+class RecordQuote implements Step<Quote> {
   public readonly inputCodec = quoteCodec;
 
   public getStepType(): string {
-    return "RecordQuoteStep";
+    return "RecordQuote";
   }
 
   public execute(_context: Context, quote: Quote): StepDecision {
@@ -143,12 +143,12 @@ class RecordQuoteStep implements Step<Quote> {
 }
 
 export class StepDecisionFlow implements Flow<string> {
-  private readonly route = new RouteStep(this);
-  private readonly branchWorker = new BranchWorkerStep();
-  private readonly carrierA = new CarrierAStep();
-  private readonly carrierB = new CarrierBStep();
-  private readonly winner = new WinnerStep(this);
-  private readonly recordQuote = new RecordQuoteStep();
+  private readonly route = new Route(this);
+  private readonly branchWorker = new BranchWorker();
+  private readonly carrierA = new CarrierA();
+  private readonly carrierB = new CarrierB();
+  private readonly winner = new Winner(this);
+  private readonly recordQuote = new RecordQuote();
 
   public get branchWorkerStep(): Step<string> {
     return this.branchWorker;

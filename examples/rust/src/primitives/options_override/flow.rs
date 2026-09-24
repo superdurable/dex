@@ -19,8 +19,8 @@ use dex_sdk::{
 
 #[derive(Default)]
 pub struct OptionsOverrideFlow {
-    first: OverrideFirstStep,
-    second: OverrideSecondStep,
+    first: OverrideFirst,
+    second: OverrideSecond,
 }
 
 impl Flow for OptionsOverrideFlow {
@@ -32,9 +32,9 @@ impl Flow for OptionsOverrideFlow {
 }
 
 #[derive(Default)]
-struct OverrideFirstStep;
+struct OverrideFirst;
 
-impl Step for OverrideFirstStep {
+impl Step for OverrideFirst {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
@@ -43,7 +43,7 @@ impl Step for OverrideFirstStep {
             .wait_for_failure(WaitForFailurePolicy::Proceed);
         let payload = format!("{input}_state1");
         Ok(StepDecision::go_to_many([StepMovement::to_with_options(
-            &OverrideSecondStep,
+            &OverrideSecond,
             payload,
             override_options,
         )]))
@@ -51,9 +51,9 @@ impl Step for OverrideFirstStep {
 }
 
 #[derive(Default)]
-struct OverrideSecondStep;
+struct OverrideSecond;
 
-impl Step for OverrideSecondStep {
+impl Step for OverrideSecond {
     type Input = String;
 
     fn options(&self) -> StepOptions<Self::Input> {

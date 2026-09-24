@@ -55,7 +55,7 @@ public class OrderProcessingController {
         final String runId = client.startFlow(flow, flowId, request, ExampleFlows.startOptions());
         client.waitForStepCompletion(
                 flowId,
-                StepExecutionId.of("ChargeStep"),
+                StepExecutionId.of("Charge"),
                 WaitForStepCompletionOptions.newBuilder().build());
         final Map<String, String> response = new LinkedHashMap<String, String>();
         response.put("flowID", flowId);

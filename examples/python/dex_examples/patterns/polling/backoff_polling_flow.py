@@ -32,7 +32,7 @@ from dex import (
 from dex_examples.patterns.shared.service_dependency import ServiceDependency
 
 
-class PollingStep(Step[None]):
+class Polling(Step[None]):
     def __init__(
         self,
         service: ServiceDependency,
@@ -62,7 +62,7 @@ class PollingStep(Step[None]):
 
 class BackoffPollingFlow(Flow[None]):
     def __init__(self, service: ServiceDependency) -> None:
-        self.polling_step = PollingStep(service)
+        self.polling_step = Polling(service)
 
     def get_steps(self) -> StepList[None]:
         return StepList.start_step(self.polling_step)

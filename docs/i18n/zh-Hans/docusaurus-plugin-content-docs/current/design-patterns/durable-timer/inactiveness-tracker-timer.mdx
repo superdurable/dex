@@ -7,7 +7,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inac
 
 # Inactiveness Tracker Timer
 
-当一个动作只应在一段时间没有活动后才发生时，使用这个模式。**InactivenessTrackerFlow** 从 **TrackerStep** 开始，等待 Timer 或 **Active** Channel。活动先到达时，**TrackerStep** 跳回自身并开始一个新的 Timer；Timer 先触发时，Flow 跳转到 **ProcessInactivenessStep**。
+当一个动作只应在一段时间没有活动后才发生时，使用这个模式。**InactivenessTrackerFlow** 从 **TrackerStep** 开始，等待 Timer 或 **Active** Channel。活动先到达时，**TrackerStep** 跳回自身并开始一个新的 Timer；Timer 先触发时，Flow 跳转到 **ProcessInactiveness**。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -19,7 +19,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inac
 
 ```python
 class TrackerStep(Step[None]):
-    def __init__(self, process_inactiveness: ProcessInactivenessStep, active_channel: Channel[None]) -> None:
+    def __init__(self, process_inactiveness: ProcessInactiveness, active_channel: Channel[None]) -> None:
         self.process_inactiveness = process_inactiveness
         self.active_channel = active_channel
 
@@ -30,7 +30,7 @@ class TrackerStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
         if context.has_timer_fired():
-            return go_to(ProcessInactivenessStep, None)
+            return go_to(ProcessInactiveness, None)
         return go_to(TrackerStep, None)
 ```
 
@@ -49,7 +49,7 @@ func (trackerStep) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
 
 func (trackerStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
 	if ctx.HasTimerFired() {
-		return dex.GoTo(processInactivenessStep{}, nil), nil
+		return dex.GoTo(processInactiveness{}, nil), nil
 	}
 	return dex.GoTo(trackerStep{}, nil), nil
 }
@@ -74,7 +74,7 @@ final class TrackerStep implements Step<Void> {
     @Override
     public StepDecision execute(final Context context, final Void input) {
         if (context.hasTimerFired()) {
-            return StepDecision.goTo(ProcessInactivenessStep.class, null);
+            return StepDecision.goTo(ProcessInactiveness.class, null);
         }
         return StepDecision.goTo(TrackerStep.class, null);
     }
@@ -97,7 +97,7 @@ class TrackerStep implements Step<void> {
 
   public execute(context: Context, _input: void): StepDecision {
     if (context.hasTimerFired()) {
-      return goTo(ProcessInactivenessStep, undefined);
+      return goTo(ProcessInactiveness, undefined);
     }
     return goTo(TrackerStep, undefined);
   }
@@ -121,7 +121,7 @@ impl Step for TrackerStep {
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
         if context.has_any_timer_fired() {
-            return Ok(StepDecision::go_to(&ProcessInactivenessStep, ()));
+            return Ok(StepDecision::go_to(&ProcessInactiveness, ()));
         }
         Ok(StepDecision::go_to(&TrackerStep, ()))
     }

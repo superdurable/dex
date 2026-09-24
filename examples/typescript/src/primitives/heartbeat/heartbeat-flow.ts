@@ -27,11 +27,11 @@ import {
   type StepOptions,
 } from "@superdurable/dex";
 
-class HeartbeatStep implements Step<number> {
+class Heartbeat implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public getStepType(): string {
-    return "HeartbeatStep";
+    return "Heartbeat";
   }
 
   public getStepOptions(): StepOptions {
@@ -58,7 +58,7 @@ class HeartbeatStep implements Step<number> {
 }
 
 export class HeartbeatFlow implements Flow<number> {
-  private readonly start = new HeartbeatStep();
+  private readonly start = new Heartbeat();
 
   public getFlowType(): string {
     return "HeartbeatFlow";

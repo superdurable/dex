@@ -41,8 +41,8 @@ func NewRpcFlow() *RpcFlow {
 
 func (*RpcFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(rpcWaitStep{}),
-		dex.DefineStep(rpcCompleteStep{}),
+		dex.DefineStartStep(rpcWait{}),
+		dex.DefineStep(rpcComplete{}),
 		dex.DefineStep(exampleStep{}),
 	}
 }
@@ -60,23 +60,23 @@ func (*RpcFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	}
 }
 
-type rpcWaitStep struct {
+type rpcWait struct {
 	dex.StepDefaults
 }
 
-func (rpcWaitStep) WaitFor(_ dex.Context, _ int) (*dex.Wait, error) {
+func (rpcWait) WaitFor(_ dex.Context, _ int) (*dex.Wait, error) {
 	return dex.Until(ExampleCh.ForOne()), nil
 }
 
-func (rpcWaitStep) Execute(_ dex.Context, _ int) (*dex.StepDecision, error) {
-	return dex.GoTo(rpcCompleteStep{}, 0), nil
+func (rpcWait) Execute(_ dex.Context, _ int) (*dex.StepDecision, error) {
+	return dex.GoTo(rpcComplete{}, 0), nil
 }
 
-type rpcCompleteStep struct {
+type rpcComplete struct {
 	dex.StepDefaultsNoWaitFor[int]
 }
 
-func (rpcCompleteStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+func (rpcComplete) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(input + 1), nil
 }
 

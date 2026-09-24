@@ -34,14 +34,14 @@ from dex import (
 )
 
 
-class FinishStep(Step[int]):
+class Finish(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         status.set(context, "done")
         return graceful_complete(input + 1)
 
 
-class ExampleStep(Step[int]):
-    def __init__(self, finish: FinishStep) -> None:
+class Example(Step[int]):
+    def __init__(self, finish: Finish) -> None:
         self.finish = finish
 
     def wait_for(self, context: Context, input: int) -> Wait:
@@ -49,7 +49,7 @@ class ExampleStep(Step[int]):
         return Wait.skip_immediately()
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        return go_to(FinishStep, input + 1)
+        return go_to(Finish, input + 1)
 
 
 status = Attribute("status", str)
@@ -58,8 +58,8 @@ notify = Channel("notify", None)
 
 class ExampleFlow(Flow[int]):
     def __init__(self) -> None:
-        self.finish = FinishStep()
-        self.example = ExampleStep(self.finish)
+        self.finish = Finish()
+        self.example = Example(self.finish)
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.example).other_steps(self.finish)

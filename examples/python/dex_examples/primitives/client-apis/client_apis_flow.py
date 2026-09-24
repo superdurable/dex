@@ -32,7 +32,7 @@ from dex import (
 KEYWORD_KEY = "CustomKeyword"
 
 
-class ClientApisStep(Step[str]):
+class ClientApis(Step[str]):
     def __init__(self, flow: "ClientApisFlow") -> None:
         self.flow = flow
 
@@ -48,7 +48,7 @@ class ClientApisFlow(Flow[str]):
             str,
             AttributeIndex(IndexType.KEYWORD),
         )
-        self.index = ClientApisStep(self)
+        self.index = ClientApis(self)
 
     def get_steps(self) -> StepList[str]:
         return StepList.start_step(self.index)

@@ -18,7 +18,7 @@ from dex import Context, Flow, RetryPolicy, Step, StepDecision, StepList, StepOp
 from dex._grpc_errors import retry_after
 
 
-class CustomRetryStep(Step[int]):
+class CustomRetry(Step[int]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(execute_retry=RetryPolicy(maximum_attempts=5))
 
@@ -31,7 +31,7 @@ class CustomRetryStep(Step[int]):
 
 class CustomRetryFlow(Flow[int]):
     def __init__(self) -> None:
-        self.start = CustomRetryStep()
+        self.start = CustomRetry()
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.start)

@@ -11,7 +11,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**InitStep** 将初始请求发布到 **RequestChannel**，把 **Stopped** 设为 false，并启动 N 个 **HandleRequestStep**。每个 worker 取得一条 FIFO 消息后跳转到 **HandleSubFlowStep**。后者启动并等待 **ExampleSubFlow**；完成后检查 **Stopped**，决定回到 **HandleRequestStep** 还是 graceful complete。
+**Init** 将初始请求发布到 **RequestChannel**，把 **Stopped** 设为 false，并启动 N 个 **HandleRequest**。每个 worker 取得一条 FIFO 消息后跳转到 **HandleSubFlow**。后者启动并等待 **ExampleSubFlow**；完成后检查 **Stopped**，决定回到 **HandleRequest** 还是 graceful complete。
 
 **SendRequest** 在发布前检查 Channel size。达到 buffer threshold 时返回 false，让调用方实施背压。**Stop** RPC 只负责把 **Stopped** 设为 true。
 
@@ -28,7 +28,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 <SdkSnippet lang="python">
 
 ```python
-class LongLiveHandleSubFlowStep(Step[str]):
+class LongLiveHandleSubFlow(Step[str]):
     def __init__(
         self,
         example_subflow: ExampleSubFlow,
@@ -38,7 +38,7 @@ class LongLiveHandleSubFlowStep(Step[str]):
         self.stopped = stopped
 
     def get_step_type(self) -> str:
-        return "HandleSubFlowStep"
+        return "HandleSubFlow"
 
     def wait_for(self, context: Context, request: str) -> Wait:
         return Wait.until(SubFlow.run(self.example_subflow, request))
@@ -46,25 +46,25 @@ class LongLiveHandleSubFlowStep(Step[str]):
     def execute(self, context: Context, request: str) -> StepDecision:
         if self.stopped.get(context):
             return graceful_complete()
-        return go_to(LongLiveHandleRequestStep, None)
+        return go_to(LongLiveHandleRequest, None)
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
-type longLiveHandleSubFlowStep struct {
+type longLiveHandleSubFlow struct {
 	dex.StepDefaults
 	exampleFlow *ExampleSubFlow
 }
 
-func (longLiveHandleSubFlowStep) GetStepType() string { return "HandleSubFlowStep" }
+func (longLiveHandleSubFlow) GetStepType() string { return "HandleSubFlow" }
 
-func (step longLiveHandleSubFlowStep) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
+func (step longLiveHandleSubFlow) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
 	return dex.Until(dex.SubFlow(step.exampleFlow, request)), nil
 }
 
-func (longLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+func (longLiveHandleSubFlow) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
 	stopped, err := Stopped.Get(ctx)
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func (longLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDe
 	if stopped {
 		return dex.GracefulComplete(nil), nil
 	}
-	return dex.GoTo(longLiveHandleRequestStep{}, nil), nil
+	return dex.GoTo(longLiveHandleRequest{}, nil), nil
 }
 ```
 
@@ -80,10 +80,10 @@ func (longLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDe
 <SdkSnippet lang="java">
 
 ```java
-final class HandleSubFlowStep implements Step<String> {
+final class HandleSubFlow implements Step<String> {
     private final ExampleSubFlow exampleSubFlow;
 
-    HandleSubFlowStep(final ExampleSubFlow exampleSubFlow) {
+    HandleSubFlow(final ExampleSubFlow exampleSubFlow) {
         this.exampleSubFlow = exampleSubFlow;
     }
 
@@ -102,7 +102,7 @@ final class HandleSubFlowStep implements Step<String> {
         if (Boolean.TRUE.equals(stopped.get(context))) {
             return StepDecision.gracefulComplete(null);
         }
-        return StepDecision.goTo(HandleRequestStep.class, null);
+        return StepDecision.goTo(HandleRequest.class, null);
     }
 }
 ```
@@ -111,7 +111,7 @@ final class HandleSubFlowStep implements Step<String> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-class LongLiveHandleSubFlowStep implements Step<string> {
+class LongLiveHandleSubFlow implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public constructor(
@@ -120,7 +120,7 @@ class LongLiveHandleSubFlowStep implements Step<string> {
   ) {}
 
   public getStepType(): string {
-    return "HandleSubFlowStep";
+    return "HandleSubFlow";
   }
 
   public waitFor(_context: Context, request: string): Wait {
@@ -130,7 +130,7 @@ class LongLiveHandleSubFlowStep implements Step<string> {
   public execute(context: Context, _request: string): StepDecision {
     return this.flow.stopped.get(context) === true
       ? gracefulComplete()
-      : goTo(LongLiveHandleRequestStep, undefined);
+      : goTo(LongLiveHandleRequest, undefined);
   }
 }
 ```
@@ -140,13 +140,13 @@ class LongLiveHandleSubFlowStep implements Step<string> {
 
 ```rust
 #[derive(Default)]
-struct LongLiveHandleSubFlowStep;
+struct LongLiveHandleSubFlow;
 
-impl Step for LongLiveHandleSubFlowStep {
+impl Step for LongLiveHandleSubFlow {
     type Input = String;
 
     fn step_type(&self) -> &'static str {
-        "HandleSubFlowStep"
+        "HandleSubFlow"
     }
 
     fn wait_for(&self, _context: &mut Context, request: String) -> HandlerResult<Wait> {
@@ -160,7 +160,7 @@ impl Step for LongLiveHandleSubFlowStep {
         if STOPPED.get(context)?.unwrap_or(false) {
             return Ok(StepDecision::graceful_complete(()));
         }
-        Ok(StepDecision::go_to(&LongLiveHandleRequestStep, ()))
+        Ok(StepDecision::go_to(&LongLiveHandleRequest, ()))
     }
 }
 ```

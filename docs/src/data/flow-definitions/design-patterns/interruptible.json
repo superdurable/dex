@@ -17,10 +17,10 @@
   },
   "nodes": [
     {
-      "id": "decision-dispatch:step:WorkAStep",
+      "id": "decision-dispatch:step:WorkA",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "step:WorkAStep",
+      "parentId": "step:WorkA",
       "phase": "execute",
       "span": {
         "startLine": 50,
@@ -30,10 +30,10 @@
       }
     },
     {
-      "id": "decision-dispatch:step:WorkBStep",
+      "id": "decision-dispatch:step:WorkB",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "step:WorkBStep",
+      "parentId": "step:WorkB",
       "phase": "execute",
       "span": {
         "startLine": 80,
@@ -59,10 +59,10 @@
       }
     },
     {
-      "id": "decision:step:WorkAStep:57:20",
+      "id": "decision:step:WorkA:57:20",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:WorkAStep",
+      "parentId": "step:WorkA",
       "condition": "(self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE",
       "phase": "execute",
       "span": {
@@ -76,10 +76,10 @@
       }
     },
     {
-      "id": "decision:step:WorkAStep:61:20",
+      "id": "decision:step:WorkA:61:20",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:WorkAStep",
+      "parentId": "step:WorkA",
       "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and input.progress \u003e input.job_upper_bound",
       "phase": "execute",
       "span": {
@@ -93,10 +93,10 @@
       }
     },
     {
-      "id": "decision:step:WorkAStep:67:16",
+      "id": "decision:step:WorkA:67:16",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:WorkAStep",
+      "parentId": "step:WorkA",
       "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and not (input.progress \u003e input.job_upper_bound)",
       "phase": "execute",
       "span": {
@@ -110,10 +110,10 @@
       }
     },
     {
-      "id": "decision:step:WorkBStep:87:20",
+      "id": "decision:step:WorkB:87:20",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:WorkBStep",
+      "parentId": "step:WorkB",
       "condition": "(self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE",
       "phase": "execute",
       "span": {
@@ -127,10 +127,10 @@
       }
     },
     {
-      "id": "decision:step:WorkBStep:91:20",
+      "id": "decision:step:WorkB:91:20",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:WorkBStep",
+      "parentId": "step:WorkB",
       "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and input.progress \u003e input.job_upper_bound",
       "phase": "execute",
       "span": {
@@ -144,10 +144,10 @@
       }
     },
     {
-      "id": "decision:step:WorkBStep:97:16",
+      "id": "decision:step:WorkB:97:16",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:WorkBStep",
+      "parentId": "step:WorkB",
       "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and not (input.progress \u003e input.job_upper_bound)",
       "phase": "execute",
       "span": {
@@ -199,9 +199,9 @@
       }
     },
     {
-      "id": "step:WorkAStep",
+      "id": "step:WorkA",
       "kind": "step",
-      "name": "WorkAStep",
+      "name": "WorkA",
       "phase": "wait_for+execute",
       "span": {
         "startLine": 138,
@@ -211,9 +211,9 @@
       }
     },
     {
-      "id": "step:WorkBStep",
+      "id": "step:WorkB",
       "kind": "step",
-      "name": "WorkBStep",
+      "name": "WorkB",
       "phase": "wait_for+execute",
       "span": {
         "startLine": 139,
@@ -223,10 +223,10 @@
       }
     },
     {
-      "id": "wait:WorkAStep:48:16:0",
+      "id": "wait:WorkA:48:16:0",
       "kind": "wait",
       "name": "until",
-      "parentId": "step:WorkAStep",
+      "parentId": "step:WorkA",
       "phase": "wait_for",
       "span": {
         "startLine": 48,
@@ -252,10 +252,10 @@
       }
     },
     {
-      "id": "wait:WorkBStep:78:16:0",
+      "id": "wait:WorkB:78:16:0",
       "kind": "wait",
       "name": "until",
-      "parentId": "step:WorkBStep",
+      "parentId": "step:WorkB",
       "phase": "wait_for",
       "span": {
         "startLine": 78,
@@ -286,33 +286,33 @@
       "id": "edge:0001",
       "kind": "transition",
       "from": "decision:step:Init:116:16",
-      "to": "step:WorkAStep",
+      "to": "step:WorkA",
       "label": "fan-out",
       "span": {
         "startLine": 117,
         "startColumn": 13,
         "endLine": 117,
-        "endColumn": 51
+        "endColumn": 47
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
       "from": "decision:step:Init:116:16",
-      "to": "step:WorkBStep",
+      "to": "step:WorkB",
       "label": "fan-out",
       "span": {
         "startLine": 118,
         "startColumn": 13,
         "endLine": 118,
-        "endColumn": 51
+        "endColumn": 47
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:WorkAStep:67:16",
-      "to": "step:WorkAStep",
+      "from": "decision:step:WorkA:67:16",
+      "to": "step:WorkA",
       "label": "go_to",
       "span": {
         "startLine": 67,
@@ -324,8 +324,8 @@
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:WorkBStep:97:16",
-      "to": "step:WorkBStep",
+      "from": "decision:step:WorkB:97:16",
+      "to": "step:WorkB",
       "label": "go_to",
       "span": {
         "startLine": 97,
@@ -338,7 +338,7 @@
       "id": "edge:0005",
       "kind": "resource_read",
       "from": "resource:attribute:InterruptibleFlow.interrupt_signal",
-      "to": "step:WorkAStep",
+      "to": "step:WorkA",
       "label": "get",
       "span": {
         "startLine": 55,
@@ -354,7 +354,7 @@
       "id": "edge:0006",
       "kind": "resource_read",
       "from": "resource:attribute:InterruptibleFlow.interrupt_signal",
-      "to": "step:WorkBStep",
+      "to": "step:WorkB",
       "label": "get",
       "span": {
         "startLine": 85,

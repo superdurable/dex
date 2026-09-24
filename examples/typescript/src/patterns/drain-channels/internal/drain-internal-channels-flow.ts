@@ -65,17 +65,17 @@ class Init implements Step<string> {
   public execute(context: Context, input: string): StepDecision {
     this.flow.mainStepExecutionCounter.set(context, 0);
     return goToMany(
-      StepMovement.of(SideStep, undefined),
-      StepMovement.of(MainStep, input),
+      StepMovement.of(Side, undefined),
+      StepMovement.of(Main, input),
     );
   }
 }
 
-class SideStep implements Step<void> {
+class Side implements Step<void> {
   public constructor(private readonly flow: DrainInternalChannelFlow) {}
 
   public getStepType(): string {
-    return "SideStep";
+    return "Side";
   }
 
   public waitFor(_context: Context, _input: void): Wait {
@@ -98,17 +98,17 @@ class SideStep implements Step<void> {
     if (document.finalCommand) {
       return gracefulComplete();
     }
-    return goTo(SideStep, undefined);
+    return goTo(Side, undefined);
   }
 }
 
-class MainStep implements Step<string> {
+class Main implements Step<string> {
   public readonly inputCodec = stringInputCodec;
 
   public constructor(private readonly flow: DrainInternalChannelFlow) {}
 
   public getStepType(): string {
-    return "MainStep";
+    return "Main";
   }
 
   public execute(context: Context, input: string): StepDecision {
@@ -145,7 +145,7 @@ class MainStep implements Step<string> {
     );
 
     if (executionCount <= 3) {
-      return goTo(MainStep, input);
+      return goTo(Main, input);
     }
     return goTo(Finalize, undefined);
   }
@@ -175,8 +175,8 @@ export class DrainInternalChannelFlow implements Flow<string> {
   );
 
   private readonly initStep = new Init(this);
-  private readonly sideStepInstance = new SideStep(this);
-  private readonly mainStepInstance = new MainStep(this);
+  private readonly sideStepInstance = new Side(this);
+  private readonly mainStepInstance = new Main(this);
   private readonly finalize = new Finalize(this);
 
   public constructor(

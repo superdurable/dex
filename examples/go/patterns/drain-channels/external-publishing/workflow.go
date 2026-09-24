@@ -41,7 +41,7 @@ func NewDrainingExternalChannelFlow() *DrainingExternalChannelFlow {
 
 func (*DrainingExternalChannelFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(processMessageStep{}),
+		dex.DefineStartStep(processMessage{}),
 	}
 }
 
@@ -65,11 +65,11 @@ func (*DrainingExternalChannelFlow) PublishExternalChannelMessage(
 	return &dex.RPCResult[string]{Output: input}, nil
 }
 
-type processMessageStep struct {
+type processMessage struct {
 	dex.StepDefaults
 }
 
-func (processMessageStep) WaitFor(
+func (processMessage) WaitFor(
 	_ dex.Context,
 	input string,
 ) (*dex.Wait, error) {
@@ -79,7 +79,7 @@ func (processMessageStep) WaitFor(
 	return dex.SkipWaitImmediately(), nil
 }
 
-func (processMessageStep) Execute(
+func (processMessage) Execute(
 	ctx dex.Context,
 	input string,
 ) (*dex.StepDecision, error) {
@@ -99,7 +99,7 @@ func (processMessageStep) Execute(
 	return dex.ForceCompleteIfChannelsEmpty(
 		nil,
 		[]dex.ChannelDef{QueueChannel},
-		dex.MovementOf(processMessageStep{}, ""),
+		dex.MovementOf(processMessage{}, ""),
 	), nil
 }
 

@@ -29,7 +29,7 @@ import org.springframework.stereotype.Component;
 @Component
 public final class StepExecutionLocalFlow implements Flow<Integer> {
     private final Channel<String> approval = Channel.define("Approval", String.class);
-    private final NoteWaitStep noteWait = new NoteWaitStep();
+    private final NoteWait noteWait = new NoteWait();
 
     @Override
     public StepList<Integer> getSteps() {
@@ -41,7 +41,7 @@ public final class StepExecutionLocalFlow implements Flow<Integer> {
         return PersistenceSchema.of(approval);
     }
 
-    final class NoteWaitStep implements Step<Integer> {
+    final class NoteWait implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;

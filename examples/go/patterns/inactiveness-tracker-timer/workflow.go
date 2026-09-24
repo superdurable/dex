@@ -45,7 +45,7 @@ func NewInactivenessTrackerFlow() *InactivenessTrackerFlow {
 func (*InactivenessTrackerFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(trackerStep{}),
-		dex.DefineStep(processInactivenessStep{}),
+		dex.DefineStep(processInactiveness{}),
 	}
 }
 
@@ -86,16 +86,16 @@ func (trackerStep) Execute(
 	_ dex.None,
 ) (*dex.StepDecision, error) {
 	if ctx.HasTimerFired() {
-		return dex.GoTo(processInactivenessStep{}, nil), nil
+		return dex.GoTo(processInactiveness{}, nil), nil
 	}
 	return dex.GoTo(trackerStep{}, nil), nil
 }
 
-type processInactivenessStep struct {
+type processInactiveness struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 }
 
-func (processInactivenessStep) Execute(
+func (processInactiveness) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {

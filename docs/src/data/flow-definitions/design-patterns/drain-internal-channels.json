@@ -17,10 +17,10 @@
   },
   "nodes": [
     {
-      "id": "decision-dispatch:step:MainStep",
+      "id": "decision-dispatch:step:Main",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "step:MainStep",
+      "parentId": "step:Main",
       "phase": "execute",
       "span": {
         "startLine": 64,
@@ -30,16 +30,16 @@
       }
     },
     {
-      "id": "decision-dispatch:step:SideStep",
+      "id": "decision-dispatch:step:Side",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "step:SideStep",
+      "parentId": "step:Side",
       "phase": "execute",
       "span": {
         "startLine": 98,
         "startColumn": 5,
         "endLine": 111,
-        "endColumn": 37
+        "endColumn": 33
       }
     },
     {
@@ -75,27 +75,27 @@
       }
     },
     {
-      "id": "decision:step:MainStep:82:20",
+      "id": "decision:step:Main:82:20",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:MainStep",
+      "parentId": "step:Main",
       "condition": "execution_count \u003c= 3",
       "phase": "execute",
       "span": {
         "startLine": 82,
         "startColumn": 20,
         "endLine": 82,
-        "endColumn": 42
+        "endColumn": 38
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:MainStep:83:16",
+      "id": "decision:step:Main:83:16",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:MainStep",
+      "parentId": "step:Main",
       "condition": "not (execution_count \u003c= 3)",
       "phase": "execute",
       "span": {
@@ -109,10 +109,10 @@
       }
     },
     {
-      "id": "decision:step:SideStep:110:20",
+      "id": "decision:step:Side:110:20",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:SideStep",
+      "parentId": "step:Side",
       "condition": "document.final_command",
       "phase": "execute",
       "span": {
@@ -126,17 +126,17 @@
       }
     },
     {
-      "id": "decision:step:SideStep:111:16",
+      "id": "decision:step:Side:111:16",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:SideStep",
+      "parentId": "step:Side",
       "condition": "not (document.final_command)",
       "phase": "execute",
       "span": {
         "startLine": 111,
         "startColumn": 16,
         "endLine": 111,
-        "endColumn": 37
+        "endColumn": 33
       },
       "decision": {
         "type": "goTo"
@@ -196,9 +196,9 @@
       }
     },
     {
-      "id": "step:MainStep",
+      "id": "step:Main",
       "kind": "step",
-      "name": "MainStep",
+      "name": "Main",
       "phase": "execute",
       "span": {
         "startLine": 161,
@@ -208,9 +208,9 @@
       }
     },
     {
-      "id": "step:SideStep",
+      "id": "step:Side",
       "kind": "step",
-      "name": "SideStep",
+      "name": "Side",
       "phase": "wait_for+execute",
       "span": {
         "startLine": 160,
@@ -220,10 +220,10 @@
       }
     },
     {
-      "id": "wait:SideStep:96:16:0",
+      "id": "wait:Side:96:16:0",
       "kind": "wait",
       "name": "until",
-      "parentId": "step:SideStep",
+      "parentId": "step:Side",
       "phase": "wait_for",
       "span": {
         "startLine": 96,
@@ -254,45 +254,45 @@
       "id": "edge:0001",
       "kind": "transition",
       "from": "decision:step:Init:127:16",
-      "to": "step:MainStep",
+      "to": "step:Main",
       "label": "fan-out",
       "span": {
         "startLine": 129,
         "startColumn": 13,
         "endLine": 129,
-        "endColumn": 45
+        "endColumn": 41
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
       "from": "decision:step:Init:127:16",
-      "to": "step:SideStep",
+      "to": "step:Side",
       "label": "fan-out",
       "span": {
         "startLine": 128,
         "startColumn": 13,
         "endLine": 128,
-        "endColumn": 44
+        "endColumn": 40
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:MainStep:82:20",
-      "to": "step:MainStep",
+      "from": "decision:step:Main:82:20",
+      "to": "step:Main",
       "label": "go_to",
       "span": {
         "startLine": 82,
         "startColumn": 20,
         "endLine": 82,
-        "endColumn": 42
+        "endColumn": 38
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:MainStep:83:16",
+      "from": "decision:step:Main:83:16",
       "to": "step:Finalize",
       "label": "go_to",
       "span": {
@@ -305,21 +305,21 @@
     {
       "id": "edge:0005",
       "kind": "transition",
-      "from": "decision:step:SideStep:111:16",
-      "to": "step:SideStep",
+      "from": "decision:step:Side:111:16",
+      "to": "step:Side",
       "label": "go_to",
       "span": {
         "startLine": 111,
         "startColumn": 16,
         "endLine": 111,
-        "endColumn": 37
+        "endColumn": 33
       }
     },
     {
       "id": "edge:0006",
       "kind": "resource_read",
       "from": "resource:attribute:DrainInternalChannelFlow.main_step_execution_counter",
-      "to": "step:MainStep",
+      "to": "step:Main",
       "label": "get",
       "span": {
         "startLine": 65,
@@ -335,7 +335,7 @@
       "id": "edge:0007",
       "kind": "resource_read",
       "from": "resource:channel:DrainInternalChannelFlow.side_step_data",
-      "to": "step:SideStep",
+      "to": "step:Side",
       "label": "results",
       "span": {
         "startLine": 99,
@@ -351,7 +351,7 @@
       "id": "edge:0008",
       "kind": "wait_condition",
       "from": "resource:channel:DrainInternalChannelFlow.side_step_data",
-      "to": "wait:SideStep:96:16:0",
+      "to": "wait:Side:96:16:0",
       "label": "SideStepData.for 1",
       "span": {
         "startLine": 96,
@@ -395,7 +395,7 @@
     {
       "id": "edge:0011",
       "kind": "resource_write",
-      "from": "step:MainStep",
+      "from": "step:Main",
       "to": "resource:attribute:DrainInternalChannelFlow.main_step_execution_counter",
       "label": "set",
       "span": {
@@ -411,7 +411,7 @@
     {
       "id": "edge:0012",
       "kind": "resource_publish",
-      "from": "step:MainStep",
+      "from": "step:Main",
       "to": "resource:channel:DrainInternalChannelFlow.side_step_data",
       "label": "publish",
       "span": {

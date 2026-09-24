@@ -36,7 +36,7 @@ from dex import (
 )
 
 
-class DoWorkStep(Step[bool]):
+class DoWork(Step[bool]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
@@ -45,7 +45,7 @@ class DoWorkStep(Step[bool]):
                 maximum_interval=timedelta(seconds=4),
                 maximum_attempts=4,
             )
-        ).on_execute_failure_proceed_to(ManualStep)
+        ).on_execute_failure_proceed_to(Manual)
 
     def execute(self, context: Context, should_fail: bool) -> StepDecision:
         if should_fail:
@@ -53,7 +53,7 @@ class DoWorkStep(Step[bool]):
         return graceful_complete("work completed")
 
 
-class ManualStep(Step[bool]):
+class Manual(Step[bool]):
     def __init__(
         self,
         retry_channel: Channel[None],
@@ -70,7 +70,7 @@ class ManualStep(Step[bool]):
 
     def execute(self, context: Context, input: bool) -> StepDecision:
         if self.retry_channel.results(context):
-            return go_to(DoWorkStep, False)
+            return go_to(DoWork, False)
         return force_fail("manual recovery skipped")
 
 
@@ -82,8 +82,8 @@ class ManualRecoveryFlow(Flow[bool]):
     skip_channel = Channel[None](SKIP_CHANNEL, type(None))
 
     def __init__(self) -> None:
-        self.do_work_step = DoWorkStep()
-        self.manual_step = ManualStep(self.retry_channel, self.skip_channel)
+        self.do_work_step = DoWork()
+        self.manual_step = Manual(self.retry_channel, self.skip_channel)
 
     def get_steps(self) -> StepList[bool]:
         return StepList.start_step(self.do_work_step).other_steps(self.manual_step)

@@ -7,7 +7,7 @@
   },
   "flow": {
     "name": "AdvancedShortLiveParentFlow",
-    "startStepId": "step:ShortLiveInitStep",
+    "startStepId": "step:ShortLiveInit",
     "span": {
       "startLine": 121,
       "startColumn": 1,
@@ -30,16 +30,16 @@
       }
     },
     {
-      "id": "decision-dispatch:step:ShortLiveHandleSubFlowStep",
+      "id": "decision-dispatch:step:ShortLiveHandleSubFlow",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "step:ShortLiveHandleSubFlowStep",
+      "parentId": "step:ShortLiveHandleSubFlow",
       "phase": "execute",
       "span": {
         "startLine": 109,
         "startColumn": 5,
         "endLine": 118,
-        "endColumn": 55
+        "endColumn": 51
       }
     },
     {
@@ -77,26 +77,26 @@
       }
     },
     {
-      "id": "decision:step:ShortLiveHandleRequestStep:86:16",
+      "id": "decision:step:ShortLiveHandleRequest:86:16",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:ShortLiveHandleRequestStep",
+      "parentId": "step:ShortLiveHandleRequest",
       "phase": "execute",
       "span": {
         "startLine": 86,
         "startColumn": 16,
         "endLine": 86,
-        "endColumn": 58
+        "endColumn": 54
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:ShortLiveHandleSubFlowStep:113:20",
+      "id": "decision:step:ShortLiveHandleSubFlow:113:20",
       "kind": "decision",
       "name": "forceCompleteIfChannelsEmpty",
-      "parentId": "step:ShortLiveHandleSubFlowStep",
+      "parentId": "step:ShortLiveHandleSubFlow",
       "condition": "current == 0",
       "phase": "execute",
       "span": {
@@ -113,27 +113,27 @@
       }
     },
     {
-      "id": "decision:step:ShortLiveHandleSubFlowStep:118:16",
+      "id": "decision:step:ShortLiveHandleSubFlow:118:16",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:ShortLiveHandleSubFlowStep",
+      "parentId": "step:ShortLiveHandleSubFlow",
       "condition": "not (current == 0)",
       "phase": "execute",
       "span": {
         "startLine": 118,
         "startColumn": 16,
         "endLine": 118,
-        "endColumn": 55
+        "endColumn": 51
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:ShortLiveInitStep:60:16",
+      "id": "decision:step:ShortLiveInit:60:16",
       "kind": "decision",
       "name": "goToMany",
-      "parentId": "step:ShortLiveInitStep",
+      "parentId": "step:ShortLiveInit",
       "phase": "execute",
       "span": {
         "startLine": 60,
@@ -185,9 +185,9 @@
       }
     },
     {
-      "id": "step:ShortLiveHandleRequestStep",
+      "id": "step:ShortLiveHandleRequest",
       "kind": "step",
-      "name": "HandleRequestStep",
+      "name": "HandleRequest",
       "phase": "wait_for+execute",
       "span": {
         "startLine": 136,
@@ -197,9 +197,9 @@
       }
     },
     {
-      "id": "step:ShortLiveHandleSubFlowStep",
+      "id": "step:ShortLiveHandleSubFlow",
       "kind": "step",
-      "name": "HandleSubFlowStep",
+      "name": "HandleSubFlow",
       "phase": "wait_for+execute",
       "span": {
         "startLine": 136,
@@ -209,9 +209,9 @@
       }
     },
     {
-      "id": "step:ShortLiveInitStep",
+      "id": "step:ShortLiveInit",
       "kind": "step",
-      "name": "InitStep",
+      "name": "Init",
       "phase": "execute",
       "start": true,
       "span": {
@@ -234,10 +234,10 @@
       }
     },
     {
-      "id": "wait:ShortLiveHandleRequestStep:81:16:0",
+      "id": "wait:ShortLiveHandleRequest:81:16:0",
       "kind": "wait",
       "name": "until",
-      "parentId": "step:ShortLiveHandleRequestStep",
+      "parentId": "step:ShortLiveHandleRequest",
       "phase": "wait_for",
       "span": {
         "startLine": 81,
@@ -263,10 +263,10 @@
       }
     },
     {
-      "id": "wait:ShortLiveHandleSubFlowStep:107:16:0",
+      "id": "wait:ShortLiveHandleSubFlow:107:16:0",
       "kind": "wait",
       "name": "until",
-      "parentId": "step:ShortLiveHandleSubFlowStep",
+      "parentId": "step:ShortLiveHandleSubFlow",
       "phase": "wait_for",
       "span": {
         "startLine": 107,
@@ -296,61 +296,61 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:ShortLiveHandleRequestStep:86:16",
-      "to": "step:ShortLiveHandleSubFlowStep",
+      "from": "decision:step:ShortLiveHandleRequest:86:16",
+      "to": "step:ShortLiveHandleSubFlow",
       "label": "go_to",
       "span": {
         "startLine": 86,
         "startColumn": 16,
         "endLine": 86,
-        "endColumn": 58
+        "endColumn": 54
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:ShortLiveHandleSubFlowStep:113:20",
-      "to": "step:ShortLiveHandleRequestStep",
+      "from": "decision:step:ShortLiveHandleSubFlow:113:20",
+      "to": "step:ShortLiveHandleRequest",
       "label": "fan-out",
       "span": {
         "startLine": 115,
         "startColumn": 17,
         "endLine": 115,
-        "endColumn": 66
+        "endColumn": 62
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:ShortLiveHandleSubFlowStep:118:16",
-      "to": "step:ShortLiveHandleRequestStep",
+      "from": "decision:step:ShortLiveHandleSubFlow:118:16",
+      "to": "step:ShortLiveHandleRequest",
       "label": "go_to",
       "span": {
         "startLine": 118,
         "startColumn": 16,
         "endLine": 118,
-        "endColumn": 55
+        "endColumn": 51
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:ShortLiveInitStep:60:16",
-      "to": "step:ShortLiveHandleRequestStep",
+      "from": "decision:step:ShortLiveInit:60:16",
+      "to": "step:ShortLiveHandleRequest",
       "label": "fan-out",
       "multiplicity": "×N",
       "span": {
         "startLine": 61,
         "startColumn": 15,
         "endLine": 61,
-        "endColumn": 64
+        "endColumn": 60
       }
     },
     {
       "id": "edge:0005",
       "kind": "resource_read",
       "from": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
-      "to": "step:ShortLiveHandleRequestStep",
+      "to": "step:ShortLiveHandleRequest",
       "label": "get",
       "span": {
         "startLine": 85,
@@ -366,7 +366,7 @@
       "id": "edge:0006",
       "kind": "resource_read",
       "from": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
-      "to": "step:ShortLiveHandleSubFlowStep",
+      "to": "step:ShortLiveHandleSubFlow",
       "label": "get",
       "span": {
         "startLine": 110,
@@ -398,7 +398,7 @@
       "id": "edge:0008",
       "kind": "resource_read",
       "from": "resource:channel:AdvancedShortLiveParentFlow.request_channel",
-      "to": "step:ShortLiveHandleRequestStep",
+      "to": "step:ShortLiveHandleRequest",
       "label": "results",
       "span": {
         "startLine": 84,
@@ -414,7 +414,7 @@
       "id": "edge:0009",
       "kind": "wait_condition",
       "from": "resource:channel:AdvancedShortLiveParentFlow.request_channel",
-      "to": "wait:ShortLiveHandleRequestStep:81:16:0",
+      "to": "wait:ShortLiveHandleRequest:81:16:0",
       "label": "RequestChannel.for 1",
       "span": {
         "startLine": 81,
@@ -442,7 +442,7 @@
     {
       "id": "edge:0011",
       "kind": "resource_lock",
-      "from": "step:ShortLiveHandleRequestStep",
+      "from": "step:ShortLiveHandleRequest",
       "to": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
       "label": "lock",
       "span": {
@@ -458,7 +458,7 @@
     {
       "id": "edge:0012",
       "kind": "resource_write",
-      "from": "step:ShortLiveHandleRequestStep",
+      "from": "step:ShortLiveHandleRequest",
       "to": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
       "label": "set",
       "span": {
@@ -474,7 +474,7 @@
     {
       "id": "edge:0013",
       "kind": "resource_lock",
-      "from": "step:ShortLiveHandleSubFlowStep",
+      "from": "step:ShortLiveHandleSubFlow",
       "to": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
       "label": "lock",
       "span": {
@@ -490,7 +490,7 @@
     {
       "id": "edge:0014",
       "kind": "resource_write",
-      "from": "step:ShortLiveHandleSubFlowStep",
+      "from": "step:ShortLiveHandleSubFlow",
       "to": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
       "label": "set",
       "span": {
@@ -506,7 +506,7 @@
     {
       "id": "edge:0015",
       "kind": "resource_write",
-      "from": "step:ShortLiveInitStep",
+      "from": "step:ShortLiveInit",
       "to": "resource:attribute:AdvancedShortLiveParentFlow.curr_subflow_num",
       "label": "set",
       "span": {
@@ -522,7 +522,7 @@
     {
       "id": "edge:0016",
       "kind": "resource_publish",
-      "from": "step:ShortLiveInitStep",
+      "from": "step:ShortLiveInit",
       "to": "resource:channel:AdvancedShortLiveParentFlow.request_channel",
       "label": "publish",
       "span": {
@@ -538,7 +538,7 @@
     {
       "id": "edge:0017",
       "kind": "subflow",
-      "from": "wait:ShortLiveHandleSubFlowStep:107:16:0",
+      "from": "wait:ShortLiveHandleSubFlow:107:16:0",
       "to": "subflow:self.example_subflow:107",
       "label": "start",
       "span": {

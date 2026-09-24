@@ -27,11 +27,11 @@ import {
   type StepOptions,
 } from "@superdurable/dex";
 
-class CustomRetryStep implements Step<number> {
+class CustomRetry implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public getStepType(): string {
-    return "CustomRetryStep";
+    return "CustomRetry";
   }
 
   public getStepOptions(): StepOptions {
@@ -52,7 +52,7 @@ class CustomRetryStep implements Step<number> {
 }
 
 export class CustomRetryFlow implements Flow<number> {
-  private readonly start = new CustomRetryStep();
+  private readonly start = new CustomRetry();
 
   public getFlowType(): string {
     return "CustomRetryFlow";

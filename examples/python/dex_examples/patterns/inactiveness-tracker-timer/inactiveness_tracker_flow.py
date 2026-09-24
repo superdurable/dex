@@ -36,16 +36,16 @@ from dex import (
 TRACKER_DURATION = timedelta(minutes=5)
 
 
-class ProcessInactivenessStep(Step[None]):
+class ProcessInactiveness(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         print("No activity arrived before the timer fired")
         return graceful_complete()
 
 
-class TrackerStep(Step[None]):
+class Tracker(Step[None]):
     def __init__(
         self,
-        process_inactiveness: ProcessInactivenessStep,
+        process_inactiveness: ProcessInactiveness,
         active_channel: Channel[None],
     ) -> None:
         self.process_inactiveness = process_inactiveness
@@ -59,8 +59,8 @@ class TrackerStep(Step[None]):
 
     def execute(self, context: Context, input: None) -> StepDecision:
         if context.has_timer_fired():
-            return go_to(ProcessInactivenessStep, None)
-        return go_to(TrackerStep, None)
+            return go_to(ProcessInactiveness, None)
+        return go_to(Tracker, None)
 
 
 class InactivenessTrackerFlow(Flow[None]):
@@ -69,8 +69,8 @@ class InactivenessTrackerFlow(Flow[None]):
     active_channel = Channel(ACTIVE_CHANNEL, type(None))
 
     def __init__(self) -> None:
-        self.process_inactiveness = ProcessInactivenessStep()
-        self.tracker_step = TrackerStep(
+        self.process_inactiveness = ProcessInactiveness()
+        self.tracker_step = Tracker(
             self.process_inactiveness,
             self.active_channel,
         )

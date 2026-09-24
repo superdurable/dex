@@ -16,27 +16,27 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
 <SdkSnippet lang="go">
 
 ```go
-type pollingWithTimerStep struct {
+type pollingWithTimer struct {
 	dex.StepDefaults
 }
 
-func (pollingWithTimerStep) GetStepType() string { return "PollingStep" }
+func (pollingWithTimer) GetStepType() string { return "PollingStep" }
 
-func (pollingWithTimerStep) WaitFor(
+func (pollingWithTimer) WaitFor(
 	ctx dex.Context,
 	input dex.None,
 ) (*dex.Wait, error) {
 	return dex.Until(dex.Timer(10 * time.Second)), nil
 }
 
-func (pollingWithTimerStep) Execute(
+func (pollingWithTimer) Execute(
 	ctx dex.Context,
 	input dex.None,
 ) (*dex.StepDecision, error) {
 	if isSystemReady() {
 		return dex.GracefulComplete(nil), nil
 	}
-	return dex.GoTo(pollingWithTimerStep{}, nil), nil
+	return dex.GoTo(pollingWithTimer{}, nil), nil
 }
 ```
 

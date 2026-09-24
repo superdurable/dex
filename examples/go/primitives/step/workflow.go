@@ -35,7 +35,7 @@ func NewStepFlow() *StepFlow {
 func (*StepFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(ExampleStep{}),
-		dex.DefineStep(stepSecondStep{}),
+		dex.DefineStep(stepSecond{}),
 	}
 }
 
@@ -52,14 +52,14 @@ func (ExampleStep) WaitFor(_ dex.Context, _ int) (*dex.Wait, error) {
 }
 
 func (ExampleStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
-	return dex.GoTo(stepSecondStep{}, input+1), nil
+	return dex.GoTo(stepSecond{}, input+1), nil
 }
 
-type stepSecondStep struct {
+type stepSecond struct {
 	dex.StepDefaultsNoWaitFor[int]
 }
 
-func (stepSecondStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+func (stepSecond) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(input + 1), nil
 }
 

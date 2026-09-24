@@ -31,47 +31,52 @@
    * ====================================================================== */
 
   /* ---- hue ramps: SHARED across themes ---------------------------------- */
-  --hue-attention-line: #a8760e; /* 3.74:1 worst of four grounds             */
-  --hue-progress-line: #5583bb; /* 3.67:1                                   */
-  --hue-success-line: #4e906f; /* 3.52:1                                    */
-  --hue-danger-line: #c05e60; /* 3.90:1                                     */
-  --hue-door-line: #0c90a4; /* 3.53:1                                       */
-  --hue-child-line: #8673b5; /* 3.80:1                                      */
-  --hue-clock-line: #778191; /* 3.67:1                                      */
-  --hue-provisional-line: #659023; /* 3.52:1                                */
+  --hue-attention-line: #9f7938; /* 3.55:1 worst of all eight grounds        */
+  --hue-progress-line: #5783b8; /* 3.50:1                                   */
+  --hue-success-line: #4b9169; /* 3.37:1                                    */
+  --hue-danger-line: #b46767; /* 3.69:1                                     */
+  --hue-door-line: #2e8ea0; /* 3.41:1                                       */
+  --hue-child-line: #8673b5; /* 3.65:1                                      */
+  --hue-clock-line: #778190; /* 3.51:1                                      */
+  --hue-provisional-line: #6f8b4f; /* 3.41:1                                */
 
   /* ---- hue ramps: DARK -------------------------------------------------- */
-  --hue-attention-ink: #e4ac4e; /* 8.44 card / 9.82 canvas                  */
-  --hue-attention-fill: #392100;
-  --hue-progress-ink: #88bbf9; /* 8.58 / 9.98                               */
-  --hue-progress-fill: #102742;
-  --hue-success-ink: #83caa4; /* 8.89 / 10.34                               */
-  --hue-success-fill: #0c2e1e;
-  --hue-danger-ink: #ff9394; /* 8.05 / 9.36                                 */
-  --hue-danger-fill: #431417;
-  --hue-door-ink: #55cadf; /* 8.87 / 10.32                                  */
-  --hue-door-fill: #002d37;
-  --hue-child-ink: #bdaaf3; /* 8.31 / 9.67                                  */
-  --hue-child-fill: #29203f;
-  --hue-clock-ink: #adb8ca; /* 8.56 / 9.96                                  */
-  --hue-clock-fill: #22272e;
-  --hue-provisional-ink: #99ca5b; /* 8.91 / 10.37                           */
-  --hue-provisional-fill: #192d00;
+  --hue-attention-ink: #e1b267; /* 8.76 card / 10.20 canvas                 */
+  --hue-attention-fill: #332000;
+  --hue-progress-ink: #89beff; /* 8.85 / 10.30                              */
+  --hue-progress-fill: #10253e;
+  --hue-success-ink: #7cd09f; /* 9.26 / 10.78                               */
+  --hue-success-fill: #072c19;
+  --hue-danger-ink: #fb9c9c; /* 8.41 / 9.79                                 */
+  --hue-danger-fill: #3c1719;
+  --hue-door-ink: #60cce1; /* 9.13 / 10.63                                  */
+  --hue-door-fill: #002a31;
+  --hue-child-ink: #c1abfb; /* 8.53 / 9.93                                  */
+  --hue-child-fill: #271e3d;
+  --hue-clock-ink: #b0bbce; /* 8.83 / 10.27                                 */
+  --hue-clock-fill: #20252c;
+  --hue-provisional-ink: #a6c880; /* 9.11 / 10.60                           */
+  --hue-provisional-fill: #1c290c;
 
-  /* ---- neutral ramp: DARK ----------------------------------------------- */
-  --surface-canvas: #07090c;
-  --surface-page: #0e1116;
-  --surface-card: #171c22;
-  --surface-raised: #1f252d;
-  --surface-hover: #242b33;
-  --ink-faint: #494d54; /* 1.85 card — marks and dividers, NEVER text        */
-  --ink-soft: #6c7077; /* 3.15 card — marks                                 */
-  --ink-mid: #8c9198; /* 4.93 card — muted text floor                       */
-  --ink-strong: #bec3ca; /* 8.80 card                                       */
-  --ink-max: #eff4fc; /* 14.12 card                                        */
-  --line-soft: #212734;
-  --line-mid: #2b313d;
-  --line-strong: #454f5a;
+  /* ---- neutral ramp: DARK -----------------------------------------------
+   * Two chroma bands, and the split is the point. PLANES carry the brand hue
+   * at C 0.008 — the atmosphere. Everything that is a mark (ink, line, band)
+   * is cool and near-achromatic at C 0.0045. Lightness is unchanged from the
+   * ramp this replaces; only hue and chroma moved.
+   * ---------------------------------------------------------------------- */
+  --surface-canvas: #070a08;
+  --surface-page: #0e120f;
+  --surface-card: #1a1c1e; /* cards stay cool: content sits on neutral       */
+  --surface-raised: #212623;
+  --surface-hover: #272c29;
+  --ink-faint: #4b4d4f; /* 1.83 card — marks and dividers, NEVER text        */
+  --ink-soft: #6e7072; /* 3.13 card — marks                                 */
+  --ink-mid: #8f9193; /* 4.92 card — muted text floor                       */
+  --ink-strong: #c1c3c5; /* 8.79 card                                       */
+  --ink-max: #f2f4f7; /* 14.19 card                                        */
+  --line-soft: #262729;
+  --line-mid: #303133;
+  --line-strong: #4c4e50;
 
   /* ---- how much hue a wash may carry. A dark ground tolerates more. ----- */
   --wash-pct: 14%;
@@ -84,7 +89,7 @@
    * gets lightness and nothing else. Two steps alternating by index is enough,
    * because only ADJACENT bands need telling apart. */
   --band-0: #26282a; /* 1.331:1 over the plane                             */
-  --band-1: #2f3134; /* 1.518:1                                            */
+  --band-1: #2f3133; /* 1.518:1                                            */
 
   /* ---- planes ---------------------------------------------------------- */
   --color-canvas: var(--surface-canvas); /* graph plane, the darkest thing in the app      */
@@ -113,10 +118,20 @@
 
   /* ---- ONE accent: aliveness and interactivity, nothing else. ---------- */
   --color-accent: var(--hue-progress-ink); /* 7.77 surface / 9.05 canvas                    */
-  --color-accent-hover: #a6c9f6; /* 10.04 surface                           */
+  --color-accent-hover: #b2d4ff; /* 11.19 card                              */
   --color-accent-rule: var(--hue-progress-line); /* 3.18 canvas — the running card's rail    */
   --color-accent-subtle: var(--hue-progress-fill); /* running wash (1.16 canvas)             */
   --color-focus: var(--hue-progress-ink); /* 9.59 surface / 11.16 canvas                    */
+
+  /* ---- the ONE brand green. The primary button and the mark, nothing else.
+     Not a state: green-as-state is `success` below, and it is the SAME hue at a
+     different lightness. This is the only token licensed to be loud.        */
+  /* Same value as globals.css `--brand-head`: the mark and the button are one
+     green. Duplicated because the header is outside this scope, not because
+     they are independent — change both or neither.                         */
+  --color-cta: #70eea9; /* 11.79 card — near-black ink sits on it, 13.72     */
+  --color-cta-hover: #87fab9; /* 15.54                                       */
+  --color-cta-on: var(--surface-canvas); /* ink ON the CTA. See the light twin. */
 
   /* ---- the six node states. Three are deliberately hueless. ------------
      `waiting` carries no hue because it means "blocked on a timer or a
@@ -147,10 +162,10 @@
   --color-attention-on: var(--surface-canvas); /* ink ON an amber fill. See the light twin. */
 
   /* ---- washes: the only place a colour appears as rgba ----------------- */
-  --accent-wash: rgba(127, 178, 240, 0.1);
-  --accent-wash-strong: rgba(127, 178, 240, 0.22);
-  --attention-wash: rgba(233, 180, 76, 0.26);
-  --focus-ring: 0 0 0 3px rgba(156, 196, 255, 0.3);
+  --accent-wash: rgba(137, 190, 255, 0.1);
+  --accent-wash-strong: rgba(137, 190, 255, 0.22);
+  --attention-wash: rgba(225, 178, 103, 0.26);
+  --focus-ring: 0 0 0 3px rgba(137, 190, 255, 0.3);
 
   /* ---- elevation. On near-black a shadow is a ring first, a blur second. */
   --shadow-pop: 0 0 0 1px var(--color-rule-strong), 0 10px 28px -12px rgba(0, 0, 0, 0.78);
@@ -229,44 +244,69 @@
 [data-theme='light'] .v2-shell {
   color-scheme: light;
 
-  --hue-attention-ink: #8a5700; /* 6.09 card / 5.66 canvas                  */
-  --hue-attention-fill: #ffe8b8;
-  --hue-progress-ink: #35659d; /* 6.01 / 5.59                               */
-  --hue-progress-fill: #d3f0ff;
-  --hue-success-ink: #2b7351; /* 5.73 / 5.33                                */
-  --hue-success-fill: #d1f8e2;
-  --hue-danger-ink: #a13d43; /* 6.43 / 5.98                                 */
-  --hue-danger-fill: #ffdad9;
-  --hue-door-ink: #007287; /* 5.58 / 5.19                                   */
-  --hue-door-fill: #bff8ff;
-  --hue-child-ink: #695598; /* 6.25 / 5.81                                  */
-  --hue-child-fill: #f0e6ff;
-  --hue-clock-ink: #5a6474; /* 6.00 / 5.58                                  */
-  --hue-clock-fill: #e7edf8;
-  --hue-provisional-ink: #477200; /* 5.71 / 5.31                            */
-  --hue-provisional-fill: #dcf8be;
+  --hue-attention-ink: #845b00; /* 5.38 worst of four grounds               */
+  --hue-attention-fill: #fbecd6;
+  --hue-progress-ink: #34659f; /* 5.33                                      */
+  --hue-progress-fill: #e4f0ff;
+  --hue-success-ink: #1c754a; /* 5.07                                       */
+  --hue-success-fill: #ddf6e6;
+  --hue-danger-ink: #9a4548; /* 5.64                                        */
+  --hue-danger-fill: #ffe8e8;
+  --hue-door-ink: #007080; /* 5.16                                          */
+  --hue-door-fill: #d7f5fb;
+  --hue-child-ink: #6a549c; /* 5.57                                         */
+  --hue-child-fill: #f0ebff;
+  --hue-clock-ink: #5a6475; /* 5.32                                         */
+  --hue-clock-fill: #ebeff5;
+  --hue-provisional-ink: #516f29; /* 5.12                                   */
+  --hue-provisional-fill: #e8f3dd;
 
-  /* Match Dex Web v1 / docs: green canvas, white cards, sage groups. */
-  --surface-canvas: #f5f8f2;
-  --surface-page: #ffffff;
-  --surface-card: #ffffff;
-  --surface-raised: #f7faf3;
-  --surface-hover: #eef5e6;
-  --ink-faint: #9aa194;
-  --ink-soft: #6b7464;
-  --ink-mid: #4a5344;
-  --ink-strong: #243024;
-  --ink-max: #141a14;
-  --line-soft: #dce6d7;
-  --line-mid: #c5d4bc;
-  --line-strong: #9aaf8e;
+  /* PLANES carry the brand hue at C 0.008 — the atmosphere, and the only
+   * place a large surface is allowed any green. Every MARK — ink, line, band —
+   * is cool and near-achromatic at C 0.0045, because a desaturated green at
+   * mark lightness is sage, and sage is the wellness read we are avoiding.
+   *
+   * The planes also now separate. The ramp this replaces set --surface-page
+   * and --surface-card to the same #ffffff, so two of the four elevation
+   * levels were indistinguishable; the ladder below clears 1.03:1 on every
+   * adjacent pair, darkest plane first.                                    */
+  --surface-canvas: #eef3f0;
+  --surface-hover: #e9efeb;
+  --surface-page: #f2f8f4;
+  --surface-raised: #f7fcf9;
+  --surface-card: #ffffff; /* cards stay cool: content sits on neutral       */
+  --ink-faint: #b9bbbd;
+  --ink-soft: #949699;
+  --ink-mid: #6e7073;
+  --ink-strong: #434547;
+  --ink-max: #181a1c;
+  --line-soft: #e4e6e9;
+  --line-mid: #d3d5d8;
+  --line-strong: #abacaf;
 
   --wash-pct: 9%;
   --wash-strong-pct: 18%;
   --color-attention-on: var(--surface-card);
-  --band-0: #d6e4c4;
-  --band-1: #c3d6ae;
-  --accent-wash: rgba(53, 101, 157, 0.08);
-  --accent-wash-strong: rgba(53, 101, 157, 0.16);
+  /* ACHROMATIC, as the comment on the dark ramp says they must be. The ramp
+   * this replaces shipped them at C 0.045 and C 0.058 — roughly ten times
+   * over — which tinted a region with an actor's colour.                   */
+  --band-0: #f2f4f7;
+  --band-1: #e9ebee;
+
+  /* On a light ground the CTA inverts: a mid-dark fill carrying WHITE text,
+     because a bright green caps at L 0.55 before white stops being legible. */
+  /* Same value as globals.css `--brand-head`. See the dark twin.           */
+  --color-cta: #008650; /* white on it, 4.64                                 */
+  --color-cta-hover: #007546; /* 5.78                                        */
+  --color-cta-on: #ffffff;
+
+  /* These four had no light value at all, so light silently inherited the
+     dark one — a blue tuned for near-black, and two shadows built for it.  */
+  --color-accent-hover: #22538c; /* 7.82 card                                */
+  --attention-wash: rgba(132, 91, 0, 0.14); /* a light ground takes less hue  */
+  --focus-ring: 0 0 0 3px rgba(52, 101, 159, 0.32);
+  --shadow-drawer: -18px 0 34px -22px rgba(15, 23, 36, 0.2);
+  --accent-wash: rgba(52, 101, 159, 0.08);
+  --accent-wash-strong: rgba(52, 101, 159, 0.16);
   --shadow-pop: 0 0 0 1px var(--line-mid), 0 10px 28px -12px rgba(15, 23, 36, 0.22);
 }

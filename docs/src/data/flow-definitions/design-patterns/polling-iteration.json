@@ -7,7 +7,7 @@
   },
   "flow": {
     "name": "IterationFlow",
-    "startStepId": "step:IterationStep",
+    "startStepId": "step:Iteration",
     "span": {
       "startLine": 25,
       "startColumn": 1,
@@ -17,23 +17,23 @@
   },
   "nodes": [
     {
-      "id": "decision-dispatch:step:IterationStep",
+      "id": "decision-dispatch:step:Iteration",
       "kind": "decision_dispatch",
       "name": "Decision",
-      "parentId": "step:IterationStep",
+      "parentId": "step:Iteration",
       "phase": "execute",
       "span": {
         "startLine": 19,
         "startColumn": 5,
         "endLine": 22,
-        "endColumn": 101
+        "endColumn": 97
       }
     },
     {
-      "id": "decision:step:IterationStep:22:16",
+      "id": "decision:step:Iteration:22:16",
       "kind": "decision",
       "name": "gracefulComplete",
-      "parentId": "step:IterationStep",
+      "parentId": "step:Iteration",
       "condition": "not next_page_token",
       "phase": "execute",
       "span": {
@@ -47,26 +47,26 @@
       }
     },
     {
-      "id": "decision:step:IterationStep:22:64",
+      "id": "decision:step:Iteration:22:64",
       "kind": "decision",
       "name": "goTo",
-      "parentId": "step:IterationStep",
+      "parentId": "step:Iteration",
       "condition": "not (not next_page_token)",
       "phase": "execute",
       "span": {
         "startLine": 22,
         "startColumn": 64,
         "endLine": 22,
-        "endColumn": 101
+        "endColumn": 97
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "step:IterationStep",
+      "id": "step:Iteration",
       "kind": "step",
-      "name": "IterationStep",
+      "name": "Iteration",
       "phase": "execute",
       "start": true,
       "span": {
@@ -81,14 +81,14 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:IterationStep:22:64",
-      "to": "step:IterationStep",
+      "from": "decision:step:Iteration:22:64",
+      "to": "step:Iteration",
       "label": "go_to",
       "span": {
         "startLine": 22,
         "startColumn": 64,
         "endLine": 22,
-        "endColumn": 101
+        "endColumn": 97
       }
     }
   ],

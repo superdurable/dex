@@ -34,9 +34,9 @@ import org.springframework.stereotype.Component;
 public class RpcFlow implements Flow<Integer> {
     public final Channel<Void> exampleCh = Channel.define("rpc-internal", Void.class);
     public final Attribute<String> data = Attribute.define("rpc-data", String.class);
-    private final RpcCompleteStep complete = new RpcCompleteStep();
+    private final RpcComplete complete = new RpcComplete();
     private final ExampleStep exampleStep = new ExampleStep();
-    private final RpcWaitStep wait = new RpcWaitStep();
+    private final RpcWait wait = new RpcWait();
 
     @Override
     public StepList<Integer> getSteps() {
@@ -55,7 +55,7 @@ public class RpcFlow implements Flow<Integer> {
         return RPCResult.of(input, StepMovement.of(ExampleStep.class, input));
     }
 
-    final class RpcWaitStep implements Step<Integer> {
+    final class RpcWait implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
@@ -68,11 +68,11 @@ public class RpcFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.goTo(RpcCompleteStep.class, 0);
+            return StepDecision.goTo(RpcComplete.class, 0);
         }
     }
 
-    static final class RpcCompleteStep implements Step<Integer> {
+    static final class RpcComplete implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;

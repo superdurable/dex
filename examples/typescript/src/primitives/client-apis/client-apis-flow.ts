@@ -29,13 +29,13 @@ import {
 
 export const KEYWORD_KEY = "CustomKeyword";
 
-class ClientApisStep implements Step<string> {
+class ClientApis implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public constructor(private readonly flow: ClientApisFlow) {}
 
   public getStepType(): string {
-    return "ClientApisStep";
+    return "ClientApis";
   }
 
   public execute(context: Context, input: string): StepDecision {
@@ -48,7 +48,7 @@ export class ClientApisFlow implements Flow<string> {
   public readonly keyword = new Attribute(KEYWORD_KEY, stringCodec, {
     type: IndexType.KEYWORD,
   });
-  private readonly index = new ClientApisStep(this);
+  private readonly index = new ClientApis(this);
 
   public getFlowType(): string {
     return "ClientApisFlow";

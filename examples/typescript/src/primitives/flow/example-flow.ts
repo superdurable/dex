@@ -34,11 +34,11 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-class FinishStep implements Step<number> {
+class Finish implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public getStepType(): string {
-    return "FinishStep";
+    return "Finish";
   }
 
   public execute(context: Context, input: number): StepDecision {
@@ -50,7 +50,7 @@ class FinishStep implements Step<number> {
 class ExampleStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
-  public constructor(private readonly finish: FinishStep) {}
+  public constructor(private readonly finish: Finish) {}
 
   public getStepType(): string {
     return "ExampleStep";
@@ -62,7 +62,7 @@ class ExampleStep implements Step<number> {
   }
 
   public execute(_context: Context, input: number): StepDecision {
-    return goTo(FinishStep, input + 1);
+    return goTo(Finish, input + 1);
   }
 }
 
@@ -70,7 +70,7 @@ export const status = new Attribute("status", stringCodec);
 const notify = new Channel("notify", voidCodec);
 
 export class ExampleFlow implements Flow<number> {
-  private readonly finish = new FinishStep();
+  private readonly finish = new Finish();
   private readonly example = new ExampleStep(this.finish);
 
   public getFlowType(): string {
