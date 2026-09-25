@@ -545,7 +545,7 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 	}()
 	timeout, cancelTimeout := u.newInternalHandlerTimeout(
 		ctx,
-		request.GetInternalHandlerTimeoutSeconds(),
+		u.attributeWaitInternalHandlerTimeoutSeconds(request),
 	)
 	defer cancelTimeout()
 	wait := &attributeWait{
@@ -578,6 +578,15 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 		dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED,
 		"continue-as-new preempted wait",
 	)
+}
+
+func (u *WorkflowUpdater) attributeWaitInternalHandlerTimeoutSeconds(
+	request *dexpb.WaitForAttributeRequest,
+) int32 {
+	if u.globalVersioner.UsesSplitWaitForAttributeTimeoutSemantics() {
+		return request.GetInternalHandlerTimeoutSeconds()
+	}
+	return request.GetRequestTimeoutSeconds()
 }
 
 func (w *attributeWait) isReady(ctx interfaces.UnifiedContext) bool {
