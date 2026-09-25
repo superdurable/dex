@@ -45,11 +45,23 @@ var v2PermissionPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$
 
 // V2Definition describes one Flow type's Dex Web v2 contract.
 type V2Definition struct {
-	IndexedAttributes []V2IndexedAttribute `json:"indexedAttributes"`
-	Summary           V2RPCView            `json:"summary"`
-	Display           V2RPCView            `json:"display"`
-	Actions           []V2Action           `json:"actions"`
-	Start             *V2StartDefinition   `json:"start,omitempty"`
+	IndexedAttributes        []V2IndexedAttribute        `json:"indexedAttributes"`
+	Summary                  V2RPCView                   `json:"summary"`
+	Display                  V2RPCView                   `json:"display"`
+	Actions                  []V2Action                  `json:"actions"`
+	Start                    *V2StartDefinition          `json:"start,omitempty"`
+	ConnectorTriggerBindings []V2ConnectorTriggerBinding `json:"connectorTriggerBindings,omitempty"`
+}
+
+// V2ConnectorTriggerBinding describes one configurable external Trigger binding.
+type V2ConnectorTriggerBinding struct {
+	ConnectorID          string `json:"connectorId"`
+	TriggerName          string `json:"triggerName"`
+	ConnectionName       string `json:"connectionName"`
+	BindingName          string `json:"bindingName"`
+	ModulePath           string `json:"modulePath"`
+	ModuleVersion        string `json:"moduleVersion"`
+	ConfigurationEnabled bool   `json:"configurationEnabled"`
 }
 
 // V2StartDefinition describes the Start Step and its JSON input.

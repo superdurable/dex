@@ -210,6 +210,24 @@ func TestLoadFlowDefinitionsRejectsStartInputBeyondMaximumDepth(t *testing.T) {
 	}
 }
 
+func TestLoadFlowDefinitionsAcceptsConnectorTriggerBindings(t *testing.T) {
+	directory := t.TempDir()
+	definition := withV2ConnectorTriggerBindings(validFlowDefinitionV2("ApprovalFlow", true),
+		`[{"connectorId":"slack","triggerName":"threadReplyCreated",`+
+			`"connectionName":"slack-workspace","bindingName":"approval-reply",`+
+			`"modulePath":"github.com/superdurable/dex-connectors-library/connectors/slack",`+
+			`"moduleVersion":"v0.1.0","configurationEnabled":true}]`)
+	writeFlowDefinitionTestFile(t, directory, "approval.json", definition)
+	handler, err := loadFlowDefinitions(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings := handler.v2Definitions["ApprovalFlow"].ConnectorTriggerBindings
+	if len(bindings) != 1 || bindings[0].BindingName != "approval-reply" || !bindings[0].ConfigurationEnabled {
+		t.Fatalf("Connector Trigger bindings = %+v", bindings)
+	}
+}
+
 func writeFlowDefinitionTestFile(t *testing.T, directory string, name string, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(directory, name), []byte(content), 0o644); err != nil {
@@ -240,4 +258,8 @@ func validFlowDefinitionV2(flowType string, valid bool) string {
 
 func withV2Start(definition string, start string) string {
 	return strings.Replace(definition, `"actions":[]`, `"actions":[],"start":`+start, 1)
+}
+
+func withV2ConnectorTriggerBindings(definition string, bindings string) string {
+	return strings.Replace(definition, `"actions":[]`, `"actions":[],"connectorTriggerBindings":`+bindings, 1)
 }
