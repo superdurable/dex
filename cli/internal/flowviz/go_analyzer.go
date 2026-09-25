@@ -27,7 +27,7 @@ import (
 )
 
 const goSDKPackage = "github.com/superdurable/dex/sdk-go/dex"
-const connectorSDKPackage = "github.com/superdurable/dex-connectors-library/sdk/go"
+const connectorSDKPackage = "github.com/superdurable/dex-connectors-library/sdkgo"
 
 const goPackagesLoadMode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 	packages.NeedImports | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo |

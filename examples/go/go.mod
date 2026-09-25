@@ -7,10 +7,10 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/stretchr/testify v1.11.1
-	github.com/superdurable/dex-connectors-library/connectors/openai v0.1.0
-	github.com/superdurable/dex-connectors-library/sdk/go v0.1.0
+	github.com/superdurable/dex-connectors-library/connectors/openai v0.2.0
+	github.com/superdurable/dex-connectors-library/sdkgo v0.2.0
 	github.com/superdurable/dex/blob-cache-go v0.1.0
-	github.com/superdurable/dex/sdk-go v0.10.2
+	github.com/superdurable/dex/sdk-go v0.11.3
 )
 
 require (

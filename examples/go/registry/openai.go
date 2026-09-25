@@ -26,7 +26,7 @@ import (
 	"strings"
 
 	openai "github.com/superdurable/dex-connectors-library/connectors/openai"
-	connector "github.com/superdurable/dex-connectors-library/sdk/go"
+	"github.com/superdurable/dex-connectors-library/sdkgo"
 )
 
 const demoOpenAIResponse = `{
@@ -38,11 +38,11 @@ const demoOpenAIResponse = `{
 }`
 
 func newDemoOpenAIConnection() openai.Connection {
-	reference := connector.ConnectionRef{Provider: openai.ConnectorID, Name: "customer-refund-demo"}
+	reference := sdkgo.ConnectionRef{Provider: openai.ConnectorID, Name: "customer-refund-demo"}
 	client, err := openai.New(
 		openai.Config{Endpoint: "http://127.0.0.1/v1"},
-		connector.StaticCredentialProvider[openai.Credentials]{
-			reference: {APIKey: connector.NewSecretString("demo-key")},
+		sdkgo.StaticCredentialProvider[openai.Credentials]{
+			reference: {APIKey: sdkgo.NewSecretString("demo-key")},
 		},
 		openai.WithHTTPClient(&http.Client{Transport: demoOpenAITransport{}}),
 	)
