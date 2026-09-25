@@ -171,13 +171,47 @@
   background: #fff5df;
 }
 
+.connector-studio-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.connector-studio-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.connector-studio-expand {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+}
+
 .connector-studio {
   width: 100%;
-  min-height: 240px;
-  margin-bottom: 18px;
+  height: clamp(36rem, 70vh, 60rem);
   border: 1px solid var(--line);
   border-radius: 10px;
   background: white;
+}
+
+.connector-studio-shell[data-expanded='true'] {
+  position: fixed;
+  z-index: 1000;
+  inset: 20px;
+  padding: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+
+.connector-studio-shell[data-expanded='true'] .connector-studio {
+  height: 100%;
 }
 
 .connector-form {

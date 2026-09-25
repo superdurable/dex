@@ -416,7 +416,9 @@ func (setup *connectorSetup) authorizeConnectionKey(
 	connectorID string,
 	connectionName string,
 ) (*FlowDefinitionSnapshot, connectorDefinitionIdentity, bool) {
-	if request.Header.Get(connectorCSRFHeader) != setup.csrfToken || !hasStrictConnectorOrigin(request) {
+	hasUnsafeMethod := request.Method != http.MethodGet && request.Method != http.MethodHead
+	if request.Header.Get(connectorCSRFHeader) != setup.csrfToken ||
+		(hasUnsafeMethod && !hasStrictConnectorOrigin(request)) {
 		api.WriteCodedError(response, http.StatusForbidden, "CONNECTOR_WRITE_FORBIDDEN", "Connector write origin or CSRF token is invalid")
 		return nil, connectorDefinitionIdentity{}, false
 	}

@@ -49,6 +49,7 @@ func TestSlackResourceAPIsUseBotTokenWithoutReturningIt(t *testing.T) {
 
 	for _, resource := range []string{"channels", "users"} {
 		request := authorizedConnectorRequest(t, setup, http.MethodGet, "/api/v2/connector-connections/slack/slack-workspace/slack/"+resource, nil)
+		request.Header.Del("Origin")
 		request.SetPathValue("connectorId", "slack")
 		request.SetPathValue("connectionName", "slack-workspace")
 		recorder := httptest.NewRecorder()

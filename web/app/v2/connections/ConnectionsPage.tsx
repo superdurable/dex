@@ -328,6 +328,7 @@ function StudioFrame({ catalog, connection, session, onConfigured, onError }: {
   onError: (message: string) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     const receive = (event: MessageEvent<unknown>) => {
       if (event.source !== frame.current?.contentWindow || event.origin !== 'null' || !isStudioCommand(event.data, session)) return;
@@ -381,14 +382,27 @@ function StudioFrame({ catalog, connection, session, onConfigured, onError }: {
     triggerBindings: session.triggerBindings ?? {},
   }, '*');
   const sendReadyAfterStudioMount = () => window.setTimeout(ready, 100);
-  return <iframe
-    className="connector-studio"
-    onLoad={sendReadyAfterStudioMount}
-    ref={frame}
-    sandbox="allow-scripts"
-    src={session.entrypointUrl}
-    title={`${connection.connectorId} Connector setup`}
-  />;
+  return <div
+    aria-label={expanded ? `${connection.connectorId} Connector setup` : undefined}
+    aria-modal={expanded || undefined}
+    className="connector-studio-shell"
+    data-expanded={expanded}
+    role={expanded ? 'dialog' : undefined}
+  >
+    <div className="connector-studio-toolbar">
+      <button className="connector-studio-expand" onClick={() => setExpanded((current) => !current)} type="button">
+        {expanded ? 'Close expanded setup' : 'Expand setup'}
+      </button>
+    </div>
+    <iframe
+      className="connector-studio"
+      onLoad={sendReadyAfterStudioMount}
+      ref={frame}
+      sandbox="allow-scripts"
+      src={session.entrypointUrl}
+      title={`${connection.connectorId} Connector setup`}
+    />
+  </div>;
 }
 
 type StudioCommand = 'oauth.connect' | 'oauth.reconnect' | 'configuration.save' | 'slack.channels.list' | 'slack.users.list' | 'trigger.configuration.save';
