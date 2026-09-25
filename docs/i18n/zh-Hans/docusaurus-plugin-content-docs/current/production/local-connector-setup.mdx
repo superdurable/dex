@@ -49,18 +49,47 @@ Dex 以 **0700** 创建目录，以 **0600** 创建文件。Symlink 文件、非
 文件。进行中的 OAuth flow 与 Connector UI session 只存在内存中；重启后需要
 重新发起。
 
-## 配置 Gmail 或 GitHub
+## 配置账号
 
 选择命名 connection。Dex Web 会校验官方 release metadata 和 checksum。有兼容
 Studio UI 时，它会在 opaque-origin sandbox 中加载；否则根据 manifest 渲染通用
 表单。
 
-OAuth 使用 state、PKCE 和十分钟一次性 session。OAuth client ID 与 client
-secret 只存在内存中，不会写入磁盘。Dex 检查 granted scope 后保存短期 access
-token，不保存 refresh token，也不会自动刷新。Connection 变为 **Expired** 后
-需要重新授权。
+OAuth 始终使用 state 和十分钟一次性 session。Provider 支持对应授权流程时，
+Connector 还会使用 PKCE。OAuth client ID 与 client secret 只存在内存中，不会
+写入磁盘。Dex 检查 granted scope 后保存短期 access token，不保存 refresh
+token，也不会自动刷新。Connection 变为 **Expired** 后需要重新授权。
 
 删除本地 credential 只删除本地记录，不会远程 revoke provider grant。
+
+## 配置 Slack Trigger binding
+
+Slack connection 与每个 Trigger binding 分开配置。因此，一个
+**slack-workspace** connection 可以被多个 Flow 复用，而每个 Flow 分别保存自己的
+频道、发起人、批准短语和 approver 列表。
+
+Slack OAuth 会同时保存 bot token 和 user token。App-level token 无法通过 OAuth
+签发。请创建具有 **connections:write** scope 的 **xapp-** token，并把它填入
+secret 字段。Token 只留在 Dex Web host 中，不会发送给 sandboxed Studio UI。
+
+Slack Studio 会显示：
+
+- 单选频道、公开或私有状态，以及稳定的 **C…** ID；
+- 可选的 Flow 发起成员，或选择 **任意真人**；
+- 至少一名允许批准的成员；
+- 可选且不区分大小写的消息 substring filter。
+
+Picker 虽然显示名称和头像，但保存的是稳定 Slack ID；每个原始 ID 都可以查看和
+复制。如果 Slack API 不可用，可以手工输入 ID。在 Slack 中打开 channel details
+并选择 **Copy channel ID**；打开成员 profile 菜单并选择 **Copy member ID**。
+Private channel 只有先邀请 bot 加入后才会出现在 picker 中。
+
+Slack thread approval 示例的默认 approval substring 是 **approve**。Substring
+匹配也会接受 **disapprove** 等文本；如果必须使用明确的批准措辞，请改成更独特
+的短语。
+
+Trigger binding 不保存 RPC name。应用负责把 Slack thread identity 映射为 Flow
+ID，并注册 Trigger runner 调用的 typed RPC definition。
 
 ## 启动 Go 应用
 
@@ -77,3 +106,7 @@ credential，所以重新授权会在下一次调用生效，不需要重启应�
 该 JSON 文件以明文保存 secret，只适用于本地开发。不要提交或上传，也不要把它
 当作生产 secret broker。Connector secret 在应用边界变为 **SecretString**，不得
 进入 Flow state 或日志。
+
+同一个文件还会在 workspace connection 之外保存 **triggerBindings**。每个
+binding 由 Connector ID、connection name、Trigger name 和 binding name 唯一
+标识。修改一个 Flow 的 binding 不会影响共享该账号的其他 Flow。

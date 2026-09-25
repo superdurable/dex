@@ -51,6 +51,11 @@ type connectorOAuthTokenResponse struct {
 	Scope       string `json:"scope"`
 	ExpiresIn   int64  `json:"expires_in"`
 	Error       string `json:"error"`
+	AuthedUser  struct {
+		AccessToken string `json:"access_token"`
+		Scope       string `json:"scope"`
+	} `json:"authed_user"`
+	raw map[string]any
 }
 
 func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, request *http.Request) {
@@ -71,8 +76,8 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 		return
 	}
 	oauth := resolved.release.Manifest.Spec.Auth.OAuth2
-	if resolved.release.Manifest.Spec.Auth.Type != "oauth2" || oauth == nil || !oauth.PKCE {
-		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_UNSUPPORTED", "Connector release does not support local OAuth with PKCE")
+	if resolved.release.Manifest.Spec.Auth.Type != "oauth2" || oauth == nil {
+		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_UNSUPPORTED", "Connector release does not support local OAuth")
 		return
 	}
 	if err := validateManifestValueMaps(resolved.release.Manifest, body); err != nil {
@@ -114,15 +119,20 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 		credentialSecrets: body.CredentialSecrets, expiresAt: expiresAt,
 	}
 	setup.oauthSessionsMu.Unlock()
-	challenge := sha256.Sum256([]byte(verifier))
 	query := authorizationURL.Query()
 	query.Set("client_id", body.ClientID)
 	query.Set("redirect_uri", redirectURI)
 	query.Set("response_type", "code")
 	query.Set("scope", strings.Join(oauth.Scopes, " "))
+	if len(oauth.UserScopes) > 0 {
+		query.Set("user_scope", strings.Join(oauth.UserScopes, " "))
+	}
 	query.Set("state", state)
-	query.Set("code_challenge", base64.RawURLEncoding.EncodeToString(challenge[:]))
-	query.Set("code_challenge_method", "S256")
+	if oauth.PKCE {
+		challenge := sha256.Sum256([]byte(verifier))
+		query.Set("code_challenge", base64.RawURLEncoding.EncodeToString(challenge[:]))
+		query.Set("code_challenge_method", "S256")
+	}
 	authorizationURL.RawQuery = query.Encode()
 	writeWebJSON(response, http.StatusOK, map[string]any{
 		"authorizationUrl": authorizationURL.String(), "expiresAt": expiresAt,
@@ -169,13 +179,28 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT", "Connector OAuth grant is missing required scopes")
 		return
 	}
-	credentials := make(map[string]json.RawMessage, 1+len(session.credentialValues)+len(session.credentialSecrets))
-	accessTokenJSON, err := json.Marshal(token.AccessToken)
-	if err != nil {
-		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
+	if !hasRequiredConnectorScopes(token.AuthedUser.Scope, session.release.Manifest.Spec.Auth.OAuth2.UserScopes) {
+		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT", "Connector OAuth user grant is missing required scopes")
 		return
 	}
-	credentials["access_token"] = accessTokenJSON
+	credentials := make(map[string]json.RawMessage, 1+len(session.credentialValues)+len(session.credentialSecrets))
+	mappings := session.release.Manifest.Spec.Auth.OAuth2.CredentialMappings
+	if len(mappings) == 0 {
+		mappings = []connectorOAuthCredentialMapping{{Credential: "access_token", Source: "access_token"}}
+	}
+	for _, mapping := range mappings {
+		value, found := connectorOAuthResponseValue(token.raw, mapping.Source)
+		if !found {
+			api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_OAUTH_TOKEN_EXCHANGE_FAILED", "Connector OAuth token response is missing a mapped credential")
+			return
+		}
+		encoded, marshalErr := json.Marshal(value)
+		if marshalErr != nil {
+			api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
+			return
+		}
+		credentials[mapping.Credential] = encoded
+	}
 	for name, value := range session.credentialValues {
 		credentials[name] = value
 	}
@@ -223,7 +248,9 @@ func (setup *connectorSetup) exchangeConnectorOAuthToken(
 		"redirect_uri":  {session.redirectURI},
 		"client_id":     {session.clientID},
 		"client_secret": {session.clientSecret},
-		"code_verifier": {session.codeVerifier},
+	}
+	if oauth.PKCE {
+		form.Set("code_verifier", session.codeVerifier)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL.String(), strings.NewReader(form.Encode()))
 	if err != nil {
@@ -247,7 +274,10 @@ func (setup *connectorSetup) exchangeConnectorOAuthToken(
 	if err := json.Unmarshal(contents, &token); err != nil {
 		return connectorOAuthTokenResponse{}, err
 	}
-	if token.Error != "" || token.AccessToken == "" {
+	if err := json.Unmarshal(contents, &token.raw); err != nil {
+		return connectorOAuthTokenResponse{}, err
+	}
+	if token.Error != "" {
 		return connectorOAuthTokenResponse{}, fmt.Errorf("Connector OAuth provider rejected token exchange")
 	}
 	return token, nil
@@ -263,17 +293,26 @@ func validateManifestValueMaps(manifest connectorReleaseManifest, request connec
 	if request.CredentialSecrets == nil {
 		request.CredentialSecrets = map[string]string{}
 	}
-	if err := validateConnectorFieldValues(manifest.Spec.Configuration.Fields, request.Configuration, nil, false); err != nil {
+	if err := validateConnectorFieldValues(manifest.Spec.Configuration.Fields, request.Configuration, nil, nil); err != nil {
 		return err
 	}
-	return validateConnectorFieldValues(manifest.Spec.Auth.Fields, request.CredentialValues, request.CredentialSecrets, true)
+	mappedCredentials := make(map[string]bool)
+	if manifest.Spec.Auth.OAuth2 != nil {
+		for _, mapping := range manifest.Spec.Auth.OAuth2.CredentialMappings {
+			mappedCredentials[mapping.Credential] = true
+		}
+		if len(manifest.Spec.Auth.OAuth2.CredentialMappings) == 0 {
+			mappedCredentials["access_token"] = true
+		}
+	}
+	return validateConnectorFieldValues(manifest.Spec.Auth.Fields, request.CredentialValues, request.CredentialSecrets, mappedCredentials)
 }
 
 func validateConnectorFieldValues(
 	fields []connectorManifestField,
 	values map[string]json.RawMessage,
 	secrets map[string]string,
-	isOAuthCredentials bool,
+	mappedCredentials map[string]bool,
 ) error {
 	known := make(map[string]connectorManifestField, len(fields))
 	for _, field := range fields {
@@ -287,7 +326,7 @@ func validateConnectorFieldValues(
 	}
 	for name := range secrets {
 		field, found := known[name]
-		if !found || field.Type != "secretString" || name == "access_token" {
+		if !found || field.Type != "secretString" || mappedCredentials[name] {
 			return fmt.Errorf("field %q is not a host-supplied secret field", name)
 		}
 	}
@@ -295,7 +334,7 @@ func validateConnectorFieldValues(
 		if !field.Required || field.Default != nil {
 			continue
 		}
-		if isOAuthCredentials && field.Name == "access_token" {
+		if mappedCredentials[field.Name] {
 			continue
 		}
 		if field.Type == "secretString" {
@@ -307,6 +346,22 @@ func validateConnectorFieldValues(
 		}
 	}
 	return nil
+}
+
+func connectorOAuthResponseValue(response map[string]any, path string) (string, bool) {
+	var current any = response
+	for _, segment := range strings.Split(path, ".") {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return "", false
+		}
+		current, ok = object[segment]
+		if !ok {
+			return "", false
+		}
+	}
+	value, ok := current.(string)
+	return value, ok && strings.TrimSpace(value) != ""
 }
 
 func validateRawConnectorFields(

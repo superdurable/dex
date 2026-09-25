@@ -122,6 +122,35 @@ func TestConnectorConnectionStoreAtomicallyReplacesAndDeletesRecord(t *testing.T
 	}
 }
 
+func TestConnectorConnectionStoreKeepsTriggerBindingsSeparateAndDeletesThemWithConnection(t *testing.T) {
+	store, err := newConnectorConnectionStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.put(testLocalConnectorConnection("slack", "slack-workspace", "bot-token", nil)); err != nil {
+		t.Fatal(err)
+	}
+	binding := localConnectorTriggerBinding{
+		ConnectorID: "slack", ConnectionName: "slack-workspace", TriggerName: "channelThreadCreated",
+		BindingName: "slack-email-approval-start", Configuration: map[string]json.RawMessage{"channelId": json.RawMessage(`"C123"`)},
+	}
+	if err := store.putTriggerBinding(binding); err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := store.listTriggerBindings("slack", "slack-workspace")
+	if err != nil || len(bindings) != 1 || bindings[0].BindingName != binding.BindingName {
+		t.Fatalf("bindings = %+v, err = %v", bindings, err)
+	}
+	deleted, err := store.delete("slack", "slack-workspace")
+	if err != nil || !deleted {
+		t.Fatalf("deleted = %v, err = %v", deleted, err)
+	}
+	bindings, err = store.listTriggerBindings("slack", "slack-workspace")
+	if err != nil || len(bindings) != 0 {
+		t.Fatalf("bindings after delete = %+v, err = %v", bindings, err)
+	}
+}
+
 func testLocalConnectorConnection(
 	connectorID string,
 	connectionName string,

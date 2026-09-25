@@ -31,6 +31,7 @@ interface ConnectionView {
   configuration?: Record<string, unknown>;
   credentialExpiresAt?: string;
   uses: ConnectionUse[];
+  triggerUses?: { flowName: string; triggerName: string; bindingName: string }[];
 }
 
 interface ConnectionsResponse {
@@ -60,7 +61,11 @@ interface ReleaseManifest {
     auth: {
       type: string;
       fields: ManifestField[];
-      oauth2?: { scopes: string[] };
+      oauth2?: {
+        scopes: string[];
+        userScopes?: string[];
+        credentialMappings?: { credential: string; source: string }[];
+      };
     };
     studio?: { setup: { backendCapabilities: string[] } };
   };
@@ -72,6 +77,7 @@ interface UISessionResponse {
   sessionNonce?: string;
   entrypointUrl?: string;
   manifest: ReleaseManifest;
+  triggerBindings?: Record<string, Record<string, Record<string, unknown>>>;
 }
 
 export function ConnectionsPage() {
@@ -150,7 +156,7 @@ export function ConnectionsPage() {
       {error && <div className="error-banner">{error}</div>}
       <div className="connections-layout">
         <aside className="connections-list" aria-label="Named connections">
-          {catalog.connections.length === 0 && <p className="connections-empty">No configurable Connector Steps were found.</p>}
+          {catalog.connections.length === 0 && <p className="connections-empty">No configurable Connector Steps or Triggers were found.</p>}
           {catalog.connections.map((connection) => (
             <button
               className="connection-row"
@@ -176,11 +182,14 @@ export function ConnectionsPage() {
                 {selected.uses.map((use) => <div key={`${use.flowName}:${use.stepId}`}>
                   <b>{use.flowName}</b><span>{use.stepName}</span><code>{use.operationId} · {use.operationKind}</code>
                 </div>)}
+                {selected.triggerUses?.map((use) => <div key={`${use.flowName}:${use.bindingName}`}>
+                  <b>{use.flowName}</b><span>{use.bindingName}</span><code>{use.triggerName} trigger</code>
+                </div>)}
               </div>
               {selected.status === 'Conflict' && <p className="connection-warning">The same connector and connection name use different module versions. Align the Flow dependencies before configuring.</p>}
               {selected.status === 'Unsupported' && <p className="connection-warning">Automatic setup requires an exact official release and a static ConnectionName.</p>}
               {selected.credentialExpiresAt && <p>Token expires: <time>{selected.credentialExpiresAt}</time></p>}
-              {session?.entrypointUrl && <StudioFrame connection={selected} session={session} />}
+              {session?.entrypointUrl && <StudioFrame catalog={catalog} connection={selected} session={session} onConfigured={load} onError={setError} />}
               {session && <ConnectorForm
                 catalog={catalog}
                 connection={selected}
@@ -219,11 +228,12 @@ function ConnectorForm({ catalog, connection, manifest, onConfigured, onError }:
     try {
       const configuration = fieldValues(manifest.spec.configuration.fields, values, 'configuration');
       if (oauth) {
+        const mappedCredentials = new Set(manifest.spec.auth.oauth2?.credentialMappings?.map((mapping) => mapping.credential) ?? ['access_token']);
         const credentialValues = fieldValues(
           manifest.spec.auth.fields.filter((field) => field.type !== 'secretString'), values, 'credential',
         );
         const credentialSecrets = Object.fromEntries(manifest.spec.auth.fields
-          .filter((field) => field.type === 'secretString' && field.name !== 'access_token')
+          .filter((field) => field.type === 'secretString' && !mappedCredentials.has(field.name))
           .map((field) => [field.name, values[`credential:${field.name}`] ?? '']));
         const response = await dexFetch(`${connectionURL(connection)}/oauth/start`, {
           method: 'POST', headers: connectorWriteHeaders(catalog), body: JSON.stringify({
@@ -264,8 +274,8 @@ function ConnectorForm({ catalog, connection, manifest, onConfigured, onError }:
       <p className="connections-note">Client credentials remain in memory for this ten-minute OAuth session and are never written to the connection file.</p>
     </>}
     {manifest.spec.configuration.fields.map((field) => <ManifestFormField key={`configuration:${field.name}`} field={field} prefix="configuration" values={values} setValues={setValues} />)}
-    {manifest.spec.auth.fields.filter((field) => !oauth || field.name !== 'access_token').map((field) => <ManifestFormField key={`credential:${field.name}`} field={field} prefix="credential" values={values} setValues={setValues} />)}
-    {oauth && <p className="connections-scopes">Requested scopes: {manifest.spec.auth.oauth2?.scopes.join(', ')}</p>}
+    {manifest.spec.auth.fields.filter((field) => !oauth || !(manifest.spec.auth.oauth2?.credentialMappings?.map((mapping) => mapping.credential) ?? ['access_token']).includes(field.name)).map((field) => <ManifestFormField key={`credential:${field.name}`} field={field} prefix="credential" values={values} setValues={setValues} />)}
+    {oauth && <p className="connections-scopes">Requested bot scopes: {manifest.spec.auth.oauth2?.scopes.join(', ')}{manifest.spec.auth.oauth2?.userScopes?.length ? `; user scopes: ${manifest.spec.auth.oauth2.userScopes.join(', ')}` : ''}</p>}
     <button className="v2-primary" disabled={submitting} type="submit">{oauth ? 'Authorize' : 'Save local credentials'}</button>
   </form>;
 }
@@ -310,26 +320,55 @@ function FormField({ inputId, label, name, required, secret, description, values
   </label>;
 }
 
-function StudioFrame({ connection, session }: { connection: ConnectionView; session: UISessionResponse }) {
+function StudioFrame({ catalog, connection, session, onConfigured, onError }: {
+  catalog: ConnectionsResponse;
+  connection: ConnectionView;
+  session: UISessionResponse;
+  onConfigured: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
   const frame = useRef<HTMLIFrameElement>(null);
   useEffect(() => {
     const receive = (event: MessageEvent<unknown>) => {
       if (event.source !== frame.current?.contentWindow || event.origin !== 'null' || !isStudioCommand(event.data, session)) return;
-      const capability = studioCommandCapability(event.data.command);
+      const commandMessage = event.data;
+      const capability = studioCommandCapability(commandMessage.command);
       const supported = capability !== null && studioHostCapabilities(session).includes(capability);
-      if (supported && (event.data.command === 'oauth.connect' || event.data.command === 'oauth.reconnect')) {
+      if (supported && (commandMessage.command === 'oauth.connect' || commandMessage.command === 'oauth.reconnect')) {
         const form = document.getElementById('connector-host-form');
         if (form instanceof HTMLFormElement) form.requestSubmit();
+        frame.current?.contentWindow?.postMessage({
+          type: 'connector.command.result', protocolVersion: '0.1.0', sessionNonce: session.sessionNonce,
+          connectorId: connection.connectorId, requestId: commandMessage.requestId, ok: true,
+        }, '*');
+        return;
+      }
+      if (supported) {
+        void executeStudioCommand(catalog, connection, commandMessage.command, commandMessage.input).then(async (value) => {
+          frame.current?.contentWindow?.postMessage({
+            type: 'connector.command.result', protocolVersion: '0.1.0', sessionNonce: session.sessionNonce,
+            connectorId: connection.connectorId, requestId: commandMessage.requestId, ok: true, value,
+          }, '*');
+          if (commandMessage.command === 'trigger.configuration.save') await onConfigured();
+        }).catch((commandError: unknown) => {
+          onError(errorMessage(commandError));
+          frame.current?.contentWindow?.postMessage({
+            type: 'connector.command.result', protocolVersion: '0.1.0', sessionNonce: session.sessionNonce,
+            connectorId: connection.connectorId, requestId: commandMessage.requestId, ok: false,
+            error: { code: 'COMMAND_FAILED', message: errorMessage(commandError) },
+          }, '*');
+        });
+        return;
       }
       frame.current?.contentWindow?.postMessage({
         type: 'connector.command.result', protocolVersion: '0.1.0', sessionNonce: session.sessionNonce,
-        connectorId: connection.connectorId, requestId: event.data.requestId, ok: supported,
-        ...(!supported ? { error: { code: 'COMMAND_UNSUPPORTED', message: 'Connector command is not supported by this host.' } } : {}),
+        connectorId: connection.connectorId, requestId: commandMessage.requestId, ok: false,
+        error: { code: 'COMMAND_UNSUPPORTED', message: 'Connector command is not supported by this host.' },
       }, '*');
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [connection.connectorId, session]);
+  }, [catalog, connection, onConfigured, onError, session]);
   const ready = () => frame.current?.contentWindow?.postMessage({
     type: 'connector.host.ready', protocolVersion: '0.1.0', sessionNonce: session.sessionNonce,
     connectorId: connection.connectorId,
@@ -339,6 +378,7 @@ function StudioFrame({ connection, session }: { connection: ConnectionView; sess
       detail: connection.status,
     },
     configuration: connection.configuration ?? {},
+    triggerBindings: session.triggerBindings ?? {},
   }, '*');
   return <iframe
     className="connector-studio"
@@ -350,26 +390,73 @@ function StudioFrame({ connection, session }: { connection: ConnectionView; sess
   />;
 }
 
-type StudioCommand = 'oauth.connect' | 'oauth.reconnect' | 'configuration.save';
+type StudioCommand = 'oauth.connect' | 'oauth.reconnect' | 'configuration.save' | 'slack.channels.list' | 'slack.users.list' | 'trigger.configuration.save';
 
-export function isStudioCommand(value: unknown, session: UISessionResponse): value is { requestId: string; command: StudioCommand } {
+export function isStudioCommand(value: unknown, session: UISessionResponse): value is { requestId: string; command: StudioCommand; input?: Record<string, unknown> } {
   if (typeof value !== 'object' || value === null) return false;
   const message = value as Record<string, unknown>;
   return message.type === 'connector.command' && message.protocolVersion === '0.1.0'
     && message.sessionNonce === session.sessionNonce && message.connectorId === session.connectorId
     && typeof message.requestId === 'string'
-    && (message.command === 'oauth.connect' || message.command === 'oauth.reconnect' || message.command === 'configuration.save');
+    && (message.input === undefined || isRecord(message.input))
+    && (message.command === 'oauth.connect' || message.command === 'oauth.reconnect' || message.command === 'configuration.save'
+      || message.command === 'slack.channels.list' || message.command === 'slack.users.list' || message.command === 'trigger.configuration.save');
 }
 
 function studioCommandCapability(command: StudioCommand) {
   if (command === 'oauth.connect' || command === 'oauth.reconnect') return 'oauth.connection.manage';
   if (command === 'configuration.save') return 'configuration.write';
+  if (command === 'slack.channels.list') return 'slack.channels-list';
+  if (command === 'slack.users.list') return 'slack.users-list';
+  if (command === 'trigger.configuration.save') return 'trigger.configuration.write';
   return null;
 }
 
 export function studioHostCapabilities(session: UISessionResponse): string[] {
   const declared = session.manifest.spec.studio?.setup.backendCapabilities ?? [];
-  return declared.filter((capability) => capability === 'oauth.connection.manage');
+  const supported = new Set(['oauth.connection.manage', 'slack.channels-list', 'slack.users-list', 'trigger.configuration.write']);
+  return declared.filter((capability) => supported.has(capability));
+}
+
+async function executeStudioCommand(
+  catalog: ConnectionsResponse,
+  connection: ConnectionView,
+  command: StudioCommand,
+  input?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  let target = connectionURL(connection);
+  let method = 'GET';
+  let body: string | undefined;
+  if (command === 'slack.channels.list') target += '/slack/channels';
+  else if (command === 'slack.users.list') target += '/slack/users';
+  else if (command === 'trigger.configuration.save') {
+    const triggerName = stringInput(input, 'triggerName');
+    const bindingName = stringInput(input, 'bindingName');
+    const configuration = recordInput(input, 'configuration');
+    target = `/api/v2/connector-trigger-bindings/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}/${encodeURIComponent(triggerName)}/${encodeURIComponent(bindingName)}`;
+    method = 'PUT';
+    body = JSON.stringify({ configuration });
+  } else {
+    throw new Error('Connector command is not implemented');
+  }
+  const response = await dexFetch(target, { method, headers: connectorWriteHeaders(catalog), body });
+  return readResponseJSON<Record<string, unknown>>(response);
+}
+
+function stringInput(input: Record<string, unknown> | undefined, name: string): string {
+  const value = input?.[name];
+  if (typeof value !== 'string' || value.length === 0) throw new Error(`${name} is required`);
+  return value;
+}
+
+function recordInput(input: Record<string, unknown> | undefined, name: string): Record<string, unknown> {
+  const value = input?.[name];
+  if (!isRecord(value)) throw new Error(`${name} is required`);
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function fieldValues(fields: ManifestField[], values: Record<string, string>, prefix: string) {

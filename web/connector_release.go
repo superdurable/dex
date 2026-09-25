@@ -100,10 +100,17 @@ type connectorManifestField struct {
 }
 
 type connectorManifestOAuth2 struct {
-	AuthorizationEndpoint string   `json:"authorizationEndpoint"`
-	TokenEndpoint         string   `json:"tokenEndpoint"`
-	Scopes                []string `json:"scopes"`
-	PKCE                  bool     `json:"pkce"`
+	AuthorizationEndpoint string                            `json:"authorizationEndpoint"`
+	TokenEndpoint         string                            `json:"tokenEndpoint"`
+	Scopes                []string                          `json:"scopes"`
+	UserScopes            []string                          `json:"userScopes,omitempty"`
+	CredentialMappings    []connectorOAuthCredentialMapping `json:"credentialMappings,omitempty"`
+	PKCE                  bool                              `json:"pkce"`
+}
+
+type connectorOAuthCredentialMapping struct {
+	Credential string `json:"credential"`
+	Source     string `json:"source"`
 }
 
 type connectorManifestStudioSetup struct {
@@ -398,6 +405,6 @@ func serveConnectorUIAsset(response http.ResponseWriter, request *http.Request, 
 	if contentType != "" {
 		response.Header().Set("Content-Type", contentType)
 	}
-	response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'")
+	response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'none'; base-uri 'none'; form-action 'none'")
 	http.ServeContent(response, request, cleanPath, info.ModTime(), asset)
 }
