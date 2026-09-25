@@ -26,7 +26,7 @@ import (
 	"time"
 
 	openai "github.com/superdurable/dex-connectors-library/connectors/openai"
-	connector "github.com/superdurable/dex-connectors-library/sdk/go"
+	"github.com/superdurable/dex-connectors-library/sdkgo"
 	refundmodel "github.com/superdurable/dex/examples/go/products/customer-refund/model"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -133,7 +133,7 @@ var agenticRefundAmount = dex.DefineAttribute[float64](
 // The message a person confirms or rewrites before it reaches the customer.
 var agenticCustomerMessageDraft = dex.DefineAttribute[string]("customer-message-draft")
 
-var agenticGeneratedCustomerMessage = dex.DefineAttribute[connector.MutationResult[openai.Response]]("generated-customer-message")
+var agenticGeneratedCustomerMessage = dex.DefineAttribute[sdkgo.MutationResult[openai.Response]]("generated-customer-message")
 
 // dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:CustomKeyword2
 var agenticCaseStatus = dex.DefineAttribute[string](
@@ -208,17 +208,17 @@ func (flow *AgenticCustomerRefundFlow) GetSteps() []dex.StepDef {
 		dex.DefineStep(agenticPrepareCustomerMessage{}),
 		dex.DefineStep(openai.NewCreateResponseStep(openai.CreateResponseStepConfig[agenticCustomerMessagePrompt]{
 			StepType: generateCustomerMessageStepType,
-			Presentation: connector.StepPresentation{
+			Presentation: sdkgo.StepPresentation{
 				GroupID:     "resolution",
 				GroupLabel:  "Resolution",
 				Explanation: "Generate the customer resolution message with OpenAI.",
 			},
 			Connection:      flow.openAIConnection,
 			BuildInput:      agenticBuildCustomerMessageRequest,
-			Completed:       connector.GoTo(agenticStoreGeneratedCustomerMessage{}),
-			Failed:          connector.GoTo(agenticUseFallbackCustomerMessage{}),
-			Uncertain:       connector.GoTo(agenticUseFallbackCustomerMessage{}),
-			Defect:          connector.GoTo(agenticUseFallbackCustomerMessage{}),
+			Completed:       sdkgo.GoTo(agenticStoreGeneratedCustomerMessage{}),
+			Failed:          sdkgo.GoTo(agenticUseFallbackCustomerMessage{}),
+			Uncertain:       sdkgo.GoTo(agenticUseFallbackCustomerMessage{}),
+			Defect:          sdkgo.GoTo(agenticUseFallbackCustomerMessage{}),
 			ResultAttribute: &agenticGeneratedCustomerMessage,
 		})),
 		dex.DefineStep(agenticStoreGeneratedCustomerMessage{}),
@@ -1136,7 +1136,7 @@ func (agenticPrepareCustomerMessage) Execute(
 		message = "We could not process a refund on this charge."
 	}
 	return dex.GoTo(
-		connector.StepRef[agenticCustomerMessagePrompt](generateCustomerMessageStepType),
+		sdkgo.StepRef[agenticCustomerMessagePrompt](generateCustomerMessageStepType),
 		agenticCustomerMessagePrompt{
 			RefundCase:      refundCase,
 			Resolution:      status,

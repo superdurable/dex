@@ -10,32 +10,32 @@ package connectorfactorygeneric
 
 import (
 	openai "github.com/superdurable/dex-connectors-library/connectors/openai"
-	connector "github.com/superdurable/dex-connectors-library/sdk/go"
+	"github.com/superdurable/dex-connectors-library/sdkgo"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-type factoryOutput = connector.QueryStepOutput[string, openai.Response]
+type factoryOutput = sdkgo.QueryStepOutput[string, openai.Response]
 
-var result = dex.DefineAttribute[connector.QueryResult[openai.Response]]("generic-result")
+var result = dex.DefineAttribute[sdkgo.QueryResult[openai.Response]]("generic-result")
 
 type genericFactoryFlow struct {
 	dex.FlowDefaults
 	client     *openai.Client
-	connection connector.ConnectionRef
+	connection sdkgo.ConnectionRef
 }
 
 func (flow *genericFactoryFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(connector.MustNewQueryStep(connector.QueryStepConfig[string, openai.RetrieveRequest, openai.Response]{
+		dex.DefineStartStep(sdkgo.MustNewQueryStep(sdkgo.QueryStepConfig[string, openai.RetrieveRequest, openai.Response]{
 			StepType: "GenericRetrieveResponse",
-			Presentation: connector.StepPresentation{
+			Presentation: sdkgo.StepPresentation{
 				GroupID: "factory", GroupLabel: "Factory", Explanation: "Use the generic Connector SDK escape hatch.",
 			},
 			Operation: flow.client.RetrieveResponse(), Connection: flow.connection, BuildInput: buildInput,
-			Branches: []connector.BranchTarget[factoryOutput]{
-				connector.GoToBranch(openai.RetrieveResponseBranchFound, finishStep{}),
-				connector.GoToBranch(openai.RetrieveResponseBranchFailed, finishStep{}),
-				connector.GoToBranch(openai.RetrieveResponseBranchDefect, finishStep{}),
+			Branches: []sdkgo.BranchTarget[factoryOutput]{
+				sdkgo.GoToBranch(openai.RetrieveResponseBranchFound, finishStep{}),
+				sdkgo.GoToBranch(openai.RetrieveResponseBranchFailed, finishStep{}),
+				sdkgo.GoToBranch(openai.RetrieveResponseBranchDefect, finishStep{}),
 			},
 			ResultAttribute: &result,
 		})),

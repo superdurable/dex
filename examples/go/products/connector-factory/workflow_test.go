@@ -25,16 +25,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 	openai "github.com/superdurable/dex-connectors-library/connectors/openai"
-	connector "github.com/superdurable/dex-connectors-library/sdk/go"
+	"github.com/superdurable/dex-connectors-library/sdkgo"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 func TestCustomerSummaryConnectorFlowRegisters(t *testing.T) {
-	connection := connector.ConnectionRef{Provider: "openai", Name: "customer-summary"}
+	connection := sdkgo.ConnectionRef{Provider: "openai", Name: "customer-summary"}
 	client, err := openai.New(
 		openai.Config{Endpoint: "http://127.0.0.1:1"},
-		connector.StaticCredentialProvider[openai.Credentials]{
-			connection: {APIKey: connector.NewSecretString("test-key")},
+		sdkgo.StaticCredentialProvider[openai.Credentials]{
+			connection: {APIKey: sdkgo.NewSecretString("test-key")},
 		},
 	)
 	require.NoError(t, err)

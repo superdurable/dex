@@ -40,7 +40,7 @@ jobs:
           for module in \
             github.com/superdurable/dex/sdk-go \
             github.com/superdurable/dex/blob-cache-go \
-            github.com/superdurable/dex-connectors-library/sdk/go \
+            github.com/superdurable/dex-connectors-library/sdkgo \
             github.com/superdurable/dex-connectors-library/connectors/openai; do
             required_version="$(go mod edit -json | jq -r --arg module "$module" '.Require[] | select(.Path == $module) | .Version')"
             resolved_version="$(go list -m -f '{{.Version}}' "$module")"

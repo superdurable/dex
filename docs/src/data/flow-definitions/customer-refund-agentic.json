@@ -1118,10 +1118,10 @@
         "startLine": 136,
         "startColumn": 5,
         "endLine": 136,
-        "endColumn": 131
+        "endColumn": 127
       },
       "resource": {
-        "valueType": "connector.MutationResult[openai.Response]"
+        "valueType": "sdkgo.MutationResult[openai.Response]"
       }
     },
     {
@@ -1540,6 +1540,15 @@
         "endColumn": 6
       },
       "metadata": {
+        "connector": {
+          "configurationEnabled": false,
+          "connectionName": "",
+          "connectorId": "openai",
+          "modulePath": "github.com/superdurable/dex-connectors-library/connectors/openai",
+          "moduleVersion": "v0.2.0",
+          "operationId": "createResponse",
+          "operationKind": "mutation"
+        },
         "connectorFactory": true,
         "connectorOperationKind": "mutation",
         "explanation": "Generate the customer resolution message with OpenAI."
@@ -2909,7 +2918,7 @@
         "startLine": 218,
         "startColumn": 21,
         "endLine": 218,
-        "endColumn": 75
+        "endColumn": 71
       },
       "metadata": {
         "connectorBranch": true
@@ -2925,7 +2934,7 @@
         "startLine": 221,
         "startColumn": 21,
         "endLine": 221,
-        "endColumn": 72
+        "endColumn": 68
       },
       "metadata": {
         "connectorBranch": true
@@ -2941,7 +2950,7 @@
         "startLine": 219,
         "startColumn": 21,
         "endLine": 219,
-        "endColumn": 72
+        "endColumn": 68
       },
       "metadata": {
         "connectorBranch": true
@@ -2957,7 +2966,7 @@
         "startLine": 220,
         "startColumn": 21,
         "endLine": 220,
-        "endColumn": 72
+        "endColumn": 68
       },
       "metadata": {
         "connectorBranch": true
@@ -3831,8 +3840,8 @@
   "diagnostics": [
     {
       "severity": "warning",
-      "code": "connector_configuration_unsupported",
-      "message": "Generic Connector factories cannot be configured automatically in Dex Web",
+      "code": "connector_connection_name_required",
+      "message": "Connector Step requires a non-empty compile-time ConnectionName for automatic configuration",
       "span": {
         "startLine": 209,
         "startColumn": 18,

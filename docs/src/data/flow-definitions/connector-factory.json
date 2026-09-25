@@ -136,10 +136,10 @@
         "startLine": 38,
         "startColumn": 5,
         "endLine": 38,
-        "endColumn": 125
+        "endColumn": 120
       },
       "resource": {
-        "valueType": "factorysdk.MutationResult[openai.Response]"
+        "valueType": "sdkgo.MutationResult[openai.Response]"
       }
     },
     {
@@ -150,10 +150,10 @@
         "startLine": 40,
         "startColumn": 5,
         "endLine": 40,
-        "endColumn": 124
+        "endColumn": 119
       },
       "resource": {
-        "valueType": "factorysdk.QueryResult[openai.Response]"
+        "valueType": "sdkgo.QueryResult[openai.Response]"
       }
     },
     {
@@ -164,10 +164,10 @@
         "startLine": 42,
         "startColumn": 5,
         "endLine": 42,
-        "endColumn": 110
+        "endColumn": 105
       },
       "resource": {
-        "valueType": "factorysdk.ProgressUpdate"
+        "valueType": "sdkgo.ProgressUpdate"
       }
     },
     {
@@ -294,6 +294,15 @@
         "endColumn": 6
       },
       "metadata": {
+        "connector": {
+          "configurationEnabled": false,
+          "connectionName": "",
+          "connectorId": "openai",
+          "modulePath": "github.com/superdurable/dex-connectors-library/connectors/openai",
+          "moduleVersion": "v0.2.0",
+          "operationId": "createResponse",
+          "operationKind": "mutation"
+        },
         "connectorFactory": true,
         "connectorOperationKind": "mutation",
         "explanation": "Generate a customer summary with streamed model progress."
@@ -311,6 +320,15 @@
         "endColumn": 6
       },
       "metadata": {
+        "connector": {
+          "configurationEnabled": false,
+          "connectionName": "",
+          "connectorId": "openai",
+          "modulePath": "github.com/superdurable/dex-connectors-library/connectors/openai",
+          "moduleVersion": "v0.2.0",
+          "operationId": "retrieveResponse",
+          "operationKind": "query"
+        },
         "connectorFactory": true,
         "connectorOperationKind": "query",
         "explanation": "Retrieve an uncertain model response without repeating the mutation."
@@ -366,7 +384,7 @@
         "startLine": 85,
         "startColumn": 21,
         "endLine": 85,
-        "endColumn": 64
+        "endColumn": 59
       },
       "metadata": {
         "connectorBranch": true
@@ -392,7 +410,7 @@
         "startLine": 88,
         "startColumn": 21,
         "endLine": 88,
-        "endColumn": 61
+        "endColumn": 56
       },
       "metadata": {
         "connectorBranch": true
@@ -408,7 +426,7 @@
         "startLine": 86,
         "startColumn": 21,
         "endLine": 86,
-        "endColumn": 61
+        "endColumn": 56
       },
       "metadata": {
         "connectorBranch": true
@@ -424,7 +442,7 @@
         "startLine": 87,
         "startColumn": 21,
         "endLine": 87,
-        "endColumn": 121
+        "endColumn": 111
       },
       "metadata": {
         "connectorBranch": true
@@ -450,7 +468,7 @@
         "startLine": 107,
         "startColumn": 21,
         "endLine": 107,
-        "endColumn": 70
+        "endColumn": 65
       },
       "metadata": {
         "connectorBranch": true
@@ -466,7 +484,7 @@
         "startLine": 106,
         "startColumn": 21,
         "endLine": 106,
-        "endColumn": 70
+        "endColumn": 65
       },
       "metadata": {
         "connectorBranch": true
@@ -482,7 +500,7 @@
         "startLine": 105,
         "startColumn": 21,
         "endLine": 105,
-        "endColumn": 65
+        "endColumn": 60
       },
       "metadata": {
         "connectorBranch": true
@@ -492,8 +510,8 @@
   "diagnostics": [
     {
       "severity": "warning",
-      "code": "connector_configuration_unsupported",
-      "message": "Generic Connector factories cannot be configured automatically in Dex Web",
+      "code": "connector_connection_name_required",
+      "message": "Connector Step requires a non-empty compile-time ConnectionName for automatic configuration",
       "span": {
         "startLine": 76,
         "startColumn": 23,
@@ -503,8 +521,8 @@
     },
     {
       "severity": "warning",
-      "code": "connector_configuration_unsupported",
-      "message": "Generic Connector factories cannot be configured automatically in Dex Web",
+      "code": "connector_connection_name_required",
+      "message": "Connector Step requires a non-empty compile-time ConnectionName for automatic configuration",
       "span": {
         "startLine": 96,
         "startColumn": 18,
