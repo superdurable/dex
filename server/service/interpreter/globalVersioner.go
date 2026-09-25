@@ -26,7 +26,9 @@ const DeterministicStepActivityIDVersion = 2
 
 const TimerlessWaitUpdatesVersion = 3
 
-const MaxOfAllVersions = TimerlessWaitUpdatesVersion
+const SplitWaitForAttributeTimeoutSemanticsVersion = 4
+
+const MaxOfAllVersions = SplitWaitForAttributeTimeoutSemanticsVersion
 
 // GlobalVersioner is the forward hook for determinism-safe interpreter changes.
 // See https://stackoverflow.com/questions/73941723 for the pattern.
@@ -47,4 +49,8 @@ func (v *GlobalVersioner) UsesDeterministicStepActivityIDs() bool {
 
 func (v *GlobalVersioner) UsesTimerlessWaitUpdates() bool {
 	return v.version >= TimerlessWaitUpdatesVersion
+}
+
+func (v *GlobalVersioner) UsesSplitWaitForAttributeTimeoutSemantics() bool {
+	return v.version >= SplitWaitForAttributeTimeoutSemanticsVersion
 }
