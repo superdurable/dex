@@ -9,9 +9,9 @@
     "name": "AgenticCustomerRefundFlow",
     "startStepId": "step:agenticReceiveRequest",
     "span": {
-      "startLine": 190,
+      "startLine": 192,
       "startColumn": 1,
-      "endLine": 235,
+      "endLine": 237,
       "endColumn": 2
     }
   },
@@ -23,9 +23,9 @@
       "parentId": "step:agenticAuditIntent",
       "phase": "execute",
       "span": {
-        "startLine": 952,
+        "startLine": 955,
         "startColumn": 1,
-        "endLine": 964,
+        "endLine": 967,
         "endColumn": 2
       }
     },
@@ -36,9 +36,9 @@
       "parentId": "step:agenticDecision",
       "phase": "execute",
       "span": {
-        "startLine": 579,
+        "startLine": 582,
         "startColumn": 1,
-        "endLine": 649,
+        "endLine": 652,
         "endColumn": 2
       }
     },
@@ -49,9 +49,9 @@
       "parentId": "step:agenticGuardrail",
       "phase": "execute",
       "span": {
-        "startLine": 818,
+        "startLine": 821,
         "startColumn": 1,
-        "endLine": 865,
+        "endLine": 868,
         "endColumn": 2
       }
     },
@@ -62,9 +62,9 @@
       "parentId": "step:agenticIssueRefund",
       "phase": "execute",
       "span": {
-        "startLine": 986,
+        "startLine": 989,
         "startColumn": 1,
-        "endLine": 1009,
+        "endLine": 1012,
         "endColumn": 2
       }
     },
@@ -75,9 +75,9 @@
       "parentId": "step:agenticOfferAccountCredit",
       "phase": "execute",
       "span": {
-        "startLine": 1022,
+        "startLine": 1025,
         "startColumn": 1,
-        "endLine": 1041,
+        "endLine": 1044,
         "endColumn": 2
       }
     },
@@ -88,9 +88,9 @@
       "parentId": "step:agenticReCheck",
       "phase": "execute",
       "span": {
-        "startLine": 877,
+        "startLine": 880,
         "startColumn": 1,
-        "endLine": 898,
+        "endLine": 901,
         "endColumn": 2
       }
     },
@@ -101,9 +101,9 @@
       "parentId": "step:agenticReceiveRequest",
       "phase": "execute",
       "span": {
-        "startLine": 541,
+        "startLine": 544,
         "startColumn": 1,
-        "endLine": 567,
+        "endLine": 570,
         "endColumn": 2
       }
     },
@@ -114,22 +114,22 @@
       "parentId": "step:agenticVerifyBilling",
       "phase": "execute",
       "span": {
-        "startLine": 1054,
+        "startLine": 1057,
         "startColumn": 1,
-        "endLine": 1079,
+        "endLine": 1082,
         "endColumn": 2
       }
     },
     {
-      "id": "decision:rpc:ApproveRefund:460:9",
+      "id": "decision:rpc:ApproveRefund:463:9",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:ApproveRefund",
       "phase": "rpc",
       "span": {
-        "startLine": 460,
+        "startLine": 463,
         "startColumn": 9,
-        "endLine": 460,
+        "endLine": 463,
         "endColumn": 35
       },
       "decision": {
@@ -137,15 +137,15 @@
       }
     },
     {
-      "id": "decision:rpc:ConfirmCustomerMessage:503:9",
+      "id": "decision:rpc:ConfirmCustomerMessage:506:9",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:ConfirmCustomerMessage",
       "phase": "rpc",
       "span": {
-        "startLine": 503,
+        "startLine": 506,
         "startColumn": 9,
-        "endLine": 503,
+        "endLine": 506,
         "endColumn": 35
       },
       "decision": {
@@ -153,15 +153,15 @@
       }
     },
     {
-      "id": "decision:rpc:EditCustomerMessage:528:9",
+      "id": "decision:rpc:EditCustomerMessage:531:9",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:EditCustomerMessage",
       "phase": "rpc",
       "span": {
-        "startLine": 528,
+        "startLine": 531,
         "startColumn": 9,
-        "endLine": 528,
+        "endLine": 531,
         "endColumn": 35
       },
       "decision": {
@@ -169,15 +169,15 @@
       }
     },
     {
-      "id": "decision:rpc:GetDexDisplay:429:9",
+      "id": "decision:rpc:GetDexDisplay:432:9",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:GetDexDisplay",
       "phase": "rpc",
       "span": {
-        "startLine": 429,
+        "startLine": 432,
         "startColumn": 9,
-        "endLine": 446,
+        "endLine": 449,
         "endColumn": 4
       },
       "decision": {
@@ -185,15 +185,15 @@
       }
     },
     {
-      "id": "decision:rpc:GetDexSummary:372:9",
+      "id": "decision:rpc:GetDexSummary:375:9",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:GetDexSummary",
       "phase": "rpc",
       "span": {
-        "startLine": 372,
+        "startLine": 375,
         "startColumn": 9,
-        "endLine": 377,
+        "endLine": 380,
         "endColumn": 4
       },
       "decision": {
@@ -201,15 +201,15 @@
       }
     },
     {
-      "id": "decision:rpc:RejectRefund:485:9",
+      "id": "decision:rpc:RejectRefund:488:9",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:RejectRefund",
       "phase": "rpc",
       "span": {
-        "startLine": 485,
+        "startLine": 488,
         "startColumn": 9,
-        "endLine": 485,
+        "endLine": 488,
         "endColumn": 35
       },
       "decision": {
@@ -217,15 +217,15 @@
       }
     },
     {
-      "id": "decision:step:agenticApplySubscription:1106:9",
+      "id": "decision:step:agenticApplySubscription:1109:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticApplySubscription",
       "phase": "execute",
       "span": {
-        "startLine": 1106,
+        "startLine": 1109,
         "startColumn": 9,
-        "endLine": 1106,
+        "endLine": 1109,
         "endColumn": 62
       },
       "decision": {
@@ -233,16 +233,16 @@
       }
     },
     {
-      "id": "decision:step:agenticAuditIntent:961:10",
+      "id": "decision:step:agenticAuditIntent:964:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticAuditIntent",
       "condition": "action == actionOfferAccountCredit",
       "phase": "execute",
       "span": {
-        "startLine": 961,
+        "startLine": 964,
         "startColumn": 10,
-        "endLine": 961,
+        "endLine": 964,
         "endColumn": 59
       },
       "decision": {
@@ -250,16 +250,16 @@
       }
     },
     {
-      "id": "decision:step:agenticAuditIntent:963:9",
+      "id": "decision:step:agenticAuditIntent:966:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticAuditIntent",
       "condition": "!(action == actionOfferAccountCredit)",
       "phase": "execute",
       "span": {
-        "startLine": 963,
+        "startLine": 966,
         "startColumn": 9,
-        "endLine": 963,
+        "endLine": 966,
         "endColumn": 51
       },
       "decision": {
@@ -267,15 +267,15 @@
       }
     },
     {
-      "id": "decision:step:agenticBillingFailed:1369:9",
+      "id": "decision:step:agenticBillingFailed:1384:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticBillingFailed",
       "phase": "execute",
       "span": {
-        "startLine": 1369,
+        "startLine": 1384,
         "startColumn": 9,
-        "endLine": 1369,
+        "endLine": 1384,
         "endColumn": 62
       },
       "decision": {
@@ -283,15 +283,15 @@
       }
     },
     {
-      "id": "decision:step:agenticCheckIdentity:669:9",
+      "id": "decision:step:agenticCheckIdentity:672:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticCheckIdentity",
       "phase": "execute",
       "span": {
-        "startLine": 669,
+        "startLine": 672,
         "startColumn": 9,
-        "endLine": 669,
+        "endLine": 672,
         "endColumn": 48
       },
       "decision": {
@@ -299,15 +299,15 @@
       }
     },
     {
-      "id": "decision:step:agenticCheckIncidents:805:9",
+      "id": "decision:step:agenticCheckIncidents:808:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticCheckIncidents",
       "phase": "execute",
       "span": {
-        "startLine": 805,
+        "startLine": 808,
         "startColumn": 9,
-        "endLine": 805,
+        "endLine": 808,
         "endColumn": 48
       },
       "decision": {
@@ -315,15 +315,15 @@
       }
     },
     {
-      "id": "decision:step:agenticCloseCase:1432:9",
+      "id": "decision:step:agenticCloseCase:1447:9",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:agenticCloseCase",
       "phase": "execute",
       "span": {
-        "startLine": 1432,
+        "startLine": 1447,
         "startColumn": 9,
-        "endLine": 1432,
+        "endLine": 1447,
         "endColumn": 60
       },
       "decision": {
@@ -331,15 +331,15 @@
       }
     },
     {
-      "id": "decision:step:agenticConfirmCustomerMessage:1267:9",
+      "id": "decision:step:agenticConfirmCustomerMessage:1282:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticConfirmCustomerMessage",
       "phase": "execute",
       "span": {
-        "startLine": 1267,
+        "startLine": 1282,
         "startColumn": 9,
-        "endLine": 1267,
+        "endLine": 1282,
         "endColumn": 59
       },
       "decision": {
@@ -347,16 +347,16 @@
       }
     },
     {
-      "id": "decision:step:agenticDecision:588:10",
+      "id": "decision:step:agenticDecision:591:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticDecision",
       "condition": "rounds \u003e= decisionRoundsBudget",
       "phase": "execute",
       "span": {
-        "startLine": 588,
+        "startLine": 591,
         "startColumn": 10,
-        "endLine": 588,
+        "endLine": 591,
         "endColumn": 55
       },
       "decision": {
@@ -364,16 +364,16 @@
       }
     },
     {
-      "id": "decision:step:agenticDecision:601:10",
+      "id": "decision:step:agenticDecision:604:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticDecision",
       "condition": "!(rounds \u003e= decisionRoundsBudget) and !hasIdentity",
       "phase": "execute",
       "span": {
-        "startLine": 601,
+        "startLine": 604,
         "startColumn": 10,
-        "endLine": 601,
+        "endLine": 604,
         "endColumn": 54
       },
       "decision": {
@@ -381,16 +381,16 @@
       }
     },
     {
-      "id": "decision:step:agenticDecision:608:10",
+      "id": "decision:step:agenticDecision:611:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticDecision",
       "condition": "!(rounds \u003e= decisionRoundsBudget) and !(!hasIdentity) and !hasSubscription",
       "phase": "execute",
       "span": {
-        "startLine": 608,
+        "startLine": 611,
         "startColumn": 10,
-        "endLine": 608,
+        "endLine": 611,
         "endColumn": 56
       },
       "decision": {
@@ -398,16 +398,16 @@
       }
     },
     {
-      "id": "decision:step:agenticDecision:615:10",
+      "id": "decision:step:agenticDecision:618:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticDecision",
       "condition": "!(rounds \u003e= decisionRoundsBudget) and !(!hasIdentity) and !(!hasSubscription) and !hasPayment",
       "phase": "execute",
       "span": {
-        "startLine": 615,
+        "startLine": 618,
         "startColumn": 10,
-        "endLine": 615,
+        "endLine": 618,
         "endColumn": 51
       },
       "decision": {
@@ -415,16 +415,16 @@
       }
     },
     {
-      "id": "decision:step:agenticDecision:622:10",
+      "id": "decision:step:agenticDecision:625:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticDecision",
       "condition": "!(rounds \u003e= decisionRoundsBudget) and !(!hasIdentity) and !(!hasSubscription) and !(!hasPayment) and !hasUsage",
       "phase": "execute",
       "span": {
-        "startLine": 622,
+        "startLine": 625,
         "startColumn": 10,
-        "endLine": 622,
+        "endLine": 625,
         "endColumn": 49
       },
       "decision": {
@@ -432,16 +432,16 @@
       }
     },
     {
-      "id": "decision:step:agenticDecision:629:10",
+      "id": "decision:step:agenticDecision:632:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticDecision",
       "condition": "!(rounds \u003e= decisionRoundsBudget) and !(!hasIdentity) and !(!hasSubscription) and !(!hasPayment) and !(!hasUsage) and !hasHistory",
       "phase": "execute",
       "span": {
-        "startLine": 629,
+        "startLine": 632,
         "startColumn": 10,
-        "endLine": 629,
+        "endLine": 632,
         "endColumn": 58
       },
       "decision": {
@@ -449,16 +449,16 @@
       }
     },
     {
-      "id": "decision:step:agenticDecision:636:10",
+      "id": "decision:step:agenticDecision:639:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticDecision",
       "condition": "!(rounds \u003e= decisionRoundsBudget) and !(!hasIdentity) and !(!hasSubscription) and !(!hasPayment) and !(!hasUsage) and !(!hasHistory) and !hasIncidents",
       "phase": "execute",
       "span": {
-        "startLine": 636,
+        "startLine": 639,
         "startColumn": 10,
-        "endLine": 636,
+        "endLine": 639,
         "endColumn": 55
       },
       "decision": {
@@ -466,16 +466,16 @@
       }
     },
     {
-      "id": "decision:step:agenticDecision:648:9",
+      "id": "decision:step:agenticDecision:651:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticDecision",
       "condition": "!(rounds \u003e= decisionRoundsBudget) and !(!hasIdentity) and !(!hasSubscription) and !(!hasPayment) and !(!hasUsage) and !(!hasHistory) and !(!hasIncidents)",
       "phase": "execute",
       "span": {
-        "startLine": 648,
+        "startLine": 651,
         "startColumn": 9,
-        "endLine": 648,
+        "endLine": 651,
         "endColumn": 49
       },
       "decision": {
@@ -483,15 +483,15 @@
       }
     },
     {
-      "id": "decision:step:agenticEmailFailed:1415:9",
+      "id": "decision:step:agenticEmailFailed:1430:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticEmailFailed",
       "phase": "execute",
       "span": {
-        "startLine": 1415,
+        "startLine": 1430,
         "startColumn": 9,
-        "endLine": 1415,
+        "endLine": 1430,
         "endColumn": 49
       },
       "decision": {
@@ -499,15 +499,15 @@
       }
     },
     {
-      "id": "decision:step:agenticGetPayment:721:9",
+      "id": "decision:step:agenticGetPayment:724:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticGetPayment",
       "phase": "execute",
       "span": {
-        "startLine": 721,
+        "startLine": 724,
         "startColumn": 9,
-        "endLine": 721,
+        "endLine": 724,
         "endColumn": 48
       },
       "decision": {
@@ -515,15 +515,15 @@
       }
     },
     {
-      "id": "decision:step:agenticGetSubscription:690:9",
+      "id": "decision:step:agenticGetSubscription:693:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticGetSubscription",
       "phase": "execute",
       "span": {
-        "startLine": 690,
+        "startLine": 693,
         "startColumn": 9,
-        "endLine": 690,
+        "endLine": 693,
         "endColumn": 48
       },
       "decision": {
@@ -531,15 +531,15 @@
       }
     },
     {
-      "id": "decision:step:agenticGetSupportHistory:777:9",
+      "id": "decision:step:agenticGetSupportHistory:780:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticGetSupportHistory",
       "phase": "execute",
       "span": {
-        "startLine": 777,
+        "startLine": 780,
         "startColumn": 9,
-        "endLine": 777,
+        "endLine": 780,
         "endColumn": 48
       },
       "decision": {
@@ -547,15 +547,15 @@
       }
     },
     {
-      "id": "decision:step:agenticGetUsage:746:9",
+      "id": "decision:step:agenticGetUsage:749:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticGetUsage",
       "phase": "execute",
       "span": {
-        "startLine": 746,
+        "startLine": 749,
         "startColumn": 9,
-        "endLine": 746,
+        "endLine": 749,
         "endColumn": 48
       },
       "decision": {
@@ -563,16 +563,16 @@
       }
     },
     {
-      "id": "decision:step:agenticGuardrail:859:10",
+      "id": "decision:step:agenticGuardrail:862:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticGuardrail",
       "condition": "verdict != \"auto\"",
       "phase": "execute",
       "span": {
-        "startLine": 859,
+        "startLine": 862,
         "startColumn": 10,
-        "endLine": 859,
+        "endLine": 862,
         "endColumn": 61
       },
       "decision": {
@@ -580,16 +580,16 @@
       }
     },
     {
-      "id": "decision:step:agenticGuardrail:864:9",
+      "id": "decision:step:agenticGuardrail:867:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticGuardrail",
       "condition": "!(verdict != \"auto\")",
       "phase": "execute",
       "span": {
-        "startLine": 864,
+        "startLine": 867,
         "startColumn": 9,
-        "endLine": 864,
+        "endLine": 867,
         "endColumn": 51
       },
       "decision": {
@@ -597,16 +597,16 @@
       }
     },
     {
-      "id": "decision:step:agenticIssueRefund:1003:10",
+      "id": "decision:step:agenticIssueRefund:1006:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticIssueRefund",
       "condition": "outcome == refundmodel.BillingConfirmed",
       "phase": "execute",
       "span": {
-        "startLine": 1003,
+        "startLine": 1006,
         "startColumn": 10,
-        "endLine": 1003,
+        "endLine": 1006,
         "endColumn": 58
       },
       "decision": {
@@ -614,16 +614,16 @@
       }
     },
     {
-      "id": "decision:step:agenticIssueRefund:1005:10",
+      "id": "decision:step:agenticIssueRefund:1008:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticIssueRefund",
       "condition": "outcome == refundmodel.BillingUnknown",
       "phase": "execute",
       "span": {
-        "startLine": 1005,
+        "startLine": 1008,
         "startColumn": 10,
-        "endLine": 1005,
+        "endLine": 1008,
         "endColumn": 54
       },
       "decision": {
@@ -631,16 +631,16 @@
       }
     },
     {
-      "id": "decision:step:agenticIssueRefund:1007:10",
+      "id": "decision:step:agenticIssueRefund:1010:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticIssueRefund",
       "condition": "default",
       "phase": "execute",
       "span": {
-        "startLine": 1007,
+        "startLine": 1010,
         "startColumn": 10,
-        "endLine": 1007,
+        "endLine": 1010,
         "endColumn": 54
       },
       "decision": {
@@ -648,15 +648,15 @@
       }
     },
     {
-      "id": "decision:step:agenticNonConvergence:1329:9",
+      "id": "decision:step:agenticNonConvergence:1344:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticNonConvergence",
       "phase": "execute",
       "span": {
-        "startLine": 1329,
+        "startLine": 1344,
         "startColumn": 9,
-        "endLine": 1329,
+        "endLine": 1344,
         "endColumn": 49
       },
       "decision": {
@@ -664,15 +664,15 @@
       }
     },
     {
-      "id": "decision:step:agenticNotARefund:1346:9",
+      "id": "decision:step:agenticNotARefund:1361:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticNotARefund",
       "phase": "execute",
       "span": {
-        "startLine": 1346,
+        "startLine": 1361,
         "startColumn": 9,
-        "endLine": 1346,
+        "endLine": 1361,
         "endColumn": 49
       },
       "decision": {
@@ -680,16 +680,16 @@
       }
     },
     {
-      "id": "decision:step:agenticOfferAccountCredit:1035:10",
+      "id": "decision:step:agenticOfferAccountCredit:1038:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticOfferAccountCredit",
       "condition": "outcome != refundmodel.BillingConfirmed",
       "phase": "execute",
       "span": {
-        "startLine": 1035,
+        "startLine": 1038,
         "startColumn": 10,
-        "endLine": 1035,
+        "endLine": 1038,
         "endColumn": 54
       },
       "decision": {
@@ -697,16 +697,16 @@
       }
     },
     {
-      "id": "decision:step:agenticOfferAccountCredit:1040:9",
+      "id": "decision:step:agenticOfferAccountCredit:1043:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticOfferAccountCredit",
       "condition": "!(outcome != refundmodel.BillingConfirmed)",
       "phase": "execute",
       "span": {
-        "startLine": 1040,
+        "startLine": 1043,
         "startColumn": 9,
-        "endLine": 1040,
+        "endLine": 1043,
         "endColumn": 57
       },
       "decision": {
@@ -714,15 +714,15 @@
       }
     },
     {
-      "id": "decision:step:agenticPrepareCustomerMessage:1138:9",
+      "id": "decision:step:agenticPrepareCustomerMessage:1149:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticPrepareCustomerMessage",
       "phase": "execute",
       "span": {
-        "startLine": 1138,
+        "startLine": 1149,
         "startColumn": 9,
-        "endLine": 1145,
+        "endLine": 1152,
         "endColumn": 3
       },
       "decision": {
@@ -730,16 +730,16 @@
       }
     },
     {
-      "id": "decision:step:agenticReCheck:889:10",
+      "id": "decision:step:agenticReCheck:892:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticReCheck",
       "condition": "verdict != \"approve\"",
       "phase": "execute",
       "span": {
-        "startLine": 889,
+        "startLine": 892,
         "startColumn": 10,
-        "endLine": 889,
+        "endLine": 892,
         "endColumn": 63
       },
       "decision": {
@@ -747,16 +747,16 @@
       }
     },
     {
-      "id": "decision:step:agenticReCheck:897:9",
+      "id": "decision:step:agenticReCheck:900:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticReCheck",
       "condition": "!(verdict != \"approve\")",
       "phase": "execute",
       "span": {
-        "startLine": 897,
+        "startLine": 900,
         "startColumn": 9,
-        "endLine": 897,
+        "endLine": 900,
         "endColumn": 51
       },
       "decision": {
@@ -764,16 +764,16 @@
       }
     },
     {
-      "id": "decision:step:agenticReceiveRequest:561:10",
+      "id": "decision:step:agenticReceiveRequest:564:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticReceiveRequest",
       "condition": "refundCase.CaseID == \"\"",
       "phase": "execute",
       "span": {
-        "startLine": 561,
+        "startLine": 564,
         "startColumn": 10,
-        "endLine": 561,
+        "endLine": 564,
         "endColumn": 51
       },
       "decision": {
@@ -781,16 +781,16 @@
       }
     },
     {
-      "id": "decision:step:agenticReceiveRequest:566:9",
+      "id": "decision:step:agenticReceiveRequest:569:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticReceiveRequest",
       "condition": "!(refundCase.CaseID == \"\")",
       "phase": "execute",
       "span": {
-        "startLine": 566,
+        "startLine": 569,
         "startColumn": 9,
-        "endLine": 566,
+        "endLine": 569,
         "endColumn": 48
       },
       "decision": {
@@ -798,15 +798,15 @@
       }
     },
     {
-      "id": "decision:step:agenticRequestHumanApproval:939:9",
+      "id": "decision:step:agenticRequestHumanApproval:942:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticRequestHumanApproval",
       "phase": "execute",
       "span": {
-        "startLine": 939,
+        "startLine": 942,
         "startColumn": 9,
-        "endLine": 939,
+        "endLine": 942,
         "endColumn": 47
       },
       "decision": {
@@ -814,15 +814,15 @@
       }
     },
     {
-      "id": "decision:step:agenticSendCustomerMessage:1309:9",
+      "id": "decision:step:agenticSendCustomerMessage:1324:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticSendCustomerMessage",
       "phase": "execute",
       "span": {
-        "startLine": 1309,
+        "startLine": 1324,
         "startColumn": 9,
-        "endLine": 1309,
+        "endLine": 1324,
         "endColumn": 49
       },
       "decision": {
@@ -830,31 +830,31 @@
       }
     },
     {
-      "id": "decision:step:agenticStoreGeneratedCustomerMessage:1185:9",
+      "id": "decision:step:agenticStoreGeneratedCustomerMessage:1196:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticStoreGeneratedCustomerMessage",
       "phase": "execute",
       "span": {
-        "startLine": 1185,
+        "startLine": 1196,
         "startColumn": 9,
-        "endLine": 1185,
-        "endColumn": 75
+        "endLine": 1196,
+        "endColumn": 69
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:agenticSubscriptionFailed:1392:9",
+      "id": "decision:step:agenticSubscriptionFailed:1407:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticSubscriptionFailed",
       "phase": "execute",
       "span": {
-        "startLine": 1392,
+        "startLine": 1407,
         "startColumn": 9,
-        "endLine": 1392,
+        "endLine": 1407,
         "endColumn": 62
       },
       "decision": {
@@ -862,32 +862,32 @@
       }
     },
     {
-      "id": "decision:step:agenticUseFallbackCustomerMessage:1205:9",
+      "id": "decision:step:agenticUseFallbackCustomerMessage:1220:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticUseFallbackCustomerMessage",
       "phase": "execute",
       "span": {
-        "startLine": 1205,
+        "startLine": 1220,
         "startColumn": 9,
-        "endLine": 1205,
-        "endColumn": 75
+        "endLine": 1220,
+        "endColumn": 69
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:agenticVerifyBilling:1070:10",
+      "id": "decision:step:agenticVerifyBilling:1073:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticVerifyBilling",
       "condition": "outcome == refundmodel.BillingConfirmed",
       "phase": "execute",
       "span": {
-        "startLine": 1070,
+        "startLine": 1073,
         "startColumn": 10,
-        "endLine": 1070,
+        "endLine": 1073,
         "endColumn": 58
       },
       "decision": {
@@ -895,16 +895,16 @@
       }
     },
     {
-      "id": "decision:step:agenticVerifyBilling:1076:10",
+      "id": "decision:step:agenticVerifyBilling:1079:10",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticVerifyBilling",
       "condition": "!(outcome == refundmodel.BillingConfirmed) and outcome == refundmodel.BillingUnknown",
       "phase": "execute",
       "span": {
-        "startLine": 1076,
+        "startLine": 1079,
         "startColumn": 10,
-        "endLine": 1076,
+        "endLine": 1079,
         "endColumn": 50
       },
       "decision": {
@@ -912,16 +912,16 @@
       }
     },
     {
-      "id": "decision:step:agenticVerifyBilling:1078:9",
+      "id": "decision:step:agenticVerifyBilling:1081:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticVerifyBilling",
       "condition": "!(outcome == refundmodel.BillingConfirmed) and !(outcome == refundmodel.BillingUnknown)",
       "phase": "execute",
       "span": {
-        "startLine": 1078,
+        "startLine": 1081,
         "startColumn": 9,
-        "endLine": 1078,
+        "endLine": 1081,
         "endColumn": 53
       },
       "decision": {
@@ -989,9 +989,9 @@
       "kind": "attribute",
       "name": "case-status",
       "span": {
-        "startLine": 139,
+        "startLine": 141,
         "startColumn": 5,
-        "endLine": 142,
+        "endLine": 144,
         "endColumn": 2
       },
       "resource": {
@@ -1024,6 +1024,20 @@
       },
       "resource": {
         "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:attribute:agenticCustomerMessageContext",
+      "kind": "attribute",
+      "name": "customer-message-context",
+      "span": {
+        "startLine": 138,
+        "startColumn": 5,
+        "endLine": 138,
+        "endColumn": 114
+      },
+      "resource": {
+        "valueType": "agenticCustomerMessagePrompt"
       }
     },
     {
@@ -1437,9 +1451,9 @@
       "kind": "channel",
       "name": "manager-approval",
       "span": {
-        "startLine": 144,
+        "startLine": 146,
         "startColumn": 5,
-        "endLine": 144,
+        "endLine": 146,
         "endColumn": 78
       },
       "resource": {
@@ -1452,9 +1466,9 @@
       "kind": "channel",
       "name": "message-approval",
       "span": {
-        "startLine": 146,
+        "startLine": 148,
         "startColumn": 5,
-        "endLine": 146,
+        "endLine": 148,
         "endColumn": 78
       },
       "resource": {
@@ -1467,9 +1481,9 @@
       "kind": "rpc",
       "name": "ApproveRefund",
       "span": {
-        "startLine": 449,
+        "startLine": 452,
         "startColumn": 1,
-        "endLine": 461,
+        "endLine": 464,
         "endColumn": 2
       }
     },
@@ -1478,9 +1492,9 @@
       "kind": "rpc",
       "name": "ConfirmCustomerMessage",
       "span": {
-        "startLine": 489,
+        "startLine": 492,
         "startColumn": 1,
-        "endLine": 504,
+        "endLine": 507,
         "endColumn": 2
       }
     },
@@ -1489,9 +1503,9 @@
       "kind": "rpc",
       "name": "EditCustomerMessage",
       "span": {
-        "startLine": 508,
+        "startLine": 511,
         "startColumn": 1,
-        "endLine": 529,
+        "endLine": 532,
         "endColumn": 2
       }
     },
@@ -1500,9 +1514,9 @@
       "kind": "rpc",
       "name": "GetDexDisplay",
       "span": {
-        "startLine": 396,
+        "startLine": 399,
         "startColumn": 1,
-        "endLine": 447,
+        "endLine": 450,
         "endColumn": 2
       }
     },
@@ -1511,9 +1525,9 @@
       "kind": "rpc",
       "name": "GetDexSummary",
       "span": {
-        "startLine": 352,
+        "startLine": 355,
         "startColumn": 1,
-        "endLine": 378,
+        "endLine": 381,
         "endColumn": 2
       }
     },
@@ -1522,9 +1536,9 @@
       "kind": "rpc",
       "name": "RejectRefund",
       "span": {
-        "startLine": 465,
+        "startLine": 468,
         "startColumn": 1,
-        "endLine": 486,
+        "endLine": 489,
         "endColumn": 2
       }
     },
@@ -1534,9 +1548,9 @@
       "name": "GenerateCustomerMessageStep",
       "phase": "execute",
       "span": {
-        "startLine": 209,
+        "startLine": 211,
         "startColumn": 3,
-        "endLine": 223,
+        "endLine": 225,
         "endColumn": 6
       },
       "metadata": {
@@ -1545,7 +1559,7 @@
           "connectionName": "",
           "connectorId": "openai",
           "modulePath": "github.com/superdurable/dex-connectors-library/connectors/openai",
-          "moduleVersion": "v0.2.0",
+          "moduleVersion": "v0.3.0",
           "operationId": "createResponse",
           "operationKind": "mutation"
         },
@@ -1560,9 +1574,9 @@
       "name": "ApplySubscriptionStep",
       "phase": "execute",
       "span": {
-        "startLine": 207,
+        "startLine": 209,
         "startColumn": 3,
-        "endLine": 207,
+        "endLine": 209,
         "endColumn": 66
       },
       "metadata": {
@@ -1575,9 +1589,9 @@
       "name": "AuditIntentStep",
       "phase": "execute",
       "span": {
-        "startLine": 203,
+        "startLine": 205,
         "startColumn": 3,
-        "endLine": 203,
+        "endLine": 205,
         "endColumn": 39
       },
       "metadata": {
@@ -1590,9 +1604,9 @@
       "name": "BillingFailedStep",
       "phase": "execute",
       "span": {
-        "startLine": 230,
+        "startLine": 232,
         "startColumn": 3,
-        "endLine": 230,
+        "endLine": 232,
         "endColumn": 41
       },
       "metadata": {
@@ -1605,9 +1619,9 @@
       "name": "CheckIdentityStep",
       "phase": "execute",
       "span": {
-        "startLine": 194,
+        "startLine": 196,
         "startColumn": 3,
-        "endLine": 194,
+        "endLine": 196,
         "endColumn": 62
       },
       "metadata": {
@@ -1620,9 +1634,9 @@
       "name": "CheckIncidentsStep",
       "phase": "execute",
       "span": {
-        "startLine": 199,
+        "startLine": 201,
         "startColumn": 3,
-        "endLine": 199,
+        "endLine": 201,
         "endColumn": 63
       },
       "metadata": {
@@ -1635,9 +1649,9 @@
       "name": "CloseCaseStep",
       "phase": "execute",
       "span": {
-        "startLine": 233,
+        "startLine": 235,
         "startColumn": 3,
-        "endLine": 233,
+        "endLine": 235,
         "endColumn": 37
       },
       "metadata": {
@@ -1650,9 +1664,9 @@
       "name": "ConfirmCustomerMessageStep",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 226,
+        "startLine": 228,
         "startColumn": 3,
-        "endLine": 226,
+        "endLine": 228,
         "endColumn": 50
       },
       "metadata": {
@@ -1665,9 +1679,9 @@
       "name": "AgentDecisionStep",
       "phase": "execute",
       "span": {
-        "startLine": 193,
+        "startLine": 195,
         "startColumn": 3,
-        "endLine": 193,
+        "endLine": 195,
         "endColumn": 36
       },
       "metadata": {
@@ -1680,9 +1694,9 @@
       "name": "EmailFailedStep",
       "phase": "execute",
       "span": {
-        "startLine": 232,
+        "startLine": 234,
         "startColumn": 3,
-        "endLine": 232,
+        "endLine": 234,
         "endColumn": 39
       },
       "metadata": {
@@ -1695,9 +1709,9 @@
       "name": "GetPaymentStep",
       "phase": "execute",
       "span": {
-        "startLine": 196,
+        "startLine": 198,
         "startColumn": 3,
-        "endLine": 196,
+        "endLine": 198,
         "endColumn": 59
       },
       "metadata": {
@@ -1710,9 +1724,9 @@
       "name": "GetSubscriptionStep",
       "phase": "execute",
       "span": {
-        "startLine": 195,
+        "startLine": 197,
         "startColumn": 3,
-        "endLine": 195,
+        "endLine": 197,
         "endColumn": 64
       },
       "metadata": {
@@ -1725,9 +1739,9 @@
       "name": "GetSupportHistoryStep",
       "phase": "execute",
       "span": {
-        "startLine": 198,
+        "startLine": 200,
         "startColumn": 3,
-        "endLine": 198,
+        "endLine": 200,
         "endColumn": 66
       },
       "metadata": {
@@ -1740,9 +1754,9 @@
       "name": "GetUsageStep",
       "phase": "execute",
       "span": {
-        "startLine": 197,
+        "startLine": 199,
         "startColumn": 3,
-        "endLine": 197,
+        "endLine": 199,
         "endColumn": 57
       },
       "metadata": {
@@ -1755,9 +1769,9 @@
       "name": "GuardrailStep",
       "phase": "execute",
       "span": {
-        "startLine": 200,
+        "startLine": 202,
         "startColumn": 3,
-        "endLine": 200,
+        "endLine": 202,
         "endColumn": 37
       },
       "metadata": {
@@ -1770,9 +1784,9 @@
       "name": "IssueRefundStep",
       "phase": "execute",
       "span": {
-        "startLine": 204,
+        "startLine": 206,
         "startColumn": 3,
-        "endLine": 204,
+        "endLine": 206,
         "endColumn": 60
       },
       "metadata": {
@@ -1785,9 +1799,9 @@
       "name": "NonConvergenceStep",
       "phase": "execute",
       "span": {
-        "startLine": 228,
+        "startLine": 230,
         "startColumn": 3,
-        "endLine": 228,
+        "endLine": 230,
         "endColumn": 42
       },
       "metadata": {
@@ -1800,9 +1814,9 @@
       "name": "NotARefundStep",
       "phase": "execute",
       "span": {
-        "startLine": 229,
+        "startLine": 231,
         "startColumn": 3,
-        "endLine": 229,
+        "endLine": 231,
         "endColumn": 38
       },
       "metadata": {
@@ -1815,9 +1829,9 @@
       "name": "OfferAccountCreditStep",
       "phase": "execute",
       "span": {
-        "startLine": 205,
+        "startLine": 207,
         "startColumn": 3,
-        "endLine": 205,
+        "endLine": 207,
         "endColumn": 67
       },
       "metadata": {
@@ -1830,9 +1844,9 @@
       "name": "PrepareCustomerMessageStep",
       "phase": "execute",
       "span": {
-        "startLine": 208,
+        "startLine": 210,
         "startColumn": 3,
-        "endLine": 208,
+        "endLine": 210,
         "endColumn": 50
       },
       "metadata": {
@@ -1845,9 +1859,9 @@
       "name": "ReCheckStep",
       "phase": "execute",
       "span": {
-        "startLine": 201,
+        "startLine": 203,
         "startColumn": 3,
-        "endLine": 201,
+        "endLine": 203,
         "endColumn": 35
       },
       "metadata": {
@@ -1861,9 +1875,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 192,
+        "startLine": 194,
         "startColumn": 3,
-        "endLine": 192,
+        "endLine": 194,
         "endColumn": 47
       },
       "metadata": {
@@ -1876,9 +1890,9 @@
       "name": "RequestHumanApprovalStep",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 202,
+        "startLine": 204,
         "startColumn": 3,
-        "endLine": 202,
+        "endLine": 204,
         "endColumn": 48
       },
       "metadata": {
@@ -1891,9 +1905,9 @@
       "name": "SendCustomerMessageStep",
       "phase": "execute",
       "span": {
-        "startLine": 227,
+        "startLine": 229,
         "startColumn": 3,
-        "endLine": 227,
+        "endLine": 229,
         "endColumn": 68
       },
       "metadata": {
@@ -1906,9 +1920,9 @@
       "name": "StoreGeneratedCustomerMessageStep",
       "phase": "execute",
       "span": {
-        "startLine": 224,
+        "startLine": 226,
         "startColumn": 3,
-        "endLine": 224,
+        "endLine": 226,
         "endColumn": 57
       },
       "metadata": {
@@ -1921,9 +1935,9 @@
       "name": "SubscriptionFailedStep",
       "phase": "execute",
       "span": {
-        "startLine": 231,
+        "startLine": 233,
         "startColumn": 3,
-        "endLine": 231,
+        "endLine": 233,
         "endColumn": 46
       },
       "metadata": {
@@ -1936,9 +1950,9 @@
       "name": "UseFallbackCustomerMessageStep",
       "phase": "execute",
       "span": {
-        "startLine": 225,
+        "startLine": 227,
         "startColumn": 3,
-        "endLine": 225,
+        "endLine": 227,
         "endColumn": 54
       },
       "metadata": {
@@ -1951,9 +1965,9 @@
       "name": "VerifyBillingStep",
       "phase": "execute",
       "span": {
-        "startLine": 206,
+        "startLine": 208,
         "startColumn": 3,
-        "endLine": 206,
+        "endLine": 208,
         "endColumn": 62
       },
       "metadata": {
@@ -1961,15 +1975,15 @@
       }
     },
     {
-      "id": "wait:agenticConfirmCustomerMessage:1249:9",
+      "id": "wait:agenticConfirmCustomerMessage:1264:9",
       "kind": "wait",
       "name": "until",
       "parentId": "step:agenticConfirmCustomerMessage",
       "phase": "wait_for",
       "span": {
-        "startLine": 1249,
+        "startLine": 1264,
         "startColumn": 9,
-        "endLine": 1249,
+        "endLine": 1264,
         "endColumn": 65
       },
       "wait": {
@@ -1981,9 +1995,9 @@
             "resourceId": "resource:channel:agenticMessageApproval",
             "expression": "gateRequestKey",
             "span": {
-              "startLine": 1249,
+              "startLine": 1264,
               "startColumn": 19,
-              "endLine": 1249,
+              "endLine": 1264,
               "endColumn": 64
             }
           }
@@ -1991,15 +2005,15 @@
       }
     },
     {
-      "id": "wait:agenticRequestHumanApproval:918:9",
+      "id": "wait:agenticRequestHumanApproval:921:9",
       "kind": "wait",
       "name": "until",
       "parentId": "step:agenticRequestHumanApproval",
       "phase": "wait_for",
       "span": {
-        "startLine": 918,
+        "startLine": 921,
         "startColumn": 9,
-        "endLine": 918,
+        "endLine": 921,
         "endColumn": 65
       },
       "wait": {
@@ -2011,9 +2025,9 @@
             "resourceId": "resource:channel:agenticManagerApproval",
             "expression": "gateRequestKey",
             "span": {
-              "startLine": 918,
+              "startLine": 921,
               "startColumn": 19,
-              "endLine": 918,
+              "endLine": 921,
               "endColumn": 64
             }
           }
@@ -2025,546 +2039,546 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:agenticApplySubscription:1106:9",
+      "from": "decision:step:agenticApplySubscription:1109:9",
       "to": "step:agenticPrepareCustomerMessage",
       "label": "GoTo",
       "span": {
-        "startLine": 1106,
+        "startLine": 1109,
         "startColumn": 9,
-        "endLine": 1106,
+        "endLine": 1109,
         "endColumn": 62
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:agenticAuditIntent:961:10",
+      "from": "decision:step:agenticAuditIntent:964:10",
       "to": "step:agenticOfferAccountCredit",
       "label": "GoTo",
       "span": {
-        "startLine": 961,
+        "startLine": 964,
         "startColumn": 10,
-        "endLine": 961,
+        "endLine": 964,
         "endColumn": 59
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:agenticAuditIntent:963:9",
+      "from": "decision:step:agenticAuditIntent:966:9",
       "to": "step:agenticIssueRefund",
       "label": "GoTo",
       "span": {
-        "startLine": 963,
+        "startLine": 966,
         "startColumn": 9,
-        "endLine": 963,
+        "endLine": 966,
         "endColumn": 51
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:agenticBillingFailed:1369:9",
+      "from": "decision:step:agenticBillingFailed:1384:9",
       "to": "step:agenticPrepareCustomerMessage",
       "label": "GoTo",
       "span": {
-        "startLine": 1369,
+        "startLine": 1384,
         "startColumn": 9,
-        "endLine": 1369,
+        "endLine": 1384,
         "endColumn": 62
       }
     },
     {
       "id": "edge:0005",
       "kind": "transition",
-      "from": "decision:step:agenticCheckIdentity:669:9",
+      "from": "decision:step:agenticCheckIdentity:672:9",
       "to": "step:agenticDecision",
       "label": "GoTo",
       "span": {
-        "startLine": 669,
+        "startLine": 672,
         "startColumn": 9,
-        "endLine": 669,
+        "endLine": 672,
         "endColumn": 48
       }
     },
     {
       "id": "edge:0006",
       "kind": "transition",
-      "from": "decision:step:agenticCheckIncidents:805:9",
+      "from": "decision:step:agenticCheckIncidents:808:9",
       "to": "step:agenticDecision",
       "label": "GoTo",
       "span": {
-        "startLine": 805,
+        "startLine": 808,
         "startColumn": 9,
-        "endLine": 805,
+        "endLine": 808,
         "endColumn": 48
       }
     },
     {
       "id": "edge:0007",
       "kind": "transition",
-      "from": "decision:step:agenticConfirmCustomerMessage:1267:9",
+      "from": "decision:step:agenticConfirmCustomerMessage:1282:9",
       "to": "step:agenticSendCustomerMessage",
       "label": "GoTo",
       "span": {
-        "startLine": 1267,
+        "startLine": 1282,
         "startColumn": 9,
-        "endLine": 1267,
+        "endLine": 1282,
         "endColumn": 59
       }
     },
     {
       "id": "edge:0008",
       "kind": "transition",
-      "from": "decision:step:agenticDecision:588:10",
+      "from": "decision:step:agenticDecision:591:10",
       "to": "step:agenticNonConvergence",
       "label": "GoTo",
       "span": {
-        "startLine": 588,
+        "startLine": 591,
         "startColumn": 10,
-        "endLine": 588,
+        "endLine": 591,
         "endColumn": 55
       }
     },
     {
       "id": "edge:0009",
       "kind": "transition",
-      "from": "decision:step:agenticDecision:601:10",
+      "from": "decision:step:agenticDecision:604:10",
       "to": "step:agenticCheckIdentity",
       "label": "GoTo",
       "span": {
-        "startLine": 601,
+        "startLine": 604,
         "startColumn": 10,
-        "endLine": 601,
+        "endLine": 604,
         "endColumn": 54
       }
     },
     {
       "id": "edge:0010",
       "kind": "transition",
-      "from": "decision:step:agenticDecision:608:10",
+      "from": "decision:step:agenticDecision:611:10",
       "to": "step:agenticGetSubscription",
       "label": "GoTo",
       "span": {
-        "startLine": 608,
+        "startLine": 611,
         "startColumn": 10,
-        "endLine": 608,
+        "endLine": 611,
         "endColumn": 56
       }
     },
     {
       "id": "edge:0011",
       "kind": "transition",
-      "from": "decision:step:agenticDecision:615:10",
+      "from": "decision:step:agenticDecision:618:10",
       "to": "step:agenticGetPayment",
       "label": "GoTo",
       "span": {
-        "startLine": 615,
+        "startLine": 618,
         "startColumn": 10,
-        "endLine": 615,
+        "endLine": 618,
         "endColumn": 51
       }
     },
     {
       "id": "edge:0012",
       "kind": "transition",
-      "from": "decision:step:agenticDecision:622:10",
+      "from": "decision:step:agenticDecision:625:10",
       "to": "step:agenticGetUsage",
       "label": "GoTo",
       "span": {
-        "startLine": 622,
+        "startLine": 625,
         "startColumn": 10,
-        "endLine": 622,
+        "endLine": 625,
         "endColumn": 49
       }
     },
     {
       "id": "edge:0013",
       "kind": "transition",
-      "from": "decision:step:agenticDecision:629:10",
+      "from": "decision:step:agenticDecision:632:10",
       "to": "step:agenticGetSupportHistory",
       "label": "GoTo",
       "span": {
-        "startLine": 629,
+        "startLine": 632,
         "startColumn": 10,
-        "endLine": 629,
+        "endLine": 632,
         "endColumn": 58
       }
     },
     {
       "id": "edge:0014",
       "kind": "transition",
-      "from": "decision:step:agenticDecision:636:10",
+      "from": "decision:step:agenticDecision:639:10",
       "to": "step:agenticCheckIncidents",
       "label": "GoTo",
       "span": {
-        "startLine": 636,
+        "startLine": 639,
         "startColumn": 10,
-        "endLine": 636,
+        "endLine": 639,
         "endColumn": 55
       }
     },
     {
       "id": "edge:0015",
       "kind": "transition",
-      "from": "decision:step:agenticDecision:648:9",
+      "from": "decision:step:agenticDecision:651:9",
       "to": "step:agenticGuardrail",
       "label": "GoTo",
       "span": {
-        "startLine": 648,
+        "startLine": 651,
         "startColumn": 9,
-        "endLine": 648,
+        "endLine": 651,
         "endColumn": 49
       }
     },
     {
       "id": "edge:0016",
       "kind": "transition",
-      "from": "decision:step:agenticEmailFailed:1415:9",
+      "from": "decision:step:agenticEmailFailed:1430:9",
       "to": "step:agenticCloseCase",
       "label": "GoTo",
       "span": {
-        "startLine": 1415,
+        "startLine": 1430,
         "startColumn": 9,
-        "endLine": 1415,
+        "endLine": 1430,
         "endColumn": 49
       }
     },
     {
       "id": "edge:0017",
       "kind": "transition",
-      "from": "decision:step:agenticGetPayment:721:9",
+      "from": "decision:step:agenticGetPayment:724:9",
       "to": "step:agenticDecision",
       "label": "GoTo",
       "span": {
-        "startLine": 721,
+        "startLine": 724,
         "startColumn": 9,
-        "endLine": 721,
+        "endLine": 724,
         "endColumn": 48
       }
     },
     {
       "id": "edge:0018",
       "kind": "transition",
-      "from": "decision:step:agenticGetSubscription:690:9",
+      "from": "decision:step:agenticGetSubscription:693:9",
       "to": "step:agenticDecision",
       "label": "GoTo",
       "span": {
-        "startLine": 690,
+        "startLine": 693,
         "startColumn": 9,
-        "endLine": 690,
+        "endLine": 693,
         "endColumn": 48
       }
     },
     {
       "id": "edge:0019",
       "kind": "transition",
-      "from": "decision:step:agenticGetSupportHistory:777:9",
+      "from": "decision:step:agenticGetSupportHistory:780:9",
       "to": "step:agenticDecision",
       "label": "GoTo",
       "span": {
-        "startLine": 777,
+        "startLine": 780,
         "startColumn": 9,
-        "endLine": 777,
+        "endLine": 780,
         "endColumn": 48
       }
     },
     {
       "id": "edge:0020",
       "kind": "transition",
-      "from": "decision:step:agenticGetUsage:746:9",
+      "from": "decision:step:agenticGetUsage:749:9",
       "to": "step:agenticDecision",
       "label": "GoTo",
       "span": {
-        "startLine": 746,
+        "startLine": 749,
         "startColumn": 9,
-        "endLine": 746,
+        "endLine": 749,
         "endColumn": 48
       }
     },
     {
       "id": "edge:0021",
       "kind": "transition",
-      "from": "decision:step:agenticGuardrail:859:10",
+      "from": "decision:step:agenticGuardrail:862:10",
       "to": "step:agenticRequestHumanApproval",
       "label": "GoTo",
       "span": {
-        "startLine": 859,
+        "startLine": 862,
         "startColumn": 10,
-        "endLine": 859,
+        "endLine": 862,
         "endColumn": 61
       }
     },
     {
       "id": "edge:0022",
       "kind": "transition",
-      "from": "decision:step:agenticGuardrail:864:9",
+      "from": "decision:step:agenticGuardrail:867:9",
       "to": "step:agenticAuditIntent",
       "label": "GoTo",
       "span": {
-        "startLine": 864,
+        "startLine": 867,
         "startColumn": 9,
-        "endLine": 864,
+        "endLine": 867,
         "endColumn": 51
       }
     },
     {
       "id": "edge:0023",
       "kind": "transition",
-      "from": "decision:step:agenticIssueRefund:1003:10",
+      "from": "decision:step:agenticIssueRefund:1006:10",
       "to": "step:agenticApplySubscription",
       "label": "GoTo",
       "span": {
-        "startLine": 1003,
+        "startLine": 1006,
         "startColumn": 10,
-        "endLine": 1003,
+        "endLine": 1006,
         "endColumn": 58
       }
     },
     {
       "id": "edge:0024",
       "kind": "transition",
-      "from": "decision:step:agenticIssueRefund:1005:10",
+      "from": "decision:step:agenticIssueRefund:1008:10",
       "to": "step:agenticVerifyBilling",
       "label": "GoTo",
       "span": {
-        "startLine": 1005,
+        "startLine": 1008,
         "startColumn": 10,
-        "endLine": 1005,
+        "endLine": 1008,
         "endColumn": 54
       }
     },
     {
       "id": "edge:0025",
       "kind": "transition",
-      "from": "decision:step:agenticIssueRefund:1007:10",
+      "from": "decision:step:agenticIssueRefund:1010:10",
       "to": "step:agenticBillingFailed",
       "label": "GoTo",
       "span": {
-        "startLine": 1007,
+        "startLine": 1010,
         "startColumn": 10,
-        "endLine": 1007,
+        "endLine": 1010,
         "endColumn": 54
       }
     },
     {
       "id": "edge:0026",
       "kind": "transition",
-      "from": "decision:step:agenticNonConvergence:1329:9",
+      "from": "decision:step:agenticNonConvergence:1344:9",
       "to": "step:agenticCloseCase",
       "label": "GoTo",
       "span": {
-        "startLine": 1329,
+        "startLine": 1344,
         "startColumn": 9,
-        "endLine": 1329,
+        "endLine": 1344,
         "endColumn": 49
       }
     },
     {
       "id": "edge:0027",
       "kind": "transition",
-      "from": "decision:step:agenticNotARefund:1346:9",
+      "from": "decision:step:agenticNotARefund:1361:9",
       "to": "step:agenticCloseCase",
       "label": "GoTo",
       "span": {
-        "startLine": 1346,
+        "startLine": 1361,
         "startColumn": 9,
-        "endLine": 1346,
+        "endLine": 1361,
         "endColumn": 49
       }
     },
     {
       "id": "edge:0028",
       "kind": "transition",
-      "from": "decision:step:agenticOfferAccountCredit:1035:10",
+      "from": "decision:step:agenticOfferAccountCredit:1038:10",
       "to": "step:agenticBillingFailed",
       "label": "GoTo",
       "span": {
-        "startLine": 1035,
+        "startLine": 1038,
         "startColumn": 10,
-        "endLine": 1035,
+        "endLine": 1038,
         "endColumn": 54
       }
     },
     {
       "id": "edge:0029",
       "kind": "transition",
-      "from": "decision:step:agenticOfferAccountCredit:1040:9",
+      "from": "decision:step:agenticOfferAccountCredit:1043:9",
       "to": "step:agenticApplySubscription",
       "label": "GoTo",
       "span": {
-        "startLine": 1040,
+        "startLine": 1043,
         "startColumn": 9,
-        "endLine": 1040,
+        "endLine": 1043,
         "endColumn": 57
       }
     },
     {
       "id": "edge:0030",
       "kind": "transition",
-      "from": "decision:step:agenticPrepareCustomerMessage:1138:9",
+      "from": "decision:step:agenticPrepareCustomerMessage:1149:9",
       "to": "step:GenerateCustomerMessageStep",
       "label": "GoTo",
       "span": {
-        "startLine": 1138,
+        "startLine": 1149,
         "startColumn": 9,
-        "endLine": 1145,
+        "endLine": 1152,
         "endColumn": 3
       }
     },
     {
       "id": "edge:0031",
       "kind": "transition",
-      "from": "decision:step:agenticReCheck:889:10",
+      "from": "decision:step:agenticReCheck:892:10",
       "to": "step:agenticPrepareCustomerMessage",
       "label": "GoTo",
       "span": {
-        "startLine": 889,
+        "startLine": 892,
         "startColumn": 10,
-        "endLine": 889,
+        "endLine": 892,
         "endColumn": 63
       }
     },
     {
       "id": "edge:0032",
       "kind": "transition",
-      "from": "decision:step:agenticReCheck:897:9",
+      "from": "decision:step:agenticReCheck:900:9",
       "to": "step:agenticAuditIntent",
       "label": "GoTo",
       "span": {
-        "startLine": 897,
+        "startLine": 900,
         "startColumn": 9,
-        "endLine": 897,
+        "endLine": 900,
         "endColumn": 51
       }
     },
     {
       "id": "edge:0033",
       "kind": "transition",
-      "from": "decision:step:agenticReceiveRequest:561:10",
+      "from": "decision:step:agenticReceiveRequest:564:10",
       "to": "step:agenticNotARefund",
       "label": "GoTo",
       "span": {
-        "startLine": 561,
+        "startLine": 564,
         "startColumn": 10,
-        "endLine": 561,
+        "endLine": 564,
         "endColumn": 51
       }
     },
     {
       "id": "edge:0034",
       "kind": "transition",
-      "from": "decision:step:agenticReceiveRequest:566:9",
+      "from": "decision:step:agenticReceiveRequest:569:9",
       "to": "step:agenticDecision",
       "label": "GoTo",
       "span": {
-        "startLine": 566,
+        "startLine": 569,
         "startColumn": 9,
-        "endLine": 566,
+        "endLine": 569,
         "endColumn": 48
       }
     },
     {
       "id": "edge:0035",
       "kind": "transition",
-      "from": "decision:step:agenticRequestHumanApproval:939:9",
+      "from": "decision:step:agenticRequestHumanApproval:942:9",
       "to": "step:agenticReCheck",
       "label": "GoTo",
       "span": {
-        "startLine": 939,
+        "startLine": 942,
         "startColumn": 9,
-        "endLine": 939,
+        "endLine": 942,
         "endColumn": 47
       }
     },
     {
       "id": "edge:0036",
       "kind": "transition",
-      "from": "decision:step:agenticSendCustomerMessage:1309:9",
+      "from": "decision:step:agenticSendCustomerMessage:1324:9",
       "to": "step:agenticCloseCase",
       "label": "GoTo",
       "span": {
-        "startLine": 1309,
+        "startLine": 1324,
         "startColumn": 9,
-        "endLine": 1309,
+        "endLine": 1324,
         "endColumn": 49
       }
     },
     {
       "id": "edge:0037",
       "kind": "transition",
-      "from": "decision:step:agenticStoreGeneratedCustomerMessage:1185:9",
+      "from": "decision:step:agenticStoreGeneratedCustomerMessage:1196:9",
       "to": "step:agenticConfirmCustomerMessage",
       "label": "GoTo",
       "span": {
-        "startLine": 1185,
+        "startLine": 1196,
         "startColumn": 9,
-        "endLine": 1185,
-        "endColumn": 75
+        "endLine": 1196,
+        "endColumn": 69
       }
     },
     {
       "id": "edge:0038",
       "kind": "transition",
-      "from": "decision:step:agenticSubscriptionFailed:1392:9",
+      "from": "decision:step:agenticSubscriptionFailed:1407:9",
       "to": "step:agenticPrepareCustomerMessage",
       "label": "GoTo",
       "span": {
-        "startLine": 1392,
+        "startLine": 1407,
         "startColumn": 9,
-        "endLine": 1392,
+        "endLine": 1407,
         "endColumn": 62
       }
     },
     {
       "id": "edge:0039",
       "kind": "transition",
-      "from": "decision:step:agenticUseFallbackCustomerMessage:1205:9",
+      "from": "decision:step:agenticUseFallbackCustomerMessage:1220:9",
       "to": "step:agenticConfirmCustomerMessage",
       "label": "GoTo",
       "span": {
-        "startLine": 1205,
+        "startLine": 1220,
         "startColumn": 9,
-        "endLine": 1205,
-        "endColumn": 75
+        "endLine": 1220,
+        "endColumn": 69
       }
     },
     {
       "id": "edge:0040",
       "kind": "transition",
-      "from": "decision:step:agenticVerifyBilling:1070:10",
+      "from": "decision:step:agenticVerifyBilling:1073:10",
       "to": "step:agenticApplySubscription",
       "label": "GoTo",
       "span": {
-        "startLine": 1070,
+        "startLine": 1073,
         "startColumn": 10,
-        "endLine": 1070,
+        "endLine": 1073,
         "endColumn": 58
       }
     },
     {
       "id": "edge:0041",
       "kind": "transition",
-      "from": "decision:step:agenticVerifyBilling:1076:10",
+      "from": "decision:step:agenticVerifyBilling:1079:10",
       "to": "step:agenticCloseCase",
       "label": "GoTo",
       "span": {
-        "startLine": 1076,
+        "startLine": 1079,
         "startColumn": 10,
-        "endLine": 1076,
+        "endLine": 1079,
         "endColumn": 50
       }
     },
     {
       "id": "edge:0042",
       "kind": "transition",
-      "from": "decision:step:agenticVerifyBilling:1078:9",
+      "from": "decision:step:agenticVerifyBilling:1081:9",
       "to": "step:agenticBillingFailed",
       "label": "GoTo",
       "span": {
-        "startLine": 1078,
+        "startLine": 1081,
         "startColumn": 9,
-        "endLine": 1078,
+        "endLine": 1081,
         "endColumn": 53
       }
     },
@@ -2575,9 +2589,9 @@
       "to": "step:agenticVerifyBilling",
       "label": "Get",
       "span": {
-        "startLine": 1058,
+        "startLine": 1061,
         "startColumn": 14,
-        "endLine": 1058,
+        "endLine": 1061,
         "endColumn": 40
       },
       "metadata": {
@@ -2591,9 +2605,9 @@
       "to": "step:agenticAuditIntent",
       "label": "Get",
       "span": {
-        "startLine": 956,
+        "startLine": 959,
         "startColumn": 17,
-        "endLine": 956,
+        "endLine": 959,
         "endColumn": 44
       },
       "metadata": {
@@ -2607,9 +2621,9 @@
       "to": "step:agenticPrepareCustomerMessage",
       "label": "Get",
       "span": {
-        "startLine": 1123,
+        "startLine": 1126,
         "startColumn": 17,
-        "endLine": 1123,
+        "endLine": 1126,
         "endColumn": 43
       },
       "metadata": {
@@ -2623,9 +2637,9 @@
       "to": "step:agenticSendCustomerMessage",
       "label": "Get",
       "span": {
-        "startLine": 1289,
+        "startLine": 1304,
         "startColumn": 17,
-        "endLine": 1289,
+        "endLine": 1304,
         "endColumn": 43
       },
       "metadata": {
@@ -2635,14 +2649,14 @@
     {
       "id": "edge:0047",
       "kind": "resource_read",
-      "from": "resource:attribute:agenticCustomerMessageDraft",
-      "to": "step:agenticSendCustomerMessage",
+      "from": "resource:attribute:agenticCustomerMessageContext",
+      "to": "step:agenticStoreGeneratedCustomerMessage",
       "label": "Get",
       "span": {
-        "startLine": 1294,
-        "startColumn": 18,
-        "endLine": 1294,
-        "endColumn": 54
+        "startLine": 1185,
+        "startColumn": 17,
+        "endLine": 1185,
+        "endColumn": 55
       },
       "metadata": {
         "phase": "execute"
@@ -2651,13 +2665,13 @@
     {
       "id": "edge:0048",
       "kind": "resource_read",
-      "from": "resource:attribute:agenticGateRequestKey",
-      "to": "step:agenticConfirmCustomerMessage",
+      "from": "resource:attribute:agenticCustomerMessageContext",
+      "to": "step:agenticUseFallbackCustomerMessage",
       "label": "Get",
       "span": {
-        "startLine": 1256,
-        "startColumn": 25,
-        "endLine": 1256,
+        "startLine": 1213,
+        "startColumn": 17,
+        "endLine": 1213,
         "endColumn": 55
       },
       "metadata": {
@@ -2667,29 +2681,29 @@
     {
       "id": "edge:0049",
       "kind": "resource_read",
-      "from": "resource:attribute:agenticGateRequestKey",
-      "to": "step:agenticConfirmCustomerMessage",
+      "from": "resource:attribute:agenticCustomerMessageDraft",
+      "to": "step:agenticSendCustomerMessage",
       "label": "Get",
       "span": {
-        "startLine": 1245,
-        "startColumn": 25,
-        "endLine": 1245,
-        "endColumn": 55
+        "startLine": 1309,
+        "startColumn": 18,
+        "endLine": 1309,
+        "endColumn": 54
       },
       "metadata": {
-        "phase": "wait_for"
+        "phase": "execute"
       }
     },
     {
       "id": "edge:0050",
       "kind": "resource_read",
       "from": "resource:attribute:agenticGateRequestKey",
-      "to": "step:agenticRequestHumanApproval",
+      "to": "step:agenticConfirmCustomerMessage",
       "label": "Get",
       "span": {
-        "startLine": 925,
+        "startLine": 1271,
         "startColumn": 25,
-        "endLine": 925,
+        "endLine": 1271,
         "endColumn": 55
       },
       "metadata": {
@@ -2700,12 +2714,12 @@
       "id": "edge:0051",
       "kind": "resource_read",
       "from": "resource:attribute:agenticGateRequestKey",
-      "to": "step:agenticRequestHumanApproval",
+      "to": "step:agenticConfirmCustomerMessage",
       "label": "Get",
       "span": {
-        "startLine": 914,
+        "startLine": 1260,
         "startColumn": 25,
-        "endLine": 914,
+        "endLine": 1260,
         "endColumn": 55
       },
       "metadata": {
@@ -2715,14 +2729,14 @@
     {
       "id": "edge:0052",
       "kind": "resource_read",
-      "from": "resource:attribute:agenticManagerVerdict",
-      "to": "step:agenticReCheck",
+      "from": "resource:attribute:agenticGateRequestKey",
+      "to": "step:agenticRequestHumanApproval",
       "label": "Get",
       "span": {
-        "startLine": 881,
-        "startColumn": 18,
-        "endLine": 881,
-        "endColumn": 48
+        "startLine": 928,
+        "startColumn": 25,
+        "endLine": 928,
+        "endColumn": 55
       },
       "metadata": {
         "phase": "execute"
@@ -2731,30 +2745,30 @@
     {
       "id": "edge:0053",
       "kind": "resource_read",
-      "from": "resource:attribute:agenticRecommendedAction",
-      "to": "step:agenticGuardrail",
+      "from": "resource:attribute:agenticGateRequestKey",
+      "to": "step:agenticRequestHumanApproval",
       "label": "Get",
       "span": {
-        "startLine": 822,
-        "startColumn": 17,
-        "endLine": 822,
-        "endColumn": 50
+        "startLine": 917,
+        "startColumn": 25,
+        "endLine": 917,
+        "endColumn": 55
       },
       "metadata": {
-        "phase": "execute"
+        "phase": "wait_for"
       }
     },
     {
       "id": "edge:0054",
       "kind": "resource_read",
-      "from": "resource:channel:agenticManagerApproval",
-      "to": "step:agenticRequestHumanApproval",
-      "label": "GetConditionResults",
+      "from": "resource:attribute:agenticManagerVerdict",
+      "to": "step:agenticReCheck",
+      "label": "Get",
       "span": {
-        "startLine": 929,
-        "startColumn": 19,
-        "endLine": 929,
-        "endColumn": 82
+        "startLine": 884,
+        "startColumn": 18,
+        "endLine": 884,
+        "endColumn": 48
       },
       "metadata": {
         "phase": "execute"
@@ -2762,27 +2776,30 @@
     },
     {
       "id": "edge:0055",
-      "kind": "wait_condition",
-      "from": "resource:channel:agenticManagerApproval",
-      "to": "wait:agenticRequestHumanApproval:918:9",
-      "label": "manager-approval[gateRequestKey].for 1",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticRecommendedAction",
+      "to": "step:agenticGuardrail",
+      "label": "Get",
       "span": {
-        "startLine": 918,
-        "startColumn": 19,
-        "endLine": 918,
-        "endColumn": 64
+        "startLine": 825,
+        "startColumn": 17,
+        "endLine": 825,
+        "endColumn": 50
+      },
+      "metadata": {
+        "phase": "execute"
       }
     },
     {
       "id": "edge:0056",
       "kind": "resource_read",
-      "from": "resource:channel:agenticMessageApproval",
-      "to": "step:agenticConfirmCustomerMessage",
+      "from": "resource:channel:agenticManagerApproval",
+      "to": "step:agenticRequestHumanApproval",
       "label": "GetConditionResults",
       "span": {
-        "startLine": 1260,
+        "startLine": 932,
         "startColumn": 19,
-        "endLine": 1260,
+        "endLine": 932,
         "endColumn": 82
       },
       "metadata": {
@@ -2792,59 +2809,56 @@
     {
       "id": "edge:0057",
       "kind": "wait_condition",
-      "from": "resource:channel:agenticMessageApproval",
-      "to": "wait:agenticConfirmCustomerMessage:1249:9",
-      "label": "message-approval[gateRequestKey].for 1",
+      "from": "resource:channel:agenticManagerApproval",
+      "to": "wait:agenticRequestHumanApproval:921:9",
+      "label": "manager-approval[gateRequestKey].for 1",
       "span": {
-        "startLine": 1249,
+        "startLine": 921,
         "startColumn": 19,
-        "endLine": 1249,
+        "endLine": 921,
         "endColumn": 64
       }
     },
     {
       "id": "edge:0058",
+      "kind": "resource_read",
+      "from": "resource:channel:agenticMessageApproval",
+      "to": "step:agenticConfirmCustomerMessage",
+      "label": "GetConditionResults",
+      "span": {
+        "startLine": 1275,
+        "startColumn": 19,
+        "endLine": 1275,
+        "endColumn": 82
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0059",
+      "kind": "wait_condition",
+      "from": "resource:channel:agenticMessageApproval",
+      "to": "wait:agenticConfirmCustomerMessage:1264:9",
+      "label": "message-approval[gateRequestKey].for 1",
+      "span": {
+        "startLine": 1264,
+        "startColumn": 19,
+        "endLine": 1264,
+        "endColumn": 64
+      }
+    },
+    {
+      "id": "edge:0060",
       "kind": "resource_publish",
       "from": "rpc:ApproveRefund",
       "to": "resource:channel:agenticManagerApproval",
       "label": "Publish",
       "span": {
-        "startLine": 457,
+        "startLine": 460,
         "startColumn": 12,
-        "endLine": 457,
+        "endLine": 460,
         "endColumn": 74
-      },
-      "metadata": {
-        "phase": "rpc"
-      }
-    },
-    {
-      "id": "edge:0059",
-      "kind": "resource_publish",
-      "from": "rpc:ConfirmCustomerMessage",
-      "to": "resource:channel:agenticMessageApproval",
-      "label": "Publish",
-      "span": {
-        "startLine": 500,
-        "startColumn": 12,
-        "endLine": 500,
-        "endColumn": 74
-      },
-      "metadata": {
-        "phase": "rpc"
-      }
-    },
-    {
-      "id": "edge:0060",
-      "kind": "resource_write",
-      "from": "rpc:EditCustomerMessage",
-      "to": "resource:attribute:agenticCustomerMessageDraft",
-      "label": "Set",
-      "span": {
-        "startLine": 522,
-        "startColumn": 12,
-        "endLine": 522,
-        "endColumn": 63
       },
       "metadata": {
         "phase": "rpc"
@@ -2853,14 +2867,14 @@
     {
       "id": "edge:0061",
       "kind": "resource_publish",
-      "from": "rpc:EditCustomerMessage",
+      "from": "rpc:ConfirmCustomerMessage",
       "to": "resource:channel:agenticMessageApproval",
       "label": "Publish",
       "span": {
-        "startLine": 525,
+        "startLine": 503,
         "startColumn": 12,
-        "endLine": 525,
-        "endColumn": 73
+        "endLine": 503,
+        "endColumn": 74
       },
       "metadata": {
         "phase": "rpc"
@@ -2869,14 +2883,14 @@
     {
       "id": "edge:0062",
       "kind": "resource_write",
-      "from": "rpc:RejectRefund",
-      "to": "resource:attribute:agenticManagerRejectionReason",
+      "from": "rpc:EditCustomerMessage",
+      "to": "resource:attribute:agenticCustomerMessageDraft",
       "label": "Set",
       "span": {
-        "startLine": 479,
+        "startLine": 525,
         "startColumn": 12,
-        "endLine": 479,
-        "endColumn": 64
+        "endLine": 525,
+        "endColumn": 63
       },
       "metadata": {
         "phase": "rpc"
@@ -2885,13 +2899,13 @@
     {
       "id": "edge:0063",
       "kind": "resource_publish",
-      "from": "rpc:RejectRefund",
-      "to": "resource:channel:agenticManagerApproval",
+      "from": "rpc:EditCustomerMessage",
+      "to": "resource:channel:agenticMessageApproval",
       "label": "Publish",
       "span": {
-        "startLine": 482,
+        "startLine": 528,
         "startColumn": 12,
-        "endLine": 482,
+        "endLine": 528,
         "endColumn": 73
       },
       "metadata": {
@@ -2901,6 +2915,38 @@
     {
       "id": "edge:0064",
       "kind": "resource_write",
+      "from": "rpc:RejectRefund",
+      "to": "resource:attribute:agenticManagerRejectionReason",
+      "label": "Set",
+      "span": {
+        "startLine": 482,
+        "startColumn": 12,
+        "endLine": 482,
+        "endColumn": 64
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0065",
+      "kind": "resource_publish",
+      "from": "rpc:RejectRefund",
+      "to": "resource:channel:agenticManagerApproval",
+      "label": "Publish",
+      "span": {
+        "startLine": 485,
+        "startColumn": 12,
+        "endLine": 485,
+        "endColumn": 73
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0066",
+      "kind": "resource_write",
       "from": "step:GenerateCustomerMessageStep",
       "to": "resource:attribute:agenticGeneratedCustomerMessage",
       "label": "Set",
@@ -2909,48 +2955,16 @@
       }
     },
     {
-      "id": "edge:0065",
+      "id": "edge:0067",
       "kind": "transition",
       "from": "step:GenerateCustomerMessageStep",
       "to": "step:agenticStoreGeneratedCustomerMessage",
       "label": "completed",
       "span": {
-        "startLine": 218,
-        "startColumn": 21,
-        "endLine": 218,
-        "endColumn": 71
-      },
-      "metadata": {
-        "connectorBranch": true
-      }
-    },
-    {
-      "id": "edge:0066",
-      "kind": "transition",
-      "from": "step:GenerateCustomerMessageStep",
-      "to": "step:agenticUseFallbackCustomerMessage",
-      "label": "defect",
-      "span": {
-        "startLine": 221,
-        "startColumn": 21,
-        "endLine": 221,
-        "endColumn": 68
-      },
-      "metadata": {
-        "connectorBranch": true
-      }
-    },
-    {
-      "id": "edge:0067",
-      "kind": "transition",
-      "from": "step:GenerateCustomerMessageStep",
-      "to": "step:agenticUseFallbackCustomerMessage",
-      "label": "failed",
-      "span": {
-        "startLine": 219,
-        "startColumn": 21,
-        "endLine": 219,
-        "endColumn": 68
+        "startLine": 220,
+        "startColumn": 25,
+        "endLine": 220,
+        "endColumn": 75
       },
       "metadata": {
         "connectorBranch": true
@@ -2961,12 +2975,12 @@
       "kind": "transition",
       "from": "step:GenerateCustomerMessageStep",
       "to": "step:agenticUseFallbackCustomerMessage",
-      "label": "uncertain",
+      "label": "defect",
       "span": {
-        "startLine": 220,
-        "startColumn": 21,
-        "endLine": 220,
-        "endColumn": 68
+        "startLine": 223,
+        "startColumn": 25,
+        "endLine": 223,
+        "endColumn": 72
       },
       "metadata": {
         "connectorBranch": true
@@ -2974,14 +2988,46 @@
     },
     {
       "id": "edge:0069",
+      "kind": "transition",
+      "from": "step:GenerateCustomerMessageStep",
+      "to": "step:agenticUseFallbackCustomerMessage",
+      "label": "failed",
+      "span": {
+        "startLine": 221,
+        "startColumn": 25,
+        "endLine": 221,
+        "endColumn": 72
+      },
+      "metadata": {
+        "connectorBranch": true
+      }
+    },
+    {
+      "id": "edge:0070",
+      "kind": "transition",
+      "from": "step:GenerateCustomerMessageStep",
+      "to": "step:agenticUseFallbackCustomerMessage",
+      "label": "uncertain",
+      "span": {
+        "startLine": 222,
+        "startColumn": 25,
+        "endLine": 222,
+        "endColumn": 72
+      },
+      "metadata": {
+        "connectorBranch": true
+      }
+    },
+    {
+      "id": "edge:0071",
       "kind": "resource_write",
       "from": "step:agenticApplySubscription",
       "to": "resource:attribute:agenticSubscriptionApplied",
       "label": "Set",
       "span": {
-        "startLine": 1103,
+        "startLine": 1106,
         "startColumn": 12,
-        "endLine": 1103,
+        "endLine": 1106,
         "endColumn": 54
       },
       "metadata": {
@@ -2989,15 +3035,15 @@
       }
     },
     {
-      "id": "edge:0070",
+      "id": "edge:0072",
       "kind": "failure_transition",
       "from": "step:agenticApplySubscription",
       "to": "step:agenticSubscriptionFailed",
       "label": "Execute failure",
       "span": {
-        "startLine": 1093,
+        "startLine": 1096,
         "startColumn": 42,
-        "endLine": 1093,
+        "endLine": 1096,
         "endColumn": 105
       },
       "metadata": {
@@ -3005,48 +3051,16 @@
       }
     },
     {
-      "id": "edge:0071",
+      "id": "edge:0073",
       "kind": "resource_write",
       "from": "step:agenticBillingFailed",
       "to": "resource:attribute:agenticBillingOutcome",
       "label": "Set",
       "span": {
-        "startLine": 1363,
+        "startLine": 1378,
         "startColumn": 12,
-        "endLine": 1363,
+        "endLine": 1378,
         "endColumn": 71
-      },
-      "metadata": {
-        "phase": "execute"
-      }
-    },
-    {
-      "id": "edge:0072",
-      "kind": "resource_write",
-      "from": "step:agenticBillingFailed",
-      "to": "resource:attribute:agenticCaseStatus",
-      "label": "Set",
-      "span": {
-        "startLine": 1366,
-        "startColumn": 12,
-        "endLine": 1366,
-        "endColumn": 61
-      },
-      "metadata": {
-        "phase": "execute"
-      }
-    },
-    {
-      "id": "edge:0073",
-      "kind": "resource_write",
-      "from": "step:agenticCheckIdentity",
-      "to": "resource:attribute:agenticIdentityStatus",
-      "label": "Set",
-      "span": {
-        "startLine": 666,
-        "startColumn": 12,
-        "endLine": 666,
-        "endColumn": 98
       },
       "metadata": {
         "phase": "execute"
@@ -3055,14 +3069,14 @@
     {
       "id": "edge:0074",
       "kind": "resource_write",
-      "from": "step:agenticCheckIncidents",
-      "to": "resource:attribute:agenticEvidenceState",
+      "from": "step:agenticBillingFailed",
+      "to": "resource:attribute:agenticCaseStatus",
       "label": "Set",
       "span": {
-        "startLine": 802,
+        "startLine": 1381,
         "startColumn": 12,
-        "endLine": 802,
-        "endColumn": 53
+        "endLine": 1381,
+        "endColumn": 61
       },
       "metadata": {
         "phase": "execute"
@@ -3071,14 +3085,14 @@
     {
       "id": "edge:0075",
       "kind": "resource_write",
-      "from": "step:agenticCheckIncidents",
-      "to": "resource:attribute:agenticIncidentDays",
+      "from": "step:agenticCheckIdentity",
+      "to": "resource:attribute:agenticIdentityStatus",
       "label": "Set",
       "span": {
-        "startLine": 799,
+        "startLine": 669,
         "startColumn": 12,
-        "endLine": 799,
-        "endColumn": 63
+        "endLine": 669,
+        "endColumn": 98
       },
       "metadata": {
         "phase": "execute"
@@ -3088,13 +3102,13 @@
       "id": "edge:0076",
       "kind": "resource_write",
       "from": "step:agenticCheckIncidents",
-      "to": "resource:attribute:agenticIncidentStatus",
+      "to": "resource:attribute:agenticEvidenceState",
       "label": "Set",
       "span": {
-        "startLine": 796,
+        "startLine": 805,
         "startColumn": 12,
-        "endLine": 796,
-        "endColumn": 67
+        "endLine": 805,
+        "endColumn": 53
       },
       "metadata": {
         "phase": "execute"
@@ -3103,14 +3117,14 @@
     {
       "id": "edge:0077",
       "kind": "resource_write",
-      "from": "step:agenticDecision",
-      "to": "resource:attribute:agenticCaseStatus",
+      "from": "step:agenticCheckIncidents",
+      "to": "resource:attribute:agenticIncidentDays",
       "label": "Set",
       "span": {
-        "startLine": 593,
+        "startLine": 802,
         "startColumn": 12,
-        "endLine": 593,
-        "endColumn": 55
+        "endLine": 802,
+        "endColumn": 63
       },
       "metadata": {
         "phase": "execute"
@@ -3119,14 +3133,14 @@
     {
       "id": "edge:0078",
       "kind": "resource_write",
-      "from": "step:agenticDecision",
-      "to": "resource:attribute:agenticDecisionRounds",
+      "from": "step:agenticCheckIncidents",
+      "to": "resource:attribute:agenticIncidentStatus",
       "label": "Set",
       "span": {
-        "startLine": 590,
+        "startLine": 799,
         "startColumn": 12,
-        "endLine": 590,
-        "endColumn": 52
+        "endLine": 799,
+        "endColumn": 67
       },
       "metadata": {
         "phase": "execute"
@@ -3136,13 +3150,13 @@
       "id": "edge:0079",
       "kind": "resource_write",
       "from": "step:agenticDecision",
-      "to": "resource:attribute:agenticRationale",
+      "to": "resource:attribute:agenticCaseStatus",
       "label": "Set",
       "span": {
-        "startLine": 645,
+        "startLine": 596,
         "startColumn": 12,
-        "endLine": 645,
-        "endColumn": 48
+        "endLine": 596,
+        "endColumn": 55
       },
       "metadata": {
         "phase": "execute"
@@ -3152,13 +3166,13 @@
       "id": "edge:0080",
       "kind": "resource_write",
       "from": "step:agenticDecision",
-      "to": "resource:attribute:agenticRecommendedAction",
+      "to": "resource:attribute:agenticDecisionRounds",
       "label": "Set",
       "span": {
-        "startLine": 642,
+        "startLine": 593,
         "startColumn": 12,
-        "endLine": 642,
-        "endColumn": 53
+        "endLine": 593,
+        "endColumn": 52
       },
       "metadata": {
         "phase": "execute"
@@ -3167,14 +3181,14 @@
     {
       "id": "edge:0081",
       "kind": "resource_write",
-      "from": "step:agenticEmailFailed",
-      "to": "resource:attribute:agenticCaseStatus",
+      "from": "step:agenticDecision",
+      "to": "resource:attribute:agenticRationale",
       "label": "Set",
       "span": {
-        "startLine": 1412,
+        "startLine": 648,
         "startColumn": 12,
-        "endLine": 1412,
-        "endColumn": 64
+        "endLine": 648,
+        "endColumn": 48
       },
       "metadata": {
         "phase": "execute"
@@ -3183,14 +3197,14 @@
     {
       "id": "edge:0082",
       "kind": "resource_write",
-      "from": "step:agenticEmailFailed",
-      "to": "resource:attribute:agenticEmailSent",
+      "from": "step:agenticDecision",
+      "to": "resource:attribute:agenticRecommendedAction",
       "label": "Set",
       "span": {
-        "startLine": 1409,
+        "startLine": 645,
         "startColumn": 12,
-        "endLine": 1409,
-        "endColumn": 43
+        "endLine": 645,
+        "endColumn": 53
       },
       "metadata": {
         "phase": "execute"
@@ -3199,14 +3213,14 @@
     {
       "id": "edge:0083",
       "kind": "resource_write",
-      "from": "step:agenticGetPayment",
-      "to": "resource:attribute:agenticPaymentAgeDays",
+      "from": "step:agenticEmailFailed",
+      "to": "resource:attribute:agenticCaseStatus",
       "label": "Set",
       "span": {
-        "startLine": 712,
+        "startLine": 1427,
         "startColumn": 12,
-        "endLine": 712,
-        "endColumn": 67
+        "endLine": 1427,
+        "endColumn": 64
       },
       "metadata": {
         "phase": "execute"
@@ -3215,14 +3229,14 @@
     {
       "id": "edge:0084",
       "kind": "resource_write",
-      "from": "step:agenticGetPayment",
-      "to": "resource:attribute:agenticPaymentAmount",
+      "from": "step:agenticEmailFailed",
+      "to": "resource:attribute:agenticEmailSent",
       "label": "Set",
       "span": {
-        "startLine": 718,
+        "startLine": 1424,
         "startColumn": 12,
-        "endLine": 718,
-        "endColumn": 99
+        "endLine": 1424,
+        "endColumn": 43
       },
       "metadata": {
         "phase": "execute"
@@ -3232,13 +3246,13 @@
       "id": "edge:0085",
       "kind": "resource_write",
       "from": "step:agenticGetPayment",
-      "to": "resource:attribute:agenticPaymentStatus",
+      "to": "resource:attribute:agenticPaymentAgeDays",
       "label": "Set",
       "span": {
-        "startLine": 709,
+        "startLine": 715,
         "startColumn": 12,
-        "endLine": 709,
-        "endColumn": 65
+        "endLine": 715,
+        "endColumn": 67
       },
       "metadata": {
         "phase": "execute"
@@ -3248,13 +3262,13 @@
       "id": "edge:0086",
       "kind": "resource_write",
       "from": "step:agenticGetPayment",
-      "to": "resource:attribute:agenticRefundAmount",
+      "to": "resource:attribute:agenticPaymentAmount",
       "label": "Set",
       "span": {
-        "startLine": 715,
+        "startLine": 721,
         "startColumn": 12,
-        "endLine": 715,
-        "endColumn": 77
+        "endLine": 721,
+        "endColumn": 99
       },
       "metadata": {
         "phase": "execute"
@@ -3263,14 +3277,14 @@
     {
       "id": "edge:0087",
       "kind": "resource_write",
-      "from": "step:agenticGetSubscription",
-      "to": "resource:attribute:agenticSubscriptionStatus",
+      "from": "step:agenticGetPayment",
+      "to": "resource:attribute:agenticPaymentStatus",
       "label": "Set",
       "span": {
-        "startLine": 687,
+        "startLine": 712,
         "startColumn": 12,
-        "endLine": 687,
-        "endColumn": 106
+        "endLine": 712,
+        "endColumn": 65
       },
       "metadata": {
         "phase": "execute"
@@ -3279,13 +3293,13 @@
     {
       "id": "edge:0088",
       "kind": "resource_write",
-      "from": "step:agenticGetSupportHistory",
-      "to": "resource:attribute:agenticCancellationPending",
+      "from": "step:agenticGetPayment",
+      "to": "resource:attribute:agenticRefundAmount",
       "label": "Set",
       "span": {
-        "startLine": 774,
+        "startLine": 718,
         "startColumn": 12,
-        "endLine": 774,
+        "endLine": 718,
         "endColumn": 77
       },
       "metadata": {
@@ -3295,14 +3309,14 @@
     {
       "id": "edge:0089",
       "kind": "resource_write",
-      "from": "step:agenticGetSupportHistory",
-      "to": "resource:attribute:agenticHistoryStatus",
+      "from": "step:agenticGetSubscription",
+      "to": "resource:attribute:agenticSubscriptionStatus",
       "label": "Set",
       "span": {
-        "startLine": 765,
+        "startLine": 690,
         "startColumn": 12,
-        "endLine": 765,
-        "endColumn": 65
+        "endLine": 690,
+        "endColumn": 106
       },
       "metadata": {
         "phase": "execute"
@@ -3312,13 +3326,13 @@
       "id": "edge:0090",
       "kind": "resource_write",
       "from": "step:agenticGetSupportHistory",
-      "to": "resource:attribute:agenticPriorRefunds",
+      "to": "resource:attribute:agenticCancellationPending",
       "label": "Set",
       "span": {
-        "startLine": 771,
+        "startLine": 777,
         "startColumn": 12,
-        "endLine": 771,
-        "endColumn": 63
+        "endLine": 777,
+        "endColumn": 77
       },
       "metadata": {
         "phase": "execute"
@@ -3328,13 +3342,13 @@
       "id": "edge:0091",
       "kind": "resource_write",
       "from": "step:agenticGetSupportHistory",
-      "to": "resource:attribute:agenticTenureYears",
+      "to": "resource:attribute:agenticHistoryStatus",
       "label": "Set",
       "span": {
         "startLine": 768,
         "startColumn": 12,
         "endLine": 768,
-        "endColumn": 61
+        "endColumn": 65
       },
       "metadata": {
         "phase": "execute"
@@ -3343,13 +3357,13 @@
     {
       "id": "edge:0092",
       "kind": "resource_write",
-      "from": "step:agenticGetUsage",
-      "to": "resource:attribute:agenticUsagePercent",
+      "from": "step:agenticGetSupportHistory",
+      "to": "resource:attribute:agenticPriorRefunds",
       "label": "Set",
       "span": {
-        "startLine": 743,
+        "startLine": 774,
         "startColumn": 12,
-        "endLine": 743,
+        "endLine": 774,
         "endColumn": 63
       },
       "metadata": {
@@ -3359,13 +3373,13 @@
     {
       "id": "edge:0093",
       "kind": "resource_write",
-      "from": "step:agenticGetUsage",
-      "to": "resource:attribute:agenticUsageStatus",
+      "from": "step:agenticGetSupportHistory",
+      "to": "resource:attribute:agenticTenureYears",
       "label": "Set",
       "span": {
-        "startLine": 740,
+        "startLine": 771,
         "startColumn": 12,
-        "endLine": 740,
+        "endLine": 771,
         "endColumn": 61
       },
       "metadata": {
@@ -3375,14 +3389,14 @@
     {
       "id": "edge:0094",
       "kind": "resource_write",
-      "from": "step:agenticGuardrail",
-      "to": "resource:attribute:agenticBoundAction",
+      "from": "step:agenticGetUsage",
+      "to": "resource:attribute:agenticUsagePercent",
       "label": "Set",
       "span": {
-        "startLine": 861,
+        "startLine": 746,
         "startColumn": 12,
-        "endLine": 861,
-        "endColumn": 47
+        "endLine": 746,
+        "endColumn": 63
       },
       "metadata": {
         "phase": "execute"
@@ -3391,14 +3405,14 @@
     {
       "id": "edge:0095",
       "kind": "resource_write",
-      "from": "step:agenticGuardrail",
-      "to": "resource:attribute:agenticCaseStatus",
+      "from": "step:agenticGetUsage",
+      "to": "resource:attribute:agenticUsageStatus",
       "label": "Set",
       "span": {
-        "startLine": 844,
+        "startLine": 743,
         "startColumn": 12,
-        "endLine": 844,
-        "endColumn": 46
+        "endLine": 743,
+        "endColumn": 61
       },
       "metadata": {
         "phase": "execute"
@@ -3408,13 +3422,13 @@
       "id": "edge:0096",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
-      "to": "resource:attribute:agenticGateEntries",
+      "to": "resource:attribute:agenticBoundAction",
       "label": "Set",
       "span": {
-        "startLine": 853,
-        "startColumn": 13,
-        "endLine": 853,
-        "endColumn": 53
+        "startLine": 864,
+        "startColumn": 12,
+        "endLine": 864,
+        "endColumn": 47
       },
       "metadata": {
         "phase": "execute"
@@ -3424,13 +3438,13 @@
       "id": "edge:0097",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
-      "to": "resource:attribute:agenticGateRequestKey",
+      "to": "resource:attribute:agenticCaseStatus",
       "label": "Set",
       "span": {
-        "startLine": 856,
-        "startColumn": 13,
-        "endLine": 856,
-        "endColumn": 102
+        "startLine": 847,
+        "startColumn": 12,
+        "endLine": 847,
+        "endColumn": 46
       },
       "metadata": {
         "phase": "execute"
@@ -3440,13 +3454,13 @@
       "id": "edge:0098",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
-      "to": "resource:attribute:agenticGuardrailRule",
+      "to": "resource:attribute:agenticGateEntries",
       "label": "Set",
       "span": {
-        "startLine": 841,
-        "startColumn": 12,
-        "endLine": 841,
-        "endColumn": 47
+        "startLine": 856,
+        "startColumn": 13,
+        "endLine": 856,
+        "endColumn": 53
       },
       "metadata": {
         "phase": "execute"
@@ -3456,13 +3470,13 @@
       "id": "edge:0099",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
-      "to": "resource:attribute:agenticGuardrailVerdict",
+      "to": "resource:attribute:agenticGateRequestKey",
       "label": "Set",
       "span": {
-        "startLine": 838,
-        "startColumn": 12,
-        "endLine": 838,
-        "endColumn": 53
+        "startLine": 859,
+        "startColumn": 13,
+        "endLine": 859,
+        "endColumn": 102
       },
       "metadata": {
         "phase": "execute"
@@ -3471,14 +3485,14 @@
     {
       "id": "edge:0100",
       "kind": "resource_write",
-      "from": "step:agenticIssueRefund",
-      "to": "resource:attribute:agenticBillingKey",
+      "from": "step:agenticGuardrail",
+      "to": "resource:attribute:agenticGuardrailRule",
       "label": "Set",
       "span": {
-        "startLine": 991,
+        "startLine": 844,
         "startColumn": 12,
-        "endLine": 991,
-        "endColumn": 43
+        "endLine": 844,
+        "endColumn": 47
       },
       "metadata": {
         "phase": "execute"
@@ -3487,14 +3501,14 @@
     {
       "id": "edge:0101",
       "kind": "resource_write",
-      "from": "step:agenticIssueRefund",
-      "to": "resource:attribute:agenticBillingOutcome",
+      "from": "step:agenticGuardrail",
+      "to": "resource:attribute:agenticGuardrailVerdict",
       "label": "Set",
       "span": {
-        "startLine": 995,
+        "startLine": 841,
         "startColumn": 12,
-        "endLine": 995,
-        "endColumn": 51
+        "endLine": 841,
+        "endColumn": 53
       },
       "metadata": {
         "phase": "execute"
@@ -3504,60 +3518,12 @@
       "id": "edge:0102",
       "kind": "resource_write",
       "from": "step:agenticIssueRefund",
-      "to": "resource:attribute:agenticCaseStatus",
-      "label": "Set",
-      "span": {
-        "startLine": 1000,
-        "startColumn": 13,
-        "endLine": 1000,
-        "endColumn": 55
-      },
-      "metadata": {
-        "phase": "execute"
-      }
-    },
-    {
-      "id": "edge:0103",
-      "kind": "failure_transition",
-      "from": "step:agenticIssueRefund",
-      "to": "step:agenticBillingFailed",
-      "label": "Execute failure",
-      "span": {
-        "startLine": 982,
-        "startColumn": 19,
-        "endLine": 982,
-        "endColumn": 77
-      },
-      "metadata": {
-        "skipWaitFor": true
-      }
-    },
-    {
-      "id": "edge:0104",
-      "kind": "resource_write",
-      "from": "step:agenticNonConvergence",
-      "to": "resource:attribute:agenticCaseStatus",
-      "label": "Set",
-      "span": {
-        "startLine": 1326,
-        "startColumn": 12,
-        "endLine": 1326,
-        "endColumn": 60
-      },
-      "metadata": {
-        "phase": "execute"
-      }
-    },
-    {
-      "id": "edge:0105",
-      "kind": "resource_write",
-      "from": "step:agenticOfferAccountCredit",
       "to": "resource:attribute:agenticBillingKey",
       "label": "Set",
       "span": {
-        "startLine": 1027,
+        "startLine": 994,
         "startColumn": 12,
-        "endLine": 1027,
+        "endLine": 994,
         "endColumn": 43
       },
       "metadata": {
@@ -3565,16 +3531,64 @@
       }
     },
     {
-      "id": "edge:0106",
+      "id": "edge:0103",
       "kind": "resource_write",
-      "from": "step:agenticOfferAccountCredit",
+      "from": "step:agenticIssueRefund",
       "to": "resource:attribute:agenticBillingOutcome",
       "label": "Set",
       "span": {
-        "startLine": 1031,
+        "startLine": 998,
         "startColumn": 12,
-        "endLine": 1031,
+        "endLine": 998,
         "endColumn": 51
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0104",
+      "kind": "resource_write",
+      "from": "step:agenticIssueRefund",
+      "to": "resource:attribute:agenticCaseStatus",
+      "label": "Set",
+      "span": {
+        "startLine": 1003,
+        "startColumn": 13,
+        "endLine": 1003,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0105",
+      "kind": "failure_transition",
+      "from": "step:agenticIssueRefund",
+      "to": "step:agenticBillingFailed",
+      "label": "Execute failure",
+      "span": {
+        "startLine": 985,
+        "startColumn": 19,
+        "endLine": 985,
+        "endColumn": 77
+      },
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0106",
+      "kind": "resource_write",
+      "from": "step:agenticNonConvergence",
+      "to": "resource:attribute:agenticCaseStatus",
+      "label": "Set",
+      "span": {
+        "startLine": 1341,
+        "startColumn": 12,
+        "endLine": 1341,
+        "endColumn": 60
       },
       "metadata": {
         "phase": "execute"
@@ -3584,13 +3598,13 @@
       "id": "edge:0107",
       "kind": "resource_write",
       "from": "step:agenticOfferAccountCredit",
-      "to": "resource:attribute:agenticCaseStatus",
+      "to": "resource:attribute:agenticBillingKey",
       "label": "Set",
       "span": {
-        "startLine": 1037,
+        "startLine": 1030,
         "startColumn": 12,
-        "endLine": 1037,
-        "endColumn": 54
+        "endLine": 1030,
+        "endColumn": 43
       },
       "metadata": {
         "phase": "execute"
@@ -3599,14 +3613,14 @@
     {
       "id": "edge:0108",
       "kind": "resource_write",
-      "from": "step:agenticReCheck",
-      "to": "resource:attribute:agenticBoundAction",
+      "from": "step:agenticOfferAccountCredit",
+      "to": "resource:attribute:agenticBillingOutcome",
       "label": "Set",
       "span": {
-        "startLine": 891,
+        "startLine": 1034,
         "startColumn": 12,
-        "endLine": 891,
-        "endColumn": 58
+        "endLine": 1034,
+        "endColumn": 51
       },
       "metadata": {
         "phase": "execute"
@@ -3615,14 +3629,14 @@
     {
       "id": "edge:0109",
       "kind": "resource_write",
-      "from": "step:agenticReCheck",
+      "from": "step:agenticOfferAccountCredit",
       "to": "resource:attribute:agenticCaseStatus",
       "label": "Set",
       "span": {
-        "startLine": 886,
-        "startColumn": 13,
-        "endLine": 886,
-        "endColumn": 53
+        "startLine": 1040,
+        "startColumn": 12,
+        "endLine": 1040,
+        "endColumn": 54
       },
       "metadata": {
         "phase": "execute"
@@ -3631,14 +3645,14 @@
     {
       "id": "edge:0110",
       "kind": "resource_write",
-      "from": "step:agenticReceiveRequest",
-      "to": "resource:attribute:agenticCaseStatus",
+      "from": "step:agenticPrepareCustomerMessage",
+      "to": "resource:attribute:agenticCustomerMessageContext",
       "label": "Set",
       "span": {
-        "startLine": 558,
-        "startColumn": 13,
-        "endLine": 558,
-        "endColumn": 57
+        "startLine": 1146,
+        "startColumn": 12,
+        "endLine": 1146,
+        "endColumn": 58
       },
       "metadata": {
         "phase": "execute"
@@ -3647,14 +3661,14 @@
     {
       "id": "edge:0111",
       "kind": "resource_write",
-      "from": "step:agenticReceiveRequest",
-      "to": "resource:attribute:agenticChargeReference",
+      "from": "step:agenticReCheck",
+      "to": "resource:attribute:agenticBoundAction",
       "label": "Set",
       "span": {
-        "startLine": 551,
+        "startLine": 894,
         "startColumn": 12,
-        "endLine": 551,
-        "endColumn": 62
+        "endLine": 894,
+        "endColumn": 58
       },
       "metadata": {
         "phase": "execute"
@@ -3663,14 +3677,14 @@
     {
       "id": "edge:0112",
       "kind": "resource_write",
-      "from": "step:agenticReceiveRequest",
-      "to": "resource:attribute:agenticCustomerEmail",
+      "from": "step:agenticReCheck",
+      "to": "resource:attribute:agenticCaseStatus",
       "label": "Set",
       "span": {
-        "startLine": 545,
-        "startColumn": 12,
-        "endLine": 545,
-        "endColumn": 67
+        "startLine": 889,
+        "startColumn": 13,
+        "endLine": 889,
+        "endColumn": 53
       },
       "metadata": {
         "phase": "execute"
@@ -3680,13 +3694,13 @@
       "id": "edge:0113",
       "kind": "resource_write",
       "from": "step:agenticReceiveRequest",
-      "to": "resource:attribute:agenticInputEmail",
+      "to": "resource:attribute:agenticCaseStatus",
       "label": "Set",
       "span": {
-        "startLine": 548,
-        "startColumn": 12,
-        "endLine": 548,
-        "endColumn": 63
+        "startLine": 561,
+        "startColumn": 13,
+        "endLine": 561,
+        "endColumn": 57
       },
       "metadata": {
         "phase": "execute"
@@ -3696,13 +3710,13 @@
       "id": "edge:0114",
       "kind": "resource_write",
       "from": "step:agenticReceiveRequest",
-      "to": "resource:attribute:agenticOperatorNote",
+      "to": "resource:attribute:agenticChargeReference",
       "label": "Set",
       "span": {
         "startLine": 554,
         "startColumn": 12,
         "endLine": 554,
-        "endColumn": 44
+        "endColumn": 62
       },
       "metadata": {
         "phase": "execute"
@@ -3711,14 +3725,14 @@
     {
       "id": "edge:0115",
       "kind": "resource_write",
-      "from": "step:agenticRequestHumanApproval",
-      "to": "resource:attribute:agenticManagerVerdict",
+      "from": "step:agenticReceiveRequest",
+      "to": "resource:attribute:agenticCustomerEmail",
       "label": "Set",
       "span": {
-        "startLine": 936,
+        "startLine": 548,
         "startColumn": 12,
-        "endLine": 936,
-        "endColumn": 55
+        "endLine": 548,
+        "endColumn": 67
       },
       "metadata": {
         "phase": "execute"
@@ -3727,14 +3741,14 @@
     {
       "id": "edge:0116",
       "kind": "resource_write",
-      "from": "step:agenticSendCustomerMessage",
-      "to": "resource:attribute:agenticCaseStatus",
+      "from": "step:agenticReceiveRequest",
+      "to": "resource:attribute:agenticInputEmail",
       "label": "Set",
       "span": {
-        "startLine": 1305,
-        "startColumn": 13,
-        "endLine": 1305,
-        "endColumn": 55
+        "startLine": 551,
+        "startColumn": 12,
+        "endLine": 551,
+        "endColumn": 63
       },
       "metadata": {
         "phase": "execute"
@@ -3743,13 +3757,13 @@
     {
       "id": "edge:0117",
       "kind": "resource_write",
-      "from": "step:agenticSendCustomerMessage",
-      "to": "resource:attribute:agenticEmailSent",
+      "from": "step:agenticReceiveRequest",
+      "to": "resource:attribute:agenticOperatorNote",
       "label": "Set",
       "span": {
-        "startLine": 1301,
+        "startLine": 557,
         "startColumn": 12,
-        "endLine": 1301,
+        "endLine": 557,
         "endColumn": 44
       },
       "metadata": {
@@ -3758,31 +3772,31 @@
     },
     {
       "id": "edge:0118",
-      "kind": "failure_transition",
-      "from": "step:agenticSendCustomerMessage",
-      "to": "step:agenticEmailFailed",
-      "label": "Execute failure",
+      "kind": "resource_write",
+      "from": "step:agenticRequestHumanApproval",
+      "to": "resource:attribute:agenticManagerVerdict",
+      "label": "Set",
       "span": {
-        "startLine": 1282,
-        "startColumn": 42,
-        "endLine": 1282,
-        "endColumn": 98
+        "startLine": 939,
+        "startColumn": 12,
+        "endLine": 939,
+        "endColumn": 55
       },
       "metadata": {
-        "skipWaitFor": true
+        "phase": "execute"
       }
     },
     {
       "id": "edge:0119",
       "kind": "resource_write",
-      "from": "step:agenticSubscriptionFailed",
+      "from": "step:agenticSendCustomerMessage",
       "to": "resource:attribute:agenticCaseStatus",
       "label": "Set",
       "span": {
-        "startLine": 1389,
-        "startColumn": 12,
-        "endLine": 1389,
-        "endColumn": 66
+        "startLine": 1320,
+        "startColumn": 13,
+        "endLine": 1320,
+        "endColumn": 55
       },
       "metadata": {
         "phase": "execute"
@@ -3791,14 +3805,14 @@
     {
       "id": "edge:0120",
       "kind": "resource_write",
-      "from": "step:agenticSubscriptionFailed",
-      "to": "resource:attribute:agenticSubscriptionApplied",
+      "from": "step:agenticSendCustomerMessage",
+      "to": "resource:attribute:agenticEmailSent",
       "label": "Set",
       "span": {
-        "startLine": 1386,
+        "startLine": 1316,
         "startColumn": 12,
-        "endLine": 1386,
-        "endColumn": 53
+        "endLine": 1316,
+        "endColumn": 44
       },
       "metadata": {
         "phase": "execute"
@@ -3806,14 +3820,62 @@
     },
     {
       "id": "edge:0121",
+      "kind": "failure_transition",
+      "from": "step:agenticSendCustomerMessage",
+      "to": "step:agenticEmailFailed",
+      "label": "Execute failure",
+      "span": {
+        "startLine": 1297,
+        "startColumn": 42,
+        "endLine": 1297,
+        "endColumn": 98
+      },
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0122",
+      "kind": "resource_write",
+      "from": "step:agenticSubscriptionFailed",
+      "to": "resource:attribute:agenticCaseStatus",
+      "label": "Set",
+      "span": {
+        "startLine": 1404,
+        "startColumn": 12,
+        "endLine": 1404,
+        "endColumn": 66
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0123",
+      "kind": "resource_write",
+      "from": "step:agenticSubscriptionFailed",
+      "to": "resource:attribute:agenticSubscriptionApplied",
+      "label": "Set",
+      "span": {
+        "startLine": 1401,
+        "startColumn": 12,
+        "endLine": 1401,
+        "endColumn": 53
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0124",
       "kind": "resource_write",
       "from": "step:agenticVerifyBilling",
       "to": "resource:attribute:agenticBillingOutcome",
       "label": "Set",
       "span": {
-        "startLine": 1063,
+        "startLine": 1066,
         "startColumn": 12,
-        "endLine": 1063,
+        "endLine": 1066,
         "endColumn": 51
       },
       "metadata": {
@@ -3821,15 +3883,15 @@
       }
     },
     {
-      "id": "edge:0122",
+      "id": "edge:0125",
       "kind": "resource_write",
       "from": "step:agenticVerifyBilling",
       "to": "resource:attribute:agenticCaseStatus",
       "label": "Set",
       "span": {
-        "startLine": 1067,
+        "startLine": 1070,
         "startColumn": 13,
-        "endLine": 1067,
+        "endLine": 1070,
         "endColumn": 55
       },
       "metadata": {
@@ -3843,9 +3905,9 @@
       "code": "connector_connection_name_required",
       "message": "Connector Step requires a non-empty compile-time ConnectionName for automatic configuration",
       "span": {
-        "startLine": 209,
+        "startLine": 211,
         "startColumn": 18,
-        "endLine": 223,
+        "endLine": 225,
         "endColumn": 5
       }
     }
