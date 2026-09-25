@@ -18,15 +18,16 @@ Generate Flow Definition Graph 2.0 files, then start the local stack:
 dexcli dev --flow-rendering-dir ./build
 ```
 
-Open **Connections** at **/v2/connections**. Dex Web groups Steps by Connector
-ID and connection name. Each group shows the Flows, Steps, operations, exact
-module version, and one of these states: **Missing**, **Ready**, **Expired**,
-**Conflict**, or **Unsupported**.
+Open **Connections** at **/v2/connections**. Dex Web groups Steps and Trigger
+bindings by Connector ID and connection name. Each group shows the Flows,
+Steps, operations, bindings, exact module version, and one of these states:
+**Missing**, **Ready**, **Expired**, **Conflict**, or **Unsupported**.
 
-Automatic setup requires an operation-specific generated Connector factory, a
-compile-time connection name, and an exact published module version. A generic
-factory, local module replacement, unpublished module, missing name, or version
-conflict stays visible but cannot be configured.
+Automatic setup requires an operation-specific generated Connector factory or
+Trigger-binding definition, compile-time connection and binding names, and an
+exact published module version. A generic factory, local module replacement,
+unpublished module, missing name, or version conflict stays visible but cannot
+be configured.
 
 ## Choose the storage directory
 

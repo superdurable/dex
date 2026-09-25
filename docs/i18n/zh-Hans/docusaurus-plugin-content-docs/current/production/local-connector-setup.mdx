@@ -19,12 +19,14 @@ dexcli dev --flow-rendering-dir ./build
 ```
 
 打开 **/v2/connections** 的 **Connections** 页面。Dex Web 按 Connector ID 和
-connection name 对 Step 分组，并显示 Flow、Step、operation、精确 module version
-以及 **Missing**、**Ready**、**Expired**、**Conflict** 或 **Unsupported** 状态。
+connection name 对 Step 与 Trigger binding 分组，并显示 Flow、Step、operation、
+binding、精确 module version，以及 **Missing**、**Ready**、**Expired**、
+**Conflict** 或 **Unsupported** 状态。
 
-自动配置要求使用 operation-specific 的生成工厂、编译期可确定的 connection
-name 和精确的已发布 module version。Generic factory、本地 module replacement、
-未发布 module、缺少 name 或版本冲突仍会显示，但不能自动配置。
+自动配置要求使用 operation-specific 的 Connector 生成工厂或 Trigger-binding
+definition、编译期可确定的 connection name 和 binding name，以及精确的已发布
+module version。Generic factory、本地 module replacement、未发布 module、缺少
+name 或版本冲突仍会显示，但不能自动配置。
 
 ## 选择存储目录
 
