@@ -66,7 +66,7 @@ COMPONENTS = (
         "Server",
         "server/v",
         ("server/v*", "server-v*"),
-        ("server", "protos"),
+        ("server", "web", "packages/flow-definition-renderer", "protos"),
     ),
     Component(
         "cli",
