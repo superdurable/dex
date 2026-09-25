@@ -121,6 +121,9 @@ func TestServeConnectorUIAssetUsesSandboxHeadersAndRequest(t *testing.T) {
 	if !strings.Contains(response.Header().Get("Content-Security-Policy"), "connect-src 'none'") {
 		t.Fatalf("CSP = %q", response.Header().Get("Content-Security-Policy"))
 	}
+	if !strings.Contains(response.Header().Get("Content-Security-Policy"), "script-src 'self' 'unsafe-inline'") {
+		t.Fatalf("CSP = %q", response.Header().Get("Content-Security-Policy"))
+	}
 }
 
 func connectorTestRelease(identity connectorDefinitionIdentity, archive []byte, hostRange string) connectorRelease {

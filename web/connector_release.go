@@ -405,6 +405,6 @@ func serveConnectorUIAsset(response http.ResponseWriter, request *http.Request, 
 	if contentType != "" {
 		response.Header().Set("Content-Type", contentType)
 	}
-	response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'none'; base-uri 'none'; form-action 'none'")
+	response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'none'; base-uri 'none'; form-action 'none'")
 	http.ServeContent(response, request, cleanPath, info.ModTime(), asset)
 }

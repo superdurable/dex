@@ -380,9 +380,10 @@ function StudioFrame({ catalog, connection, session, onConfigured, onError }: {
     configuration: connection.configuration ?? {},
     triggerBindings: session.triggerBindings ?? {},
   }, '*');
+  const sendReadyAfterStudioMount = () => window.setTimeout(ready, 100);
   return <iframe
     className="connector-studio"
-    onLoad={ready}
+    onLoad={sendReadyAfterStudioMount}
     ref={frame}
     sandbox="allow-scripts"
     src={session.entrypointUrl}
