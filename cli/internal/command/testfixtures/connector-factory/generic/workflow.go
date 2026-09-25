@@ -31,7 +31,7 @@ func (flow *genericFactoryFlow) GetSteps() []dex.StepDef {
 			Annotations: sdkgo.StepAnnotations{
 				GroupID: "factory", GroupLabel: "Factory", Explanation: "Use the generic Connector SDK escape hatch.",
 			},
-			Operation: flow.client.RetrieveResponse(), Connection: flow.connection, BuildOperationInput: buildOperationInput,
+			Operation: flow.client.RetrieveResponse(), Connection: flow.connection, MapToOperationInput: mapToOperationInput,
 			Branches: []sdkgo.BranchTarget[factoryOutput]{
 				sdkgo.GoToBranch(openai.RetrieveResponseBranchFound, finishStep{}),
 				sdkgo.GoToBranch(openai.RetrieveResponseBranchFailed, finishStep{}),
@@ -64,8 +64,8 @@ func (*genericFactoryFlow) GetDexDisplay(_ dex.Context, _ dex.None) (*dex.RPCRes
 	return &dex.RPCResult[map[string]any]{Output: map[string]any{"generic-result": nil}}, nil
 }
 
-func buildOperationInput(responseID string) (openai.RetrieveRequest, error) {
-	return openai.RetrieveRequest{ResponseID: responseID}, nil
+func mapToOperationInput(responseID string) openai.RetrieveRequest {
+	return openai.RetrieveRequest{ResponseID: responseID}
 }
 
 // dex:group group-id:finish group-label:"Finish"

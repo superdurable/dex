@@ -22,10 +22,10 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/superdurable/dex-connectors-library/connectors/openai v0.3.0 h1:+k9XZdvUE6WpP2H5YXPRVYmbVRULXjw+lxDwdBsOcuw=
-github.com/superdurable/dex-connectors-library/connectors/openai v0.3.0/go.mod h1:eQjC3Y/pTNB0WR5x6z09hBacj2ELFYR6PS29Vqfwpag=
-github.com/superdurable/dex-connectors-library/sdkgo v0.3.0 h1:xRqXUa+lPN1RwEk35UY3UiHUdzOrcav6HSaoMKvA+Eo=
-github.com/superdurable/dex-connectors-library/sdkgo v0.3.0/go.mod h1:Xk/OsuI/Zz+Dxk2jUOyS0M1wDaiZFlSduots21qkAQ0=
+github.com/superdurable/dex-connectors-library/connectors/openai v0.4.0 h1:jYdPtfNGryF25lmhvE2vi1ZujLC5SUgaL2Ul2dPJh3U=
+github.com/superdurable/dex-connectors-library/connectors/openai v0.4.0/go.mod h1:RnmnXKIJ0YMoV9jomTvhf+9CludpLVK7S/5D81alvoY=
+github.com/superdurable/dex-connectors-library/sdkgo v0.6.0 h1:oQNhxgYXEyUssiWU/jk+HqQZR+1f9c6btaP+WyFOP74=
+github.com/superdurable/dex-connectors-library/sdkgo v0.6.0/go.mod h1:Xk/OsuI/Zz+Dxk2jUOyS0M1wDaiZFlSduots21qkAQ0=
 github.com/superdurable/dex/blob-cache-go v0.1.0 h1:+c3H5YBWG3DlICOHbgT9IUM5vTlfLYGP5Vd5sWr7WTY=
 github.com/superdurable/dex/blob-cache-go v0.1.0/go.mod h1:Atepb7+sztvDCztVKmlvEKCSKFCkHKtDhoFYjaFmtEw=
 github.com/superdurable/dex/sdk-go v0.11.3 h1:8hLwMr434iSQL2Xg6G3kVuRNoz5oSn68XGkUinCszY8=

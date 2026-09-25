@@ -31,7 +31,7 @@ func (flow *dynamicFactoryFlow) GetSteps() []dex.StepDef {
 			Annotations: sdkgo.StepAnnotations{
 				GroupID: "factory", GroupLabel: "Factory", Explanation: "Use a dynamic Step type.",
 			},
-			Connection: flow.connection, BuildOperationInput: buildOperationInput,
+			Connection: flow.connection, MapToOperationInput: mapToOperationInput,
 			Completed: sdkgo.GoTo(finishStep{}), Failed: sdkgo.GoTo(finishStep{}),
 			Uncertain: sdkgo.GoTo(finishStep{}), Defect: sdkgo.GoTo(finishStep{}),
 			ResultAttribute: &result,
@@ -41,7 +41,7 @@ func (flow *dynamicFactoryFlow) GetSteps() []dex.StepDef {
 			Annotations: sdkgo.StepAnnotations{
 				GroupID: "factory", GroupLabel: "Factory", Explanation: "Use a dynamic branch target.",
 			},
-			Connection: flow.connection, BuildOperationInput: buildOperationInput,
+			Connection: flow.connection, MapToOperationInput: mapToOperationInput,
 			Completed: sdkgo.GoTo(flow.dynamicTarget()), Failed: sdkgo.GoTo(finishStep{}),
 			Uncertain: sdkgo.GoTo(finishStep{}), Defect: sdkgo.GoTo(finishStep{}),
 			ResultAttribute: &result,
@@ -51,7 +51,7 @@ func (flow *dynamicFactoryFlow) GetSteps() []dex.StepDef {
 			Annotations: sdkgo.StepAnnotations{
 				GroupID: "factory", GroupLabel: "Factory", Explanation: "Omit a required branch target.",
 			},
-			Connection: flow.connection, BuildOperationInput: buildOperationInput,
+			Connection: flow.connection, MapToOperationInput: mapToOperationInput,
 			Completed: sdkgo.GoTo(finishStep{}), Failed: sdkgo.GoTo(finishStep{}),
 			Uncertain:       sdkgo.GoTo(finishStep{}),
 			ResultAttribute: &result,
@@ -74,15 +74,15 @@ func (flow *dynamicFactoryFlow) dynamicConfig() openaifactory.CreateResponseStep
 		Annotations: sdkgo.StepAnnotations{
 			GroupID: "factory", GroupLabel: "Factory", Explanation: "Use a dynamic config.",
 		},
-		Connection: flow.connection, BuildOperationInput: buildOperationInput,
+		Connection: flow.connection, MapToOperationInput: mapToOperationInput,
 		Completed: sdkgo.GoTo(finishStep{}), Failed: sdkgo.GoTo(finishStep{}),
 		Uncertain: sdkgo.GoTo(finishStep{}), Defect: sdkgo.GoTo(finishStep{}),
 		ResultAttribute: &result,
 	}
 }
 
-func buildOperationInput(value string) (openaifactory.CreateRequest, error) {
-	return openaifactory.CreateRequest{Model: "gpt-5-mini", Input: value}, nil
+func mapToOperationInput(value string) openaifactory.CreateRequest {
+	return openaifactory.CreateRequest{Model: "gpt-5-mini", Input: value}
 }
 
 // dex:group group-id:finish group-label:"Finish"

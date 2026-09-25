@@ -11,21 +11,47 @@
     "span": {
       "startLine": 77,
       "startColumn": 1,
-      "endLine": 120,
+      "endLine": 121,
       "endColumn": 2
     }
   },
   "nodes": [
     {
-      "id": "decision:rpc:GetDexDisplay:156:9",
+      "id": "decision-dispatch:step:InitializeCustomerSummary",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:InitializeCustomerSummary",
+      "phase": "execute",
+      "span": {
+        "startLine": 185,
+        "startColumn": 1,
+        "endLine": 193,
+        "endColumn": 2
+      }
+    },
+    {
+      "id": "decision-dispatch:step:ValidateCustomerSummaryReconciliation",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:ValidateCustomerSummaryReconciliation",
+      "phase": "execute",
+      "span": {
+        "startLine": 205,
+        "startColumn": 1,
+        "endLine": 216,
+        "endColumn": 2
+      }
+    },
+    {
+      "id": "decision:rpc:GetDexDisplay:157:9",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:GetDexDisplay",
       "phase": "rpc",
       "span": {
-        "startLine": 156,
+        "startLine": 157,
         "startColumn": 9,
-        "endLine": 159,
+        "endLine": 160,
         "endColumn": 4
       },
       "decision": {
@@ -33,15 +59,15 @@
       }
     },
     {
-      "id": "decision:rpc:GetDexSummary:142:9",
+      "id": "decision:rpc:GetDexSummary:143:9",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:GetDexSummary",
       "phase": "rpc",
       "span": {
-        "startLine": 142,
+        "startLine": 143,
         "startColumn": 9,
-        "endLine": 142,
+        "endLine": 143,
         "endColumn": 101
       },
       "decision": {
@@ -49,15 +75,15 @@
       }
     },
     {
-      "id": "decision:step:CustomerSummaryCompleted:226:9",
+      "id": "decision:step:CustomerSummaryCompleted:247:9",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:CustomerSummaryCompleted",
       "phase": "execute",
       "span": {
-        "startLine": 226,
+        "startLine": 247,
         "startColumn": 9,
-        "endLine": 230,
+        "endLine": 251,
         "endColumn": 4
       },
       "decision": {
@@ -65,15 +91,15 @@
       }
     },
     {
-      "id": "decision:step:CustomerSummaryExecuteFailed:278:9",
+      "id": "decision:step:CustomerSummaryExecuteFailed:299:9",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:CustomerSummaryExecuteFailed",
       "phase": "execute",
       "span": {
-        "startLine": 278,
+        "startLine": 299,
         "startColumn": 9,
-        "endLine": 278,
+        "endLine": 299,
         "endColumn": 80
       },
       "decision": {
@@ -81,15 +107,15 @@
       }
     },
     {
-      "id": "decision:step:CustomerSummaryFailed:240:9",
+      "id": "decision:step:CustomerSummaryFailed:261:9",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:CustomerSummaryFailed",
       "phase": "execute",
       "span": {
-        "startLine": 240,
+        "startLine": 261,
         "startColumn": 9,
-        "endLine": 240,
+        "endLine": 261,
         "endColumn": 85
       },
       "decision": {
@@ -97,15 +123,15 @@
       }
     },
     {
-      "id": "decision:step:CustomerSummaryReconcileFailed:268:9",
+      "id": "decision:step:CustomerSummaryReconcileFailed:289:9",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:CustomerSummaryReconcileFailed",
       "phase": "execute",
       "span": {
-        "startLine": 268,
+        "startLine": 289,
         "startColumn": 9,
-        "endLine": 268,
+        "endLine": 289,
         "endColumn": 89
       },
       "decision": {
@@ -113,15 +139,15 @@
       }
     },
     {
-      "id": "decision:step:CustomerSummaryReconciled:254:9",
+      "id": "decision:step:CustomerSummaryReconciled:275:9",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:CustomerSummaryReconciled",
       "phase": "execute",
       "span": {
-        "startLine": 254,
+        "startLine": 275,
         "startColumn": 9,
-        "endLine": 258,
+        "endLine": 279,
         "endColumn": 4
       },
       "decision": {
@@ -129,16 +155,68 @@
       }
     },
     {
-      "id": "decision:step:InitializeCustomerSummary:194:9",
+      "id": "decision:step:InitializeCustomerSummary:187:10",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:InitializeCustomerSummary",
+      "condition": "input.CustomerID == \"\" || input.Notes == \"\"",
+      "phase": "execute",
+      "span": {
+        "startLine": 187,
+        "startColumn": 10,
+        "endLine": 187,
+        "endColumn": 61
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:InitializeCustomerSummary:192:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:InitializeCustomerSummary",
+      "condition": "!(input.CustomerID == \"\" || input.Notes == \"\")",
       "phase": "execute",
       "span": {
-        "startLine": 194,
+        "startLine": 192,
         "startColumn": 9,
-        "endLine": 194,
+        "endLine": 192,
         "endColumn": 79
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ValidateCustomerSummaryReconciliation:210:10",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:ValidateCustomerSummaryReconciliation",
+      "condition": "result.Receipt.ProviderObjectID == \"\"",
+      "phase": "execute",
+      "span": {
+        "startLine": 210,
+        "startColumn": 10,
+        "endLine": 210,
+        "endColumn": 78
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:ValidateCustomerSummaryReconciliation:212:9",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ValidateCustomerSummaryReconciliation",
+      "condition": "!(result.Receipt.ProviderObjectID == \"\")",
+      "phase": "execute",
+      "span": {
+        "startLine": 212,
+        "startColumn": 9,
+        "endLine": 215,
+        "endColumn": 3
       },
       "decision": {
         "type": "goTo"
@@ -219,9 +297,9 @@
       "kind": "rpc",
       "name": "GetDexDisplay",
       "span": {
-        "startLine": 147,
+        "startLine": 148,
         "startColumn": 1,
-        "endLine": 160,
+        "endLine": 161,
         "endColumn": 2
       }
     },
@@ -230,9 +308,9 @@
       "kind": "rpc",
       "name": "GetDexSummary",
       "span": {
-        "startLine": 137,
+        "startLine": 138,
         "startColumn": 1,
-        "endLine": 143,
+        "endLine": 144,
         "endColumn": 2
       }
     },
@@ -242,9 +320,9 @@
       "name": "CustomerSummaryCompleted",
       "phase": "execute",
       "span": {
-        "startLine": 114,
+        "startLine": 115,
         "startColumn": 3,
-        "endLine": 114,
+        "endLine": 115,
         "endColumn": 45
       },
       "metadata": {
@@ -257,9 +335,9 @@
       "name": "CustomerSummaryExecuteFailed",
       "phase": "execute",
       "span": {
-        "startLine": 118,
+        "startLine": 119,
         "startColumn": 3,
-        "endLine": 118,
+        "endLine": 119,
         "endColumn": 49
       },
       "metadata": {
@@ -272,9 +350,9 @@
       "name": "CustomerSummaryFailed",
       "phase": "execute",
       "span": {
-        "startLine": 115,
+        "startLine": 116,
         "startColumn": 3,
-        "endLine": 115,
+        "endLine": 116,
         "endColumn": 42
       },
       "metadata": {
@@ -287,9 +365,9 @@
       "name": "CustomerSummaryReconcileFailed",
       "phase": "execute",
       "span": {
-        "startLine": 117,
+        "startLine": 118,
         "startColumn": 3,
-        "endLine": 117,
+        "endLine": 118,
         "endColumn": 51
       },
       "metadata": {
@@ -302,9 +380,9 @@
       "name": "CustomerSummaryReconciled",
       "phase": "execute",
       "span": {
-        "startLine": 116,
+        "startLine": 117,
         "startColumn": 3,
-        "endLine": 116,
+        "endLine": 117,
         "endColumn": 46
       },
       "metadata": {
@@ -328,7 +406,7 @@
           "connectionName": "",
           "connectorId": "openai",
           "modulePath": "github.com/superdurable/dex-connectors-library/connectors/openai",
-          "moduleVersion": "v0.3.0",
+          "moduleVersion": "v0.4.0",
           "operationId": "createResponse",
           "operationKind": "mutation"
         },
@@ -359,9 +437,9 @@
       "name": "ReconcileCustomerSummary",
       "phase": "execute",
       "span": {
-        "startLine": 100,
+        "startLine": 101,
         "startColumn": 3,
-        "endLine": 113,
+        "endLine": 114,
         "endColumn": 6
       },
       "metadata": {
@@ -370,7 +448,7 @@
           "connectionName": "",
           "connectorId": "openai",
           "modulePath": "github.com/superdurable/dex-connectors-library/connectors/openai",
-          "moduleVersion": "v0.3.0",
+          "moduleVersion": "v0.4.0",
           "operationId": "retrieveResponse",
           "operationKind": "query"
         },
@@ -378,48 +456,60 @@
         "connectorOperationKind": "query",
         "explanation": "Retrieve an uncertain model response without repeating the mutation."
       }
+    },
+    {
+      "id": "step:ValidateCustomerSummaryReconciliation",
+      "kind": "step",
+      "name": "ValidateCustomerSummaryReconciliation",
+      "phase": "execute",
+      "span": {
+        "startLine": 100,
+        "startColumn": 3,
+        "endLine": 100,
+        "endColumn": 58
+      },
+      "metadata": {
+        "explanation": "Validate the provider response identity before starting reconciliation."
+      }
     }
   ],
   "edges": [
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:InitializeCustomerSummary:194:9",
+      "from": "decision:step:InitializeCustomerSummary:192:9",
       "to": "step:GenerateCustomerSummary",
       "label": "GoTo",
       "span": {
-        "startLine": 194,
+        "startLine": 192,
         "startColumn": 9,
-        "endLine": 194,
+        "endLine": 192,
         "endColumn": 79
       }
     },
     {
       "id": "edge:0002",
-      "kind": "resource_read",
-      "from": "resource:attribute:customerSummaryContext",
-      "to": "step:CustomerSummaryCompleted",
-      "label": "Get",
+      "kind": "transition",
+      "from": "decision:step:ValidateCustomerSummaryReconciliation:212:9",
+      "to": "step:ReconcileCustomerSummary",
+      "label": "GoTo",
       "span": {
-        "startLine": 222,
-        "startColumn": 16,
-        "endLine": 222,
-        "endColumn": 47
-      },
-      "metadata": {
-        "phase": "execute"
+        "startLine": 212,
+        "startColumn": 9,
+        "endLine": 215,
+        "endColumn": 3
       }
     },
     {
       "id": "edge:0003",
       "kind": "resource_read",
       "from": "resource:attribute:customerSummaryContext",
-      "to": "step:CustomerSummaryReconciled",
+      "to": "step:CustomerSummaryCompleted",
       "label": "Get",
       "span": {
-        "startLine": 250,
+        "startLine": 243,
         "startColumn": 16,
-        "endLine": 250,
+        "endLine": 243,
         "endColumn": 47
       },
       "metadata": {
@@ -428,6 +518,22 @@
     },
     {
       "id": "edge:0004",
+      "kind": "resource_read",
+      "from": "resource:attribute:customerSummaryContext",
+      "to": "step:CustomerSummaryReconciled",
+      "label": "Get",
+      "span": {
+        "startLine": 271,
+        "startColumn": 16,
+        "endLine": 271,
+        "endColumn": 47
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0005",
       "kind": "resource_write",
       "from": "step:GenerateCustomerSummary",
       "to": "resource:attribute:generatedCustomerSummary",
@@ -437,7 +543,7 @@
       }
     },
     {
-      "id": "edge:0005",
+      "id": "edge:0006",
       "kind": "resource_write",
       "from": "step:GenerateCustomerSummary",
       "to": "resource:stream:customerSummaryProgress",
@@ -451,7 +557,7 @@
       }
     },
     {
-      "id": "edge:0006",
+      "id": "edge:0007",
       "kind": "resource_write",
       "from": "step:GenerateCustomerSummary",
       "to": "resource:stream:customerSummaryText",
@@ -465,7 +571,7 @@
       }
     },
     {
-      "id": "edge:0007",
+      "id": "edge:0008",
       "kind": "transition",
       "from": "step:GenerateCustomerSummary",
       "to": "step:CustomerSummaryCompleted",
@@ -481,7 +587,7 @@
       }
     },
     {
-      "id": "edge:0008",
+      "id": "edge:0009",
       "kind": "failure_transition",
       "from": "step:GenerateCustomerSummary",
       "to": "step:CustomerSummaryExecuteFailed",
@@ -491,7 +597,7 @@
       }
     },
     {
-      "id": "edge:0009",
+      "id": "edge:0010",
       "kind": "transition",
       "from": "step:GenerateCustomerSummary",
       "to": "step:CustomerSummaryFailed",
@@ -507,7 +613,7 @@
       }
     },
     {
-      "id": "edge:0010",
+      "id": "edge:0011",
       "kind": "transition",
       "from": "step:GenerateCustomerSummary",
       "to": "step:CustomerSummaryFailed",
@@ -523,31 +629,31 @@
       }
     },
     {
-      "id": "edge:0011",
+      "id": "edge:0012",
       "kind": "transition",
       "from": "step:GenerateCustomerSummary",
-      "to": "step:ReconcileCustomerSummary",
+      "to": "step:ValidateCustomerSummaryReconciliation",
       "label": "uncertain",
       "span": {
         "startLine": 91,
         "startColumn": 25,
         "endLine": 91,
-        "endColumn": 115
+        "endColumn": 76
       },
       "metadata": {
         "connectorBranch": true
       }
     },
     {
-      "id": "edge:0012",
+      "id": "edge:0013",
       "kind": "resource_write",
       "from": "step:InitializeCustomerSummary",
       "to": "resource:attribute:customerSummaryContext",
       "label": "Set",
       "span": {
-        "startLine": 191,
+        "startLine": 189,
         "startColumn": 12,
-        "endLine": 191,
+        "endLine": 189,
         "endColumn": 50
       },
       "metadata": {
@@ -555,7 +661,7 @@
       }
     },
     {
-      "id": "edge:0013",
+      "id": "edge:0014",
       "kind": "resource_write",
       "from": "step:ReconcileCustomerSummary",
       "to": "resource:attribute:reconciledCustomerSummary",
@@ -565,11 +671,27 @@
       }
     },
     {
-      "id": "edge:0014",
+      "id": "edge:0015",
       "kind": "transition",
       "from": "step:ReconcileCustomerSummary",
       "to": "step:CustomerSummaryReconcileFailed",
       "label": "defect",
+      "span": {
+        "startLine": 112,
+        "startColumn": 25,
+        "endLine": 112,
+        "endColumn": 69
+      },
+      "metadata": {
+        "connectorBranch": true
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "transition",
+      "from": "step:ReconcileCustomerSummary",
+      "to": "step:CustomerSummaryReconcileFailed",
+      "label": "failed",
       "span": {
         "startLine": 111,
         "startColumn": 25,
@@ -581,31 +703,15 @@
       }
     },
     {
-      "id": "edge:0015",
-      "kind": "transition",
-      "from": "step:ReconcileCustomerSummary",
-      "to": "step:CustomerSummaryReconcileFailed",
-      "label": "failed",
-      "span": {
-        "startLine": 110,
-        "startColumn": 25,
-        "endLine": 110,
-        "endColumn": 69
-      },
-      "metadata": {
-        "connectorBranch": true
-      }
-    },
-    {
-      "id": "edge:0016",
+      "id": "edge:0017",
       "kind": "transition",
       "from": "step:ReconcileCustomerSummary",
       "to": "step:CustomerSummaryReconciled",
       "label": "found",
       "span": {
-        "startLine": 109,
+        "startLine": 110,
         "startColumn": 25,
-        "endLine": 109,
+        "endLine": 110,
         "endColumn": 64
       },
       "metadata": {
@@ -630,9 +736,9 @@
       "code": "connector_connection_name_required",
       "message": "Connector Step requires a non-empty compile-time ConnectionName for automatic configuration",
       "span": {
-        "startLine": 100,
+        "startLine": 101,
         "startColumn": 18,
-        "endLine": 113,
+        "endLine": 114,
         "endColumn": 5
       }
     }
@@ -651,6 +757,7 @@
       "id": "recovery",
       "label": "Recovery",
       "stepIds": [
+        "step:ValidateCustomerSummaryReconciliation",
         "step:ReconcileCustomerSummary",
         "step:CustomerSummaryReconciled"
       ]

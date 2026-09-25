@@ -216,7 +216,7 @@ func (flow *AgenticCustomerRefundFlow) GetSteps() []dex.StepDef {
 				Explanation: "Generate the customer resolution message with OpenAI.",
 			},
 			Connection:          flow.openAIConnection,
-			BuildOperationInput: agenticBuildCustomerMessageRequest,
+			MapToOperationInput: agenticMapToCustomerMessageRequest,
 			Completed:           sdkgo.GoTo(agenticStoreGeneratedCustomerMessage{}),
 			Failed:              sdkgo.GoTo(agenticUseFallbackCustomerMessage{}),
 			Uncertain:           sdkgo.GoTo(agenticUseFallbackCustomerMessage{}),
@@ -1143,6 +1143,9 @@ func (agenticPrepareCustomerMessage) Execute(
 		Resolution:      status,
 		FallbackMessage: message,
 	}
+	if prompt.RefundCase.CaseID == "" || prompt.Resolution == "" || prompt.FallbackMessage == "" {
+		return dex.ForceFail("customer message context is incomplete"), nil
+	}
 	if err := agenticCustomerMessageContext.Set(ctx, prompt); err != nil {
 		return nil, err
 	}
@@ -1152,12 +1155,9 @@ func (agenticPrepareCustomerMessage) Execute(
 	), nil
 }
 
-func agenticBuildCustomerMessageRequest(
+func agenticMapToCustomerMessageRequest(
 	prompt agenticCustomerMessagePrompt,
-) (openai.CreateRequest, error) {
-	if prompt.RefundCase.CaseID == "" || prompt.Resolution == "" || prompt.FallbackMessage == "" {
-		return openai.CreateRequest{}, fmt.Errorf("customer message context is incomplete")
-	}
+) openai.CreateRequest {
 	return openai.CreateRequest{
 		Model:        "gpt-5-mini",
 		Instructions: "Write one concise customer-facing sentence about the refund resolution. Do not mention internal policy or tooling.",
@@ -1165,7 +1165,7 @@ func agenticBuildCustomerMessageRequest(
 			"customerRequest": prompt.RefundCase.CustomerNote,
 			"resolution":      prompt.Resolution,
 		},
-	}, nil
+	}
 }
 
 // dex:group group-id:resolution group-label:"Resolution"
