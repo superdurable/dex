@@ -29,6 +29,10 @@ import (
 const goSDKPackage = "github.com/superdurable/dex/sdk-go/dex"
 const connectorSDKPackage = "github.com/superdurable/dex-connectors-library/sdk/go"
 
+const goPackagesLoadMode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+	packages.NeedImports | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo |
+	packages.NeedTypesSizes | packages.NeedDeps | packages.NeedModule
+
 type goAnalyzer struct {
 	graph              *Graph
 	file               *ast.File
@@ -96,10 +100,8 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVers
 	config := &packages.Config{
 		Context: ctx,
 		Dir:     filepath.Dir(sourcePath),
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo |
-			packages.NeedTypesSizes | packages.NeedDeps | packages.NeedModule,
-		Tests: false,
+		Mode:    goPackagesLoadMode,
+		Tests:   false,
 	}
 	loaded, loadErr := packages.Load(config, "file="+sourcePath)
 	if loadErr != nil {
