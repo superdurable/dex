@@ -23,7 +23,6 @@ package connectorfactory
 
 import (
 	"errors"
-	"fmt"
 
 	openai "github.com/superdurable/dex-connectors-library/connectors/openai"
 	"github.com/superdurable/dex-connectors-library/sdkgo"
@@ -33,6 +32,7 @@ import (
 const (
 	initializeCustomerSummaryStepType = "InitializeCustomerSummary"
 	generateCustomerSummaryStepType   = "GenerateCustomerSummary"
+	validateReconciliationStepType    = "ValidateCustomerSummaryReconciliation"
 	reconcileCustomerSummaryStepType  = "ReconcileCustomerSummary"
 )
 
@@ -85,10 +85,10 @@ func (flow *CustomerSummaryConnectorFlow) GetSteps() []dex.StepDef {
 				Explanation: "Generate a customer summary with streamed model progress.",
 			},
 			Connection:          flow.connection,
-			BuildOperationInput: buildGenerateCustomerSummaryInput,
+			MapToOperationInput: mapToGenerateCustomerSummaryInput,
 			Completed:           sdkgo.GoTo(CustomerSummaryCompleted{}),
 			Failed:              sdkgo.GoTo(CustomerSummaryFailed{}),
-			Uncertain:           sdkgo.GoTo(sdkgo.StepRef[generateCustomerSummaryResult](reconcileCustomerSummaryStepType)),
+			Uncertain:           sdkgo.GoTo(ValidateCustomerSummaryReconciliation{}),
 			Defect:              sdkgo.GoTo(CustomerSummaryFailed{}),
 			ResultAttribute:     &generatedCustomerSummary,
 			ProgressStream:      &customerSummaryProgress,
@@ -97,6 +97,7 @@ func (flow *CustomerSummaryConnectorFlow) GetSteps() []dex.StepDef {
 				ExecuteFailure: dex.ProceedToOnExecuteFailure(CustomerSummaryExecuteFailed{}, nil),
 			},
 		})),
+		dex.DefineStep(ValidateCustomerSummaryReconciliation{}),
 		dex.DefineStep(openai.NewRetrieveResponseStep(openai.RetrieveResponseStepConfig[generateCustomerSummaryResult]{
 			StepType: reconcileCustomerSummaryStepType,
 			Annotations: sdkgo.StepAnnotations{
@@ -105,7 +106,7 @@ func (flow *CustomerSummaryConnectorFlow) GetSteps() []dex.StepDef {
 				Explanation: "Retrieve an uncertain model response without repeating the mutation.",
 			},
 			Connection:          flow.connection,
-			BuildOperationInput: buildReconcileCustomerSummaryInput,
+			MapToOperationInput: mapToReconcileCustomerSummaryInput,
 			Found:               sdkgo.GoTo(CustomerSummaryReconciled{}),
 			Failed:              sdkgo.GoTo(CustomerSummaryReconcileFailed{}),
 			Defect:              sdkgo.GoTo(CustomerSummaryReconcileFailed{}),
@@ -159,22 +160,16 @@ func (*CustomerSummaryConnectorFlow) GetDexDisplay(ctx dex.Context, _ dex.None) 
 	}}, nil
 }
 
-func buildGenerateCustomerSummaryInput(input Input) (openai.CreateRequest, error) {
-	if input.CustomerID == "" || input.Notes == "" {
-		return openai.CreateRequest{}, fmt.Errorf("customer ID and notes are required")
-	}
+func mapToGenerateCustomerSummaryInput(input Input) openai.CreateRequest {
 	return openai.CreateRequest{
 		Model:        "gpt-5-mini",
 		Instructions: "Summarize the customer notes for an account manager.",
 		Input:        input.Notes,
-	}, nil
+	}
 }
 
-func buildReconcileCustomerSummaryInput(result generateCustomerSummaryResult) (openai.RetrieveRequest, error) {
-	if result.Receipt.ProviderObjectID == "" {
-		return openai.RetrieveRequest{}, fmt.Errorf("provider response ID is required for reconciliation")
-	}
-	return openai.RetrieveRequest{ResponseID: result.Receipt.ProviderObjectID}, nil
+func mapToReconcileCustomerSummaryInput(result generateCustomerSummaryResult) openai.RetrieveRequest {
+	return openai.RetrieveRequest{ResponseID: result.Receipt.ProviderObjectID}
 }
 
 // dex:group group-id:generation group-label:"Generation"
@@ -188,10 +183,36 @@ func (InitializeCustomerSummary) GetStepType() string {
 }
 
 func (InitializeCustomerSummary) Execute(ctx dex.Context, input Input) (*dex.StepDecision, error) {
+	if input.CustomerID == "" || input.Notes == "" {
+		return dex.ForceFail("customer ID and notes are required"), nil
+	}
 	if err := customerSummaryContext.Set(ctx, input); err != nil {
 		return nil, err
 	}
 	return dex.GoTo(sdkgo.StepRef[Input](generateCustomerSummaryStepType), input), nil
+}
+
+// dex:group group-id:recovery group-label:"Recovery"
+// dex:explanation text:"Validate the provider response identity before starting reconciliation."
+type ValidateCustomerSummaryReconciliation struct {
+	dex.StepDefaultsNoWaitFor[generateCustomerSummaryResult]
+}
+
+func (ValidateCustomerSummaryReconciliation) GetStepType() string {
+	return validateReconciliationStepType
+}
+
+func (ValidateCustomerSummaryReconciliation) Execute(
+	_ dex.Context,
+	result generateCustomerSummaryResult,
+) (*dex.StepDecision, error) {
+	if result.Receipt.ProviderObjectID == "" {
+		return dex.ForceFail("provider response ID is required for reconciliation"), nil
+	}
+	return dex.GoTo(
+		sdkgo.StepRef[generateCustomerSummaryResult](reconcileCustomerSummaryStepType),
+		result,
+	), nil
 }
 
 func optionalGeneratedCustomerSummary(ctx dex.Context) (sdkgo.MutationResult[openai.Response], error) {

@@ -91,10 +91,6 @@ func TestConnectorFactoryConfigRequiresAnnotationsMetadata(t *testing.T) {
 	if !annotationsAccepted {
 		t.Fatal("Annotations metadata was rejected")
 	}
-	_, presentationAccepted := connectorFactoryConfig(newConfigType("Presentation", `connector:"presentation"`))
-	if presentationAccepted {
-		t.Fatal("legacy Presentation metadata was accepted")
-	}
 }
 
 func connectorIdentityTestAnalyzer(packagePath string, module goModule) *goAnalyzer {

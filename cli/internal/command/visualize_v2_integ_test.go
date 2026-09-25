@@ -215,7 +215,7 @@ func TestVisualizeV2ConnectorFactoryExample(t *testing.T) {
 	require.Equal(t, map[string]string{
 		"completed": "step:CustomerSummaryCompleted",
 		"failed":    "step:CustomerSummaryFailed",
-		"uncertain": "step:ReconcileCustomerSummary",
+		"uncertain": "step:ValidateCustomerSummaryReconciliation",
 		"defect":    "step:CustomerSummaryFailed",
 	}, connectorBranchTargets(graph, "step:GenerateCustomerSummary"))
 	require.Equal(t, map[string]string{

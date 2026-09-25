@@ -82,6 +82,19 @@
       }
     },
     {
+      "id": "decision-dispatch:step:agenticPrepareCustomerMessage",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:agenticPrepareCustomerMessage",
+      "phase": "execute",
+      "span": {
+        "startLine": 1122,
+        "startColumn": 1,
+        "endLine": 1156,
+        "endColumn": 2
+      }
+    },
+    {
       "id": "decision-dispatch:step:agenticReCheck",
       "kind": "decision_dispatch",
       "name": "Decision",
@@ -714,15 +727,33 @@
       }
     },
     {
-      "id": "decision:step:agenticPrepareCustomerMessage:1149:9",
+      "id": "decision:step:agenticPrepareCustomerMessage:1147:10",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:agenticPrepareCustomerMessage",
+      "condition": "prompt.RefundCase.CaseID == \"\" || prompt.Resolution == \"\" || prompt.FallbackMessage == \"\"",
+      "phase": "execute",
+      "span": {
+        "startLine": 1147,
+        "startColumn": 10,
+        "endLine": 1147,
+        "endColumn": 65
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:agenticPrepareCustomerMessage:1152:9",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:agenticPrepareCustomerMessage",
+      "condition": "!(prompt.RefundCase.CaseID == \"\" || prompt.Resolution == \"\" || prompt.FallbackMessage == \"\")",
       "phase": "execute",
       "span": {
-        "startLine": 1149,
+        "startLine": 1152,
         "startColumn": 9,
-        "endLine": 1152,
+        "endLine": 1155,
         "endColumn": 3
       },
       "decision": {
@@ -1559,7 +1590,7 @@
           "connectionName": "",
           "connectorId": "openai",
           "modulePath": "github.com/superdurable/dex-connectors-library/connectors/openai",
-          "moduleVersion": "v0.3.0",
+          "moduleVersion": "v0.4.0",
           "operationId": "createResponse",
           "operationKind": "mutation"
         },
@@ -2416,13 +2447,13 @@
     {
       "id": "edge:0030",
       "kind": "transition",
-      "from": "decision:step:agenticPrepareCustomerMessage:1149:9",
+      "from": "decision:step:agenticPrepareCustomerMessage:1152:9",
       "to": "step:GenerateCustomerMessageStep",
       "label": "GoTo",
       "span": {
-        "startLine": 1149,
+        "startLine": 1152,
         "startColumn": 9,
-        "endLine": 1152,
+        "endLine": 1155,
         "endColumn": 3
       }
     },
@@ -3649,9 +3680,9 @@
       "to": "resource:attribute:agenticCustomerMessageContext",
       "label": "Set",
       "span": {
-        "startLine": 1146,
+        "startLine": 1149,
         "startColumn": 12,
-        "endLine": 1146,
+        "endLine": 1149,
         "endColumn": 58
       },
       "metadata": {

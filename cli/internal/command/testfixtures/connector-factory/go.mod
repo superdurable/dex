@@ -3,8 +3,8 @@ module github.com/superdurable/dex/cli/internal/command/testfixtures/connector-f
 go 1.24.0
 
 require (
-	github.com/superdurable/dex-connectors-library/connectors/openai v0.3.0
-	github.com/superdurable/dex-connectors-library/sdkgo v0.3.0
+	github.com/superdurable/dex-connectors-library/connectors/openai v0.4.0
+	github.com/superdurable/dex-connectors-library/sdkgo v0.6.0
 	github.com/superdurable/dex/sdk-go v0.11.3
 )
 
