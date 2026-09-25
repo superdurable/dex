@@ -138,20 +138,20 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.change("web/package.json")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "cli")
+        self.assert_selected(values, "server", "cli")
         self.assertEqual(values["server_baseline"], "server-v0.2.0")
 
-    def test_web_change_triggers_only_cli(self) -> None:
+    def test_web_change_triggers_server_and_cli(self) -> None:
         self.change("web/package.json")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "cli")
+        self.assert_selected(values, "server", "cli")
 
-    def test_flow_definition_renderer_change_triggers_only_cli(self) -> None:
+    def test_flow_definition_renderer_change_triggers_server_and_cli(self) -> None:
         self.change("packages/flow-definition-renderer/src/index.ts")
         result, values = self.plan()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "cli")
+        self.assert_selected(values, "server", "cli")
 
     def test_mixed_changes_select_multiple_releases(self) -> None:
         self.change("sdk-go/client.go")
