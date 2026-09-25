@@ -43,6 +43,6 @@ func TestCustomerSummaryConnectorFlowRegisters(t *testing.T) {
 	registry, err := dex.NewRegistry([]dex.Flow{flow})
 	require.NoError(t, err)
 	require.NotNil(t, registry)
-	require.Len(t, flow.GetPersistenceSchema().Attributes, 2)
+	require.Len(t, flow.GetPersistenceSchema().Attributes, 3)
 	require.Len(t, flow.GetPersistenceSchema().Streams, 2)
 }

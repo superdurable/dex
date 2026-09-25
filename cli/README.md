@@ -287,10 +287,10 @@ Version 2 also recognizes operation-specific Connector factories such as
 Connector SDK marker and generated field metadata, not a list of connector or
 function names. The generic SDK `MustNewQueryStep` and `MustNewMutationStep`
 escape hatches remain supported. Put the factory call directly in `DefineStep`
-or `DefineStartStep` and use an inline config literal. `StepType`, presentation,
+or `DefineStartStep` and use an inline config literal. `StepType`, annotations,
 named `GoTo` branch targets (or generic `GoToBranch` targets), `StepRef` names,
 Result Attributes, Streams, and `ProceedToOnExecuteFailure` targets must be
-statically visible. Factory presentation supplies the Step group and
+statically visible. Factory annotations supply the Step group and
 explanation, so factory Steps do not need local directives. Branches become
 labeled transition edges; Result Attributes and structured/text Streams become
 write edges. Dynamic config, branch slices, targets, or resource references

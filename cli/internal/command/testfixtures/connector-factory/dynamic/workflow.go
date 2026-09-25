@@ -16,7 +16,7 @@ import (
 
 var result = dex.DefineAttribute[sdkgo.MutationResult[openaifactory.Response]]("result")
 
-type factoryOutput = openaifactory.CreateResponseStepOutput[string]
+type factoryOutput = openaifactory.CreateResponseResult
 
 type dynamicFactoryFlow struct {
 	dex.FlowDefaults
@@ -28,30 +28,30 @@ func (flow *dynamicFactoryFlow) GetSteps() []dex.StepDef {
 		dex.DefineStartStep(openaifactory.NewCreateResponseStep(flow.dynamicConfig())),
 		dex.DefineStep(openaifactory.NewCreateResponseStep(openaifactory.CreateResponseStepConfig[string]{
 			StepType: flow.dynamicStepType(),
-			Presentation: sdkgo.StepPresentation{
+			Annotations: sdkgo.StepAnnotations{
 				GroupID: "factory", GroupLabel: "Factory", Explanation: "Use a dynamic Step type.",
 			},
-			Connection: flow.connection, BuildInput: buildInput,
+			Connection: flow.connection, BuildOperationInput: buildOperationInput,
 			Completed: sdkgo.GoTo(finishStep{}), Failed: sdkgo.GoTo(finishStep{}),
 			Uncertain: sdkgo.GoTo(finishStep{}), Defect: sdkgo.GoTo(finishStep{}),
 			ResultAttribute: &result,
 		})),
 		dex.DefineStep(openaifactory.NewCreateResponseStep(openaifactory.CreateResponseStepConfig[string]{
 			StepType: "DynamicTarget",
-			Presentation: sdkgo.StepPresentation{
+			Annotations: sdkgo.StepAnnotations{
 				GroupID: "factory", GroupLabel: "Factory", Explanation: "Use a dynamic branch target.",
 			},
-			Connection: flow.connection, BuildInput: buildInput,
+			Connection: flow.connection, BuildOperationInput: buildOperationInput,
 			Completed: sdkgo.GoTo(flow.dynamicTarget()), Failed: sdkgo.GoTo(finishStep{}),
 			Uncertain: sdkgo.GoTo(finishStep{}), Defect: sdkgo.GoTo(finishStep{}),
 			ResultAttribute: &result,
 		})),
 		dex.DefineStep(openaifactory.NewCreateResponseStep(openaifactory.CreateResponseStepConfig[string]{
 			StepType: "MissingBranch",
-			Presentation: sdkgo.StepPresentation{
+			Annotations: sdkgo.StepAnnotations{
 				GroupID: "factory", GroupLabel: "Factory", Explanation: "Omit a required branch target.",
 			},
-			Connection: flow.connection, BuildInput: buildInput,
+			Connection: flow.connection, BuildOperationInput: buildOperationInput,
 			Completed: sdkgo.GoTo(finishStep{}), Failed: sdkgo.GoTo(finishStep{}),
 			Uncertain:       sdkgo.GoTo(finishStep{}),
 			ResultAttribute: &result,
@@ -71,17 +71,17 @@ func (*dynamicFactoryFlow) dynamicTarget() dex.Step[factoryOutput] { return fini
 func (flow *dynamicFactoryFlow) dynamicConfig() openaifactory.CreateResponseStepConfig[string] {
 	return openaifactory.CreateResponseStepConfig[string]{
 		StepType: "DynamicConfig",
-		Presentation: sdkgo.StepPresentation{
+		Annotations: sdkgo.StepAnnotations{
 			GroupID: "factory", GroupLabel: "Factory", Explanation: "Use a dynamic config.",
 		},
-		Connection: flow.connection, BuildInput: buildInput,
+		Connection: flow.connection, BuildOperationInput: buildOperationInput,
 		Completed: sdkgo.GoTo(finishStep{}), Failed: sdkgo.GoTo(finishStep{}),
 		Uncertain: sdkgo.GoTo(finishStep{}), Defect: sdkgo.GoTo(finishStep{}),
 		ResultAttribute: &result,
 	}
 }
 
-func buildInput(value string) (openaifactory.CreateRequest, error) {
+func buildOperationInput(value string) (openaifactory.CreateRequest, error) {
 	return openaifactory.CreateRequest{Model: "gpt-5-mini", Input: value}, nil
 }
 

@@ -68,6 +68,35 @@ func TestConnectorIdentityWarnsAndDisablesLocalReplacementOrMissingName(t *testi
 	}
 }
 
+func TestConnectorFactoryConfigRequiresAnnotationsMetadata(t *testing.T) {
+	connectorSDKPackageType := types.NewPackage(connectorSDKPackage, "sdkgo")
+	queryMarkerName := types.NewTypeName(token.NoPos, connectorSDKPackageType, "QueryFactoryConfigMarker", nil)
+	queryMarkerType := types.NewNamed(queryMarkerName, types.NewStruct(nil, nil), nil)
+	configPackage := types.NewPackage("example.com/connector", "connector")
+
+	newConfigType := func(metadataFieldName, metadataTag string) types.Type {
+		fields := []*types.Var{
+			types.NewField(token.NoPos, configPackage, "QueryFactoryConfigMarker", queryMarkerType, true),
+			types.NewField(token.NoPos, configPackage, "StepType", types.Typ[types.String], false),
+			types.NewField(token.NoPos, configPackage, metadataFieldName, types.Typ[types.String], false),
+			types.NewField(token.NoPos, configPackage, "Found", types.Typ[types.String], false),
+		}
+		tags := []string{`connector:"factory=query"`, `connector:"stepType"`, metadataTag, `connector:"branch=found"`}
+		structure := types.NewStruct(fields, tags)
+		configName := types.NewTypeName(token.NoPos, configPackage, metadataFieldName+"Config", nil)
+		return types.NewNamed(configName, structure, nil)
+	}
+
+	_, annotationsAccepted := connectorFactoryConfig(newConfigType("Annotations", `connector:"annotations"`))
+	if !annotationsAccepted {
+		t.Fatal("Annotations metadata was rejected")
+	}
+	_, presentationAccepted := connectorFactoryConfig(newConfigType("Presentation", `connector:"presentation"`))
+	if presentationAccepted {
+		t.Fatal("legacy Presentation metadata was accepted")
+	}
+}
+
 func connectorIdentityTestAnalyzer(packagePath string, module goModule) *goAnalyzer {
 	graph := NewGraph("go", "workflow.go")
 	return &goAnalyzer{

@@ -27,7 +27,7 @@ var officialConnectorModulePattern = regexp.MustCompile(`^github\.com/superdurab
 
 type goConnectorFactoryStep struct {
 	stepType             string
-	presentation         goConnectorPresentation
+	annotations          goConnectorAnnotations
 	branches             []goConnectorBranch
 	resultAttributeID    string
 	progressStreamID     string
@@ -46,7 +46,7 @@ type goConnectorIdentity struct {
 	configurationEnabled bool
 }
 
-type goConnectorPresentation struct {
+type goConnectorAnnotations struct {
 	groupID     string
 	groupLabel  string
 	explanation string
@@ -144,7 +144,7 @@ func (analyzer *goAnalyzer) parseConnectorFactoryStep(kind string, call *ast.Cal
 		return goConnectorFactoryStep{}, false
 	}
 	definition := goConnectorFactoryStep{stepType: stepType}
-	definition.presentation = analyzer.parseConnectorPresentation(fields[fieldName("presentation", "Presentation")])
+	definition.annotations = analyzer.parseConnectorAnnotations(fields[fieldName("annotations", "Annotations")])
 	if operationSpecific {
 		definition.branches = analyzer.parseConnectorNamedBranches(fields, configMetadata.branches)
 	} else {
@@ -276,7 +276,7 @@ func connectorFactoryConfig(value types.Type) (goConnectorFactoryConfig, bool) {
 		}
 	}
 	return config, valid && config.kind != "" && len(config.branches) != 0 &&
-		config.fieldNames["stepType"] != "" && config.fieldNames["presentation"] != ""
+		config.fieldNames["stepType"] != "" && config.fieldNames["annotations"] != ""
 }
 
 func isConnectorFactoryStepType(value types.Type, kind string) bool {
@@ -301,23 +301,23 @@ func (analyzer *goAnalyzer) isConnectorConfigType(literal *ast.CompositeLit, kin
 	return packagePath == connectorSDKPackage && typeName == expectedType
 }
 
-func (analyzer *goAnalyzer) parseConnectorPresentation(expression ast.Expr) goConnectorPresentation {
+func (analyzer *goAnalyzer) parseConnectorAnnotations(expression ast.Expr) goConnectorAnnotations {
 	literal, ok := connectorCompositeLiteral(expression)
 	if !ok {
-		analyzer.addConnectorFactoryDiagnostic("connector_factory_presentation", "Connector factory Presentation must be a static literal", expression)
-		return goConnectorPresentation{}
+		analyzer.addConnectorFactoryDiagnostic("connector_factory_annotations", "Connector factory Annotations must be a static literal", expression)
+		return goConnectorAnnotations{}
 	}
-	fields, ok := analyzer.connectorCompositeFields(literal, "Connector factory Presentation")
+	fields, ok := analyzer.connectorCompositeFields(literal, "Connector factory Annotations")
 	if !ok {
-		return goConnectorPresentation{}
+		return goConnectorAnnotations{}
 	}
 	groupID, groupIDStatic := analyzer.staticString(fields["GroupID"])
 	groupLabel, groupLabelStatic := analyzer.staticString(fields["GroupLabel"])
 	explanation, explanationStatic := analyzer.staticString(fields["Explanation"])
 	if !groupIDStatic || !groupLabelStatic || !explanationStatic || groupID == "" || groupLabel == "" || explanation == "" {
-		analyzer.addConnectorFactoryDiagnostic("connector_factory_presentation", "Connector factory presentation fields must be non-empty compile-time strings", expression)
+		analyzer.addConnectorFactoryDiagnostic("connector_factory_annotations", "Connector factory annotation fields must be non-empty compile-time strings", expression)
 	}
-	return goConnectorPresentation{groupID: groupID, groupLabel: groupLabel, explanation: explanation}
+	return goConnectorAnnotations{groupID: groupID, groupLabel: groupLabel, explanation: explanation}
 }
 
 func (analyzer *goAnalyzer) parseConnectorBranches(expression ast.Expr) []goConnectorBranch {

@@ -199,7 +199,7 @@ func TestVisualizeV2ConnectorFactoryExample(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 	require.Equal(t, "CustomerSummaryConnectorFlow", graph.Flow.Name)
-	require.Equal(t, "step:GenerateCustomerSummary", graph.Flow.StartStepID)
+	require.Equal(t, "step:InitializeCustomerSummary", graph.Flow.StartStepID)
 	require.Equal(t, []string{"generation", "recovery", "failure", "execute-failure"}, v2GroupIDs(graph.Groups))
 
 	generateNode := graphNodeByID(t, graph, "step:GenerateCustomerSummary")

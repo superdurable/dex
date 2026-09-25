@@ -14,7 +14,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-type factoryOutput = sdkgo.QueryStepOutput[string, openai.Response]
+type factoryOutput = sdkgo.QueryResult[openai.Response]
 
 var result = dex.DefineAttribute[sdkgo.QueryResult[openai.Response]]("generic-result")
 
@@ -28,10 +28,10 @@ func (flow *genericFactoryFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(sdkgo.MustNewQueryStep(sdkgo.QueryStepConfig[string, openai.RetrieveRequest, openai.Response]{
 			StepType: "GenericRetrieveResponse",
-			Presentation: sdkgo.StepPresentation{
+			Annotations: sdkgo.StepAnnotations{
 				GroupID: "factory", GroupLabel: "Factory", Explanation: "Use the generic Connector SDK escape hatch.",
 			},
-			Operation: flow.client.RetrieveResponse(), Connection: flow.connection, BuildInput: buildInput,
+			Operation: flow.client.RetrieveResponse(), Connection: flow.connection, BuildOperationInput: buildOperationInput,
 			Branches: []sdkgo.BranchTarget[factoryOutput]{
 				sdkgo.GoToBranch(openai.RetrieveResponseBranchFound, finishStep{}),
 				sdkgo.GoToBranch(openai.RetrieveResponseBranchFailed, finishStep{}),
@@ -64,7 +64,7 @@ func (*genericFactoryFlow) GetDexDisplay(_ dex.Context, _ dex.None) (*dex.RPCRes
 	return &dex.RPCResult[map[string]any]{Output: map[string]any{"generic-result": nil}}, nil
 }
 
-func buildInput(responseID string) (openai.RetrieveRequest, error) {
+func buildOperationInput(responseID string) (openai.RetrieveRequest, error) {
 	return openai.RetrieveRequest{ResponseID: responseID}, nil
 }
 

@@ -107,8 +107,8 @@ func (analyzer *goAnalyzer) collectV2Groups() []StepGroup {
 	typeDirectives := analyzer.v2TypeDirectives()
 	for _, stepType := range analyzer.registeredSteps {
 		if factory, ok := analyzer.connectorFactories[stepType]; ok {
-			groupID := factory.presentation.groupID
-			groupLabel := factory.presentation.groupLabel
+			groupID := factory.annotations.groupID
+			groupLabel := factory.annotations.groupLabel
 			if !v2GroupIDPattern.MatchString(groupID) {
 				analyzer.graph.AddDiagnostic("error", "v2_step_group", fmt.Sprintf("Connector factory Step %s group-id %q must be kebab-case", stepType, groupID), nil)
 				continue
@@ -171,7 +171,7 @@ func (analyzer *goAnalyzer) applyV2Explanations() {
 	typeDirectives := analyzer.v2TypeDirectives()
 	for _, stepType := range analyzer.registeredSteps {
 		if factory, ok := analyzer.connectorFactories[stepType]; ok {
-			explanation := strings.TrimSpace(factory.presentation.explanation)
+			explanation := strings.TrimSpace(factory.annotations.explanation)
 			if explanation == "" {
 				analyzer.graph.AddDiagnostic("error", "v2_step_explanation", fmt.Sprintf("Connector factory Step %s explanation must not be empty", stepType), nil)
 				continue
