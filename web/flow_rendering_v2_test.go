@@ -44,6 +44,9 @@ func TestLoadFlowDefinitionsRejectsDuplicateValidV2FlowTypes(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "multiple valid Flow Definition Graph 2.0") {
 		t.Fatalf("duplicate error = %v", err)
 	}
+	if !strings.Contains(err.Error(), "first.json") || !strings.Contains(err.Error(), "second.json") {
+		t.Fatalf("duplicate error does not name both files: %v", err)
+	}
 }
 
 func TestLoadFlowDefinitionsRejectsMalformedV2Contract(t *testing.T) {

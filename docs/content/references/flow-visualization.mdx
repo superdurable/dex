@@ -89,7 +89,7 @@ Version 1 supports one Flow per source file. The file must directly contain:
 - persistence resource definitions and access
 - Step Stream progress operations
 
-Ordinary business helpers and imported models are allowed. A helper must not hide a Dex transition, WaitFor definition, resource definition, or recovery target. Step types, Flow types, and resource names must be statically known.
+Ordinary business helpers and imported models are allowed. A helper must not hide a Dex transition, WaitFor definition, resource definition, or recovery target. Resource names must be statically known. Flow types and Step types follow the rules in [Flow and Step names](#flow-and-step-names).
 
 Go analysis requires a local Go toolchain. The input must belong to a module and package that can be type checked. Python analysis requires Python 3.11 or newer. The Python analyzer uses the standard-library AST in isolated mode. It never imports or executes the application module.
 
@@ -102,6 +102,25 @@ Version 2.0 is Go-only. It retains every Version 1 field and requires Step group
 Version 2.0 derives an optional start-input schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. Nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps are supported. Integer bounds and integer enum values remain decimal strings in the schema. Recursive types, nesting beyond 32 levels, non-string map keys, interfaces, functions, channels, byte slices, conflicting anonymous fields, JSON string encoding tags, and custom JSON codecs produce a warning and omit the start schema. They do not invalidate the remaining graph.
 
 Version 2.0 recognizes operation-specific Connector factories such as **openai.NewCreateResponseStep** through the config's canonical Connector SDK marker and generated field metadata, rather than a list of connector or function names. Dex Web marks these Steps with a Connector icon. The generic SDK **MustNewQueryStep** and **MustNewMutationStep** escape hatches remain supported. Put the factory call directly in **DefineStep** or **DefineStartStep** and use an inline config literal. Step type, annotations, named **GoTo** branch targets (or generic **GoToBranch** targets), **StepRef** names, Result Attributes, Streams, and **ProceedToOnExecuteFailure** targets must be statically visible. Factory annotations supply the Step group and explanation, so the generated Step does not need local directives. Each Connector Step passes only its current operation result to its branch target. Persist business context in an application Attribute before entering the Connector Step. The graph emits one labeled transition per Connector branch, a write relation for the Result Attribute, and best-effort progress relations for structured and text Streams. Dynamic config, branch slice, target, annotation, or resource reference produces a blocking diagnostic. See the [Connector factory example](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go).
+
+## Flow and Step names {#flow-and-step-names}
+
+The graph uses the Flow type and Step type that the SDK registers. Dex Web v2 uses these names to search runs, match run history to Steps, and start Flows. Go Flows therefore work in Dex Web v2 without a **GetFlowType** or **GetStepType** override, unless the analyzer reports one of the diagnostics below.
+
+For Go, the default name is the package-qualified type without a pointer, such as **threadapproval.Flow** or **threadapproval.initializeThread**. Generic type arguments are printed the way Go reflection prints them. Arguments use their full import path. A dot in the last element of that path appears as **%2e**, as in **gopkg.in/yaml%2ev3.Node**. **byte** and **any** appear as **uint8** and **interface \{\}**. Types declared in package **main** use **main** as their package, as they do in a Worker binary. For Python, the default name is the class name.
+
+Dex rejects a Step type that contains **/**, **$**, or **:**. When the default name of a generic Step includes an import path with a slash, declare a **GetStepType** override.
+
+A **GetFlowType** or **GetStepType** override can be declared in any file of the package or promoted from an embedded type, including one from another package. Every return statement in the override must return the same compile-time string. An empty string keeps the default name. A **StepRef** target names the registered Step type, not the Go type.
+
+The analyzer reports a blocking diagnostic when it cannot know the registered name or cannot give each Step its own node:
+
+- **dynamic_type_name**: an override returns different strings, a value that is not a compile-time string, or a name promoted from an embedded interface.
+- **generic_flow_type_name**: a generic Flow type has no non-empty override.
+- **unsupported_generic_type_name**: a default Step name has a type argument without a static reflection name, such as a struct, function, channel, non-empty interface, type parameter, or function-local type.
+- **duplicate_step_type**: two registrations use one Step type, or one Go type is registered more than once. Step nodes are keyed by Go type, so a generic Step can be registered with only one type argument.
+
+A Step that keeps its default name carries its short Go type in **metadata.displayName**, so the Dex Web v2 canvas labels it **initializeThread**. Node IDs keep the Go type, as in **step:initializeThread**.
 
 ## Unknown nodes and diagnostics
 

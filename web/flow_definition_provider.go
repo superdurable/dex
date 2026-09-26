@@ -365,6 +365,7 @@ func buildFlowDefinitionSnapshot(
 		catalog.Directory = location
 	}
 	v2Definitions := make(map[string]api.V2Definition)
+	v2DefinitionFiles := make(map[string]string)
 	for _, file := range files {
 		if len(file.data) > maxFlowDefinitionBytes {
 			return nil, invalidDefinitionSource(fmt.Errorf("Flow Definition Graph exceeds %d bytes: %s", maxFlowDefinitionBytes, file.path))
@@ -375,12 +376,14 @@ func buildFlowDefinitionSnapshot(
 		}
 		catalog.Definitions = append(catalog.Definitions, definition)
 		if definition.SchemaVersion == "2.0" && definition.Valid {
-			if _, exists := v2Definitions[definition.FlowName]; exists {
+			if existingFile, exists := v2DefinitionFiles[definition.FlowName]; exists {
 				return nil, invalidDefinitionSource(fmt.Errorf(
-					"multiple valid Flow Definition Graph 2.0 files define Flow type %q", definition.FlowName,
+					"multiple valid Flow Definition Graph 2.0 files define Flow type %q: %s and %s",
+					definition.FlowName, existingFile, file.path,
 				))
 			}
 			v2Definitions[definition.FlowName] = *definition.V2
+			v2DefinitionFiles[definition.FlowName] = file.path
 		}
 	}
 	response, err := json.Marshal(catalog)

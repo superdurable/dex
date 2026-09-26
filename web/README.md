@@ -55,8 +55,12 @@ Version menu returns to **v1**. Without that directory, Dex Web opens **v1** at
 that type's Flow Definition Graph on the right. Run lists omit executions
 closed by continue-as-new. Summary, Display, edits, and
 Actions target the current run without accepting a Run ID. Version 1 and
-Version 2 files can coexist. Duplicate valid Version 2 definitions for one Flow
-type make the definition source invalid. Invalid analyzer output remains visible on **v1** Flow
+Version 2 files can coexist. Each definition's Flow type is the one Workers
+register, so Go Flows need no `GetFlowType` or `GetStepType` override unless
+`dexcli visualize` reports a Flow or Step name diagnostic.
+Duplicate valid Version 2 definitions for one Flow type, such as two
+package-main Flows named `main.Flow`, make the definition source invalid, and
+the error names both files. Invalid analyzer output remains visible on **v1** Flow
 Rendering but does not appear as a **v2** Flow type.
 
 ### Start Flow

@@ -1,4 +1,5 @@
 cli/dexcli
+cli/internal/command/testfixtures/registered-type-names/mainpackage/mainpackage
 server/dex-server
 web/node_modules/
 web/assets/dist/
