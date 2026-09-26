@@ -100,13 +100,13 @@ dexcli flow history FLOW_ID --run-id RUN_ID --all --no-hydrate
 语义事件。使用 **--all** 获取每一页历史。若 payload 可能很大或敏感，请使用
 **--no-hydrate**：输出会保留 blob reference，而不会获取其中内容。
 
-### 5. 使用 Dex Developer skill 进行调查
+### 5. 使用 Dex SDK skill 进行调查
 
-[Dex Developer skill](/build-with-ai/dex-developer-skill)
+[Dex SDK skill](/build-with-ai/dex-developer-skill#dex-sdk)
 可以指导与仓库相关的调查。提供这些标识符，并明确要求先执行只读检查。例如：
 
 ~~~text
-$dex-developer Diagnose Dex Flow FLOW_ID, Run ID RUN_ID. The Worker version is
+$dex-sdk Diagnose Dex Flow FLOW_ID, Run ID RUN_ID. The Worker version is
 WORKER_VERSION and Dex Server is SERVER_ADDRESS. First perform read-only checks:
 inspect Dex Web, application logs, dexcli flow inspect, and dexcli flow history
 with --all. Do not stop, time travel, restart, or otherwise modify a Flow unless

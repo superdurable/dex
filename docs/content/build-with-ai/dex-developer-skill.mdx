@@ -1,103 +1,145 @@
 ---
 id: dex-developer-skill
-title: Dex Developer Skill
+title: Dex Skills
+sidebar_label: Dex Skills
 slug: /build-with-ai/dex-developer-skill
 ---
 
-# Build Dex applications with AI
+# Build with AI
 
-Dex Developer is the official coding-agent skill for Dex. It helps Codex,
-Claude Code, Cursor, and other Agent Skills clients work through the public Dex
-programming model in Python, Go, Java, TypeScript, and Rust.
+Dex Skills is the official coding-agent plugin for Dex. It helps Codex, Claude
+Code, Cursor, and other Agent Skills clients build Dex applications and
+contribute official [Connectors](/primitives/connector).
 
-The skill guides application development. Dex Server, Workers, and SuperAgent
+The plugin contains guidance files only. Dex Server, Workers, and applications
 do not load it at runtime.
 
-## What the skill helps with
+## Choose a skill
 
-- Choose a design pattern for the application's durability and coordination needs.
-- Model Flows, Steps, transitions, and failure paths before implementation.
-- Choose Attributes, Channels, Streams, RPCs, Timers, and SubFlows.
-- Use version-matched SDK APIs and runnable examples.
-- Test Worker replacement, retries, durable waits, and recovery.
-- Diagnose Flow failures through read-only evidence before recovery actions.
+| Skill | Use it for |
+| --- | --- |
+| **dex-sdk** | Implement, debug, test, and operate Dex applications in Python, Go, Java, TypeScript, or Rust. |
+| **dex-app-builder** | Discover, prototype, implement, and locally verify an end-to-end process product with a Go backend. |
+| **dex-connector-contributor** | Create or modify official Connector operations, Triggers, and configuration UI units in the Dex Connectors Library. |
 
+### Dex SDK
+
+Use **dex-sdk** for application-level Dex work. It models Flows, Steps,
+transitions, durable state, messages, RPCs, timers, retries, and recovery before
+implementation. It checks the SDK version installed by the application before
+choosing exact APIs and runnable examples.
+
+### Dex App Builder
+
+Use **dex-app-builder** for a complete process product. It starts with business
+roles, permissions, triggers, actions, waits, approvals, recovery, and audit
+requirements. It then chooses either Dex Web as the management experience or a
+custom UI, implements a Go backend from the supported template, and verifies
+the product with a real Dex Server.
+
+When the product needs a missing or defective external-provider Connector, the
+workflow routes that contribution to **dex-connector-contributor**. Application
+dependencies remain blocked on an exact published Connector release.
+
+### Dex Connector Contributor
+
+Use **dex-connector-contributor** for work in the official
+[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library).
+It starts from a provider's documented public API or official SDK, updates the
+manifest and generated surface, implements provider behavior, adds a runnable
+example, runs the complete test matrix, and opens an upstream pull request.
+
+The workflow first discovers and verifies the user's GitHub fork. If no fork
+exists, it asks permission and opens GitHub's fork page. The user clicks
+**Create fork** before the agent clones that fork and begins development.
+
+## How the skills work together
+
+**dex-app-builder** and **dex-connector-contributor** load the shared
+**dex-sdk** semantics when they reach backend work. App Builder owns the product
+workflow and consumption of released Connectors. Connector Contributor owns
+changes to the Connector library, release ordering, examples, provider tests,
+and PR delivery.
+
+Install the complete plugin so the agent can route between all three skills.
 The source and releases are maintained in
-[superdurable/skill-dex-developer](https://github.com/superdurable/skill-dex-developer).
+[superdurable/dex-skills](https://github.com/superdurable/dex-skills).
 
 ## Install for Codex
 
 Add the Super Durable marketplace and install the Dex plugin:
 
 ~~~bash
-codex plugin marketplace add superdurable/skill-dex-developer
-codex plugin add dex@superdurable
+codex plugin marketplace add superdurable/dex-skills
+codex plugin add superdurable-dex@superdurable
 ~~~
 
-Start a new task, then invoke the skill explicitly when needed:
+Start a new task after installation. Invoke a skill explicitly when needed:
 
 ~~~text
-$dex-developer Design a reliable Dex Flow for this application.
+$dex-sdk Design a reliable Dex Flow for this application.
+$dex-app-builder Design and build this process application.
+$dex-connector-contributor Add this capability to an official Connector.
 ~~~
 
-Codex can also select the skill automatically for Dex application work.
+Codex can also select a skill from the task context.
 
 ## Install for Claude Code
 
 Run these commands inside Claude Code:
 
 ~~~text
-/plugin marketplace add superdurable/skill-dex-developer
-/plugin install dex@superdurable
+/plugin marketplace add superdurable/dex-skills
+/plugin install superdurable-dex@superdurable
 /reload-plugins
 ~~~
 
-Invoke the skill as follows:
+The three invocations are:
 
 ~~~text
-/dex:dex-developer
+/superdurable-dex:dex-sdk
+/superdurable-dex:dex-app-builder
+/superdurable-dex:dex-connector-contributor
 ~~~
 
 ## Install for Cursor
 
-The Dex plugin follows the portable Agent Plugins standard supported by Cursor.
-Before it is listed in the public Cursor Marketplace, a team can import the
-GitHub repository into a team marketplace. An individual can install the skill
-directly:
-
-~~~bash
-npx skills add superdurable/skill-dex-developer --skill dex-developer
-~~~
-
-Invoke the installed skill manually when needed:
+Import [superdurable/dex-skills](https://github.com/superdurable/dex-skills)
+from **Customize → From GitHub Repository**, then install
+**superdurable-dex**. The three skills appear as:
 
 ~~~text
-/dex-developer
+/dex-sdk
+/dex-app-builder
+/dex-connector-contributor
 ~~~
 
-Cursor can also select the skill automatically from the task context.
+Agent Skills clients can install the complete bundle directly:
 
-## Keep the skill current
+~~~bash
+npx skills add superdurable/dex-skills --all
+~~~
+
+## Keep the plugin current
 
 Agents use an installed or cached copy. They do not fetch the latest GitHub
 content for every prompt, and an active task keeps the version loaded when that
 task started.
 
-- In Codex, upgrade the Super Durable marketplace, reinstall the Dex plugin,
-  and start a new task.
-- In Claude Code, update the marketplace and reload plugins. Third-party
-  marketplace auto-update can be enabled in the plugin manager.
-- In Cursor, refresh or reinstall the plugin. Team marketplaces can enable Auto
-  Refresh. Reload the window after changing a local plugin.
+- In Codex, upgrade the marketplace, reinstall the Dex plugin, and start a new
+  task.
+- In Claude Code, update the marketplace and reload plugins.
+- In Cursor, refresh or reinstall the plugin, then reload the window.
 - For a direct Agent Skills installation, rerun the installation command.
 
-The skill release version is separate from the Dex SDK version. The skill tells
-the agent to inspect the SDK installed by the application and use matching
-runnable examples before choosing exact APIs.
+The plugin version is separate from the Dex SDK version. Each skill inspects
+the application's installed dependencies and immutable released sources before
+using an exact API.
 
 ## Trust and permissions
 
-Install agent extensions only from sources you trust. The Dex plugin contains
-guidance files only. It declares no MCP server, hooks, credentials, or
-application runtime code. Recovery actions that mutate a running Flow still
-require explicit authorization.
+Install agent extensions only from sources you trust. The Dex plugin declares
+no MCP server, hooks, credentials, or application runtime code. Creating a
+GitHub fork, publishing a branch, opening a pull request, and mutating a running
+Flow remain permissioned actions. Connector fork creation pauses for the user
+to click GitHub's creation button.

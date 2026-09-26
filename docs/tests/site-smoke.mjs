@@ -19,9 +19,11 @@ const cloud = await readFile(join(root, 'cloud', 'index.html'), 'utf8');
 const cron = await readFile(join(root, 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
 const whyDex = await readFile(join(root, 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const production = await readFile(join(root, 'production', 'index.html'), 'utf8');
-const dexDeveloperSkill = await readFile(join(root, 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
+const dexSkills = await readFile(join(root, 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
+const connector = await readFile(join(root, 'primitives', 'connector', 'index.html'), 'utf8');
 const zhCron = await readFile(join(root, 'zh-Hans', 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
-const zhDexDeveloperSkill = await readFile(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
+const zhDexSkills = await readFile(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
+const zhConnector = await readFile(join(root, 'zh-Hans', 'primitives', 'connector', 'index.html'), 'utf8');
 const zhWhyDex = await readFile(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
 
@@ -51,7 +53,7 @@ assert.doesNotMatch(footer, />Docs<|BYOC|Star Us on GitHub/);
 assert.match(home, /English/);
 assert.match(home, /中文/);
 assert.match(home, /Build with AI/);
-assert.match(home, /Dex Developer Skill/);
+assert.match(home, /Dex Skills/);
 
 const primitivesPosition = home.indexOf('>Primitives<');
 const buildWithAIPosition = home.indexOf('>Build with AI<');
@@ -77,9 +79,16 @@ assert.match(whyDex, /OrderProcessingFlow/);
 assert.match(zhWhyDex, /flow-definition-canvas/);
 assert.match(zhWhyDex, /OrderProcessingFlow/);
 assert.match(production, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/production\/"/);
-assert.match(dexDeveloperSkill, /Build Dex applications with AI/);
-assert.match(dexDeveloperSkill, /superdurable\/skill-dex-developer/);
-assert.match(zhDexDeveloperSkill, /使用 AI 构建 Dex 应用/);
+assert.match(dexSkills, /Build with AI/);
+assert.match(dexSkills, /superdurable\/dex-skills/);
+assert.match(dexSkills, /dex-sdk/);
+assert.match(dexSkills, /dex-app-builder/);
+assert.match(dexSkills, /dex-connector-contributor/);
+assert.match(zhDexSkills, /使用 AI 构建/);
+assert.match(connector, /independent Dex primitive/);
+assert.match(connector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/primitives\/connector\/"/);
+assert.match(zhConnector, /独立 Dex primitive/);
+assert.match(zhConnector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/connector\/"/);
 assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/subflow\/"/);
 
 await Promise.all([
@@ -87,12 +96,14 @@ await Promise.all([
   access(join(root, 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'quick-start', 'index.html')),
   access(join(root, 'primitives', 'index.html')),
+  access(join(root, 'primitives', 'connector', 'index.html')),
   access(join(root, 'primitives', 'step', 'index.html')),
   access(join(root, 'references', 'cli', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'index.html')),
   access(join(root, 'zh-Hans', 'intro', 'what-is-durable-execution', 'index.html')),
   access(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'zh-Hans', 'quick-start', 'index.html')),
+  access(join(root, 'zh-Hans', 'primitives', 'connector', 'index.html')),
   access(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'index.html')),
 ]);
 

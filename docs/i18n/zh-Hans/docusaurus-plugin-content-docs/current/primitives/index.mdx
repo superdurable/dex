@@ -1,0 +1,21 @@
+---
+id: index
+title: Primitives
+sidebar_label: Overview
+slug: /primitives
+---
+
+# Primitives
+
+Dex 提供一组精简的 primitive。把它们组合成 Flow，可以实现复杂的业务需求。
+
+- [Flow](/primitives/flow) — 顶层 durable program，包含 Step、Attribute、Channel 和 RPC
+- [Step](/primitives/step) — 在后台运行并支持 retry 的 durable Step
+- [Connector](/primitives/connector) — Flow 与外部 provider 之间的 typed integration boundary
+- [Attribute](/primitives/attribute) — durable variable，支持可选 indexing、storage sync 和 locking
+- [RPC](/primitives/rpc) — durable communication（Remote Procedure Call）
+- [Channel](/primitives/channel) — 用于内部和外部通信的 durable message queue
+- [Stream](/primitives/stream) — 用于低延迟 UI update 的 best-effort resumable feed
+- [Timer](/primitives/timer) — durable timer
+- [SubFlow](/primitives/subflow) — 以层级结构启动另一个 Flow
+- [Client](/primitives/client) — 操作 Flow instance 的 API
