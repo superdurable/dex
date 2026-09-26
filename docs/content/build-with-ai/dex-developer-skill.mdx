@@ -14,6 +14,19 @@ contribute official [Connectors](/primitives/connector).
 The plugin contains guidance files only. Dex Server, Workers, and applications
 do not load it at runtime.
 
+## Requires a coding workspace
+
+Dex Skills is a developer plugin, not a hosted application builder. To create
+or modify an application, run it in Codex or another coding-agent host with a
+writable repository or project workspace, file-editing tools, and command
+execution. An existing repository or a new empty repository both work.
+
+In an ordinary chat without repository and command access, the skills can still
+help with business discovery, architecture, and an implementation handoff. They
+cannot create project files, run tests, build artifacts, or deploy the
+application. Move the confirmed plan into a repository-backed coding workspace
+before implementation.
+
 ## Start with Dex App Builder
 
 For most Dex requests, start with **dex-app-builder**. It is the primary skill
@@ -88,7 +101,8 @@ codex plugin marketplace add superdurable/dex-skills
 codex plugin add superdurable-dex@superdurable
 ~~~
 
-Start a new task after installation. Begin product work with App Builder:
+Open an existing repository or create an empty one, then start a new task.
+Begin product work with App Builder:
 
 ~~~text
 $dex-app-builder Design and build this process application.

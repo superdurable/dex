@@ -13,6 +13,16 @@ Dex Skills 是 Dex 官方的 coding agent plugin。它帮助 Codex、Claude Code
 
 该 plugin 只包含指导文件。Dex Server、Worker 和应用不会在运行时加载它。
 
+## 需要代码工作区
+
+Dex Skills 是 developer plugin，不是托管式 application builder。要创建或修改应用，
+需要在 Codex 或其他 coding-agent host 中使用，并提供可写 repository 或 project
+workspace、文件编辑工具和命令执行能力。现有 repository 和新建的空 repository 都可以。
+
+如果普通聊天没有 repository 和命令执行能力，这些 skill 仍可用于业务 discovery、
+架构设计和实现交接，但不能创建项目文件、运行测试、构建 artifact 或部署应用。
+开始实现前，需要把确认后的方案转到由 repository 支持的代码工作区。
+
 ## 优先使用 Dex App Builder
 
 大多数 Dex 请求都应从 **dex-app-builder** 开始。它是发现、设计、实现和验证完整
@@ -80,7 +90,8 @@ codex plugin marketplace add superdurable/dex-skills
 codex plugin add superdurable-dex@superdurable
 ~~~
 
-安装后启动新 task。产品工作从 App Builder 开始：
+打开现有 repository 或创建空 repository，然后启动新 task。产品工作从 App Builder
+开始：
 
 ~~~text
 $dex-app-builder Design and build this process application.
