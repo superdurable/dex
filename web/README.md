@@ -137,10 +137,12 @@ authorization first and disable every Flow configuration until the connection
 is ready. Each Connector Step or Trigger binding that declares
 `ConfigurationUI` gets one tab. Dex Web mounts only the selected tab's
 sandboxed unit iframes and marks the tab configured after its scoped record has
-been saved. The Connector bundle renders only the small pickers and inputs.
-Unit ports are merged at their declared JSON Pointers, so Flow code controls
-composition without coupling a Connector's connection screen to one example.
-The host protocol for this contract is 0.2.
+been saved. The Connector bundle renders only the small pickers and inputs and
+reports bounded content heights through a nonce-bound `connector.frame.resize`
+message. Dex Web validates the message source and resizes each iframe without
+reading its opaque-origin DOM. Unit ports are merged at their declared JSON
+Pointers, so Flow code controls composition without coupling a Connector's
+connection screen to one example. The host protocol for this contract is 0.2.
 
 Connections persist in `$HOME/.dex/connectors/connections.json` by default.
 Use `--connector-config-dir` to select another directory. Restarting Dex Web

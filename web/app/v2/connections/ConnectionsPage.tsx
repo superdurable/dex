@@ -357,14 +357,14 @@ function ConnectorUsePanel({catalog, connection, session, tab, onConfigured, onE
     <div className="connector-use-units">
       {tab.kind === 'operation'
         ? tab.use.configurationUI.units.map((unit) => <StudioFrame
-          catalog={catalog} connection={connection} configuration={tab.use.configuration} key={unit.id}
+          catalog={catalog} connection={connection} configuration={tab.use.configuration} key={`${tab.key}:${unit.id}`}
           onConfigured={onConfigured} onError={onError} session={session}
           target={configurationUnitTarget(unit, {
             kind: 'operation', operationId: tab.use.operationId, flowType: tab.use.flowName, stepType: tab.use.stepName,
           }, tab.use.configuration)}
         />)
         : tab.use.configurationUI.units.map((unit) => <StudioFrame
-          catalog={catalog} connection={connection} configuration={tab.use.configuration} key={unit.id}
+          catalog={catalog} connection={connection} configuration={tab.use.configuration} key={`${tab.key}:${unit.id}`}
           onConfigured={onConfigured} onError={onError} session={session}
           target={configurationUnitTarget(unit, {
             kind: 'trigger', triggerName: tab.use.triggerName, bindingName: tab.use.bindingName, flowType: tab.use.flowName,
@@ -533,9 +533,15 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [expanded, setExpanded] = useState(false);
+  const [frameHeight, setFrameHeight] = useState<number>();
   useEffect(() => {
     const receive = (event: MessageEvent<unknown>) => {
-      if (event.source !== frame.current?.contentWindow || event.origin !== 'null' || !isStudioCommand(event.data, session)) return;
+      if (event.source !== frame.current?.contentWindow || event.origin !== 'null') return;
+      if (isStudioFrameResize(event.data, session)) {
+        setFrameHeight(event.data.height);
+        return;
+      }
+      if (!isStudioCommand(event.data, session)) return;
       const commandMessage = event.data;
       const capability = studioCommandCapability(commandMessage.command);
       const supported = capability !== null && studioHostCapabilities(session).includes(capability);
@@ -604,6 +610,7 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
       ref={frame}
       sandbox="allow-scripts"
       src={session.entrypointUrl}
+      style={expanded || frameHeight === undefined ? undefined : {height: `${frameHeight}px`}}
       title={`${connection.connectorId} Connector ${target.kind === 'connection' ? 'setup' : target.label}`}
     />
   </div>;
@@ -621,6 +628,15 @@ export function isStudioCommand(value: unknown, session: UISessionResponse): val
     && (message.command === 'oauth.connect' || message.command === 'oauth.reconnect'
       || message.command === 'google.picker.open-spreadsheet' || message.command === 'google.sheets.list-tabs'
       || message.command === 'slack.channels.list' || message.command === 'slack.users.list' || message.command === 'use.configuration.save');
+}
+
+export function isStudioFrameResize(value: unknown, session: UISessionResponse): value is {height: number} {
+  if (typeof value !== 'object' || value === null) return false;
+  const message = value as Record<string, unknown>;
+  return message.type === 'connector.frame.resize' && message.protocolVersion === '0.2.0'
+    && message.sessionNonce === session.sessionNonce && message.connectorId === session.connectorId
+    && typeof message.height === 'number' && Number.isInteger(message.height)
+    && message.height >= 80 && message.height <= 4096;
 }
 
 function studioCommandCapability(command: StudioCommand) {

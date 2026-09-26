@@ -13,6 +13,7 @@ import {
   connectorWriteHeaders,
   initialConnectorSetupTabKey,
   isStudioCommand,
+  isStudioFrameResize,
   studioHostCapabilities,
   studioState,
 } from './ConnectionsPage';
@@ -48,6 +49,17 @@ describe('Connections contract', () => {
       type: 'connector.command', protocolVersion: '0.2.0', sessionNonce: 'nonce',
       connectorId: 'gmail', requestId: 'request', command: 'credential.read',
     }, session)).toBe(false);
+  });
+
+  it('accepts bounded iframe heights only from the active connector session', () => {
+    const session = { connectorId: 'slack', sessionNonce: 'nonce' } as never;
+    const resize = {
+      type: 'connector.frame.resize', protocolVersion: '0.2.0', sessionNonce: 'nonce',
+      connectorId: 'slack', height: 384,
+    };
+    expect(isStudioFrameResize(resize, session)).toBe(true);
+    expect(isStudioFrameResize({...resize, sessionNonce: 'other'}, session)).toBe(false);
+    expect(isStudioFrameResize({...resize, height: 4097}, session)).toBe(false);
   });
 
   it('advertises only host capabilities that are implemented', () => {
