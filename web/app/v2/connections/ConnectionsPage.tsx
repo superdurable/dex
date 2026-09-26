@@ -21,12 +21,13 @@ interface ConnectionUse {
   operationKind: string;
   configurationUI: ConnectorConfigurationUI;
   configuration: Record<string, unknown>;
+  configured: boolean;
 }
 
 interface ConnectorUIBinding { port: string; jsonPointer: string; }
 interface ConnectorUIUnit { id: string; unitId: string; label: string; description?: string; required: boolean; bindings: ConnectorUIBinding[]; }
 interface ConnectorConfigurationUI { units: ConnectorUIUnit[]; }
-interface TriggerUse { flowName: string; triggerName: string; bindingName: string; configurationUI: ConnectorConfigurationUI; configuration: Record<string, unknown>; }
+interface TriggerUse { flowName: string; triggerName: string; bindingName: string; configurationUI: ConnectorConfigurationUI; configuration: Record<string, unknown>; configured: boolean; }
 
 interface ConnectionView {
   connectorId: string;
@@ -100,12 +101,19 @@ type StudioTarget = {kind: 'connection'} | {
   value: Record<string, unknown>;
 };
 
+type ConnectorSetupTab =
+  | {key: 'authorize'; kind: 'authorize'; label: string; detail: string; configured: boolean}
+  | {key: string; kind: 'operation'; label: string; detail: string; configured: boolean; use: ConnectionUse}
+  | {key: string; kind: 'trigger'; label: string; detail: string; configured: boolean; use: TriggerUse};
+
 export function ConnectionsPage() {
   const [catalog, setCatalog] = useState<ConnectionsResponse | null>(null);
   const [selected, setSelected] = useState<ConnectionView | null>(null);
   const [session, setSession] = useState<UISessionResponse | null>(null);
+  const [selectedSetupTabKey, setSelectedSetupTabKey] = useState('authorize');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const initializedSetupConnection = useRef('');
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const response = await dexFetch('/api/v2/connector-connections', { signal });
@@ -145,6 +153,22 @@ export function ConnectionsPage() {
     return () => controller.abort();
   }, [catalog, selected?.connectorId, selected?.connectionName, selected?.status]);
 
+  useEffect(() => {
+    if (!selected || !session) return;
+    const selectedConnectionKey = connectionKey(selected);
+    const tabs = connectorSetupTabs(selected, Boolean(session.entrypointUrl));
+    const initialTabKey = initialConnectorSetupTabKey(selected, Boolean(session.entrypointUrl));
+    setSelectedSetupTabKey((current) => {
+      if (initializedSetupConnection.current !== selectedConnectionKey) {
+        initializedSetupConnection.current = selectedConnectionKey;
+        return initialTabKey;
+      }
+      const currentTab = tabs.find((tab) => tab.key === current);
+      if (!currentTab || (currentTab.kind !== 'authorize' && selected.status !== 'Ready')) return initialTabKey;
+      return current;
+    });
+  }, [selected?.connectorId, selected?.connectionName, selected?.status, session?.entrypointUrl]);
+
   const deleteCredentials = async () => {
     if (!catalog || !selected) return;
     setBusy(true);
@@ -163,6 +187,13 @@ export function ConnectionsPage() {
 
   if (error && !catalog) return <div className="connections-page"><div className="error-banner">{error}</div></div>;
   if (!catalog) return <div className="page-loading">Loading Connections…</div>;
+  const setupTabs = selected && session ? connectorSetupTabs(selected, Boolean(session.entrypointUrl)) : [];
+  const requestedSetupTab = setupTabs.find((tab) => tab.key === selectedSetupTabKey);
+  const activeSetupTab = selected && setupTabs.length > 0
+    ? requestedSetupTab && (requestedSetupTab.kind === 'authorize' || selected.status === 'Ready')
+      ? requestedSetupTab
+      : setupTabs.find((tab) => tab.key === initialConnectorSetupTabKey(selected, Boolean(session?.entrypointUrl))) ?? setupTabs[0]
+    : null;
   return (
     <div className="connections-page">
       <header className="connections-hero">
@@ -178,18 +209,29 @@ export function ConnectionsPage() {
       <div className="connections-layout">
         <aside className="connections-list" aria-label="Named connections">
           {catalog.connections.length === 0 && <p className="connections-empty">No configurable Connector Steps or Triggers were found.</p>}
-          {catalog.connections.map((connection) => (
-            <button
-              className="connection-row"
-              data-selected={selected ? connectionKey(connection) === connectionKey(selected) : false}
-              key={connectionKey(connection)}
-              onClick={() => setSelected(connection)}
-              type="button"
-            >
-              <span><b>{connection.connectorId}</b><small>{connection.connectionName || 'Unnamed connection'}</small></span>
-              <Status status={connection.status} />
-            </button>
-          ))}
+          {catalog.connections.map((connection) => {
+            const isSelected = selected ? connectionKey(connection) === connectionKey(selected) : false;
+            return <div className="connection-list-item" data-selected={isSelected} key={connectionKey(connection)}>
+              <button
+                className="connection-row"
+                data-selected={isSelected}
+                onClick={() => {
+                  setSelected(connection);
+                  setSelectedSetupTabKey('authorize');
+                }}
+                type="button"
+              >
+                <span><b>{connection.connectorId}</b><small>{connection.connectionName || 'Unnamed connection'}</small></span>
+                <Status status={connection.status} />
+              </button>
+              {isSelected && activeSetupTab && <ConnectorSetupNavigation
+                activeTab={activeSetupTab}
+                connection={connection}
+                onSelect={setSelectedSetupTabKey}
+                tabs={setupTabs}
+              />}
+            </div>;
+          })}
         </aside>
         <section className="connection-detail">
           {!selected && <p>Select a named connection.</p>}
@@ -199,28 +241,13 @@ export function ConnectionsPage() {
                 <div><h2>{selected.connectorId} / {selected.connectionName || 'unnamed'}</h2><code>{selected.localOverride ? `Local override · ${selected.moduleVersion}` : selected.moduleVersion || 'No exact release'}</code></div>
                 <Status status={selected.status} />
               </div>
-              <div className="connection-uses">
-                {selected.uses.map((use) => <div key={`${use.flowName}:${use.stepId}`}>
-                  <b>{use.flowName}</b><span>{use.stepName}</span><code>{use.operationId} · {use.operationKind}</code>
-                </div>)}
-                {selected.triggerUses?.map((use) => <div key={`${use.flowName}:${use.bindingName}`}>
-                  <b>{use.flowName}</b><span>{use.bindingName}</span><code>{use.triggerName} trigger</code>
-                </div>)}
-              </div>
               {selected.status === 'Conflict' && <p className="connection-warning">The same connector and connection name use different module versions. Align the Flow dependencies before configuring.</p>}
               {selected.status === 'Unsupported' && <p className="connection-warning">Automatic setup requires an exact official release and a static ConnectionName.</p>}
               {selected.credentialExpiresAt && <p>Token expires: <time>{selected.credentialExpiresAt}</time></p>}
-              {session?.entrypointUrl && <StudioFrame catalog={catalog} connection={selected} session={session} target={{kind: 'connection'}} configuration={{}} onConfigured={load} onError={setError} />}
-              {session && <ConnectorForm
-                catalog={catalog}
-                connection={selected}
-                manifest={session.manifest}
-                onConfigured={load}
-                onError={setError}
-              />}
               {busy && <p role="status">Loading Connector release…</p>}
-              {selected.status === 'Ready' && session?.entrypointUrl && <ConnectorUseConfiguration
-                catalog={catalog} connection={selected} session={session} onConfigured={load} onError={setError}
+              {session && activeSetupTab && <ConnectorSetupPanel
+                activeTab={activeSetupTab} catalog={catalog} connection={selected} session={session}
+                onConfigured={load} onError={setError} onSelect={setSelectedSetupTabKey} setupTabs={setupTabs}
               />}
               {selected.status !== 'Missing' && selected.status !== 'Unsupported' && selected.status !== 'Conflict' && (
                 <button className="connection-delete" disabled={busy} onClick={() => void deleteCredentials()} type="button">
@@ -236,32 +263,142 @@ export function ConnectionsPage() {
   );
 }
 
-function ConnectorUseConfiguration({catalog, connection, session, onConfigured, onError}: {
+function ConnectorSetupNavigation({activeTab, connection, tabs, onSelect}: {
+  activeTab: ConnectorSetupTab;
+  connection: ConnectionView;
+  tabs: ConnectorSetupTab[];
+  onSelect: (key: string) => void;
+}) {
+  return <div className="connector-setup-tabs" role="tablist" aria-label={`${connection.connectorId} setup`}>
+    {tabs.map((tab, index) => {
+      const disabled = tab.kind !== 'authorize' && connection.status !== 'Ready';
+      return <button
+        aria-controls="connector-setup-panel"
+        aria-selected={activeTab.key === tab.key}
+        className="connector-setup-tab"
+        data-configured={tab.configured}
+        disabled={disabled}
+        id={`connector-setup-tab-${tab.key}`}
+        key={tab.key}
+        onClick={() => onSelect(tab.key)}
+        role="tab"
+        type="button"
+      >
+        <span className="connector-setup-tab-order">{index + 1}</span>
+        <span className="connector-setup-tab-copy"><b>{tab.label}</b><small>{tab.detail}</small></span>
+        <span aria-label={tab.configured ? 'Configured' : 'Not configured'} className="connector-setup-tab-status">{tab.configured ? '✓' : ''}</span>
+      </button>;
+    })}
+  </div>;
+}
+
+function ConnectorSetupPanel({activeTab, catalog, connection, session, setupTabs, onConfigured, onError, onSelect}: {
+  activeTab: ConnectorSetupTab;
   catalog: ConnectionsResponse;
   connection: ConnectionView;
   session: UISessionResponse;
+  setupTabs: ConnectorSetupTab[];
+  onConfigured: () => Promise<void>;
+  onError: (message: string) => void;
+  onSelect: (key: string) => void;
+}) {
+  const completeAuthorization = async () => {
+    await onConfigured();
+    const firstConfiguration = setupTabs.find((tab) => tab.kind !== 'authorize');
+    if (firstConfiguration) onSelect(firstConfiguration.key);
+  };
+  return <div aria-labelledby={`connector-setup-tab-${activeTab.key}`} className="connector-setup-panel" id="connector-setup-panel" role="tabpanel">
+    {activeTab.kind === 'authorize'
+      ? <AuthorizationPanel
+        catalog={catalog} connection={connection} manifest={session.manifest}
+        onConfigured={completeAuthorization} onError={onError}
+      />
+      : <ConnectorUsePanel
+        catalog={catalog} connection={connection} onConfigured={onConfigured} onError={onError}
+        session={session} tab={activeTab}
+      />}
+  </div>;
+}
+
+function AuthorizationPanel({catalog, connection, manifest, onConfigured, onError}: {
+  catalog: ConnectionsResponse;
+  connection: ConnectionView;
+  manifest: ReleaseManifest;
   onConfigured: () => Promise<void>;
   onError: (message: string) => void;
 }) {
-  return <section className="connector-use-configuration">
-    <h3>Flow configuration</h3>
-    {connection.uses.map((use) => use.configurationUI.units.length > 0 && <section className="connector-use" key={`${use.flowName}:${use.stepId}`}>
-      <header><b>{use.flowName}</b><span>{use.stepName}</span><code>{use.operationId}</code></header>
-      {use.configurationUI.units.map((unit) => <StudioFrame
-        catalog={catalog} connection={connection} configuration={use.configuration} key={unit.id}
-        onConfigured={onConfigured} onError={onError} session={session}
-        target={configurationUnitTarget(unit, {kind: 'operation', operationId: use.operationId, flowType: use.flowName, stepType: use.stepName}, use.configuration)}
-      />)}
-    </section>)}
-    {connection.triggerUses?.map((use) => use.configurationUI.units.length > 0 && <section className="connector-use" key={`${use.flowName}:${use.bindingName}`}>
-      <header><b>{use.flowName}</b><span>{use.bindingName}</span><code>{use.triggerName} trigger</code></header>
-      {use.configurationUI.units.map((unit) => <StudioFrame
-        catalog={catalog} connection={connection} configuration={use.configuration} key={unit.id}
-        onConfigured={onConfigured} onError={onError} session={session}
-        target={configurationUnitTarget(unit, {kind: 'trigger', triggerName: use.triggerName, bindingName: use.bindingName, flowType: use.flowName}, use.configuration)}
-      />)}
-    </section>)}
+  const [reauthorizing, setReauthorizing] = useState(false);
+  if (connection.status === 'Ready' && !reauthorizing) {
+    return <div className="connector-authorization-complete">
+      <span aria-hidden="true" className="connector-authorization-check">✓</span>
+      <div><h3>Authorization complete</h3><p>This connection is ready. Continue with each Flow operation and trigger.</p></div>
+      <button className="connector-secondary-action" onClick={() => setReauthorizing(true)} type="button">Reauthorize</button>
+    </div>;
+  }
+  return <ConnectorForm
+    catalog={catalog} connection={connection} manifest={manifest}
+    onConfigured={onConfigured} onError={onError}
+  />;
+}
+
+function ConnectorUsePanel({catalog, connection, session, tab, onConfigured, onError}: {
+  catalog: ConnectionsResponse;
+  connection: ConnectionView;
+  session: UISessionResponse;
+  tab: Extract<ConnectorSetupTab, {kind: 'operation' | 'trigger'}>;
+  onConfigured: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  return <section className="connector-use">
+    <header>
+      <div><span className="connector-use-kind">{tab.kind}</span><h3>{tab.label}</h3></div>
+      <p><b>{tab.use.flowName}</b> · {tab.kind === 'operation' ? tab.use.stepName : tab.use.bindingName}</p>
+    </header>
+    <div className="connector-use-units">
+      {tab.kind === 'operation'
+        ? tab.use.configurationUI.units.map((unit) => <StudioFrame
+          catalog={catalog} connection={connection} configuration={tab.use.configuration} key={unit.id}
+          onConfigured={onConfigured} onError={onError} session={session}
+          target={configurationUnitTarget(unit, {
+            kind: 'operation', operationId: tab.use.operationId, flowType: tab.use.flowName, stepType: tab.use.stepName,
+          }, tab.use.configuration)}
+        />)
+        : tab.use.configurationUI.units.map((unit) => <StudioFrame
+          catalog={catalog} connection={connection} configuration={tab.use.configuration} key={unit.id}
+          onConfigured={onConfigured} onError={onError} session={session}
+          target={configurationUnitTarget(unit, {
+            kind: 'trigger', triggerName: tab.use.triggerName, bindingName: tab.use.bindingName, flowType: tab.use.flowName,
+          }, tab.use.configuration)}
+        />)}
+    </div>
   </section>;
+}
+
+export function connectorSetupTabs(connection: ConnectionView, hasStudio = true): ConnectorSetupTab[] {
+  const tabs: ConnectorSetupTab[] = [{
+    key: 'authorize', kind: 'authorize', label: 'Authorize', detail: connection.connectionName || 'Connection',
+    configured: connection.status === 'Ready',
+  }];
+  if (!hasStudio) return tabs;
+  for (const use of connection.uses.filter((candidate) => candidate.configurationUI.units.length > 0)) {
+    tabs.push({
+      key: `operation:${use.flowName}:${use.stepId}`, kind: 'operation', label: use.operationId,
+      detail: `${use.stepName} · ${use.operationKind}`, configured: use.configured, use,
+    });
+  }
+  for (const use of connection.triggerUses?.filter((candidate) => candidate.configurationUI.units.length > 0) ?? []) {
+    tabs.push({
+      key: `trigger:${use.flowName}:${use.bindingName}`, kind: 'trigger', label: use.triggerName,
+      detail: `${use.bindingName} · trigger`, configured: use.configured, use,
+    });
+  }
+  return tabs;
+}
+
+export function initialConnectorSetupTabKey(connection: ConnectionView, hasStudio = true) {
+  if (connection.status !== 'Ready') return 'authorize';
+  const configurationTabs = connectorSetupTabs(connection, hasStudio).filter((tab) => tab.kind !== 'authorize');
+  return configurationTabs.find((tab) => !tab.configured)?.key ?? configurationTabs[0]?.key ?? 'authorize';
 }
 
 function configurationUnitTarget(

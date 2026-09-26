@@ -115,6 +115,7 @@ type connectorConnectionStepUse struct {
 	OperationKind   string                         `json:"operationKind"`
 	ConfigurationUI api.V2ConnectorConfigurationUI `json:"configurationUI"`
 	Configuration   map[string]json.RawMessage     `json:"configuration"`
+	Configured      bool                           `json:"configured"`
 }
 
 type connectorConnectionTriggerUse struct {
@@ -123,6 +124,7 @@ type connectorConnectionTriggerUse struct {
 	BindingName     string                         `json:"bindingName"`
 	ConfigurationUI api.V2ConnectorConfigurationUI `json:"configurationUI"`
 	Configuration   map[string]json.RawMessage     `json:"configuration"`
+	Configured      bool                           `json:"configured"`
 }
 
 type connectorConnectionListResponse struct {
@@ -532,6 +534,7 @@ func (setup *connectorSetup) connectionViews(ctx context.Context) ([]connectorCo
 			for _, configuration := range useConfigurations {
 				if configuration.OperationID == use.OperationID && configuration.FlowType == use.FlowName && configuration.StepType == use.StepName {
 					use.Configuration = configuration.Configuration
+					use.Configured = true
 				}
 			}
 			if use.Configuration == nil {
@@ -547,6 +550,7 @@ func (setup *connectorSetup) connectionViews(ctx context.Context) ([]connectorCo
 			for _, binding := range triggerBindings {
 				if binding.TriggerName == use.TriggerName && binding.BindingName == use.BindingName {
 					use.Configuration = binding.Configuration
+					use.Configured = true
 				}
 			}
 			if use.Configuration == nil {

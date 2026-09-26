@@ -168,6 +168,13 @@ func TestConnectorUseConfigurationAPIWritesFlowStepScopedSidecar(t *testing.T) {
 	if !bytes.Contains(contents, []byte(connectorUseConfigurationsSchema)) || bytes.Contains(contents, []byte("token")) {
 		t.Fatalf("sidecar = %s", contents)
 	}
+	views, _, err := setup.connectionViews(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || len(views[0].Uses) != 1 || !views[0].Uses[0].Configured {
+		t.Fatalf("configured use view = %+v", views)
+	}
 
 	request = authorizedConnectorRequest(t, setup, http.MethodPut, "/api/v2/connector-use-configurations/gmail/sender/sendMessage/TestFlow/TestStep", strings.NewReader(`{"configuration":{"undeclared":{}}}`))
 	request.SetPathValue("connectorId", "gmail")
