@@ -30,6 +30,7 @@ const sidebars: SidebarsConfig = {
             'primitives/step/step-options',
           ],
         },
+        'primitives/connector',
         'primitives/attribute',
         'primitives/rpc',
         'primitives/channel',

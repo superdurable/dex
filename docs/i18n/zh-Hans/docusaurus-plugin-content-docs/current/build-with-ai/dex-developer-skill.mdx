@@ -1,96 +1,135 @@
 ---
 id: dex-developer-skill
-title: Dex Developer Skill
+title: Dex Skills
+sidebar_label: Dex Skills
 slug: /build-with-ai/dex-developer-skill
 ---
 
-# 使用 AI 构建 Dex 应用
+# 使用 AI 构建
 
-Dex Developer 是 Dex 官方的 coding agent skill。它帮助 Codex、Claude Code、
-Cursor 和其他 Agent Skills 客户端，使用 Python、Go、Java、TypeScript 或 Rust
-按照 Dex 的公开编程模型开发应用。
+Dex Skills 是 Dex 官方的 coding agent plugin。它帮助 Codex、Claude Code、Cursor
+和其他 Agent Skills client 构建 Dex 应用，并贡献官方
+[Connector](/primitives/connector)。
 
-该 skill 用于指导应用开发。Dex Server、Worker 和 SuperAgent 在运行时不会加载它。
+该 plugin 只包含指导文件。Dex Server、Worker 和应用不会在运行时加载它。
 
-## Skill 可以提供什么帮助
+## 选择 Skill
 
-- 根据应用的持久性和协作需求选择合适的设计模式。
-- 在实现前设计 Flow、Step、转换和失败路径。
-- 选择 Attribute、Channel、Stream、RPC、Timer 和 SubFlow。
-- 使用与版本匹配的 SDK API 和可运行示例。
-- 测试 Worker 替换、重试、持久等待和恢复。
-- 在执行恢复操作前，先通过只读证据诊断 Flow 故障。
+| Skill | 使用场景 |
+| --- | --- |
+| **dex-sdk** | 使用 Python、Go、Java、TypeScript 或 Rust 实现、调试、测试和运维 Dex 应用。 |
+| **dex-app-builder** | 发现、原型设计、实现并在本地验证使用 Go backend 的端到端 process product。 |
+| **dex-connector-contributor** | 在 Dex Connectors Library 中新增或修改官方 Connector operation、Trigger 和 configuration UI unit。 |
 
-源码和 release 位于
-[superdurable/skill-dex-developer](https://github.com/superdurable/skill-dex-developer)。
+### Dex SDK
+
+应用层 Dex 开发使用 **dex-sdk**。它会在实现前设计 Flow、Step、transition、durable
+state、message、RPC、timer、retry 和 recovery。选择具体 API 和可运行示例前，它会
+检查应用实际安装的 SDK version。
+
+### Dex App Builder
+
+完整 process product 使用 **dex-app-builder**。它从业务 role、permission、trigger、
+action、wait、approval、recovery 和 audit requirement 开始，然后选择 Dex Web 作为
+management experience，或构建 custom UI。它基于受支持的 template 实现 Go backend，
+并使用真实 Dex Server 验证产品。
+
+如果产品需要的 external-provider Connector 缺失或存在缺陷，该流程会把贡献工作
+路由到 **dex-connector-contributor**。应用 dependency 必须等待精确的已发布
+Connector release。
+
+### Dex Connector Contributor
+
+修改官方
+[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
+时使用 **dex-connector-contributor**。它从 provider 的公开文档 API 或官方 SDK
+出发，更新 manifest 和生成 surface，实现 provider behavior，增加可运行示例，执行
+完整测试矩阵，并提交 upstream pull request。
+
+该流程会先查找并验证用户的 GitHub fork。如果 fork 不存在，它会先询问许可并打开
+GitHub fork 页面。用户点击 **Create fork** 后，agent 才会 clone 该 fork 并开始开发。
+
+## 三个 Skill 如何协作
+
+**dex-app-builder** 和 **dex-connector-contributor** 进入 backend 工作时，会加载
+共享的 **dex-sdk** 语义。App Builder 负责产品流程和已发布 Connector 的使用。
+Connector Contributor 负责 Connector library 变更、release 顺序、示例、provider
+测试和 PR 交付。
+
+安装完整 plugin 后，agent 才能在三个 skill 之间正确路由。源码和 release 位于
+[superdurable/dex-skills](https://github.com/superdurable/dex-skills)。
 
 ## 安装到 Codex
 
 添加 Super Durable marketplace，然后安装 Dex plugin：
 
 ~~~bash
-codex plugin marketplace add superdurable/skill-dex-developer
-codex plugin add dex@superdurable
+codex plugin marketplace add superdurable/dex-skills
+codex plugin add superdurable-dex@superdurable
 ~~~
 
-启动一个新 task，然后在需要时显式调用：
+安装后启动新 task。需要时可以显式调用：
 
 ~~~text
-$dex-developer Design a reliable Dex Flow for this application.
+$dex-sdk Design a reliable Dex Flow for this application.
+$dex-app-builder Design and build this process application.
+$dex-connector-contributor Add this capability to an official Connector.
 ~~~
 
-Codex 也可以在 Dex 应用开发任务中自动选择该 skill。
+Codex 也可以根据 task context 自动选择 skill。
 
 ## 安装到 Claude Code
 
 在 Claude Code 中运行：
 
 ~~~text
-/plugin marketplace add superdurable/skill-dex-developer
-/plugin install dex@superdurable
+/plugin marketplace add superdurable/dex-skills
+/plugin install superdurable-dex@superdurable
 /reload-plugins
 ~~~
 
-按以下方式调用：
+三个调用入口是：
 
 ~~~text
-/dex:dex-developer
+/superdurable-dex:dex-sdk
+/superdurable-dex:dex-app-builder
+/superdurable-dex:dex-connector-contributor
 ~~~
 
 ## 安装到 Cursor
 
-Dex plugin 遵循 Cursor 支持的 portable Agent Plugins 标准。在它进入 Cursor
-公共 Marketplace 前，团队可以把 GitHub 仓库导入 team marketplace。个人用户可以
-直接安装 skill：
-
-~~~bash
-npx skills add superdurable/skill-dex-developer --skill dex-developer
-~~~
-
-需要时可以手动调用：
+在 **Customize → From GitHub Repository** 中导入
+[superdurable/dex-skills](https://github.com/superdurable/dex-skills)，然后安装
+**superdurable-dex**。三个 skill 会显示为：
 
 ~~~text
-/dex-developer
+/dex-sdk
+/dex-app-builder
+/dex-connector-contributor
 ~~~
 
-Cursor 也可以根据任务上下文自动选择该 skill。
+Agent Skills client 也可以直接安装完整 bundle：
 
-## 保持 Skill 为最新版本
+~~~bash
+npx skills add superdurable/dex-skills --all
+~~~
+
+## 保持 Plugin 为最新版本
 
 Agent 使用已经安装或缓存的副本。它们不会在每次 prompt 时获取 GitHub 最新内容，
-运行中的 task 也会继续使用 task 启动时加载的版本。
+运行中的 task 也会继续使用 task 启动时加载的 version。
 
-- 在 Codex 中升级 Super Durable marketplace，重新安装 Dex plugin，然后启动新 task。
-- 在 Claude Code 中更新 marketplace 并 reload plugin。也可以在 plugin manager 中为
-  第三方 marketplace 启用自动更新。
-- 在 Cursor 中 refresh 或重新安装 plugin。Team marketplace 可以启用 Auto Refresh。
-  修改本地 plugin 后需要 reload window。
+- 在 Codex 中升级 marketplace，重新安装 Dex plugin，然后启动新 task。
+- 在 Claude Code 中更新 marketplace 并 reload plugin。
+- 在 Cursor 中 refresh 或重新安装 plugin，然后 reload window。
 - 直接通过 Agent Skills 安装时，请重新运行安装命令。
 
-Skill release version 与 Dex SDK version 相互独立。Skill 会要求 agent 检查应用实际安装的
-SDK，并在选择具体 API 前使用版本匹配的可运行示例。
+Plugin version 与 Dex SDK version 相互独立。每个 skill 在使用具体 API 前，都会检查
+应用实际安装的 dependency 和不可变 release source。
 
 ## 信任与权限
 
-只从可信来源安装 agent extension。Dex plugin 仅包含指导文件，不声明 MCP server、hook、
-credential 或应用运行时代码。会修改运行中 Flow 的恢复操作仍然需要显式授权。
+只从可信来源安装 agent extension。Dex plugin 不声明 MCP server、hook、credential
+或应用 runtime code。创建 GitHub fork、发布 branch、打开 pull request，以及修改运行中
+Flow，仍然是需要授权的操作。创建 Connector fork 时，流程会暂停并等待用户点击
+GitHub 的创建按钮。

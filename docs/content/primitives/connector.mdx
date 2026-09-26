@@ -1,0 +1,97 @@
+---
+id: connector
+title: Connector
+sidebar_label: Connector
+slug: /primitives/connector
+---
+
+# Connector
+
+A Connector is an independent Dex primitive for integrating a Flow with an
+external provider. It packages typed operations, event ingress, authorization,
+and optional configuration UI without putting provider credentials in durable
+Flow state.
+
+Official Connectors are released separately from Dex. The current Connector
+SDK and official provider modules support Go applications.
+
+## Capabilities
+
+A Connector can expose five capabilities:
+
+- **Auth** authorizes a logical connection and keeps credentials outside the
+  Flow.
+- **Trigger** converts a provider event into a typed event that can start a Flow
+  or invoke a typed RPC.
+- **Query** reads provider state from a Connector Step.
+- **Mutation** changes provider state with explicit idempotency and uncertainty
+  handling.
+- **UI** supplies reusable configuration units that Dex Web composes for a Step
+  or Trigger binding.
+
+A provider module can expose only the capabilities it needs. Applications use
+the generated types for that exact module release.
+
+## Operations are Connector Steps
+
+An operation-specific factory creates a Connector Step. The application maps
+the current Step input to the provider input and connects each required result
+branch to another Step. The provider call runs in **Execute** and inherits Dex
+retry, timeout, durability, and recovery behavior.
+
+A Connector result contains the current operation output, receipt, selected
+branch, and a safe failure classification when one exists. It does not forward
+the previous Step input. Persist business context in an application Attribute
+or pass it through an application Step before invoking the Connector.
+
+Queries read provider state. Mutations change provider state and use a stable
+idempotency key derived from the Step execution. When a dispatched mutation has
+an unknown outcome, the Connector selects an uncertainty branch so the Flow can
+query and reconcile instead of sending the mutation again blindly.
+
+Only the happy-path branch must be connected by default. An optional branch can
+be left unwired; selecting an unwired optional branch fails the Flow and makes
+the provider outcome visible for recovery.
+
+## Triggers start or update Flows
+
+A Connector Trigger is a long-running event source outside the Flow. It
+preserves the provider event ID and occurrence time, then delivers the event at
+least once to an application-owned target.
+
+The application supplies the final filter, resolves the Flow ID, and maps the
+provider event to a typed input. It chooses whether the event starts a Flow or
+invokes a typed RPC on an existing Flow. A root start reuses the provider event
+ID as its request identity. An RPC target keeps any required duplicate handling
+in bounded application state.
+
+Local Trigger runners persist a matched event before acknowledging it to the
+provider. They replay pending delivery after a process restart.
+
+## Connections and configuration
+
+Flow definitions refer to a logical connection name, not credentials. In local
+development, Dex Web reads those static references and exposes them in
+**Connections**. It verifies the exact official module release before writing
+connection, operation, or Trigger-binding configuration.
+
+A Connector Studio UI runs in an opaque-origin sandbox. Provider commands are
+declared by the Connector release and executed by the Dex Web host. Stored
+credentials never enter the iframe, Flow input, Attributes, results, receipts,
+Streams, logs, or generated artifacts.
+
+See [Local Connector setup](/production/local-connector-setup) for Dex Web and
+local credential storage.
+
+## Use or contribute a Connector
+
+Browse the [published Connector catalog](https://superdurable.github.io/dex-connectors-library/)
+before writing provider integration code. The
+[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
+contains manifests, generated APIs, provider implementations, UI units, and
+runnable examples.
+
+Use the [Dex SDK skill](/build-with-ai/dex-developer-skill#dex-sdk) when an
+application consumes a released Connector. Use the
+[Dex Connector Contributor skill](/build-with-ai/dex-developer-skill#dex-connector-contributor)
+to add or modify an official Connector, operation, Trigger, or UI unit.
