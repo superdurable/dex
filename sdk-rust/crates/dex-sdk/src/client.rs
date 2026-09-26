@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use std::any::TypeId;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -38,10 +38,10 @@ use crate::worker_dispatcher::{map_flow_timeout_handler_options, map_step_option
 use crate::{
     ActiveStepSearchMode, Attribute, AttributeMap, AttributeMatch, BlobCache, ClientOptions, Flow,
     FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus, FlowTimeoutPolicy, IdReusePolicy,
-    Registry, RetryPolicy, Rpc, SdkError, SdkResult, SearchFlowEntry, SearchFlowsPage,
-    StartFlowOptions, StepCompletion, StepDurability, StepExecutionId, StopFlowOptions, Stream,
-    StreamMessage, StreamMessagesPage, TimeTravelOptions, TimerId, Value, WaitForAttributeOptions,
-    WaitForStepCompletionOptions, WorkerTarget,
+    Registry, RetryPolicy, Rpc, RpcInvokeOptions, SdkError, SdkResult, SearchFlowEntry,
+    SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability, StepExecutionId,
+    StopFlowOptions, Stream, StreamMessage, StreamMessagesPage, TimeTravelOptions, TimerId, Value,
+    WaitForAttributeOptions, WaitForStepCompletionOptions, WorkerTarget,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -228,7 +228,23 @@ impl Client {
         rpc: Rpc<Input, Output>,
         input: Input,
     ) -> SdkResult<Output> {
-        self.do_invoke_rpc(flow_id, rpc.name(), &input)
+        self.do_invoke_rpc(flow_id, rpc.name(), &input, &RpcInvokeOptions::new())
+    }
+
+    /// Invokes a registered RPC with typed input and additive runtime map-instance selections.
+    ///
+    /// # Errors
+    ///
+    /// Returns a local definition error for an unregistered or wrong-kind selection. Invalid map
+    /// instance names and all errors documented by [`Self::invoke_rpc`] are also returned.
+    pub fn invoke_rpc_with_options<Input: Value, Output: Value>(
+        &self,
+        flow_id: &str,
+        rpc: Rpc<Input, Output>,
+        input: Input,
+        options: RpcInvokeOptions,
+    ) -> SdkResult<Output> {
+        self.do_invoke_rpc(flow_id, rpc.name(), &input, &options)
     }
 
     /// Invokes a registered no-input RPC and decodes its typed output.
@@ -239,7 +255,21 @@ impl Client {
         flow_id: &str,
         rpc: Rpc<(), Output>,
     ) -> SdkResult<Output> {
-        self.do_invoke_rpc(flow_id, rpc.name(), &())
+        self.do_invoke_rpc(flow_id, rpc.name(), &(), &RpcInvokeOptions::new())
+    }
+
+    /// Invokes a registered no-input RPC with additive runtime map-instance selections.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::invoke_rpc_with_options`].
+    pub fn invoke_rpc_without_input_with_options<Output: Value>(
+        &self,
+        flow_id: &str,
+        rpc: Rpc<(), Output>,
+        options: RpcInvokeOptions,
+    ) -> SdkResult<Output> {
+        self.do_invoke_rpc(flow_id, rpc.name(), &(), &options)
     }
 
     /// Appends one typed best-effort Stream message with source metadata.
@@ -850,14 +880,43 @@ impl Client {
         flow_id: &str,
         rpc_name: &str,
         input: &Input,
+        invoke_options: &RpcInvokeOptions,
     ) -> SdkResult<Output> {
-        let rpc = self.registry.rpc(rpc_name)?;
+        let (flow, rpc) = self.registry.rpc_with_flow(rpc_name)?;
+        let mut lock_attribute_keys = rpc
+            .locks
+            .iter()
+            .map(|lock| lock.physical_name())
+            .collect::<BTreeSet<_>>();
+        for lock in &invoke_options.lock_attribute_map_instances {
+            let Some(instance) = lock.instance() else {
+                return Err(SdkError::FlowDefinition {
+                    message: "RpcInvokeOptions lock must target an AttributeMap instance".into(),
+                });
+            };
+            require_rpc_invoke_definition(
+                flow,
+                lock.attribute_name(),
+                crate::persistence::PersistenceKind::AttributeMap,
+            )?;
+            crate::registry::validate_map_instance(instance).map_err(invalid)?;
+            lock_attribute_keys.insert(lock.physical_name());
+        }
         let mut load_attribute_map_instances = rpc
             .load_attribute_maps
             .iter()
             .map(|load| map_load_name(&load.name, load.instance.as_deref()))
-            .collect::<Vec<_>>();
-        load_attribute_map_instances.sort();
+            .collect::<BTreeSet<_>>();
+        for load in &invoke_options.load_attribute_map_instances {
+            let instance = require_rpc_invoke_map_load(
+                flow,
+                &load.name,
+                load.instance.as_deref(),
+                crate::persistence::PersistenceKind::AttributeMap,
+            )?;
+            load_attribute_map_instances
+                .insert(crate::registry::physical_name(&load.name, instance));
+        }
         let mut load_channel_names = rpc
             .load_channels
             .iter()
@@ -868,20 +927,28 @@ impl Client {
             .load_channel_maps
             .iter()
             .map(|load| map_load_name(&load.name, load.instance.as_deref()))
-            .collect::<Vec<_>>();
-        load_channel_map_instances.sort();
+            .collect::<BTreeSet<_>>();
+        for load in &invoke_options.load_channel_map_instances {
+            let instance = require_rpc_invoke_map_load(
+                flow,
+                &load.name,
+                load.instance.as_deref(),
+                crate::persistence::PersistenceKind::ChannelMap,
+            )?;
+            load_channel_map_instances.insert(crate::registry::physical_name(&load.name, instance));
+        }
         let request = InvokeRpcRequest {
             flow_id: flow_id.to_string(),
             run_id: String::new(),
             rpc_name: rpc_name.to_string(),
             input: Some(value_mapper::encode(input)?),
             timeout_seconds: optional_seconds(rpc.timeout)?,
-            lock_attribute_keys: rpc.locks.iter().map(|lock| lock.physical_name()).collect(),
+            lock_attribute_keys: lock_attribute_keys.into_iter().collect(),
             request_id: Uuid::new_v4().to_string(),
             is_transactional: rpc.is_transactional,
-            load_attribute_map_instances,
+            load_attribute_map_instances: load_attribute_map_instances.into_iter().collect(),
             load_channel_names,
-            load_channel_map_instances,
+            load_channel_map_instances: load_channel_map_instances.into_iter().collect(),
         };
         let mut service = self.service.clone();
         let output = self.runtime.block_on(async {
@@ -1278,6 +1345,37 @@ fn map_load_name(name: &str, instance: Option<&str>) -> String {
         Some(instance) => crate::registry::physical_name(name, instance),
         None => format!("{name}/"),
     }
+}
+
+fn require_rpc_invoke_map_load<'a>(
+    flow: &crate::registry::RegisteredFlow,
+    name: &str,
+    instance: Option<&'a str>,
+    expected_kind: crate::persistence::PersistenceKind,
+) -> SdkResult<&'a str> {
+    require_rpc_invoke_definition(flow, name, expected_kind)?;
+    let instance = instance.ok_or_else(|| SdkError::FlowDefinition {
+        message: "RpcInvokeOptions requires an exact map instance".to_string(),
+    })?;
+    crate::registry::validate_map_instance(instance).map_err(invalid)?;
+    Ok(instance)
+}
+
+fn require_rpc_invoke_definition(
+    flow: &crate::registry::RegisteredFlow,
+    name: &str,
+    expected_kind: crate::persistence::PersistenceKind,
+) -> SdkResult<()> {
+    flow.persistence
+        .get(name)
+        .filter(|definition| definition.kind == expected_kind)
+        .ok_or_else(|| SdkError::FlowDefinition {
+            message: format!(
+                "Flow {} does not register the selected map {name}",
+                flow.name
+            ),
+        })?;
+    Ok(())
 }
 
 fn optional_seconds(duration: Option<Duration>) -> SdkResult<i32> {

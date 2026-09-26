@@ -67,3 +67,26 @@ fn stream_definitions_and_client_calls_compile() {
 
     let _ = calls_compile;
 }
+
+#[test]
+fn rpc_invoke_options_builders_and_client_calls_compile() {
+    let profiles = dex_sdk::AttributeMap::<String>::new("profiles");
+    let queued_commands = dex_sdk::ChannelMap::<String>::new("queued_commands");
+    let _options = dex_sdk::RpcInvokeOptions::new()
+        .lock_attribute_map_instance(profiles.lock("partition-007"))
+        .load_attribute_map_instance(profiles.load("partition-007"))
+        .load_channel_map_instance(queued_commands.load_messages("partition-007"));
+
+    fn calls_compile(
+        client: &dex_sdk::Client,
+        options: dex_sdk::RpcInvokeOptions,
+    ) -> dex_sdk::SdkResult<()> {
+        const UPDATE: dex_sdk::Rpc<String, ()> = dex_sdk::Rpc::new("update");
+        const GET: dex_sdk::Rpc<(), String> = dex_sdk::Rpc::new("get");
+        client.invoke_rpc_with_options("flow-1", UPDATE, "value".to_owned(), options.clone())?;
+        let _: String = client.invoke_rpc_without_input_with_options("flow-1", GET, options)?;
+        Ok(())
+    }
+
+    let _ = calls_compile;
+}

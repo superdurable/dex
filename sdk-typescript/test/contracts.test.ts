@@ -44,6 +44,7 @@ import {
   type Flow,
   type FlowConfig,
   type RPCResult,
+  type RPCInvokeOptions,
   type Step,
   type StepDecision,
 } from "../src/index.js";
@@ -103,6 +104,8 @@ const orderOutput = jsonCodec<OrderOutput>({
 
 const status = new Attribute("status", stringCodec);
 const commands = new Channel("commands", orderInput);
+const profiles = new AttributeMap("profiles", stringCodec);
+const queuedCommands = new ChannelMap("queued-commands", stringCodec);
 const progress = new Stream("progress", stringCodec, 10 * 1024 * 1024);
 
 class ApproveOrder implements Step<OrderInput> {
@@ -149,7 +152,11 @@ class Orders implements Flow<OrderInput> {
   }
 
   public getPersistenceSchema() {
-    return { attributes: [status], channels: [commands], streams: [progress] };
+    return {
+      attributes: [status, profiles],
+      channels: [commands, queuedCommands],
+      streams: [progress],
+    };
   }
 
   @rpc({
@@ -994,6 +1001,17 @@ async function compileStrongTypes(client: Client): Promise<void> {
     "order-1",
     { orderId: "order-1" },
   );
+  const invokeOptions: RPCInvokeOptions = {
+    lockAttributeMapInstances: [profiles.lock("partition-007")],
+    loadAttributeMapInstances: [profiles.load("partition-007")],
+    loadChannelMapInstances: [queuedCommands.loadMessages("partition-007")],
+  };
+  const selectedOutput: OrderOutput = await client.invokeRPCWithOptions(
+    orders.getOrder,
+    "order-1",
+    { orderId: "order-1" },
+    invokeOptions,
+  );
   const matchedStatus: string = await client.waitForAttributeMatch(
     "order-1",
     status,
@@ -1014,6 +1032,7 @@ async function compileStrongTypes(client: Client): Promise<void> {
   const progressPageValue: string | undefined = progressPage.messages[0]?.value;
   void runId;
   void output;
+  void selectedOutput;
   void matchedStatus;
   void matchedItem;
   void progressValue;

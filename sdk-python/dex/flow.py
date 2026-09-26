@@ -41,6 +41,7 @@ from dex.codec import Codec, CodecRegistry
 from dex.context import AsyncContext, Context
 from dex.dexpb import dex_pb2 as pb
 from dex.runtime_errors import FlowDefinitionError
+from dex.rpc_invoke_options import RPCInvokeOptions
 from dex.step import Step, StepDecision, StepList, StepMovement, StepOutput, _StepDef
 from dex.stream import Stream
 from dex.wait import Wait
@@ -969,3 +970,65 @@ class Registry:
                 if registered_function is function:
                     return flow, registered_rpc
         raise FlowDefinitionError("RPC method is not registered")
+
+    def _resolve_rpc_invoke_options(
+        self,
+        flow: _RegisteredFlow,
+        options: RPCInvokeOptions,
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        lock_attribute_map_instances: list[str] = []
+        for lock in options.lock_attribute_map_instances:
+            if not isinstance(lock, AttributeLock) or not isinstance(
+                lock.attribute, AttributeMap
+            ):
+                raise FlowDefinitionError(
+                    "RPCInvokeOptions lock must target an AttributeMap instance"
+                )
+            if lock.instance is None:
+                raise FlowDefinitionError(
+                    "RPCInvokeOptions AttributeMap lock needs an instance"
+                )
+            self._require_rpc_invoke_definition(flow, lock.attribute, "AttributeMap")
+            lock_attribute_map_instances.append(
+                lock.attribute.load(lock.instance).physical_name
+            )
+
+        load_attribute_map_instances: list[str] = []
+        for attribute_map_load in options.load_attribute_map_instances:
+            if not isinstance(attribute_map_load, AttributeMapLoad):
+                raise FlowDefinitionError(
+                    "RPCInvokeOptions has an invalid AttributeMap load"
+                )
+            self._require_rpc_invoke_definition(
+                flow, attribute_map_load.attribute_map, "AttributeMap"
+            )
+            load_attribute_map_instances.append(attribute_map_load.physical_name)
+
+        load_channel_map_instances: list[str] = []
+        for channel_map_load in options.load_channel_map_instances:
+            if not isinstance(channel_map_load, ChannelMapLoad):
+                raise FlowDefinitionError(
+                    "RPCInvokeOptions has an invalid ChannelMap load"
+                )
+            self._require_rpc_invoke_definition(
+                flow, channel_map_load.channel_map, "ChannelMap"
+            )
+            load_channel_map_instances.append(channel_map_load.physical_name)
+
+        return (
+            tuple(sorted(set(lock_attribute_map_instances))),
+            tuple(sorted(set(load_attribute_map_instances))),
+            tuple(sorted(set(load_channel_map_instances))),
+        )
+
+    @staticmethod
+    def _require_rpc_invoke_definition(
+        flow: _RegisteredFlow,
+        definition: object,
+        kind: str,
+    ) -> None:
+        registered = flow.persistence.get(getattr(definition, "name", ""))
+        if registered is not definition:
+            raise FlowDefinitionError(
+                f"Flow {flow.name} does not register {kind} definition"
+            )

@@ -363,6 +363,21 @@ type RPCOptions struct {
 	LoadChannelMapInstances []ChannelMapLoad
 }
 
+// RPCInvokeOptions adds runtime-selected map instances to one RPC invocation.
+//
+// The Client merges these selections with the RPC's registered RPCOptions. Invocation options
+// cannot remove registered locks or loads. AttributeMap locks and loads remain independent; a
+// read-modify-write RPC must include the same instance in both fields.
+type RPCInvokeOptions struct {
+	// LockAttributeMapInstances are acquired with the RPC's registered Attribute locks.
+	// Every lock must be created with LockAttributeMap.
+	LockAttributeMapInstances []AttributeLock
+	// LoadAttributeMapInstances adds exact AttributeMap instances to the RPC snapshot.
+	LoadAttributeMapInstances []AttributeMapLoad
+	// LoadChannelMapInstances adds exact ChannelMap instance messages to the RPC snapshot.
+	LoadChannelMapInstances []ChannelMapLoad
+}
+
 // WaitForFlowOptions controls Flow-result hydration.
 type WaitForFlowOptions struct {
 	// NeedsResults asks Dex to include completed Step outputs.

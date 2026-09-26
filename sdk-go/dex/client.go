@@ -1418,6 +1418,46 @@ func (client *Client) InvokeRPC(
 	input any,
 	outputPtr any,
 ) error {
+	return client.doInvokeRPC(ctx, flowID, rpc, input, outputPtr, RPCInvokeOptions{})
+}
+
+// InvokeRPCWithOptions synchronously invokes a registered RPC with runtime-selected map instances.
+//
+// options adds exact AttributeMap locks, AttributeMap loads, and ChannelMap loads to the immutable
+// RPCOptions registered with the handler. Duplicate selections are sent once. Invocation options
+// cannot remove registered state requirements. A dynamic AttributeMap read-modify-write must lock
+// and load the same instance.
+//
+// The input, output, blocking, and error behavior otherwise matches InvokeRPC.
+//
+//	options := dex.RPCInvokeOptions{
+//		LockAttributeMapInstances: []dex.AttributeLock{
+//			dex.LockAttributeMap(OrdersByTenant, tenantID),
+//		},
+//		LoadAttributeMapInstances: []dex.AttributeMapLoad{
+//			OrdersByTenant.Load(tenantID),
+//		},
+//	}
+//	err := client.InvokeRPCWithOptions(ctx, flowID, updateRPC, input, &output, options)
+func (client *Client) InvokeRPCWithOptions(
+	ctx context.Context,
+	flowID string,
+	rpc any,
+	input any,
+	outputPtr any,
+	options RPCInvokeOptions,
+) error {
+	return client.doInvokeRPC(ctx, flowID, rpc, input, outputPtr, options)
+}
+
+func (client *Client) doInvokeRPC(
+	ctx context.Context,
+	flowID string,
+	rpc any,
+	input any,
+	outputPtr any,
+	options RPCInvokeOptions,
+) error {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return err
 	}
@@ -1453,10 +1493,36 @@ func (client *Client) InvokeRPC(
 	if err != nil {
 		return err
 	}
+	invokeAttributeMapInstances, _, invokeChannelMapInstances, err := validateStateLoads(
+		flow,
+		stateLoads{
+			attributeMapInstances: options.LoadAttributeMapInstances,
+			channelMapInstances:   options.LoadChannelMapInstances,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	attributeMapInstances = mergeSortedUniqueNames(
+		attributeMapInstances,
+		invokeAttributeMapInstances,
+	)
+	channelMapInstances = mergeSortedUniqueNames(
+		channelMapInstances,
+		invokeChannelMapInstances,
+	)
 	timeout, locks, err := mapRPCOptions(registered.options)
 	if err != nil {
 		return err
 	}
+	invokeLocks, err := validateRPCInvokeAttributeMapLocks(
+		flow,
+		options.LockAttributeMapInstances,
+	)
+	if err != nil {
+		return err
+	}
+	locks = mergeSortedUniqueNames(locks, invokeLocks)
 	encoded, err := encodeValue(input)
 	if err != nil {
 		return err
@@ -1491,6 +1557,54 @@ func (client *Client) InvokeRPC(
 		return err
 	}
 	return decodeValue(response.Output, outputPtr)
+}
+
+func validateRPCInvokeAttributeMapLocks(
+	flow *registeredFlow,
+	locks []AttributeLock,
+) ([]string, error) {
+	mapped := make([]string, 0, len(locks))
+	for _, lock := range locks {
+		concrete, ok := lock.(attributeLock)
+		if !ok {
+			return nil, fmt.Errorf("dex: invalid AttributeMap lock %T", lock)
+		}
+		if !concrete.isMap {
+			return nil, fmt.Errorf(
+				"dex: invocation lock %q is not an AttributeMap instance",
+				concrete.name,
+			)
+		}
+		attribute, found := flow.attributes[concrete.name]
+		if !found || !attribute.isMap {
+			return nil, fmt.Errorf(
+				"dex: AttributeMap %q is not registered with Flow %q",
+				concrete.name,
+				flow.flowType,
+			)
+		}
+		name, err := physicalName(concrete.name, concrete.instance, true)
+		if err != nil {
+			return nil, err
+		}
+		mapped = append(mapped, name)
+	}
+	return mergeSortedUniqueNames(mapped), nil
+}
+
+func mergeSortedUniqueNames(groups ...[]string) []string {
+	seen := make(map[string]struct{})
+	for _, group := range groups {
+		for _, name := range group {
+			seen[name] = struct{}{}
+		}
+	}
+	merged := make([]string, 0, len(seen))
+	for name := range seen {
+		merged = append(merged, name)
+	}
+	sort.Strings(merged)
+	return merged
 }
 
 func validateRPCStateLoads(

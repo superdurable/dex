@@ -135,7 +135,7 @@ impl Registry {
             })
     }
 
-    pub(crate) fn rpc(&self, name: &str) -> SdkResult<&RegisteredRpc> {
+    pub(crate) fn rpc_with_flow(&self, name: &str) -> SdkResult<(&RegisteredFlow, &RegisteredRpc)> {
         let mut matched = None;
         for flow in self.inner.flows.values() {
             let Some(rpc) = flow.rpcs.get(name) else {
@@ -146,7 +146,7 @@ impl Registry {
                     message: format!("RPC name is ambiguous across registered Flows: {name}"),
                 });
             }
-            matched = Some(rpc);
+            matched = Some((flow, rpc));
         }
         matched.ok_or_else(|| SdkError::FlowDefinition {
             message: format!("RPC is not registered: {name}"),

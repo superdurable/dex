@@ -46,6 +46,7 @@ from dex.flow_options import (
 )
 from dex.flow_result import FlowResult, flow_result_from_proto
 from dex.runtime_errors import DexServiceError, FlowErrorType, LongPollTimeoutError
+from dex.rpc_invoke_options import RPCInvokeOptions
 from dex.step import RetryPolicy, StepDurability
 from dex.step_execution import StepExecutionId, TimerId
 from dex.stream import Stream, StreamMessage, StreamMessagesPage
@@ -214,6 +215,7 @@ class AsyncClient:
         input: InputT,
         *,
         run_id: str = "",
+        options: RPCInvokeOptions = RPCInvokeOptions(),
     ) -> OutputT: ...
 
     @overload
@@ -223,6 +225,7 @@ class AsyncClient:
         flow_id: str,
         *,
         run_id: str = "",
+        options: RPCInvokeOptions = RPCInvokeOptions(),
     ) -> OutputT: ...
 
     @overload
@@ -233,6 +236,7 @@ class AsyncClient:
         input: InputT,
         *,
         run_id: str = "",
+        options: RPCInvokeOptions = RPCInvokeOptions(),
     ) -> None: ...
 
     @overload
@@ -242,6 +246,7 @@ class AsyncClient:
         flow_id: str,
         *,
         run_id: str = "",
+        options: RPCInvokeOptions = RPCInvokeOptions(),
     ) -> None: ...
 
     async def invoke_rpc(
@@ -251,6 +256,7 @@ class AsyncClient:
         input: object = None,
         *,
         run_id: str = "",
+        options: RPCInvokeOptions = RPCInvokeOptions(),
     ) -> Any:
         """Invoke a registered RPC and await its typed result.
 
@@ -267,6 +273,7 @@ class AsyncClient:
             input: The annotated input, or ``None`` for an input-free RPC.
             run_id: Optional exact run. With ``""``, the server resolves the current
                 execution.
+            options: Additive runtime AttributeMap locks and exact map-instance loads.
 
         Returns:
             The decoded ``RPCResult.output``, or ``None`` for a no-output RPC.
@@ -279,7 +286,12 @@ class AsyncClient:
             DexServiceError: If the selected path requires an active execution or the
                 service call otherwise fails.
         """
-        _, rpc = self.registry._rpc_for_method(rpc_method)
+        registered_flow, rpc = self.registry._rpc_for_method(rpc_method)
+        (
+            invocation_locks,
+            invocation_attribute_map_loads,
+            invocation_channel_map_loads,
+        ) = self.registry._resolve_rpc_invoke_options(registered_flow, options)
         encoded_input = (
             self._values.encode(input, rpc.input_codec)
             if rpc.input_codec is not None
@@ -300,12 +312,28 @@ class AsyncClient:
                     rpc_name=rpc.name,
                     input=encoded_input,
                     timeout_seconds=timeout,
-                    lock_attribute_keys=rpc.locks,
+                    lock_attribute_keys=tuple(
+                        sorted(set(rpc.locks + invocation_locks))
+                    ),
                     request_id=str(uuid4()),
                     is_transactional=rpc.options.is_transactional,
-                    load_attribute_map_instances=rpc.load_attribute_map_instances,
+                    load_attribute_map_instances=tuple(
+                        sorted(
+                            set(
+                                rpc.load_attribute_map_instances
+                                + invocation_attribute_map_loads
+                            )
+                        )
+                    ),
                     load_channel_names=rpc.load_channel_names,
-                    load_channel_map_instances=rpc.load_channel_map_instances,
+                    load_channel_map_instances=tuple(
+                        sorted(
+                            set(
+                                rpc.load_channel_map_instances
+                                + invocation_channel_map_loads
+                            )
+                        )
+                    ),
                 ),
                 "invoke_rpc",
                 flow_id,

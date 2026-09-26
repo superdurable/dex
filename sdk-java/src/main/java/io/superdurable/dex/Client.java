@@ -80,6 +80,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -112,6 +113,8 @@ public final class Client implements AutoCloseable {
     private final ValueMapper values;
     private final ValueHydrator hydrator;
     private final WorkerDispatcher mappings;
+    private final ThreadLocal<RPCInvokeOptions> rpcInvokeOptions =
+            new ThreadLocal<RPCInvokeOptions>();
 
     /**
      * Creates a client using local development defaults.
@@ -365,6 +368,31 @@ public final class Client implements AutoCloseable {
     }
 
     /**
+     * Invokes a function-style RPC with one input and runtime-selected map instances.
+     *
+     * @param rpcStubMethod a direct method reference from a stub created by this client
+     * @param input the typed RPC input
+     * @param invokeOptions additive Attribute-map locks and exact map-instance loads
+     * @param <I> the RPC input type
+     * @param <O> the RPC output type
+     * @return the decoded RPC output
+     * @throws FlowDefinitionException if an option references a definition outside the RPC Flow
+     * @throws IllegalArgumentException if {@code invokeOptions} is {@code null}
+     * @throws FlowNotActiveException if the selected path requires an active execution
+     * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
+     * @throws WorkerInvocationException if worker code fails while executing the RPC
+     * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     */
+    public <I, O> O invokeRPC(
+            final RpcDefinitions.RpcFunc1<I, O> rpcStubMethod,
+            final I input,
+            final RPCInvokeOptions invokeOptions) {
+        return withRPCInvokeOptions(
+                invokeOptions,
+                () -> rpcStubMethod.execute(null, input).getOutput());
+    }
+
+    /**
      * Invokes a function-style RPC without application input.
      *
      * <p>A retained terminal execution can serve a query-only RPC. Locks, transactional
@@ -380,6 +408,28 @@ public final class Client implements AutoCloseable {
      */
     public <O> O invokeRPC(final RpcDefinitions.RpcFunc0<O> rpcStubMethod) {
         return rpcStubMethod.execute(null).getOutput();
+    }
+
+    /**
+     * Invokes a function-style RPC without application input and adds map-instance selections.
+     *
+     * @param rpcStubMethod a direct method reference from a stub created by this client
+     * @param invokeOptions additive Attribute-map locks and exact map-instance loads
+     * @param <O> the RPC output type
+     * @return the decoded RPC output
+     * @throws FlowDefinitionException if an option references a definition outside the RPC Flow
+     * @throws IllegalArgumentException if {@code invokeOptions} is {@code null}
+     * @throws FlowNotActiveException if the selected path requires an active execution
+     * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
+     * @throws WorkerInvocationException if worker code fails while executing the RPC
+     * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     */
+    public <O> O invokeRPC(
+            final RpcDefinitions.RpcFunc0<O> rpcStubMethod,
+            final RPCInvokeOptions invokeOptions) {
+        return withRPCInvokeOptions(
+                invokeOptions,
+                () -> rpcStubMethod.execute(null).getOutput());
     }
 
     /**
@@ -403,6 +453,30 @@ public final class Client implements AutoCloseable {
     }
 
     /**
+     * Invokes a procedure-style RPC with one input and runtime-selected map instances.
+     *
+     * @param rpcStubMethod a direct method reference from a stub created by this client
+     * @param input the typed RPC input
+     * @param invokeOptions additive Attribute-map locks and exact map-instance loads
+     * @param <I> the RPC input type
+     * @throws FlowDefinitionException if an option references a definition outside the RPC Flow
+     * @throws IllegalArgumentException if {@code invokeOptions} is {@code null}
+     * @throws FlowNotActiveException if the selected path requires an active execution
+     * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
+     * @throws WorkerInvocationException if worker code fails while executing the RPC
+     * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     */
+    public <I> void invokeRPC(
+            final RpcDefinitions.RpcProc1<I> rpcStubMethod,
+            final I input,
+            final RPCInvokeOptions invokeOptions) {
+        withRPCInvokeOptions(invokeOptions, () -> {
+            rpcStubMethod.execute(null, input);
+            return null;
+        });
+    }
+
+    /**
      * Invokes a procedure-style RPC without application input.
      *
      * <p>A retained terminal execution can serve a query-only RPC. Locks, transactional
@@ -416,6 +490,27 @@ public final class Client implements AutoCloseable {
      */
     public void invokeRPC(final RpcDefinitions.RpcProc0 rpcStubMethod) {
         rpcStubMethod.execute(null);
+    }
+
+    /**
+     * Invokes a procedure-style RPC without input and adds map-instance selections.
+     *
+     * @param rpcStubMethod a direct method reference from a stub created by this client
+     * @param invokeOptions additive Attribute-map locks and exact map-instance loads
+     * @throws FlowDefinitionException if an option references a definition outside the RPC Flow
+     * @throws IllegalArgumentException if {@code invokeOptions} is {@code null}
+     * @throws FlowNotActiveException if the selected path requires an active execution
+     * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
+     * @throws WorkerInvocationException if worker code fails while executing the RPC
+     * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
+     */
+    public void invokeRPC(
+            final RpcDefinitions.RpcProc0 rpcStubMethod,
+            final RPCInvokeOptions invokeOptions) {
+        withRPCInvokeOptions(invokeOptions, () -> {
+            rpcStubMethod.execute(null);
+            return null;
+        });
     }
 
     /**
@@ -1027,20 +1122,39 @@ public final class Client implements AutoCloseable {
     private Object invokeRpc(
             final RpcTarget target,
             final Method method,
-            final Object input) {
+            final Object input,
+            final RPCInvokeOptions invokeOptions) {
         final Registry.RegisteredRpc rpc = target.flow.getRpcByMethod(method.getName());
+        final List<String> lockAttributeKeys = mergePhysicalNames(
+                rpc.getLocks(),
+                physicalMapInstanceNames(
+                        target.flow,
+                        invokeOptions.getLockAttributeMapInstances(),
+                        AttributeMap.class));
+        final List<String> loadAttributeMapInstances = mergePhysicalNames(
+                rpc.getStateLoads().getAttributeMaps(),
+                physicalMapInstanceNames(
+                        target.flow,
+                        invokeOptions.getLoadAttributeMapInstances(),
+                        AttributeMap.class));
+        final List<String> loadChannelMapInstances = mergePhysicalNames(
+                rpc.getStateLoads().getChannelMaps(),
+                physicalMapInstanceNames(
+                        target.flow,
+                        invokeOptions.getLoadChannelMapInstances(),
+                        ChannelMap.class));
         final InvokeRPCRequest request = InvokeRPCRequest.newBuilder()
                 .setFlowId(target.flowId)
                 .setRunId(target.runId)
                 .setRpcName(rpc.getName())
                 .setInput(values.encode(input))
                 .setTimeoutSeconds(rpc.getAnnotation().timeoutSeconds())
-                .addAllLockAttributeKeys(rpc.getLocks())
+                .addAllLockAttributeKeys(lockAttributeKeys)
                 .setRequestId(UUID.randomUUID().toString())
                 .setIsTransactional(rpc.getAnnotation().isTransactional())
-                .addAllLoadAttributeMapInstances(rpc.getStateLoads().getAttributeMaps())
+                .addAllLoadAttributeMapInstances(loadAttributeMapInstances)
                 .addAllLoadChannelNames(rpc.getStateLoads().getChannels())
-                .addAllLoadChannelMapInstances(rpc.getStateLoads().getChannelMaps())
+                .addAllLoadChannelMapInstances(loadChannelMapInstances)
                 .build();
         final io.superdurable.gen.Value output = hydrator.hydrate(
                 target.flowId,
@@ -1057,6 +1171,52 @@ public final class Client implements AutoCloseable {
             throw new FlowDefinitionException("RPC output must be a concrete Class");
         }
         return values.decode(output, (Class<?>) outputType);
+    }
+
+    private <T> T withRPCInvokeOptions(
+            final RPCInvokeOptions invokeOptions,
+            final RpcInvocation<T> invocation) {
+        if (invokeOptions == null) {
+            throw new IllegalArgumentException("invokeOptions is required");
+        }
+        final RPCInvokeOptions previous = rpcInvokeOptions.get();
+        rpcInvokeOptions.set(invokeOptions);
+        try {
+            return invocation.invoke();
+        } finally {
+            if (previous == null) {
+                rpcInvokeOptions.remove();
+            } else {
+                rpcInvokeOptions.set(previous);
+            }
+        }
+    }
+
+    private static List<String> physicalMapInstanceNames(
+            final Registry.RegisteredFlow flow,
+            final List<RPCInvokeOptions.MapInstance> selections,
+            final Class<? extends PersistenceDefinition> expectedType) {
+        final List<String> names = new ArrayList<String>();
+        for (RPCInvokeOptions.MapInstance selection : selections) {
+            final PersistenceDefinition definition = selection.getDefinition();
+            final PersistenceDefinition registered = flow.getPersistence().get(definition.getName());
+            if (registered != definition || !expectedType.isInstance(definition)) {
+                throw new FlowDefinitionException(
+                        "Flow " + flow.getName() + " does not register "
+                                + expectedType.getSimpleName() + " " + definition.getName());
+            }
+            names.add(Registry.physicalName(definition.getName(), selection.getInstance()));
+        }
+        return names;
+    }
+
+    private static List<String> mergePhysicalNames(
+            final List<String> registeredNames,
+            final List<String> invocationNames) {
+        final TreeSet<String> merged = new TreeSet<String>();
+        merged.addAll(registeredNames);
+        merged.addAll(invocationNames);
+        return new ArrayList<String>(merged);
     }
 
     private io.superdurable.gen.FlowResult waitForFlowResponse(
@@ -1390,9 +1550,16 @@ public final class Client implements AutoCloseable {
                 final Method method,
                 final Object[] arguments) {
             final Object input = arguments.length == 2 ? arguments[1] : null;
-            final Object output = invokeRpc(target, method, input);
+            final RPCInvokeOptions invokeOptions = rpcInvokeOptions.get() == null
+                    ? RPCInvokeOptions.newBuilder().build()
+                    : rpcInvokeOptions.get();
+            final Object output = invokeRpc(target, method, input, invokeOptions);
             return method.getReturnType() == Void.TYPE ? null : RPCResult.of(output);
         }
+    }
+
+    private interface RpcInvocation<T> {
+        T invoke();
     }
 
     private static final class RpcTarget {

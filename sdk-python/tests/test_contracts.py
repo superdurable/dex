@@ -19,6 +19,7 @@ import pytest
 from dex import (
     INT64,
     STRING,
+    AsyncClient,
     AsyncContext,
     Attribute,
     AttributeMap,
@@ -40,6 +41,7 @@ from dex import (
     PersistenceSchema,
     Registry,
     RPCResult,
+    RPCInvokeOptions,
     RetryPolicy,
     StartFlowOptions,
     Step,
@@ -88,6 +90,8 @@ ORDER_INPUT = JsonCodec[OrderInput](
 )
 STATUS = Attribute("status", str)
 COMMANDS = Channel("commands", OrderInput)
+ITEMS = AttributeMap("items", str)
+COMMANDS_BY_TENANT = ChannelMap("commands-by-tenant", str)
 
 
 @pytest.mark.parametrize(
@@ -148,9 +152,14 @@ class OrderFlow(Flow[OrderInput]):
         return StepList.start_step(self.approve).other_steps(self.archive)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(STATUS, COMMANDS)
+        return PersistenceSchema.of(STATUS, ITEMS, COMMANDS, COMMANDS_BY_TENANT)
 
-    @rpc(name="GetOrder", lock_attributes=(STATUS.lock(),))
+    @rpc(
+        name="GetOrder",
+        lock_attributes=(STATUS.lock(), ITEMS.lock("tenant-a")),
+        load_attribute_map_instances=(ITEMS.load("tenant-a"),),
+        load_channel_map_instances=(COMMANDS_BY_TENANT.load_messages("tenant-a"),),
+    )
     def get_order(self, context: Context, input: OrderInput) -> RPCResult[OrderOutput]:
         del context, input
         return RPCResult(OrderOutput(accepted=True))
@@ -485,6 +494,120 @@ def test_value_mapping_errors_are_stable() -> None:
     client = ClientModuleClient(Registry((ORDERS,)), cast(BlobCache, object()))
     with pytest.raises(ValueMappingError, match="Cannot encode Dex Value"):
         client._values.encode(cast(OrderInput, object()), ORDER_INPUT)
+
+
+def test_rpc_invoke_options_union_sort_and_validate_before_transport() -> None:
+    class RPCService:
+        request: pb.InvokeRPCRequest | None = None
+
+        def InvokeRPC(self, request: pb.InvokeRPCRequest) -> pb.InvokeRPCResponse:
+            self.request = request
+            return pb.InvokeRPCResponse(
+                output=client._values.encode(
+                    OrderOutput(True), registry.codec_registry.resolve(OrderOutput)
+                )
+            )
+
+    registry = Registry((ORDERS,))
+    client = Client(registry, cast(BlobCache, object()))
+    service = RPCService()
+    client._service = cast(Any, service)
+    try:
+        output = client.invoke_rpc(
+            ORDERS.get_order,
+            "flow-1",
+            OrderInput("order-1"),
+            options=RPCInvokeOptions(
+                lock_attribute_map_instances=(
+                    ITEMS.lock("tenant-b"),
+                    ITEMS.lock("tenant-a"),
+                ),
+                load_attribute_map_instances=(
+                    ITEMS.load("tenant-b"),
+                    ITEMS.load("tenant-a"),
+                ),
+                load_channel_map_instances=(
+                    COMMANDS_BY_TENANT.load_messages("tenant-b"),
+                    COMMANDS_BY_TENANT.load_messages("tenant-a"),
+                ),
+            ),
+        )
+        assert output == OrderOutput(True)
+        assert service.request is not None
+        assert tuple(service.request.lock_attribute_keys) == (
+            "items/tenant-a",
+            "items/tenant-b",
+            "status",
+        )
+        assert tuple(service.request.load_attribute_map_instances) == (
+            "items/tenant-a",
+            "items/tenant-b",
+        )
+        assert tuple(service.request.load_channel_map_instances) == (
+            "commands-by-tenant/tenant-a",
+            "commands-by-tenant/tenant-b",
+        )
+
+        with pytest.raises(FlowDefinitionError, match="must target an AttributeMap"):
+            client.invoke_rpc(
+                ORDERS.get_order,
+                "flow-1",
+                OrderInput("order-1"),
+                options=RPCInvokeOptions(
+                    lock_attribute_map_instances=(STATUS.lock(),),
+                ),
+            )
+        foreign_items = AttributeMap("foreign-items", str)
+        with pytest.raises(FlowDefinitionError, match="does not register AttributeMap"):
+            client.invoke_rpc(
+                ORDERS.get_order,
+                "flow-1",
+                OrderInput("order-1"),
+                options=RPCInvokeOptions(
+                    load_attribute_map_instances=(foreign_items.load("tenant-a"),),
+                ),
+            )
+    finally:
+        client.close()
+
+
+def test_async_rpc_invoke_options_shape_the_same_request() -> None:
+    asyncio.run(_assert_async_rpc_invoke_options_shape_the_same_request())
+
+
+async def _assert_async_rpc_invoke_options_shape_the_same_request() -> None:
+    class AsyncRPCService:
+        request: pb.InvokeRPCRequest | None = None
+
+        async def InvokeRPC(self, request: pb.InvokeRPCRequest) -> pb.InvokeRPCResponse:
+            self.request = request
+            return pb.InvokeRPCResponse(
+                output=client._values.encode(
+                    OrderOutput(True), registry.codec_registry.resolve(OrderOutput)
+                )
+            )
+
+    registry = Registry((ORDERS,), allow_async_handlers=True)
+    client = AsyncClient(registry, cast(BlobCache, object()))
+    service = AsyncRPCService()
+    client._service = cast(Any, service)
+    try:
+        output = await client.invoke_rpc(
+            ORDERS.get_order,
+            "flow-1",
+            OrderInput("order-1"),
+            options=RPCInvokeOptions(
+                load_attribute_map_instances=(ITEMS.load("tenant-b"),),
+            ),
+        )
+        assert output == OrderOutput(True)
+        assert service.request is not None
+        assert tuple(service.request.load_attribute_map_instances) == (
+            "items/tenant-a",
+            "items/tenant-b",
+        )
+    finally:
+        await client.close()
 
 
 def test_invalid_step_result_has_flow_and_step_context() -> None:
