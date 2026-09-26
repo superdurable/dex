@@ -86,6 +86,7 @@ func (analyzer *goAnalyzer) parseConnectorTriggerBinding(expression ast.Expr) (C
 	binding := ConnectorTriggerBinding{
 		ConnectorID: config.connectorID, TriggerName: config.triggerName,
 		ConnectionName: connectionName, BindingName: bindingName,
+		ConfigurationUI: analyzer.parseConnectorConfigurationUI(fields[config.fieldNames["configurationUI"]]),
 	}
 	if !hasConnectionName || connectionName == "" || !hasBindingName || bindingName == "" {
 		analyzer.addConnectorConfigurationDiagnostic("connector_trigger_binding_identity", "Connector Trigger binding requires compile-time connection and binding names", call)

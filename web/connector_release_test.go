@@ -57,6 +57,36 @@ func TestConnectorReleaseResolverVerifiesAndCachesUI(t *testing.T) {
 	}
 }
 
+func TestConnectorReleaseResolverLoadsLocalOverride(t *testing.T) {
+	identity := connectorDefinitionIdentity{
+		ConnectorID: "slack", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/slack",
+		ModuleVersion: "v0.7.0", ConnectionName: "workspace", ConfigurationEnabled: true,
+	}
+	archive := connectorUITestArchive(t, "index.html", []byte("<main>Local Slack</main>"))
+	release := connectorTestRelease(identity, archive, connectorUIHostAPIRange)
+	release.Manifest.Metadata.DisplayName = "Slack"
+	directory := connectorLocalReleaseTestDirectory(t, release, archive)
+	resolver, err := newConnectorReleaseResolver(t.TempDir(), map[string]string{"slack": directory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := resolver.resolve(context.Background(), connectorDefinitionIdentity{ConnectorID: "slack"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.release.Version != "v0.7.0" || resolved.uiRoot == "" {
+		t.Fatalf("resolved local release = %+v", resolved)
+	}
+	contents, err := os.ReadFile(filepath.Join(resolved.uiRoot, "index.html"))
+	if err != nil || string(contents) != "<main>Local Slack</main>" {
+		t.Fatalf("local entrypoint = %q, err = %v", contents, err)
+	}
+	identities := resolver.overrideIdentities()
+	if identities["slack"].ModulePath != identity.ModulePath || identities["slack"].ModuleVersion != identity.ModuleVersion {
+		t.Fatalf("override identities = %+v", identities)
+	}
+}
+
 func TestConnectorReleaseResolverRejectsChecksumTraversalAndHostAPIRange(t *testing.T) {
 	identity := connectorDefinitionIdentity{
 		ConnectorID: "gmail", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/google/gmail",
@@ -142,9 +172,9 @@ func connectorTestRelease(identity connectorDefinitionIdentity, archive []byte, 
 	release.Manifest.Metadata.Name = identity.ConnectorID
 	release.Manifest.Metadata.DisplayName = "Gmail"
 	release.Manifest.Spec.Provider = "google"
-	release.Manifest.Spec.Studio = &struct {
-		Setup connectorManifestStudioSetup `json:"setup"`
-	}{Setup: connectorManifestStudioSetup{Entrypoint: "index.html", HostAPIRange: hostRange}}
+	release.Manifest.Spec.Studio = &connectorManifestStudio{
+		Setup: connectorManifestStudioSetup{Entrypoint: "index.html", HostAPIRange: hostRange},
+	}
 	return release
 }
 
@@ -172,6 +202,27 @@ func connectorReleaseTestServer(t *testing.T, metadata []byte, archive []byte) *
 			http.NotFound(response, request)
 		}
 	}))
+}
+
+func connectorLocalReleaseTestDirectory(t *testing.T, release connectorRelease, archive []byte) string {
+	t.Helper()
+	directory := t.TempDir()
+	metadata, err := json.Marshal(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataDigest := sha256.Sum256(metadata)
+	if err := os.WriteFile(filepath.Join(directory, connectorReleaseMetadataName), metadata, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest := fmt.Sprintf("%x  %s\n", metadataDigest, connectorReleaseMetadataName)
+	if err := os.WriteFile(filepath.Join(directory, connectorReleaseDigestName), []byte(digest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, release.UI.Artifact), archive, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }
 
 func connectorUITestArchive(t *testing.T, name string, contents []byte) []byte {

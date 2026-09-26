@@ -55,13 +55,35 @@ type V2Definition struct {
 
 // V2ConnectorTriggerBinding describes one configurable external Trigger binding.
 type V2ConnectorTriggerBinding struct {
-	ConnectorID          string `json:"connectorId"`
-	TriggerName          string `json:"triggerName"`
-	ConnectionName       string `json:"connectionName"`
-	BindingName          string `json:"bindingName"`
-	ModulePath           string `json:"modulePath"`
-	ModuleVersion        string `json:"moduleVersion"`
-	ConfigurationEnabled bool   `json:"configurationEnabled"`
+	ConnectorID          string                     `json:"connectorId"`
+	TriggerName          string                     `json:"triggerName"`
+	ConnectionName       string                     `json:"connectionName"`
+	BindingName          string                     `json:"bindingName"`
+	ModulePath           string                     `json:"modulePath"`
+	ModuleVersion        string                     `json:"moduleVersion"`
+	ConfigurationEnabled bool                       `json:"configurationEnabled"`
+	ConfigurationUI      V2ConnectorConfigurationUI `json:"configurationUI"`
+}
+
+// V2ConnectorConfigurationUI declares a Flow-owned composition of Connector UI units.
+type V2ConnectorConfigurationUI struct {
+	Units []V2ConnectorUIUnit `json:"units"`
+}
+
+// V2ConnectorUIUnit describes one reusable Connector UI unit instance.
+type V2ConnectorUIUnit struct {
+	ID          string                 `json:"id"`
+	UnitID      string                 `json:"unitId"`
+	Label       string                 `json:"label"`
+	Description string                 `json:"description,omitempty"`
+	Required    bool                   `json:"required"`
+	Bindings    []V2ConnectorUIBinding `json:"bindings"`
+}
+
+// V2ConnectorUIBinding maps a unit port into the use configuration object.
+type V2ConnectorUIBinding struct {
+	Port        string `json:"port"`
+	JSONPointer string `json:"jsonPointer"`
 }
 
 // V2StartDefinition describes the Start Step and its JSON input.

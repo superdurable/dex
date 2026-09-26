@@ -47,13 +47,32 @@ type V2Definition struct {
 }
 
 type ConnectorTriggerBinding struct {
-	ConnectorID          string `json:"connectorId"`
-	TriggerName          string `json:"triggerName"`
-	ConnectionName       string `json:"connectionName"`
-	BindingName          string `json:"bindingName"`
-	ModulePath           string `json:"modulePath"`
-	ModuleVersion        string `json:"moduleVersion"`
-	ConfigurationEnabled bool   `json:"configurationEnabled"`
+	ConnectorID          string                   `json:"connectorId"`
+	TriggerName          string                   `json:"triggerName"`
+	ConnectionName       string                   `json:"connectionName"`
+	BindingName          string                   `json:"bindingName"`
+	ModulePath           string                   `json:"modulePath"`
+	ModuleVersion        string                   `json:"moduleVersion"`
+	ConfigurationEnabled bool                     `json:"configurationEnabled"`
+	ConfigurationUI      ConnectorConfigurationUI `json:"configurationUI"`
+}
+
+type ConnectorConfigurationUI struct {
+	Units []ConnectorUIUnit `json:"units"`
+}
+
+type ConnectorUIUnit struct {
+	ID          string               `json:"id"`
+	UnitID      string               `json:"unitId"`
+	Label       string               `json:"label"`
+	Description string               `json:"description,omitempty"`
+	Required    bool                 `json:"required"`
+	Bindings    []ConnectorUIBinding `json:"bindings"`
+}
+
+type ConnectorUIBinding struct {
+	Port        string `json:"port"`
+	JSONPointer string `json:"jsonPointer"`
 }
 
 type StartDefinition struct {

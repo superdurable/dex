@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -127,6 +128,67 @@ func TestConnectorConnectionsAPIRejectsOriginRevisionAndVersionConflict(t *testi
 	}
 }
 
+func TestConnectorUseConfigurationAPIWritesFlowStepScopedSidecar(t *testing.T) {
+	identity := connectorDefinitionIdentity{
+		ConnectorID: "gmail", OperationID: "sendMessage", OperationKind: "mutation",
+		ConnectionName: "sender", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/google/gmail",
+		ModuleVersion: "v0.1.1", ConfigurationEnabled: true,
+		ConfigurationUI: api.V2ConnectorConfigurationUI{Units: []api.V2ConnectorUIUnit{{
+			ID: "message", UnitID: "textInput", Label: "Message",
+			Bindings: []api.V2ConnectorUIBinding{{Port: "text", JSONPointer: "/message/text"}},
+		}}},
+	}
+	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{identity}))
+	if err := setup.store.put(testLocalConnectorConnection("gmail", "sender", "token", nil)); err != nil {
+		t.Fatal(err)
+	}
+	request := authorizedConnectorRequest(t, setup, http.MethodPut, "/api/v2/connector-use-configurations/gmail/sender/sendMessage/TestFlow/TestStep", strings.NewReader(`{"configuration":{"message":{"text":"Done"}}}`))
+	request.SetPathValue("connectorId", "gmail")
+	request.SetPathValue("connectionName", "sender")
+	request.SetPathValue("operationId", "sendMessage")
+	request.SetPathValue("flowType", "TestFlow")
+	request.SetPathValue("stepType", "TestStep")
+	recorder := httptest.NewRecorder()
+	setup.handlePutUseConfiguration(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("write status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	configurations, err := setup.store.listUseConfigurations("gmail", "sender")
+	if err != nil || len(configurations) != 1 {
+		t.Fatalf("configurations = %+v, err = %v", configurations, err)
+	}
+	var message map[string]string
+	if err := json.Unmarshal(configurations[0].Configuration["message"], &message); err != nil || message["text"] != "Done" {
+		t.Fatalf("message = %+v, err = %v", message, err)
+	}
+	contents, err := os.ReadFile(setup.store.useConfigurationsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(contents, []byte(connectorUseConfigurationsSchema)) || bytes.Contains(contents, []byte("token")) {
+		t.Fatalf("sidecar = %s", contents)
+	}
+	views, _, err := setup.connectionViews(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || len(views[0].Uses) != 1 || !views[0].Uses[0].Configured {
+		t.Fatalf("configured use view = %+v", views)
+	}
+
+	request = authorizedConnectorRequest(t, setup, http.MethodPut, "/api/v2/connector-use-configurations/gmail/sender/sendMessage/TestFlow/TestStep", strings.NewReader(`{"configuration":{"undeclared":{}}}`))
+	request.SetPathValue("connectorId", "gmail")
+	request.SetPathValue("connectionName", "sender")
+	request.SetPathValue("operationId", "sendMessage")
+	request.SetPathValue("flowType", "TestFlow")
+	request.SetPathValue("stepType", "TestStep")
+	recorder = httptest.NewRecorder()
+	setup.handlePutUseConfiguration(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("undeclared empty path status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestConnectorSetupRejectsNonLoopbackAndBlobStore(t *testing.T) {
 	provider := connectorTestDefinitionProvider(t, nil)
 	_, err := newConnectorSetup(&Config{
@@ -141,6 +203,47 @@ func TestConnectorSetupRejectsNonLoopbackAndBlobStore(t *testing.T) {
 	}, provider)
 	if err == nil {
 		t.Fatal("expected blobstore Connector setup to fail")
+	}
+}
+
+func TestConnectorConnectionViewsUseLocalReleaseOverrideForWorkspaceFlow(t *testing.T) {
+	releaseIdentity := connectorDefinitionIdentity{
+		ConnectorID: "slack", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/slack",
+		ModuleVersion: "v0.7.0", ConnectionName: "workspace", ConfigurationEnabled: true,
+	}
+	archive := connectorUITestArchive(t, "index.html", []byte("<main>Slack</main>"))
+	release := connectorTestRelease(releaseIdentity, archive, connectorUIHostAPIRange)
+	release.Manifest.Spec.Provider = "slack"
+	overrideDirectory := connectorLocalReleaseTestDirectory(t, release, archive)
+	flowIdentity := connectorDefinitionIdentity{
+		ConnectorID: "slack", OperationID: "postMessage", OperationKind: "mutation",
+		ConnectionName: "workspace", ConfigurationEnabled: false,
+		ConfigurationUI: api.V2ConnectorConfigurationUI{Units: []api.V2ConnectorUIUnit{{
+			ID: "message", UnitID: "textInput", Label: "Message",
+			Bindings: []api.V2ConnectorUIBinding{{Port: "text", JSONPointer: "/text"}},
+		}}},
+	}
+	directory := t.TempDir()
+	setup, err := newConnectorSetup(&Config{
+		BindAddress: "127.0.0.1", ConnectorSetupEnabled: true, ConnectorConfigDirectory: directory,
+		ConnectorReleaseOverrides: map[string]string{"slack": overrideDirectory},
+	}, connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{flowIdentity}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection := testLocalConnectorConnection("slack", "workspace", "token", nil)
+	connection.ModulePath = releaseIdentity.ModulePath
+	connection.ModuleVersion = "v0.6.1"
+	connection.Provider = "slack"
+	if err := setup.store.put(connection); err != nil {
+		t.Fatal(err)
+	}
+	views, _, err := setup.connectionViews(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].Status != "Ready" || !views[0].LocalOverride || views[0].ModuleVersion != "v0.7.0" {
+		t.Fatalf("Connector views = %+v", views)
 	}
 }
 

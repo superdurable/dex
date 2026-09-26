@@ -403,6 +403,9 @@
       "metadata": {
         "connector": {
           "configurationEnabled": false,
+          "configurationUI": {
+            "units": []
+          },
           "connectionName": "",
           "connectorId": "openai",
           "modulePath": "github.com/superdurable/dex-connectors-library/connectors/openai",
@@ -445,6 +448,9 @@
       "metadata": {
         "connector": {
           "configurationEnabled": false,
+          "configurationUI": {
+            "units": []
+          },
           "connectionName": "",
           "connectorId": "openai",
           "modulePath": "github.com/superdurable/dex-connectors-library/connectors/openai",

@@ -55,6 +55,8 @@ type Config struct {
 	ConnectorSetupEnabled bool
 	// ConnectorConfigDirectory defaults empty and stores local Connector configuration and verified UI artifacts.
 	ConnectorConfigDirectory string
+	// ConnectorReleaseOverrides maps Connector IDs to local release artifact directories for loopback development.
+	ConnectorReleaseOverrides map[string]string
 }
 
 type Server struct {

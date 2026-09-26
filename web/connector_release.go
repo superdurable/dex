@@ -40,7 +40,7 @@ const (
 	connectorUIArchiveLimit       = 8 << 20
 	connectorUIExpandedLimit      = 8 << 20
 	connectorUIFileLimit          = 128
-	connectorUIHostAPIRange       = ">=0.1.0 <0.2.0"
+	connectorUIHostAPIRange       = ">=0.2.0 <0.3.0"
 )
 
 var officialConnectorModulePattern = regexp.MustCompile(`^github\.com/superdurable/dex-connectors-library/connectors/[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)*$`)
@@ -48,10 +48,11 @@ var exactConnectorReleaseVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.
 var connectorReleaseIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
 
 type connectorReleaseResolver struct {
-	baseURL      string
-	artifactRoot string
-	httpClient   *http.Client
-	mu           sync.Mutex
+	baseURL       string
+	artifactRoot  string
+	httpClient    *http.Client
+	localReleases map[string]resolvedConnectorRelease
+	mu            sync.Mutex
 }
 
 type connectorRelease struct {
@@ -84,10 +85,14 @@ type connectorReleaseManifest struct {
 			Fields         []connectorManifestField `json:"fields"`
 			OAuth2         *connectorManifestOAuth2 `json:"oauth2,omitempty"`
 		} `json:"auth"`
-		Studio *struct {
-			Setup connectorManifestStudioSetup `json:"setup"`
-		} `json:"studio,omitempty"`
+		Studio *connectorManifestStudio `json:"studio,omitempty"`
 	} `json:"spec"`
+}
+
+type connectorManifestStudio struct {
+	Setup    connectorManifestStudioSetup     `json:"setup"`
+	Commands []connectorManifestStudioCommand `json:"commands,omitempty"`
+	Units    []connectorManifestStudioUnit    `json:"units,omitempty"`
 }
 
 type connectorManifestField struct {
@@ -119,6 +124,44 @@ type connectorManifestStudioSetup struct {
 	BackendCapabilities []string `json:"backendCapabilities"`
 }
 
+type connectorManifestStudioCommand struct {
+	ID         string                             `json:"id"`
+	Capability string                             `json:"capability"`
+	Request    connectorManifestStudioHTTPRequest `json:"request"`
+}
+
+type connectorManifestStudioHTTPRequest struct {
+	Method     string                             `json:"method"`
+	URL        string                             `json:"url"`
+	Credential connectorManifestStudioCredential  `json:"credential"`
+	FixedQuery map[string]string                  `json:"fixedQuery,omitempty"`
+	Parameters []connectorManifestStudioParameter `json:"parameters,omitempty"`
+}
+
+type connectorManifestStudioCredential struct {
+	Field  string `json:"field"`
+	Scheme string `json:"scheme"`
+}
+
+type connectorManifestStudioParameter struct {
+	Name     string `json:"name"`
+	Location string `json:"location"`
+	Target   string `json:"target"`
+}
+
+type connectorManifestStudioUnit struct {
+	ID                  string                        `json:"id"`
+	Description         string                        `json:"description"`
+	BackendCapabilities []string                      `json:"backendCapabilities,omitempty"`
+	Inputs              []connectorManifestStudioPort `json:"inputs,omitempty"`
+	Outputs             []connectorManifestStudioPort `json:"outputs"`
+}
+
+type connectorManifestStudioPort struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 type connectorUIRelease struct {
 	Artifact     string   `json:"artifact"`
 	SHA256       string   `json:"sha256"`
@@ -132,13 +175,23 @@ type resolvedConnectorRelease struct {
 	uiRoot  string
 }
 
-func newConnectorReleaseResolver(configDirectory string) (*connectorReleaseResolver, error) {
+func newConnectorReleaseResolver(configDirectory string, overrides map[string]string) (*connectorReleaseResolver, error) {
 	artifactRoot := filepath.Join(configDirectory, "artifacts")
 	if err := os.MkdirAll(artifactRoot, 0o700); err != nil {
 		return nil, fmt.Errorf("create Connector artifact cache: %w", err)
 	}
-	resolver := &connectorReleaseResolver{baseURL: connectorReleaseBaseURL, artifactRoot: artifactRoot}
+	resolver := &connectorReleaseResolver{
+		baseURL: connectorReleaseBaseURL, artifactRoot: artifactRoot,
+		localReleases: make(map[string]resolvedConnectorRelease, len(overrides)),
+	}
 	resolver.httpClient = resolver.newHTTPClient()
+	for connectorID, directory := range overrides {
+		resolved, loadErr := resolver.loadLocalRelease(connectorID, directory)
+		if loadErr != nil {
+			return nil, fmt.Errorf("load Connector release override %q: %w", connectorID, loadErr)
+		}
+		resolver.localReleases[connectorID] = resolved
+	}
 	return resolver, nil
 }
 
@@ -162,10 +215,114 @@ func (resolver *connectorReleaseResolver) newHTTPClient() *http.Client {
 	}
 }
 
+func (resolver *connectorReleaseResolver) loadLocalRelease(
+	connectorID string,
+	directory string,
+) (resolvedConnectorRelease, error) {
+	if !connectorReleaseIDPattern.MatchString(connectorID) {
+		return resolvedConnectorRelease{}, fmt.Errorf("Connector ID is invalid")
+	}
+	absoluteDirectory, err := filepath.Abs(strings.TrimSpace(directory))
+	if err != nil {
+		return resolvedConnectorRelease{}, fmt.Errorf("resolve local release directory: %w", err)
+	}
+	directoryInfo, err := os.Lstat(absoluteDirectory)
+	if err != nil || directoryInfo.Mode()&os.ModeSymlink != 0 || !directoryInfo.IsDir() {
+		return resolvedConnectorRelease{}, fmt.Errorf("local release override must be a directory")
+	}
+	digestBytes, err := readLocalConnectorArtifact(absoluteDirectory, connectorReleaseDigestName, 1024)
+	if err != nil {
+		return resolvedConnectorRelease{}, err
+	}
+	expectedDigest, err := parseConnectorDigest(digestBytes, connectorReleaseMetadataName)
+	if err != nil {
+		return resolvedConnectorRelease{}, err
+	}
+	metadata, err := readLocalConnectorArtifact(absoluteDirectory, connectorReleaseMetadataName, connectorReleaseMetadataLimit)
+	if err != nil {
+		return resolvedConnectorRelease{}, err
+	}
+	actualDigest := sha256.Sum256(metadata)
+	if hex.EncodeToString(actualDigest[:]) != expectedDigest {
+		return resolvedConnectorRelease{}, fmt.Errorf("Connector release metadata checksum does not match")
+	}
+	var release connectorRelease
+	if err := json.Unmarshal(metadata, &release); err != nil {
+		return resolvedConnectorRelease{}, fmt.Errorf("decode Connector release metadata: %w", err)
+	}
+	expectedTag := strings.TrimPrefix(release.ModulePath, "github.com/superdurable/dex-connectors-library/") + "/" + release.Version
+	if release.ConnectorID != connectorID || release.Manifest.Metadata.Name != connectorID ||
+		!officialConnectorModulePattern.MatchString(release.ModulePath) ||
+		!exactConnectorReleaseVersionPattern.MatchString(release.Version) || release.Tag != expectedTag {
+		return resolvedConnectorRelease{}, fmt.Errorf("Connector release override identity is invalid")
+	}
+	manifestDigest, err := hex.DecodeString(release.ManifestSHA256)
+	if err != nil || len(manifestDigest) != sha256.Size || release.SourceSHA == "" {
+		return resolvedConnectorRelease{}, fmt.Errorf("Connector release provenance is invalid")
+	}
+	resolved := resolvedConnectorRelease{release: release}
+	if release.UI == nil {
+		return resolved, nil
+	}
+	uiDigest, err := hex.DecodeString(release.UI.SHA256)
+	if err != nil || len(uiDigest) != sha256.Size || path.Base(release.UI.Artifact) != release.UI.Artifact ||
+		!isSafeConnectorAssetPath(release.UI.Entrypoint) {
+		return resolvedConnectorRelease{}, fmt.Errorf("Connector UI artifact metadata is invalid")
+	}
+	if release.UI.HostAPIRange != connectorUIHostAPIRange || release.Manifest.Spec.Studio == nil ||
+		release.Manifest.Spec.Studio.Setup.Entrypoint != release.UI.Entrypoint ||
+		!equalConnectorCapabilities(release.Manifest.Spec.Studio.Setup.BackendCapabilities, release.UI.Capabilities) {
+		return resolvedConnectorRelease{}, fmt.Errorf("Connector UI Host API or entrypoint is incompatible")
+	}
+	archive, err := readLocalConnectorArtifact(absoluteDirectory, release.UI.Artifact, connectorUIArchiveLimit)
+	if err != nil {
+		return resolvedConnectorRelease{}, err
+	}
+	uiRoot, err := resolver.cacheUIArchive(release, archive)
+	if err != nil {
+		return resolvedConnectorRelease{}, err
+	}
+	resolved.uiRoot = uiRoot
+	return resolved, nil
+}
+
+func (resolver *connectorReleaseResolver) overrideIdentities() map[string]connectorDefinitionIdentity {
+	identities := make(map[string]connectorDefinitionIdentity, len(resolver.localReleases))
+	for connectorID, resolved := range resolver.localReleases {
+		identities[connectorID] = connectorDefinitionIdentity{
+			ConnectorID: connectorID, ModulePath: resolved.release.ModulePath,
+			ModuleVersion: resolved.release.Version, ConfigurationEnabled: true,
+		}
+	}
+	return identities
+}
+
+func readLocalConnectorArtifact(directory string, name string, limit int64) ([]byte, error) {
+	if filepath.Base(name) != name {
+		return nil, fmt.Errorf("Connector artifact name is invalid")
+	}
+	artifactPath := filepath.Join(directory, name)
+	info, err := os.Lstat(artifactPath)
+	if err != nil {
+		return nil, fmt.Errorf("inspect local Connector artifact: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > limit {
+		return nil, fmt.Errorf("local Connector artifact must be a regular file within the size limit")
+	}
+	contents, err := os.ReadFile(artifactPath)
+	if err != nil {
+		return nil, fmt.Errorf("read local Connector artifact: %w", err)
+	}
+	return contents, nil
+}
+
 func (resolver *connectorReleaseResolver) resolve(
 	ctx context.Context,
 	identity connectorDefinitionIdentity,
 ) (resolvedConnectorRelease, error) {
+	if resolved, ok := resolver.localReleases[identity.ConnectorID]; ok {
+		return resolved, nil
+	}
 	if !connectorReleaseIDPattern.MatchString(identity.ConnectorID) ||
 		!officialConnectorModulePattern.MatchString(identity.ModulePath) ||
 		!exactConnectorReleaseVersionPattern.MatchString(identity.ModuleVersion) {
@@ -227,6 +384,17 @@ func (resolver *connectorReleaseResolver) cacheUI(
 	tag string,
 	release connectorRelease,
 ) (cachePath string, returnErr error) {
+	archive, err := resolver.download(ctx, tag, release.UI.Artifact, connectorUIArchiveLimit)
+	if err != nil {
+		return "", err
+	}
+	return resolver.cacheUIArchive(release, archive)
+}
+
+func (resolver *connectorReleaseResolver) cacheUIArchive(
+	release connectorRelease,
+	archive []byte,
+) (cachePath string, returnErr error) {
 	resolver.mu.Lock()
 	defer resolver.mu.Unlock()
 	ui := release.UI
@@ -234,10 +402,6 @@ func (resolver *connectorReleaseResolver) cacheUI(
 	entrypoint := filepath.Join(cacheRoot, filepath.FromSlash(ui.Entrypoint))
 	if info, err := os.Stat(entrypoint); err == nil && info.Mode().IsRegular() {
 		return cacheRoot, nil
-	}
-	archive, err := resolver.download(ctx, tag, ui.Artifact, connectorUIArchiveLimit)
-	if err != nil {
-		return "", err
 	}
 	digest := sha256.Sum256(archive)
 	if hex.EncodeToString(digest[:]) != ui.SHA256 {
