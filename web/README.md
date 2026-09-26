@@ -124,6 +124,13 @@ the exact official Connector release declared by the graph, verifies release
 and Studio UI checksums, and loads UI bundles in opaque-origin sandbox iframes.
 Without a Studio bundle, it renders the manifest fields directly.
 
+After a connection is ready, the page expands every Connector Step and Trigger
+binding that declares `ConfigurationUI`. Dex Web owns the grouping and creates
+one sandboxed iframe per requested manifest unit; the Connector bundle renders
+only that small picker or input. Unit ports are merged at their declared JSON
+Pointers, so Flow code controls composition without coupling a Connector's
+connection screen to one example. The host protocol for this contract is 0.2.
+
 Connections persist in `$HOME/.dex/connectors/connections.json` by default.
 Use `--connector-config-dir` to select another directory. Restarting Dex Web
 reloads the file and cached artifacts. OAuth state, PKCE verifier, client
@@ -132,6 +139,13 @@ The page displays the absolute JSON path and the
 `DEX_CONNECTOR_CONFIG_FILE=... <your-app-command>` launch command. It never
 returns credential values. Deleting a local credential does not revoke the
 provider grant.
+
+Trigger-binding configuration remains in `connections.json`. Connector Step
+operation configuration is stored in the sibling non-secret
+`use-configurations.json`, keyed by connector, connection, operation, Flow
+type, and Step type. Writes accept only JSON Pointer paths declared by the
+Flow definition. Applications load both files as a startup snapshot through
+the Connector SDK; changing configuration requires an application restart.
 
 ## Trusted reverse-proxy mounts
 

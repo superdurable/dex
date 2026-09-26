@@ -62,13 +62,14 @@ type connectorCatalogDefinition struct {
 }
 
 type connectorCatalogTriggerBinding struct {
-	ConnectorID          string `json:"connectorId"`
-	TriggerName          string `json:"triggerName"`
-	ConnectionName       string `json:"connectionName"`
-	BindingName          string `json:"bindingName"`
-	ModulePath           string `json:"modulePath"`
-	ModuleVersion        string `json:"moduleVersion"`
-	ConfigurationEnabled bool   `json:"configurationEnabled"`
+	ConnectorID          string                         `json:"connectorId"`
+	TriggerName          string                         `json:"triggerName"`
+	ConnectionName       string                         `json:"connectionName"`
+	BindingName          string                         `json:"bindingName"`
+	ModulePath           string                         `json:"modulePath"`
+	ModuleVersion        string                         `json:"moduleVersion"`
+	ConfigurationEnabled bool                           `json:"configurationEnabled"`
+	ConfigurationUI      api.V2ConnectorConfigurationUI `json:"configurationUI"`
 }
 
 type connectorCatalogNode struct {
@@ -82,13 +83,14 @@ type connectorCatalogNode struct {
 }
 
 type connectorDefinitionIdentity struct {
-	ConnectorID          string `json:"connectorId"`
-	OperationID          string `json:"operationId"`
-	OperationKind        string `json:"operationKind"`
-	ConnectionName       string `json:"connectionName"`
-	ModulePath           string `json:"modulePath"`
-	ModuleVersion        string `json:"moduleVersion"`
-	ConfigurationEnabled bool   `json:"configurationEnabled"`
+	ConnectorID          string                         `json:"connectorId"`
+	OperationID          string                         `json:"operationId"`
+	OperationKind        string                         `json:"operationKind"`
+	ConnectionName       string                         `json:"connectionName"`
+	ModulePath           string                         `json:"modulePath"`
+	ModuleVersion        string                         `json:"moduleVersion"`
+	ConfigurationEnabled bool                           `json:"configurationEnabled"`
+	ConfigurationUI      api.V2ConnectorConfigurationUI `json:"configurationUI"`
 }
 
 type connectorConnectionView struct {
@@ -105,27 +107,32 @@ type connectorConnectionView struct {
 }
 
 type connectorConnectionStepUse struct {
-	FlowName      string `json:"flowName"`
-	StepID        string `json:"stepId"`
-	StepName      string `json:"stepName"`
-	OperationID   string `json:"operationId"`
-	OperationKind string `json:"operationKind"`
+	FlowName        string                         `json:"flowName"`
+	StepID          string                         `json:"stepId"`
+	StepName        string                         `json:"stepName"`
+	OperationID     string                         `json:"operationId"`
+	OperationKind   string                         `json:"operationKind"`
+	ConfigurationUI api.V2ConnectorConfigurationUI `json:"configurationUI"`
+	Configuration   map[string]json.RawMessage     `json:"configuration"`
 }
 
 type connectorConnectionTriggerUse struct {
-	FlowName    string `json:"flowName"`
-	TriggerName string `json:"triggerName"`
-	BindingName string `json:"bindingName"`
+	FlowName        string                         `json:"flowName"`
+	TriggerName     string                         `json:"triggerName"`
+	BindingName     string                         `json:"bindingName"`
+	ConfigurationUI api.V2ConnectorConfigurationUI `json:"configurationUI"`
+	Configuration   map[string]json.RawMessage     `json:"configuration"`
 }
 
 type connectorConnectionListResponse struct {
-	Enabled            bool                      `json:"enabled"`
-	Directory          string                    `json:"directory"`
-	FilePath           string                    `json:"filePath"`
-	DefinitionRevision string                    `json:"definitionRevision"`
-	CSRFToken          string                    `json:"csrfToken"`
-	LaunchCommand      string                    `json:"launchCommand"`
-	Connections        []connectorConnectionView `json:"connections"`
+	Enabled                   bool                      `json:"enabled"`
+	Directory                 string                    `json:"directory"`
+	FilePath                  string                    `json:"filePath"`
+	UseConfigurationsFilePath string                    `json:"useConfigurationsFilePath"`
+	DefinitionRevision        string                    `json:"definitionRevision"`
+	CSRFToken                 string                    `json:"csrfToken"`
+	LaunchCommand             string                    `json:"launchCommand"`
+	Connections               []connectorConnectionView `json:"connections"`
 }
 
 type connectorConnectionWriteRequest struct {
@@ -152,6 +159,10 @@ type connectorUISessionResponse struct {
 }
 
 type connectorTriggerBindingWriteRequest struct {
+	Configuration map[string]json.RawMessage `json:"configuration"`
+}
+
+type connectorUseConfigurationWriteRequest struct {
 	Configuration map[string]json.RawMessage `json:"configuration"`
 }
 
@@ -193,6 +204,7 @@ func (setup *connectorSetup) registerHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/connector-ui-sessions", setup.handleCreateUISession)
 	mux.HandleFunc("GET /api/v2/connector-ui-sessions/{sessionNonce}/{assetPath...}", setup.handleUIAsset)
 	mux.HandleFunc("PUT /api/v2/connector-trigger-bindings/{connectorId}/{connectionName}/{triggerName}/{bindingName}", setup.handlePutTriggerBinding)
+	mux.HandleFunc("PUT /api/v2/connector-use-configurations/{connectorId}/{connectionName}/{operationId}/{flowType}/{stepType}", setup.handlePutUseConfiguration)
 	mux.HandleFunc("GET /api/v2/connector-connections/{connectorId}/{connectionName}/slack/channels", setup.handleListSlackChannels)
 	mux.HandleFunc("GET /api/v2/connector-connections/{connectorId}/{connectionName}/slack/users", setup.handleListSlackUsers)
 	mux.HandleFunc("POST /api/v2/connector-connections/{connectorId}/{connectionName}/oauth/start", setup.handleOAuthStart)
@@ -207,7 +219,8 @@ func (setup *connectorSetup) handleListConnections(response http.ResponseWriter,
 	}
 	writeWebJSON(response, http.StatusOK, connectorConnectionListResponse{
 		Enabled: true, Directory: setup.store.directory, FilePath: setup.store.path,
-		DefinitionRevision: revision, CSRFToken: setup.csrfToken,
+		UseConfigurationsFilePath: setup.store.useConfigurationsPath,
+		DefinitionRevision:        revision, CSRFToken: setup.csrfToken,
 		LaunchCommand: "DEX_CONNECTOR_CONFIG_FILE=" + shellQuote(setup.store.path) + " <your-app-command>",
 		Connections:   views,
 	})
@@ -355,7 +368,7 @@ func (setup *connectorSetup) handlePutTriggerBinding(response http.ResponseWrite
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector Trigger binding request is invalid")
 		return
 	}
-	if err := validateConnectorTriggerBindingConfiguration(identity.ConnectorID, triggerName, body.Configuration); err != nil {
+	if err := validateConnectorUseConfiguration(body.Configuration, binding.ConfigurationUI); err != nil {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_TRIGGER_CONFIGURATION_INVALID", err.Error())
 		return
 	}
@@ -371,6 +384,40 @@ func (setup *connectorSetup) handlePutTriggerBinding(response http.ResponseWrite
 		"connectorId": identity.ConnectorID, "connectionName": identity.ConnectionName,
 		"triggerName": triggerName, "bindingName": bindingName,
 	})
+}
+
+func (setup *connectorSetup) handlePutUseConfiguration(response http.ResponseWriter, request *http.Request) {
+	snapshot, identity, ok := setup.authorizeConnectionWrite(response, request)
+	if !ok {
+		return
+	}
+	operationID := request.PathValue("operationId")
+	flowType := request.PathValue("flowType")
+	stepType := request.PathValue("stepType")
+	declared, found, err := connectorOperationDefinitionForUse(snapshot.Response, identity, operationID, flowType, stepType)
+	if err != nil || !found || len(declared.ConfigurationUI.Units) == 0 {
+		api.WriteCodedError(response, http.StatusNotFound, "CONNECTOR_USE_CONFIGURATION_UNSUPPORTED", "Connector operation use is not configurable")
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 1<<20)
+	var body connectorUseConfigurationWriteRequest
+	if err := decodeStrictConnectorJSONReader(request.Body, &body); err != nil || body.Configuration == nil {
+		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector use configuration request is invalid")
+		return
+	}
+	if err := validateConnectorUseConfiguration(body.Configuration, declared.ConfigurationUI); err != nil {
+		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_USE_CONFIGURATION_INVALID", err.Error())
+		return
+	}
+	configuration := localConnectorUseConfiguration{
+		ConnectorID: identity.ConnectorID, ConnectionName: identity.ConnectionName, OperationID: operationID,
+		FlowType: flowType, StepType: stepType, Configuration: body.Configuration,
+	}
+	if err := setup.store.putUseConfiguration(configuration); err != nil {
+		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_USE_CONFIGURATION_WRITE_FAILED", "Connector use configuration could not be saved")
+		return
+	}
+	writeWebJSON(response, http.StatusOK, configuration)
 }
 
 func (setup *connectorSetup) handleUIAsset(response http.ResponseWriter, request *http.Request) {
@@ -468,6 +515,38 @@ func (setup *connectorSetup) connectionViews(ctx context.Context) ([]connectorCo
 	if err != nil {
 		return nil, "", err
 	}
+	for viewIndex := range views {
+		useConfigurations, loadErr := setup.store.listUseConfigurations(views[viewIndex].ConnectorID, views[viewIndex].ConnectionName)
+		if loadErr != nil {
+			return nil, "", loadErr
+		}
+		for useIndex := range views[viewIndex].Uses {
+			use := &views[viewIndex].Uses[useIndex]
+			for _, configuration := range useConfigurations {
+				if configuration.OperationID == use.OperationID && configuration.FlowType == use.FlowName && configuration.StepType == use.StepName {
+					use.Configuration = configuration.Configuration
+				}
+			}
+			if use.Configuration == nil {
+				use.Configuration = map[string]json.RawMessage{}
+			}
+		}
+		triggerBindings, loadErr := setup.store.listTriggerBindings(views[viewIndex].ConnectorID, views[viewIndex].ConnectionName)
+		if loadErr != nil {
+			return nil, "", loadErr
+		}
+		for triggerIndex := range views[viewIndex].TriggerUses {
+			use := &views[viewIndex].TriggerUses[triggerIndex]
+			for _, binding := range triggerBindings {
+				if binding.TriggerName == use.TriggerName && binding.BindingName == use.BindingName {
+					use.Configuration = binding.Configuration
+				}
+			}
+			if use.Configuration == nil {
+				use.Configuration = map[string]json.RawMessage{}
+			}
+		}
+	}
 	return views, snapshot.DefinitionRevision, nil
 }
 
@@ -508,9 +587,13 @@ func connectorViewsFromCatalog(
 			current.enabled = current.enabled && identity.ConfigurationEnabled
 			current.versions[identity.ModuleVersion] = true
 			current.modules[identity.ModulePath] = true
+			configurationUI := identity.ConfigurationUI
+			if configurationUI.Units == nil {
+				configurationUI.Units = []api.V2ConnectorUIUnit{}
+			}
 			current.view.Uses = append(current.view.Uses, connectorConnectionStepUse{
 				FlowName: definition.FlowName, StepID: node.ID, StepName: node.Name,
-				OperationID: identity.OperationID, OperationKind: identity.OperationKind,
+				OperationID: identity.OperationID, OperationKind: identity.OperationKind, ConfigurationUI: configurationUI,
 			})
 		}
 		if definition.Graph.V2 == nil {
@@ -532,8 +615,12 @@ func connectorViewsFromCatalog(
 			current.enabled = current.enabled && binding.ConfigurationEnabled
 			current.versions[binding.ModuleVersion] = true
 			current.modules[binding.ModulePath] = true
+			configurationUI := binding.ConfigurationUI
+			if configurationUI.Units == nil {
+				configurationUI.Units = []api.V2ConnectorUIUnit{}
+			}
 			current.view.TriggerUses = append(current.view.TriggerUses, connectorConnectionTriggerUse{
-				FlowName: definition.FlowName, TriggerName: binding.TriggerName, BindingName: binding.BindingName,
+				FlowName: definition.FlowName, TriggerName: binding.TriggerName, BindingName: binding.BindingName, ConfigurationUI: configurationUI,
 			})
 		}
 	}
@@ -610,6 +697,35 @@ func connectorTriggerDefinitionForKey(
 		}
 	}
 	return matched, found, conflict, nil
+}
+
+func connectorOperationDefinitionForUse(
+	catalogJSON []byte,
+	identity connectorDefinitionIdentity,
+	operationID string,
+	flowType string,
+	stepType string,
+) (connectorDefinitionIdentity, bool, error) {
+	var catalog connectorCatalogDocument
+	if err := json.Unmarshal(catalogJSON, &catalog); err != nil {
+		return connectorDefinitionIdentity{}, false, fmt.Errorf("decode Flow Definition catalog for Connector operation use: %w", err)
+	}
+	for _, definition := range catalog.Definitions {
+		if definition.FlowName != flowType {
+			continue
+		}
+		for _, node := range definition.Graph.Nodes {
+			candidate := node.Metadata.Connector
+			if node.Kind != "step" || !node.Metadata.ConnectorFactory || candidate == nil ||
+				node.Name != stepType || candidate.ConnectorID != identity.ConnectorID ||
+				candidate.ConnectionName != identity.ConnectionName || candidate.OperationID != operationID ||
+				candidate.ModulePath != identity.ModulePath || candidate.ModuleVersion != identity.ModuleVersion {
+				continue
+			}
+			return *candidate, true, nil
+		}
+	}
+	return connectorDefinitionIdentity{}, false, nil
 }
 
 func connectorDefinitionForKey(catalogJSON []byte, connectorID string, connectionName string) (connectorDefinitionIdentity, bool, bool, error) {

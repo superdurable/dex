@@ -44,6 +44,7 @@ type goConnectorIdentity struct {
 	modulePath           string
 	moduleVersion        string
 	configurationEnabled bool
+	configurationUI      ConnectorConfigurationUI
 }
 
 type goConnectorAnnotations struct {
@@ -82,6 +83,7 @@ func (analyzer *goAnalyzer) connectorFactoryMetadata(kind string, identity *goCo
 		"operationKind": identity.operationKind, "connectionName": identity.connectionName,
 		"modulePath": identity.modulePath, "moduleVersion": identity.moduleVersion,
 		"configurationEnabled": identity.configurationEnabled,
+		"configurationUI":      identity.configurationUI,
 	}
 	return metadata
 }
@@ -176,6 +178,7 @@ func (analyzer *goAnalyzer) parseConnectorIdentity(
 	identity := &goConnectorIdentity{
 		connectorID: config.connectorID, operationID: config.operationID, operationKind: kind,
 	}
+	identity.configurationUI = analyzer.parseConnectorConfigurationUI(fields[config.fieldNames["configurationUI"]])
 	connectionNameExpression := fields[config.fieldNames["connectionName"]]
 	connectionName, isStatic := analyzer.staticString(connectionNameExpression)
 	if !isStatic || connectionName == "" {

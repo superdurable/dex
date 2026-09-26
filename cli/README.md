@@ -296,6 +296,14 @@ labeled transition edges; Result Attributes and structured/text Streams become
 write edges. Dynamic config, branch slices, targets, or resource references
 produce blocking diagnostics.
 
+Connector Steps and Trigger bindings may also declare a static
+`ConfigurationUI`. Each entry selects a manifest-owned reusable UI unit and
+maps its output ports to JSON Pointers in that use's configuration object.
+Version 2 copies this composition into `metadata.connector.configurationUI` or
+the Trigger binding definition. Unit IDs, instance IDs, bindings, and their
+ordering must be visible in the inline Go composite literal; dynamic
+configuration produces a blocking diagnostic.
+
 Version 2 reads Action labels, conditions, and required permissions from direct
 Go `RPCOptions.Action` registrations. Each Action must use exactly one
 `ActionRequiresPermission`. Permission keys start with a lowercase letter and

@@ -40,7 +40,7 @@ const (
 	connectorUIArchiveLimit       = 8 << 20
 	connectorUIExpandedLimit      = 8 << 20
 	connectorUIFileLimit          = 128
-	connectorUIHostAPIRange       = ">=0.1.0 <0.2.0"
+	connectorUIHostAPIRange       = ">=0.2.0 <0.3.0"
 )
 
 var officialConnectorModulePattern = regexp.MustCompile(`^github\.com/superdurable/dex-connectors-library/connectors/[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)*$`)
@@ -85,7 +85,8 @@ type connectorReleaseManifest struct {
 			OAuth2         *connectorManifestOAuth2 `json:"oauth2,omitempty"`
 		} `json:"auth"`
 		Studio *struct {
-			Setup connectorManifestStudioSetup `json:"setup"`
+			Setup connectorManifestStudioSetup  `json:"setup"`
+			Units []connectorManifestStudioUnit `json:"units,omitempty"`
 		} `json:"studio,omitempty"`
 	} `json:"spec"`
 }
@@ -117,6 +118,19 @@ type connectorManifestStudioSetup struct {
 	Entrypoint          string   `json:"entrypoint"`
 	HostAPIRange        string   `json:"hostApiRange"`
 	BackendCapabilities []string `json:"backendCapabilities"`
+}
+
+type connectorManifestStudioUnit struct {
+	ID                  string                        `json:"id"`
+	Description         string                        `json:"description"`
+	BackendCapabilities []string                      `json:"backendCapabilities,omitempty"`
+	Inputs              []connectorManifestStudioPort `json:"inputs,omitempty"`
+	Outputs             []connectorManifestStudioPort `json:"outputs"`
+}
+
+type connectorManifestStudioPort struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
 type connectorUIRelease struct {

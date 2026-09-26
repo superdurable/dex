@@ -198,6 +198,28 @@
   background: white;
 }
 
+.connector-use-configuration,
+.connector-use {
+  display: grid;
+  gap: 12px;
+}
+
+.connector-use {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.connector-use > header {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.connector-studio-shell[data-surface='configurationUnit'] .connector-studio {
+  height: 15rem;
+}
+
 .connector-studio-shell[data-expanded='true'] {
   position: fixed;
   z-index: 1000;

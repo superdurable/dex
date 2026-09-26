@@ -29,22 +29,22 @@ describe('Connections contract', () => {
   it('accepts iframe commands only for the active connector session', () => {
     const session = { connectorId: 'gmail', sessionNonce: 'nonce' } as never;
     expect(isStudioCommand({
-      type: 'connector.command', protocolVersion: '0.1.0', sessionNonce: 'nonce',
+      type: 'connector.command', protocolVersion: '0.2.0', sessionNonce: 'nonce',
       connectorId: 'gmail', requestId: 'request', command: 'oauth.connect',
     }, session)).toBe(true);
     expect(isStudioCommand({
-      type: 'connector.command', protocolVersion: '0.1.0', sessionNonce: 'other',
+      type: 'connector.command', protocolVersion: '0.2.0', sessionNonce: 'other',
       connectorId: 'gmail', requestId: 'request', command: 'oauth.connect',
     }, session)).toBe(false);
     expect(isStudioCommand({
-      type: 'connector.command', protocolVersion: '0.1.0', sessionNonce: 'nonce',
+      type: 'connector.command', protocolVersion: '0.2.0', sessionNonce: 'nonce',
       connectorId: 'gmail', requestId: 'request', command: 'credential.read',
     }, session)).toBe(false);
   });
 
   it('advertises only host capabilities that are implemented', () => {
     expect(studioHostCapabilities({
-	  manifest: { spec: { studio: { setup: { backendCapabilities: ['oauth.connection.manage', 'configuration.write', 'slack.channels-list', 'slack.users-list', 'trigger.configuration.write'] } } } },
-	} as never)).toEqual(['oauth.connection.manage', 'slack.channels-list', 'slack.users-list', 'trigger.configuration.write']);
+	  manifest: { spec: { studio: { setup: { backendCapabilities: ['oauth.connection.manage', 'use.configuration.write', 'slack.channels-list', 'slack.users-list', 'credential.read'] } } } },
+	} as never)).toEqual(['oauth.connection.manage', 'use.configuration.write', 'slack.channels-list', 'slack.users-list']);
   });
 });

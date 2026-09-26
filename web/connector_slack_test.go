@@ -99,7 +99,7 @@ func TestTriggerBindingAPIWritesOnlyDeclaredBinding(t *testing.T) {
 	}
 }
 
-func TestTriggerBindingAPIRequiresSlackApprover(t *testing.T) {
+func TestTriggerBindingAPIAcceptsPartialUnitConfiguration(t *testing.T) {
 	provider := connectorTriggerTestDefinitionProvider(t)
 	setup := connectorTestSetup(t, t.TempDir(), provider)
 	connection := testLocalConnectorConnection("slack", "slack-workspace", "token", nil)
@@ -114,8 +114,8 @@ func TestTriggerBindingAPIRequiresSlackApprover(t *testing.T) {
 	request.SetPathValue("bindingName", "slack-thread-approval-reply")
 	recorder := httptest.NewRecorder()
 	setup.handlePutTriggerBinding(recorder, request)
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("missing approver status = %d: %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("partial configuration status = %d: %s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -169,11 +169,23 @@ func connectorTriggerTestDefinitionProvider(t *testing.T) FlowDefinitionProvider
 		ConnectorID: "slack", TriggerName: "channelThreadCreated",
 		ConnectionName: "slack-workspace", BindingName: "slack-thread-approval-start",
 		ModulePath: identity.ModulePath, ModuleVersion: identity.ModuleVersion, ConfigurationEnabled: true,
+		ConfigurationUI: api.V2ConnectorConfigurationUI{Units: []api.V2ConnectorUIUnit{{
+			ID: "channel", UnitID: "channelPicker", Label: "Channel", Bindings: []api.V2ConnectorUIBinding{{Port: "channelId", JSONPointer: "/channelId"}},
+		}, {
+			ID: "message", UnitID: "textInput", Label: "Message", Bindings: []api.V2ConnectorUIBinding{{Port: "text", JSONPointer: "/threadTriggerMatcher/messageContains"}},
+		}}},
 	}
 	replyBinding := connectorCatalogTriggerBinding{
 		ConnectorID: "slack", TriggerName: "threadReplyCreated",
 		ConnectionName: "slack-workspace", BindingName: "slack-thread-approval-reply",
 		ModulePath: identity.ModulePath, ModuleVersion: identity.ModuleVersion, ConfigurationEnabled: true,
+		ConfigurationUI: api.V2ConnectorConfigurationUI{Units: []api.V2ConnectorUIUnit{{
+			ID: "channel", UnitID: "channelPicker", Label: "Channel", Bindings: []api.V2ConnectorUIBinding{{Port: "channelId", JSONPointer: "/channelId"}},
+		}, {
+			ID: "message", UnitID: "textInput", Label: "Message", Bindings: []api.V2ConnectorUIBinding{{Port: "text", JSONPointer: "/threadReplyMatcher/messageContains"}},
+		}, {
+			ID: "approvers", UnitID: "memberPicker", Label: "Approvers", Bindings: []api.V2ConnectorUIBinding{{Port: "memberIds", JSONPointer: "/threadReplyMatcher/posterUserIds"}},
+		}}},
 	}
 	catalog, err := json.Marshal(map[string]any{
 		"configured": true, "definitionRevision": "sha256:test", "definitions": []any{map[string]any{

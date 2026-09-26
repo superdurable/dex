@@ -24,14 +24,17 @@ import (
 )
 
 const (
-	connectorConnectionsFileName = "connections.json"
-	connectorConnectionsSchema   = "connectors.dex.dev/local-connections/v1alpha1"
+	connectorConnectionsFileName       = "connections.json"
+	connectorConnectionsSchema         = "connectors.dex.dev/local-connections/v1alpha1"
+	connectorUseConfigurationsFileName = "use-configurations.json"
+	connectorUseConfigurationsSchema   = "connectors.dex.dev/local-use-configurations/v1alpha1"
 )
 
 type connectorConnectionStore struct {
-	directory string
-	path      string
-	mu        sync.Mutex
+	directory             string
+	path                  string
+	useConfigurationsPath string
+	mu                    sync.Mutex
 }
 
 type connectorConnectionsFile struct {
@@ -59,6 +62,20 @@ type localConnectorTriggerBinding struct {
 	Configuration  map[string]json.RawMessage `json:"configuration"`
 }
 
+type connectorUseConfigurationsFile struct {
+	SchemaVersion           string                           `json:"schemaVersion"`
+	OperationConfigurations []localConnectorUseConfiguration `json:"operationConfigurations"`
+}
+
+type localConnectorUseConfiguration struct {
+	ConnectorID    string                     `json:"connectorId"`
+	ConnectionName string                     `json:"connectionName"`
+	OperationID    string                     `json:"operationId"`
+	FlowType       string                     `json:"flowType"`
+	StepType       string                     `json:"stepType"`
+	Configuration  map[string]json.RawMessage `json:"configuration"`
+}
+
 func newConnectorConnectionStore(directory string) (*connectorConnectionStore, error) {
 	absoluteDirectory, err := filepath.Abs(strings.TrimSpace(directory))
 	if err != nil {
@@ -75,10 +92,13 @@ func newConnectorConnectionStore(directory string) (*connectorConnectionStore, e
 		return nil, fmt.Errorf("Connector configuration path must be a directory")
 	}
 	store := &connectorConnectionStore{
-		directory: absoluteDirectory,
-		path:      filepath.Join(absoluteDirectory, connectorConnectionsFileName),
+		directory: absoluteDirectory, path: filepath.Join(absoluteDirectory, connectorConnectionsFileName),
+		useConfigurationsPath: filepath.Join(absoluteDirectory, connectorUseConfigurationsFileName),
 	}
 	if _, err := store.load(); err != nil {
+		return nil, err
+	}
+	if _, err := store.loadUseConfigurations(); err != nil {
 		return nil, err
 	}
 	if err := store.verifyWritableDirectory(); err != nil {
@@ -168,6 +188,44 @@ func (store *connectorConnectionStore) putTriggerBinding(binding localConnectorT
 	return store.write(file)
 }
 
+func (store *connectorConnectionStore) listUseConfigurations(connectorID string, connectionName string) ([]localConnectorUseConfiguration, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	file, err := store.loadUseConfigurations()
+	if err != nil {
+		return nil, err
+	}
+	configurations := make([]localConnectorUseConfiguration, 0)
+	for _, configuration := range file.OperationConfigurations {
+		if configuration.ConnectorID == connectorID && configuration.ConnectionName == connectionName {
+			configurations = append(configurations, configuration)
+		}
+	}
+	return configurations, nil
+}
+
+func (store *connectorConnectionStore) putUseConfiguration(configuration localConnectorUseConfiguration) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	file, err := store.loadUseConfigurations()
+	if err != nil {
+		return err
+	}
+	found := false
+	for index := range file.OperationConfigurations {
+		current := file.OperationConfigurations[index]
+		if sameConnectorUse(current, configuration) {
+			file.OperationConfigurations[index] = configuration
+			found = true
+			break
+		}
+	}
+	if !found {
+		file.OperationConfigurations = append(file.OperationConfigurations, configuration)
+	}
+	return store.writeUseConfigurations(file)
+}
+
 func (store *connectorConnectionStore) put(connection localConnectorConnection) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -218,7 +276,21 @@ func (store *connectorConnectionStore) delete(connectorID string, connectionName
 		filteredBindings = append(filteredBindings, binding)
 	}
 	file.TriggerBindings = filteredBindings
-	return true, store.write(file)
+	if err := store.write(file); err != nil {
+		return false, err
+	}
+	useConfigurations, err := store.loadUseConfigurations()
+	if err != nil {
+		return false, err
+	}
+	filteredUseConfigurations := useConfigurations.OperationConfigurations[:0]
+	for _, configuration := range useConfigurations.OperationConfigurations {
+		if configuration.ConnectorID != connectorID || configuration.ConnectionName != connectionName {
+			filteredUseConfigurations = append(filteredUseConfigurations, configuration)
+		}
+	}
+	useConfigurations.OperationConfigurations = filteredUseConfigurations
+	return true, store.writeUseConfigurations(useConfigurations)
 }
 
 func (store *connectorConnectionStore) load() (connectorConnectionsFile, error) {

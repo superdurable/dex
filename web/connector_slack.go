@@ -9,7 +9,6 @@
 package web
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -64,63 +63,6 @@ type slackUser struct {
 		RealName    string `json:"real_name"`
 		Image48     string `json:"image_48"`
 	} `json:"profile"`
-}
-
-type slackTriggerMatcherConfiguration struct {
-	MessageContains string   `json:"messageContains,omitempty"`
-	PosterUserIDs   []string `json:"posterUserIds,omitempty"`
-}
-
-type slackTriggerBindingConfiguration struct {
-	ChannelID            string                           `json:"channelId"`
-	ThreadTriggerMatcher slackTriggerMatcherConfiguration `json:"threadTriggerMatcher,omitempty"`
-	ThreadReplyMatcher   slackTriggerMatcherConfiguration `json:"threadReplyMatcher,omitempty"`
-}
-
-func validateConnectorTriggerBindingConfiguration(
-	connectorID string,
-	triggerName string,
-	configuration map[string]json.RawMessage,
-) error {
-	if connectorID == "gmail" {
-		return validateGmailTriggerBindingConfiguration(triggerName, configuration)
-	}
-	if connectorID != "slack" {
-		return nil
-	}
-	contents, err := json.Marshal(configuration)
-	if err != nil {
-		return fmt.Errorf("Slack Trigger configuration is invalid")
-	}
-	var slackConfiguration slackTriggerBindingConfiguration
-	if err := decodeStrictConnectorJSONReader(bytes.NewReader(contents), &slackConfiguration); err != nil {
-		return fmt.Errorf("Slack Trigger configuration is invalid")
-	}
-	if strings.TrimSpace(slackConfiguration.ChannelID) == "" {
-		return fmt.Errorf("Slack channel ID is required")
-	}
-	switch triggerName {
-	case "channelThreadCreated":
-		return validateSlackPosterUserIDs(slackConfiguration.ThreadTriggerMatcher.PosterUserIDs, false)
-	case "threadReplyCreated":
-		return validateSlackPosterUserIDs(slackConfiguration.ThreadReplyMatcher.PosterUserIDs, true)
-	default:
-		return fmt.Errorf("Slack Trigger is unsupported")
-	}
-}
-
-func validateSlackPosterUserIDs(userIDs []string, isRequired bool) error {
-	if isRequired && len(userIDs) == 0 {
-		return fmt.Errorf("Slack approver requires at least one member")
-	}
-	seenUserIDs := make(map[string]bool, len(userIDs))
-	for _, userID := range userIDs {
-		if strings.TrimSpace(userID) == "" || seenUserIDs[userID] {
-			return fmt.Errorf("Slack member IDs must be non-empty and unique")
-		}
-		seenUserIDs[userID] = true
-	}
-	return nil
 }
 
 func (setup *connectorSetup) handleListSlackChannels(response http.ResponseWriter, request *http.Request) {

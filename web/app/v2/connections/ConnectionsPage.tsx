@@ -19,7 +19,14 @@ interface ConnectionUse {
   stepName: string;
   operationId: string;
   operationKind: string;
+  configurationUI: ConnectorConfigurationUI;
+  configuration: Record<string, unknown>;
 }
+
+interface ConnectorUIBinding { port: string; jsonPointer: string; }
+interface ConnectorUIUnit { id: string; unitId: string; label: string; description?: string; required: boolean; bindings: ConnectorUIBinding[]; }
+interface ConnectorConfigurationUI { units: ConnectorUIUnit[]; }
+interface TriggerUse { flowName: string; triggerName: string; bindingName: string; configurationUI: ConnectorConfigurationUI; configuration: Record<string, unknown>; }
 
 interface ConnectionView {
   connectorId: string;
@@ -31,13 +38,14 @@ interface ConnectionView {
   configuration?: Record<string, unknown>;
   credentialExpiresAt?: string;
   uses: ConnectionUse[];
-  triggerUses?: { flowName: string; triggerName: string; bindingName: string }[];
+  triggerUses?: TriggerUse[];
 }
 
 interface ConnectionsResponse {
   enabled: boolean;
   directory: string;
   filePath: string;
+  useConfigurationsFilePath: string;
   definitionRevision: string;
   csrfToken: string;
   launchCommand: string;
@@ -67,7 +75,7 @@ interface ReleaseManifest {
         credentialMappings?: { credential: string; source: string }[];
       };
     };
-    studio?: { setup: { backendCapabilities: string[] } };
+    studio?: { setup: { backendCapabilities: string[] }; units?: { id: string; description: string; backendCapabilities?: string[]; inputs?: {name: string; type: string}[]; outputs: {name: string; type: string}[] }[] };
   };
 }
 
@@ -77,8 +85,19 @@ interface UISessionResponse {
   sessionNonce?: string;
   entrypointUrl?: string;
   manifest: ReleaseManifest;
-  triggerBindings?: Record<string, Record<string, Record<string, unknown>>>;
 }
+
+type StudioTarget = {kind: 'connection'} | {
+  kind: 'configurationUnit';
+  scope: {kind: 'operation'; operationId: string; flowType: string; stepType: string} | {kind: 'trigger'; triggerName: string; bindingName: string; flowType: string};
+  instanceId: string;
+  unitId: string;
+  label: string;
+  description?: string;
+  required: boolean;
+  bindings: ConnectorUIBinding[];
+  value: Record<string, unknown>;
+};
 
 export function ConnectionsPage() {
   const [catalog, setCatalog] = useState<ConnectionsResponse | null>(null);
@@ -150,6 +169,7 @@ export function ConnectionsPage() {
         <div className="connections-paths">
           <span>Store directory</span><code>{catalog.directory}</code>
           <span>Connection file</span><CopyValue value={catalog.filePath} />
+          <span>Flow configuration file</span><CopyValue value={catalog.useConfigurationsFilePath} />
           <span>Start your app</span><CopyValue value={catalog.launchCommand} />
         </div>
       </header>
@@ -189,7 +209,7 @@ export function ConnectionsPage() {
               {selected.status === 'Conflict' && <p className="connection-warning">The same connector and connection name use different module versions. Align the Flow dependencies before configuring.</p>}
               {selected.status === 'Unsupported' && <p className="connection-warning">Automatic setup requires an exact official release and a static ConnectionName.</p>}
               {selected.credentialExpiresAt && <p>Token expires: <time>{selected.credentialExpiresAt}</time></p>}
-              {session?.entrypointUrl && <StudioFrame catalog={catalog} connection={selected} session={session} onConfigured={load} onError={setError} />}
+              {session?.entrypointUrl && <StudioFrame catalog={catalog} connection={selected} session={session} target={{kind: 'connection'}} configuration={{}} onConfigured={load} onError={setError} />}
               {session && <ConnectorForm
                 catalog={catalog}
                 connection={selected}
@@ -198,6 +218,9 @@ export function ConnectionsPage() {
                 onError={setError}
               />}
               {busy && <p role="status">Loading Connector release…</p>}
+              {selected.status === 'Ready' && session?.entrypointUrl && <ConnectorUseConfiguration
+                catalog={catalog} connection={selected} session={session} onConfigured={load} onError={setError}
+              />}
               {selected.status !== 'Missing' && selected.status !== 'Unsupported' && selected.status !== 'Conflict' && (
                 <button className="connection-delete" disabled={busy} onClick={() => void deleteCredentials()} type="button">
                   Delete local credentials
@@ -210,6 +233,47 @@ export function ConnectionsPage() {
       </div>
     </div>
   );
+}
+
+function ConnectorUseConfiguration({catalog, connection, session, onConfigured, onError}: {
+  catalog: ConnectionsResponse;
+  connection: ConnectionView;
+  session: UISessionResponse;
+  onConfigured: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  return <section className="connector-use-configuration">
+    <h3>Flow configuration</h3>
+    {connection.uses.map((use) => use.configurationUI.units.length > 0 && <section className="connector-use" key={`${use.flowName}:${use.stepId}`}>
+      <header><b>{use.flowName}</b><span>{use.stepName}</span><code>{use.operationId}</code></header>
+      {use.configurationUI.units.map((unit) => <StudioFrame
+        catalog={catalog} connection={connection} configuration={use.configuration} key={unit.id}
+        onConfigured={onConfigured} onError={onError} session={session}
+        target={configurationUnitTarget(unit, {kind: 'operation', operationId: use.operationId, flowType: use.flowName, stepType: use.stepName}, use.configuration)}
+      />)}
+    </section>)}
+    {connection.triggerUses?.map((use) => use.configurationUI.units.length > 0 && <section className="connector-use" key={`${use.flowName}:${use.bindingName}`}>
+      <header><b>{use.flowName}</b><span>{use.bindingName}</span><code>{use.triggerName} trigger</code></header>
+      {use.configurationUI.units.map((unit) => <StudioFrame
+        catalog={catalog} connection={connection} configuration={use.configuration} key={unit.id}
+        onConfigured={onConfigured} onError={onError} session={session}
+        target={configurationUnitTarget(unit, {kind: 'trigger', triggerName: use.triggerName, bindingName: use.bindingName, flowType: use.flowName}, use.configuration)}
+      />)}
+    </section>)}
+  </section>;
+}
+
+function configurationUnitTarget(
+  unit: ConnectorUIUnit,
+  scope: Extract<StudioTarget, {kind: 'configurationUnit'}>['scope'],
+  configuration: Record<string, unknown>,
+): StudioTarget {
+  return {
+    kind: 'configurationUnit', scope, instanceId: unit.id, unitId: unit.unitId, label: unit.label,
+    description: unit.description, required: unit.required,
+    bindings: unit.bindings,
+    value: Object.fromEntries(unit.bindings.map((binding) => [binding.port, jsonPointerValue(configuration, binding.jsonPointer)])),
+  };
 }
 
 function ConnectorForm({ catalog, connection, manifest, onConfigured, onError }: {
@@ -320,10 +384,12 @@ function FormField({ inputId, label, name, required, secret, description, values
   </label>;
 }
 
-function StudioFrame({ catalog, connection, session, onConfigured, onError }: {
+function StudioFrame({ catalog, connection, configuration, session, target, onConfigured, onError }: {
   catalog: ConnectionsResponse;
   connection: ConnectionView;
+  configuration: Record<string, unknown>;
   session: UISessionResponse;
+  target: StudioTarget;
   onConfigured: () => Promise<void>;
   onError: (message: string) => void;
 }) {
@@ -339,22 +405,22 @@ function StudioFrame({ catalog, connection, session, onConfigured, onError }: {
         const form = document.getElementById('connector-host-form');
         if (form instanceof HTMLFormElement) form.requestSubmit();
         frame.current?.contentWindow?.postMessage({
-          type: 'connector.command.result', protocolVersion: '0.1.0', sessionNonce: session.sessionNonce,
+          type: 'connector.command.result', protocolVersion: '0.2.0', sessionNonce: session.sessionNonce,
           connectorId: connection.connectorId, requestId: commandMessage.requestId, ok: true,
         }, '*');
         return;
       }
       if (supported) {
-        void executeStudioCommand(catalog, connection, commandMessage.command, commandMessage.input).then(async (value) => {
+        void executeStudioCommand(catalog, connection, configuration, target, commandMessage.command, commandMessage.input).then(async (value) => {
           frame.current?.contentWindow?.postMessage({
-            type: 'connector.command.result', protocolVersion: '0.1.0', sessionNonce: session.sessionNonce,
+            type: 'connector.command.result', protocolVersion: '0.2.0', sessionNonce: session.sessionNonce,
             connectorId: connection.connectorId, requestId: commandMessage.requestId, ok: true, value,
           }, '*');
-          if (commandMessage.command === 'trigger.configuration.save') await onConfigured();
+          if (commandMessage.command === 'use.configuration.save') await onConfigured();
         }).catch((commandError: unknown) => {
           onError(errorMessage(commandError));
           frame.current?.contentWindow?.postMessage({
-            type: 'connector.command.result', protocolVersion: '0.1.0', sessionNonce: session.sessionNonce,
+            type: 'connector.command.result', protocolVersion: '0.2.0', sessionNonce: session.sessionNonce,
             connectorId: connection.connectorId, requestId: commandMessage.requestId, ok: false,
             error: { code: 'COMMAND_FAILED', message: errorMessage(commandError) },
           }, '*');
@@ -362,31 +428,31 @@ function StudioFrame({ catalog, connection, session, onConfigured, onError }: {
         return;
       }
       frame.current?.contentWindow?.postMessage({
-        type: 'connector.command.result', protocolVersion: '0.1.0', sessionNonce: session.sessionNonce,
+        type: 'connector.command.result', protocolVersion: '0.2.0', sessionNonce: session.sessionNonce,
         connectorId: connection.connectorId, requestId: commandMessage.requestId, ok: false,
         error: { code: 'COMMAND_UNSUPPORTED', message: 'Connector command is not supported by this host.' },
       }, '*');
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [catalog, connection, onConfigured, onError, session]);
+  }, [catalog, configuration, connection, onConfigured, onError, session, target]);
   const ready = () => frame.current?.contentWindow?.postMessage({
-    type: 'connector.host.ready', protocolVersion: '0.1.0', sessionNonce: session.sessionNonce,
+    type: 'connector.host.ready', protocolVersion: '0.2.0', sessionNonce: session.sessionNonce,
     connectorId: connection.connectorId,
     capabilities: studioHostCapabilities(session),
     connection: {
       state: studioState(connection.status), grantedScopes: [],
       detail: connection.status,
     },
-    configuration: connection.configuration ?? {},
-    triggerBindings: session.triggerBindings ?? {},
+    target,
   }, '*');
   const sendReadyAfterStudioMount = () => window.setTimeout(ready, 100);
   return <div
-    aria-label={expanded ? `${connection.connectorId} Connector setup` : undefined}
+    aria-label={expanded ? `${connection.connectorId} Connector ${target.kind === 'connection' ? 'setup' : target.label}` : undefined}
     aria-modal={expanded || undefined}
     className="connector-studio-shell"
     data-expanded={expanded}
+    data-surface={target.kind}
     role={expanded ? 'dialog' : undefined}
   >
     <div className="connector-studio-toolbar">
@@ -400,42 +466,46 @@ function StudioFrame({ catalog, connection, session, onConfigured, onError }: {
       ref={frame}
       sandbox="allow-scripts"
       src={session.entrypointUrl}
-      title={`${connection.connectorId} Connector setup`}
+      title={`${connection.connectorId} Connector ${target.kind === 'connection' ? 'setup' : target.label}`}
     />
   </div>;
 }
 
-type StudioCommand = 'oauth.connect' | 'oauth.reconnect' | 'configuration.save' | 'slack.channels.list' | 'slack.users.list' | 'trigger.configuration.save';
+type StudioCommand = 'oauth.connect' | 'oauth.reconnect' | 'google.picker.open-spreadsheet' | 'google.sheets.list-tabs' | 'slack.channels.list' | 'slack.users.list' | 'use.configuration.save';
 
 export function isStudioCommand(value: unknown, session: UISessionResponse): value is { requestId: string; command: StudioCommand; input?: Record<string, unknown> } {
   if (typeof value !== 'object' || value === null) return false;
   const message = value as Record<string, unknown>;
-  return message.type === 'connector.command' && message.protocolVersion === '0.1.0'
+  return message.type === 'connector.command' && message.protocolVersion === '0.2.0'
     && message.sessionNonce === session.sessionNonce && message.connectorId === session.connectorId
     && typeof message.requestId === 'string'
     && (message.input === undefined || isRecord(message.input))
-    && (message.command === 'oauth.connect' || message.command === 'oauth.reconnect' || message.command === 'configuration.save'
-      || message.command === 'slack.channels.list' || message.command === 'slack.users.list' || message.command === 'trigger.configuration.save');
+    && (message.command === 'oauth.connect' || message.command === 'oauth.reconnect'
+      || message.command === 'google.picker.open-spreadsheet' || message.command === 'google.sheets.list-tabs'
+      || message.command === 'slack.channels.list' || message.command === 'slack.users.list' || message.command === 'use.configuration.save');
 }
 
 function studioCommandCapability(command: StudioCommand) {
   if (command === 'oauth.connect' || command === 'oauth.reconnect') return 'oauth.connection.manage';
-  if (command === 'configuration.save') return 'configuration.write';
+  if (command === 'use.configuration.save') return 'use.configuration.write';
+  if (command === 'google.picker.open-spreadsheet') return 'google.picker.spreadsheets';
+  if (command === 'google.sheets.list-tabs') return 'google.sheets.tabs-list';
   if (command === 'slack.channels.list') return 'slack.channels-list';
   if (command === 'slack.users.list') return 'slack.users-list';
-  if (command === 'trigger.configuration.save') return 'trigger.configuration.write';
   return null;
 }
 
 export function studioHostCapabilities(session: UISessionResponse): string[] {
   const declared = session.manifest.spec.studio?.setup.backendCapabilities ?? [];
-  const supported = new Set(['oauth.connection.manage', 'slack.channels-list', 'slack.users-list', 'trigger.configuration.write']);
+  const supported = new Set(['oauth.connection.manage', 'use.configuration.write', 'slack.channels-list', 'slack.users-list']);
   return declared.filter((capability) => supported.has(capability));
 }
 
 async function executeStudioCommand(
   catalog: ConnectionsResponse,
   connection: ConnectionView,
+  configuration: Record<string, unknown>,
+  targetScope: StudioTarget,
   command: StudioCommand,
   input?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
@@ -444,13 +514,17 @@ async function executeStudioCommand(
   let body: string | undefined;
   if (command === 'slack.channels.list') target += '/slack/channels';
   else if (command === 'slack.users.list') target += '/slack/users';
-  else if (command === 'trigger.configuration.save') {
-    const triggerName = stringInput(input, 'triggerName');
-    const bindingName = stringInput(input, 'bindingName');
-    const configuration = recordInput(input, 'configuration');
-    target = `/api/v2/connector-trigger-bindings/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}/${encodeURIComponent(triggerName)}/${encodeURIComponent(bindingName)}`;
+  else if (command === 'use.configuration.save' && targetScope.kind === 'configurationUnit') {
+    const value = recordInput(input, 'value');
+    const unit = targetScope;
+    const nextConfiguration = mergeUnitValue(configuration, unit, value);
+    if (unit.scope.kind === 'trigger') {
+      target = `/api/v2/connector-trigger-bindings/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}/${encodeURIComponent(unit.scope.triggerName)}/${encodeURIComponent(unit.scope.bindingName)}`;
+    } else {
+      target = `/api/v2/connector-use-configurations/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}/${encodeURIComponent(unit.scope.operationId)}/${encodeURIComponent(unit.scope.flowType)}/${encodeURIComponent(unit.scope.stepType)}`;
+    }
     method = 'PUT';
-    body = JSON.stringify({ configuration });
+    body = JSON.stringify({ configuration: nextConfiguration });
   } else {
     throw new Error('Connector command is not implemented');
   }
@@ -458,16 +532,55 @@ async function executeStudioCommand(
   return readResponseJSON<Record<string, unknown>>(response);
 }
 
-function stringInput(input: Record<string, unknown> | undefined, name: string): string {
-  const value = input?.[name];
-  if (typeof value !== 'string' || value.length === 0) throw new Error(`${name} is required`);
-  return value;
-}
-
 function recordInput(input: Record<string, unknown> | undefined, name: string): Record<string, unknown> {
   const value = input?.[name];
   if (!isRecord(value)) throw new Error(`${name} is required`);
   return value;
+}
+
+function mergeUnitValue(
+  configuration: Record<string, unknown>,
+  target: Extract<StudioTarget, {kind: 'configurationUnit'}>,
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = JSON.parse(JSON.stringify(configuration)) as Record<string, unknown>;
+  const allowedPorts = new Set(target.bindings.map((binding) => binding.port));
+  for (const port of Object.keys(value)) {
+    if (!allowedPorts.has(port)) throw new Error(`Unit returned undeclared port ${port}`);
+  }
+  for (const binding of target.bindings) {
+    if (Object.hasOwn(value, binding.port)) setJSONPointerValue(next, binding.jsonPointer, value[binding.port]);
+  }
+  return next;
+}
+
+function jsonPointerValue(configuration: Record<string, unknown>, pointer: string): unknown {
+  let current: unknown = configuration;
+  for (const segment of jsonPointerSegments(pointer)) {
+    if (!isRecord(current)) return undefined;
+    current = current[segment];
+  }
+  return current;
+}
+
+function setJSONPointerValue(configuration: Record<string, unknown>, pointer: string, value: unknown) {
+  const segments = jsonPointerSegments(pointer);
+  if (segments.length === 0) throw new Error('Connector UI binding cannot replace the configuration root');
+  let current = configuration;
+  for (const segment of segments.slice(0, -1)) {
+    if (!isRecord(current[segment])) current[segment] = {};
+    current = current[segment] as Record<string, unknown>;
+  }
+  current[segments[segments.length - 1]] = value;
+}
+
+function jsonPointerSegments(pointer: string): string[] {
+  if (!pointer.startsWith('/')) throw new Error('Connector UI binding has an invalid JSON Pointer');
+  return pointer.slice(1).split('/').map((segment) => {
+    const decoded = segment.replace(/~1/g, '/').replace(/~0/g, '~');
+    if (decoded === '__proto__' || decoded === 'prototype' || decoded === 'constructor') throw new Error('Connector UI binding path is unsafe');
+    return decoded;
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
