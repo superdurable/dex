@@ -85,11 +85,14 @@ type connectorReleaseManifest struct {
 			Fields         []connectorManifestField `json:"fields"`
 			OAuth2         *connectorManifestOAuth2 `json:"oauth2,omitempty"`
 		} `json:"auth"`
-		Studio *struct {
-			Setup connectorManifestStudioSetup  `json:"setup"`
-			Units []connectorManifestStudioUnit `json:"units,omitempty"`
-		} `json:"studio,omitempty"`
+		Studio *connectorManifestStudio `json:"studio,omitempty"`
 	} `json:"spec"`
+}
+
+type connectorManifestStudio struct {
+	Setup    connectorManifestStudioSetup     `json:"setup"`
+	Commands []connectorManifestStudioCommand `json:"commands,omitempty"`
+	Units    []connectorManifestStudioUnit    `json:"units,omitempty"`
 }
 
 type connectorManifestField struct {
@@ -119,6 +122,31 @@ type connectorManifestStudioSetup struct {
 	Entrypoint          string   `json:"entrypoint"`
 	HostAPIRange        string   `json:"hostApiRange"`
 	BackendCapabilities []string `json:"backendCapabilities"`
+}
+
+type connectorManifestStudioCommand struct {
+	ID         string                             `json:"id"`
+	Capability string                             `json:"capability"`
+	Request    connectorManifestStudioHTTPRequest `json:"request"`
+}
+
+type connectorManifestStudioHTTPRequest struct {
+	Method     string                             `json:"method"`
+	URL        string                             `json:"url"`
+	Credential connectorManifestStudioCredential  `json:"credential"`
+	FixedQuery map[string]string                  `json:"fixedQuery,omitempty"`
+	Parameters []connectorManifestStudioParameter `json:"parameters,omitempty"`
+}
+
+type connectorManifestStudioCredential struct {
+	Field  string `json:"field"`
+	Scheme string `json:"scheme"`
+}
+
+type connectorManifestStudioParameter struct {
+	Name     string `json:"name"`
+	Location string `json:"location"`
+	Target   string `json:"target"`
 }
 
 type connectorManifestStudioUnit struct {

@@ -144,6 +144,14 @@ reading its opaque-origin DOM. Unit ports are merged at their declared JSON
 Pointers, so Flow code controls composition without coupling a Connector's
 connection screen to one example. The host protocol for this contract is 0.2.
 
+Provider resource reads use release-declared Studio commands. The manifest
+pins an HTTPS GET URL, bearer credential field, fixed query values, and the
+only path or query parameters the iframe may supply. Dex Web's generic broker
+validates the active session and capability, injects the credential, bounds a
+JSON-object response, and rejects responses containing credential material.
+Provider pagination, filtering, and response projection stay in the
+Connector-owned UI bundle; Dex Web contains no provider-specific adapters.
+
 Connections persist in `$HOME/.dex/connectors/connections.json` by default.
 Use `--connector-config-dir` to select another directory. Restarting Dex Web
 reloads the file and cached artifacts. OAuth state, PKCE verifier, client

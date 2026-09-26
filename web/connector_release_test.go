@@ -172,10 +172,9 @@ func connectorTestRelease(identity connectorDefinitionIdentity, archive []byte, 
 	release.Manifest.Metadata.Name = identity.ConnectorID
 	release.Manifest.Metadata.DisplayName = "Gmail"
 	release.Manifest.Spec.Provider = "google"
-	release.Manifest.Spec.Studio = &struct {
-		Setup connectorManifestStudioSetup  `json:"setup"`
-		Units []connectorManifestStudioUnit `json:"units,omitempty"`
-	}{Setup: connectorManifestStudioSetup{Entrypoint: "index.html", HostAPIRange: hostRange}}
+	release.Manifest.Spec.Studio = &connectorManifestStudio{
+		Setup: connectorManifestStudioSetup{Entrypoint: "index.html", HostAPIRange: hostRange},
+	}
 	return release
 }
 

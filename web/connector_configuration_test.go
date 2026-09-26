@@ -10,15 +10,17 @@ package web
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/superdurable/dex/web/api"
 )
 
-func TestSlackResourceAPIsUseBotTokenWithoutReturningIt(t *testing.T) {
+func TestStudioProviderCommandUsesDeclaredRequestWithoutReturningCredential(t *testing.T) {
 	provider := connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{{
 		ConnectorID: "slack", OperationID: "postThreadReply", OperationKind: "mutation",
 		ConnectionName: "slack-workspace", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/slack",
@@ -30,38 +32,50 @@ func TestSlackResourceAPIsUseBotTokenWithoutReturningIt(t *testing.T) {
 	if err := setup.store.put(connection); err != nil {
 		t.Fatal(err)
 	}
-	providerServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+	setup.providerHTTPClient = &http.Client{Transport: connectorRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.Header.Get("Authorization") != "Bearer xoxb-never-return" {
-			t.Error("Slack bot token was not used")
+			t.Error("declared credential was not used")
 		}
-		switch request.URL.Path {
-		case "/conversations.list":
-			_, _ = response.Write([]byte(`{"ok":true,"channels":[{"id":"C123","name":"approvals","is_private":true,"is_member":true}]}`))
-		case "/users.list":
-			_, _ = response.Write([]byte(`{"ok":true,"members":[{"id":"U123","name":"ada","profile":{"display_name":"Ada","image_48":"https://avatars.slack-edge.com/ada.png"}},{"id":"UBOT","is_bot":true,"profile":{"display_name":"Bot"}}]}`))
-		default:
-			http.NotFound(response, request)
+		if request.URL.Query().Get("limit") != "200" || request.URL.Query().Get("cursor") != "next" {
+			t.Errorf("query = %q", request.URL.RawQuery)
 		}
-	}))
-	defer providerServer.Close()
-	setup.slackAPIBaseURL = providerServer.URL
-	setup.slackHTTPClient = providerServer.Client()
-
-	for _, resource := range []string{"channels", "users"} {
-		request := authorizedConnectorRequest(t, setup, http.MethodGet, "/api/v2/connector-connections/slack/slack-workspace/slack/"+resource, nil)
-		request.Header.Del("Origin")
-		request.SetPathValue("connectorId", "slack")
-		request.SetPathValue("connectionName", "slack-workspace")
-		recorder := httptest.NewRecorder()
-		if resource == "channels" {
-			setup.handleListSlackChannels(recorder, request)
-		} else {
-			setup.handleListSlackUsers(recorder, request)
-		}
-		if recorder.Code != http.StatusOK || strings.Contains(recorder.Body.String(), "xoxb-never-return") {
-			t.Fatalf("%s response = %d %s", resource, recorder.Code, recorder.Body.String())
-		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ok":true,"items":[{"id":"C123"}]}`)), Header: make(http.Header)}, nil
+	})}
+	setup.uiSessions["session"] = connectorUISession{
+		connectorID: "slack", connectionName: "slack-workspace", expiresAt: time.Now().Add(time.Minute),
+		commands: map[string]connectorManifestStudioCommand{"listResources": {
+			ID: "listResources", Capability: "provider.resources-list",
+			Request: connectorManifestStudioHTTPRequest{
+				Method: http.MethodGet, URL: "https://provider.example/resources",
+				Credential: connectorManifestStudioCredential{Field: "bot_token", Scheme: "bearer"},
+				FixedQuery: map[string]string{"limit": "200"},
+				Parameters: []connectorManifestStudioParameter{{Name: "cursor", Location: "query", Target: "cursor"}},
+			},
+		}},
 	}
+	request := authorizedConnectorRequest(t, setup, http.MethodPost, "/api/v2/connector-ui-sessions/session/commands/listResources", strings.NewReader(`{"parameters":{"cursor":"next"}}`))
+	request.SetPathValue("sessionNonce", "session")
+	request.SetPathValue("commandId", "listResources")
+	recorder := httptest.NewRecorder()
+	setup.handleStudioProviderCommand(recorder, request)
+	if recorder.Code != http.StatusOK || strings.Contains(recorder.Body.String(), "xoxb-never-return") || !strings.Contains(recorder.Body.String(), `"C123"`) {
+		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestStudioProviderCommandRejectsCredentialMaterialInDecodedJSON(t *testing.T) {
+	if !containsConnectorSecret(map[string]any{"nested": []any{map[string]any{"value": "prefix-xoxb-secret-suffix"}}}, "xoxb-secret") {
+		t.Fatal("decoded credential material was not detected")
+	}
+	if containsConnectorSecret(map[string]any{"value": "safe provider data"}, "xoxb-secret") {
+		t.Fatal("safe provider data was rejected")
+	}
+}
+
+type connectorRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function connectorRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
 }
 
 func TestTriggerBindingAPIWritesOnlyDeclaredBinding(t *testing.T) {

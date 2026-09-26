@@ -77,7 +77,11 @@ interface ReleaseManifest {
         credentialMappings?: { credential: string; source: string }[];
       };
     };
-    studio?: { setup: { backendCapabilities: string[] }; units?: { id: string; description: string; backendCapabilities?: string[]; inputs?: {name: string; type: string}[]; outputs: {name: string; type: string}[] }[] };
+    studio?: {
+      setup: { backendCapabilities: string[] };
+      commands?: {id: string; capability: string}[];
+      units?: { id: string; description: string; backendCapabilities?: string[]; inputs?: {name: string; type: string}[]; outputs: {name: string; type: string}[] }[];
+    };
   };
 }
 
@@ -543,7 +547,7 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
       }
       if (!isStudioCommand(event.data, session)) return;
       const commandMessage = event.data;
-      const capability = studioCommandCapability(commandMessage.command);
+      const capability = studioCommandCapability(commandMessage.command, commandMessage.input, session);
       const supported = capability !== null && studioHostCapabilities(session).includes(capability);
       if (supported && (commandMessage.command === 'oauth.connect' || commandMessage.command === 'oauth.reconnect')) {
         const form = document.getElementById('connector-host-form');
@@ -555,7 +559,7 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
         return;
       }
       if (supported) {
-        void executeStudioCommand(catalog, connection, configuration, target, commandMessage.command, commandMessage.input).then(async (value) => {
+        void executeStudioCommand(catalog, connection, configuration, session, target, commandMessage.command, commandMessage.input).then(async (value) => {
           frame.current?.contentWindow?.postMessage({
             type: 'connector.command.result', protocolVersion: '0.2.0', sessionNonce: session.sessionNonce,
             connectorId: connection.connectorId, requestId: commandMessage.requestId, ok: true, value,
@@ -616,7 +620,7 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
   </div>;
 }
 
-type StudioCommand = 'oauth.connect' | 'oauth.reconnect' | 'google.picker.open-spreadsheet' | 'google.sheets.list-tabs' | 'slack.channels.list' | 'slack.users.list' | 'use.configuration.save';
+type StudioCommand = 'oauth.connect' | 'oauth.reconnect' | 'provider.command.execute' | 'use.configuration.save';
 
 export function isStudioCommand(value: unknown, session: UISessionResponse): value is { requestId: string; command: StudioCommand; input?: Record<string, unknown> } {
   if (typeof value !== 'object' || value === null) return false;
@@ -626,8 +630,7 @@ export function isStudioCommand(value: unknown, session: UISessionResponse): val
     && typeof message.requestId === 'string'
     && (message.input === undefined || isRecord(message.input))
     && (message.command === 'oauth.connect' || message.command === 'oauth.reconnect'
-      || message.command === 'google.picker.open-spreadsheet' || message.command === 'google.sheets.list-tabs'
-      || message.command === 'slack.channels.list' || message.command === 'slack.users.list' || message.command === 'use.configuration.save');
+      || message.command === 'provider.command.execute' || message.command === 'use.configuration.save');
 }
 
 export function isStudioFrameResize(value: unknown, session: UISessionResponse): value is {height: number} {
@@ -639,19 +642,21 @@ export function isStudioFrameResize(value: unknown, session: UISessionResponse):
     && message.height >= 80 && message.height <= 4096;
 }
 
-function studioCommandCapability(command: StudioCommand) {
+function studioCommandCapability(command: StudioCommand, input: Record<string, unknown> | undefined, session: UISessionResponse) {
   if (command === 'oauth.connect' || command === 'oauth.reconnect') return 'oauth.connection.manage';
   if (command === 'use.configuration.save') return 'use.configuration.write';
-  if (command === 'google.picker.open-spreadsheet') return 'google.picker.spreadsheets';
-  if (command === 'google.sheets.list-tabs') return 'google.sheets.tabs-list';
-  if (command === 'slack.channels.list') return 'slack.channels-list';
-  if (command === 'slack.users.list') return 'slack.users-list';
+  if (command === 'provider.command.execute') {
+    const commandId = input?.commandId;
+    if (typeof commandId !== 'string') return null;
+    return session.manifest.spec.studio?.commands?.find((candidate) => candidate.id === commandId)?.capability ?? null;
+  }
   return null;
 }
 
 export function studioHostCapabilities(session: UISessionResponse): string[] {
   const declared = session.manifest.spec.studio?.setup.backendCapabilities ?? [];
-  const supported = new Set(['oauth.connection.manage', 'use.configuration.write', 'slack.channels-list', 'slack.users-list']);
+  const supported = new Set(['oauth.connection.manage', 'use.configuration.write']);
+  for (const command of session.manifest.spec.studio?.commands ?? []) supported.add(command.capability);
   return declared.filter((capability) => supported.has(capability));
 }
 
@@ -659,6 +664,7 @@ async function executeStudioCommand(
   catalog: ConnectionsResponse,
   connection: ConnectionView,
   configuration: Record<string, unknown>,
+  session: UISessionResponse,
   targetScope: StudioTarget,
   command: StudioCommand,
   input?: Record<string, unknown>,
@@ -666,9 +672,15 @@ async function executeStudioCommand(
   let target = connectionURL(connection);
   let method = 'GET';
   let body: string | undefined;
-  if (command === 'slack.channels.list') target += '/slack/channels';
-  else if (command === 'slack.users.list') target += '/slack/users';
-  else if (command === 'use.configuration.save' && targetScope.kind === 'configurationUnit') {
+  if (command === 'provider.command.execute') {
+    const commandId = input?.commandId;
+    if (typeof commandId !== 'string' || !session.manifest.spec.studio?.commands?.some((candidate) => candidate.id === commandId)) {
+      throw new Error('Provider command is not declared');
+    }
+    target = `/api/v2/connector-ui-sessions/${encodeURIComponent(session.sessionNonce ?? '')}/commands/${encodeURIComponent(commandId)}`;
+    method = 'POST';
+    body = JSON.stringify({parameters: stringRecordInput(input, 'parameters')});
+  } else if (command === 'use.configuration.save' && targetScope.kind === 'configurationUnit') {
     const value = recordInput(input, 'value');
     const unit = targetScope;
     const nextConfiguration = mergeUnitValue(configuration, unit, value);
@@ -684,6 +696,13 @@ async function executeStudioCommand(
   }
   const response = await dexFetch(target, { method, headers: connectorWriteHeaders(catalog), body });
   return readResponseJSON<Record<string, unknown>>(response);
+}
+
+function stringRecordInput(input: Record<string, unknown> | undefined, name: string): Record<string, string> {
+  const value = input?.[name];
+  if (value === undefined) return {};
+  if (!isRecord(value) || Object.values(value).some((item) => typeof item !== 'string')) throw new Error(`${name} must contain string values`);
+  return value as Record<string, string>;
 }
 
 function recordInput(input: Record<string, unknown> | undefined, name: string): Record<string, unknown> {

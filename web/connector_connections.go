@@ -28,22 +28,24 @@ import (
 const connectorCSRFHeader = "X-Dex-CSRF-Token"
 
 type connectorSetup struct {
-	store           *connectorConnectionStore
-	flowDefinitions FlowDefinitionProvider
-	releases        *connectorReleaseResolver
-	csrfToken       string
-	uiSessions      map[string]connectorUISession
-	uiSessionsMu    sync.Mutex
-	oauthSessions   map[string]connectorOAuthSession
-	oauthSessionsMu sync.Mutex
-	slackAPIBaseURL string
-	slackHTTPClient *http.Client
+	store              *connectorConnectionStore
+	flowDefinitions    FlowDefinitionProvider
+	releases           *connectorReleaseResolver
+	csrfToken          string
+	uiSessions         map[string]connectorUISession
+	uiSessionsMu       sync.Mutex
+	oauthSessions      map[string]connectorOAuthSession
+	oauthSessionsMu    sync.Mutex
+	providerHTTPClient *http.Client
 }
 
 type connectorUISession struct {
-	root       string
-	entrypoint string
-	expiresAt  time.Time
+	root           string
+	entrypoint     string
+	connectorID    string
+	connectionName string
+	commands       map[string]connectorManifestStudioCommand
+	expiresAt      time.Time
 }
 
 type connectorCatalogDocument struct {
@@ -196,7 +198,7 @@ func newConnectorSetup(cfg *Config, flowDefinitions FlowDefinitionProvider) (*co
 	return &connectorSetup{
 		store: store, flowDefinitions: flowDefinitions, releases: releases, csrfToken: csrfToken,
 		uiSessions: make(map[string]connectorUISession), oauthSessions: make(map[string]connectorOAuthSession),
-		slackAPIBaseURL: "https://slack.com/api", slackHTTPClient: &http.Client{Timeout: 20 * time.Second},
+		providerHTTPClient: newConnectorProviderHTTPClient(),
 	}, nil
 }
 
@@ -208,8 +210,7 @@ func (setup *connectorSetup) registerHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/connector-ui-sessions/{sessionNonce}/{assetPath...}", setup.handleUIAsset)
 	mux.HandleFunc("PUT /api/v2/connector-trigger-bindings/{connectorId}/{connectionName}/{triggerName}/{bindingName}", setup.handlePutTriggerBinding)
 	mux.HandleFunc("PUT /api/v2/connector-use-configurations/{connectorId}/{connectionName}/{operationId}/{flowType}/{stepType}", setup.handlePutUseConfiguration)
-	mux.HandleFunc("GET /api/v2/connector-connections/{connectorId}/{connectionName}/slack/channels", setup.handleListSlackChannels)
-	mux.HandleFunc("GET /api/v2/connector-connections/{connectorId}/{connectionName}/slack/users", setup.handleListSlackUsers)
+	mux.HandleFunc("POST /api/v2/connector-ui-sessions/{sessionNonce}/commands/{commandId}", setup.handleStudioProviderCommand)
 	mux.HandleFunc("POST /api/v2/connector-connections/{connectorId}/{connectionName}/oauth/start", setup.handleOAuthStart)
 	mux.HandleFunc("GET /api/v2/connector-oauth/callback", setup.handleOAuthCallback)
 }
@@ -337,8 +338,16 @@ func (setup *connectorSetup) handleCreateUISession(response http.ResponseWriter,
 		}
 		setup.uiSessionsMu.Lock()
 		setup.deleteExpiredUISessions(time.Now())
+		commands := map[string]connectorManifestStudioCommand{}
+		if resolved.release.Manifest.Spec.Studio != nil {
+			for _, command := range resolved.release.Manifest.Spec.Studio.Commands {
+				commands[command.ID] = command
+			}
+		}
 		setup.uiSessions[nonce] = connectorUISession{
-			root: resolved.uiRoot, entrypoint: resolved.release.UI.Entrypoint, expiresAt: time.Now().Add(10 * time.Minute),
+			root: resolved.uiRoot, entrypoint: resolved.release.UI.Entrypoint,
+			connectorID: body.ConnectorID, connectionName: body.ConnectionName, commands: commands,
+			expiresAt: time.Now().Add(10 * time.Minute),
 		}
 		setup.uiSessionsMu.Unlock()
 		result.SessionNonce = nonce
