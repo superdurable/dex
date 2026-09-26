@@ -53,9 +53,10 @@ type goConnectorAnnotations struct {
 }
 
 type goConnectorBranch struct {
-	id     string
-	target string
-	span   *Span
+	id              string
+	target          string
+	optionalUnwired bool
+	span            *Span
 }
 
 type goConnectorFactoryConfig struct {
@@ -70,6 +71,7 @@ type goConnectorFactoryConfig struct {
 type goConnectorFactoryBranchField struct {
 	id        string
 	fieldName string
+	optional  bool
 }
 
 func (analyzer *goAnalyzer) connectorFactoryMetadata(kind string, identity *goConnectorIdentity) map[string]any {
@@ -249,12 +251,13 @@ func connectorFactoryConfig(value types.Type) (goConnectorFactoryConfig, bool) {
 			}
 			config.kind = markerKind
 		case "branch":
-			if !found || value == "" || branchIDs[value] {
+			branchID, optional, tagOK := splitConnectorBranchTag(value)
+			if !found || !tagOK || branchIDs[branchID] {
 				valid = false
 				continue
 			}
-			branchIDs[value] = true
-			config.branches = append(config.branches, goConnectorFactoryBranchField{id: value, fieldName: field.Name()})
+			branchIDs[branchID] = true
+			config.branches = append(config.branches, goConnectorFactoryBranchField{id: branchID, fieldName: field.Name(), optional: optional})
 		case "connectorId":
 			if !found || value == "" || config.connectorID != "" {
 				valid = false
@@ -369,6 +372,10 @@ func (analyzer *goAnalyzer) parseConnectorNamedBranches(
 	branches := make([]goConnectorBranch, 0, len(branchFields))
 	for _, branchField := range branchFields {
 		expression := fields[branchField.fieldName]
+		if expression == nil && branchField.optional {
+			branches = append(branches, goConnectorBranch{id: branchField.id, optionalUnwired: true})
+			continue
+		}
 		call, ok := unwrappedExpression(expression).(*ast.CallExpr)
 		if !ok {
 			analyzer.addConnectorFactoryDiagnostic("connector_factory_branch", fmt.Sprintf("Connector factory branch %q must directly call Connector SDK GoTo", branchField.id), expression)
@@ -476,6 +483,14 @@ func (analyzer *goAnalyzer) connectorCompositeFields(literal *ast.CompositeLit, 
 func (analyzer *goAnalyzer) analyzeConnectorFactoryStep(nodeID string, factory goConnectorFactoryStep) {
 	analyzer.graph.SetNodePhase(nodeID, "execute")
 	for _, branch := range factory.branches {
+		if branch.optionalUnwired {
+			analyzer.graph.AddNode(Node{
+				ID: "decision:" + nodeID + ":optional:" + branch.id, Kind: "decision", Name: "forceFail",
+				ParentID: nodeID, Condition: branch.id, Phase: "execute", Span: branch.span,
+				Decision: &DecisionDetails{Type: "forceFail"},
+			})
+			continue
+		}
 		targetID := analyzer.resolveTransitionTarget(branch.target, branch.span)
 		analyzer.graph.AddEdge(Edge{
 			Kind: "transition", From: nodeID, To: targetID, Label: branch.id, Span: branch.span,
@@ -542,6 +557,20 @@ func (analyzer *goAnalyzer) goCallIdentity(call *ast.CallExpr) (string, string) 
 		return "", ""
 	}
 	return object.Pkg().Path(), object.Name()
+}
+
+func splitConnectorBranchTag(value string) (string, bool, bool) {
+	branchID, qualifier, hasQualifier := strings.Cut(value, ",")
+	if branchID == "" || strings.Contains(qualifier, ",") {
+		return "", false, false
+	}
+	if !hasQualifier {
+		return branchID, false, true
+	}
+	if qualifier != "optional" {
+		return "", false, false
+	}
+	return branchID, true, true
 }
 
 func connectorCompositeLiteral(expression ast.Expr) (*ast.CompositeLit, bool) {
