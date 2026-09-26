@@ -425,6 +425,14 @@ impl AttributeIndexKind {
 }
 
 impl AttributeLock {
+    pub(crate) fn attribute_name(&self) -> &str {
+        &self.attribute
+    }
+
+    pub(crate) fn instance(&self) -> Option<&str> {
+        self.instance.as_deref()
+    }
+
     pub(crate) fn physical_name(&self) -> String {
         match self.instance.as_deref() {
             Some(instance) => crate::registry::physical_name(&self.attribute, instance),

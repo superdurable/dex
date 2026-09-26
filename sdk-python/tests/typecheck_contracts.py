@@ -15,12 +15,14 @@ from dex import (
     AttributeMap,
     BlobCache,
     Client,
+    ChannelMap,
     Context,
     Flow,
     FlowConfig,
     PersistenceSchema,
     Registry,
     RPCResult,
+    RPCInvokeOptions,
     StartFlowOptions,
     Step,
     StepDecision,
@@ -80,6 +82,8 @@ class AsyncTypedStep(Step[Input]):
 
 
 progress = Stream("progress", str, 10 * 1024 * 1024)
+profiles = AttributeMap("profiles", dict[str, str])
+queued_commands = ChannelMap("queued-commands", str)
 
 
 class TypedFlow(Flow[Input]):
@@ -89,7 +93,7 @@ class TypedFlow(Flow[Input]):
         return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(progress)
+        return PersistenceSchema.of(progress, profiles, queued_commands)
 
     @rpc()
     def typed_rpc(self, context: Context, input: Input) -> RPCResult[Output]:
@@ -105,6 +109,16 @@ output: Output = client.invoke_rpc(
     typed_flow.typed_rpc,
     "flow-id",
     Input("input"),
+)
+selected_output: Output = client.invoke_rpc(
+    typed_flow.typed_rpc,
+    "flow-id",
+    Input("input"),
+    options=RPCInvokeOptions(
+        lock_attribute_map_instances=(profiles.lock("partition-007"),),
+        load_attribute_map_instances=(profiles.load("partition-007"),),
+        load_channel_map_instances=(queued_commands.load_messages("partition-007"),),
+    ),
 )
 client.write_stream("flow-id", progress, "frontend/1", "starting")
 stream_message: StreamMessage[str] = client.read_stream("flow-id", progress)

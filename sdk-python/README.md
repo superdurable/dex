@@ -42,6 +42,30 @@ atomic commit and Channel deletion validation. Attribute locks add isolation
 only among cooperating Steps and RPCs using the same lock. Write-only publish
 and delete operations do not require loading.
 
+### Invocation-time map instances
+
+The `@rpc` decorator remains the registration-time contract for timeout,
+transactionality, locks, and fixed state loads. Pass frozen `RPCInvokeOptions`
+through the keyword-only `options` argument when the caller chooses an exact map
+instance at runtime:
+
+```python
+options = dex.RPCInvokeOptions(
+    lock_attribute_map_instances=(profiles.lock(partition_name),),
+    load_attribute_map_instances=(profiles.load(partition_name),),
+)
+result = client.invoke_rpc(
+    directory.upsert_customer_profile,
+    flow_id,
+    profile,
+    options=options,
+)
+```
+
+`Client` and `AsyncClient` union, sort, and deduplicate these selections with the
+registered ones. Locking and loading are independent; read-modify-write handlers
+need both for the same instance.
+
 ## Step and timeout-handler state loading
 
 `StepOptions` provides the same five selections independently for `wait_for` and

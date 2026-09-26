@@ -157,6 +157,16 @@ export function registeredRPC(registry: Registry, method: Function): RegisteredR
   return registered;
 }
 
+export function registeredRPCFlow(registry: Registry, method: Function): RegisteredFlow {
+  const registeredRPCValue = registeredRPC(registry, method);
+  for (const flow of metadata(registry).flowsByName.values()) {
+    if (flow.rpcs.includes(registeredRPCValue)) {
+      return flow;
+    }
+  }
+  throw new FlowDefinitionError("RPC Flow is not registered");
+}
+
 export function registeredFlowByName(registry: Registry, name: string): RegisteredFlow {
   const registered = metadata(registry).flowsByName.get(name);
   if (registered === undefined) {

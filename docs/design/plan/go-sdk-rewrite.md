@@ -13,6 +13,13 @@ Exact map loads use a slash-free logical instance and encode its physical name;
 all-instance loads use a trailing slash. The RPC Context returns a stable
 state-not-loaded error when an unloaded collection is read.
 
+`RPCInvokeOptions` is the narrow invocation-time companion to `RPCOptions`. It
+adds exact AttributeMap locks, exact AttributeMap loads, and exact ChannelMap
+loads selected from application input. `Client.InvokeRPCWithOptions` validates
+the selections against the RPC's Flow before network I/O, then unions, sorts,
+and deduplicates them with registered state requirements. It cannot replace or
+clear registration-time options. Dynamic locks and loads remain independent.
+
 Status: Phases 1 through 5 are implemented.
 
 ## Current source of truth

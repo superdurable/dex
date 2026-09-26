@@ -31,6 +31,7 @@ import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCAttributeMapLock;
 import io.superdurable.dex.RPCResult;
+import io.superdurable.dex.RPCInvokeOptions;
 import io.superdurable.dex.Registry;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
@@ -56,6 +57,8 @@ public class UserContractsTest {
     private static final AttributeMap<String> ITEMS = AttributeMap.define("items", String.class);
     private static final Channel<OrderInput> COMMANDS =
             Channel.define("commands", OrderInput.class);
+    private static final ChannelMap<OrderInput> QUEUED_COMMANDS =
+            ChannelMap.define("queued-commands", OrderInput.class);
     private static final Stream<String> PROGRESS =
             Stream.define("progress", String.class, 10L * 1024L * 1024L);
     private static final Step<OrderInput> APPROVE = new ApproveStep();
@@ -254,7 +257,16 @@ public class UserContractsTest {
             final OrderInput input) {
         final OrderOutput output = client.invokeRPC(rpcStub::getOrder, input);
         client.invokeRPC(rpcStub::recordOrder, input);
-        if (output == null) {
+        final RPCInvokeOptions options = RPCInvokeOptions.newBuilder()
+                .addLockAttributeMapInstance(ITEMS, "tenant-a")
+                .addLoadAttributeMapInstance(ITEMS, "tenant-a")
+                .addLoadChannelMapInstance(QUEUED_COMMANDS, "tenant-a")
+                .build();
+        final OrderOutput selected = client.invokeRPC(rpcStub::getOrder, input, options);
+        client.invokeRPC(rpcStub::recordOrder, input, options);
+        final OrderOutput current = client.invokeRPC(rpcStub::getCurrentOrder, options);
+        client.invokeRPC(rpcStub::recordHeartbeat, options);
+        if (output == null || selected == null || current == null) {
             throw new AssertionError("compile-only contract");
         }
     }
@@ -279,7 +291,7 @@ public class UserContractsTest {
         public PersistenceSchema getPersistenceSchema() {
             return PersistenceSchema.of(
                     Arrays.asList(STATUS, ITEMS),
-                    Collections.singletonList(COMMANDS),
+                    Arrays.asList(COMMANDS, QUEUED_COMMANDS),
                     Collections.singletonList(PROGRESS));
         }
 
@@ -298,6 +310,15 @@ public class UserContractsTest {
 
         @RPC
         public void recordOrder(final Context context, final OrderInput input) {
+        }
+
+        @RPC
+        public RPCResult<OrderOutput> getCurrentOrder(final Context context) {
+            return RPCResult.of(new OrderOutput());
+        }
+
+        @RPC
+        public void recordHeartbeat(final Context context) {
         }
     }
 

@@ -19,7 +19,7 @@ export * from "./options.js";
 export * from "./persistence.js";
 export * from "./retry-after.js";
 export { rpc } from "./rpc.js";
-export type { RPC, RPCOptions, RPCResult } from "./rpc.js";
+export type { RPC, RPCInvokeOptions, RPCOptions, RPCResult } from "./rpc.js";
 export * from "./step.js";
 export * from "./stream.js";
 export * from "./subflow.js";

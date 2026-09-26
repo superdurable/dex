@@ -41,6 +41,35 @@ atomic commit and Channel deletion validation. Attribute locks add isolation
 only among cooperating Steps and RPCs using the same lock. Write-only publish
 and delete operations do not require loading.
 
+### Invocation-time map instances
+
+`RPCOptions` remains the registration-time contract for timeout, transactionality,
+locks, and fixed state loads. Use `RPCInvokeOptions` when the caller chooses an
+exact map instance at runtime:
+
+```go
+partition := "partition-007"
+err := client.InvokeRPCWithOptions(
+	ctx,
+	flowID,
+	flow.UpsertCustomerProfile,
+	profile,
+	&result,
+	dex.RPCInvokeOptions{
+		LockAttributeMapInstances: []dex.AttributeLock{
+			dex.LockAttributeMap(CustomerProfiles, partition),
+		},
+		LoadAttributeMapInstances: []dex.AttributeMapLoad{
+			CustomerProfiles.Load(partition),
+		},
+	},
+)
+```
+
+Invocation selections are additive. The Client unions, sorts, and deduplicates
+them with the registered selections. Locking and loading are independent; a
+read-modify-write RPC must request both for the same AttributeMap instance.
+
 ## Action permission projection
 
 An RPC can declare a state-dependent Action in `GetRPCs`. Dex maintains the

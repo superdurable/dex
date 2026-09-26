@@ -144,6 +144,7 @@ class TestFlow implements Flow<Input> {
   @rpc({
     inputCodec,
     outputCodec,
+    lockAttributes: [revision.lock(), items.lock("tenant-a")],
     loadAttributeMaps: [items],
     loadAttributeMapInstances: [items.load("tenant-a")],
     loadChannels: [queued],
@@ -330,6 +331,41 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.deepEqual(await client.invokeRPC(flow.accept, "flow-1", { message: "hello" }), {
       accepted: true,
     });
+    assert.deepEqual(
+      await client.invokeRPCWithOptions(
+        flow.accept,
+        "flow-1",
+        { message: "hello" },
+        {
+          lockAttributeMapInstances: [items.lock("tenant-b"), items.lock("tenant-a")],
+          loadAttributeMapInstances: [items.load("tenant-b"), items.load("tenant-a")],
+          loadChannelMapInstances: [
+            byTenant.loadMessages("tenant-b"),
+            byTenant.loadMessages("tenant-a"),
+          ],
+        },
+      ),
+      { accepted: true },
+    );
+    await assert.rejects(
+      client.invokeRPCWithOptions(
+        flow.accept,
+        "flow-1",
+        { message: "hello" },
+        { lockAttributeMapInstances: [revision.lock()] },
+      ),
+      /must target an AttributeMap instance/,
+    );
+    const foreignItems = new AttributeMap("foreign-items", stringCodec);
+    await assert.rejects(
+      client.invokeRPCWithOptions(
+        flow.accept,
+        "flow-1",
+        { message: "hello" },
+        { loadAttributeMapInstances: [foreignItems.load("tenant-a")] },
+      ),
+      /does not register AttributeMap/,
+    );
     await client.writeStream("flow-1", thinking, "client-1", "starting");
     const message = await client.readStream("flow-1", thinking, "previous", 2_000);
     assert.equal(message.value, "working");
@@ -411,11 +447,21 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
       ["by-tenant/", "by-tenant/tenant-a"],
     );
     assert.equal(requests.rpc?.rpcName, "accept");
-    assert.deepEqual(requests.rpc?.loadAttributeMapInstances, ["items/", "items/tenant-a"]);
+    assert.deepEqual(requests.rpc?.lockAttributeKeys, [
+      "items/tenant-a",
+      "items/tenant-b",
+      "revision",
+    ]);
+    assert.deepEqual(requests.rpc?.loadAttributeMapInstances, [
+      "items/",
+      "items/tenant-a",
+      "items/tenant-b",
+    ]);
     assert.deepEqual(requests.rpc?.loadChannelNames, ["queued"]);
     assert.deepEqual(requests.rpc?.loadChannelMapInstances, [
       "by-tenant/",
       "by-tenant/tenant-a",
+      "by-tenant/tenant-b",
     ]);
     assert.deepEqual(requests.writeStream, {
       flowId: "flow-1",

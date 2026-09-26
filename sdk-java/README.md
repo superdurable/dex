@@ -41,6 +41,27 @@ atomic commit and Channel deletion validation. Attribute locks add isolation
 only among cooperating Steps and RPCs using the same lock. Write-only publish
 and delete operations do not require loading.
 
+### Invocation-time map instances
+
+`@RPC` remains the registration-time contract for timeout, transactionality,
+locks, and fixed state loads. Use `RPCInvokeOptions` when the caller chooses an
+exact map instance at runtime:
+
+```java
+RPCInvokeOptions options = RPCInvokeOptions.newBuilder()
+        .addLockAttributeMapInstance(customerProfiles, partitionName)
+        .addLoadAttributeMapInstance(customerProfiles, partitionName)
+        .build();
+CustomerProfile result = client.invokeRPC(
+        directoryRpc::upsertCustomerProfile,
+        profile,
+        options);
+```
+
+The four function/procedure and input/no-input `invokeRPC` families accept these
+options. Selections are additive, sorted, and deduplicated. Locking and loading
+are independent; read-modify-write handlers need both for the same instance.
+
 ## Step and timeout-handler state loading
 
 `StepOptions` provides the same five selections independently for `waitFor` and

@@ -92,8 +92,11 @@ func (flow clientTestFlow) GetRPCs() []RPCDef {
 	return []RPCDef{
 		DefineRPC(flow.NoOutput, nil),
 		DefineRPC(flow.Update, &RPCOptions{
-			Timeout:                   30 * time.Second,
-			LockAttributes:            []AttributeLock{LockAttribute(clientTestStatus)},
+			Timeout: 30 * time.Second,
+			LockAttributes: []AttributeLock{
+				LockAttribute(clientTestStatus),
+				LockAttributeMap(clientTestItems, "tenant-a"),
+			},
 			IsTransactional:           true,
 			LoadAttributeMaps:         []AttributeDef{clientTestItems},
 			LoadAttributeMapInstances: []AttributeMapLoad{clientTestItems.Load("tenant-a")},
@@ -742,7 +745,7 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, int32(30), service.invokeRequest.TimeoutSeconds)
-	require.Equal(t, []string{"status"}, service.invokeRequest.LockAttributeKeys)
+	require.Equal(t, []string{"items/tenant-a", "status"}, service.invokeRequest.LockAttributeKeys)
 	require.True(t, service.invokeRequest.IsTransactional)
 	require.Equal(t, []string{"items/", "items/tenant-a"}, service.invokeRequest.LoadAttributeMapInstances)
 	require.Equal(t, []string{"commands"}, service.invokeRequest.LoadChannelNames)
@@ -754,6 +757,71 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	require.Equal(t, "updated", output.Status)
 	_, err = uuid.Parse(service.invokeRequest.RequestId)
 	require.NoError(t, err)
+
+	err = client.InvokeRPCWithOptions(
+		ctx,
+		"order-2",
+		clientTestFlow{}.Update,
+		clientTestRPCInput{Status: "dynamic"},
+		&output,
+		RPCInvokeOptions{
+			LockAttributeMapInstances: []AttributeLock{
+				LockAttributeMap(clientTestItems, "tenant-b"),
+				LockAttributeMap(clientTestItems, "tenant-a"),
+			},
+			LoadAttributeMapInstances: []AttributeMapLoad{
+				clientTestItems.Load("tenant-b"),
+				clientTestItems.Load("tenant-a"),
+			},
+			LoadChannelMapInstances: []ChannelMapLoad{
+				clientTestByOrder.LoadMessages("tenant-b"),
+				clientTestByOrder.LoadMessages("tenant-a"),
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		[]string{"items/tenant-a", "items/tenant-b", "status"},
+		service.invokeRequest.LockAttributeKeys,
+	)
+	require.Equal(
+		t,
+		[]string{"items/", "items/tenant-a", "items/tenant-b"},
+		service.invokeRequest.LoadAttributeMapInstances,
+	)
+	require.Equal(
+		t,
+		[]string{"commands-by-order/", "commands-by-order/tenant-a", "commands-by-order/tenant-b"},
+		service.invokeRequest.LoadChannelMapInstances,
+	)
+
+	err = client.InvokeRPCWithOptions(
+		ctx,
+		"invalid-lock",
+		clientTestFlow{}.Update,
+		clientTestRPCInput{},
+		&output,
+		RPCInvokeOptions{
+			LockAttributeMapInstances: []AttributeLock{LockAttribute(clientTestStatus)},
+		},
+	)
+	require.ErrorContains(t, err, "is not an AttributeMap instance")
+
+	unregisteredItems := DefineAttributeMap[int]("unregistered-items")
+	err = client.InvokeRPCWithOptions(
+		ctx,
+		"unregistered-map",
+		clientTestFlow{}.Update,
+		clientTestRPCInput{},
+		&output,
+		RPCInvokeOptions{
+			LockAttributeMapInstances: []AttributeLock{
+				LockAttributeMap(unregisteredItems, "tenant-a"),
+			},
+		},
+	)
+	require.ErrorContains(t, err, "is not registered")
 
 	result, err := client.WaitForFlow(ctx, "order-1", WaitForFlowOptions{NeedsResults: true})
 	require.NoError(t, err)

@@ -49,6 +49,7 @@ import type { Empty } from "./gen/google/protobuf/empty.js";
 import {
   ErrorSubStatus,
   DexServiceError,
+  FlowDefinitionError,
   FlowErrorType,
   LongPollTimeoutError,
   RequestTimeoutError,
@@ -58,6 +59,7 @@ import {
 import {
   registeredFlow,
   registeredRPC,
+  registeredRPCFlow,
   registeredStream,
   type Flow,
   type RegisteredFlow,
@@ -91,7 +93,7 @@ import {
   type WaitForStepCompletionOptions,
 } from "./options.js";
 import { Attribute, AttributeMap, IndexType, type AttributeLock } from "./persistence.js";
-import type { RPCResult } from "./rpc.js";
+import type { RPCInvokeOptions, RPCResult } from "./rpc.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
 import { physicalMapName, requireName } from "./validation.js";
 import { voidCodec } from "./codec.js";
@@ -302,41 +304,179 @@ export class Client {
     runId = "",
   ): Promise<unknown> {
     const rpc = registeredRPC(this.registry, rpcMethod);
-    const hasInput = rpc.hasInput;
+    return this.doInvokeRPC(
+      rpcMethod,
+      flowId,
+      rpc.hasInput ? inputOrRunId : undefined,
+      {},
+      rpc.hasInput ? runId : (inputOrRunId as string | undefined) ?? "",
+    );
+  }
+
+  /**
+   * Invokes an input-bearing RPC with additive runtime map-instance selections.
+   * @typeParam Input - RPC input type.
+   * @typeParam Output - RPC output type.
+   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param flowId - Non-empty target Flow ID.
+   * @param input - Typed handler input.
+   * @param options - Runtime AttributeMap locks and exact map-instance loads.
+   * @param runId - Optional exact run; the server resolves the current execution when omitted.
+   * @returns The decoded RPCResult output.
+   */
+  public invokeRPCWithOptions<Input, Output>(
+    rpcMethod: (
+      context: Context,
+      input: Input,
+    ) => RPCResult<Output> | Promise<RPCResult<Output>>,
+    flowId: string,
+    input: Input,
+    options: RPCInvokeOptions,
+    runId?: string,
+  ): Promise<Output>;
+
+  /**
+   * Invokes an input-free RPC with additive runtime map-instance selections.
+   * @typeParam Output - RPC output type.
+   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param flowId - Non-empty target Flow ID.
+   * @param options - Runtime AttributeMap locks and exact map-instance loads.
+   * @param runId - Optional exact run; the server resolves the current execution when omitted.
+   * @returns The decoded RPCResult output.
+   */
+  public invokeRPCWithOptions<Output>(
+    rpcMethod: (context: Context) => RPCResult<Output> | Promise<RPCResult<Output>>,
+    flowId: string,
+    options: RPCInvokeOptions,
+    runId?: string,
+  ): Promise<Output>;
+
+  /**
+   * Invokes an input-bearing, output-free RPC with runtime map-instance selections.
+   * @typeParam Input - RPC input type.
+   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param flowId - Non-empty target Flow ID.
+   * @param input - Typed handler input.
+   * @param options - Runtime AttributeMap locks and exact map-instance loads.
+   * @param runId - Optional exact run; the server resolves the current execution when omitted.
+   * @returns A promise resolved after successful handler completion.
+   */
+  public invokeRPCWithOptions<Input>(
+    rpcMethod: (context: Context, input: Input) => void | Promise<void>,
+    flowId: string,
+    input: Input,
+    options: RPCInvokeOptions,
+    runId?: string,
+  ): Promise<void>;
+
+  /**
+   * Invokes an input-free, output-free RPC with runtime map-instance selections.
+   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param flowId - Non-empty target Flow ID.
+   * @param options - Runtime AttributeMap locks and exact map-instance loads.
+   * @param runId - Optional exact run; the server resolves the current execution when omitted.
+   * @returns A promise resolved after successful handler completion.
+   */
+  public invokeRPCWithOptions(
+    rpcMethod: (context: Context) => void | Promise<void>,
+    flowId: string,
+    options: RPCInvokeOptions,
+    runId?: string,
+  ): Promise<void>;
+
+  public async invokeRPCWithOptions(
+    rpcMethod: Function,
+    flowId: string,
+    inputOrOptions: unknown,
+    optionsOrRunId?: RPCInvokeOptions | string,
+    runId = "",
+  ): Promise<unknown> {
+    const rpc = registeredRPC(this.registry, rpcMethod);
+    if (rpc.hasInput) {
+      return this.doInvokeRPC(
+        rpcMethod,
+        flowId,
+        inputOrOptions,
+        optionsOrRunId as RPCInvokeOptions,
+        runId,
+      );
+    }
+    return this.doInvokeRPC(
+      rpcMethod,
+      flowId,
+      undefined,
+      inputOrOptions as RPCInvokeOptions,
+      (optionsOrRunId as string | undefined) ?? "",
+    );
+  }
+
+  private async doInvokeRPC(
+    rpcMethod: Function,
+    flowId: string,
+    input: unknown,
+    invokeOptions: RPCInvokeOptions,
+    runId: string,
+  ): Promise<unknown> {
+    const rpc = registeredRPC(this.registry, rpcMethod);
+    const flow = registeredRPCFlow(this.registry, rpcMethod);
+    const invocationLocks = (invokeOptions.lockAttributeMapInstances ?? []).map((lock) => {
+      if (!(lock.attribute instanceof AttributeMap) || lock.instance === undefined) {
+        throw new FlowDefinitionError(
+          "RPCInvokeOptions lock must target an AttributeMap instance",
+        );
+      }
+      requireRPCInvokeDefinition(flow, lock.attribute, "AttributeMap");
+      return physicalName(lock.attribute.name, lock.instance);
+    });
+    const invocationAttributeMapLoads = (invokeOptions.loadAttributeMapInstances ?? []).map(
+      (load) => {
+        requireRPCInvokeDefinition(flow, load.attributeMap, "AttributeMap");
+        return physicalName(load.attributeMap.name, load.instance);
+      },
+    );
+    const invocationChannelMapLoads = (invokeOptions.loadChannelMapInstances ?? []).map(
+      (load) => {
+        requireRPCInvokeDefinition(flow, load.channelMap, "ChannelMap");
+        return physicalName(load.channelMap.name, load.instance);
+      },
+    );
     const response = await unary<InvokeRPCResponse>(
       { operation: "invokeRPC", flowId, requirement: "active" },
       (callback) =>
       this.service.invokeRpc(
         {
           flowId: requireName(flowId),
-          runId: hasInput ? runId : (inputOrRunId as string | undefined) ?? "",
+          runId,
           rpcName: rpc.name,
-          input: hasInput
-            ? encodeValue(codecOrJson(rpc.options.inputCodec), inputOrRunId)
+          input: rpc.hasInput
+            ? encodeValue(codecOrJson(rpc.options.inputCodec), input)
             : undefined,
           timeoutSeconds: seconds(rpc.options.timeoutMs),
-          lockAttributeKeys: (rpc.options.lockAttributes ?? []).map((lock) =>
-            physicalName(lock.attribute.name, lock.instance),
-          ),
+          lockAttributeKeys: uniqueSorted([
+            ...(rpc.options.lockAttributes ?? []).map((lock) =>
+              physicalName(lock.attribute.name, lock.instance),
+            ),
+            ...invocationLocks,
+          ]),
           requestId: crypto.randomUUID(),
           isTransactional: rpc.options.isTransactional ?? false,
-          loadAttributeMapInstances: [
+          loadAttributeMapInstances: uniqueSorted([
             ...(rpc.options.loadAttributeMaps ?? []).map((attributeMap) =>
               `${attributeMap.name}/`),
             ...(rpc.options.loadAttributeMapInstances ?? []).map((load) =>
               physicalName(load.attributeMap.name, load.instance)),
-          ]
-            .sort(),
+            ...invocationAttributeMapLoads,
+          ]),
           loadChannelNames: (rpc.options.loadChannels ?? [])
             .map((channel) => channel.name)
             .sort(),
-          loadChannelMapInstances: [
+          loadChannelMapInstances: uniqueSorted([
             ...(rpc.options.loadChannelMaps ?? []).map((channelMap) =>
               `${channelMap.name}/`),
             ...(rpc.options.loadChannelMapInstances ?? []).map((load) =>
               physicalName(load.channelMap.name, load.instance)),
-          ]
-            .sort(),
+            ...invocationChannelMapLoads,
+          ]),
         },
         callback,
       ),
@@ -1325,6 +1465,22 @@ function physicalName(name: string, instance?: string): string {
     return name;
   }
   return physicalMapName(name, instance);
+}
+
+function requireRPCInvokeDefinition(
+  flow: RegisteredFlow,
+  definition: { readonly name: string },
+  kind: string,
+): void {
+  if (flow.persistence.get(definition.name) !== definition) {
+    throw new FlowDefinitionError(
+      `Flow ${flow.name} does not register ${kind} ${definition.name}`,
+    );
+  }
+}
+
+function uniqueSorted(values: readonly string[]): string[] {
+  return [...new Set(values)].sort();
 }
 
 function seconds(milliseconds: number | undefined): number {

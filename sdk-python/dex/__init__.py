@@ -79,6 +79,7 @@ from dex.runtime_errors import (
     ValueMappingError,
     WorkerInvocationError,
 )
+from dex.rpc_invoke_options import RPCInvokeOptions
 from dex.step import (
     RetryPolicy,
     Step,
@@ -169,6 +170,7 @@ __all__ = [
     "RequestTimeoutError",
     "PersistenceSchema",
     "RPCResult",
+    "RPCInvokeOptions",
     "RecoveryErrorInfo",
     "RetryAfterError",
     "RpcLockConflictError",

@@ -73,6 +73,22 @@ export interface RPCOptions<Input = unknown, Output = unknown> {
   readonly loadChannelMapInstances?: readonly ChannelMapLoad[];
 }
 
+/**
+ * Adds runtime-selected map instances to one RPC invocation.
+ *
+ * Dex unions these selections with the RPC decorator's fixed locks and loads. Locking and loading
+ * are independent, so read-modify-write handlers must select the same AttributeMap instance in
+ * both fields.
+ */
+export interface RPCInvokeOptions {
+  /** AttributeMap instance locks added for this invocation. */
+  readonly lockAttributeMapInstances?: readonly AttributeLock[];
+  /** Exact AttributeMap instance snapshots added for this invocation. */
+  readonly loadAttributeMapInstances?: readonly AttributeMapLoad[];
+  /** Exact ChannelMap pending-message snapshots added for this invocation. */
+  readonly loadChannelMapInstances?: readonly ChannelMapLoad[];
+}
+
 export interface RegisteredRPC {
   readonly method: Function;
   readonly name: string;
