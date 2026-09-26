@@ -994,24 +994,26 @@ class Registry:
             )
 
         load_attribute_map_instances: list[str] = []
-        for load in options.load_attribute_map_instances:
-            if not isinstance(load, AttributeMapLoad):
+        for attribute_map_load in options.load_attribute_map_instances:
+            if not isinstance(attribute_map_load, AttributeMapLoad):
                 raise FlowDefinitionError(
                     "RPCInvokeOptions has an invalid AttributeMap load"
                 )
             self._require_rpc_invoke_definition(
-                flow, load.attribute_map, "AttributeMap"
+                flow, attribute_map_load.attribute_map, "AttributeMap"
             )
-            load_attribute_map_instances.append(load.physical_name)
+            load_attribute_map_instances.append(attribute_map_load.physical_name)
 
         load_channel_map_instances: list[str] = []
-        for load in options.load_channel_map_instances:
-            if not isinstance(load, ChannelMapLoad):
+        for channel_map_load in options.load_channel_map_instances:
+            if not isinstance(channel_map_load, ChannelMapLoad):
                 raise FlowDefinitionError(
                     "RPCInvokeOptions has an invalid ChannelMap load"
                 )
-            self._require_rpc_invoke_definition(flow, load.channel_map, "ChannelMap")
-            load_channel_map_instances.append(load.physical_name)
+            self._require_rpc_invoke_definition(
+                flow, channel_map_load.channel_map, "ChannelMap"
+            )
+            load_channel_map_instances.append(channel_map_load.physical_name)
 
         return (
             tuple(sorted(set(lock_attribute_map_instances))),
