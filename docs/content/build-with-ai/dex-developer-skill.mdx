@@ -14,32 +14,42 @@ contribute official [Connectors](/primitives/connector).
 The plugin contains guidance files only. Dex Server, Workers, and applications
 do not load it at runtime.
 
-## Choose a skill
+## Start with Dex App Builder
+
+For most Dex requests, start with **dex-app-builder**. It is the primary skill
+for discovering, designing, implementing, and verifying a complete Dex
+application. It keeps ownership of the product workflow and loads specialist
+guidance when backend or Connector work begins.
+
+Use **dex-sdk** directly only for a standalone SDK implementation, debugging,
+testing, or operations task. Use **dex-connector-contributor** directly only
+for standalone work in the official Dex Connectors Library.
 
 | Skill | Use it for |
 | --- | --- |
-| **dex-sdk** | Implement, debug, test, and operate Dex applications in Python, Go, Java, TypeScript, or Rust. |
-| **dex-app-builder** | Discover, prototype, implement, and locally verify an end-to-end process product with a Go backend. |
-| **dex-connector-contributor** | Create or modify official Connector operations, Triggers, and configuration UI units in the Dex Connectors Library. |
-
-### Dex SDK
-
-Use **dex-sdk** for application-level Dex work. It models Flows, Steps,
-transitions, durable state, messages, RPCs, timers, retries, and recovery before
-implementation. It checks the SDK version installed by the application before
-choosing exact APIs and runnable examples.
+| **dex-app-builder** | Primary skill for discovering, prototyping, implementing, and locally verifying an end-to-end process product with a Go backend. |
+| **dex-sdk** | Specialist sub-skill for implementing, debugging, testing, and operating Dex applications in Python, Go, Java, TypeScript, or Rust. |
+| **dex-connector-contributor** | Specialist sub-skill for creating or modifying official Connector operations, Triggers, and configuration UI units in the Dex Connectors Library. |
 
 ### Dex App Builder
 
-Use **dex-app-builder** for a complete process product. It starts with business
-roles, permissions, triggers, actions, waits, approvals, recovery, and audit
-requirements. It then chooses either Dex Web as the management experience or a
-custom UI, implements a Go backend from the supported template, and verifies
-the product with a real Dex Server.
+Use **dex-app-builder** as the default entry point for a complete process
+product. It starts with business roles, permissions, triggers, actions, waits,
+approvals, recovery, and audit requirements. It then chooses either Dex Web as
+the management experience or a custom UI, implements a Go backend from the
+supported template, and verifies the product with a real Dex Server.
 
 When the product needs a missing or defective external-provider Connector, the
 workflow routes that contribution to **dex-connector-contributor**. Application
 dependencies remain blocked on an exact published Connector release.
+
+### Dex SDK
+
+Use **dex-sdk** for standalone application-level Dex work. It models Flows,
+Steps, transitions, durable state, messages, RPCs, timers, retries, and recovery
+before implementation. It checks the SDK version installed by the application
+before choosing exact APIs and runnable examples. App Builder loads this
+guidance when backend implementation begins.
 
 ### Dex Connector Contributor
 
@@ -55,11 +65,15 @@ exists, it asks permission and opens GitHub's fork page. The user clicks
 
 ## How the skills work together
 
-**dex-app-builder** and **dex-connector-contributor** load the shared
-**dex-sdk** semantics when they reach backend work. App Builder owns the product
-workflow and consumption of released Connectors. Connector Contributor owns
-changes to the Connector library, release ordering, examples, provider tests,
-and PR delivery.
+**dex-app-builder** is the primary coordinator. It loads the shared **dex-sdk**
+semantics when backend work begins. It uses released Connectors directly and
+routes a confirmed Connector gap to **dex-connector-contributor**. Connector
+Contributor also loads **dex-sdk** where it needs shared Flow and Step semantics.
+
+App Builder owns the product workflow and consumption of released Connectors.
+The specialist sub-skills own standalone SDK work and Connector library
+contributions. An explicit specialist invocation does not expand into the full
+product workflow.
 
 Install the complete plugin so the agent can route between all three skills.
 The source and releases are maintained in
@@ -74,15 +88,17 @@ codex plugin marketplace add superdurable/dex-skills
 codex plugin add superdurable-dex@superdurable
 ~~~
 
-Start a new task after installation. Invoke a skill explicitly when needed:
+Start a new task after installation. Begin product work with App Builder:
 
 ~~~text
-$dex-sdk Design a reliable Dex Flow for this application.
 $dex-app-builder Design and build this process application.
+$dex-sdk Design a reliable Dex Flow for this application.
 $dex-connector-contributor Add this capability to an official Connector.
 ~~~
 
-Codex can also select a skill from the task context.
+Codex can select **dex-app-builder** from the task context. The SDK and
+Connector Contributor skills are explicit-only specialist entries, while App
+Builder can still load them as part of the product workflow.
 
 ## Install for Claude Code
 
@@ -97,10 +113,13 @@ Run these commands inside Claude Code:
 The three invocations are:
 
 ~~~text
-/superdurable-dex:dex-sdk
 /superdurable-dex:dex-app-builder
+/superdurable-dex:dex-sdk
 /superdurable-dex:dex-connector-contributor
 ~~~
+
+Start with **dex-app-builder** unless the task is standalone SDK or official
+Connector library work.
 
 ## Install for Cursor
 
@@ -109,10 +128,13 @@ from **Customize → From GitHub Repository**, then install
 **superdurable-dex**. The three skills appear as:
 
 ~~~text
-/dex-sdk
 /dex-app-builder
+/dex-sdk
 /dex-connector-contributor
 ~~~
+
+Start with **dex-app-builder** unless the task is standalone SDK or official
+Connector library work.
 
 Agent Skills clients can install the complete bundle directly:
 

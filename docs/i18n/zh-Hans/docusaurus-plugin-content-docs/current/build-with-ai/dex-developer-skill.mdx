@@ -13,30 +13,38 @@ Dex Skills 是 Dex 官方的 coding agent plugin。它帮助 Codex、Claude Code
 
 该 plugin 只包含指导文件。Dex Server、Worker 和应用不会在运行时加载它。
 
-## 选择 Skill
+## 优先使用 Dex App Builder
+
+大多数 Dex 请求都应从 **dex-app-builder** 开始。它是发现、设计、实现和验证完整
+Dex 应用的主要 skill。它持续负责整个产品流程，并在进入 backend 或 Connector
+工作时加载对应的专用 skill。
+
+只有独立的 SDK 实现、调试、测试或运维任务才直接使用 **dex-sdk**。只有独立修改
+官方 Dex Connectors Library 时才直接使用 **dex-connector-contributor**。
 
 | Skill | 使用场景 |
 | --- | --- |
-| **dex-sdk** | 使用 Python、Go、Java、TypeScript 或 Rust 实现、调试、测试和运维 Dex 应用。 |
-| **dex-app-builder** | 发现、原型设计、实现并在本地验证使用 Go backend 的端到端 process product。 |
-| **dex-connector-contributor** | 在 Dex Connectors Library 中新增或修改官方 Connector operation、Trigger 和 configuration UI unit。 |
-
-### Dex SDK
-
-应用层 Dex 开发使用 **dex-sdk**。它会在实现前设计 Flow、Step、transition、durable
-state、message、RPC、timer、retry 和 recovery。选择具体 API 和可运行示例前，它会
-检查应用实际安装的 SDK version。
+| **dex-app-builder** | 主要 skill，用于发现、原型设计、实现并在本地验证使用 Go backend 的端到端 process product。 |
+| **dex-sdk** | 专用 skill，用于使用 Python、Go、Java、TypeScript 或 Rust 实现、调试、测试和运维 Dex 应用。 |
+| **dex-connector-contributor** | 专用 skill，用于在 Dex Connectors Library 中新增或修改官方 Connector operation、Trigger 和 configuration UI unit。 |
 
 ### Dex App Builder
 
-完整 process product 使用 **dex-app-builder**。它从业务 role、permission、trigger、
-action、wait、approval、recovery 和 audit requirement 开始，然后选择 Dex Web 作为
-management experience，或构建 custom UI。它基于受支持的 template 实现 Go backend，
-并使用真实 Dex Server 验证产品。
+完整 process product 默认从 **dex-app-builder** 开始。它从业务 role、permission、
+trigger、action、wait、approval、recovery 和 audit requirement 开始，然后选择
+Dex Web 作为 management experience，或构建 custom UI。它基于受支持的 template
+实现 Go backend，并使用真实 Dex Server 验证产品。
 
 如果产品需要的 external-provider Connector 缺失或存在缺陷，该流程会把贡献工作
 路由到 **dex-connector-contributor**。应用 dependency 必须等待精确的已发布
 Connector release。
+
+### Dex SDK
+
+独立的应用层 Dex 开发使用 **dex-sdk**。它会在实现前设计 Flow、Step、transition、
+durable state、message、RPC、timer、retry 和 recovery。选择具体 API 和可运行示例前，
+它会检查应用实际安装的 SDK version。App Builder 在进入 backend 实现时会加载这份
+guidance。
 
 ### Dex Connector Contributor
 
@@ -51,10 +59,14 @@ GitHub fork 页面。用户点击 **Create fork** 后，agent 才会 clone 该 f
 
 ## 三个 Skill 如何协作
 
-**dex-app-builder** 和 **dex-connector-contributor** 进入 backend 工作时，会加载
-共享的 **dex-sdk** 语义。App Builder 负责产品流程和已发布 Connector 的使用。
-Connector Contributor 负责 Connector library 变更、release 顺序、示例、provider
-测试和 PR 交付。
+**dex-app-builder** 是主要协调入口。它在进入 backend 工作时加载共享的
+**dex-sdk** 语义，直接使用已发布 Connector，并把确认的 Connector gap 路由到
+**dex-connector-contributor**。Connector Contributor 需要共享的 Flow 和 Step 语义时，
+也会加载 **dex-sdk**。
+
+App Builder 负责产品流程和已发布 Connector 的使用。两个专用 skill 分别负责独立
+SDK 工作和 Connector library 贡献。用户显式调用专用 skill 时，不会自动
+扩展为完整产品流程。
 
 安装完整 plugin 后，agent 才能在三个 skill 之间正确路由。源码和 release 位于
 [superdurable/dex-skills](https://github.com/superdurable/dex-skills)。
@@ -68,15 +80,16 @@ codex plugin marketplace add superdurable/dex-skills
 codex plugin add superdurable-dex@superdurable
 ~~~
 
-安装后启动新 task。需要时可以显式调用：
+安装后启动新 task。产品工作从 App Builder 开始：
 
 ~~~text
-$dex-sdk Design a reliable Dex Flow for this application.
 $dex-app-builder Design and build this process application.
+$dex-sdk Design a reliable Dex Flow for this application.
 $dex-connector-contributor Add this capability to an official Connector.
 ~~~
 
-Codex 也可以根据 task context 自动选择 skill。
+Codex 可以根据 task context 自动选择 **dex-app-builder**。SDK 和 Connector Contributor
+是只能显式调用的专用入口，但 App Builder 仍可在产品流程中加载它们。
 
 ## 安装到 Claude Code
 
@@ -91,10 +104,12 @@ Codex 也可以根据 task context 自动选择 skill。
 三个调用入口是：
 
 ~~~text
-/superdurable-dex:dex-sdk
 /superdurable-dex:dex-app-builder
+/superdurable-dex:dex-sdk
 /superdurable-dex:dex-connector-contributor
 ~~~
+
+除非任务是独立 SDK 或官方 Connector library 工作，否则从 **dex-app-builder** 开始。
 
 ## 安装到 Cursor
 
@@ -103,10 +118,12 @@ Codex 也可以根据 task context 自动选择 skill。
 **superdurable-dex**。三个 skill 会显示为：
 
 ~~~text
-/dex-sdk
 /dex-app-builder
+/dex-sdk
 /dex-connector-contributor
 ~~~
+
+除非任务是独立 SDK 或官方 Connector library 工作，否则从 **dex-app-builder** 开始。
 
 Agent Skills client 也可以直接安装完整 bundle：
 
