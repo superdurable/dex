@@ -47,7 +47,7 @@ test("jobPostingUpdateReachesBothJobBoards", async () => {
   await environment.client.waitForStepCompletion(
     flowId,
     StepExecutionId.of("InitStep", 1),
-    { maximumWaitTimeMs: 30_000 },
+    { requestTimeoutMs: 30_000 },
   );
 
   const updated: JobInfo = {
@@ -65,12 +65,12 @@ test("jobPostingUpdateReachesBothJobBoards", async () => {
   await environment.client.waitForStepCompletion(
     flowId,
     StepExecutionId.of("UpdateLinkedInPosting", 2),
-    { maximumWaitTimeMs: 30_000 },
+    { requestTimeoutMs: 30_000 },
   );
   await environment.client.waitForStepCompletion(
     flowId,
     StepExecutionId.of("UpdateIndeedPosting", 2),
-    { maximumWaitTimeMs: 30_000 },
+    { requestTimeoutMs: 30_000 },
   );
 
   assert.deepEqual(await environment.client.invokeRPC(flow.get, flowId), newest);

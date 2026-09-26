@@ -130,6 +130,8 @@ const sidebars: SidebarsConfig = {
             'design-patterns/draining-channel-for-external-publishing',
           ],
         },
+        'design-patterns/sequentially-chunked-attribute-map',
+        'design-patterns/hash-partitioned-attribute-map',
         'design-patterns/entity-store',
       ],
     },

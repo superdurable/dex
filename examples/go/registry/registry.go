@@ -25,6 +25,7 @@ import (
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
@@ -33,6 +34,7 @@ import (
 	patternspolling "github.com/superdurable/dex/examples/go/patterns/polling"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
 	"github.com/superdurable/dex/examples/go/patterns/reminders"
+	sequentiallychunkedattributemap "github.com/superdurable/dex/examples/go/patterns/sequentially-chunked-attribute-map"
 	patternsservice "github.com/superdurable/dex/examples/go/patterns/shared/service"
 	"github.com/superdurable/dex/examples/go/patterns/timeout"
 	"github.com/superdurable/dex/examples/go/patterns/wait-for-step-completion"
@@ -108,6 +110,8 @@ var (
 	DrainExternal         *drainexternal.DrainingExternalChannelFlow
 	WaitForStepCompletion *waitforstepcompletion.WaitForStepCompletionFlow
 	GracefulTimeout       *timeout.FlowGracefulTimeout
+	ChunkedSubscriber     *sequentiallychunkedattributemap.ChunkedSubscriberFlow
+	CustomerDirectory     *hashpartitionedattributemap.CustomerDirectoryFlow
 
 	Step                 *step.StepFlow
 	ExampleFlow          *flow.ExampleFlow
@@ -176,6 +180,8 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	DrainExternal = drainexternal.NewDrainingExternalChannelFlow()
 	WaitForStepCompletion = waitforstepcompletion.NewWaitForStepCompletionFlow(patternService)
 	GracefulTimeout = timeout.NewFlowGracefulTimeout()
+	ChunkedSubscriber = sequentiallychunkedattributemap.NewChunkedSubscriberFlow()
+	CustomerDirectory = hashpartitionedattributemap.NewCustomerDirectoryFlow()
 
 	Step = step.NewStepFlow()
 	ExampleFlow = flow.NewExampleFlow()
@@ -235,6 +241,8 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		DrainExternal,
 		WaitForStepCompletion,
 		GracefulTimeout,
+		ChunkedSubscriber,
+		CustomerDirectory,
 		Step,
 		ExampleFlow,
 		StepRetry,

@@ -35,6 +35,9 @@ from dex_examples.patterns.drain_channels.external_publishing.controller import 
     create_draining_channel_blueprint,
 )
 from dex_examples.patterns.entity_store.controller import create_entity_store_blueprint
+from dex_examples.patterns.hash_partitioned_attribute_map.controller import (
+    create_hash_partitioned_attribute_map_blueprint,
+)
 from dex_examples.patterns.interruptible.controller import create_interruptible_blueprint
 from dex_examples.patterns.intervention.controller import create_manual_recovery_blueprint
 from dex_examples.patterns.parallel.controller import create_parallel_blueprint
@@ -44,6 +47,9 @@ from dex_examples.patterns.parallel_subflows.controller import (
 from dex_examples.patterns.polling.controller import create_polling_pattern_blueprint
 from dex_examples.patterns.recovery.controller import create_recovery_blueprint
 from dex_examples.patterns.reminders.controller import create_reminders_blueprint
+from dex_examples.patterns.sequentially_chunked_attribute_map.controller import (
+    create_sequentially_chunked_attribute_map_blueprint,
+)
 from dex_examples.patterns.inactiveness_tracker_timer.controller import (
     create_inactiveness_tracker_timer_blueprint,
 )
@@ -115,6 +121,12 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_interruptible_blueprint(app_state))
     quart_app.register_blueprint(create_reminders_blueprint(app_state))
     quart_app.register_blueprint(create_entity_store_blueprint(app_state))
+    quart_app.register_blueprint(
+        create_sequentially_chunked_attribute_map_blueprint(app_state)
+    )
+    quart_app.register_blueprint(
+        create_hash_partitioned_attribute_map_blueprint(app_state)
+    )
     quart_app.register_blueprint(create_manual_recovery_blueprint(app_state))
     quart_app.register_blueprint(create_inactiveness_tracker_timer_blueprint(app_state))
     quart_app.register_blueprint(create_parallel_blueprint(app_state))

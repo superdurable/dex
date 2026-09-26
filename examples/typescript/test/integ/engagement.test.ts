@@ -53,7 +53,7 @@ test("engagementStartChannelRpcAndStatus", async () => {
     flowId,
     flow.employerId,
     AttributeMatch.equalTo("employer-ci"),
-    { maximumWaitTimeMs: 20_000 },
+    { requestTimeoutMs: 20_000 },
   );
 
   const description = await environment.client.invokeRPC(flow.describe, flowId);

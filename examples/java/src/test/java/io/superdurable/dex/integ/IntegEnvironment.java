@@ -256,7 +256,7 @@ final class IntegEnvironment implements AutoCloseable {
                 flowId,
                 attribute,
                 io.superdurable.dex.AttributeMatch.equalTo(expected),
-                WaitForAttributeOptions.newBuilder().maximumWaitTime(timeout).build());
+                WaitForAttributeOptions.newBuilder().requestTimeout(timeout).build());
     }
 
     <T> T awaitCondition(

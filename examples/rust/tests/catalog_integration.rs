@@ -18,6 +18,7 @@ use dex_examples_rust::patterns::{
     cron::CronScheduleFlow,
     drain_channels::{DrainInternalChannelFlow, DrainingExternalChannelFlow},
     entity_store::UserProfileFlow,
+    hash_partitioned_attribute_map::CustomerDirectoryFlow,
     inactiveness_tracker::InactivenessTrackerFlow,
     interruptible::InterruptibleFlow,
     intervention::ManualRecoveryFlow,
@@ -32,6 +33,7 @@ use dex_examples_rust::patterns::{
     polling::{BackoffPollingFlow, IterationFlow, PollingWithTimerFlow},
     recovery::FailureRecoveryFlow,
     reminders::ReminderFlow,
+    sequentially_chunked_attribute_map::ChunkedSubscriberFlow,
     timeout::FlowGracefulTimeout,
     wait_for_step_completion::WaitForStepCompletionFlow,
 };
@@ -78,22 +80,24 @@ fn catalog_matches_every_cross_language_example() {
         ReminderFlow::default().flow_type(),
         InactivenessTrackerFlow::default().flow_type(),
         UserProfileFlow.flow_type(),
+        ChunkedSubscriberFlow.flow_type(),
+        CustomerDirectoryFlow.flow_type(),
         FlowGracefulTimeout::default().flow_type(),
         WaitForStepCompletionFlow::default().flow_type(),
     ];
 
     assert_eq!(product_flows, PRODUCT_FLOW_TYPES);
     assert_eq!(pattern_flows, PATTERN_FLOW_TYPES);
-    assert_eq!(product_flows.len() + pattern_flows.len(), 31);
+    assert_eq!(product_flows.len() + pattern_flows.len(), 33);
     assert_eq!(
         product_flows
             .into_iter()
             .chain(pattern_flows)
             .collect::<HashSet<_>>()
             .len(),
-        31
+        33
     );
-    create_example_registry().expect("all 31 example Flow definitions must register together");
+    create_example_registry().expect("all 33 example Flow definitions must register together");
 }
 
 #[test]

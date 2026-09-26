@@ -1,0 +1,131 @@
+---
+title: 顺序分块 AttributeMap
+slug: /design-patterns/sequentially-chunked-attribute-map
+---
+
+# 顺序分块 AttributeMap
+
+这个模式适合需要保留写入顺序的 append-only 数据，例如 agent messages、subscriber history 或 audit events。
+
+如果使用单个 Attribute，数据会逐渐变成一个大 blob，每次 append 都需要读取并重写完整 value。顺序分块的 **AttributeMap** 把活动写入集限制在固定大小。示例的每个 instance 最多保存 100 个 subscriber。
+
+## 数据布局
+
+**ChunkedSubscriberFlow** 是 RPC-only Flow。它只需手动启动一次，不设置 Flow timeout。
+
+- **SubscriberArchiveState** 保存下一个 sequence 和最新 archive chunk token。
+- **SubscriberChunks[current]** 是唯一可修改的 chunk。
+- Chunk 满后会写入不可变 instance，名称是第一条 sequence 的 20 位补零形式，例如 **00000000000000000101**。
+
+**RegisterSubscriber** 会锁定 state 和 **current** instance。普通调用只重写一个有上限的 chunk。如果 **current** 已有 100 条记录，同一个 commit 会写入 archive chunk、创建新的 **current**，并推进 state。
+
+Lock acquisition 不会让 caller 排队。并发 append 可能收到 **RPCLockConflict**。应用应只在收到这个错误后使用合适的 backoff 重试。成功的 append 会通过相同的 state 和 **current** lock 串行执行，因此并发 request 不会丢失或重复 sequence。
+
+**GetSubscriberPage** 默认从 **current** 开始，也可以接收 page token。应用 adapter 使用 **RPCInvokeOptions** 只加载目标 instance。每页按 newest-first 返回，并带上更旧一页的 token。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/sequentially-chunked-attribute-map/controller.py',
+    go: 'examples/go/patterns/sequentially-chunked-attribute-map/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/sequentiallychunkedattributemap/SequentiallyChunkedAttributeMapController.java',
+    typescript: 'examples/typescript/src/patterns/sequentially-chunked-attribute-map/controller.ts',
+    rust: 'examples/rust/src/patterns/sequentially_chunked_attribute_map/controller.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+page = await app_state.client.invoke_rpc(
+    flow.get_subscriber_page,
+    FLOW_ID,
+    GetSubscriberPageInput(page_token),
+    options=RPCInvokeOptions(
+        load_attribute_map_instances=(flow.subscriber_chunks.load(page_token),)
+    ),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+err = controller.client.InvokeRPCWithOptions(
+	request.Request.Context(),
+	FlowID,
+	controller.flow.GetSubscriberPage,
+	GetSubscriberPageInput{PageToken: pageToken},
+	&page,
+	dex.RPCInvokeOptions{
+		LoadAttributeMapInstances: []dex.AttributeMapLoad{
+			SubscriberChunks.Load(pageToken),
+		},
+	},
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final RPCInvokeOptions options = RPCInvokeOptions.newBuilder()
+        .addLoadAttributeMapInstance(flow.subscriberChunks, validatedToken)
+        .build();
+final ChunkedSubscriberFlow stub = client.newRpcStub(
+        ChunkedSubscriberFlow.class,
+        ChunkedSubscriberFlow.FLOW_ID);
+return ResponseEntity.ok(client.invokeRPC(
+        stub::getSubscriberPage,
+        new ChunkedSubscriberFlow.GetSubscriberPageInput(validatedToken),
+        options));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+await client.invokeRPCWithOptions(
+  chunkedSubscriberFlow.getSubscriberPage,
+  CHUNKED_SUBSCRIBER_FLOW_ID,
+  { pageToken },
+  {
+    loadAttributeMapInstances: [
+      chunkedSubscriberFlow.subscriberChunks.load(pageToken),
+    ],
+  },
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.invoke_rpc_with_options(
+    FLOW_ID,
+    GET_SUBSCRIBER_PAGE,
+    GetSubscriberPageInput {
+        page_token: page_token.clone(),
+    },
+    RpcInvokeOptions::new()
+        .load_attribute_map_instance(SUBSCRIBER_CHUNKS.load(page_token)),
+)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 分页规则
+
+Flow 启动后，**current** token 始终有效。空的 **current** 返回空页。Archive token 必须是 20 位十进制数字，并且指向 chunk 边界。格式错误的 token，或格式正确但没有对应 chunk 的 token，都会返回明确错误。
+
+Archive chunk 保持不可变，因此分页稳定，retry 行为也容易推理。如果需要更新旧记录，应选择其他模式或增加独立索引。
+
+## HTTP API
+
+```text
+POST /patterns/sequentially-chunked-attribute-map/start
+POST /patterns/sequentially-chunked-attribute-map/register
+GET  /patterns/sequentially-chunked-attribute-map/subscribers?pageToken=current
+```
+
+固定 chunk size 是持久化布局的一部分。新版本可以为后续 archive 使用新的大小，但 token traversal 必须同时理解两种布局。
+
+可以从 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 运行这个 HTTP 示例。

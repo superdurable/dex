@@ -1,0 +1,145 @@
+---
+title: Hash-Partitioned AttributeMap
+slug: /design-patterns/hash-partitioned-attribute-map
+---
+
+# Hash-Partitioned AttributeMap
+
+Use this pattern when records have a stable lookup key and each record contains structured data. The sample stores customer profiles by email address without loading the entire directory.
+
+**CustomerDirectoryFlow** is an RPC-only Flow. Start it once with no Flow timeout. **CustomerProfilesByEmailPartition** has 1,000 logical instances, created only when needed. Each instance stores a dictionary from canonical email to the full profile.
+
+## Stable partition algorithm
+
+Every SDK uses the same algorithm:
+
+1. Require a non-empty ASCII email address.
+2. Remove leading and trailing ASCII whitespace.
+3. Lowercase ASCII letters from A through Z.
+4. Calculate 32-bit FNV-1a over the canonical email bytes with wrapping overflow.
+5. Select **hash modulo 1000** and format the instance from **partition-000** through **partition-999**.
+
+A hash collision only places multiple emails in one partition. The dictionary still distinguishes records by their complete canonical email.
+
+## Exact lookup and serialized writes
+
+The adapter and handler both calculate the partition. **UpsertCustomerProfile** adds an exact load and an instance lock for the same partition. The handler recalculates it, reads the bucket, updates one profile, and writes the bucket back. Writes to one partition serialize. Writes to different partitions can run concurrently.
+
+Lock acquisition does not queue callers. Concurrent writes to one partition can receive an **RPCLockConflict**. Retry the idempotent upsert with application-appropriate backoff. Successful writes remain serialized and preserve every record in the bucket.
+
+**GetCustomerProfileByEmail** loads one partition without a write lock. A missing partition and a missing canonical email both return not found.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/hash-partitioned-attribute-map/controller.py',
+    go: 'examples/go/patterns/hash-partitioned-attribute-map/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/hashpartitionedattributemap/HashPartitionedAttributeMapController.java',
+    typescript: 'examples/typescript/src/patterns/hash-partitioned-attribute-map/controller.ts',
+    rust: 'examples/rust/src/patterns/hash_partitioned_attribute_map/controller.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+saved_profile = await app_state.client.invoke_rpc(
+    flow.upsert_customer_profile,
+    FLOW_ID,
+    profile,
+    options=RPCInvokeOptions(
+        lock_attribute_map_instances=(
+            flow.customer_profiles_by_email_partition.lock(partition_name),
+        ),
+        load_attribute_map_instances=(
+            flow.customer_profiles_by_email_partition.load(partition_name),
+        ),
+    ),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+err = controller.client.InvokeRPCWithOptions(
+	request.Request.Context(),
+	FlowID,
+	controller.flow.UpsertCustomerProfile,
+	profile,
+	&savedProfile,
+	dex.RPCInvokeOptions{
+		LockAttributeMapInstances: []dex.AttributeLock{
+			dex.LockAttributeMap(CustomerProfilesByEmailPartition, partitionName),
+		},
+		LoadAttributeMapInstances: []dex.AttributeMapLoad{
+			CustomerProfilesByEmailPartition.Load(partitionName),
+		},
+	},
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final RPCInvokeOptions options = RPCInvokeOptions.newBuilder()
+        .addLockAttributeMapInstance(
+                flow.customerProfilesByEmailPartition,
+                partition.partitionName)
+        .addLoadAttributeMapInstance(
+                flow.customerProfilesByEmailPartition,
+                partition.partitionName)
+        .build();
+return ResponseEntity.ok(client.invokeRPC(
+        stub::upsertCustomerProfile,
+        profile,
+        options));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+await client.invokeRPCWithOptions(
+  customerDirectoryFlow.upsertCustomerProfile,
+  CUSTOMER_DIRECTORY_FLOW_ID,
+  profile,
+  {
+    lockAttributeMapInstances: [profiles.lock(partitionName)],
+    loadAttributeMapInstances: [profiles.load(partitionName)],
+  },
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.invoke_rpc_with_options(
+    FLOW_ID,
+    UPSERT_CUSTOMER_PROFILE,
+    profile,
+    RpcInvokeOptions::new()
+        .lock_attribute_map_instance(
+            CUSTOMER_PROFILES_BY_EMAIL_PARTITION.lock(&partition.partition_name),
+        )
+        .load_attribute_map_instance(
+            CUSTOMER_PROFILES_BY_EMAIL_PARTITION.load(partition.partition_name),
+        ),
+)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+All writers must use the same instance-lock rule. Dex locks are cooperative; a writer that omits the lock can still race with conforming writers.
+
+## HTTP API
+
+```text
+POST /patterns/hash-partitioned-attribute-map/start
+PUT  /patterns/hash-partitioned-attribute-map/customer-profile
+GET  /patterns/hash-partitioned-attribute-map/customer-profile?emailAddress=alice@example.com
+```
+
+The partition count is persisted schema. Changing it moves most keys and requires a complete rehash or a new Flow version. This sample intentionally omits deletion, full-directory enumeration, cross-field search, and partition resizing.
+
+Run the HTTP example from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground).

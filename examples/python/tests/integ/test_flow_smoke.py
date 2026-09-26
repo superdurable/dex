@@ -153,6 +153,22 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             flags=FlowSmokeFlags(no_start_step=True),
         ),
         FlowSmokeEntry(
+            "patterns/sequentially-chunked-attribute-map",
+            lambda c: _rpc_only_pattern_trigger(
+                c,
+                "/patterns/sequentially-chunked-attribute-map/start",
+            ),
+            flags=FlowSmokeFlags(no_start_step=True),
+        ),
+        FlowSmokeEntry(
+            "patterns/hash-partitioned-attribute-map",
+            lambda c: _rpc_only_pattern_trigger(
+                c,
+                "/patterns/hash-partitioned-attribute-map/start",
+            ),
+            flags=FlowSmokeFlags(no_start_step=True),
+        ),
+        FlowSmokeEntry(
             "patterns/manual-recovery",
             lambda c: trigger_get(
                 "/patterns/manual-recovery/start",
@@ -395,6 +411,14 @@ async def _signup_trigger(
     )
     parsed_flow_id, parsed_run_id = parse_flow_trigger_response(body, username)
     return parsed_flow_id or flow_id or username, parsed_run_id or run_id
+
+
+async def _rpc_only_pattern_trigger(
+    client: FlowSmokeHttpClient,
+    path: str,
+) -> tuple[str, str]:
+    flow_id, run_id, _ = await client.post(path)
+    return flow_id, run_id
 
 
 async def _ai_agent_trigger(

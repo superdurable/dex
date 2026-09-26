@@ -36,6 +36,7 @@ import (
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
@@ -44,6 +45,7 @@ import (
 	patternspolling "github.com/superdurable/dex/examples/go/patterns/polling"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
 	"github.com/superdurable/dex/examples/go/patterns/reminders"
+	sequentiallychunkedattributemap "github.com/superdurable/dex/examples/go/patterns/sequentially-chunked-attribute-map"
 	"github.com/superdurable/dex/examples/go/patterns/timeout"
 	"github.com/superdurable/dex/examples/go/patterns/wait-for-step-completion"
 	primitiveattribute "github.com/superdurable/dex/examples/go/primitives/attribute"
@@ -179,6 +181,8 @@ func NewRouter(client *sdk.Client) http.Handler {
 	drainexternal.RegisterRoutes(router, client, registry.DrainExternal)
 	waitforstepcompletion.RegisterRoutes(router, client, registry.WaitForStepCompletion)
 	timeout.RegisterRoutes(router, client, registry.GracefulTimeout)
+	sequentiallychunkedattributemap.RegisterRoutes(router, client, registry.ChunkedSubscriber)
+	hashpartitionedattributemap.RegisterRoutes(router, client, registry.CustomerDirectory)
 	primitiveflow.RegisterRoutes(router, client, registry.ExampleFlow)
 	primitivestep.RegisterRoutes(router, client, registry.Step, registry.StepRetry)
 	primitivecustomretry.RegisterRoutes(router, client, registry.CustomRetry)

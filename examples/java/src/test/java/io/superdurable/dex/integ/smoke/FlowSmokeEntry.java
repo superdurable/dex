@@ -75,13 +75,21 @@ final class FlowSmokeEntry {
             final String name,
             final String path,
             final Object body) {
+        return post(name, path, body, FlowSmokeFlags.none());
+    }
+
+    static FlowSmokeEntry post(
+            final String name,
+            final String path,
+            final Object body,
+            final FlowSmokeFlags flags) {
         return new FlowSmokeEntry(
                 name,
                 "POST",
                 path,
                 Map.of(),
                 body,
-                FlowSmokeFlags.none(),
+                flags,
                 environment -> environment.triggerHttp("POST", path, Map.of(), body));
     }
 

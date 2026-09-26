@@ -1,0 +1,145 @@
+---
+title: Hash 分区 AttributeMap
+slug: /design-patterns/hash-partitioned-attribute-map
+---
+
+# Hash 分区 AttributeMap
+
+当记录具有稳定 lookup key，并且每条记录还要保存结构化数据时，可以使用这个模式。示例按 email address 保存 customer profile，不需要读取整个 directory。
+
+**CustomerDirectoryFlow** 是 RPC-only Flow。它只需手动启动一次，不设置 Flow timeout。**CustomerProfilesByEmailPartition** 有 1,000 个逻辑 instance，并按需创建。每个 instance 保存从 canonical email 到完整 profile 的 dictionary。
+
+## 稳定分区算法
+
+五种 SDK 使用完全相同的算法：
+
+1. Email address 必须是非空 ASCII。
+2. 去除首尾 ASCII whitespace。
+3. 将 ASCII A 到 Z 转为小写。
+4. 对 canonical email bytes 计算 32-bit FNV-1a，并使用 wrapping overflow。
+5. 计算 **hash modulo 1000**，将 instance 格式化为 **partition-000** 到 **partition-999**。
+
+Hash collision 只会让多个 email 进入同一个 partition。Dictionary 仍然使用完整 canonical email 区分记录。
+
+## 精确查找与串行写入
+
+Adapter 和 handler 都会计算 partition。**UpsertCustomerProfile** 为同一个 partition 增加 exact load 和 instance lock。Handler 重新计算 partition，读取 bucket，更新一条 profile，再写回 bucket。同一 partition 的写入会串行执行，不同 partition 可以并发写入。
+
+Lock acquisition 不会让 caller 排队。同一 partition 的并发写入可能收到 **RPCLockConflict**。应用应使用合适的 backoff 重试幂等 upsert。成功的写入仍会串行执行，并保留 bucket 中的每条记录。
+
+**GetCustomerProfileByEmail** 只加载一个 partition，不增加写锁。Partition 不存在或 canonical email 不存在时都会返回 not found。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/hash-partitioned-attribute-map/controller.py',
+    go: 'examples/go/patterns/hash-partitioned-attribute-map/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/hashpartitionedattributemap/HashPartitionedAttributeMapController.java',
+    typescript: 'examples/typescript/src/patterns/hash-partitioned-attribute-map/controller.ts',
+    rust: 'examples/rust/src/patterns/hash_partitioned_attribute_map/controller.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+saved_profile = await app_state.client.invoke_rpc(
+    flow.upsert_customer_profile,
+    FLOW_ID,
+    profile,
+    options=RPCInvokeOptions(
+        lock_attribute_map_instances=(
+            flow.customer_profiles_by_email_partition.lock(partition_name),
+        ),
+        load_attribute_map_instances=(
+            flow.customer_profiles_by_email_partition.load(partition_name),
+        ),
+    ),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+err = controller.client.InvokeRPCWithOptions(
+	request.Request.Context(),
+	FlowID,
+	controller.flow.UpsertCustomerProfile,
+	profile,
+	&savedProfile,
+	dex.RPCInvokeOptions{
+		LockAttributeMapInstances: []dex.AttributeLock{
+			dex.LockAttributeMap(CustomerProfilesByEmailPartition, partitionName),
+		},
+		LoadAttributeMapInstances: []dex.AttributeMapLoad{
+			CustomerProfilesByEmailPartition.Load(partitionName),
+		},
+	},
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final RPCInvokeOptions options = RPCInvokeOptions.newBuilder()
+        .addLockAttributeMapInstance(
+                flow.customerProfilesByEmailPartition,
+                partition.partitionName)
+        .addLoadAttributeMapInstance(
+                flow.customerProfilesByEmailPartition,
+                partition.partitionName)
+        .build();
+return ResponseEntity.ok(client.invokeRPC(
+        stub::upsertCustomerProfile,
+        profile,
+        options));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+await client.invokeRPCWithOptions(
+  customerDirectoryFlow.upsertCustomerProfile,
+  CUSTOMER_DIRECTORY_FLOW_ID,
+  profile,
+  {
+    lockAttributeMapInstances: [profiles.lock(partitionName)],
+    loadAttributeMapInstances: [profiles.load(partitionName)],
+  },
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.invoke_rpc_with_options(
+    FLOW_ID,
+    UPSERT_CUSTOMER_PROFILE,
+    profile,
+    RpcInvokeOptions::new()
+        .lock_attribute_map_instance(
+            CUSTOMER_PROFILES_BY_EMAIL_PARTITION.lock(&partition.partition_name),
+        )
+        .load_attribute_map_instance(
+            CUSTOMER_PROFILES_BY_EMAIL_PARTITION.load(partition.partition_name),
+        ),
+)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+所有 writer 都必须遵循同一条 instance lock 规则。Dex lock 是 cooperative lock；遗漏 lock 的 writer 仍然可能和其他 writer 发生 race。
+
+## HTTP API
+
+```text
+POST /patterns/hash-partitioned-attribute-map/start
+PUT  /patterns/hash-partitioned-attribute-map/customer-profile
+GET  /patterns/hash-partitioned-attribute-map/customer-profile?emailAddress=alice@example.com
+```
+
+Partition 数量是持久化 schema 的一部分。修改它会移动大多数 key，因此需要完整 rehash 或新 Flow version。此示例不实现删除、全目录枚举、跨字段搜索和 partition resize。
+
+可以从 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 运行这个 HTTP 示例。

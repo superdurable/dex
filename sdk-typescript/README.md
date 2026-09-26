@@ -62,6 +62,10 @@ The separate method avoids ambiguity with the positional `runId`. Selections are
 additive, sorted, and deduplicated. Locking and loading are independent;
 read-modify-write handlers need both for the same instance.
 
+See the runnable [sequential chunking](../examples/typescript/src/patterns/sequentially-chunked-attribute-map)
+and [hash partitioning](../examples/typescript/src/patterns/hash-partitioned-attribute-map)
+patterns for complete call sites.
+
 ## Step and timeout-handler state loading
 
 `StepOptions` provides the same five selections independently for `waitFor` and

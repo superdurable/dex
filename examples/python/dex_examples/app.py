@@ -40,6 +40,9 @@ from dex_examples.patterns.drain_channels.external_publishing.draining_channel_f
     DrainingExternalChannelFlow,
 )
 from dex_examples.patterns.entity_store.user_profile_flow import UserProfileFlow
+from dex_examples.patterns.hash_partitioned_attribute_map.customer_directory_flow import (
+    CustomerDirectoryFlow,
+)
 from dex_examples.patterns.interruptible.interruptible_execution_flow import (
     InterruptibleFlow,
 )
@@ -71,6 +74,9 @@ from dex_examples.patterns.polling.simple_polling_flow import PollingWithTimerFl
 from dex_examples.patterns.polling.iteration_flow import IterationFlow
 from dex_examples.patterns.recovery.failure_recovery_flow import FailureRecoveryFlow
 from dex_examples.patterns.reminders.reminder_flow import ReminderFlow
+from dex_examples.patterns.sequentially_chunked_attribute_map.chunked_subscriber_flow import (
+    ChunkedSubscriberFlow,
+)
 from dex_examples.patterns.inactiveness_tracker_timer.inactiveness_tracker_flow import (
     InactivenessTrackerFlow,
 )
@@ -171,6 +177,8 @@ class ExampleApp:
         self.reminder = ReminderFlow(pattern_service)
         self.inactiveness_tracker = InactivenessTrackerFlow()
         self.user_profile = UserProfileFlow()
+        self.chunked_subscriber = ChunkedSubscriberFlow()
+        self.customer_directory = CustomerDirectoryFlow()
         self.timeout = FlowGracefulTimeout()
         self.wait_for_step_completion = WaitForStepCompletionFlow(pattern_service)
 
@@ -234,6 +242,8 @@ class ExampleApp:
             self.reminder,
             self.inactiveness_tracker,
             self.user_profile,
+            self.chunked_subscriber,
+            self.customer_directory,
             self.timeout,
             self.wait_for_step_completion,
             self.example_flow,

@@ -20,6 +20,7 @@ import { cronScheduleFlow } from "./patterns/cron/cron-schedule-flow.js";
 import { drainInternalChannelFlow } from "./patterns/drain-channels/internal/drain-internal-channels-flow.js";
 import { drainingExternalChannelFlow } from "./patterns/drain-channels/external-publishing/draining-channel-flow.js";
 import { userProfileFlow } from "./patterns/entity-store/user-profile-flow.js";
+import { customerDirectoryFlow } from "./patterns/hash-partitioned-attribute-map/customer-directory-flow.js";
 import { interruptibleFlow } from "./patterns/interruptible/interruptible-execution-flow.js";
 import { manualRecoveryFlow } from "./patterns/intervention/manual-recovery-flow.js";
 import {
@@ -41,6 +42,7 @@ import { pollingWithTimerFlow } from "./patterns/polling/simple-polling-flow.js"
 import { iterationFlow } from "./patterns/polling/iteration-flow.js";
 import { failureRecoveryFlow } from "./patterns/recovery/failure-recovery-flow.js";
 import { reminderFlow } from "./patterns/reminders/reminder-flow.js";
+import { chunkedSubscriberFlow } from "./patterns/sequentially-chunked-attribute-map/chunked-subscriber-flow.js";
 import { inactivenessTrackerFlow } from "./patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.js";
 import { flowGracefulTimeout } from "./patterns/timeout/flow-graceful-timeout.js";
 import { waitForStepCompletionFlow } from "./patterns/wait-for-step-completion/wait-for-step-completion-flow.js";
@@ -105,6 +107,8 @@ export const allExampleFlows: readonly Flow<any>[] = [
   reminderFlow,
   inactivenessTrackerFlow,
   userProfileFlow,
+  chunkedSubscriberFlow,
+  customerDirectoryFlow,
   flowGracefulTimeout,
   waitForStepCompletionFlow,
   exampleFlow,
@@ -163,6 +167,8 @@ export {
   reminderFlow,
   inactivenessTrackerFlow,
   userProfileFlow,
+  chunkedSubscriberFlow,
+  customerDirectoryFlow,
   flowGracefulTimeout,
   waitForStepCompletionFlow,
   exampleFlow,
