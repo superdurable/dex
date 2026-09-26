@@ -164,6 +164,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		snapshot.Response,
 		session.identity.ConnectorID,
 		session.identity.ConnectionName,
+		setup.releases.overrideIdentities(),
 	)
 	if err != nil || !found || conflict || currentIdentity.ModulePath != session.identity.ModulePath ||
 		currentIdentity.ModuleVersion != session.identity.ModuleVersion {

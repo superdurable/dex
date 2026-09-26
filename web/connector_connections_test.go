@@ -199,6 +199,47 @@ func TestConnectorSetupRejectsNonLoopbackAndBlobStore(t *testing.T) {
 	}
 }
 
+func TestConnectorConnectionViewsUseLocalReleaseOverrideForWorkspaceFlow(t *testing.T) {
+	releaseIdentity := connectorDefinitionIdentity{
+		ConnectorID: "slack", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/slack",
+		ModuleVersion: "v0.7.0", ConnectionName: "workspace", ConfigurationEnabled: true,
+	}
+	archive := connectorUITestArchive(t, "index.html", []byte("<main>Slack</main>"))
+	release := connectorTestRelease(releaseIdentity, archive, connectorUIHostAPIRange)
+	release.Manifest.Spec.Provider = "slack"
+	overrideDirectory := connectorLocalReleaseTestDirectory(t, release, archive)
+	flowIdentity := connectorDefinitionIdentity{
+		ConnectorID: "slack", OperationID: "postMessage", OperationKind: "mutation",
+		ConnectionName: "workspace", ConfigurationEnabled: false,
+		ConfigurationUI: api.V2ConnectorConfigurationUI{Units: []api.V2ConnectorUIUnit{{
+			ID: "message", UnitID: "textInput", Label: "Message",
+			Bindings: []api.V2ConnectorUIBinding{{Port: "text", JSONPointer: "/text"}},
+		}}},
+	}
+	directory := t.TempDir()
+	setup, err := newConnectorSetup(&Config{
+		BindAddress: "127.0.0.1", ConnectorSetupEnabled: true, ConnectorConfigDirectory: directory,
+		ConnectorReleaseOverrides: map[string]string{"slack": overrideDirectory},
+	}, connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{flowIdentity}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection := testLocalConnectorConnection("slack", "workspace", "token", nil)
+	connection.ModulePath = releaseIdentity.ModulePath
+	connection.ModuleVersion = "v0.6.1"
+	connection.Provider = "slack"
+	if err := setup.store.put(connection); err != nil {
+		t.Fatal(err)
+	}
+	views, _, err := setup.connectionViews(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].Status != "Ready" || !views[0].LocalOverride || views[0].ModuleVersion != "v0.7.0" {
+		t.Fatalf("Connector views = %+v", views)
+	}
+}
+
 func connectorTestSetup(t *testing.T, directory string, provider FlowDefinitionProvider) *connectorSetup {
 	t.Helper()
 	setup, err := newConnectorSetup(&Config{

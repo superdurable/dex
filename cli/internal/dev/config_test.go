@@ -164,6 +164,35 @@ func TestConnectorConfigDirectoryDefaultsUnderDexHome(t *testing.T) {
 	}
 }
 
+func TestConnectorReleaseOverrideFlagResolvesRepeatableDirectories(t *testing.T) {
+	firstDirectory := filepath.Join("testdata", "slack-release")
+	secondDirectory := filepath.Join("testdata", "gmail-release")
+	cfg, err := parseConfig([]string{
+		"--connector-release-override", "slack=" + firstDirectory,
+		"--connector-release-override", "gmail=" + secondDirectory,
+	}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstAbsolute, _ := filepath.Abs(firstDirectory)
+	secondAbsolute, _ := filepath.Abs(secondDirectory)
+	if cfg.ConnectorReleaseOverrides["slack"] != firstAbsolute || cfg.ConnectorReleaseOverrides["gmail"] != secondAbsolute {
+		t.Fatalf("Connector release overrides = %+v", cfg.ConnectorReleaseOverrides)
+	}
+}
+
+func TestConnectorReleaseOverrideFlagRejectsInvalidAndDuplicateIDs(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"--connector-release-override", "Slack=/tmp/release"},
+		{"--connector-release-override", "slack"},
+		{"--connector-release-override", "slack=/tmp/one", "--connector-release-override", "slack=/tmp/two"},
+	} {
+		if _, err := parseConfig(arguments, &bytes.Buffer{}); err == nil {
+			t.Fatalf("parseConfig(%v) succeeded", arguments)
+		}
+	}
+}
+
 func TestVerboseEngineLogFlag(t *testing.T) {
 	cfg, err := parseConfig([]string{"--verbose-engine-log"}, &bytes.Buffer{})
 	if err != nil {

@@ -33,6 +33,7 @@ interface ConnectionView {
   connectionName: string;
   modulePath?: string;
   moduleVersion?: string;
+  localOverride?: boolean;
   provider?: string;
   status: ConnectionStatus;
   configuration?: Record<string, unknown>;
@@ -195,7 +196,7 @@ export function ConnectionsPage() {
           {selected && (
             <>
               <div className="connection-title">
-                <div><h2>{selected.connectorId} / {selected.connectionName || 'unnamed'}</h2><code>{selected.moduleVersion || 'No exact release'}</code></div>
+                <div><h2>{selected.connectorId} / {selected.connectionName || 'unnamed'}</h2><code>{selected.localOverride ? `Local override · ${selected.moduleVersion}` : selected.moduleVersion || 'No exact release'}</code></div>
                 <Status status={selected.status} />
               </div>
               <div className="connection-uses">

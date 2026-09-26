@@ -98,6 +98,7 @@ type connectorConnectionView struct {
 	ConnectionName      string                          `json:"connectionName"`
 	ModulePath          string                          `json:"modulePath,omitempty"`
 	ModuleVersion       string                          `json:"moduleVersion,omitempty"`
+	LocalOverride       bool                            `json:"localOverride,omitempty"`
 	Provider            string                          `json:"provider,omitempty"`
 	Status              string                          `json:"status"`
 	Configuration       map[string]json.RawMessage      `json:"configuration,omitempty"`
@@ -186,7 +187,7 @@ func newConnectorSetup(cfg *Config, flowDefinitions FlowDefinitionProvider) (*co
 	if err != nil {
 		return nil, fmt.Errorf("create Connector CSRF token: %w", err)
 	}
-	releases, err := newConnectorReleaseResolver(store.directory)
+	releases, err := newConnectorReleaseResolver(store.directory, cfg.ConnectorReleaseOverrides)
 	if err != nil {
 		return nil, err
 	}
@@ -354,6 +355,7 @@ func (setup *connectorSetup) handlePutTriggerBinding(response http.ResponseWrite
 	binding, found, conflict, err := connectorTriggerDefinitionForKey(
 		snapshot.Response, identity.ConnectorID, identity.ConnectionName, triggerName, bindingName,
 	)
+	binding, _ = normalizeConnectorTriggerBinding(binding, setup.releases.overrideIdentities())
 	if err != nil || !found || !binding.ConfigurationEnabled {
 		api.WriteCodedError(response, http.StatusNotFound, "CONNECTOR_TRIGGER_BINDING_UNSUPPORTED", "Connector Trigger binding is not configurable")
 		return
@@ -394,7 +396,9 @@ func (setup *connectorSetup) handlePutUseConfiguration(response http.ResponseWri
 	operationID := request.PathValue("operationId")
 	flowType := request.PathValue("flowType")
 	stepType := request.PathValue("stepType")
-	declared, found, err := connectorOperationDefinitionForUse(snapshot.Response, identity, operationID, flowType, stepType)
+	declared, found, err := connectorOperationDefinitionForUse(
+		snapshot.Response, identity, operationID, flowType, stepType, setup.releases.overrideIdentities(),
+	)
 	if err != nil || !found || len(declared.ConfigurationUI.Units) == 0 {
 		api.WriteCodedError(response, http.StatusNotFound, "CONNECTOR_USE_CONFIGURATION_UNSUPPORTED", "Connector operation use is not configurable")
 		return
@@ -482,6 +486,7 @@ func (setup *connectorSetup) authorizeConnectionKey(
 		snapshot.Response,
 		connectorID,
 		connectionName,
+		setup.releases.overrideIdentities(),
 	)
 	if err != nil {
 		api.WriteCodedError(response, http.StatusServiceUnavailable, "FLOW_DEFINITION_SOURCE_UNAVAILABLE", "Flow Definition source is unavailable")
@@ -511,7 +516,9 @@ func (setup *connectorSetup) connectionViews(ctx context.Context) ([]connectorCo
 	for _, connection := range connections {
 		stored[connection.ConnectorID+"\x00"+connection.ConnectionName] = connection
 	}
-	views, err := connectorViewsFromCatalog(snapshot.Response, stored, time.Now())
+	views, err := connectorViewsFromCatalog(
+		snapshot.Response, stored, time.Now(), setup.releases.overrideIdentities(),
+	)
 	if err != nil {
 		return nil, "", err
 	}
@@ -554,6 +561,7 @@ func connectorViewsFromCatalog(
 	catalogJSON []byte,
 	stored map[string]localConnectorConnection,
 	now time.Time,
+	overrides map[string]connectorDefinitionIdentity,
 ) ([]connectorConnectionView, error) {
 	var catalog connectorCatalogDocument
 	if err := json.Unmarshal(catalogJSON, &catalog); err != nil {
@@ -568,23 +576,25 @@ func connectorViewsFromCatalog(
 	aggregates := make(map[string]*aggregate)
 	for _, definition := range catalog.Definitions {
 		for _, node := range definition.Graph.Nodes {
-			identity := node.Metadata.Connector
-			if node.Kind != "step" || !node.Metadata.ConnectorFactory || identity == nil {
+			declaredIdentity := node.Metadata.Connector
+			if node.Kind != "step" || !node.Metadata.ConnectorFactory || declaredIdentity == nil {
 				continue
 			}
+			identity, localOverride := normalizeConnectorDefinitionIdentity(*declaredIdentity, overrides)
 			key := identity.ConnectorID + "\x00" + identity.ConnectionName
 			current := aggregates[key]
 			if current == nil {
 				current = &aggregate{
 					view: connectorConnectionView{
 						ConnectorID: identity.ConnectorID, ConnectionName: identity.ConnectionName,
-						ModulePath: identity.ModulePath, ModuleVersion: identity.ModuleVersion,
+						ModulePath: identity.ModulePath, ModuleVersion: identity.ModuleVersion, LocalOverride: localOverride,
 					},
 					versions: make(map[string]bool), modules: make(map[string]bool), enabled: true,
 				}
 				aggregates[key] = current
 			}
 			current.enabled = current.enabled && identity.ConfigurationEnabled
+			current.view.LocalOverride = current.view.LocalOverride || localOverride
 			current.versions[identity.ModuleVersion] = true
 			current.modules[identity.ModulePath] = true
 			configurationUI := identity.ConfigurationUI
@@ -600,19 +610,21 @@ func connectorViewsFromCatalog(
 			continue
 		}
 		for _, binding := range definition.Graph.V2.ConnectorTriggerBindings {
+			binding, localOverride := normalizeConnectorTriggerBinding(binding, overrides)
 			key := binding.ConnectorID + "\x00" + binding.ConnectionName
 			current := aggregates[key]
 			if current == nil {
 				current = &aggregate{
 					view: connectorConnectionView{
 						ConnectorID: binding.ConnectorID, ConnectionName: binding.ConnectionName,
-						ModulePath: binding.ModulePath, ModuleVersion: binding.ModuleVersion,
+						ModulePath: binding.ModulePath, ModuleVersion: binding.ModuleVersion, LocalOverride: localOverride,
 					},
 					versions: make(map[string]bool), modules: make(map[string]bool), enabled: true,
 				}
 				aggregates[key] = current
 			}
 			current.enabled = current.enabled && binding.ConfigurationEnabled
+			current.view.LocalOverride = current.view.LocalOverride || localOverride
 			current.versions[binding.ModuleVersion] = true
 			current.modules[binding.ModulePath] = true
 			configurationUI := binding.ConfigurationUI
@@ -635,7 +647,7 @@ func connectorViewsFromCatalog(
 			current.view.Provider = connection.Provider
 			current.view.Configuration = connection.Configuration
 			current.view.CredentialExpiresAt = connection.CredentialExpiresAt
-			if connection.ModulePath != current.view.ModulePath || connection.ModuleVersion != current.view.ModuleVersion {
+			if !current.view.LocalOverride && (connection.ModulePath != current.view.ModulePath || connection.ModuleVersion != current.view.ModuleVersion) {
 				current.view.Status = "Conflict"
 			} else if connection.CredentialExpiresAt != nil && !now.Before(*connection.CredentialExpiresAt) {
 				current.view.Status = "Expired"
@@ -705,6 +717,7 @@ func connectorOperationDefinitionForUse(
 	operationID string,
 	flowType string,
 	stepType string,
+	overrides map[string]connectorDefinitionIdentity,
 ) (connectorDefinitionIdentity, bool, error) {
 	var catalog connectorCatalogDocument
 	if err := json.Unmarshal(catalogJSON, &catalog); err != nil {
@@ -716,20 +729,28 @@ func connectorOperationDefinitionForUse(
 		}
 		for _, node := range definition.Graph.Nodes {
 			candidate := node.Metadata.Connector
-			if node.Kind != "step" || !node.Metadata.ConnectorFactory || candidate == nil ||
-				node.Name != stepType || candidate.ConnectorID != identity.ConnectorID ||
-				candidate.ConnectionName != identity.ConnectionName || candidate.OperationID != operationID ||
-				candidate.ModulePath != identity.ModulePath || candidate.ModuleVersion != identity.ModuleVersion {
+			if node.Kind != "step" || !node.Metadata.ConnectorFactory || candidate == nil {
 				continue
 			}
-			return *candidate, true, nil
+			normalized, _ := normalizeConnectorDefinitionIdentity(*candidate, overrides)
+			if node.Name != stepType || normalized.ConnectorID != identity.ConnectorID ||
+				normalized.ConnectionName != identity.ConnectionName || normalized.OperationID != operationID ||
+				normalized.ModulePath != identity.ModulePath || normalized.ModuleVersion != identity.ModuleVersion {
+				continue
+			}
+			return normalized, true, nil
 		}
 	}
 	return connectorDefinitionIdentity{}, false, nil
 }
 
-func connectorDefinitionForKey(catalogJSON []byte, connectorID string, connectionName string) (connectorDefinitionIdentity, bool, bool, error) {
-	views, err := connectorViewsFromCatalog(catalogJSON, nil, time.Now())
+func connectorDefinitionForKey(
+	catalogJSON []byte,
+	connectorID string,
+	connectionName string,
+	overrides map[string]connectorDefinitionIdentity,
+) (connectorDefinitionIdentity, bool, bool, error) {
+	views, err := connectorViewsFromCatalog(catalogJSON, nil, time.Now(), overrides)
 	if err != nil {
 		return connectorDefinitionIdentity{}, false, false, err
 	}
@@ -743,6 +764,34 @@ func connectorDefinitionForKey(catalogJSON []byte, connectorID string, connectio
 		}, true, view.Status == "Conflict", nil
 	}
 	return connectorDefinitionIdentity{}, false, false, nil
+}
+
+func normalizeConnectorDefinitionIdentity(
+	identity connectorDefinitionIdentity,
+	overrides map[string]connectorDefinitionIdentity,
+) (connectorDefinitionIdentity, bool) {
+	override, found := overrides[identity.ConnectorID]
+	if !found {
+		return identity, false
+	}
+	identity.ModulePath = override.ModulePath
+	identity.ModuleVersion = override.ModuleVersion
+	identity.ConfigurationEnabled = identity.ConnectionName != ""
+	return identity, true
+}
+
+func normalizeConnectorTriggerBinding(
+	binding connectorCatalogTriggerBinding,
+	overrides map[string]connectorDefinitionIdentity,
+) (connectorCatalogTriggerBinding, bool) {
+	override, found := overrides[binding.ConnectorID]
+	if !found {
+		return binding, false
+	}
+	binding.ModulePath = override.ModulePath
+	binding.ModuleVersion = override.ModuleVersion
+	binding.ConfigurationEnabled = binding.ConnectionName != "" && binding.BindingName != ""
+	return binding, true
 }
 
 func hasStrictConnectorOrigin(request *http.Request) bool {

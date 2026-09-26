@@ -99,6 +99,23 @@ Dex resolves the directory to an absolute path and shows the resulting
 not clear existing connections. In-progress OAuth and UI sessions are
 memory-only and must be restarted after a Web restart.
 
+Connector authors can load an unreleased local Studio bundle while a Flow uses
+`go.work` or a local module replacement:
+
+```bash
+dexcli dev \
+  --flow-rendering-dir ./build \
+  --connector-release-override slack=/tmp/slack-local-release
+```
+
+The override directory must contain `connector-release.json`, its
+`connector-release.json.sha256` digest, and the UI artifact named by that
+metadata. The flag is repeatable for different Connector IDs. Dex still checks
+the metadata digest, official module identity, exact version, Studio host API
+range, UI checksum, and archive paths. The explicit local bundle replaces
+GitHub release resolution only for that Connector ID; it does not weaken the
+default release path.
+
 `dexcli dev` enables the in-memory Stream Store without Redis. Stream messages
 are discarded when the CLI process stops. Repeated source values append
 independent messages.
@@ -146,6 +163,7 @@ must exist and be reachable before startup.
 --dex-port int                     Dex gRPC port (default 8801)
 --flow-rendering-dir string        directory containing Flow Definition Graph JSON files
 --connector-config-dir string      local Connector config directory (default $HOME/.dex/connectors)
+--connector-release-override value local Connector release as connector-id=artifact-directory (repeatable)
 --open                             open Dex Web after readiness (default true)
 --web-port int                     Dex Web port (default 8802)
 --sqlite-db-filename string        local SQLite file (default $HOME/.dex/dev/<port>/dex.sqlite.db)

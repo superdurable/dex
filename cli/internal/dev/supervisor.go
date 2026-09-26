@@ -151,11 +151,12 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 
 	webServer, err := dexweb.NewServer(
 		&dexweb.Config{
-			BindAddress:              s.cfg.BindAddress,
-			Port:                     s.cfg.WebPort,
-			FlowRenderingDirectory:   s.cfg.FlowRenderingDirectory,
-			ConnectorSetupEnabled:    true,
-			ConnectorConfigDirectory: s.cfg.ConnectorConfigDirectory,
+			BindAddress:               s.cfg.BindAddress,
+			Port:                      s.cfg.WebPort,
+			FlowRenderingDirectory:    s.cfg.FlowRenderingDirectory,
+			ConnectorSetupEnabled:     true,
+			ConnectorConfigDirectory:  s.cfg.ConnectorConfigDirectory,
+			ConnectorReleaseOverrides: s.cfg.ConnectorReleaseOverrides,
 		},
 		dexpb.NewFlowServiceClient(dexConnection),
 		assets.Files,

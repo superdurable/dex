@@ -44,6 +44,7 @@ var flagOrder = []string{
 	"dex-port",
 	"flow-rendering-dir",
 	"connector-config-dir",
+	"connector-release-override",
 	"open",
 	"web-port",
 	"sqlite-db-filename",
@@ -84,6 +85,8 @@ type Config struct {
 	FlowRenderingDirectory string
 	// ConnectorConfigDirectory defaults to $HOME/.dex/connectors and stores local connector credentials.
 	ConnectorConfigDirectory string
+	// ConnectorReleaseOverrides maps Connector IDs to local release artifact directories.
+	ConnectorReleaseOverrides map[string]string
 	// OpenBrowser defaults true and opens Dex Web after readiness.
 	OpenBrowser bool
 	// StartupTimeout defaults to 45 seconds.
@@ -130,6 +133,12 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		cfg.ConnectorConfigDirectory,
 		"directory containing local Connector configuration",
 	)
+	connectorReleaseOverrides := connectorReleaseOverrideFlag{values: cfg.ConnectorReleaseOverrides}
+	flags.Var(
+		&connectorReleaseOverrides,
+		"connector-release-override",
+		"local Connector release override as connector-id=artifact-directory (repeatable)",
+	)
 	flags.BoolVar(&cfg.OpenBrowser, "open", true, "open Dex Web after startup")
 	flags.IntVar(&cfg.WebPort, "web-port", cfg.WebPort, "Dex Web port")
 	flags.StringVar(
@@ -167,6 +176,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	if flags.NArg() != 0 {
 		return nil, fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
 	}
+	cfg.ConnectorReleaseOverrides = connectorReleaseOverrides.values
 	cfg.explicitLocalFlags = make(map[string]bool)
 	flags.Visit(func(item *flag.Flag) {
 		switch item.Name {
@@ -197,6 +207,7 @@ func defaultConfig() (*Config, error) {
 		StateDirectory:            stateDirectory,
 		BlobStoreDirectory:        filepath.Join(stateDirectory, "blobs"),
 		ConnectorConfigDirectory:  filepath.Join(stateDirectory, "connectors"),
+		ConnectorReleaseOverrides: make(map[string]string),
 		OpenBrowser:               true,
 		StartupTimeout:            45 * time.Second,
 		ShutdownTimeout:           10 * time.Second,
@@ -238,6 +249,13 @@ func (c *Config) validate() error {
 		return fmt.Errorf("resolve connector config directory: %w", err)
 	}
 	c.ConnectorConfigDirectory = absoluteConnectorConfigDirectory
+	for connectorID, directory := range c.ConnectorReleaseOverrides {
+		absoluteDirectory, err := filepath.Abs(strings.TrimSpace(directory))
+		if err != nil {
+			return fmt.Errorf("resolve Connector release override %q: %w", connectorID, err)
+		}
+		c.ConnectorReleaseOverrides[connectorID] = absoluteDirectory
+	}
 	for name, port := range map[string]int{
 		"dex-port":         c.DexPort,
 		"web-port":         c.WebPort,
@@ -273,6 +291,43 @@ func (c *Config) validate() error {
 		}
 	}
 	return validateDistinctAddresses(c.ownedAddresses())
+}
+
+type connectorReleaseOverrideFlag struct {
+	values map[string]string
+}
+
+func (value *connectorReleaseOverrideFlag) String() string {
+	return ""
+}
+
+func (value *connectorReleaseOverrideFlag) Set(raw string) error {
+	connectorID, directory, found := strings.Cut(raw, "=")
+	connectorID = strings.TrimSpace(connectorID)
+	directory = strings.TrimSpace(directory)
+	if !found || !validConnectorOverrideID(connectorID) || directory == "" {
+		return fmt.Errorf("Connector release override must be connector-id=artifact-directory")
+	}
+	if value.values == nil {
+		value.values = make(map[string]string)
+	}
+	if _, exists := value.values[connectorID]; exists {
+		return fmt.Errorf("Connector release override %q is duplicated", connectorID)
+	}
+	value.values[connectorID] = directory
+	return nil
+}
+
+func validConnectorOverrideID(value string) bool {
+	if len(value) < 2 || len(value) > 63 || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for _, character := range value[1:] {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Config) ownedAddresses() map[string]string {

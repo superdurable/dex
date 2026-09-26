@@ -124,6 +124,14 @@ the exact official Connector release declared by the graph, verifies release
 and Studio UI checksums, and loads UI bundles in opaque-origin sandbox iframes.
 Without a Studio bundle, it renders the manifest fields directly.
 
+During Connector development, the repeatable
+`--connector-release-override connector-id=artifact-directory` flag on
+`dexcli dev` can replace release resolution for selected Connector IDs. This
+allows Flow graphs produced from `go.work` modules to use the local release
+metadata and Studio UI. Connections labels these sessions as **Local
+override**. Overrides are accepted only by loopback local Connector setup and
+retain the normal metadata, checksum, Host API, and safe-archive validation.
+
 After a connection is ready, the page expands every Connector Step and Trigger
 binding that declares `ConfigurationUI`. Dex Web owns the grouping and creates
 one sandboxed iframe per requested manifest unit; the Connector bundle renders
