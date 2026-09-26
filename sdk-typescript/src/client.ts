@@ -384,6 +384,15 @@ export class Client {
     runId?: string,
   ): Promise<void>;
 
+  /**
+   * Implements RPC invocation with additive runtime map-instance selections.
+   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param flowId - Non-empty target Flow ID.
+   * @param inputOrOptions - Typed input for an input-bearing RPC, or options for an input-free RPC.
+   * @param optionsOrRunId - Runtime options for an input-bearing RPC, or an optional run ID for an input-free RPC.
+   * @param runId - Optional exact run for an input-bearing RPC.
+   * @returns The decoded RPC output, or `undefined` after an output-free RPC completes.
+   */
   public async invokeRPCWithOptions(
     rpcMethod: Function,
     flowId: string,
