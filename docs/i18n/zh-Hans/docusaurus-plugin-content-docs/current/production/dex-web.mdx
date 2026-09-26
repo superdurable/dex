@@ -16,7 +16,9 @@ dexcli dev --flow-rendering-dir ./build
 
 **v2** 按一个 Flow type 搜索 current run。Run 列表会排除因 continue-as-new 关闭的 execution，因为它们属于同一个逻辑 Flow；相关 event 仍可在该 Flow 的 history 中查看。画布使用该 Flow type 已生成的 definition，因此不必再选 JSON 文件。历史 run 仍在 **v1**。
 
-Version 1 仍是默认 analyzer schema，并支持 Go 与 Python。Version 2 第一版只支持 Go。Version 1 与 Version 2 definition 可以共存。Dex Web 会在启动时拒绝格式错误的 Version 2 文件，以及同一 Flow type 的多个有效 Version 2 definition。Analyzer 输出中的 **valid: false** 文件仍可在 **v1** Flow Rendering 中查看 diagnostic，但不会作为 **v2** Flow type 出现。
+每个 definition 都使用 Worker 注册的 Flow type 和 Step type，规则见 [Flow 与 Step 名称](/references/flow-visualization#flow-and-step-names)。除非 analyzer 报告该页列出的名称诊断，Go Flow 不需要 **GetFlowType** 或 **GetStepType** override。请使用与 Dex Web 版本一致的 **dexcli** 生成 definition，并在升级后重新生成。
+
+Version 1 仍是默认 analyzer schema，并支持 Go 与 Python。Version 2 第一版只支持 Go。Version 1 与 Version 2 definition 可以共存。Dex Web 会在启动时拒绝格式错误的 Version 2 文件，以及同一 Flow type 的多个有效 Version 2 definition。例如，两个 package main 二进制都定义了 **main.Flow** 时，它们会解析为同一个 Flow type，错误信息会列出这两个文件。Analyzer 输出中的 **valid: false** 文件仍可在 **v1** Flow Rendering 中查看 diagnostic，但不会作为 **v2** Flow type 出现。
 
 ## 具名 directive
 

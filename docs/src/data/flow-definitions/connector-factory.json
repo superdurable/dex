@@ -6,7 +6,7 @@
     "path": "examples/go/products/connector-factory/workflow.go"
   },
   "flow": {
-    "name": "CustomerSummaryConnectorFlow",
+    "name": "connectorfactory.CustomerSummaryConnectorFlow",
     "startStepId": "step:InitializeCustomerSummary",
     "span": {
       "startLine": 77,
@@ -317,7 +317,7 @@
     {
       "id": "step:CustomerSummaryCompleted",
       "kind": "step",
-      "name": "CustomerSummaryCompleted",
+      "name": "connectorfactory.CustomerSummaryCompleted",
       "phase": "execute",
       "span": {
         "startLine": 115,
@@ -326,13 +326,14 @@
         "endColumn": 45
       },
       "metadata": {
+        "displayName": "CustomerSummaryCompleted",
         "explanation": "Complete after OpenAI confirms the generated customer summary."
       }
     },
     {
       "id": "step:CustomerSummaryExecuteFailed",
       "kind": "step",
-      "name": "CustomerSummaryExecuteFailed",
+      "name": "connectorfactory.CustomerSummaryExecuteFailed",
       "phase": "execute",
       "span": {
         "startLine": 119,
@@ -341,13 +342,14 @@
         "endColumn": 49
       },
       "metadata": {
+        "displayName": "CustomerSummaryExecuteFailed",
         "explanation": "Fail after the generation Step exhausts its retry policy."
       }
     },
     {
       "id": "step:CustomerSummaryFailed",
       "kind": "step",
-      "name": "CustomerSummaryFailed",
+      "name": "connectorfactory.CustomerSummaryFailed",
       "phase": "execute",
       "span": {
         "startLine": 116,
@@ -356,13 +358,14 @@
         "endColumn": 42
       },
       "metadata": {
+        "displayName": "CustomerSummaryFailed",
         "explanation": "Fail after OpenAI rejects the generation request or local input is invalid."
       }
     },
     {
       "id": "step:CustomerSummaryReconcileFailed",
       "kind": "step",
-      "name": "CustomerSummaryReconcileFailed",
+      "name": "connectorfactory.CustomerSummaryReconcileFailed",
       "phase": "execute",
       "span": {
         "startLine": 118,
@@ -371,13 +374,14 @@
         "endColumn": 51
       },
       "metadata": {
+        "displayName": "CustomerSummaryReconcileFailed",
         "explanation": "Fail when retrieval cannot confirm the uncertain model response."
       }
     },
     {
       "id": "step:CustomerSummaryReconciled",
       "kind": "step",
-      "name": "CustomerSummaryReconciled",
+      "name": "connectorfactory.CustomerSummaryReconciled",
       "phase": "execute",
       "span": {
         "startLine": 117,
@@ -386,6 +390,7 @@
         "endColumn": 46
       },
       "metadata": {
+        "displayName": "CustomerSummaryReconciled",
         "explanation": "Complete after retrieval confirms the uncertain model response."
       }
     },

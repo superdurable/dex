@@ -23,9 +23,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/integ/webv2approval"
+	"github.com/superdurable/dex/sdk-go/integ/webv2reply"
 )
 
 var integClient *dex.Client
+
+var integWorkerTargetAddress string
 
 type emptyFlowSchema struct {
 	dex.FlowDefaults
@@ -59,7 +63,7 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	if err != nil {
 		return nil, errors.Join(err, os.RemoveAll(cacheDir))
 	}
-	workerPort, err := availablePort()
+	workerPort, err := integrationWorkerPort()
 	if err != nil {
 		return nil, errors.Join(err, cache.Close(), os.RemoveAll(cacheDir))
 	}
@@ -142,6 +146,7 @@ func TestMain(tests *testing.M) {
 		os.Exit(1)
 	}
 	integClient = environment.client
+	integWorkerTargetAddress = environment.worker.WorkerTarget().Address
 	exitCode := tests.Run()
 	if err := environment.Close(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -193,6 +198,8 @@ func integrationFlows() []dex.Flow {
 		workerRetryAfterWaitForFlow{},
 		workerRetryAfterExecuteFlow{},
 		workerOriginStackWaitForFlow{},
+		&webv2approval.Flow{},
+		&webv2reply.Flow{},
 	}
 }
 
@@ -260,4 +267,11 @@ func workerHost() string {
 		return host
 	}
 	return "127.0.0.1"
+}
+
+func integrationWorkerPort() (string, error) {
+	if port := os.Getenv("DEX_WORKER_PORT"); port != "" {
+		return port, nil
+	}
+	return availablePort()
 }

@@ -35,6 +35,7 @@ cd "$script_dir"
 
 dex_port="${DEX_INTEG_DEX_PORT:-$(available_port)}"
 web_port="${DEX_INTEG_WEB_PORT:-$(available_port)}"
+worker_port="${DEX_INTEG_WORKER_PORT:-$(available_port)}"
 dex_address="127.0.0.1:${dex_port}"
 log_file="/tmp/test-go-sdk-phase5-e2e-services.log"
 test_dir=$(mktemp -d)
@@ -80,11 +81,19 @@ if $coverage; then
 fi
 
 make -C ../cli build
+mkdir -p "$test_dir/definitions"
+for flow_package in webv2approval webv2reply; do
+  ../cli/dexcli visualize "integ/$flow_package/workflow.go" \
+    --schema-version 2.0 \
+    --json \
+    --out "$test_dir/definitions/$flow_package"
+done
 ../cli/dexcli dev \
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
   -open=false \
+  -flow-rendering-dir "$test_dir/definitions" \
   -sqlite-db-filename "$test_dir/temporal.db" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
@@ -107,7 +116,9 @@ if ! $dex_ready; then
 fi
 
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
+DEX_WEB_ADDRESS="127.0.0.1:${web_port}" \
 DEX_WORKER_HOST=127.0.0.1 \
+DEX_WORKER_PORT="$worker_port" \
   run_go_test -count=1 -race -v ./integ
 
 if $coverage; then

@@ -89,7 +89,7 @@ Stream 关系描述的是应用可观察输出，而不是控制流。Flow Rende
 - 持久化资源定义及其访问
 - Step Stream progress 操作
 
-可以使用普通业务辅助函数和导入的数据模型，但辅助函数不能隐藏 Dex 跳转、WaitFor 定义、资源定义或恢复目标。Step 类型、Flow 类型和资源名称必须能够静态确定。
+可以使用普通业务辅助函数和导入的数据模型，但辅助函数不能隐藏 Dex 跳转、WaitFor 定义、资源定义或恢复目标。资源名称必须能够静态确定。Flow type 和 Step type 遵循 [Flow 与 Step 名称](#flow-and-step-names) 中的规则。
 
 Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查的 module 和 package。Python 分析要求 Python 3.11 或更高版本。Python analyzer 在隔离模式下使用标准库 AST，绝不会导入或执行应用模块。
 
@@ -102,6 +102,25 @@ Version 2.0 第一版只支持 Go。它保留所有 Version 1 字段，并要求
 Version 2.0 会从通过 **DefineStartStep** 注册的 Step 输入类型生成 optional start-input schema。它遵循 JSON field name、忽略字段、pointer 和 **omitempty**。支持嵌套与 imported struct、具名 string/integer constant、**time.Time**、普通数值宽度、slice、固定数组和 string-key map。Integer bound 与 integer enum value 在 schema 中保持为十进制字符串。递归类型、超过 32 层的嵌套、非 string map key、interface、function、channel、byte slice、有冲突的匿名字段、JSON string encoding tag 和自定义 JSON codec 会产生 warning 并省略 start schema，但不会使图的其余部分失效。
 
 Version 2.0 会通过 config 中 canonical Connector SDK marker 与生成的字段 metadata 识别 **openai.NewCreateResponseStep** 等 operation-specific Connector factory，而不维护 connector 或函数名列表。Dex Web 会用 Connector 图标标记这些 Step。通用 SDK 的 **MustNewQueryStep** 和 **MustNewMutationStep** escape hatch 仍然受支持。Factory 调用必须直接位于 **DefineStep** 或 **DefineStartStep** 中，并使用内联 config literal。Step type、annotations、具名 **GoTo** branch target（或通用 **GoToBranch** target）、**StepRef** 名称、Result Attribute、Stream 和 **ProceedToOnExecuteFailure** target 都必须能够静态确定。Factory annotations 直接提供 Step group 和 explanation，因此生成的 Step 不需要本地 directive。每个 Connector Step 只把当前 operation result 传给 branch target；进入 Connector Step 前，应把业务上下文持久化到 application Attribute。定义图会为每个 Connector branch 生成一条带标签的 transition，为 Result Attribute 生成 write relation，并为 structured/text Stream 生成 best-effort progress relation。动态 config、branch slice、target、annotation 或 resource reference 会产生 blocking diagnostic。参见 [Connector factory 示例](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go)。
+
+## Flow 与 Step 名称 {#flow-and-step-names}
+
+定义图使用 SDK 注册的 Flow type 和 Step type。Dex Web v2 用这些名称搜索 run、把 run history 对应到 Step，并启动 Flow。因此，除非 analyzer 报告下文列出的诊断，Go Flow 不需要 **GetFlowType** 或 **GetStepType** override 就能在 Dex Web v2 中使用。
+
+对于 Go，默认名称是去掉指针的 package-qualified type，例如 **threadapproval.Flow** 或 **threadapproval.initializeThread**。泛型类型参数按 Go reflection 的格式输出：参数使用完整 import path。该 path 最后一段中的点号显示为 **%2e**，例如 **gopkg.in/yaml%2ev3.Node**。**byte** 和 **any** 分别显示为 **uint8** 和 **interface \{\}**。在 package **main** 中声明的类型使用 **main** 作为 package，与 Worker 二进制中一致。对于 Python，默认名称是 class 名称。
+
+Dex 会拒绝包含 **/**、**$** 或 **:** 的 Step type。如果泛型 Step 的默认名称包含带斜杠的 import path，请声明 **GetStepType** override。
+
+**GetFlowType** 或 **GetStepType** override 可以声明在 package 的任意文件中，也可以从嵌入类型提升而来，包括来自其他 package 的类型。Override 中的每条 return 语句都必须返回同一个 compile-time string。空字符串表示保留默认名称。**StepRef** target 指向注册的 Step type，而不是 Go type。
+
+Analyzer 无法确定注册名称，或无法为每个 Step 生成独立节点时，会报告 blocking diagnostic：
+
+- **dynamic_type_name**：override 返回不同的字符串、返回的值不是 compile-time string，或名称来自嵌入的 interface。
+- **generic_flow_type_name**：泛型 Flow type 没有非空 override。
+- **unsupported_generic_type_name**：使用默认名称的 Step 含有无法静态确定 reflection 名称的类型参数，例如 struct、function、channel、非空 interface、type parameter 或函数内声明的类型。
+- **duplicate_step_type**：两个注册使用同一个 Step type，或同一个 Go type 注册了多次。Step 节点以 Go type 为键，因此一个泛型 Step 只能用一个类型参数注册。
+
+保留默认名称的 Step 会在 **metadata.displayName** 中携带简短的 Go type，Dex Web v2 画布会显示为 **initializeThread**。节点 ID 仍使用 Go type，例如 **step:initializeThread**。
 
 ## Unknown 节点和诊断
 

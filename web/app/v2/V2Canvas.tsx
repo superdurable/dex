@@ -158,7 +158,9 @@ export function V2Canvas({
   }, [flowId]);
 
   const selected = useMemo(
-    () => catalog?.definitions.find((definition) => definition.flowName === flowType && definition.valid),
+    () => catalog?.definitions.find(
+      (definition) => definition.flowName === flowType && definition.schemaVersion === '2.0' && definition.valid,
+    ),
     [catalog, flowType],
   );
 

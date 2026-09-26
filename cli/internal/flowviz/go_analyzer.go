@@ -34,29 +34,31 @@ const goPackagesLoadMode = packages.NeedName | packages.NeedFiles | packages.Nee
 	packages.NeedTypesSizes | packages.NeedDeps | packages.NeedModule
 
 type goAnalyzer struct {
-	graph              *Graph
-	file               *ast.File
-	packageFiles       []*ast.File
-	fileSet            *token.FileSet
-	typeInfo           *types.Info
-	sourcePath         string
-	dexAliases         map[string]bool
-	methods            map[string]map[string]*ast.FuncDecl
-	externalMethods    map[string]map[string]*goExternalMethod
-	externalResources  map[types.Object]goExternalResource
-	externalTypes      map[string]string
-	externalSteps      map[string]bool
-	reportedExternal   map[string]bool
-	modules            map[string]goModule
-	steps              map[string]string
-	resources          map[types.Object]string
-	resourceVars       map[string]string
-	connectorFactories map[string]goConnectorFactoryStep
-	schemaVersion      string
-	registeredSteps    []string
-	startInputType     types.Type
-	startStepType      string
-	typeSizes          types.Sizes
+	graph                 *Graph
+	file                  *ast.File
+	packageFiles          []*ast.File
+	fileSet               *token.FileSet
+	typeInfo              *types.Info
+	typeNames             *goRegisteredTypeNameResolver
+	sourcePath            string
+	dexAliases            map[string]bool
+	methods               map[string]map[string]*ast.FuncDecl
+	externalMethods       map[string]map[string]*goExternalMethod
+	externalResources     map[types.Object]goExternalResource
+	externalTypes         map[string]string
+	externalSteps         map[string]bool
+	reportedExternal      map[string]bool
+	modules               map[string]goModule
+	steps                 map[string]string
+	registeredStepNodeIDs map[string]string
+	resources             map[types.Object]string
+	resourceVars          map[string]string
+	connectorFactories    map[string]goConnectorFactoryStep
+	schemaVersion         string
+	registeredSteps       []string
+	startInputType        types.Type
+	startStepType         string
+	typeSizes             types.Sizes
 }
 
 type goExternalMethod struct {
@@ -77,13 +79,14 @@ type goModule struct {
 }
 
 type goTransition struct {
-	kind         string
-	target       string
-	label        string
-	condition    string
-	multiplicity string
-	span         *Span
-	metadata     map[string]any
+	kind            string
+	target          string
+	isStepRefTarget bool
+	label           string
+	condition       string
+	multiplicity    string
+	span            *Span
+	metadata        map[string]any
 }
 
 type goDecisionOutcome struct {
@@ -142,6 +145,7 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVers
 		selectedPackage.Fset,
 		selectedPackage.TypesInfo,
 		selectedPackage.TypesSizes,
+		newGoRegisteredTypeNameResolver(selectedPackage),
 		modules,
 		sourcePath,
 		schemaVersion,
@@ -157,6 +161,7 @@ func newGoAnalyzer(
 	fileSet *token.FileSet,
 	typeInfo *types.Info,
 	typeSizes types.Sizes,
+	typeNames *goRegisteredTypeNameResolver,
 	modules map[string]goModule,
 	sourcePath string,
 	schemaVersion string,
@@ -171,27 +176,29 @@ func newGoAnalyzer(
 		typeSizes = types.SizesFor("gc", runtime.GOARCH)
 	}
 	return &goAnalyzer{
-		graph:              graph,
-		file:               file,
-		packageFiles:       packageFiles,
-		fileSet:            fileSet,
-		typeInfo:           typeInfo,
-		sourcePath:         filepath.Clean(sourcePath),
-		dexAliases:         make(map[string]bool),
-		methods:            make(map[string]map[string]*ast.FuncDecl),
-		externalMethods:    make(map[string]map[string]*goExternalMethod),
-		externalResources:  make(map[types.Object]goExternalResource),
-		externalTypes:      make(map[string]string),
-		externalSteps:      make(map[string]bool),
-		reportedExternal:   make(map[string]bool),
-		modules:            modules,
-		steps:              make(map[string]string),
-		resources:          make(map[types.Object]string),
-		resourceVars:       make(map[string]string),
-		connectorFactories: make(map[string]goConnectorFactoryStep),
-		schemaVersion:      schemaVersion,
-		registeredSteps:    make([]string, 0),
-		typeSizes:          typeSizes,
+		graph:                 graph,
+		file:                  file,
+		packageFiles:          packageFiles,
+		fileSet:               fileSet,
+		typeInfo:              typeInfo,
+		typeNames:             typeNames,
+		sourcePath:            filepath.Clean(sourcePath),
+		dexAliases:            make(map[string]bool),
+		methods:               make(map[string]map[string]*ast.FuncDecl),
+		externalMethods:       make(map[string]map[string]*goExternalMethod),
+		externalResources:     make(map[types.Object]goExternalResource),
+		externalTypes:         make(map[string]string),
+		externalSteps:         make(map[string]bool),
+		reportedExternal:      make(map[string]bool),
+		modules:               modules,
+		steps:                 make(map[string]string),
+		registeredStepNodeIDs: make(map[string]string),
+		resources:             make(map[types.Object]string),
+		resourceVars:          make(map[string]string),
+		connectorFactories:    make(map[string]goConnectorFactoryStep),
+		schemaVersion:         schemaVersion,
+		registeredSteps:       make([]string, 0),
+		typeSizes:             typeSizes,
 	}
 }
 
@@ -229,7 +236,7 @@ func (analyzer *goAnalyzer) Analyze() {
 	getSteps := flowMethods[0]
 	flowName := receiverTypeName(getSteps)
 	analyzer.diagnoseExternalFlowDeclarations(flowName)
-	analyzer.graph.Flow = Flow{Name: analyzer.customTypeName(flowName, "GetFlowType"), Span: analyzer.span(getSteps)}
+	analyzer.graph.Flow = Flow{Name: analyzer.registeredFlowTypeName(getSteps, flowName), Span: analyzer.span(getSteps)}
 	analyzer.analyzeStepRegistration(getSteps)
 	for stepType, nodeID := range analyzer.steps {
 		analyzer.analyzeStep(stepType, nodeID)
@@ -418,6 +425,27 @@ func (analyzer *goAnalyzer) isFlowGetSteps(method *ast.FuncDecl) bool {
 	return strings.Contains(analyzer.expressionString(result), "StepDef")
 }
 
+func (analyzer *goAnalyzer) registeredFlowTypeName(getSteps *ast.FuncDecl, flowName string) string {
+	receiver := analyzer.flowReceiverType(getSteps)
+	if receiver == nil {
+		return analyzer.parseOnlyTypeName(flowName, "GetFlowType").name
+	}
+	flowTypeName, problem := analyzer.typeNames.resolveFlowTypeName(receiver)
+	if problem != nil {
+		analyzer.graph.AddDiagnostic("error", problem.code, problem.message, analyzer.span(getSteps))
+		return analyzer.file.Name.Name + "." + flowName
+	}
+	return flowTypeName.name
+}
+
+func (analyzer *goAnalyzer) flowReceiverType(getSteps *ast.FuncDecl) *types.Named {
+	method, isFunction := analyzer.typeInfo.Defs[getSteps.Name].(*types.Func)
+	if !isFunction || method.Signature().Recv() == nil {
+		return nil
+	}
+	return registeredNamedType(method.Signature().Recv().Type())
+}
+
 func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 	if getSteps.Body == nil {
 		analyzer.graph.AddDiagnostic("error", "dynamic_step_registration", "GetSteps must have a directly visible body", analyzer.span(getSteps))
@@ -445,7 +473,12 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 			}
 			nodeID := "step:" + definition.stepType
 			isStart := callName == "DefineStartStep"
+			duplicateMessage := fmt.Sprintf("connector factory Step type %q is already used by another registered Step", definition.stepType)
+			if analyzer.isDuplicateStepNode(definition.stepType, duplicateMessage, call) {
+				return false
+			}
 			analyzer.steps[definition.stepType] = nodeID
+			analyzer.recordRegisteredStepType(definition.stepType, nodeID, call)
 			analyzer.connectorFactories[definition.stepType] = definition
 			analyzer.registeredSteps = append(analyzer.registeredSteps, definition.stepType)
 			analyzer.graph.AddNode(Node{
@@ -468,20 +501,32 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 			analyzer.addDynamicTargetDiagnostic("registered Step type must be static", call.Args[0])
 			return false
 		}
+		duplicateMessage := fmt.Sprintf("Step Go type %s is registered more than once", stepType)
+		if analyzer.isGenericStepRegistration(call.Args[0]) {
+			duplicateMessage = fmt.Sprintf("generic Step %s is registered more than once; the graph needs one registration per generic Step type", stepType)
+		}
+		if analyzer.isDuplicateStepNode(stepType, duplicateMessage, call.Args[0]) {
+			return false
+		}
 		if filename := analyzer.externalTypes[stepType]; filename != "" {
 			analyzer.externalSteps[stepType] = true
 			message := fmt.Sprintf("Step %s is declared in %s; registered Steps must be declared in %s",
 				stepType, analyzer.displayFilename(filename), filepath.Base(analyzer.sourcePath))
 			analyzer.addExternalDiagnostic("step:"+stepType, "step_outside_flow_file", message, analyzer.span(call.Args[0]))
 		}
-		stepName := analyzer.customTypeName(stepType, "GetStepType")
+		stepName := analyzer.registeredStepTypeName(call.Args[0], stepType)
 		nodeID := "step:" + stepType
 		isStart := callName == "DefineStartStep"
 		analyzer.steps[stepType] = nodeID
+		analyzer.recordRegisteredStepType(stepName.name, nodeID, call.Args[0])
 		analyzer.registeredSteps = append(analyzer.registeredSteps, stepType)
-		analyzer.graph.AddNode(Node{ID: nodeID, Kind: "step", Name: stepName, Start: isStart, Span: analyzer.span(call)})
+		node := Node{ID: nodeID, Kind: "step", Name: stepName.name, Start: isStart, Span: analyzer.span(call)}
+		if stepName.displayName != "" {
+			node.Metadata = map[string]any{"displayName": stepName.displayName}
+		}
+		analyzer.graph.AddNode(node)
 		if isStart {
-			analyzer.startStepType = stepName
+			analyzer.startStepType = stepName.name
 			analyzer.startInputType = analyzer.registeredStepInputType(call.Args[0])
 			if analyzer.graph.Flow.StartStepID != "" {
 				analyzer.graph.AddDiagnostic("error", "multiple_start_steps", "Flow defines more than one start Step", analyzer.span(call))
@@ -494,6 +539,70 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 	if registrationCount == 0 && !analyzer.hasStaticEmptyStepRegistration(getSteps) {
 		analyzer.graph.AddDiagnostic("error", "dynamic_step_registration", "GetSteps must directly call DefineStep or DefineStartStep", analyzer.span(getSteps))
 	}
+}
+
+// Step nodes are keyed by Go type or connector factory Step type, so each key needs one registration.
+func (analyzer *goAnalyzer) isDuplicateStepNode(stepNodeKey string, message string, registration ast.Node) bool {
+	if _, isRegistered := analyzer.steps[stepNodeKey]; !isRegistered {
+		return false
+	}
+	analyzer.graph.AddDiagnostic("error", "duplicate_step_type", message, analyzer.span(registration))
+	return true
+}
+
+func (analyzer *goAnalyzer) isGenericStepRegistration(argument ast.Expr) bool {
+	named := registeredNamedType(analyzer.typeInfo.Types[argument].Type)
+	return named != nil && named.TypeArgs().Len() > 0
+}
+
+func (analyzer *goAnalyzer) registeredStepTypeName(argument ast.Expr, stepType string) goRegisteredTypeName {
+	argumentType := analyzer.typeInfo.Types[argument].Type
+	if argumentType == nil || argumentType == types.Typ[types.Invalid] {
+		return analyzer.parseOnlyTypeName(stepType, "GetStepType")
+	}
+	stepTypeName, problem := analyzer.typeNames.resolveStepTypeName(argumentType)
+	if problem != nil {
+		analyzer.graph.AddDiagnostic("error", problem.code, problem.message, analyzer.span(argument))
+		return goRegisteredTypeName{name: analyzer.file.Name.Name + "." + stepType, displayName: stepType}
+	}
+	return stepTypeName
+}
+
+// Without type information, only literal overrides declared in the Flow file are readable.
+func (analyzer *goAnalyzer) parseOnlyTypeName(typeName string, methodName string) goRegisteredTypeName {
+	defaultName := goRegisteredTypeName{name: analyzer.file.Name.Name + "." + typeName, displayName: typeName}
+	method := analyzer.methods[typeName][methodName]
+	if method == nil {
+		return defaultName
+	}
+	override, isConstant := analyzer.typeNames.constantReturnValue(method, analyzer.typeInfo)
+	if !isConstant {
+		analyzer.graph.AddDiagnostic(
+			"error",
+			"dynamic_type_name",
+			fmt.Sprintf("%s of %s must return one compile-time string", methodName, typeName),
+			analyzer.span(method),
+		)
+		return defaultName
+	}
+	if override == "" {
+		return defaultName
+	}
+	return goRegisteredTypeName{name: override}
+}
+
+func (analyzer *goAnalyzer) recordRegisteredStepType(registeredStepType string, nodeID string, registration ast.Node) {
+	if existingNodeID, isRegistered := analyzer.registeredStepNodeIDs[registeredStepType]; isRegistered {
+		analyzer.graph.AddDiagnostic(
+			"error",
+			"duplicate_step_type",
+			fmt.Sprintf("Step type %q is registered by both %s and %s", registeredStepType,
+				strings.TrimPrefix(existingNodeID, "step:"), strings.TrimPrefix(nodeID, "step:")),
+			analyzer.span(registration),
+		)
+		return
+	}
+	analyzer.registeredStepNodeIDs[registeredStepType] = nodeID
 }
 
 func (analyzer *goAnalyzer) hasStaticEmptyStepRegistration(getSteps *ast.FuncDecl) bool {
@@ -520,7 +629,7 @@ func (analyzer *goAnalyzer) analyzeStep(stepType string, nodeID string) {
 		return
 	}
 	stepMethods := analyzer.methods[stepType]
-	for _, methodName := range []string{"Execute", "WaitFor", "GetStepOptions", "GetStepType"} {
+	for _, methodName := range []string{"Execute", "WaitFor", "GetStepOptions"} {
 		externalMethod := analyzer.externalMethods[stepType][methodName]
 		if externalMethod == nil {
 			continue
@@ -588,7 +697,7 @@ func (analyzer *goAnalyzer) diagnoseExternalFlowDeclarations(flowType string) {
 			continue
 		}
 		switch name {
-		case "GetPersistenceSchema", "GetFlowType", "GetFlowOptions", "GetFlowConfig", "HandleTimeout":
+		case "GetPersistenceSchema", "GetFlowOptions", "GetFlowConfig", "HandleTimeout":
 			message := fmt.Sprintf("Flow method %s is declared in %s; Dex Flow methods must be declared in %s",
 				name, analyzer.displayFilename(method.filename), filepath.Base(analyzer.sourcePath))
 			analyzer.addExternalDiagnostic("flow-method:"+flowType+":"+name, "flow_method_outside_flow_file", message, nil)
@@ -653,7 +762,7 @@ func (analyzer *goAnalyzer) analyzeDecisionHandler(ownerID string, method *ast.F
 			if transition.kind != "cancel" {
 				continue
 			}
-			targetID := analyzer.resolveTransitionTarget(transition.target, transition.span)
+			targetID := analyzer.resolveTransitionTarget(transition.target, transition.isStepRefTarget, transition.span)
 			details.Cancellations = append(details.Cancellations, Cancellation{StepID: targetID, Scope: cancellationScope(transition.label)})
 		}
 		analyzer.graph.AddNode(Node{
@@ -664,7 +773,7 @@ func (analyzer *goAnalyzer) analyzeDecisionHandler(ownerID string, method *ast.F
 			if transition.kind == "terminal" {
 				continue
 			}
-			targetID := analyzer.resolveTransitionTarget(transition.target, transition.span)
+			targetID := analyzer.resolveTransitionTarget(transition.target, transition.isStepRefTarget, transition.span)
 			analyzer.graph.AddEdge(Edge{
 				Kind:         transition.kind,
 				From:         decisionID,
@@ -765,7 +874,7 @@ func (analyzer *goAnalyzer) analyzeFailurePolicy(ownerID string, method *ast.Fun
 		if target != "" {
 			metadata["skipWaitFor"] = analyzer.methods[target]["WaitFor"] == nil
 		}
-		targetID := analyzer.resolveTransitionTarget(target, analyzer.span(call.Args[0]))
+		targetID := analyzer.resolveTransitionTarget(target, false, analyzer.span(call.Args[0]))
 		analyzer.graph.AddEdge(Edge{Kind: "failure_transition", From: ownerID, To: targetID, Label: "Execute failure", Span: analyzer.span(call), Metadata: metadata})
 		return false
 	})
@@ -925,11 +1034,14 @@ func (analyzer *goAnalyzer) goWaitConditions(waitID string, waitCall *ast.CallEx
 			})
 			return false
 		case "SubFlow":
-			name := "SubFlow"
+			goTypeName := "SubFlow"
+			flowTypeName := ""
 			if len(call.Args) > 0 {
-				name = valueOr(analyzer.expressionTypeName(call.Args[0]), name)
+				goTypeName = valueOr(analyzer.expressionTypeName(call.Args[0]), goTypeName)
+				flowTypeName = analyzer.subFlowTypeName(call.Args[0])
 			}
-			subFlowID := fmt.Sprintf("subflow:%s:%d", name, analyzer.fileSet.Position(call.Pos()).Line)
+			name := valueOr(flowTypeName, goTypeName)
+			subFlowID := fmt.Sprintf("subflow:%s:%d", goTypeName, analyzer.fileSet.Position(call.Pos()).Line)
 			analyzer.graph.AddNode(Node{ID: subFlowID, Kind: "subflow", Name: name, External: true, Span: analyzer.span(call)})
 			analyzer.graph.AddEdge(Edge{Kind: "subflow", From: waitID, To: subFlowID, Label: "start", Span: analyzer.span(call)})
 			conditions = append(conditions, WaitCondition{Kind: "subflow", Label: name, SubFlowID: subFlowID, Span: analyzer.span(call)})
@@ -951,6 +1063,19 @@ func (analyzer *goAnalyzer) goWaitConditions(waitID string, waitCall *ast.CallEx
 		return false
 	})
 	return conditions
+}
+
+// The SubFlow node is display-only, so an unknowable child name falls back to its Go type.
+func (analyzer *goAnalyzer) subFlowTypeName(argument ast.Expr) string {
+	child := registeredNamedType(analyzer.typeInfo.Types[argument].Type)
+	if child == nil || types.IsInterface(child) {
+		return ""
+	}
+	flowTypeName, problem := analyzer.typeNames.resolveFlowTypeName(child)
+	if problem != nil {
+		return ""
+	}
+	return flowTypeName.name
 }
 
 func (analyzer *goAnalyzer) goChannelConditionLabel(resourceID string, method string, arguments []ast.Expr) (string, string) {
@@ -1029,7 +1154,8 @@ func (analyzer *goAnalyzer) transitionsFromExpression(expression ast.Expr, condi
 		if len(call.Args) == 0 {
 			return []goTransition{{kind: "transition", target: "", label: "GoTo", condition: condition, span: analyzer.span(call)}}
 		}
-		return []goTransition{{kind: "transition", target: analyzer.goTransitionTarget(call.Args[0]), label: "GoTo", condition: condition, span: analyzer.span(call)}}
+		target, isStepRefTarget := analyzer.goTransitionTarget(call.Args[0])
+		return []goTransition{{kind: "transition", target: target, isStepRefTarget: isStepRefTarget, label: "GoTo", condition: condition, span: analyzer.span(call)}}
 	case "GoToMany":
 		result := make([]goTransition, 0)
 		for _, argument := range call.Args {
@@ -1071,17 +1197,18 @@ func (analyzer *goAnalyzer) transitionsFromExpression(expression ast.Expr, condi
 
 func (analyzer *goAnalyzer) movementTransition(call *ast.CallExpr, condition string) goTransition {
 	target := ""
+	isStepRefTarget := false
 	if len(call.Args) > 0 {
-		target = analyzer.goTransitionTarget(call.Args[0])
+		target, isStepRefTarget = analyzer.goTransitionTarget(call.Args[0])
 	}
-	return goTransition{kind: "transition", target: target, label: "fan-out", condition: condition, span: analyzer.span(call)}
+	return goTransition{kind: "transition", target: target, isStepRefTarget: isStepRefTarget, label: "fan-out", condition: condition, span: analyzer.span(call)}
 }
 
-func (analyzer *goAnalyzer) goTransitionTarget(expression ast.Expr) string {
-	if target, ok := analyzer.connectorBranchTarget(expression); ok {
-		return target
+func (analyzer *goAnalyzer) goTransitionTarget(expression ast.Expr) (string, bool) {
+	if target, isStepRefTarget, ok := analyzer.connectorBranchTarget(expression); ok {
+		return target, isStepRefTarget
 	}
-	return analyzer.expressionTypeName(expression)
+	return analyzer.expressionTypeName(expression), false
 }
 
 func (analyzer *goAnalyzer) collectLocalMovements(body *ast.BlockStmt) map[string][]goTransition {
@@ -1192,8 +1319,13 @@ func statementsAlwaysReturn(statements []ast.Stmt) bool {
 	return false
 }
 
-func (analyzer *goAnalyzer) resolveTransitionTarget(target string, span *Span) string {
-	if nodeID := analyzer.steps[target]; nodeID != "" {
+// A StepRef names a registered Step type; a composite literal names a Go type.
+func (analyzer *goAnalyzer) resolveTransitionTarget(target string, isStepRefTarget bool, span *Span) string {
+	nodeID := analyzer.steps[target]
+	if isStepRefTarget {
+		nodeID = analyzer.registeredStepNodeIDs[target]
+	}
+	if nodeID != "" {
 		return nodeID
 	}
 	unknownID := "unknown:step:dynamic"
@@ -1274,27 +1406,6 @@ func (analyzer *goAnalyzer) callName(call *ast.CallExpr) string {
 	default:
 		return ""
 	}
-}
-
-func (analyzer *goAnalyzer) customTypeName(typeName string, methodName string) string {
-	method := analyzer.methods[typeName][methodName]
-	if method == nil || method.Body == nil {
-		return typeName
-	}
-	for _, statement := range method.Body.List {
-		returnStatement, ok := statement.(*ast.ReturnStmt)
-		if !ok || len(returnStatement.Results) == 0 {
-			continue
-		}
-		if value, isStatic := analyzer.staticString(returnStatement.Results[0]); isStatic {
-			if value == "" {
-				return typeName
-			}
-			return value
-		}
-	}
-	analyzer.graph.AddDiagnostic("error", "dynamic_type_name", fmt.Sprintf("%s must return a compile-time string", methodName), analyzer.span(method))
-	return typeName
 }
 
 func (analyzer *goAnalyzer) staticString(expression ast.Expr) (string, bool) {

@@ -289,6 +289,22 @@ Dynamic targets produce an Unknown node and a blocking diagnostic. The default
 renderer still shows the partial graph. With **--json**, a partial JSON artifact
 is written, and the command exits with status 1.
 
+Graph Flow and Step names are the names the Go SDK registers. Without an
+override, a Flow or Step is named by its package-qualified Go type, such as
+`threadapproval.Flow` or `threadapproval.initializeThread`, and generic type
+arguments are printed as Go reflection prints them. Dex rejects Step types
+that contain `/`, `$`, or `:`, so a generic Step whose default name includes a
+slashed import path needs a `GetStepType` override. `GetFlowType` and
+`GetStepType` overrides are exempt from the same-file rule: they may be declared
+in any file of the package or promoted from an embedded type, and every return
+must be the same compile-time string. An empty string keeps the default name.
+Names the analyzer cannot know produce `dynamic_type_name`,
+`generic_flow_type_name`, or `unsupported_generic_type_name`. Step nodes are
+keyed by Go type, so registering one Go type or generic Step more than once
+produces `duplicate_step_type`. Default-named Steps carry their short Go type in
+`metadata.displayName`. Regenerate definitions after upgrading **dexcli** so
+Dex Web v2 keys match the Worker.
+
 Version 2 is Go-only and adds ordered Step groups plus a Dex Web v2 contract.
 The contract declares Indexed Attributes, the fixed `GetDexSummary` and
 `GetDexDisplay` RPCs, editable Display fields, and conditional Action RPCs.

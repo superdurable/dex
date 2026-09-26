@@ -16,7 +16,9 @@ dexcli dev --flow-rendering-dir ./build
 
 **v2** searches current runs for one Flow type. Run lists exclude executions closed by continue-as-new because they belong to the same logical Flow. Their events remain available in that Flow's history. The canvas uses that Flow type's generated definition, so you do not pick a JSON file again. Historical runs stay on **v1**.
 
-Version 1 remains the default analyzer schema and supports Go and Python. Version 2 currently supports Go only. Version 1 and Version 2 definition files can coexist. Dex Web rejects malformed Version 2 files and duplicate valid definitions for the same Flow type at startup. An analyzer result with **valid: false** remains available on **v1** Flow Rendering but does not appear as a **v2** Flow type.
+Each definition uses the Flow type and Step types that your Workers register, as described in [Flow and Step names](/references/flow-visualization#flow-and-step-names). Go Flows need no **GetFlowType** or **GetStepType** override unless the analyzer reports one of the name diagnostics listed there. Generate definitions with the **dexcli** release that matches your Dex Web, and regenerate them after upgrading.
+
+Version 1 remains the default analyzer schema and supports Go and Python. Version 2 currently supports Go only. Version 1 and Version 2 definition files can coexist. Dex Web rejects malformed Version 2 files and duplicate valid definitions for the same Flow type at startup. For example, two package-main binaries that both define **main.Flow** resolve to one Flow type, and the error names both files. An analyzer result with **valid: false** remains available on **v1** Flow Rendering but does not appear as a **v2** Flow type.
 
 ## Named directives
 

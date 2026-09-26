@@ -791,6 +791,9 @@ func TestVisualizeTreatsSubFlowAsAnExternalFoldedNode(t *testing.T) {
 		for _, node := range graph.Nodes {
 			if node.Kind == "subflow" {
 				require.True(t, node.External)
+				if source == goSource {
+					require.Equal(t, "flow.ChildFlow", node.Name)
+				}
 			}
 		}
 	}

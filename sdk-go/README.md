@@ -434,7 +434,7 @@ Registration uses pointer-stripped package-qualified Go types by default:
 Flow. Waiting steps embed `StepDefaults`; execute-only steps embed
 `StepDefaultsNoWaitFor[IN]`. Both include the default step type and options.
 Override `GetFlowType` or `GetStepType` only when an explicit durable identity
-is required.
+is required. `dexcli visualize` and Dex Web v2 use these same registered names.
 
 Registration is assembled once from each Flow's final durable type, steps,
 persistence schema, and exported RPC methods. It rejects empty or duplicate
@@ -715,7 +715,18 @@ with the declared name. Generated protobufs and tests are excluded. Use
 API documentation locally.
 
 `e2eTests` uses the current checkout's `dexcli dev` environment. It
-runs the migrated iWF Go SDK scenarios through the public Dex SDK.
+runs the migrated iWF Go SDK scenarios through the public Dex SDK. It also
+visualizes `integ/webv2approval` and `integ/webv2reply` into a Flow rendering
+directory and checks that Dex Web v2 lists, searches, displays, edits, acts
+on, and starts both Flows under the names the Worker registers.
+`DEX_INTEG_DEX_PORT`, `DEX_INTEG_WEB_PORT`, and `DEX_INTEG_WORKER_PORT` pin
+the Dex gRPC, Dex Web, and integration Worker ports; each defaults to a free
+port.
+
+`integTests` runs `./integ` against a Dex you start yourself. Start it with
+`dexcli dev -flow-rendering-dir` pointing at the two visualized fixtures, and
+set `DEX_FLOW_SERVICE_ADDRESS` and `DEX_WEB_ADDRESS` (default
+`127.0.0.1:8801` and `127.0.0.1:8802`).
 
 ### Measure integration coverage
 

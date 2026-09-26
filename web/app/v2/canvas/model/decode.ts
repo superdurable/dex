@@ -502,7 +502,7 @@ export function decodeFlow(
         explanation: typeof n.metadata?.explanation === 'string' ? n.metadata.explanation : undefined,
       }
     })
-    .sort((a, b) => (a.isStart ? -1 : b.isStart ? 1 : a.stepType.localeCompare(b.stepType)))
+    .sort((a, b) => (a.isStart ? -1 : b.isStart ? 1 : a.label.localeCompare(b.label) || a.stepType.localeCompare(b.stepType)))
 
   // ---- entries, and the human-input join ----------------------------------
   const waitConditionEdges = graph.edges.filter((e) => e.kind === 'wait_condition')

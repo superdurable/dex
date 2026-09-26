@@ -26,14 +26,15 @@ var connectorReleaseVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]
 var officialConnectorModulePattern = regexp.MustCompile(`^github\.com/superdurable/dex-connectors-library/connectors/[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)*$`)
 
 type goConnectorFactoryStep struct {
-	stepType             string
-	annotations          goConnectorAnnotations
-	branches             []goConnectorBranch
-	resultAttributeID    string
-	progressStreamID     string
-	textStreamID         string
-	executeFailureTarget string
-	connector            *goConnectorIdentity
+	stepType                string
+	annotations             goConnectorAnnotations
+	branches                []goConnectorBranch
+	resultAttributeID       string
+	progressStreamID        string
+	textStreamID            string
+	executeFailureTarget    string
+	isExecuteFailureStepRef bool
+	connector               *goConnectorIdentity
 }
 
 type goConnectorIdentity struct {
@@ -57,6 +58,7 @@ type goConnectorBranch struct {
 	id              string
 	target          string
 	optionalUnwired bool
+	isStepRefTarget bool
 	span            *Span
 }
 
@@ -157,7 +159,7 @@ func (analyzer *goAnalyzer) parseConnectorFactoryStep(kind string, call *ast.Cal
 	definition.resultAttributeID = analyzer.parseConnectorResource(fields[fieldName("resultAttribute", "ResultAttribute")], "attribute", "ResultAttribute")
 	definition.progressStreamID = analyzer.parseConnectorResource(fields[fieldName("progressStream", "ProgressStream")], "stream", "ProgressStream")
 	definition.textStreamID = analyzer.parseConnectorResource(fields[fieldName("textStream", "TextStream")], "stream", "TextStream")
-	definition.executeFailureTarget = analyzer.parseConnectorExecuteFailure(fields[fieldName("stepOptionsOverride", "StepOptionsOverride")])
+	definition.executeFailureTarget, definition.isExecuteFailureStepRef = analyzer.parseConnectorExecuteFailure(fields[fieldName("stepOptionsOverride", "StepOptionsOverride")])
 	definition.connector = analyzer.parseConnectorIdentity(configMetadata, fields, call, kind, operationSpecific)
 	return definition, true
 }
@@ -359,11 +361,11 @@ func (analyzer *goAnalyzer) parseConnectorBranches(expression ast.Expr) []goConn
 			continue
 		}
 		seen[branchID] = true
-		target, targetOK := analyzer.connectorBranchTarget(call.Args[1])
+		target, isStepRefTarget, targetOK := analyzer.connectorBranchTarget(call.Args[1])
 		if !targetOK {
 			analyzer.addConnectorFactoryDiagnostic("connector_factory_target", fmt.Sprintf("Connector factory branch %q target must be a concrete Step or static StepRef", branchID), call.Args[1])
 		}
-		branches = append(branches, goConnectorBranch{id: branchID, target: target, span: analyzer.span(call)})
+		branches = append(branches, goConnectorBranch{id: branchID, target: target, isStepRefTarget: isStepRefTarget, span: analyzer.span(call)})
 	}
 	return branches
 }
@@ -389,30 +391,31 @@ func (analyzer *goAnalyzer) parseConnectorNamedBranches(
 			analyzer.addConnectorFactoryDiagnostic("connector_factory_branch", fmt.Sprintf("Connector factory branch %q must directly call Connector SDK GoTo", branchField.id), expression)
 			continue
 		}
-		target, targetOK := analyzer.connectorBranchTarget(call.Args[0])
+		target, isStepRefTarget, targetOK := analyzer.connectorBranchTarget(call.Args[0])
 		if !targetOK {
 			analyzer.addConnectorFactoryDiagnostic("connector_factory_target", fmt.Sprintf("Connector factory branch %q target must be a concrete Step or static StepRef", branchField.id), call.Args[0])
 		}
-		branches = append(branches, goConnectorBranch{id: branchField.id, target: target, span: analyzer.span(call)})
+		branches = append(branches, goConnectorBranch{id: branchField.id, target: target, isStepRefTarget: isStepRefTarget, span: analyzer.span(call)})
 	}
 	return branches
 }
 
-func (analyzer *goAnalyzer) connectorBranchTarget(expression ast.Expr) (string, bool) {
+// Returns the target, whether it names a StepRef Step type, and whether it is static.
+func (analyzer *goAnalyzer) connectorBranchTarget(expression ast.Expr) (string, bool, bool) {
 	current := unwrappedExpression(expression)
 	if call, ok := current.(*ast.CallExpr); ok {
 		packagePath, functionName := analyzer.goCallIdentity(call)
 		if packagePath != connectorSDKPackage || functionName != "StepRef" || len(call.Args) != 1 {
-			return "", false
+			return "", false, false
 		}
 		target, static := analyzer.staticString(call.Args[0])
-		return target, static && target != ""
+		return target, true, static && target != ""
 	}
 	if _, ok := current.(*ast.CompositeLit); !ok {
-		return "", false
+		return "", false, false
 	}
 	target := analyzer.expressionTypeName(current)
-	return target, target != ""
+	return target, false, target != ""
 }
 
 func (analyzer *goAnalyzer) parseConnectorResource(expression ast.Expr, expectedKind string, fieldName string) string {
@@ -427,39 +430,39 @@ func (analyzer *goAnalyzer) parseConnectorResource(expression ast.Expr, expected
 	return resourceID
 }
 
-func (analyzer *goAnalyzer) parseConnectorExecuteFailure(expression ast.Expr) string {
+func (analyzer *goAnalyzer) parseConnectorExecuteFailure(expression ast.Expr) (string, bool) {
 	if expression == nil || isNilIdentifier(unwrappedExpression(expression)) {
-		return ""
+		return "", false
 	}
 	literal, ok := connectorCompositeLiteral(expression)
 	if !ok {
 		analyzer.addConnectorFactoryDiagnostic("connector_factory_step_options", "Connector factory StepOptionsOverride must be a static literal", expression)
-		return ""
+		return "", false
 	}
 	fields, ok := analyzer.connectorCompositeFields(literal, "Connector factory StepOptionsOverride")
 	if !ok {
-		return ""
+		return "", false
 	}
 	failure := fields["ExecuteFailure"]
 	if failure == nil || isNilIdentifier(unwrappedExpression(failure)) {
-		return ""
+		return "", false
 	}
 	call, ok := unwrappedExpression(failure).(*ast.CallExpr)
 	if !ok {
 		analyzer.addConnectorFactoryDiagnostic("connector_factory_execute_failure", "Connector factory ExecuteFailure must directly call ProceedToOnExecuteFailure", failure)
-		return ""
+		return "", false
 	}
 	packagePath, functionName := analyzer.goCallIdentity(call)
 	if packagePath != goSDKPackage || functionName != "ProceedToOnExecuteFailure" || len(call.Args) == 0 {
 		analyzer.addConnectorFactoryDiagnostic("connector_factory_execute_failure", "Connector factory ExecuteFailure must directly call Dex ProceedToOnExecuteFailure", failure)
-		return ""
+		return "", false
 	}
-	target, targetOK := analyzer.connectorBranchTarget(call.Args[0])
+	target, isStepRefTarget, targetOK := analyzer.connectorBranchTarget(call.Args[0])
 	if !targetOK {
 		analyzer.addConnectorFactoryDiagnostic("connector_factory_execute_failure", "Connector factory Execute failure target must be a concrete Step or static StepRef", call.Args[0])
-		return ""
+		return "", false
 	}
-	return target
+	return target, isStepRefTarget
 }
 
 func (analyzer *goAnalyzer) connectorCompositeFields(literal *ast.CompositeLit, subject string) (map[string]ast.Expr, bool) {
@@ -494,7 +497,7 @@ func (analyzer *goAnalyzer) analyzeConnectorFactoryStep(nodeID string, factory g
 			})
 			continue
 		}
-		targetID := analyzer.resolveTransitionTarget(branch.target, branch.span)
+		targetID := analyzer.resolveTransitionTarget(branch.target, branch.isStepRefTarget, branch.span)
 		analyzer.graph.AddEdge(Edge{
 			Kind: "transition", From: nodeID, To: targetID, Label: branch.id, Span: branch.span,
 			Metadata: map[string]any{"connectorBranch": true},
@@ -509,10 +512,10 @@ func (analyzer *goAnalyzer) analyzeConnectorFactoryStep(nodeID string, factory g
 	analyzer.addConnectorProgressEdge(nodeID, factory.progressStreamID, "structured")
 	analyzer.addConnectorProgressEdge(nodeID, factory.textStreamID, "text")
 	if factory.executeFailureTarget != "" {
-		targetID := analyzer.resolveTransitionTarget(factory.executeFailureTarget, nil)
+		targetID := analyzer.resolveTransitionTarget(factory.executeFailureTarget, factory.isExecuteFailureStepRef, nil)
 		analyzer.graph.AddEdge(Edge{
 			Kind: "failure_transition", From: nodeID, To: targetID, Label: "Execute failure",
-			Metadata: map[string]any{"skipWaitFor": analyzer.connectorTargetSkipsWaitFor(factory.executeFailureTarget)},
+			Metadata: map[string]any{"skipWaitFor": analyzer.connectorTargetSkipsWaitFor(strings.TrimPrefix(targetID, "step:"))},
 		})
 	}
 }

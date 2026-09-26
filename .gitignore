@@ -18,6 +18,7 @@ examples/go/dex-samples
 examples/go/dex-deal-dsl
 examples/go/deepverify
 cli/dexcli
+cli/internal/command/testfixtures/registered-type-names/mainpackage/mainpackage
 web/large-step-graph
 web/fan-out-90
 .bin/
