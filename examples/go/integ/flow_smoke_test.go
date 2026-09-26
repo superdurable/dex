@@ -220,6 +220,32 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			flags: flowSmokeFlags{noStartStep: true},
 		},
 		{
+			name: "patterns/sequentially-chunked-attribute-map",
+			trigger: func(t *testing.T) (string, string) {
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodPost,
+					"/patterns/sequentially-chunked-attribute-map/start",
+					nil,
+					nil,
+				)
+			},
+			flags: flowSmokeFlags{noStartStep: true},
+		},
+		{
+			name: "patterns/hash-partitioned-attribute-map",
+			trigger: func(t *testing.T) (string, string) {
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodPost,
+					"/patterns/hash-partitioned-attribute-map/start",
+					nil,
+					nil,
+				)
+			},
+			flags: flowSmokeFlags{noStartStep: true},
+		},
+		{
 			name: "patterns/manual-recovery",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "manual-recovery")}}

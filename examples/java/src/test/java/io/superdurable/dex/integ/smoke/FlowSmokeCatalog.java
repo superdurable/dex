@@ -69,6 +69,16 @@ final class FlowSmokeCatalog {
                         Map.of("workflowId", environment.newFlowId("interruptible"))),
                 FlowSmokeEntry.get("patterns/reminders", "/patterns/reminders/start", Map.of()),
                 entityStore(environment),
+                FlowSmokeEntry.post(
+                        "patterns/sequentially-chunked-attribute-map",
+                        "/patterns/sequentially-chunked-attribute-map/start",
+                        null,
+                        FlowSmokeFlags.noStartStep()),
+                FlowSmokeEntry.post(
+                        "patterns/hash-partitioned-attribute-map",
+                        "/patterns/hash-partitioned-attribute-map/start",
+                        null,
+                        FlowSmokeFlags.noStartStep()),
                 FlowSmokeEntry.get(
                         "patterns/manual-recovery",
                         "/patterns/manual-recovery/start",

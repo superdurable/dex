@@ -26,6 +26,7 @@ import { loadEnv } from "./config/env.js";
 import { createDrainInternalRouter } from "./patterns/drain-channels/internal/controller.js";
 import { createDrainingChannelRouter } from "./patterns/drain-channels/external-publishing/controller.js";
 import { createEntityStoreRouter } from "./patterns/entity-store/controller.js";
+import { createHashPartitionedAttributeMapRouter } from "./patterns/hash-partitioned-attribute-map/controller.js";
 import { createInterruptibleRouter } from "./patterns/interruptible/controller.js";
 import { createManualRecoveryRouter } from "./patterns/intervention/controller.js";
 import { createParallelRouter } from "./patterns/parallel/controller.js";
@@ -33,6 +34,7 @@ import { createParallelSubFlowsRouter } from "./patterns/parallel-subflows/contr
 import { createPatternPollingRouter } from "./patterns/polling/controller.js";
 import { createRecoveryRouter } from "./patterns/recovery/controller.js";
 import { createRemindersRouter } from "./patterns/reminders/controller.js";
+import { createSequentiallyChunkedAttributeMapRouter } from "./patterns/sequentially-chunked-attribute-map/controller.js";
 import { createInactivenessTrackerTimerRouter } from "./patterns/inactiveness-tracker-timer/controller.js";
 import { createTimeoutRouter } from "./patterns/timeout/controller.js";
 import { createWaitForStepCompletionRouter } from "./patterns/wait-for-step-completion/controller.js";
@@ -102,6 +104,14 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/patterns/interruptible", createInterruptibleRouter(client));
   app.use("/patterns/reminders", createRemindersRouter(client));
   app.use("/patterns/entity-store", createEntityStoreRouter(client));
+  app.use(
+    "/patterns/sequentially-chunked-attribute-map",
+    createSequentiallyChunkedAttributeMapRouter(client),
+  );
+  app.use(
+    "/patterns/hash-partitioned-attribute-map",
+    createHashPartitionedAttributeMapRouter(client),
+  );
   app.use("/patterns/manual-recovery", createManualRecoveryRouter(client));
   app.use(
     "/patterns/inactiveness-tracker-timer",

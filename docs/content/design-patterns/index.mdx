@@ -20,5 +20,26 @@ Full samples live under examples/go, examples/java, examples/python, examples/ty
 - [Parallel Steps](/design-patterns/parallel) — Choose static, dynamic, await-all, or first-win concurrent Step coordination.
 - [Parallel SubFlows](/design-patterns/parallel-subflows) — Fan out work to SubFlows, bound parent concurrency, partition across parents, and add durable back pressure.
 - [Polling and Iteration](/design-patterns/polling) — Revisit external state or process paginated work over time.
+- [Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map) — Append ordered history into bounded, immutable chunks.
+- [Hash-Partitioned AttributeMap](/design-patterns/hash-partitioned-attribute-map) — Look up and update structured records through a stable business key.
 - [Data Storage](/design-patterns/entity-store) — Project durable per-entity Flow Attributes into an application-owned SQL table.
 - [Responsive Update](/design-patterns/responsive-update) — Return at a Step boundary, wait for durable state, or stream incremental updates.
+
+## Choosing a partitioning pattern
+
+| Dimension | Sequentially Chunked | Hash-Partitioned |
+|---|---|---|
+| Grouping | Increasing sequence; one chunk per 100 records | FNV-1a of canonical key modulo 1,000 |
+| Primary goal | Efficient append and ordered pagination | Direct lookup and upsert by stable business key |
+| Typical data | Subscriber history, agent messages, audit events | Customer profiles, account metadata, configuration directories |
+| One read | One sequential chunk | One hash bucket |
+| One write | Rewrite the active chunk; also archive it at rollover | Rewrite the target bucket |
+| Ordering | Preserves insertion order naturally | No natural global order |
+| Lookup by key | Usually scans chunks or needs another index | Calculates one partition directly |
+| Updating old data | Poor fit; archived chunks should stay immutable | Good fit for upsert within the target bucket |
+| Write concurrency | All appends contend on the active chunk | Different partitions use independent locks |
+| Growth | Creates new chunks without rehashing | Fixed partition count; each bucket grows with total data |
+| Distribution | Naturally balanced by record count | Usually balanced, but hot keys can create hot partitions |
+| Changing parameters | New data can use a versioned chunk strategy | A partition-count change requires rehash and migration |
+| Full enumeration | Read chunks in sequence | Read up to 1,000 partitions |
+| Best fit | Append-only data with time or sequence order | Structured values with a stable lookup key |

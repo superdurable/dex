@@ -97,6 +97,18 @@ impl FlowSmokeHttpClient {
             query.get("workflowId").map(String::as_str).unwrap_or(""),
         )
     }
+
+    pub fn trigger_post(&self, path: &str) -> FlowSmokeTriggerResult {
+        let response = self
+            .http
+            .post(format!("{}{path}", self.base_url))
+            .send()
+            .expect("flow smoke HTTP POST");
+        let status = response.status();
+        let body = response.text().expect("read flow smoke response");
+        assert!(status.is_success(), "POST {path} returned {status}: {body}");
+        parse_flow_trigger_response(&body, "")
+    }
 }
 
 pub fn parse_flow_trigger_response(

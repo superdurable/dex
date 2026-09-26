@@ -62,6 +62,10 @@ The Client unions, sorts, and deduplicates these selections with the registered
 ones. Locking and loading are independent; read-modify-write handlers need both
 for the same instance.
 
+See the runnable [sequential chunking](../examples/rust/src/patterns/sequentially_chunked_attribute_map)
+and [hash partitioning](../examples/rust/src/patterns/hash_partitioned_attribute_map)
+patterns for complete call sites.
+
 ## Step and timeout-handler state loading
 
 `StepOptions` provides the same five selections independently for `wait_for` and

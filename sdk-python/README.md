@@ -66,6 +66,10 @@ result = client.invoke_rpc(
 registered ones. Locking and loading are independent; read-modify-write handlers
 need both for the same instance.
 
+See the runnable [sequential chunking](../examples/python/dex_examples/patterns/sequentially-chunked-attribute-map)
+and [hash partitioning](../examples/python/dex_examples/patterns/hash-partitioned-attribute-map)
+patterns for complete async call sites.
+
 ## Step and timeout-handler state loading
 
 `StepOptions` provides the same five selections independently for `wait_for` and

@@ -259,6 +259,58 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
+    id: "sequentially-chunked-attribute-map",
+    title: "Sequentially chunked AttributeMap",
+    endpoints: [
+      endpoint("POST", "/patterns/sequentially-chunked-attribute-map/start", "Start"),
+      endpoint("POST", "/patterns/sequentially-chunked-attribute-map/register", "Register subscriber", [
+        {
+          name: "body",
+          in: "raw-json",
+          default: JSON.stringify(
+            {
+              subscriberId: "subscriber-001",
+              deliveryAddress: "alice@example.com",
+            },
+            null,
+            2,
+          ),
+        },
+      ]),
+      endpoint("GET", "/patterns/sequentially-chunked-attribute-map/subscribers", "Get subscriber page", [
+        query("pageToken", { default: "current" }),
+      ]),
+    ],
+  },
+  {
+    group: "patterns",
+    id: "hash-partitioned-attribute-map",
+    title: "Hash-partitioned AttributeMap",
+    endpoints: [
+      endpoint("POST", "/patterns/hash-partitioned-attribute-map/start", "Start"),
+      endpoint("PUT", "/patterns/hash-partitioned-attribute-map/customer-profile", "Upsert customer profile", [
+        {
+          name: "body",
+          in: "raw-json",
+          default: JSON.stringify(
+            {
+              emailAddress: "alice@example.com",
+              fullName: "Alice Example",
+              companyName: "Example Corp",
+              customerTier: "gold",
+            },
+            null,
+            2,
+          ),
+        },
+      ]),
+      endpoint("GET", "/patterns/hash-partitioned-attribute-map/customer-profile", "Get customer profile", [
+        query("emailAddress", { default: "alice@example.com" }),
+      ]),
+    ],
+  },
+  {
+    group: "patterns",
     id: "manual-recovery",
     title: "Manual Recovery",
     flowIdPrefix: "manual-recovery",

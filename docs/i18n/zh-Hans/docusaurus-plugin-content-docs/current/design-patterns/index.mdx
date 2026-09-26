@@ -20,5 +20,26 @@ slug: /design-patterns
 - [Parallel Steps](/design-patterns/parallel) — 选择静态、动态、等待全部完成或首个获胜的并发 Step 协调方式。
 - [Parallel SubFlows](/design-patterns/parallel-subflows) — 用 SubFlow fan-out、父 Flow 并发上限、分区和 durable 背压处理大规模并行工作。
 - [Polling and Iteration](/design-patterns/polling) — 周期性检查外部状态，或按页处理大量数据。
+- [顺序分块 AttributeMap](/design-patterns/sequentially-chunked-attribute-map) — 将有序历史 append 到有大小上限的不可变 chunk。
+- [Hash 分区 AttributeMap](/design-patterns/hash-partitioned-attribute-map) — 通过稳定业务 key 直接查找和更新结构化记录。
 - [Data Storage](/design-patterns/entity-store) — 将每个实体的 durable Flow Attribute 投影到应用自有的 SQL 表。
 - [响应式更新](/design-patterns/responsive-update) — 在 Step 边界返回、等待 durable 状态，或流式传递增量更新。
+
+## 如何选择分区模式
+
+| 维度 | Sequentially Chunked | Hash-Partitioned |
+|---|---|---|
+| 分组方式 | 按递增 sequence，每 100 条形成一个 chunk | Canonical key 的 FNV-1a hash modulo 1,000 |
+| 主要目标 | 高效 append 和按顺序分页 | 按稳定业务 key 直接 lookup 和 upsert |
+| 典型数据 | Subscriber history、agent messages、audit events | Customer profiles、account metadata、配置目录 |
+| 单次读取 | 一个顺序 chunk | 一个 hash bucket |
+| 单次写入 | 重写活动 chunk；rollover 时额外写 archive | 重写目标 bucket |
+| 顺序 | 天然保留写入顺序 | 没有自然全局顺序 |
+| 按 key 查找 | 通常需要扫描多个 chunk 或额外索引 | 直接计算一个 partition |
+| 更新旧数据 | 不适合；archive chunk 应保持不可变 | 适合在目标 bucket 内 upsert |
+| 写入并发 | 所有 append 竞争同一个活动 chunk | 不同 partition 使用独立 lock |
+| 数据增长 | 自动创建新 chunk，不需要 rehash | Partition 数固定，每个 bucket 随总量增长 |
+| 分布 | 按记录数天然均衡 | 通常近似均衡，但可能出现热点 partition |
+| 修改参数 | 新数据可以使用带版本的 chunk 策略 | 修改 partition 数需要 rehash 和 migration |
+| 全量枚举 | 按顺序读取所有 chunk | 读取最多 1,000 个 partition |
+| 最适合 | Append-only、有时间或 sequence 顺序的数据 | 有稳定 lookup key 的结构化 value |

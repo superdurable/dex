@@ -189,6 +189,91 @@ Handler 需要所有当前 instance 时，加载整个 AttributeMap 或 ChannelM
 
 显式加载的 collection 可以为空，这不是错误。空的 pending-message snapshot 会返回空列表。不存在的 **AttributeMap** entry 会使用 SDK 正常的缺失值语义。Load 会建立一份 input snapshot。它不会消费 message，也不会使 RPC 具备 transactional 语义或阻止并发 operation。
 
+### 运行时选择 map instance
+
+RPC definition options 用于每次调用都相同的固定行为，包括 timeout、普通 Attribute lock、transactionality、whole-map load、singleton Channel load 和固定 exact-instance load。Go 将这个类型命名为 **RPCOptions**。
+
+当应用 adapter 根据 request data 选择 AttributeMap 或 ChannelMap instance 时，使用 **RPCInvokeOptions**。Rust 使用 **RpcInvokeOptions**。Invocation options 只能增加 exact AttributeMap load、exact ChannelMap load 和 AttributeMap instance lock。Dex 会把它们与注册配置 union、排序并去重，不能替换或清除注册配置。
+
+Load 和 lock 相互独立。只读 lookup 只需要 exact load。Read-modify-write RPC 必须为同一个 AttributeMap instance 同时增加 load 和 lock。SDK 会在网络调用前验证 Flow ownership、definition kind，以及 instance 是否非空且不含斜线。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/hash-partitioned-attribute-map/controller.py',
+    go: 'examples/go/patterns/hash-partitioned-attribute-map/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/hashpartitionedattributemap/HashPartitionedAttributeMapController.java',
+    typescript: 'examples/typescript/src/patterns/hash-partitioned-attribute-map/controller.ts',
+    rust: 'examples/rust/src/patterns/hash_partitioned_attribute_map/controller.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+options=RPCInvokeOptions(
+    lock_attribute_map_instances=(
+        flow.customer_profiles_by_email_partition.lock(partition_name),
+    ),
+    load_attribute_map_instances=(
+        flow.customer_profiles_by_email_partition.load(partition_name),
+    ),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+dex.RPCInvokeOptions{
+	LockAttributeMapInstances: []dex.AttributeLock{
+		dex.LockAttributeMap(CustomerProfilesByEmailPartition, partitionName),
+	},
+	LoadAttributeMapInstances: []dex.AttributeMapLoad{
+		CustomerProfilesByEmailPartition.Load(partitionName),
+	},
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final RPCInvokeOptions options = RPCInvokeOptions.newBuilder()
+        .addLockAttributeMapInstance(
+                flow.customerProfilesByEmailPartition,
+                partition.partitionName)
+        .addLoadAttributeMapInstance(
+                flow.customerProfilesByEmailPartition,
+                partition.partitionName)
+        .build();
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+{
+  lockAttributeMapInstances: [profiles.lock(partitionName)],
+  loadAttributeMapInstances: [profiles.load(partitionName)],
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+RpcInvokeOptions::new()
+    .lock_attribute_map_instance(
+        CUSTOMER_PROFILES_BY_EMAIL_PARTITION.lock(&partition.partition_name),
+    )
+    .load_attribute_map_instance(
+        CUSTOMER_PROFILES_BY_EMAIL_PARTITION.load(partition.partition_name),
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+完整 lookup 和 upsert 示例见 [Hash 分区 AttributeMap](/design-patterns/hash-partitioned-attribute-map)，动态分页 load 示例见 [顺序分块 AttributeMap](/design-patterns/sequentially-chunked-attribute-map)。
+
 ## Transactional read 与 write {#transactional-reads-and-writes}
 
 Transactional RPC 会把 RPC 的 read 和 write 作为一个 atomic operation 执行。

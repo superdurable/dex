@@ -188,6 +188,91 @@ For an **AttributeMap** entry or instance enumeration outside that scope, the SD
 
 An explicitly loaded collection can be empty. That is not an error. An empty pending-message snapshot returns an empty list. An absent **AttributeMap** entry uses the SDK's normal absent-value behavior. Loading creates one input snapshot. It does not consume messages, make the RPC transactional, or isolate the handler from concurrent work.
 
+### Runtime-selected map instances
+
+Use the RPC definition options for fixed behavior shared by every invocation: timeout, ordinary Attribute locks, transactionality, whole-map loads, singleton Channel loads, and fixed exact-instance loads. Go names this type **RPCOptions**.
+
+Use **RPCInvokeOptions** when the application adapter chooses an AttributeMap or ChannelMap instance from request data. Rust uses **RpcInvokeOptions**. Invocation options can add exact AttributeMap loads, exact ChannelMap loads, and AttributeMap instance locks. Dex unions, sorts, and deduplicates them with the registered definition. They cannot replace or clear registered settings.
+
+Loading and locking are independent. A read-only lookup needs only the exact load. A read-modify-write RPC must add both the load and the lock for the same AttributeMap instance. The SDK validates the Flow ownership, definition kind, and non-empty slash-free instance before making the network call.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/hash-partitioned-attribute-map/controller.py',
+    go: 'examples/go/patterns/hash-partitioned-attribute-map/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/hashpartitionedattributemap/HashPartitionedAttributeMapController.java',
+    typescript: 'examples/typescript/src/patterns/hash-partitioned-attribute-map/controller.ts',
+    rust: 'examples/rust/src/patterns/hash_partitioned_attribute_map/controller.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+options=RPCInvokeOptions(
+    lock_attribute_map_instances=(
+        flow.customer_profiles_by_email_partition.lock(partition_name),
+    ),
+    load_attribute_map_instances=(
+        flow.customer_profiles_by_email_partition.load(partition_name),
+    ),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+dex.RPCInvokeOptions{
+	LockAttributeMapInstances: []dex.AttributeLock{
+		dex.LockAttributeMap(CustomerProfilesByEmailPartition, partitionName),
+	},
+	LoadAttributeMapInstances: []dex.AttributeMapLoad{
+		CustomerProfilesByEmailPartition.Load(partitionName),
+	},
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final RPCInvokeOptions options = RPCInvokeOptions.newBuilder()
+        .addLockAttributeMapInstance(
+                flow.customerProfilesByEmailPartition,
+                partition.partitionName)
+        .addLoadAttributeMapInstance(
+                flow.customerProfilesByEmailPartition,
+                partition.partitionName)
+        .build();
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+{
+  lockAttributeMapInstances: [profiles.lock(partitionName)],
+  loadAttributeMapInstances: [profiles.load(partitionName)],
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+RpcInvokeOptions::new()
+    .lock_attribute_map_instance(
+        CUSTOMER_PROFILES_BY_EMAIL_PARTITION.lock(&partition.partition_name),
+    )
+    .load_attribute_map_instance(
+        CUSTOMER_PROFILES_BY_EMAIL_PARTITION.load(partition.partition_name),
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+See [Hash-Partitioned AttributeMap](/design-patterns/hash-partitioned-attribute-map) for the complete lookup and upsert example, and [Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map) for dynamic pagination loads.
+
 ## Transactional reads and writes {#transactional-reads-and-writes}
 
 A transactional RPC performs its reads and writes as one atomic operation.

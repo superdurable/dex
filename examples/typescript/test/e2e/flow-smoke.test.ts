@@ -157,6 +157,26 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: noStartStepFlags(),
     },
     {
+      name: "patterns/sequentially-chunked-attribute-map",
+      trigger: () =>
+        triggerPost(
+          context,
+          "/patterns/sequentially-chunked-attribute-map/start",
+          undefined,
+        ),
+      flags: noStartStepFlags(),
+    },
+    {
+      name: "patterns/hash-partitioned-attribute-map",
+      trigger: () =>
+        triggerPost(
+          context,
+          "/patterns/hash-partitioned-attribute-map/start",
+          undefined,
+        ),
+      flags: noStartStepFlags(),
+    },
+    {
       name: "patterns/manual-recovery",
       trigger: () =>
         triggerGet(context, "/patterns/manual-recovery/start", {

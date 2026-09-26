@@ -446,6 +446,30 @@ fn flow_smoke_all_registered_flows_via_controller() {
         assert_flow_smoke_start_step(&entry, &result.flow_id, &result.run_id);
         assert_flow_smoke_no_unexpected_failures(&entry, &result.flow_id, &result.run_id);
     }
+    for (name, path) in [
+        (
+            "patterns/sequentially-chunked-attribute-map",
+            "/patterns/sequentially-chunked-attribute-map/start",
+        ),
+        (
+            "patterns/hash-partitioned-attribute-map",
+            "/patterns/hash-partitioned-attribute-map/start",
+        ),
+    ] {
+        let entry = FlowSmokeEntry {
+            name,
+            path,
+            query: HashMap::new(),
+            flags: FlowSmokeFlags::NO_START_STEP,
+        };
+        let result = http_client.trigger_post(entry.path);
+        assert!(
+            !result.flow_id.is_empty(),
+            "{}: controller response did not include flowID",
+            entry.name
+        );
+        assert_flow_smoke_no_unexpected_failures(&entry, &result.flow_id, &result.run_id);
+    }
 }
 
 fn available_worker_port() -> u16 {

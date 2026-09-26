@@ -48,7 +48,7 @@ test("microserviceStartRpcAndChannel", async () => {
     flowId,
     flow.data,
     AttributeMatch.equalTo("initial-data"),
-    { maximumWaitTimeMs: 20_000 },
+    { requestTimeoutMs: 20_000 },
   );
 
   const previous = await environment.client.invokeRPC(flow.swap, flowId, "updated-data");

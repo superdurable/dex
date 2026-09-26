@@ -62,6 +62,10 @@ The four function/procedure and input/no-input `invokeRPC` families accept these
 options. Selections are additive, sorted, and deduplicated. Locking and loading
 are independent; read-modify-write handlers need both for the same instance.
 
+See the runnable [sequential chunking](../examples/java/src/main/java/io/superdurable/dex/patterns/sequentiallychunkedattributemap)
+and [hash partitioning](../examples/java/src/main/java/io/superdurable/dex/patterns/hashpartitionedattributemap)
+patterns for complete call sites.
+
 ## Step and timeout-handler state loading
 
 `StepOptions` provides the same five selections independently for `waitFor` and

@@ -38,6 +38,10 @@ pub fn build_router(client: SharedClient) -> axum::Router {
         .merge(patterns::interruptible::controller::mount(client.clone()))
         .merge(patterns::reminders::controller::mount(client.clone()))
         .merge(patterns::entity_store::controller::mount(client.clone()))
+        .merge(patterns::sequentially_chunked_attribute_map::controller::mount(client.clone()))
+        .merge(patterns::hash_partitioned_attribute_map::controller::mount(
+            client.clone(),
+        ))
         .merge(patterns::intervention::controller::mount(client.clone()))
         .merge(patterns::inactiveness_tracker::controller::mount(
             client.clone(),

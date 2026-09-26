@@ -70,6 +70,13 @@ Invocation selections are additive. The Client unions, sorts, and deduplicates
 them with the registered selections. Locking and loading are independent; a
 read-modify-write RPC must request both for the same AttributeMap instance.
 
+Runnable applications use this API in the
+[sequential chunking](../examples/go/patterns/sequentially-chunked-attribute-map)
+and [hash partitioning](../examples/go/patterns/hash-partitioned-attribute-map)
+patterns. The product guides explain the
+[ordered append layout](../docs/content/design-patterns/sequentially-chunked-attribute-map.mdx)
+and [stable-key lookup layout](../docs/content/design-patterns/hash-partitioned-attribute-map.mdx).
+
 ## Action permission projection
 
 An RPC can declare a state-dependent Action in `GetRPCs`. Dex maintains the

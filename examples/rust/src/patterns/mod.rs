@@ -15,6 +15,7 @@
 pub mod cron;
 pub mod drain_channels;
 pub mod entity_store;
+pub mod hash_partitioned_attribute_map;
 pub mod inactiveness_tracker;
 pub mod interruptible;
 pub mod intervention;
@@ -23,6 +24,7 @@ pub mod parallel_subflows;
 pub mod polling;
 pub mod recovery;
 pub mod reminders;
+pub mod sequentially_chunked_attribute_map;
 pub mod timeout;
 pub mod wait_for_step_completion;
 
@@ -71,6 +73,8 @@ fn register_with_client(registry: Registry, client: Option<Arc<Client>>) -> SdkR
         .register(reminders::ReminderFlow::default())?
         .register(inactiveness_tracker::InactivenessTrackerFlow::default())?
         .register(entity_store::UserProfileFlow)?
+        .register(sequentially_chunked_attribute_map::ChunkedSubscriberFlow)?
+        .register(hash_partitioned_attribute_map::CustomerDirectoryFlow)?
         .register(timeout::FlowGracefulTimeout::default())?
         .register(wait_for_step_completion::WaitForStepCompletionFlow::default())
 }

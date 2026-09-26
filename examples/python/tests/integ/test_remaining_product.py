@@ -53,7 +53,7 @@ async def test_user_onboarding_completes_all_tasks(
             flow_id,
             app.user_onboarding.status,
             AttributeMatch.equal_to("waiting_for_verification"),
-            WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
+            WaitForAttributeOptions(request_timeout=WAIT_TIMEOUT),
         )
         == "waiting_for_verification"
     )
@@ -63,7 +63,7 @@ async def test_user_onboarding_completes_all_tasks(
             flow_id,
             app.user_onboarding.status,
             AttributeMatch.equal_to("waiting_for_task_1"),
-            WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
+            WaitForAttributeOptions(request_timeout=WAIT_TIMEOUT),
         )
         == "waiting_for_task_1"
     )
@@ -76,7 +76,7 @@ async def test_user_onboarding_completes_all_tasks(
             flow_id,
             app.user_onboarding.status,
             AttributeMatch.equal_to("waiting_for_task_2"),
-            WaitForAttributeOptions(maximum_wait_time=WAIT_TIMEOUT),
+            WaitForAttributeOptions(request_timeout=WAIT_TIMEOUT),
         )
         == "waiting_for_task_2"
     )
@@ -107,7 +107,7 @@ async def test_job_posting_create_read_and_update_both_job_boards(
     await client.wait_for_step_completion(
         flow_id,
         JOB_POSTING_INIT,
-        WaitForStepCompletionOptions(maximum_wait_time=WAIT_TIMEOUT),
+        WaitForStepCompletionOptions(request_timeout=WAIT_TIMEOUT),
     )
     info = await client.invoke_rpc(app.job_post.get, flow_id)
     assert info.title == "Software Engineer"
@@ -130,12 +130,12 @@ async def test_job_posting_create_read_and_update_both_job_boards(
     await client.wait_for_step_completion(
         flow_id,
         SECOND_LINKEDIN_POSTING_UPDATE,
-        WaitForStepCompletionOptions(maximum_wait_time=WAIT_TIMEOUT),
+        WaitForStepCompletionOptions(request_timeout=WAIT_TIMEOUT),
     )
     await client.wait_for_step_completion(
         flow_id,
         SECOND_INDEED_POSTING_UPDATE,
-        WaitForStepCompletionOptions(maximum_wait_time=WAIT_TIMEOUT),
+        WaitForStepCompletionOptions(request_timeout=WAIT_TIMEOUT),
     )
     updated = await client.invoke_rpc(app.job_post.get, flow_id)
     assert updated == newest
