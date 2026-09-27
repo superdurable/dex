@@ -148,6 +148,89 @@ reading its opaque-origin DOM. Unit ports are merged at their declared JSON
 Pointers, so Flow code controls composition without coupling a Connector's
 connection screen to one example. The host protocol for this contract is 0.2.
 
+The `connector.host.ready` message also carries three optional fields. `theme` is
+the theme the frame paints, `light` or `dark`. The Connections page has no dark
+theme yet, so Dex Web always sends `light`. It also sets the iframe element's
+`color-scheme` to the same theme, because a frame whose scheme differs from its
+element gets an opaque canvas. `themeTokens` is a flat map from `--studio-*` CSS
+custom property names to values. Dex Web reads each value from an allowlisted
+v2 token in `app/v2/css/tokens.css`, resolved from the light ramps, so a Dex Web
+restyle reaches every bundle without a Connector release.
+
+Each value must match one grammar, which `sdk/react` in dex-connectors-library
+applies too:
+
+- Colors are `#` with 3, 4, 6, or 8 hex digits, `rgb(R, G, B)`, or
+  `rgba(R, G, B, A)`, in comma syntax. Channels are integers from 0 to 255
+  without leading zeros. Alpha is 0 to 1 with at most four decimals.
+- Radii are `0` or a non-negative `px` length with at most three digits on
+  each side of the decimal point.
+- `--studio-focus-ring` is one box shadow: an optional `inset`, two to four
+  `px` lengths that may be negative, and one color.
+- `--studio-duration` is up to four digits of `ms`, or seconds with at most two
+  integer digits and three decimals, such as `160ms` or `.16s`.
+- A font stack has 1 to 16 comma-separated families. A family is a quoted name
+  of letters, digits, spaces, and hyphens, or unquoted words that each start
+  with a letter, optionally after one hyphen. The CSS-wide keywords, `default`,
+  and `none` are accepted only when quoted.
+- A value is at most 256 characters.
+
+Dex Web drops any other value, and the bundle keeps its built-in value for that
+property.
+
+`stylesheet` is the whole Connector Studio stylesheet: layout, spacing,
+component rules, and the default token values for `light` and `dark`. Its only
+source is `app/v2/connections/connectorStudio.css`. Dex Web imports that file as
+text with Vite's `?raw` suffix, removes its comments, and sends the result in
+every ready message along with `theme` and `themeTokens`. A bundle built with
+`sdk/react` replaces its compiled `connectorStudioStyles` with this text and
+then applies `themeTokens` on top. A restyle of any Studio rule is therefore a
+Dex Web change only. The compiled copy in `sdk/react` is the fallback for hosts
+that omit the field, so a restyle does not need to change it. Only new markup
+or new classes need a Connector release.
+
+Bundles render only the `studio-*` class contract, which `sdk/react` exports as
+`connectorStudioClassNames`: `studio-surface`, `studio-header`, `studio-muted`,
+`studio-field`, `studio-actions`, `studio-button`, `studio-button-primary`,
+`studio-notice`, `studio-notice-info`, `studio-notice-success`,
+`studio-notice-error`, `studio-notice-attention`, `studio-options`,
+`studio-option`, `studio-option-label`, `studio-option-id`,
+`studio-option-detail`, `studio-badges`, `studio-badge`, and `studio-checkbox`.
+The sent stylesheet must style every class in the contract and no other
+`studio-*` class. It must also follow these rules:
+
+- It is printable ASCII and at most 65,536 characters. It never contains `</`,
+  so it cannot close the frame's `<style>` element. A bundle ignores a longer
+  stylesheet or one containing `</`, and keeps its compiled one.
+- It has a `.studio-<name>` selector for every class in the contract. A bundle
+  also ignores a stylesheet that lacks a selector for any class in the
+  `connectorStudioClassNames` it was built with. Renaming or dropping a class
+  in `connectorStudio.css` therefore sends every released bundle back to its
+  compiled stylesheet, and those bundles miss every later restyle until their
+  connectors are released again. Keep every class, and add new ones only.
+- It has no at-rules such as `@import` or `@media`, no comments, no backslash
+  escapes, no `!important`, and no `url()` or `expression()`.
+- A selector is a `:root` or `:root[data-theme='dark']` token block, `html`,
+  `body`, or starts with a `studio-*` class. Element names, attribute
+  selectors, and the `:hover`, `:focus-visible`, `:focus-within`, `:disabled`,
+  `:checked`, and `:not()` pseudo-classes appear only after that class.
+- Token blocks declare only `color-scheme` and the allowlisted `--studio-*`
+  properties, and every value matches the `themeTokens` grammar. `:root`
+  declares every allowlisted property.
+- Every other declaration uses only numbers with `px`, `fr`, `%`, `ms`, or
+  `s`, `var()` references to allowlisted properties without fallbacks, and the
+  layout keywords the test lists. No other function is allowed, and the only
+  color keyword on that list is `transparent`, so every other color comes
+  from a token. Named colors such as `red` and `currentcolor` are rejected.
+
+`themeTokens` are inline properties on the frame's root element, so they
+outrank the stylesheet's token blocks. `!important` is banned because it
+would reverse that. `connectorStudioTheme.test.ts` checks every rule above.
+Vitest replaces CSS imports with empty strings, so `vite.config.ts` lets
+`connectorStudio.css?raw` through for those tests.
+
+Bundles that ignore the fields keep their built-in theme and stylesheet.
+
 Provider resource reads use release-declared Studio commands. The manifest
 pins an HTTPS GET URL, a credential field and scheme, fixed query values,
 optional fixed headers, and the only path or query parameters the iframe may

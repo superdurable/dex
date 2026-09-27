@@ -9,7 +9,16 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { readResponseJSON } from '@/lib/http';
 import { dexFetch } from '@/lib/webConfig';
+import type { Theme } from '../../theme';
+import {
+  connectorStudioStylesheet,
+  readConnectorStudioLightThemeTokens,
+  type ConnectorStudioFrameAppearance,
+} from './connectorStudioTheme';
 import './connections.css';
+
+// Connections has no dark theme yet, so every Studio frame paints light to match the page.
+const connectorStudioFrameTheme: Theme = 'light';
 
 type ConnectionStatus = 'Missing' | 'Ready' | 'Expired' | 'Conflict' | 'Unsupported';
 
@@ -584,17 +593,12 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
   }, [catalog, configuration, connection, onConfigured, onError, session, target]);
-  const ready = () => frame.current?.contentWindow?.postMessage({
-    type: 'connector.host.ready', protocolVersion: '0.2.0', sessionNonce: session.sessionNonce,
-    connectorId: connection.connectorId,
-    capabilities: studioHostCapabilities(session),
-    connection: {
-      state: studioState(connection.status), grantedScopes: [],
-      detail: connection.status,
-    },
-    target,
-  }, '*');
-  const sendReadyAfterStudioMount = () => window.setTimeout(ready, 100);
+  const sendHostReady = () => frame.current?.contentWindow?.postMessage(connectorHostReadyMessage(session, connection, target, {
+    theme: connectorStudioFrameTheme,
+    themeTokens: readConnectorStudioLightThemeTokens(),
+    stylesheet: connectorStudioStylesheet,
+  }), '*');
+  const sendReadyAfterStudioMount = () => window.setTimeout(sendHostReady, 100);
   return <div
     aria-label={expanded ? `${connection.connectorId} Connector ${target.kind === 'connection' ? 'setup' : target.label}` : undefined}
     aria-modal={expanded || undefined}
@@ -614,10 +618,35 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
       ref={frame}
       sandbox="allow-scripts"
       src={session.entrypointUrl}
-      style={expanded || frameHeight === undefined ? undefined : {height: `${frameHeight}px`}}
+      style={{
+        // A frame whose color-scheme differs from its element paints an opaque canvas.
+        colorScheme: connectorStudioFrameTheme,
+        ...(expanded || frameHeight === undefined ? {} : {height: `${frameHeight}px`}),
+      }}
       title={`${connection.connectorId} Connector ${target.kind === 'connection' ? 'setup' : target.label}`}
     />
   </div>;
+}
+
+export function connectorHostReadyMessage(
+  session: UISessionResponse,
+  connection: ConnectionView,
+  target: StudioTarget,
+  appearance: ConnectorStudioFrameAppearance,
+) {
+  return {
+    type: 'connector.host.ready', protocolVersion: '0.2.0', sessionNonce: session.sessionNonce,
+    connectorId: connection.connectorId,
+    capabilities: studioHostCapabilities(session),
+    connection: {
+      state: studioState(connection.status), grantedScopes: [],
+      detail: connection.status,
+    },
+    target,
+    theme: appearance.theme,
+    themeTokens: appearance.themeTokens,
+    stylesheet: appearance.stylesheet,
+  };
 }
 
 type StudioCommand = 'oauth.connect' | 'oauth.reconnect' | 'provider.command.execute' | 'use.configuration.save';

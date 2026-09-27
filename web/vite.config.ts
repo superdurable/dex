@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+/// <reference types="vitest/config" />
+
 import { fileURLToPath, URL } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
@@ -28,5 +30,9 @@ export default defineConfig({
   build: {
     outDir: 'assets/dist',
     emptyOutDir: true,
+  },
+  test: {
+    // Vitest blanks CSS imports; tests must read the stylesheet Dex Web sends to Studio frames.
+    css: { include: [/\/connectorStudio\.css\?raw$/] },
   },
 });

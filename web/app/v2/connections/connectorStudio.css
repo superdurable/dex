@@ -1,0 +1,309 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+/* Canonical Connector Studio stylesheet, sent to every frame. sdk/react connectorStudioStyles is only the fallback for older hosts. */
+
+:root {
+  color-scheme: light;
+  --studio-surface-page: #f2f8f4;
+  --studio-surface-card: #ffffff;
+  --studio-surface-raised: #f7fcf9;
+  --studio-surface-hover: #e9efeb;
+  --studio-ink-max: #181a1c;
+  --studio-ink-strong: #434547;
+  --studio-ink-mid: #6e7073;
+  --studio-ink-soft: #949699;
+  --studio-line-soft: #e4e6e9;
+  --studio-line-mid: #d3d5d8;
+  --studio-line-strong: #abacaf;
+  --studio-cta: #008650;
+  --studio-cta-hover: #007546;
+  --studio-cta-on: #ffffff;
+  --studio-accent: #34659f;
+  --studio-accent-wash: rgba(52, 101, 159, 0.08);
+  --studio-focus-ring: 0 0 0 3px rgba(52, 101, 159, 0.32);
+  --studio-success-ink: #1c754a;
+  --studio-success-fill: #ddf6e6;
+  --studio-danger-ink: #9a4548;
+  --studio-danger-fill: #ffe8e8;
+  --studio-attention-ink: #845b00;
+  --studio-attention-fill: #fbecd6;
+  --studio-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'Helvetica Neue', Arial, sans-serif;
+  --studio-font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  --studio-radius-sm: 4px;
+  --studio-radius: 6px;
+  --studio-radius-lg: 10px;
+  --studio-duration: 160ms;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --studio-surface-page: #0e120f;
+  --studio-surface-card: #1a1c1e;
+  --studio-surface-raised: #212623;
+  --studio-surface-hover: #272c29;
+  --studio-ink-max: #f2f4f7;
+  --studio-ink-strong: #c1c3c5;
+  --studio-ink-mid: #8f9193;
+  --studio-ink-soft: #6e7072;
+  --studio-line-soft: #262729;
+  --studio-line-mid: #303133;
+  --studio-line-strong: #4c4e50;
+  --studio-cta: #70eea9;
+  --studio-cta-hover: #87fab9;
+  --studio-cta-on: #070a08;
+  --studio-accent: #89beff;
+  --studio-accent-wash: rgba(137, 190, 255, 0.1);
+  --studio-focus-ring: 0 0 0 3px rgba(137, 190, 255, 0.3);
+  --studio-success-ink: #7cd09f;
+  --studio-success-fill: #072c19;
+  --studio-danger-ink: #fb9c9c;
+  --studio-danger-fill: #3c1719;
+  --studio-attention-ink: #e1b267;
+  --studio-attention-fill: #332000;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  font: 13px/1.45 var(--studio-font-sans);
+  color: var(--studio-ink-max);
+}
+
+.studio-surface {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--studio-line-mid);
+  border-radius: var(--studio-radius-lg);
+  background: var(--studio-surface-card);
+}
+
+.studio-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.studio-header img {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--studio-radius);
+}
+
+.studio-header h1,
+.studio-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--studio-ink-max);
+}
+
+.studio-header p,
+.studio-muted {
+  margin: 2px 0 0;
+  color: var(--studio-ink-mid);
+}
+
+.studio-field,
+.studio-field > label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--studio-ink-strong);
+}
+
+.studio-field small {
+  font-weight: 400;
+  color: var(--studio-ink-mid);
+}
+
+.studio-surface input[type='text'],
+.studio-surface input[type='search'],
+.studio-surface input:not([type]),
+.studio-surface select {
+  font: inherit;
+  font-weight: 400;
+  padding: 8px 10px;
+  border: 1px solid var(--studio-line-mid);
+  border-radius: 7px;
+  background: var(--studio-surface-page);
+  color: var(--studio-ink-max);
+}
+
+.studio-surface input:focus-visible,
+.studio-surface select:focus-visible,
+.studio-button:focus-visible,
+.studio-option:focus-within {
+  outline: none;
+  box-shadow: var(--studio-focus-ring);
+  border-color: var(--studio-accent);
+}
+
+.studio-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.studio-button {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: var(--studio-radius);
+  cursor: pointer;
+  border: 1px solid var(--studio-line-mid);
+  background: transparent;
+  color: var(--studio-ink-strong);
+  transition: background var(--studio-duration);
+}
+
+.studio-button:hover:not(:disabled) {
+  background: var(--studio-surface-hover);
+}
+
+.studio-button-primary {
+  border-color: var(--studio-cta);
+  background: var(--studio-cta);
+  color: var(--studio-cta-on);
+}
+
+.studio-button-primary:hover:not(:disabled) {
+  border-color: var(--studio-cta-hover);
+  background: var(--studio-cta-hover);
+}
+
+.studio-button:disabled {
+  cursor: default;
+  border-color: var(--studio-line-mid);
+  background: var(--studio-surface-raised);
+  color: var(--studio-ink-mid);
+}
+
+.studio-notice {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--studio-radius);
+  font-size: 12px;
+}
+
+.studio-notice-info {
+  background: var(--studio-accent-wash);
+  color: var(--studio-accent);
+}
+
+.studio-notice-success {
+  background: var(--studio-success-fill);
+  color: var(--studio-success-ink);
+}
+
+.studio-notice-error {
+  background: var(--studio-danger-fill);
+  color: var(--studio-danger-ink);
+}
+
+.studio-notice-attention {
+  background: var(--studio-attention-fill);
+  color: var(--studio-attention-ink);
+}
+
+.studio-options {
+  display: grid;
+  gap: 2px;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--studio-line-mid);
+  border-radius: 7px;
+  background: var(--studio-surface-page);
+}
+
+.studio-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  align-items: start;
+  padding: 7px 8px;
+  border-radius: var(--studio-radius-sm);
+  cursor: pointer;
+  font-weight: 400;
+}
+
+.studio-option:hover {
+  background: var(--studio-surface-hover);
+}
+
+.studio-option input {
+  margin: 2px 0 0;
+  accent-color: var(--studio-cta);
+}
+
+.studio-option-label {
+  color: var(--studio-ink-max);
+  font-weight: 600;
+}
+
+.studio-option-label img {
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  border-radius: var(--studio-radius-sm);
+  vertical-align: -5px;
+}
+
+.studio-option-id {
+  grid-column: 2;
+  font-family: var(--studio-font-mono);
+  font-size: 11px;
+  color: var(--studio-ink-mid);
+  overflow-wrap: anywhere;
+}
+
+.studio-option-detail {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--studio-ink-mid);
+}
+
+.studio-badges {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.studio-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--studio-accent-wash);
+  color: var(--studio-accent);
+  font-size: 11px;
+}
+
+.studio-checkbox {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--studio-ink-strong);
+}
+
+.studio-checkbox input {
+  accent-color: var(--studio-cta);
+}

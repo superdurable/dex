@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   connectionKey,
+  connectorHostReadyMessage,
   connectorSetupTabs,
   connectorWriteHeaders,
   initialConnectorSetupTabKey,
@@ -17,6 +18,7 @@ import {
   studioHostCapabilities,
   studioState,
 } from './ConnectionsPage';
+import { connectorStudioStylesheet } from './connectorStudioTheme';
 
 describe('Connections contract', () => {
   it('keys named connections independently and maps visible status', () => {
@@ -60,6 +62,27 @@ describe('Connections contract', () => {
     expect(isStudioFrameResize(resize, session)).toBe(true);
     expect(isStudioFrameResize({...resize, sessionNonce: 'other'}, session)).toBe(false);
     expect(isStudioFrameResize({...resize, height: 4097}, session)).toBe(false);
+  });
+
+  it('sends the Dex Web theme, its tokens, and the Studio stylesheet as optional fields of the 0.2.0 ready message', () => {
+    const session = {
+      connectorId: 'slack', sessionNonce: 'nonce',
+      manifest: { spec: { studio: { setup: { backendCapabilities: ['use.configuration.write'] } } } },
+    } as never;
+    const connection = { connectorId: 'slack', connectionName: 'workspace', status: 'Ready' } as never;
+    const appearance = { theme: 'dark', themeTokens: { '--studio-cta': '#70eea9' }, stylesheet: connectorStudioStylesheet } as const;
+    const ready = connectorHostReadyMessage(session, connection, { kind: 'connection' }, appearance);
+    expect(ready).toEqual({
+      type: 'connector.host.ready', protocolVersion: '0.2.0', sessionNonce: 'nonce', connectorId: 'slack',
+      capabilities: ['use.configuration.write'],
+      connection: { state: 'connected', grantedScopes: [], detail: 'Ready' },
+      target: { kind: 'connection' },
+      theme: 'dark',
+      themeTokens: { '--studio-cta': '#70eea9' },
+      stylesheet: connectorStudioStylesheet,
+    });
+    expect(ready.stylesheet).toContain('.studio-button {');
+    expect(structuredClone(ready)).toEqual(ready);
   });
 
   it('advertises only host capabilities that are implemented', () => {
