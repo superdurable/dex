@@ -171,10 +171,52 @@ npx skills add superdurable/dex-skills --all
 Agent 使用已经安装或缓存的副本。它们不会在每次 prompt 时获取 GitHub 最新内容，
 运行中的 task 也会继续使用 task 启动时加载的 version。
 
-- 在 Codex 中升级 marketplace，重新安装 Dex plugin，然后启动新 task。
-- 在 Claude Code 中更新 marketplace 并 reload plugin。
-- 在 Cursor 中 refresh 或重新安装 plugin，然后 reload window。
-- 直接通过 Agent Skills 安装时，请重新运行安装命令。
+### ChatGPT Desktop 中的 Codex
+
+打开 plugin browser 的 marketplace 管理页面，找到 **Super Durable**，点击
+**Upgrade**。等待升级完成后重启 Desktop app，并创建新 task。这个流程不需要 Codex
+CLI。
+
+### Codex CLI
+
+只有 **codex --version** 可用时，才能在 shell 中刷新 Super Durable marketplace：
+
+~~~bash
+codex plugin marketplace upgrade superdurable
+codex
+~~~
+
+进入新 session 后打开 **/plugins**，确认 **Dex** 已启用。
+
+### Claude Code CLI
+
+可以直接在 shell 中更新 Dex：
+
+~~~bash
+claude plugin update superdurable-dex@superdurable
+~~~
+
+也可以在 interactive Claude Code session 中更新 marketplace：
+
+~~~text
+/plugin marketplace update superdurable
+~~~
+
+手动更新后请启动新 session。要自动接收未来版本，请打开 **/plugin**，选择
+**Marketplaces → Super Durable**，然后选择 **Enable auto-update**。
+
+Claude 的公开 Web 和 Desktop 文档没有提供独立的 per-user upgrade command。对于
+organization-managed GitHub marketplace，owner 可以进入 **Organization settings →
+Plugins & skills → Marketplaces → Update**；账号用户随后会收到同步后的版本。
+
+### Cursor
+
+如果来自 GitHub-imported team marketplace，管理员可以点击 **Refresh** 或启用
+**Auto Refresh**，用户随后 reload Cursor window。Cursor 没有为个人 direct GitHub
+import 记录 **cursor plugin update** shell command；请通过 **Customize** 管理安装，
+不要猜测命令。
+
+如果直接通过 Agent Skills 安装，请重新运行上面的安装命令。
 
 Plugin version 与 Dex SDK version 相互独立。每个 skill 在使用具体 API 前，都会检查
 应用实际安装的 dependency 和不可变 release source。
