@@ -74,7 +74,7 @@ assert.doesNotMatch(footer, />Docs<|BYOC|Star Us on GitHub/);
 assert.match(home, /English/);
 assert.match(home, /中文/);
 assert.match(home, /Build with AI/);
-assert.match(home, /Dex Skills/);
+assert.match(home, /href="\/build-with-ai\/dex-developer-skill\/">Overview<\/a>/);
 
 const primitivesPosition = home.indexOf('>Primitives<');
 const buildWithAIPosition = home.indexOf('>Build with AI<');
