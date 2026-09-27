@@ -12,8 +12,16 @@ external provider. It packages typed operations, event ingress, authorization,
 and optional configuration UI without putting provider credentials in durable
 Flow state.
 
-Official Connectors are released separately from Dex. The current Connector
-SDK and official provider modules support Go applications.
+Official Connectors are released separately from Dex.
+
+:::caution Go SDK only
+
+Connector-based Dex applications currently support only the Dex Go SDK.
+Connector integration is not yet available for Python, Java, TypeScript, or
+Rust. If you need another language,
+[open a Dex issue](https://github.com/superdurable/dex/issues/new).
+
+:::
 
 ## Capabilities
 

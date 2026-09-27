@@ -11,8 +11,15 @@ Connector 是把 Flow 与外部 provider 集成起来的独立 Dex primitive。�
 operation、event ingress、authorization 和可选的 configuration UI，同时避免把
 provider credential 写入持久化 Flow state。
 
-官方 Connector 与 Dex 分别发布。当前 Connector SDK 和官方 provider module 支持
-Go 应用。
+官方 Connector 与 Dex 分别发布。
+
+:::caution 当前仅支持 Go SDK
+
+目前只有使用 Dex Go SDK 的应用可以集成 Connector。Python、Java、TypeScript 和 Rust
+暂不支持 Connector。如果需要其他语言，请
+[提交 Dex issue](https://github.com/superdurable/dex/issues/new)。
+
+:::
 
 ## Capabilities
 
