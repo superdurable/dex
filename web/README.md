@@ -149,10 +149,35 @@ Pointers, so Flow code controls composition without coupling a Connector's
 connection screen to one example. The host protocol for this contract is 0.2.
 
 Provider resource reads use release-declared Studio commands. The manifest
-pins an HTTPS GET URL, bearer credential field, fixed query values, and the
-only path or query parameters the iframe may supply. Dex Web's generic broker
-validates the active session and capability, injects the credential, bounds a
-JSON-object response, and rejects responses containing credential material.
+pins an HTTPS GET URL, a credential field and scheme, fixed query values,
+optional fixed headers, and the only path or query parameters the iframe may
+supply. The `bearer` scheme sends `Authorization: Bearer <secret>`. The
+`header` scheme sends the raw secret in one named header, such as
+`x-goog-api-key`. `fixedHeaders` holds non-secret values such as
+`anthropic-version: 2023-06-01`.
+
+Header names must be RFC 7230 tokens. Dex Web compares them
+case-insensitively and treats `_` as `-`, because CGI-style servers merge the
+two. They cannot be `Authorization`, `Accept`, `Host`, `Content-Length`,
+`Transfer-Encoding`, `Connection`, `Keep-Alive`, `TE`, `Trailer`, `Upgrade`,
+`Cookie`, `Set-Cookie`, `Origin`, `Referer`, `Forwarded`, `Proxy-*`,
+`X-Forwarded-*`, `X-HTTP-Method`, `X-HTTP-Method-Override`, or
+`X-Method-Override`. A fixed header cannot repeat the credential header or
+another fixed header. Its value must be 1-256 printable ASCII characters
+without leading or trailing spaces and must not contain the credential.
+
+Dex Web checks each command's declaration before it sends that command's
+request. A command with an unknown credential scheme or an invalid header
+fails with `502`, and nothing is sent. The rest of the release still works:
+saving credentials, OAuth, UI sessions, and the release's other commands. A
+local release override with an invalid declaration fails when Dex Web starts.
+
+Dex Web's generic broker validates the active session and capability, injects
+the credential, sends `Accept: application/json`, bounds a JSON-object
+response, and rejects responses containing credential material in any JSON
+string or object key. It removes spaces around the stored credential before
+sending it, because HTTP drops them on the wire, and it checks responses for
+the value it sent. The credential must be printable ASCII.
 Provider pagination, filtering, and response projection stay in the
 Connector-owned UI bundle; Dex Web contains no provider-specific adapters.
 

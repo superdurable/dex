@@ -131,16 +131,18 @@ type connectorManifestStudioCommand struct {
 }
 
 type connectorManifestStudioHTTPRequest struct {
-	Method     string                             `json:"method"`
-	URL        string                             `json:"url"`
-	Credential connectorManifestStudioCredential  `json:"credential"`
-	FixedQuery map[string]string                  `json:"fixedQuery,omitempty"`
-	Parameters []connectorManifestStudioParameter `json:"parameters,omitempty"`
+	Method       string                             `json:"method"`
+	URL          string                             `json:"url"`
+	Credential   connectorManifestStudioCredential  `json:"credential"`
+	FixedQuery   map[string]string                  `json:"fixedQuery,omitempty"`
+	FixedHeaders map[string]string                  `json:"fixedHeaders,omitempty"`
+	Parameters   []connectorManifestStudioParameter `json:"parameters,omitempty"`
 }
 
 type connectorManifestStudioCredential struct {
 	Field  string `json:"field"`
 	Scheme string `json:"scheme"`
+	Header string `json:"header,omitempty"`
 }
 
 type connectorManifestStudioParameter struct {
@@ -259,6 +261,9 @@ func (resolver *connectorReleaseResolver) loadLocalRelease(
 	manifestDigest, err := hex.DecodeString(release.ManifestSHA256)
 	if err != nil || len(manifestDigest) != sha256.Size || release.SourceSHA == "" {
 		return resolvedConnectorRelease{}, fmt.Errorf("Connector release provenance is invalid")
+	}
+	if err := validateConnectorReleaseStudioCommands(release.Manifest.Spec.Studio); err != nil {
+		return resolvedConnectorRelease{}, err
 	}
 	resolved := resolvedConnectorRelease{release: release}
 	if release.UI == nil {

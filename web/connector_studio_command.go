@@ -22,9 +22,25 @@ import (
 	"github.com/superdurable/dex/web/api"
 )
 
-const connectorProviderResponseLimit = 4 << 20
+const (
+	connectorProviderResponseLimit         = 4 << 20
+	connectorProviderFixedHeaderValueLimit = 256
+)
 
 var connectorProviderParameterPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
+
+// RFC 7230 token characters.
+var connectorProviderHeaderNamePattern = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+// The broker owns content negotiation, credentials, framing, hop-by-hop, routing, origin, and cookie headers.
+var connectorProviderForbiddenHeaderNames = map[string]bool{
+	"accept": true, "authorization": true, "connection": true, "content-length": true, "cookie": true,
+	"forwarded": true, "host": true, "keep-alive": true, "origin": true, "referer": true,
+	"set-cookie": true, "te": true, "trailer": true, "transfer-encoding": true, "upgrade": true,
+	"x-http-method": true, "x-http-method-override": true, "x-method-override": true,
+}
+
+var connectorProviderForbiddenHeaderPrefixes = []string{"proxy-", "x-forwarded-"}
 
 type connectorStudioCommandRequest struct {
 	Parameters map[string]string `json:"parameters"`
@@ -93,8 +109,11 @@ func (setup *connectorSetup) executeStudioProviderCommand(
 	parameters map[string]string,
 	credentials map[string]json.RawMessage,
 ) (map[string]any, error) {
-	if command.ID == "" || command.Capability == "" || command.Request.Method != http.MethodGet || command.Request.Credential.Scheme != "bearer" {
+	if command.ID == "" || command.Capability == "" || command.Request.Method != http.MethodGet {
 		return nil, fmt.Errorf("Connector Studio command declaration is invalid")
+	}
+	if err := validateConnectorStudioRequestHeaders(command.Request); err != nil {
+		return nil, fmt.Errorf("Connector Studio command declaration is invalid: %w", err)
 	}
 	targetText := command.Request.URL
 	queryParameters := map[string]string{}
@@ -140,15 +159,36 @@ func (setup *connectorSetup) executeStudioProviderCommand(
 		query.Set(name, value)
 	}
 	target.RawQuery = query.Encode()
-	var credential string
-	if err := json.Unmarshal(credentials[command.Request.Credential.Field], &credential); err != nil || strings.TrimSpace(credential) == "" {
+	var storedCredential string
+	if err := json.Unmarshal(credentials[command.Request.Credential.Field], &storedCredential); err != nil {
 		return nil, fmt.Errorf("Connector provider credential is unavailable")
+	}
+	// HTTP trims surrounding spaces on the wire; reflection checks must match the sent value.
+	credential := strings.Trim(storedCredential, " ")
+	if credential == "" {
+		return nil, fmt.Errorf("Connector provider credential is unavailable")
+	}
+	if !isPrintableASCII(credential) {
+		return nil, fmt.Errorf("Connector provider credential is not a valid header value")
+	}
+	for _, value := range command.Request.FixedHeaders {
+		if strings.Contains(value, credential) {
+			return nil, fmt.Errorf("Connector provider fixed header contains credential material")
+		}
 	}
 	providerRequest, err := http.NewRequestWithContext(request.Context(), http.MethodGet, target.String(), nil)
 	if err != nil {
 		return nil, err
 	}
-	providerRequest.Header.Set("Authorization", "Bearer "+credential)
+	for name, value := range command.Request.FixedHeaders {
+		providerRequest.Header.Set(name, value)
+	}
+	switch command.Request.Credential.Scheme {
+	case "bearer":
+		providerRequest.Header.Set("Authorization", "Bearer "+credential)
+	case "header":
+		providerRequest.Header.Set(command.Request.Credential.Header, credential)
+	}
 	providerRequest.Header.Set("Accept", "application/json")
 	providerResponse, err := setup.providerHTTPClient.Do(providerRequest)
 	if err != nil {
@@ -169,6 +209,76 @@ func (setup *connectorSetup) executeStudioProviderCommand(
 	return value, nil
 }
 
+func validateConnectorReleaseStudioCommands(studio *connectorManifestStudio) error {
+	if studio == nil {
+		return nil
+	}
+	for _, command := range studio.Commands {
+		if err := validateConnectorStudioRequestHeaders(command.Request); err != nil {
+			return fmt.Errorf("Connector Studio command %q request headers are invalid: %w", command.ID, err)
+		}
+	}
+	return nil
+}
+
+func validateConnectorStudioRequestHeaders(request connectorManifestStudioHTTPRequest) error {
+	credentialHeaderName := ""
+	switch request.Credential.Scheme {
+	case "bearer":
+		if request.Credential.Header != "" {
+			return fmt.Errorf("bearer credential cannot name a header")
+		}
+	case "header":
+		if !isAllowedConnectorProviderHeaderName(request.Credential.Header) {
+			return fmt.Errorf("credential header name %q is not allowed", request.Credential.Header)
+		}
+		credentialHeaderName = foldConnectorProviderHeaderName(request.Credential.Header)
+	default:
+		return fmt.Errorf("credential scheme must be bearer or header")
+	}
+	fixedHeaderNames := make(map[string]bool, len(request.FixedHeaders))
+	for name, value := range request.FixedHeaders {
+		foldedName := foldConnectorProviderHeaderName(name)
+		if !isAllowedConnectorProviderHeaderName(name) || foldedName == credentialHeaderName || fixedHeaderNames[foldedName] {
+			return fmt.Errorf("fixed header name %q is not allowed", name)
+		}
+		fixedHeaderNames[foldedName] = true
+		if !isConnectorProviderFixedHeaderValue(value) {
+			return fmt.Errorf("fixed header %q value is invalid", name)
+		}
+	}
+	return nil
+}
+
+func isAllowedConnectorProviderHeaderName(name string) bool {
+	if !connectorProviderHeaderNamePattern.MatchString(name) {
+		return false
+	}
+	foldedName := foldConnectorProviderHeaderName(name)
+	if connectorProviderForbiddenHeaderNames[foldedName] {
+		return false
+	}
+	for _, prefix := range connectorProviderForbiddenHeaderPrefixes {
+		if strings.HasPrefix(foldedName, prefix) {
+			return false
+		}
+	}
+	return true
+}
+
+// CGI-style servers merge "_" and "-" in header names, so compare them as equal.
+func foldConnectorProviderHeaderName(name string) string {
+	return strings.ReplaceAll(strings.ToLower(name), "_", "-")
+}
+
+func isConnectorProviderFixedHeaderValue(value string) bool {
+	if value == "" || len(value) > connectorProviderFixedHeaderValueLimit ||
+		value[0] == ' ' || value[len(value)-1] == ' ' {
+		return false
+	}
+	return isPrintableASCII(value)
+}
+
 func containsConnectorSecret(value any, secret string) bool {
 	switch typed := value.(type) {
 	case string:
@@ -180,8 +290,8 @@ func containsConnectorSecret(value any, secret string) bool {
 			}
 		}
 	case map[string]any:
-		for _, item := range typed {
-			if containsConnectorSecret(item, secret) {
+		for key, item := range typed {
+			if strings.Contains(key, secret) || containsConnectorSecret(item, secret) {
 				return true
 			}
 		}
@@ -199,6 +309,15 @@ func safeConnectorProviderURL(target *url.URL) bool {
 	}
 	if address := net.ParseIP(host); address != nil && (address.IsLoopback() || address.IsPrivate() || address.IsLinkLocalUnicast() || address.IsUnspecified()) {
 		return false
+	}
+	return true
+}
+
+func isPrintableASCII(value string) bool {
+	for i := 0; i < len(value); i++ {
+		if value[i] < 0x20 || value[i] > 0x7e {
+			return false
+		}
 	}
 	return true
 }
