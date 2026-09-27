@@ -49,7 +49,12 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Build with AI',
       collapsed: false,
-      items: ['build-with-ai/dex-developer-skill'],
+      items: [
+        'build-with-ai/dex-developer-skill',
+        'build-with-ai/dex-developer-skill/dex-app-builder',
+        'build-with-ai/dex-developer-skill/dex-sdk',
+        'build-with-ai/dex-developer-skill/dex-connector-contributor',
+      ],
     },
     {
       type: 'category',

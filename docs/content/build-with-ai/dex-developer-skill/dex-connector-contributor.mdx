@@ -1,0 +1,97 @@
+---
+id: dex-connector-contributor
+title: Dex Connector Contributor
+sidebar_label: Dex Connector Contributor
+slug: /build-with-ai/dex-developer-skill/dex-connector-contributor
+---
+
+# Dex Connector Contributor
+
+Dex Connector Contributor is a specialist sub-skill for creating, verifying,
+and upstreaming one reviewable capability in the official
+[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library).
+
+Invoke it directly only for standalone official Connector library work:
+
+~~~text
+$dex-connector-contributor Add this Trigger to the official Slack Connector.
+~~~
+
+An application that only consumes a released Connector should use
+[Dex App Builder](./dex-app-builder.mdx) or [Dex SDK](./dex-sdk.mdx).
+
+## Scope and source requirements
+
+The skill works only in the official Connector library. It begins from a
+provider's documented public API or official SDK and verifies authentication
+scopes, rate limits, idempotency support, pagination, event acknowledgement,
+and failure behavior.
+
+It does not scrape private endpoints, copy browser credentials,
+reverse-engineer internal protocols, or claim provider support that is not
+publicly documented.
+
+## Repository and fork workflow
+
+The workflow first discovers and verifies the user's GitHub fork of
+**superdurable/dex-connectors-library**. If no fork exists, it asks permission
+and opens GitHub's fork page. The user completes **Create fork** before the
+agent clones it and starts development.
+
+The local checkout uses the user's fork as **origin**, the official repository
+as **upstream**, and an isolated **codex/** branch based on the latest
+**upstream/main**. Unrelated working-tree changes are preserved.
+
+## Contribution workflow
+
+The skill follows this order:
+
+1. Confirm the provider capability and its public contract.
+2. Update **connector.yaml** before provider implementation.
+3. Run code generation so Config, Credentials, definitions, branches,
+   operation factories, UI constants, and defaults remain generated.
+4. Implement the provider adapter and provider-facing tests.
+5. Add Trigger and configuration UI behavior when required.
+6. Add or extend a runnable example inside the Connector module.
+7. Run the complete verification matrix and inspect registry or catalog drift.
+8. Commit one clean module-scoped change, push the user's fork, open a
+   ready-for-review upstream pull request, and monitor required CI.
+
+## Durability and security boundaries
+
+- Provider calls run only from Connector Step **Execute**.
+- RPCs route or mutate Dex state; they do not call providers.
+- Provider mutations are idempotent and reconcile unknown outcomes query-first.
+- Credentials and raw secrets never enter Flow input, Attributes, Results,
+  receipts, Streams, logs, fixtures, generated values, or release artifacts.
+- Each module pins an exact published Dex Go SDK version. Branches, SHAs,
+  pseudo-versions, and local replacements are not committed.
+- One Connector module is released per pull request unless a genuinely
+  repository-wide mechanical change requires more.
+
+If a Connector exposes a Dex SDK contract gap, the SDK and Connector can be
+verified together locally, but the SDK change must be published before the
+Connector pull request consumes it.
+
+## Example and verification gates
+
+A new Connector or major capability normally includes a runnable local example.
+With a Trigger, the example demonstrates real provider event delivery to a
+typed Flow start or RPC target, including duplicate delivery and restart
+recovery. Without a Trigger, it generates valid FDG 2.0 and runs through Dex
+Web v2 **Start Flow**.
+
+The contribution is not complete until module-isolated race tests and vet,
+generated-code checks, catalog checks, real Dex integration, current-version
+compatibility, relevant UI tests and builds, and repository checks pass. Safe
+live-provider tests run when credentials are available; otherwise the pull
+request names the exact unverified live behavior.
+
+## Relationship to App Builder
+
+App Builder routes here only after confirming that a required official
+Connector capability is missing or defective. The application may use an
+uncommitted local workspace override while the contribution is reviewed, but
+its production handoff waits for an exact released Connector version.
+
+Return to [Dex Skills overview and installation](../dex-developer-skill.mdx).

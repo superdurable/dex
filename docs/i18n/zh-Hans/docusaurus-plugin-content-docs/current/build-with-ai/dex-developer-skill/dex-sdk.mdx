@@ -1,0 +1,90 @@
+---
+id: dex-sdk
+title: Dex SDK
+sidebar_label: Dex SDK
+slug: /build-with-ai/dex-developer-skill/dex-sdk
+---
+
+# Dex SDK
+
+Dex SDK 是一个专用 sub-skill，用于通过 Dex 的公开 programming model 实现、调试、
+测试和运维应用。它支持 Python、Go、Java、TypeScript 和 Rust。
+
+独立 SDK 任务应显式调用：
+
+~~~text
+$dex-sdk Diagnose why this Flow retries after the payment Step completes.
+~~~
+
+完整产品或业务流程请求应从 [Dex App Builder](./dex-app-builder.mdx) 开始。进入 backend
+设计与实现时，App Builder 会加载 Dex SDK。
+
+## 何时使用
+
+以下范围明确的技术工作适合使用 Dex SDK：
+
+- Flow、Step、wait、transition 和 failure route；
+- Attribute、AttributeMap、Channel、ChannelMap 和 Stream；
+- typed RPC、Timer、SubFlow、Worker 和 Client；
+- retry、timeout、heartbeat、durability、lock 和 recovery；
+- SDK version compatibility、测试、troubleshooting 或 operations；
+- Dex Web、**dexcli**、Flow visualization 和 application observability。
+
+该 skill 保持在 application boundary。除非用户明确要求开发 Dex 本身，否则不会把应用
+任务扩展成 Dex Server 实现工作。
+
+## Version 与 Source Authority
+
+写代码前，该 skill 会确认应用语言、package manager、已安装 Dex SDK version、Worker
+和 Client bootstrap，以及 repository 的测试命令。
+
+repository source、lockfile、已安装 SDK 和 version-matched 官方示例是权威依据。除非
+用户要求升级，否则保留应用当前 version。如果拿不到精确匹配版本的 source，该 skill
+会停在 version-independent Flow model，而不会虚构 API。
+
+只加载当前语言 handbook 和任务需要的 reference，不会同时加载五种语言实现。
+
+## 实现前先建模
+
+对于非简单任务，Dex SDK 会先说明模型再编辑代码：
+
+- Flow identity、typed start input 和 completion output；
+- Step、transition 和有业务意义的 commit boundary；
+- Flow default 与 method-level retry、timeout、heartbeat、load 或 lock option；
+- durable state、message、RPC、Stream 和 timer；
+- failure recovery 和 SubFlow boundary；
+- Worker、Client、registry、serialization 和 application-boundary behavior。
+
+模型使用准确的 domain name，并优先采用官方 Dex pattern，而不是临时 coordination loop。
+
+## 实现与验证
+
+完整的应用变更包括 typed input、output 和 failure；Flow 和 Step definition；所有
+persistence schema entry；注入的 dependency；registry wiring；需要时的 Worker 和
+Client setup；application boundary；以及真实 Dex Server integration test。
+
+交接前，该 skill 会验证相关 build 或 type-check、integration scenario、retry 和 timeout
+recovery、duplicate request、terminal behavior、primitive registration、heartbeat、
+Stream semantics，以及兼容的 Worker 和 Client configuration。
+
+已经打开的 execution 会限制 name 和 schema 变更。除非用户有明确 migration plan，
+否则保留稳定的 Flow、Step、Attribute、Channel、Stream 和 RPC name。
+
+## 诊断与运维
+
+诊断默认是只读的。该 skill 可以检查 Dex Web、**dexcli**、SDK error 和 application log，
+但未经授权不会 stop、time travel、publish、invoke、delete、edit 或以其他方式修改 Flow。
+
+typed Dex failure 会一直保留，直到 domain policy 能区分 business rejection、closed-Flow
+race、retryable service failure 和 local defect。retained Stream 只用于 best-effort
+observation，不作为 authoritative business state。
+
+## 与其他 Skill 的关系
+
+- [Dex App Builder](./dex-app-builder.mdx) 在 backend 工作时加载 Dex SDK Core 和 Go
+  guidance，然后应用更严格的平台约束。
+- [Dex Connector Contributor](./dex-connector-contributor.mdx) 在实现官方 Connector 时
+  加载共享 Dex 语义和 Go guidance。
+- 显式调用 Dex SDK 时，任务保持为范围明确的技术工作，不会扩展成完整产品流程。
+
+返回 [Dex Skills 总览与安装](../dex-developer-skill.mdx)。

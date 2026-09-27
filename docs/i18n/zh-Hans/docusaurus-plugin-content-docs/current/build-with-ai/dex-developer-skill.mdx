@@ -1,17 +1,24 @@
 ---
 id: dex-developer-skill
 title: Dex Skills
-sidebar_label: Dex Skills
+sidebar_label: Dex Skills 总览与安装
 slug: /build-with-ai/dex-developer-skill
 ---
 
-# 使用 AI 构建
+# 使用 AI 构建 Dex 应用
 
-Dex Skills 是 Dex 官方的 coding agent plugin。它帮助 Codex、Claude Code、Cursor
-和其他 Agent Skills client 构建 Dex 应用，并贡献官方
-[Connector](/primitives/connector)。
+Dex Skills 是 Dex 官方的 coding-agent plugin。它帮助 Codex、Claude Code、Cursor
+和其他 Agent Skills client 设计并构建 Dex 应用、直接使用公开 Dex SDK，以及贡献
+官方 [Connector](/primitives/connector)。
 
-该 plugin 只包含指导文件。Dex Server、Worker 和应用不会在运行时加载它。
+该 plugin 提供开发指导，不包含 runtime code。Dex Server、Worker 和应用不会加载它。
+
+:::tip 从 Dex App Builder 开始
+
+产品、应用或业务流程类请求应从 **dex-app-builder** 开始。它负责端到端工作流，并在
+需要 SDK 或 Connector 工作时加载对应的专用 skill。
+
+:::
 
 ## 需要代码工作区
 
@@ -23,60 +30,22 @@ workspace、文件编辑工具和命令执行能力。现有 repository 和新�
 架构设计和实现交接，但不能创建项目文件、运行测试、构建 artifact 或部署应用。
 开始实现前，需要把确认后的方案转到由 repository 支持的代码工作区。
 
-## 优先使用 Dex App Builder
+## 选择 Skill
 
-大多数 Dex 请求都应从 **dex-app-builder** 开始。它是发现、设计、实现和验证完整
-Dex 应用的主要 skill。它持续负责整个产品流程，并在进入 backend 或 Connector
-工作时加载对应的专用 skill。
+| Skill | 定位 | 使用场景 |
+| --- | --- | --- |
+| [**Dex App Builder**](./dex-developer-skill/dex-app-builder.mdx) | **主要 skill** | 发现、原型设计、实现并在本地验证使用 Go backend 的端到端 process product。 |
+| [**Dex SDK**](./dex-developer-skill/dex-sdk.mdx) | 专用 sub-skill | 使用 Python、Go、Java、TypeScript 或 Rust 实现、调试、测试和运维 Dex 应用。 |
+| [**Dex Connector Contributor**](./dex-developer-skill/dex-connector-contributor.mdx) | 专用 sub-skill | 创建、验证并提交官方 Connector operation、Trigger 和 configuration UI unit。 |
 
-只有独立的 SDK 实现、调试、测试或运维任务才直接使用 **dex-sdk**。只有独立修改
-官方 Dex Connectors Library 时才直接使用 **dex-connector-contributor**。
-
-| Skill | 使用场景 |
-| --- | --- |
-| **dex-app-builder** | 主要 skill，用于发现、原型设计、实现并在本地验证使用 Go backend 的端到端 process product。 |
-| **dex-sdk** | 专用 skill，用于使用 Python、Go、Java、TypeScript 或 Rust 实现、调试、测试和运维 Dex 应用。 |
-| **dex-connector-contributor** | 专用 skill，用于在 Dex Connectors Library 中新增或修改官方 Connector operation、Trigger 和 configuration UI unit。 |
-
-### Dex App Builder
-
-完整 process product 默认从 **dex-app-builder** 开始。它从业务 role、permission、
-trigger、action、wait、approval、recovery 和 audit requirement 开始，然后选择
-Dex Web 作为 management experience，或构建 custom UI。它基于受支持的 template
-实现 Go backend，并使用真实 Dex Server 验证产品。
-
-如果产品需要的 external-provider Connector 缺失或存在缺陷，该流程会把贡献工作
-路由到 **dex-connector-contributor**。应用 dependency 必须等待精确的已发布
-Connector release。
-
-### Dex SDK
-
-独立的应用层 Dex 开发使用 **dex-sdk**。它会在实现前设计 Flow、Step、transition、
-durable state、message、RPC、timer、retry 和 recovery。选择具体 API 和可运行示例前，
-它会检查应用实际安装的 SDK version。App Builder 在进入 backend 实现时会加载这份
-guidance。
-
-### Dex Connector Contributor
-
-修改官方
-[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
-时使用 **dex-connector-contributor**。它从 provider 的公开文档 API 或官方 SDK
-出发，更新 manifest 和生成 surface，实现 provider behavior，增加可运行示例，执行
-完整测试矩阵，并提交 upstream pull request。
-
-该流程会先查找并验证用户的 GitHub fork。如果 fork 不存在，它会先询问许可并打开
-GitHub fork 页面。用户点击 **Create fork** 后，agent 才会 clone 该 fork 并开始开发。
+只有独立 SDK 任务才直接使用 **dex-sdk**。只有独立修改官方 Dex Connectors Library
+时才直接使用 **dex-connector-contributor**。
 
 ## 三个 Skill 如何协作
 
-**dex-app-builder** 是主要协调入口。它在进入 backend 工作时加载共享的
-**dex-sdk** 语义，直接使用已发布 Connector，并把确认的 Connector gap 路由到
-**dex-connector-contributor**。Connector Contributor 需要共享的 Flow 和 Step 语义时，
-也会加载 **dex-sdk**。
-
-App Builder 负责产品流程和已发布 Connector 的使用。两个专用 skill 分别负责独立
-SDK 工作和 Connector library 贡献。用户显式调用专用 skill 时，不会自动
-扩展为完整产品流程。
+Dex App Builder 是主要协调入口。进入 backend 设计与实现时，它加载 Dex SDK；它会
+直接使用已发布 Connector，并把确认的官方 Connector gap 路由给 Dex Connector
+Contributor。Connector Contributor 需要共享的 Flow 和 Step 语义时也会加载 Dex SDK。
 
 安装完整 plugin 后，agent 才能在三个 skill 之间正确路由。源码和 release 位于
 [superdurable/dex-skills](https://github.com/superdurable/dex-skills)。
@@ -90,17 +59,20 @@ codex plugin marketplace add superdurable/dex-skills
 codex plugin add superdurable-dex@superdurable
 ~~~
 
-打开现有 repository 或创建空 repository，然后启动新 task。产品工作从 App Builder
-开始：
+打开现有 repository 或创建空 repository，然后启动新 task。产品工作可以直接描述
+应用需求，也可以显式调用 App Builder：
 
 ~~~text
 $dex-app-builder Design and build this process application.
-$dex-sdk Design a reliable Dex Flow for this application.
-$dex-connector-contributor Add this capability to an official Connector.
 ~~~
 
 Codex 可以根据 task context 自动选择 **dex-app-builder**。SDK 和 Connector Contributor
-是只能显式调用的专用入口，但 App Builder 仍可在产品流程中加载它们。
+是只能显式调用的专用入口，但 App Builder 仍可在产品流程中加载它们：
+
+~~~text
+$dex-sdk Diagnose this Flow retry behavior.
+$dex-connector-contributor Add this capability to an official Connector.
+~~~
 
 ## 安装到 Claude Code
 
@@ -112,15 +84,13 @@ Codex 可以根据 task context 自动选择 **dex-app-builder**。SDK 和 Conne
 /reload-plugins
 ~~~
 
-三个调用入口是：
+三个调用入口按推荐顺序排列：
 
 ~~~text
 /superdurable-dex:dex-app-builder
 /superdurable-dex:dex-sdk
 /superdurable-dex:dex-connector-contributor
 ~~~
-
-除非任务是独立 SDK 或官方 Connector library 工作，否则从 **dex-app-builder** 开始。
 
 ## 安装到 Cursor
 
@@ -133,8 +103,6 @@ Codex 可以根据 task context 自动选择 **dex-app-builder**。SDK 和 Conne
 /dex-sdk
 /dex-connector-contributor
 ~~~
-
-除非任务是独立 SDK 或官方 Connector library 工作，否则从 **dex-app-builder** 开始。
 
 Agent Skills client 也可以直接安装完整 bundle：
 
@@ -159,5 +127,6 @@ Plugin version 与 Dex SDK version 相互独立。每个 skill 在使用具体 A
 
 只从可信来源安装 agent extension。Dex plugin 不声明 MCP server、hook、credential
 或应用 runtime code。创建 GitHub fork、发布 branch、打开 pull request，以及修改运行中
-Flow，仍然是需要授权的操作。创建 Connector fork 时，流程会暂停并等待用户点击
-GitHub 的创建按钮。
+Flow，仍然是需要授权的操作。
+
+接下来阅读主要工作流 [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx)。

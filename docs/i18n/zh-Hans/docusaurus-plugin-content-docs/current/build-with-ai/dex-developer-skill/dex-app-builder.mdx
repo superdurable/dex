@@ -1,0 +1,117 @@
+---
+id: dex-app-builder
+title: Dex App Builder
+sidebar_label: Dex App Builder
+slug: /build-with-ai/dex-developer-skill/dex-app-builder
+---
+
+# Dex App Builder
+
+Dex App Builder 是创建 Dex 应用或 process product 的**主要 skill**。它负责从业务
+discovery、UI 选择，到 Go backend 实现、本地验证和交接的完整流程。
+
+~~~text
+$dex-app-builder Design and build an event-registration application.
+~~~
+
+大多数产品请求不需要显式写出 skill 名称。Codex 可以根据 task context 自动选择
+App Builder。
+
+## 何时使用
+
+请求包含以下任意工作时，应使用 App Builder：
+
+- 发现或完善业务流程；
+- 定义 role、permission、approval、wait、retry 和 recovery；
+- 判断 Dex Web 是否足够，或者是否需要 custom UI；
+- 基于受支持的 template 构建新 Dex 应用；
+- 集成已发布 Connector，或确认缺失的 Connector 能力；
+- 实现并验证完整 vertical slice。
+
+范围明确的 SDK 调试或独立官方 Connector 贡献不从这里开始。这些任务应显式调用
+[Dex SDK](./dex-sdk.mdx) 或
+[Dex Connector Contributor](./dex-connector-contributor.mdx)。
+
+## 开始实现前
+
+App Builder 会先确认 coding-agent host 具有可写 repository 或 project workspace、
+文件编辑工具和命令执行能力。现有 repository 或新建空 repository 都可以。
+
+缺少该环境时，App Builder 可以完成 discovery、架构设计和实现交接，但不能创建文件、
+运行测试、构建 artifact 或部署应用。
+
+## 工作流程
+
+### 1. 确认业务流程
+
+该 skill 从讨论开始，而不是立即写代码。它会识别：
+
+- process maintainer、manager、operator、approver 和 participant；
+- 每个 role 可执行的操作，以及每个人工 Action 所需的稳定 permission；
+- trigger、input、output、deadline、wait、retry、recovery、audit 和敏感数据边界；
+- 外部系统及其所需的已发布 Connector capability；
+- 现有 host 是否负责用户身份认证，并把 role 映射到可信 permission。
+
+discovery checkpoint 会产出 role/operation/permission matrix、lifecycle proposal、
+UI decision 和 Connector capability matrix。实现开始前，所有重要歧义都需要与用户确认。
+
+### 2. 选择应用界面
+
+App Builder 只选择一种 process-management 模式：
+
+| 模式 | 适用情况 | 构建内容 |
+| --- | --- | --- |
+| **Dex Web** | Run、Work Queue、搜索、字段和 Action 可以覆盖确认后的体验。 | Dex Web 保持为 process UI；应用只保留小型非业务 shell 和必要的 integration ingress。 |
+| **Custom UI** | 产品确认需要 Dex Web 之外的业务页面或交互。 | 先使用 mock behavior 验证 React 和 TypeScript prototype，并在接入 production backend 前获得用户确认。 |
+
+Dex Web 是默认选择。保留的 Hello World 页面或生成的 API client，本身不足以证明需要
+custom process UI。
+
+### 3. 设计并实现 Flow
+
+backend 实现使用受支持的 application template 和 Dex Go SDK。App Builder 会加载
+[Dex SDK](./dex-sdk.mdx) 获得公开 SDK 语义，然后应用更严格的平台规则：
+
+- application backend 只使用 Go；
+- 严格面向 Dex Web v2 和 Flow Definition Graph 2.0；
+- 外部 provider effect 只放在 **Execute**；
+- **WaitFor** 不执行 provider 或 Dex mutation；
+- 人工操作使用带显式 permission 的 typed Action；
+- credential 保持在 Connector 或 runtime boundary 之后；
+- 使用已发布 Connector capability，不在应用内新增 provider client。
+
+写代码前，需要先说明 Flow identity、typed input/output、Step、transition、Attribute、
+Channel、RPC、timer、retry、recovery 和 Connector boundary。
+
+### 4. 验证并交接
+
+该 skill 在迭代中运行范围最小的测试，最后运行 template 支持的完整检查。它会验证已选
+UI 模式、生成代码、production build、真实 Dex Server behavior、recovery path 和
+FDG 2.0 分析。
+
+最终交接记录确认后的产品决策、已经实现的 behavior、精确测试证据、Connector release
+或贡献状态、剩余限制，以及干净的 Git commit。平台尚未提供的 future import 能力不会
+被描述为已经完成。
+
+## 如何处理 Connector 缺口
+
+App Builder 会先检查已发布 Connector capability，再编写 integration code。如果官方
+Connector 或所需 operation、Trigger、configuration UI unit 缺失或有缺陷，它会加载
+[Dex Connector Contributor](./dex-connector-contributor.mdx)。
+
+贡献接受 review 时，应用可以临时使用本地 Connector module 测试；但在获得精确
+Connector release 前，production handoff 保持 blocked。branch、commit SHA、
+pseudo-version 和本地 replacement 不会作为 production dependency 提交。
+
+## 预期结果
+
+完成一次 App Builder 工作流后，应得到：
+
+- 已确认的流程和 permission model；
+- 明确的 Dex Web 或 custom UI 决策；
+- 遵循受支持 template 的 Go Dex 应用；
+- 本地与真实 Server 验证证据；
+- 清晰的 Connector release blocker（如果存在）；
+- 适合 review 和未来平台交接的 repository 状态。
+
+返回 [Dex Skills 总览与安装](../dex-developer-skill.mdx)。

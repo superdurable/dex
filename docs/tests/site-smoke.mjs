@@ -20,9 +20,30 @@ const cron = await readFile(join(root, 'design-patterns', 'durable-timer', 'cron
 const whyDex = await readFile(join(root, 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const production = await readFile(join(root, 'production', 'index.html'), 'utf8');
 const dexSkills = await readFile(join(root, 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
+const dexAppBuilder = await readFile(
+  join(root, 'build-with-ai', 'dex-developer-skill', 'dex-app-builder', 'index.html'),
+  'utf8',
+);
+const dexSdk = await readFile(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-sdk', 'index.html'), 'utf8');
+const dexConnectorContributor = await readFile(
+  join(root, 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor', 'index.html'),
+  'utf8',
+);
 const connector = await readFile(join(root, 'primitives', 'connector', 'index.html'), 'utf8');
 const zhCron = await readFile(join(root, 'zh-Hans', 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
 const zhDexSkills = await readFile(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
+const zhDexAppBuilder = await readFile(
+  join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'dex-app-builder', 'index.html'),
+  'utf8',
+);
+const zhDexSdk = await readFile(
+  join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'dex-sdk', 'index.html'),
+  'utf8',
+);
+const zhDexConnectorContributor = await readFile(
+  join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor', 'index.html'),
+  'utf8',
+);
 const zhConnector = await readFile(join(root, 'zh-Hans', 'primitives', 'connector', 'index.html'), 'utf8');
 const zhWhyDex = await readFile(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
@@ -84,15 +105,33 @@ assert.match(dexSkills, /superdurable\/dex-skills/);
 assert.match(dexSkills, /dex-sdk/);
 assert.match(dexSkills, /dex-app-builder/);
 assert.match(dexSkills, /dex-connector-contributor/);
-assert.match(dexSkills, /primary skill/);
+assert.match(dexSkills, /primary skill/i);
 assert.match(dexSkills, /Requires a coding workspace/);
 assert.match(dexSkills, /writable repository or project workspace/);
 assert.ok(dexSkills.indexOf('dex-app-builder') < dexSkills.indexOf('dex-sdk'));
+assert.match(dexSkills, /dex-developer-skill\/dex-app-builder/);
+assert.match(dexSkills, /dex-developer-skill\/dex-sdk/);
+assert.match(dexSkills, /dex-developer-skill\/dex-connector-contributor/);
+assert.match(dexAppBuilder, /primary skill/i);
+assert.match(dexAppBuilder, /Choose the application surface/);
+assert.match(dexAppBuilder, /keep external provider effects in <strong>Execute<\/strong>/);
+assert.match(dexSdk, /Version and source authority/);
+assert.match(dexSdk, /Python, Go, Java, TypeScript, and Rust/);
+assert.match(dexSdk, /Diagnosis is read-only by default/);
+assert.match(dexConnectorContributor, /Repository and fork workflow/);
+assert.match(dexConnectorContributor, /Update <strong>connector.yaml<\/strong> before provider implementation/);
+assert.match(dexConnectorContributor, /production handoff waits for an exact released Connector version/);
 assert.match(zhDexSkills, /使用 AI 构建/);
 assert.match(zhDexSkills, /主要 skill/);
 assert.match(zhDexSkills, /需要代码工作区/);
 assert.match(zhDexSkills, /可写 repository 或 project\s+workspace/);
 assert.ok(zhDexSkills.indexOf('dex-app-builder') < zhDexSkills.indexOf('dex-sdk'));
+assert.match(zhDexAppBuilder, /主要 skill/);
+assert.match(zhDexAppBuilder, /选择应用界面/);
+assert.match(zhDexSdk, /Version 与 Source Authority/);
+assert.match(zhDexSdk, /诊断默认是只读的/);
+assert.match(zhDexConnectorContributor, /Repository 与 Fork 工作流/);
+assert.match(zhDexConnectorContributor, /production\s+handoff 必须等待精确发布的 Connector version/);
 assert.match(connector, /independent Dex primitive/);
 assert.match(connector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/primitives\/connector\/"/);
 assert.match(zhConnector, /独立 Dex primitive/);
@@ -108,11 +147,17 @@ await Promise.all([
   access(join(root, 'primitives', 'step', 'index.html')),
   access(join(root, 'references', 'cli', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'index.html')),
+  access(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-app-builder', 'index.html')),
+  access(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-sdk', 'index.html')),
+  access(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor', 'index.html')),
   access(join(root, 'zh-Hans', 'intro', 'what-is-durable-execution', 'index.html')),
   access(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'zh-Hans', 'quick-start', 'index.html')),
   access(join(root, 'zh-Hans', 'primitives', 'connector', 'index.html')),
   access(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'index.html')),
+  access(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'dex-app-builder', 'index.html')),
+  access(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'dex-sdk', 'index.html')),
+  access(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor', 'index.html')),
 ]);
 
 const outputFiles = await collectOutputFiles(root);

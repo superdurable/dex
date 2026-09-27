@@ -1,18 +1,27 @@
 ---
 id: dex-developer-skill
 title: Dex Skills
-sidebar_label: Dex Skills
+sidebar_label: Dex Skills overview
 slug: /build-with-ai/dex-developer-skill
 ---
 
-# Build with AI
+# Build with AI using Dex Skills
 
 Dex Skills is the official coding-agent plugin for Dex. It helps Codex, Claude
-Code, Cursor, and other Agent Skills clients build Dex applications and
-contribute official [Connectors](/primitives/connector).
+Code, Cursor, and other Agent Skills clients design and build Dex applications,
+work directly with the public Dex SDK, and contribute official
+[Connectors](/primitives/connector).
 
-The plugin contains guidance files only. Dex Server, Workers, and applications
-do not load it at runtime.
+The plugin contains developer guidance, not runtime code. Dex Server, Workers,
+and applications do not load it.
+
+:::tip Start with Dex App Builder
+
+For a product, application, or business-process request, start with
+**dex-app-builder**. It owns the end-to-end workflow and loads the specialist
+skills when SDK or Connector work is required.
+
+:::
 
 ## Requires a coding workspace
 
@@ -27,66 +36,24 @@ cannot create project files, run tests, build artifacts, or deploy the
 application. Move the confirmed plan into a repository-backed coding workspace
 before implementation.
 
-## Start with Dex App Builder
+## Choose a skill
 
-For most Dex requests, start with **dex-app-builder**. It is the primary skill
-for discovering, designing, implementing, and verifying a complete Dex
-application. It keeps ownership of the product workflow and loads specialist
-guidance when backend or Connector work begins.
+| Skill | Role | Use it for |
+| --- | --- | --- |
+| [**Dex App Builder**](./dex-developer-skill/dex-app-builder.mdx) | **Primary skill** | Discover, prototype, implement, and locally verify an end-to-end process product with a Go backend. |
+| [**Dex SDK**](./dex-developer-skill/dex-sdk.mdx) | Specialist sub-skill | Implement, debug, test, and operate Dex applications in Python, Go, Java, TypeScript, or Rust. |
+| [**Dex Connector Contributor**](./dex-developer-skill/dex-connector-contributor.mdx) | Specialist sub-skill | Create, verify, and upstream official Connector operations, Triggers, and configuration UI units. |
 
-Use **dex-sdk** directly only for a standalone SDK implementation, debugging,
-testing, or operations task. Use **dex-connector-contributor** directly only
-for standalone work in the official Dex Connectors Library.
-
-| Skill | Use it for |
-| --- | --- |
-| **dex-app-builder** | Primary skill for discovering, prototyping, implementing, and locally verifying an end-to-end process product with a Go backend. |
-| **dex-sdk** | Specialist sub-skill for implementing, debugging, testing, and operating Dex applications in Python, Go, Java, TypeScript, or Rust. |
-| **dex-connector-contributor** | Specialist sub-skill for creating or modifying official Connector operations, Triggers, and configuration UI units in the Dex Connectors Library. |
-
-### Dex App Builder
-
-Use **dex-app-builder** as the default entry point for a complete process
-product. It starts with business roles, permissions, triggers, actions, waits,
-approvals, recovery, and audit requirements. It then chooses either Dex Web as
-the management experience or a custom UI, implements a Go backend from the
-supported template, and verifies the product with a real Dex Server.
-
-When the product needs a missing or defective external-provider Connector, the
-workflow routes that contribution to **dex-connector-contributor**. Application
-dependencies remain blocked on an exact published Connector release.
-
-### Dex SDK
-
-Use **dex-sdk** for standalone application-level Dex work. It models Flows,
-Steps, transitions, durable state, messages, RPCs, timers, retries, and recovery
-before implementation. It checks the SDK version installed by the application
-before choosing exact APIs and runnable examples. App Builder loads this
-guidance when backend implementation begins.
-
-### Dex Connector Contributor
-
-Use **dex-connector-contributor** for work in the official
-[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library).
-It starts from a provider's documented public API or official SDK, updates the
-manifest and generated surface, implements provider behavior, adds a runnable
-example, runs the complete test matrix, and opens an upstream pull request.
-
-The workflow first discovers and verifies the user's GitHub fork. If no fork
-exists, it asks permission and opens GitHub's fork page. The user clicks
-**Create fork** before the agent clones that fork and begins development.
+Use **dex-sdk** directly only for a standalone SDK task. Use
+**dex-connector-contributor** directly only for standalone work in the official
+Dex Connectors Library.
 
 ## How the skills work together
 
-**dex-app-builder** is the primary coordinator. It loads the shared **dex-sdk**
-semantics when backend work begins. It uses released Connectors directly and
-routes a confirmed Connector gap to **dex-connector-contributor**. Connector
-Contributor also loads **dex-sdk** where it needs shared Flow and Step semantics.
-
-App Builder owns the product workflow and consumption of released Connectors.
-The specialist sub-skills own standalone SDK work and Connector library
-contributions. An explicit specialist invocation does not expand into the full
-product workflow.
+Dex App Builder is the primary coordinator. It loads Dex SDK when backend
+design and implementation begin, uses released Connectors directly, and routes
+a confirmed official Connector gap to Dex Connector Contributor. Connector
+Contributor also loads Dex SDK when it needs shared Flow and Step semantics.
 
 Install the complete plugin so the agent can route between all three skills.
 The source and releases are maintained in
@@ -101,18 +68,21 @@ codex plugin marketplace add superdurable/dex-skills
 codex plugin add superdurable-dex@superdurable
 ~~~
 
-Open an existing repository or create an empty one, then start a new task.
-Begin product work with App Builder:
+Open an existing repository or create an empty one, then start a new task. For
+product work, describe the application normally or invoke App Builder:
 
 ~~~text
 $dex-app-builder Design and build this process application.
-$dex-sdk Design a reliable Dex Flow for this application.
-$dex-connector-contributor Add this capability to an official Connector.
 ~~~
 
 Codex can select **dex-app-builder** from the task context. The SDK and
 Connector Contributor skills are explicit-only specialist entries, while App
-Builder can still load them as part of the product workflow.
+Builder can still load them as part of the product workflow:
+
+~~~text
+$dex-sdk Diagnose this Flow retry behavior.
+$dex-connector-contributor Add this capability to an official Connector.
+~~~
 
 ## Install for Claude Code
 
@@ -124,16 +94,13 @@ Run these commands inside Claude Code:
 /reload-plugins
 ~~~
 
-The three invocations are:
+The three invocations, in recommended order, are:
 
 ~~~text
 /superdurable-dex:dex-app-builder
 /superdurable-dex:dex-sdk
 /superdurable-dex:dex-connector-contributor
 ~~~
-
-Start with **dex-app-builder** unless the task is standalone SDK or official
-Connector library work.
 
 ## Install for Cursor
 
@@ -146,9 +113,6 @@ from **Customize → From GitHub Repository**, then install
 /dex-sdk
 /dex-connector-contributor
 ~~~
-
-Start with **dex-app-builder** unless the task is standalone SDK or official
-Connector library work.
 
 Agent Skills clients can install the complete bundle directly:
 
@@ -177,5 +141,7 @@ using an exact API.
 Install agent extensions only from sources you trust. The Dex plugin declares
 no MCP server, hooks, credentials, or application runtime code. Creating a
 GitHub fork, publishing a branch, opening a pull request, and mutating a running
-Flow remain permissioned actions. Connector fork creation pauses for the user
-to click GitHub's creation button.
+Flow remain permissioned actions.
+
+Continue with [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx), the
+primary workflow.

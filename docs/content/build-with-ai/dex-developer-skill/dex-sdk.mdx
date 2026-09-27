@@ -1,0 +1,104 @@
+---
+id: dex-sdk
+title: Dex SDK
+sidebar_label: Dex SDK
+slug: /build-with-ai/dex-developer-skill/dex-sdk
+---
+
+# Dex SDK
+
+Dex SDK is a specialist sub-skill for implementing, debugging, testing, and
+operating applications through Dex's public programming model. It supports
+Python, Go, Java, TypeScript, and Rust.
+
+Invoke it directly for a standalone SDK task:
+
+~~~text
+$dex-sdk Diagnose why this Flow retries after the payment Step completes.
+~~~
+
+For a complete product or business-process request, start with
+[Dex App Builder](./dex-app-builder.mdx). App Builder loads Dex SDK when backend
+design and implementation begin.
+
+## When to use it
+
+Use Dex SDK for focused technical work involving:
+
+- Flows, Steps, waits, transitions, and failure routes;
+- Attributes, AttributeMaps, Channels, ChannelMaps, and Streams;
+- typed RPCs, Timers, SubFlows, Workers, and Clients;
+- retries, timeouts, heartbeats, durability, locks, and recovery;
+- SDK version compatibility, testing, troubleshooting, or operations;
+- Dex Web, **dexcli**, Flow visualization, and application observability.
+
+The skill stays at the application boundary. It does not turn application work
+into Dex Server implementation work unless the user explicitly asks to develop
+Dex itself.
+
+## Version and source authority
+
+Before writing code, the skill identifies the application's language, package
+manager, installed Dex SDK version, Worker and Client bootstrap, and repository
+test commands.
+
+The repository source, lockfile, installed SDK, and version-matched official
+examples are authoritative. The skill preserves the installed version unless
+the user asks to upgrade. If exact version-matched source is unavailable, it
+stops at a version-independent Flow model rather than inventing an API.
+
+Only the selected language handbook and the references required by the task are
+loaded. The skill does not load all five language implementations.
+
+## Model before implementation
+
+For non-trivial work, Dex SDK states the model before editing code:
+
+- Flow identity, typed start input, and completion output;
+- Steps, transitions, and meaningful commit boundaries;
+- Flow defaults and method-level retry, timeout, heartbeat, load, or lock
+  options;
+- durable state, messages, RPCs, Streams, and timers;
+- failure recovery and SubFlow boundaries;
+- Worker, Client, registry, serialization, and application-boundary behavior.
+
+The model uses precise domain names and prefers official Dex patterns over
+ad-hoc coordination loops.
+
+## Implementation and verification
+
+A complete application change includes the typed inputs, outputs, and failures;
+Flow and Step definitions; persistence schema entries; injected dependencies;
+registry wiring; Worker and Client setup when needed; an application boundary;
+and a real Dex Server integration test.
+
+Before handoff, the skill verifies the relevant build or type-check, integration
+scenario, retry and timeout recovery, duplicate requests, terminal behavior,
+primitive registration, heartbeat behavior, Stream semantics, and compatible
+Worker and Client configuration.
+
+Open executions constrain naming and schema changes. Stable Flow, Step,
+Attribute, Channel, Stream, and RPC names are preserved unless the user has an
+explicit migration plan.
+
+## Diagnostics and operations
+
+Diagnosis is read-only by default. The skill may inspect Dex Web, **dexcli**, SDK
+errors, and application logs, but it does not stop, time travel, publish,
+invoke, delete, edit, or otherwise mutate a Flow without authorization.
+
+Typed Dex failures remain intact until domain policy can distinguish business
+rejection, a closed-Flow race, a retryable service failure, and a local defect.
+Retained Streams are used for best-effort observation, never as authoritative
+business state.
+
+## Relationship to the other skills
+
+- [Dex App Builder](./dex-app-builder.mdx) loads Dex SDK Core and Go guidance
+  during backend work, then applies stricter platform constraints.
+- [Dex Connector Contributor](./dex-connector-contributor.mdx) loads shared Dex
+  semantics and Go guidance when implementing official Connectors.
+- An explicit Dex SDK invocation remains a focused technical task; it does not
+  expand into the full product workflow.
+
+Return to [Dex Skills overview and installation](../dex-developer-skill.mdx).
