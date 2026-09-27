@@ -389,9 +389,40 @@
   background: var(--paper);
 }
 
+/* The Connections page renders outside `.v2-shell`, so `.v2-primary` cannot
+   read `--color-cta`. `--brand-head` (globals.css) is pinned to the same CTA
+   green in both themes, as the header's mark is. */
 .connector-form .v2-primary {
   justify-self: start;
-  padding: 8px 12px;
+  padding: 8px 14px;
+  border: 1px solid var(--brand-head);
+  border-radius: 7px;
+  background: var(--brand-head);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.connector-form .v2-primary:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+[data-theme='dark'] .connector-form .v2-primary {
+  color: #070a08;
+}
+
+[data-theme='dark'] .connector-form .v2-primary:hover:not(:disabled) {
+  border-color: #87fab9;
+  background: #87fab9;
+}
+
+.connector-form .v2-primary:disabled {
+  border-color: var(--line);
+  background: var(--canvas);
+  color: var(--muted);
+  cursor: default;
 }
 
 .connection-delete {
