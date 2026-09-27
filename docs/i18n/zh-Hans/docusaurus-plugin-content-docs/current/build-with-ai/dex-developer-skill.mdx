@@ -52,15 +52,24 @@ Contributor。Connector Contributor 需要共享的 Flow 和 Step 语义时也�
 
 ## 安装到 Codex
 
-添加 Super Durable marketplace，然后安装 Dex plugin：
+### ChatGPT Desktop 中的 Codex
 
-~~~bash
-codex plugin marketplace add superdurable/dex-skills
-codex plugin add superdurable-dex@superdurable
-~~~
+这种方式不需要 terminal command，也不要求另行安装 Codex CLI。
 
-打开现有 repository 或创建空 repository，然后启动新 task。产品工作可以直接描述
-应用需求，也可以显式调用 App Builder：
+1. 打开 plugin browser，选择添加菜单，然后点击 **Add a marketplace**。
+2. 使用以下内容填写表单：
+
+   | 字段 | 内容 |
+   | --- | --- |
+   | **Source** | **https://github.com/superdurable/dex-skills** |
+   | **Git ref** | **main** |
+   | **Sparse paths** | 保持为空。marketplace 和 plugin 位于 repository root。 |
+
+3. 点击 **Add marketplace**。
+4. 打开 **Super Durable** marketplace，选择 **Dex** 并安装。
+5. 打开现有 repository 或创建空 repository，然后启动新 task。
+
+产品工作可以直接描述应用需求，也可以显式调用 App Builder：
 
 ~~~text
 $dex-app-builder Design and build this process application.
@@ -74,17 +83,52 @@ $dex-sdk Diagnose this Flow retry behavior.
 $dex-connector-contributor Add this capability to an official Connector.
 ~~~
 
-## 安装到 Claude Code
+### 可选：Codex CLI
 
-在 Claude Code 中运行：
+只有另行安装了 Codex CLI，并且 shell 的 **PATH** 可以找到它时，下面的命令才可用。
+请先检查：
+
+~~~bash
+codex --version
+codex plugin marketplace add superdurable/dex-skills
+codex
+~~~
+
+进入 Codex CLI 后，打开 **/plugins**，选择 **Super Durable** marketplace，并安装
+**Dex**。如果 shell 显示 **command not found: codex**，请使用上面的 Desktop 步骤，
+或另行安装 Codex CLI。Desktop app 不需要走 CLI 安装流程。
+
+## 安装到 Claude
+
+### Claude Web 或 Desktop app
+
+1. 打开 **Customize**，进入 **Plugins** tab。
+2. 点击 **Add**，然后选择 **Add marketplace**。
+3. 选择 **Add from a repository**，输入
+   **https://github.com/superdurable/dex-skills**。
+4. 打开 **Super Durable** marketplace，安装 **Dex**。
+
+Claude 会把安装状态保存到账号。使用同一账号登录的 Claude Code session 也可以使用
+该 plugin。
+
+### Claude Code CLI
+
+如果 shell 已经安装 **claude** command，可以运行：
+
+~~~bash
+claude plugin marketplace add superdurable/dex-skills
+claude plugin install superdurable-dex@superdurable
+~~~
+
+也可以在 interactive Claude Code session 内运行 slash-command 版本：
 
 ~~~text
 /plugin marketplace add superdurable/dex-skills
 /plugin install superdurable-dex@superdurable
-/reload-plugins
 ~~~
 
-三个调用入口按推荐顺序排列：
+不要把 slash-command 版本直接输入普通 shell。安装后启动新的 Claude Code session。
+三个 skill 调用入口按推荐顺序排列：
 
 ~~~text
 /superdurable-dex:dex-app-builder
@@ -94,15 +138,27 @@ $dex-connector-contributor Add this capability to an official Connector.
 
 ## 安装到 Cursor
 
-在 **Customize → From GitHub Repository** 中导入
-[superdurable/dex-skills](https://github.com/superdurable/dex-skills)，然后安装
-**superdurable-dex**。三个 skill 会显示为：
+### Cursor Desktop app
+
+1. 打开侧栏中的 **Customize**。
+2. 选择 **From GitHub Repository**，输入
+   **https://github.com/superdurable/dex-skills**。
+3. 打开 **Dex**，点击 **Install**，然后选择 user 或 project scope。
+
+该 repository 包含 Cursor 要求的 marketplace manifest。三个 skill 会显示为：
 
 ~~~text
 /dex-app-builder
 /dex-sdk
 /dex-connector-contributor
 ~~~
+
+### Cursor CLI
+
+Cursor 官方文档只说明通过 **Customize** 安装 plugin，没有记录用于安装该 GitHub
+marketplace 的独立 shell command。因此应通过 Desktop app 安装 Dex，不要猜测
+**cursor plugin install** 命令。Cursor 官方说明已经安装的 plugin 可以用于 Desktop、
+Web 和 CLI surface。
 
 Agent Skills client 也可以直接安装完整 bundle：
 

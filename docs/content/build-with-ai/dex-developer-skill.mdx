@@ -61,15 +61,25 @@ The source and releases are maintained in
 
 ## Install for Codex
 
-Add the Super Durable marketplace and install the Dex plugin:
+### Codex in the ChatGPT desktop app
 
-~~~bash
-codex plugin marketplace add superdurable/dex-skills
-codex plugin add superdurable-dex@superdurable
-~~~
+No terminal command or separately installed Codex CLI is required.
 
-Open an existing repository or create an empty one, then start a new task. For
-product work, describe the application normally or invoke App Builder:
+1. Open the plugin browser, select the add menu, and choose
+   **Add a marketplace**.
+2. Complete the form with these values:
+
+   | Field | Value |
+   | --- | --- |
+   | **Source** | **https://github.com/superdurable/dex-skills** |
+   | **Git ref** | **main** |
+   | **Sparse paths** | Leave empty. The marketplace and plugin are at the repository root. |
+
+3. Select **Add marketplace**.
+4. Open the **Super Durable** marketplace, select **Dex**, and install it.
+5. Open an existing repository or create an empty one, then start a new task.
+
+For product work, describe the application normally or invoke App Builder:
 
 ~~~text
 $dex-app-builder Design and build this process application.
@@ -84,17 +94,55 @@ $dex-sdk Diagnose this Flow retry behavior.
 $dex-connector-contributor Add this capability to an official Connector.
 ~~~
 
-## Install for Claude Code
+### Optional: Codex CLI
 
-Run these commands inside Claude Code:
+The shell command below is valid only when the separate Codex CLI is installed
+and available on your **PATH**. Check first:
+
+~~~bash
+codex --version
+codex plugin marketplace add superdurable/dex-skills
+codex
+~~~
+
+Inside Codex CLI, open **/plugins**, select the **Super Durable** marketplace,
+and install **Dex**. If the shell reports **command not found: codex**, use the
+desktop steps above or install Codex CLI separately. The desktop app does not
+require this CLI route.
+
+## Install for Claude
+
+### Claude on the web or in the desktop app
+
+1. Open **Customize** and select the **Plugins** tab.
+2. Select **Add**, then **Add marketplace**.
+3. Choose **Add from a repository** and enter
+   **https://github.com/superdurable/dex-skills**.
+4. Open the **Super Durable** marketplace and install **Dex**.
+
+Claude saves this installation to your account. The plugin is also available
+in Claude Code sessions signed in with the same account.
+
+### Claude Code CLI
+
+From a shell where the **claude** command is installed, run:
+
+~~~bash
+claude plugin marketplace add superdurable/dex-skills
+claude plugin install superdurable-dex@superdurable
+~~~
+
+Alternatively, inside an interactive Claude Code session, run the slash-command
+versions:
 
 ~~~text
 /plugin marketplace add superdurable/dex-skills
 /plugin install superdurable-dex@superdurable
-/reload-plugins
 ~~~
 
-The three invocations, in recommended order, are:
+Do not enter the slash-command versions directly in a shell. Start a new Claude
+Code session after installation. The three skill invocations, in recommended
+order, are:
 
 ~~~text
 /superdurable-dex:dex-app-builder
@@ -104,15 +152,29 @@ The three invocations, in recommended order, are:
 
 ## Install for Cursor
 
-Import [superdurable/dex-skills](https://github.com/superdurable/dex-skills)
-from **Customize → From GitHub Repository**, then install
-**superdurable-dex**. The three skills appear as:
+### Cursor desktop app
+
+1. Open **Customize** in the sidebar.
+2. Choose **From GitHub Repository** and enter
+   **https://github.com/superdurable/dex-skills**.
+3. Open **Dex**, select **Install**, and choose a user or project scope.
+
+The repository contains the required Cursor marketplace manifest. The three
+skills appear as:
 
 ~~~text
 /dex-app-builder
 /dex-sdk
 /dex-connector-contributor
 ~~~
+
+### Cursor CLI
+
+Cursor's official documentation describes plugin installation through
+**Customize** and does not document a separate shell command for installing
+this GitHub marketplace. Install Dex through the desktop app instead of
+guessing a **cursor plugin install** command. Cursor documents installed plugins
+as available across its desktop, web, and CLI surfaces.
 
 Agent Skills clients can install the complete bundle directly:
 
