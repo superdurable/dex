@@ -53,7 +53,16 @@ const builtInFields = [
   'CloseTime',
 ];
 
-const hiddenIndexedAttributes = new Set(['TemporalChangeVersion']);
+const hiddenIndexedAttributeKeys = new Set([
+  'ActiveStepTypes',
+  'BinaryChecksums',
+  'BuildIds',
+  'CadenceChangeVersion',
+  'DexParentFlowID',
+  'DexWorkQueuePermissions',
+  'FlowType',
+  'TemporalChangeVersion',
+]);
 
 interface SavedQuery {
   name: string;
@@ -86,6 +95,16 @@ function normalizeColumnOrder(columns: ColumnId[]): ColumnId[] {
   return reordered;
 }
 
+export function selectVisibleIndexedAttributeKeys(flows: FlowExecution[]): string[] {
+  const visibleIndexedAttributeKeys = new Set<string>();
+  flows.forEach((flow) => flow.indexedAttributes.forEach((indexedAttribute) => {
+    if (!hiddenIndexedAttributeKeys.has(indexedAttribute.key)) {
+      visibleIndexedAttributeKeys.add(indexedAttribute.key);
+    }
+  }));
+  return [...visibleIndexedAttributeKeys].sort();
+}
+
 export function FlowSearchPage() {
   const { timezone } = usePreferences();
   const [mode, setMode] = useState<QueryMode>('basic');
@@ -107,13 +126,7 @@ export function FlowSearchPage() {
 
   const generatedQuery = useMemo(() => buildVisibilityQuery(filters), [filters]);
   const appliedQuery = mode === 'basic' ? generatedQuery : query;
-  const customAttributes = useMemo(() => {
-    const keys = new Set<string>();
-    flows.forEach((flow) => flow.indexedAttributes.forEach((item) => {
-      if (!hiddenIndexedAttributes.has(item.key)) keys.add(item.key);
-    }));
-    return [...keys].sort();
-  }, [flows]);
+  const customAttributes = useMemo(() => selectVisibleIndexedAttributeKeys(flows), [flows]);
 
   const executeSearch = useCallback(async (
     requestedQuery: string,
