@@ -1,6 +1,6 @@
 # Dex - Durable Execution(D-EX)
 
-> ⚠️ **Pre-launch:** Dex has not formally launched yet. You can use it for testing, but breaking changes may be introduced before the official launch.
+> ⚠️ **Beta:** Dex's core features are complete and its core APIs are stable. Minor API refinements may still be introduced before general availability.
 
 **Durable Execution** provides programming model that makes an application's execution durable. This includes local state and control flow such as branches and loops, as well as parallel execution and coordination, waiting for timers or external events, error handling, and remote procedure invocations. The application logic is expressed directly in ordinary code, while the platform reliably restores and resumes the execution after failures and restarts.
 
