@@ -149,6 +149,14 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 			WorkQueuePermissionMode:         strings.TrimSpace(cfg.Web.WorkQueuePermissionMode),
 			IsStartFlowWorkerTargetHeadless: cfg.Web.IsStartFlowWorkerTargetHeadless,
 			TrustForwardedEmbeddingHeaders:  cfg.Web.TrustForwardedEmbeddingHeaders,
+			ConnectorSetupEnabled:           cfg.Web.ConnectorSetupEnabled,
+			ConnectorSetupMode:              strings.TrimSpace(cfg.Web.ConnectorSetupMode),
+			ConnectorConfigDirectory:        cfg.Web.ConnectorConfigDirectory,
+			ConnectorCacheDirectory:         cfg.Web.ConnectorCacheDirectory,
+			ConnectorHostedBaseURL:          cfg.Web.ConnectorHostedBaseURL,
+			ConnectorHostedProjectID:        cfg.Web.ConnectorHostedProjectID,
+			ConnectorHostedEnvironment:      cfg.Web.ConnectorHostedEnvironment,
+			ConnectorHostedServiceToken:     cfg.Web.ConnectorHostedServiceToken,
 		}
 		if flowRenderingSource == dexweb.FlowRenderingSourceBlobStore {
 			storage, findErr := bootstrap.FindS3Storage(cfg, cfg.Web.FlowRenderingBlobStore.StorageID)

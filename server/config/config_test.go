@@ -24,6 +24,13 @@ func TestWebEnvironmentOverridesYAML(t *testing.T) {
 	t.Setenv("DEX_WEB_WORK_QUEUE_PERMISSION_MODE", "trusted-header")
 	t.Setenv("DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS", "true")
 	t.Setenv("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS", "true")
+	t.Setenv("DEX_WEB_CONNECTOR_SETUP_ENABLED", "true")
+	t.Setenv("DEX_WEB_CONNECTOR_SETUP_MODE", "hosted")
+	t.Setenv("DEX_WEB_CONNECTOR_CACHE_DIRECTORY", "/var/cache/dex/connectors")
+	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_BASE_URL", "https://control.example.test")
+	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_PROJECT_ID", "project-1")
+	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_ENVIRONMENT", "staging")
+	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_SERVICE_TOKEN", "service-token")
 	path := writeTestConfig(t, `
 web:
   flowRenderingSource: local
@@ -37,6 +44,13 @@ web:
 	require.Equal(t, "trusted-header", cfg.Web.WorkQueuePermissionMode)
 	require.True(t, cfg.Web.IsStartFlowWorkerTargetHeadless)
 	require.True(t, cfg.Web.TrustForwardedEmbeddingHeaders)
+	require.True(t, cfg.Web.ConnectorSetupEnabled)
+	require.Equal(t, "hosted", cfg.Web.ConnectorSetupMode)
+	require.Equal(t, "/var/cache/dex/connectors", cfg.Web.ConnectorCacheDirectory)
+	require.Equal(t, "https://control.example.test", cfg.Web.ConnectorHostedBaseURL)
+	require.Equal(t, "project-1", cfg.Web.ConnectorHostedProjectID)
+	require.Equal(t, "staging", cfg.Web.ConnectorHostedEnvironment)
+	require.Equal(t, "service-token", cfg.Web.ConnectorHostedServiceToken)
 }
 
 func TestWebStartFlowWorkerTargetHeadlessDefaultsFalseAndReadsYAML(t *testing.T) {
@@ -59,6 +73,12 @@ func TestWebEnvironmentRejectsInvalidForwardedEmbeddingTrust(t *testing.T) {
 	t.Setenv("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS", "sometimes")
 	_, err := NewConfig(writeTestConfig(t, "web: {}\n"))
 	require.ErrorContains(t, err, "DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS must be a boolean")
+}
+
+func TestWebEnvironmentRejectsInvalidConnectorSetupEnabled(t *testing.T) {
+	t.Setenv("DEX_WEB_CONNECTOR_SETUP_ENABLED", "sometimes")
+	_, err := NewConfig(writeTestConfig(t, "web: {}\n"))
+	require.ErrorContains(t, err, "DEX_WEB_CONNECTOR_SETUP_ENABLED must be a boolean")
 }
 
 func TestWebConfigRejectsMixedDefinitionSources(t *testing.T) {

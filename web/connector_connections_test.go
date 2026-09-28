@@ -161,7 +161,7 @@ func TestConnectorUseConfigurationAPIWritesFlowStepScopedSidecar(t *testing.T) {
 	if err := json.Unmarshal(configurations[0].Configuration["message"], &message); err != nil || message["text"] != "Done" {
 		t.Fatalf("message = %+v, err = %v", message, err)
 	}
-	contents, err := os.ReadFile(setup.store.useConfigurationsPath)
+	contents, err := os.ReadFile(setup.store.(*connectorConnectionStore).useConfigurationsPath)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -178,6 +178,27 @@ func connectorTestRelease(identity connectorDefinitionIdentity, archive []byte, 
 	return release
 }
 
+func TestConnectorManifestAuthSelectsDefaultAndExplicitMethods(t *testing.T) {
+	auth := connectorManifestAuth{
+		DefaultMethod: "googleOAuth",
+		Methods: []connectorManifestAuthMethod{
+			{ID: "googleOAuth", Type: "oauth2", OAuth2: &connectorManifestOAuth2{TokenEndpoint: "https://oauth2.example.test/token"}},
+			{ID: "workspaceServiceAccount", Type: "serviceAccount"},
+		},
+	}
+	selected, found := auth.method("")
+	if !found || selected.ID != "googleOAuth" || !auth.supportsOAuth2() {
+		t.Fatalf("default method = %+v, found = %v", selected, found)
+	}
+	selected, found = auth.method("workspaceServiceAccount")
+	if !found || selected.ID != "workspaceServiceAccount" {
+		t.Fatalf("explicit method = %+v, found = %v", selected, found)
+	}
+	if _, found := auth.method("missing"); found {
+		t.Fatal("unknown auth method was accepted")
+	}
+}
+
 func connectorReleaseTestServer(t *testing.T, metadata []byte, archive []byte) *httptest.Server {
 	t.Helper()
 	metadataDigest := sha256.Sum256(metadata)

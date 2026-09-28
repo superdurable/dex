@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -28,7 +29,8 @@ import (
 const connectorCSRFHeader = "X-Dex-CSRF-Token"
 
 type connectorSetup struct {
-	store              *connectorConnectionStore
+	mode               string
+	store              connectorConfigurationStore
 	flowDefinitions    FlowDefinitionProvider
 	releases           *connectorReleaseResolver
 	csrfToken          string
@@ -97,6 +99,7 @@ type connectorDefinitionIdentity struct {
 
 type connectorConnectionView struct {
 	ConnectorID         string                          `json:"connectorId"`
+	AuthMethodID        string                          `json:"authMethodId,omitempty"`
 	ConnectionName      string                          `json:"connectionName"`
 	ModulePath          string                          `json:"modulePath,omitempty"`
 	ModuleVersion       string                          `json:"moduleVersion,omitempty"`
@@ -105,6 +108,7 @@ type connectorConnectionView struct {
 	Status              string                          `json:"status"`
 	Configuration       map[string]json.RawMessage      `json:"configuration,omitempty"`
 	CredentialExpiresAt *time.Time                      `json:"credentialExpiresAt,omitempty"`
+	CredentialStatus    string                          `json:"credentialStatus,omitempty"`
 	Uses                []connectorConnectionStepUse    `json:"uses"`
 	TriggerUses         []connectorConnectionTriggerUse `json:"triggerUses,omitempty"`
 }
@@ -131,16 +135,21 @@ type connectorConnectionTriggerUse struct {
 
 type connectorConnectionListResponse struct {
 	Enabled                   bool                      `json:"enabled"`
-	Directory                 string                    `json:"directory"`
-	FilePath                  string                    `json:"filePath"`
-	UseConfigurationsFilePath string                    `json:"useConfigurationsFilePath"`
+	Mode                      string                    `json:"mode"`
+	Directory                 string                    `json:"directory,omitempty"`
+	FilePath                  string                    `json:"filePath,omitempty"`
+	UseConfigurationsFilePath string                    `json:"useConfigurationsFilePath,omitempty"`
+	ConfigurationRevision     string                    `json:"configurationRevision,omitempty"`
+	ConfigurationState        string                    `json:"configurationState,omitempty"`
+	ApplicationRevision       string                    `json:"applicationRevision,omitempty"`
 	DefinitionRevision        string                    `json:"definitionRevision"`
 	CSRFToken                 string                    `json:"csrfToken"`
-	LaunchCommand             string                    `json:"launchCommand"`
+	LaunchCommand             string                    `json:"launchCommand,omitempty"`
 	Connections               []connectorConnectionView `json:"connections"`
 }
 
 type connectorConnectionWriteRequest struct {
+	AuthMethodID        string                     `json:"authMethodId"`
 	ModulePath          string                     `json:"modulePath"`
 	ModuleVersion       string                     `json:"moduleVersion"`
 	Provider            string                     `json:"provider"`
@@ -176,28 +185,59 @@ func newConnectorSetup(cfg *Config, flowDefinitions FlowDefinitionProvider) (*co
 	if !cfg.ConnectorSetupEnabled {
 		return nil, nil
 	}
-	bindIP := net.ParseIP(cfg.BindAddress)
-	if bindIP == nil || !bindIP.IsLoopback() {
-		return nil, fmt.Errorf("Connector setup requires a loopback Dex Web bind address")
+	mode := strings.TrimSpace(cfg.ConnectorSetupMode)
+	if mode == "" {
+		mode = ConnectorSetupModeLocal
 	}
 	source := strings.TrimSpace(cfg.FlowRenderingSource)
-	if source != "" && source != FlowRenderingSourceLocal {
-		return nil, fmt.Errorf("Connector setup requires local Flow Definitions")
-	}
-	store, err := newConnectorConnectionStore(cfg.ConnectorConfigDirectory)
-	if err != nil {
-		return nil, err
+	var store connectorConfigurationStore
+	cacheDirectory := strings.TrimSpace(cfg.ConnectorCacheDirectory)
+	switch mode {
+	case ConnectorSetupModeLocal:
+		bindIP := net.ParseIP(cfg.BindAddress)
+		if bindIP == nil || !bindIP.IsLoopback() {
+			return nil, fmt.Errorf("local Connector setup requires a loopback Dex Web bind address")
+		}
+		if source != "" && source != FlowRenderingSourceLocal {
+			return nil, fmt.Errorf("local Connector setup requires local Flow Definitions")
+		}
+		localStore, err := newConnectorConnectionStore(cfg.ConnectorConfigDirectory)
+		if err != nil {
+			return nil, err
+		}
+		store = localStore
+		cacheDirectory = localStore.directory
+	case ConnectorSetupModeHosted:
+		if source != FlowRenderingSourceBlobStore {
+			return nil, fmt.Errorf("hosted Connector setup requires blobstore Flow Definitions")
+		}
+		if !cfg.TrustForwardedEmbeddingHeaders || effectivePermissionMode(cfg) != api.V2PermissionModeTrustedHeader {
+			return nil, fmt.Errorf("hosted Connector setup requires trusted embedding headers and trusted-header permissions")
+		}
+		if len(cfg.ConnectorReleaseOverrides) != 0 {
+			return nil, fmt.Errorf("hosted Connector setup does not allow local Connector release overrides")
+		}
+		if cacheDirectory == "" {
+			return nil, fmt.Errorf("hosted Connector setup requires a Connector artifact cache directory")
+		}
+		hostedStore, err := newHostedConnectorConfigurationStore(cfg)
+		if err != nil {
+			return nil, err
+		}
+		store = hostedStore
+	default:
+		return nil, fmt.Errorf("Connector setup mode must be local or hosted")
 	}
 	csrfToken, err := randomConnectorToken(32)
 	if err != nil {
 		return nil, fmt.Errorf("create Connector CSRF token: %w", err)
 	}
-	releases, err := newConnectorReleaseResolver(store.directory, cfg.ConnectorReleaseOverrides)
+	releases, err := newConnectorReleaseResolver(cacheDirectory, cfg.ConnectorReleaseOverrides)
 	if err != nil {
 		return nil, err
 	}
 	return &connectorSetup{
-		store: store, flowDefinitions: flowDefinitions, releases: releases, csrfToken: csrfToken,
+		mode: mode, store: store, flowDefinitions: flowDefinitions, releases: releases, csrfToken: csrfToken,
 		uiSessions: make(map[string]connectorUISession), oauthSessions: make(map[string]connectorOAuthSession),
 		providerHTTPClient: newConnectorProviderHTTPClient(),
 	}, nil
@@ -222,13 +262,19 @@ func (setup *connectorSetup) handleListConnections(response http.ResponseWriter,
 		api.WriteCodedError(response, http.StatusServiceUnavailable, "CONNECTOR_CONNECTIONS_UNAVAILABLE", "Connector connections are unavailable")
 		return
 	}
-	writeWebJSON(response, http.StatusOK, connectorConnectionListResponse{
-		Enabled: true, Directory: setup.store.directory, FilePath: setup.store.path,
-		UseConfigurationsFilePath: setup.store.useConfigurationsPath,
-		DefinitionRevision:        revision, CSRFToken: setup.csrfToken,
-		LaunchCommand: "DEX_CONNECTOR_CONFIG_FILE=" + shellQuote(setup.store.path) + " <your-app-command>",
-		Connections:   views,
-	})
+	state := setup.store.state()
+	result := connectorConnectionListResponse{
+		Enabled: true, Mode: state.Mode, Directory: state.Directory, FilePath: state.FilePath,
+		UseConfigurationsFilePath: state.UseConfigurationsFilePath,
+		ConfigurationRevision:     state.ConfigurationRevision, ConfigurationState: state.ConfigurationState,
+		ApplicationRevision: state.ApplicationRevision,
+		DefinitionRevision:  revision, CSRFToken: setup.csrfToken,
+		Connections: views,
+	}
+	if setup.mode == ConnectorSetupModeLocal {
+		result.LaunchCommand = "DEX_CONNECTOR_CONFIG_FILE=" + shellQuote(state.FilePath) + " <your-app-command>"
+	}
+	writeWebJSON(response, http.StatusOK, result)
 }
 
 func (setup *connectorSetup) handlePutConnection(response http.ResponseWriter, request *http.Request) {
@@ -260,12 +306,29 @@ func (setup *connectorSetup) handlePutConnection(response http.ResponseWriter, r
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector configuration is invalid")
 		return
 	}
-	if err := validateRawConnectorFields(manifest.Spec.Auth.Fields, body.Credentials, true); err != nil {
+	authMethod, found := manifest.Spec.Auth.method(body.AuthMethodID)
+	if !found {
+		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_AUTH_METHOD_INVALID", "Connector authentication method is invalid")
+		return
+	}
+	selectedAuthMethodID := body.AuthMethodID
+	if selectedAuthMethodID == "" && len(manifest.Spec.Auth.Methods) > 0 {
+		selectedAuthMethodID = authMethod.ID
+	}
+	if err := validateRawConnectorFields(authMethod.Fields, body.Credentials, true); err != nil {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector credentials are invalid")
 		return
 	}
+	if selectedAuthMethodID != "" {
+		encodedAuthMethodID, err := json.Marshal(selectedAuthMethodID)
+		if err != nil {
+			api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_CONNECTION_WRITE_FAILED", "Connector connection could not be saved")
+			return
+		}
+		body.Credentials["auth_method"] = encodedAuthMethodID
+	}
 	connection := localConnectorConnection{
-		ConnectorID: request.PathValue("connectorId"), ModulePath: body.ModulePath,
+		ConnectorID: request.PathValue("connectorId"), AuthMethodID: selectedAuthMethodID, ModulePath: body.ModulePath,
 		ModuleVersion: body.ModuleVersion, Provider: manifest.Spec.Provider,
 		ConnectionName: request.PathValue("connectionName"), Configuration: body.Configuration,
 		Credentials: body.Credentials, CredentialExpiresAt: body.CredentialExpiresAt,
@@ -275,14 +338,21 @@ func (setup *connectorSetup) handlePutConnection(response http.ResponseWriter, r
 		return
 	}
 	if err := setup.store.put(connection); err != nil {
-		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_CONNECTION_WRITE_FAILED", "Connector connection could not be saved")
+		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_CONNECTION_WRITE_FAILED", "Connector connection could not be saved")
 		return
 	}
-	writeWebJSON(response, http.StatusOK, map[string]any{
+	result := map[string]any{
 		"connectorId": connection.ConnectorID, "connectionName": connection.ConnectionName,
-		"status": "Ready", "filePath": setup.store.path, "definitionRevision": snapshot.DefinitionRevision,
+		"status": "Ready", "definitionRevision": snapshot.DefinitionRevision,
 		"credentialExpiresAt": connection.CredentialExpiresAt,
-	})
+	}
+	if state := setup.store.state(); state.Mode == ConnectorSetupModeLocal {
+		result["filePath"] = state.FilePath
+	} else {
+		result["configurationRevision"] = state.ConfigurationRevision
+		result["configurationState"] = state.ConfigurationState
+	}
+	writeWebJSON(response, http.StatusOK, result)
 }
 
 func (setup *connectorSetup) handleDeleteConnection(response http.ResponseWriter, request *http.Request) {
@@ -292,10 +362,18 @@ func (setup *connectorSetup) handleDeleteConnection(response http.ResponseWriter
 	}
 	deleted, err := setup.store.delete(request.PathValue("connectorId"), request.PathValue("connectionName"))
 	if err != nil {
-		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_CONNECTION_DELETE_FAILED", "Local Connector credentials could not be deleted")
+		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_CONNECTION_DELETE_FAILED", "Connector connection could not be deleted")
 		return
 	}
 	writeWebJSON(response, http.StatusOK, map[string]any{"deleted": deleted, "remoteGrantRevoked": false})
+}
+
+func writeConnectorConfigurationStoreError(response http.ResponseWriter, err error, code string, message string) {
+	if errors.Is(err, errConnectorConfigurationRevisionConflict) {
+		api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONFIGURATION_REVISION_CONFLICT", "Connector configuration changed; reload before saving")
+		return
+	}
+	api.WriteCodedError(response, http.StatusInternalServerError, code, message)
 }
 
 func (setup *connectorSetup) handleCreateUISession(response http.ResponseWriter, request *http.Request) {
@@ -317,7 +395,7 @@ func (setup *connectorSetup) handleCreateUISession(response http.ResponseWriter,
 	result := connectorUISessionResponse{
 		ConnectorID: body.ConnectorID, ConnectionName: body.ConnectionName, Manifest: resolved.release.Manifest,
 	}
-	if resolved.release.Manifest.Spec.Auth.Type == "oauth2" {
+	if resolved.release.Manifest.Spec.Auth.supportsOAuth2() {
 		result.OAuthRedirectURI = connectorOAuthRedirectURI(request)
 	}
 	bindings, err := setup.store.listTriggerBindings(body.ConnectorID, body.ConnectionName)
@@ -394,7 +472,7 @@ func (setup *connectorSetup) handlePutTriggerBinding(response http.ResponseWrite
 		TriggerName: triggerName, BindingName: bindingName, Configuration: body.Configuration,
 	}
 	if err := setup.store.putTriggerBinding(localBinding); err != nil {
-		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_TRIGGER_BINDING_WRITE_FAILED", "Connector Trigger binding could not be saved")
+		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_TRIGGER_BINDING_WRITE_FAILED", "Connector Trigger binding could not be saved")
 		return
 	}
 	writeWebJSON(response, http.StatusOK, map[string]any{
@@ -433,7 +511,7 @@ func (setup *connectorSetup) handlePutUseConfiguration(response http.ResponseWri
 		FlowType: flowType, StepType: stepType, Configuration: body.Configuration,
 	}
 	if err := setup.store.putUseConfiguration(configuration); err != nil {
-		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_USE_CONFIGURATION_WRITE_FAILED", "Connector use configuration could not be saved")
+		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_USE_CONFIGURATION_WRITE_FAILED", "Connector use configuration could not be saved")
 		return
 	}
 	writeWebJSON(response, http.StatusOK, configuration)
@@ -662,10 +740,14 @@ func connectorViewsFromCatalog(
 			current.view.Status = "Conflict"
 		} else if connection, ok := stored[key]; ok {
 			current.view.Provider = connection.Provider
+			current.view.AuthMethodID = connection.AuthMethodID
 			current.view.Configuration = connection.Configuration
 			current.view.CredentialExpiresAt = connection.CredentialExpiresAt
+			current.view.CredentialStatus = connection.CredentialStatus
 			if !current.view.LocalOverride && (connection.ModulePath != current.view.ModulePath || connection.ModuleVersion != current.view.ModuleVersion) {
 				current.view.Status = "Conflict"
+			} else if connection.CredentialStatus == "reauthorization_required" {
+				current.view.Status = "Reauthorization required"
 			} else if connection.CredentialExpiresAt != nil && !now.Before(*connection.CredentialExpiresAt) {
 				current.view.Status = "Expired"
 			} else {

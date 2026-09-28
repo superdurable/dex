@@ -24,6 +24,7 @@ import (
 )
 
 type connectorOAuthStartRequest struct {
+	AuthMethodID      string                     `json:"authMethodId"`
 	ClientID          string                     `json:"clientId"`
 	ClientSecret      string                     `json:"clientSecret"`
 	Configuration     map[string]json.RawMessage `json:"configuration"`
@@ -34,6 +35,8 @@ type connectorOAuthStartRequest struct {
 type connectorOAuthSession struct {
 	identity           connectorDefinitionIdentity
 	release            connectorRelease
+	authMethod         connectorManifestAuthMethod
+	authMethodID       string
 	definitionRevision string
 	clientID           string
 	clientSecret       string
@@ -75,12 +78,13 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_RELEASE_UNAVAILABLE", "Connector release metadata is unavailable")
 		return
 	}
-	oauth := resolved.release.Manifest.Spec.Auth.OAuth2
-	if resolved.release.Manifest.Spec.Auth.Type != "oauth2" || oauth == nil {
+	authMethod, found := resolved.release.Manifest.Spec.Auth.method(body.AuthMethodID)
+	if !found || authMethod.Type != "oauth2" || authMethod.OAuth2 == nil {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_UNSUPPORTED", "Connector release does not support local OAuth")
 		return
 	}
-	if err := validateManifestValueMaps(resolved.release.Manifest, body); err != nil {
+	oauth := authMethod.OAuth2
+	if err := validateManifestValueMaps(resolved.release.Manifest, authMethod, body); err != nil {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_REQUEST_INVALID", "Connector OAuth configuration is invalid")
 		return
 	}
@@ -114,12 +118,20 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 	setup.deleteExpiredOAuthSessions(time.Now())
 	setup.oauthSessions[state] = connectorOAuthSession{
 		identity: identity, release: resolved.release, definitionRevision: snapshot.DefinitionRevision,
+		authMethod: authMethod, authMethodID: authMethod.ID,
 		clientID: body.ClientID, clientSecret: body.ClientSecret, codeVerifier: verifier, redirectURI: redirectURI,
 		configuration: body.Configuration, credentialValues: body.CredentialValues,
 		credentialSecrets: body.CredentialSecrets, expiresAt: expiresAt,
 	}
 	setup.oauthSessionsMu.Unlock()
 	query := authorizationURL.Query()
+	for name, value := range oauth.AuthorizationParameters {
+		if strings.TrimSpace(name) == "" || strings.TrimSpace(value) == "" || isReservedConnectorOAuthAuthorizationParameter(name) {
+			api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_RELEASE_INVALID", "Connector OAuth authorization parameters are invalid")
+			return
+		}
+		query.Set(name, value)
+	}
 	query.Set("client_id", body.ClientID)
 	query.Set("redirect_uri", redirectURI)
 	query.Set("response_type", "code")
@@ -137,6 +149,15 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 	writeWebJSON(response, http.StatusOK, map[string]any{
 		"authorizationUrl": authorizationURL.String(), "expiresAt": expiresAt,
 	})
+}
+
+func isReservedConnectorOAuthAuthorizationParameter(name string) bool {
+	switch name {
+	case "client_id", "redirect_uri", "response_type", "scope", "state", "code_challenge", "code_challenge_method":
+		return true
+	default:
+		return false
+	}
 }
 
 func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, request *http.Request) {
@@ -176,15 +197,39 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_OAUTH_TOKEN_EXCHANGE_FAILED", "Connector OAuth token exchange failed")
 		return
 	}
-	if !hasRequiredConnectorScopes(token.Scope, session.release.Manifest.Spec.Auth.OAuth2.Scopes) {
+	if !hasRequiredConnectorScopes(token.Scope, session.authMethod.OAuth2.Scopes) {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT", "Connector OAuth grant is missing required scopes")
 		return
 	}
-	if !hasRequiredConnectorScopes(token.AuthedUser.Scope, session.release.Manifest.Spec.Auth.OAuth2.UserScopes) {
+	if !hasRequiredConnectorScopes(token.AuthedUser.Scope, session.authMethod.OAuth2.UserScopes) {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT", "Connector OAuth user grant is missing required scopes")
 		return
 	}
 	credentials := make(map[string]json.RawMessage, 1+len(session.credentialValues)+len(session.credentialSecrets))
+	if session.authMethodID != "" {
+		encodedAuthMethodID, marshalErr := json.Marshal(session.authMethodID)
+		if marshalErr != nil {
+			api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
+			return
+		}
+		credentials["auth_method"] = encodedAuthMethodID
+	}
+	if clientIDCredential := session.authMethod.OAuth2.ClientIDCredential; clientIDCredential != "" {
+		encodedClientID, marshalErr := json.Marshal(session.clientID)
+		if marshalErr != nil {
+			api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
+			return
+		}
+		credentials[clientIDCredential] = encodedClientID
+	}
+	if clientSecretCredential := session.authMethod.OAuth2.ClientSecretCredential; clientSecretCredential != "" {
+		encodedClientSecret, marshalErr := json.Marshal(session.clientSecret)
+		if marshalErr != nil {
+			api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
+			return
+		}
+		credentials[clientSecretCredential] = encodedClientSecret
+	}
 	for name, value := range session.credentialValues {
 		credentials[name] = value
 	}
@@ -196,7 +241,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		}
 		credentials[name] = encoded
 	}
-	mappings := session.release.Manifest.Spec.Auth.OAuth2.CredentialMappings
+	mappings := session.authMethod.OAuth2.CredentialMappings
 	if len(mappings) == 0 {
 		mappings = []connectorOAuthCredentialMapping{{Credential: "access_token", Source: "access_token"}}
 	}
@@ -213,7 +258,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		}
 		credentials[mapping.Credential] = encoded
 	}
-	derivedCredentials, err := setup.deriveConnectorOAuthCredentials(request.Context(), token, session.release.Manifest.Spec.Auth.OAuth2.CredentialDerivations)
+	derivedCredentials, err := setup.deriveConnectorOAuthCredentials(request.Context(), token, session.authMethod.OAuth2.CredentialDerivations)
 	if err != nil {
 		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_OAUTH_IDENTITY_DERIVATION_FAILED", "Connector OAuth identity could not be verified")
 		return
@@ -227,13 +272,13 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		expiresAt = &value
 	}
 	connection := localConnectorConnection{
-		ConnectorID: session.identity.ConnectorID, ModulePath: session.identity.ModulePath,
+		ConnectorID: session.identity.ConnectorID, AuthMethodID: session.authMethodID, ModulePath: session.identity.ModulePath,
 		ModuleVersion: session.identity.ModuleVersion, Provider: session.release.Manifest.Spec.Provider,
 		ConnectionName: session.identity.ConnectionName, Configuration: session.configuration,
 		Credentials: credentials, CredentialExpiresAt: expiresAt,
 	}
 	if err := setup.store.put(connection); err != nil {
-		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
+		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
 		return
 	}
 	location := "/v2/connections?oauth=success&connectorId=" + url.QueryEscape(connection.ConnectorID) +
@@ -305,7 +350,7 @@ func (setup *connectorSetup) exchangeConnectorOAuthToken(
 	session connectorOAuthSession,
 	code string,
 ) (connectorOAuthTokenResponse, error) {
-	oauth := session.release.Manifest.Spec.Auth.OAuth2
+	oauth := session.authMethod.OAuth2
 	tokenURL, err := url.Parse(oauth.TokenEndpoint)
 	if err != nil || tokenURL.Scheme != "https" || tokenURL.Host == "" {
 		return connectorOAuthTokenResponse{}, fmt.Errorf("Connector OAuth token endpoint is invalid")
@@ -351,7 +396,7 @@ func (setup *connectorSetup) exchangeConnectorOAuthToken(
 	return token, nil
 }
 
-func validateManifestValueMaps(manifest connectorReleaseManifest, request connectorOAuthStartRequest) error {
+func validateManifestValueMaps(manifest connectorReleaseManifest, authMethod connectorManifestAuthMethod, request connectorOAuthStartRequest) error {
 	if request.Configuration == nil {
 		request.Configuration = map[string]json.RawMessage{}
 	}
@@ -365,18 +410,24 @@ func validateManifestValueMaps(manifest connectorReleaseManifest, request connec
 		return err
 	}
 	mappedCredentials := make(map[string]bool)
-	if manifest.Spec.Auth.OAuth2 != nil {
-		for _, mapping := range manifest.Spec.Auth.OAuth2.CredentialMappings {
+	if authMethod.OAuth2 != nil {
+		if authMethod.OAuth2.ClientIDCredential != "" {
+			mappedCredentials[authMethod.OAuth2.ClientIDCredential] = true
+		}
+		if authMethod.OAuth2.ClientSecretCredential != "" {
+			mappedCredentials[authMethod.OAuth2.ClientSecretCredential] = true
+		}
+		for _, mapping := range authMethod.OAuth2.CredentialMappings {
 			mappedCredentials[mapping.Credential] = true
 		}
-		if len(manifest.Spec.Auth.OAuth2.CredentialMappings) == 0 {
+		if len(authMethod.OAuth2.CredentialMappings) == 0 {
 			mappedCredentials["access_token"] = true
 		}
-		for _, derivation := range manifest.Spec.Auth.OAuth2.CredentialDerivations {
+		for _, derivation := range authMethod.OAuth2.CredentialDerivations {
 			mappedCredentials[derivation.Credential] = true
 		}
 	}
-	return validateConnectorFieldValues(manifest.Spec.Auth.Fields, request.CredentialValues, request.CredentialSecrets, mappedCredentials)
+	return validateConnectorFieldValues(authMethod.Fields, request.CredentialValues, request.CredentialSecrets, mappedCredentials)
 }
 
 func validateConnectorFieldValues(

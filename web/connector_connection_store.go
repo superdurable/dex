@@ -37,6 +37,28 @@ type connectorConnectionStore struct {
 	mu                    sync.Mutex
 }
 
+type connectorConfigurationStore interface {
+	list() ([]localConnectorConnection, error)
+	get(connectorID string, connectionName string) (localConnectorConnection, bool, error)
+	listTriggerBindings(connectorID string, connectionName string) ([]localConnectorTriggerBinding, error)
+	putTriggerBinding(binding localConnectorTriggerBinding) error
+	listUseConfigurations(connectorID string, connectionName string) ([]localConnectorUseConfiguration, error)
+	putUseConfiguration(configuration localConnectorUseConfiguration) error
+	put(connection localConnectorConnection) error
+	delete(connectorID string, connectionName string) (bool, error)
+	state() connectorConfigurationStoreState
+}
+
+type connectorConfigurationStoreState struct {
+	Mode                      string
+	Directory                 string
+	FilePath                  string
+	UseConfigurationsFilePath string
+	ConfigurationRevision     string
+	ConfigurationState        string
+	ApplicationRevision       string
+}
+
 type connectorConnectionsFile struct {
 	SchemaVersion   string                         `json:"schemaVersion"`
 	Connections     []localConnectorConnection     `json:"connections"`
@@ -45,6 +67,7 @@ type connectorConnectionsFile struct {
 
 type localConnectorConnection struct {
 	ConnectorID         string                     `json:"connectorId"`
+	AuthMethodID        string                     `json:"authMethodId,omitempty"`
 	ModulePath          string                     `json:"modulePath"`
 	ModuleVersion       string                     `json:"moduleVersion"`
 	Provider            string                     `json:"provider"`
@@ -52,6 +75,7 @@ type localConnectorConnection struct {
 	Configuration       map[string]json.RawMessage `json:"configuration"`
 	Credentials         map[string]json.RawMessage `json:"credentials"`
 	CredentialExpiresAt *time.Time                 `json:"credentialExpiresAt,omitempty"`
+	CredentialStatus    string                     `json:"credentialStatus,omitempty"`
 }
 
 type localConnectorTriggerBinding struct {
@@ -105,6 +129,16 @@ func newConnectorConnectionStore(directory string) (*connectorConnectionStore, e
 		return nil, err
 	}
 	return store, nil
+}
+
+func (store *connectorConnectionStore) state() connectorConfigurationStoreState {
+	return connectorConfigurationStoreState{
+		Mode:                      ConnectorSetupModeLocal,
+		Directory:                 store.directory,
+		FilePath:                  store.path,
+		UseConfigurationsFilePath: store.useConfigurationsPath,
+		ConfigurationState:        "Draft",
+	}
 }
 
 func (store *connectorConnectionStore) verifyWritableDirectory() (returnErr error) {

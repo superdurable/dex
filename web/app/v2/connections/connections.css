@@ -415,6 +415,41 @@
   font-weight: 600;
 }
 
+.connector-auth-methods {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.connector-auth-methods legend {
+  padding: 0 5px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.connector-auth-methods label {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+}
+
+.connector-auth-methods label > span {
+  display: grid;
+  gap: 3px;
+}
+
+.connector-auth-methods em {
+  width: max-content;
+  color: var(--brand);
+  font-size: 10px;
+  font-style: normal;
+  text-transform: uppercase;
+}
 .connector-authorization-guide {
   display: grid;
   gap: 8px;

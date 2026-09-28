@@ -297,6 +297,45 @@ type, and Step type. Writes accept only JSON Pointer paths declared by the
 Flow definition. Applications load both files as a startup snapshot through
 the Connector SDK; changing configuration requires an application restart.
 
+### Hosted Connections
+
+Hosted mode keeps the release-verified Connections UI while delegating
+configuration persistence to a trusted Control Plane API. Each Dex Server is
+fixed to one project and environment at startup. Browser requests cannot
+provide or override that scope, and hosted responses omit local paths, object
+storage locations, launch commands, and credential values.
+
+```yaml
+web:
+  flowRenderingSource: blobstore
+  workQueuePermissionMode: trusted-header
+  trustForwardedEmbeddingHeaders: true
+  connectorSetupEnabled: true
+  connectorSetupMode: hosted
+  connectorCacheDirectory: /var/cache/dex/connectors
+  connectorHostedBaseURL: http://superverse-control-plane
+  connectorHostedProjectId: project-id
+  connectorHostedEnvironment: staging
+```
+
+Supply `DEX_WEB_CONNECTOR_HOSTED_SERVICE_TOKEN` through the workload secret
+environment. The backend URL, project, environment, and cache directory also
+have `DEX_WEB_CONNECTOR_HOSTED_BASE_URL`,
+`DEX_WEB_CONNECTOR_HOSTED_PROJECT_ID`,
+`DEX_WEB_CONNECTOR_HOSTED_ENVIRONMENT`, and
+`DEX_WEB_CONNECTOR_CACHE_DIRECTORY` overrides.
+
+Every mutation sends the last configuration revision in `If-Match`. A stale
+write returns `CONNECTOR_CONFIGURATION_REVISION_CONFLICT`; reload before
+retrying. The UI distinguishes the editable revision from the revision used by
+the running application. Non-secret changes require deployment of a new
+revision. Credential refresh and rotation take effect on the next Connector
+call without changing the application revision.
+
+OAuth client credentials, refresh tokens, service-account keys, and webhook
+secrets are write-only. Hosted provider setup commands execute through the
+Control Plane, so Dex Web never reads stored credential material back.
+
 ## Trusted reverse-proxy mounts
 
 Dex Web can be mounted at a request-specific path below an authenticated host

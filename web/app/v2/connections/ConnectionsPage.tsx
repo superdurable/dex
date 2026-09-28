@@ -20,7 +20,7 @@ import './connections.css';
 // Connections has no dark theme yet, so every Studio frame paints light to match the page.
 const connectorStudioFrameTheme: Theme = 'light';
 
-type ConnectionStatus = 'Missing' | 'Ready' | 'Expired' | 'Conflict' | 'Unsupported';
+type ConnectionStatus = 'Missing' | 'Ready' | 'Expired' | 'Conflict' | 'Unsupported' | 'Reauthorization required';
 
 interface ConnectionUse {
   flowName: string;
@@ -40,6 +40,7 @@ interface TriggerUse { flowName: string; triggerName: string; bindingName: strin
 
 interface ConnectionView {
   connectorId: string;
+  authMethodId?: string;
   connectionName: string;
   modulePath?: string;
   moduleVersion?: string;
@@ -48,18 +49,23 @@ interface ConnectionView {
   status: ConnectionStatus;
   configuration?: Record<string, unknown>;
   credentialExpiresAt?: string;
+  credentialStatus?: string;
   uses: ConnectionUse[];
   triggerUses?: TriggerUse[];
 }
 
 interface ConnectionsResponse {
   enabled: boolean;
-  directory: string;
-  filePath: string;
-  useConfigurationsFilePath: string;
+  mode: 'local' | 'hosted';
+  directory?: string;
+  filePath?: string;
+  useConfigurationsFilePath?: string;
+  configurationRevision?: string;
+  configurationState?: 'Draft' | 'Valid' | 'Ready to deploy' | 'Reauthorization required';
+  applicationRevision?: string;
   definitionRevision: string;
   csrfToken: string;
-  launchCommand: string;
+  launchCommand?: string;
   connections: ConnectionView[];
 }
 
@@ -72,21 +78,43 @@ interface ManifestField {
   enum?: string[];
 }
 
+interface ManifestAuthMethod {
+  id: string;
+  displayName: string;
+  description: string;
+  recommended?: boolean;
+  type: string;
+  fields: ManifestField[];
+  guide?: { startURL: string; steps: string[] };
+  oauth2?: {
+    scopes: string[];
+    clientIDCredential?: string;
+    clientSecretCredential?: string;
+    userScopes?: string[];
+    credentialMappings?: { credential: string; source: string }[];
+    credentialDerivations?: { credential: string; endpoint: string; source: string; verifiedBy?: string }[];
+  };
+}
+
 interface ReleaseManifest {
   metadata: { displayName: string; description: string };
   spec: {
     provider: string;
     configuration: { fields: ManifestField[] };
     auth: {
-      type: string;
+      type?: string;
       fields: ManifestField[];
       guide?: { startURL: string; steps: string[] };
       oauth2?: {
         scopes: string[];
+        clientIDCredential?: string;
+        clientSecretCredential?: string;
         userScopes?: string[];
         credentialMappings?: { credential: string; source: string }[];
         credentialDerivations?: { credential: string; endpoint: string; source: string; verifiedBy?: string }[];
       };
+      defaultMethod?: string;
+      methods?: ManifestAuthMethod[];
     };
     studio?: {
       setup: { backendCapabilities: string[] };
@@ -213,13 +241,19 @@ export function ConnectionsPage() {
   return (
     <div className="connections-page">
       <header className="connections-hero">
-        <div><p className="connections-kicker">Local development</p><h1>Connections</h1></div>
-        <div className="connections-paths">
-          <span>Store directory</span><code>{catalog.directory}</code>
-          <span>Connection file</span><CopyValue value={catalog.filePath} />
-          <span>Flow configuration file</span><CopyValue value={catalog.useConfigurationsFilePath} />
-          <span>Start your app</span><CopyValue value={catalog.launchCommand} />
-        </div>
+        <div><p className="connections-kicker">{catalog.mode === 'hosted' ? 'Hosted environment' : 'Local development'}</p><h1>Connections</h1></div>
+        {catalog.mode === 'hosted'
+          ? <div className="connections-paths">
+            <span>Configuration status</span><code>{catalog.configurationState || 'Draft'}</code>
+            <span>Draft revision</span><code>{catalog.configurationRevision || 'Not created'}</code>
+            <span>Application revision</span><code>{catalog.applicationRevision || 'Not deployed'}</code>
+          </div>
+          : <div className="connections-paths">
+            <span>Store directory</span><code>{catalog.directory}</code>
+            <span>Connection file</span>{catalog.filePath && <CopyValue value={catalog.filePath} />}
+            <span>Flow configuration file</span>{catalog.useConfigurationsFilePath && <CopyValue value={catalog.useConfigurationsFilePath} />}
+            <span>Start your app</span>{catalog.launchCommand && <CopyValue value={catalog.launchCommand} />}
+          </div>}
       </header>
       {error && <div className="error-banner">{error}</div>}
       <div className="connections-layout">
@@ -267,16 +301,26 @@ export function ConnectionsPage() {
               />}
               {selected.status !== 'Missing' && selected.status !== 'Unsupported' && selected.status !== 'Conflict' && (
                 <button className="connection-delete" disabled={busy} onClick={() => void deleteCredentials()} type="button">
-                  Delete local credentials
+                  {connectionDeleteLabel(catalog.mode)}
                 </button>
               )}
-              <p className="connections-note">Deleting local credentials does not revoke the provider grant. Configuration changes require an app restart; credential changes apply on the next Connector call.</p>
+              <p className="connections-note">{connectorConfigurationEffectText(catalog.mode)}</p>
             </>
           )}
         </section>
       </div>
     </div>
   );
+}
+
+export function connectionDeleteLabel(mode: ConnectionsResponse['mode']) {
+  return mode === 'hosted' ? 'Delete connection' : 'Delete local credentials';
+}
+
+export function connectorConfigurationEffectText(mode: ConnectionsResponse['mode']) {
+  return mode === 'hosted'
+    ? 'Configuration changes create a new revision and require redeployment. Credential refresh and rotation apply on the next Connector call.'
+    : 'Deleting local credentials does not revoke the provider grant. Configuration changes require an app restart; credential changes apply on the next Connector call.';
 }
 
 function ConnectorSetupNavigation({activeTab, connection, tabs, onSelect}: {
@@ -440,14 +484,18 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
   const manifest = session.manifest;
   const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-  const oauth = manifest.spec.auth.type === 'oauth2';
+  const [authMethodId, setAuthMethodId] = useState(connection.authMethodId || manifest.spec.auth.defaultMethod || '');
+  const auth = selectedManifestAuth(manifest.spec.auth, authMethodId);
+  const oauth = auth.type === 'oauth2';
   const mappedCredentialNames = new Set([
-    ...(manifest.spec.auth.oauth2?.credentialMappings?.map((mapping) => mapping.credential) ?? ['access_token']),
-    ...(manifest.spec.auth.oauth2?.credentialDerivations?.map((derivation) => derivation.credential) ?? []),
+    ...(auth.oauth2?.clientIDCredential ? [auth.oauth2.clientIDCredential] : []),
+    ...(auth.oauth2?.clientSecretCredential ? [auth.oauth2.clientSecretCredential] : []),
+    ...(auth.oauth2?.credentialMappings?.map((mapping) => mapping.credential) ?? ['access_token']),
+    ...(auth.oauth2?.credentialDerivations?.map((derivation) => derivation.credential) ?? []),
   ]);
   const visibleManifestFormFields = [
     ...manifest.spec.configuration.fields.map((field) => ({field, prefix: 'configuration'} as const)),
-    ...manifest.spec.auth.fields
+    ...auth.fields
       .filter((field) => !oauth || !mappedCredentialNames.has(field.name))
       .map((field) => ({field, prefix: 'credential'} as const)),
   ];
@@ -460,14 +508,14 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
       const configuration = fieldValues(manifest.spec.configuration.fields, values, 'configuration');
       if (oauth) {
         const credentialValues = fieldValues(
-          manifest.spec.auth.fields.filter((field) => field.type !== 'secretString'), values, 'credential',
+          auth.fields.filter((field) => field.type !== 'secretString'), values, 'credential',
         );
-        const credentialSecrets = Object.fromEntries(manifest.spec.auth.fields
+        const credentialSecrets = Object.fromEntries(auth.fields
           .filter((field) => field.type === 'secretString' && !mappedCredentialNames.has(field.name))
           .map((field) => [field.name, values[`credential:${field.name}`] ?? '']));
         const response = await dexFetch(`${connectionURL(connection)}/oauth/start`, {
           method: 'POST', headers: connectorWriteHeaders(catalog), body: JSON.stringify({
-            clientId: values.clientId ?? '', clientSecret: values.clientSecret ?? '',
+            authMethodId, clientId: values.clientId ?? '', clientSecret: values.clientSecret ?? '',
             configuration, credentialValues, credentialSecrets,
           }),
         });
@@ -475,12 +523,14 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
         window.location.assign(result.authorizationUrl);
         return;
       }
-      const credentials = fieldValues(manifest.spec.auth.fields, values, 'credential');
+      const credentials = fieldValues(auth.fields, values, 'credential');
+      if (authMethodId) credentials.auth_method = authMethodId;
       const response = await dexFetch(connectionURL(connection), {
         method: 'PUT', headers: connectorWriteHeaders(catalog), body: JSON.stringify({
           modulePath: connection.modulePath,
           moduleVersion: connection.moduleVersion,
           provider: manifest.spec.provider,
+          authMethodId,
           configuration,
           credentials,
           credentialExpiresAt: null,
@@ -498,18 +548,34 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
   return <form className="connector-form" id="connector-host-form" onSubmit={(event) => void submit(event)}>
     <h3>{manifest.metadata.displayName || connection.connectorId} setup</h3>
     <p>{manifest.metadata.description}</p>
-    {manifest.spec.auth.guide && <section className="connector-authorization-guide">
+    {(manifest.spec.auth.methods?.length ?? 0) > 1 && <fieldset className="connector-auth-methods">
+      <legend>Authentication method</legend>
+      {manifest.spec.auth.methods?.map((method) => <label key={method.id}>
+        <input
+          checked={authMethodId === method.id}
+          name="connector-auth-method"
+          onChange={() => {
+            setAuthMethodId(method.id);
+            setValues({});
+          }}
+          type="radio"
+          value={method.id}
+        />
+        <span><b>{method.displayName}</b>{method.recommended && <em>Recommended</em>}<small>{method.description}</small></span>
+      </label>)}
+    </fieldset>}
+    {auth.guide && <section className="connector-authorization-guide">
       <h4>Authorization guide</h4>
-      <p>Start at <a href={manifest.spec.auth.guide.startURL} rel="noreferrer" target="_blank">{manifest.spec.auth.guide.startURL}</a></p>
-      <ol>{manifest.spec.auth.guide.steps.map((step, index) => <li key={`${index}:${step}`}>{linkifiedDescription(step)}</li>)}</ol>
+      <p>Start at <a href={auth.guide.startURL} rel="noreferrer" target="_blank">{auth.guide.startURL}</a></p>
+      <ol>{auth.guide.steps.map((step, index) => <li key={`${index}:${step}`}>{linkifiedDescription(step)}</li>)}</ol>
       {oauth && session.oauthRedirectUri && <div className="connector-redirect-uri"><span>Redirect URI</span><CopyValue value={session.oauthRedirectUri} /></div>}
     </section>}
     {(oauth || requiredManifestFormFields.length > 0) && <fieldset className="connector-field-group connector-field-group-required">
       <legend>Required</legend>
       {oauth && <>
         <FormField inputId="connector-oauth-client-id" label="OAuth client ID" name="clientId" required secret={false} description="Copy the client ID from the provider application created with the guide above. This identifier is not secret." values={values} setValues={setValues} />
-        <FormField label="OAuth client secret" name="clientSecret" required secret description="Copy the matching client secret from the provider application. This value is secret and is retained only for this authorization session." values={values} setValues={setValues} />
-        <p className="connections-note">Client credentials remain in memory for this ten-minute OAuth session and are never written to the connection file.</p>
+        <FormField label="OAuth client secret" name="clientSecret" required secret description="Copy the matching client secret from the provider application. This write-only value is stored with the connection so access tokens can refresh." values={values} setValues={setValues} />
+        <p className="connections-note">Client credentials are stored as write-only credential material so access tokens can refresh. They are never returned to this page.</p>
       </>}
       {requiredManifestFormFields.map(({field, prefix}) => <ManifestFormField key={`${prefix}:${field.name}`} field={field} prefix={prefix} values={values} setValues={setValues} />)}
     </fieldset>}
@@ -517,9 +583,21 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
       <legend>Optional settings ({optionalManifestFormFields.length})</legend>
       {optionalManifestFormFields.map(({field, prefix}) => <ManifestFormField key={`${prefix}:${field.name}`} field={field} prefix={prefix} values={values} setValues={setValues} />)}
     </fieldset>}
-    {oauth && <p className="connections-scopes">Requested bot scopes: {manifest.spec.auth.oauth2?.scopes.join(', ')}{manifest.spec.auth.oauth2?.userScopes?.length ? `; user scopes: ${manifest.spec.auth.oauth2.userScopes.join(', ')}` : ''}</p>}
-    <button className="v2-primary" disabled={submitting} type="submit">{oauth ? 'Authorize' : 'Save local credentials'}</button>
+    {oauth && <p className="connections-scopes">Requested bot scopes: {auth.oauth2?.scopes.join(', ')}{auth.oauth2?.userScopes?.length ? `; user scopes: ${auth.oauth2.userScopes.join(', ')}` : ''}</p>}
+    <button className="v2-primary" disabled={submitting} type="submit">{oauth ? 'Authorize' : catalog.mode === 'hosted' ? 'Save credentials' : 'Save local credentials'}</button>
   </form>;
+}
+
+export function selectedManifestAuth(auth: ReleaseManifest['spec']['auth'], methodId: string): ManifestAuthMethod {
+  if (!auth.methods?.length) {
+    return {
+      id: '', displayName: '', description: '', type: auth.type ?? 'none', fields: auth.fields,
+      guide: auth.guide, oauth2: auth.oauth2,
+    };
+  }
+  return auth.methods.find((method) => method.id === methodId)
+    ?? auth.methods.find((method) => method.id === auth.defaultMethod)
+    ?? auth.methods[0];
 }
 
 function ManifestFormField({ field, prefix, values, setValues }: {

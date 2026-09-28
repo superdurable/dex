@@ -155,6 +155,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 			Port:                      s.cfg.WebPort,
 			FlowRenderingDirectory:    s.cfg.FlowRenderingDirectory,
 			ConnectorSetupEnabled:     true,
+			ConnectorSetupMode:        dexweb.ConnectorSetupModeLocal,
 			ConnectorConfigDirectory:  s.cfg.ConnectorConfigDirectory,
 			ConnectorReleaseOverrides: s.cfg.ConnectorReleaseOverrides,
 		},

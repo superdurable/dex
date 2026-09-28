@@ -13,6 +13,8 @@ import { DexAPIError } from '@/lib/http';
 import {
   ConnectorForm,
   connectionKey,
+  connectionDeleteLabel,
+  connectorConfigurationEffectText,
   connectorHostReadyMessage,
   connectorSetupTabs,
   connectorWriteHeaders,
@@ -22,12 +24,34 @@ import {
   descriptionParts,
   manifestFieldDefaultText,
   studioCommandFailureOutcome,
+  selectedManifestAuth,
   studioHostCapabilities,
   studioState,
 } from './ConnectionsPage';
 import { connectorStudioStylesheet } from './connectorStudioTheme';
 
 describe('Connections contract', () => {
+  it('distinguishes hosted revision effects from local file effects', () => {
+    expect(connectionDeleteLabel('hosted')).toBe('Delete connection');
+    expect(connectorConfigurationEffectText('hosted')).toContain('require redeployment');
+    expect(connectorConfigurationEffectText('hosted')).toContain('next Connector call');
+    expect(connectionDeleteLabel('local')).toBe('Delete local credentials');
+    expect(connectorConfigurationEffectText('local')).toContain('app restart');
+  });
+
+  it('selects the declared auth method and falls back to the manifest default', () => {
+    const auth = {
+      fields: [],
+      defaultMethod: 'googleOAuth',
+      methods: [
+        {id: 'googleOAuth', displayName: 'Google OAuth', description: 'Recommended', recommended: true, type: 'oauth2', fields: [{name: 'access_token'}]},
+        {id: 'workspaceServiceAccount', displayName: 'Workspace service account', description: 'Advanced', type: 'serviceAccount', fields: [{name: 'service_account_key'}]},
+      ],
+    } as never;
+    expect(selectedManifestAuth(auth, 'workspaceServiceAccount').id).toBe('workspaceServiceAccount');
+    expect(selectedManifestAuth(auth, 'missing').id).toBe('googleOAuth');
+  });
+
   it('shows non-secret manifest defaults parenthetically and never exposes secret defaults', () => {
     expect(manifestFieldDefaultText({name: 'endpoint', type: 'url', description: '', required: false, default: 'https://api.example.com/v1'})).toBe('(Default: https://api.example.com/v1)');
     expect(manifestFieldDefaultText({name: 'limits', type: 'stringMap', description: '', required: false, default: {rows: 10}})).toBe('(Default: {"rows":10})');

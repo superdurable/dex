@@ -76,18 +76,24 @@ func (setup *connectorSetup) handleStudioProviderCommand(response http.ResponseW
 	if _, _, ok := setup.authorizeConnectionKey(response, request, session.connectorID, session.connectionName); !ok {
 		return
 	}
-	connection, found, err := setup.store.get(session.connectorID, session.connectionName)
-	if err != nil || !found {
-		api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONNECTION_NOT_READY", "Connector connection is not configured")
-		return
-	}
 	request.Body = http.MaxBytesReader(response, request.Body, 1<<16)
 	var body connectorStudioCommandRequest
 	if err := decodeStrictConnectorJSONReader(request.Body, &body); err != nil {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_STUDIO_COMMAND_INVALID", "Connector Studio command parameters are invalid")
 		return
 	}
-	value, err := setup.executeStudioProviderCommand(request, command, body.Parameters, connection.Credentials)
+	var value map[string]any
+	var err error
+	if executor, hosted := setup.store.(hostedConnectorProviderCommandExecutor); hosted {
+		value, err = executor.executeProviderCommand(session.connectorID, session.connectionName, command.ID, body.Parameters)
+	} else {
+		connection, found, loadErr := setup.store.get(session.connectorID, session.connectionName)
+		if loadErr != nil || !found {
+			api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONNECTION_NOT_READY", "Connector connection is not configured")
+			return
+		}
+		value, err = setup.executeStudioProviderCommand(request, command, body.Parameters, connection.Credentials)
+	}
 	if err != nil {
 		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_PROVIDER_COMMAND_FAILED", "Connector provider command failed")
 		return

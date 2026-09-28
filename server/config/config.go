@@ -342,6 +342,22 @@ type (
 		IsStartFlowWorkerTargetHeadless bool `yaml:"startFlowWorkerTargetHeadless"`
 		// TrustForwardedEmbeddingHeaders accepts trusted proxy embedding metadata. Default false. Immutable after startup.
 		TrustForwardedEmbeddingHeaders bool `yaml:"trustForwardedEmbeddingHeaders"`
+		// ConnectorSetupEnabled enables the Connections configuration surface. Default false. Immutable after startup.
+		ConnectorSetupEnabled bool `yaml:"connectorSetupEnabled"`
+		// ConnectorSetupMode selects local or hosted persistence. Default local. Immutable after startup.
+		ConnectorSetupMode string `yaml:"connectorSetupMode"`
+		// ConnectorConfigDirectory stores local configuration and release artifacts. Required by local setup.
+		ConnectorConfigDirectory string `yaml:"connectorConfigDirectory"`
+		// ConnectorCacheDirectory stores verified release artifacts without configuration. Required by hosted setup.
+		ConnectorCacheDirectory string `yaml:"connectorCacheDirectory"`
+		// ConnectorHostedBaseURL is the trusted Control Plane origin. Required by hosted setup.
+		ConnectorHostedBaseURL string `yaml:"connectorHostedBaseURL"`
+		// ConnectorHostedProjectID fixes the project scope. Required by hosted setup.
+		ConnectorHostedProjectID string `yaml:"connectorHostedProjectId"`
+		// ConnectorHostedEnvironment fixes the environment scope. Required by hosted setup.
+		ConnectorHostedEnvironment string `yaml:"connectorHostedEnvironment"`
+		// ConnectorHostedServiceToken is read from DEX_WEB_CONNECTOR_HOSTED_SERVICE_TOKEN only.
+		ConnectorHostedServiceToken string `yaml:"-"`
 	}
 
 	WebFlowRenderingBlobStoreConfig struct {
@@ -573,6 +589,34 @@ func applyWebEnvironment(cfg *Config) error {
 			return fmt.Errorf("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS must be a boolean: %w", err)
 		}
 		cfg.Web.TrustForwardedEmbeddingHeaders = parsed
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_SETUP_ENABLED"); ok {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("DEX_WEB_CONNECTOR_SETUP_ENABLED must be a boolean: %w", err)
+		}
+		cfg.Web.ConnectorSetupEnabled = parsed
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_SETUP_MODE"); ok {
+		cfg.Web.ConnectorSetupMode = value
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_CONFIG_DIRECTORY"); ok {
+		cfg.Web.ConnectorConfigDirectory = value
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_CACHE_DIRECTORY"); ok {
+		cfg.Web.ConnectorCacheDirectory = value
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_HOSTED_BASE_URL"); ok {
+		cfg.Web.ConnectorHostedBaseURL = value
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_HOSTED_PROJECT_ID"); ok {
+		cfg.Web.ConnectorHostedProjectID = value
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_HOSTED_ENVIRONMENT"); ok {
+		cfg.Web.ConnectorHostedEnvironment = value
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_HOSTED_SERVICE_TOKEN"); ok {
+		cfg.Web.ConnectorHostedServiceToken = value
 	}
 	return nil
 }

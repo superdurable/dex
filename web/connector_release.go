@@ -79,15 +79,64 @@ type connectorReleaseManifest struct {
 		Configuration struct {
 			Fields []connectorManifestField `json:"fields"`
 		} `json:"configuration"`
-		Auth struct {
-			Type           string                       `json:"type"`
-			ConnectionKind string                       `json:"connectionKind"`
-			Fields         []connectorManifestField     `json:"fields"`
-			Guide          *connectorAuthorizationGuide `json:"guide,omitempty"`
-			OAuth2         *connectorManifestOAuth2     `json:"oauth2,omitempty"`
-		} `json:"auth"`
+		Auth   connectorManifestAuth    `json:"auth"`
 		Studio *connectorManifestStudio `json:"studio,omitempty"`
 	} `json:"spec"`
+}
+
+type connectorManifestAuth struct {
+	Type           string                        `json:"type,omitempty"`
+	ConnectionKind string                        `json:"connectionKind,omitempty"`
+	Fields         []connectorManifestField      `json:"fields,omitempty"`
+	Guide          *connectorAuthorizationGuide  `json:"guide,omitempty"`
+	OAuth2         *connectorManifestOAuth2      `json:"oauth2,omitempty"`
+	DefaultMethod  string                        `json:"defaultMethod,omitempty"`
+	Methods        []connectorManifestAuthMethod `json:"methods,omitempty"`
+}
+
+type connectorManifestAuthMethod struct {
+	ID             string                       `json:"id"`
+	DisplayName    string                       `json:"displayName"`
+	Description    string                       `json:"description"`
+	Recommended    bool                         `json:"recommended,omitempty"`
+	Type           string                       `json:"type"`
+	ConnectionKind string                       `json:"connectionKind"`
+	Fields         []connectorManifestField     `json:"fields"`
+	Guide          *connectorAuthorizationGuide `json:"guide,omitempty"`
+	OAuth2         *connectorManifestOAuth2     `json:"oauth2,omitempty"`
+}
+
+func (auth connectorManifestAuth) method(methodID string) (connectorManifestAuthMethod, bool) {
+	if len(auth.Methods) == 0 {
+		if methodID != "" {
+			return connectorManifestAuthMethod{}, false
+		}
+		return connectorManifestAuthMethod{
+			Type: auth.Type, ConnectionKind: auth.ConnectionKind, Fields: auth.Fields,
+			Guide: auth.Guide, OAuth2: auth.OAuth2,
+		}, true
+	}
+	if methodID == "" {
+		methodID = auth.DefaultMethod
+	}
+	for _, method := range auth.Methods {
+		if method.ID == methodID {
+			return method, true
+		}
+	}
+	return connectorManifestAuthMethod{}, false
+}
+
+func (auth connectorManifestAuth) supportsOAuth2() bool {
+	if len(auth.Methods) == 0 {
+		return auth.Type == "oauth2" && auth.OAuth2 != nil
+	}
+	for _, method := range auth.Methods {
+		if method.Type == "oauth2" && method.OAuth2 != nil {
+			return true
+		}
+	}
+	return false
 }
 
 type connectorAuthorizationGuide struct {
@@ -111,13 +160,16 @@ type connectorManifestField struct {
 }
 
 type connectorManifestOAuth2 struct {
-	AuthorizationEndpoint string                               `json:"authorizationEndpoint"`
-	TokenEndpoint         string                               `json:"tokenEndpoint"`
-	Scopes                []string                             `json:"scopes"`
-	UserScopes            []string                             `json:"userScopes,omitempty"`
-	CredentialMappings    []connectorOAuthCredentialMapping    `json:"credentialMappings,omitempty"`
-	CredentialDerivations []connectorOAuthCredentialDerivation `json:"credentialDerivations,omitempty"`
-	PKCE                  bool                                 `json:"pkce"`
+	AuthorizationEndpoint   string                               `json:"authorizationEndpoint"`
+	TokenEndpoint           string                               `json:"tokenEndpoint"`
+	AuthorizationParameters map[string]string                    `json:"authorizationParameters,omitempty"`
+	ClientIDCredential      string                               `json:"clientIDCredential,omitempty"`
+	ClientSecretCredential  string                               `json:"clientSecretCredential,omitempty"`
+	Scopes                  []string                             `json:"scopes"`
+	UserScopes              []string                             `json:"userScopes,omitempty"`
+	CredentialMappings      []connectorOAuthCredentialMapping    `json:"credentialMappings,omitempty"`
+	CredentialDerivations   []connectorOAuthCredentialDerivation `json:"credentialDerivations,omitempty"`
+	PKCE                    bool                                 `json:"pkce"`
 }
 
 type connectorOAuthCredentialMapping struct {

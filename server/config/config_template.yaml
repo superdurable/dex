@@ -40,6 +40,14 @@ web:
   startFlowWorkerTargetHeadless: false
   # Enable only behind a proxy that replaces embedding headers and blocks direct Web access.
   trustForwardedEmbeddingHeaders: false
+  # Local setup is normally enabled by dexcli dev. Hosted setup also requires the trusted settings above.
+  connectorSetupEnabled: false
+  connectorSetupMode: local
+  connectorConfigDirectory: ""
+  connectorCacheDirectory: ""
+  connectorHostedBaseURL: ""
+  connectorHostedProjectId: ""
+  connectorHostedEnvironment: ""
 worker:
   # Refresh individual endpoints behind headless WorkerService DNS.
   headlessAddressRefreshInterval: 60s

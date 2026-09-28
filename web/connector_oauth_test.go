@@ -40,7 +40,8 @@ func TestConnectorOAuthRejectsHostSuppliedDerivedCredential(t *testing.T) {
 	manifest.Spec.Auth.OAuth2 = &connectorManifestOAuth2{CredentialDerivations: []connectorOAuthCredentialDerivation{{
 		Credential: "primary_email", Endpoint: "https://provider.example/userinfo", Source: "email",
 	}}}
-	err := validateManifestValueMaps(manifest, connectorOAuthStartRequest{
+	authMethod, _ := manifest.Spec.Auth.method("")
+	err := validateManifestValueMaps(manifest, authMethod, connectorOAuthStartRequest{
 		CredentialValues: map[string]json.RawMessage{"primary_email": json.RawMessage(`"spoofed@example.com"`)},
 	})
 	if err == nil || !strings.Contains(err.Error(), "not a host-supplied non-secret field") {
@@ -208,7 +209,8 @@ func TestSlackOAuthMappingsAcceptHostAppTokenAndExtractBotAndUserTokens(t *testi
 		Configuration: map[string]json.RawMessage{}, CredentialValues: map[string]json.RawMessage{},
 		CredentialSecrets: map[string]string{"app_token": "xapp-secret"},
 	}
-	if err := validateManifestValueMaps(manifest, request); err != nil {
+	authMethod, _ := manifest.Spec.Auth.method("")
+	if err := validateManifestValueMaps(manifest, authMethod, request); err != nil {
 		t.Fatal(err)
 	}
 	raw := map[string]any{"access_token": "xoxb-bot", "authed_user": map[string]any{"access_token": "xoxp-user"}}

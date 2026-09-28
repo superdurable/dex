@@ -30,6 +30,8 @@ const DefaultPort = 8802
 const (
 	FlowRenderingSourceLocal     = "local"
 	FlowRenderingSourceBlobStore = "blobstore"
+	ConnectorSetupModeLocal      = "local"
+	ConnectorSetupModeHosted     = "hosted"
 )
 
 type Config struct {
@@ -51,10 +53,24 @@ type Config struct {
 	IsStartFlowWorkerTargetHeadless bool
 	// TrustForwardedEmbeddingHeaders defaults false and enables trusted proxy-provided Web presentation metadata.
 	TrustForwardedEmbeddingHeaders bool
-	// ConnectorSetupEnabled defaults false and enables local Connector configuration APIs.
+	// ConnectorSetupEnabled defaults false and enables Connector configuration APIs.
 	ConnectorSetupEnabled bool
+	// ConnectorSetupMode defaults to local. Hosted delegates persistence to a trusted backend.
+	ConnectorSetupMode string
 	// ConnectorConfigDirectory defaults empty and stores local Connector configuration and verified UI artifacts.
 	ConnectorConfigDirectory string
+	// ConnectorCacheDirectory stores verified Connector release UI artifacts in hosted mode.
+	ConnectorCacheDirectory string
+	// ConnectorHostedBaseURL is the trusted Control Plane origin used only in hosted mode.
+	ConnectorHostedBaseURL string
+	// ConnectorHostedProjectID fixes the hosted configuration project scope for this process.
+	ConnectorHostedProjectID string
+	// ConnectorHostedEnvironment fixes the hosted configuration environment scope for this process.
+	ConnectorHostedEnvironment string
+	// ConnectorHostedServiceToken authenticates this server to the hosted configuration backend.
+	ConnectorHostedServiceToken string
+	// ConnectorHostedHTTPClient overrides the hosted backend client in tests.
+	ConnectorHostedHTTPClient *http.Client
 	// ConnectorReleaseOverrides maps Connector IDs to local release artifact directories for loopback development.
 	ConnectorReleaseOverrides map[string]string
 }
