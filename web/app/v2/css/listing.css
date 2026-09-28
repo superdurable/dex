@@ -309,6 +309,78 @@
   width: 100%;
 }
 
+.qr-capture-control {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.qr-capture-control input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.qr-capture-control button {
+  flex: 0 0 auto;
+}
+
+.qr-scanner-dialog {
+  width: min(92vw, 520px);
+  padding: 18px;
+  border: 1px solid var(--p-line);
+  border-radius: 14px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 32%);
+}
+
+.qr-scanner-dialog::backdrop {
+  background: rgb(8 13 20 / 62%);
+}
+
+.qr-scanner-dialog header,
+.qr-scanner-dialog footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.qr-scanner-dialog header h2,
+.qr-scanner-dialog header p {
+  margin: 0;
+}
+
+.qr-scanner-dialog header p,
+.qr-scanner-dialog > p {
+  margin-top: 6px;
+  color: var(--p-ink-2);
+  font-size: 12px;
+}
+
+.qr-scanner-dialog header > button {
+  border: 0;
+  background: transparent;
+  color: var(--p-ink-2);
+  cursor: pointer;
+  font-size: 22px;
+}
+
+.qr-scanner-dialog video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  margin-top: 14px;
+  border-radius: 10px;
+  background: #050608;
+  object-fit: cover;
+}
+
+.qr-scanner-dialog footer {
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
 .sc-fact {
   display: grid;
   grid-column: 1 / -1;

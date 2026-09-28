@@ -142,6 +142,8 @@ export interface FlowV2ActionInputField {
   valueType: V2EditableValueType;
   source: 'user' | 'attribute';
   attributeKey?: string;
+  /** Optional browser capture control for a user-provided string. */
+  capture?: 'qr-code';
   required: boolean;
   description: string;
 }

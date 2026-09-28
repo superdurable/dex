@@ -345,6 +345,12 @@ contain lowercase letters, digits, dots, or hyphens. Display field directives
 use `ui-slot`, emitted as `uiSlot`; the former `slot`, Action, and condition
 directives are not supported.
 
+An Action input directive may add `capture:qr-code` to a `source:user`
+`value-type:string` field. The analyzer copies this optional hint into the
+Version 2 catalog. Unknown capture modes, non-string fields, and
+Attribute-sourced fields are blocking diagnostics. Omitting `capture` preserves
+the existing text input contract.
+
 ```text
 dexcli visualize SOURCE [--language auto|go|python] [--schema-version 1.0|2.0]
                          [--open=true|false]

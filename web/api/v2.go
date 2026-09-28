@@ -172,6 +172,7 @@ type V2ActionInputField struct {
 	ValueType    string `json:"valueType"`
 	Source       string `json:"source"`
 	AttributeKey string `json:"attributeKey,omitempty"`
+	Capture      string `json:"capture,omitempty"`
 	Required     bool   `json:"required"`
 	Description  string `json:"description"`
 }

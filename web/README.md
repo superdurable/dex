@@ -126,7 +126,11 @@ runs through loopback-bound `dexcli dev` with a local Flow Definition source.
 It groups Connector Steps by Connector ID and static connection name, resolves
 the exact official Connector release declared by the graph, verifies release
 and Studio UI checksums, and loads UI bundles in opaque-origin sandbox iframes.
-Without a Studio bundle, it renders the manifest fields directly.
+Without a Studio bundle, it renders the manifest fields directly. The generic
+form renders a connector-owned authorization guide with an external provider
+link and ordered setup steps. Every non-secret manifest default appears below
+its field in parentheses; leaving that input blank uses the displayed default.
+URLs in field guidance are clickable.
 
 During Connector development, the repeatable
 `--connector-release-override connector-id=artifact-directory` flag on
@@ -268,6 +272,10 @@ Connections persist in `$HOME/.dex/connectors/connections.json` by default.
 Use `--connector-config-dir` to select another directory. Restarting Dex Web
 reloads the file and cached artifacts. OAuth state, PKCE verifier, client
 secret, and UI session nonce remain memory-only and are discarded on restart.
+The page displays the exact OAuth Redirect URI before authorization. A release
+may derive required non-secret credentials from a declared HTTPS identity
+endpoint; Dex accepts a derived claim only after any declared boolean
+verification claim is true, and does not render a duplicate input.
 The page displays the absolute JSON path and the
 `DEX_CONNECTOR_CONFIG_FILE=... <your-app-command>` launch command. It never
 returns credential values. Deleting a local credential does not revoke the
@@ -456,6 +464,13 @@ Attribute-sourced Action inputs remain hidden. The UI condition is
 presentational; Action RPCs must re-check current state.
 Version 2 definitions use `uiSlot` for reusable display placement and expose
 each Action's `requiredPermission` from the Go SDK Action registration.
+User-sourced string Action inputs marked with `capture: "qr-code"` retain their
+text field and add a **Scan QR code** button. The scanner is loaded only after a
+user opens it, prefers the rear camera, and copies the decoded text into the
+field without submitting the Action. Manual input remains available when the
+camera is missing, denied, or blocked. Camera access requires HTTPS or localhost;
+an embedding host must also allow camera access through its Permissions Policy.
+Scanning does not grant an Action permission or bypass its condition check.
 
 v1 pages live under `/v1/flows` and `/v1/rendering`. The Flows page provides Basic and Advanced visibility queries, pagination,
 saved queries, configurable columns, Indexed Attributes, and timezone

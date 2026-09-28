@@ -387,6 +387,9 @@ func validateV2ActionInput(input api.V2ActionInput) error {
 		if field.Source != "user" && field.Source != "attribute" {
 			return fmt.Errorf("input field %q has invalid source", field.FieldName)
 		}
+		if field.Capture != "" && (field.Capture != "qr-code" || field.Source != "user" || field.ValueType != "string") {
+			return fmt.Errorf("input field %q has invalid capture", field.FieldName)
+		}
 		seen[field.FieldName] = true
 	}
 	return nil

@@ -155,12 +155,13 @@ type connectorUISessionRequest struct {
 }
 
 type connectorUISessionResponse struct {
-	ConnectorID     string                                           `json:"connectorId"`
-	ConnectionName  string                                           `json:"connectionName"`
-	SessionNonce    string                                           `json:"sessionNonce,omitempty"`
-	EntrypointURL   string                                           `json:"entrypointUrl,omitempty"`
-	Manifest        connectorReleaseManifest                         `json:"manifest"`
-	TriggerBindings map[string]map[string]map[string]json.RawMessage `json:"triggerBindings,omitempty"`
+	ConnectorID      string                                           `json:"connectorId"`
+	ConnectionName   string                                           `json:"connectionName"`
+	SessionNonce     string                                           `json:"sessionNonce,omitempty"`
+	EntrypointURL    string                                           `json:"entrypointUrl,omitempty"`
+	OAuthRedirectURI string                                           `json:"oauthRedirectUri,omitempty"`
+	Manifest         connectorReleaseManifest                         `json:"manifest"`
+	TriggerBindings  map[string]map[string]map[string]json.RawMessage `json:"triggerBindings,omitempty"`
 }
 
 type connectorTriggerBindingWriteRequest struct {
@@ -315,6 +316,9 @@ func (setup *connectorSetup) handleCreateUISession(response http.ResponseWriter,
 	}
 	result := connectorUISessionResponse{
 		ConnectorID: body.ConnectorID, ConnectionName: body.ConnectionName, Manifest: resolved.release.Manifest,
+	}
+	if resolved.release.Manifest.Spec.Auth.Type == "oauth2" {
+		result.OAuthRedirectURI = connectorOAuthRedirectURI(request)
 	}
 	bindings, err := setup.store.listTriggerBindings(body.ConnectorID, body.ConnectionName)
 	if err != nil {

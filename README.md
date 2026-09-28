@@ -13,7 +13,7 @@ Unlike replay-based durable execution engines, Dex does not split your logic int
 
 Learn more: [What is Durable Execution?](https://docs.superdurable.io/intro/what-is-durable-execution) · [Why Dex?](https://docs.superdurable.io/intro/what-is-dex)
 
-AI coding assistants can use the official [Dex Developer skill](https://docs.superdurable.io/build-with-ai/dex-developer-skill) to build, test, and operate Dex applications through Dex's public programming model. Its source is maintained in [superdurable/skill-dex-developer](https://github.com/superdurable/skill-dex-developer).
+AI coding assistants can use the official [Dex Skills](https://docs.superdurable.io/build-with-ai/dex-developer-skill) to build, test, and operate Dex applications through Dex's public programming model. Install either the recommended Dex Plugin or the complete standalone Skills bundle from [superdurable/dex-skills](https://github.com/superdurable/dex-skills), but not both.
 
 ## 💬 Community
 

@@ -15,12 +15,28 @@ import {
   initialConnectorSetupTabKey,
   isStudioCommand,
   isStudioFrameResize,
+  descriptionParts,
+  manifestFieldDefaultText,
   studioHostCapabilities,
   studioState,
 } from './ConnectionsPage';
 import { connectorStudioStylesheet } from './connectorStudioTheme';
 
 describe('Connections contract', () => {
+  it('shows non-secret manifest defaults parenthetically and never exposes secret defaults', () => {
+    expect(manifestFieldDefaultText({name: 'endpoint', type: 'url', description: '', required: false, default: 'https://api.example.com/v1'})).toBe('(Default: https://api.example.com/v1)');
+    expect(manifestFieldDefaultText({name: 'limits', type: 'stringMap', description: '', required: false, default: {rows: 10}})).toBe('(Default: {"rows":10})');
+    expect(manifestFieldDefaultText({name: 'api_key', type: 'secretString', description: '', required: true, default: 'never-render'})).toBeUndefined();
+  });
+
+  it('turns provider guidance URLs into explicit links', () => {
+    expect(descriptionParts('Start at https://example.com/settings/keys and copy the value.')).toEqual([
+      {text: 'Start at '},
+      {text: 'https://example.com/settings/keys', url: 'https://example.com/settings/keys'},
+      {text: ' and copy the value.'},
+    ]);
+  });
+
   it('keys named connections independently and maps visible status', () => {
     expect(connectionKey({ connectorId: 'gmail', connectionName: 'sender' } as never)).toBe('gmail\u0000sender');
     expect(connectionKey({ connectorId: 'gmail', connectionName: 'support' } as never)).toBe('gmail\u0000support');

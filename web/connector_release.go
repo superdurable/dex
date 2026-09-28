@@ -80,13 +80,19 @@ type connectorReleaseManifest struct {
 			Fields []connectorManifestField `json:"fields"`
 		} `json:"configuration"`
 		Auth struct {
-			Type           string                   `json:"type"`
-			ConnectionKind string                   `json:"connectionKind"`
-			Fields         []connectorManifestField `json:"fields"`
-			OAuth2         *connectorManifestOAuth2 `json:"oauth2,omitempty"`
+			Type           string                       `json:"type"`
+			ConnectionKind string                       `json:"connectionKind"`
+			Fields         []connectorManifestField     `json:"fields"`
+			Guide          *connectorAuthorizationGuide `json:"guide,omitempty"`
+			OAuth2         *connectorManifestOAuth2     `json:"oauth2,omitempty"`
 		} `json:"auth"`
 		Studio *connectorManifestStudio `json:"studio,omitempty"`
 	} `json:"spec"`
+}
+
+type connectorAuthorizationGuide struct {
+	StartURL string   `json:"startURL"`
+	Steps    []string `json:"steps"`
 }
 
 type connectorManifestStudio struct {
@@ -105,17 +111,25 @@ type connectorManifestField struct {
 }
 
 type connectorManifestOAuth2 struct {
-	AuthorizationEndpoint string                            `json:"authorizationEndpoint"`
-	TokenEndpoint         string                            `json:"tokenEndpoint"`
-	Scopes                []string                          `json:"scopes"`
-	UserScopes            []string                          `json:"userScopes,omitempty"`
-	CredentialMappings    []connectorOAuthCredentialMapping `json:"credentialMappings,omitempty"`
-	PKCE                  bool                              `json:"pkce"`
+	AuthorizationEndpoint string                               `json:"authorizationEndpoint"`
+	TokenEndpoint         string                               `json:"tokenEndpoint"`
+	Scopes                []string                             `json:"scopes"`
+	UserScopes            []string                             `json:"userScopes,omitempty"`
+	CredentialMappings    []connectorOAuthCredentialMapping    `json:"credentialMappings,omitempty"`
+	CredentialDerivations []connectorOAuthCredentialDerivation `json:"credentialDerivations,omitempty"`
+	PKCE                  bool                                 `json:"pkce"`
 }
 
 type connectorOAuthCredentialMapping struct {
 	Credential string `json:"credential"`
 	Source     string `json:"source"`
+}
+
+type connectorOAuthCredentialDerivation struct {
+	Credential string `json:"credential"`
+	Endpoint   string `json:"endpoint"`
+	Source     string `json:"source"`
+	VerifiedBy string `json:"verifiedBy,omitempty"`
 }
 
 type connectorManifestStudioSetup struct {

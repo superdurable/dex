@@ -134,6 +134,44 @@ func TestLoadFlowDefinitionsRejectsInvalidV2ActionPermission(t *testing.T) {
 	}
 }
 
+func TestLoadFlowDefinitionsPreservesV2ActionQRCapture(t *testing.T) {
+	directory := t.TempDir()
+	definition := withV2ActionInput(validFlowDefinitionV2("RefundFlow", true),
+		`{"fieldName":"code","valueType":"string","source":"user","capture":"qr-code","required":true,"description":"Code"}`)
+	writeFlowDefinitionTestFile(t, directory, "capture.json", definition)
+
+	handler, err := loadFlowDefinitions(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	field := handler.V2Definitions()["RefundFlow"].Actions[0].Input.Fields[0]
+	if field.Capture != "qr-code" {
+		t.Fatalf("Action input capture = %q", field.Capture)
+	}
+}
+
+func TestLoadFlowDefinitionsRejectsInvalidV2ActionCapture(t *testing.T) {
+	for _, testCase := range []struct {
+		name  string
+		field string
+	}{
+		{name: "unknown capture", field: `{"fieldName":"code","valueType":"string","source":"user","capture":"barcode","required":true,"description":"Code"}`},
+		{name: "numeric capture", field: `{"fieldName":"code","valueType":"int64","source":"user","capture":"qr-code","required":true,"description":"Code"}`},
+		{name: "Attribute capture", field: `{"fieldName":"code","valueType":"string","source":"attribute","attributeKey":"case-status","capture":"qr-code","required":true,"description":"Code"}`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			directory := t.TempDir()
+			definition := withV2ActionInput(validFlowDefinitionV2("RefundFlow", true), testCase.field)
+			writeFlowDefinitionTestFile(t, directory, "capture.json", definition)
+
+			_, err := loadFlowDefinitions(directory)
+			if err == nil || !strings.Contains(err.Error(), `input field "code" has invalid capture`) {
+				t.Fatalf("invalid capture error = %v", err)
+			}
+		})
+	}
+}
+
 func TestLoadFlowDefinitionsPreservesInt64ConditionValues(t *testing.T) {
 	directory := t.TempDir()
 	definition := strings.Replace(
@@ -265,4 +303,11 @@ func withV2Start(definition string, start string) string {
 
 func withV2ConnectorTriggerBindings(definition string, bindings string) string {
 	return strings.Replace(definition, `"actions":[]`, `"actions":[],"connectorTriggerBindings":`+bindings, 1)
+}
+
+func withV2ActionInput(definition string, field string) string {
+	action := `{"rpcName":"SubmitCode","label":"Submit","requiredPermission":"code.submit",` +
+		`"condition":{"attributeKey":"case-status","operator":"in","values":["open"]},` +
+		`"input":{"kind":"object","fields":[` + field + `]}}`
+	return strings.Replace(definition, `"actions":[]`, `"actions":[`+action+`]`, 1)
 }

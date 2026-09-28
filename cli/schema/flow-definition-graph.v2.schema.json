@@ -322,6 +322,7 @@
         "valueType": {"enum": ["string", "int64", "double", "bool", "datetime"]},
         "source": {"enum": ["user", "attribute"]},
         "attributeKey": {"type": "string"},
+        "capture": {"enum": ["qr-code"]},
         "required": {"type": "boolean"},
         "description": {"type": "string"}
       },
@@ -330,6 +331,15 @@
           "if": {"properties": {"source": {"const": "attribute"}}},
           "then": {"required": ["attributeKey"]},
           "else": {"not": {"required": ["attributeKey"]}}
+        },
+        {
+          "if": {"required": ["capture"]},
+          "then": {
+            "properties": {
+              "source": {"const": "user"},
+              "valueType": {"const": "string"}
+            }
+          }
         }
       ]
     },

@@ -152,6 +152,8 @@ func TestVisualizeV2BuildsRecursiveStartInputSchema(t *testing.T) {
 	require.Equal(t, "-32768", fields["scores"].Schema.Items.Minimum)
 	require.Equal(t, int64(2), *fields["decisions"].Schema.FixedLength)
 	require.Equal(t, "18446744073709551615", fields["counters"].Schema.Values.Maximum)
+	require.Len(t, graph.V2.Actions, 1)
+	require.Equal(t, "qr-code", graph.V2.Actions[0].Input.Fields[0].Capture)
 }
 
 func TestVisualizeV2BuildsTopLevelScalarAndNullStartSchemas(t *testing.T) {
@@ -361,6 +363,8 @@ func TestVisualizeV2ReportsMalformedNamedDirectives(t *testing.T) {
 	require.Contains(t, messages, `dex:field value-type "string" does not match Attribute "flag" type "bool"`)
 	require.Contains(t, messages, "GetDexDisplay must be read-only")
 	require.Contains(t, messages, `dex:input input field "missing" is not in the RPC input struct`)
+	require.Contains(t, messages, "dex:input capture must be qr-code")
+	require.Contains(t, messages, "dex:input capture requires a source:user string input field")
 	require.Contains(t, messages, "RPC RejectBadPermission Action requires exactly one valid permission")
 	require.Contains(t, messages, `dex:field ui-slot "headline" is not a UI slot this view has`)
 	require.Contains(t, messages, `dex:field ui-slot "title" is already taken by Attribute "state"`)

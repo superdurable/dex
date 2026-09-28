@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 
 const siteOrigin = 'https://docs.superdurable.io';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
+const docsRoot = join(root, '..');
 const redirectsPath = join(root, '..', 'redirects.json');
 const redirectRules = JSON.parse(await readFile(redirectsPath, 'utf8'));
 const expectedRedirects = new Map(
@@ -47,6 +48,53 @@ const zhDexConnectorContributor = await readFile(
 const zhConnector = await readFile(join(root, 'zh-Hans', 'primitives', 'connector', 'index.html'), 'utf8');
 const zhWhyDex = await readFile(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
+const dexSkillHostTabsSource = await readFile(join(docsRoot, 'src', 'components', 'DexSkillHostTabs.tsx'), 'utf8');
+const dexSkillSourcePaths = [
+  join(docsRoot, 'content', 'build-with-ai', 'dex-developer-skill.mdx'),
+  join(docsRoot, 'content', 'build-with-ai', 'dex-developer-skill', 'dex-app-builder.mdx'),
+  join(docsRoot, 'content', 'build-with-ai', 'dex-developer-skill', 'dex-sdk.mdx'),
+  join(docsRoot, 'content', 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor.mdx'),
+  join(
+    docsRoot,
+    'i18n',
+    'zh-Hans',
+    'docusaurus-plugin-content-docs',
+    'current',
+    'build-with-ai',
+    'dex-developer-skill.mdx',
+  ),
+  join(
+    docsRoot,
+    'i18n',
+    'zh-Hans',
+    'docusaurus-plugin-content-docs',
+    'current',
+    'build-with-ai',
+    'dex-developer-skill',
+    'dex-app-builder.mdx',
+  ),
+  join(
+    docsRoot,
+    'i18n',
+    'zh-Hans',
+    'docusaurus-plugin-content-docs',
+    'current',
+    'build-with-ai',
+    'dex-developer-skill',
+    'dex-sdk.mdx',
+  ),
+  join(
+    docsRoot,
+    'i18n',
+    'zh-Hans',
+    'docusaurus-plugin-content-docs',
+    'current',
+    'build-with-ai',
+    'dex-developer-skill',
+    'dex-connector-contributor.mdx',
+  ),
+];
+const dexSkillSources = await Promise.all(dexSkillSourcePaths.map((filePath) => readFile(filePath, 'utf8')));
 
 assert.match(home, /Super Durable home/);
 assert.match(home, /https:\/\/superdurable\.io\/dex/);
@@ -108,22 +156,50 @@ assert.match(dexSkills, /dex-connector-contributor/);
 assert.match(dexSkills, /primary skill/i);
 assert.match(dexSkills, /Requires a coding workspace/);
 assert.match(dexSkills, /writable repository or project workspace/);
-assert.match(dexSkills, /No terminal command or separately installed Codex CLI is required/);
 assert.match(dexSkills, /https:\/\/github\.com\/superdurable\/dex-skills/);
-assert.match(dexSkills, /Sparse paths/);
-assert.match(dexSkills, /command not found: codex/);
-assert.doesNotMatch(dexSkills, /codex plugin add/);
-assert.match(dexSkills, /Claude on the web or in the desktop app/);
-assert.match(dexSkills, /Claude Code CLI/);
-assert.match(dexSkills, /From a shell where the <strong>claude<\/strong> command is installed/);
-assert.match(dexSkills, /inside an interactive Claude Code session/);
-assert.match(dexSkills, /Cursor desktop app/);
-assert.match(dexSkills, /Cursor CLI/);
-assert.match(dexSkills, /does not document a separate shell command/);
-assert.doesNotMatch(dexSkills, /cursor-agent plugin/);
-assert.match(dexSkills, /codex plugin marketplace upgrade superdurable/);
-assert.match(dexSkills, /claude plugin update superdurable-dex@superdurable/);
-assert.match(dexSkills, /Auto Refresh/);
+
+const englishDexSkillPages = [dexSkills, dexAppBuilder, dexSdk, dexConnectorContributor];
+const chineseDexSkillPages = [zhDexSkills, zhDexAppBuilder, zhDexSdk, zhDexConnectorContributor];
+for (const page of englishDexSkillPages) {
+  assertDexSkillHostTabs(page, 'Other clients', false);
+}
+for (const page of chineseDexSkillPages) {
+  assertDexSkillHostTabs(page, '其他客户端', true);
+}
+
+assert.match(dexSkillHostTabsSource, /defaultValue="codex-desktop"/);
+assert.match(dexSkillHostTabsSource, /groupId="dex-skill-host"/);
+assert.match(dexSkillHostTabsSource, /queryString="host"/);
+assert.equal((dexSkillHostTabsSource.match(/<TabItem\b/g) ?? []).length, 6);
+assert.doesNotMatch(dexSkillHostTabsSource, /\blazy(?:=|\s)/);
+for (const source of dexSkillSources) {
+  assert.match(source, /<DexSkillHostTabs skill="(?:all|dex-app-builder|dex-sdk|dex-connector-contributor)" \/>/);
+  assert.doesNotMatch(source, /^## (?:Install for|安装到) (?:Codex|Claude|Cursor)$/m);
+  assert.doesNotMatch(source, /\[(?:installation overview|安装总览)\]/i);
+}
+
+const dexSkillsText = htmlText(dexSkills);
+assert.match(dexSkillsText, /\$dex-app-builder Design and build an event-registration application\./);
+assert.match(dexSkillsText, /\$dex-sdk Diagnose why this Flow retries after the payment Step completes\./);
+assert.match(dexSkillsText, /\$dex-connector-contributor Add <XYZ> to Dex official connector library/);
+assert.match(dexSkillsText, /\/superdurable-dex:dex-connector-contributor Add <XYZ>/);
+assert.doesNotMatch(dexSkillsText, /Add this Trigger to the official Slack Connector/);
+
+assert.match(htmlText(dexAppBuilder), /\$dex-app-builder Design and build an event-registration application\./);
+assert.match(htmlText(dexSdk), /\$dex-sdk Diagnose why this Flow retries after the payment Step completes\./);
+assert.match(
+  htmlText(dexConnectorContributor),
+  /\$dex-connector-contributor Add <XYZ> to Dex official connector library/,
+);
+for (const page of [dexAppBuilder, zhDexAppBuilder]) {
+  assertSkillInvocationExamples(page, 'dex-app-builder', 'Design and build an event-registration application.');
+}
+for (const page of [dexSdk, zhDexSdk]) {
+  assertSkillInvocationExamples(page, 'dex-sdk', 'Diagnose why this Flow retries after the payment Step completes.');
+}
+for (const page of [dexConnectorContributor, zhDexConnectorContributor]) {
+  assertSkillInvocationExamples(page, 'dex-connector-contributor', 'Add <XYZ> to Dex official connector library');
+}
 assert.ok(dexSkills.indexOf('dex-app-builder') < dexSkills.indexOf('dex-sdk'));
 assert.match(dexSkills, /dex-developer-skill\/dex-app-builder/);
 assert.match(dexSkills, /dex-developer-skill\/dex-sdk/);
@@ -138,24 +214,11 @@ assert.match(dexConnectorContributor, /Repository and fork workflow/);
 assert.match(dexConnectorContributor, /Update <strong>connector.yaml<\/strong> before provider implementation/);
 assert.match(dexConnectorContributor, /production handoff waits for an exact released Connector version/);
 assert.match(dexConnectorContributor, /currently support only\s+the Dex Go SDK/);
-assert.match(dexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex\/issues\/new/);
+assert.match(dexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/issues\/new/);
 assert.match(zhDexSkills, /使用 AI 构建/);
 assert.match(zhDexSkills, /主要 skill/);
 assert.match(zhDexSkills, /需要代码工作区/);
 assert.match(zhDexSkills, /可写 repository 或 project\s+workspace/);
-assert.match(zhDexSkills, /不需要 terminal command/);
-assert.match(zhDexSkills, /Sparse paths/);
-assert.match(zhDexSkills, /command not found: codex/);
-assert.doesNotMatch(zhDexSkills, /codex plugin add/);
-assert.match(zhDexSkills, /Claude Web 或 Desktop app/);
-assert.match(zhDexSkills, /Claude Code CLI/);
-assert.match(zhDexSkills, /Cursor Desktop app/);
-assert.match(zhDexSkills, /Cursor CLI/);
-assert.match(zhDexSkills, /没有记录用于安装该 GitHub\s+marketplace 的独立 shell command/);
-assert.doesNotMatch(zhDexSkills, /cursor-agent plugin/);
-assert.match(zhDexSkills, /codex plugin marketplace upgrade superdurable/);
-assert.match(zhDexSkills, /claude plugin update superdurable-dex@superdurable/);
-assert.match(zhDexSkills, /Auto Refresh/);
 assert.ok(zhDexSkills.indexOf('dex-app-builder') < zhDexSkills.indexOf('dex-sdk'));
 assert.match(zhDexAppBuilder, /主要 skill/);
 assert.match(zhDexAppBuilder, /选择应用界面/);
@@ -164,14 +227,14 @@ assert.match(zhDexSdk, /诊断默认是只读的/);
 assert.match(zhDexConnectorContributor, /Repository 与 Fork 工作流/);
 assert.match(zhDexConnectorContributor, /production\s+handoff 必须等待精确发布的 Connector version/);
 assert.match(zhDexConnectorContributor, /目前只支持 Dex Go SDK/);
-assert.match(zhDexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex\/issues\/new/);
+assert.match(zhDexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/issues\/new/);
 assert.match(connector, /independent Dex primitive/);
 assert.match(connector, /currently support only\s+the Dex Go SDK/);
-assert.match(connector, /https:\/\/github\.com\/superdurable\/dex\/issues\/new/);
+assert.match(connector, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/issues\/new/);
 assert.match(connector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/primitives\/connector\/"/);
 assert.match(zhConnector, /独立 Dex primitive/);
 assert.match(zhConnector, /目前只有使用 Dex Go SDK 的应用可以集成 Connector/);
-assert.match(zhConnector, /https:\/\/github\.com\/superdurable\/dex\/issues\/new/);
+assert.match(zhConnector, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/issues\/new/);
 assert.match(zhConnector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/connector\/"/);
 assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/subflow\/"/);
 
@@ -279,6 +342,65 @@ assert.match(robots, /^Sitemap: https:\/\/docs\.superdurable\.io\/zh-Hans\/sitem
 console.log(
   `Docs shell and SEO audit passed for ${indexablePages.size} indexable routes and ${actualRedirects.size} redirects.`,
 );
+
+function assertDexSkillHostTabs(html, otherClientsLabel, isChinese) {
+  const tabLabels = [...html.matchAll(/role="tab"[^>]*>([^<]+)<\/li>/g)].map((match) => match[1]);
+  assert.deepEqual(tabLabels, [
+    'Codex Desktop',
+    'Codex CLI',
+    'Claude Desktop',
+    'Claude Code CLI',
+    'Cursor',
+    otherClientsLabel,
+  ]);
+  assert.match(html, /role="tab"[^>]*aria-selected="true"[^>]*>Codex Desktop<\/li>/);
+  assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 6);
+
+  const text = htmlText(html);
+  assert.match(text, /@Dex /);
+  assert.match(text, /\/superdurable-dex:(?:dex-app-builder|dex-sdk|dex-connector-contributor) /);
+  assert.match(text, /codex plugin marketplace add superdurable\/dex-skills/);
+  assert.match(text, /codex plugin add superdurable-dex@superdurable/);
+  assert.match(text, /npx skills add superdurable\/dex-skills --skill '\*' --agent codex --global/);
+  assert.match(text, /claude plugin marketplace add superdurable\/dex-skills/);
+  assert.match(text, /claude plugin install superdurable-dex@superdurable/);
+  assert.match(text, /npx skills add superdurable\/dex-skills --skill '\*' --agent claude-code --global/);
+  assert.match(text, /cursor-agent/);
+  assert.match(text, /npx skills add superdurable\/dex-skills --skill '\*' --agent cursor --global/);
+  assert.match(text, /npx skills add superdurable\/dex-skills --skill '\*' --global/);
+  assert.match(text, /npx skills add superdurable\/dex-skills --skill '\*' --agent <agent-id> --global/);
+  assert.match(text, /npx skills update dex-app-builder dex-sdk dex-connector-contributor --global/);
+  assert.match(text, isChinese ? /Plugin（推荐）/ : /Plugin \(recommended\)/);
+  assert.match(text, /Standalone Skills/);
+  assert.match(text, isChinese ? /安装.*使用.*更新/s : /Install.*Use.*Update/s);
+}
+
+function assertSkillInvocationExamples(html, skillName, prompt) {
+  const text = htmlText(html);
+  assert.ok(text.includes(`@Dex ${prompt}`));
+  assert.ok(text.includes(`$${skillName} ${prompt}`));
+  assert.ok(text.includes(`/superdurable-dex:${skillName} ${prompt}`));
+  assert.ok(text.includes(`/${skillName} ${prompt}`));
+  for (const otherPrompt of [
+    'Design and build an event-registration application.',
+    'Diagnose why this Flow retries after the payment Step completes.',
+    'Add <XYZ> to Dex official connector library',
+  ]) {
+    if (otherPrompt !== prompt) {
+      assert.equal(text.includes(otherPrompt), false);
+    }
+  }
+}
+
+function htmlText(html) {
+  return html
+    .replace(/<[^>]*>/g, '')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&#x27;', "'")
+    .replaceAll('&quot;', '"')
+    .replaceAll('&amp;', '&');
+}
 
 async function collectOutputFiles(directory) {
   const entries = await readdir(directory, {withFileTypes: true});

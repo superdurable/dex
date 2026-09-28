@@ -7,9 +7,10 @@ slug: /build-with-ai/dex-developer-skill
 
 # Build with AI using Dex Skills
 
-Dex Skills is the official coding-agent plugin for Dex. It helps Codex, Claude
-Code, Cursor, and other Agent Skills clients design and build Dex applications,
-work directly with the public Dex SDK, and contribute official
+Dex Skills is the official coding-agent guidance for Dex. It is distributed as
+a Plugin or as a standalone bundle of three Skills. It helps Codex, Claude
+Code, and Cursor design and build Dex applications, work directly with the
+public Dex SDK, and contribute official
 [Connectors](/primitives/connector).
 
 The plugin contains developer guidance, not runtime code. Dex Server, Workers,
@@ -55,200 +56,35 @@ design and implementation begin, uses released Connectors directly, and routes
 a confirmed official Connector gap to Dex Connector Contributor. Connector
 Contributor also loads Dex SDK when it needs shared Flow and Step semantics.
 
-Install the complete plugin so the agent can route between all three skills.
-The source and releases are maintained in
+Install all three Skills together so the agent can route between them. The
+source and releases are maintained in
 [superdurable/dex-skills](https://github.com/superdurable/dex-skills).
 
-## Install for Codex
+## Choose one installation path
 
-### Codex in the ChatGPT desktop app
+Use one of these paths, not both:
 
-No terminal command or separately installed Codex CLI is required.
+1. **Plugin (recommended)** installs all three Skills and uses the host's
+   marketplace lifecycle.
+2. **Standalone Skills** installs all three Skills directly with the Agent
+   Skills CLI.
 
-1. Open the plugin browser, select the add menu, and choose
-   **Add a marketplace**.
-2. Complete the form with these values:
+Installing both can leave duplicate copies with ambiguous versions. Plugin and
+standalone installations can also use different invocation syntax on the same
+host.
 
-   | Field | Value |
-   | --- | --- |
-   | **Source** | **https://github.com/superdurable/dex-skills** |
-   | **Git ref** | **main** |
-   | **Sparse paths** | Leave empty. The marketplace and plugin are at the repository root. |
+## Install and use Dex Skills
 
-3. Select **Add marketplace**.
-4. Open the **Super Durable** marketplace, select **Dex**, and install it.
-5. Open an existing repository or create an empty one, then start a new task.
-
-For product work, describe the application normally or invoke App Builder:
-
-~~~text
-$dex-app-builder Design and build this process application.
-~~~
-
-Codex can select **dex-app-builder** from the task context. The SDK and
-Connector Contributor skills are explicit-only specialist entries, while App
-Builder can still load them as part of the product workflow:
-
-~~~text
-$dex-sdk Diagnose this Flow retry behavior.
-$dex-connector-contributor Add this capability to an official Connector.
-~~~
-
-### Optional: Codex CLI
-
-The shell command below is valid only when the separate Codex CLI is installed
-and available on your **PATH**. Check first:
-
-~~~bash
-codex --version
-codex plugin marketplace add superdurable/dex-skills
-codex
-~~~
-
-Inside Codex CLI, open **/plugins**, select the **Super Durable** marketplace,
-and install **Dex**. If the shell reports **command not found: codex**, use the
-desktop steps above or install Codex CLI separately. The desktop app does not
-require this CLI route.
-
-## Install for Claude
-
-### Claude on the web or in the desktop app
-
-1. Open **Customize** and select the **Plugins** tab.
-2. Select **Add**, then **Add marketplace**.
-3. Choose **Add from a repository** and enter
-   **https://github.com/superdurable/dex-skills**.
-4. Open the **Super Durable** marketplace and install **Dex**.
-
-Claude saves this installation to your account. The plugin is also available
-in Claude Code sessions signed in with the same account.
-
-### Claude Code CLI
-
-From a shell where the **claude** command is installed, run:
-
-~~~bash
-claude plugin marketplace add superdurable/dex-skills
-claude plugin install superdurable-dex@superdurable
-~~~
-
-Alternatively, inside an interactive Claude Code session, run the slash-command
-versions:
-
-~~~text
-/plugin marketplace add superdurable/dex-skills
-/plugin install superdurable-dex@superdurable
-~~~
-
-Do not enter the slash-command versions directly in a shell. Start a new Claude
-Code session after installation. The three skill invocations, in recommended
-order, are:
-
-~~~text
-/superdurable-dex:dex-app-builder
-/superdurable-dex:dex-sdk
-/superdurable-dex:dex-connector-contributor
-~~~
-
-## Install for Cursor
-
-### Cursor desktop app
-
-1. Open **Customize** in the sidebar.
-2. Choose **From GitHub Repository** and enter
-   **https://github.com/superdurable/dex-skills**.
-3. Open **Dex**, select **Install**, and choose a user or project scope.
-
-The repository contains the required Cursor marketplace manifest. The three
-skills appear as:
-
-~~~text
-/dex-app-builder
-/dex-sdk
-/dex-connector-contributor
-~~~
-
-### Cursor CLI
-
-Cursor's official documentation describes plugin installation through
-**Customize** and does not document a separate shell command for installing
-this GitHub marketplace. Install Dex through the desktop app instead of
-guessing a **cursor plugin install** command. Cursor documents installed plugins
-as available across its desktop, web, and CLI surfaces.
-
-Agent Skills clients can install the complete bundle directly:
-
-~~~bash
-npx skills add superdurable/dex-skills --all
-~~~
-
-## Keep the plugin current
-
-Agents use an installed or cached copy. They do not fetch the latest GitHub
-content for every prompt, and an active task keeps the version loaded when that
-task started.
-
-### Codex in the ChatGPT desktop app
-
-Open the plugin browser's marketplace management view, find **Super Durable**,
-and select **Upgrade**. Wait for the upgrade to finish, restart the desktop app,
-and start a new task. This route does not require Codex CLI.
-
-### Codex CLI
-
-From a shell where **codex --version** works, refresh the Super Durable
-marketplace and start a new session:
-
-~~~bash
-codex plugin marketplace upgrade superdurable
-codex
-~~~
-
-Open **/plugins** and confirm that **Dex** is enabled.
-
-### Claude Code CLI
-
-Update Dex directly from a shell:
-
-~~~bash
-claude plugin update superdurable-dex@superdurable
-~~~
-
-Or update the marketplace inside an interactive Claude Code session:
-
-~~~text
-/plugin marketplace update superdurable
-~~~
-
-Start a new session after a manual update. To receive future releases
-automatically, open **/plugin**, select **Marketplaces → Super Durable**, and
-select **Enable auto-update**.
-
-Claude's public web and desktop documentation does not describe a separate
-per-user upgrade command. For an organization-managed GitHub marketplace, an
-owner selects **Organization settings → Plugins & skills → Marketplaces →
-Update**, and account users receive the synced version.
-
-### Cursor
-
-For a GitHub-imported team marketplace, an administrator can click **Refresh**
-or enable **Auto Refresh**, then users reload the Cursor window. Cursor does not
-document a personal **cursor plugin update** shell command for a direct GitHub
-import; manage the installation through **Customize** instead of guessing one.
-
-For a direct Agent Skills installation, rerun the installation command shown
-above.
-
-The plugin version is separate from the Dex SDK version. Each skill inspects
-the application's installed dependencies and immutable released sources before
-using an exact API.
+<DexSkillHostTabs skill="all" />
 
 ## Trust and permissions
 
-Install agent extensions only from sources you trust. The Dex plugin declares
-no MCP server, hooks, credentials, or application runtime code. Creating a
-GitHub fork, publishing a branch, opening a pull request, and mutating a running
-Flow remain permissioned actions.
+Install agent extensions only from sources you trust. Dex declares no MCP
+server, credentials, or application runtime code. Its optional lifecycle hook
+reads the installed version and public GitHub release metadata, then reports a
+newer release without installing it. Creating a GitHub fork, publishing a
+branch, opening a pull request, and mutating a running Flow remain permissioned
+actions.
 
 Continue with [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx), the
 primary workflow.

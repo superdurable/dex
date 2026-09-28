@@ -23,6 +23,13 @@ import { RUN_COPY } from '../run/copy';
 import { leadFields } from './uiSlots';
 import { useWebCatalog } from '../WebCatalogProvider';
 import { definitionRevisionHeaders, dexFetch } from '@/lib/webConfig';
+import { QRCodeScannerDialog } from './QRCodeScannerDialog';
+
+interface ActiveQRScanner {
+  actionRPCName: string;
+  fieldName: string;
+  fieldDescription: string;
+}
 
 export function SelectedRunPanel({
   flowType,
@@ -67,6 +74,7 @@ export function SelectedRunPanel({
   const [editValue, setEditValue] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [actionValues, setActionValues] = useState<Record<string, Record<string, string>>>({});
+  const [activeQRScanner, setActiveQRScanner] = useState<ActiveQRScanner | null>(null);
 
   const loadDisplay = useCallback(async () => {
     try {
@@ -92,6 +100,7 @@ export function SelectedRunPanel({
   useEffect(() => {
     setHeld(nothingHeld<V2Display>());
     setActionValues({});
+    setActiveQRScanner(null);
     setEditingKey('');
   }, [definitionUpdateKey, flowId, flowType]);
 
@@ -254,6 +263,11 @@ export function SelectedRunPanel({
                             [field.fieldName]: value,
                           },
                         }))}
+                        onScanRequested={() => setActiveQRScanner({
+                          actionRPCName: action.rpcName,
+                          fieldName: field.fieldName,
+                          fieldDescription: field.description,
+                        })}
                       />
                     </label>
                   ))}
@@ -284,6 +298,22 @@ export function SelectedRunPanel({
           ? <>{actionsBlock}{displayBlock}</>
           : <>{displayBlock}{actionsBlock}</>;
       })()}
+      {activeQRScanner && (
+        <QRCodeScannerDialog
+          fieldDescription={activeQRScanner.fieldDescription}
+          onCancel={() => setActiveQRScanner(null)}
+          onScan={(value) => {
+            setActionValues((current) => ({
+              ...current,
+              [activeQRScanner.actionRPCName]: {
+                ...current[activeQRScanner.actionRPCName],
+                [activeQRScanner.fieldName]: value,
+              },
+            }));
+            setActiveQRScanner(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -333,10 +363,18 @@ function TypedInput({ field, value, onChange, required = false }: {
   );
 }
 
-function ActionInput({ field, value, onChange }: {
+export function ActionInput({ field, value, onChange, onScanRequested }: {
   field: FlowV2ActionInputField;
   value: string;
   onChange: (value: string) => void;
+  onScanRequested: () => void;
 }) {
-  return <TypedInput field={field} required={field.required} value={value} onChange={onChange} />;
+  return (
+    <span className="qr-capture-control">
+      <TypedInput field={field} required={field.required} value={value} onChange={onChange} />
+      {field.capture === 'qr-code' && (
+        <button className="v2-ghost" onClick={onScanRequested} type="button">Scan QR code</button>
+      )}
+    </span>
+  );
 }

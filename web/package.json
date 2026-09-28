@@ -13,6 +13,8 @@
   "dependencies": {
     "@superdurable/flow-definition-renderer": "file:../packages/flow-definition-renderer",
     "@xyflow/react": "^12.8.4",
+    "@zxing/browser": "0.1.5",
+    "@zxing/library": "0.21.3",
     "dagre": "^0.8.5",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

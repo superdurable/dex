@@ -60,12 +60,24 @@ Select the named connection. Dex Web verifies the official release metadata
 and checksum. It loads a compatible Studio UI in an opaque-origin sandbox when
 one exists. Otherwise it renders a generic form from the manifest.
 
+The authorization panel links to the provider's starting page and lists the
+exact setup path supplied by the Connector release. Each non-secret manifest
+default appears below its field in parentheses. Leave the input blank to use
+that default; enter a value only when the field guidance explains why an
+override is useful. URLs in field guidance are clickable.
+
 OAuth always uses state and a ten-minute single-use session. Connectors use
 PKCE when their provider supports that authorization flow. The OAuth client ID
 and client secret remain in memory and are not written to disk. Dex stores the
 short-lived access token after checking the granted scopes. It does not store
 refresh tokens or refresh access automatically. Reauthorize when the
 connection becomes **Expired**.
+
+Dex displays the exact Redirect URI before OAuth starts so it can be copied
+into the provider application. When a Connector declares a read-only identity
+derivation, Dex calls that HTTPS endpoint with the new access token and stores
+the claim only after its declared verification flag is true. Derived fields,
+such as a verified primary email, do not appear as free-text inputs.
 
 Deleting local credentials removes only the local record. It does not revoke
 the provider grant.

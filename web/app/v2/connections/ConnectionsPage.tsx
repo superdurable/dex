@@ -80,10 +80,12 @@ interface ReleaseManifest {
     auth: {
       type: string;
       fields: ManifestField[];
+      guide?: { startURL: string; steps: string[] };
       oauth2?: {
         scopes: string[];
         userScopes?: string[];
         credentialMappings?: { credential: string; source: string }[];
+        credentialDerivations?: { credential: string; endpoint: string; source: string; verifiedBy?: string }[];
       };
     };
     studio?: {
@@ -99,6 +101,7 @@ interface UISessionResponse {
   connectionName: string;
   sessionNonce?: string;
   entrypointUrl?: string;
+  oauthRedirectUri?: string;
   manifest: ReleaseManifest;
 }
 
@@ -323,7 +326,7 @@ function ConnectorSetupPanel({activeTab, catalog, connection, session, setupTabs
   return <div aria-labelledby={`connector-setup-tab-${activeTab.key}`} className="connector-setup-panel" id="connector-setup-panel" role="tabpanel">
     {activeTab.kind === 'authorize'
       ? <AuthorizationPanel
-        catalog={catalog} connection={connection} manifest={session.manifest}
+        catalog={catalog} connection={connection} session={session}
         onConfigured={completeAuthorization} onError={onError}
       />
       : <ConnectorUsePanel
@@ -333,10 +336,10 @@ function ConnectorSetupPanel({activeTab, catalog, connection, session, setupTabs
   </div>;
 }
 
-function AuthorizationPanel({catalog, connection, manifest, onConfigured, onError}: {
+function AuthorizationPanel({catalog, connection, session, onConfigured, onError}: {
   catalog: ConnectionsResponse;
   connection: ConnectionView;
-  manifest: ReleaseManifest;
+  session: UISessionResponse;
   onConfigured: () => Promise<void>;
   onError: (message: string) => void;
 }) {
@@ -349,7 +352,7 @@ function AuthorizationPanel({catalog, connection, manifest, onConfigured, onErro
     </div>;
   }
   return <ConnectorForm
-    catalog={catalog} connection={connection} manifest={manifest}
+    catalog={catalog} connection={connection} session={session}
     onConfigured={onConfigured} onError={onError}
   />;
 }
@@ -427,13 +430,14 @@ function configurationUnitTarget(
   };
 }
 
-function ConnectorForm({ catalog, connection, manifest, onConfigured, onError }: {
+function ConnectorForm({ catalog, connection, session, onConfigured, onError }: {
   catalog: ConnectionsResponse;
   connection: ConnectionView;
-  manifest: ReleaseManifest;
+  session: UISessionResponse;
   onConfigured: () => Promise<void>;
   onError: (message: string) => void;
 }) {
+  const manifest = session.manifest;
   const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const oauth = manifest.spec.auth.type === 'oauth2';
@@ -443,7 +447,10 @@ function ConnectorForm({ catalog, connection, manifest, onConfigured, onError }:
     try {
       const configuration = fieldValues(manifest.spec.configuration.fields, values, 'configuration');
       if (oauth) {
-        const mappedCredentials = new Set(manifest.spec.auth.oauth2?.credentialMappings?.map((mapping) => mapping.credential) ?? ['access_token']);
+        const mappedCredentials = new Set([
+          ...(manifest.spec.auth.oauth2?.credentialMappings?.map((mapping) => mapping.credential) ?? ['access_token']),
+          ...(manifest.spec.auth.oauth2?.credentialDerivations?.map((derivation) => derivation.credential) ?? []),
+        ]);
         const credentialValues = fieldValues(
           manifest.spec.auth.fields.filter((field) => field.type !== 'secretString'), values, 'credential',
         );
@@ -483,13 +490,22 @@ function ConnectorForm({ catalog, connection, manifest, onConfigured, onError }:
   return <form className="connector-form" id="connector-host-form" onSubmit={(event) => void submit(event)}>
     <h3>{manifest.metadata.displayName || connection.connectorId} setup</h3>
     <p>{manifest.metadata.description}</p>
+    {manifest.spec.auth.guide && <section className="connector-authorization-guide">
+      <h4>Authorization guide</h4>
+      <p>Start at <a href={manifest.spec.auth.guide.startURL} rel="noreferrer" target="_blank">{manifest.spec.auth.guide.startURL}</a></p>
+      <ol>{manifest.spec.auth.guide.steps.map((step, index) => <li key={`${index}:${step}`}>{linkifiedDescription(step)}</li>)}</ol>
+      {oauth && session.oauthRedirectUri && <div className="connector-redirect-uri"><span>Redirect URI</span><CopyValue value={session.oauthRedirectUri} /></div>}
+    </section>}
     {oauth && <>
-      <FormField inputId="connector-oauth-client-id" label="OAuth client ID" name="clientId" required secret={false} values={values} setValues={setValues} />
-      <FormField label="OAuth client secret" name="clientSecret" required secret values={values} setValues={setValues} />
+      <FormField inputId="connector-oauth-client-id" label="OAuth client ID" name="clientId" required secret={false} description="Copy the client ID from the provider application created with the guide above. This identifier is not secret." values={values} setValues={setValues} />
+      <FormField label="OAuth client secret" name="clientSecret" required secret description="Copy the matching client secret from the provider application. This value is secret and is retained only for this authorization session." values={values} setValues={setValues} />
       <p className="connections-note">Client credentials remain in memory for this ten-minute OAuth session and are never written to the connection file.</p>
     </>}
     {manifest.spec.configuration.fields.map((field) => <ManifestFormField key={`configuration:${field.name}`} field={field} prefix="configuration" values={values} setValues={setValues} />)}
-    {manifest.spec.auth.fields.filter((field) => !oauth || !(manifest.spec.auth.oauth2?.credentialMappings?.map((mapping) => mapping.credential) ?? ['access_token']).includes(field.name)).map((field) => <ManifestFormField key={`credential:${field.name}`} field={field} prefix="credential" values={values} setValues={setValues} />)}
+    {manifest.spec.auth.fields.filter((field) => !oauth || ![
+      ...(manifest.spec.auth.oauth2?.credentialMappings?.map((mapping) => mapping.credential) ?? ['access_token']),
+      ...(manifest.spec.auth.oauth2?.credentialDerivations?.map((derivation) => derivation.credential) ?? []),
+    ].includes(field.name)).map((field) => <ManifestFormField key={`credential:${field.name}`} field={field} prefix="credential" values={values} setValues={setValues} />)}
     {oauth && <p className="connections-scopes">Requested bot scopes: {manifest.spec.auth.oauth2?.scopes.join(', ')}{manifest.spec.auth.oauth2?.userScopes?.length ? `; user scopes: ${manifest.spec.auth.oauth2.userScopes.join(', ')}` : ''}</p>}
     <button className="v2-primary" disabled={submitting} type="submit">{oauth ? 'Authorize' : 'Save local credentials'}</button>
   </form>;
@@ -507,18 +523,20 @@ function ManifestFormField({ field, prefix, values, setValues }: {
     required={field.required && field.default === undefined}
     secret={field.type === 'secretString'}
     description={field.description}
+    defaultText={manifestFieldDefaultText(field)}
     values={values}
     setValues={setValues}
   />;
 }
 
-function FormField({ inputId, label, name, required, secret, description, values, setValues }: {
+function FormField({ inputId, label, name, required, secret, description, defaultText, values, setValues }: {
   inputId?: string;
   label: string;
   name: string;
   required: boolean;
   secret: boolean;
   description?: string;
+  defaultText?: string;
   values: Record<string, string>;
   setValues: (next: Record<string, string>) => void;
 }) {
@@ -531,8 +549,37 @@ function FormField({ inputId, label, name, required, secret, description, values
       value={values[name] ?? ''}
       onChange={(event) => setValues({ ...values, [name]: event.target.value })}
     />
-    {description && <small>{description}</small>}
+    {description && <small>{linkifiedDescription(description)}</small>}
+    {defaultText && <small className="connector-field-default">{defaultText}</small>}
   </label>;
+}
+
+export function manifestFieldDefaultText(field: ManifestField): string | undefined {
+  if (field.default === undefined || field.type === 'secretString') return undefined;
+  const value = typeof field.default === 'string'
+    ? field.default
+    : JSON.stringify(field.default);
+  return `(Default: ${value})`;
+}
+
+function linkifiedDescription(description: string) {
+  return descriptionParts(description).map((part, index) => part.url
+    ? <a href={part.url} key={`${part.text}:${index}`} rel="noreferrer" target="_blank">{part.text}</a>
+    : part.text);
+}
+
+export function descriptionParts(description: string): {text: string; url?: string}[] {
+  const parts: {text: string; url?: string}[] = [];
+  const pattern = /https?:\/\/[^\s,;)]+/g;
+  let start = 0;
+  for (const match of description.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > start) parts.push({text: description.slice(start, index)});
+    parts.push({text: match[0], url: match[0]});
+    start = index + match[0].length;
+  }
+  if (start < description.length) parts.push({text: description.slice(start)});
+  return parts;
 }
 
 function StudioFrame({ catalog, connection, configuration, session, target, onConfigured, onError }: {

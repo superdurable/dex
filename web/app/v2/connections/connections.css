@@ -382,6 +382,47 @@
   font-weight: 650;
 }
 
+.connector-authorization-guide {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+
+.connector-authorization-guide h4,
+.connector-authorization-guide p,
+.connector-authorization-guide ol {
+  margin: 0;
+}
+
+.connector-authorization-guide ol {
+  display: grid;
+  gap: 6px;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.connector-authorization-guide a,
+.connector-form small a {
+  color: var(--brand);
+  overflow-wrap: anywhere;
+}
+
+.connector-redirect-uri {
+  display: grid;
+  gap: 5px;
+  padding-top: 4px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.connector-field-default {
+  font-style: italic;
+}
+
 .connector-form input {
   padding: 8px 10px;
   border: 1px solid var(--line);
