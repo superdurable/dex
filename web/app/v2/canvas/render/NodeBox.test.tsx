@@ -47,7 +47,10 @@ describe('NodeBox', () => {
           title: 'RemoveEntry',
           subtitle: 'Action: Remove entry',
           rpcRole: 'action',
-          rows: [{ glyph: '◈', text: 'requires entries.manage', tone: 'quiet' }],
+          rows: [
+            { glyph: '◈', text: 'requires entries.manage', tone: 'quiet' },
+            { glyph: '▪', text: 'writes entries', trail: '+1 more', tone: 'quiet' },
+          ],
         }}
         selected={false}
       />,
@@ -56,6 +59,7 @@ describe('NodeBox', () => {
     expect(action).toContain('pbox pbox-rpcCard')
     expect(action).toContain('data-rpc-role="action"')
     expect(action).toContain('requires entries.manage')
+    expect(action).toContain('<span class="pbox-text">writes entries</span><span class="pbox-trail">+1 more</span>')
     expect(action).not.toContain('pbox-inner')
   })
 })

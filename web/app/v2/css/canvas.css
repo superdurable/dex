@@ -1571,10 +1571,6 @@
   background: linear-gradient(var(--p-rpc-dim), var(--p-surface-1) 42%);
 }
 
-[data-theme='light'] .v2-shell .pbox-rpcCard[data-rpc-role='action'] {
-  background: linear-gradient(var(--p-rpc-dim), var(--p-surface-2) 42%);
-}
-
 /* A Summary or Display view only reads, so it is dashed like other quiet boxes. */
 .pbox-rpcCard[data-rpc-role='view'] {
   border-style: dashed;

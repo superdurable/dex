@@ -114,24 +114,63 @@ describe('control topology for a Flow with no Steps', () => {
     const addEntry = cardOf(entityListScene('collapsed', 'tb'), 'rpc:AddEntry');
 
     expect(addEntry.sections).toEqual([]);
-    expect(addEntry.rows?.map((row) => row.text)).toEqual([
-      'reads entries',
-      'writes entries, entry-count',
-      'publishes to entry-events',
+    expect(addEntry.rows?.map((row) => [row.text, row.trail])).toEqual([
+      ['reads entries', undefined],
+      ['writes entries, entry-count', undefined],
+      ['publishes to entry-events', undefined],
     ]);
   });
 
-  it('counts the names a collapsed row has no room for', () => {
+  // The text ellipsizes and the trail does not, so a long first name cannot hide the count.
+  it('puts the count of the names a collapsed row has no room for in its trail', () => {
     const graph = entityListGraph();
     graph.nodes = graph.nodes.map((node) => node.id === 'resource:attribute:entryCount'
-      ? { ...node, name: 'entity-list-entry-count' }
+      ? { ...node, name: 'entity-list-entry-count-by-region-and-day' }
       : node);
     const flow = safeDecode(graph, { generated: true, note: 'test' });
     const scene = controlTopologyView.layout(flow, { ...viewOpts([]), detail: 'collapsed' });
 
-    expect(cardOf(scene, 'rpc:AddEntry').rows?.map((row) => row.text)).toContain(
-      'writes entity-list-entry-count +1',
+    expect(cardOf(scene, 'rpc:AddEntry').rows).toContainEqual({
+      glyph: '▪',
+      text: 'writes entity-list-entry-count-by-region-and-day',
+      trail: '+1 more',
+      tone: 'quiet',
+    });
+  });
+
+  it('keeps apart two resources that share a name, and names their kinds', () => {
+    const graph = entityListGraph();
+    graph.nodes.push({ id: 'resource:stream:entries', kind: 'stream', name: 'entries', resource: { valueType: 'string' } });
+    graph.edges.push(
+      { id: 'edge:stream', kind: 'resource_write', from: 'rpc:AddEntry', to: 'resource:stream:entries', metadata: { phase: 'rpc' } },
+      { id: 'edge:again', kind: 'resource_write', from: 'rpc:AddEntry', to: 'resource:attribute:entries', metadata: { phase: 'rpc' } },
     );
+    const flow = safeDecode(graph, { generated: true, note: 'test' });
+    const card = (detail: ViewOpts['detail']) =>
+      cardOf(controlTopologyView.layout(flow, { ...viewOpts([]), detail }), 'rpc:AddEntry');
+
+    expect(card('expanded').sections?.find((section) => section.label === 'Writes')?.rows).toEqual([
+      { glyph: '▪', text: 'entries', trail: 'Attribute' },
+      { glyph: '▪', text: 'entries', trail: 'Stream' },
+      { glyph: '▪', text: 'entry-count' },
+    ]);
+    expect(card('collapsed').rows?.map((row) => [row.text, row.trail])).toEqual([
+      ['reads entries (Attribute)', undefined],
+      ['writes entries (Attribute)', '+2 more'],
+      ['publishes to entry-events', undefined],
+    ]);
+  });
+
+  it('notes the timeout handlers it does not draw', () => {
+    const graph = entityListGraph();
+    graph.nodes.push({ id: 'timeout_handler:OnFlowTimeout', kind: 'timeout_handler', name: 'OnFlowTimeout' });
+    const scene = controlTopologyView.layout(safeDecode(graph, { generated: true, note: 'test' }), viewOpts([]));
+
+    expect(scene.boxes.map((box) => box.id)).not.toContain('timeout_handler:OnFlowTimeout');
+    expect(scene.notes).toEqual([
+      'This Flow has no Steps, so each of its 5 RPCs is drawn as a card.',
+      '1 timeout handler is not drawn.',
+    ]);
   });
 
   it('marks an Action with its required permission at both detail levels', () => {
@@ -185,6 +224,23 @@ describe('control topology for a Flow with no Steps', () => {
     expect(controlTopologyView.layout(flow, viewOpts([]))).toEqual({
       boxes: [], links: [], bands: [], width: 640, height: 200, notes: ['No steps.'],
     });
+  });
+});
+
+describe('control topology for a Flow with Steps', () => {
+  // Pins every box, so a change to Step card layout has to update the snapshot on purpose.
+  it.each([
+    ['collapsed', 'tb'],
+    ['collapsed', 'lr'],
+    ['expanded', 'tb'],
+    ['expanded', 'lr'],
+  ] as const)('keeps the geometry of the shipped refund graph %s %s', (detail, direction) => {
+    const scene = refundScene({ detail, direction });
+
+    expect({
+      size: `${scene.width}x${scene.height}`,
+      boxes: scene.boxes.map((box) => `${box.id} ${box.x},${box.y} ${box.w}x${box.h}`),
+    }).toMatchSnapshot();
   });
 
   // The agentic refund graph declares four Actions and both views, so the join could leak here.

@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { EntryModel, EntryView, PocFlow, ResourceRef } from '../model/pocFlow'
+import type { EntryModel, EntryView, PocFlow, ResourceModel, ResourceRef } from '../model/pocFlow'
 import { resourceById } from '../model/pocFlow'
 import { anatomyHeight, CARD_MIN_H } from './stepBox'
 import type { Box, BoxRow, Scene, ViewOpts } from './types'
@@ -51,6 +51,18 @@ const VIEW_NAME: Record<EntryView, string> = {
   display: 'Display',
 }
 
+const RESOURCE_KIND_NAME: Record<ResourceModel['kind'], string> = {
+  attribute: 'Attribute',
+  channel: 'Channel',
+  stream: 'Stream',
+}
+
+interface AccessedResource {
+  name: string
+  /** Set only when another resource of the Flow has the same name. */
+  kindName?: string
+}
+
 export interface RpcCardContent {
   subtitle: string
   rows: BoxRow[]
@@ -59,36 +71,55 @@ export interface RpcCardContent {
   height: number
 }
 
-/** Resource names per access kind, in reading order, each list deduplicated and sorted. */
-function resourceNamesByAccess(flow: PocFlow, entry: EntryModel): Map<Access, string[]> {
-  const out = new Map<Access, string[]>()
+/** Resources per access kind, in reading order, each list deduplicated by resource id and sorted by name. */
+function resourcesByAccess(flow: PocFlow, entry: EntryModel): Map<Access, AccessedResource[]> {
+  const nameCounts = new Map<string, number>()
+  for (const resource of flow.resources) nameCounts.set(resource.name, (nameCounts.get(resource.name) ?? 0) + 1)
+
+  const out = new Map<Access, AccessedResource[]>()
   for (const access of ACCESS_ORDER) {
-    const names = new Set(
-      entry.resources
-        .filter((ref) => ref.access === access)
-        .map((ref) => resourceById(flow, ref.resourceId)?.name ?? ref.resourceId),
-    )
-    if (names.size > 0) out.set(access, [...names].sort((a, b) => a.localeCompare(b)))
+    const ids = new Set(entry.resources.filter((ref) => ref.access === access).map((ref) => ref.resourceId))
+    const resources = [...ids].map((id): AccessedResource => {
+      const resource = resourceById(flow, id)
+      if (resource === undefined) return { name: id }
+      return (nameCounts.get(resource.name) ?? 0) > 1
+        ? { name: resource.name, kindName: RESOURCE_KIND_NAME[resource.kind] }
+        : { name: resource.name }
+    })
+    resources.sort((a, b) => a.name.localeCompare(b.name) || (a.kindName ?? '').localeCompare(b.kindName ?? ''))
+    if (resources.length > 0) out.set(access, resources)
   }
   return out
+}
+
+function inlineName(resource: AccessedResource): string {
+  return resource.kindName === undefined ? resource.name : `${resource.name} (${resource.kindName})`
 }
 
 /** About what one 13px row holds at RPC_CARD_W, measured in Chromium. */
 const ROW_TEXT_CHARS = 36
 
-/** Every name when they fit on one row; otherwise the first name and a count, so none hides. */
-function accessSummary(kind: Access, names: string[]): string {
+/** Every name when they fit; otherwise the first name, with the count in the trail that never truncates. */
+function accessRow(kind: Access, resources: AccessedResource[]): BoxRow {
+  const names = resources.map(inlineName)
   const everyName = `${ACCESS_VERB[kind]} ${names.join(', ')}`
-  if (names.length === 1 || everyName.length <= ROW_TEXT_CHARS) return everyName
-  return `${ACCESS_VERB[kind]} ${names[0]} +${names.length - 1}`
+  if (names.length === 1 || everyName.length <= ROW_TEXT_CHARS) {
+    return { glyph: ACCESS_GLYPH[kind], text: everyName, tone: 'quiet' }
+  }
+  return {
+    glyph: ACCESS_GLYPH[kind],
+    text: `${ACCESS_VERB[kind]} ${names[0]}`,
+    trail: `+${names.length - 1} more`,
+    tone: 'quiet',
+  }
 }
 
-function changesState(access: Map<Access, string[]>): boolean {
+function changesState(access: Map<Access, AccessedResource[]>): boolean {
   return access.has('write') || access.has('publish') || access.has('lock')
 }
 
 /** Actions first, then other state changes, reads, and the Summary and Display views last. */
-function readingRank(entry: EntryModel, access: Map<Access, string[]>): number {
+function readingRank(entry: EntryModel, access: Map<Access, AccessedResource[]>): number {
   if (entry.action !== undefined) return 0
   if (entry.views.includes('summary')) return 3
   if (entry.views.includes('display')) return 4
@@ -96,7 +127,7 @@ function readingRank(entry: EntryModel, access: Map<Access, string[]>): number {
 }
 
 export function rpcCardContent(flow: PocFlow, entry: EntryModel, opts: ViewOpts): RpcCardContent {
-  const access = resourceNamesByAccess(flow, entry)
+  const access = resourcesByAccess(flow, entry)
   const rows: BoxRow[] = []
   const sections: RpcCardContent['sections'] = []
 
@@ -109,14 +140,18 @@ export function rpcCardContent(flow: PocFlow, entry: EntryModel, opts: ViewOpts)
     })
   }
   // Collapsed says each access kind in one row; Expanded lists one resource per row.
-  for (const [kind, names] of access) {
+  for (const [kind, resources] of access) {
     if (opts.detail === 'expanded') {
       sections.push({
         label: ACCESS_SECTION[kind],
-        rows: names.map((name) => ({ glyph: ACCESS_GLYPH[kind], text: name })),
+        rows: resources.map((resource) => ({
+          glyph: ACCESS_GLYPH[kind],
+          text: resource.name,
+          ...(resource.kindName === undefined ? {} : { trail: resource.kindName }),
+        })),
       })
     } else {
-      rows.push({ glyph: ACCESS_GLYPH[kind], text: accessSummary(kind, names), tone: 'quiet' })
+      rows.push(accessRow(kind, resources))
     }
   }
 
@@ -144,17 +179,13 @@ export function rpcCardContent(flow: PocFlow, entry: EntryModel, opts: ViewOpts)
   }
 }
 
-/**
- * Cards fill lanes of about the square root of their count.
- *
- * Top-down a lane is a row; left-right it is a column, so the direction control transposes the grid.
- */
+/** Lanes hold about √n cards; a lane is a row top-down and a column left-right. */
 export function rpcCardsLayout(flow: PocFlow, opts: ViewOpts): Scene {
   const cards = flow.entries
     .filter((entry) => entry.kind === 'rpc')
     .map((entry) => ({
       entry,
-      rank: readingRank(entry, resourceNamesByAccess(flow, entry)),
+      rank: readingRank(entry, resourcesByAccess(flow, entry)),
       content: rpcCardContent(flow, entry, opts),
     }))
     .sort((a, b) => a.rank - b.rank || a.entry.name.localeCompare(b.entry.name))
