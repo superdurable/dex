@@ -6,7 +6,7 @@
 
 **Dex** provides such a structural programming model with only a few concepts as [durable primitives](https://docs.superdurable.io/primitives). You use Dex to write a Flow filled with ordinary code: durable Steps, Attributes, RPCs, and durable conditions using Channels and Timers. Then you run Workers hosting your Flow. The Client calls Dex Server to start and interact with Flow instances. Dex Server dispatches Step and RPC invocation tasks to your Workers. The open-source [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) provides reusable integrations that help you move workflows quickly from prototype to production.
 
-Dex extends Temporal with a much more powerful programming model. It is an opinionated durable execution framework optimized for a productive programming experience and high performance. It also includes in-memory streaming, Attribute storage sync, and automatic offloading of large payloads to blob storage.
+Dex extends Temporal with a much more powerful programming model. It is an opinionated durable execution framework optimized for a productive programming experience and high performance. It also includes in-memory streaming, Attribute storage sync, and automatic offloading and cleanup of large payloads in blob storage.
 
 <img width="901" height="719" alt="dex-arch3" src="https://github.com/user-attachments/assets/4b70a5ec-8c94-4f13-acc4-8f7958245bda" />
 
