@@ -61,10 +61,12 @@ and checksum. It loads a compatible Studio UI in an opaque-origin sandbox when
 one exists. Otherwise it renders a generic form from the manifest.
 
 The authorization panel links to the provider's starting page and lists the
-exact setup path supplied by the Connector release. Each non-secret manifest
-default appears below its field in parentheses. Leave the input blank to use
-that default; enter a value only when the field guidance explains why an
-override is useful. URLs in field guidance are clickable.
+exact setup path supplied by the Connector release. Fields that require user
+input appear first. Fields that can be omitted or use manifest defaults remain
+visible under **Optional settings**. Each non-secret manifest default appears
+below its field in parentheses. Leave the input blank to use that default;
+enter a value only when the field guidance explains why an override is useful.
+URLs in field guidance are clickable.
 
 OAuth always uses state and a ten-minute single-use session. Connectors use
 PKCE when their provider supports that authorization flow. The OAuth client ID

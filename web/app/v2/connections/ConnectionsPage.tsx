@@ -430,7 +430,7 @@ function configurationUnitTarget(
   };
 }
 
-function ConnectorForm({ catalog, connection, session, onConfigured, onError }: {
+export function ConnectorForm({ catalog, connection, session, onConfigured, onError }: {
   catalog: ConnectionsResponse;
   connection: ConnectionView;
   session: UISessionResponse;
@@ -441,21 +441,29 @@ function ConnectorForm({ catalog, connection, session, onConfigured, onError }: 
   const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const oauth = manifest.spec.auth.type === 'oauth2';
+  const mappedCredentialNames = new Set([
+    ...(manifest.spec.auth.oauth2?.credentialMappings?.map((mapping) => mapping.credential) ?? ['access_token']),
+    ...(manifest.spec.auth.oauth2?.credentialDerivations?.map((derivation) => derivation.credential) ?? []),
+  ]);
+  const visibleManifestFormFields = [
+    ...manifest.spec.configuration.fields.map((field) => ({field, prefix: 'configuration'} as const)),
+    ...manifest.spec.auth.fields
+      .filter((field) => !oauth || !mappedCredentialNames.has(field.name))
+      .map((field) => ({field, prefix: 'credential'} as const)),
+  ];
+  const requiredManifestFormFields = visibleManifestFormFields.filter(({field}) => isManifestFieldInputRequired(field));
+  const optionalManifestFormFields = visibleManifestFormFields.filter(({field}) => !isManifestFieldInputRequired(field));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setSubmitting(true);
     try {
       const configuration = fieldValues(manifest.spec.configuration.fields, values, 'configuration');
       if (oauth) {
-        const mappedCredentials = new Set([
-          ...(manifest.spec.auth.oauth2?.credentialMappings?.map((mapping) => mapping.credential) ?? ['access_token']),
-          ...(manifest.spec.auth.oauth2?.credentialDerivations?.map((derivation) => derivation.credential) ?? []),
-        ]);
         const credentialValues = fieldValues(
           manifest.spec.auth.fields.filter((field) => field.type !== 'secretString'), values, 'credential',
         );
         const credentialSecrets = Object.fromEntries(manifest.spec.auth.fields
-          .filter((field) => field.type === 'secretString' && !mappedCredentials.has(field.name))
+          .filter((field) => field.type === 'secretString' && !mappedCredentialNames.has(field.name))
           .map((field) => [field.name, values[`credential:${field.name}`] ?? '']));
         const response = await dexFetch(`${connectionURL(connection)}/oauth/start`, {
           method: 'POST', headers: connectorWriteHeaders(catalog), body: JSON.stringify({
@@ -496,16 +504,19 @@ function ConnectorForm({ catalog, connection, session, onConfigured, onError }: 
       <ol>{manifest.spec.auth.guide.steps.map((step, index) => <li key={`${index}:${step}`}>{linkifiedDescription(step)}</li>)}</ol>
       {oauth && session.oauthRedirectUri && <div className="connector-redirect-uri"><span>Redirect URI</span><CopyValue value={session.oauthRedirectUri} /></div>}
     </section>}
-    {oauth && <>
-      <FormField inputId="connector-oauth-client-id" label="OAuth client ID" name="clientId" required secret={false} description="Copy the client ID from the provider application created with the guide above. This identifier is not secret." values={values} setValues={setValues} />
-      <FormField label="OAuth client secret" name="clientSecret" required secret description="Copy the matching client secret from the provider application. This value is secret and is retained only for this authorization session." values={values} setValues={setValues} />
-      <p className="connections-note">Client credentials remain in memory for this ten-minute OAuth session and are never written to the connection file.</p>
-    </>}
-    {manifest.spec.configuration.fields.map((field) => <ManifestFormField key={`configuration:${field.name}`} field={field} prefix="configuration" values={values} setValues={setValues} />)}
-    {manifest.spec.auth.fields.filter((field) => !oauth || ![
-      ...(manifest.spec.auth.oauth2?.credentialMappings?.map((mapping) => mapping.credential) ?? ['access_token']),
-      ...(manifest.spec.auth.oauth2?.credentialDerivations?.map((derivation) => derivation.credential) ?? []),
-    ].includes(field.name)).map((field) => <ManifestFormField key={`credential:${field.name}`} field={field} prefix="credential" values={values} setValues={setValues} />)}
+    {(oauth || requiredManifestFormFields.length > 0) && <fieldset className="connector-field-group connector-field-group-required">
+      <legend>Required</legend>
+      {oauth && <>
+        <FormField inputId="connector-oauth-client-id" label="OAuth client ID" name="clientId" required secret={false} description="Copy the client ID from the provider application created with the guide above. This identifier is not secret." values={values} setValues={setValues} />
+        <FormField label="OAuth client secret" name="clientSecret" required secret description="Copy the matching client secret from the provider application. This value is secret and is retained only for this authorization session." values={values} setValues={setValues} />
+        <p className="connections-note">Client credentials remain in memory for this ten-minute OAuth session and are never written to the connection file.</p>
+      </>}
+      {requiredManifestFormFields.map(({field, prefix}) => <ManifestFormField key={`${prefix}:${field.name}`} field={field} prefix={prefix} values={values} setValues={setValues} />)}
+    </fieldset>}
+    {optionalManifestFormFields.length > 0 && <fieldset className="connector-field-group connector-field-group-optional">
+      <legend>Optional settings ({optionalManifestFormFields.length})</legend>
+      {optionalManifestFormFields.map(({field, prefix}) => <ManifestFormField key={`${prefix}:${field.name}`} field={field} prefix={prefix} values={values} setValues={setValues} />)}
+    </fieldset>}
     {oauth && <p className="connections-scopes">Requested bot scopes: {manifest.spec.auth.oauth2?.scopes.join(', ')}{manifest.spec.auth.oauth2?.userScopes?.length ? `; user scopes: ${manifest.spec.auth.oauth2.userScopes.join(', ')}` : ''}</p>}
     <button className="v2-primary" disabled={submitting} type="submit">{oauth ? 'Authorize' : 'Save local credentials'}</button>
   </form>;
@@ -527,6 +538,10 @@ function ManifestFormField({ field, prefix, values, setValues }: {
     values={values}
     setValues={setValues}
   />;
+}
+
+function isManifestFieldInputRequired(field: ManifestField): boolean {
+  return field.required && field.default === undefined;
 }
 
 function FormField({ inputId, label, name, required, secret, description, defaultText, values, setValues }: {

@@ -58,8 +58,10 @@ Studio UI 时，它会在 opaque-origin sandbox 中加载；否则根据 manifes
 表单。
 
 授权面板会链接到 provider 的起始页面，并显示 Connector release 提供的精确设置
-路径。每个非 secret 的 manifest 默认值都会在字段下方以括号显示。输入留空即使用
-该默认值；只有字段说明明确指出需要覆盖时才填写。字段说明中的 URL 可以直接点击。
+路径。必须由用户填写的字段会排在最前面；可以省略或使用 manifest 默认值的字段仍会
+显示在 **Optional settings** 下。每个非 secret 的 manifest 默认值都会在字段下方以
+括号显示。输入留空即使用该默认值；只有字段说明明确指出需要覆盖时才填写。字段说明
+中的 URL 可以直接点击。
 
 OAuth 始终使用 state 和十分钟一次性 session。Provider 支持对应授权流程时，
 Connector 还会使用 PKCE。OAuth client ID 与 client secret 只存在内存中，不会

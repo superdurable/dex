@@ -128,9 +128,11 @@ the exact official Connector release declared by the graph, verifies release
 and Studio UI checksums, and loads UI bundles in opaque-origin sandbox iframes.
 Without a Studio bundle, it renders the manifest fields directly. The generic
 form renders a connector-owned authorization guide with an external provider
-link and ordered setup steps. Every non-secret manifest default appears below
-its field in parentheses; leaving that input blank uses the displayed default.
-URLs in field guidance are clickable.
+link and ordered setup steps. Fields that require user input appear first. Fields
+that can be omitted or use manifest defaults remain visible under **Optional
+settings**. Every non-secret manifest default appears below its field in
+parentheses; leaving that input blank uses the displayed default. URLs in field
+guidance are clickable.
 
 During Connector development, the repeatable
 `--connector-release-override connector-id=artifact-directory` flag on

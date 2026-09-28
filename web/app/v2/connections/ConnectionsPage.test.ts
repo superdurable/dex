@@ -6,9 +6,12 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { DexAPIError } from '@/lib/http';
 import {
+  ConnectorForm,
   connectionKey,
   connectorHostReadyMessage,
   connectorSetupTabs,
@@ -29,6 +32,87 @@ describe('Connections contract', () => {
     expect(manifestFieldDefaultText({name: 'endpoint', type: 'url', description: '', required: false, default: 'https://api.example.com/v1'})).toBe('(Default: https://api.example.com/v1)');
     expect(manifestFieldDefaultText({name: 'limits', type: 'stringMap', description: '', required: false, default: {rows: 10}})).toBe('(Default: {"rows":10})');
     expect(manifestFieldDefaultText({name: 'api_key', type: 'secretString', description: '', required: true, default: 'never-render'})).toBeUndefined();
+  });
+
+  it('renders required Connector fields before an expanded optional settings group', () => {
+    const markup = renderConnectorForm({
+      metadata: {displayName: 'Stripe', description: 'Stripe connection'},
+      spec: {
+        provider: 'stripe',
+        configuration: {fields: [
+          {name: 'endpoint', type: 'url', description: 'API endpoint.', required: false, default: 'https://api.stripe.com/v1'},
+          {name: 'required_with_default', type: 'integer', description: 'Defaulted limit.', required: true, default: 1048576},
+          {name: 'nickname', type: 'string', description: 'Optional label.', required: false},
+        ]},
+        auth: {type: 'apiKey', fields: [
+          {name: 'secret_key', type: 'secretString', description: 'Stripe key.', required: true},
+          {name: 'webhook_secret', type: 'secretString', description: 'Webhook secret.', required: true},
+        ]},
+      },
+    });
+
+    expect(markup.indexOf('<legend>Required</legend>')).toBeLessThan(markup.indexOf('secret_key *'));
+    expect(markup.indexOf('secret_key *')).toBeLessThan(markup.indexOf('webhook_secret *'));
+    expect(markup.indexOf('webhook_secret *')).toBeLessThan(markup.indexOf('<legend>Optional settings (3)</legend>'));
+    expect(markup.indexOf('endpoint')).toBeLessThan(markup.indexOf('required_with_default'));
+    expect(markup.indexOf('required_with_default')).toBeLessThan(markup.indexOf('nickname'));
+    expect(markup).toMatch(/<span>secret_key \*<\/span><input[^>]*required=""[^>]*type="password"/);
+    expect(markup).toMatch(/<span>required_with_default<\/span><input(?![^>]*required="")[^>]*type="text"/);
+    expect(markup).toContain('(Default: 1048576)');
+  });
+
+  it('keeps OAuth fields first and omits mapped and derived credentials', () => {
+    const markup = renderConnectorForm({
+      metadata: {displayName: 'OAuth Connector', description: 'OAuth connection'},
+      spec: {
+        provider: 'oauth-provider',
+        configuration: {fields: [
+          {name: 'endpoint', type: 'url', description: 'API endpoint.', required: false, default: 'https://api.example.com'},
+        ]},
+        auth: {
+          type: 'oauth2',
+          fields: [
+            {name: 'access_token', type: 'secretString', description: 'Mapped token.', required: true},
+            {name: 'primary_email', type: 'string', description: 'Derived identity.', required: true},
+            {name: 'app_token', type: 'secretString', description: 'Additional token.', required: true},
+          ],
+          oauth2: {
+            scopes: ['messages:write'],
+            credentialMappings: [{credential: 'access_token', source: 'access_token'}],
+            credentialDerivations: [{credential: 'primary_email', endpoint: 'https://api.example.com/me', source: 'email'}],
+          },
+        },
+      },
+    });
+
+    expect(markup.indexOf('OAuth client ID *')).toBeLessThan(markup.indexOf('OAuth client secret *'));
+    expect(markup.indexOf('OAuth client secret *')).toBeLessThan(markup.indexOf('app_token *'));
+    expect(markup.indexOf('app_token *')).toBeLessThan(markup.indexOf('<legend>Optional settings (1)</legend>'));
+    expect(markup).not.toContain('access_token');
+    expect(markup).not.toContain('primary_email');
+  });
+
+  it('omits empty required and optional Connector field groups', () => {
+    const requiredOnlyMarkup = renderConnectorForm({
+      metadata: {displayName: 'Required', description: 'Required fields'},
+      spec: {
+        provider: 'required', configuration: {fields: []},
+        auth: {type: 'apiKey', fields: [{name: 'api_key', type: 'secretString', description: 'API key.', required: true}]},
+      },
+    });
+    const optionalOnlyMarkup = renderConnectorForm({
+      metadata: {displayName: 'Optional', description: 'Optional fields'},
+      spec: {
+        provider: 'optional',
+        configuration: {fields: [{name: 'endpoint', type: 'url', description: 'API endpoint.', required: false}]},
+        auth: {type: 'apiKey', fields: []},
+      },
+    });
+
+    expect(requiredOnlyMarkup).toContain('<legend>Required</legend>');
+    expect(requiredOnlyMarkup).not.toContain('Optional settings');
+    expect(optionalOnlyMarkup).not.toContain('<legend>Required</legend>');
+    expect(optionalOnlyMarkup).toContain('<legend>Optional settings (1)</legend>');
   });
 
   it('turns provider guidance URLs into explicit links', () => {
@@ -175,3 +259,13 @@ describe('Connections contract', () => {
     expect(initialConnectorSetupTabKey(ready as never)).toBe('operation:Flow:step');
   });
 });
+
+function renderConnectorForm(manifest: unknown): string {
+  return renderToStaticMarkup(createElement(ConnectorForm, {
+    catalog: {} as never,
+    connection: {connectorId: 'test-connector'} as never,
+    session: {manifest} as never,
+    onConfigured: async () => undefined,
+    onError: () => undefined,
+  }));
+}
