@@ -979,6 +979,17 @@
   border-radius: 0;
   clip-path: polygon(0 0, 60% 0, 100% 50%, 60% 100%, 0 100%);
 }
+.plegend-mark[data-mark='rpc-card'] {
+  border-color: var(--p-rpc);
+}
+.plegend-mark[data-mark='action'] {
+  border: 2px solid var(--p-rpc);
+  background: var(--p-rpc-dim);
+}
+.plegend-mark[data-mark='view'] {
+  border-style: dashed;
+  border-color: var(--p-rpc);
+}
 
 /* ---------- compare grid ---------- */
 
@@ -1542,6 +1553,31 @@
 .pband-lane[data-tone='rpc'] {
   border-color: var(--p-rpc);
   background: var(--p-rpc-dim);
+}
+
+/* An RPC as a card, for a Flow with no Steps: the pennant's door hue and envelope. */
+.pbox-rpcCard {
+  border-color: var(--p-rpc);
+}
+
+.pbox-rpcCard .pbox-title::before {
+  content: '✉ ';
+  color: var(--p-rpc);
+}
+
+/* An Action is where an operator reaches in, so it takes the gate's weight and fill in door hue. */
+.pbox-rpcCard[data-rpc-role='action'] {
+  border-width: 2px;
+  background: linear-gradient(var(--p-rpc-dim), var(--p-surface-1) 42%);
+}
+
+[data-theme='light'] .v2-shell .pbox-rpcCard[data-rpc-role='action'] {
+  background: linear-gradient(var(--p-rpc-dim), var(--p-surface-2) 42%);
+}
+
+/* A Summary or Display view only reads, so it is dashed like other quiet boxes. */
+.pbox-rpcCard[data-rpc-role='view'] {
+  border-style: dashed;
 }
 
 /*

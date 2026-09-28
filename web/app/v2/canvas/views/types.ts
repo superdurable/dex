@@ -113,6 +113,7 @@ export interface ViewOpts {
 export type BoxKind =
   | 'step'
   | 'rpc'
+  | 'rpcCard'
   | 'timeoutHandler'
   | 'attribute'
   | 'channel'
@@ -158,6 +159,8 @@ export interface Box {
    * silhouette that says this is a decision rather than work.
    */
   agentRole?: AgentRole
+  /** What an `rpcCard` is in the Flow v2 definition, when it is an Action or a view. */
+  rpcRole?: 'action' | 'view'
   /** Status as TEXT, not colour alone — Temporal had to retrofit exactly this. */
   status?: string
   /**

@@ -73,6 +73,15 @@ export function Legend({ scene, flow }: { scene: Scene; flow: PocFlow }): JSX.El
   if (scene.boxes.some((b) => b.kind === 'rpc')) {
     marks.push({ key: 'rpc', label: 'an external call, pointed at what it unblocks' })
   }
+  if (scene.boxes.some((b) => b.kind === 'rpcCard' && b.rpcRole === undefined)) {
+    marks.push({ key: 'rpc-card', label: 'an RPC and the state it reads and writes' })
+  }
+  if (scene.boxes.some((b) => b.rpcRole === 'action')) {
+    marks.push({ key: 'action', label: 'an Action RPC operators can run' })
+  }
+  if (scene.boxes.some((b) => b.rpcRole === 'view')) {
+    marks.push({ key: 'view', label: 'a Summary or Display view RPC' })
+  }
 
   /**
    * Run statuses, decoded from the TWO-CELL TOKEN — not from `status`, which now carries the ×N count.

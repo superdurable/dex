@@ -175,6 +175,7 @@ export function NodeBox({
       /* An agentic role is a SILHOUETTE concern, so it reaches CSS as its own attribute rather than being
          folded into the actor accent: a card can be both a human gate and a person's responsibility. */
       data-agent={box.agentRole}
+      data-rpc-role={box.rpcRole}
       /* Where the Flow begins is a definition fact, so it does not compete with run state for
          `data-emphasis`. Both can be true at once and both now paint. */
       data-start={box.isStart ? 'true' : undefined}

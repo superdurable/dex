@@ -94,6 +94,13 @@ export interface FdgDiagnostic {
   span?: SourceSpan
 }
 
+/** The part of the Flow v2 definition that names an RPC as an Action, Summary, or Display. */
+export interface FdgFlowV2 {
+  summary?: { rpcName: string }
+  display?: { rpcName: string }
+  actions?: { rpcName: string; label: string; requiredPermission: string }[]
+}
+
 export interface FlowDefinitionGraph {
   schemaVersion: string
   valid: boolean
@@ -102,4 +109,5 @@ export interface FlowDefinitionGraph {
   nodes: FdgNode[]
   edges: FdgEdge[]
   diagnostics: FdgDiagnostic[]
+  v2?: FdgFlowV2
 }

@@ -448,6 +448,18 @@ export function stepContent(flow: PocFlow, step: StepModel, opts: ViewOpts): Ste
             ? 'active'
             : undefined
 
+  const height = Math.max(
+    CARD_MIN_H,
+    anatomyHeight(rows.length, sections) + (bar === undefined ? 0 : 13) + (reason === undefined ? 0 : REASON_H),
+  )
+
+  return { rows, sections, badge, status, bar, barTitle, emphasis, token, reason, loops, recovery, subtitle: ROLE_PHRASE[step.actor], height }
+}
+
+export const CARD_MIN_H = 62
+
+/** The height a `.pbox` card needs for its head, rows, and sections. */
+export function anatomyHeight(rowCount: number, sections: { rows: unknown[] }[]): number {
   /*
    * Scaled with the type, 1.2x, because every one of these is a measurement OF the type: `head` is a
    * title line over a subtitle line, a row is one line of row text, a section is a label over its rows.
@@ -455,12 +467,7 @@ export function stepContent(flow: PocFlow, step: StepModel, opts: ViewOpts): Ste
    */
   const head = 59
   const sectionsH = sections.reduce((acc, s) => acc + 28 + s.rows.length * 20, 0)
-  const height = Math.max(
-    62,
-    head + rows.length * 20 + sectionsH + (bar === undefined ? 0 : 13) + (reason === undefined ? 0 : REASON_H),
-  )
-
-  return { rows, sections, badge, status, bar, barTitle, emphasis, token, reason, loops, recovery, subtitle: ROLE_PHRASE[step.actor], height }
+  return head + rowCount * 20 + sectionsH
 }
 
 export function stepBox(

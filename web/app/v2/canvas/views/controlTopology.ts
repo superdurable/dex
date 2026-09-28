@@ -19,6 +19,7 @@ import {
   rpcCoverageNote,
   subflowBoxes,
 } from './shared'
+import { rpcCardsLayout } from './rpcCards'
 import { STEP_W, stepBox, stepContent } from './stepBox'
 import type { StepGroup } from './groups'
 import type { Band, Box, Scene, ViewOpts, ViewSpec } from './types'
@@ -257,6 +258,8 @@ function contiguousRuns(
 
 function layout(flow: PocFlow, opts: ViewOpts): Scene {
   if (flow.steps.length === 0) {
+    // An entity Flow runs only through RPCs, so they are the whole drawing.
+    if (flow.entries.some((entry) => entry.kind === 'rpc')) return rpcCardsLayout(flow, opts)
     return { boxes: [], links: [], bands: [], width: 640, height: 200, notes: ['No steps.'] }
   }
 

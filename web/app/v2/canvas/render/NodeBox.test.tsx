@@ -33,4 +33,29 @@ describe('NodeBox', () => {
     expect(connector).toContain('pbox-connector-icon')
     expect(ordinary).not.toContain('pbox-connector-icon')
   })
+
+  it('renders an RPC card as a card and hands its role to the stylesheet', () => {
+    const action = renderToStaticMarkup(
+      <NodeBox
+        box={{
+          id: 'rpc:RemoveEntry',
+          x: 0,
+          y: 0,
+          w: 280,
+          h: 100,
+          kind: 'rpcCard',
+          title: 'RemoveEntry',
+          subtitle: 'Action: Remove entry',
+          rpcRole: 'action',
+          rows: [{ glyph: '◈', text: 'requires entries.manage', tone: 'quiet' }],
+        }}
+        selected={false}
+      />,
+    )
+
+    expect(action).toContain('pbox pbox-rpcCard')
+    expect(action).toContain('data-rpc-role="action"')
+    expect(action).toContain('requires entries.manage')
+    expect(action).not.toContain('pbox-inner')
+  })
 })

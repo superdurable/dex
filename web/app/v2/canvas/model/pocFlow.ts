@@ -180,8 +180,14 @@ export interface EntryModel {
    * This is the human-input path, so a UI that does not join it cannot show it.
    */
   opensGates: { channelId: string; stepIds: string[] }[]
+  /** The Flow v2 Action this RPC implements, when the definition declares one. */
+  action?: { label: string; requiredPermission: string }
+  /** The Flow v2 views this RPC serves. Empty for every other entry. */
+  views: EntryView[]
   span?: SourceSpan
 }
+
+export type EntryView = 'summary' | 'display'
 
 export interface ResourceModel {
   id: string

@@ -12,7 +12,7 @@ import { safeDecode } from '../model/decode';
 import type { FlowDefinitionGraph } from '../model/fdg';
 import { controlTopologyView } from './controlTopology';
 import type { StepGroup } from './groups';
-import type { ViewOpts } from './types';
+import type { Box, ViewOpts } from './types';
 
 describe('control topology group bands', () => {
   it('labels every disjoint region of a split group', () => {
@@ -83,10 +83,131 @@ describe('control topology group bands', () => {
   });
 });
 
+describe('control topology for a Flow with no Steps', () => {
+  it('draws one card per RPC, Actions first and the Summary and Display views last', () => {
+    const scene = entityListScene('collapsed', 'tb');
+
+    expect(scene.boxes.map((box) => [box.title, box.kind, box.subtitle, box.rpcRole])).toEqual([
+      ['RemoveEntry', 'rpcCard', 'Action: Remove entry', 'action'],
+      ['AddEntry', 'rpcCard', 'changes state', undefined],
+      ['ListEntries', 'rpcCard', 'reads state', undefined],
+      ['GetDexSummary', 'rpcCard', 'Summary view', 'view'],
+      ['GetDexDisplay', 'rpcCard', 'Display view', 'view'],
+    ]);
+    expect(scene.links).toEqual([]);
+    expect(scene.bands).toEqual([]);
+    expect(scene.notes).toEqual(['This Flow has no Steps, so each of its 5 RPCs is drawn as a card.']);
+  });
+
+  it('lists the Attributes each RPC reads and writes and the Channels it publishes to when expanded', () => {
+    const addEntry = cardOf(entityListScene('expanded', 'tb'), 'rpc:AddEntry');
+
+    expect(addEntry.rows).toEqual([]);
+    expect(addEntry.sections).toEqual([
+      { label: 'Reads', rows: [{ glyph: '▫', text: 'entries' }] },
+      { label: 'Writes', rows: [{ glyph: '▪', text: 'entries' }, { glyph: '▪', text: 'entry-count' }] },
+      { label: 'Publishes to', rows: [{ glyph: '✉', text: 'entry-events' }] },
+    ]);
+  });
+
+  it('says each kind of access in one row when collapsed', () => {
+    const addEntry = cardOf(entityListScene('collapsed', 'tb'), 'rpc:AddEntry');
+
+    expect(addEntry.sections).toEqual([]);
+    expect(addEntry.rows?.map((row) => row.text)).toEqual([
+      'reads entries',
+      'writes entries, entry-count',
+      'publishes to entry-events',
+    ]);
+  });
+
+  it('counts the names a collapsed row has no room for', () => {
+    const graph = entityListGraph();
+    graph.nodes = graph.nodes.map((node) => node.id === 'resource:attribute:entryCount'
+      ? { ...node, name: 'entity-list-entry-count' }
+      : node);
+    const flow = safeDecode(graph, { generated: true, note: 'test' });
+    const scene = controlTopologyView.layout(flow, { ...viewOpts([]), detail: 'collapsed' });
+
+    expect(cardOf(scene, 'rpc:AddEntry').rows?.map((row) => row.text)).toContain(
+      'writes entity-list-entry-count +1',
+    );
+  });
+
+  it('marks an Action with its required permission at both detail levels', () => {
+    for (const detail of ['collapsed', 'expanded'] as const) {
+      expect(cardOf(entityListScene(detail, 'tb'), 'rpc:RemoveEntry').rows?.[0]).toEqual({
+        glyph: '◈',
+        text: 'requires entries.manage',
+        tone: 'quiet',
+      });
+    }
+  });
+
+  it('never overlaps two cards, and keeps every card inside the scene, in all four view modes', () => {
+    for (const detail of ['collapsed', 'expanded'] as const) {
+      for (const direction of ['tb', 'lr'] as const) {
+        const scene = entityListScene(detail, direction);
+
+        expect(scene.boxes).toHaveLength(5);
+        expect(overlappingPairs(scene.boxes), `${detail}/${direction}`).toEqual([]);
+        for (const box of scene.boxes) {
+          expect(box.x + box.w).toBeLessThanOrEqual(scene.width);
+          expect(box.y + box.h).toBeLessThanOrEqual(scene.height);
+        }
+      }
+    }
+  });
+
+  it('grows each card when expanded', () => {
+    const collapsed = entityListScene('collapsed', 'tb');
+    const expanded = entityListScene('expanded', 'tb');
+
+    expect(collapsed.boxes).toHaveLength(5);
+    for (const box of collapsed.boxes) {
+      expect(cardOf(expanded, box.id).h).toBeGreaterThan(box.h);
+    }
+  });
+
+  it('fills rows top-down and columns left-right', () => {
+    const topDown = entityListScene('collapsed', 'tb').boxes;
+    const leftRight = entityListScene('collapsed', 'lr').boxes;
+
+    expect(new Set(topDown.slice(0, 3).map((box) => box.y)).size).toBe(1);
+    expect(topDown[3].y).toBeGreaterThan(topDown[0].y);
+    expect(new Set(leftRight.slice(0, 3).map((box) => box.x)).size).toBe(1);
+    expect(leftRight[3].x).toBeGreaterThan(leftRight[0].x);
+  });
+
+  it('still reports no Steps for a Flow with neither Steps nor RPCs', () => {
+    const flow = safeDecode(graph([], [], 'step:none'), { generated: true, note: 'test' });
+
+    expect(controlTopologyView.layout(flow, viewOpts([]))).toEqual({
+      boxes: [], links: [], bands: [], width: 640, height: 200, notes: ['No steps.'],
+    });
+  });
+
+  // The agentic refund graph declares four Actions and both views, so the join could leak here.
+  it('draws a Flow with Steps the same with or without its Flow v2 RPC contract', () => {
+    for (const detail of ['collapsed', 'expanded'] as const) {
+      for (const direction of ['tb', 'lr'] as const) {
+        const withContract = refundScene({ detail, direction });
+        const withoutContract = refundScene({ detail, direction }, { v2: undefined });
+
+        expect(withContract.boxes.some((box) => box.kind === 'rpcCard')).toBe(false);
+        expect(withContract).toEqual(withoutContract);
+      }
+    }
+  });
+});
+
 interface FdgGroup { id: string; label: string; stepIds: string[] }
 
-function refundScene() {
-  const graph = refundGraph as unknown as FlowDefinitionGraph & { groups?: FdgGroup[] };
+function refundScene(
+  mode: Partial<Pick<ViewOpts, 'detail' | 'direction'>> = {},
+  override: Partial<FlowDefinitionGraph> = {},
+) {
+  const graph = { ...(refundGraph as unknown as FlowDefinitionGraph & { groups?: FdgGroup[] }), ...override };
   const flow = safeDecode(graph, { generated: true, note: 'customer-refund-agentic' });
   const groups = (graph.groups ?? []).map((group: FdgGroup) => ({
     id: group.id,
@@ -97,7 +218,58 @@ function refundScene() {
       return step === undefined ? [] : [step.stepType];
     }),
   }));
-  return controlTopologyView.layout(flow, viewOpts(groups));
+  return controlTopologyView.layout(flow, { ...viewOpts(groups), ...mode });
+}
+
+function entityListScene(detail: ViewOpts['detail'], direction: ViewOpts['direction']) {
+  const flow = safeDecode(entityListGraph(), { generated: true, note: 'entity-list' });
+  return controlTopologyView.layout(flow, { ...viewOpts([]), detail, direction });
+}
+
+function cardOf(scene: { boxes: Box[] }, id: string): Box {
+  const box = scene.boxes.find((candidate) => candidate.id === id);
+  if (box === undefined) throw new Error(`no card ${id}`);
+  return box;
+}
+
+/** A step-less entity Flow in the shape `dexcli visualize` emits for a Go Flow with only RPCs. */
+function entityListGraph(): FlowDefinitionGraph {
+  const rpc = (name: string) => [
+    { id: `rpc:${name}`, kind: 'rpc', name },
+    { id: `decision:rpc:${name}`, kind: 'decision', name: 'rpcResult', parentId: `rpc:${name}`, decision: { type: 'rpcResult' } },
+  ];
+  const edges: [string, string, string][] = [
+    ['resource_read', 'resource:attribute:entries', 'rpc:AddEntry'],
+    ['resource_write', 'rpc:AddEntry', 'resource:attribute:entryCount'],
+    ['resource_write', 'rpc:AddEntry', 'resource:attribute:entries'],
+    ['resource_publish', 'rpc:AddEntry', 'resource:channel:entryEvents'],
+    ['resource_read', 'resource:attribute:entries', 'rpc:RemoveEntry'],
+    ['resource_write', 'rpc:RemoveEntry', 'resource:attribute:entryCount'],
+    ['resource_write', 'rpc:RemoveEntry', 'resource:attribute:entries'],
+    ['resource_read', 'resource:attribute:entries', 'rpc:ListEntries'],
+    ['resource_read', 'resource:attribute:entryCount', 'rpc:GetDexSummary'],
+    ['resource_read', 'resource:attribute:entryCount', 'rpc:GetDexDisplay'],
+    ['resource_read', 'resource:attribute:entries', 'rpc:GetDexDisplay'],
+  ];
+  return {
+    schemaVersion: '2.0',
+    valid: true,
+    source: { language: 'go', path: 'entity_list_flow.go' },
+    flow: { name: 'EntityListFlow' },
+    nodes: [
+      { id: 'resource:attribute:entries', kind: 'attribute', name: 'entries', resource: { valueType: '[]string' } },
+      { id: 'resource:attribute:entryCount', kind: 'attribute', name: 'entry-count', resource: { valueType: 'int64' } },
+      { id: 'resource:channel:entryEvents', kind: 'channel', name: 'entry-events', resource: { valueType: 'string' } },
+      ...['AddEntry', 'RemoveEntry', 'ListEntries', 'GetDexSummary', 'GetDexDisplay'].flatMap(rpc),
+    ],
+    edges: edges.map(([kind, from, to], i) => ({ id: `edge:${i}`, kind, from, to, metadata: { phase: 'rpc' } })),
+    diagnostics: [],
+    v2: {
+      summary: { rpcName: 'GetDexSummary' },
+      display: { rpcName: 'GetDexDisplay' },
+      actions: [{ rpcName: 'RemoveEntry', label: 'Remove entry', requiredPermission: 'entries.manage' }],
+    },
+  };
 }
 
 interface Rect { id: string; x: number; y: number; w: number; h: number }

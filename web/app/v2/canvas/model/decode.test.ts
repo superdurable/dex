@@ -48,3 +48,79 @@ describe('decodeFlow Step names', () => {
     ]);
   });
 });
+
+describe('decodeFlow RPC contracts', () => {
+  it('joins Flow v2 Actions and views to their RPCs by RPC name', () => {
+    const flow = decodeFlow(entityListGraph(), { generated: true, note: 'test' });
+
+    expect(flow.entries.map((entry) => [entry.name, entry.kind, entry.action, entry.views])).toEqual([
+      ['AddEntry', 'rpc', undefined, []],
+      ['GetDexDisplay', 'rpc', undefined, ['display']],
+      ['GetDexSummary', 'rpc', undefined, ['summary']],
+      ['OnFlowTimeout', 'timeoutHandler', undefined, []],
+      ['RemoveEntry', 'rpc', { label: 'Remove entry', requiredPermission: 'entries.manage' }, []],
+    ]);
+  });
+
+  it('marks no RPC when the definition has no Flow v2 section', () => {
+    const flow = decodeFlow({ ...entityListGraph(), v2: undefined }, { generated: true, note: 'test' });
+
+    expect(flow.entries.every((entry) => entry.action === undefined && entry.views.length === 0)).toBe(true);
+  });
+
+  it('keeps the resource references of a Flow with no Steps on its RPCs', () => {
+    const flow = decodeFlow(entityListGraph(), { generated: true, note: 'test' });
+    const addEntry = flow.entries.find((entry) => entry.name === 'AddEntry');
+
+    expect(flow.steps).toEqual([]);
+    expect(flow.transitions).toEqual([]);
+    expect(flow.dropped).toEqual([]);
+    expect(addEntry?.resources.map((ref) => [ref.access, ref.resourceId])).toEqual([
+      ['read', 'resource:attribute:entries'],
+      ['write', 'resource:attribute:entries'],
+      ['write', 'resource:attribute:entryCount'],
+      ['publish', 'resource:channel:entryEvents'],
+    ]);
+    expect(addEntry?.opensGates).toEqual([]);
+  });
+});
+
+/** A step-less entity Flow in the shape `dexcli visualize` emits for a Go Flow with only RPCs. */
+function entityListGraph(): FlowDefinitionGraph {
+  const rpc = (name: string) => [
+    { id: `rpc:${name}`, kind: 'rpc', name },
+    { id: `decision:rpc:${name}`, kind: 'decision', name: 'rpcResult', parentId: `rpc:${name}`, decision: { type: 'rpcResult' } },
+  ];
+  const edges: [string, string, string][] = [
+    ['resource_read', 'resource:attribute:entries', 'rpc:AddEntry'],
+    ['resource_write', 'rpc:AddEntry', 'resource:attribute:entries'],
+    ['resource_write', 'rpc:AddEntry', 'resource:attribute:entryCount'],
+    ['resource_publish', 'rpc:AddEntry', 'resource:channel:entryEvents'],
+    ['resource_write', 'rpc:RemoveEntry', 'resource:attribute:entries'],
+    ['resource_read', 'resource:attribute:entryCount', 'rpc:GetDexSummary'],
+    ['resource_read', 'resource:attribute:entries', 'rpc:GetDexDisplay'],
+  ];
+  return {
+    schemaVersion: '2.0',
+    valid: true,
+    source: { language: 'go', path: 'entity_list_flow.go' },
+    flow: { name: 'EntityListFlow' },
+    nodes: [
+      { id: 'resource:attribute:entries', kind: 'attribute', name: 'entries', resource: { valueType: '[]string' } },
+      { id: 'resource:attribute:entryCount', kind: 'attribute', name: 'entry-count', resource: { valueType: 'int64' } },
+      { id: 'resource:channel:entryEvents', kind: 'channel', name: 'entry-events', resource: { valueType: 'string' } },
+      ...['AddEntry', 'RemoveEntry', 'GetDexSummary', 'GetDexDisplay'].flatMap(rpc),
+      { id: 'timeout_handler:OnFlowTimeout', kind: 'timeout_handler', name: 'OnFlowTimeout' },
+    ],
+    edges: edges.map(([kind, from, to], i) => ({ id: `edge:${i}`, kind, from, to, metadata: { phase: 'rpc' } })),
+    diagnostics: [],
+    v2: {
+      summary: { rpcName: 'GetDexSummary' },
+      display: { rpcName: 'GetDexDisplay' },
+      actions: [
+        { rpcName: 'RemoveEntry', label: 'Remove entry', requiredPermission: 'entries.manage' },
+        { rpcName: 'ArchiveEntry', label: 'Archive', requiredPermission: 'entries.manage' },
+      ],
+    },
+  };
+}

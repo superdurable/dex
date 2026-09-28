@@ -26,6 +26,7 @@
  *  7. `isHub`               inbound control degree. A hub dominates a naive drawing.
  *  8. `opensGates`          join rpc-publish->channel with channel-condition->wait.
  *  9. transition merging    parallel edges collapse, keeping every guard.
+ * 10. `action`, `views`     join an rpc node's name with the Flow v2 Action and view RPC names.
  *
  * Tolerant by construction: never throws, and an unknown node kind survives as a
  * labelled box rather than disappearing. A silently dropped node is a lie about the flow.
@@ -37,6 +38,7 @@ import type {
   Branch,
   Condition,
   EntryModel,
+  EntryView,
   ExecutePhase,
   PocFlow,
   ResourceModel,
@@ -516,6 +518,16 @@ export function decodeFlow(
     return [...out]
   }
 
+  const actionByRpcName = new Map<string, NonNullable<EntryModel['action']>>()
+  for (const action of Array.isArray(graph.v2?.actions) ? graph.v2.actions : []) {
+    actionByRpcName.set(action.rpcName, {
+      label: action.label,
+      requiredPermission: action.requiredPermission,
+    })
+  }
+  const viewsOf = (rpcName: string): EntryView[] =>
+    (['summary', 'display'] as const).filter((view) => graph.v2?.[view]?.rpcName === rpcName)
+
   const entries: EntryModel[] = graph.nodes
     .filter((n) => n.kind === 'rpc' || n.kind === 'timeout_handler')
     .map((n) => {
@@ -524,13 +536,17 @@ export function decodeFlow(
         .filter((r) => r.access === 'publish')
         .map((r) => ({ channelId: r.resourceId, stepIds: stepsWaitingOn(r.resourceId) }))
         .filter((g) => g.stepIds.length > 0)
+      const isRpc = n.kind === 'rpc'
+      const action = isRpc ? actionByRpcName.get(n.name) : undefined
       return {
         id: n.id,
-        kind: n.kind === 'rpc' ? ('rpc' as const) : ('timeoutHandler' as const),
+        kind: isRpc ? ('rpc' as const) : ('timeoutHandler' as const),
         name: n.name,
         branches: groupBranches(branchesByOwner.get(n.id) ?? []),
         resources: refs,
         opensGates,
+        ...(action === undefined ? {} : { action }),
+        views: isRpc ? viewsOf(n.name) : [],
         span: n.span,
       }
     })
