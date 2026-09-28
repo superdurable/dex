@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { describe, expect, it } from 'vitest';
+import { DexAPIError } from '@/lib/http';
 import {
   connectionKey,
   connectorHostReadyMessage,
@@ -17,6 +18,7 @@ import {
   isStudioFrameResize,
   descriptionParts,
   manifestFieldDefaultText,
+  studioCommandFailureOutcome,
   studioHostCapabilities,
   studioState,
 } from './ConnectionsPage';
@@ -108,6 +110,36 @@ describe('Connections contract', () => {
         commands: [{id: 'listResources', capability: 'provider.resources-list'}],
       } } },
     } as never)).toEqual(['oauth.connection.manage', 'use.configuration.write', 'provider.resources-list']);
+  });
+
+  it('reports provider command failures only to the Studio frame and save failures to both', () => {
+    const connection = { connectorId: 'llm', connectionName: 'default' } as never;
+    const session = { connectorId: 'llm', connectionName: 'default', sessionNonce: 'nonce' } as never;
+    const frameResult = (requestId: string, message: string) => ({
+      type: 'connector.command.result', protocolVersion: '0.2.0', sessionNonce: 'nonce',
+      connectorId: 'llm', requestId, ok: false, error: { code: 'COMMAND_FAILED', message },
+    });
+    const providerCommandFailures = [
+      new DexAPIError('Connector provider command failed', 502, undefined, 'CONNECTOR_PROVIDER_COMMAND_FAILED'),
+      new DexAPIError('Connector UI session is missing or expired', 404, undefined, 'CONNECTOR_UI_SESSION_NOT_FOUND'),
+      new DexAPIError('Connector Studio command parameters are invalid', 400, undefined, 'CONNECTOR_STUDIO_COMMAND_INVALID'),
+      new Error('parameters must contain string values'),
+      new TypeError('Failed to fetch'),
+    ];
+    for (const commandError of providerCommandFailures) {
+      const outcome = studioCommandFailureOutcome(connection, session, { requestId: 'list', command: 'provider.command.execute' }, commandError);
+      expect(outcome.pageBannerMessage).toBeUndefined();
+      expect(outcome.frameResult).toEqual(frameResult('list', commandError.message));
+    }
+    const staleRevision = new DexAPIError('Flow Definition revision is stale', 409, undefined, 'FLOW_DEFINITION_REVISION_CONFLICT');
+    expect(studioCommandFailureOutcome(connection, session, { requestId: 'save', command: 'use.configuration.save' }, staleRevision)).toEqual({
+      pageBannerMessage: 'Flow Definition revision is stale',
+      frameResult: frameResult('save', 'Flow Definition revision is stale'),
+    });
+    expect(studioCommandFailureOutcome(connection, session, { requestId: 'save', command: 'use.configuration.save' }, 'offline')).toEqual({
+      pageBannerMessage: 'Connector request failed',
+      frameResult: frameResult('save', 'Connector request failed'),
+    });
   });
 
   it('orders authorization before configurable operations and triggers', () => {

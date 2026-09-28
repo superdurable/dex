@@ -622,12 +622,9 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
           }, '*');
           if (commandMessage.command === 'use.configuration.save') await onConfigured();
         }).catch((commandError: unknown) => {
-          onError(errorMessage(commandError));
-          frame.current?.contentWindow?.postMessage({
-            type: 'connector.command.result', protocolVersion: '0.2.0', sessionNonce: session.sessionNonce,
-            connectorId: connection.connectorId, requestId: commandMessage.requestId, ok: false,
-            error: { code: 'COMMAND_FAILED', message: errorMessage(commandError) },
-          }, '*');
+          const failure = studioCommandFailureOutcome(connection, session, commandMessage, commandError);
+          if (failure.pageBannerMessage !== undefined) onError(failure.pageBannerMessage);
+          frame.current?.contentWindow?.postMessage(failure.frameResult, '*');
         });
         return;
       }
@@ -734,6 +731,24 @@ export function studioHostCapabilities(session: UISessionResponse): string[] {
   const supported = new Set(['oauth.connection.manage', 'use.configuration.write']);
   for (const command of session.manifest.spec.studio?.commands ?? []) supported.add(command.capability);
   return declared.filter((capability) => supported.has(capability));
+}
+
+// The Connector UI presents every provider command failure itself, for example as a manual-entry fallback.
+export function studioCommandFailureOutcome(
+  connection: ConnectionView,
+  session: UISessionResponse,
+  commandMessage: { requestId: string; command: StudioCommand },
+  commandError: unknown,
+): { pageBannerMessage?: string; frameResult: Record<string, unknown> } {
+  const message = errorMessage(commandError);
+  return {
+    pageBannerMessage: commandMessage.command === 'provider.command.execute' ? undefined : message,
+    frameResult: {
+      type: 'connector.command.result', protocolVersion: '0.2.0', sessionNonce: session.sessionNonce,
+      connectorId: connection.connectorId, requestId: commandMessage.requestId, ok: false,
+      error: { code: 'COMMAND_FAILED', message },
+    },
+  };
 }
 
 async function executeStudioCommand(

@@ -268,6 +268,13 @@ the value it sent. The credential must be printable ASCII.
 Provider pagination, filtering, and response projection stay in the
 Connector-owned UI bundle; Dex Web contains no provider-specific adapters.
 
+A failed command reaches the iframe as a `connector.command.result` with
+`ok: false`. Only the Connector UI shows a failed `provider.command.execute`.
+This includes a provider error, a missing credential, and a Dex Web rejection
+such as an expired UI session. A failed `use.configuration.save`, such as one
+with a stale Flow Definition revision, also appears in the page error banner.
+An unsupported command is reported only to the Connector UI.
+
 Connections persist in `$HOME/.dex/connectors/connections.json` by default.
 Use `--connector-config-dir` to select another directory. Restarting Dex Web
 reloads the file and cached artifacts. OAuth state, PKCE verifier, client
