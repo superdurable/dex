@@ -126,7 +126,11 @@ runs through loopback-bound `dexcli dev` with a local Flow Definition source.
 It groups Connector Steps by Connector ID and static connection name, resolves
 the exact official Connector release declared by the graph, verifies release
 and Studio UI checksums, and loads UI bundles in opaque-origin sandbox iframes.
-Without a Studio bundle, it renders the manifest fields directly.
+Without a Studio bundle, it renders the manifest fields directly. The generic
+form renders a connector-owned authorization guide with an external provider
+link and ordered setup steps. Every non-secret manifest default appears below
+its field in parentheses; leaving that input blank uses the displayed default.
+URLs in field guidance are clickable.
 
 During Connector development, the repeatable
 `--connector-release-override connector-id=artifact-directory` flag on
@@ -185,6 +189,10 @@ Connections persist in `$HOME/.dex/connectors/connections.json` by default.
 Use `--connector-config-dir` to select another directory. Restarting Dex Web
 reloads the file and cached artifacts. OAuth state, PKCE verifier, client
 secret, and UI session nonce remain memory-only and are discarded on restart.
+The page displays the exact OAuth Redirect URI before authorization. A release
+may derive required non-secret credentials from a declared HTTPS identity
+endpoint; Dex accepts a derived claim only after any declared boolean
+verification claim is true, and does not render a duplicate input.
 The page displays the absolute JSON path and the
 `DEX_CONNECTOR_CONFIG_FILE=... <your-app-command>` launch command. It never
 returns credential values. Deleting a local credential does not revoke the

@@ -9,6 +9,7 @@
 package web
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -22,6 +23,30 @@ import (
 
 	"github.com/superdurable/dex/web/api"
 )
+
+func TestConnectorOAuthCredentialDerivationRejectsNonHTTPSEndpoint(t *testing.T) {
+	setup := &connectorSetup{releases: &connectorReleaseResolver{httpClient: http.DefaultClient}}
+	_, err := setup.deriveConnectorOAuthCredentials(context.Background(), connectorOAuthTokenResponse{AccessToken: "secret"}, []connectorOAuthCredentialDerivation{{
+		Credential: "primary_email", Endpoint: "http://provider.example/userinfo", Source: "email",
+	}})
+	if err == nil || !strings.Contains(err.Error(), "endpoint is invalid") {
+		t.Fatalf("derive credentials error = %v", err)
+	}
+}
+
+func TestConnectorOAuthRejectsHostSuppliedDerivedCredential(t *testing.T) {
+	manifest := connectorReleaseManifest{}
+	manifest.Spec.Auth.Fields = []connectorManifestField{{Name: "primary_email", Type: "string", Required: true}}
+	manifest.Spec.Auth.OAuth2 = &connectorManifestOAuth2{CredentialDerivations: []connectorOAuthCredentialDerivation{{
+		Credential: "primary_email", Endpoint: "https://provider.example/userinfo", Source: "email",
+	}}}
+	err := validateManifestValueMaps(manifest, connectorOAuthStartRequest{
+		CredentialValues: map[string]json.RawMessage{"primary_email": json.RawMessage(`"spoofed@example.com"`)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "not a host-supplied non-secret field") {
+		t.Fatalf("validate derived credential error = %v", err)
+	}
+}
 
 func TestConnectorOAuthUsesPKCESingleUseStateAndDoesNotPersistClientOrRefreshSecret(t *testing.T) {
 	identity := connectorDefinitionIdentity{
@@ -57,6 +82,15 @@ func TestConnectorOAuthUsesPKCESingleUseStateAndDoesNotPersistClientOrRefreshSec
 			if err != nil {
 				t.Error(err)
 			}
+		case "userinfo":
+			if request.Header.Get("Authorization") != "Bearer provider-access-token" {
+				t.Error("userinfo request is missing the provider access token")
+			}
+			response.Header().Set("Content-Type", "application/json")
+			_, err := response.Write([]byte(`{"email":"owner@example.com","email_verified":true}`))
+			if err != nil {
+				t.Error(err)
+			}
 		default:
 			http.NotFound(response, request)
 		}
@@ -78,7 +112,11 @@ func TestConnectorOAuthUsesPKCESingleUseStateAndDoesNotPersistClientOrRefreshSec
 	}
 	release.Manifest.Spec.Auth.OAuth2 = &connectorManifestOAuth2{
 		AuthorizationEndpoint: server.URL + "/authorize", TokenEndpoint: server.URL + "/token",
-		Scopes: []string{"openid", "email", "https://www.googleapis.com/auth/gmail.send"}, PKCE: true,
+		Scopes: []string{"openid", "email", "https://www.googleapis.com/auth/gmail.send"},
+		CredentialDerivations: []connectorOAuthCredentialDerivation{{
+			Credential: "primary_email", Endpoint: server.URL + "/userinfo", Source: "email", VerifiedBy: "email_verified",
+		}},
+		PKCE: true,
 	}
 	var err error
 	metadata, err = json.Marshal(release)
@@ -90,7 +128,7 @@ func TestConnectorOAuthUsesPKCESingleUseStateAndDoesNotPersistClientOrRefreshSec
 	setup.releases.baseURL = server.URL
 	setup.releases.httpClient = server.Client()
 
-	startBody := `{"clientId":"oauth-client-id","clientSecret":"oauth-client-secret","configuration":{},"credentialValues":{"primary_email":"owner@example.com"},"credentialSecrets":{}}`
+	startBody := `{"clientId":"oauth-client-id","clientSecret":"oauth-client-secret","configuration":{},"credentialValues":{},"credentialSecrets":{}}`
 	startRequest := httptest.NewRequest(http.MethodPost, "/api/v2/connector-connections/gmail/sender/oauth/start", strings.NewReader(startBody))
 	startRequest.SetPathValue("connectorId", "gmail")
 	startRequest.SetPathValue("connectionName", "sender")
@@ -133,7 +171,7 @@ func TestConnectorOAuthUsesPKCESingleUseStateAndDoesNotPersistClientOrRefreshSec
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(connections) != 1 || string(connections[0].Credentials["access_token"]) != `"provider-access-token"` {
+	if len(connections) != 1 || string(connections[0].Credentials["access_token"]) != `"provider-access-token"` || string(connections[0].Credentials["primary_email"]) != `"owner@example.com"` {
 		t.Fatalf("saved connections = %+v", connections)
 	}
 	encoded, err := json.Marshal(connections)

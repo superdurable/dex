@@ -185,6 +185,17 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		return
 	}
 	credentials := make(map[string]json.RawMessage, 1+len(session.credentialValues)+len(session.credentialSecrets))
+	for name, value := range session.credentialValues {
+		credentials[name] = value
+	}
+	for name, value := range session.credentialSecrets {
+		encoded, marshalErr := json.Marshal(value)
+		if marshalErr != nil {
+			api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
+			return
+		}
+		credentials[name] = encoded
+	}
 	mappings := session.release.Manifest.Spec.Auth.OAuth2.CredentialMappings
 	if len(mappings) == 0 {
 		mappings = []connectorOAuthCredentialMapping{{Credential: "access_token", Source: "access_token"}}
@@ -202,16 +213,13 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		}
 		credentials[mapping.Credential] = encoded
 	}
-	for name, value := range session.credentialValues {
-		credentials[name] = value
+	derivedCredentials, err := setup.deriveConnectorOAuthCredentials(request.Context(), token, session.release.Manifest.Spec.Auth.OAuth2.CredentialDerivations)
+	if err != nil {
+		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_OAUTH_IDENTITY_DERIVATION_FAILED", "Connector OAuth identity could not be verified")
+		return
 	}
-	for name, value := range session.credentialSecrets {
-		encoded, marshalErr := json.Marshal(value)
-		if marshalErr != nil {
-			api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
-			return
-		}
-		credentials[name] = encoded
+	for name, value := range derivedCredentials {
+		credentials[name] = value
 	}
 	var expiresAt *time.Time
 	if token.ExpiresIn > 0 {
@@ -231,6 +239,65 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 	location := "/v2/connections?oauth=success&connectorId=" + url.QueryEscape(connection.ConnectorID) +
 		"&connectionName=" + url.QueryEscape(connection.ConnectionName)
 	http.Redirect(response, request, location, http.StatusSeeOther)
+}
+
+func (setup *connectorSetup) deriveConnectorOAuthCredentials(
+	ctx context.Context,
+	token connectorOAuthTokenResponse,
+	derivations []connectorOAuthCredentialDerivation,
+) (map[string]json.RawMessage, error) {
+	credentials := make(map[string]json.RawMessage, len(derivations))
+	responses := make(map[string]map[string]any)
+	for _, derivation := range derivations {
+		endpointURL, err := url.Parse(derivation.Endpoint)
+		if err != nil || endpointURL.Scheme != "https" || endpointURL.Host == "" {
+			return nil, fmt.Errorf("Connector OAuth credential derivation endpoint is invalid")
+		}
+		providerResponse, found := responses[derivation.Endpoint]
+		if !found {
+			request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpointURL.String(), nil)
+			if err != nil {
+				return nil, err
+			}
+			request.Header.Set("Accept", "application/json")
+			request.Header.Set("Authorization", "Bearer "+token.AccessToken)
+			response, err := setup.releases.httpClient.Do(request)
+			if err != nil {
+				return nil, err
+			}
+			contents, readErr := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
+			closeErr := response.Body.Close()
+			if readErr != nil {
+				return nil, readErr
+			}
+			if closeErr != nil {
+				return nil, closeErr
+			}
+			if response.StatusCode != http.StatusOK || len(contents) > 1<<20 {
+				return nil, fmt.Errorf("Connector OAuth identity provider returned HTTP %d", response.StatusCode)
+			}
+			if err := json.Unmarshal(contents, &providerResponse); err != nil {
+				return nil, err
+			}
+			responses[derivation.Endpoint] = providerResponse
+		}
+		if derivation.VerifiedBy != "" {
+			verified, found := connectorOAuthResponsePath(providerResponse, derivation.VerifiedBy)
+			if !found || verified != true {
+				return nil, fmt.Errorf("Connector OAuth identity claim %q is not verified", derivation.Source)
+			}
+		}
+		value, found := connectorOAuthResponseValue(providerResponse, derivation.Source)
+		if !found {
+			return nil, fmt.Errorf("Connector OAuth identity response is missing %q", derivation.Source)
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		credentials[derivation.Credential] = encoded
+	}
+	return credentials, nil
 }
 
 func (setup *connectorSetup) exchangeConnectorOAuthToken(
@@ -305,6 +372,9 @@ func validateManifestValueMaps(manifest connectorReleaseManifest, request connec
 		if len(manifest.Spec.Auth.OAuth2.CredentialMappings) == 0 {
 			mappedCredentials["access_token"] = true
 		}
+		for _, derivation := range manifest.Spec.Auth.OAuth2.CredentialDerivations {
+			mappedCredentials[derivation.Credential] = true
+		}
 	}
 	return validateConnectorFieldValues(manifest.Spec.Auth.Fields, request.CredentialValues, request.CredentialSecrets, mappedCredentials)
 }
@@ -321,8 +391,8 @@ func validateConnectorFieldValues(
 	}
 	for name := range values {
 		field, found := known[name]
-		if !found || field.Type == "secretString" {
-			return fmt.Errorf("field %q is not a non-secret manifest field", name)
+		if !found || field.Type == "secretString" || mappedCredentials[name] {
+			return fmt.Errorf("field %q is not a host-supplied non-secret field", name)
 		}
 	}
 	for name := range secrets {
@@ -350,19 +420,27 @@ func validateConnectorFieldValues(
 }
 
 func connectorOAuthResponseValue(response map[string]any, path string) (string, bool) {
+	current, found := connectorOAuthResponsePath(response, path)
+	if !found {
+		return "", false
+	}
+	value, ok := current.(string)
+	return value, ok && strings.TrimSpace(value) != ""
+}
+
+func connectorOAuthResponsePath(response map[string]any, path string) (any, bool) {
 	var current any = response
 	for _, segment := range strings.Split(path, ".") {
 		object, ok := current.(map[string]any)
 		if !ok {
-			return "", false
+			return nil, false
 		}
 		current, ok = object[segment]
 		if !ok {
-			return "", false
+			return nil, false
 		}
 	}
-	value, ok := current.(string)
-	return value, ok && strings.TrimSpace(value) != ""
+	return current, true
 }
 
 func validateRawConnectorFields(
