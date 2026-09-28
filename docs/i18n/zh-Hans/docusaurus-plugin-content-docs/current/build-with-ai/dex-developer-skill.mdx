@@ -7,9 +7,9 @@ slug: /build-with-ai/dex-developer-skill
 
 # 使用 AI 构建 Dex 应用
 
-Dex Skills 是 Dex 官方的 coding-agent plugin。它帮助 Codex、Claude Code、Cursor
-和其他 Agent Skills client 设计并构建 Dex 应用、直接使用公开 Dex SDK，以及贡献
-官方 [Connector](/primitives/connector)。
+Dex Skills 是 Dex 官方的 coding-agent 指导，以 Plugin 或三个 standalone Skills 的
+bundle 形式发布。它帮助 Codex、Claude Code 和 Cursor 设计并构建 Dex 应用、直接使用
+公开 Dex SDK，以及贡献官方 [Connector](/primitives/connector)。
 
 该 plugin 提供开发指导，不包含 runtime code。Dex Server、Worker 和应用不会加载它。
 
@@ -47,8 +47,18 @@ Dex App Builder 是主要协调入口。进入 backend 设计与实现时，它�
 直接使用已发布 Connector，并把确认的官方 Connector gap 路由给 Dex Connector
 Contributor。Connector Contributor 需要共享的 Flow 和 Step 语义时也会加载 Dex SDK。
 
-安装完整 plugin 后，agent 才能在三个 skill 之间正确路由。源码和 release 位于
+三个 Skills 必须一起安装，agent 才能在它们之间正确路由。源码和 release 位于
 [superdurable/dex-skills](https://github.com/superdurable/dex-skills)。
+
+## 二选一安装
+
+只能选择一种安装方式，不要同时安装：
+
+1. **Plugin（推荐）**：一次安装三个 Skills，并使用 host 的 marketplace 生命周期。
+2. **Standalone Skills**：通过 Agent Skills CLI 直接安装全部三个 Skills。
+
+同时安装会留下重复副本，使实际加载的版本不明确。同一个 host 中，Plugin 和
+standalone 安装的调用方式也可能不同。
 
 ## 安装到 Codex
 
@@ -69,18 +79,18 @@ Contributor。Connector Contributor 需要共享的 Flow 和 Step 语义时也�
 4. 打开 **Super Durable** marketplace，选择 **Dex** 并安装。
 5. 打开现有 repository 或创建空 repository，然后启动新 task。
 
-产品工作可以直接描述应用需求，也可以显式调用 App Builder：
+使用 Plugin 时，输入 **@**，从 picker 中选择 **Dex**，然后输入请求。例如：
 
 ~~~text
-$dex-app-builder Design and build this process application.
+Design and build this process application.
 ~~~
 
-Codex 可以根据 task context 自动选择 **dex-app-builder**。SDK 和 Connector Contributor
-是只能显式调用的专用入口，但 App Builder 仍可在产品流程中加载它们：
+只有从 picker 选择后才会创建 Plugin binding。只输入普通 **@Dex** 文本不会创建该
+binding。选中 Plugin 后，三个 Skills 都可以根据匹配的自然语言请求路由：
 
 ~~~text
-$dex-sdk Diagnose this Flow retry behavior.
-$dex-connector-contributor Add this capability to an official Connector.
+Diagnose this Flow retry behavior.
+Add <XYZ> to Dex official connector library
 ~~~
 
 ### 可选：Codex CLI
@@ -91,12 +101,16 @@ $dex-connector-contributor Add this capability to an official Connector.
 ~~~bash
 codex --version
 codex plugin marketplace add superdurable/dex-skills
-codex
+codex plugin add superdurable-dex@superdurable
 ~~~
 
-进入 Codex CLI 后，打开 **/plugins**，选择 **Super Durable** marketplace，并安装
-**Dex**。如果 shell 显示 **command not found: codex**，请使用上面的 Desktop 步骤，
-或另行安装 Codex CLI。Desktop app 不需要走 CLI 安装流程。
+启动新的 interactive Codex session，输入 **@**，并从 picker 中选择 **Dex**。把原始
+**@Dex** 字符串放在初始 **codex** prompt 或 **codex exec** 中，并不会创建结构化
+Plugin binding。Codex 可以根据匹配的自然语言请求隐式路由；需要确定性非交互调用时，
+应使用下面的 standalone Codex Skill。
+
+如果 shell 显示 **command not found: codex**，请使用上面的 Desktop 步骤，或另行安装
+Codex CLI。Desktop app 不需要走 CLI 安装流程。
 
 ## 安装到 Claude
 
@@ -108,8 +122,11 @@ codex
    **https://github.com/superdurable/dex-skills**。
 4. 打开 **Super Durable** marketplace，安装 **Dex**。
 
-Claude 会把安装状态保存到账号。使用同一账号登录的 Claude Code session 也可以使用
-该 plugin。
+Claude 会把安装状态保存到账号。Claude Code 2.1.273 或更高版本使用同一账号登录时，
+可以同步该 Plugin。旧版 Claude Code 可以使用下面的手动 Plugin 命令。
+
+通过自然语言或 **/** picker 使用它。Dex 不为 Claude Web 或 Desktop 分发 standalone
+ZIP Skills。
 
 ### Claude Code CLI
 
@@ -136,13 +153,19 @@ claude plugin install superdurable-dex@superdurable
 /superdurable-dex:dex-connector-contributor
 ~~~
 
+例如：
+
+~~~text
+/superdurable-dex:dex-connector-contributor Add <XYZ> to Dex official connector library
+~~~
+
 ## 安装到 Cursor
 
 ### Cursor Desktop app
 
-1. 打开侧栏中的 **Customize**。
-2. 选择 **From GitHub Repository**，输入
-   **https://github.com/superdurable/dex-skills**。
+1. 打开一个 project，然后打开侧栏中的 **Customize**。
+2. 选择 **Plugins → Add → From GitHub Repository**，输入
+   **github.com/superdurable/dex-skills**。
 3. 打开 **Dex**，点击 **Install**，然后选择 user 或 project scope。
 
 该 repository 包含 Cursor 要求的 marketplace manifest。三个 skill 会显示为：
@@ -155,21 +178,46 @@ claude plugin install superdurable-dex@superdurable
 
 ### Cursor CLI
 
-Cursor 官方文档只说明通过 **Customize** 安装 plugin，没有记录用于安装该 GitHub
-marketplace 的独立 shell command。因此应通过 Desktop app 安装 Dex，不要猜测
-**cursor plugin install** 命令。Cursor 官方说明已经安装的 plugin 可以用于 Desktop、
-Web 和 CLI surface。
+Cursor 没有为该 GitHub marketplace 提供非交互式 shell 安装命令。user-scope Desktop
+安装可以用于 Cursor CLI。也可以启动 **cursor-agent**，输入 **/plugin**，打开
+Marketplace tab 并安装 **Dex**。不要猜测 **cursor plugin install** 命令。
 
-Agent Skills client 也可以直接安装完整 bundle：
+## 安装 standalone Skills
+
+使用该方式时不要再安装 Plugin。针对所选 coding agent，一次安装全部三个 Skills：
 
 ~~~bash
-npx skills add superdurable/dex-skills --all
+npx skills add superdurable/dex-skills --skill '*' --agent codex --global
+npx skills add superdurable/dex-skills --skill '*' --agent claude-code --global
+npx skills add superdurable/dex-skills --skill '*' --agent cursor --global
 ~~~
 
-## 保持 Plugin 为最新版本
+standalone Connector Contributor 使用对应 host 的 Skill 语法：
+
+| Host | 调用方式 |
+| --- | --- |
+| Codex | **$dex-connector-contributor Add &lt;XYZ&gt; to Dex official connector library** |
+| Claude Code | **/dex-connector-contributor Add &lt;XYZ&gt; to Dex official connector library** |
+| Cursor | **/dex-connector-contributor Add &lt;XYZ&gt; to Dex official connector library** |
+
+Cursor 的 Plugin 和 standalone 安装都使用相同的短 slash command，只有安装来源不同。
+standalone Skills 只面向 coding-agent host；Claude Web 和 Desktop 使用 Plugin。
+
+## 保持安装为最新版本
 
 Agent 使用已经安装或缓存的副本。它们不会在每次 prompt 时获取 GitHub 最新内容，
-运行中的 task 也会继续使用 task 启动时加载的 version。
+运行中的 task 也会继续使用 task 启动时加载的 version。Dex version check 只报告有新
+release，绝不会安装或升级 Plugin 或 standalone Skills。
+
+### Standalone Skills
+
+一次更新全部三个 Skills：
+
+~~~bash
+npx skills update dex-app-builder dex-sdk dex-connector-contributor --global
+~~~
+
+如果已安装的 **skills** CLI 不支持 **update**，请重新运行上面针对 host 的完整安装命令。
 
 ### ChatGPT Desktop 中的 Codex
 
@@ -216,15 +264,14 @@ Plugins & skills → Marketplaces → Update**；账号用户随后会收到同�
 import 记录 **cursor plugin update** shell command；请通过 **Customize** 管理安装，
 不要猜测命令。
 
-如果直接通过 Agent Skills 安装，请重新运行上面的安装命令。
-
-Plugin version 与 Dex SDK version 相互独立。每个 skill 在使用具体 API 前，都会检查
+Dex Skills version 与 Dex SDK version 相互独立。每个 skill 在使用具体 API 前，都会检查
 应用实际安装的 dependency 和不可变 release source。
 
 ## 信任与权限
 
-只从可信来源安装 agent extension。Dex plugin 不声明 MCP server、hook、credential
-或应用 runtime code。创建 GitHub fork、发布 branch、打开 pull request，以及修改运行中
-Flow，仍然是需要授权的操作。
+只从可信来源安装 agent extension。Dex 不声明 MCP server、credential 或应用 runtime
+code。可选 lifecycle hook 只读取已安装版本和 GitHub 公开 release metadata，并报告
+较新版本，不会执行安装。创建 GitHub fork、发布 branch、打开 pull request，以及修改
+运行中 Flow，仍然是需要授权的操作。
 
 接下来阅读主要工作流 [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx)。

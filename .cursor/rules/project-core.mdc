@@ -62,7 +62,8 @@ merged, do not mark the feature complete. Report the blocker explicitly.
 - Before changing or reviewing `examples/**`, application code snippets in
   product docs, or documented Flow application patterns, load the installed
   `dex-sdk` skill through the host's native skill mechanism and follow its
-  routed references.
+  routed references. Use the invocation syntax for the host's Plugin or
+  standalone installation.
 - Do not load it for pure Server, IDL, or SDK implementation work. When a
   change includes both an SDK API and examples, current source and API decisions
   are authoritative; use the skill for application modeling guidance.

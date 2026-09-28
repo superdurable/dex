@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 
 const siteOrigin = 'https://docs.superdurable.io';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
+const docsRoot = join(root, '..');
 const redirectsPath = join(root, '..', 'redirects.json');
 const redirectRules = JSON.parse(await readFile(redirectsPath, 'utf8'));
 const expectedRedirects = new Map(
@@ -47,6 +48,36 @@ const zhDexConnectorContributor = await readFile(
 const zhConnector = await readFile(join(root, 'zh-Hans', 'primitives', 'connector', 'index.html'), 'utf8');
 const zhWhyDex = await readFile(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
+const dexSkillsSource = await readFile(join(docsRoot, 'content', 'build-with-ai', 'dex-developer-skill.mdx'), 'utf8');
+const dexConnectorContributorSource = await readFile(
+  join(docsRoot, 'content', 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor.mdx'),
+  'utf8',
+);
+const zhDexSkillsSource = await readFile(
+  join(
+    docsRoot,
+    'i18n',
+    'zh-Hans',
+    'docusaurus-plugin-content-docs',
+    'current',
+    'build-with-ai',
+    'dex-developer-skill.mdx',
+  ),
+  'utf8',
+);
+const zhDexConnectorContributorSource = await readFile(
+  join(
+    docsRoot,
+    'i18n',
+    'zh-Hans',
+    'docusaurus-plugin-content-docs',
+    'current',
+    'build-with-ai',
+    'dex-developer-skill',
+    'dex-connector-contributor.mdx',
+  ),
+  'utf8',
+);
 
 assert.match(home, /Super Durable home/);
 assert.match(home, /https:\/\/superdurable\.io\/dex/);
@@ -112,17 +143,29 @@ assert.match(dexSkills, /No terminal command or separately installed Codex CLI i
 assert.match(dexSkills, /https:\/\/github\.com\/superdurable\/dex-skills/);
 assert.match(dexSkills, /Sparse paths/);
 assert.match(dexSkills, /command not found: codex/);
-assert.doesNotMatch(dexSkills, /codex plugin add/);
+assert.match(dexSkillsSource, /codex plugin add superdurable-dex@superdurable/);
+assert.match(dexSkills, /select <strong>Dex<\/strong> from the picker/);
+assert.match(dexSkills, /raw <strong>@Dex<\/strong> string/);
 assert.match(dexSkills, /Claude on the web or in the desktop app/);
 assert.match(dexSkills, /Claude Code CLI/);
+assert.match(dexSkillsSource, /Claude Code\s+2\.1\.273 or later/);
 assert.match(dexSkills, /From a shell where the <strong>claude<\/strong> command is installed/);
 assert.match(dexSkills, /inside an interactive Claude Code session/);
 assert.match(dexSkills, /Cursor desktop app/);
 assert.match(dexSkills, /Cursor CLI/);
-assert.match(dexSkills, /does not document a separate shell command/);
+assert.match(dexSkills, /does not provide a non-interactive shell command/);
 assert.doesNotMatch(dexSkills, /cursor-agent plugin/);
-assert.match(dexSkills, /codex plugin marketplace upgrade superdurable/);
-assert.match(dexSkills, /claude plugin update superdurable-dex@superdurable/);
+assert.match(dexSkills, /cursor-agent/);
+assert.match(dexSkills, /Install standalone Skills/);
+assert.match(dexSkillsSource, /--skill '\*' --agent codex --global/);
+assert.match(dexSkillsSource, /--skill '\*' --agent claude-code --global/);
+assert.match(dexSkillsSource, /--skill '\*' --agent cursor --global/);
+assert.doesNotMatch(dexSkillsSource, /npx skills add[^\n]*--all/);
+assert.match(dexSkillsSource, /\$dex-connector-contributor Add &lt;XYZ&gt; to Dex official connector library/);
+assert.match(dexSkillsSource, /\/superdurable-dex:dex-connector-contributor Add <XYZ>/);
+assert.doesNotMatch(dexSkillsSource, /Add this Trigger to the official Slack Connector/);
+assert.match(dexSkillsSource, /codex plugin marketplace upgrade superdurable/);
+assert.match(dexSkillsSource, /claude plugin update superdurable-dex@superdurable/);
 assert.match(dexSkills, /Auto Refresh/);
 assert.ok(dexSkills.indexOf('dex-app-builder') < dexSkills.indexOf('dex-sdk'));
 assert.match(dexSkills, /dex-developer-skill\/dex-app-builder/);
@@ -139,6 +182,8 @@ assert.match(dexConnectorContributor, /Update <strong>connector.yaml<\/strong> b
 assert.match(dexConnectorContributor, /production handoff waits for an exact released Connector version/);
 assert.match(dexConnectorContributor, /currently support only\s+the Dex Go SDK/);
 assert.match(dexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex\/issues\/new/);
+assert.match(dexConnectorContributorSource, /Add <XYZ> to Dex official connector library/);
+assert.doesNotMatch(dexConnectorContributorSource, /\$dex-connector-contributor/);
 assert.match(zhDexSkills, /使用 AI 构建/);
 assert.match(zhDexSkills, /主要 skill/);
 assert.match(zhDexSkills, /需要代码工作区/);
@@ -146,15 +191,23 @@ assert.match(zhDexSkills, /可写 repository 或 project\s+workspace/);
 assert.match(zhDexSkills, /不需要 terminal command/);
 assert.match(zhDexSkills, /Sparse paths/);
 assert.match(zhDexSkills, /command not found: codex/);
-assert.doesNotMatch(zhDexSkills, /codex plugin add/);
+assert.match(zhDexSkillsSource, /codex plugin add superdurable-dex@superdurable/);
+assert.match(zhDexSkills, /从 picker 中选择 <strong>Dex<\/strong>/);
 assert.match(zhDexSkills, /Claude Web 或 Desktop app/);
 assert.match(zhDexSkills, /Claude Code CLI/);
+assert.match(zhDexSkillsSource, /Claude Code 2\.1\.273/);
 assert.match(zhDexSkills, /Cursor Desktop app/);
 assert.match(zhDexSkills, /Cursor CLI/);
-assert.match(zhDexSkills, /没有记录用于安装该 GitHub\s+marketplace 的独立 shell command/);
+assert.match(zhDexSkills, /没有为该 GitHub marketplace 提供非交互式 shell 安装命令/);
 assert.doesNotMatch(zhDexSkills, /cursor-agent plugin/);
-assert.match(zhDexSkills, /codex plugin marketplace upgrade superdurable/);
-assert.match(zhDexSkills, /claude plugin update superdurable-dex@superdurable/);
+assert.match(zhDexSkills, /安装 standalone Skills/);
+assert.match(zhDexSkillsSource, /--skill '\*' --agent codex --global/);
+assert.match(zhDexSkillsSource, /--skill '\*' --agent claude-code --global/);
+assert.match(zhDexSkillsSource, /--skill '\*' --agent cursor --global/);
+assert.doesNotMatch(zhDexSkillsSource, /npx skills add[^\n]*--all/);
+assert.match(zhDexSkillsSource, /\$dex-connector-contributor Add &lt;XYZ&gt; to Dex official connector library/);
+assert.match(zhDexSkillsSource, /codex plugin marketplace upgrade superdurable/);
+assert.match(zhDexSkillsSource, /claude plugin update superdurable-dex@superdurable/);
 assert.match(zhDexSkills, /Auto Refresh/);
 assert.ok(zhDexSkills.indexOf('dex-app-builder') < zhDexSkills.indexOf('dex-sdk'));
 assert.match(zhDexAppBuilder, /主要 skill/);
@@ -165,6 +218,8 @@ assert.match(zhDexConnectorContributor, /Repository 与 Fork 工作流/);
 assert.match(zhDexConnectorContributor, /production\s+handoff 必须等待精确发布的 Connector version/);
 assert.match(zhDexConnectorContributor, /目前只支持 Dex Go SDK/);
 assert.match(zhDexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex\/issues\/new/);
+assert.match(zhDexConnectorContributorSource, /Add <XYZ> to Dex official connector library/);
+assert.doesNotMatch(zhDexConnectorContributorSource, /\$dex-connector-contributor/);
 assert.match(connector, /independent Dex primitive/);
 assert.match(connector, /currently support only\s+the Dex Go SDK/);
 assert.match(connector, /https:\/\/github\.com\/superdurable\/dex\/issues\/new/);
