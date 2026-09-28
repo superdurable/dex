@@ -900,7 +900,7 @@ func testV2Definition() V2Definition {
 				AttributeKey: "case-status", Operator: "in", Values: []interface{}{"awaiting-manager"},
 			},
 			Input: V2ActionInput{Kind: "object", Fields: []V2ActionInputField{{
-				FieldName: "reason", ValueType: "string", Source: "user", Required: true,
+				FieldName: "reason", ValueType: "string", Source: "user", Capture: "qr-code", Required: true,
 				Description: "Rejection reason",
 			}, {
 				FieldName: "gateRequestKey", ValueType: "string", Source: "attribute",

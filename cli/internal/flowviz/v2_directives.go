@@ -698,7 +698,7 @@ func (analyzer *goAnalyzer) v2ActionInput(
 	input := ActionInput{Kind: "object", Fields: make([]ActionInputField, 0, len(directives))}
 	seen := make(map[string]bool)
 	for _, directive := range directives {
-		allowed := []string{"field-name", "value-type", "source", "attribute-key", "required", "description"}
+		allowed := []string{"field-name", "value-type", "source", "attribute-key", "capture", "required", "description"}
 		required := []string{"field-name", "value-type", "source", "required", "description"}
 		if !analyzer.validateV2Directive(directive, allowed, required) {
 			continue
@@ -726,6 +726,18 @@ func (analyzer *goAnalyzer) v2ActionInput(
 		}
 		source := directive.arguments["source"].text
 		attributeKey := ""
+		capture := ""
+		if captureArgument, exists := directive.arguments["capture"]; exists {
+			capture = captureArgument.text
+			if capture != "qr-code" {
+				analyzer.addV2DirectiveError(directive, "capture must be qr-code")
+				continue
+			}
+			if source != "user" || valueType != "string" {
+				analyzer.addV2DirectiveError(directive, "capture requires a source:user string input field")
+				continue
+			}
+		}
 		switch source {
 		case "user":
 			if _, exists := directive.arguments["attribute-key"]; exists {
@@ -753,6 +765,7 @@ func (analyzer *goAnalyzer) v2ActionInput(
 			ValueType:    valueType,
 			Source:       source,
 			AttributeKey: attributeKey,
+			Capture:      capture,
 			Required:     isRequired,
 			Description:  directive.arguments["description"].text,
 		})

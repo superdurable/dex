@@ -373,6 +373,13 @@ Attribute-sourced Action inputs remain hidden. The UI condition is
 presentational; Action RPCs must re-check current state.
 Version 2 definitions use `uiSlot` for reusable display placement and expose
 each Action's `requiredPermission` from the Go SDK Action registration.
+User-sourced string Action inputs marked with `capture: "qr-code"` retain their
+text field and add a **Scan QR code** button. The scanner is loaded only after a
+user opens it, prefers the rear camera, and copies the decoded text into the
+field without submitting the Action. Manual input remains available when the
+camera is missing, denied, or blocked. Camera access requires HTTPS or localhost;
+an embedding host must also allow camera access through its Permissions Policy.
+Scanning does not grant an Action permission or bypass its condition check.
 
 v1 pages live under `/v1/flows` and `/v1/rendering`. The Flows page provides Basic and Advanced visibility queries, pagination,
 saved queries, configurable columns, Indexed Attributes, and timezone

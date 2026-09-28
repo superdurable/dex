@@ -34,6 +34,12 @@ type BrokenActionInput struct {
 	Reason string `json:"reason"`
 }
 
+type InvalidCaptureActionInput struct {
+	UnknownCapture string `json:"unknownCapture"`
+	NumericCapture int64  `json:"numericCapture"`
+	AttributeValue string `json:"attributeValue"`
+}
+
 type InvalidV2Flow struct {
 	dex.FlowDefaults
 }
@@ -66,6 +72,11 @@ func (flow *InvalidV2Flow) GetRPCs() []dex.RPCDef {
 			"Bad permission",
 			dex.WhenAttributeMatches(state, dex.AttributeMatchEqual("open")),
 			dex.ActionRequiresPermission("Manager"),
+		)}),
+		dex.DefineRPC(flow.RejectInvalidCapture, &dex.RPCOptions{Action: dex.DefineAction(
+			"Bad capture",
+			dex.WhenAttributeMatches(state, dex.AttributeMatchEqual("open")),
+			dex.ActionRequiresPermission("capture.submit"),
 		)}),
 	}
 }
@@ -114,6 +125,16 @@ func (*InvalidV2Flow) BreakActionInput(
 func (*InvalidV2Flow) RejectBadPermission(
 	_ dex.Context,
 	_ dex.None,
+) (*dex.RPCResult[dex.None], error) {
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// dex:input field-name:unknownCapture value-type:string source:user capture:barcode required:true description:"Unknown capture"
+// dex:input field-name:numericCapture value-type:int64 source:user capture:qr-code required:true description:"Numeric capture"
+// dex:input field-name:attributeValue value-type:string source:attribute attribute-key:state capture:qr-code required:true description:"Attribute capture"
+func (*InvalidV2Flow) RejectInvalidCapture(
+	_ dex.Context,
+	_ InvalidCaptureActionInput,
 ) (*dex.RPCResult[dex.None], error) {
 	return &dex.RPCResult[dex.None]{}, nil
 }
