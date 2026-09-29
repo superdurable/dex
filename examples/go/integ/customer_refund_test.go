@@ -167,9 +167,9 @@ func TestAgenticCustomerRefundSearchAttributes(t *testing.T) {
 	require.NoError(t, err)
 	waitForAgenticGate(t, ctx, flowID)
 	for _, query := range []string{
-		"FlowType = 'AgenticCustomerRefundFlow' AND keyword1 = 'synthetic-search@example.com'",
-		"FlowType = 'AgenticCustomerRefundFlow' AND keyword2 = 'awaiting-manager-rule'",
-		"FlowType = 'AgenticCustomerRefundFlow' AND double1 = 14000",
+		"FlowType = 'AgenticCustomerRefundFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'synthetic-search@example.com'",
+		"FlowType = 'AgenticCustomerRefundFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword2 = 'awaiting-manager-rule'",
+		"FlowType = 'AgenticCustomerRefundFlow' AND ExecutionStatus != 'ContinuedAsNew' AND double1 = 14000",
 	} {
 		query := query
 		var searchErr error

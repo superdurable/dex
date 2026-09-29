@@ -21,8 +21,10 @@
 package httputil
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -87,4 +89,13 @@ func StartFlow(
 
 func NewFlowID(prefix string) string {
 	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+}
+
+// ScopeApplicationRunSearch scopes caller filters to current runs of a trusted registered Flow type.
+func ScopeApplicationRunSearch(query, flowType string) string {
+	scope := fmt.Sprintf("FlowType = '%s' AND ExecutionStatus != 'ContinuedAsNew'", flowType)
+	if strings.TrimSpace(query) == "" {
+		return scope
+	}
+	return fmt.Sprintf("(%s) AND (%s)", query, scope)
 }

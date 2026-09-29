@@ -86,7 +86,7 @@ The email is synthetic sample data only. Do not index email addresses or other
 PII in production; follow Temporal's Search Attribute guidance.
 
 Raw searches for these generic slots must also filter
-`FlowType = 'AgenticCustomerRefundFlow'`.
+`FlowType = 'AgenticCustomerRefundFlow' AND ExecutionStatus != 'ContinuedAsNew'`.
 
 Read [the Go examples README](../../README.md#run-locally) before changing any of
 them: the Worker reconciles Indexed Attributes against the store at startup.

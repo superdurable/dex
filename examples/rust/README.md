@@ -34,6 +34,11 @@ The examples share namespace-level slots by index type: `keyword1`,
 `text1`, `int1`, and numbered later slots such as `keyword2`.
 Use a fresh local store and a new port after changing an example's index schema.
 
+Application run searches must constrain `FlowType` and include
+`ExecutionStatus != "ContinuedAsNew"`. Parenthesize caller filters before
+combining them with the application scope. The sample search endpoints add
+these predicates; raw SDK queries must supply both explicitly.
+
 The Worker connects to `127.0.0.1:8801`, listens on `127.0.0.1:8803`, serves HTTP
 on `127.0.0.1:8080`, and stores large payload blobs under
 `/tmp/dex-rust-examples-blobs`. Override these with `DEX_SERVER_ADDRESS`,

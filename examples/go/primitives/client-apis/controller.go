@@ -69,6 +69,7 @@ func (controller *controller) search(request *gin.Context) {
 	if !found {
 		return
 	}
+	query = httputil.ScopeApplicationRunSearch(query, "clientapis.ClientApisFlow")
 	page, err := controller.client.SearchFlows(
 		request.Request.Context(),
 		query,

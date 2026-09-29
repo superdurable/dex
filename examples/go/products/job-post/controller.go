@@ -195,6 +195,7 @@ func (controller *controller) delete(request *gin.Context) {
 
 func (controller *controller) search(request *gin.Context) {
 	query := request.Query("query")
+	query = httputil.ScopeApplicationRunSearch(query, "jobpost.JobPostingFlow")
 	page, err := controller.client.SearchFlows(
 		request.Request.Context(),
 		query,

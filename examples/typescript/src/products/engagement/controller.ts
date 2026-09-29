@@ -80,7 +80,9 @@ export function createEngagementRouter(client: Client): Router {
   });
 
   router.get("/list", async (request, response) => {
-    const query = String(request.query.query ?? "");
+    const callerQuery = String(request.query.query ?? "");
+    const scope = `FlowType = '${engagementFlow.getFlowType()}' AND ExecutionStatus != 'ContinuedAsNew'`;
+    const query = callerQuery.trim() ? `(${callerQuery}) AND (${scope})` : scope;
     const page = await client.searchFlows(query, 100, "");
     response.json({
       flowIDs: page.flows.map((flow) => flow.flowId),

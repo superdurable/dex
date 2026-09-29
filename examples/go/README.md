@@ -43,7 +43,7 @@ opens its listener; no backend CLI registration is required.
 
 The examples share namespace-level slots by index type: `keyword1`,
 `text1`, `int1`, and numbered later slots such as `keyword2`.
-Raw SearchFlows queries must include FlowType before filtering a generic slot.
+Application run searches must constrain FlowType and include `ExecutionStatus != "ContinuedAsNew"` before filtering a generic slot. Parenthesize any additional caller filters. The sample search endpoints add their own Flow type and ContinuedAsNew exclusion; raw SDK queries must supply both explicitly.
 
 Because that sync happens first, changing a Flow type's Indexed Attributes while
 a store already holds runs of that Flow type can stop the Worker before it binds.

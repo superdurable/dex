@@ -207,7 +207,13 @@ async fn search(
     State(client): State<SharedClient>,
     Query(query): Query<SearchQuery>,
 ) -> impl IntoResponse {
-    match run_blocking(move || client.search_flows(&query.query, 20)) {
+    let scope = "FlowType = 'JobPostingFlow' AND ExecutionStatus != 'ContinuedAsNew'";
+    let scoped_query = if query.query.trim().is_empty() {
+        scope.to_owned()
+    } else {
+        format!("({}) AND ({scope})", query.query)
+    };
+    match run_blocking(move || client.search_flows(&scoped_query, 20)) {
         Ok(page) => ok_json(json!({
             "flowIDs": page.flows.iter().map(|flow| flow.flow_id.clone()).collect::<Vec<_>>(),
             "nextPageToken": page.next_page_token,

@@ -129,7 +129,13 @@ async fn list(
     State(client): State<SharedClient>,
     Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
-    match run_blocking(move || client.search_flows(&query.query, 100)) {
+    let scope = "FlowType = 'EngagementFlow' AND ExecutionStatus != 'ContinuedAsNew'";
+    let scoped_query = if query.query.trim().is_empty() {
+        scope.to_owned()
+    } else {
+        format!("({}) AND ({scope})", query.query)
+    };
+    match run_blocking(move || client.search_flows(&scoped_query, 100)) {
         Ok(page) => ok_json(json!({
             "flowIDs": page.flows.iter().map(|flow| flow.flow_id.clone()).collect::<Vec<_>>(),
             "nextPageToken": page.next_page_token,

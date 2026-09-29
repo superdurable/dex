@@ -340,7 +340,7 @@ SDK 默认使用普通 Attribute 的名称作为 index key。应用索引必须�
 
 编号不会增加 namespace 的容量，仍须按目标 Temporal visibility store 的可用槽位分配。修改索引名不会删除旧的 Search Attribute 注册，也不会为已有 Flow execution 回填新索引。示例 schema 的验证使用新建本地 namespace；已有部署的迁移需单独安排。
 
-通用 key 在不同 Flow type 中可以有不同的业务含义。任何使用通用 key 的 raw visibility query 都必须同时限定 **FlowType**。Dex Web 已经在选定的 Flow type 内搜索。不要索引敏感数据或 PII。Customer Refund 示例中的 customer-email 值仅为合成数据。
+通用 key 在不同 Flow type 中可以有不同的业务含义。应用 run 查询必须同时限定 **FlowType**，并包含 **ExecutionStatus != "ContinuedAsNew"**。Continue-as-New 后，旧 run 仍然保留在 visibility 中；这个条件排除这些旧 run，同时保留运行中及其他终态的 execution。Dex Web 已经按选定的 Flow type 搜索并排除 ContinuedAsNew run；直接使用 SDK 查询时需要显式添加这两个条件。额外的调用方筛选条件须放在括号内，再与应用的范围条件组合，避免 OR 绕过限制。只有明确查询 execution chain 时才包含旧 run。不要索引敏感数据或 PII。Customer Refund 示例中的 customer-email 值仅为合成数据。
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -397,7 +397,7 @@ let status = Attribute::new("primitive-attribute-status")
 上面的 status Attribute 使用 **keyword1** 作为 index key。要找 status 为 completed 的 **AttributeFlow** execution，可以使用这个 query：
 
 ```text
-FlowType = 'AttributeFlow' AND keyword1 = 'completed'
+FlowType = 'AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'completed'
 ```
 
 将这个 query 传给 **SearchFlows**：
@@ -407,7 +407,7 @@ FlowType = 'AttributeFlow' AND keyword1 = 'completed'
 
 ```python
 page = await app_state.client.search_flows(
-    "FlowType = 'AttributeFlow' AND keyword1 = 'completed'",
+    "FlowType = 'AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'completed'",
     20,
     "",
 )
@@ -419,7 +419,7 @@ page = await app_state.client.search_flows(
 ```go
 page, err := controller.client.SearchFlows(
 	request.Request.Context(),
-	"FlowType = 'attribute.AttributeFlow' AND keyword1 = 'completed'",
+	"FlowType = 'attribute.AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'completed'",
 	20,
 	"",
 )
@@ -429,21 +429,21 @@ page, err := controller.client.SearchFlows(
 <SdkSnippet lang="java">
 
 ```java
-final SearchFlowsPage page = client.searchFlows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20, "");
+final SearchFlowsPage page = client.searchFlows("FlowType = 'AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```typescript
-const page = await client.searchFlows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20, "");
+const page = await client.searchFlows("FlowType = 'AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
 
 ```rust
-client.search_flows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20)
+client.search_flows("FlowType = 'AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'completed'", 20)
 ```
 
 </SdkSnippet>
@@ -454,7 +454,7 @@ client.search_flows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20)
 这不会把 Map 自动变成 **KEYWORD_ARRAY**。**KEYWORD_ARRAY** 只会 index 一次 write 传入的 string array；Dex 不会合并所有 Map instance 的值。下面的例子写入 payment instance 的值 authorized 后，可以用下面的 query 查询当前 search value：
 
 ```text
-FlowType = 'AttributeFlow' AND keyword2 = 'authorized'
+FlowType = 'AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword2 = 'authorized'
 ```
 
 如果之后另一个 Map instance 写入不同的值，它会替换 **keyword2** 的 search value。需要搜索一组值时，应使用带 **KEYWORD_ARRAY** 的普通 Attribute。不要用 AttributeMap index 查找所有有某个值的 instance。

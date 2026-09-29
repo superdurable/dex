@@ -140,6 +140,7 @@ func (controller *controller) list(request *gin.Context) {
 	if !found {
 		return
 	}
+	query = httputil.ScopeApplicationRunSearch(query, "engagement.EngagementFlow")
 	page, err := controller.client.SearchFlows(request.Request.Context(), query, 100, "")
 	httputil.Respond(request, page, err)
 }

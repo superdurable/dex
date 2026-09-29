@@ -340,7 +340,7 @@ The SDK defaults a regular Attribute's index key to its Attribute name. For appl
 
 Numbering does not increase namespace capacity. Choose only slots available in the target Temporal visibility store. Renaming an index does not remove its old Search Attribute registration or backfill existing Flow executions. Validate changed example schemas in a fresh local namespace. Plan any existing deployment migration separately.
 
-A generic key can have a different business meaning in each Flow type. Every raw visibility query that uses one must also constrain **FlowType**. Dex Web already searches within the selected Flow type. Do not index sensitive data or PII. The customer-email value in the Customer Refund example is synthetic data only.
+A generic key can have a different business meaning in each Flow type. Application run queries must constrain **FlowType** and include **ExecutionStatus != "ContinuedAsNew"**. Continue-as-New leaves earlier runs in visibility; this predicate excludes them while retaining running and other terminal executions. Dex Web already scopes searches to the selected Flow type and excludes ContinuedAsNew runs. Raw SDK searches need both predicates explicitly. Parenthesize caller filters before combining them with the application scope so an OR cannot bypass it. Include earlier runs only when intentionally inspecting the execution chain. Do not index sensitive data or PII. The customer-email value in the Customer Refund example is synthetic data only.
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -397,7 +397,7 @@ let status = Attribute::new("primitive-attribute-status")
 For example, the status Attribute above uses **keyword1** as its index key. To find completed **AttributeFlow** executions, use this query:
 
 ```text
-FlowType = 'AttributeFlow' AND keyword1 = 'completed'
+FlowType = 'AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'completed'
 ```
 
 Pass the query to **SearchFlows**:
@@ -407,7 +407,7 @@ Pass the query to **SearchFlows**:
 
 ```python
 page = await app_state.client.search_flows(
-    "FlowType = 'AttributeFlow' AND keyword1 = 'completed'",
+    "FlowType = 'AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'completed'",
     20,
     "",
 )
@@ -419,7 +419,7 @@ page = await app_state.client.search_flows(
 ```go
 page, err := controller.client.SearchFlows(
 	request.Request.Context(),
-	"FlowType = 'attribute.AttributeFlow' AND keyword1 = 'completed'",
+	"FlowType = 'attribute.AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'completed'",
 	20,
 	"",
 )
@@ -429,21 +429,21 @@ page, err := controller.client.SearchFlows(
 <SdkSnippet lang="java">
 
 ```java
-final SearchFlowsPage page = client.searchFlows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20, "");
+final SearchFlowsPage page = client.searchFlows("FlowType = 'AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```typescript
-const page = await client.searchFlows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20, "");
+const page = await client.searchFlows("FlowType = 'AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
 
 ```rust
-client.search_flows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20)
+client.search_flows("FlowType = 'AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 = 'completed'", 20)
 ```
 
 </SdkSnippet>
@@ -454,7 +454,7 @@ An indexed **AttributeMap** must use an explicit index key. It is not an index o
 This does not turn the Map into a **KEYWORD_ARRAY**. **KEYWORD_ARRAY** indexes the string array from one write; Dex does not combine the values from all Map instances. After the example below writes the payment instance with value authorized, you can query the current search value with:
 
 ```text
-FlowType = 'AttributeFlow' AND keyword2 = 'authorized'
+FlowType = 'AttributeFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword2 = 'authorized'
 ```
 
 If another Map instance later writes a different value, that value replaces the search value for **keyword2**. Use a regular Attribute with **KEYWORD_ARRAY** when you need to search a collection of values. Do not use an AttributeMap index to find every instance with a value.

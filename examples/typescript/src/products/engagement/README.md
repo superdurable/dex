@@ -13,5 +13,5 @@ http://localhost:8080/products/engagement/describe?workflowId=<flow-id>
 http://localhost:8080/products/engagement/optout?workflowId=<flow-id>
 http://localhost:8080/products/engagement/decline?workflowId=<flow-id>&notes=not-interested
 http://localhost:8080/products/engagement/accept?workflowId=<flow-id>&notes=accepted
-http://localhost:8080/products/engagement/list?query=FlowType%20%3D%20%27EngagementFlow%27%20AND%20keyword1%20%3D%20%27Accepted%27
+http://localhost:8080/products/engagement/list?query=FlowType%20%3D%20%27EngagementFlow%27%20AND%20ExecutionStatus%20%21%3D%20%27ContinuedAsNew%27%20AND%20keyword1%20%3D%20%27Accepted%27
 ```

@@ -117,7 +117,7 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 	require.Eventually(t, func() bool {
 		searchPage, err = integClient.SearchFlows(
 			ctx,
-			"FlowType = 'engagement.EngagementFlow' AND "+engagement.StatusSearchKey+" = 'Accepted'",
+			"FlowType = 'engagement.EngagementFlow' AND ExecutionStatus != 'ContinuedAsNew' AND "+engagement.StatusSearchKey+" = 'Accepted'",
 			100,
 			"",
 		)

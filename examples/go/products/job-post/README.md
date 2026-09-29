@@ -12,5 +12,5 @@ http://localhost:8080/products/job-post/create?title=<title>&description=<descri
 http://localhost:8080/products/job-post/read?workflowId=<flow-id>
 http://localhost:8080/products/job-post/update?workflowId=<flow-id>&title=<title>&description=<description>&notes=<notes>
 http://localhost:8080/products/job-post/delete?workflowId=<flow-id>
-http://localhost:8080/products/job-post/search?query=FlowType%20%3D%20%27JobPostingFlow%27%20AND%20text1%20%3D%20%27Engineer%27
+http://localhost:8080/products/job-post/search?query=FlowType%20%3D%20%27jobpost.JobPostingFlow%27%20AND%20ExecutionStatus%20%21%3D%20%27ContinuedAsNew%27%20AND%20text1%20%3D%20%27Engineer%27
 ```

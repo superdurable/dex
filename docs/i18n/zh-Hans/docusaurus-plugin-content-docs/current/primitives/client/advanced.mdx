@@ -194,31 +194,31 @@ let info = client.describe_flow("order-123")?;
 <SdkSnippet lang="python">
 
 ```python
-page = await client.search_flows("FlowType = 'ClientApisFlow'", 20, "")
+page = await client.search_flows("FlowType = 'ClientApisFlow' AND ExecutionStatus != 'ContinuedAsNew'", 20, "")
 ```
 
 </SdkSnippet><SdkSnippet lang="go">
 
 ```go
-page, err := client.SearchFlows(ctx, "FlowType = 'ClientApisFlow'", 20, "")
+page, err := client.SearchFlows(ctx, "FlowType = 'clientapis.ClientApisFlow' AND ExecutionStatus != 'ContinuedAsNew'", 20, "")
 ```
 
 </SdkSnippet><SdkSnippet lang="java">
 
 ```java
-final SearchFlowsPage page = client.searchFlows("FlowType = 'ClientApisFlow'", 20, "");
+final SearchFlowsPage page = client.searchFlows("FlowType = 'ClientApisFlow' AND ExecutionStatus != 'ContinuedAsNew'", 20, "");
 ```
 
 </SdkSnippet><SdkSnippet lang="typescript">
 
 ```typescript
-const page = await client.searchFlows("FlowType = 'ClientApisFlow'", 20, "");
+const page = await client.searchFlows("FlowType = 'ClientApisFlow' AND ExecutionStatus != 'ContinuedAsNew'", 20, "");
 ```
 
 </SdkSnippet><SdkSnippet lang="rust">
 
 ```rust
-let page = client.search_flows_page("FlowType = 'ClientApisFlow'", 20, "")?;
+let page = client.search_flows_page("FlowType = 'ClientApisFlow' AND ExecutionStatus != 'ContinuedAsNew'", 20, "")?;
 ```
 
 </SdkSnippet></SdkTabs>

@@ -40,7 +40,7 @@ import (
 var dealDSLUI embed.FS
 
 const (
-	allExecutionsQuery = "FlowType = 'dealdsl.DealDSLFlow' AND keyword1 IS NOT NULL"
+	allExecutionsQuery = "FlowType = 'dealdsl.DealDSLFlow' AND ExecutionStatus != 'ContinuedAsNew' AND keyword1 IS NOT NULL"
 	initializeStepType = "InitializeDeal"
 	searchPageSize     = int32(1000)
 )
@@ -389,7 +389,7 @@ func (controller *controller) dealStateSnapshot(
 }
 
 func executionSearchQuery(processID string, buyerID string) string {
-	filters := []string{"FlowType = 'dealdsl.DealDSLFlow'"}
+	filters := []string{"FlowType = 'dealdsl.DealDSLFlow' AND ExecutionStatus != 'ContinuedAsNew'"}
 	if buyerID != "" {
 		filters = append(filters, BuyerIDSearchKey+"='"+searchString(buyerID)+"'")
 	}

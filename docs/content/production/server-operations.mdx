@@ -231,7 +231,7 @@ watermarks, trim batches, leases, and worker concurrency.
 
 ## Application Search Attribute slots
 
-Allocate one typed Search Attribute pool for the namespace, shared by every Flow type. Application indexes use explicit **keyword1**, **keywordList1**, **text1**, **int1**, and other numbered typed slots; business Attribute names stay unchanged. Keep one type per slot and constrain searches by **FlowType**. See [Indexed Attributes](/primitives/attribute#indexed-attributes) for the complete naming convention and schema-change guidance. Previously registered keys still consume capacity after an index is renamed.
+Allocate one typed Search Attribute pool for the namespace, shared by every Flow type. Application indexes use explicit **keyword1**, **keywordList1**, **text1**, **int1**, and other numbered typed slots; business Attribute names stay unchanged. Keep one type per slot. Application run searches constrain **FlowType** and include **ExecutionStatus != "ContinuedAsNew"**. Parenthesize additional caller filters. See [Indexed Attributes](/primitives/attribute#indexed-attributes) for the complete naming convention and schema-change guidance. Previously registered keys still consume capacity after an index is renamed.
 
 ## Custom Attribute Store
 

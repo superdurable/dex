@@ -96,6 +96,8 @@ public class EngagementController {
 
     @GetMapping("/list")
     public ResponseEntity<SearchFlowsPage> list(@RequestParam final String query) {
-        return ResponseEntity.ok(client.searchFlows(query, 100, ""));
+        final String scope = "FlowType = 'EngagementFlow' AND ExecutionStatus != 'ContinuedAsNew'";
+        final String scopedQuery = query.isBlank() ? scope : "(" + query + ") AND (" + scope + ")";
+        return ResponseEntity.ok(client.searchFlows(scopedQuery, 100, ""));
     }
 }

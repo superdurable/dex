@@ -38,7 +38,8 @@ def create_client_apis_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/search")
     async def search() -> Response:
         page = await app_state.client.search_flows(
-            required_query("query"),
+            f"({required_query('query')}) AND "
+            "(FlowType = 'ClientApisFlow' AND ExecutionStatus != 'ContinuedAsNew')",
             20,
             "",
         )

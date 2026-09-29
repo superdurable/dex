@@ -90,7 +90,8 @@ def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/list")
     async def list_engagements() -> Response:
         page = await app_state.client.search_flows(
-            required_query("query"),
+            f"({required_query('query')}) AND "
+            "(FlowType = 'EngagementFlow' AND ExecutionStatus != 'ContinuedAsNew')",
             100,
             "",
         )
