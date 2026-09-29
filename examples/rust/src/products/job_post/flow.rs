@@ -223,7 +223,7 @@ fn job_board_update_options() -> StepOptions<()> {
 static POST: LazyLock<Attribute<JobPost>> = LazyLock::new(|| Attribute::new("job-post"));
 
 static TITLE: LazyLock<Attribute<String>> = LazyLock::new(|| {
-    Attribute::new("job-post-title").indexed(AttributeIndex::full_text().with_key("CustomText"))
+    Attribute::new("job-post-title").indexed(AttributeIndex::full_text().with_key("text1"))
 });
 
 static DESCRIPTION: LazyLock<Attribute<String>> =

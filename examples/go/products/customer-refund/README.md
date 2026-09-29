@@ -78,9 +78,9 @@ Dex Web can search on:
 
 | Attribute | index | queries it allows |
 |---|---|---|
-| `customer-email` | `CustomKeyword` keyword | exact email address |
-| `refund-amount` | `CustomDouble` double | ranges, in dollars rather than cents |
-| `case-status` | `CustomKeyword2` keyword | exact, or one of several |
+| `customer-email` | `keyword1` keyword | exact email address |
+| `refund-amount` | `double1` double | ranges, in dollars rather than cents |
+| `case-status` | `keyword2` keyword | exact, or one of several |
 
 The email is synthetic sample data only. Do not index email addresses or other
 PII in production; follow Temporal's Search Attribute guidance.

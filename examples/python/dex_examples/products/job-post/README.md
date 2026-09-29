@@ -8,8 +8,8 @@ LinkedIn and Indeed updates, so the Flow starts idle and uses RPCs for CRUD.
 Attributes, and starts both job-board Steps in parallel. Each Step has a
 destination-specific lock and bounded retry policy, so repeated updates to one
 job board execute serially without blocking the other board. `Title` uses the
-`CustomText` full-text Search Attribute. `JobDescription` is persisted but not
-searchable. `LastUpdateTimeMillis` uses `CustomInt`.
+`text1` full-text Search Attribute. `JobDescription` is persisted but not
+searchable. `LastUpdateTimeMillis` uses `int1`.
 
 The Worker synchronizes these Indexed Attributes automatically before opening
 its listener.

@@ -41,7 +41,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     public static final Attribute<String> orderStatus = Attribute.define(
             "order-status",
             String.class,
-            new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword"));
+            new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword1"));
     public static final Channel<String> sellerOk = Channel.define("seller-ok", String.class);
 
     private final MyDependencyService service;

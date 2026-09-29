@@ -40,7 +40,7 @@ import (
 var dealDSLUI embed.FS
 
 const (
-	allExecutionsQuery = "FlowType = 'dealdsl.DealDSLFlow' AND CustomKeyword IS NOT NULL"
+	allExecutionsQuery = "FlowType = 'dealdsl.DealDSLFlow' AND keyword1 IS NOT NULL"
 	initializeStepType = "InitializeDeal"
 	searchPageSize     = int32(1000)
 )

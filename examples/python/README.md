@@ -36,8 +36,8 @@ uv sync --locked
 uv run --frozen python main.py
 ```
 
-The examples share namespace-level slots by index type: `CustomKeyword`,
-`CustomText`, `CustomInt`, and numbered later slots such as `CustomKeyword2`.
+The examples share namespace-level slots by index type: `keyword1`,
+`text1`, `int1`, and numbered later slots such as `keyword2`.
 Use a fresh local store and a new port after changing an example's index schema.
 
 Defaults connect to Dex at `localhost:8801`. Override with

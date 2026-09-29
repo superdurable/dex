@@ -132,6 +132,10 @@ client.invoke_rpc_with_options(
 
 All writers must use the same instance-lock rule. Dex locks are cooperative; a writer that omits the lock can still race with conforming writers.
 
+## Collection-wide write invariants
+
+If a mutation must coordinate across the entire map, use a separate non-indexed singleton bool Attribute such as **currentMessagesLock** for **currentMessages**. Every writer of the protected map must request that same lock; per-instance locks alone do not participate. The bool value is not a lock flag, and state loads remain explicit. See [whole-map coordination](/primitives/attribute#whole-map-coordination). Keep the existing instance locks when updates have no collection-wide invariant.
+
 ## HTTP API
 
 ```text

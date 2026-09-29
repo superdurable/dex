@@ -26,7 +26,7 @@ const keywordKey = "CustomKeyword"
 
 var Keyword = dex.DefineAttribute[string](
 	keywordKey,
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword1"}),
 )
 
 type ClientApisFlow struct {

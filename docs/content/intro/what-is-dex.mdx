@@ -47,7 +47,7 @@ The flow will charge the buyer, then wait for seller approval (with reminders), 
 order_status = Attribute(
     "order-status",
     str,
-    AttributeIndex(IndexType.KEYWORD),
+    AttributeIndex(IndexType.KEYWORD, "keyword1"),
 )
 seller_ok = Channel[str]("seller-ok", str)
 
@@ -283,7 +283,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     public static final Attribute<String> orderStatus = Attribute.define(
             "order-status",
             String.class,
-            new AttributeIndex(AttributeIndex.Type.KEYWORD));
+            new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword1"));
     public static final Channel<String> sellerOk = Channel.define("seller-ok", String.class);
 
     private final MyDependencyService service;
@@ -445,6 +445,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 ```typescript
 const orderStatus = new Attribute("order-status", stringCodec, {
   type: IndexType.KEYWORD,
+  indexKey: "keyword1",
 });
 const sellerOk = new Channel("seller-ok", stringCodec);
 
@@ -744,8 +745,9 @@ impl Step for Refund {
     }
 }
 
-static ORDER_STATUS: LazyLock<Attribute<String>> =
-    LazyLock::new(|| Attribute::new("order-status").indexed(AttributeIndex::keyword()));
+static ORDER_STATUS: LazyLock<Attribute<String>> = LazyLock::new(|| {
+    Attribute::new("order-status").indexed(AttributeIndex::keyword().with_key("keyword1"))
+});
 
 static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("seller-ok"));
 ```

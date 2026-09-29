@@ -36,7 +36,7 @@ const (
 var (
 	OrderStatus = dex.DefineAttribute[string](
 		"order-status",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword"}),
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword1"}),
 	)
 	SellerOK = dex.DefineChannel[string]("seller-ok")
 )

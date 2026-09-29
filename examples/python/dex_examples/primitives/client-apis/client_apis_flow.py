@@ -46,7 +46,7 @@ class ClientApisFlow(Flow[str]):
         self.keyword = Attribute(
             KEYWORD_KEY,
             str,
-            AttributeIndex(IndexType.KEYWORD),
+            AttributeIndex(IndexType.KEYWORD, "keyword1"),
         )
         self.index = ClientApis(self)
 

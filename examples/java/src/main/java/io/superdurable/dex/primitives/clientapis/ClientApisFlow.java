@@ -33,7 +33,7 @@ public final class ClientApisFlow implements Flow<String> {
     public final Attribute<String> keyword = Attribute.define(
             KEYWORD_KEY,
             String.class,
-            new AttributeIndex(AttributeIndex.Type.KEYWORD));
+            new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword1"));
     private final ClientApis start = new ClientApis();
 
     @Override

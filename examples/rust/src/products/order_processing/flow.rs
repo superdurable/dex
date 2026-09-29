@@ -211,7 +211,7 @@ impl Step for Refund {
 }
 
 static ORDER_STATUS: LazyLock<Attribute<String>> = LazyLock::new(|| {
-    Attribute::new("order-status").indexed(AttributeIndex::keyword().with_key("CustomKeyword"))
+    Attribute::new("order-status").indexed(AttributeIndex::keyword().with_key("keyword1"))
 });
 
 static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("seller-ok"));

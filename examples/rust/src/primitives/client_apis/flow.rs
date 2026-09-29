@@ -21,8 +21,9 @@ use dex_sdk::{
 
 const KEYWORD_KEY: &str = "CustomKeyword";
 
-static KEYWORD: LazyLock<Attribute<String>> =
-    LazyLock::new(|| Attribute::new(KEYWORD_KEY).indexed(AttributeIndex::keyword()));
+static KEYWORD: LazyLock<Attribute<String>> = LazyLock::new(|| {
+    Attribute::new(KEYWORD_KEY).indexed(AttributeIndex::keyword().with_key("keyword1"))
+});
 
 #[derive(Default)]
 pub struct ClientApisFlow {

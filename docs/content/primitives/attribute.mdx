@@ -50,7 +50,7 @@ class AttributeFlow(Flow[str]):
     status = Attribute(
         "primitive-attribute-status",
         str,
-        index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword"),
+        index=AttributeIndex(IndexType.KEYWORD, "keyword1"),
     )
 
     def __init__(self) -> None:
@@ -69,7 +69,7 @@ class AttributeFlow(Flow[str]):
 ```go
 var Status = dex.DefineAttribute[string](
 	"primitive-attribute-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword1"}),
 )
 
 type AttributeFlow struct {
@@ -108,7 +108,7 @@ public final class AttributeFlow implements Flow<String> {
             Attribute.define(
                     "primitive-attribute-status",
                     String.class,
-                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword"));
+                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword1"));
     private final AttributeStep start = new AttributeStep();
 
     @Override
@@ -164,7 +164,7 @@ class AttributeStep implements Step<string> {
 export class AttributeFlow implements Flow<string> {
   public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
     type: IndexType.KEYWORD,
-    indexKey: "CustomKeyword",
+    indexKey: "keyword1",
   });
   private readonly start = new AttributeStep(this);
 
@@ -192,10 +192,10 @@ pub struct AttributeFlow {
 impl Default for AttributeFlow {
     fn default() -> Self {
         let status = Attribute::new("primitive-attribute-status")
-            .indexed(AttributeIndex::keyword().with_key("CustomKeyword"));
+            .indexed(AttributeIndex::keyword().with_key("keyword1"));
         let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
         let progress = AttributeMap::new("primitive-attribute-progress")
-            .indexed(AttributeIndex::keyword().with_key("CustomKeyword2"));
+            .indexed(AttributeIndex::keyword().with_key("keyword2"));
         Self {
             start: AttributeStep {
                 status: status.clone(),
@@ -326,7 +326,19 @@ Dex lets you configure indexes for Attributes. With indexing, you can use the fi
 
 An **index key** is the key in the search schema and the key you use in a query. Index keys consume a finite, namespace-level Search Attribute pool and are shared across Flow types.
 
-A regular Attribute uses its Attribute name as the index key by default. You can set an explicit index key instead. Plan the pool across every Flow type in the namespace. Use generic first slots such as **CustomKeyword**, **CustomText**, and **CustomInt**. Number later slots of the same type, such as **CustomKeyword2**. Two logical Attributes in the same Flow need separate physical keys. Use a business key such as **AccountID** only when its type, meaning, and query semantics remain stable throughout the namespace.
+The SDK defaults a regular Attribute's index key to its Attribute name. For application indexes, always override that default with an explicit generic numbered key. Keep business names on Attributes and share one typed slot pool across every Flow type in the namespace. Two logical indexed fields in the same Flow need different slots. Reuse a slot across Flow types only with the same index type; its business meaning can differ. Dex system indexes keep their reserved names.
+
+| Index type | Application index keys |
+| --- | --- |
+| **KEYWORD** | **keyword1**, **keyword2**, … |
+| **KEYWORD_ARRAY** | **keywordList1**, **keywordList2**, … |
+| **FULL_TEXT** | **text1**, **text2**, … |
+| **INT** | **int1**, **int2**, … |
+| **BOOL** | **bool1**, **bool2**, … |
+| **DOUBLE** | **double1**, **double2**, … |
+| **DATETIME** | **datetime1**, **datetime2**, … |
+
+Numbering does not increase namespace capacity. Choose only slots available in the target Temporal visibility store. Renaming an index does not remove its old Search Attribute registration or backfill existing Flow executions. Validate changed example schemas in a fresh local namespace. Plan any existing deployment migration separately.
 
 A generic key can have a different business meaning in each Flow type. Every raw visibility query that uses one must also constrain **FlowType**. Dex Web already searches within the selected Flow type. Do not index sensitive data or PII. The customer-email value in the Customer Refund example is synthetic data only.
 
@@ -337,7 +349,7 @@ A generic key can have a different business meaning in each Flow type. Every raw
 status = Attribute(
     "primitive-attribute-status",
     str,
-    index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword"),
+    index=AttributeIndex(IndexType.KEYWORD, "keyword1"),
 )
 ```
 
@@ -347,7 +359,7 @@ status = Attribute(
 ```go
 var Status = dex.DefineAttribute[string](
 	"primitive-attribute-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword1"}),
 )
 ```
 
@@ -358,7 +370,7 @@ var Status = dex.DefineAttribute[string](
 private final Attribute<String> status = Attribute.define(
         "primitive-attribute-status",
         String.class,
-        new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword"));
+        new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword1"));
 ```
 
 </SdkSnippet>
@@ -367,7 +379,7 @@ private final Attribute<String> status = Attribute.define(
 ```typescript
 public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "CustomKeyword",
+  indexKey: "keyword1",
 });
 ```
 
@@ -376,16 +388,16 @@ public readonly status = new Attribute("primitive-attribute-status", stringCodec
 
 ```rust
 let status = Attribute::new("primitive-attribute-status")
-    .indexed(AttributeIndex::keyword().with_key("CustomKeyword"));
+    .indexed(AttributeIndex::keyword().with_key("keyword1"));
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-For example, the status Attribute above uses **CustomKeyword** as its index key. To find completed **AttributeFlow** executions, use this query:
+For example, the status Attribute above uses **keyword1** as its index key. To find completed **AttributeFlow** executions, use this query:
 
 ```text
-FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'
+FlowType = 'AttributeFlow' AND keyword1 = 'completed'
 ```
 
 Pass the query to **SearchFlows**:
@@ -395,7 +407,7 @@ Pass the query to **SearchFlows**:
 
 ```python
 page = await app_state.client.search_flows(
-    "FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'",
+    "FlowType = 'AttributeFlow' AND keyword1 = 'completed'",
     20,
     "",
 )
@@ -407,7 +419,7 @@ page = await app_state.client.search_flows(
 ```go
 page, err := controller.client.SearchFlows(
 	request.Request.Context(),
-	"FlowType = 'attribute.AttributeFlow' AND CustomKeyword = 'completed'",
+	"FlowType = 'attribute.AttributeFlow' AND keyword1 = 'completed'",
 	20,
 	"",
 )
@@ -417,21 +429,21 @@ page, err := controller.client.SearchFlows(
 <SdkSnippet lang="java">
 
 ```java
-final SearchFlowsPage page = client.searchFlows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'", 20, "");
+final SearchFlowsPage page = client.searchFlows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```typescript
-const page = await client.searchFlows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'", 20, "");
+const page = await client.searchFlows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
 
 ```rust
-client.search_flows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'", 20)
+client.search_flows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20)
 ```
 
 </SdkSnippet>
@@ -442,10 +454,10 @@ An indexed **AttributeMap** must use an explicit index key. It is not an index o
 This does not turn the Map into a **KEYWORD_ARRAY**. **KEYWORD_ARRAY** indexes the string array from one write; Dex does not combine the values from all Map instances. After the example below writes the payment instance with value authorized, you can query the current search value with:
 
 ```text
-FlowType = 'AttributeFlow' AND CustomKeyword2 = 'authorized'
+FlowType = 'AttributeFlow' AND keyword2 = 'authorized'
 ```
 
-If another Map instance later writes a different value, that value replaces the search value for **CustomKeyword2**. Use a regular Attribute with **KEYWORD_ARRAY** when you need to search a collection of values. Do not use an AttributeMap index to find every instance with a value.
+If another Map instance later writes a different value, that value replaces the search value for **keyword2**. Use a regular Attribute with **KEYWORD_ARRAY** when you need to search a collection of values. Do not use an AttributeMap index to find every instance with a value.
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -454,7 +466,7 @@ If another Map instance later writes a different value, that value replaces the 
 progress = AttributeMap(
     "primitive-attribute-progress",
     str,
-    index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword2"),
+    index=AttributeIndex(IndexType.KEYWORD, "keyword2"),
 )
 ```
 
@@ -464,7 +476,7 @@ progress = AttributeMap(
 ```go
 var Progress = dex.DefineAttributeMap[string](
 	"primitive-attribute-progress",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword2"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword2"}),
 )
 ```
 
@@ -476,7 +488,7 @@ private final AttributeMap<String> progress =
         AttributeMap.define(
                 "primitive-attribute-progress",
                 String.class,
-                new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword2"));
+                new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword2"));
 ```
 
 </SdkSnippet>
@@ -485,7 +497,7 @@ private final AttributeMap<String> progress =
 ```typescript
 public readonly progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "CustomKeyword2",
+  indexKey: "keyword2",
 });
 ```
 
@@ -494,7 +506,7 @@ public readonly progress = new AttributeMap("primitive-attribute-progress", stri
 
 ```rust
 let progress = AttributeMap::new("primitive-attribute-progress")
-    .indexed(AttributeIndex::keyword().with_key("CustomKeyword2"));
+    .indexed(AttributeIndex::keyword().with_key("keyword2"));
 ```
 
 </SdkSnippet>
@@ -635,6 +647,16 @@ let run_id = client.start_flow_with_options(&flow, &user_id, (), options)?;
 ## Locking {#locking}
 
 Concurrent Steps and RPC invocations can read and write the same Attribute. This can lead to race conditions. To avoid this, use Attribute locks. Dex Server ensures only one Step execution or RPC handling can acquire the lock at a time.
+
+### Coordinate writes across the whole AttributeMap {#whole-map-coordination}
+
+An AttributeMap lock protects one exact instance. When an invariant spans several instances or the whole collection, register a separate singleton bool Attribute as its coordination key. For example, register **currentMessages** as an AttributeMap and **currentMessagesLock** as a non-map, non-indexed bool Attribute in the same **PersistenceSchema**.
+
+Every Step, timeout handler, and RPC that writes, deletes, archives, or otherwise changes the protected map must request the same singleton Attribute lock in its method-specific lock options. RPCs declare this fixed lock at registration time. A writer that requests only a map-instance lock does not conflict with the singleton lock. All participating writers serialize within that Flow execution; other Flow executions have their own locks.
+
+The bool value is not the lock state. Do not acquire or release the lock by reading or toggling the value. Dex acquires and releases it around the invocation; the coordination Attribute does not need a persisted value. Locking also does not load map entries. Declare exact instance loads, or a whole-map load when the operation must enumerate instances. RPC lock acquisition can return a lock-conflict error rather than queueing the caller.
+
+Keep per-instance locks for independent partition updates. Use the shared singleton lock when all affected writers must preserve a collection-wide invariant.
 
 ### Lock **WaitFor**
 

@@ -118,6 +118,10 @@ Flow 启动后，**current** token 始终有效。空的 **current** 返回空�
 
 Archive chunk 保持不可变，因此分页稳定，retry 行为也容易推理。如果需要更新旧记录，应选择其他模式或增加独立索引。
 
+## 整个集合的写入约束
+
+若一次修改需要协调整张 map，可为 **currentMessages** 增加非索引的普通 bool Attribute **currentMessagesLock**。所有受保护 map 的写入方都必须请求同一把锁；只有 instance 锁的写入方不会参与协调。bool 值不是锁标志，数据仍需显式加载。见 [整张 map 的协调锁](/primitives/attribute#whole-map-coordination)。没有整个集合的写入约束时，继续使用已有的 instance 锁。
+
 ## HTTP API
 
 ```text

@@ -132,6 +132,10 @@ client.invoke_rpc_with_options(
 
 所有 writer 都必须遵循同一条 instance lock 规则。Dex lock 是 cooperative lock；遗漏 lock 的 writer 仍然可能和其他 writer 发生 race。
 
+## 整个集合的写入约束
+
+若一次修改需要协调整张 map，可为 **currentMessages** 增加非索引的普通 bool Attribute **currentMessagesLock**。所有受保护 map 的写入方都必须请求同一把锁；只有 instance 锁的写入方不会参与协调。bool 值不是锁标志，数据仍需显式加载。见 [整张 map 的协调锁](/primitives/attribute#whole-map-coordination)。没有整个集合的写入约束时，继续使用已有的 instance 锁。
+
 ## HTTP API
 
 ```text

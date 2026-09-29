@@ -188,11 +188,11 @@ impl Step for NotifyExternalSystem {
 }
 
 static STATUS: LazyLock<Attribute<EngagementStatus>> = LazyLock::new(|| {
-    Attribute::new("engagement-status").indexed(AttributeIndex::keyword().with_key("CustomKeyword"))
+    Attribute::new("engagement-status").indexed(AttributeIndex::keyword().with_key("keyword1"))
 });
 
 pub static EMPLOYER_ID: LazyLock<Attribute<String>> = LazyLock::new(|| {
-    Attribute::new("employer-id").indexed(AttributeIndex::keyword().with_key("CustomKeyword2"))
+    Attribute::new("employer-id").indexed(AttributeIndex::keyword().with_key("keyword2"))
 });
 
 static DECISION: LazyLock<Channel<EngagementStatus>> =

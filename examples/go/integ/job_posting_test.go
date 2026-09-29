@@ -101,7 +101,7 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 	require.Eventually(t, func() bool {
 		searchPage, searchErr = integClient.SearchFlows(
 			ctx,
-			"FlowType = 'jobpost.JobPostingFlow' AND CustomText = 'Principal'",
+			"FlowType = 'jobpost.JobPostingFlow' AND text1 = 'Principal'",
 			20,
 			"",
 		)
@@ -112,7 +112,7 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 			if entry.FlowID != flowID {
 				continue
 			}
-			_, hasTitleIndex := entry.IndexedAttributes["CustomText"]
+			_, hasTitleIndex := entry.IndexedAttributes["text1"]
 			_, hasDescriptionIndex := entry.IndexedAttributes["JobDescription"]
 			return hasTitleIndex && !hasDescriptionIndex
 		}

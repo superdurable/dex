@@ -40,7 +40,7 @@ import { orderRequestCodec, type OrderRequest } from "./models.js";
 
 const orderStatus = new Attribute("order-status", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "CustomKeyword",
+  indexKey: "keyword1",
 });
 const sellerOk = new Channel("seller-ok", stringCodec);
 

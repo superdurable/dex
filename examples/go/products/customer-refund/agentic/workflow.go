@@ -58,10 +58,10 @@ const (
 
 var agenticInputEmail = dex.DefineAttribute[string]("in-email")
 
-// dex:indexed-attribute attribute-key:customer-email index-key:CustomKeyword index-type:keyword value-type:string description:"Customer email address"
+// dex:indexed-attribute attribute-key:customer-email index-key:keyword1 index-type:keyword value-type:string description:"Customer email address"
 var agenticCustomerEmail = dex.DefineAttribute[string](
 	"customer-email",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword1"}),
 )
 
 var agenticChargeReference = dex.DefineAttribute[string]("in-charge-ref")
@@ -124,10 +124,10 @@ var agenticEmailSent = dex.DefineAttribute[string]("email-sent")
 
 var agenticOperatorNote = dex.DefineAttribute[string]("operator-note")
 
-// dex:indexed-attribute attribute-key:refund-amount index-key:CustomDouble index-type:double value-type:double description:"Refund amount in dollars"
+// dex:indexed-attribute attribute-key:refund-amount index-key:double1 index-type:double value-type:double description:"Refund amount in dollars"
 var agenticRefundAmount = dex.DefineAttribute[float64](
 	"refund-amount",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexDouble, IndexKey: "CustomDouble"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexDouble, IndexKey: "double1"}),
 )
 
 // The message a person confirms or rewrites before it reaches the customer.
@@ -137,10 +137,10 @@ var agenticGeneratedCustomerMessage = dex.DefineAttribute[sdkgo.MutationResult[o
 
 var agenticCustomerMessageContext = dex.DefineAttribute[agenticCustomerMessagePrompt]("customer-message-context")
 
-// dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:CustomKeyword2
+// dex:indexed-attribute value-type:string attribute-key:case-status description:"Current case status" index-type:keyword index-key:keyword2
 var agenticCaseStatus = dex.DefineAttribute[string](
 	"case-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword2"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword2"}),
 )
 
 var agenticManagerApproval = dex.DefineChannelMap[string]("manager-approval")

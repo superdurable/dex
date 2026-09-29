@@ -50,7 +50,7 @@ class AttributeFlow(Flow[str]):
     status = Attribute(
         "primitive-attribute-status",
         str,
-        index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword"),
+        index=AttributeIndex(IndexType.KEYWORD, "keyword1"),
     )
 
     def __init__(self) -> None:
@@ -69,7 +69,7 @@ class AttributeFlow(Flow[str]):
 ```go
 var Status = dex.DefineAttribute[string](
 	"primitive-attribute-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword1"}),
 )
 
 type AttributeFlow struct {
@@ -108,7 +108,7 @@ public final class AttributeFlow implements Flow<String> {
             Attribute.define(
                     "primitive-attribute-status",
                     String.class,
-                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword"));
+                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword1"));
     private final AttributeStep start = new AttributeStep();
 
     @Override
@@ -164,7 +164,7 @@ class AttributeStep implements Step<string> {
 export class AttributeFlow implements Flow<string> {
   public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
     type: IndexType.KEYWORD,
-    indexKey: "CustomKeyword",
+    indexKey: "keyword1",
   });
   private readonly start = new AttributeStep(this);
 
@@ -192,10 +192,10 @@ pub struct AttributeFlow {
 impl Default for AttributeFlow {
     fn default() -> Self {
         let status = Attribute::new("primitive-attribute-status")
-            .indexed(AttributeIndex::keyword().with_key("CustomKeyword"));
+            .indexed(AttributeIndex::keyword().with_key("keyword1"));
         let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
         let progress = AttributeMap::new("primitive-attribute-progress")
-            .indexed(AttributeIndex::keyword().with_key("CustomKeyword2"));
+            .indexed(AttributeIndex::keyword().with_key("keyword2"));
         Self {
             start: AttributeStep {
                 status: status.clone(),
@@ -326,7 +326,19 @@ Dex 让你可以为 Attribute 配置 index。有了 indexing，就可以在 **Se
 
 **index key** 是 search schema 中的 key，也是 query 中使用的 key。index key 会消耗 namespace 级、数量有限的 Search Attribute 槽位，并且跨 Flow type 共用。
 
-普通 Attribute 默认用 Attribute name 作为 index key。你也可以设置显式 index key。请在 namespace 的所有 Flow type 之间规划这些槽位。首个通用槽位使用 **CustomKeyword**、**CustomText**、**CustomInt** 等名称；同一类型的后续槽位使用 **CustomKeyword2** 这样的编号名称。同一个 Flow 中的两个逻辑 Attribute 需要不同的物理 key。只有当 **AccountID** 这类业务 key 的类型、含义和 query 语义在整个 namespace 内都稳定时，才使用它。
+SDK 默认使用普通 Attribute 的名称作为 index key。应用索引必须显式覆盖这个默认值，使用带编号的通用 key。Attribute 本身保留业务名称，namespace 下的所有 Flow type 共用一组按类型规划的槽位。同一个 Flow 中不同的逻辑索引字段需要不同槽位；不同 Flow type 可以复用同一槽位，但索引类型必须一致，业务含义可以不同。Dex 系统索引保留其专用名称。
+
+| Index type | 应用 index key |
+| --- | --- |
+| **KEYWORD** | **keyword1**、**keyword2**、… |
+| **KEYWORD_ARRAY** | **keywordList1**、**keywordList2**、… |
+| **FULL_TEXT** | **text1**、**text2**、… |
+| **INT** | **int1**、**int2**、… |
+| **BOOL** | **bool1**、**bool2**、… |
+| **DOUBLE** | **double1**、**double2**、… |
+| **DATETIME** | **datetime1**、**datetime2**、… |
+
+编号不会增加 namespace 的容量，仍须按目标 Temporal visibility store 的可用槽位分配。修改索引名不会删除旧的 Search Attribute 注册，也不会为已有 Flow execution 回填新索引。示例 schema 的验证使用新建本地 namespace；已有部署的迁移需单独安排。
 
 通用 key 在不同 Flow type 中可以有不同的业务含义。任何使用通用 key 的 raw visibility query 都必须同时限定 **FlowType**。Dex Web 已经在选定的 Flow type 内搜索。不要索引敏感数据或 PII。Customer Refund 示例中的 customer-email 值仅为合成数据。
 
@@ -337,7 +349,7 @@ Dex 让你可以为 Attribute 配置 index。有了 indexing，就可以在 **Se
 status = Attribute(
     "primitive-attribute-status",
     str,
-    index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword"),
+    index=AttributeIndex(IndexType.KEYWORD, "keyword1"),
 )
 ```
 
@@ -347,7 +359,7 @@ status = Attribute(
 ```go
 var Status = dex.DefineAttribute[string](
 	"primitive-attribute-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword1"}),
 )
 ```
 
@@ -358,7 +370,7 @@ var Status = dex.DefineAttribute[string](
 private final Attribute<String> status = Attribute.define(
         "primitive-attribute-status",
         String.class,
-        new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword"));
+        new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword1"));
 ```
 
 </SdkSnippet>
@@ -367,7 +379,7 @@ private final Attribute<String> status = Attribute.define(
 ```typescript
 public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "CustomKeyword",
+  indexKey: "keyword1",
 });
 ```
 
@@ -376,16 +388,16 @@ public readonly status = new Attribute("primitive-attribute-status", stringCodec
 
 ```rust
 let status = Attribute::new("primitive-attribute-status")
-    .indexed(AttributeIndex::keyword().with_key("CustomKeyword"));
+    .indexed(AttributeIndex::keyword().with_key("keyword1"));
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-上面的 status Attribute 使用 **CustomKeyword** 作为 index key。要找 status 为 completed 的 **AttributeFlow** execution，可以使用这个 query：
+上面的 status Attribute 使用 **keyword1** 作为 index key。要找 status 为 completed 的 **AttributeFlow** execution，可以使用这个 query：
 
 ```text
-FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'
+FlowType = 'AttributeFlow' AND keyword1 = 'completed'
 ```
 
 将这个 query 传给 **SearchFlows**：
@@ -395,7 +407,7 @@ FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'
 
 ```python
 page = await app_state.client.search_flows(
-    "FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'",
+    "FlowType = 'AttributeFlow' AND keyword1 = 'completed'",
     20,
     "",
 )
@@ -407,7 +419,7 @@ page = await app_state.client.search_flows(
 ```go
 page, err := controller.client.SearchFlows(
 	request.Request.Context(),
-	"FlowType = 'attribute.AttributeFlow' AND CustomKeyword = 'completed'",
+	"FlowType = 'attribute.AttributeFlow' AND keyword1 = 'completed'",
 	20,
 	"",
 )
@@ -417,21 +429,21 @@ page, err := controller.client.SearchFlows(
 <SdkSnippet lang="java">
 
 ```java
-final SearchFlowsPage page = client.searchFlows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'", 20, "");
+final SearchFlowsPage page = client.searchFlows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```typescript
-const page = await client.searchFlows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'", 20, "");
+const page = await client.searchFlows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
 
 ```rust
-client.search_flows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'", 20)
+client.search_flows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20)
 ```
 
 </SdkSnippet>
@@ -442,10 +454,10 @@ client.search_flows("FlowType = 'AttributeFlow' AND CustomKeyword = 'completed'"
 这不会把 Map 自动变成 **KEYWORD_ARRAY**。**KEYWORD_ARRAY** 只会 index 一次 write 传入的 string array；Dex 不会合并所有 Map instance 的值。下面的例子写入 payment instance 的值 authorized 后，可以用下面的 query 查询当前 search value：
 
 ```text
-FlowType = 'AttributeFlow' AND CustomKeyword2 = 'authorized'
+FlowType = 'AttributeFlow' AND keyword2 = 'authorized'
 ```
 
-如果之后另一个 Map instance 写入不同的值，它会替换 **CustomKeyword2** 的 search value。需要搜索一组值时，应使用带 **KEYWORD_ARRAY** 的普通 Attribute。不要用 AttributeMap index 查找所有有某个值的 instance。
+如果之后另一个 Map instance 写入不同的值，它会替换 **keyword2** 的 search value。需要搜索一组值时，应使用带 **KEYWORD_ARRAY** 的普通 Attribute。不要用 AttributeMap index 查找所有有某个值的 instance。
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -454,7 +466,7 @@ FlowType = 'AttributeFlow' AND CustomKeyword2 = 'authorized'
 progress = AttributeMap(
     "primitive-attribute-progress",
     str,
-    index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword2"),
+    index=AttributeIndex(IndexType.KEYWORD, "keyword2"),
 )
 ```
 
@@ -464,7 +476,7 @@ progress = AttributeMap(
 ```go
 var Progress = dex.DefineAttributeMap[string](
 	"primitive-attribute-progress",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "CustomKeyword2"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword2"}),
 )
 ```
 
@@ -476,7 +488,7 @@ private final AttributeMap<String> progress =
         AttributeMap.define(
                 "primitive-attribute-progress",
                 String.class,
-                new AttributeIndex(AttributeIndex.Type.KEYWORD, "CustomKeyword2"));
+                new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword2"));
 ```
 
 </SdkSnippet>
@@ -485,7 +497,7 @@ private final AttributeMap<String> progress =
 ```typescript
 public readonly progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "CustomKeyword2",
+  indexKey: "keyword2",
 });
 ```
 
@@ -494,7 +506,7 @@ public readonly progress = new AttributeMap("primitive-attribute-progress", stri
 
 ```rust
 let progress = AttributeMap::new("primitive-attribute-progress")
-    .indexed(AttributeIndex::keyword().with_key("CustomKeyword2"));
+    .indexed(AttributeIndex::keyword().with_key("keyword2"));
 ```
 
 </SdkSnippet>
@@ -633,6 +645,16 @@ let run_id = client.start_flow_with_options(&flow, &user_id, (), options)?;
 ## Locking {#locking}
 
 Concurrent Step 和 RPC invocation 可以读取和写入同一个 Attribute。这会导致 race condition。为避免这种情况，请使用 Attribute lock。Dex Server 确保同一时间只有一个 Step execution 或 RPC handling 可以获取 lock。
+
+### 协调整张 AttributeMap 的写操作 {#whole-map-coordination}
+
+AttributeMap 锁只保护一个指定 instance。若一个写入约束涉及多个 instance 或整个集合，可注册另外一个普通 bool Attribute 作为协调锁。例如，在同一个 **PersistenceSchema** 中注册 AttributeMap **currentMessages**，以及非 map、非索引的 bool Attribute **currentMessagesLock**。
+
+所有写入、删除、归档或以其他方式修改受保护 map 的 Step、timeout handler 和 RPC，都必须在对应方法的锁选项中请求同一个普通 Attribute 锁。RPC 在注册时声明这把固定锁。只获取 map instance 锁的写入方不会与该普通 Attribute 锁冲突。参与者在同一个 Flow execution 内串行执行，其他 Flow execution 拥有自己的锁。
+
+bool 值不表示锁状态，不要通过读取或切换 true/false 获取或释放锁。Dex 在 invocation 周围管理锁的获取和释放，协调 Attribute 无需持久化一个值。锁也不会加载 map 数据；仍须声明所读取的 instance，只有必须枚举时才加载整个 map。RPC 获取锁时可能返回锁冲突错误，而非让调用方排队等待。
+
+独立分区的更新保留 instance 锁即可。需要维护整个集合的写入约束时，所有相关写入方使用这把共享的普通 Attribute 锁。
 
 ### Lock **WaitFor**
 

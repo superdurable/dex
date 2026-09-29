@@ -23,7 +23,7 @@ const UPDATE_STATUS: Rpc<String, String> = Rpc::new("UpdateAttributeStatus");
 
 static STATUS: LazyLock<Attribute<String>> = LazyLock::new(|| {
     Attribute::new("primitive-attribute-status")
-        .indexed(AttributeIndex::keyword().with_key("CustomKeyword"))
+        .indexed(AttributeIndex::keyword().with_key("keyword1"))
 });
 static EMAIL: LazyLock<Attribute<String>> =
     LazyLock::new(|| Attribute::new("primitive-attribute-email").sync_to_attribute_store());
@@ -40,7 +40,7 @@ pub struct AttributeFlow {
 impl Default for AttributeFlow {
     fn default() -> Self {
         let progress = AttributeMap::new("primitive-attribute-progress")
-            .indexed(AttributeIndex::keyword().with_key("CustomKeyword2"));
+            .indexed(AttributeIndex::keyword().with_key("keyword2"));
         Self {
             start: AttributeStep {
                 progress: progress.clone(),

@@ -13,7 +13,7 @@ import flowDefinition from '@site/src/data/flow-definitions/job-post.json';
 
 这个流程在职位发布信息的整个生命周期内代表同一个实体。它必须：
 
-1. 使用职位名称、描述、最后更新时间和初始值为 0 的更新版本创建 Flow。名称使用 **CustomText** 全文检索 Search Attribute。描述会持久化，但不会建立索引。
+1. 使用职位名称、描述、最后更新时间和初始值为 0 的更新版本创建 Flow。名称使用 **text1** 全文检索 Search Attribute。描述会持久化，但不会建立索引。
 2. 只运行一次 **InitStep**，并行启动 **UpdateLinkedInPosting** 和 **UpdateIndeedPosting**。之后每个 Step 在自己的 Channel 上等待，且不会占用 Worker。
 3. 通过读取 RPC 返回当前名称、描述和备注。
 4. 通过更新 RPC 接收新的名称、描述和备注。RPC 使用专用且值为 null 的 **UpdatePostingLock** Attribute，确保同一时间只有一个已接受的更新可以分配版本并发布消息。

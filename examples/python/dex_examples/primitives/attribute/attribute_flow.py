@@ -66,13 +66,13 @@ class AttributeFlow(Flow[str]):
     status = Attribute(
         "primitive-attribute-status",
         str,
-        index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword"),
+        index=AttributeIndex(IndexType.KEYWORD, "keyword1"),
     )
     email = Attribute("primitive-attribute-email", str, sync_to_attribute_store=True)
     progress = AttributeMap(
         "primitive-attribute-progress",
         str,
-        index=AttributeIndex(IndexType.KEYWORD, "CustomKeyword2"),
+        index=AttributeIndex(IndexType.KEYWORD, "keyword2"),
     )
     attribute_store_config = FlowConfig(attribute_store_names=["profiles"])
 

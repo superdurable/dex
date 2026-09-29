@@ -39,8 +39,8 @@ npm start
 The Worker synchronizes all registered Indexed Attributes with Dex before it
 opens its listener; no backend CLI registration is required.
 
-The examples share namespace-level slots by index type: `CustomKeyword`,
-`CustomText`, `CustomInt`, and numbered later slots such as `CustomKeyword2`.
+The examples share namespace-level slots by index type: `keyword1`,
+`text1`, `int1`, and numbered later slots such as `keyword2`.
 Use a fresh local store and a new port after changing an example's index schema.
 
 Use Node.js 22 or 24. Defaults connect to Dex at `localhost:8801`. Override with

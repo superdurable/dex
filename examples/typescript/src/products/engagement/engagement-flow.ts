@@ -51,7 +51,7 @@ import {
   type EngagementInput,
 } from "./models.js";
 
-export const STATUS_SEARCH_KEY = "CustomKeyword";
+export const STATUS_SEARCH_KEY = "keyword1";
 
 const PROCESS_TIMEOUT_MS = 60 * DAY_MS;
 const REMINDER_MS = 5_000;

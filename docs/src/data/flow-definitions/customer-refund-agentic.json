@@ -4022,21 +4022,21 @@
     "indexedAttributes": [
       {
         "attributeKey": "customer-email",
-        "indexKey": "CustomKeyword",
+        "indexKey": "keyword1",
         "indexType": "keyword",
         "valueType": "string",
         "description": "Customer email address"
       },
       {
         "attributeKey": "refund-amount",
-        "indexKey": "CustomDouble",
+        "indexKey": "double1",
         "indexType": "double",
         "valueType": "double",
         "description": "Refund amount in dollars"
       },
       {
         "attributeKey": "case-status",
-        "indexKey": "CustomKeyword2",
+        "indexKey": "keyword2",
         "indexType": "keyword",
         "valueType": "string",
         "description": "Current case status"

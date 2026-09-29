@@ -47,6 +47,7 @@ class ClientApis implements Step<string> {
 export class ClientApisFlow implements Flow<string> {
   public readonly keyword = new Attribute(KEYWORD_KEY, stringCodec, {
     type: IndexType.KEYWORD,
+    indexKey: "keyword1",
   });
   private readonly index = new ClientApis(this);
 
