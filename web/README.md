@@ -339,7 +339,10 @@ call without changing the application revision.
 
 OAuth client credentials, refresh tokens, service-account keys, and webhook
 secrets are write-only. Hosted provider setup commands execute through the
-Control Plane, so Dex Web never reads stored credential material back.
+Control Plane, so Dex Web never reads stored credential material back. Each
+setup-command request carries the release-verified command declaration and the
+current configuration revision; the backend must reject a different release,
+command ID, or stale revision before calling the provider.
 
 ## Trusted reverse-proxy mounts
 

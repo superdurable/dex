@@ -214,3 +214,56 @@ func TestHostedConnectorOAuthDelegatesStartAndCallbackToReleaseScope(t *testing.
 		t.Fatalf("backend paths = %v", paths)
 	}
 }
+
+func TestHostedConnectorSetupCommandUsesReleaseScopeAndRevisionCAS(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/system/projects/project-1/environments/staging/connector-configuration":
+			writeWebJSON(response, http.StatusOK, hostedConnectorConfigurationSnapshot{
+				ConfigurationRevision: "revision-1",
+			})
+		case "/api/system/projects/project-1/environments/staging/connector-configuration/releases/release-1/connections/slack/workspace/setup-commands/listChannels":
+			if request.Header.Get("If-Match") != "revision-1" {
+				t.Fatalf("If-Match = %q", request.Header.Get("If-Match"))
+			}
+			var body hostedConnectorStudioCommandRequest
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Command.ID != "listChannels" || body.Command.Capability != "slack.channels-list" {
+				t.Fatalf("command = %+v", body.Command)
+			}
+			if body.Command.Request.Credential.Field != "bot_token" || body.Parameters["cursor"] != "next" {
+				t.Fatalf("body = %+v", body)
+			}
+			writeWebJSON(response, http.StatusOK, map[string]any{"ok": true})
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer backend.Close()
+
+	store, err := newHostedConnectorConfigurationStore(&Config{
+		ConnectorHostedBaseURL: backend.URL, ConnectorHostedProjectID: "project-1",
+		ConnectorHostedEnvironment: "staging", ConnectorHostedReleaseID: "release-1",
+		ConnectorHostedServiceToken: "backend-token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := store.executeProviderCommand(
+		"slack",
+		"workspace",
+		connectorManifestStudioCommand{
+			ID: "listChannels", Capability: "slack.channels-list",
+			Request: connectorManifestStudioHTTPRequest{
+				Method: http.MethodGet, URL: "https://slack.com/api/conversations.list",
+				Credential: connectorManifestStudioCredential{Field: "bot_token", Scheme: "bearer"},
+			},
+		},
+		map[string]string{"cursor": "next"},
+	)
+	if err != nil || value["ok"] != true {
+		t.Fatalf("value = %+v, err = %v", value, err)
+	}
+}

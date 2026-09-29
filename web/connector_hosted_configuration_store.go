@@ -53,7 +53,7 @@ type hostedConnectorConfigurationDeleteResponse struct {
 }
 
 type hostedConnectorProviderCommandExecutor interface {
-	executeProviderCommand(connectorID string, connectionName string, commandID string, parameters map[string]string) (map[string]any, error)
+	executeProviderCommand(connectorID string, connectionName string, command connectorManifestStudioCommand, parameters map[string]string) (map[string]any, error)
 }
 
 type hostedConnectorOAuthExecutor interface {
@@ -213,16 +213,23 @@ func (store *hostedConnectorConfigurationStore) delete(connectorID string, conne
 func (store *hostedConnectorConfigurationStore) executeProviderCommand(
 	connectorID string,
 	connectionName string,
-	commandID string,
+	command connectorManifestStudioCommand,
 	parameters map[string]string,
 ) (map[string]any, error) {
-	contents, err := json.Marshal(connectorStudioCommandRequest{Parameters: parameters})
+	revision, err := store.currentRevision()
+	if err != nil {
+		return nil, err
+	}
+	contents, err := json.Marshal(hostedConnectorStudioCommandRequest{
+		Command: command, Parameters: parameters,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("encode hosted Connector setup command: %w", err)
 	}
 	request, err := store.request(http.MethodPost, []string{
-		"connections", connectorID, connectionName, "setup-commands", commandID,
-	}, bytes.NewReader(contents), "")
+		"releases", store.releaseID, "connections", connectorID, connectionName,
+		"setup-commands", command.ID,
+	}, bytes.NewReader(contents), revision)
 	if err != nil {
 		return nil, err
 	}

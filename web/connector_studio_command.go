@@ -46,6 +46,11 @@ type connectorStudioCommandRequest struct {
 	Parameters map[string]string `json:"parameters"`
 }
 
+type hostedConnectorStudioCommandRequest struct {
+	Command    connectorManifestStudioCommand `json:"command"`
+	Parameters map[string]string              `json:"parameters"`
+}
+
 func newConnectorProviderHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout: 20 * time.Second,
@@ -85,7 +90,9 @@ func (setup *connectorSetup) handleStudioProviderCommand(response http.ResponseW
 	var value map[string]any
 	var err error
 	if executor, hosted := setup.store.(hostedConnectorProviderCommandExecutor); hosted {
-		value, err = executor.executeProviderCommand(session.connectorID, session.connectionName, command.ID, body.Parameters)
+		value, err = executor.executeProviderCommand(
+			session.connectorID, session.connectionName, command, body.Parameters,
+		)
 	} else {
 		connection, found, loadErr := setup.store.get(session.connectorID, session.connectionName)
 		if loadErr != nil || !found {
