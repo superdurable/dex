@@ -98,19 +98,21 @@ type connectorDefinitionIdentity struct {
 }
 
 type connectorConnectionView struct {
-	ConnectorID         string                          `json:"connectorId"`
-	AuthMethodID        string                          `json:"authMethodId,omitempty"`
-	ConnectionName      string                          `json:"connectionName"`
-	ModulePath          string                          `json:"modulePath,omitempty"`
-	ModuleVersion       string                          `json:"moduleVersion,omitempty"`
-	LocalOverride       bool                            `json:"localOverride,omitempty"`
-	Provider            string                          `json:"provider,omitempty"`
-	Status              string                          `json:"status"`
-	Configuration       map[string]json.RawMessage      `json:"configuration,omitempty"`
-	CredentialExpiresAt *time.Time                      `json:"credentialExpiresAt,omitempty"`
-	CredentialStatus    string                          `json:"credentialStatus,omitempty"`
-	Uses                []connectorConnectionStepUse    `json:"uses"`
-	TriggerUses         []connectorConnectionTriggerUse `json:"triggerUses,omitempty"`
+	ConnectorID            string                          `json:"connectorId"`
+	AuthMethodID           string                          `json:"authMethodId,omitempty"`
+	AuthMethodIDs          []string                        `json:"authMethodIds,omitempty"`
+	ConnectionName         string                          `json:"connectionName"`
+	ModulePath             string                          `json:"modulePath,omitempty"`
+	ModuleVersion          string                          `json:"moduleVersion,omitempty"`
+	LocalOverride          bool                            `json:"localOverride,omitempty"`
+	Provider               string                          `json:"provider,omitempty"`
+	Status                 string                          `json:"status"`
+	Configuration          map[string]json.RawMessage      `json:"configuration,omitempty"`
+	StoredCredentialFields []string                        `json:"storedCredentialFields,omitempty"`
+	CredentialExpiresAt    *time.Time                      `json:"credentialExpiresAt,omitempty"`
+	CredentialStatus       string                          `json:"credentialStatus,omitempty"`
+	Uses                   []connectorConnectionStepUse    `json:"uses"`
+	TriggerUses            []connectorConnectionTriggerUse `json:"triggerUses,omitempty"`
 }
 
 type connectorConnectionStepUse struct {
@@ -149,13 +151,15 @@ type connectorConnectionListResponse struct {
 }
 
 type connectorConnectionWriteRequest struct {
-	AuthMethodID        string                     `json:"authMethodId"`
-	ModulePath          string                     `json:"modulePath"`
-	ModuleVersion       string                     `json:"moduleVersion"`
-	Provider            string                     `json:"provider"`
-	Configuration       map[string]json.RawMessage `json:"configuration"`
-	Credentials         map[string]json.RawMessage `json:"credentials"`
-	CredentialExpiresAt *time.Time                 `json:"credentialExpiresAt"`
+	AuthMethodID         string                     `json:"authMethodId"`
+	AuthMethodIDs        []string                   `json:"authMethodIds"`
+	ModulePath           string                     `json:"modulePath"`
+	ModuleVersion        string                     `json:"moduleVersion"`
+	Provider             string                     `json:"provider"`
+	Configuration        map[string]json.RawMessage `json:"configuration"`
+	Credentials          map[string]json.RawMessage `json:"credentials"`
+	KeepCredentialFields []string                   `json:"keepCredentialFields"`
+	CredentialExpiresAt  *time.Time                 `json:"credentialExpiresAt"`
 }
 
 type connectorUISessionRequest struct {
@@ -306,42 +310,54 @@ func (setup *connectorSetup) handlePutConnection(response http.ResponseWriter, r
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector provider does not match the official release")
 		return
 	}
-	if err := validateRawConnectorFields(manifest.Spec.Configuration.Fields, body.Configuration, false); err != nil {
-		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector configuration is invalid")
-		return
-	}
-	authMethod, found := manifest.Spec.Auth.method(body.AuthMethodID)
-	if !found {
+	selectedMethods, err := manifest.Spec.Auth.selectedMethods(body.AuthMethodID, body.AuthMethodIDs)
+	if err != nil {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_AUTH_METHOD_INVALID", "Connector authentication method is invalid")
 		return
 	}
-	selectedAuthMethodID := body.AuthMethodID
-	if selectedAuthMethodID == "" && len(manifest.Spec.Auth.Methods) > 0 {
-		selectedAuthMethodID = authMethod.ID
+	configurationFields := connectorConfigurationFieldsForMethods(manifest.Spec.Configuration.Fields, selectedMethods)
+	if err := validateRawConnectorFields(configurationFields, body.Configuration, false, nil); err != nil {
+		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector configuration is invalid")
+		return
 	}
-	if err := validateRawConnectorFields(authMethod.Fields, body.Credentials, true); err != nil {
+	credentialFields := connectorCredentialFieldsForMethods(selectedMethods)
+	var storedCredentialFields []string
+	if len(body.KeepCredentialFields) > 0 {
+		stored, found, loadErr := setup.store.get(requested.ConnectorID, requested.ConnectionName)
+		if loadErr != nil {
+			writeConnectorConfigurationStoreError(response, loadErr, "CONNECTOR_CONNECTION_WRITE_FAILED", "Connector connection could not be saved")
+			return
+		}
+		if found {
+			storedCredentialFields = stored.StoredCredentialFields
+		}
+	}
+	keptCredentialFields, err := validateConnectorKeepCredentialFields(
+		body.KeepCredentialFields, storedCredentialFields, credentialFields, body.Credentials,
+	)
+	if err != nil {
+		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector credential fields to keep are invalid")
+		return
+	}
+	if err := validateRawConnectorFields(credentialFields, body.Credentials, true, keptCredentialFields); err != nil {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector credentials are invalid")
 		return
 	}
-	if selectedAuthMethodID != "" {
-		encodedAuthMethodID, err := json.Marshal(selectedAuthMethodID)
-		if err != nil {
-			api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_CONNECTION_WRITE_FAILED", "Connector connection could not be saved")
-			return
-		}
-		body.Credentials["auth_method"] = encodedAuthMethodID
-	}
 	connection := localConnectorConnection{
-		ConnectorID: request.PathValue("connectorId"), AuthMethodID: selectedAuthMethodID, ModulePath: body.ModulePath,
+		ConnectorID: request.PathValue("connectorId"), ModulePath: body.ModulePath,
 		ModuleVersion: body.ModuleVersion, Provider: manifest.Spec.Provider,
 		ConnectionName: request.PathValue("connectionName"), Configuration: body.Configuration,
 		Credentials: body.Credentials, CredentialExpiresAt: body.CredentialExpiresAt,
+	}
+	if err := stampConnectorAuthMethods(&connection, manifest.Spec.Auth, selectedMethods); err != nil {
+		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_CONNECTION_WRITE_FAILED", "Connector connection could not be saved")
+		return
 	}
 	if err := validateLocalConnectorConnection(connection); err != nil {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector connection request is invalid")
 		return
 	}
-	if err := setup.store.put(connection); err != nil {
+	if err := setup.store.put(connection, body.KeepCredentialFields); err != nil {
 		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_CONNECTION_WRITE_FAILED", "Connector connection could not be saved")
 		return
 	}
@@ -609,7 +625,7 @@ func (setup *connectorSetup) connectionViews(ctx context.Context) ([]connectorCo
 	if err != nil {
 		return nil, "", err
 	}
-	stored := make(map[string]localConnectorConnection, len(connections))
+	stored := make(map[string]storedConnectorConnection, len(connections))
 	for _, connection := range connections {
 		stored[connection.ConnectorID+"\x00"+connection.ConnectionName] = connection
 	}
@@ -658,7 +674,7 @@ func (setup *connectorSetup) connectionViews(ctx context.Context) ([]connectorCo
 
 func connectorViewsFromCatalog(
 	catalogJSON []byte,
-	stored map[string]localConnectorConnection,
+	stored map[string]storedConnectorConnection,
 	now time.Time,
 	overrides map[string]connectorDefinitionIdentity,
 ) ([]connectorConnectionView, error) {
@@ -745,7 +761,9 @@ func connectorViewsFromCatalog(
 		} else if connection, ok := stored[key]; ok {
 			current.view.Provider = connection.Provider
 			current.view.AuthMethodID = connection.AuthMethodID
+			current.view.AuthMethodIDs = connection.AuthMethodIDs
 			current.view.Configuration = connection.Configuration
+			current.view.StoredCredentialFields = connection.StoredCredentialFields
 			current.view.CredentialExpiresAt = connection.CredentialExpiresAt
 			current.view.CredentialStatus = connection.CredentialStatus
 			if !current.view.LocalOverride && (connection.ModulePath != current.view.ModulePath || connection.ModuleVersion != current.view.ModuleVersion) {
@@ -899,9 +917,93 @@ func normalizeConnectorTriggerBinding(
 
 // The server stamps the selected authentication methods; a client value could contradict them.
 func hasConnectorAuthMethodCredential(credentials map[string]json.RawMessage) bool {
-	_, hasAuthMethod := credentials["auth_method"]
-	_, hasAuthMethods := credentials["auth_methods"]
-	return hasAuthMethod || hasAuthMethods
+	for name := range credentials {
+		if isConnectorAuthMethodCredentialName(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func stampConnectorAuthMethods(
+	connection *localConnectorConnection,
+	auth connectorManifestAuth,
+	selectedMethods []connectorManifestAuthMethod,
+) error {
+	if auth.isMultipleSelection() {
+		selectedMethodIDs := make([]string, 0, len(selectedMethods))
+		for _, method := range selectedMethods {
+			selectedMethodIDs = append(selectedMethodIDs, method.ID)
+		}
+		encodedMethodIDs, err := json.Marshal(selectedMethodIDs)
+		if err != nil {
+			return fmt.Errorf("encode Connector authentication methods: %w", err)
+		}
+		connection.AuthMethodIDs = selectedMethodIDs
+		connection.Credentials["auth_methods"] = encodedMethodIDs
+		return nil
+	}
+	selectedMethodID := selectedMethods[0].ID
+	if selectedMethodID == "" {
+		return nil
+	}
+	encodedMethodID, err := json.Marshal(selectedMethodID)
+	if err != nil {
+		return fmt.Errorf("encode Connector authentication method: %w", err)
+	}
+	connection.AuthMethodID = selectedMethodID
+	connection.Credentials["auth_method"] = encodedMethodID
+	return nil
+}
+
+// validateConnectorKeepCredentialFields returns the kept field names, or an error when a name is
+// not stored, not declared by a selected method, or also set by the request.
+func validateConnectorKeepCredentialFields(
+	keepCredentialFields []string,
+	storedCredentialFields []string,
+	credentialFields []connectorManifestField,
+	credentials map[string]json.RawMessage,
+) (map[string]bool, error) {
+	isStored := make(map[string]bool, len(storedCredentialFields))
+	for _, name := range storedCredentialFields {
+		isStored[name] = true
+	}
+	isDeclared := make(map[string]bool, len(credentialFields))
+	for _, field := range credentialFields {
+		isDeclared[field.Name] = true
+	}
+	kept := make(map[string]bool, len(keepCredentialFields))
+	for _, name := range keepCredentialFields {
+		_, isSet := credentials[name]
+		if !isStored[name] || !isDeclared[name] || isSet {
+			return nil, fmt.Errorf("credential field %q cannot be kept", name)
+		}
+		kept[name] = true
+	}
+	return kept, nil
+}
+
+func connectorConfigurationFieldsForMethods(
+	connectionFields []connectorManifestField,
+	selectedMethods []connectorManifestAuthMethod,
+) []connectorManifestField {
+	fields := append([]connectorManifestField{}, connectionFields...)
+	for _, method := range selectedMethods {
+		fields = append(fields, method.configurationFields()...)
+	}
+	return fields
+}
+
+func connectorCredentialFieldsForMethods(selectedMethods []connectorManifestAuthMethod) []connectorManifestField {
+	var fields []connectorManifestField
+	for _, method := range selectedMethods {
+		fields = append(fields, method.Fields...)
+	}
+	return fields
+}
+
+func isConnectorAuthMethodCredentialName(name string) bool {
+	return name == "auth_method" || name == "auth_methods"
 }
 
 func hasStrictConnectorOrigin(request *http.Request) bool {

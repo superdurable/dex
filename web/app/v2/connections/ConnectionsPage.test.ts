@@ -12,14 +12,26 @@ import { describe, expect, it } from 'vitest';
 import { DexAPIError } from '@/lib/http';
 import {
   ConnectorForm,
+  addConnectionAuthMethod,
+  addableAuthMethods,
+  connectionAuthMethodIds,
+  connectionConfigurationSaveRequestBody,
+  connectionFieldPresentation,
+  connectionFieldStudioTarget,
+  connectionFormInitialValues,
   connectionKey,
   connectionDeleteLabel,
+  connectorAuthMethodLabels,
   connectorConfigurationEffectText,
   connectorHostReadyMessage,
   connectorSetupTabs,
   connectorWriteHeaders,
   connectionWriteRequestBody,
+  initialConnectionAuthMethodIds,
   initialConnectorSetupTabKey,
+  mergeUnitValue,
+  removeConnectionAuthMethod,
+  storedCredentialPlaceholder,
   isStudioCommand,
   isStudioFrameResize,
   descriptionParts,
@@ -75,7 +87,7 @@ describe('Connections contract', () => {
       },
     } as never;
     const connection = {connectorId: 'gmail', connectionName: 'sender', modulePath: 'github.com/superdurable/dex-connectors-library/connectors/google/gmail', moduleVersion: 'v0.1.1'} as never;
-    const body = connectionWriteRequestBody(connection, manifest, 'workspaceServiceAccount', {
+    const body = connectionWriteRequestBody(connection, manifest, ['workspaceServiceAccount'], {
       'configuration:endpoint': 'https://gmail.example.test',
       'credential:service_account_key': '{"type":"service_account"}',
       'credential:delegated_user': 'owner@example.com',
@@ -88,6 +100,7 @@ describe('Connections contract', () => {
       authMethodId: 'workspaceServiceAccount',
       configuration: {endpoint: 'https://gmail.example.test'},
       credentials: {service_account_key: '{"type":"service_account"}', delegated_user: 'owner@example.com'},
+      keepCredentialFields: [],
       credentialExpiresAt: null,
     });
   });
@@ -241,7 +254,7 @@ describe('Connections contract', () => {
     expect(ready).toEqual({
       type: 'connector.host.ready', protocolVersion: '0.2.0', sessionNonce: 'nonce', connectorId: 'slack',
       capabilities: ['use.configuration.write'],
-      connection: { state: 'connected', grantedScopes: [], detail: 'Ready' },
+      connection: { state: 'connected', grantedScopes: [], detail: 'Ready', authMethodIds: [], configuration: {} },
       target: { kind: 'connection' },
       theme: 'dark',
       themeTokens: { '--studio-cta': '#70eea9' },
@@ -324,11 +337,248 @@ describe('Connections contract', () => {
   });
 });
 
-function renderConnectorForm(manifest: unknown): string {
+const modelField = {
+  name: 'model', type: 'string', description: 'Default model.', required: false,
+  studioUnit: {unit: 'modelPicker', port: 'model'},
+};
+
+const llmManifest = {
+  metadata: {displayName: 'LLM', description: 'Several model providers'},
+  spec: {
+    provider: 'llm',
+    configuration: {fields: [
+      modelField,
+      {name: 'timeout', type: 'duration', description: 'Request timeout.', required: false},
+      {name: 'maxOutputTokens', type: 'integer', description: 'Output limit.', required: false},
+    ]},
+    auth: {
+      fields: [],
+      selection: 'multiple',
+      methodLabel: 'Provider',
+      methods: [
+        {id: 'openai', displayName: 'OpenAI', description: 'OpenAI API key.', type: 'apiKey', fields: [
+          {name: 'openai_api_key', type: 'secretString', description: 'OpenAI key.', required: true},
+        ]},
+        {id: 'anthropic', displayName: 'Claude', description: 'Anthropic API key.', type: 'apiKey', fields: [
+          {name: 'anthropic_api_key', type: 'secretString', description: 'Anthropic key.', required: true},
+        ], configuration: {fields: [
+          {name: 'anthropicWorkspaceId', type: 'string', description: 'Claude workspace.', required: false},
+        ]}},
+        {id: 'gemini', displayName: 'Gemini', description: 'Gemini API key.', type: 'apiKey', fields: [
+          {name: 'gemini_api_key', type: 'secretString', description: 'Gemini key.', required: true},
+        ]},
+      ],
+    },
+    studio: {
+      setup: {backendCapabilities: ['use.configuration.write']},
+      units: [{id: 'modelPicker', description: 'Pick a model.', outputs: [{name: 'model', type: 'string'}]}],
+    },
+  },
+};
+
+const llmSession = {connectorId: 'llm', connectionName: 'default', sessionNonce: 'nonce', entrypointUrl: '/ui/index.html', manifest: llmManifest};
+
+describe('Connections with several authentication methods', () => {
+  it('adds providers in order without duplicates and removes them', () => {
+    expect(addConnectionAuthMethod(['openai'], 'anthropic')).toEqual(['openai', 'anthropic']);
+    expect(addConnectionAuthMethod(['openai', 'anthropic'], 'openai')).toEqual(['openai', 'anthropic']);
+    expect(removeConnectionAuthMethod(['openai', 'anthropic'], 'openai')).toEqual(['anthropic']);
+    expect(addableAuthMethods(llmManifest as never, ['anthropic']).map((method) => method.id)).toEqual(['openai', 'gemini']);
+    expect(initialConnectionAuthMethodIds(llmManifest as never, {authMethodIds: ['anthropic', 'retired']} as never)).toEqual(['anthropic']);
+    expect(initialConnectionAuthMethodIds(llmManifest as never, {} as never)).toEqual([]);
+    const withDefault = {...llmManifest, spec: {...llmManifest.spec, auth: {...llmManifest.spec.auth, defaultMethod: 'anthropic'}}};
+    expect(initialConnectionAuthMethodIds(withDefault as never, {} as never)).toEqual(['anthropic']);
+    expect(initialConnectionAuthMethodIds(withDefault as never, {authMethodIds: ['openai']} as never)).toEqual(['openai']);
+  });
+
+  it('pre-adds the default method card to a never-saved connection', () => {
+    const withDefault = {...llmManifest, spec: {...llmManifest.spec, auth: {...llmManifest.spec.auth, defaultMethod: 'openai'}}};
+    const markup = renderConnectorForm(withDefault, {status: 'Missing'}, llmSession);
+    expect(markup).toContain('aria-label="Remove OpenAI"');
+    expect(markup).toMatch(/<span>openai_api_key \*<\/span><input autoComplete="off" required="" type="password"/);
+    expect(markup).not.toContain('Add at least one provider');
+  });
+
+  it('names the section and menu from methodLabel', () => {
+    expect(connectorAuthMethodLabels('Provider')).toEqual({
+      plural: 'Providers', add: 'Add provider', empty: 'Add at least one provider to save this connection.',
+    });
+    expect(connectorAuthMethodLabels(undefined)).toEqual({
+      plural: 'Authentication methods', add: 'Add authentication method',
+      empty: 'Add at least one authentication method to save this connection.',
+    });
+    expect(connectorAuthMethodLabels('API key').add).toBe('Add API key');
+  });
+
+  it('renders one card per added provider with its fields, a Remove button, and the Add provider menu', () => {
+    const markup = renderConnectorForm(llmManifest, {authMethodIds: ['anthropic', 'openai'], status: 'Missing'}, llmSession);
+    expect(markup).toContain('<section aria-label="Providers" class="connector-auth-method-cards">');
+    expect(markup).toContain('<h4>Providers</h4>');
+    expect(markup).toMatch(/aria-haspopup="menu"[^>]*>Add provider<\/button>/);
+    expect(markup.indexOf('<b>Claude</b>')).toBeLessThan(markup.indexOf('<b>OpenAI</b>'));
+    expect(markup).toContain('aria-label="Remove Claude"');
+    expect(markup).toContain('aria-label="Remove OpenAI"');
+    expect(markup.indexOf('anthropic_api_key *')).toBeLessThan(markup.indexOf('anthropicWorkspaceId'));
+    expect(markup.indexOf('anthropicWorkspaceId')).toBeLessThan(markup.indexOf('<b>OpenAI</b>'));
+    expect(markup).not.toContain('gemini_api_key');
+    expect(markup).not.toContain('name="connector-auth-method"');
+    expect(markup).toMatch(/<button class="v2-primary" type="submit">Save local credentials<\/button>/);
+  });
+
+  it('requires at least one provider before saving', () => {
+    const markup = renderConnectorForm(llmManifest, {status: 'Missing'}, llmSession);
+    expect(markup).toContain('Add at least one provider to save this connection.');
+    expect(markup).toMatch(/<button class="v2-primary" disabled="" type="submit">/);
+  });
+
+  it('sends the added providers, their typed keys, and keeps blank stored keys of added providers only', () => {
+    const connection = {
+      connectorId: 'llm', connectionName: 'default', modulePath: 'github.com/superdurable/dex-connectors-library/connectors/llm', moduleVersion: 'v0.2.0',
+      status: 'Ready', authMethodIds: ['anthropic', 'openai'], storedCredentialFields: ['anthropic_api_key', 'openai_api_key'],
+      configuration: {anthropicWorkspaceId: 'ws_1', timeout: '30s'},
+    } as never;
+    expect(connectionWriteRequestBody(connection, llmManifest as never, ['anthropic', 'gemini'], {
+      'configuration:anthropicWorkspaceId': 'ws_1', 'configuration:timeout': '30s',
+      'credential:gemini_api_key': 'gemini-secret', 'credential:openai_api_key': '',
+    })).toEqual({
+      modulePath: 'github.com/superdurable/dex-connectors-library/connectors/llm', moduleVersion: 'v0.2.0', provider: 'llm',
+      authMethodIds: ['anthropic', 'gemini'],
+      configuration: {anthropicWorkspaceId: 'ws_1', timeout: '30s'},
+      credentials: {gemini_api_key: 'gemini-secret'},
+      keepCredentialFields: ['anthropic_api_key'],
+      credentialExpiresAt: null,
+    });
+    const removedClaude = connectionWriteRequestBody(connection, llmManifest as never, ['openai'], {
+      'configuration:anthropicWorkspaceId': 'ws_1', 'credential:openai_api_key': 'rotated',
+    });
+    expect(removedClaude.configuration).toEqual({});
+    expect(removedClaude.credentials).toEqual({openai_api_key: 'rotated'});
+    expect(removedClaude.keepCredentialFields).toEqual([]);
+  });
+
+  it('shows stored secrets as optional inputs that keep the stored value', () => {
+    const stripeManifest = {
+      metadata: {displayName: 'Stripe', description: 'Stripe connection'},
+      spec: {
+        provider: 'stripe', configuration: {fields: []},
+        auth: {type: 'apiKey', fields: [
+          {name: 'secret_key', type: 'secretString', description: 'Stripe key.', required: true},
+          {name: 'webhook_secret', type: 'secretString', description: 'Webhook secret.', required: true},
+        ]},
+      },
+    };
+    const markup = renderConnectorForm(stripeManifest, {status: 'Ready', storedCredentialFields: ['secret_key']});
+    expect(markup).toMatch(new RegExp(`<span>secret_key</span><input autoComplete="off" placeholder="${storedCredentialPlaceholder}" type="password"`));
+    expect(markup).toMatch(/<span>webhook_secret \*<\/span><input autoComplete="off" required="" type="password"/);
+    const body = connectionWriteRequestBody(
+      {connectorId: 'stripe', connectionName: 'payments', storedCredentialFields: ['secret_key']} as never,
+      stripeManifest as never, [''], {'credential:webhook_secret': 'whsec'},
+    );
+    expect(body).toMatchObject({authMethodId: '', credentials: {webhook_secret: 'whsec'}, keepCredentialFields: ['secret_key']});
+  });
+
+  it('prefills stored non-secret configuration and resends unchanged values with their stored type', () => {
+    const connection = {
+      connectorId: 'llm', connectionName: 'default', status: 'Missing', authMethodIds: ['anthropic'],
+      configuration: {timeout: '30s', maxOutputTokens: 1024, anthropicWorkspaceId: 'ws_1'},
+    } as never;
+    expect(connectionFormInitialValues(llmManifest as never, connection)).toEqual({
+      'configuration:timeout': '30s', 'configuration:maxOutputTokens': '1024', 'configuration:anthropicWorkspaceId': 'ws_1',
+    });
+    const markup = renderConnectorForm(llmManifest, connection, llmSession);
+    expect(markup).toMatch(/<span>timeout<\/span><input autoComplete="off" type="text" value="30s"/);
+    expect(markup).toMatch(/<span>anthropicWorkspaceId<\/span><input autoComplete="off" type="text" value="ws_1"/);
+    const body = connectionWriteRequestBody(connection, llmManifest as never, ['anthropic'], connectionFormInitialValues(llmManifest as never, connection));
+    expect(body.configuration).toEqual({timeout: '30s', maxOutputTokens: 1024, anthropicWorkspaceId: 'ws_1'});
+  });
+
+  it('mounts the studioUnit field frame only once the connection is Ready', () => {
+    const ready = {connectorId: 'llm', connectionName: 'default', status: 'Ready'} as never;
+    const missing = {connectorId: 'llm', connectionName: 'default', status: 'Missing'} as never;
+    expect(connectionFieldPresentation(modelField as never, ready, llmSession as never)).toBe('studioFrame');
+    expect(connectionFieldPresentation(modelField as never, missing, llmSession as never)).toBe('studioNote');
+    expect(connectionFieldPresentation({...modelField, required: true} as never, missing, llmSession as never)).toBe('input');
+    expect(connectionFieldPresentation(modelField as never, ready, {...llmSession, entrypointUrl: undefined} as never)).toBe('input');
+    expect(connectionFieldPresentation({...modelField, studioUnit: {unit: 'undeclared', port: 'model'}} as never, ready, llmSession as never)).toBe('input');
+
+    const missingMarkup = renderConnectorForm(llmManifest, {status: 'Missing', authMethodIds: ['openai']}, llmSession);
+    expect(missingMarkup).toContain('Save the connection to choose <code>model</code>.');
+    expect(missingMarkup).not.toContain('<iframe');
+    const readyMarkup = renderConnectorForm(llmManifest, {status: 'Ready', authMethodIds: ['openai']}, llmSession);
+    expect(readyMarkup).toContain('<iframe class="connector-studio" sandbox="allow-scripts" src="/ui/index.html"');
+    expect(readyMarkup).toContain('title="test-connector Connector model setting"');
+    expect(readyMarkup).toContain('data-surface="connectionField"');
+    expect(readyMarkup).not.toContain('Save the connection to choose');
+
+    const body = connectionWriteRequestBody(
+      {connectorId: 'llm', connectionName: 'default', status: 'Ready', configuration: {model: 'anthropic/claude-sonnet-5'}} as never,
+      llmManifest as never, ['anthropic'], {'configuration:model': 'stale form text'}, new Set(['model']),
+    );
+    expect(body.configuration).toEqual({model: 'anthropic/claude-sonnet-5'});
+  });
+
+  it('targets the connection field frame and saves only that field, keeping every stored credential', () => {
+    const connection = {
+      connectorId: 'llm', connectionName: 'default', modulePath: 'github.com/superdurable/dex-connectors-library/connectors/llm', moduleVersion: 'v0.2.0',
+      status: 'Ready', authMethodIds: ['anthropic', 'openai'],
+      storedCredentialFields: ['anthropic_api_key', 'openai_api_key', 'retired_key'],
+      configuration: {model: 'anthropic/claude-sonnet-5', timeout: '30s'},
+    } as never;
+    const target = connectionFieldStudioTarget(modelField as never, connection);
+    expect(target).toEqual({
+      kind: 'connection', unitId: 'modelPicker',
+      bindings: [{port: 'model', jsonPointer: '/model'}],
+      value: {model: 'anthropic/claude-sonnet-5'},
+    });
+    expect(connectionFieldStudioTarget(modelField as never, {} as never)).toMatchObject({value: {}});
+    if (target.kind !== 'connection' || !target.bindings) throw new Error('connection target expected');
+    const configuration = mergeUnitValue({model: 'anthropic/claude-sonnet-5', timeout: '30s'}, target.bindings, {model: 'openai/gpt-5'});
+    expect(configuration).toEqual({model: 'openai/gpt-5', timeout: '30s'});
+    expect(() => mergeUnitValue({}, target.bindings ?? [], {provider: 'openai'})).toThrow('undeclared port provider');
+    expect(connectionConfigurationSaveRequestBody(connection, llmManifest as never, configuration)).toEqual({
+      modulePath: 'github.com/superdurable/dex-connectors-library/connectors/llm', moduleVersion: 'v0.2.0', provider: 'llm',
+      authMethodIds: ['anthropic', 'openai'],
+      configuration: {model: 'openai/gpt-5', timeout: '30s'},
+      credentials: {},
+      keepCredentialFields: ['anthropic_api_key', 'openai_api_key'],
+      credentialExpiresAt: null,
+    });
+    const singleManifest = {spec: {provider: 'openai', configuration: {fields: [modelField]}, auth: {type: 'apiKey', fields: [
+      {name: 'api_key', type: 'secretString', description: '', required: true},
+    ]}}};
+    expect(connectionConfigurationSaveRequestBody(
+      {connectorId: 'openai', connectionName: 'default', storedCredentialFields: ['api_key']} as never, singleManifest as never, {model: 'gpt-5'},
+    )).toMatchObject({authMethodId: '', configuration: {model: 'gpt-5'}, credentials: {}, keepCredentialFields: ['api_key']});
+  });
+
+  it('gives every Studio frame the connection methods and non-secret configuration', () => {
+    expect(connectionAuthMethodIds({authMethodIds: ['anthropic', 'openai']} as never)).toEqual(['anthropic', 'openai']);
+    expect(connectionAuthMethodIds({authMethodId: 'googleOAuth'} as never)).toEqual(['googleOAuth']);
+    expect(connectionAuthMethodIds({} as never)).toEqual([]);
+    const connection = {
+      connectorId: 'llm', connectionName: 'default', status: 'Ready', authMethodIds: ['anthropic', 'openai'],
+      configuration: {model: 'anthropic/claude-sonnet-5'},
+    } as never;
+    const appearance = {theme: 'light', themeTokens: {}, stylesheet: ''} as const;
+    const stepTarget = {
+      kind: 'configurationUnit', scope: {kind: 'operation', operationId: 'generateText', flowType: 'Flow', stepType: 'Step'},
+      instanceId: 'model', unitId: 'modelPicker', label: 'Model', required: false,
+      bindings: [{port: 'model', jsonPointer: '/model'}], value: {},
+    } as never;
+    for (const target of [stepTarget, connectionFieldStudioTarget(modelField as never, connection)]) {
+      expect(connectorHostReadyMessage(llmSession as never, connection, target, appearance).connection).toEqual({
+        state: 'connected', grantedScopes: [], detail: 'Ready',
+        authMethodIds: ['anthropic', 'openai'], configuration: {model: 'anthropic/claude-sonnet-5'},
+      });
+    }
+  });
+});
+
+function renderConnectorForm(manifest: unknown, connection: Record<string, unknown> = {}, session: Record<string, unknown> = {}): string {
   return renderToStaticMarkup(createElement(ConnectorForm, {
     catalog: {} as never,
-    connection: {connectorId: 'test-connector'} as never,
-    session: {manifest} as never,
+    connection: {connectorId: 'test-connector', ...connection} as never,
+    session: {...session, manifest} as never,
     onConfigured: async () => undefined,
     onError: () => undefined,
   }));

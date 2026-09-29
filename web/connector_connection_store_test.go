@@ -10,11 +10,71 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
+
+func TestConnectorConnectionStoreRoundTripsAuthMethodIDsAndCopiesKeptCredentials(t *testing.T) {
+	directory := t.TempDir()
+	store, err := newConnectorConnectionStore(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection := testLocalConnectorConnection("llm", "default", "unused", nil)
+	connection.AuthMethodIDs = []string{"anthropic", "openai"}
+	connection.Credentials = map[string]json.RawMessage{
+		"auth_methods":      json.RawMessage(`["anthropic","openai"]`),
+		"openai_api_key":    json.RawMessage(`"openai-secret"`),
+		"anthropic_api_key": json.RawMessage(`"anthropic-secret"`),
+	}
+	if err := store.put(connection, nil); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := newConnectorConnectionStore(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connections, err := reloaded.list()
+	if err != nil || len(connections) != 1 {
+		t.Fatalf("connections = %+v, err = %v", connections, err)
+	}
+	if !reflect.DeepEqual(connections[0].AuthMethodIDs, []string{"anthropic", "openai"}) ||
+		!reflect.DeepEqual(connections[0].StoredCredentialFields, []string{"anthropic_api_key", "openai_api_key"}) {
+		t.Fatalf("reloaded connection = %+v", connections[0])
+	}
+
+	next := testLocalConnectorConnection("llm", "default", "unused", nil)
+	next.AuthMethodIDs = []string{"openai"}
+	next.Credentials = map[string]json.RawMessage{"auth_methods": json.RawMessage(`["openai"]`)}
+	if err := reloaded.put(next, []string{"openai_api_key"}); err != nil {
+		t.Fatal(err)
+	}
+	stored, found, err := reloaded.get("llm", "default")
+	if err != nil || !found {
+		t.Fatalf("found = %v, err = %v", found, err)
+	}
+	assertConnectorTestCredentials(t, stored, map[string]any{"auth_methods": []any{"openai"}, "openai_api_key": "openai-secret"})
+
+	removed := testLocalConnectorConnection("llm", "default", "unused", nil)
+	removed.Credentials = map[string]json.RawMessage{}
+	if err := reloaded.put(removed, []string{"anthropic_api_key"}); !errors.Is(err, errConnectorConfigurationRevisionConflict) {
+		t.Fatalf("keep of a field no longer stored error = %v", err)
+	}
+	unsaved := testLocalConnectorConnection("llm", "unsaved", "unused", nil)
+	if err := reloaded.put(unsaved, []string{"access_token"}); !errors.Is(err, errConnectorConfigurationRevisionConflict) {
+		t.Fatalf("keep without a stored record error = %v", err)
+	}
+	both := testLocalConnectorConnection("llm", "default", "unused", nil)
+	both.AuthMethodID = "openai"
+	both.AuthMethodIDs = []string{"openai"}
+	if err := validateLocalConnectorConnection(both); err == nil {
+		t.Fatal("a record with authMethodId and authMethodIds was accepted")
+	}
+}
 
 func TestConnectorConnectionStorePersistsAcrossRestartAndIsolatesDirectories(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "shared")
@@ -31,7 +91,7 @@ func TestConnectorConnectionStorePersistsAcrossRestartAndIsolatesDirectories(t *
 	}
 	expiresAt := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	connection := testLocalConnectorConnection("gmail", "sender", "token-one", &expiresAt)
-	if err := firstStore.put(connection); err != nil {
+	if err := firstStore.put(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -99,11 +159,11 @@ func TestConnectorConnectionStoreAtomicallyReplacesAndDeletesRecord(t *testing.T
 		t.Fatal(err)
 	}
 	connection := testLocalConnectorConnection("github", "reviewer", "token-one", nil)
-	if err := store.put(connection); err != nil {
+	if err := store.put(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	connection.Credentials["access_token"] = json.RawMessage(`"token-two"`)
-	if err := store.put(connection); err != nil {
+	if err := store.put(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	connections, err := store.list()
@@ -127,7 +187,7 @@ func TestConnectorConnectionStoreKeepsTriggerBindingsSeparateAndDeletesThemWithC
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.put(testLocalConnectorConnection("slack", "slack-workspace", "bot-token", nil)); err != nil {
+	if err := store.put(testLocalConnectorConnection("slack", "slack-workspace", "bot-token", nil), nil); err != nil {
 		t.Fatal(err)
 	}
 	binding := localConnectorTriggerBinding{

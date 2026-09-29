@@ -31,7 +31,7 @@ func TestStudioProviderCommandUsesDeclaredRequestWithoutReturningCredential(t *t
 	setup := connectorTestSetup(t, t.TempDir(), provider)
 	connection := testLocalConnectorConnection("slack", "slack-workspace", "unused", nil)
 	connection.Credentials = map[string]json.RawMessage{"bot_token": json.RawMessage(`"xoxb-never-return"`)}
-	if err := setup.store.put(connection); err != nil {
+	if err := setup.store.put(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	setup.providerHTTPClient = &http.Client{Transport: connectorRoundTripFunc(func(request *http.Request) (*http.Response, error) {
@@ -459,7 +459,7 @@ func connectorStudioCommandTestSetup(
 	}
 	connection := testLocalConnectorConnection(identity.ConnectorID, identity.ConnectionName, "unused", nil)
 	connection.Credentials = map[string]json.RawMessage{"api_key": encodedCredential}
-	if err := setup.store.put(connection); err != nil {
+	if err := setup.store.put(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
@@ -504,7 +504,7 @@ func TestTriggerBindingAPIWritesOnlyDeclaredBinding(t *testing.T) {
 	provider := connectorTriggerTestDefinitionProvider(t)
 	setup := connectorTestSetup(t, t.TempDir(), provider)
 	connection := testLocalConnectorConnection("slack", "slack-workspace", "token", nil)
-	if err := setup.store.put(connection); err != nil {
+	if err := setup.store.put(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	body := `{"configuration":{"channelId":"C123","threadTriggerMatcher":{"messageContains":"approval"}}}`
@@ -539,7 +539,7 @@ func TestTriggerBindingAPIAcceptsPartialUnitConfiguration(t *testing.T) {
 	provider := connectorTriggerTestDefinitionProvider(t)
 	setup := connectorTestSetup(t, t.TempDir(), provider)
 	connection := testLocalConnectorConnection("slack", "slack-workspace", "token", nil)
-	if err := setup.store.put(connection); err != nil {
+	if err := setup.store.put(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	body := `{"configuration":{"channelId":"C123","threadReplyMatcher":{"messageContains":"approve"}}}`
@@ -559,7 +559,7 @@ func TestTriggerBindingAPIRejectsConfigurableRPCName(t *testing.T) {
 	provider := connectorTriggerTestDefinitionProvider(t)
 	setup := connectorTestSetup(t, t.TempDir(), provider)
 	connection := testLocalConnectorConnection("slack", "slack-workspace", "token", nil)
-	if err := setup.store.put(connection); err != nil {
+	if err := setup.store.put(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	body := `{"configuration":{"channelId":"C123","rpcName":"ApproveRequest","threadReplyMatcher":{"posterUserIds":["U123"]}}}`

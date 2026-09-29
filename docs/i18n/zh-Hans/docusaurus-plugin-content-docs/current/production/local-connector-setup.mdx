@@ -63,6 +63,20 @@ Studio UI 时，它会在 opaque-origin sandbox 中加载；否则根据 manifes
 括号显示。输入留空即使用该默认值；只有字段说明明确指出需要覆盖时才填写。字段说明
 中的 URL 可以直接点击。
 
+有些 Connector 在一个 connection 中保存多个 provider，例如同时保存 OpenAI、
+Claude 和 Gemini key 的 LLM Connector。它的表单为每个已添加的 provider 显示一张
+卡片，包含该 provider 的指南、key 和设置。使用 **Add provider** 添加 provider，
+使用 **Remove** 移除 provider。移除后保存会删除该 provider 的 key 和设置。一个
+connection 至少需要一个 provider。
+
+要修改 **Ready** 的 connection，请选择 **Edit connection**。已保存的非 secret
+设置会预先填入。已保存的 key 不会再次显示；每个已保存的 key 字段显示
+**Stored - leave blank to keep**，留空即保留已保存的 key。OAuth connection 请改为
+选择 **Reauthorize**。
+
+Connector 可以用自己的选择器渲染某个 connection 设置，例如默认模型。保存
+connection 后才会显示该选择器。
+
 OAuth 始终使用 state 和十分钟一次性 session。Provider 支持对应授权流程时，
 Connector 还会使用 PKCE。OAuth client ID 与 client secret 只存在内存中，不会
 写入磁盘。Dex 检查 granted scope 后保存短期 access token，不保存 refresh

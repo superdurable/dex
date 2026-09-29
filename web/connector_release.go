@@ -84,6 +84,8 @@ type connectorReleaseManifest struct {
 	} `json:"spec"`
 }
 
+const connectorAuthSelectionMultiple = "multiple"
+
 type connectorManifestAuth struct {
 	Type           string                        `json:"type,omitempty"`
 	ConnectionKind string                        `json:"connectionKind,omitempty"`
@@ -91,19 +93,59 @@ type connectorManifestAuth struct {
 	Guide          *connectorAuthorizationGuide  `json:"guide,omitempty"`
 	OAuth2         *connectorManifestOAuth2      `json:"oauth2,omitempty"`
 	DefaultMethod  string                        `json:"defaultMethod,omitempty"`
+	Selection      string                        `json:"selection,omitempty"`
+	MethodLabel    string                        `json:"methodLabel,omitempty"`
 	Methods        []connectorManifestAuthMethod `json:"methods,omitempty"`
 }
 
 type connectorManifestAuthMethod struct {
-	ID             string                       `json:"id"`
-	DisplayName    string                       `json:"displayName"`
-	Description    string                       `json:"description"`
-	Recommended    bool                         `json:"recommended,omitempty"`
-	Type           string                       `json:"type"`
-	ConnectionKind string                       `json:"connectionKind"`
-	Fields         []connectorManifestField     `json:"fields"`
-	Guide          *connectorAuthorizationGuide `json:"guide,omitempty"`
-	OAuth2         *connectorManifestOAuth2     `json:"oauth2,omitempty"`
+	ID             string                                    `json:"id"`
+	DisplayName    string                                    `json:"displayName"`
+	Description    string                                    `json:"description"`
+	Recommended    bool                                      `json:"recommended,omitempty"`
+	Type           string                                    `json:"type"`
+	ConnectionKind string                                    `json:"connectionKind"`
+	Fields         []connectorManifestField                  `json:"fields"`
+	Configuration  *connectorManifestAuthMethodConfiguration `json:"configuration,omitempty"`
+	Guide          *connectorAuthorizationGuide              `json:"guide,omitempty"`
+	OAuth2         *connectorManifestOAuth2                  `json:"oauth2,omitempty"`
+}
+
+type connectorManifestAuthMethodConfiguration struct {
+	Fields []connectorManifestField `json:"fields"`
+}
+
+func (auth connectorManifestAuth) isMultipleSelection() bool {
+	return auth.Selection == connectorAuthSelectionMultiple
+}
+
+// selectedMethods returns the methods a connection write selects, in request order, or an
+// error when the selection is empty, repeated, undeclared, or uses the other selection field.
+func (auth connectorManifestAuth) selectedMethods(methodID string, methodIDs []string) ([]connectorManifestAuthMethod, error) {
+	if !auth.isMultipleSelection() {
+		if len(methodIDs) != 0 {
+			return nil, fmt.Errorf("authMethodIds requires multiple authentication method selection")
+		}
+		method, found := auth.method(methodID)
+		if !found {
+			return nil, fmt.Errorf("authentication method %q is not declared", methodID)
+		}
+		return []connectorManifestAuthMethod{method}, nil
+	}
+	if methodID != "" || len(methodIDs) == 0 {
+		return nil, fmt.Errorf("multiple authentication method selection requires a non-empty authMethodIds")
+	}
+	selected := make([]connectorManifestAuthMethod, 0, len(methodIDs))
+	seen := make(map[string]bool, len(methodIDs))
+	for _, candidateID := range methodIDs {
+		method, found := auth.method(candidateID)
+		if candidateID == "" || !found || seen[candidateID] {
+			return nil, fmt.Errorf("authentication method %q is empty, undeclared, or repeated", candidateID)
+		}
+		seen[candidateID] = true
+		selected = append(selected, method)
+	}
+	return selected, nil
 }
 
 func (auth connectorManifestAuth) method(methodID string) (connectorManifestAuthMethod, bool) {
@@ -139,6 +181,13 @@ func (auth connectorManifestAuth) supportsOAuth2() bool {
 	return false
 }
 
+func (method connectorManifestAuthMethod) configurationFields() []connectorManifestField {
+	if method.Configuration == nil {
+		return nil
+	}
+	return method.Configuration.Fields
+}
+
 type connectorAuthorizationGuide struct {
 	StartURL string   `json:"startURL"`
 	Steps    []string `json:"steps"`
@@ -151,12 +200,18 @@ type connectorManifestStudio struct {
 }
 
 type connectorManifestField struct {
-	Name        string   `json:"name"`
-	Type        string   `json:"type"`
-	Description string   `json:"description"`
-	Required    bool     `json:"required"`
-	Default     any      `json:"default,omitempty"`
-	Enum        []string `json:"enum,omitempty"`
+	Name        string                            `json:"name"`
+	Type        string                            `json:"type"`
+	Description string                            `json:"description"`
+	Required    bool                              `json:"required"`
+	Default     any                               `json:"default,omitempty"`
+	Enum        []string                          `json:"enum,omitempty"`
+	StudioUnit  *connectorManifestFieldStudioUnit `json:"studioUnit,omitempty"`
+}
+
+type connectorManifestFieldStudioUnit struct {
+	Unit string `json:"unit"`
+	Port string `json:"port"`
 }
 
 type connectorManifestOAuth2 struct {

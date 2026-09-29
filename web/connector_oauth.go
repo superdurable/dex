@@ -328,7 +328,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		ConnectionName: session.identity.ConnectionName, Configuration: session.configuration,
 		Credentials: credentials, CredentialExpiresAt: expiresAt,
 	}
-	if err := setup.store.put(connection); err != nil {
+	if err := setup.store.put(connection, nil); err != nil {
 		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
 		return
 	}
@@ -458,7 +458,10 @@ func validateManifestValueMaps(manifest connectorReleaseManifest, authMethod con
 	if request.CredentialSecrets == nil {
 		request.CredentialSecrets = map[string]string{}
 	}
-	if err := validateConnectorFieldValues(manifest.Spec.Configuration.Fields, request.Configuration, nil, nil); err != nil {
+	configurationFields := connectorConfigurationFieldsForMethods(
+		manifest.Spec.Configuration.Fields, []connectorManifestAuthMethod{authMethod},
+	)
+	if err := validateConnectorFieldValues(configurationFields, request.Configuration, nil, nil); err != nil {
 		return err
 	}
 	mappedCredentials := make(map[string]bool)
@@ -546,10 +549,12 @@ func connectorOAuthResponsePath(response map[string]any, path string) (any, bool
 	return current, true
 }
 
+// keptFieldNames satisfy a required field without a request value; the store copies them.
 func validateRawConnectorFields(
 	fields []connectorManifestField,
 	values map[string]json.RawMessage,
 	allowSecrets bool,
+	keptFieldNames map[string]bool,
 ) error {
 	if values == nil {
 		values = map[string]json.RawMessage{}
@@ -576,7 +581,7 @@ func validateRawConnectorFields(
 		}
 	}
 	for _, field := range fields {
-		if field.Required && field.Default == nil && len(values[field.Name]) == 0 {
+		if field.Required && field.Default == nil && len(values[field.Name]) == 0 && !keptFieldNames[field.Name] {
 			return fmt.Errorf("required field %q is missing", field.Name)
 		}
 	}

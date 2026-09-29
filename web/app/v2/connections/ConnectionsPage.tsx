@@ -41,6 +41,7 @@ interface TriggerUse { flowName: string; triggerName: string; bindingName: strin
 interface ConnectionView {
   connectorId: string;
   authMethodId?: string;
+  authMethodIds?: string[];
   connectionName: string;
   modulePath?: string;
   moduleVersion?: string;
@@ -48,6 +49,7 @@ interface ConnectionView {
   provider?: string;
   status: ConnectionStatus;
   configuration?: Record<string, unknown>;
+  storedCredentialFields?: string[];
   credentialExpiresAt?: string;
   credentialStatus?: string;
   uses: ConnectionUse[];
@@ -76,6 +78,7 @@ interface ManifestField {
   required: boolean;
   default?: unknown;
   enum?: string[];
+  studioUnit?: { unit: string; port: string };
 }
 
 interface ManifestAuthMethod {
@@ -85,6 +88,7 @@ interface ManifestAuthMethod {
   recommended?: boolean;
   type: string;
   fields: ManifestField[];
+  configuration?: { fields: ManifestField[] };
   guide?: { startURL: string; steps: string[] };
   oauth2?: {
     scopes: string[];
@@ -114,6 +118,8 @@ interface ReleaseManifest {
         credentialDerivations?: { credential: string; endpoint: string; source: string; verifiedBy?: string }[];
       };
       defaultMethod?: string;
+      selection?: 'single' | 'multiple';
+      methodLabel?: string;
       methods?: ManifestAuthMethod[];
     };
     studio?: {
@@ -133,7 +139,12 @@ interface UISessionResponse {
   manifest: ReleaseManifest;
 }
 
-type StudioTarget = {kind: 'connection'} | {
+type StudioTarget = {
+  kind: 'connection';
+  unitId?: string;
+  bindings?: ConnectorUIBinding[];
+  value?: Record<string, unknown>;
+} | {
   kind: 'configurationUnit';
   scope: {kind: 'operation'; operationId: string; flowType: string; stepType: string} | {kind: 'trigger'; triggerName: string; bindingName: string; flowType: string};
   instanceId: string;
@@ -370,8 +381,8 @@ function ConnectorSetupPanel({activeTab, catalog, connection, session, setupTabs
   return <div aria-labelledby={`connector-setup-tab-${activeTab.key}`} className="connector-setup-panel" id="connector-setup-panel" role="tabpanel">
     {activeTab.kind === 'authorize'
       ? <AuthorizationPanel
-        catalog={catalog} connection={connection} session={session}
-        onConfigured={completeAuthorization} onError={onError}
+        catalog={catalog} connection={connection} key={connectionKey(connection)} session={session}
+        onConfigured={completeAuthorization} onError={onError} onReload={onConfigured}
       />
       : <ConnectorUsePanel
         catalog={catalog} connection={connection} onConfigured={onConfigured} onError={onError}
@@ -380,24 +391,45 @@ function ConnectorSetupPanel({activeTab, catalog, connection, session, setupTabs
   </div>;
 }
 
-function AuthorizationPanel({catalog, connection, session, onConfigured, onError}: {
+function AuthorizationPanel({catalog, connection, session, onConfigured, onError, onReload}: {
   catalog: ConnectionsResponse;
   connection: ConnectionView;
   session: UISessionResponse;
   onConfigured: () => Promise<void>;
   onError: (message: string) => void;
+  onReload: () => Promise<void>;
 }) {
-  const [reauthorizing, setReauthorizing] = useState(false);
-  if (connection.status === 'Ready' && !reauthorizing) {
-    return <div className="connector-authorization-complete">
-      <span aria-hidden="true" className="connector-authorization-check">✓</span>
-      <div><h3>Authorization complete</h3><p>This connection is ready. Continue with each Flow operation and trigger.</p></div>
-      <button className="connector-secondary-action" onClick={() => setReauthorizing(true)} type="button">Reauthorize</button>
+  const [editing, setEditing] = useState(false);
+  const manifest = session.manifest;
+  const isOAuthConnection = !isMultipleAuthMethodSelection(manifest)
+    && selectedManifestAuth(manifest.spec.auth, connection.authMethodId ?? '').type === 'oauth2';
+  if (connection.status === 'Ready' && !editing) {
+    const studioFields = manifest.spec.configuration.fields.filter((field) => isStudioConnectionField(field, session));
+    return <div className="connector-authorization-summary">
+      <div className="connector-authorization-complete">
+        <span aria-hidden="true" className="connector-authorization-check">✓</span>
+        <div><h3>Authorization complete</h3><p>This connection is ready. Continue with each Flow operation and trigger.</p></div>
+        <button className="connector-secondary-action" onClick={() => setEditing(true)} type="button">
+          {isOAuthConnection ? 'Reauthorize' : 'Edit connection'}
+        </button>
+      </div>
+      {studioFields.length > 0 && <section aria-label="Connection settings" className="connector-connection-settings">
+        <h4>Connection settings</h4>
+        {studioFields.map((field) => <ConnectionStudioField
+          catalog={catalog} connection={connection} field={field} key={field.name}
+          onConfigured={onReload} onError={onError} session={session}
+        />)}
+      </section>}
     </div>;
   }
   return <ConnectorForm
     catalog={catalog} connection={connection} session={session}
-    onConfigured={onConfigured} onError={onError}
+    onCancel={connection.status === 'Ready' ? () => setEditing(false) : undefined}
+    onConfigured={async () => {
+      await onConfigured();
+      setEditing(false);
+    }}
+    onError={onError} onReload={onReload}
   />;
 }
 
@@ -474,39 +506,63 @@ function configurationUnitTarget(
   };
 }
 
-export function ConnectorForm({ catalog, connection, session, onConfigured, onError }: {
+type ManifestFormFieldEntry = {field: ManifestField; prefix: 'configuration' | 'credential'};
+
+export function ConnectorForm({ catalog, connection, session, onConfigured, onError, onReload = onConfigured, onCancel }: {
   catalog: ConnectionsResponse;
   connection: ConnectionView;
   session: UISessionResponse;
   onConfigured: () => Promise<void>;
   onError: (message: string) => void;
+  onReload?: () => Promise<void>;
+  onCancel?: () => void;
 }) {
   const manifest = session.manifest;
-  const [values, setValues] = useState<Record<string, string>>({});
+  const isMultiple = isMultipleAuthMethodSelection(manifest);
+  const [values, setValues] = useState<Record<string, string>>(() => connectionFormInitialValues(manifest, connection));
   const [submitting, setSubmitting] = useState(false);
-  const [authMethodId, setAuthMethodId] = useState(connection.authMethodId || manifest.spec.auth.defaultMethod || '');
+  const [authMethodId, setAuthMethodId] = useState(
+    connection.authMethodId || manifest.spec.auth.defaultMethod || manifest.spec.auth.methods?.[0]?.id || '',
+  );
+  const [authMethodIds, setAuthMethodIds] = useState(() => initialConnectionAuthMethodIds(manifest, connection));
   const auth = selectedManifestAuth(manifest.spec.auth, authMethodId);
-  const oauth = auth.type === 'oauth2';
+  const oauth = !isMultiple && auth.type === 'oauth2';
+  const storedCredentialFields = new Set(oauth ? [] : connection.storedCredentialFields ?? []);
+  const storedValueFields = connectionStoredValueFieldNames(manifest, connection, session);
   const mappedCredentialNames = new Set([
     ...(auth.oauth2?.clientIDCredential ? [auth.oauth2.clientIDCredential] : []),
     ...(auth.oauth2?.clientSecretCredential ? [auth.oauth2.clientSecretCredential] : []),
     ...(auth.oauth2?.credentialMappings?.map((mapping) => mapping.credential) ?? ['access_token']),
     ...(auth.oauth2?.credentialDerivations?.map((derivation) => derivation.credential) ?? []),
   ]);
-  const visibleManifestFormFields = [
+  const visibleManifestFormFields: ManifestFormFieldEntry[] = [
     ...manifest.spec.configuration.fields.map((field) => ({field, prefix: 'configuration'} as const)),
-    ...auth.fields
-      .filter((field) => !oauth || !mappedCredentialNames.has(field.name))
-      .map((field) => ({field, prefix: 'credential'} as const)),
+    ...(isMultiple ? [] : [
+      ...methodConfigurationFields(auth).map((field) => ({field, prefix: 'configuration'} as const)),
+      ...auth.fields
+        .filter((field) => !oauth || !mappedCredentialNames.has(field.name))
+        .map((field) => ({field, prefix: 'credential'} as const)),
+    ]),
   ];
   const requiredManifestFormFields = visibleManifestFormFields.filter(({field}) => isManifestFieldInputRequired(field));
   const optionalManifestFormFields = visibleManifestFormFields.filter(({field}) => !isManifestFieldInputRequired(field));
+  const renderFormField = ({field, prefix}: ManifestFormFieldEntry) => prefix === 'configuration'
+    ? <ConnectionConfigurationField
+      catalog={catalog} connection={connection} field={field} key={`${prefix}:${field.name}`}
+      onConfigured={onReload} onError={onError} session={session} setValues={setValues} values={values}
+    />
+    : <ManifestFormField
+      field={field} key={`${prefix}:${field.name}`} prefix={prefix}
+      stored={storedCredentialFields.has(field.name)} setValues={setValues} values={values}
+    />;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setSubmitting(true);
     try {
-      const configuration = fieldValues(manifest.spec.configuration.fields, values, 'configuration');
       if (oauth) {
+        const configuration = connectionConfigurationValues(
+          manifest, [auth], values, connection.configuration ?? {}, storedValueFields,
+        );
         const credentialValues = fieldValues(
           auth.fields.filter((field) => field.type !== 'secretString'), values, 'credential',
         );
@@ -525,10 +581,12 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
       }
       const response = await dexFetch(connectionURL(connection), {
         method: 'PUT', headers: connectorWriteHeaders(catalog),
-        body: JSON.stringify(connectionWriteRequestBody(connection, manifest, authMethodId, values)),
+        body: JSON.stringify(connectionWriteRequestBody(
+          connection, manifest, isMultiple ? authMethodIds : [authMethodId], values, storedValueFields,
+        )),
       });
       await readResponseJSON(response);
-      setValues({});
+      setValues(configurationFormValues);
       await onConfigured();
     } catch (submitError) {
       onError(errorMessage(submitError));
@@ -536,10 +594,11 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
       setSubmitting(false);
     }
   };
+  const authMethodLabels = connectorAuthMethodLabels(manifest.spec.auth.methodLabel);
   return <form className="connector-form" id="connector-host-form" onSubmit={(event) => void submit(event)}>
     <h3>{manifest.metadata.displayName || connection.connectorId} setup</h3>
     <p>{manifest.metadata.description}</p>
-    {(manifest.spec.auth.methods?.length ?? 0) > 1 && <fieldset className="connector-auth-methods">
+    {!isMultiple && (manifest.spec.auth.methods?.length ?? 0) > 1 && <fieldset className="connector-auth-methods">
       <legend>Authentication method</legend>
       {manifest.spec.auth.methods?.map((method) => <label key={method.id}>
         <input
@@ -547,7 +606,7 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
           name="connector-auth-method"
           onChange={() => {
             setAuthMethodId(method.id);
-            setValues({});
+            setValues(configurationFormValues);
           }}
           type="radio"
           value={method.id}
@@ -555,11 +614,34 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
         <span><b>{method.displayName}</b>{method.recommended && <em>Recommended</em>}<small>{method.description}</small></span>
       </label>)}
     </fieldset>}
-    {auth.guide && <section className="connector-authorization-guide">
-      <h4>Authorization guide</h4>
-      <p>Start at <a href={auth.guide.startURL} rel="noreferrer" target="_blank">{auth.guide.startURL}</a></p>
-      <ol>{auth.guide.steps.map((step, index) => <li key={`${index}:${step}`}>{linkifiedDescription(step)}</li>)}</ol>
-      {oauth && session.oauthRedirectUri && <div className="connector-redirect-uri"><span>Redirect URI</span><CopyValue value={session.oauthRedirectUri} /></div>}
+    {!isMultiple && auth.guide && <AuthorizationGuide guide={auth.guide} redirectURI={oauth ? session.oauthRedirectUri : undefined} />}
+    {isMultiple && <section aria-label={authMethodLabels.plural} className="connector-auth-method-cards">
+      <div className="connector-auth-method-cards-header">
+        <h4>{authMethodLabels.plural}</h4>
+        <AddAuthMethodMenu
+          label={authMethodLabels.add}
+          methods={addableAuthMethods(manifest, authMethodIds)}
+          onAdd={(methodId) => setAuthMethodIds((current) => addConnectionAuthMethod(current, methodId))}
+        />
+      </div>
+      {authMethodIds.length === 0 && <p className="connections-note">{authMethodLabels.empty}</p>}
+      {selectedManifestAuthMethods(manifest, authMethodIds).map((method) => <article className="connector-auth-method-card" key={method.id}>
+        <header>
+          <span><b>{method.displayName}</b><small>{method.description}</small></span>
+          <button
+            aria-label={`Remove ${method.displayName}`}
+            className="connector-secondary-action"
+            onClick={() => {
+              setAuthMethodIds((current) => removeConnectionAuthMethod(current, method.id));
+              setValues((current) => withoutCredentialFormValues(current, method.fields));
+            }}
+            type="button"
+          >Remove</button>
+        </header>
+        {method.guide && <AuthorizationGuide guide={method.guide} />}
+        {method.fields.map((field) => renderFormField({field, prefix: 'credential'}))}
+        {methodConfigurationFields(method).map((field) => renderFormField({field, prefix: 'configuration'}))}
+      </article>)}
     </section>}
     {(oauth || requiredManifestFormFields.length > 0) && <fieldset className="connector-field-group connector-field-group-required">
       <legend>Required</legend>
@@ -568,33 +650,278 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
         <FormField label="OAuth client secret" name="clientSecret" required secret description="Copy the matching client secret from the provider application. This write-only value is stored with the connection so access tokens can refresh." values={values} setValues={setValues} />
         <p className="connections-note">Client credentials are stored as write-only credential material so access tokens can refresh. They are never returned to this page.</p>
       </>}
-      {requiredManifestFormFields.map(({field, prefix}) => <ManifestFormField key={`${prefix}:${field.name}`} field={field} prefix={prefix} values={values} setValues={setValues} />)}
+      {requiredManifestFormFields.map(renderFormField)}
     </fieldset>}
     {optionalManifestFormFields.length > 0 && <fieldset className="connector-field-group connector-field-group-optional">
       <legend>Optional settings ({optionalManifestFormFields.length})</legend>
-      {optionalManifestFormFields.map(({field, prefix}) => <ManifestFormField key={`${prefix}:${field.name}`} field={field} prefix={prefix} values={values} setValues={setValues} />)}
+      {optionalManifestFormFields.map(renderFormField)}
     </fieldset>}
     {oauth && <p className="connections-scopes">Requested bot scopes: {auth.oauth2?.scopes.join(', ')}{auth.oauth2?.userScopes?.length ? `; user scopes: ${auth.oauth2.userScopes.join(', ')}` : ''}</p>}
-    <button className="v2-primary" disabled={submitting} type="submit">{oauth ? 'Authorize' : catalog.mode === 'hosted' ? 'Save credentials' : 'Save local credentials'}</button>
+    <div className="connector-form-actions">
+      <button className="v2-primary" disabled={submitting || (isMultiple && authMethodIds.length === 0)} type="submit">{oauth ? 'Authorize' : catalog.mode === 'hosted' ? 'Save credentials' : 'Save local credentials'}</button>
+      {onCancel && <button className="connector-secondary-action" onClick={onCancel} type="button">Cancel</button>}
+    </div>
   </form>;
 }
 
-// The server stamps the selected method into the stored credentials.
+function AuthorizationGuide({guide, redirectURI}: {guide: {startURL: string; steps: string[]}; redirectURI?: string}) {
+  return <section className="connector-authorization-guide">
+    <h4>Authorization guide</h4>
+    <p>Start at <a href={guide.startURL} rel="noreferrer" target="_blank">{guide.startURL}</a></p>
+    <ol>{guide.steps.map((step, index) => <li key={`${index}:${step}`}>{linkifiedDescription(step)}</li>)}</ol>
+    {redirectURI && <div className="connector-redirect-uri"><span>Redirect URI</span><CopyValue value={redirectURI} /></div>}
+  </section>;
+}
+
+function AddAuthMethodMenu({label, methods, onAdd}: {
+  label: string;
+  methods: ManifestAuthMethod[];
+  onAdd: (methodId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (methods.length === 0) return null;
+  return <div className="connector-add-auth-method">
+    <button aria-expanded={open} aria-haspopup="menu" className="connector-secondary-action" onClick={() => setOpen((current) => !current)} type="button">
+      {label}
+    </button>
+    {open && <div aria-label={label} className="connector-add-auth-method-menu" role="menu">
+      {methods.map((method) => <button
+        key={method.id}
+        onClick={() => {
+          onAdd(method.id);
+          setOpen(false);
+        }}
+        role="menuitem"
+        type="button"
+      >
+        <b>{method.displayName}</b><small>{method.description}</small>
+      </button>)}
+    </div>}
+  </div>;
+}
+
+function ConnectionConfigurationField({catalog, connection, field, session, values, setValues, onConfigured, onError}: {
+  catalog: ConnectionsResponse;
+  connection: ConnectionView;
+  field: ManifestField;
+  session: UISessionResponse;
+  values: Record<string, string>;
+  setValues: (next: Record<string, string>) => void;
+  onConfigured: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const presentation = connectionFieldPresentation(field, connection, session);
+  if (presentation === 'studioFrame') {
+    return <ConnectionStudioField
+      catalog={catalog} connection={connection} field={field}
+      onConfigured={onConfigured} onError={onError} session={session}
+    />;
+  }
+  if (presentation === 'studioNote') {
+    return <div className="connector-studio-field">
+      <span>{field.name}</span>
+      <p className="connector-studio-field-note">Save the connection to choose <code>{field.name}</code>.</p>
+      {field.description && <small>{linkifiedDescription(field.description)}</small>}
+    </div>;
+  }
+  return <ManifestFormField field={field} prefix="configuration" setValues={setValues} values={values} />;
+}
+
+function ConnectionStudioField({catalog, connection, field, session, onConfigured, onError}: {
+  catalog: ConnectionsResponse;
+  connection: ConnectionView;
+  field: ManifestField;
+  session: UISessionResponse;
+  onConfigured: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  return <div className="connector-studio-field">
+    <span>{field.name}{isManifestFieldInputRequired(field) ? ' *' : ''}</span>
+    {field.description && <small>{linkifiedDescription(field.description)}</small>}
+    <StudioFrame
+      catalog={catalog} connection={connection} configuration={connection.configuration ?? {}}
+      onConfigured={onConfigured} onError={onError} session={session}
+      target={connectionFieldStudioTarget(field, connection)}
+    />
+  </div>;
+}
+
+export function isMultipleAuthMethodSelection(manifest: ReleaseManifest): boolean {
+  return manifest.spec.auth.selection === 'multiple';
+}
+
+export function isStudioConnectionField(field: ManifestField, session: UISessionResponse): boolean {
+  const studioUnit = field.studioUnit;
+  return studioUnit !== undefined && Boolean(session.entrypointUrl)
+    && (session.manifest.spec.studio?.units ?? []).some((unit) => unit.id === studioUnit.unit);
+}
+
+// A required field without a default stays a plain input so the first save can succeed.
+export function connectionFieldPresentation(
+  field: ManifestField,
+  connection: ConnectionView,
+  session: UISessionResponse,
+): 'studioFrame' | 'studioNote' | 'input' {
+  if (!isStudioConnectionField(field, session)) return 'input';
+  if (connection.status === 'Ready') return 'studioFrame';
+  return isManifestFieldInputRequired(field) ? 'input' : 'studioNote';
+}
+
+function connectionStoredValueFieldNames(
+  manifest: ReleaseManifest,
+  connection: ConnectionView,
+  session: UISessionResponse,
+): ReadonlySet<string> {
+  return new Set(manifest.spec.configuration.fields
+    .filter((field) => connectionFieldPresentation(field, connection, session) !== 'input')
+    .map((field) => field.name));
+}
+
+export function connectionFieldStudioTarget(field: ManifestField, connection: ConnectionView): StudioTarget {
+  const storedValue = connection.configuration?.[field.name];
+  return {
+    kind: 'connection',
+    unitId: field.studioUnit?.unit,
+    bindings: [{port: field.studioUnit?.port ?? field.name, jsonPointer: `/${jsonPointerSegment(field.name)}`}],
+    value: storedValue === undefined ? {} : {[field.name]: storedValue},
+  };
+}
+
+export function connectorAuthMethodLabels(methodLabel?: string) {
+  const label = methodLabel?.trim() || 'Authentication method';
+  const inlineLabel = label.length > 1 && label[1] === label[1].toUpperCase() && label[1] !== label[1].toLowerCase()
+    ? label
+    : label[0].toLowerCase() + label.slice(1);
+  return {plural: `${label}s`, add: `Add ${inlineLabel}`, empty: `Add at least one ${inlineLabel} to save this connection.`};
+}
+
+export function initialConnectionAuthMethodIds(manifest: ReleaseManifest, connection: ConnectionView): string[] {
+  const declared = new Set((manifest.spec.auth.methods ?? []).map((method) => method.id));
+  const stored = (connection.authMethodIds ?? []).filter((methodId) => declared.has(methodId));
+  if (stored.length > 0) return stored;
+  const defaultMethod = manifest.spec.auth.defaultMethod;
+  return defaultMethod && declared.has(defaultMethod) ? [defaultMethod] : [];
+}
+
+export function addConnectionAuthMethod(authMethodIds: string[], methodId: string): string[] {
+  return authMethodIds.includes(methodId) ? authMethodIds : [...authMethodIds, methodId];
+}
+
+export function removeConnectionAuthMethod(authMethodIds: string[], methodId: string): string[] {
+  return authMethodIds.filter((candidate) => candidate !== methodId);
+}
+
+export function addableAuthMethods(manifest: ReleaseManifest, authMethodIds: string[]): ManifestAuthMethod[] {
+  return (manifest.spec.auth.methods ?? []).filter((method) => !authMethodIds.includes(method.id));
+}
+
+function selectedManifestAuthMethods(manifest: ReleaseManifest, authMethodIds: string[]): ManifestAuthMethod[] {
+  return authMethodIds.flatMap((methodId) => manifest.spec.auth.methods?.find((method) => method.id === methodId) ?? []);
+}
+
+function methodConfigurationFields(method: ManifestAuthMethod): ManifestField[] {
+  return method.configuration?.fields ?? [];
+}
+
+function configurationFormValues(values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(values).filter(([name]) => name.startsWith('configuration:')));
+}
+
+function withoutCredentialFormValues(values: Record<string, string>, fields: ManifestField[]): Record<string, string> {
+  const removed = new Set(fields.map((field) => `credential:${field.name}`));
+  return Object.fromEntries(Object.entries(values).filter(([name]) => !removed.has(name)));
+}
+
+export function connectionFormInitialValues(manifest: ReleaseManifest, connection: ConnectionView): Record<string, string> {
+  const configuration = connection.configuration ?? {};
+  const fields = [
+    ...manifest.spec.configuration.fields,
+    ...(manifest.spec.auth.methods ?? []).flatMap(methodConfigurationFields),
+  ];
+  return Object.fromEntries(fields
+    .filter((field) => configuration[field.name] !== undefined)
+    .map((field) => [`configuration:${field.name}`, formFieldText(configuration[field.name])]));
+}
+
+// The server stamps the selected methods into the stored credentials; blank stored credentials are kept.
 export function connectionWriteRequestBody(
   connection: ConnectionView,
   manifest: ReleaseManifest,
-  authMethodId: string,
+  authMethodIds: string[],
   values: Record<string, string>,
+  storedValueFieldNames: ReadonlySet<string> = new Set(),
 ) {
+  const isMultiple = isMultipleAuthMethodSelection(manifest);
+  const methods = isMultiple
+    ? selectedManifestAuthMethods(manifest, authMethodIds)
+    : [selectedManifestAuth(manifest.spec.auth, authMethodIds[0] ?? '')];
+  const storedCredentialFields = new Set(connection.storedCredentialFields ?? []);
+  const credentials: Record<string, string> = {};
+  const keepCredentialFields: string[] = [];
+  for (const name of new Set(methods.flatMap((method) => method.fields.map((field) => field.name)))) {
+    const value = values[`credential:${name}`] ?? '';
+    if (value !== '') credentials[name] = value;
+    else if (storedCredentialFields.has(name)) keepCredentialFields.push(name);
+  }
   return {
     modulePath: connection.modulePath,
     moduleVersion: connection.moduleVersion,
     provider: manifest.spec.provider,
-    authMethodId,
-    configuration: fieldValues(manifest.spec.configuration.fields, values, 'configuration'),
-    credentials: fieldValues(selectedManifestAuth(manifest.spec.auth, authMethodId).fields, values, 'credential'),
+    ...(isMultiple ? {authMethodIds: methods.map((method) => method.id)} : {authMethodId: authMethodIds[0] ?? ''}),
+    configuration: connectionConfigurationValues(manifest, methods, values, connection.configuration ?? {}, storedValueFieldNames),
+    credentials,
+    keepCredentialFields,
     credentialExpiresAt: null,
   };
+}
+
+// A connection-field Studio unit saves one configuration field and keeps every stored credential.
+export function connectionConfigurationSaveRequestBody(
+  connection: ConnectionView,
+  manifest: ReleaseManifest,
+  configuration: Record<string, unknown>,
+) {
+  const isMultiple = isMultipleAuthMethodSelection(manifest);
+  const methods = isMultiple
+    ? selectedManifestAuthMethods(manifest, connection.authMethodIds ?? [])
+    : [selectedManifestAuth(manifest.spec.auth, connection.authMethodId ?? '')];
+  const declaredCredentialFields = new Set(methods.flatMap((method) => method.fields.map((field) => field.name)));
+  return {
+    modulePath: connection.modulePath,
+    moduleVersion: connection.moduleVersion,
+    provider: manifest.spec.provider,
+    ...(isMultiple ? {authMethodIds: methods.map((method) => method.id)} : {authMethodId: connection.authMethodId ?? ''}),
+    configuration,
+    credentials: {},
+    keepCredentialFields: (connection.storedCredentialFields ?? []).filter((name) => declaredCredentialFields.has(name)),
+    credentialExpiresAt: connection.credentialExpiresAt ?? null,
+  };
+}
+
+// Unchanged prefilled text sends the stored JSON value, so non-string values keep their type.
+function connectionConfigurationValues(
+  manifest: ReleaseManifest,
+  methods: ManifestAuthMethod[],
+  values: Record<string, string>,
+  storedConfiguration: Record<string, unknown>,
+  storedValueFieldNames: ReadonlySet<string>,
+): Record<string, unknown> {
+  const configuration: Record<string, unknown> = {};
+  for (const field of [...manifest.spec.configuration.fields, ...methods.flatMap(methodConfigurationFields)]) {
+    const storedValue = storedConfiguration[field.name];
+    if (storedValueFieldNames.has(field.name)) {
+      if (storedValue !== undefined) configuration[field.name] = storedValue;
+      continue;
+    }
+    const text = values[`configuration:${field.name}`] ?? '';
+    if (text === '') continue;
+    configuration[field.name] = storedValue !== undefined && text === formFieldText(storedValue) ? storedValue : text;
+  }
+  return configuration;
+}
+
+function formFieldText(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value) ?? '';
 }
 
 export function selectedManifestAuth(auth: ReleaseManifest['spec']['auth'], methodId: string): ManifestAuthMethod {
@@ -609,16 +936,20 @@ export function selectedManifestAuth(auth: ReleaseManifest['spec']['auth'], meth
     ?? auth.methods[0];
 }
 
-function ManifestFormField({ field, prefix, values, setValues }: {
+export const storedCredentialPlaceholder = 'Stored - leave blank to keep';
+
+function ManifestFormField({ field, prefix, stored = false, values, setValues }: {
   field: ManifestField;
   prefix: string;
+  stored?: boolean;
   values: Record<string, string>;
   setValues: (next: Record<string, string>) => void;
 }) {
   return <FormField
     label={field.name}
     name={`${prefix}:${field.name}`}
-    required={field.required && field.default === undefined}
+    placeholder={stored ? storedCredentialPlaceholder : undefined}
+    required={!stored && isManifestFieldInputRequired(field)}
     secret={field.type === 'secretString'}
     description={field.description}
     defaultText={manifestFieldDefaultText(field)}
@@ -631,10 +962,11 @@ function isManifestFieldInputRequired(field: ManifestField): boolean {
   return field.required && field.default === undefined;
 }
 
-function FormField({ inputId, label, name, required, secret, description, defaultText, values, setValues }: {
+function FormField({ inputId, label, name, placeholder, required, secret, description, defaultText, values, setValues }: {
   inputId?: string;
   label: string;
   name: string;
+  placeholder?: string;
   required: boolean;
   secret: boolean;
   description?: string;
@@ -646,6 +978,7 @@ function FormField({ inputId, label, name, required, secret, description, defaul
     <input
       autoComplete="off"
       id={inputId}
+      placeholder={placeholder}
       required={required}
       type={secret ? 'password' : 'text'}
       value={values[name] ?? ''}
@@ -745,12 +1078,13 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
     stylesheet: connectorStudioStylesheet,
   }), '*');
   const sendReadyAfterStudioMount = () => window.setTimeout(sendHostReady, 100);
+  const frameLabel = `${connection.connectorId} Connector ${studioTargetLabel(target)}`;
   return <div
-    aria-label={expanded ? `${connection.connectorId} Connector ${target.kind === 'connection' ? 'setup' : target.label}` : undefined}
+    aria-label={expanded ? frameLabel : undefined}
     aria-modal={expanded || undefined}
     className="connector-studio-shell"
     data-expanded={expanded}
-    data-surface={target.kind}
+    data-surface={target.kind === 'connection' && target.unitId !== undefined ? 'connectionField' : target.kind}
     role={expanded ? 'dialog' : undefined}
   >
     <div className="connector-studio-toolbar">
@@ -769,9 +1103,15 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
         colorScheme: connectorStudioFrameTheme,
         ...(expanded || frameHeight === undefined ? {} : {height: `${frameHeight}px`}),
       }}
-      title={`${connection.connectorId} Connector ${target.kind === 'connection' ? 'setup' : target.label}`}
+      title={frameLabel}
     />
   </div>;
+}
+
+function studioTargetLabel(target: StudioTarget): string {
+  if (target.kind === 'configurationUnit') return target.label;
+  const boundField = target.bindings?.[0]?.jsonPointer.slice(1);
+  return boundField ? `${boundField} setting` : 'setup';
 }
 
 export function connectorHostReadyMessage(
@@ -787,12 +1127,19 @@ export function connectorHostReadyMessage(
     connection: {
       state: studioState(connection.status), grantedScopes: [],
       detail: connection.status,
+      authMethodIds: connectionAuthMethodIds(connection),
+      configuration: connection.configuration ?? {},
     },
     target,
     theme: appearance.theme,
     themeTokens: appearance.themeTokens,
     stylesheet: appearance.stylesheet,
   };
+}
+
+export function connectionAuthMethodIds(connection: ConnectionView): string[] {
+  if (connection.authMethodIds?.length) return [...connection.authMethodIds];
+  return connection.authMethodId ? [connection.authMethodId] : [];
 }
 
 type StudioCommand = 'oauth.connect' | 'oauth.reconnect' | 'provider.command.execute' | 'use.configuration.save';
@@ -876,7 +1223,7 @@ async function executeStudioCommand(
   } else if (command === 'use.configuration.save' && targetScope.kind === 'configurationUnit') {
     const value = recordInput(input, 'value');
     const unit = targetScope;
-    const nextConfiguration = mergeUnitValue(configuration, unit, value);
+    const nextConfiguration = mergeUnitValue(configuration, unit.bindings, value);
     if (unit.scope.kind === 'trigger') {
       target = `/api/v2/connector-trigger-bindings/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}/${encodeURIComponent(unit.scope.triggerName)}/${encodeURIComponent(unit.scope.bindingName)}`;
     } else {
@@ -884,6 +1231,10 @@ async function executeStudioCommand(
     }
     method = 'PUT';
     body = JSON.stringify({ configuration: nextConfiguration });
+  } else if (command === 'use.configuration.save' && targetScope.kind === 'connection' && targetScope.unitId !== undefined) {
+    const nextConfiguration = mergeUnitValue(connection.configuration ?? {}, targetScope.bindings ?? [], recordInput(input, 'value'));
+    method = 'PUT';
+    body = JSON.stringify(connectionConfigurationSaveRequestBody(connection, session.manifest, nextConfiguration));
   } else {
     throw new Error('Connector command is not implemented');
   }
@@ -904,17 +1255,17 @@ function recordInput(input: Record<string, unknown> | undefined, name: string): 
   return value;
 }
 
-function mergeUnitValue(
+export function mergeUnitValue(
   configuration: Record<string, unknown>,
-  target: Extract<StudioTarget, {kind: 'configurationUnit'}>,
+  bindings: ConnectorUIBinding[],
   value: Record<string, unknown>,
 ): Record<string, unknown> {
   const next = JSON.parse(JSON.stringify(configuration)) as Record<string, unknown>;
-  const allowedPorts = new Set(target.bindings.map((binding) => binding.port));
+  const allowedPorts = new Set(bindings.map((binding) => binding.port));
   for (const port of Object.keys(value)) {
     if (!allowedPorts.has(port)) throw new Error(`Unit returned undeclared port ${port}`);
   }
-  for (const binding of target.bindings) {
+  for (const binding of bindings) {
     if (Object.hasOwn(value, binding.port)) setJSONPointerValue(next, binding.jsonPointer, value[binding.port]);
   }
   return next;
@@ -938,6 +1289,10 @@ function setJSONPointerValue(configuration: Record<string, unknown>, pointer: st
     current = current[segment] as Record<string, unknown>;
   }
   current[segments[segments.length - 1]] = value;
+}
+
+function jsonPointerSegment(name: string): string {
+  return name.replace(/~/g, '~0').replace(/\//g, '~1');
 }
 
 function jsonPointerSegments(pointer: string): string[] {

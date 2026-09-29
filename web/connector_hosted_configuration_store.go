@@ -42,9 +42,15 @@ type hostedConnectorConfigurationSnapshot struct {
 	ConfigurationRevision   string                           `json:"configurationRevision"`
 	ConfigurationState      string                           `json:"configurationState"`
 	ApplicationRevision     string                           `json:"applicationRevision,omitempty"`
-	Connections             []localConnectorConnection       `json:"connections"`
+	Connections             []storedConnectorConnection      `json:"connections"`
 	TriggerBindings         []localConnectorTriggerBinding   `json:"triggerBindings"`
 	OperationConfigurations []localConnectorUseConfiguration `json:"operationConfigurations"`
+}
+
+// The backend copies each kept credential value from its stored record and rejects missing ones as conflicts.
+type hostedConnectorConnectionWriteRequest struct {
+	localConnectorConnection
+	KeepCredentialFields []string `json:"keepCredentialFields,omitempty"`
 }
 
 type hostedConnectorConfigurationDeleteResponse struct {
@@ -129,7 +135,7 @@ func (store *hostedConnectorConfigurationStore) state() connectorConfigurationSt
 	}
 }
 
-func (store *hostedConnectorConfigurationStore) list() ([]localConnectorConnection, error) {
+func (store *hostedConnectorConfigurationStore) list() ([]storedConnectorConnection, error) {
 	snapshot, err := store.load()
 	if err != nil {
 		return nil, err
@@ -137,17 +143,17 @@ func (store *hostedConnectorConfigurationStore) list() ([]localConnectorConnecti
 	return snapshot.Connections, nil
 }
 
-func (store *hostedConnectorConfigurationStore) get(connectorID string, connectionName string) (localConnectorConnection, bool, error) {
+func (store *hostedConnectorConfigurationStore) get(connectorID string, connectionName string) (storedConnectorConnection, bool, error) {
 	snapshot, err := store.load()
 	if err != nil {
-		return localConnectorConnection{}, false, err
+		return storedConnectorConnection{}, false, err
 	}
 	for _, connection := range snapshot.Connections {
 		if connection.ConnectorID == connectorID && connection.ConnectionName == connectionName {
 			return connection, true, nil
 		}
 	}
-	return localConnectorConnection{}, false, nil
+	return storedConnectorConnection{}, false, nil
 }
 
 func (store *hostedConnectorConfigurationStore) listTriggerBindings(connectorID string, connectionName string) ([]localConnectorTriggerBinding, error) {
@@ -189,8 +195,10 @@ func (store *hostedConnectorConfigurationStore) putUseConfiguration(configuratio
 	}, configuration)
 }
 
-func (store *hostedConnectorConfigurationStore) put(connection localConnectorConnection) error {
-	return store.putResource([]string{"connections", connection.ConnectorID, connection.ConnectionName}, connection)
+func (store *hostedConnectorConfigurationStore) put(connection localConnectorConnection, keepCredentialFields []string) error {
+	return store.putResource([]string{"connections", connection.ConnectorID, connection.ConnectionName}, hostedConnectorConnectionWriteRequest{
+		localConnectorConnection: connection, KeepCredentialFields: keepCredentialFields,
+	})
 }
 
 func (store *hostedConnectorConfigurationStore) delete(connectorID string, connectionName string) (bool, error) {

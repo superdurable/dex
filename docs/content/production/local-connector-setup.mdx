@@ -68,6 +68,21 @@ below its field in parentheses. Leave the input blank to use that default;
 enter a value only when the field guidance explains why an override is useful.
 URLs in field guidance are clickable.
 
+Some Connectors hold several providers in one connection, such as an LLM
+Connector with OpenAI, Claude, and Gemini keys. Their form shows one card per
+added provider, with that provider's guide, key, and settings. Use **Add
+provider** to add another one and **Remove** to drop one. Saving after a
+removal deletes that provider's key and settings. A connection needs at least
+one provider.
+
+To change a **Ready** connection, choose **Edit connection**. Saved non-secret
+settings are prefilled. Saved keys are never shown again. Each saved key field
+reads **Stored - leave blank to keep**, and a blank field keeps the saved key.
+For an OAuth connection, choose **Reauthorize** instead.
+
+A Connector can render one connection setting, such as the default model, with
+its own picker. The picker appears after the connection is saved.
+
 OAuth always uses state and a ten-minute single-use session. Connectors use
 PKCE when their provider supports that authorization flow. The OAuth client ID
 and client secret remain in memory and are not written to disk. Dex stores the

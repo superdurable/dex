@@ -158,6 +158,254 @@ func TestConnectorConnectionsAPISavesNonOAuthMethodOfMultiMethodManifest(t *test
 	}
 }
 
+func TestConnectorConnectionsAPIStoresSeveralAuthMethodsKeepsAndDropsTheirFields(t *testing.T) {
+	setup, mux := connectorLLMTestSetup(t, t.TempDir())
+	recorder := putConnectorLLMTestConnection(t, setup, mux, `["anthropic","openai"]`,
+		`{"anthropicWorkspaceId":"ws_1"}`, `{"anthropic_api_key":"anthropic-secret","openai_api_key":"openai-secret"}`, `[]`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("put status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	stored := getConnectorTestConnection(t, setup, "llm", "default")
+	if stored.AuthMethodID != "" || !reflect.DeepEqual(stored.AuthMethodIDs, []string{"anthropic", "openai"}) {
+		t.Fatalf("stored auth methods = %q / %v", stored.AuthMethodID, stored.AuthMethodIDs)
+	}
+	assertConnectorTestCredentials(t, stored, map[string]any{
+		"auth_methods": []any{"anthropic", "openai"}, "anthropic_api_key": "anthropic-secret", "openai_api_key": "openai-secret",
+	})
+
+	listRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(listRecorder, httptest.NewRequest(http.MethodGet, "/api/v2/connector-connections", nil))
+	if strings.Contains(listRecorder.Body.String(), "-secret") {
+		t.Fatalf("credential leaked in connection list: %s", listRecorder.Body.String())
+	}
+	var list struct {
+		Connections []map[string]any `json:"connections"`
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &list); err != nil || len(list.Connections) != 1 {
+		t.Fatalf("list = %s, err = %v", listRecorder.Body.String(), err)
+	}
+	view := list.Connections[0]
+	if !reflect.DeepEqual(view["authMethodIds"], []any{"anthropic", "openai"}) ||
+		!reflect.DeepEqual(view["storedCredentialFields"], []any{"anthropic_api_key", "openai_api_key"}) ||
+		!reflect.DeepEqual(view["configuration"], map[string]any{"anthropicWorkspaceId": "ws_1"}) || view["authMethodId"] != nil {
+		t.Fatalf("connection view = %+v", view)
+	}
+
+	recorder = putConnectorLLMTestConnection(t, setup, mux, `["anthropic","openai"]`,
+		`{"anthropicWorkspaceId":"ws_1","model":"anthropic/claude-sonnet-5"}`, `{}`, `["anthropic_api_key","openai_api_key"]`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("keep status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	stored = getConnectorTestConnection(t, setup, "llm", "default")
+	assertConnectorTestCredentials(t, stored, map[string]any{
+		"auth_methods": []any{"anthropic", "openai"}, "anthropic_api_key": "anthropic-secret", "openai_api_key": "openai-secret",
+	})
+	if string(stored.Configuration["model"]) != `"anthropic/claude-sonnet-5"` {
+		t.Fatalf("stored configuration = %s", stored.Configuration)
+	}
+
+	recorder = putConnectorLLMTestConnection(t, setup, mux, `["openai","gemini"]`,
+		`{"model":"anthropic/claude-sonnet-5"}`, `{"gemini_api_key":"gemini-secret"}`, `["openai_api_key"]`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("remove status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	stored = getConnectorTestConnection(t, setup, "llm", "default")
+	assertConnectorTestCredentials(t, stored, map[string]any{
+		"auth_methods": []any{"openai", "gemini"}, "openai_api_key": "openai-secret", "gemini_api_key": "gemini-secret",
+	})
+	if _, found := stored.Configuration["anthropicWorkspaceId"]; found || !reflect.DeepEqual(stored.AuthMethodIDs, []string{"openai", "gemini"}) {
+		t.Fatalf("removed method fields remain: %+v", stored)
+	}
+}
+
+func TestConnectorConnectionsAPIRejectsInvalidAuthMethodSelectionsAndKeptFields(t *testing.T) {
+	setup, mux := connectorLLMTestSetup(t, t.TempDir())
+	recorder := putConnectorLLMTestConnection(t, setup, mux, `["anthropic","openai"]`,
+		`{"anthropicWorkspaceId":"ws_1"}`, `{"anthropic_api_key":"anthropic-secret","openai_api_key":"openai-secret"}`, `[]`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("baseline status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	for _, testCase := range []struct {
+		name          string
+		authMethodIDs string
+		configuration string
+		credentials   string
+		keep          string
+		code          string
+	}{
+		{"empty selection", `[]`, `{}`, `{}`, `[]`, "CONNECTOR_AUTH_METHOD_INVALID"},
+		{"repeated method", `["openai","openai"]`, `{}`, `{"openai_api_key":"k"}`, `[]`, "CONNECTOR_AUTH_METHOD_INVALID"},
+		{"undeclared method", `["mistral"]`, `{}`, `{}`, `[]`, "CONNECTOR_AUTH_METHOD_INVALID"},
+		{"selected method key missing", `["openai","gemini"]`, `{}`, `{"openai_api_key":"k"}`, `[]`, "CONNECTOR_REQUEST_INVALID"},
+		{"selected method configuration missing", `["anthropic"]`, `{}`, `{"anthropic_api_key":"k"}`, `[]`, "CONNECTOR_REQUEST_INVALID"},
+		{"unselected method configuration", `["openai"]`, `{"anthropicWorkspaceId":"ws_1"}`, `{"openai_api_key":"k"}`, `[]`, "CONNECTOR_REQUEST_INVALID"},
+		{"unselected method credential", `["openai"]`, `{}`, `{"openai_api_key":"k","anthropic_api_key":"k"}`, `[]`, "CONNECTOR_REQUEST_INVALID"},
+		{"client-set auth_methods", `["openai"]`, `{}`, `{"openai_api_key":"k","auth_methods":["openai"]}`, `[]`, "CONNECTOR_REQUEST_INVALID"},
+		{"keep unselected method field", `["openai"]`, `{}`, `{}`, `["openai_api_key","anthropic_api_key"]`, "CONNECTOR_REQUEST_INVALID"},
+		{"keep field also set", `["openai"]`, `{}`, `{"openai_api_key":"k"}`, `["openai_api_key"]`, "CONNECTOR_REQUEST_INVALID"},
+		{"keep unstored field", `["gemini"]`, `{}`, `{}`, `["gemini_api_key"]`, "CONNECTOR_REQUEST_INVALID"},
+		{"keep undeclared field", `["openai"]`, `{}`, `{}`, `["openai_api_key","auth_methods"]`, "CONNECTOR_REQUEST_INVALID"},
+	} {
+		recorder := putConnectorLLMTestConnection(t, setup, mux, testCase.authMethodIDs, testCase.configuration, testCase.credentials, testCase.keep)
+		if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), `"`+testCase.code+`"`) {
+			t.Fatalf("%s status = %d: %s", testCase.name, recorder.Code, recorder.Body.String())
+		}
+	}
+	singleIDRequest := `{"modulePath":"` + connectorLLMTestModulePath + `","moduleVersion":"v0.2.0","provider":"llm","authMethodId":"openai","configuration":{},"credentials":{"openai_api_key":"k"}}`
+	recorder = putConnectorTestConnection(t, setup, mux, "/api/v2/connector-connections/llm/default", singleIDRequest)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), `"CONNECTOR_AUTH_METHOD_INVALID"`) {
+		t.Fatalf("authMethodId for multiple selection status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	assertConnectorTestCredentials(t, getConnectorTestConnection(t, setup, "llm", "default"), map[string]any{
+		"auth_methods": []any{"anthropic", "openai"}, "anthropic_api_key": "anthropic-secret", "openai_api_key": "openai-secret",
+	})
+
+	emptySetup, emptyMux := connectorLLMTestSetup(t, t.TempDir())
+	recorder = putConnectorLLMTestConnection(t, emptySetup, emptyMux, `["openai"]`, `{}`, `{}`, `["openai_api_key"]`)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), `"CONNECTOR_REQUEST_INVALID"`) {
+		t.Fatalf("keep without a stored record status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestConnectorConnectionsAPIKeepsStoredCredentialsForSingleSelection(t *testing.T) {
+	identity := connectorDefinitionIdentity{
+		ConnectorID: "stripe", OperationID: "createPayment", OperationKind: "mutation",
+		ConnectionName: "payments", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/stripe",
+		ModuleVersion: "v0.1.0", ConfigurationEnabled: true,
+	}
+	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{identity}))
+	installConnectorTestReleaseWithAuth(t, setup, identity, "stripe", connectorManifestAuth{Type: "apiKey", Fields: []connectorManifestField{
+		{Name: "secret_key", Type: "secretString", Required: true},
+		{Name: "webhook_secret", Type: "secretString", Required: true},
+	}}, connectorManifestField{Name: "endpoint", Type: "url"})
+	mux := http.NewServeMux()
+	setup.registerHandlers(mux)
+	const modulePrefix = `{"modulePath":"github.com/superdurable/dex-connectors-library/connectors/stripe","moduleVersion":"v0.1.0","provider":"stripe","authMethodId":"",`
+	recorder := putConnectorTestConnection(t, setup, mux, "/api/v2/connector-connections/stripe/payments",
+		modulePrefix+`"configuration":{"endpoint":"https://api.stripe.test"},"credentials":{"secret_key":"sk-old","webhook_secret":"wh-old"}}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("put status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	recorder = putConnectorTestConnection(t, setup, mux, "/api/v2/connector-connections/stripe/payments",
+		modulePrefix+`"configuration":{},"credentials":{"webhook_secret":"wh-new"},"keepCredentialFields":["secret_key"]}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("keep status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	stored := getConnectorTestConnection(t, setup, "stripe", "payments")
+	assertConnectorTestCredentials(t, stored, map[string]any{"secret_key": "sk-old", "webhook_secret": "wh-new"})
+	if len(stored.Configuration) != 0 || stored.AuthMethodID != "" || len(stored.AuthMethodIDs) != 0 {
+		t.Fatalf("stored = %+v", stored)
+	}
+	for _, body := range []string{
+		modulePrefix + `"configuration":{},"credentials":{},"keepCredentialFields":["secret_key"]}`,
+		modulePrefix + `"authMethodIds":["apiKey"],"configuration":{},"credentials":{},"keepCredentialFields":["secret_key","webhook_secret"]}`,
+	} {
+		recorder = putConnectorTestConnection(t, setup, mux, "/api/v2/connector-connections/stripe/payments", body)
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("invalid single-selection write status = %d: %s", recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
+func TestConnectorConnectionsAPIValidatesSingleSelectionMethodConfigurationAndKeeps(t *testing.T) {
+	identity := connectorDefinitionIdentity{
+		ConnectorID: "gmail", OperationID: "sendMessage", OperationKind: "mutation",
+		ConnectionName: "sender", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/google/gmail",
+		ModuleVersion: "v0.1.1", ConfigurationEnabled: true,
+	}
+	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{identity}))
+	installConnectorTestReleaseWithAuth(t, setup, identity, "google", connectorManifestAuth{
+		DefaultMethod: "apiKey",
+		Methods: []connectorManifestAuthMethod{
+			{ID: "apiKey", Type: "apiKey", Fields: []connectorManifestField{{Name: "api_key", Type: "secretString", Required: true}}},
+			{ID: "workspaceServiceAccount", Type: "serviceAccount", Fields: []connectorManifestField{
+				{Name: "service_account_key", Type: "secretString", Required: true},
+			}, Configuration: &connectorManifestAuthMethodConfiguration{Fields: []connectorManifestField{
+				{Name: "delegatedUser", Type: "string", Required: true},
+			}}},
+		},
+	})
+	mux := http.NewServeMux()
+	setup.registerHandlers(mux)
+	const modulePrefix = `{"modulePath":"github.com/superdurable/dex-connectors-library/connectors/google/gmail","moduleVersion":"v0.1.1","provider":"google",`
+	for _, testCase := range []struct {
+		name   string
+		body   string
+		status int
+	}{
+		{"unselected method configuration", `"authMethodId":"apiKey","configuration":{"delegatedUser":"owner@example.com"},"credentials":{"api_key":"k"}}`, http.StatusBadRequest},
+		{"selected method configuration missing", `"authMethodId":"workspaceServiceAccount","configuration":{},"credentials":{"service_account_key":"k"}}`, http.StatusBadRequest},
+		{"selected method configuration", `"authMethodId":"workspaceServiceAccount","configuration":{"delegatedUser":"owner@example.com"},"credentials":{"service_account_key":"k"}}`, http.StatusOK},
+		{"keep another method's field", `"authMethodId":"apiKey","configuration":{},"credentials":{},"keepCredentialFields":["service_account_key"]}`, http.StatusBadRequest},
+	} {
+		recorder := putConnectorTestConnection(t, setup, mux, "/api/v2/connector-connections/gmail/sender", modulePrefix+testCase.body)
+		if recorder.Code != testCase.status {
+			t.Fatalf("%s status = %d: %s", testCase.name, recorder.Code, recorder.Body.String())
+		}
+	}
+	stored := getConnectorTestConnection(t, setup, "gmail", "sender")
+	if stored.AuthMethodID != "workspaceServiceAccount" || string(stored.Configuration["delegatedUser"]) != `"owner@example.com"` {
+		t.Fatalf("stored = %+v", stored)
+	}
+}
+
+func TestConnectorUISessionCarriesMultipleAuthMethodManifestFields(t *testing.T) {
+	identity := connectorLLMTestIdentity()
+	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{identity}))
+	metadata := []byte(`{"connectorId":"llm","modulePath":"` + connectorLLMTestModulePath + `","version":"v0.2.0","tag":"connectors/llm/v0.2.0",` +
+		`"sourceSha":"source-sha","manifestSha256":"` + strings.Repeat("0", 64) + `","manifest":{"apiVersion":"connectors.dex.dev/v1alpha1","kind":"Connector",` +
+		`"metadata":{"name":"llm","displayName":"LLM","description":"Several model providers"},"spec":{"provider":"llm",` +
+		`"configuration":{"fields":[{"name":"model","type":"string","description":"Default model.","required":false,"studioUnit":{"unit":"modelPicker","port":"model"}}]},` +
+		`"auth":{"selection":"multiple","methodLabel":"Provider","methods":[` +
+		`{"id":"openai","displayName":"OpenAI","description":"OpenAI key.","type":"apiKey","connectionKind":"apiKey","fields":[{"name":"openai_api_key","type":"secretString","description":"","required":true}]},` +
+		`{"id":"anthropic","displayName":"Claude","description":"Claude key.","type":"apiKey","connectionKind":"apiKey","fields":[{"name":"anthropic_api_key","type":"secretString","description":"","required":true}],` +
+		`"configuration":{"fields":[{"name":"anthropicWorkspaceId","type":"string","description":"Claude workspace.","required":false}]}}]}}}}`)
+	server := connectorReleaseTestServer(t, metadata, nil)
+	t.Cleanup(server.Close)
+	setup.releases.baseURL = server.URL
+	setup.releases.httpClient = server.Client()
+	mux := http.NewServeMux()
+	setup.registerHandlers(mux)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, authorizedConnectorRequest(t, setup, http.MethodPost, "/api/v2/connector-ui-sessions",
+		strings.NewReader(`{"connectorId":"llm","connectionName":"default"}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("session status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var session struct {
+		Manifest struct {
+			Spec struct {
+				Configuration struct {
+					Fields []map[string]any `json:"fields"`
+				} `json:"configuration"`
+				Auth map[string]any `json:"auth"`
+			} `json:"spec"`
+		} `json:"manifest"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &session); err != nil {
+		t.Fatal(err)
+	}
+	auth := session.Manifest.Spec.Auth
+	if auth["selection"] != "multiple" || auth["methodLabel"] != "Provider" {
+		t.Fatalf("session auth = %+v", auth)
+	}
+	methods, isList := auth["methods"].([]any)
+	if !isList || len(methods) != 2 {
+		t.Fatalf("session methods = %+v", auth["methods"])
+	}
+	anthropic, _ := methods[1].(map[string]any)
+	expectedMethodConfiguration := map[string]any{"fields": []any{map[string]any{
+		"name": "anthropicWorkspaceId", "type": "string", "description": "Claude workspace.", "required": false,
+	}}}
+	if !reflect.DeepEqual(anthropic["configuration"], expectedMethodConfiguration) {
+		t.Fatalf("anthropic method configuration = %+v", anthropic["configuration"])
+	}
+	fields := session.Manifest.Spec.Configuration.Fields
+	if len(fields) != 1 || !reflect.DeepEqual(fields[0]["studioUnit"], map[string]any{"unit": "modelPicker", "port": "model"}) {
+		t.Fatalf("configuration fields = %+v", fields)
+	}
+}
+
 func TestConnectorConnectionsAPIRejectsOriginRevisionAndVersionConflict(t *testing.T) {
 	provider := connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{
 		{ConnectorID: "github", OperationID: "getAuthenticatedProfile", OperationKind: "query", ConnectionName: "reviewer", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/github", ModuleVersion: "v0.1.1", ConfigurationEnabled: true},
@@ -213,7 +461,7 @@ func TestConnectorUseConfigurationAPIWritesFlowStepScopedSidecar(t *testing.T) {
 		}}},
 	}
 	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{identity}))
-	if err := setup.store.put(testLocalConnectorConnection("gmail", "sender", "token", nil)); err != nil {
+	if err := setup.store.put(testLocalConnectorConnection("gmail", "sender", "token", nil), nil); err != nil {
 		t.Fatal(err)
 	}
 	request := authorizedConnectorRequest(t, setup, http.MethodPut, "/api/v2/connector-use-configurations/gmail/sender/sendMessage/TestFlow/TestStep", strings.NewReader(`{"configuration":{"message":{"text":"Done"}}}`))
@@ -309,7 +557,7 @@ func TestConnectorConnectionViewsUseLocalReleaseOverrideForWorkspaceFlow(t *test
 	connection.ModulePath = releaseIdentity.ModulePath
 	connection.ModuleVersion = "v0.6.1"
 	connection.Provider = "slack"
-	if err := setup.store.put(connection); err != nil {
+	if err := setup.store.put(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	views, _, err := setup.connectionViews(context.Background())
@@ -332,6 +580,85 @@ func putConnectorTestConnection(
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, authorizedConnectorRequest(t, setup, http.MethodPut, target, strings.NewReader(body)))
 	return recorder
+}
+
+const connectorLLMTestModulePath = "github.com/superdurable/dex-connectors-library/connectors/llm"
+
+func connectorLLMTestIdentity() connectorDefinitionIdentity {
+	return connectorDefinitionIdentity{
+		ConnectorID: "llm", OperationID: "generateText", OperationKind: "mutation", ConnectionName: "default",
+		ModulePath: connectorLLMTestModulePath, ModuleVersion: "v0.2.0", ConfigurationEnabled: true,
+	}
+}
+
+func connectorLLMTestAuth() connectorManifestAuth {
+	return connectorManifestAuth{
+		Selection: connectorAuthSelectionMultiple, MethodLabel: "Provider",
+		Methods: []connectorManifestAuthMethod{
+			{ID: "openai", DisplayName: "OpenAI", Type: "apiKey", Fields: []connectorManifestField{
+				{Name: "openai_api_key", Type: "secretString", Required: true},
+			}},
+			{ID: "anthropic", DisplayName: "Claude", Type: "apiKey", Fields: []connectorManifestField{
+				{Name: "anthropic_api_key", Type: "secretString", Required: true},
+			}, Configuration: &connectorManifestAuthMethodConfiguration{Fields: []connectorManifestField{
+				{Name: "anthropicWorkspaceId", Type: "string", Required: true},
+			}}},
+			{ID: "gemini", DisplayName: "Gemini", Type: "apiKey", Fields: []connectorManifestField{
+				{Name: "gemini_api_key", Type: "secretString", Required: true},
+			}},
+		},
+	}
+}
+
+func connectorLLMTestSetup(t *testing.T, directory string) (*connectorSetup, *http.ServeMux) {
+	t.Helper()
+	identity := connectorLLMTestIdentity()
+	setup := connectorTestSetup(t, directory, connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{identity}))
+	installConnectorTestReleaseWithAuth(t, setup, identity, "llm", connectorLLMTestAuth(), connectorManifestField{
+		Name: "model", Type: "string", StudioUnit: &connectorManifestFieldStudioUnit{Unit: "modelPicker", Port: "model"},
+	})
+	mux := http.NewServeMux()
+	setup.registerHandlers(mux)
+	return setup, mux
+}
+
+func putConnectorLLMTestConnection(
+	t *testing.T,
+	setup *connectorSetup,
+	mux *http.ServeMux,
+	authMethodIDs string,
+	configuration string,
+	credentials string,
+	keepCredentialFields string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	body := `{"modulePath":"` + connectorLLMTestModulePath + `","moduleVersion":"v0.2.0","provider":"llm","authMethodIds":` + authMethodIDs +
+		`,"configuration":` + configuration + `,"credentials":` + credentials + `,"keepCredentialFields":` + keepCredentialFields + `}`
+	return putConnectorTestConnection(t, setup, mux, "/api/v2/connector-connections/llm/default", body)
+}
+
+func getConnectorTestConnection(t *testing.T, setup *connectorSetup, connectorID string, connectionName string) storedConnectorConnection {
+	t.Helper()
+	stored, found, err := setup.store.get(connectorID, connectionName)
+	if err != nil || !found {
+		t.Fatalf("stored connection found = %v, err = %v", found, err)
+	}
+	return stored
+}
+
+func assertConnectorTestCredentials(t *testing.T, stored storedConnectorConnection, expected map[string]any) {
+	t.Helper()
+	decoded := make(map[string]any, len(stored.Credentials))
+	for name, value := range stored.Credentials {
+		var decodedValue any
+		if err := json.Unmarshal(value, &decodedValue); err != nil {
+			t.Fatal(err)
+		}
+		decoded[name] = decodedValue
+	}
+	if !reflect.DeepEqual(decoded, expected) {
+		t.Fatalf("stored credentials = %+v, expected %+v", decoded, expected)
+	}
 }
 
 func connectorTestSetup(t *testing.T, directory string, provider FlowDefinitionProvider) *connectorSetup {
@@ -385,6 +712,7 @@ func installConnectorTestReleaseWithAuth(
 	identity connectorDefinitionIdentity,
 	provider string,
 	auth connectorManifestAuth,
+	configurationFields ...connectorManifestField,
 ) {
 	t.Helper()
 	release := connectorRelease{
@@ -397,6 +725,7 @@ func installConnectorTestReleaseWithAuth(
 	release.Manifest.Metadata.Name = identity.ConnectorID
 	release.Manifest.Spec.Provider = provider
 	release.Manifest.Spec.Auth = auth
+	release.Manifest.Spec.Configuration.Fields = configurationFields
 	metadata, err := json.Marshal(release)
 	if err != nil {
 		t.Fatal(err)

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -30,10 +31,10 @@ func TestHostedConnectorConfigurationStoreScopesRequestsAndUsesRevisionCAS(t *te
 		if request.URL.Path == "/api/system/projects/project-1/environments/staging/connector-configuration" && request.Method == http.MethodGet {
 			writeWebJSON(response, http.StatusOK, hostedConnectorConfigurationSnapshot{
 				ConfigurationRevision: "revision-1", ConfigurationState: "Valid",
-				Connections: []localConnectorConnection{{
+				Connections: []storedConnectorConnection{{localConnectorConnection: localConnectorConnection{
 					ConnectorID: "gmail", ConnectionName: "sender", ModulePath: "example/gmail", ModuleVersion: "v0.1.0",
 					Provider: "google", Configuration: map[string]json.RawMessage{}, Credentials: map[string]json.RawMessage{},
-				}},
+				}}},
 			})
 			return
 		}
@@ -75,7 +76,7 @@ func TestHostedConnectorConfigurationStoreScopesRequestsAndUsesRevisionCAS(t *te
 		ConnectorID: "gmail", ConnectionName: "sender", ModulePath: "example/gmail", ModuleVersion: "v0.1.0",
 		Provider: "google", Configuration: map[string]json.RawMessage{},
 		Credentials: map[string]json.RawMessage{"access_token": json.RawMessage(`"write-only-token"`)},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,11 +89,115 @@ func TestHostedConnectorConfigurationStoreScopesRequestsAndUsesRevisionCAS(t *te
 	}
 }
 
+const hostedConnectorLLMTestSnapshot = `{"configurationRevision":"revision-1","configurationState":"Draft","connections":[{` +
+	`"connectorId":"llm","authMethodIds":["anthropic","openai"],"modulePath":"` + connectorLLMTestModulePath + `","moduleVersion":"v0.2.0",` +
+	`"provider":"llm","connectionName":"default","configuration":{"anthropicWorkspaceId":"ws_1"},"credentials":{},` +
+	`"storedCredentialFields":["anthropic_api_key","openai_api_key"]}],"triggerBindings":[],"operationConfigurations":[]}`
+
+func hostedConnectorLLMTestBackend(t *testing.T, mutations *[]map[string]any) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/api/system/projects/project-1/environments/staging/connector-configuration":
+			response.Header().Set("Content-Type", "application/json")
+			if _, err := response.Write([]byte(hostedConnectorLLMTestSnapshot)); err != nil {
+				t.Error(err)
+			}
+		case request.Method == http.MethodPut && request.URL.Path == "/api/system/projects/project-1/environments/staging/connector-configuration/connections/llm/default":
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			*mutations = append(*mutations, body)
+			writeWebJSON(response, http.StatusOK, hostedConnectorConfigurationSnapshot{ConfigurationRevision: "revision-2", ConfigurationState: "Draft"})
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+}
+
+func TestHostedConnectorConfigurationStoreCarriesAuthMethodIDsAndKeptCredentialNames(t *testing.T) {
+	var mutations []map[string]any
+	backend := hostedConnectorLLMTestBackend(t, &mutations)
+	defer backend.Close()
+	store, err := newHostedConnectorConfigurationStore(&Config{
+		ConnectorHostedBaseURL: backend.URL, ConnectorHostedProjectID: "project-1",
+		ConnectorHostedEnvironment: "staging", ConnectorHostedReleaseID: "release-1",
+		ConnectorHostedServiceToken: "backend-token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connections, err := store.list()
+	if err != nil || len(connections) != 1 {
+		t.Fatalf("connections = %+v, err = %v", connections, err)
+	}
+	if !reflect.DeepEqual(connections[0].AuthMethodIDs, []string{"anthropic", "openai"}) ||
+		!reflect.DeepEqual(connections[0].StoredCredentialFields, []string{"anthropic_api_key", "openai_api_key"}) {
+		t.Fatalf("hosted connection = %+v", connections[0])
+	}
+	err = store.put(localConnectorConnection{
+		ConnectorID: "llm", AuthMethodIDs: []string{"openai"}, ConnectionName: "default",
+		ModulePath: connectorLLMTestModulePath, ModuleVersion: "v0.2.0", Provider: "llm",
+		Configuration: map[string]json.RawMessage{}, Credentials: map[string]json.RawMessage{"auth_methods": json.RawMessage(`["openai"]`)},
+	}, []string{"openai_api_key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mutations) != 1 {
+		t.Fatalf("mutations = %+v", mutations)
+	}
+	mutation := mutations[0]
+	if !reflect.DeepEqual(mutation["authMethodIds"], []any{"openai"}) ||
+		!reflect.DeepEqual(mutation["keepCredentialFields"], []any{"openai_api_key"}) ||
+		!reflect.DeepEqual(mutation["credentials"], map[string]any{"auth_methods": []any{"openai"}}) {
+		t.Fatalf("mutation = %+v", mutation)
+	}
+	if _, found := mutation["storedCredentialFields"]; found {
+		t.Fatalf("mutation sent stored credential names: %+v", mutation)
+	}
+}
+
+func TestHostedConnectorSetupValidatesKeptCredentialsAgainstBackendNames(t *testing.T) {
+	var mutations []map[string]any
+	backend := hostedConnectorLLMTestBackend(t, &mutations)
+	defer backend.Close()
+	setup, err := newConnectorSetup(&Config{
+		BindAddress: "0.0.0.0", FlowRenderingSource: FlowRenderingSourceBlobStore,
+		WorkQueuePermissionMode: api.V2PermissionModeTrustedHeader, TrustForwardedEmbeddingHeaders: true,
+		ConnectorSetupEnabled: true, ConnectorSetupMode: ConnectorSetupModeHosted,
+		ConnectorCacheDirectory: t.TempDir(), ConnectorHostedBaseURL: backend.URL,
+		ConnectorHostedProjectID: "project-1", ConnectorHostedEnvironment: "staging",
+		ConnectorHostedReleaseID: "release-1", ConnectorHostedServiceToken: "backend-token",
+	}, connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{connectorLLMTestIdentity()}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	installConnectorTestReleaseWithAuth(t, setup, connectorLLMTestIdentity(), "llm", connectorLLMTestAuth())
+	mux := http.NewServeMux()
+	setup.registerHandlers(mux)
+	recorder := putConnectorLLMTestConnection(t, setup, mux, `["gemini"]`, `{}`, `{}`, `["gemini_api_key"]`)
+	if recorder.Code != http.StatusBadRequest || len(mutations) != 0 {
+		t.Fatalf("keep of a field the backend does not report status = %d, mutations = %+v", recorder.Code, mutations)
+	}
+	recorder = putConnectorLLMTestConnection(t, setup, mux, `["openai","anthropic"]`,
+		`{"anthropicWorkspaceId":"ws_1"}`, `{"openai_api_key":"rotated"}`, `["anthropic_api_key"]`)
+	if recorder.Code != http.StatusOK || len(mutations) != 1 {
+		t.Fatalf("hosted keep status = %d: %s, mutations = %+v", recorder.Code, recorder.Body.String(), mutations)
+	}
+	mutation := mutations[0]
+	if !reflect.DeepEqual(mutation["authMethodIds"], []any{"openai", "anthropic"}) ||
+		!reflect.DeepEqual(mutation["keepCredentialFields"], []any{"anthropic_api_key"}) ||
+		!reflect.DeepEqual(mutation["credentials"], map[string]any{"auth_methods": []any{"openai", "anthropic"}, "openai_api_key": "rotated"}) {
+		t.Fatalf("hosted mutation = %+v", mutation)
+	}
+}
+
 func TestHostedConnectorSetupAllowsBlobStoreAndHidesLocalPaths(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		writeWebJSON(response, http.StatusOK, hostedConnectorConfigurationSnapshot{
 			ConfigurationRevision: "revision-ready", ConfigurationState: "Ready to deploy",
-			ApplicationRevision: "revision-running", Connections: []localConnectorConnection{},
+			ApplicationRevision: "revision-running", Connections: []storedConnectorConnection{},
 		})
 	}))
 	defer backend.Close()
@@ -145,7 +250,7 @@ func TestHostedConnectorConfigurationConflictIsSafe(t *testing.T) {
 	err = store.put(localConnectorConnection{
 		ConnectorID: "gmail", ConnectionName: "sender", ModulePath: "example/gmail", ModuleVersion: "v0.1.0",
 		Provider: "google", Configuration: map[string]json.RawMessage{}, Credentials: map[string]json.RawMessage{},
-	})
+	}, nil)
 	if !errors.Is(err, errConnectorConfigurationRevisionConflict) {
 		t.Fatalf("error = %v", err)
 	}

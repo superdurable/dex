@@ -38,13 +38,14 @@ type connectorConnectionStore struct {
 }
 
 type connectorConfigurationStore interface {
-	list() ([]localConnectorConnection, error)
-	get(connectorID string, connectionName string) (localConnectorConnection, bool, error)
+	list() ([]storedConnectorConnection, error)
+	get(connectorID string, connectionName string) (storedConnectorConnection, bool, error)
 	listTriggerBindings(connectorID string, connectionName string) ([]localConnectorTriggerBinding, error)
 	putTriggerBinding(binding localConnectorTriggerBinding) error
 	listUseConfigurations(connectorID string, connectionName string) ([]localConnectorUseConfiguration, error)
 	putUseConfiguration(configuration localConnectorUseConfiguration) error
-	put(connection localConnectorConnection) error
+	// put replaces the connection, copying each keepCredentialFields value from the stored record.
+	put(connection localConnectorConnection, keepCredentialFields []string) error
 	delete(connectorID string, connectionName string) (bool, error)
 	state() connectorConfigurationStoreState
 }
@@ -68,6 +69,7 @@ type connectorConnectionsFile struct {
 type localConnectorConnection struct {
 	ConnectorID         string                     `json:"connectorId"`
 	AuthMethodID        string                     `json:"authMethodId,omitempty"`
+	AuthMethodIDs       []string                   `json:"authMethodIds,omitempty"`
 	ModulePath          string                     `json:"modulePath"`
 	ModuleVersion       string                     `json:"moduleVersion"`
 	Provider            string                     `json:"provider"`
@@ -76,6 +78,12 @@ type localConnectorConnection struct {
 	Credentials         map[string]json.RawMessage `json:"credentials"`
 	CredentialExpiresAt *time.Time                 `json:"credentialExpiresAt,omitempty"`
 	CredentialStatus    string                     `json:"credentialStatus,omitempty"`
+}
+
+// Hosted backends report stored credential names without values; local stores derive them.
+type storedConnectorConnection struct {
+	localConnectorConnection
+	StoredCredentialFields []string `json:"storedCredentialFields"`
 }
 
 type localConnectorTriggerBinding struct {
@@ -158,29 +166,33 @@ func (store *connectorConnectionStore) verifyWritableDirectory() (returnErr erro
 	return nil
 }
 
-func (store *connectorConnectionStore) list() ([]localConnectorConnection, error) {
+func (store *connectorConnectionStore) list() ([]storedConnectorConnection, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	file, err := store.load()
 	if err != nil {
 		return nil, err
 	}
-	return file.Connections, nil
+	connections := make([]storedConnectorConnection, 0, len(file.Connections))
+	for _, connection := range file.Connections {
+		connections = append(connections, newStoredLocalConnectorConnection(connection))
+	}
+	return connections, nil
 }
 
-func (store *connectorConnectionStore) get(connectorID string, connectionName string) (localConnectorConnection, bool, error) {
+func (store *connectorConnectionStore) get(connectorID string, connectionName string) (storedConnectorConnection, bool, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	file, err := store.load()
 	if err != nil {
-		return localConnectorConnection{}, false, err
+		return storedConnectorConnection{}, false, err
 	}
 	for _, connection := range file.Connections {
 		if connection.ConnectorID == connectorID && connection.ConnectionName == connectionName {
-			return connection, true, nil
+			return newStoredLocalConnectorConnection(connection), true, nil
 		}
 	}
-	return localConnectorConnection{}, false, nil
+	return storedConnectorConnection{}, false, nil
 }
 
 func (store *connectorConnectionStore) listTriggerBindings(connectorID string, connectionName string) ([]localConnectorTriggerBinding, error) {
@@ -260,24 +272,35 @@ func (store *connectorConnectionStore) putUseConfiguration(configuration localCo
 	return store.writeUseConfigurations(file)
 }
 
-func (store *connectorConnectionStore) put(connection localConnectorConnection) error {
+func (store *connectorConnectionStore) put(connection localConnectorConnection, keepCredentialFields []string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	file, err := store.load()
 	if err != nil {
 		return err
 	}
-	found := false
+	storedIndex := -1
 	for index := range file.Connections {
 		current := file.Connections[index]
 		if current.ConnectorID == connection.ConnectorID && current.ConnectionName == connection.ConnectionName {
-			file.Connections[index] = connection
-			found = true
+			storedIndex = index
 			break
 		}
 	}
-	if !found {
+	for _, name := range keepCredentialFields {
+		if storedIndex < 0 {
+			return errConnectorConfigurationRevisionConflict
+		}
+		value, found := file.Connections[storedIndex].Credentials[name]
+		if !found {
+			return errConnectorConfigurationRevisionConflict
+		}
+		connection.Credentials[name] = value
+	}
+	if storedIndex < 0 {
 		file.Connections = append(file.Connections, connection)
+	} else {
+		file.Connections[storedIndex] = connection
 	}
 	return store.write(file)
 }
@@ -455,7 +478,21 @@ func validateLocalConnectorConnection(connection localConnectorConnection) error
 	if connection.Configuration == nil || connection.Credentials == nil {
 		return fmt.Errorf("configuration and credentials are required")
 	}
+	if connection.AuthMethodID != "" && len(connection.AuthMethodIDs) > 0 {
+		return fmt.Errorf("authMethodId and authMethodIds are mutually exclusive")
+	}
 	return nil
+}
+
+func newStoredLocalConnectorConnection(connection localConnectorConnection) storedConnectorConnection {
+	names := make([]string, 0, len(connection.Credentials))
+	for name := range connection.Credentials {
+		if !isConnectorAuthMethodCredentialName(name) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return storedConnectorConnection{localConnectorConnection: connection, StoredCredentialFields: names}
 }
 
 func validateLocalConnectorTriggerBinding(binding localConnectorTriggerBinding) error {

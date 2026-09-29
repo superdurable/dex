@@ -157,6 +157,45 @@ reading its opaque-origin DOM. Unit ports are merged at their declared JSON
 Pointers, so Flow code controls composition without coupling a Connector's
 connection screen to one example. The host protocol for this contract is 0.2.
 
+A release with several `spec.auth.methods` normally selects one of them. With
+`spec.auth.selection: multiple`, one connection holds a non-empty subset of the
+methods, such as several model providers. The form then shows one card per
+added method, with its guide, credential fields, and configuration fields, and
+a Remove button. An Add menu lists the methods not yet added. The section
+title and menu use `spec.auth.methodLabel`, such as **Providers** and **Add
+provider**; without it they read **Authentication methods**. Save needs at
+least one method. A method's `configuration.fields` are non-secret fields that
+are validated, and required, only while that method is selected.
+
+The connection write sends `authMethodId` for single selection or
+`authMethodIds`, in add order, for multiple selection. Dex Web stamps the
+selection into the stored credentials as `auth_method` or `auth_methods`, a
+JSON string array. A request that sets either name in `credentials` is
+rejected with `CONNECTOR_REQUEST_INVALID`. Configuration is validated against
+`spec.configuration.fields` plus the selected methods' configuration fields.
+Credentials are validated against the selected methods' fields, and each
+method's required fields must be present. Each write replaces the stored
+record, so removing a method drops its credential and configuration fields.
+
+Editing a connection prefills its stored non-secret configuration. Stored
+credential values are never returned. The connection view lists their names in
+`storedCredentialFields`, and the form shows each stored field as **Stored -
+leave blank to keep**. A blank stored field is sent in `keepCredentialFields`.
+Dex Web copies each listed field from the stored record only when that record
+exists, the field belongs to a selected method, and the request does not also
+set it. Any other name is a `CONNECTOR_REQUEST_INVALID` error. OAuth methods
+still authorize again with new client credentials.
+
+A `spec.configuration.fields` entry with `studioUnit: {unit, port}` renders
+that Studio unit inline once the connection is Ready. Before that, the form
+shows a note to save the connection first. A required field without a default
+stays a plain input, so the first save can succeed. The frame target is
+`{kind: "connection", unitId, bindings: [{port, jsonPointer: "/<field>"}],
+value: {<field>: stored}}`. A `use.configuration.save` from it writes the
+connection again with the current methods, the stored configuration merged
+with the new value, and every stored credential field of the selected methods
+in `keepCredentialFields`.
+
 The `connector.host.ready` message also carries three optional fields. `theme` is
 the theme the frame paints, `light` or `dark`. The Connections page has no dark
 theme yet, so Dex Web always sends `light`. It also sets the iframe element's
@@ -239,6 +278,13 @@ Vitest replaces CSS imports with empty strings, so `vite.config.ts` lets
 `connectorStudio.css?raw` through for those tests.
 
 Bundles that ignore the fields keep their built-in theme and stylesheet.
+
+The ready message's `connection` also carries `authMethodIds` and
+`configuration` for every frame: Step units, Trigger units, and connection
+field units. `authMethodIds` lists the added methods in add order. A
+single-selection connection reports its one method, or an empty list when the
+release declares no methods. `configuration` is the stored non-secret
+configuration. The protocol version stays 0.2.0.
 
 Provider resource reads use release-declared Studio commands. The manifest
 pins an HTTPS GET URL, a credential field and scheme, fixed query values,
@@ -343,6 +389,13 @@ Control Plane, so Dex Web never reads stored credential material back. Each
 setup-command request carries the release-verified command declaration and the
 current configuration revision; the backend must reject a different release,
 command ID, or stale revision before calling the provider.
+
+Each snapshot connection reports `storedCredentialFields`, the names of its
+stored credential fields, without their values. Dex Web validates
+`keepCredentialFields` against those names. A connection write sends the new
+record, including `authMethodIds`, with `keepCredentialFields`. The backend
+copies each kept value from its stored record. It must treat a kept field that
+is no longer stored as a revision conflict.
 
 ## Trusted reverse-proxy mounts
 

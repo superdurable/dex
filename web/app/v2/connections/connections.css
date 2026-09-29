@@ -450,6 +450,151 @@
   font-style: normal;
   text-transform: uppercase;
 }
+
+.connector-auth-method-cards {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.connector-auth-method-cards-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.connector-auth-method-cards-header h4,
+.connector-connection-settings h4 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.connector-auth-method-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+}
+
+.connector-auth-method-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.connector-auth-method-card > header > span {
+  display: grid;
+  gap: 3px;
+}
+
+.connector-auth-method-card > header small,
+.connector-add-auth-method-menu small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.connector-add-auth-method {
+  position: relative;
+}
+
+.connector-add-auth-method-menu {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  min-width: 14rem;
+  max-width: 22rem;
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+
+.connector-add-auth-method-menu button {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ink);
+  text-align: left;
+  background: transparent;
+}
+
+.connector-add-auth-method-menu button:hover,
+.connector-add-auth-method-menu button:focus-visible {
+  background: var(--canvas);
+}
+
+.connector-studio-field {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.connector-studio-field small,
+.connector-studio-field-note {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.connector-studio-field-note {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+}
+
+.connector-studio-field .connector-studio-shell {
+  margin-bottom: 0;
+}
+
+.connector-studio-shell[data-surface='connectionField'] .connector-studio {
+  height: 15rem;
+}
+
+.connector-authorization-summary,
+.connector-connection-settings {
+  display: grid;
+  gap: 14px;
+}
+
+.connector-connection-settings {
+  max-width: 44rem;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--canvas);
+}
+
+.connector-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.connector-form .connector-secondary-action {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.connector-auth-method-cards .connector-secondary-action {
+  padding: 6px 10px;
+  font-size: 12px;
+}
 .connector-authorization-guide {
   display: grid;
   gap: 8px;

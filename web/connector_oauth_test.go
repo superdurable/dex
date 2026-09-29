@@ -62,6 +62,36 @@ func TestConnectorOAuthRejectsHostSuppliedDerivedCredential(t *testing.T) {
 	}
 }
 
+func TestConnectorOAuthStartAcceptsOnlyTheSelectedMethodConfiguration(t *testing.T) {
+	manifest := connectorReleaseManifest{}
+	manifest.Spec.Auth.Methods = []connectorManifestAuthMethod{
+		{ID: "workspaceOAuth", Type: "oauth2", OAuth2: &connectorManifestOAuth2{}, Configuration: &connectorManifestAuthMethodConfiguration{
+			Fields: []connectorManifestField{{Name: "workspaceDomain", Type: "string", Required: true}},
+		}},
+		{ID: "serviceAccount", Type: "serviceAccount", Configuration: &connectorManifestAuthMethodConfiguration{
+			Fields: []connectorManifestField{{Name: "delegatedUser", Type: "string"}},
+		}},
+	}
+	authMethod, _ := manifest.Spec.Auth.method("workspaceOAuth")
+	for _, testCase := range []struct {
+		configuration string
+		isValid       bool
+	}{
+		{`{"workspaceDomain":"example.com"}`, true},
+		{`{}`, false},
+		{`{"workspaceDomain":"example.com","delegatedUser":"owner@example.com"}`, false},
+	} {
+		var configuration map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(testCase.configuration), &configuration); err != nil {
+			t.Fatal(err)
+		}
+		err := validateManifestValueMaps(manifest, authMethod, connectorOAuthStartRequest{Configuration: configuration})
+		if (err == nil) != testCase.isValid {
+			t.Fatalf("configuration %s error = %v", testCase.configuration, err)
+		}
+	}
+}
+
 func TestConnectorOAuthClientSecretRequirementFollowsManifestField(t *testing.T) {
 	authMethod := connectorManifestAuthMethod{
 		OAuth2: &connectorManifestOAuth2{ClientSecretCredential: "oauth_client_secret"},
