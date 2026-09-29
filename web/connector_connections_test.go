@@ -69,6 +69,10 @@ func TestConnectorConnectionsAPIWritesWithoutReturningSecretsAndReloadsAfterRest
 	}
 
 	restarted := connectorTestSetup(t, directory, provider)
+	installConnectorTestRelease(t, restarted, connectorDefinitionIdentity{
+		ConnectorID: "gmail", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/google/gmail",
+		ModuleVersion: "v0.1.1",
+	}, "google", nil)
 	views, _, err := restarted.connectionViews(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -461,6 +465,7 @@ func TestConnectorUseConfigurationAPIWritesFlowStepScopedSidecar(t *testing.T) {
 		}}},
 	}
 	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{identity}))
+	installConnectorTestRelease(t, setup, identity, "google", nil)
 	if err := setup.store.put(testLocalConnectorConnection("gmail", "sender", "token", nil), nil); err != nil {
 		t.Fatal(err)
 	}
@@ -536,6 +541,7 @@ func TestConnectorConnectionViewsUseLocalReleaseOverrideForWorkspaceFlow(t *test
 	archive := connectorUITestArchive(t, "index.html", []byte("<main>Slack</main>"))
 	release := connectorTestRelease(releaseIdentity, archive, connectorUIHostAPIRange)
 	release.Manifest.Spec.Provider = "slack"
+	release.Manifest.Metadata.DisplayName = "Slack"
 	overrideDirectory := connectorLocalReleaseTestDirectory(t, release, archive)
 	flowIdentity := connectorDefinitionIdentity{
 		ConnectorID: "slack", OperationID: "postMessage", OperationKind: "mutation",
@@ -564,8 +570,60 @@ func TestConnectorConnectionViewsUseLocalReleaseOverrideForWorkspaceFlow(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(views) != 1 || views[0].Status != "Ready" || !views[0].LocalOverride || views[0].ModuleVersion != "v0.7.0" {
+	if len(views) != 1 || views[0].Status != "Ready" || !views[0].LocalOverride || views[0].ModuleVersion != "v0.7.0" ||
+		views[0].DisplayName != "Slack" {
 		t.Fatalf("Connector views = %+v", views)
+	}
+}
+
+func TestConnectorConnectionListCarriesReleaseDisplayNamesAndOmitsUnresolvedOnes(t *testing.T) {
+	gmail := connectorDefinitionIdentity{
+		ConnectorID: "gmail", OperationID: "sendMessage", OperationKind: "mutation", ConnectionName: "sender",
+		ModulePath: "github.com/superdurable/dex-connectors-library/connectors/google/gmail", ModuleVersion: "v0.1.1",
+		ConfigurationEnabled: true,
+	}
+	stripe := connectorDefinitionIdentity{
+		ConnectorID: "stripe", OperationID: "createRefund", OperationKind: "mutation", ConnectionName: "payments",
+		ModulePath: "github.com/superdurable/dex-connectors-library/connectors/stripe", ModuleVersion: "v0.3.0",
+		ConfigurationEnabled: true,
+	}
+	archive := connectorUITestArchive(t, "index.html", []byte("<main>Gmail</main>"))
+	metadata, err := json.Marshal(connectorTestRelease(gmail, archive, connectorUIHostAPIRange))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gmailReleases := connectorReleaseTestServer(t, metadata, archive)
+	defer gmailReleases.Close()
+	releases := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if !strings.Contains(request.URL.Path, "/connectors/google/gmail/v0.1.1/") {
+			http.NotFound(response, request)
+			return
+		}
+		gmailReleases.Config.Handler.ServeHTTP(response, request)
+	}))
+	defer releases.Close()
+	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{gmail, stripe}))
+	setup.releases.baseURL = releases.URL
+	setup.releases.httpClient = releases.Client()
+	mux := http.NewServeMux()
+	setup.registerHandlers(mux)
+
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v2/connector-connections", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("list status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var list struct {
+		Connections []map[string]any `json:"connections"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &list); err != nil || len(list.Connections) != 2 {
+		t.Fatalf("list = %s, err = %v", recorder.Body.String(), err)
+	}
+	if list.Connections[0]["connectorId"] != "gmail" || list.Connections[0]["displayName"] != "Gmail" {
+		t.Fatalf("resolved connection view = %+v", list.Connections[0])
+	}
+	if _, hasDisplayName := list.Connections[1]["displayName"]; list.Connections[1]["connectorId"] != "stripe" || hasDisplayName {
+		t.Fatalf("unresolved connection view = %+v", list.Connections[1])
 	}
 }
 

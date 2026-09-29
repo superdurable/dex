@@ -230,6 +230,50 @@ func TestHostedConnectorSetupAllowsBlobStoreAndHidesLocalPaths(t *testing.T) {
 	}
 }
 
+func TestHostedConnectorConnectionListCarriesReleaseDisplayName(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		writeWebJSON(response, http.StatusOK, hostedConnectorConfigurationSnapshot{
+			ConfigurationRevision: "revision-ready", Connections: []storedConnectorConnection{},
+		})
+	}))
+	defer backend.Close()
+	identity := connectorDefinitionIdentity{
+		ConnectorID: "gmail", OperationID: "sendMessage", OperationKind: "mutation", ConnectionName: "sender",
+		ModulePath: "github.com/superdurable/dex-connectors-library/connectors/google/gmail", ModuleVersion: "v0.1.1",
+		ConfigurationEnabled: true,
+	}
+	setup, err := newConnectorSetup(&Config{
+		BindAddress: "0.0.0.0", FlowRenderingSource: FlowRenderingSourceBlobStore,
+		WorkQueuePermissionMode: api.V2PermissionModeTrustedHeader, TrustForwardedEmbeddingHeaders: true,
+		ConnectorSetupEnabled: true, ConnectorSetupMode: ConnectorSetupModeHosted,
+		ConnectorCacheDirectory: t.TempDir(), ConnectorHostedBaseURL: backend.URL,
+		ConnectorHostedProjectID: "project-1", ConnectorHostedEnvironment: "production",
+		ConnectorHostedReleaseID:    "release-1",
+		ConnectorHostedServiceToken: "backend-token",
+	}, connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{identity}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := connectorUITestArchive(t, "index.html", []byte("<main>Gmail</main>"))
+	metadata, err := json.Marshal(connectorTestRelease(identity, archive, connectorUIHostAPIRange))
+	if err != nil {
+		t.Fatal(err)
+	}
+	releases := connectorReleaseTestServer(t, metadata, archive)
+	defer releases.Close()
+	setup.releases.baseURL = releases.URL
+	setup.releases.httpClient = releases.Client()
+	recorder := httptest.NewRecorder()
+	setup.handleListConnections(recorder, httptest.NewRequest(http.MethodGet, "/api/v2/connector-connections", nil))
+	var result connectorConnectionListResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil || recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s, err = %v", recorder.Code, recorder.Body.String(), err)
+	}
+	if len(result.Connections) != 1 || result.Connections[0].DisplayName != "Gmail" || result.Connections[0].Status != "Missing" {
+		t.Fatalf("hosted connections = %+v", result.Connections)
+	}
+}
+
 func TestHostedConnectorConfigurationConflictIsSafe(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method == http.MethodGet {

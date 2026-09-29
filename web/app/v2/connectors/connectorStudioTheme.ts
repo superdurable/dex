@@ -108,11 +108,19 @@ export function buildConnectorStudioThemeTokens(readDexWebToken: (dexWebToken: s
   return themeTokens;
 }
 
-/** Returns the Studio theme tokens resolved from the Dex Web v2 light ramps, whatever theme the document paints. */
-export function readConnectorStudioLightThemeTokens(): Record<string, string> {
-  // Connections renders outside .v2-shell; a hidden light-themed probe resolves the v2 light ramps.
+/** Returns the appearance a connector.host.ready message sends for a frame painted in theme. */
+export function connectorStudioFrameAppearance(theme: Theme): ConnectorStudioFrameAppearance {
+  return { theme, themeTokens: readConnectorStudioThemeTokens(theme), stylesheet: connectorStudioStylesheet };
+}
+
+/**
+ * Returns the Studio theme tokens resolved from the Dex Web v2 ramps of theme.
+ * The document must paint the same theme, because the light ramps match any light-themed ancestor.
+ */
+export function readConnectorStudioThemeTokens(theme: Theme): Record<string, string> {
+  // A hidden probe themed like the frame resolves the v2 ramps of that theme, wherever the frame renders.
   const probeTheme = document.createElement('div');
-  probeTheme.dataset.theme = 'light';
+  probeTheme.dataset.theme = theme;
   probeTheme.hidden = true;
   const probe = document.createElement('div');
   probe.className = 'v2-shell';

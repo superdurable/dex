@@ -18,10 +18,11 @@ API。
 dexcli dev --flow-rendering-dir ./build
 ```
 
-打开 **/v2/connections** 的 **Connections** 页面。Dex Web 按 Connector ID 和
-connection name 对 Step 与 Trigger binding 分组，并显示 Flow、Step、operation、
-binding、精确 module version，以及 **Missing**、**Ready**、**Expired**、
-**Conflict** 或 **Unsupported** 状态。
+打开 **/v2/connectors** 的 **Connectors** 页面。Dex Web 按 Connector ID 和
+connection name 对 Step 与 Trigger binding 分组。侧栏用 Connector release 的
+display name（例如 **LLM**）列出每个分组，并在下方显示 connection name。每个
+分组显示 Flow、Step、operation、binding、精确 module version，以及
+**Missing**、**Ready**、**Expired**、**Conflict** 或 **Unsupported** 状态。
 
 自动配置要求使用 operation-specific 的 Connector 生成工厂或 Trigger-binding
 definition、编译期可确定的 connection name 和 binding name，以及精确的已发布
@@ -39,8 +40,8 @@ dexcli dev \
   --connector-config-dir ./local-dex-secrets
 ```
 
-Dex 会把目录解析为绝对路径。Connections 页面会显示目录和最终 JSON 路径。
-多个本地 stack 默认共享同一个文件；如果不能共享账号，应为每个 stack 指定
+Dex 会把目录解析为绝对路径。Connectors 页面的 **Local store** 区域会显示目录和
+其中的 JSON 文件，**Copy** 会复制文件的绝对路径。多个本地 stack 默认共享同一个文件；如果不能共享账号，应为每个 stack 指定
 不同目录。
 
 Dex 以 **0700** 创建目录，以 **0600** 创建文件。Symlink 文件、非普通文件和

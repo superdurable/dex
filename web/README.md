@@ -124,11 +124,26 @@ around that proxy.
 Dex does not expose an `/api/v2/access` endpoint; hosted identity and role
 resolution stay in the reverse proxy and hosting control plane.
 
-The local v2 Connections page is available at `/v2/connections` when Dex Web
+The local v2 Connectors page is available at `/v2/connectors` when Dex Web
 runs through loopback-bound `dexcli dev` with a local Flow Definition source.
-It groups Connector Steps by Connector ID and static connection name, resolves
-the exact official Connector release declared by the graph, verifies release
-and Studio UI checksums, and loads UI bundles in opaque-origin sandbox iframes.
+`/v2/connections` redirects there and keeps its sub-path, query, and hash.
+The page uses the Run and Work Queue layout: a resizable
+sidebar lists the named connections, and the selected one's setup fills the
+main panel. The sidebar's **Local store** zone shows the store directory, the
+file names inside it, and the launch command, with **Copy** buttons that copy
+the absolute values. In hosted mode the zone shows the configuration status and
+revisions instead. The page follows the Dex Web theme.
+
+The page groups Connector Steps by Connector ID and static connection name,
+resolves the exact official Connector release declared by the graph, verifies
+release and Studio UI checksums, and loads UI bundles in opaque-origin sandbox
+iframes. Each connection view in `GET /api/v2/connector-connections` carries
+`displayName`, the release manifest's `metadata.displayName`, from a local
+override or a verified official release in local and hosted mode. Verified
+release metadata is cached in memory for the process, and the list waits at
+most five seconds for uncached metadata. Without release metadata the field is
+omitted, and the page names the Connector by its ID. The connection name is
+shown beside it as **Connection** *name*.
 Without a Studio bundle, it renders the manifest fields directly. The generic
 form renders a connector-owned authorization guide with an external provider
 link and ordered setup steps. Fields that require user input appear first. Fields
@@ -141,7 +156,7 @@ During Connector development, the repeatable
 `--connector-release-override connector-id=artifact-directory` flag on
 `dexcli dev` can replace release resolution for selected Connector IDs. This
 allows Flow graphs produced from `go.work` modules to use the local release
-metadata and Studio UI. Connections labels these sessions as **Local
+metadata and Studio UI. Connectors labels these sessions as **Local
 override**. Overrides are accepted only by loopback local Connector setup and
 retain the normal metadata, checksum, Host API, and safe-archive validation.
 
@@ -197,13 +212,17 @@ with the new value, and every stored credential field of the selected methods
 in `keepCredentialFields`.
 
 The `connector.host.ready` message also carries three optional fields. `theme` is
-the theme the frame paints, `light` or `dark`. The Connections page has no dark
-theme yet, so Dex Web always sends `light`. It also sets the iframe element's
+the theme the frame paints, `light` or `dark`. Dex Web sends the theme the page
+paints. When the Dex Web theme changes, it sends every loaded frame a new ready
+message, and the bundle repaints in place. It also sets the iframe element's
 `color-scheme` to the same theme, because a frame whose scheme differs from its
 element gets an opaque canvas. `themeTokens` is a flat map from `--studio-*` CSS
 custom property names to values. Dex Web reads each value from an allowlisted
-v2 token in `app/v2/css/tokens.css`, resolved from the light ramps, so a Dex Web
-restyle reaches every bundle without a Connector release.
+v2 token in `app/v2/css/tokens.css`, resolved from the ramps of the sent theme,
+so a Dex Web restyle reaches every bundle without a Connector release. The
+`:root` and `:root[data-theme='dark']` defaults in the stylesheet below match
+those light and dark ramps, and `connectorStudioTheme.test.ts` checks that they
+stay equal.
 
 Each value must match one grammar, which `sdk/react` in dex-connectors-library
 applies too:
@@ -228,7 +247,7 @@ property.
 
 `stylesheet` is the whole Connector Studio stylesheet: layout, spacing,
 component rules, and the default token values for `light` and `dark`. Its only
-source is `app/v2/connections/connectorStudio.css`. Dex Web imports that file as
+source is `app/v2/connectors/connectorStudio.css`. Dex Web imports that file as
 text with Vite's `?raw` suffix, removes its comments, and sends the result in
 every ready message along with `theme` and `themeTokens`. A bundle built with
 `sdk/react` replaces its compiled `connectorStudioStyles` with this text and
@@ -334,9 +353,9 @@ The page displays the exact OAuth Redirect URI before authorization. A release
 may derive required non-secret credentials from a declared HTTPS identity
 endpoint; Dex accepts a derived claim only after any declared boolean
 verification claim is true, and does not render a duplicate input.
-The page displays the absolute JSON path and the
-`DEX_CONNECTOR_CONFIG_FILE=... <your-app-command>` launch command. It never
-returns credential values. Deleting a local credential does not revoke the
+The **Local store** zone shows the JSON file inside the store directory and
+the `DEX_CONNECTOR_CONFIG_FILE=... <your-app-command>` launch command, and
+**Copy** copies each absolute value. It never returns credential values. Deleting a local credential does not revoke the
 provider grant.
 
 Trigger-binding configuration remains in `connections.json`. Connector Step
@@ -346,9 +365,9 @@ type, and Step type. Writes accept only JSON Pointer paths declared by the
 Flow definition. Applications load both files as a startup snapshot through
 the Connector SDK; changing configuration requires an application restart.
 
-### Hosted Connections
+### Hosted Connectors
 
-Hosted mode keeps the release-verified Connections UI while delegating
+Hosted mode keeps the release-verified Connectors UI while delegating
 configuration persistence to a trusted Control Plane API. Each Dex Server is
 fixed to one project and environment at startup. Browser requests cannot
 provide or override that scope, and hosted responses omit local paths, object

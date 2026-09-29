@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Link, Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AppHeader } from './components/AppHeader';
 import { DebugWorkspace } from './v2/debug/DebugWorkspace';
 import { CurrentRunRedirect } from './flows/CurrentRunRedirect';
@@ -18,7 +18,8 @@ import { ThemeProvider } from './theme';
 import { WorkQueueWorkspace } from './v2/work-queue/WorkQueueWorkspace';
 import { HomePage, RunWorkspace } from './v2/RunWorkspace';
 import { WebCatalogProvider } from './v2/WebCatalogProvider';
-import { ConnectionsPage } from './v2/connections/ConnectionsPage';
+import { ConnectorsPage } from './v2/connectors/ConnectorsPage';
+import { LEGACY_CONNECTORS_PATH, legacyConnectorsRedirectPath, v2ConnectorsPath } from './v2/contract';
 
 export function App() {
   return (
@@ -38,7 +39,8 @@ export function App() {
               <Route path="/v2/work-queue" element={<WorkQueueWorkspace />} />
               <Route path="/v2/work-queue/:flowType" element={<WorkQueueWorkspace />} />
               <Route path="/v2/work-queue/:flowType/:flowId" element={<WorkQueueWorkspace />} />
-              <Route path="/v2/connections" element={<ConnectionsPage />} />
+              <Route path={v2ConnectorsPath()} element={<ConnectorsPage />} />
+              <Route path={`${LEGACY_CONNECTORS_PATH}/*`} element={<LegacyConnectorsRedirect />} />
               <Route path="/v1" element={<Navigate to="/v1/flows" replace />} />
               <Route path="/v1/flows" element={<FlowSearchPage />} />
               <Route path="/v1/rendering" element={<FlowRenderingPage />} />
@@ -51,6 +53,10 @@ export function App() {
       </ThemeProvider>
     </PreferencesProvider>
   );
+}
+
+function LegacyConnectorsRedirect() {
+  return <Navigate to={legacyConnectorsRedirectPath(useLocation())} replace />;
 }
 
 function CurrentFlowRoute() {

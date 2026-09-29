@@ -1,0 +1,538 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+/* The Connectors page reuses the Run and Work Queue workspace classes; these rules cover only what they lack. */
+
+/* ---------------------------------------------------------------- sidebar */
+
+.v2-connectors .connector-row {
+  align-items: center;
+}
+
+.connector-status {
+  justify-self: end;
+  padding: 0 6px;
+  border: 1px solid var(--p-line);
+  border-radius: var(--r-sm);
+  background: var(--p-surface-2);
+  color: var(--p-ink-2);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.connector-status[data-status='ready'] {
+  border-color: transparent;
+  background: var(--color-done-subtle);
+  color: var(--color-done-ink);
+}
+
+.connector-status[data-status='expired'],
+.connector-status[data-status='conflict'],
+.connector-status[data-status='reauthorization required'] {
+  border-color: transparent;
+  background: var(--color-attention-subtle);
+  color: var(--color-attention-ink);
+}
+
+.connector-status[data-status='unsupported'] {
+  background: transparent;
+  color: var(--p-ink-3);
+}
+
+.connector-store {
+  display: grid;
+  gap: 7px;
+  margin: 0 0 7px;
+}
+
+.connector-store-entry {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.connector-store-entry dt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 18px;
+}
+
+.connector-store-entry .rsq-label {
+  margin-bottom: 0;
+}
+
+.connector-store-entry dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.connector-store-entry code,
+.connector-copy-value code {
+  color: var(--p-ink-1);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/* Paths have no word boundaries worth keeping; filling each line keeps the zone short. */
+.connector-store-entry code {
+  word-break: break-all;
+}
+
+.v2-connectors .connector-copy {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.connector-setup-tabs {
+  display: grid;
+  gap: 1px;
+  padding: 2px 0 8px 10px;
+}
+
+.connector-setup-tab {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 4px 8px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--p-ink-1);
+  text-align: left;
+}
+
+.connector-setup-tab:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.connector-setup-tab[aria-selected='true'] {
+  border-left-color: var(--p-run-active);
+  background: var(--p-surface-3);
+  color: var(--p-ink-0);
+}
+
+.connector-setup-tab[data-configured='true'] .apg-mark {
+  border-color: var(--p-run-done);
+  color: var(--p-run-done);
+}
+
+.connector-setup-tab-copy {
+  display: grid;
+  min-width: 0;
+}
+
+.connector-setup-tab-copy b,
+.connector-setup-tab-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connector-setup-tab-copy b {
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.connector-setup-tab-copy small {
+  color: var(--p-ink-3);
+  font-size: 10px;
+}
+
+.v2-connectors .rsw-row:focus-visible,
+.connector-setup-tab:focus-visible,
+.connector-add-auth-method-menu button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ------------------------------------------------------------ main panel */
+
+.v2-connectors .sc-head h2 {
+  margin: 0;
+}
+
+.v2-connectors .sc > .v2-error {
+  margin: 12px 0 0;
+}
+
+.connector-notice {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: var(--r);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.connector-notice[data-tone='attention'] {
+  border-color: var(--color-attention-rule);
+  background: var(--color-attention-subtle);
+  color: var(--color-attention-ink);
+}
+
+.connector-notice[data-tone='done'] {
+  border-color: var(--color-done-rule);
+  background: var(--color-done-subtle);
+  color: var(--color-done-ink);
+}
+
+.connector-authorization-summary,
+.connector-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.connector-authorization-summary > .sc-block,
+.connector-form > .sc-block {
+  margin-top: 0;
+}
+
+.connector-authorization-complete {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin: 0;
+}
+
+.connector-authorization-complete .apg-mark {
+  border-color: var(--color-done-ink);
+  color: var(--color-done-ink);
+}
+
+.connector-authorization-complete h3 {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.connector-authorization-complete p {
+  margin: 2px 0 0;
+  color: var(--p-ink-1);
+  font-size: 11.5px;
+}
+
+.connector-connection-settings,
+.connector-field-group,
+.connector-auth-methods,
+.connector-auth-method-cards {
+  display: grid;
+  gap: 10px;
+}
+
+.connector-form fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.connector-form legend {
+  padding: 0;
+}
+
+.connector-field-group[data-optional='true'] {
+  padding-top: 12px;
+  border-top: 1px solid var(--p-line-soft);
+}
+
+.connector-field,
+.connector-field label,
+.connector-studio-field {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.connector-field-default {
+  font-style: italic;
+}
+
+.v2-connectors .sc-why a,
+.connector-authorization-guide a {
+  color: var(--color-accent);
+  overflow-wrap: anywhere;
+}
+
+.v2-connectors .v2-case input:focus-visible {
+  border-color: var(--color-focus);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.v2-connectors .v2-case input[type='radio'] {
+  width: auto;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: var(--color-cta);
+}
+
+/* Radio cards: the chosen method reads like a selected run row, raised and ruled darker. */
+.connector-option {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 8px 10px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: var(--r);
+  background: var(--p-surface-2);
+  cursor: pointer;
+}
+
+.connector-option:hover {
+  border-color: var(--p-line);
+}
+
+.connector-option:has(input:checked) {
+  border-color: var(--p-ink-2);
+  background: var(--p-surface-3);
+}
+
+.connector-option:focus-within {
+  box-shadow: var(--focus-ring);
+}
+
+.connector-option > span,
+.connector-auth-method-card > header > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.connector-option b,
+.connector-auth-method-card b {
+  color: var(--p-ink-0);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.connector-option em {
+  color: var(--color-accent);
+  font-size: 9.5px;
+  font-style: normal;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.connector-option small,
+.connector-auth-method-card > header small {
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+.connector-auth-method-cards-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.connector-auth-method-cards-header .sc-blockhead {
+  margin: 0;
+}
+
+.connector-auth-method-card {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: var(--r);
+  background: var(--p-surface-2);
+}
+
+.connector-auth-method-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.connector-add-auth-method {
+  position: relative;
+}
+
+.connector-add-auth-method-menu {
+  position: absolute;
+  z-index: var(--z-popover);
+  right: 0;
+  display: grid;
+  gap: 1px;
+  width: max-content;
+  min-width: 14rem;
+  max-width: 22rem;
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid var(--p-line);
+  border-radius: var(--r);
+  background: var(--p-surface-2);
+  box-shadow: var(--shadow-pop);
+}
+
+.connector-add-auth-method-menu button {
+  display: grid;
+  gap: 1px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--p-ink-0);
+  text-align: left;
+}
+
+.connector-add-auth-method-menu button:hover,
+.connector-add-auth-method-menu button:focus-visible {
+  background: var(--p-surface-3);
+}
+
+.connector-add-auth-method-menu b {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.connector-add-auth-method-menu small {
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+}
+
+.connector-authorization-guide {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: var(--r);
+  background: var(--p-surface-1);
+  color: var(--p-ink-1);
+  font-size: 12px;
+}
+
+.connector-authorization-guide .rsw-zonehead,
+.connector-authorization-guide p,
+.connector-authorization-guide ol {
+  margin: 0;
+}
+
+.connector-authorization-guide ol {
+  display: grid;
+  gap: 3px;
+  padding-left: 18px;
+  font-size: 11.5px;
+}
+
+.connector-redirect-uri {
+  display: grid;
+  gap: 3px;
+  padding-top: 4px;
+}
+
+.connector-copy-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.connector-studio-field-note {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px dashed var(--p-line);
+  border-radius: 5px;
+  color: var(--p-ink-2);
+  font-size: 12px;
+}
+
+.connector-studio-field-note code {
+  font-family: var(--font-mono);
+}
+
+.connector-use .scx-step {
+  margin: 0;
+  font-weight: 600;
+}
+
+.connector-use .scx-facts {
+  margin: 6px 0 12px;
+}
+
+.connector-use-units {
+  display: grid;
+  gap: 12px;
+}
+
+.connector-studio-shell {
+  display: grid;
+  gap: 6px;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.connector-studio-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Borderless: the Studio surface draws its own card from the same tokens. */
+.connector-studio {
+  width: 100%;
+  height: clamp(36rem, 70vh, 60rem);
+  border: 0;
+  border-radius: var(--r-lg);
+  background: transparent;
+}
+
+.connector-studio-shell[data-surface='configurationUnit'] .connector-studio,
+.connector-studio-shell[data-surface='connectionField'] .connector-studio {
+  height: 15rem;
+}
+
+.connector-studio-shell[data-expanded='true'] {
+  position: fixed;
+  z-index: var(--z-popover);
+  inset: 20px;
+  padding: 12px;
+  overflow: hidden;
+  border: 1px solid var(--p-line);
+  border-radius: var(--r-lg);
+  background: var(--p-surface-1);
+  box-shadow: var(--shadow-pop);
+}
+
+.connector-studio-shell[data-expanded='true'] .connector-studio {
+  height: 100%;
+}
+
+.connector-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.connector-connection-footer {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--p-line-soft);
+}
+
+.connector-connection-footer .rhd-stop {
+  margin-top: 0;
+  background: transparent;
+}

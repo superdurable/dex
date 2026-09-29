@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -54,6 +55,51 @@ func TestConnectorReleaseResolverVerifiesAndCachesUI(t *testing.T) {
 	}
 	if string(contents) != "<main>Gmail</main>" {
 		t.Fatalf("cached entrypoint = %q", contents)
+	}
+}
+
+func TestConnectorReleaseResolverDownloadsVerifiedMetadataOnce(t *testing.T) {
+	identity := connectorDefinitionIdentity{
+		ConnectorID: "gmail", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/google/gmail",
+		ModuleVersion: "v0.1.1", ConnectionName: "sender", ConfigurationEnabled: true,
+	}
+	archive := connectorUITestArchive(t, "index.html", []byte("<main>Gmail</main>"))
+	metadata, err := json.Marshal(connectorTestRelease(identity, archive, connectorUIHostAPIRange))
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseServer := connectorReleaseTestServer(t, metadata, archive)
+	defer releaseServer.Close()
+	var downloadsMu sync.Mutex
+	downloads := map[string]int{}
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		downloadsMu.Lock()
+		downloads[filepath.Base(request.URL.Path)]++
+		downloadsMu.Unlock()
+		releaseServer.Config.Handler.ServeHTTP(response, request)
+	}))
+	defer server.Close()
+	resolver := &connectorReleaseResolver{
+		baseURL: server.URL, artifactRoot: filepath.Join(t.TempDir(), "artifacts"), httpClient: server.Client(),
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		release, err := resolver.releaseMetadata(context.Background(), identity)
+		if err != nil || release.Manifest.Metadata.DisplayName != "Gmail" {
+			t.Fatalf("release metadata = %+v, err = %v", release.Manifest.Metadata, err)
+		}
+	}
+	if _, err := resolver.resolve(context.Background(), identity); err != nil {
+		t.Fatal(err)
+	}
+	downloadsMu.Lock()
+	defer downloadsMu.Unlock()
+	if downloads[connectorReleaseDigestName] != 1 || downloads[connectorReleaseMetadataName] != 1 || downloads["connector-ui.tgz"] != 1 {
+		t.Fatalf("downloads = %v", downloads)
+	}
+	unofficial := identity
+	unofficial.ModulePath = "example.com/connectors/gmail"
+	if _, err := resolver.releaseMetadata(context.Background(), unofficial); err == nil {
+		t.Fatal("unofficial Connector module resolved")
 	}
 }
 

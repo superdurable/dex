@@ -9,6 +9,7 @@
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import { Link } from 'react-router-dom';
 import type { FlowSummary } from '@/lib/types';
+import { v2ConnectorsPath } from '../contract';
 import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { RUN_COPY } from './copy';
 import { RunHeader } from './RunHeader';
@@ -126,7 +127,7 @@ function StepContextBlock({ view }: { view: StepContextView }) {
         <span>{view.connector.operationId} · {view.connector.operationKind}</span>
         <span>Connection: {view.connector.connectionName || 'Unnamed'}</span>
         <span>Version: {view.connector.moduleVersion || 'Unsupported'}</span>
-        <Link to="/v2/connections">Configure connection</Link>
+        <Link to={v2ConnectorsPath()}>Configure connection</Link>
       </div>}
       <dl className="scx-facts">
         {view.facts.map((fact) => (

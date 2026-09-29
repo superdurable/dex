@@ -28,6 +28,9 @@ import (
 
 const connectorCSRFHeader = "X-Dex-CSRF-Token"
 
+// connectorDisplayNameTimeout bounds how long a connection list waits for uncached release metadata.
+const connectorDisplayNameTimeout = 5 * time.Second
+
 type connectorSetup struct {
 	mode               string
 	store              connectorConfigurationStore
@@ -99,6 +102,7 @@ type connectorDefinitionIdentity struct {
 
 type connectorConnectionView struct {
 	ConnectorID            string                          `json:"connectorId"`
+	DisplayName            string                          `json:"displayName,omitempty"`
 	AuthMethodID           string                          `json:"authMethodId,omitempty"`
 	AuthMethodIDs          []string                        `json:"authMethodIds,omitempty"`
 	ConnectionName         string                          `json:"connectionName"`
@@ -635,6 +639,7 @@ func (setup *connectorSetup) connectionViews(ctx context.Context) ([]connectorCo
 	if err != nil {
 		return nil, "", err
 	}
+	setup.applyConnectorDisplayNames(ctx, views)
 	for viewIndex := range views {
 		useConfigurations, loadErr := setup.store.listUseConfigurations(views[viewIndex].ConnectorID, views[viewIndex].ConnectionName)
 		if loadErr != nil {
@@ -670,6 +675,30 @@ func (setup *connectorSetup) connectionViews(ctx context.Context) ([]connectorCo
 		}
 	}
 	return views, snapshot.DefinitionRevision, nil
+}
+
+// applyConnectorDisplayNames resolves every view's release metadata concurrently, bounded by one timeout.
+func (setup *connectorSetup) applyConnectorDisplayNames(ctx context.Context, views []connectorConnectionView) {
+	ctx, cancel := context.WithTimeout(ctx, connectorDisplayNameTimeout)
+	defer cancel()
+	var wg sync.WaitGroup
+	for viewIndex := range views {
+		wg.Add(1)
+		go setup.applyConnectorDisplayName(ctx, &views[viewIndex], &wg)
+	}
+	wg.Wait()
+}
+
+func (setup *connectorSetup) applyConnectorDisplayName(ctx context.Context, view *connectorConnectionView, wg *sync.WaitGroup) {
+	defer wg.Done()
+	release, err := setup.releases.releaseMetadata(ctx, connectorDefinitionIdentity{
+		ConnectorID: view.ConnectorID, ModulePath: view.ModulePath, ModuleVersion: view.ModuleVersion,
+	})
+	if err != nil {
+		// The name is presentational: the page shows the Connector ID, and opening the connection reports the error.
+		return
+	}
+	view.DisplayName = strings.TrimSpace(release.Manifest.Metadata.DisplayName)
 }
 
 func connectorViewsFromCatalog(

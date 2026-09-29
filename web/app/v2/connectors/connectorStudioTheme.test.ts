@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import connectorStudioStylesheetSource from './connectorStudio.css?raw';
 import {
@@ -352,6 +353,37 @@ describe('Connector Studio stylesheet', () => {
     const rootDeclarations = rules.filter((rule) => rule.selectors.includes(':root')).flatMap((rule) => rule.declarations);
     const declaredTokens = rootDeclarations.map((declaration) => declaration.property).filter((property) => property.startsWith('--studio-'));
     expect(declaredTokens).toEqual(connectorStudioThemeTokenSources.map((source) => source.studioToken));
+  });
+
+  it('defaults both Studio themes to the Dex Web v2 ramps the host sends for them', () => {
+    const tokensSource = readFileSync(new URL('../css/tokens.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const blocks = [...tokensSource.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
+      selector: match[1].trim(),
+      declarations: Object.fromEntries(match[2].split(';').map((declaration) => declaration.trim()).filter(Boolean)
+        .map((declaration) => [declaration.slice(0, declaration.indexOf(':')).trim(), declaration.slice(declaration.indexOf(':') + 1).trim()])),
+    }));
+    const darkRamps = Object.assign({}, ...blocks.filter((block) => block.selector === '.v2-shell').map((block) => block.declarations));
+    const lightRamps = { ...darkRamps, ...blocks.find((block) => block.selector === "[data-theme='light'] .v2-shell")?.declarations };
+    const resolveRamp = (ramps: Record<string, string>) => (token: string): string => {
+      const value = ramps[token] ?? '';
+      const reference = /^var\((--[a-z0-9-]+)\)$/.exec(value);
+      return reference ? resolveRamp(ramps)(reference[1]) : value;
+    };
+    const studioDefaults = (selector: string) => Object.fromEntries(rules.filter((rule) => rule.selectors.includes(selector))
+      .flatMap((rule) => rule.declarations).filter(({ property }) => property.startsWith('--studio-'))
+      .map(({ property, value }) => [property, value]));
+
+    const lightTokens = buildConnectorStudioThemeTokens(resolveRamp(lightRamps));
+    expect(Object.keys(lightTokens)).toHaveLength(connectorStudioThemeTokenSources.length);
+    expect(studioDefaults(':root')).toEqual(lightTokens);
+    const darkTokens = buildConnectorStudioThemeTokens(resolveRamp(darkRamps));
+    const darkColorTokens = connectorStudioThemeTokenSources
+      .filter((source) => source.kind === 'color' || source.kind === 'focusRing')
+      .map((source) => source.studioToken);
+    expect(studioDefaults(":root[data-theme='dark']")).toEqual(
+      Object.fromEntries(darkColorTokens.map((token) => [token, darkTokens[token]])),
+    );
+    expect(darkTokens['--studio-surface-page']).not.toBe(lightTokens['--studio-surface-page']);
   });
 
   it('styles exactly the studio-* class contract shared with sdk/react', () => {

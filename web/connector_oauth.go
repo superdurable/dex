@@ -208,7 +208,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 			writeConnectorConfigurationStoreError(response, err, "CONNECTOR_OAUTH_CALLBACK_FAILED", "Connector OAuth callback could not be completed")
 			return
 		}
-		location := webPathFromContext(request.Context(), "/v2/connections") +
+		location := webPathFromContext(request.Context(), "/v2/connectors") +
 			"?oauth=success&connectorId=" + url.QueryEscape(result.ConnectorID) +
 			"&connectionName=" + url.QueryEscape(result.ConnectionName)
 		http.Redirect(response, request, location, http.StatusSeeOther)
@@ -332,7 +332,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
 		return
 	}
-	location := webPathFromContext(request.Context(), "/v2/connections") +
+	location := webPathFromContext(request.Context(), "/v2/connectors") +
 		"?oauth=success&connectorId=" + url.QueryEscape(connection.ConnectorID) +
 		"&connectionName=" + url.QueryEscape(connection.ConnectionName)
 	http.Redirect(response, request, location, http.StatusSeeOther)

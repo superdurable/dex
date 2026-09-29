@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 
 export type ThemeChoice = 'light' | 'dark' | 'system';
@@ -69,7 +69,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // v1 never finished dark mode; keep its chrome on the light paper regardless of the stored choice.
   const applied = isV2Path(location.pathname) ? theme : 'light';
 
-  useEffect(() => {
+  // A layout effect, so passive effects such as Studio frame theming read the new ramps.
+  useLayoutEffect(() => {
     writeDocumentTheme(applied);
   }, [applied]);
 

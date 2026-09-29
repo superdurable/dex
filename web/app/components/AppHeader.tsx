@@ -9,15 +9,15 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { isEmbedded } from '@/lib/webConfig';
 import { usePreferences } from '../providers';
-import { v2HomePath, v2ModePath, type V2Mode } from '../v2/contract';
+import { activeV2Mode, v2HomePath, v2ModePath, type V2Mode } from '../v2/contract';
 import { useWebCatalog } from '../v2/WebCatalogProvider';
 import { DexMark } from './DexMark';
 import { ThemeToggle } from './ThemeToggle';
 
-const V2_MODES: { mode: V2Mode; label: string }[] = [
+export const V2_MODES: { mode: V2Mode; label: string }[] = [
   { mode: 'run', label: 'Run' },
   { mode: 'work-queue', label: 'Work Queue' },
-  { mode: 'connections', label: 'Connections' },
+  { mode: 'connectors', label: 'Connectors' },
 ];
 
 export function AppHeader() {
@@ -27,9 +27,7 @@ export function AppHeader() {
   const location = useLocation();
   const navigate = useNavigate();
   const isV2 = location.pathname === '/v2' || location.pathname.startsWith('/v2/');
-  const activeMode: V2Mode = location.pathname.startsWith('/v2/work-queue')
-    ? 'work-queue'
-    : location.pathname.startsWith('/v2/connections') ? 'connections' : 'run';
+  const activeMode = activeV2Mode(location.pathname);
   // Absolute timestamps are a Deep Dive concern; the other views show relative or local time.
   const isDebug = location.pathname.includes('/debug');
   const home = canUseV2 && isV2 ? v2HomePath(canUseV2) : '/v1/flows';

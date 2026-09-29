@@ -6,19 +6,29 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState,
+  type CSSProperties, type FormEvent,
+} from 'react';
 import { readResponseJSON } from '@/lib/http';
 import { dexFetch } from '@/lib/webConfig';
-import type { Theme } from '../../theme';
+import { useTheme, type Theme } from '../../theme';
+import '../css/v2.css';
 import {
-  connectorStudioStylesheet,
-  readConnectorStudioLightThemeTokens,
+  LIST_WIDTH_DEFAULT,
+  LIST_WIDTH_KEY,
+  V2SplitHandle,
+  useCollapsibleColumn,
+} from '../V2SplitHandle';
+import {
+  connectorStudioFrameAppearance,
   type ConnectorStudioFrameAppearance,
 } from './connectorStudioTheme';
-import './connections.css';
+import { CONNECTORS_COPY } from './copy';
+import './connectors.css';
 
-// Connections has no dark theme yet, so every Studio frame paints light to match the page.
-const connectorStudioFrameTheme: Theme = 'light';
+/** The theme every Studio frame paints; the page provides the Dex Web theme. */
+export const ConnectorStudioFrameThemeContext = createContext<Theme>('light');
 
 type ConnectionStatus = 'Missing' | 'Ready' | 'Expired' | 'Conflict' | 'Unsupported' | 'Reauthorization required';
 
@@ -40,6 +50,8 @@ interface TriggerUse { flowName: string; triggerName: string; bindingName: strin
 
 interface ConnectionView {
   connectorId: string;
+  /** The release manifest metadata.displayName, absent when the release could not be resolved. */
+  displayName?: string;
   authMethodId?: string;
   authMethodIds?: string[];
   connectionName: string;
@@ -161,7 +173,12 @@ type ConnectorSetupTab =
   | {key: string; kind: 'operation'; label: string; detail: string; configured: boolean; use: ConnectionUse}
   | {key: string; kind: 'trigger'; label: string; detail: string; configured: boolean; use: TriggerUse};
 
-export function ConnectionsPage() {
+/**
+ * Named connections of every Connector the Flow definitions use, in the Run and Work Queue layout:
+ * the list in the sidebar, the selected connection's setup in the main panel.
+ */
+export function ConnectorsPage() {
+  const { theme } = useTheme();
   const [catalog, setCatalog] = useState<ConnectionsResponse | null>(null);
   const [selected, setSelected] = useState<ConnectionView | null>(null);
   const [session, setSession] = useState<UISessionResponse | null>(null);
@@ -169,6 +186,9 @@ export function ConnectionsPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const initializedSetupConnection = useRef('');
+  const shellRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const listPane = useCollapsibleColumn(LIST_WIDTH_KEY, LIST_WIDTH_DEFAULT);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const response = await dexFetch('/api/v2/connector-connections', { signal });
@@ -240,8 +260,10 @@ export function ConnectionsPage() {
     }
   };
 
-  if (error && !catalog) return <div className="connections-page"><div className="error-banner">{error}</div></div>;
-  if (!catalog) return <div className="page-loading">Loading Connections…</div>;
+  if (error && !catalog) {
+    return <div className="v2-shell v2-run v2-connectors"><p className="v2-empty v2-error" role="alert">{error}</p></div>;
+  }
+  if (!catalog) return <div className="page-loading">{CONNECTORS_COPY.loading}</div>;
   const setupTabs = selected && session ? connectorSetupTabs(selected, Boolean(session.entrypointUrl)) : [];
   const requestedSetupTab = setupTabs.find((tab) => tab.key === selectedSetupTabKey);
   const activeSetupTab = selected && setupTabs.length > 0
@@ -249,79 +271,174 @@ export function ConnectionsPage() {
       ? requestedSetupTab
       : setupTabs.find((tab) => tab.key === initialConnectorSetupTabKey(selected, Boolean(session?.entrypointUrl))) ?? setupTabs[0]
     : null;
+  const paneStyle = { '--v2-list-w': `${listPane.width}px` } as CSSProperties;
   return (
-    <div className="connections-page">
-      <header className="connections-hero">
-        <div><p className="connections-kicker">{catalog.mode === 'hosted' ? 'Hosted environment' : 'Local development'}</p><h1>Connections</h1></div>
-        {catalog.mode === 'hosted'
-          ? <div className="connections-paths">
-            <span>Configuration status</span><code>{catalog.configurationState || 'Draft'}</code>
-            <span>Draft revision</span><code>{catalog.configurationRevision || 'Not created'}</code>
-            <span>Application revision</span><code>{catalog.applicationRevision || 'Not deployed'}</code>
-          </div>
-          : <div className="connections-paths">
-            <span>Store directory</span><code>{catalog.directory}</code>
-            <span>Connection file</span>{catalog.filePath && <CopyValue value={catalog.filePath} />}
-            <span>Flow configuration file</span>{catalog.useConfigurationsFilePath && <CopyValue value={catalog.useConfigurationsFilePath} />}
-            <span>Start your app</span>{catalog.launchCommand && <CopyValue value={catalog.launchCommand} />}
-          </div>}
-      </header>
-      {error && <div className="error-banner">{error}</div>}
-      <div className="connections-layout">
-        <aside className="connections-list" aria-label="Named connections">
-          {catalog.connections.length === 0 && <p className="connections-empty">No configurable Connector Steps or Triggers were found.</p>}
-          {catalog.connections.map((connection) => {
-            const isSelected = selected ? connectionKey(connection) === connectionKey(selected) : false;
-            return <div className="connection-list-item" data-selected={isSelected} key={connectionKey(connection)}>
-              <button
-                className="connection-row"
-                data-selected={isSelected}
-                onClick={() => {
-                  setSelected(connection);
-                  setSelectedSetupTabKey('authorize');
-                }}
-                type="button"
-              >
-                <span><b>{connection.connectorId}</b><small>{connection.connectionName || 'Unnamed connection'}</small></span>
-                <Status status={connection.status} />
+    <ConnectorStudioFrameThemeContext.Provider value={theme}>
+      <div className="v2-shell v2-run v2-connectors" ref={shellRef} style={paneStyle}>
+        <div className="v2-run-body" ref={bodyRef}>
+          <aside aria-label={CONNECTORS_COPY.heading} className="rsw" data-collapsed={listPane.isCollapsed ? 'true' : undefined}>
+            {listPane.isCollapsed ? (
+              <button className="v2-rail" onClick={listPane.expand} title={CONNECTORS_COPY.expandList} type="button">
+                {CONNECTORS_COPY.heading}
               </button>
-              {isSelected && activeSetupTab && <ConnectorSetupNavigation
-                activeTab={activeSetupTab}
-                connection={connection}
-                onSelect={setSelectedSetupTabKey}
-                tabs={setupTabs}
-              />}
-            </div>;
-          })}
-        </aside>
-        <section className="connection-detail">
-          {!selected && <p>Select a named connection.</p>}
-          {selected && (
-            <>
-              <div className="connection-title">
-                <div><h2>{selected.connectorId} / {selected.connectionName || 'unnamed'}</h2><code>{selected.localOverride ? `Local override · ${selected.moduleVersion}` : selected.moduleVersion || 'No exact release'}</code></div>
-                <Status status={selected.status} />
+            ) : (
+              <>
+                <div className="sq-head">
+                  <span className="sq-title">{CONNECTORS_COPY.heading}</span>
+                  <span className="sq-live">{catalog.mode === 'hosted' ? CONNECTORS_COPY.hostedNote : CONNECTORS_COPY.localNote}</span>
+                </div>
+                <ConnectorStoreZone catalog={catalog} />
+                {catalog.connections.length === 0 && <p className="sq-state">{CONNECTORS_COPY.empty}</p>}
+                <div className="rsw-scroll" data-zone="list">
+                  <ul aria-label={CONNECTORS_COPY.listLabel} className="rsw-list">
+                    {catalog.connections.map((connection) => {
+                      const isSelected = selected ? connectionKey(connection) === connectionKey(selected) : false;
+                      return <li className="rsw-item" data-selected={isSelected ? 'true' : undefined} key={connectionKey(connection)}>
+                        <ConnectionRow
+                          connection={connection}
+                          isSelected={isSelected}
+                          onSelect={() => {
+                            setSelected(connection);
+                            setSelectedSetupTabKey('authorize');
+                          }}
+                        />
+                        {isSelected && activeSetupTab && <ConnectorSetupNavigation
+                          activeTab={activeSetupTab}
+                          connection={connection}
+                          onSelect={setSelectedSetupTabKey}
+                          tabs={setupTabs}
+                        />}
+                      </li>;
+                    })}
+                  </ul>
+                </div>
+              </>
+            )}
+          </aside>
+          <V2SplitHandle
+            axis="column"
+            cssVariable="--v2-list-w"
+            edge="end"
+            pane="list"
+            targetRef={shellRef}
+            measureRef={bodyRef}
+            value={listPane.width}
+            ariaLabel={CONNECTORS_COPY.resizeList}
+            onCommit={listPane.commit}
+            onToggle={listPane.isCollapsed ? listPane.expand : listPane.collapse}
+          />
+          <section aria-label={selected ? connectorDisplayName(selected) : CONNECTORS_COPY.heading} className="v2-work-queue-case">
+            {selected ? (
+              <div className="v2-case sc">
+                <ConnectionHeader connection={selected} />
+                {error && <p className="v2-error" role="alert">{error}</p>}
+                {selected.status === 'Conflict' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.conflict}</p>}
+                {selected.status === 'Unsupported' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.unsupported}</p>}
+                {selected.credentialExpiresAt && <p className="sc-state">Token expires <time>{selected.credentialExpiresAt}</time></p>}
+                {busy && <p className="sc-state" role="status">{CONNECTORS_COPY.loadingRelease}</p>}
+                {session && activeSetupTab && <ConnectorSetupPanel
+                  activeTab={activeSetupTab} catalog={catalog} connection={selected} session={session}
+                  onConfigured={load} onError={setError} onSelect={setSelectedSetupTabKey} setupTabs={setupTabs}
+                />}
+                <div className="sc-block connector-connection-footer">
+                  {selected.status !== 'Missing' && selected.status !== 'Unsupported' && selected.status !== 'Conflict' && (
+                    <button className="rhd-stop" disabled={busy} onClick={() => void deleteCredentials()} type="button">
+                      {connectionDeleteLabel(catalog.mode)}
+                    </button>
+                  )}
+                  <p className="sc-why">{connectorConfigurationEffectText(catalog.mode)}</p>
+                </div>
               </div>
-              {selected.status === 'Conflict' && <p className="connection-warning">The same connector and connection name use different module versions. Align the Flow dependencies before configuring.</p>}
-              {selected.status === 'Unsupported' && <p className="connection-warning">Automatic setup requires an exact official release and a static ConnectionName.</p>}
-              {selected.credentialExpiresAt && <p>Token expires: <time>{selected.credentialExpiresAt}</time></p>}
-              {busy && <p role="status">Loading Connector release…</p>}
-              {session && activeSetupTab && <ConnectorSetupPanel
-                activeTab={activeSetupTab} catalog={catalog} connection={selected} session={session}
-                onConfigured={load} onError={setError} onSelect={setSelectedSetupTabKey} setupTabs={setupTabs}
-              />}
-              {selected.status !== 'Missing' && selected.status !== 'Unsupported' && selected.status !== 'Conflict' && (
-                <button className="connection-delete" disabled={busy} onClick={() => void deleteCredentials()} type="button">
-                  {connectionDeleteLabel(catalog.mode)}
-                </button>
-              )}
-              <p className="connections-note">{connectorConfigurationEffectText(catalog.mode)}</p>
-            </>
-          )}
-        </section>
+            ) : (
+              <>
+                {error && <p className="v2-error v2-work-queue-empty" role="alert">{error}</p>}
+                <p className="sc-none v2-work-queue-empty">{CONNECTORS_COPY.selectPrompt}</p>
+              </>
+            )}
+          </section>
+        </div>
       </div>
-    </div>
+    </ConnectorStudioFrameThemeContext.Provider>
   );
+}
+
+/** The release manifest displayName, or the Connector ID when no release metadata is available. */
+export function connectorDisplayName(connection: Pick<ConnectionView, 'connectorId' | 'displayName'>): string {
+  return connection.displayName?.trim() || connection.connectorId;
+}
+
+export function connectionReleaseText(connection: Pick<ConnectionView, 'localOverride' | 'moduleVersion'>): string {
+  if (connection.localOverride) return `Local override · ${connection.moduleVersion}`;
+  return connection.moduleVersion || 'No exact release';
+}
+
+function ConnectionRow({ connection, isSelected, onSelect }: {
+  connection: ConnectionView;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  return <button aria-current={isSelected ? 'true' : undefined} className="rsw-row connector-row" onClick={onSelect} type="button">
+    <span className="rsw-id" title={connection.connectorId}>{connectorDisplayName(connection)}</span>
+    <ConnectionStatusChip status={connection.status} />
+    <span className="rsw-state">{CONNECTORS_COPY.connectionLabel(connection.connectionName)}</span>
+  </button>;
+}
+
+function ConnectionHeader({ connection }: { connection: ConnectionView }) {
+  return <div className="sc-head">
+    <h2 className="sc-title">{connectorDisplayName(connection)}</h2>
+    <ConnectionStatusChip status={connection.status} />
+    <span className="sc-status">{CONNECTORS_COPY.connectionLabel(connection.connectionName)}</span>
+    <span className="rhd-inspect t-mono" title={connection.modulePath}>{connectionReleaseText(connection)}</span>
+  </div>;
+}
+
+type ConnectorStoreSummary = Pick<
+  ConnectionsResponse,
+  'mode' | 'directory' | 'filePath' | 'useConfigurationsFilePath' | 'launchCommand'
+  | 'configurationState' | 'configurationRevision' | 'applicationRevision'
+>;
+
+/** Where connections are stored: the local files and launch command, or the hosted revisions. */
+export function ConnectorStoreZone({ catalog }: { catalog: ConnectorStoreSummary }) {
+  const isHosted = catalog.mode === 'hosted';
+  const heading = isHosted ? CONNECTORS_COPY.hostedStoreHeading : CONNECTORS_COPY.localStoreHeading;
+  return <section aria-label={heading} className="rsw-zone" data-zone="store">
+    <h3 className="rsw-zonehead">{heading}</h3>
+    <dl className="connector-store">
+      {isHosted ? <>
+        <ConnectorStoreEntry label="Configuration status" value={catalog.configurationState || 'Draft'} />
+        <ConnectorStoreEntry label="Draft revision" value={catalog.configurationRevision || 'Not created'} />
+        <ConnectorStoreEntry label="Application revision" value={catalog.applicationRevision || 'Not deployed'} />
+      </> : <>
+        <ConnectorStoreEntry label="Store directory" value={catalog.directory ?? ''} />
+        {[
+          {label: 'Connection file', value: catalog.filePath ?? ''},
+          {label: 'Flow configuration file', value: catalog.useConfigurationsFilePath ?? ''},
+          {label: 'Start your app', value: catalog.launchCommand ?? ''},
+        ].map(({label, value}) => <ConnectorStoreEntry
+          copyable displayValue={connectorStoreRelativeText(value, catalog.directory)} key={label} label={label} value={value}
+        />)}
+      </>}
+    </dl>
+  </section>;
+}
+
+/** Shortens every path inside the store directory to …/name; Copy still copies the absolute value. */
+export function connectorStoreRelativeText(value: string, directory: string | undefined): string {
+  return directory ? value.split(`${directory}/`).join('…/') : value;
+}
+
+function ConnectorStoreEntry({ label, value, displayValue = value, copyable = false }: {
+  label: string;
+  value: string;
+  displayValue?: string;
+  copyable?: boolean;
+}) {
+  return <div className="connector-store-entry">
+    <dt><span className="rsq-label">{label}</span>{copyable && value !== '' && <CopyButton label={label} value={value} />}</dt>
+    <dd><code title={displayValue === value ? undefined : value}>{displayValue}</code></dd>
+  </div>;
 }
 
 export function connectionDeleteLabel(mode: ConnectionsResponse['mode']) {
@@ -340,7 +457,7 @@ function ConnectorSetupNavigation({activeTab, connection, tabs, onSelect}: {
   tabs: ConnectorSetupTab[];
   onSelect: (key: string) => void;
 }) {
-  return <div className="connector-setup-tabs" role="tablist" aria-label={`${connection.connectorId} setup`}>
+  return <div aria-label={`${connectorDisplayName(connection)} setup`} aria-orientation="vertical" className="connector-setup-tabs" role="tablist">
     {tabs.map((tab, index) => {
       const disabled = tab.kind !== 'authorize' && connection.status !== 'Ready';
       return <button
@@ -355,9 +472,9 @@ function ConnectorSetupNavigation({activeTab, connection, tabs, onSelect}: {
         role="tab"
         type="button"
       >
-        <span className="connector-setup-tab-order">{index + 1}</span>
+        <span aria-hidden="true" className="apg-mark">{tab.configured ? '✓' : index + 1}</span>
         <span className="connector-setup-tab-copy"><b>{tab.label}</b><small>{tab.detail}</small></span>
-        <span aria-label={tab.configured ? 'Configured' : 'Not configured'} className="connector-setup-tab-status">{tab.configured ? '✓' : ''}</span>
+        <span className="sr-only">{tab.configured ? 'Configured' : 'Not configured'}</span>
       </button>;
     })}
   </div>;
@@ -406,15 +523,15 @@ function AuthorizationPanel({catalog, connection, session, onConfigured, onError
   if (connection.status === 'Ready' && !editing) {
     const studioFields = manifest.spec.configuration.fields.filter((field) => isStudioConnectionField(field, session));
     return <div className="connector-authorization-summary">
-      <div className="connector-authorization-complete">
-        <span aria-hidden="true" className="connector-authorization-check">✓</span>
+      <div className="connector-notice connector-authorization-complete" data-tone="done">
+        <span aria-hidden="true" className="apg-mark">✓</span>
         <div><h3>Authorization complete</h3><p>This connection is ready. Continue with each Flow operation and trigger.</p></div>
-        <button className="connector-secondary-action" onClick={() => setEditing(true)} type="button">
+        <button className="v2-ghost" onClick={() => setEditing(true)} type="button">
           {isOAuthConnection ? 'Reauthorize' : 'Edit connection'}
         </button>
       </div>
-      {studioFields.length > 0 && <section aria-label="Connection settings" className="connector-connection-settings">
-        <h4>Connection settings</h4>
+      {studioFields.length > 0 && <section aria-label="Connection settings" className="sc-block connector-connection-settings">
+        <h4 className="sc-blockhead">Connection settings</h4>
         {studioFields.map((field) => <ConnectionStudioField
           catalog={catalog} connection={connection} field={field} key={field.name}
           onConfigured={onReload} onError={onError} session={session}
@@ -441,11 +558,15 @@ function ConnectorUsePanel({catalog, connection, session, tab, onConfigured, onE
   onConfigured: () => Promise<void>;
   onError: (message: string) => void;
 }) {
-  return <section className="connector-use">
-    <header>
-      <div><span className="connector-use-kind">{tab.kind}</span><h3>{tab.label}</h3></div>
-      <p><b>{tab.use.flowName}</b> · {tab.kind === 'operation' ? tab.use.stepName : tab.use.bindingName}</p>
-    </header>
+  return <section aria-label={`${tab.label} ${tab.kind}`} className="sc-block connector-use">
+    <div className="sc-blockhead">{tab.kind === 'operation' ? 'Operation' : 'Trigger'}</div>
+    <h3 className="scx-step t-mono">{tab.label}</h3>
+    <dl className="scx-facts">
+      <div className="scx-fact"><dt>Flow</dt><dd>{tab.use.flowName}</dd></div>
+      {tab.kind === 'operation'
+        ? <div className="scx-fact"><dt>Step</dt><dd>{tab.use.stepName} · {tab.use.operationKind}</dd></div>
+        : <div className="scx-fact"><dt>Binding</dt><dd>{tab.use.bindingName}</dd></div>}
+    </dl>
     <div className="connector-use-units">
       {tab.kind === 'operation'
         ? tab.use.configurationUI.units.map((unit) => <StudioFrame
@@ -596,11 +717,13 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
   };
   const authMethodLabels = connectorAuthMethodLabels(manifest.spec.auth.methodLabel);
   return <form className="connector-form" id="connector-host-form" onSubmit={(event) => void submit(event)}>
-    <h3>{manifest.metadata.displayName || connection.connectorId} setup</h3>
-    <p>{manifest.metadata.description}</p>
-    {!isMultiple && (manifest.spec.auth.methods?.length ?? 0) > 1 && <fieldset className="connector-auth-methods">
-      <legend>Authentication method</legend>
-      {manifest.spec.auth.methods?.map((method) => <label key={method.id}>
+    <div className="sc-block">
+      <h3 className="sc-blockhead">{manifest.metadata.displayName || connectorDisplayName(connection)} setup</h3>
+      <p className="scx-purpose">{manifest.metadata.description}</p>
+    </div>
+    {!isMultiple && (manifest.spec.auth.methods?.length ?? 0) > 1 && <fieldset className="sc-block connector-auth-methods">
+      <legend className="sc-blockhead">Authentication method</legend>
+      {manifest.spec.auth.methods?.map((method) => <label className="connector-option" key={method.id}>
         <input
           checked={authMethodId === method.id}
           name="connector-auth-method"
@@ -615,22 +738,22 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
       </label>)}
     </fieldset>}
     {!isMultiple && auth.guide && <AuthorizationGuide guide={auth.guide} redirectURI={oauth ? session.oauthRedirectUri : undefined} />}
-    {isMultiple && <section aria-label={authMethodLabels.plural} className="connector-auth-method-cards">
+    {isMultiple && <section aria-label={authMethodLabels.plural} className="sc-block connector-auth-method-cards">
       <div className="connector-auth-method-cards-header">
-        <h4>{authMethodLabels.plural}</h4>
+        <h4 className="sc-blockhead">{authMethodLabels.plural}</h4>
         <AddAuthMethodMenu
           label={authMethodLabels.add}
           methods={addableAuthMethods(manifest, authMethodIds)}
           onAdd={(methodId) => setAuthMethodIds((current) => addConnectionAuthMethod(current, methodId))}
         />
       </div>
-      {authMethodIds.length === 0 && <p className="connections-note">{authMethodLabels.empty}</p>}
+      {authMethodIds.length === 0 && <p className="sc-why">{authMethodLabels.empty}</p>}
       {selectedManifestAuthMethods(manifest, authMethodIds).map((method) => <article className="connector-auth-method-card" key={method.id}>
         <header>
           <span><b>{method.displayName}</b><small>{method.description}</small></span>
           <button
             aria-label={`Remove ${method.displayName}`}
-            className="connector-secondary-action"
+            className="v2-ghost"
             onClick={() => {
               setAuthMethodIds((current) => removeConnectionAuthMethod(current, method.id));
               setValues((current) => withoutCredentialFormValues(current, method.fields));
@@ -643,33 +766,33 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
         {methodConfigurationFields(method).map((field) => renderFormField({field, prefix: 'configuration'}))}
       </article>)}
     </section>}
-    {(oauth || requiredManifestFormFields.length > 0) && <fieldset className="connector-field-group connector-field-group-required">
-      <legend>Required</legend>
+    {(oauth || requiredManifestFormFields.length > 0) && <fieldset className="sc-block connector-field-group">
+      <legend className="sc-blockhead">Required</legend>
       {oauth && <>
         <FormField inputId="connector-oauth-client-id" label="OAuth client ID" name="clientId" required secret={false} description="Copy the client ID from the provider application created with the guide above. This identifier is not secret." values={values} setValues={setValues} />
         <FormField label="OAuth client secret" name="clientSecret" required secret description="Copy the matching client secret from the provider application. This write-only value is stored with the connection so access tokens can refresh." values={values} setValues={setValues} />
-        <p className="connections-note">Client credentials are stored as write-only credential material so access tokens can refresh. They are never returned to this page.</p>
+        <p className="sc-why">Client credentials are stored as write-only credential material so access tokens can refresh. They are never returned to this page.</p>
       </>}
       {requiredManifestFormFields.map(renderFormField)}
     </fieldset>}
-    {optionalManifestFormFields.length > 0 && <fieldset className="connector-field-group connector-field-group-optional">
-      <legend>Optional settings ({optionalManifestFormFields.length})</legend>
+    {optionalManifestFormFields.length > 0 && <fieldset className="sc-block connector-field-group" data-optional="true">
+      <legend className="sc-blockhead">Optional settings ({optionalManifestFormFields.length})</legend>
       {optionalManifestFormFields.map(renderFormField)}
     </fieldset>}
-    {oauth && <p className="connections-scopes">Requested bot scopes: {auth.oauth2?.scopes.join(', ')}{auth.oauth2?.userScopes?.length ? `; user scopes: ${auth.oauth2.userScopes.join(', ')}` : ''}</p>}
+    {oauth && <p className="sc-why">Requested bot scopes: {auth.oauth2?.scopes.join(', ')}{auth.oauth2?.userScopes?.length ? `; user scopes: ${auth.oauth2.userScopes.join(', ')}` : ''}</p>}
     <div className="connector-form-actions">
       <button className="v2-primary" disabled={submitting || (isMultiple && authMethodIds.length === 0)} type="submit">{oauth ? 'Authorize' : catalog.mode === 'hosted' ? 'Save credentials' : 'Save local credentials'}</button>
-      {onCancel && <button className="connector-secondary-action" onClick={onCancel} type="button">Cancel</button>}
+      {onCancel && <button className="v2-ghost" onClick={onCancel} type="button">Cancel</button>}
     </div>
   </form>;
 }
 
 function AuthorizationGuide({guide, redirectURI}: {guide: {startURL: string; steps: string[]}; redirectURI?: string}) {
-  return <section className="connector-authorization-guide">
-    <h4>Authorization guide</h4>
+  return <section aria-label="Authorization guide" className="connector-authorization-guide">
+    <h4 className="rsw-zonehead">Authorization guide</h4>
     <p>Start at <a href={guide.startURL} rel="noreferrer" target="_blank">{guide.startURL}</a></p>
     <ol>{guide.steps.map((step, index) => <li key={`${index}:${step}`}>{linkifiedDescription(step)}</li>)}</ol>
-    {redirectURI && <div className="connector-redirect-uri"><span>Redirect URI</span><CopyValue value={redirectURI} /></div>}
+    {redirectURI && <div className="connector-redirect-uri"><span className="rsq-label">Redirect URI</span><CopyValue label="Redirect URI" value={redirectURI} /></div>}
   </section>;
 }
 
@@ -681,7 +804,7 @@ function AddAuthMethodMenu({label, methods, onAdd}: {
   const [open, setOpen] = useState(false);
   if (methods.length === 0) return null;
   return <div className="connector-add-auth-method">
-    <button aria-expanded={open} aria-haspopup="menu" className="connector-secondary-action" onClick={() => setOpen((current) => !current)} type="button">
+    <button aria-expanded={open} aria-haspopup="menu" className="v2-ghost" onClick={() => setOpen((current) => !current)} type="button">
       {label}
     </button>
     {open && <div aria-label={label} className="connector-add-auth-method-menu" role="menu">
@@ -719,9 +842,9 @@ function ConnectionConfigurationField({catalog, connection, field, session, valu
   }
   if (presentation === 'studioNote') {
     return <div className="connector-studio-field">
-      <span>{field.name}</span>
+      <span className="sc-fname">{field.name}</span>
       <p className="connector-studio-field-note">Save the connection to choose <code>{field.name}</code>.</p>
-      {field.description && <small>{linkifiedDescription(field.description)}</small>}
+      {field.description && <small className="sc-why">{linkifiedDescription(field.description)}</small>}
     </div>;
   }
   return <ManifestFormField field={field} prefix="configuration" setValues={setValues} values={values} />;
@@ -736,8 +859,8 @@ function ConnectionStudioField({catalog, connection, field, session, onConfigure
   onError: (message: string) => void;
 }) {
   return <div className="connector-studio-field">
-    <span>{field.name}{isManifestFieldInputRequired(field) ? ' *' : ''}</span>
-    {field.description && <small>{linkifiedDescription(field.description)}</small>}
+    <span className="sc-fname">{field.name}{isManifestFieldInputRequired(field) ? ' *' : ''}</span>
+    {field.description && <small className="sc-why">{linkifiedDescription(field.description)}</small>}
     <StudioFrame
       catalog={catalog} connection={connection} configuration={connection.configuration ?? {}}
       onConfigured={onConfigured} onError={onError} session={session}
@@ -974,19 +1097,25 @@ function FormField({ inputId, label, name, placeholder, required, secret, descri
   values: Record<string, string>;
   setValues: (next: Record<string, string>) => void;
 }) {
-  return <label><span>{label}{required ? ' *' : ''}</span>
-    <input
-      autoComplete="off"
-      id={inputId}
-      placeholder={placeholder}
-      required={required}
-      type={secret ? 'password' : 'text'}
-      value={values[name] ?? ''}
-      onChange={(event) => setValues({ ...values, [name]: event.target.value })}
-    />
-    {description && <small>{linkifiedDescription(description)}</small>}
-    {defaultText && <small className="connector-field-default">{defaultText}</small>}
-  </label>;
+  const noteId = useId();
+  const describedBy = [description && `${noteId}-description`, defaultText && `${noteId}-default`].filter(Boolean).join(' ');
+  // Notes sit outside the label, so they describe the input instead of lengthening its name.
+  return <div className="connector-field">
+    <label><span className="sc-fname">{label}{required ? ' *' : ''}</span>
+      <input
+        autoComplete="off"
+        id={inputId}
+        placeholder={placeholder}
+        required={required}
+        type={secret ? 'password' : 'text'}
+        value={values[name] ?? ''}
+        onChange={(event) => setValues({ ...values, [name]: event.target.value })}
+        aria-describedby={describedBy || undefined}
+      />
+    </label>
+    {description && <small className="sc-why" id={`${noteId}-description`}>{linkifiedDescription(description)}</small>}
+    {defaultText && <small className="sc-why connector-field-default" id={`${noteId}-default`}>{defaultText}</small>}
+  </div>;
 }
 
 export function manifestFieldDefaultText(field: ManifestField): string | undefined {
@@ -1072,13 +1201,24 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
   }, [catalog, configuration, connection, onConfigured, onError, session, target]);
-  const sendHostReady = () => frame.current?.contentWindow?.postMessage(connectorHostReadyMessage(session, connection, target, {
-    theme: connectorStudioFrameTheme,
-    themeTokens: readConnectorStudioLightThemeTokens(),
-    stylesheet: connectorStudioStylesheet,
-  }), '*');
-  const sendReadyAfterStudioMount = () => window.setTimeout(sendHostReady, 100);
-  const frameLabel = `${connection.connectorId} Connector ${studioTargetLabel(target)}`;
+  const theme = useContext(ConnectorStudioFrameThemeContext);
+  const hasLoadedStudio = useRef(false);
+  const sendHostReady = () => frame.current?.contentWindow?.postMessage(
+    connectorHostReadyMessage(session, connection, target, connectorStudioFrameAppearance(theme)), '*',
+  );
+  const latestSendHostReady = useRef(sendHostReady);
+  useLayoutEffect(() => {
+    latestSendHostReady.current = sendHostReady;
+  });
+  // Bundles apply every ready message, so a theme change repaints a mounted frame in place.
+  useEffect(() => {
+    if (hasLoadedStudio.current) latestSendHostReady.current();
+  }, [theme]);
+  const sendReadyAfterStudioMount = () => {
+    hasLoadedStudio.current = true;
+    window.setTimeout(() => latestSendHostReady.current(), 100);
+  };
+  const frameLabel = `${connectorDisplayName(connection)} Connector ${studioTargetLabel(target)}`;
   return <div
     aria-label={expanded ? frameLabel : undefined}
     aria-modal={expanded || undefined}
@@ -1088,7 +1228,7 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
     role={expanded ? 'dialog' : undefined}
   >
     <div className="connector-studio-toolbar">
-      <button className="connector-studio-expand" onClick={() => setExpanded((current) => !current)} type="button">
+      <button className="v2-ghost" onClick={() => setExpanded((current) => !current)} type="button">
         {expanded ? 'Close expanded setup' : 'Expand setup'}
       </button>
     </div>
@@ -1100,7 +1240,7 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
       src={session.entrypointUrl}
       style={{
         // A frame whose color-scheme differs from its element paints an opaque canvas.
-        colorScheme: connectorStudioFrameTheme,
+        colorScheme: theme,
         ...(expanded || frameHeight === undefined ? {} : {height: `${frameHeight}px`}),
       }}
       title={frameLabel}
@@ -1314,15 +1454,19 @@ function fieldValues(fields: ManifestField[], values: Record<string, string>, pr
     .filter(([, value]) => value !== ''));
 }
 
-function Status({ status }: { status: ConnectionStatus }) {
-  return <span className="connection-status" data-status={status.toLowerCase()}>{status}</span>;
+export function ConnectionStatusChip({ status }: { status: ConnectionStatus }) {
+  return <span className="connector-status" data-status={status.toLowerCase()}>{status}</span>;
 }
 
-function CopyValue({ value }: { value: string }) {
+function CopyValue({ label, value }: { label: string; value: string }) {
+  return <span className="connector-copy-value"><code>{value}</code><CopyButton label={label} value={value} /></span>;
+}
+
+function CopyButton({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
-  return <span className="copy-value"><code>{value}</code><button type="button" onClick={() => {
+  return <button aria-label={`${copied ? 'Copied' : 'Copy'} ${label}`} className="v2-ghost connector-copy" onClick={() => {
     void navigator.clipboard.writeText(value).then(() => setCopied(true));
-  }}>{copied ? 'Copied' : 'Copy'}</button></span>;
+  }} type="button">{copied ? 'Copied' : 'Copy'}</button>;
 }
 
 export function studioState(status: ConnectionStatus) {

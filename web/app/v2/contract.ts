@@ -12,10 +12,30 @@ import type {
 } from '@superdurable/flow-definition-renderer';
 
 /** Run drives one run on the definition canvas; Work Queue clears work without a diagram. */
-export type V2Mode = 'run' | 'work-queue' | 'connections';
+export type V2Mode = 'run' | 'work-queue' | 'connectors';
+
+export const LEGACY_CONNECTORS_PATH = '/v2/connections';
 
 export function v2HomePath(canUseV2: boolean) {
   return canUseV2 ? v2ModePath('run') : '/v1/flows';
+}
+
+export function activeV2Mode(pathname: string): V2Mode {
+  if (isV2ModePathOrChild(pathname, v2WorkQueuePath())) return 'work-queue';
+  if (isV2ModePathOrChild(pathname, v2ConnectorsPath())) return 'connectors';
+  return 'run';
+}
+
+/** Maps a /v2/connections link to the Connectors page, keeping its sub-path, query, and hash. */
+export function legacyConnectorsRedirectPath(location: { pathname: string; search: string; hash: string }) {
+  const subPath = isV2ModePathOrChild(location.pathname, LEGACY_CONNECTORS_PATH)
+    ? location.pathname.slice(LEGACY_CONNECTORS_PATH.length)
+    : '';
+  return `${v2ConnectorsPath()}${subPath}${location.search}${location.hash}`;
+}
+
+function isV2ModePathOrChild(pathname: string, modePath: string) {
+  return pathname === modePath || pathname.startsWith(`${modePath}/`);
 }
 
 export function v2ModePath(mode: V2Mode, flowType?: string, flowID?: string) {
@@ -32,6 +52,10 @@ export function v2RunPath(flowType?: string, flowID?: string) {
 
 export function v2WorkQueuePath(flowType?: string, flowID?: string) {
   return v2ModePath('work-queue', flowType, flowID);
+}
+
+export function v2ConnectorsPath() {
+  return v2ModePath('connectors');
 }
 
 /** The Deep Dive is keyed per run: Time Travel and continue-as-new walk the run chain. */

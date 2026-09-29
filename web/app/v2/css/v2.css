@@ -757,7 +757,8 @@
   margin-bottom: 10px;
 }
 
-.rsw-zone[data-zone='find'] {
+.rsw-zone[data-zone='find'],
+.rsw-zone[data-zone='store'] {
   padding: 8px 9px 2px;
   border: 1px solid var(--p-line-soft);
   border-radius: 6px;

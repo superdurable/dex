@@ -221,6 +221,9 @@ func TestConnectorOAuthUsesPKCESingleUseStateAndDoesNotPersistClientOrRefreshSec
 	if callbackRecorder.Code != http.StatusSeeOther {
 		t.Fatalf("OAuth callback status = %d: %s", callbackRecorder.Code, callbackRecorder.Body.String())
 	}
+	if location := callbackRecorder.Header().Get("Location"); location != "/v2/connectors?oauth=success&connectorId=gmail&connectionName=sender" {
+		t.Fatalf("OAuth callback location = %q", location)
+	}
 	verifierDigest := sha256.Sum256([]byte(receivedVerifier))
 	if base64.RawURLEncoding.EncodeToString(verifierDigest[:]) != challenge {
 		t.Fatal("PKCE verifier does not match authorization challenge")

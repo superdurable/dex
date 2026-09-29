@@ -63,7 +63,7 @@ func TestDexWebServesAndSavesConnectionsWithSeveralAuthMethods(t *testing.T) {
 	})
 
 	catalog := listConnectorIntegConnections(t, harness)
-	if len(catalog.Connections) != 1 || catalog.Connections[0]["status"] != "Missing" {
+	if len(catalog.Connections) != 1 || catalog.Connections[0]["status"] != "Missing" || catalog.Connections[0]["displayName"] != "LLM" {
 		t.Fatalf("connections = %+v", catalog.Connections)
 	}
 	session := sendConnectorIntegRequest(t, harness, catalog, http.MethodPost, "/api/v2/connector-ui-sessions", `{"connectorId":"llm","connectionName":"default"}`)

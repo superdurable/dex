@@ -12,6 +12,9 @@ import type {
   FlowV2Definition,
 } from '@superdurable/flow-definition-renderer';
 import {
+  activeV2Mode,
+  legacyConnectorsRedirectPath,
+  v2ConnectorsPath,
   v2ActionUserFields,
   v2ActionUserInput,
   v2HomePath,
@@ -42,6 +45,23 @@ describe('Dex Web v2 contract helpers', () => {
     expect(v2WorkQueuePath('Refund Flow', 'refund/42')).toBe('/v2/work-queue/Refund%20Flow/refund%2F42');
     expect(v2RunPath()).toBe('/v2/run');
     expect(v2WorkQueuePath('Refund Flow')).toBe('/v2/work-queue/Refund%20Flow');
+  });
+
+  it('serves Connectors at /v2/connectors and marks its tab active', () => {
+    expect(v2ConnectorsPath()).toBe('/v2/connectors');
+    expect(activeV2Mode('/v2/connectors')).toBe('connectors');
+    expect(activeV2Mode('/v2/work-queue/Refund%20Flow')).toBe('work-queue');
+    expect(activeV2Mode('/v2/run/Refund%20Flow')).toBe('run');
+    expect(activeV2Mode('/v2/connectorsx')).toBe('run');
+  });
+
+  it('redirects the former Connections path with its sub-path, query, and hash', () => {
+    expect(legacyConnectorsRedirectPath({ pathname: '/v2/connections', search: '', hash: '' })).toBe('/v2/connectors');
+    expect(legacyConnectorsRedirectPath({
+      pathname: '/v2/connections', search: '?oauth=success&connectorId=llm&connectionName=llm', hash: '',
+    })).toBe('/v2/connectors?oauth=success&connectorId=llm&connectionName=llm');
+    expect(legacyConnectorsRedirectPath({ pathname: '/v2/connections/llm/default', search: '?a=1', hash: '#setup' }))
+      .toBe('/v2/connectors/llm/default?a=1#setup');
   });
 
   it('nests the Deep Dive under the run it belongs to, optionally keyed by run', () => {

@@ -52,7 +52,9 @@ type connectorReleaseResolver struct {
 	artifactRoot  string
 	httpClient    *http.Client
 	localReleases map[string]resolvedConnectorRelease
-	mu            sync.Mutex
+	// verifiedReleases maps an official release tag to its checksum-verified connectorRelease.
+	verifiedReleases sync.Map
+	mu               sync.Mutex
 }
 
 type connectorRelease struct {
@@ -449,39 +451,9 @@ func (resolver *connectorReleaseResolver) resolve(
 	if resolved, ok := resolver.localReleases[identity.ConnectorID]; ok {
 		return resolved, nil
 	}
-	if !connectorReleaseIDPattern.MatchString(identity.ConnectorID) ||
-		!officialConnectorModulePattern.MatchString(identity.ModulePath) ||
-		!exactConnectorReleaseVersionPattern.MatchString(identity.ModuleVersion) {
-		return resolvedConnectorRelease{}, fmt.Errorf("Connector module is not an exact official release")
-	}
-	tag := strings.TrimPrefix(identity.ModulePath, "github.com/superdurable/dex-connectors-library/") + "/" + identity.ModuleVersion
-	digestBytes, err := resolver.download(ctx, tag, connectorReleaseDigestName, 1024)
+	release, err := resolver.releaseMetadata(ctx, identity)
 	if err != nil {
 		return resolvedConnectorRelease{}, err
-	}
-	expectedDigest, err := parseConnectorDigest(digestBytes, connectorReleaseMetadataName)
-	if err != nil {
-		return resolvedConnectorRelease{}, err
-	}
-	metadata, err := resolver.download(ctx, tag, connectorReleaseMetadataName, connectorReleaseMetadataLimit)
-	if err != nil {
-		return resolvedConnectorRelease{}, err
-	}
-	actualDigest := sha256.Sum256(metadata)
-	if hex.EncodeToString(actualDigest[:]) != expectedDigest {
-		return resolvedConnectorRelease{}, fmt.Errorf("Connector release metadata checksum does not match")
-	}
-	var release connectorRelease
-	if err := json.Unmarshal(metadata, &release); err != nil {
-		return resolvedConnectorRelease{}, fmt.Errorf("decode Connector release metadata: %w", err)
-	}
-	if release.ConnectorID != identity.ConnectorID || release.Manifest.Metadata.Name != identity.ConnectorID ||
-		release.ModulePath != identity.ModulePath || release.Version != identity.ModuleVersion || release.Tag != tag {
-		return resolvedConnectorRelease{}, fmt.Errorf("Connector release identity does not match Flow Definition")
-	}
-	manifestDigest, err := hex.DecodeString(release.ManifestSHA256)
-	if err != nil || len(manifestDigest) != sha256.Size || release.SourceSHA == "" {
-		return resolvedConnectorRelease{}, fmt.Errorf("Connector release provenance is invalid")
 	}
 	resolved := resolvedConnectorRelease{release: release}
 	if release.UI == nil {
@@ -497,12 +469,62 @@ func (resolver *connectorReleaseResolver) resolve(
 		!equalConnectorCapabilities(release.Manifest.Spec.Studio.Setup.BackendCapabilities, release.UI.Capabilities) {
 		return resolvedConnectorRelease{}, fmt.Errorf("Connector UI Host API or entrypoint is incompatible")
 	}
-	uiRoot, err := resolver.cacheUI(ctx, tag, release)
+	uiRoot, err := resolver.cacheUI(ctx, release.Tag, release)
 	if err != nil {
 		return resolvedConnectorRelease{}, err
 	}
 	resolved.uiRoot = uiRoot
 	return resolved, nil
+}
+
+// releaseMetadata returns the verified release metadata for identity. A local override needs no
+// download, and an official release is downloaded at most once per process because its tag is exact.
+func (resolver *connectorReleaseResolver) releaseMetadata(
+	ctx context.Context,
+	identity connectorDefinitionIdentity,
+) (connectorRelease, error) {
+	if resolved, ok := resolver.localReleases[identity.ConnectorID]; ok {
+		return resolved.release, nil
+	}
+	if !connectorReleaseIDPattern.MatchString(identity.ConnectorID) ||
+		!officialConnectorModulePattern.MatchString(identity.ModulePath) ||
+		!exactConnectorReleaseVersionPattern.MatchString(identity.ModuleVersion) {
+		return connectorRelease{}, fmt.Errorf("Connector module is not an exact official release")
+	}
+	tag := strings.TrimPrefix(identity.ModulePath, "github.com/superdurable/dex-connectors-library/") + "/" + identity.ModuleVersion
+	if verified, ok := resolver.verifiedReleases.Load(tag); ok {
+		return verified.(connectorRelease), nil
+	}
+	digestBytes, err := resolver.download(ctx, tag, connectorReleaseDigestName, 1024)
+	if err != nil {
+		return connectorRelease{}, err
+	}
+	expectedDigest, err := parseConnectorDigest(digestBytes, connectorReleaseMetadataName)
+	if err != nil {
+		return connectorRelease{}, err
+	}
+	metadata, err := resolver.download(ctx, tag, connectorReleaseMetadataName, connectorReleaseMetadataLimit)
+	if err != nil {
+		return connectorRelease{}, err
+	}
+	actualDigest := sha256.Sum256(metadata)
+	if hex.EncodeToString(actualDigest[:]) != expectedDigest {
+		return connectorRelease{}, fmt.Errorf("Connector release metadata checksum does not match")
+	}
+	var release connectorRelease
+	if err := json.Unmarshal(metadata, &release); err != nil {
+		return connectorRelease{}, fmt.Errorf("decode Connector release metadata: %w", err)
+	}
+	if release.ConnectorID != identity.ConnectorID || release.Manifest.Metadata.Name != identity.ConnectorID ||
+		release.ModulePath != identity.ModulePath || release.Version != identity.ModuleVersion || release.Tag != tag {
+		return connectorRelease{}, fmt.Errorf("Connector release identity does not match Flow Definition")
+	}
+	manifestDigest, err := hex.DecodeString(release.ManifestSHA256)
+	if err != nil || len(manifestDigest) != sha256.Size || release.SourceSHA == "" {
+		return connectorRelease{}, fmt.Errorf("Connector release provenance is invalid")
+	}
+	resolver.verifiedReleases.Store(tag, release)
+	return release, nil
 }
 
 func (resolver *connectorReleaseResolver) cacheUI(

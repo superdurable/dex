@@ -11,7 +11,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { DexAPIError } from '@/lib/http';
 import {
+  ConnectionStatusChip,
   ConnectorForm,
+  ConnectorStoreZone,
+  ConnectorStudioFrameThemeContext,
   addConnectionAuthMethod,
   addableAuthMethods,
   connectionAuthMethodIds,
@@ -21,6 +24,8 @@ import {
   connectionFormInitialValues,
   connectionKey,
   connectionDeleteLabel,
+  connectionReleaseText,
+  connectorDisplayName,
   connectorAuthMethodLabels,
   connectorConfigurationEffectText,
   connectorHostReadyMessage,
@@ -40,8 +45,9 @@ import {
   selectedManifestAuth,
   studioHostCapabilities,
   studioState,
-} from './ConnectionsPage';
+} from './ConnectorsPage';
 import { connectorStudioStylesheet } from './connectorStudioTheme';
+import { CONNECTORS_COPY } from './copy';
 
 describe('Connections contract', () => {
   it('distinguishes hosted revision effects from local file effects', () => {
@@ -128,13 +134,13 @@ describe('Connections contract', () => {
       },
     });
 
-    expect(markup.indexOf('<legend>Required</legend>')).toBeLessThan(markup.indexOf('secret_key *'));
+    expect(markup.indexOf('<legend class="sc-blockhead">Required</legend>')).toBeLessThan(markup.indexOf('secret_key *'));
     expect(markup.indexOf('secret_key *')).toBeLessThan(markup.indexOf('webhook_secret *'));
-    expect(markup.indexOf('webhook_secret *')).toBeLessThan(markup.indexOf('<legend>Optional settings (3)</legend>'));
+    expect(markup.indexOf('webhook_secret *')).toBeLessThan(markup.indexOf('<legend class="sc-blockhead">Optional settings (3)</legend>'));
     expect(markup.indexOf('endpoint')).toBeLessThan(markup.indexOf('required_with_default'));
     expect(markup.indexOf('required_with_default')).toBeLessThan(markup.indexOf('nickname'));
-    expect(markup).toMatch(/<span>secret_key \*<\/span><input[^>]*required=""[^>]*type="password"/);
-    expect(markup).toMatch(/<span>required_with_default<\/span><input(?![^>]*required="")[^>]*type="text"/);
+    expect(markup).toMatch(/<span class="sc-fname">secret_key \*<\/span><input[^>]*required=""[^>]*type="password"/);
+    expect(markup).toMatch(/<span class="sc-fname">required_with_default<\/span><input(?![^>]*required="")[^>]*type="text"/);
     expect(markup).toContain('(Default: 1048576)');
   });
 
@@ -164,7 +170,7 @@ describe('Connections contract', () => {
 
     expect(markup.indexOf('OAuth client ID *')).toBeLessThan(markup.indexOf('OAuth client secret *'));
     expect(markup.indexOf('OAuth client secret *')).toBeLessThan(markup.indexOf('app_token *'));
-    expect(markup.indexOf('app_token *')).toBeLessThan(markup.indexOf('<legend>Optional settings (1)</legend>'));
+    expect(markup.indexOf('app_token *')).toBeLessThan(markup.indexOf('<legend class="sc-blockhead">Optional settings (1)</legend>'));
     expect(markup).not.toContain('access_token');
     expect(markup).not.toContain('primary_email');
   });
@@ -186,10 +192,10 @@ describe('Connections contract', () => {
       },
     });
 
-    expect(requiredOnlyMarkup).toContain('<legend>Required</legend>');
+    expect(requiredOnlyMarkup).toContain('<legend class="sc-blockhead">Required</legend>');
     expect(requiredOnlyMarkup).not.toContain('Optional settings');
-    expect(optionalOnlyMarkup).not.toContain('<legend>Required</legend>');
-    expect(optionalOnlyMarkup).toContain('<legend>Optional settings (1)</legend>');
+    expect(optionalOnlyMarkup).not.toContain('<legend class="sc-blockhead">Required</legend>');
+    expect(optionalOnlyMarkup).toContain('<legend class="sc-blockhead">Optional settings (1)</legend>');
   });
 
   it('turns provider guidance URLs into explicit links', () => {
@@ -395,7 +401,7 @@ describe('Connections with several authentication methods', () => {
     const withDefault = {...llmManifest, spec: {...llmManifest.spec, auth: {...llmManifest.spec.auth, defaultMethod: 'openai'}}};
     const markup = renderConnectorForm(withDefault, {status: 'Missing'}, llmSession);
     expect(markup).toContain('aria-label="Remove OpenAI"');
-    expect(markup).toMatch(/<span>openai_api_key \*<\/span><input autoComplete="off" required="" type="password"/);
+    expect(markup).toMatch(/<span class="sc-fname">openai_api_key \*<\/span><input autoComplete="off" required="" type="password"/);
     expect(markup).not.toContain('Add at least one provider');
   });
 
@@ -412,8 +418,8 @@ describe('Connections with several authentication methods', () => {
 
   it('renders one card per added provider with its fields, a Remove button, and the Add provider menu', () => {
     const markup = renderConnectorForm(llmManifest, {authMethodIds: ['anthropic', 'openai'], status: 'Missing'}, llmSession);
-    expect(markup).toContain('<section aria-label="Providers" class="connector-auth-method-cards">');
-    expect(markup).toContain('<h4>Providers</h4>');
+    expect(markup).toContain('<section aria-label="Providers" class="sc-block connector-auth-method-cards">');
+    expect(markup).toContain('<h4 class="sc-blockhead">Providers</h4>');
     expect(markup).toMatch(/aria-haspopup="menu"[^>]*>Add provider<\/button>/);
     expect(markup.indexOf('<b>Claude</b>')).toBeLessThan(markup.indexOf('<b>OpenAI</b>'));
     expect(markup).toContain('aria-label="Remove Claude"');
@@ -468,8 +474,8 @@ describe('Connections with several authentication methods', () => {
       },
     };
     const markup = renderConnectorForm(stripeManifest, {status: 'Ready', storedCredentialFields: ['secret_key']});
-    expect(markup).toMatch(new RegExp(`<span>secret_key</span><input autoComplete="off" placeholder="${storedCredentialPlaceholder}" type="password"`));
-    expect(markup).toMatch(/<span>webhook_secret \*<\/span><input autoComplete="off" required="" type="password"/);
+    expect(markup).toMatch(new RegExp(`<span class="sc-fname">secret_key</span><input autoComplete="off" placeholder="${storedCredentialPlaceholder}" type="password"`));
+    expect(markup).toMatch(/<span class="sc-fname">webhook_secret \*<\/span><input autoComplete="off" required="" type="password"/);
     const body = connectionWriteRequestBody(
       {connectorId: 'stripe', connectionName: 'payments', storedCredentialFields: ['secret_key']} as never,
       stripeManifest as never, [''], {'credential:webhook_secret': 'whsec'},
@@ -486,8 +492,8 @@ describe('Connections with several authentication methods', () => {
       'configuration:timeout': '30s', 'configuration:maxOutputTokens': '1024', 'configuration:anthropicWorkspaceId': 'ws_1',
     });
     const markup = renderConnectorForm(llmManifest, connection, llmSession);
-    expect(markup).toMatch(/<span>timeout<\/span><input autoComplete="off" type="text" value="30s"/);
-    expect(markup).toMatch(/<span>anthropicWorkspaceId<\/span><input autoComplete="off" type="text" value="ws_1"/);
+    expect(markup).toMatch(/<span class="sc-fname">timeout<\/span><input autoComplete="off" type="text"[^>]* value="30s"/);
+    expect(markup).toMatch(/<span class="sc-fname">anthropicWorkspaceId<\/span><input autoComplete="off" type="text"[^>]* value="ws_1"/);
     const body = connectionWriteRequestBody(connection, llmManifest as never, ['anthropic'], connectionFormInitialValues(llmManifest as never, connection));
     expect(body.configuration).toEqual({timeout: '30s', maxOutputTokens: 1024, anthropicWorkspaceId: 'ws_1'});
   });
@@ -574,12 +580,71 @@ describe('Connections with several authentication methods', () => {
   });
 });
 
-function renderConnectorForm(manifest: unknown, connection: Record<string, unknown> = {}, session: Record<string, unknown> = {}): string {
-  return renderToStaticMarkup(createElement(ConnectorForm, {
+describe('Connectors page presentation', () => {
+  it('names a connector by its release displayName and falls back to the Connector ID', () => {
+    expect(connectorDisplayName({connectorId: 'llm', displayName: 'LLM'})).toBe('LLM');
+    expect(connectorDisplayName({connectorId: 'gemini', displayName: '  '})).toBe('gemini');
+    expect(connectorDisplayName({connectorId: 'slack'})).toBe('slack');
+    expect(CONNECTORS_COPY.connectionLabel('llm')).toBe('Connection llm');
+    expect(CONNECTORS_COPY.connectionLabel('')).toBe('Unnamed connection');
+    expect(connectionReleaseText({localOverride: true, moduleVersion: 'v0.2.0'})).toBe('Local override · v0.2.0');
+    expect(connectionReleaseText({moduleVersion: ''})).toBe('No exact release');
+  });
+
+  it('titles the setup and every Studio frame with the displayName', () => {
+    const markup = renderConnectorForm(
+      {...llmManifest, metadata: {...llmManifest.metadata, displayName: ''}},
+      {connectorId: 'llm', displayName: 'LLM', status: 'Ready', authMethodIds: ['openai']},
+      llmSession,
+    );
+    expect(markup).toContain('<h3 class="sc-blockhead">LLM setup</h3>');
+    expect(markup).toContain('title="LLM Connector model setting"');
+  });
+
+  it('paints Studio frames in the Dex Web theme', () => {
+    const connection = {connectorId: 'llm', displayName: 'LLM', status: 'Ready', authMethodIds: ['openai']};
+    expect(renderConnectorForm(llmManifest, connection, llmSession)).toMatch(/<iframe [^>]*style="color-scheme:light"/);
+    expect(renderConnectorForm(llmManifest, connection, llmSession, 'dark')).toMatch(/<iframe [^>]*style="color-scheme:dark"/);
+  });
+
+  it('shows the local store with copy buttons and the hosted revisions without local paths', () => {
+    const local = renderToStaticMarkup(createElement(ConnectorStoreZone, {catalog: {
+      mode: 'local', directory: '/home/dev/.dex/connectors', filePath: '/home/dev/.dex/connectors/connections.json',
+      useConfigurationsFilePath: '/home/dev/.dex/connectors/use-configurations.json',
+      launchCommand: "DEX_CONNECTOR_CONFIG_FILE='/home/dev/.dex/connectors/connections.json' <your-app-command>",
+    }}));
+    expect(local).toContain('<section aria-label="Local store" class="rsw-zone" data-zone="store"><h3 class="rsw-zonehead">Local store</h3>');
+    expect(local).toContain('<code>/home/dev/.dex/connectors</code>');
+    expect(local).not.toContain('aria-label="Copy Store directory"');
+    for (const label of ['Connection file', 'Flow configuration file', 'Start your app']) {
+      expect(local).toContain(`aria-label="Copy ${label}" class="v2-ghost connector-copy" type="button">Copy</button>`);
+    }
+    const hosted = renderToStaticMarkup(createElement(ConnectorStoreZone, {catalog: {
+      mode: 'hosted', configurationState: 'Ready to deploy', configurationRevision: 'revision-2',
+    }}));
+    expect(hosted).toContain('<h3 class="rsw-zonehead">Hosted configuration</h3>');
+    expect(hosted).toContain('<code>Ready to deploy</code>');
+    expect(hosted).toContain('<code>Not deployed</code>');
+    expect(hosted).not.toContain('Copy');
+  });
+
+  it('shows each connection status as a chip keyed by status', () => {
+    expect(renderToStaticMarkup(createElement(ConnectionStatusChip, {status: 'Reauthorization required'})))
+      .toBe('<span class="connector-status" data-status="reauthorization required">Reauthorization required</span>');
+  });
+});
+
+function renderConnectorForm(
+  manifest: unknown,
+  connection: Record<string, unknown> = {},
+  session: Record<string, unknown> = {},
+  theme: 'light' | 'dark' = 'light',
+): string {
+  return renderToStaticMarkup(createElement(ConnectorStudioFrameThemeContext.Provider, {value: theme}, createElement(ConnectorForm, {
     catalog: {} as never,
     connection: {connectorId: 'test-connector', ...connection} as never,
     session: {...session, manifest} as never,
     onConfigured: async () => undefined,
     onError: () => undefined,
-  }));
+  })));
 }
