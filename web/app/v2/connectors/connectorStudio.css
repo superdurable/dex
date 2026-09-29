@@ -76,52 +76,54 @@ body {
   background: transparent;
 }
 
+/* Sizes track the Dex Web v2 case panel, so a unit reads at the density of a native zone. */
 body {
-  font: 13px/1.45 var(--studio-font-sans);
+  font: 12px/1.45 var(--studio-font-sans);
   color: var(--studio-ink-max);
 }
 
 .studio-surface {
   display: grid;
-  gap: 14px;
-  padding: 18px;
-  border: 1px solid var(--studio-line-mid);
-  border-radius: var(--studio-radius-lg);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--studio-line-soft);
+  border-radius: var(--studio-radius);
   background: var(--studio-surface-card);
 }
 
 .studio-header {
   display: flex;
-  gap: 12px;
+  gap: 9px;
   align-items: center;
 }
 
 .studio-header img {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--studio-radius);
+  width: 24px;
+  height: 24px;
+  border-radius: var(--studio-radius-sm);
 }
 
 .studio-header h1,
 .studio-header h2 {
   margin: 0;
-  font-size: 15px;
-  font-weight: 650;
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--studio-ink-max);
 }
 
 .studio-header p,
 .studio-muted {
-  margin: 2px 0 0;
+  margin: 1px 0 0;
+  font-size: 11.5px;
   color: var(--studio-ink-mid);
 }
 
 .studio-field,
 .studio-field > label {
   display: grid;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 650;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
   color: var(--studio-ink-strong);
 }
 
@@ -136,9 +138,9 @@ body {
 .studio-surface select {
   font: inherit;
   font-weight: 400;
-  padding: 8px 10px;
+  padding: 5px 7px;
   border: 1px solid var(--studio-line-mid);
-  border-radius: 7px;
+  border-radius: 5px;
   background: var(--studio-surface-page);
   color: var(--studio-ink-max);
 }
@@ -155,7 +157,7 @@ body {
 .studio-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 
@@ -163,8 +165,8 @@ body {
   font: inherit;
   font-size: 12px;
   font-weight: 600;
-  padding: 8px 12px;
-  border-radius: var(--studio-radius);
+  padding: 4px 9px;
+  border-radius: 5px;
   cursor: pointer;
   border: 1px solid var(--studio-line-mid);
   background: transparent;
@@ -196,9 +198,9 @@ body {
 
 .studio-notice {
   margin: 0;
-  padding: 8px 10px;
-  border-radius: var(--studio-radius);
-  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 11.5px;
 }
 
 .studio-notice-info {
@@ -223,22 +225,22 @@ body {
 
 .studio-options {
   display: grid;
-  gap: 2px;
-  max-height: 320px;
+  gap: 1px;
+  max-height: 240px;
   overflow: auto;
   margin: 0;
-  padding: 4px;
+  padding: 3px;
   border: 1px solid var(--studio-line-mid);
-  border-radius: 7px;
+  border-radius: 5px;
   background: var(--studio-surface-page);
 }
 
 .studio-option {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 2px 8px;
+  gap: 1px 7px;
   align-items: start;
-  padding: 7px 8px;
+  padding: 5px 7px;
   border-radius: var(--studio-radius-sm);
   cursor: pointer;
   font-weight: 400;
@@ -249,34 +251,35 @@ body {
 }
 
 .studio-option input {
-  margin: 2px 0 0;
+  margin: 1px 0 0;
   accent-color: var(--studio-cta);
 }
 
 .studio-option-label {
   color: var(--studio-ink-max);
+  font-size: 12px;
   font-weight: 600;
 }
 
 .studio-option-label img {
-  width: 20px;
-  height: 20px;
-  margin-right: 6px;
+  width: 16px;
+  height: 16px;
+  margin-right: 5px;
   border-radius: var(--studio-radius-sm);
-  vertical-align: -5px;
+  vertical-align: -4px;
 }
 
 .studio-option-id {
   grid-column: 2;
   font-family: var(--studio-font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--studio-ink-mid);
   overflow-wrap: anywhere;
 }
 
 .studio-option-detail {
   grid-column: 2;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--studio-ink-mid);
 }
 
@@ -284,22 +287,22 @@ body {
   grid-column: 2;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 3px;
 }
 
 .studio-badge {
-  padding: 1px 6px;
+  padding: 0 5px;
   border-radius: 999px;
   background: var(--studio-accent-wash);
   color: var(--studio-accent);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .studio-checkbox {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   align-items: center;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 400;
   color: var(--studio-ink-strong);
 }

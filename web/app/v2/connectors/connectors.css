@@ -165,6 +165,12 @@
 
 /* ------------------------------------------------------------ main panel */
 
+/* A setup surface, not a reading column: its forms and Studio frames use the panel width. */
+.v2-connectors .v2-work-queue-case .v2-case {
+  max-width: 56rem;
+  margin: 0;
+}
+
 .v2-connectors .sc-head h2 {
   margin: 0;
 }
