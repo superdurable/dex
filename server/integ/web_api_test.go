@@ -1124,21 +1124,24 @@ func stepMethodEventInputFromExecuteRequest(
 
 type webParallelSnapshotHandler struct {
 	dexpb.UnimplementedWorkerServiceServer
-	flowType        string
-	rootStep        string
-	leftStep        string
-	rightStep       string
-	requestsMutex   sync.Mutex
-	executeRequests map[string][]byte
+	flowType              string
+	rootStep              string
+	leftStep              string
+	rightStep             string
+	requestsMutex         sync.Mutex
+	executeRequests       map[string][]byte
+	parallelRequestCount  int
+	parallelRequestsReady chan struct{}
 }
 
 func newWebParallelSnapshotHandler() *webParallelSnapshotHandler {
 	return &webParallelSnapshotHandler{
-		flowType:        "web-parallel-snapshot",
-		rootStep:        "root",
-		leftStep:        "left",
-		rightStep:       "right",
-		executeRequests: map[string][]byte{},
+		flowType:              "web-parallel-snapshot",
+		rootStep:              "root",
+		leftStep:              "left",
+		rightStep:             "right",
+		executeRequests:       map[string][]byte{},
+		parallelRequestsReady: make(chan struct{}),
 	}
 }
 
@@ -1153,7 +1156,7 @@ func (h *webParallelSnapshotHandler) InvokeWaitForMethod(
 }
 
 func (h *webParallelSnapshotHandler) InvokeExecuteMethod(
-	_ context.Context,
+	ctx context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
 	if request.GetFlowType() != h.flowType {
@@ -1164,8 +1167,23 @@ func (h *webParallelSnapshotHandler) InvokeExecuteMethod(
 		return nil, fmt.Errorf("marshal received execute request: %w", err)
 	}
 	h.requestsMutex.Lock()
+	hasRequest := len(h.executeRequests[request.GetContext().GetStepExecutionId()]) > 0
 	h.executeRequests[request.GetContext().GetStepExecutionId()] = data
+	if !hasRequest && (request.GetStepType() == h.leftStep || request.GetStepType() == h.rightStep) {
+		h.parallelRequestCount++
+		if h.parallelRequestCount == 2 {
+			close(h.parallelRequestsReady)
+		}
+	}
 	h.requestsMutex.Unlock()
+	if request.GetStepType() == h.leftStep || request.GetStepType() == h.rightStep {
+		// Capture both branch inputs before either branch writes the shared Attribute.
+		select {
+		case <-h.parallelRequestsReady:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 
 	switch request.GetStepType() {
 	case h.rootStep:
@@ -1692,7 +1710,11 @@ func testWebHistoryAndSummary(
 		stepInputLocator := strings.SplitN(stepInputBlobID, "|", 2)[1]
 		stepInputObjectPath, pathErr := blobstore.ValueObjectPath(flowID, stepInputLocator)
 		require.NoError(t, pathErr)
-		require.NoError(t, os.Remove(filepath.Join(blobDirectory, "default", stepInputObjectPath)))
+		namespace := "default"
+		if backendType == service.BackendTypeTemporal {
+			namespace = testNamespace
+		}
+		require.NoError(t, os.Remove(filepath.Join(blobDirectory, namespace, stepInputObjectPath)))
 		valueMissingEvents, _ := getAllWebHistoryEvents(
 			t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
 		)

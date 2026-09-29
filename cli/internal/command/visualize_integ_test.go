@@ -940,7 +940,7 @@ func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 	}
 	roots := []sourceRoot{
 		{directory: filepath.Join(repositoryRoot, "examples/go"), extension: ".go", marker: "GetSteps("},
-		{directory: filepath.Join(repositoryRoot, "examples/python"), extension: ".py", marker: "(Flow"},
+		{directory: filepath.Join(repositoryRoot, "examples/python"), extension: ".py", marker: "(Flow["},
 	}
 	result := make([]string, 0)
 	for _, root := range roots {
