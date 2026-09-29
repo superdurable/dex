@@ -254,7 +254,7 @@
 
 .v2-empty {
   padding: 18px 8px;
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 13px;
 }
 
@@ -322,7 +322,7 @@
 }
 
 .fb-summary {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   cursor: pointer;
   font-size: 10.5px;
   line-height: 1.45;
@@ -399,7 +399,7 @@
 
 .rsw-grouphead {
   margin-bottom: 2px;
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.08em;
@@ -450,7 +450,7 @@
 }
 
 .rsw-time {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 10.5px;
   text-align: right;
   white-space: nowrap;
@@ -470,7 +470,7 @@
 
 .rsw-item[data-stranded='true'] .rsw-id,
 .rsw-item[data-stranded='true'] .rsw-state {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
 }
 
 .rsw-flowtype {
@@ -585,7 +585,7 @@
 }
 
 .rhd-facts dt {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 10.5px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -619,7 +619,7 @@
 }
 
 .rdw-bandlabel {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 10.5px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -716,7 +716,7 @@
 }
 
 .scx-fact dt {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 10px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -738,7 +738,7 @@
 }
 
 .rdw-steponlylabel {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -784,7 +784,7 @@
 .rsw-permission-note {
   display: block;
   margin-top: 4px;
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 10px;
   line-height: 1.45;
 }
@@ -859,7 +859,7 @@
 .rsq-label {
   display: block;
   margin-bottom: 3px;
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 9.5px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -914,7 +914,7 @@
 }
 
 .apg-label {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 9.5px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -922,7 +922,7 @@
 
 .apg-count {
   margin-left: auto;
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 10px;
 }
 
@@ -978,7 +978,7 @@
 }
 
 .apg-step[data-state='upcoming'] .apg-name {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
 }
 
 /* ------------------------------ start flow */
@@ -1035,7 +1035,7 @@
 
 .sfd-head p {
   margin-top: 3px;
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-family: var(--p-mono);
   font-size: 11px;
 }

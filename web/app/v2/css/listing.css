@@ -54,7 +54,7 @@
 }
 
 .sv-chooselabel {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -80,7 +80,7 @@
 }
 
 .sv-nograph {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 11.5px;
 }
 
@@ -120,7 +120,7 @@
 
 /* The opposite marker from everywhere else in this repo: this one has to say it IS real. */
 .sq-live {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 10px;
   letter-spacing: 0.06em;
 }
@@ -149,7 +149,7 @@
 
 .sq-why {
   display: block;
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 10.5px;
 }
 
@@ -196,7 +196,7 @@
 /* A row nobody can act on. Dimmed rather than hidden: it is still unresolved work. */
 .sq-item[data-stranded='true'] .sq-run,
 .sq-item[data-stranded='true'] .sq-attention {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
 }
 
 /* A value the process's own contract does not list. A bug in the process, surfaced. */
@@ -253,7 +253,7 @@
 
 .sc-why {
   display: block;
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 10.5px;
 }
 
@@ -263,7 +263,7 @@
 
 .sc-blockhead {
   margin-bottom: 5px;
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;

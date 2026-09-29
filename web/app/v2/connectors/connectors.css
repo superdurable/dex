@@ -45,7 +45,7 @@
 
 .connector-status[data-status='unsupported'] {
   background: transparent;
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
 }
 
 .connector-store-entry code,
@@ -118,7 +118,7 @@
 }
 
 .connector-setup-tab-copy small {
-  color: var(--p-ink-3);
+  color: var(--p-ink-2);
   font-size: 10px;
 }
 
@@ -233,6 +233,20 @@
   display: grid;
   gap: 3px;
   min-width: 0;
+}
+
+/* A form label names its input, so it reads as primary text, not muted metadata. */
+.connector-field .sc-fname,
+.connector-studio-field .sc-fname {
+  color: var(--p-ink-1);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.connector-field .sc-why,
+.connector-studio-field .sc-why {
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .connector-field-default {
