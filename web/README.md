@@ -129,9 +129,9 @@ runs through loopback-bound `dexcli dev` with a local Flow Definition source.
 `/v2/connections` redirects there and keeps its sub-path, query, and hash.
 The page uses the Run and Work Queue layout: a resizable
 sidebar lists the named connections, and the selected one's setup fills the
-main panel. The sidebar's **Local store** zone shows the store directory, the
-file names inside it, and the launch command, with **Copy** buttons that copy
-the absolute values. In hosted mode the zone shows the configuration status and
+main panel. The **Local store** zone at the bottom of the main panel shows the
+store directory, the file names inside it, and the launch command, with
+**Copy** buttons that copy the absolute values. In hosted mode the zone shows the configuration status and
 revisions instead. The page follows the Dex Web theme.
 
 The page groups Connector Steps by Connector ID and static connection name,

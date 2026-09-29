@@ -613,7 +613,7 @@ describe('Connectors page presentation', () => {
       useConfigurationsFilePath: '/home/dev/.dex/connectors/use-configurations.json',
       launchCommand: "DEX_CONNECTOR_CONFIG_FILE='/home/dev/.dex/connectors/connections.json' <your-app-command>",
     }}));
-    expect(local).toContain('<section aria-label="Local store" class="rsw-zone" data-zone="store"><h3 class="rsw-zonehead">Local store</h3>');
+    expect(local).toContain('<section aria-label="Local store" class="sc-block connector-store-zone" data-zone="store"><h3 class="sc-blockhead">Local store</h3>');
     expect(local).toContain('<code>/home/dev/.dex/connectors</code>');
     expect(local).not.toContain('aria-label="Copy Store directory"');
     for (const label of ['Connection file', 'Flow configuration file', 'Start your app']) {
@@ -622,7 +622,7 @@ describe('Connectors page presentation', () => {
     const hosted = renderToStaticMarkup(createElement(ConnectorStoreZone, {catalog: {
       mode: 'hosted', configurationState: 'Ready to deploy', configurationRevision: 'revision-2',
     }}));
-    expect(hosted).toContain('<h3 class="rsw-zonehead">Hosted configuration</h3>');
+    expect(hosted).toContain('<h3 class="sc-blockhead">Hosted configuration</h3>');
     expect(hosted).toContain('<code>Ready to deploy</code>');
     expect(hosted).toContain('<code>Not deployed</code>');
     expect(hosted).not.toContain('Copy');

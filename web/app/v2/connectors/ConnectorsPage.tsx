@@ -287,7 +287,6 @@ export function ConnectorsPage() {
                   <span className="sq-title">{CONNECTORS_COPY.heading}</span>
                   <span className="sq-live">{catalog.mode === 'hosted' ? CONNECTORS_COPY.hostedNote : CONNECTORS_COPY.localNote}</span>
                 </div>
-                <ConnectorStoreZone catalog={catalog} />
                 {catalog.connections.length === 0 && <p className="sq-state">{CONNECTORS_COPY.empty}</p>}
                 <div className="rsw-scroll" data-zone="list">
                   <ul aria-label={CONNECTORS_COPY.listLabel} className="rsw-list">
@@ -348,11 +347,13 @@ export function ConnectorsPage() {
                   )}
                   <p className="sc-why">{connectorConfigurationEffectText(catalog.mode)}</p>
                 </div>
+                <ConnectorStoreZone catalog={catalog} />
               </div>
             ) : (
               <>
                 {error && <p className="v2-error v2-work-queue-empty" role="alert">{error}</p>}
                 <p className="sc-none v2-work-queue-empty">{CONNECTORS_COPY.selectPrompt}</p>
+                <div className="v2-case sc"><ConnectorStoreZone catalog={catalog} /></div>
               </>
             )}
           </section>
@@ -403,9 +404,9 @@ type ConnectorStoreSummary = Pick<
 export function ConnectorStoreZone({ catalog }: { catalog: ConnectorStoreSummary }) {
   const isHosted = catalog.mode === 'hosted';
   const heading = isHosted ? CONNECTORS_COPY.hostedStoreHeading : CONNECTORS_COPY.localStoreHeading;
-  return <section aria-label={heading} className="rsw-zone" data-zone="store">
-    <h3 className="rsw-zonehead">{heading}</h3>
-    <dl className="connector-store">
+  return <section aria-label={heading} className="sc-block connector-store-zone" data-zone="store">
+    <h3 className="sc-blockhead">{heading}</h3>
+    <dl className="scx-facts connector-store">
       {isHosted ? <>
         <ConnectorStoreEntry label="Configuration status" value={catalog.configurationState || 'Draft'} />
         <ConnectorStoreEntry label="Draft revision" value={catalog.configurationRevision || 'Not created'} />
@@ -435,9 +436,9 @@ function ConnectorStoreEntry({ label, value, displayValue = value, copyable = fa
   displayValue?: string;
   copyable?: boolean;
 }) {
-  return <div className="connector-store-entry">
-    <dt><span className="rsq-label">{label}</span>{copyable && value !== '' && <CopyButton label={label} value={value} />}</dt>
-    <dd><code title={displayValue === value ? undefined : value}>{displayValue}</code></dd>
+  return <div className="scx-fact connector-store-entry">
+    <dt>{label}</dt>
+    <dd><code title={displayValue === value ? undefined : value}>{displayValue}</code>{copyable && value !== '' && <CopyButton label={label} value={value} />}</dd>
   </div>;
 }
 
