@@ -1703,8 +1703,13 @@ def test_search_run_inclusion_options_reach_transport() -> None:
     client._service = cast(Any, service)
     try:
         client.search_flows("WorkflowId = 'flow-1'", 1)
-        client.search_flows("WorkflowId = 'flow-1'", 1, "next", include_continued_as_new=True)
-        assert [request.include_continued_as_new for request in service.requests] == [False, True]
+        client.search_flows(
+            "WorkflowId = 'flow-1'", 1, "next", include_continued_as_new=True
+        )
+        assert [request.include_continued_as_new for request in service.requests] == [
+            False,
+            True,
+        ]
         assert service.requests[1].query == "WorkflowId = 'flow-1'"
         assert service.requests[1].next_page_token == "next"
     finally:
@@ -1715,7 +1720,9 @@ def test_async_search_run_inclusion_options_reach_transport() -> None:
     class SearchService:
         requests: list[pb.SearchFlowsRequest] = []
 
-        async def SearchFlows(self, request: pb.SearchFlowsRequest) -> pb.SearchFlowsResponse:
+        async def SearchFlows(
+            self, request: pb.SearchFlowsRequest
+        ) -> pb.SearchFlowsResponse:
             self.requests.append(request)
             return pb.SearchFlowsResponse()
 
@@ -1725,8 +1732,12 @@ def test_async_search_run_inclusion_options_reach_transport() -> None:
         client._service = cast(Any, service)
         try:
             await client.search_flows("WorkflowId = 'flow-1'", 1)
-            await client.search_flows("WorkflowId = 'flow-1'", 1, "next", include_continued_as_new=True)
-            assert [request.include_continued_as_new for request in service.requests] == [False, True]
+            await client.search_flows(
+                "WorkflowId = 'flow-1'", 1, "next", include_continued_as_new=True
+            )
+            assert [
+                request.include_continued_as_new for request in service.requests
+            ] == [False, True]
             assert service.requests[1].query == "WorkflowId = 'flow-1'"
             assert service.requests[1].next_page_token == "next"
         finally:

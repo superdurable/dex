@@ -20,7 +20,7 @@ import (
 	"go.temporal.io/sdk/client"
 )
 
-const testNamespace = "default"
+var testNamespace = "default"
 
 // Api.Port / fixed worker ports are unused: startWorker and startDexService bind 127.0.0.1:0.
 

@@ -37,6 +37,11 @@ connect to cloud warehouses.
 In-process tests use an isolated local Blob Store with the default 1 KiB
 offload threshold. S3-specific tests replace it with MinIO.
 
+Use **-temporalNamespace** to select a fresh local namespace when other workers
+share the test backend. Search run coverage verifies actual Continue-as-New,
+default exclusion, explicit inclusion, other statuses, OR conditions, and
+pagination on Temporal and Cadence. Cadence coverage creates its own domain.
+
 Step cancellation coverage runs against both Temporal and Cadence. It verifies
 Flow-wide and sibling selectors; queued and active executions; local and
 regular activities; local-timeout fallback with cumulative attempts;

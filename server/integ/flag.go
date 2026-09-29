@@ -33,3 +33,7 @@ var dexServerAddress = flag.String("dexServerAddress", "", "existing Dex gRPC ad
 var dependencyWaitSeconds = flag.Int("dependencyWaitSeconds", 60, "the number of seconds waiting for dependencies to be up(Cadence/Temporal)")
 
 var disableStickyCache = flag.Bool("disableStickyCache", false, "disable Temporal/Cadence sticky execution")
+
+func init() {
+	flag.StringVar(&testNamespace, "temporalNamespace", "default", "Temporal namespace for integration tests")
+}

@@ -43,7 +43,7 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 			wantActionRPCNames: []string{},
 			wantPermissions:    []string{},
 			wantIndexTypes:     map[string]string{"case-status": "keyword"},
-			wantIndexKeys:      map[string]string{"case-status": "CustomKeyword2"},
+			wantIndexKeys:      map[string]string{"case-status": "keyword2"},
 		},
 		{
 			name: "agentic",
@@ -62,9 +62,9 @@ func TestVisualizeV2RefundFlows(t *testing.T) {
 				"refund-amount":  "double",
 			},
 			wantIndexKeys: map[string]string{
-				"case-status":    "CustomKeyword2",
-				"customer-email": "CustomKeyword",
-				"refund-amount":  "CustomDouble",
+				"case-status":    "keyword2",
+				"customer-email": "keyword1",
+				"refund-amount":  "double1",
 			},
 		},
 	}
