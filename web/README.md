@@ -359,22 +359,29 @@ forwarding, and injects exactly one value for each required header:
 
 ```text
 X-Forwarded-Prefix: /apps/project-1/dex
+X-Forwarded-Proto: https
+X-Forwarded-Host: studio.example.com
 X-Dex-Web-Embedded: true
 X-Dex-Web-CSRF-Token: host-generated-token
 ```
 
 `X-Forwarded-Prefix` is the browser-visible absolute path. It is `/` or a
 canonical path without a trailing slash, query, fragment, authority, dot
-segment, or encoded path separator. `X-Dex-Web-Embedded` accepts only `true` or
-`false`. The CSRF bootstrap token is optional to Dex, but hosted deployments
-should provide a non-empty, visible-ASCII value.
+segment, or encoded path separator. `X-Forwarded-Proto` and `X-Forwarded-Host`
+are optional as a pair and identify the browser-visible origin. Dex uses that
+origin and the forwarded prefix for OAuth redirect URIs. The protocol must be
+`http` or `https`, and the host must contain no user information or path.
+`X-Dex-Web-Embedded` accepts only `true` or `false`. The CSRF bootstrap token is
+optional to Dex, but hosted deployments should provide a non-empty,
+visible-ASCII value.
 
 Dex injects the request-specific base path and presentation mode into the SPA.
 The router, assets, navigation links, API calls, and recovery requests use that
-path without sharing state between simultaneous mounts. Embedded pages remove
+path without sharing state between simultaneous mounts. OAuth completion
+returns to that same mount instead of the internal proxy target. Embedded pages remove
 redundant product chrome and allow same-origin framing. Standalone pages deny
 framing. HTML is served with `Cache-Control: no-store` and varies on all three
-forwarded headers.
+presentation headers plus the public-origin pair.
 
 For every browser method other than GET, HEAD, or OPTIONS, the SPA copies the
 bootstrap token to `X-CSRF-Token`. The host proxy must validate that browser

@@ -34,6 +34,19 @@ func TestConnectorOAuthCredentialDerivationRejectsNonHTTPSEndpoint(t *testing.T)
 	}
 }
 
+func TestConnectorOAuthRedirectURIUsesTrustedPublicOriginAndBasePath(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "http://dex.internal/api/v2/oauth/start", nil)
+	request = request.WithContext(context.WithValue(request.Context(), webRequestConfigContextKey{}, webRequestConfig{
+		basePath: "/dex/projects/p1/environments/staging/releases/r1", publicOrigin: "https://studio.test.dexai.dev",
+	}))
+
+	redirectURI := connectorOAuthRedirectURI(request)
+
+	if redirectURI != "https://studio.test.dexai.dev/dex/projects/p1/environments/staging/releases/r1/api/v2/connector-oauth/callback" {
+		t.Fatalf("redirect URI = %q", redirectURI)
+	}
+}
+
 func TestConnectorOAuthRejectsHostSuppliedDerivedCredential(t *testing.T) {
 	manifest := connectorReleaseManifest{}
 	manifest.Spec.Auth.Fields = []connectorManifestField{{Name: "primary_email", Type: "string", Required: true}}

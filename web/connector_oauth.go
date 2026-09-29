@@ -281,7 +281,8 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
 		return
 	}
-	location := "/v2/connections?oauth=success&connectorId=" + url.QueryEscape(connection.ConnectorID) +
+	location := webPathFromContext(request.Context(), "/v2/connections") +
+		"?oauth=success&connectorId=" + url.QueryEscape(connection.ConnectorID) +
 		"&connectionName=" + url.QueryEscape(connection.ConnectionName)
 	http.Redirect(response, request, location, http.StatusSeeOther)
 }
@@ -547,11 +548,17 @@ func hasRequiredConnectorScopes(granted string, required []string) bool {
 }
 
 func connectorOAuthRedirectURI(request *http.Request) string {
+	requestConfig := webRequestConfigFromContext(request.Context())
+	if requestConfig.publicOrigin != "" {
+		return requestConfig.publicOrigin + webPathFromContext(
+			request.Context(), "/api/v2/connector-oauth/callback")
+	}
 	scheme := "http"
 	if request.TLS != nil {
 		scheme = "https"
 	}
-	return scheme + "://" + request.Host + "/api/v2/connector-oauth/callback"
+	return scheme + "://" + request.Host + webPathFromContext(
+		request.Context(), "/api/v2/connector-oauth/callback")
 }
 
 func (setup *connectorSetup) deleteExpiredOAuthSessions(now time.Time) {

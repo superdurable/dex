@@ -23,10 +23,12 @@ import (
 
 const (
 	forwardedPrefixHeader           = "X-Forwarded-Prefix"
+	forwardedProtocolHeader         = "X-Forwarded-Proto"
+	forwardedHostHeader             = "X-Forwarded-Host"
 	forwardedEmbeddedHeader         = "X-Dex-Web-Embedded"
 	forwardedCSRFTokenHeader        = "X-Dex-Web-CSRF-Token"
 	browserCSRFHeader               = "X-CSRF-Token"
-	forwardedEmbeddingVaryHeader    = "X-Forwarded-Prefix, X-Dex-Web-Embedded, X-Dex-Web-CSRF-Token"
+	forwardedEmbeddingVaryHeader    = "X-Forwarded-Prefix, X-Forwarded-Proto, X-Forwarded-Host, X-Dex-Web-Embedded, X-Dex-Web-CSRF-Token"
 	maximumForwardedPrefixLength    = 2048
 	maximumForwardedCSRFTokenLength = 4096
 	untrustedEmbeddingHeadersCode   = "FORWARDED_EMBEDDING_HEADERS_UNTRUSTED"
@@ -34,9 +36,10 @@ const (
 )
 
 type webRequestConfig struct {
-	basePath   string
-	isEmbedded bool
-	csrfToken  string
+	basePath     string
+	publicOrigin string
+	isEmbedded   bool
+	csrfToken    string
 }
 
 type webBootstrapConfig struct {
@@ -75,9 +78,11 @@ func forwardedEmbeddingHandler(cfg *Config, next http.Handler) http.Handler {
 
 func webRequestConfigFromHeaders(headers http.Header, trustForwardedHeaders bool) (webRequestConfig, error) {
 	prefixValues, hasPrefix := headerValues(headers, forwardedPrefixHeader)
+	protocolValues, hasProtocol := headerValues(headers, forwardedProtocolHeader)
+	hostValues, hasHost := headerValues(headers, forwardedHostHeader)
 	embeddedValues, hasEmbedded := headerValues(headers, forwardedEmbeddedHeader)
 	csrfValues, hasCSRF := headerValues(headers, forwardedCSRFTokenHeader)
-	if !hasPrefix && !hasEmbedded && !hasCSRF {
+	if !hasPrefix && !hasProtocol && !hasHost && !hasEmbedded && !hasCSRF {
 		return webRequestConfig{basePath: "/"}, nil
 	}
 	if !trustForwardedHeaders {
@@ -85,6 +90,10 @@ func webRequestConfigFromHeaders(headers http.Header, trustForwardedHeaders bool
 	}
 	if !hasPrefix || !hasEmbedded || len(prefixValues) != 1 || len(embeddedValues) != 1 || (hasCSRF && len(csrfValues) != 1) {
 		return webRequestConfig{}, fmt.Errorf("forwarded Dex Web embedding headers must contain one prefix and embedded value")
+	}
+	publicOrigin, err := validateForwardedPublicOrigin(protocolValues, hostValues, hasProtocol, hasHost)
+	if err != nil {
+		return webRequestConfig{}, err
 	}
 	basePath, err := validateForwardedPrefix(prefixValues[0])
 	if err != nil {
@@ -101,7 +110,28 @@ func webRequestConfigFromHeaders(headers http.Header, trustForwardedHeaders bool
 			return webRequestConfig{}, err
 		}
 	}
-	return webRequestConfig{basePath: basePath, isEmbedded: isEmbedded, csrfToken: csrfToken}, nil
+	return webRequestConfig{basePath: basePath, publicOrigin: publicOrigin, isEmbedded: isEmbedded, csrfToken: csrfToken}, nil
+}
+
+func validateForwardedPublicOrigin(protocolValues, hostValues []string, hasProtocol, hasHost bool) (string, error) {
+	if !hasProtocol && !hasHost {
+		return "", nil
+	}
+	if !hasProtocol || !hasHost || len(protocolValues) != 1 || len(hostValues) != 1 {
+		return "", fmt.Errorf("forwarded Dex Web public origin must contain one protocol and host value")
+	}
+	protocol := strings.ToLower(protocolValues[0])
+	if protocol != "http" && protocol != "https" {
+		return "", fmt.Errorf("forwarded Dex Web protocol must be http or https")
+	}
+	parsed, err := url.Parse(protocol + "://" + hostValues[0])
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("forwarded Dex Web host is invalid")
+	}
+	if strings.ContainsAny(hostValues[0], "\\/?#") {
+		return "", fmt.Errorf("forwarded Dex Web host is invalid")
+	}
+	return protocol + "://" + parsed.Host, nil
 }
 
 func webRequestConfigFromContext(ctx context.Context) webRequestConfig {
@@ -110,6 +140,14 @@ func webRequestConfigFromContext(ctx context.Context) webRequestConfig {
 		return webRequestConfig{basePath: "/"}
 	}
 	return requestConfig
+}
+
+func webPathFromContext(ctx context.Context, rootedPath string) string {
+	requestConfig := webRequestConfigFromContext(ctx)
+	if requestConfig.basePath == "/" {
+		return rootedPath
+	}
+	return requestConfig.basePath + rootedPath
 }
 
 func validateForwardedPrefix(value string) (string, error) {

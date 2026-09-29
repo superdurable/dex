@@ -130,6 +130,8 @@ func TestEmbeddedSPAUsesTrustedRequestBootstrapAndFramePolicy(t *testing.T) {
 	)
 	request := httptest.NewRequest(http.MethodGet, "/v2/run", nil)
 	request.Header.Set(forwardedPrefixHeader, "/api/dex-web/proxy/projects/p1/environments/STAGING")
+	request.Header.Set(forwardedProtocolHeader, "https")
+	request.Header.Set(forwardedHostHeader, "studio.test.dexai.dev")
 	request.Header.Set(forwardedEmbeddedHeader, "true")
 	request.Header.Set(forwardedCSRFTokenHeader, "csrf-token-p1")
 	response := httptest.NewRecorder()
@@ -182,6 +184,10 @@ func TestForwardedEmbeddingHeadersFailClosed(t *testing.T) {
 	}{
 		{name: "missing embedded", headers: http.Header{forwardedPrefixHeader: []string{"/hosted/dex"}}},
 		{name: "missing prefix", headers: http.Header{forwardedEmbeddedHeader: []string{"true"}}},
+		{name: "missing public host", headers: http.Header{forwardedPrefixHeader: []string{"/hosted/dex"}, forwardedProtocolHeader: []string{"https"}, forwardedEmbeddedHeader: []string{"true"}}},
+		{name: "missing public protocol", headers: http.Header{forwardedPrefixHeader: []string{"/hosted/dex"}, forwardedHostHeader: []string{"studio.example"}, forwardedEmbeddedHeader: []string{"true"}}},
+		{name: "invalid public protocol", headers: http.Header{forwardedPrefixHeader: []string{"/hosted/dex"}, forwardedProtocolHeader: []string{"javascript"}, forwardedHostHeader: []string{"studio.example"}, forwardedEmbeddedHeader: []string{"true"}}},
+		{name: "invalid public host", headers: http.Header{forwardedPrefixHeader: []string{"/hosted/dex"}, forwardedProtocolHeader: []string{"https"}, forwardedHostHeader: []string{"user@studio.example"}, forwardedEmbeddedHeader: []string{"true"}}},
 		{name: "multiple prefix", headers: http.Header{forwardedPrefixHeader: []string{"/one", "/two"}, forwardedEmbeddedHeader: []string{"true"}}},
 		{name: "invalid embedded", headers: http.Header{forwardedPrefixHeader: []string{"/hosted/dex"}, forwardedEmbeddedHeader: []string{"1"}}},
 		{name: "authority", headers: http.Header{forwardedPrefixHeader: []string{"//evil.example/dex"}, forwardedEmbeddedHeader: []string{"true"}}},
@@ -208,12 +214,14 @@ func TestForwardedEmbeddingHeadersAcceptCanonicalRootAndNestedPaths(t *testing.T
 		t.Run(prefix, func(t *testing.T) {
 			requestConfig, err := webRequestConfigFromHeaders(http.Header{
 				forwardedPrefixHeader:   []string{prefix},
+				forwardedProtocolHeader: []string{"https"},
+				forwardedHostHeader:     []string{"studio.test.dexai.dev"},
 				forwardedEmbeddedHeader: []string{"false"},
 			}, true)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if requestConfig.basePath != prefix || requestConfig.isEmbedded {
+			if requestConfig.basePath != prefix || requestConfig.publicOrigin != "https://studio.test.dexai.dev" || requestConfig.isEmbedded {
 				t.Fatalf("request config = %+v", requestConfig)
 			}
 		})
