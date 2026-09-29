@@ -201,6 +201,11 @@ and three attempts before regular fallback.
 
 ## Search flows
 
+`SearchFlowsRequest.include_continued_as_new` defaults to false. The Server
+adds a parenthesized exclusion before backend visibility pagination. Set it to
+true to inspect earlier Continue-as-New runs while retaining explicit query
+filters. Keep the query and inclusion flag unchanged across pages.
+
 `SearchFlows` returns each execution's flow ID, run ID, flow type, status,
 start/close times, and all Indexed Attributes supplied by Dex visibility as
 `indexed_attributes`. Indexed Attribute values use the `Value` oneof; the response does not

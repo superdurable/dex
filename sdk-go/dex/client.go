@@ -690,6 +690,17 @@ func (client *Client) SearchFlows(
 	pageSize int32,
 	nextPageToken string,
 ) (SearchFlowsPage, error) {
+	return client.SearchFlowsWithOptions(ctx, query, pageSize, nextPageToken, SearchFlowsOptions{})
+}
+
+// SearchFlowsWithOptions searches Flow runs, optionally including earlier Continue-as-New runs.
+func (client *Client) SearchFlowsWithOptions(
+	ctx context.Context,
+	query string,
+	pageSize int32,
+	nextPageToken string,
+	options SearchFlowsOptions,
+) (SearchFlowsPage, error) {
 	if err := client.validateCall(ctx); err != nil {
 		return SearchFlowsPage{}, err
 	}
@@ -697,6 +708,7 @@ func (client *Client) SearchFlows(
 	if err != nil {
 		return SearchFlowsPage{}, err
 	}
+	request.IncludeContinuedAsNew = options.IncludeContinuedAsNew
 	response, err := client.service.SearchFlows(ctx, request)
 	if err != nil {
 		return SearchFlowsPage{}, translateRPCError(err, "SearchFlows", "", flowTargetNone)

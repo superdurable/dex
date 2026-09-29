@@ -306,6 +306,10 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			metricsHandler,
 		)
 	case service.BackendTypeCadence:
+		domain := testConfig.CadenceDomain
+		if domain == "" {
+			domain = bootstrap.DefaultCadenceDomain
+		}
 		serviceClient, adminClient, closeServiceClient, err := bootstrap.BuildCadenceServiceClient(
 			bootstrap.DefaultCadenceHostPort,
 		)
@@ -313,20 +317,20 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 		dataConverter := dexconverter.NewCadenceDataConverter()
 		cadenceClient, err := bootstrap.BuildCadenceClient(
 			serviceClient,
-			bootstrap.DefaultCadenceDomain,
+			domain,
 			dataConverter,
 		)
 		require.NoError(t, err)
 		store, err = blobstore.NewBlobStore(
 			s3Client,
-			bootstrap.DefaultCadenceDomain,
+			domain,
 			&cfg.BlobStore,
 			logger,
 			client.MetricsNopHandler,
 		)
 		require.NoError(t, err)
 		unifiedClient = cadenceapi.NewCadenceClient(
-			bootstrap.DefaultCadenceDomain,
+			domain,
 			cadenceClient,
 			serviceClient,
 			adminClient,
@@ -338,7 +342,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 		worker = cadence.NewInterpreterWorker(
 			&cfg,
 			serviceClient,
-			bootstrap.DefaultCadenceDomain,
+			domain,
 			service.TaskQueue,
 			closeServiceClient,
 			dataConverter,
@@ -729,6 +733,7 @@ func assertSearchFlows(
 	flowClient dexpb.FlowServiceClient,
 	query string,
 	expectedCount int,
+	includeContinuedAsNew bool,
 ) {
 	t.Helper()
 	assertions := require.New(t)
@@ -736,8 +741,9 @@ func assertSearchFlows(
 
 	if expectedCount == 0 {
 		searchResp, err := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-			Query:    query,
-			PageSize: 2,
+			IncludeContinuedAsNew: includeContinuedAsNew,
+			Query:                 query,
+			PageSize:              2,
 		})
 		require.NoError(t, err)
 		assertions.Empty(searchResp.GetFlowRuns(), "expected zero results for query %v", query)
@@ -749,9 +755,10 @@ func assertSearchFlows(
 	currentCount := 0
 	for currentCount < expectedCount {
 		searchResp, err := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-			Query:         query,
-			PageSize:      2,
-			NextPageToken: nextPageToken,
+			IncludeContinuedAsNew: includeContinuedAsNew,
+			Query:                 query,
+			PageSize:              2,
+			NextPageToken:         nextPageToken,
 		})
 		require.NoError(t, err)
 
@@ -767,9 +774,10 @@ func assertSearchFlows(
 			if searchResp.GetNextPageToken() != "" {
 				nextPageToken = searchResp.GetNextPageToken()
 				searchResp, err = flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-					Query:         query,
-					PageSize:      2,
-					NextPageToken: nextPageToken,
+					IncludeContinuedAsNew: includeContinuedAsNew,
+					Query:                 query,
+					PageSize:              2,
+					NextPageToken:         nextPageToken,
 				})
 				require.NoError(t, err)
 				assertions.Empty(t, searchResp.GetFlowRuns())

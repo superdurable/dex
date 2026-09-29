@@ -1688,3 +1688,48 @@ def test_rpc_rejects_progress_and_timeout_allows_sync_stream_output() -> None:
     assert stream.write(timeout_context, "allowed") is not None
     with pytest.raises(ValueError, match="asynchronous Step Context"):
         asyncio.run(timeout_context.heartbeat())
+
+
+def test_search_run_inclusion_options_reach_transport() -> None:
+    class SearchService:
+        requests: list[pb.SearchFlowsRequest] = []
+
+        def SearchFlows(self, request: pb.SearchFlowsRequest) -> pb.SearchFlowsResponse:
+            self.requests.append(request)
+            return pb.SearchFlowsResponse()
+
+    client = Client(Registry((ORDERS,)), cast(BlobCache, object()))
+    service = SearchService()
+    client._service = cast(Any, service)
+    try:
+        client.search_flows("WorkflowId = 'flow-1'", 1)
+        client.search_flows("WorkflowId = 'flow-1'", 1, "next", include_continued_as_new=True)
+        assert [request.include_continued_as_new for request in service.requests] == [False, True]
+        assert service.requests[1].query == "WorkflowId = 'flow-1'"
+        assert service.requests[1].next_page_token == "next"
+    finally:
+        client.close()
+
+
+def test_async_search_run_inclusion_options_reach_transport() -> None:
+    class SearchService:
+        requests: list[pb.SearchFlowsRequest] = []
+
+        async def SearchFlows(self, request: pb.SearchFlowsRequest) -> pb.SearchFlowsResponse:
+            self.requests.append(request)
+            return pb.SearchFlowsResponse()
+
+    async def run() -> None:
+        client = AsyncClient(Registry((ORDERS,)), cast(BlobCache, object()))
+        service = SearchService()
+        client._service = cast(Any, service)
+        try:
+            await client.search_flows("WorkflowId = 'flow-1'", 1)
+            await client.search_flows("WorkflowId = 'flow-1'", 1, "next", include_continued_as_new=True)
+            assert [request.include_continued_as_new for request in service.requests] == [False, True]
+            assert service.requests[1].query == "WorkflowId = 'flow-1'"
+            assert service.requests[1].next_page_token == "next"
+        finally:
+            await client.close()
+
+    asyncio.run(run())

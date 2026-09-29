@@ -834,14 +834,16 @@ class FlowResult(_message.Message):
     def __init__(self, flow_status: _Optional[_Union[FlowStatus, str]] = ..., results: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., error_type: _Optional[_Union[FlowErrorType, str]] = ..., error_message: _Optional[str] = ...) -> None: ...
 
 class SearchFlowsRequest(_message.Message):
-    __slots__ = ("query", "page_size", "next_page_token")
+    __slots__ = ("query", "page_size", "next_page_token", "include_continued_as_new")
     QUERY_FIELD_NUMBER: _ClassVar[int]
     PAGE_SIZE_FIELD_NUMBER: _ClassVar[int]
     NEXT_PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    INCLUDE_CONTINUED_AS_NEW_FIELD_NUMBER: _ClassVar[int]
     query: str
     page_size: int
     next_page_token: str
-    def __init__(self, query: _Optional[str] = ..., page_size: _Optional[int] = ..., next_page_token: _Optional[str] = ...) -> None: ...
+    include_continued_as_new: bool
+    def __init__(self, query: _Optional[str] = ..., page_size: _Optional[int] = ..., next_page_token: _Optional[str] = ..., include_continued_as_new: _Optional[bool] = ...) -> None: ...
 
 class SearchFlowsResponse(_message.Message):
     __slots__ = ("flow_runs", "next_page_token")

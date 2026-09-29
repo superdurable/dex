@@ -28,7 +28,7 @@ import (
 
 const (
 	maxRequestBytes               = 1 << 20
-	engineWorkflowVisibilityQuery = `WorkflowType = "Engine" AND ExecutionStatus != "ContinuedAsNew"`
+	engineWorkflowVisibilityQuery = `WorkflowType = "Engine"`
 	// Finish before common 60-second proxy timeouts.
 	historyEventLongPollTimeout = 50 * time.Second
 )
@@ -96,9 +96,10 @@ func (h *handler) searchFlows(response http.ResponseWriter, request *http.Reques
 		body.PageSize = 50
 	}
 	result, err := h.client.SearchFlows(request.Context(), &dexpb.SearchFlowsRequest{
-		Query:         engineWorkflowSearchQuery(body.Query),
-		PageSize:      body.PageSize,
-		NextPageToken: body.NextPageToken,
+		IncludeContinuedAsNew: body.IncludeContinuedAsNew,
+		Query:                 engineWorkflowSearchQuery(body.Query),
+		PageSize:              body.PageSize,
+		NextPageToken:         body.NextPageToken,
 	})
 	if err != nil {
 		writeGRPCError(response, err, "SearchFlows")

@@ -621,6 +621,8 @@ class AsyncClient:
         query: str,
         page_size: int,
         next_page_token: str = "",
+        *,
+        include_continued_as_new: bool = False,
     ) -> SearchFlowsPage:
         """Return one page of Flow runs matching a visibility query.
 
@@ -628,6 +630,7 @@ class AsyncClient:
             query: A Dex visibility query; an empty string uses server defaults.
             page_size: The non-negative maximum result count requested.
             next_page_token: Opaque token from the preceding page, or ``""`` first.
+            include_continued_as_new: Include earlier runs without overriding query filters.
 
         Returns:
             Server-ordered entries with hydrated indexed Attributes and a next token.
@@ -647,6 +650,7 @@ class AsyncClient:
                     query=query,
                     page_size=page_size,
                     next_page_token=next_page_token,
+                    include_continued_as_new=include_continued_as_new,
                 ),
                 "search_flows",
                 None,

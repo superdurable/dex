@@ -1462,7 +1462,9 @@ time must be non-zero, and step type or step execution ID must be non-empty for
 their respective modes. Fields unrelated to the selected time travel mode must be
 zero so impossible proto combinations fail before transport.
 
-SearchFlows passes query text and page token through unchanged. Page size zero
+SearchFlows passes query text and page token through unchanged. SearchFlowsWithOptions
+also forwards IncludeContinuedAsNew; the Server excludes earlier Continue-as-New
+runs by default. Page size zero
 keeps the server default. Search attributes are hydrated before being wrapped
 as opaque Values.
 

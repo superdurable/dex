@@ -478,3 +478,12 @@ artifact version does not affect compatibility.
 
 [Sustainable Use License 1.0](LICENSE), with legacy portions under their
 original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
+
+## Search run inclusion
+
+Dex Server excludes ContinuedAsNew runs by default. Application queries still
+need `FlowType` when using shared index slots. An explicit inclusion option
+removes only the default exclusion; it does not override query filters. Keep
+the query, inclusion option, and page size consistent across pages.
+
+Use `search_flows_with_options(query, page_size, next_page_token, SearchFlowsOptions::new().include_continued_as_new(true))` for execution-chain inspection. `search_flows` and `search_flows_page` use the default exclusion.

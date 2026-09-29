@@ -538,3 +538,12 @@ var _ func(
 	any,
 	any,
 ) error = (*dex.Client).InvokeRPC
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
+	int32,
+	string,
+	dex.SearchFlowsOptions,
+) (dex.SearchFlowsPage, error) = (*dex.Client).SearchFlowsWithOptions

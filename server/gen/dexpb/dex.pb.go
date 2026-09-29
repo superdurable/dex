@@ -4366,12 +4366,13 @@ func (x *FlowResult) GetErrorMessage() string {
 }
 
 type SearchFlowsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Query         string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
-	PageSize      int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	NextPageToken string                 `protobuf:"bytes,3,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Query                 string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
+	PageSize              int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	NextPageToken         string                 `protobuf:"bytes,3,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	IncludeContinuedAsNew bool                   `protobuf:"varint,4,opt,name=include_continued_as_new,json=includeContinuedAsNew,proto3" json:"include_continued_as_new,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *SearchFlowsRequest) Reset() {
@@ -4423,6 +4424,13 @@ func (x *SearchFlowsRequest) GetNextPageToken() string {
 		return x.NextPageToken
 	}
 	return ""
+}
+
+func (x *SearchFlowsRequest) GetIncludeContinuedAsNew() bool {
+	if x != nil {
+		return x.IncludeContinuedAsNew
+	}
+	return false
 }
 
 type SearchFlowsResponse struct {
@@ -13320,11 +13328,12 @@ const file_dex_proto_rawDesc = "" +
 	"\aresults\x18\x02 \x03(\v2\x19.dex.StepCompletionOutputR\aresults\x121\n" +
 	"\n" +
 	"error_type\x18\x03 \x01(\x0e2\x12.dex.FlowErrorTypeR\terrorType\x12#\n" +
-	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\"o\n" +
+	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\"\xa8\x01\n" +
 	"\x12SearchFlowsRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12&\n" +
-	"\x0fnext_page_token\x18\x03 \x01(\tR\rnextPageToken\"y\n" +
+	"\x0fnext_page_token\x18\x03 \x01(\tR\rnextPageToken\x127\n" +
+	"\x18include_continued_as_new\x18\x04 \x01(\bR\x15includeContinuedAsNew\"y\n" +
 	"\x13SearchFlowsResponse\x12:\n" +
 	"\tflow_runs\x18\x01 \x03(\v2\x1d.dex.SearchFlowsResponseEntryR\bflowRuns\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xc7\x02\n" +

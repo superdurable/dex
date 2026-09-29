@@ -56,7 +56,7 @@ public final class ClientApisController {
 
     @GetMapping("/search")
     public ResponseEntity<Map<String, Object>> search(@RequestParam final String query) {
-        final String scope = "FlowType = 'ClientApisFlow' AND ExecutionStatus != 'ContinuedAsNew'";
+        final String scope = "FlowType = 'ClientApisFlow'";
         final String scopedQuery = query.isBlank() ? scope : "(" + query + ") AND (" + scope + ")";
         final SearchFlowsPage page = client.searchFlows(scopedQuery, 20, "");
         final List<String> flowIds = new ArrayList<String>();

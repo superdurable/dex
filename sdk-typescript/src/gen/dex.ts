@@ -583,6 +583,7 @@ export interface SearchFlowsRequest {
   query: string;
   pageSize: number;
   nextPageToken: string;
+  includeContinuedAsNew: boolean;
 }
 
 export interface SearchFlowsResponse {
@@ -5454,7 +5455,7 @@ export const FlowResult: MessageFns<FlowResult> = {
 };
 
 function createBaseSearchFlowsRequest(): SearchFlowsRequest {
-  return { query: "", pageSize: 0, nextPageToken: "" };
+  return { query: "", pageSize: 0, nextPageToken: "", includeContinuedAsNew: false };
 }
 
 export const SearchFlowsRequest: MessageFns<SearchFlowsRequest> = {
@@ -5467,6 +5468,9 @@ export const SearchFlowsRequest: MessageFns<SearchFlowsRequest> = {
     }
     if (message.nextPageToken !== "") {
       writer.uint32(26).string(message.nextPageToken);
+    }
+    if (message.includeContinuedAsNew !== false) {
+      writer.uint32(32).bool(message.includeContinuedAsNew);
     }
     return writer;
   },
@@ -5502,6 +5506,14 @@ export const SearchFlowsRequest: MessageFns<SearchFlowsRequest> = {
           message.nextPageToken = reader.string();
           continue;
         }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.includeContinuedAsNew = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -5519,6 +5531,7 @@ export const SearchFlowsRequest: MessageFns<SearchFlowsRequest> = {
     message.query = object.query ?? "";
     message.pageSize = object.pageSize ?? 0;
     message.nextPageToken = object.nextPageToken ?? "";
+    message.includeContinuedAsNew = object.includeContinuedAsNew ?? false;
     return message;
   },
 };

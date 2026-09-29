@@ -279,8 +279,9 @@ func doTestPersistenceWorkflow(
 		}
 		require.Eventually(t, func() bool {
 			searchResponse, searchErr := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-				Query:    fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr),
-				PageSize: 100,
+				IncludeContinuedAsNew: flowConfig != nil,
+				Query:                 fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr),
+				PageSize:              100,
 			})
 			if searchErr != nil {
 				return false
@@ -371,8 +372,9 @@ func doTestPersistenceWorkflow(
 		var extraSearchFlow *dexpb.SearchFlowsResponseEntry
 		require.Eventually(t, func() bool {
 			searchResponse, searchErr := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-				Query:    fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr),
-				PageSize: 100,
+				IncludeContinuedAsNew: flowConfig != nil,
+				Query:                 fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr),
+				PageSize:              100,
 			})
 			if searchErr != nil {
 				return false
@@ -399,15 +401,15 @@ func doTestPersistenceWorkflow(
 		}
 
 		if flowConfig != nil {
-			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr), 15)
-			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomTextField='%v'", nowTimeStr, "Quanzheng"), 3)
-			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomDoubleField='%v'", nowTimeStr, "0.01"), 9)
-			assertSearchFlows(t, flowClient, boolQuery, 0)
+			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr), 15, flowConfig != nil)
+			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomTextField='%v'", nowTimeStr, "Quanzheng"), 3, flowConfig != nil)
+			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomDoubleField='%v'", nowTimeStr, "0.01"), 9, flowConfig != nil)
+			assertSearchFlows(t, flowClient, boolQuery, 0, flowConfig != nil)
 		} else {
-			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr), 5)
-			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomTextField='%v'", nowTimeStr, "Quanzheng"), 1)
-			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomDoubleField='%v'", nowTimeStr, "0.01"), 3)
-			assertSearchFlows(t, flowClient, boolQuery, 0)
+			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr), 5, flowConfig != nil)
+			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomTextField='%v'", nowTimeStr, "Quanzheng"), 1, flowConfig != nil)
+			assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomDoubleField='%v'", nowTimeStr, "0.01"), 3, flowConfig != nil)
+			assertSearchFlows(t, flowClient, boolQuery, 0, flowConfig != nil)
 		}
 	}
 }

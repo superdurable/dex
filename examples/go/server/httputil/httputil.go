@@ -91,9 +91,9 @@ func NewFlowID(prefix string) string {
 	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 }
 
-// ScopeApplicationRunSearch scopes caller filters to current runs of a trusted registered Flow type.
+// ScopeApplicationRunSearch scopes caller filters to a trusted registered Flow type.
 func ScopeApplicationRunSearch(query, flowType string) string {
-	scope := fmt.Sprintf("FlowType = '%s' AND ExecutionStatus != 'ContinuedAsNew'", flowType)
+	scope := fmt.Sprintf("FlowType = '%s'", flowType)
 	if strings.TrimSpace(query) == "" {
 		return scope
 	}

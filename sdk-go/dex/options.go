@@ -515,3 +515,9 @@ type TimeTravelOptions struct {
 	// SkipWritesReapply prevents replay of later RPCs, Channel publications, and Attribute writes; false reapplies them.
 	SkipWritesReapply bool
 }
+
+// SearchFlowsOptions selects whether visibility searches include earlier Continue-as-New runs.
+type SearchFlowsOptions struct {
+	// IncludeContinuedAsNew disables the server's default exclusion without changing the caller's query.
+	IncludeContinuedAsNew bool
+}

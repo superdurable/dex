@@ -159,7 +159,7 @@ func doTestBasicFlow(
 		WaitTimeSeconds: 20,
 	})
 	require.NoError(t, err)
-	requireCurrentRunSearchResult(t, flowClient, flowId)
+	requireCurrentRunSearchResult(t, flowClient, flowId, backendType)
 
 	startRequest.RequestId = newRequestID()
 	_, err = flowClient.StartFlow(ctx, startRequest)
@@ -201,11 +201,16 @@ func requireCurrentRunSearchResult(
 	t *testing.T,
 	flowClient dexpb.FlowServiceClient,
 	flowID string,
+	backendType service.BackendType,
 ) {
 	t.Helper()
+	workflowIDField := "WorkflowId"
+	if backendType == service.BackendTypeCadence {
+		workflowIDField = "WorkflowID"
+	}
 	require.Eventually(t, func() bool {
 		response, err := flowClient.SearchFlows(context.Background(), &dexpb.SearchFlowsRequest{
-			Query:    `ExecutionStatus != "ContinuedAsNew"`,
+			Query:    workflowIDField + " = '" + flowID + "'",
 			PageSize: 1000,
 		})
 		if err != nil {

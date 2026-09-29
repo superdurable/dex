@@ -725,3 +725,12 @@ request failures stop startup before binding.
 Published JARs store the diagnostic SDK version in the
 `Implementation-Version` manifest attribute. Direct class-directory builds use
 `dev`. The artifact version never participates in the compatibility decision.
+
+## Search run inclusion
+
+Dex Server excludes ContinuedAsNew runs by default. Application queries still
+need `FlowType` when using shared index slots. An explicit inclusion option
+removes only the default exclusion; it does not override query filters. Keep
+the query, inclusion option, and page size consistent across pages.
+
+Pass `SearchFlowsOptions.newBuilder().setIncludeContinuedAsNew(true).build()` to `searchFlows(query, pageSize, nextPageToken, options)` for execution-chain inspection. Existing overloads use the default.

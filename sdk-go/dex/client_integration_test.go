@@ -848,6 +848,12 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 
 	page, err := client.SearchFlows(ctx, "status = 'ready'", 10, "")
 	require.NoError(t, err)
+	require.False(t, service.searchRequest.GetIncludeContinuedAsNew())
+	_, err = client.SearchFlowsWithOptions(ctx, "status = 'ready'", 10, "next", SearchFlowsOptions{IncludeContinuedAsNew: true})
+	require.NoError(t, err)
+	require.True(t, service.searchRequest.GetIncludeContinuedAsNew())
+	require.Equal(t, "next", service.searchRequest.GetNextPageToken())
+	require.Equal(t, "status = 'ready'", service.searchRequest.GetQuery())
 	require.Equal(t, "next", page.NextPageToken)
 	require.Equal(t, FlowRunning, page.Flows[0].Status)
 	require.Equal(t, time.Unix(100, 0).UTC(), page.Flows[0].StartedAt)

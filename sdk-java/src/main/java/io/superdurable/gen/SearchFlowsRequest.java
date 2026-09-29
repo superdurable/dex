@@ -139,6 +139,17 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int INCLUDE_CONTINUED_AS_NEW_FIELD_NUMBER = 4;
+  private boolean includeContinuedAsNew_ = false;
+  /**
+   * <code>bool include_continued_as_new = 4;</code>
+   * @return The includeContinuedAsNew.
+   */
+  @java.lang.Override
+  public boolean getIncludeContinuedAsNew() {
+    return includeContinuedAsNew_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -162,6 +173,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(nextPageToken_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 3, nextPageToken_);
     }
+    if (includeContinuedAsNew_ != false) {
+      output.writeBool(4, includeContinuedAsNew_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -175,6 +189,10 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(nextPageToken_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(3, nextPageToken_);
+    }
+    if (includeContinuedAsNew_ != false) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeBoolSize(4, includeContinuedAsNew_);
     }
     return size;
   }
@@ -206,6 +224,8 @@ private static final long serialVersionUID = 0L;
         != other.getPageSize()) return false;
     if (!getNextPageToken()
         .equals(other.getNextPageToken())) return false;
+    if (getIncludeContinuedAsNew()
+        != other.getIncludeContinuedAsNew()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -223,6 +243,9 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getPageSize();
     hash = (37 * hash) + NEXT_PAGE_TOKEN_FIELD_NUMBER;
     hash = (53 * hash) + getNextPageToken().hashCode();
+    hash = (37 * hash) + INCLUDE_CONTINUED_AS_NEW_FIELD_NUMBER;
+    hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+        getIncludeContinuedAsNew());
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -357,6 +380,7 @@ private static final long serialVersionUID = 0L;
       query_ = "";
       pageSize_ = 0;
       nextPageToken_ = "";
+      includeContinuedAsNew_ = false;
       return this;
     }
 
@@ -399,6 +423,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000004) != 0)) {
         result.nextPageToken_ = nextPageToken_;
       }
+      if (((from_bitField0_ & 0x00000008) != 0)) {
+        result.includeContinuedAsNew_ = includeContinuedAsNew_;
+      }
     }
 
     @java.lang.Override
@@ -425,6 +452,9 @@ private static final long serialVersionUID = 0L;
         nextPageToken_ = other.nextPageToken_;
         bitField0_ |= 0x00000004;
         onChanged();
+      }
+      if (other.getIncludeContinuedAsNew() != false) {
+        setIncludeContinuedAsNew(other.getIncludeContinuedAsNew());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -467,6 +497,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 26
+            case 32: {
+              includeContinuedAsNew_ = input.readBool();
+              bitField0_ |= 0x00000008;
+              break;
+            } // case 32
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -656,6 +691,38 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       nextPageToken_ = value;
       bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+
+    private boolean includeContinuedAsNew_ ;
+    /**
+     * <code>bool include_continued_as_new = 4;</code>
+     * @return The includeContinuedAsNew.
+     */
+    @java.lang.Override
+    public boolean getIncludeContinuedAsNew() {
+      return includeContinuedAsNew_;
+    }
+    /**
+     * <code>bool include_continued_as_new = 4;</code>
+     * @param value The includeContinuedAsNew to set.
+     * @return This builder for chaining.
+     */
+    public Builder setIncludeContinuedAsNew(boolean value) {
+
+      includeContinuedAsNew_ = value;
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>bool include_continued_as_new = 4;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearIncludeContinuedAsNew() {
+      bitField0_ = (bitField0_ & ~0x00000008);
+      includeContinuedAsNew_ = false;
       onChanged();
       return this;
     }

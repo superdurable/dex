@@ -10,7 +10,9 @@
 
 use std::time::{Duration, Instant};
 
-use dex_sdk::{FlowStatus, IdReusePolicy, Registry, SdkError, StartFlowOptions};
+use dex_sdk::{
+    FlowConfig, FlowStatus, IdReusePolicy, Registry, SdkError, SearchFlowsOptions, StartFlowOptions,
+};
 use serde_json::Value as JsonValue;
 
 use crate::search_flows_workflow::SearchFlowsWorkflow;
@@ -30,7 +32,9 @@ fn test_search_flows_finds_indexed_flow() {
             &workflow,
             &flow_id,
             keyword_value.clone(),
-            StartFlowOptions::new().id_reuse_policy(IdReusePolicy::Disallow),
+            StartFlowOptions::new()
+                .id_reuse_policy(IdReusePolicy::Disallow)
+                .config_override(FlowConfig::new().continue_as_new_threshold(1)),
         )
         .expect("start indexed Flow");
     assert_eq!(
@@ -63,6 +67,59 @@ fn test_search_flows_finds_indexed_flow() {
         );
         std::thread::yield_now();
     };
+    let chain_query = format!("WorkflowId = '{flow_id}'");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let all_runs = loop {
+        let page = environment
+            .client
+            .search_flows_with_options(
+                &chain_query,
+                100,
+                "",
+                SearchFlowsOptions::new().include_continued_as_new(true),
+            )
+            .expect("include earlier runs");
+        if page
+            .flows
+            .iter()
+            .any(|run| run.status == FlowStatus::ContinuedAsNew)
+        {
+            break page.flows;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "expected a Continue-as-New chain"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert!(all_runs.len() > 1);
+    let current = environment
+        .client
+        .search_flows_page(&chain_query, 100, "")
+        .expect("search default current runs");
+    assert_eq!(1, current.flows.len());
+    assert_eq!(FlowStatus::Completed, current.flows[0].status);
+    let mut token = String::new();
+    let mut run_ids = std::collections::HashSet::new();
+    loop {
+        let page = environment
+            .client
+            .search_flows_with_options(
+                &chain_query,
+                1,
+                &token,
+                SearchFlowsOptions::new().include_continued_as_new(true),
+            )
+            .expect("page through earlier runs");
+        for run in page.flows {
+            assert!(run_ids.insert(run.run_id));
+        }
+        token = page.next_page_token;
+        if token.is_empty() {
+            break;
+        }
+    }
+    assert_eq!(all_runs.len(), run_ids.len());
     assert_eq!(flow_id, entry.flow_id);
     assert!(!entry.run_id.is_empty());
     assert_eq!(FlowStatus::Completed, entry.status);

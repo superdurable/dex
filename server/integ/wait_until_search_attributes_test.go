@@ -122,6 +122,7 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *dexpb.FlowConfig)
 				wait_until_search_attributes.State2,
 			),
 			0,
+			false,
 		)
 	}
 

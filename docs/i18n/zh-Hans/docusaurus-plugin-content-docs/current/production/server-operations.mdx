@@ -200,7 +200,7 @@ approximate charging、trim watermark、trim batch、lease 和 worker concurrenc
 
 ## 应用 Search Attribute 槽位
 
-为 namespace 规划一组按类型划分的 Search Attribute 槽位，让所有 Flow type 复用。应用索引显式使用 **keyword1**、**keywordList1**、**text1**、**int1** 等带编号的通用 key，Attribute 保留业务名称。同一个槽位始终使用同一类型。应用 run 查询同时限定 **FlowType**，并添加 **ExecutionStatus != "ContinuedAsNew"**；额外的调用方筛选条件放在括号内。完整命名规则与 schema 变更说明见 [Indexed Attribute](/primitives/attribute#indexed-attributes)。修改索引名后，已注册的旧 key 仍会占用容量。
+复用通用槽位的应用搜索必须限定 **FlowType**，并将调用方条件放在括号内。Dex Server 默认排除 ContinuedAsNew runs。仅在查看历史 runs 时将 **includeContinuedAsNew** 设为 true；翻页时保持查询和选项不变。
 
 ## Custom Attribute Store
 

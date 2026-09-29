@@ -129,7 +129,7 @@ async fn list(
     State(client): State<SharedClient>,
     Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
-    let scope = "FlowType = 'EngagementFlow' AND ExecutionStatus != 'ContinuedAsNew'";
+    let scope = "FlowType = 'EngagementFlow'";
     let scoped_query = if query.query.trim().is_empty() {
         scope.to_owned()
     } else {

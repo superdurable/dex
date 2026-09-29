@@ -747,7 +747,7 @@ public final class Client implements AutoCloseable {
     /**
      * Searches Flow executions and returns the first page.
      *
-     * @param query the server search expression, or {@code null} for an unfiltered search
+     * @param query the server search expression, or {@code null} for the default search
      * @param pageSize the nonnegative requested page size; zero uses the server default
      * @return the first immutable search-results page
      * @throws IllegalArgumentException if {@code pageSize} is negative
@@ -771,6 +771,23 @@ public final class Client implements AutoCloseable {
             final String query,
             final int pageSize,
             final String nextPageToken) {
+        return searchFlows(query, pageSize, nextPageToken, SearchFlowsOptions.newBuilder().build());
+    }
+
+    /**
+     * Searches with inclusion options.
+     * @param query filter
+     * @param pageSize maximum
+     * @param nextPageToken token
+     * @param options inclusion
+     * @return page
+     */
+    public SearchFlowsPage searchFlows(
+            final String query,
+            final int pageSize,
+            final String nextPageToken,
+            final SearchFlowsOptions options) {
+        java.util.Objects.requireNonNull(options, "options");
         if (pageSize < 0) {
             throw new IllegalArgumentException("search page size must not be negative");
         }
@@ -779,6 +796,7 @@ public final class Client implements AutoCloseable {
                         .setQuery(query == null ? "" : query)
                         .setPageSize(pageSize)
                         .setNextPageToken(nextPageToken == null ? "" : nextPageToken)
+                        .setIncludeContinuedAsNew(options.getIncludeContinuedAsNew())
                         .build()));
         final List<SearchFlowEntry> flows =
                 new ArrayList<SearchFlowEntry>(response.getFlowRunsCount());

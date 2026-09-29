@@ -1295,9 +1295,18 @@ func (s *serviceImpl) SearchFlows(
 	if req.GetPageSize() > 0 {
 		pageSize = req.GetPageSize()
 	}
+	query := req.GetQuery()
+	if !req.GetIncludeContinuedAsNew() {
+		const currentRuns = `ExecutionStatus != "ContinuedAsNew"`
+		if strings.TrimSpace(query) == "" {
+			query = currentRuns
+		} else {
+			query = fmt.Sprintf("(%s) AND (%s)", query, currentRuns)
+		}
+	}
 	response, err := s.client.ListWorkflow(ctx, &uclient.ListWorkflowExecutionsRequest{
 		PageSize:      pageSize,
-		Query:         req.GetQuery(),
+		Query:         query,
 		NextPageToken: []byte(req.GetNextPageToken()),
 	})
 	if err != nil {

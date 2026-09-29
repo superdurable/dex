@@ -66,7 +66,7 @@ async fn search(
     State(client): State<SharedClient>,
     Query(query): Query<SearchQuery>,
 ) -> impl IntoResponse {
-    let scope = "FlowType = 'ClientApisFlow' AND ExecutionStatus != 'ContinuedAsNew'";
+    let scope = "FlowType = 'ClientApisFlow'";
     let scoped_query = if query.query.trim().is_empty() {
         scope.to_owned()
     } else {

@@ -61,6 +61,7 @@ import {
   type ListStreamMessagesResponse,
   type ReadStreamRequest,
   type ReadStreamResponse,
+  type SearchFlowsRequest,
   type StartFlowRequest,
   type StartFlowResponse,
   type WaitForAttributeRequest,
@@ -162,6 +163,7 @@ class TestFlow implements Flow<Input> {
 
 test("Client maps typed calls and hydrates blob-backed outputs", async () => {
   const requests: {
+    search?: SearchFlowsRequest;
     start?: StartFlowRequest;
     rpc?: InvokeRPCRequest;
     writeStream?: WriteStreamRequest;
@@ -173,6 +175,10 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
   const hydratedOutput = protoJson({ accepted: true });
   const server = new Server();
   server.addService(FlowServiceService, {
+    searchFlows(call, callback) {
+      requests.search = call.request as SearchFlowsRequest;
+      callback(null, { flowRuns: [], nextPageToken: "" });
+    },
     startFlow(call, callback: sendUnaryData<StartFlowResponse>) {
       requests.start = call.request as StartFlowRequest;
       callback(null, { runId: "run-1" });
@@ -312,6 +318,12 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     serverAddress: `127.0.0.1:${port}`,
   });
   try {
+    await client.searchFlows("WorkflowId = 'flow-1'", 1);
+    assert.equal(requests.search?.includeContinuedAsNew, false);
+    await client.searchFlows("WorkflowId = 'flow-1'", 1, "next", { includeContinuedAsNew: true });
+    assert.equal(requests.search?.includeContinuedAsNew, true);
+    assert.equal(requests.search?.nextPageToken, "next");
+    assert.equal(requests.search?.query, "WorkflowId = 'flow-1'");
     assert.equal(await client.startFlow(flow, "flow-1", { message: "hello" }, {
       timeoutMs: 30_000,
       timeoutPolicy: FlowTimeoutPolicy.HANDLER,

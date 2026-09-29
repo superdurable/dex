@@ -535,6 +535,7 @@ message SearchFlowsRequest {
   string query = 1;
   int32 page_size = 2;
   string next_page_token = 3;
+  bool include_continued_as_new = 4;
 }
 
 message SearchFlowsResponse {

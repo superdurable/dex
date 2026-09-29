@@ -800,3 +800,12 @@ protocol-specific paths.
 The diagnostic SDK version comes from Go build information for the
 `github.com/superdurable/dex/sdk-go` module. Source builds without module version
 metadata report `dev`; neither value changes compatibility decisions.
+
+## Search run inclusion
+
+Dex Server excludes ContinuedAsNew runs by default. Application queries still
+need `FlowType` when using shared index slots. An explicit inclusion option
+removes only the default exclusion; it does not override query filters. Keep
+the query, inclusion option, and page size consistent across pages.
+
+Use `SearchFlowsWithOptions(ctx, query, pageSize, nextPageToken, SearchFlowsOptions{IncludeContinuedAsNew: true})` for execution-chain inspection. `SearchFlows` uses the default exclusion.

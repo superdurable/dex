@@ -43,6 +43,8 @@ import io.superdurable.gen.ListStreamMessagesResponse;
 import io.superdurable.gen.ReadStreamRequest;
 import io.superdurable.gen.ReadStreamResponse;
 import io.superdurable.gen.StopFlowRequest;
+import io.superdurable.gen.SearchFlowsRequest;
+import io.superdurable.gen.SearchFlowsResponse;
 import io.superdurable.gen.StepCompletionOutput;
 import io.superdurable.gen.Value;
 import io.superdurable.gen.WaitForFlowRequest;
@@ -268,10 +270,31 @@ final class ClientExceptionIntegrationTest {
                 .build());
     }
 
+    @Test
+    void searchRunInclusionOptionsReachTheService() {
+        client.searchFlows("WorkflowId = 'flow-1'", 1, "");
+        assertEquals(false, flowService.searchFlowsRequest.getIncludeContinuedAsNew());
+        client.searchFlows("WorkflowId = 'flow-1'", 1, "next",
+                SearchFlowsOptions.newBuilder().setIncludeContinuedAsNew(true).build());
+        assertTrue(flowService.searchFlowsRequest.getIncludeContinuedAsNew());
+        assertEquals("next", flowService.searchFlowsRequest.getNextPageToken());
+        assertEquals("WorkflowId = 'flow-1'", flowService.searchFlowsRequest.getQuery());
+    }
+
     private static final class ErrorFlowService
             extends FlowServiceGrpc.FlowServiceImplBase {
         private final AtomicInteger stepReattachCalls = new AtomicInteger();
         private final List<String> stepReattachRequestIds = new ArrayList<>();
+        private SearchFlowsRequest searchFlowsRequest;
+
+        @Override
+        public void searchFlows(final SearchFlowsRequest request,
+                                final StreamObserver<SearchFlowsResponse> observer) {
+            searchFlowsRequest = request;
+            observer.onNext(SearchFlowsResponse.getDefaultInstance());
+            observer.onCompleted();
+        }
+
         private WaitForStepCompletionRequest stepWaitRequest;
         private WriteStreamRequest writeStreamRequest;
         private ReadStreamRequest readStreamRequest;

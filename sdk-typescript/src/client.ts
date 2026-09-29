@@ -85,6 +85,7 @@ import {
   type TimeTravelOptions,
   type SearchFlowEntry,
   type SearchFlowsPage,
+  type SearchFlowsOptions,
   type StartFlowOptions,
   type StepExecutionId,
   type StopFlowOptions,
@@ -698,19 +699,24 @@ export class Client {
    * @param query - Dex visibility query; empty uses server defaults.
    * @param pageSize - Non-negative requested maximum result count.
    * @param nextPageToken - Opaque token from the preceding page, or empty first.
+   * @param options - Whether to include earlier Continue-as-New runs; defaults to exclusion.
    * @returns Server-ordered entries and the next-page token.
    */
   public async searchFlows(
     query: string,
     pageSize: number,
     nextPageToken = "",
+    options: SearchFlowsOptions = {},
   ): Promise<SearchFlowsPage> {
     if (pageSize < 0) {
       throw new RangeError("search page size must not be negative");
     }
     const response = await unary<SearchFlowsResponse>(
       { operation: "searchFlows", requirement: "none" },
-      (callback) => this.service.searchFlows({ query, pageSize, nextPageToken }, callback),
+      (callback) => this.service.searchFlows({
+        query, pageSize, nextPageToken,
+        includeContinuedAsNew: options.includeContinuedAsNew ?? false,
+      }, callback),
     );
     const flows = await Promise.all(
       response.flowRuns.map((entry) => this.mapSearchEntry(entry)),

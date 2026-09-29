@@ -445,3 +445,9 @@ export interface WorkerTarget {
   /** Whether Dex connects directly without service discovery. */
   readonly headless?: boolean;
 }
+
+/** Selects whether a visibility search includes earlier Continue-as-New runs. */
+export interface SearchFlowsOptions {
+  /** Disable default exclusion while retaining every explicit query filter. Defaults to false. */
+  readonly includeContinuedAsNew?: boolean;
+}

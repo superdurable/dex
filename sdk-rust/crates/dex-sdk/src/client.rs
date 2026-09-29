@@ -39,9 +39,9 @@ use crate::{
     ActiveStepSearchMode, Attribute, AttributeMap, AttributeMatch, BlobCache, ClientOptions, Flow,
     FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus, FlowTimeoutPolicy, IdReusePolicy,
     Registry, RetryPolicy, Rpc, RpcInvokeOptions, SdkError, SdkResult, SearchFlowEntry,
-    SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability, StepExecutionId,
-    StopFlowOptions, Stream, StreamMessage, StreamMessagesPage, TimeTravelOptions, TimerId, Value,
-    WaitForAttributeOptions, WaitForStepCompletionOptions, WorkerTarget,
+    SearchFlowsOptions, SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability,
+    StepExecutionId, StopFlowOptions, Stream, StreamMessage, StreamMessagesPage, TimeTravelOptions,
+    TimerId, Value, WaitForAttributeOptions, WaitForStepCompletionOptions, WorkerTarget,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -487,6 +487,17 @@ impl Client {
         page_size: i32,
         next_page_token: &str,
     ) -> SdkResult<SearchFlowsPage> {
+        self.search_flows_with_options(query, page_size, next_page_token, SearchFlowsOptions::new())
+    }
+
+    /// Searches with explicit inclusion options; retain query and options across pages. An empty token starts pagination.
+    pub fn search_flows_with_options(
+        &self,
+        query: &str,
+        page_size: i32,
+        next_page_token: &str,
+        options: SearchFlowsOptions,
+    ) -> SdkResult<SearchFlowsPage> {
         if page_size < 0 {
             return Err(invalid("search page size must not be negative"));
         }
@@ -497,6 +508,7 @@ impl Client {
                     query: query.to_string(),
                     page_size,
                     next_page_token: next_page_token.to_string(),
+                    include_continued_as_new: options.include_continued_as_new,
                 })
                 .await
                 .map(|response| response.into_inner())

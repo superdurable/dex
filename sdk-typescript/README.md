@@ -521,3 +521,12 @@ intervals, and RPC failures stop startup before binding.
 The build generates the diagnostic SDK version from `package.json`, so the
 runtime value follows the version stamped by the release workflow. The artifact
 version does not participate in compatibility decisions.
+
+## Search run inclusion
+
+Dex Server excludes ContinuedAsNew runs by default. Application queries still
+need `FlowType` when using shared index slots. An explicit inclusion option
+removes only the default exclusion; it does not override query filters. Keep
+the query, inclusion option, and page size consistent across pages.
+
+Pass `{ includeContinuedAsNew: true }` as the fourth argument of `searchFlows(query, pageSize, nextPageToken, options)` for execution-chain inspection. The default is `false`.

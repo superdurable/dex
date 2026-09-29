@@ -39,4 +39,10 @@ public interface SearchFlowsRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getNextPageTokenBytes();
+
+  /**
+   * <code>bool include_continued_as_new = 4;</code>
+   * @return The includeContinuedAsNew.
+   */
+  boolean getIncludeContinuedAsNew();
 }

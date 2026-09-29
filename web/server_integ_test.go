@@ -338,21 +338,29 @@ func TestWebServerScopesSearchesToEngineWorkflows(t *testing.T) {
 	harness := newHarness(t, service)
 
 	testCases := []struct {
-		name      string
-		body      string
-		wantQuery string
+		name                  string
+		body                  string
+		wantQuery             string
+		includeContinuedAsNew bool
 	}{
 		{
 			name:      "empty query",
 			body:      `{"pageSize":10}`,
-			wantQuery: `WorkflowType = "Engine" AND ExecutionStatus != "ContinuedAsNew"`,
+			wantQuery: `WorkflowType = "Engine"`,
 		},
 		{
 			name:      "user query",
 			body:      `{"query":"ExecutionStatus = \"Running\"","pageSize":10}`,
-			wantQuery: `(ExecutionStatus = "Running") AND (WorkflowType = "Engine" AND ExecutionStatus != "ContinuedAsNew")`,
+			wantQuery: `(ExecutionStatus = "Running") AND (WorkflowType = "Engine")`,
+		},
+		{
+			name:                  "include earlier runs",
+			body:                  `{"query":"FlowType = 'CheckoutFlow' OR FlowType = 'RefundFlow'","includeContinuedAsNew":true,"pageSize":1,"nextPageToken":"next"}`,
+			wantQuery:             `(FlowType = 'CheckoutFlow' OR FlowType = 'RefundFlow') AND (WorkflowType = "Engine")`,
+			includeContinuedAsNew: true,
 		},
 	}
+
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			response := postJSON(t, harness.http.URL+"/api/flows/search", testCase.body)
@@ -361,6 +369,12 @@ func TestWebServerScopesSearchesToEngineWorkflows(t *testing.T) {
 				t.Fatalf("search status = %d", response.StatusCode)
 			}
 			request := <-service.searchRequests
+			if request.GetIncludeContinuedAsNew() != testCase.includeContinuedAsNew {
+				t.Fatal("run inclusion option was not forwarded")
+			}
+			if testCase.includeContinuedAsNew && request.GetNextPageToken() != "next" {
+				t.Fatal("page token was not forwarded")
+			}
 			if request.GetQuery() != testCase.wantQuery {
 				t.Fatalf("query = %q, want %q", request.GetQuery(), testCase.wantQuery)
 			}

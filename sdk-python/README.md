@@ -589,3 +589,12 @@ It does not affect protocol compatibility.
 
 [Sustainable Use License 1.0](LICENSE), with legacy portions under their
 original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
+
+## Search run inclusion
+
+Dex Server excludes ContinuedAsNew runs by default. Application queries still
+need `FlowType` when using shared index slots. An explicit inclusion option
+removes only the default exclusion; it does not override query filters. Keep
+the query, inclusion option, and page size consistent across pages.
+
+Pass keyword-only `include_continued_as_new=True` to synchronous or asynchronous `search_flows` for execution-chain inspection. The default is `False`.

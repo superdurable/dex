@@ -33,7 +33,7 @@ export function createClientApisRouter(client: Client): Router {
 
   router.get("/search", async (request, response) => {
     const callerQuery = String(request.query.query ?? "");
-    const scope = `FlowType = '${clientApisFlow.getFlowType()}' AND ExecutionStatus != 'ContinuedAsNew'`;
+    const scope = `FlowType = '${clientApisFlow.getFlowType()}'`;
     const query = callerQuery.trim() ? `(${callerQuery}) AND (${scope})` : scope;
     const page = await client.searchFlows(query, 20, "");
     response.json({
