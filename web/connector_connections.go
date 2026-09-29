@@ -284,8 +284,12 @@ func (setup *connectorSetup) handlePutConnection(response http.ResponseWriter, r
 	}
 	request.Body = http.MaxBytesReader(response, request.Body, 1<<20)
 	var body connectorConnectionWriteRequest
-	if err := decodeStrictConnectorJSONReader(request.Body, &body); err != nil {
+	if err := decodeStrictConnectorJSONReader(request.Body, &body); err != nil || body.Credentials == nil {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector connection request is invalid")
+		return
+	}
+	if hasConnectorAuthMethodCredential(body.Credentials) {
+		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector credentials must not set the authentication method")
 		return
 	}
 	if body.ModulePath != requested.ModulePath || body.ModuleVersion != requested.ModuleVersion {
@@ -891,6 +895,13 @@ func normalizeConnectorTriggerBinding(
 	binding.ModuleVersion = override.ModuleVersion
 	binding.ConfigurationEnabled = binding.ConnectionName != "" && binding.BindingName != ""
 	return binding, true
+}
+
+// The server stamps the selected authentication methods; a client value could contradict them.
+func hasConnectorAuthMethodCredential(credentials map[string]json.RawMessage) bool {
+	_, hasAuthMethod := credentials["auth_method"]
+	_, hasAuthMethods := credentials["auth_methods"]
+	return hasAuthMethod || hasAuthMethods
 }
 
 func hasStrictConnectorOrigin(request *http.Request) bool {

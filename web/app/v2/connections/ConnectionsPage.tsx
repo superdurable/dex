@@ -523,18 +523,9 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
         window.location.assign(result.authorizationUrl);
         return;
       }
-      const credentials = fieldValues(auth.fields, values, 'credential');
-      if (authMethodId) credentials.auth_method = authMethodId;
       const response = await dexFetch(connectionURL(connection), {
-        method: 'PUT', headers: connectorWriteHeaders(catalog), body: JSON.stringify({
-          modulePath: connection.modulePath,
-          moduleVersion: connection.moduleVersion,
-          provider: manifest.spec.provider,
-          authMethodId,
-          configuration,
-          credentials,
-          credentialExpiresAt: null,
-        }),
+        method: 'PUT', headers: connectorWriteHeaders(catalog),
+        body: JSON.stringify(connectionWriteRequestBody(connection, manifest, authMethodId, values)),
       });
       await readResponseJSON(response);
       setValues({});
@@ -586,6 +577,24 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
     {oauth && <p className="connections-scopes">Requested bot scopes: {auth.oauth2?.scopes.join(', ')}{auth.oauth2?.userScopes?.length ? `; user scopes: ${auth.oauth2.userScopes.join(', ')}` : ''}</p>}
     <button className="v2-primary" disabled={submitting} type="submit">{oauth ? 'Authorize' : catalog.mode === 'hosted' ? 'Save credentials' : 'Save local credentials'}</button>
   </form>;
+}
+
+// The server stamps the selected method into the stored credentials.
+export function connectionWriteRequestBody(
+  connection: ConnectionView,
+  manifest: ReleaseManifest,
+  authMethodId: string,
+  values: Record<string, string>,
+) {
+  return {
+    modulePath: connection.modulePath,
+    moduleVersion: connection.moduleVersion,
+    provider: manifest.spec.provider,
+    authMethodId,
+    configuration: fieldValues(manifest.spec.configuration.fields, values, 'configuration'),
+    credentials: fieldValues(selectedManifestAuth(manifest.spec.auth, authMethodId).fields, values, 'credential'),
+    credentialExpiresAt: null,
+  };
 }
 
 export function selectedManifestAuth(auth: ReleaseManifest['spec']['auth'], methodId: string): ManifestAuthMethod {

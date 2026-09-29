@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -81,6 +82,79 @@ func TestConnectorConnectionsAPIWritesWithoutReturningSecretsAndReloadsAfterRest
 	}
 	if bytes.Contains(encoded, []byte("never-return-this")) {
 		t.Fatal("credential leaked in connection view")
+	}
+}
+
+func TestConnectorConnectionsAPISavesNonOAuthMethodOfMultiMethodManifest(t *testing.T) {
+	identity := connectorDefinitionIdentity{
+		ConnectorID: "gmail", OperationID: "sendMessage", OperationKind: "mutation",
+		ConnectionName: "sender", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/google/gmail",
+		ModuleVersion: "v0.1.1", ConfigurationEnabled: true,
+	}
+	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{identity}))
+	installConnectorTestReleaseWithAuth(t, setup, identity, "google", connectorManifestAuth{
+		DefaultMethod: "apiKey",
+		Methods: []connectorManifestAuthMethod{
+			{ID: "apiKey", Type: "apiKey", Fields: []connectorManifestField{
+				{Name: "api_key", Type: "secretString", Required: true},
+			}},
+			{ID: "workspaceServiceAccount", Type: "serviceAccount", Fields: []connectorManifestField{
+				{Name: "service_account_key", Type: "secretString", Required: true},
+				{Name: "delegated_user", Type: "string", Required: true},
+			}},
+		},
+	})
+	mux := http.NewServeMux()
+	setup.registerHandlers(mux)
+	const moduleFields = `"modulePath":"github.com/superdurable/dex-connectors-library/connectors/google/gmail","moduleVersion":"v0.1.1","provider":"google","configuration":{}`
+
+	for _, testCase := range []struct {
+		authMethodID string
+		credentials  string
+		expected     map[string]string
+	}{
+		{
+			authMethodID: "workspaceServiceAccount",
+			credentials:  `{"service_account_key":"service-account-secret","delegated_user":"owner@example.com"}`,
+			expected: map[string]string{
+				"auth_method": "workspaceServiceAccount", "service_account_key": "service-account-secret", "delegated_user": "owner@example.com",
+			},
+		},
+		{
+			authMethodID: "apiKey",
+			credentials:  `{"api_key":"api-key-secret"}`,
+			expected:     map[string]string{"auth_method": "apiKey", "api_key": "api-key-secret"},
+		},
+	} {
+		recorder := putConnectorTestConnection(t, setup, mux, "/api/v2/connector-connections/gmail/sender", `{`+moduleFields+`,"authMethodId":"`+testCase.authMethodID+`","credentials":`+testCase.credentials+`}`)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s put status = %d: %s", testCase.authMethodID, recorder.Code, recorder.Body.String())
+		}
+		stored, found, err := setup.store.get("gmail", "sender")
+		if err != nil || !found || stored.AuthMethodID != testCase.authMethodID {
+			t.Fatalf("stored = %+v, found = %v, err = %v", stored, found, err)
+		}
+		credentials := make(map[string]string, len(stored.Credentials))
+		for name, value := range stored.Credentials {
+			var text string
+			if err := json.Unmarshal(value, &text); err != nil {
+				t.Fatal(err)
+			}
+			credentials[name] = text
+		}
+		if !reflect.DeepEqual(credentials, testCase.expected) {
+			t.Fatalf("%s credentials = %+v", testCase.authMethodID, credentials)
+		}
+	}
+
+	for _, credentials := range []string{
+		`{"api_key":"api-key-secret","auth_method":"apiKey"}`,
+		`{"api_key":"api-key-secret","auth_methods":["apiKey"]}`,
+	} {
+		recorder := putConnectorTestConnection(t, setup, mux, "/api/v2/connector-connections/gmail/sender", `{`+moduleFields+`,"authMethodId":"apiKey","credentials":`+credentials+`}`)
+		if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), `"CONNECTOR_REQUEST_INVALID"`) {
+			t.Fatalf("client-set auth method status = %d: %s", recorder.Code, recorder.Body.String())
+		}
 	}
 }
 
@@ -247,6 +321,19 @@ func TestConnectorConnectionViewsUseLocalReleaseOverrideForWorkspaceFlow(t *test
 	}
 }
 
+func putConnectorTestConnection(
+	t *testing.T,
+	setup *connectorSetup,
+	mux *http.ServeMux,
+	target string,
+	body string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, authorizedConnectorRequest(t, setup, http.MethodPut, target, strings.NewReader(body)))
+	return recorder
+}
+
 func connectorTestSetup(t *testing.T, directory string, provider FlowDefinitionProvider) *connectorSetup {
 	t.Helper()
 	setup, err := newConnectorSetup(&Config{
@@ -289,6 +376,17 @@ func installConnectorTestRelease(
 	authFields []connectorManifestField,
 ) {
 	t.Helper()
+	installConnectorTestReleaseWithAuth(t, setup, identity, provider, connectorManifestAuth{Type: "apiKey", Fields: authFields})
+}
+
+func installConnectorTestReleaseWithAuth(
+	t *testing.T,
+	setup *connectorSetup,
+	identity connectorDefinitionIdentity,
+	provider string,
+	auth connectorManifestAuth,
+) {
+	t.Helper()
 	release := connectorRelease{
 		ConnectorID: identity.ConnectorID, ModulePath: identity.ModulePath, Version: identity.ModuleVersion,
 		Tag:       strings.TrimPrefix(identity.ModulePath, "github.com/superdurable/dex-connectors-library/") + "/" + identity.ModuleVersion,
@@ -298,8 +396,7 @@ func installConnectorTestRelease(
 	release.Manifest.Kind = "Connector"
 	release.Manifest.Metadata.Name = identity.ConnectorID
 	release.Manifest.Spec.Provider = provider
-	release.Manifest.Spec.Auth.Type = "apiKey"
-	release.Manifest.Spec.Auth.Fields = authFields
+	release.Manifest.Spec.Auth = auth
 	metadata, err := json.Marshal(release)
 	if err != nil {
 		t.Fatal(err)

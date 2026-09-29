@@ -18,6 +18,7 @@ import {
   connectorHostReadyMessage,
   connectorSetupTabs,
   connectorWriteHeaders,
+  connectionWriteRequestBody,
   initialConnectorSetupTabKey,
   isStudioCommand,
   isStudioFrameResize,
@@ -50,6 +51,45 @@ describe('Connections contract', () => {
     } as never;
     expect(selectedManifestAuth(auth, 'workspaceServiceAccount').id).toBe('workspaceServiceAccount');
     expect(selectedManifestAuth(auth, 'missing').id).toBe('googleOAuth');
+  });
+
+  it('saves a non-OAuth method of a multi-method manifest without sending auth_method', () => {
+    const manifest = {
+      metadata: {displayName: 'Gmail', description: 'Gmail connection'},
+      spec: {
+        provider: 'google',
+        configuration: {fields: [{name: 'endpoint', type: 'url', description: '', required: false}]},
+        auth: {
+          fields: [],
+          defaultMethod: 'apiKey',
+          methods: [
+            {id: 'apiKey', displayName: 'API key', description: '', type: 'apiKey', fields: [
+              {name: 'api_key', type: 'secretString', description: '', required: true},
+            ]},
+            {id: 'workspaceServiceAccount', displayName: 'Workspace service account', description: '', type: 'serviceAccount', fields: [
+              {name: 'service_account_key', type: 'secretString', description: '', required: true},
+              {name: 'delegated_user', type: 'string', description: '', required: true},
+            ]},
+          ],
+        },
+      },
+    } as never;
+    const connection = {connectorId: 'gmail', connectionName: 'sender', modulePath: 'github.com/superdurable/dex-connectors-library/connectors/google/gmail', moduleVersion: 'v0.1.1'} as never;
+    const body = connectionWriteRequestBody(connection, manifest, 'workspaceServiceAccount', {
+      'configuration:endpoint': 'https://gmail.example.test',
+      'credential:service_account_key': '{"type":"service_account"}',
+      'credential:delegated_user': 'owner@example.com',
+      'credential:api_key': 'from-the-other-method',
+    });
+    expect(body).toEqual({
+      modulePath: 'github.com/superdurable/dex-connectors-library/connectors/google/gmail',
+      moduleVersion: 'v0.1.1',
+      provider: 'google',
+      authMethodId: 'workspaceServiceAccount',
+      configuration: {endpoint: 'https://gmail.example.test'},
+      credentials: {service_account_key: '{"type":"service_account"}', delegated_user: 'owner@example.com'},
+      credentialExpiresAt: null,
+    });
   });
 
   it('shows non-secret manifest defaults parenthetically and never exposes secret defaults', () => {
