@@ -30,6 +30,7 @@ type hostedConnectorConfigurationStore struct {
 	baseURL      *url.URL
 	projectID    string
 	environment  string
+	releaseID    string
 	serviceToken string
 	httpClient   *http.Client
 
@@ -55,6 +56,36 @@ type hostedConnectorProviderCommandExecutor interface {
 	executeProviderCommand(connectorID string, connectionName string, commandID string, parameters map[string]string) (map[string]any, error)
 }
 
+type hostedConnectorOAuthExecutor interface {
+	startOAuth(connectorID string, connectionName string, request hostedConnectorOAuthStartRequest) (hostedConnectorOAuthStartResponse, error)
+	completeOAuth(state string, code string, providerError string) (hostedConnectorOAuthCallbackResponse, error)
+}
+
+type hostedConnectorOAuthStartRequest struct {
+	DefinitionRevision string                     `json:"definitionRevision"`
+	ModulePath         string                     `json:"modulePath"`
+	ModuleVersion      string                     `json:"moduleVersion"`
+	Provider           string                     `json:"provider"`
+	AuthMethodID       string                     `json:"authMethodId"`
+	OAuth2             connectorManifestOAuth2    `json:"oauth2"`
+	ClientID           string                     `json:"clientId"`
+	ClientSecret       string                     `json:"clientSecret"`
+	RedirectURI        string                     `json:"redirectUri"`
+	Configuration      map[string]json.RawMessage `json:"configuration"`
+	CredentialValues   map[string]json.RawMessage `json:"credentialValues"`
+	CredentialSecrets  map[string]string          `json:"credentialSecrets"`
+}
+
+type hostedConnectorOAuthStartResponse struct {
+	AuthorizationURL string    `json:"authorizationUrl"`
+	ExpiresAt        time.Time `json:"expiresAt"`
+}
+
+type hostedConnectorOAuthCallbackResponse struct {
+	ConnectorID    string `json:"connectorId"`
+	ConnectionName string `json:"connectionName"`
+}
+
 func newHostedConnectorConfigurationStore(cfg *Config) (*hostedConnectorConfigurationStore, error) {
 	baseURL, err := url.Parse(strings.TrimSpace(cfg.ConnectorHostedBaseURL))
 	if err != nil || (baseURL.Scheme != "http" && baseURL.Scheme != "https") || baseURL.Host == "" {
@@ -65,12 +96,14 @@ func newHostedConnectorConfigurationStore(cfg *Config) (*hostedConnectorConfigur
 	}
 	projectID := strings.TrimSpace(cfg.ConnectorHostedProjectID)
 	environment := strings.TrimSpace(cfg.ConnectorHostedEnvironment)
+	releaseID := strings.TrimSpace(cfg.ConnectorHostedReleaseID)
 	serviceToken := strings.TrimSpace(cfg.ConnectorHostedServiceToken)
-	if projectID == "" || environment == "" || serviceToken == "" {
-		return nil, fmt.Errorf("hosted Connector configuration requires project, environment, and service token")
+	if projectID == "" || environment == "" || releaseID == "" || serviceToken == "" {
+		return nil, fmt.Errorf("hosted Connector configuration requires project, environment, release, and service token")
 	}
-	if !isSafeConnectorConfigurationPathSegment(projectID) || !isSafeConnectorConfigurationPathSegment(environment) {
-		return nil, fmt.Errorf("hosted Connector project and environment must be safe URL path segments")
+	if !isSafeConnectorConfigurationPathSegment(projectID) || !isSafeConnectorConfigurationPathSegment(environment) ||
+		!isSafeConnectorConfigurationPathSegment(releaseID) {
+		return nil, fmt.Errorf("hosted Connector project, environment, and release must be safe URL path segments")
 	}
 	httpClient := cfg.ConnectorHostedHTTPClient
 	if httpClient == nil {
@@ -83,7 +116,7 @@ func newHostedConnectorConfigurationStore(cfg *Config) (*hostedConnectorConfigur
 	}
 	return &hostedConnectorConfigurationStore{
 		baseURL: baseURL, projectID: projectID, environment: environment,
-		serviceToken: serviceToken, httpClient: httpClient,
+		releaseID: releaseID, serviceToken: serviceToken, httpClient: httpClient,
 	}, nil
 }
 
@@ -198,6 +231,56 @@ func (store *hostedConnectorConfigurationStore) executeProviderCommand(
 		return nil, err
 	}
 	return value, nil
+}
+
+func (store *hostedConnectorConfigurationStore) startOAuth(
+	connectorID string,
+	connectionName string,
+	startRequest hostedConnectorOAuthStartRequest,
+) (hostedConnectorOAuthStartResponse, error) {
+	revision, err := store.currentRevision()
+	if err != nil {
+		return hostedConnectorOAuthStartResponse{}, err
+	}
+	contents, err := json.Marshal(startRequest)
+	if err != nil {
+		return hostedConnectorOAuthStartResponse{}, fmt.Errorf("encode hosted Connector OAuth start: %w", err)
+	}
+	request, err := store.request(http.MethodPost, []string{
+		"releases", store.releaseID, "connections", connectorID, connectionName, "oauth", "start",
+	}, bytes.NewReader(contents), revision)
+	if err != nil {
+		return hostedConnectorOAuthStartResponse{}, err
+	}
+	var result hostedConnectorOAuthStartResponse
+	if err := store.do(request, &result); err != nil {
+		return hostedConnectorOAuthStartResponse{}, err
+	}
+	return result, nil
+}
+
+func (store *hostedConnectorConfigurationStore) completeOAuth(
+	state string,
+	code string,
+	providerError string,
+) (hostedConnectorOAuthCallbackResponse, error) {
+	contents, err := json.Marshal(map[string]string{
+		"state": state, "code": code, "error": providerError,
+	})
+	if err != nil {
+		return hostedConnectorOAuthCallbackResponse{}, fmt.Errorf("encode hosted Connector OAuth callback: %w", err)
+	}
+	request, err := store.request(http.MethodPost, []string{
+		"releases", store.releaseID, "oauth", "callback",
+	}, bytes.NewReader(contents), "")
+	if err != nil {
+		return hostedConnectorOAuthCallbackResponse{}, err
+	}
+	var result hostedConnectorOAuthCallbackResponse
+	if err := store.do(request, &result); err != nil {
+		return hostedConnectorOAuthCallbackResponse{}, err
+	}
+	return result, nil
 }
 
 func (store *hostedConnectorConfigurationStore) load() (hostedConnectorConfigurationSnapshot, error) {

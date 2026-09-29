@@ -356,6 +356,8 @@ type (
 		ConnectorHostedProjectID string `yaml:"connectorHostedProjectId"`
 		// ConnectorHostedEnvironment fixes the environment scope. Required by hosted setup.
 		ConnectorHostedEnvironment string `yaml:"connectorHostedEnvironment"`
+		// ConnectorHostedReleaseID fixes the release scope. Default empty; required by hosted setup.
+		ConnectorHostedReleaseID string `yaml:"connectorHostedReleaseId"`
 		// ConnectorHostedServiceToken is read from DEX_WEB_CONNECTOR_HOSTED_SERVICE_TOKEN only.
 		ConnectorHostedServiceToken string `yaml:"-"`
 	}
@@ -614,6 +616,9 @@ func applyWebEnvironment(cfg *Config) error {
 	}
 	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_HOSTED_ENVIRONMENT"); ok {
 		cfg.Web.ConnectorHostedEnvironment = value
+	}
+	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_HOSTED_RELEASE_ID"); ok {
+		cfg.Web.ConnectorHostedReleaseID = value
 	}
 	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_HOSTED_SERVICE_TOKEN"); ok {
 		cfg.Web.ConnectorHostedServiceToken = value

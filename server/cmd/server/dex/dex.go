@@ -156,6 +156,7 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 			ConnectorHostedBaseURL:          cfg.Web.ConnectorHostedBaseURL,
 			ConnectorHostedProjectID:        cfg.Web.ConnectorHostedProjectID,
 			ConnectorHostedEnvironment:      cfg.Web.ConnectorHostedEnvironment,
+			ConnectorHostedReleaseID:        cfg.Web.ConnectorHostedReleaseID,
 			ConnectorHostedServiceToken:     cfg.Web.ConnectorHostedServiceToken,
 		}
 		if flowRenderingSource == dexweb.FlowRenderingSourceBlobStore {

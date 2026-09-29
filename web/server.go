@@ -67,6 +67,8 @@ type Config struct {
 	ConnectorHostedProjectID string
 	// ConnectorHostedEnvironment fixes the hosted configuration environment scope for this process.
 	ConnectorHostedEnvironment string
+	// ConnectorHostedReleaseID fixes the hosted configuration release scope for this process.
+	ConnectorHostedReleaseID string
 	// ConnectorHostedServiceToken authenticates this server to the hosted configuration backend.
 	ConnectorHostedServiceToken string
 	// ConnectorHostedHTTPClient overrides the hosted backend client in tests.

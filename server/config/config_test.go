@@ -30,6 +30,7 @@ func TestWebEnvironmentOverridesYAML(t *testing.T) {
 	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_BASE_URL", "https://control.example.test")
 	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_PROJECT_ID", "project-1")
 	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_ENVIRONMENT", "staging")
+	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_RELEASE_ID", "release-1")
 	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_SERVICE_TOKEN", "service-token")
 	path := writeTestConfig(t, `
 web:
@@ -50,6 +51,7 @@ web:
 	require.Equal(t, "https://control.example.test", cfg.Web.ConnectorHostedBaseURL)
 	require.Equal(t, "project-1", cfg.Web.ConnectorHostedProjectID)
 	require.Equal(t, "staging", cfg.Web.ConnectorHostedEnvironment)
+	require.Equal(t, "release-1", cfg.Web.ConnectorHostedReleaseID)
 	require.Equal(t, "service-token", cfg.Web.ConnectorHostedServiceToken)
 }
 

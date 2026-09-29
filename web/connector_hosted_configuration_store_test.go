@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/superdurable/dex/web/api"
 )
@@ -60,7 +61,8 @@ func TestHostedConnectorConfigurationStoreScopesRequestsAndUsesRevisionCAS(t *te
 
 	store, err := newHostedConnectorConfigurationStore(&Config{
 		ConnectorHostedBaseURL: backend.URL, ConnectorHostedProjectID: "project-1",
-		ConnectorHostedEnvironment: "staging", ConnectorHostedServiceToken: "backend-token",
+		ConnectorHostedEnvironment: "staging", ConnectorHostedReleaseID: "release-1",
+		ConnectorHostedServiceToken: "backend-token",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -100,6 +102,7 @@ func TestHostedConnectorSetupAllowsBlobStoreAndHidesLocalPaths(t *testing.T) {
 		ConnectorSetupEnabled: true, ConnectorSetupMode: ConnectorSetupModeHosted,
 		ConnectorCacheDirectory: t.TempDir(), ConnectorHostedBaseURL: backend.URL,
 		ConnectorHostedProjectID: "project-1", ConnectorHostedEnvironment: "production",
+		ConnectorHostedReleaseID:    "release-1",
 		ConnectorHostedServiceToken: "backend-token",
 	}, connectorTestDefinitionProvider(t, nil))
 	if err != nil {
@@ -133,7 +136,8 @@ func TestHostedConnectorConfigurationConflictIsSafe(t *testing.T) {
 	defer backend.Close()
 	store, err := newHostedConnectorConfigurationStore(&Config{
 		ConnectorHostedBaseURL: backend.URL, ConnectorHostedProjectID: "project-1",
-		ConnectorHostedEnvironment: "preview", ConnectorHostedServiceToken: "backend-token",
+		ConnectorHostedEnvironment: "preview", ConnectorHostedReleaseID: "release-1",
+		ConnectorHostedServiceToken: "backend-token",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -144,5 +148,69 @@ func TestHostedConnectorConfigurationConflictIsSafe(t *testing.T) {
 	})
 	if !errors.Is(err, errConnectorConfigurationRevisionConflict) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestHostedConnectorOAuthDelegatesStartAndCallbackToReleaseScope(t *testing.T) {
+	var paths []string
+	backend := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		paths = append(paths, request.URL.Path)
+		if request.Header.Get("Authorization") != "Bearer backend-token" {
+			t.Fatalf("Authorization = %q", request.Header.Get("Authorization"))
+		}
+		switch request.URL.Path {
+		case "/api/system/projects/project-1/environments/staging/connector-configuration":
+			writeWebJSON(response, http.StatusOK, hostedConnectorConfigurationSnapshot{
+				ConfigurationRevision: "revision-1",
+			})
+		case "/api/system/projects/project-1/environments/staging/connector-configuration/releases/release-1/connections/gmail/sender/oauth/start":
+			if request.Header.Get("If-Match") != "revision-1" {
+				t.Fatalf("If-Match = %q", request.Header.Get("If-Match"))
+			}
+			writeWebJSON(response, http.StatusOK, hostedConnectorOAuthStartResponse{
+				AuthorizationURL: "https://accounts.example.test/authorize?state=opaque",
+				ExpiresAt:        time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC),
+			})
+		case "/api/system/projects/project-1/environments/staging/connector-configuration/releases/release-1/oauth/callback":
+			var body map[string]string
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["state"] != "opaque" || body["code"] != "authorization-code" {
+				t.Fatalf("callback body = %v", body)
+			}
+			writeWebJSON(response, http.StatusOK, hostedConnectorOAuthCallbackResponse{
+				ConnectorID: "gmail", ConnectionName: "sender",
+			})
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer backend.Close()
+
+	store, err := newHostedConnectorConfigurationStore(&Config{
+		ConnectorHostedBaseURL: backend.URL, ConnectorHostedProjectID: "project-1",
+		ConnectorHostedEnvironment: "staging", ConnectorHostedReleaseID: "release-1",
+		ConnectorHostedServiceToken: "backend-token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := store.startOAuth("gmail", "sender", hostedConnectorOAuthStartRequest{
+		DefinitionRevision: "definition-1", ModulePath: "example/gmail", ModuleVersion: "v0.14.0",
+		Provider: "google", AuthMethodID: "google-oauth",
+		OAuth2:   connectorManifestOAuth2{AuthorizationEndpoint: "https://accounts.example.test/authorize"},
+		ClientID: "client-id", ClientSecret: "client-secret",
+		RedirectURI: "https://studio.example.test/dex/callback",
+	})
+	if err != nil || started.AuthorizationURL == "" {
+		t.Fatalf("start result = %+v, error = %v", started, err)
+	}
+	completed, err := store.completeOAuth("opaque", "authorization-code", "")
+	if err != nil || completed.ConnectorID != "gmail" || completed.ConnectionName != "sender" {
+		t.Fatalf("callback result = %+v, error = %v", completed, err)
+	}
+	if len(paths) != 3 {
+		t.Fatalf("backend paths = %v", paths)
 	}
 }

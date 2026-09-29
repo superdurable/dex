@@ -319,13 +319,15 @@ web:
   connectorHostedBaseURL: http://superverse-control-plane
   connectorHostedProjectId: project-id
   connectorHostedEnvironment: staging
+  connectorHostedReleaseId: release-id
 ```
 
 Supply `DEX_WEB_CONNECTOR_HOSTED_SERVICE_TOKEN` through the workload secret
-environment. The backend URL, project, environment, and cache directory also
-have `DEX_WEB_CONNECTOR_HOSTED_BASE_URL`,
+environment. The backend URL, project, environment, release, and cache
+directory also have `DEX_WEB_CONNECTOR_HOSTED_BASE_URL`,
 `DEX_WEB_CONNECTOR_HOSTED_PROJECT_ID`,
 `DEX_WEB_CONNECTOR_HOSTED_ENVIRONMENT`, and
+`DEX_WEB_CONNECTOR_HOSTED_RELEASE_ID`, plus
 `DEX_WEB_CONNECTOR_CACHE_DIRECTORY` overrides.
 
 Every mutation sends the last configuration revision in `If-Match`. A stale

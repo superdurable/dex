@@ -62,6 +62,20 @@ func TestConnectorOAuthRejectsHostSuppliedDerivedCredential(t *testing.T) {
 	}
 }
 
+func TestConnectorOAuthClientSecretRequirementFollowsManifestField(t *testing.T) {
+	authMethod := connectorManifestAuthMethod{
+		OAuth2: &connectorManifestOAuth2{ClientSecretCredential: "oauth_client_secret"},
+		Fields: []connectorManifestField{{Name: "oauth_client_secret", Required: false}},
+	}
+	if connectorOAuthClientSecretRequired(authMethod) {
+		t.Fatal("optional PKCE client secret was required")
+	}
+	authMethod.Fields[0].Required = true
+	if !connectorOAuthClientSecretRequired(authMethod) {
+		t.Fatal("required confidential client secret was optional")
+	}
+}
+
 func TestConnectorOAuthUsesPKCESingleUseStateAndDoesNotPersistClientOrRefreshSecret(t *testing.T) {
 	identity := connectorDefinitionIdentity{
 		ConnectorID: "gmail", OperationID: "sendMessage", OperationKind: "mutation", ConnectionName: "sender",
