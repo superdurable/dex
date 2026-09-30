@@ -849,8 +849,8 @@ export class Client {
         }
         if (
           error instanceof DexServiceError
-          && error.code === status.DEADLINE_EXCEEDED
-          && requestBudget.hasExpired()
+          && (error.code === status.DEADLINE_EXCEEDED || error.code === status.CANCELLED)
+          && requestBudget.hasDeadline()
         ) {
           throw requestBudget.timeoutError("waitForStepCompletion", flowId);
         }
@@ -987,8 +987,8 @@ export class Client {
         }
         if (
           error instanceof DexServiceError
-          && error.code === status.DEADLINE_EXCEEDED
-          && requestBudget.hasExpired()
+          && (error.code === status.DEADLINE_EXCEEDED || error.code === status.CANCELLED)
+          && requestBudget.hasDeadline()
         ) {
           throw requestBudget.timeoutError("waitForAttributeMatch", flowId);
         }
@@ -1542,8 +1542,9 @@ class ClientRequestBudget {
     };
   }
 
-  public hasExpired(): boolean {
-    return this.deadlineMs !== undefined && performance.now() >= this.deadlineMs;
+  public hasDeadline(): boolean {
+    // Trust the transport's deadline expiry; its timer can precede the monotonic budget.
+    return this.deadlineMs !== undefined;
   }
 
   public timeoutError(operation: string, flowId: string): RequestTimeoutError {
