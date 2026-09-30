@@ -25,8 +25,10 @@ from pathlib import Path
 
 import pytest
 from dex import AsyncClient, ChannelMessageNotFoundError, StartFlowOptions
+from tests.integ.conftest import WAIT_TIMEOUT, wait_until
 
 from dex_examples.app import ExampleApp
+from dex_examples.http_app import create_app
 from dex_examples.products.ai_agent.mcp_registry import MCPRegistry
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
@@ -36,7 +38,6 @@ from dex_examples.products.ai_agent.models import (
     ToolApprovalRequest,
     UserMessage,
 )
-from tests.integ.conftest import WAIT_TIMEOUT, wait_until
 
 
 async def test_mcp_registry_supports_streamable_http(tmp_path: Path) -> None:
@@ -390,10 +391,7 @@ async def test_ai_agent_plans_before_execution(
             description.status == "waiting_for_message"
             and description.plan is not None
             and description.plan["status"] == "completed"
-            and all(
-                task["status"] == "completed"
-                for task in description.plan["tasks"]
-            )
+            and all(task["status"] == "completed" for task in description.plan["tasks"])
         )
 
     await wait_until("AI Agent completed plan", completed_plan, WAIT_TIMEOUT)
@@ -643,6 +641,7 @@ async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     flow_id = new_flow_id("ai-agent-steer")
     await client.start_flow(
@@ -697,6 +696,29 @@ async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
         and '"status": "interrupted"' in message.message.content
         for message in history.messages
     )
+
+    await client.stop_flow(flow_id)
+    await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+
+    async def reject_lifecycle_probe(*arguments: object, **keywords: object) -> None:
+        raise AssertionError("snapshot reads must not probe Flow lifecycle")
+
+    monkeypatch.setattr(client, "describe_flow", reject_lifecycle_probe)
+    monkeypatch.setattr(client, "wait_for_flow", reject_lifecycle_probe)
+    http_client = create_app(app).test_client()
+    response = await http_client.get(
+        "/products/ai-agent/snapshot", query_string={"workflowId": flow_id}
+    )
+    assert response.status_code == 200
+    payload = await response.get_json()
+    assert payload["messages"]
+    assert payload["description"] is not None
+    assert payload["flow_status"] == "unknown"
+    missing_response = await http_client.get(
+        "/products/ai-agent/snapshot",
+        query_string={"workflowId": new_flow_id("missing-ai-agent")},
+    )
+    assert missing_response.status_code == 404
 
 
 async def test_ai_agent_consumes_steered_messages_as_a_batch(

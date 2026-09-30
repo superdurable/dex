@@ -649,15 +649,25 @@ Remote FlowService failures use concrete Go error types. Match expected
 conditions with `errors.As` instead of comparing gRPC codes or sub-statuses:
 
 ```go
-var inactive *dex.FlowNotActiveError
+var inactive *dex.FlowNotActiveOrNotFoundError
 if errors.As(err, &inactive) {
-	// The Flow exists historically but cannot accept this mutation or RPC.
+	// The Flow is missing or already closed for this mutation.
 }
 ```
 
 `FlowNotFoundError` is returned by reads requiring an existing Flow, including
 WaitForFlow and TimeTravel. RPCs, timer operations, and step or attribute waits return
-`FlowNotActiveError` when no active Flow is available.
+`FlowNotActiveOrNotFoundError` when no active Flow is available.
+
+RPCs also use this error when the target Flow cannot be found, including query-only
+reads. A query-only RPC without locks, transactional execution, durable effects, or
+Server-forced Update routing can read a retained terminal execution. At that confirmed
+read boundary, this error means no readable target was found; return the application's
+missing or unavailable result directly, without a lifecycle probe, a short timeout, a
+retry, or historical Step-output decoding. Preserve other service and Worker failures.
+For mutations and active-only RPCs, the error can mean either missing or closed and does
+not prove that the requested action succeeded. RPC success does not prove that the Flow
+is active.
 
 Duplicate starts return `FlowAlreadyStartedError`. Server long polls return
 `LongPollTimeoutError`, including the operation and Flow ID. Durable Step and

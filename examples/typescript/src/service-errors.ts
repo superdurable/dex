@@ -14,15 +14,19 @@
  * limitations under the License.
  */
 
-import { DexServiceError } from "@superdurable/dex";
-
-const grpcNotFound = 5;
-const grpcAlreadyExists = 6;
+import {
+  FlowAlreadyStartedError,
+  FlowNotActiveOrNotFoundError,
+  FlowNotFoundError,
+} from "@superdurable/dex";
 
 export function isFlowAlreadyStarted(error: unknown): boolean {
-  return error instanceof DexServiceError && error.code === grpcAlreadyExists;
+  return error instanceof FlowAlreadyStartedError;
 }
 
 export function isFlowMissingOrInactive(error: unknown): boolean {
-  return error instanceof DexServiceError && error.code === grpcNotFound;
+  return (
+    error instanceof FlowNotActiveOrNotFoundError ||
+    error instanceof FlowNotFoundError
+  );
 }

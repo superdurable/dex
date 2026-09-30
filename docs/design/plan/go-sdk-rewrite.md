@@ -2829,7 +2829,7 @@ const (
 ```
 
 Applications use `errors.As` with `FlowAlreadyStartedError`,
-`FlowNotFoundError`, `FlowNotActiveError`, `WorkerInvocationError`,
+`FlowNotFoundError`, `FlowNotActiveOrNotFoundError`, `WorkerInvocationError`,
 `RPCLockConflictError`, or `LongPollTimeoutError`. Each unwraps through
 `ServiceError` to the original gRPC status. `ErrorSubStatus` remains diagnostic
 metadata.
@@ -2837,11 +2837,17 @@ metadata.
 `WaitForFlow` returns `FlowResult` for every terminal status. Transport,
 long-poll, hydration, and invalid-input failures remain errors.
 
-WaitForFlow and TimeTravel require an existing Flow. RPC, stop, timer, config,
-and step or attribute wait
-operations require an active Flow. The shared server `FLOW_NOT_EXISTS`
-sub-status maps to the corresponding concrete error using that endpoint
-requirement.
+WaitForFlow and TimeTravel require an existing Flow. Stop, timer, config, and
+Step or Attribute wait operations require an active Flow. RPCs use
+`FlowNotActiveOrNotFoundError` for a missing target or a closed target that the
+operation cannot use. The error alone cannot distinguish those cases. A retained
+terminal execution remains readable through an unlocked, non-transactional RPC
+with no durable effects when the Server permits the query path. At that confirmed
+read boundary, handle the error directly as missing or unavailable without
+`WaitForFlow`, fixed short timeouts, retries, or historical output decoding.
+Handlers returning durable effects and Server-forced Update routing require an
+active execution. RPC success alone does not prove the Flow remains active. The
+shared server `FLOW_NOT_EXISTS` sub-status retains its endpoint-specific mapping.
 
 Registry and unregistered-definition failures return `FlowDefinitionError`.
 Invalid Wait, StepDecision, and RPCResult values return

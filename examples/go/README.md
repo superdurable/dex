@@ -98,8 +98,12 @@ Override `DEAL_DSL_POSTGRES_URL` when Postgres is not on
 
 ## Error handling
 
-Examples match expected SDK failures with `errors.As`. Reads use
-`FlowNotFoundError`; RPC, publish, and mutation paths use `FlowNotActiveError`.
+Examples match expected SDK failures with `errors.As`. Lifecycle and history reads use
+`FlowNotFoundError`; RPC, publish, and mutation paths use `FlowNotActiveOrNotFoundError`.
+A query-only RPC can read a retained closed Flow when it has no locks, transactionality,
+durable effects, or Server-forced Update routing. At that confirmed read boundary, the
+error means no readable target was found. Return the missing-target result directly
+without lifecycle probes, retries, or history decoding; preserve other failures.
 Duplicate starts use `FlowAlreadyStartedError`, and server long-poll expiry uses
 `LongPollTimeoutError`. A Flow that closes without completing returns
 `FlowUncompletedError`. `ServiceError.SubStatus` is retained for diagnostics

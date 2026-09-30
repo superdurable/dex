@@ -10,6 +10,14 @@ use `AsyncClient`. One Registry and disk BlobCache are shared by Worker and Clie
 
 For the sync `Client` / `Worker` surface (Flask), see [`sync-python/`](./sync-python/).
 
+RPC and mutation calls can return `FlowNotActiveOrNotFoundError` when the Flow is missing
+or the operation requires an active execution that has ended. A query-only RPC
+can still read a retained terminal Flow when it has no locks, transactionality,
+durable effects, or Server-forced Update routing. At that confirmed read boundary,
+handle the error as missing or unavailable without a lifecycle probe, a short
+`WaitForFlow` timeout, or historical Step-output decoding. RPC success alone does
+not prove that the Flow is active.
+
 ## Layout
 
 ```

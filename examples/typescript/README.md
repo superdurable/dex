@@ -1,6 +1,6 @@
 # Dex TypeScript examples
 
-These examples target [`@superdurable/dex@0.6.0`](https://www.npmjs.com/package/@superdurable/dex).
+These examples target [`@superdurable/dex@1.2.1`](https://www.npmjs.com/package/@superdurable/dex).
 
 The sample process hosts one gRPC Worker (default `127.0.0.1:8803`) and an HTTP
 controller on port `8080`. Step `execute` / `waitFor` / RPC handlers may
@@ -8,7 +8,15 @@ controller on port `8080`. Step `execute` / `waitFor` / RPC handlers may
 BlobCaches are under `DEX_BLOB_CACHE_DIR`.
 
 Controllers handle expected duplicate and missing-Flow failures through
-`DexServiceError` gRPC codes; no example compares Dex sub-status metadata.
+concrete SDK error classes; no example compares Dex sub-status metadata.
+
+RPC and mutation calls can return `FlowNotActiveOrNotFoundError` when the Flow is missing
+or the operation requires an active execution that has ended. A query-only RPC
+can still read a retained terminal Flow when it has no locks, transactionality,
+durable effects, or Server-forced Update routing. At that confirmed read boundary,
+handle the error as missing or unavailable without a lifecycle probe, a short
+`WaitForFlow` timeout, or historical Step-output decoding. RPC success alone does
+not prove that the Flow is active.
 
 ## Layout
 

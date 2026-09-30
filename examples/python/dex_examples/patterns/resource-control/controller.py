@@ -16,21 +16,23 @@ from __future__ import annotations
 
 import random
 
-from dex import FlowNotActiveError
+from dex import FlowNotActiveOrNotFoundError
 from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.shared.query import optional_query, required_query
 from dex_examples.patterns.resource_control.controller_flow import (
     SPOT_INSTANCE_IDS,
     ControllerFlow,
 )
 from dex_examples.patterns.resource_control.request import Request
+from dex_examples.shared.query import optional_query, required_query
 
 
 def create_resource_control_blueprint(app_state: ExampleApp) -> Blueprint:
-    blueprint = Blueprint("resource_control", __name__, url_prefix="/patterns/resource-control")
+    blueprint = Blueprint(
+        "resource_control", __name__, url_prefix="/patterns/resource-control"
+    )
 
     @blueprint.get("/request")
     async def enqueue_request() -> Response:
@@ -45,7 +47,7 @@ def create_resource_control_blueprint(app_state: ExampleApp) -> Blueprint:
                 flow_id,
                 request,
             )
-        except FlowNotActiveError:
+        except FlowNotActiveOrNotFoundError:
             await app_state.client.start_flow(
                 app_state.controller,
                 flow_id,

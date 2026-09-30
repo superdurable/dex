@@ -19,7 +19,7 @@ import traceback
 from dex import (
     DexServiceError,
     FlowAlreadyStartedError,
-    FlowNotActiveError,
+    FlowNotActiveOrNotFoundError,
     FlowNotFoundError,
     LongPollTimeoutError,
 )
@@ -28,18 +28,25 @@ from werkzeug.exceptions import HTTPException
 
 from dex_examples.app import ExampleApp
 from dex_examples.http_cors import install_quart_cors
-from dex_examples.patterns.drain_channels.internal.controller import (
-    create_drain_internal_blueprint,
-)
 from dex_examples.patterns.drain_channels.external_publishing.controller import (
     create_draining_channel_blueprint,
+)
+from dex_examples.patterns.drain_channels.internal.controller import (
+    create_drain_internal_blueprint,
 )
 from dex_examples.patterns.entity_store.controller import create_entity_store_blueprint
 from dex_examples.patterns.hash_partitioned_attribute_map.controller import (
     create_hash_partitioned_attribute_map_blueprint,
 )
-from dex_examples.patterns.interruptible.controller import create_interruptible_blueprint
-from dex_examples.patterns.intervention.controller import create_manual_recovery_blueprint
+from dex_examples.patterns.inactiveness_tracker_timer.controller import (
+    create_inactiveness_tracker_timer_blueprint,
+)
+from dex_examples.patterns.interruptible.controller import (
+    create_interruptible_blueprint,
+)
+from dex_examples.patterns.intervention.controller import (
+    create_manual_recovery_blueprint,
+)
 from dex_examples.patterns.parallel.controller import create_parallel_blueprint
 from dex_examples.patterns.parallel_subflows.controller import (
     create_parallel_subflows_blueprint,
@@ -47,14 +54,11 @@ from dex_examples.patterns.parallel_subflows.controller import (
 from dex_examples.patterns.polling.controller import create_polling_pattern_blueprint
 from dex_examples.patterns.recovery.controller import create_recovery_blueprint
 from dex_examples.patterns.reminders.controller import create_reminders_blueprint
-from dex_examples.patterns.sequentially_chunked_attribute_map.controller import (
-    create_sequentially_chunked_attribute_map_blueprint,
-)
-from dex_examples.patterns.inactiveness_tracker_timer.controller import (
-    create_inactiveness_tracker_timer_blueprint,
-)
 from dex_examples.patterns.resource_control.controller import (
     create_resource_control_blueprint,
+)
+from dex_examples.patterns.sequentially_chunked_attribute_map.controller import (
+    create_sequentially_chunked_attribute_map_blueprint,
 )
 from dex_examples.patterns.timeout.controller import create_timeout_blueprint
 from dex_examples.patterns.wait_for_step_completion.controller import (
@@ -63,16 +67,20 @@ from dex_examples.patterns.wait_for_step_completion.controller import (
 from dex_examples.primitives.attribute.controller import create_attribute_blueprint
 from dex_examples.primitives.channel.controller import create_channel_blueprint
 from dex_examples.primitives.client_apis.controller import create_client_apis_blueprint
-from dex_examples.primitives.custom_retry.controller import create_custom_retry_blueprint
+from dex_examples.primitives.custom_retry.controller import (
+    create_custom_retry_blueprint,
+)
 from dex_examples.primitives.durability.controller import create_durability_blueprint
+from dex_examples.primitives.flow.controller import create_flow_blueprint
 from dex_examples.primitives.heartbeat.controller import create_heartbeat_blueprint
 from dex_examples.primitives.options_override.controller import (
     create_options_override_blueprint,
 )
-from dex_examples.primitives.flow.controller import create_flow_blueprint
 from dex_examples.primitives.rpc.controller import create_rpc_blueprint
 from dex_examples.primitives.step.controller import create_step_blueprint
-from dex_examples.primitives.step_decision.controller import create_step_decision_blueprint
+from dex_examples.primitives.step_decision.controller import (
+    create_step_decision_blueprint,
+)
 from dex_examples.primitives.stream.controller import create_stream_blueprint
 from dex_examples.primitives.subflow.controller import create_subflow_blueprint
 from dex_examples.primitives.timer.controller import create_timer_blueprint
@@ -85,7 +93,9 @@ from dex_examples.products.ai_agent.http_routes import (
 from dex_examples.products.engagement.controller import create_engagement_blueprint
 from dex_examples.products.job_post.controller import create_job_post_blueprint
 from dex_examples.products.microservices.controller import create_microservice_blueprint
-from dex_examples.products.money_transfer.controller import create_money_transfer_blueprint
+from dex_examples.products.money_transfer.controller import (
+    create_money_transfer_blueprint,
+)
 from dex_examples.products.order_processing.controller import (
     create_order_processing_blueprint,
 )
@@ -95,7 +105,7 @@ from dex_examples.products.subscription.controller import create_subscription_bl
 ERROR_HTTP_CODES = {
     FlowAlreadyStartedError: 409,
     FlowNotFoundError: 404,
-    FlowNotActiveError: 409,
+    FlowNotActiveOrNotFoundError: 409,
     LongPollTimeoutError: 504,
 }
 

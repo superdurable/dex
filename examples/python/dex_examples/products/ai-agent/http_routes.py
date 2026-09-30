@@ -22,8 +22,7 @@ from typing import Any, TypedDict
 
 from dex import (
     ChannelMessageNotFoundError,
-    FlowNotActiveError,
-    FlowStatus,
+    FlowNotActiveOrNotFoundError,
     StartFlowOptions,
 )
 from quart import Blueprint, Response, jsonify, render_template, request
@@ -102,7 +101,8 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/portal")
     async def portal() -> Response:
         registered_tools = {
-            tool.definition.name: tool for tool in app_state.mcp_registry.registered_tools
+            tool.definition.name: tool
+            for tool in app_state.mcp_registry.registered_tools
         }
         tools = []
         for definition in app_state.mcp_registry.definitions([], []):
@@ -220,24 +220,11 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
                 app_state.ai_agent.get_snapshot,
                 flow_id,
             )
-        except FlowNotActiveError:
-            info = await app_state.client.describe_flow(flow_id)
-            if info.status in {FlowStatus.RUNNING, FlowStatus.CONTINUED_AS_NEW}:
-                raise
-            result = await app_state.client.wait_for_flow(flow_id)
-            return jsonify(
-                run_id=info.run_id,
-                flow_status=info.status.value,
-                error_type=result.error_type.value if result.error_type else None,
-                error_message=result.error_message,
-                messages=[],
-                description=None,
-                queued=[],
-                steered=[],
-            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("AI Agent snapshot is missing or unavailable") from error
         payload = asdict(agent_snapshot)
         payload.update(
-            flow_status=FlowStatus.RUNNING.value,
+            flow_status="unknown",
             error_type=None,
             error_message=None,
         )

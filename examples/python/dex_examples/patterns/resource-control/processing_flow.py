@@ -20,12 +20,12 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Callable
 
 from dex import (
-    AsyncContext,
     AsyncClient,
+    AsyncContext,
     Attribute,
     Context,
-    FlowNotActiveError,
     Flow,
+    FlowNotActiveOrNotFoundError,
     PersistenceSchema,
     RPCResult,
     Step,
@@ -73,7 +73,7 @@ class Complete(Step[None]):
                     parent_flow_id,
                     context.flow_id,
                 )
-            except FlowNotActiveError:
+            except FlowNotActiveOrNotFoundError:
                 print(
                     "Parent flow may have completed, possibly a duplicate "
                     "completion request, ignoring it."

@@ -1,6 +1,6 @@
 # Dex Java examples
 
-These examples target `io.superdurable:dex-sdk:0.6.0` (`io.superdurable.dex`).
+These examples target `io.superdurable:dex-sdk:1.2.1` (`io.superdurable.dex`).
 
 The sample process hosts one gRPC Worker on `127.0.0.1:8803` and an HTTP
 controller on port `8080`. One Registry and disk BlobCache are shared by its
@@ -58,7 +58,11 @@ Run the integration suite against an isolated `dexcli dev` environment:
 
 Examples catch concrete types from `io.superdurable.dex.exceptions`.
 `FlowNotFoundException` is for read operations with no matching execution;
-`FlowNotActiveException` is for RPC or mutation operations after a Flow closes.
+`FlowNotActiveOrNotFoundException` covers missing RPC targets and mutations that cannot
+use a closed Flow. A query-only RPC can read a retained closed Flow when it has no
+locks, transactionality, durable effects, or Server-forced Update routing. At that
+confirmed read boundary, return the missing-target result directly without lifecycle
+probes, retries, or history decoding. Preserve other service and Worker failures.
 `ErrorSubStatus` remains diagnostic metadata and is not used for control flow.
 
 The Go examples support `./run-e2e-tests.sh --keep-running` to leave Dex running

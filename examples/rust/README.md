@@ -1,8 +1,16 @@
 # Rust examples
 
 This application mirrors the examples shared by the Java, Python, and TypeScript
-applications. It intentionally depends on the published `dex-sdk = "=0.6.0"`
+applications. It intentionally depends on the published `dex-sdk = "=1.2.1"`
 crate without a repository path override.
+
+RPC and mutation calls can return `SdkError::FlowNotActiveOrNotFound` when the Flow is missing
+or the operation requires an active execution that has ended. A query-only RPC
+can still read a retained terminal Flow when it has no locks, transactionality,
+durable effects, or Server-forced Update routing. At that confirmed read boundary,
+handle the error as missing or unavailable without a lifecycle probe, a short
+`WaitForFlow` timeout, or historical Step-output decoding. RPC success alone does
+not prove that the Flow is active.
 
 ## Layout
 

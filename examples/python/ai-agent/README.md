@@ -9,6 +9,12 @@ The application runs without external credentials by default with the `mock/dex`
 model. Its local model echoes normal messages and understands `/wait <seconds>
 <reason>`, which makes the durable timer easy to test.
 
+The snapshot endpoint reads retained state through the unlocked, non-transactional
+**get_snapshot** RPC, which returns no durable effects. Missing or retention-unavailable
+targets return HTTP 404 directly. Reads use no lifecycle probe, short timeout, or
+historical output fallback. The response sets **flow_status** to **unknown** because
+a successful query does not establish whether the Flow is active.
+
 ## Architecture
 
 - `AgentMessages` is an AttributeMap. Each value stores one message and its creation time.
