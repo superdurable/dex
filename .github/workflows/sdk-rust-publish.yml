@@ -56,10 +56,28 @@ jobs:
         working-directory: sdk-rust
     outputs:
       version: ${{ steps.release.outputs.version }}
+      source_ref: ${{ steps.sources.outputs.ref }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - name: Select release sources
+        id: sources
+        shell: bash
+        working-directory: .
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          # An existing release tag pins the crate sources, so a republish never builds later main commits.
+          ref="${GITHUB_SHA}"
+          tag="refs/tags/sdk-rust/v${DISPATCH_VERSION}"
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" || "${EVENT_NAME}" == "workflow_call" ]] &&
+            git rev-parse -q --verify "${tag}^{commit}" >/dev/null; then
+            ref="$(git rev-parse "${tag}^{commit}")"
+            git checkout --quiet --detach "${ref}"
+          fi
+          echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -130,6 +148,17 @@ jobs:
         working-directory: sdk-rust
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check out release sources
+        shell: bash
+        working-directory: .
+        env:
+          SOURCE_REF: ${{ needs.prepare.outputs.source_ref }}
+        run: |
+          # The publisher runs from this workflow's commit; the crates come from the release sources.
+          cp sdk-rust/scripts/publish_crates.py "${RUNNER_TEMP}/publish_crates.py"
+          git checkout --quiet --detach "${SOURCE_REF}"
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -146,15 +175,10 @@ jobs:
           CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: |
           [[ -n "${CRATES_IO_TOKEN}" ]] || { echo 'CRATES_IO_TOKEN is missing' >&2; exit 1; }
-      - name: Publish dex-blob-cache
+      - name: Publish crates
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-        run: cargo publish --locked --allow-dirty -p dex-blob-cache
-      - name: Publish dex-protocol
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-        run: cargo publish --locked --allow-dirty -p dex-protocol
-      - name: Publish dex-sdk
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-        run: cargo publish --locked --allow-dirty -p dex-sdk
+        run: >-
+          python "${RUNNER_TEMP}/publish_crates.py"
+          '${{ needs.prepare.outputs.version }}'
+          dex-blob-cache dex-protocol dex-sdk
