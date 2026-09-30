@@ -164,7 +164,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
                 .maximum_interval(Duration::from_secs(10 * 60))
                 .maximum_attempts(3),
         )
-        .initial_attribute(&status(), "queued".to_owned())
+        .initial_attribute(&STATUS, "queued".to_owned())
         .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
         .ignore_already_started(true)
         .request_id("start-order-123")
@@ -247,7 +247,7 @@ public handleTimeout(context: Context): StepDecision {
 ```rust
 impl ExampleFlow {
     fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
-        status().set(context, "timed out".to_string())?;
+        STATUS.set(context, "timed out".to_string())?;
         Ok(StepDecision::force_fail("processing deadline reached"))
     }
 }
@@ -276,7 +276,8 @@ These options answer different questions, in this order:
 
 | Retry request | **AlreadyStartedOptions.IgnoreError** | When the ID reuse policy rejects the start |
 |---------------|---------------------------------------|---------------------------------------------|
-| No **RequestID**, or a new **RequestID** | Off or on | The SDK sends a new UUID. Dex returns an already-started error. |
+| No **RequestID** | Off or on | The SDK sends a new UUID. Dex returns an already-started error. |
+| A different **RequestID** | Off or on | Dex returns an already-started error. |
 | Same **RequestID** | Off | Dex returns an already-started error. |
 | Same **RequestID** | On | Dex returns the existing Run ID. |
 
@@ -295,6 +296,150 @@ The ID reuse policy determines whether Dex rejects the start in the first place:
 Dex Server requires a non-empty **RequestID**. An SDK generates one before sending the request when you omit it. The server records it with the Flow execution, then asks the configured backend to start the Flow using the requested ID reuse policy. **IDReuseDefault** uses the server default: reject every previously used Flow ID. Choose **IDReuseAllowIfNotRunning** explicitly when a closed Flow ID should start a new execution.
 
 If the backend reports that the Flow is already started, Dex checks **AlreadyStartedOptions.IgnoreError**. When it is on, Dex reads the existing run's recorded RequestID. It returns that Run ID only when the two RequestIDs match. Otherwise it returns the already-started error.
+
+#### StartFlow best practices {#start-flow-best-practices}
+
+Call **StartFlow** directly with a stable business **Flow ID**. Do not read a snapshot, search for the Flow, or check its status first just to avoid a possible retry conflict. A successful start also needs no read to recheck the identity, owner, or initial Attributes you supplied.
+
+For retries of one logical start, combine a stable **RequestID**, **IDReuseDisallow**, and the ignore-already-started option. Keep the same input and options on every retry. **IDReuseDisallow** prevents another execution after closure; a policy that permits another run can bypass the matching-RequestID path.
+
+The following helpers accept a validated integer input and a stable Flow ID. Those are the complete business inputs in this example, so together they determine the RequestID. All other start values are fixed. In a real application, include every logical input that changes the operation, such as tenant, owner, mode, revision, or initial business Attributes. Dex compares RequestIDs; it does not compare payload equality. Do not reuse a RequestID for a changed logical request.
+
+Each helper returns the known business Flow ID after acceptance and propagates errors. It performs no read before or after the start. The returned ID is an acknowledgement, not a current business snapshot or proof that the Flow has completed.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/flow/controller.py',
+    go: 'examples/go/primitives/flow/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java',
+    typescript: 'examples/typescript/src/primitives/flow/controller.ts',
+    rust: 'examples/rust/src/primitives/flow/controller.rs',
+  }}>
+  <SdkSnippet lang="python">
+
+```python
+async def start_example_flow_request(
+    client: AsyncClient, example_flow: ExampleFlow, flow_id: str, input_num: int
+) -> str:
+    options = StartFlowOptions(
+        id_reuse_policy=IdReusePolicy.DISALLOW,
+        request_id=f"start-example-flow:{input_num}:{flow_id}",
+        ignore_already_started=True,
+    ).with_attribute(status, "queued")
+    await client.start_flow(example_flow, flow_id, input_num, options)
+    return flow_id
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func startExampleFlowRequest(
+	ctx context.Context, client *sdk.Client, exampleFlow *ExampleFlow, flowID string, inputNum int,
+) (string, error) {
+	initialStatus, err := sdk.InitialAttribute(Status, "queued")
+	if err != nil {
+		return "", err
+	}
+	_, err = client.StartFlow(ctx, exampleFlow, flowID, inputNum, sdk.StartFlowOptions{
+		IDReusePolicy:  sdk.IDReuseDisallow,
+		RequestID:      ptr.Any("start-example-flow:" + strconv.Itoa(inputNum) + ":" + flowID),
+		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
+		Attributes:     []sdk.InitialAttributeDef{initialStatus},
+	})
+	if err != nil {
+		return "", err
+	}
+	return flowID, nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+    private static String startExampleFlowRequest(
+            final Client client, final ExampleFlow exampleFlow,
+            final String flowId, final int inputNum) {
+        final StartFlowOptions options = StartFlowOptions.newBuilder()
+                .idReusePolicy(IdReusePolicy.DISALLOW)
+                .requestId("start-example-flow:" + inputNum + ":" + flowId)
+                .ignoreAlreadyStarted(true)
+                .addAttribute(ExampleFlow.status, "queued")
+                .build();
+        client.startFlow(exampleFlow, flowId, inputNum, options);
+        return flowId;
+    }
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+export async function startExampleFlowRequest(
+  client: Client, flowId: string, inputNum: number,
+): Promise<string> {
+  await client.startFlow(exampleFlow, flowId, inputNum, {
+    idReusePolicy: IdReusePolicy.DISALLOW,
+    requestId: `start-example-flow:${inputNum}:${flowId}`,
+    ignoreAlreadyStarted: true,
+    attributes: [InitialAttribute.of(status, "queued")],
+  });
+  return flowId;
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+pub fn start_example_flow_request(
+    client: &Client,
+    example_flow: &ExampleFlow,
+    flow_id: &str,
+    input_num: i32,
+) -> SdkResult<String> {
+    let options = StartFlowOptions::new()
+        .id_reuse_policy(IdReusePolicy::Disallow)
+        .request_id(format!("start-example-flow:{input_num}:{flow_id}"))
+        .ignore_already_started(true)
+        .initial_attribute(&STATUS, "queued".to_owned());
+    client.start_flow_with_options(example_flow, flow_id, input_num, options)?;
+    Ok(flow_id.to_owned())
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+For example, starting **invoice-42** with input **7** sends RequestID **start-example-flow:7:invoice-42**. Retrying that call returns the same execution, even after it closes, while the backend retains it. Starting the same Flow ID with input **8** sends a different RequestID and returns an already-started error. No snapshot comparison is needed on the successful path.
+
+#### Read only when the error outcome needs it {#start-error-reconciliation}
+
+Error handling follows the business contract. If an already-started error can simply become **ALREADY_EXISTS**, return that conflict directly. Do not add a read-only RPC just because the error occurred. The helpers above preserve the typed error for that boundary translation.
+
+Read existing state only when it changes the response or next business decision. For example, an API that explicitly permits continuing an existing operation may call its typed read-only RPC after the conflict to decide whether that operation satisfies the request. An API that promises a current snapshot must read current state; it cannot label the submitted initial Attributes as that snapshot. An accepted start does not prove business completion.
+
+| Situation | Action |
+| --- | --- |
+| Start accepted; response only acknowledges acceptance | Return the Flow ID and the agreed acceptance fields. No snapshot read. |
+| Already started; business accepts **ALREADY_EXISTS** | Return the conflict. No snapshot read. |
+| Already started; business permits resuming an existing operation | Read its typed snapshot only to decide whether that contract permits resuming it. |
+| Response lost; start acceptance is unknown | Retry within a bounded policy with the same identity and options, or read authoritative state if it can establish the outcome. |
+
+Do not retry a proven conflict indefinitely. If no stable RequestID was supplied, separate SDK calls use fresh IDs; enabling the ignore option alone does not deduplicate them.
+
+#### Put dependent starts inside the owning Flow {#durable-dependent-starts}
+
+For one business operation, the API starts one owning Flow. Its durable Steps perform the follow-on work. Do not start the first Flow, read its status, and start a dependent Flow in the HTTP handler. If that process exits between the starts, no durable Step owns the missing launch.
+
+Use Steps when the work shares one identity and lifecycle. When it needs a separate top-level Flow with its own owner and lifecycle, launch it from an **Execute** Step with stable downstream Flow ID, RequestID, and start options. Persist the launch input in the owning Flow. If the Worker dies after the downstream start is accepted but before the Step commits, the Step can retry the same start without creating another execution. Keep **WaitFor** for durable conditions. A separately owned top-level Flow does not need to become a SubFlow merely because another Flow starts it.
+
+```text
+API → StartFlow for the owning operation → accepted response
+Owning Flow Execute → StartFlow for separately owned work → durable progress
+Worker replacement → retry the same downstream start identity → no duplicate launch
+```
 
 ### RetryPolicy {#retry-policy}
 

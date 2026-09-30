@@ -31,7 +31,7 @@ from quart import Blueprint, Response
 from dex_examples.app import ExampleApp
 from dex_examples.shared.query import required_int_query, required_query, started_flow
 
-from .example_flow import status
+from .example_flow import ExampleFlow, status
 
 
 def start_flow_options() -> StartFlowOptions:
@@ -57,6 +57,18 @@ def example_start_flow_options() -> StartFlowOptions:
         ignore_already_started=True,
         request_id="start-order-123",
     ).with_attribute(status, "queued")
+
+
+async def start_example_flow_request(
+    client: AsyncClient, example_flow: ExampleFlow, flow_id: str, input_num: int
+) -> str:
+    options = StartFlowOptions(
+        id_reuse_policy=IdReusePolicy.DISALLOW,
+        request_id=f"start-example-flow:{input_num}:{flow_id}",
+        ignore_already_started=True,
+    ).with_attribute(status, "queued")
+    await client.start_flow(example_flow, flow_id, input_num, options)
+    return flow_id
 
 
 async def reroute_active_flow(client: AsyncClient, flow_id: str) -> None:

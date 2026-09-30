@@ -64,6 +64,19 @@ public final class FlowController {
                 .build();
     }
 
+    private static String startExampleFlowRequest(
+            final Client client, final ExampleFlow exampleFlow,
+            final String flowId, final int inputNum) {
+        final StartFlowOptions options = StartFlowOptions.newBuilder()
+                .idReusePolicy(IdReusePolicy.DISALLOW)
+                .requestId("start-example-flow:" + inputNum + ":" + flowId)
+                .ignoreAlreadyStarted(true)
+                .addAttribute(ExampleFlow.status, "queued")
+                .build();
+        client.startFlow(exampleFlow, flowId, inputNum, options);
+        return flowId;
+    }
+
     private static void rerouteActiveFlow(final Client client, final String flowId) {
         client.updateFlowConfig(
                 flowId,

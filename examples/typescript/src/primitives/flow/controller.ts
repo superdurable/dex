@@ -56,6 +56,18 @@ export function exampleStartFlowOptions(): StartFlowOptions {
   };
 }
 
+export async function startExampleFlowRequest(
+  client: Client, flowId: string, inputNum: number,
+): Promise<string> {
+  await client.startFlow(exampleFlow, flowId, inputNum, {
+    idReusePolicy: IdReusePolicy.DISALLOW,
+    requestId: `start-example-flow:${inputNum}:${flowId}`,
+    ignoreAlreadyStarted: true,
+    attributes: [InitialAttribute.of(status, "queued")],
+  });
+  return flowId;
+}
+
 export async function rerouteActiveFlow(client: Client, flowId: string): Promise<void> {
   await client.updateFlowConfig(flowId, {
     workerTarget: { address: "worker-canary:8803" },

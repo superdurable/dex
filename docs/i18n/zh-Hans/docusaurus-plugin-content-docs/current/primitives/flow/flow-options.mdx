@@ -164,7 +164,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
                 .maximum_interval(Duration::from_secs(10 * 60))
                 .maximum_attempts(3),
         )
-        .initial_attribute(&status(), "queued".to_owned())
+        .initial_attribute(&STATUS, "queued".to_owned())
         .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
         .ignore_already_started(true)
         .request_id("start-order-123")
@@ -247,7 +247,7 @@ public handleTimeout(context: Context): StepDecision {
 ```rust
 impl ExampleFlow {
     fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
-        status().set(context, "timed out".to_string())?;
+        STATUS.set(context, "timed out".to_string())?;
         Ok(StepDecision::force_fail("processing deadline reached"))
     }
 }
@@ -276,7 +276,8 @@ impl Flow for ExampleFlow {
 
 | 重试请求 | **AlreadyStartedOptions.IgnoreError** | ID reuse policy 拒绝启动时 |
 |----------|---------------------------------------|----------------------------|
-| 不提供 **RequestID**，或提供新的 **RequestID** | 关闭或开启 | SDK 发送新的 UUID。Dex 返回 already-started error。 |
+| 未提供 **RequestID** | 关闭或启用 | SDK 发送新 UUID，Dex 返回 already-started error。 |
+| 不同的 **RequestID** | 关闭或启用 | Dex 返回 already-started error。 |
 | 相同 **RequestID** | 关闭 | Dex 返回 already-started error。 |
 | 相同 **RequestID** | 开启 | Dex 返回已有 Run ID。 |
 
@@ -295,6 +296,150 @@ ID reuse policy 决定 Dex 是否会首先拒绝启动：
 Dex Server 要求 **RequestID** 非空。省略时，SDK 会在发送请求前生成它。服务端将它记录在 Flow execution 中，再使用请求的 ID reuse policy 让已配置的 backend 启动 Flow。**IDReuseDefault** 使用服务端默认行为：拒绝所有曾经使用过的 Flow ID。需要让已关闭的 Flow ID 启动新 execution 时，必须显式选择 **IDReuseAllowIfNotRunning**。
 
 如果 backend 返回 Flow 已启动，Dex 会检查 **AlreadyStartedOptions.IgnoreError**。启用时，Dex 读取已有 run 记录的 RequestID。只有两个 RequestID 相同时才返回该 Run ID；否则仍然返回 already-started error。
+
+#### StartFlow 最佳实践 {#start-flow-best-practices}
+
+使用稳定的业务 **Flow ID** 直接调用 **StartFlow**。不要仅为了避免可能的重试冲突，在启动前读取 snapshot、搜索 Flow 或查询状态。启动成功后，也不必回读以重复核对提交的身份、owner 或初始 Attributes。
+
+同一个逻辑启动请求的重试，应同时使用稳定的 **RequestID**、**IDReuseDisallow** 和忽略 already-started 的选项。每次重试保持相同输入和 options。**IDReuseDisallow** 防止 Flow 关闭后再次启动；允许新 run 的策略可能绕过匹配 RequestID 的处理路径。
+
+下面的 helper 接收已验证的整数输入和稳定的 Flow ID。这就是此例的完整业务输入，两者共同确定 RequestID，其余启动值固定不变。实际应用应包含所有会改变操作的逻辑输入，例如 tenant、owner、mode、revision 或初始业务 Attributes。Dex 比较的是 RequestID，不会比较 payload 是否相等。逻辑请求改变时，不要复用同一个 RequestID。
+
+每个 helper 在启动被接受后返回已知的业务 Flow ID，并保留错误供调用方处理。启动前后都没有读取。返回的 ID 表示请求已被接受，不是当前业务 snapshot，也不证明 Flow 已完成。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/flow/controller.py',
+    go: 'examples/go/primitives/flow/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java',
+    typescript: 'examples/typescript/src/primitives/flow/controller.ts',
+    rust: 'examples/rust/src/primitives/flow/controller.rs',
+  }}>
+  <SdkSnippet lang="python">
+
+```python
+async def start_example_flow_request(
+    client: AsyncClient, example_flow: ExampleFlow, flow_id: str, input_num: int
+) -> str:
+    options = StartFlowOptions(
+        id_reuse_policy=IdReusePolicy.DISALLOW,
+        request_id=f"start-example-flow:{input_num}:{flow_id}",
+        ignore_already_started=True,
+    ).with_attribute(status, "queued")
+    await client.start_flow(example_flow, flow_id, input_num, options)
+    return flow_id
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func startExampleFlowRequest(
+	ctx context.Context, client *sdk.Client, exampleFlow *ExampleFlow, flowID string, inputNum int,
+) (string, error) {
+	initialStatus, err := sdk.InitialAttribute(Status, "queued")
+	if err != nil {
+		return "", err
+	}
+	_, err = client.StartFlow(ctx, exampleFlow, flowID, inputNum, sdk.StartFlowOptions{
+		IDReusePolicy:  sdk.IDReuseDisallow,
+		RequestID:      ptr.Any("start-example-flow:" + strconv.Itoa(inputNum) + ":" + flowID),
+		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
+		Attributes:     []sdk.InitialAttributeDef{initialStatus},
+	})
+	if err != nil {
+		return "", err
+	}
+	return flowID, nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+    private static String startExampleFlowRequest(
+            final Client client, final ExampleFlow exampleFlow,
+            final String flowId, final int inputNum) {
+        final StartFlowOptions options = StartFlowOptions.newBuilder()
+                .idReusePolicy(IdReusePolicy.DISALLOW)
+                .requestId("start-example-flow:" + inputNum + ":" + flowId)
+                .ignoreAlreadyStarted(true)
+                .addAttribute(ExampleFlow.status, "queued")
+                .build();
+        client.startFlow(exampleFlow, flowId, inputNum, options);
+        return flowId;
+    }
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+export async function startExampleFlowRequest(
+  client: Client, flowId: string, inputNum: number,
+): Promise<string> {
+  await client.startFlow(exampleFlow, flowId, inputNum, {
+    idReusePolicy: IdReusePolicy.DISALLOW,
+    requestId: `start-example-flow:${inputNum}:${flowId}`,
+    ignoreAlreadyStarted: true,
+    attributes: [InitialAttribute.of(status, "queued")],
+  });
+  return flowId;
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+pub fn start_example_flow_request(
+    client: &Client,
+    example_flow: &ExampleFlow,
+    flow_id: &str,
+    input_num: i32,
+) -> SdkResult<String> {
+    let options = StartFlowOptions::new()
+        .id_reuse_policy(IdReusePolicy::Disallow)
+        .request_id(format!("start-example-flow:{input_num}:{flow_id}"))
+        .ignore_already_started(true)
+        .initial_attribute(&STATUS, "queued".to_owned());
+    client.start_flow_with_options(example_flow, flow_id, input_num, options)?;
+    Ok(flow_id.to_owned())
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+例如，用输入 **7** 启动 **invoice-42** 时，RequestID 是 **start-example-flow:7:invoice-42**。只要 backend 仍保留该 execution，重试相同调用就会返回它，关闭后也一样。用输入 **8** 启动相同 Flow ID 会生成不同的 RequestID，并返回 already-started error。成功路径无需再比较 snapshot。
+
+#### 只有错误结果需要时才读取 {#start-error-reconciliation}
+
+错误处理由业务契约决定。如果业务接受将 already-started error 直接转换为 **ALREADY_EXISTS**，就直接返回冲突。不要仅因为出现错误就增加 read-only RPC。上面的 helper 保留 typed error，交由应用边界转换。
+
+只有读取会改变响应或下一步业务决策时才读取。例如，API 明确允许接续已有操作时，可以在冲突后调用它的 typed read-only RPC，判断已有操作是否满足请求。API 如果承诺返回当前 snapshot，就必须读取当前状态，不能把提交的初始 Attributes 当成当前 snapshot。启动被接受不代表业务已完成。
+
+| 情况 | 处理方式 |
+| --- | --- |
+| 启动被接受，响应只确认接受请求 | 返回 Flow ID 和约定的接受字段，不读取 snapshot。 |
+| 已启动，业务接受 **ALREADY_EXISTS** | 直接返回冲突，不读取 snapshot。 |
+| 已启动，业务允许接续已有操作 | 仅为判断契约是否允许接续，读取 typed snapshot。 |
+| 响应丢失，是否已接受启动尚不确定 | 使用相同身份和 options 有界重试；或者在权威状态能够确认结果时读取。 |
+
+不要无限重试已确认的冲突。如果没有传入稳定的 RequestID，单独调用 SDK 时会生成新 ID；仅启用忽略选项不能为这些调用去重。
+
+#### 依赖启动由 owning Flow 持久化协调 {#durable-dependent-starts}
+
+一个业务操作由 API 启动一个 owning Flow，后续工作交给它的持久化 Steps。不要在 HTTP handler 中启动第一个 Flow、读取其状态、再启动依赖的 Flow。如果进程在两次启动之间退出，就没有持久化 Step 负责补上第二次启动。
+
+共享一个身份和生命周期的工作应使用 Steps。确实需要独立 owner 和生命周期的 top-level Flow 时，在 **Execute** Step 中使用稳定的下游 Flow ID、RequestID 和启动 options 创建它，并将启动输入保存在 owning Flow 中。如果 Worker 在下游启动被接受后、Step 提交前退出，Step 可以重试同一个启动请求而不创建重复 execution。**WaitFor** 用于持久化条件。一个独立 owner 的 top-level Flow 不会仅因另一个 Flow 启动它，就需要改成 SubFlow。
+
+```text
+API → StartFlow for the owning operation → accepted response
+Owning Flow Execute → StartFlow for separately owned work → durable progress
+Worker replacement → retry the same downstream start identity → no duplicate launch
+```
 
 ### RetryPolicy {#retry-policy}
 

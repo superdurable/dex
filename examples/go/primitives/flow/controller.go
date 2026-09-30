@@ -29,6 +29,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/examples/go/server/httputil"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
 func RegisterRoutes(router gin.IRouter, client *sdk.Client, exampleFlow *ExampleFlow) {
@@ -80,6 +81,25 @@ func exampleStartFlowOptions() (sdk.StartFlowOptions, error) {
 		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
 		RequestID:      &requestID,
 	}, nil
+}
+
+func startExampleFlowRequest(
+	ctx context.Context, client *sdk.Client, exampleFlow *ExampleFlow, flowID string, inputNum int,
+) (string, error) {
+	initialStatus, err := sdk.InitialAttribute(Status, "queued")
+	if err != nil {
+		return "", err
+	}
+	_, err = client.StartFlow(ctx, exampleFlow, flowID, inputNum, sdk.StartFlowOptions{
+		IDReusePolicy:  sdk.IDReuseDisallow,
+		RequestID:      ptr.Any("start-example-flow:" + strconv.Itoa(inputNum) + ":" + flowID),
+		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
+		Attributes:     []sdk.InitialAttributeDef{initialStatus},
+	})
+	if err != nil {
+		return "", err
+	}
+	return flowID, nil
 }
 
 func rerouteActiveFlow(ctx context.Context, client *sdk.Client, flowID string) error {

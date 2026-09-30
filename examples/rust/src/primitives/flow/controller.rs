@@ -67,6 +67,21 @@ pub fn example_start_flow_options() -> StartFlowOptions {
         .request_id("start-order-123")
 }
 
+pub fn start_example_flow_request(
+    client: &Client,
+    example_flow: &ExampleFlow,
+    flow_id: &str,
+    input_num: i32,
+) -> SdkResult<String> {
+    let options = StartFlowOptions::new()
+        .id_reuse_policy(IdReusePolicy::Disallow)
+        .request_id(format!("start-example-flow:{input_num}:{flow_id}"))
+        .ignore_already_started(true)
+        .initial_attribute(&STATUS, "queued".to_owned());
+    client.start_flow_with_options(example_flow, flow_id, input_num, options)?;
+    Ok(flow_id.to_owned())
+}
+
 pub fn reroute_active_flow(client: &Client, flow_id: &str) -> SdkResult<()> {
     client.update_flow_config(
         flow_id,
