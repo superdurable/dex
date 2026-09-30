@@ -396,19 +396,9 @@ Flow config, Condition ID, and reuse. Parent completion does not cancel an unfin
 Client calls reject with concrete `DexServiceError` subclasses. Existing-Flow
 reads (`describeFlow`, `waitForFlow`, and `timeTravel`) use
 `FlowNotFoundError`; operations that require a running Flow use
-`FlowNotActiveOrNotFoundError`. Start conflicts, worker failures, RPC lock contention,
+`FlowNotActiveError`. Start conflicts, worker failures, RPC lock contention,
 and long-poll timeouts use `FlowAlreadyStartedError`,
 `WorkerInvocationError`, `RpcLockConflictError`, and `LongPollTimeoutError`.
-
-RPCs also use this error when the target Flow cannot be found, including query-only
-reads. A query-only RPC without locks, transactional execution, durable effects, or
-Server-forced Update routing can read a retained terminal execution. At that confirmed
-read boundary, this error means no readable target was found; return the application's
-missing or unavailable result directly, without a lifecycle probe, a short timeout, a
-retry, or historical Step-output decoding. Preserve other service and Worker failures.
-For mutations and active-only RPCs, the error can mean either missing or closed and does
-not prove that the requested action succeeded. RPC success does not prove that the Flow
-is active.
 Durable Step and Attribute waits reattach transparently instead of exposing
 `LongPollTimeoutError`.
 
@@ -416,7 +406,7 @@ Durable Step and Attribute waits reattach transparently instead of exposing
 try {
   await client.invokeRPC(orders.updateOrder, flowId, update);
 } catch (error) {
-  if (error instanceof FlowNotActiveOrNotFoundError) {
+  if (error instanceof FlowNotActiveError) {
     // The Flow is missing or already closed.
   } else {
     throw error;

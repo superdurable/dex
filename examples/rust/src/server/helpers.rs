@@ -61,7 +61,7 @@ pub fn is_already_started(error: &SdkError) -> bool {
 pub fn is_missing_or_inactive(error: &SdkError) -> bool {
     matches!(
         error,
-        SdkError::FlowNotFound { .. } | SdkError::FlowNotActiveOrNotFound { .. }
+        SdkError::FlowNotFound { .. } | SdkError::FlowNotActive { .. }
     )
 }
 

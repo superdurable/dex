@@ -17,7 +17,7 @@
 package io.superdurable.dex.patterns.drainchannels;
 
 import io.superdurable.dex.Client;
-import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
+import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.patterns.drainchannels.internal.DrainInternalChannelFlow;
 import io.superdurable.dex.patterns.drainchannels.externalpublishing.DrainingExternalChannelFlow;
 import io.superdurable.dex.shared.ExampleFlows;
@@ -64,7 +64,7 @@ public class DrainChannelsController {
                     stub::publishExternalChannelMessage,
                     "message from start-or-publish endpoint");
             response = "Published to the Flow";
-        } catch (final FlowNotActiveOrNotFoundException inactive) {
+        } catch (final FlowNotActiveException inactive) {
             final String runId = client.startFlow(
                     drainingExternalChannelFlow,
                     workflowId,

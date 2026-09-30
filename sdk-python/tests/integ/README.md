@@ -45,9 +45,7 @@ uv run --frozen pyright tests/integ
 | --- | --- |
 | Duplicate start | `FlowAlreadyStartedError` |
 | Missing describe, attribute read, or Flow wait | `FlowNotFoundError` |
-| Missing query-only RPC target | `FlowNotActiveOrNotFoundError` |
-| Read-only RPC on retained terminal execution | Retained snapshot |
-| Missing or closed mutation | `FlowNotActiveOrNotFoundError` |
+| Missing or closed mutation/RPC | `FlowNotActiveError` |
 | Worker handler failure | `WorkerInvocationError` |
 | Locking RPC contention | `RpcLockConflictError` |
 | Long-poll expiry | `LongPollTimeoutError` |

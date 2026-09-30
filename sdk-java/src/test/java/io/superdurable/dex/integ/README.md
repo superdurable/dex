@@ -35,9 +35,8 @@ conflicts, long-poll timeouts, and malformed-status fallback behavior.
 Worker contracts additionally cover user-owned Condition IDs and AttributeMap /
 ChannelMap introspection with buffered invocation changes.
 
-The dex-dev suite verifies that query-only RPCs read retained closed Flows and return
-`FlowNotActiveOrNotFoundException` for missing targets. Mutations return that exception
-for missing or closed targets. Missing describe reads retain `FlowNotFoundException`.
+The dex-dev suite also verifies that read APIs can access closed Flows while
+RPC, publish, mutation, and step-wait APIs return `FlowNotActiveException`.
 
 Run the compile check:
 

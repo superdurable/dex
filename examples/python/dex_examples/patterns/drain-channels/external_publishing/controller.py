@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dex import FlowNotActiveOrNotFoundError
+from dex import FlowNotActiveError
 from quart import Blueprint
 
 from dex_examples.app import ExampleApp
@@ -38,7 +38,7 @@ def create_draining_channel_blueprint(app_state: ExampleApp) -> Blueprint:
                 flow_id,
                 "message from start-or-publish endpoint",
             )
-        except FlowNotActiveOrNotFoundError:
+        except FlowNotActiveError:
             run_id = await app_state.client.start_flow(
                 app_state.drain_external,
                 flow_id,

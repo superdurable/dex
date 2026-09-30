@@ -460,7 +460,7 @@ func (*controller) serveUIFile(
 
 func (*controller) respondError(request *gin.Context, err error) {
 	var missing *sdk.FlowNotFoundError
-	var inactive *sdk.FlowNotActiveOrNotFoundError
+	var inactive *sdk.FlowNotActiveError
 	switch {
 	case errors.Is(err, ErrProcessExists):
 		request.JSON(http.StatusConflict, gin.H{"error": err.Error()})

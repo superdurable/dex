@@ -63,7 +63,7 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 		httputil.RespondString(request, "Published to the Flow", nil)
 		return
 	}
-	var inactive *sdk.FlowNotActiveOrNotFoundError
+	var inactive *sdk.FlowNotActiveError
 	if !errors.As(err, &inactive) {
 		httputil.RespondString(request, "", err)
 		return

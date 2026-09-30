@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import random
 
-from dex import FlowNotActiveOrNotFoundError
+from dex import FlowNotActiveError
 from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
@@ -45,7 +45,7 @@ def create_resource_control_blueprint(app_state: ExampleApp) -> Blueprint:
                 flow_id,
                 request,
             )
-        except FlowNotActiveOrNotFoundError:
+        except FlowNotActiveError:
             await app_state.client.start_flow(
                 app_state.controller,
                 flow_id,

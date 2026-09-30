@@ -162,11 +162,7 @@ match client.start_flow(&orders, "order-123", order) {
 ```
 
 `FlowNotFound` is used by operations requiring an existing Flow;
-`FlowNotActiveOrNotFound` covers missing RPC targets and mutations or RPC paths that
-cannot use a closed execution. Query-only RPCs without locks, transactionality, durable
-effects, or Server-forced Update routing can read retained terminal executions. At that
-confirmed read boundary, the variant means no readable target was found; return the
-missing-target result directly without lifecycle probes, retries, or history decoding.
+`FlowNotActive` is used by mutations and RPCs requiring a running Flow.
 `RpcLockConflict` and `LongPollTimeout` can be retried explicitly, while
 `WorkerInvocation` retains the original Worker error metadata. Remote variants
 own a `ServiceError` that preserves the `tonic::Status` source and exposes the

@@ -18,7 +18,7 @@ from dex import (
     AsyncClient,
     AsyncContext,
     Flow,
-    FlowNotActiveOrNotFoundError,
+    FlowNotActiveError,
     IdReusePolicy,
     StartFlowOptions,
     Step,
@@ -68,7 +68,7 @@ async def enqueue_request(
 ) -> bool:
     try:
         return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
-    except FlowNotActiveOrNotFoundError:
+    except FlowNotActiveError:
         await client.start_flow(
             parent_flow,
             parent_id,

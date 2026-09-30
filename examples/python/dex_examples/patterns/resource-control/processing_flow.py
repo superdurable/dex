@@ -24,7 +24,7 @@ from dex import (
     AsyncClient,
     Attribute,
     Context,
-    FlowNotActiveOrNotFoundError,
+    FlowNotActiveError,
     Flow,
     PersistenceSchema,
     RPCResult,
@@ -73,7 +73,7 @@ class Complete(Step[None]):
                     parent_flow_id,
                     context.flow_id,
                 )
-            except FlowNotActiveOrNotFoundError:
+            except FlowNotActiveError:
                 print(
                     "Parent flow may have completed, possibly a duplicate "
                     "completion request, ignoring it."

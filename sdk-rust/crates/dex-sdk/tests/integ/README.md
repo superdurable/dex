@@ -49,9 +49,7 @@ one-to-one Java suite.
 | --- | --- |
 | Duplicate start | `FlowAlreadyStarted` |
 | Missing describe, attribute read, or Flow wait | `FlowNotFound` |
-| Missing query-only RPC target | `FlowNotActiveOrNotFound` |
-| Read-only RPC on retained terminal execution | Retained snapshot |
-| Missing or closed mutation | `FlowNotActiveOrNotFound` |
+| Missing or closed mutation/RPC | `FlowNotActive` |
 | Worker handler failure | `WorkerInvocation` |
 | Locking RPC contention | `RpcLockConflict` |
 | Long-poll expiry | `LongPollTimeout` |

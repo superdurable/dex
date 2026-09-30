@@ -538,7 +538,7 @@ impl Step for SubmitStep {
 fn enqueue_request(client: &Client, parent_id: &str, request: String) -> HandlerResult<bool> {
     match client.invoke_rpc(parent_id, SEND_SHORT_LIVE_REQUEST, request.clone()) {
         Ok(accepted) => Ok(accepted),
-        Err(SdkError::FlowNotFound { .. } | SdkError::FlowNotActiveOrNotFound { .. }) => {
+        Err(SdkError::FlowNotFound { .. } | SdkError::FlowNotActive { .. }) => {
             let parent = AdvancedShortLiveParentFlow::default();
             let input = ParentInput {
                 requests: vec![request.clone()],

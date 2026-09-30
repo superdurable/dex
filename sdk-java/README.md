@@ -450,7 +450,7 @@ types for expected outcomes instead of comparing `ErrorSubStatus`:
 ```java
 try {
     client.invokeRPC(stub::updateOrder, input);
-} catch (FlowNotActiveOrNotFoundException inactive) {
+} catch (FlowNotActiveException inactive) {
     // The Flow never existed or is already closed.
 } catch (RpcLockConflictException conflict) {
     // Retry the RPC after lock contention.
@@ -465,18 +465,8 @@ try {
 `FlowNotFoundException` is returned by read and history operations such as
 `describeFlow`, `waitForFlow`, and `timeTravel`. These operations
 can read a closed Flow, so failure means no matching execution was found.
-`FlowNotActiveOrNotFoundException` is returned by RPC, stop, timer,
+`FlowNotActiveException` is returned by RPC, stop, timer,
 configuration, and step-wait operations that require an open Flow.
-
-RPCs also use this error when the target Flow cannot be found, including query-only
-reads. A query-only RPC without locks, transactional execution, durable effects, or
-Server-forced Update routing can read a retained terminal execution. At that confirmed
-read boundary, this error means no readable target was found; return the application's
-missing or unavailable result directly, without a lifecycle probe, a short timeout, a
-retry, or historical Step-output decoding. Preserve other service and Worker failures.
-For mutations and active-only RPCs, the error can mean either missing or closed and does
-not prove that the requested action succeeded. RPC success does not prove that the Flow
-is active.
 
 `FlowAlreadyStartedException` identifies duplicate starts.
 `LongPollTimeoutException` identifies an expected long-poll timeout.

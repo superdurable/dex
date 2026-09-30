@@ -18,7 +18,7 @@ import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
-import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
+import io.superdurable.dex.exceptions.FlowNotActiveException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
@@ -73,7 +73,7 @@ public final class SubmitRequestFlow implements Flow<SubmitRequestInput> {
                     client.newRpcStub(AdvancedShortLiveParentFlow.class, parentId);
             try {
                 return client.invokeRPC(stub::sendRequest, request);
-            } catch (final FlowNotActiveOrNotFoundException inactive) {
+            } catch (final FlowNotActiveException inactive) {
                 client.startFlow(
                         parentFlow,
                         parentId,

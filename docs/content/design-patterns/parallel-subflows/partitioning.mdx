@@ -32,7 +32,7 @@ The submitter first invokes the selected parent's RPC. If that parent is absent 
 async def enqueue_request(client, parent_flow, parent_id: str, request: str) -> bool:
     try:
         return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
-    except FlowNotActiveOrNotFoundError:
+    except FlowNotActiveError:
         await client.start_flow(
             parent_flow,
             parent_id,
@@ -57,7 +57,7 @@ def partition(request: str, partitions: int) -> int:
 func enqueueRequest(ctx context.Context, client *dex.Client, parentFlow *AdvancedShortLiveParentFlow, parentID string, request string) (bool, error) {
 	accepted, err := invokeRequest(ctx, client, parentFlow, parentID, request)
 	if err == nil { return accepted, nil }
-	var inactive *dex.FlowNotActiveOrNotFoundError
+	var inactive *dex.FlowNotActiveError
 	if !errors.As(err, &inactive) { return false, err }
 	_, err = client.StartFlow(ctx, parentFlow, parentID, ParentInput{
 		Requests: []string{request}, Concurrency: DefaultConcurrency,
@@ -86,7 +86,7 @@ private boolean enqueueRequest(final String parentId, final String request) {
             client.newRpcStub(AdvancedShortLiveParentFlow.class, parentId);
     try {
         return client.invokeRPC(stub::sendRequest, request);
-    } catch (final FlowNotActiveOrNotFoundException inactive) {
+    } catch (final FlowNotActiveException inactive) {
         client.startFlow(
                 parentFlow,
                 parentId,
@@ -142,7 +142,7 @@ function partition(request: string, partitions: number): number {
 fn enqueue_request(client: &Client, parent_id: &str, request: String) -> HandlerResult<bool> {
     match client.invoke_rpc(parent_id, SEND_SHORT_LIVE_REQUEST, request.clone()) {
         Ok(accepted) => Ok(accepted),
-        Err(SdkError::FlowNotFound { .. } | SdkError::FlowNotActiveOrNotFound { .. }) => {
+        Err(SdkError::FlowNotFound { .. } | SdkError::FlowNotActive { .. }) => {
             let parent = AdvancedShortLiveParentFlow::default();
             let input = ParentInput { requests: vec![request.clone()], concurrency: DEFAULT_CONCURRENCY };
             let options = StartFlowOptions::new().id_reuse_policy(IdReusePolicy::AllowIfNotRunning);

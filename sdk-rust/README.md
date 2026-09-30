@@ -107,7 +107,7 @@ files. Handler failures and SDK/service failures are also separate modules.
 
 Single-condition waits read as `Wait::until(condition)`. `Wait::all_of` and
 `Wait::any_of` remain available for aggregate conditions. Client failures use
-domain-specific `SdkError` variants such as `FlowNotFound`, `FlowNotActiveOrNotFound`,
+domain-specific `SdkError` variants such as `FlowNotFound`, `FlowNotActive`,
 `FlowAlreadyStarted`, `RpcLockConflict`, and `WorkerInvocation` instead of
 requiring callers to inspect transport metadata.
 
@@ -186,24 +186,14 @@ Flow config, Condition ID, and reuse. Parent completion does not cancel an unfin
 
 Existing-Flow reads (`describe_flow`, `wait_for_flow`, and
 `time_travel`) use `FlowNotFound`; operations requiring a running Flow use
-`FlowNotActiveOrNotFound`. Each remote variant owns a `ServiceError`, available through
+`FlowNotActive`. Each remote variant owns a `ServiceError`, available through
 `SdkError::service_error()`, with gRPC code, Dex sub-status, detail, operation,
 Flow ID, and the original `tonic::Status` source. `WorkerInvocation` also owns
 a `WorkerError` with the original worker code, type, and detail.
 
-RPCs also use this error when the target Flow cannot be found, including query-only
-reads. A query-only RPC without locks, transactional execution, durable effects, or
-Server-forced Update routing can read a retained terminal execution. At that confirmed
-read boundary, this error means no readable target was found; return the application's
-missing or unavailable result directly, without a lifecycle probe, a short timeout, a
-retry, or historical Step-output decoding. Preserve other service and Worker failures.
-For mutations and active-only RPCs, the error can mean either missing or closed and does
-not prove that the requested action succeeded. RPC success does not prove that the Flow
-is active.
-
 ```rust
 match client.invoke_rpc(flow_id, Orders::UPDATE, update) {
-    Err(SdkError::FlowNotActiveOrNotFound { service }) => {
+    Err(SdkError::FlowNotActive { service }) => {
         eprintln!("{} failed for {:?}", service.operation(), service.flow_id());
     }
     result => result?,

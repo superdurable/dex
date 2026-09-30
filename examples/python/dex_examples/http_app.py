@@ -19,7 +19,7 @@ import traceback
 from dex import (
     DexServiceError,
     FlowAlreadyStartedError,
-    FlowNotActiveOrNotFoundError,
+    FlowNotActiveError,
     FlowNotFoundError,
     LongPollTimeoutError,
 )
@@ -95,7 +95,7 @@ from dex_examples.products.subscription.controller import create_subscription_bl
 ERROR_HTTP_CODES = {
     FlowAlreadyStartedError: 409,
     FlowNotFoundError: 404,
-    FlowNotActiveOrNotFoundError: 409,
+    FlowNotActiveError: 409,
     LongPollTimeoutError: 504,
 }
 

@@ -405,7 +405,7 @@ async def start_or_publish_draining_channel() -> str:
             flow_id,
             "message from start-or-publish endpoint",
         )
-    except FlowNotActiveOrNotFoundError:
+    except FlowNotActiveError:
         run_id = await app_state.client.start_flow(
             app_state.drain_external,
             flow_id,
@@ -437,7 +437,7 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 		httputil.RespondString(request, "Published to the Flow", nil)
 		return
 	}
-	var inactive *sdk.FlowNotActiveOrNotFoundError
+	var inactive *sdk.FlowNotActiveError
 	if !errors.As(err, &inactive) {
 		httputil.RespondString(request, "", err)
 		return
@@ -472,7 +472,7 @@ ResponseEntity<String> startDrainingChannel(@RequestParam final String workflowI
                 stub::publishExternalChannelMessage,
                 "message from start-or-publish endpoint");
         response = "Published to the Flow";
-    } catch (final FlowNotActiveOrNotFoundException inactive) {
+    } catch (final FlowNotActiveException inactive) {
         final String runId = client.startFlow(
                 drainingExternalChannelFlow,
                 workflowId,
