@@ -414,6 +414,22 @@ pub fn start_example_flow_request(
 
 例如，用输入 **7** 启动 **invoice-42** 时，RequestID 是 **start-example-flow:7:invoice-42**。只要 backend 仍保留该 execution，重试相同调用就会返回它，关闭后也一样。用输入 **8** 启动相同 Flow ID 会生成不同的 RequestID，并返回 already-started error。成功路径无需再比较 snapshot。
 
+#### 响应承诺业务里程碑时才等待 {#wait-for-required-milestone}
+
+API 如果必须确认一个重要操作已经完成，应在 **StartFlow** 成功后直接调用 **WaitForAttributeMatch** 或 **WaitForStepCompletion**，匹配 RequestID 的去重成功也走同一条等待路径。去重只确认同一个启动已被接受，不证明操作已完成。启动和等待之间不需要读取以重复验证身份。
+
+例如，API 承诺返回时，业务记录已经提交到作为 source of truth 的数据库表。Owning Flow 在 **Execute** 中写入该记录，然后记录已提交的 Attribute，或完成持久化 Step。API 等待该 Attribute 的已提交值或指定的 **StepExecutionID**，再返回已确认的持久化结果。标记必须在数据库提交成功后才发布。**WaitForStepCompletion** 只确认该 Step 已完成，不返回 Step 输出，也不等待整个 Flow 完成。
+
+```text
+API → StartFlow succeeds or deduplicates → wait for the required commit milestone
+Flow Execute → commit business row to database → record committed Attribute / complete Step
+API → milestone wait succeeds → return confirmed persistence
+```
+
+只等待能够证明响应所承诺结果的条件。如果响应只确认后台工作已被接受，启动后就直接返回，不添加等待。使用调用方 deadline 或 request timeout 限制必要的等待。等待超时不会撤销启动，也不证明数据库写入失败；应按 API 契约返回完成状态仍为 pending 或未知，并在重试时保留同一个启动身份。
+
+各语言 API 见 [Step 完成等待](/primitives/client/advanced#wait-for-a-step) 和 [Attribute 匹配等待](/primitives/client/advanced#wait-for-an-attribute-match)。Attribute 等待针对 active run。如果 Flow 在等待建立前已关闭，应根据实际等待错误，从权威业务记录或支持的终态读取确认结果，不要假设 Attribute 等待可以查询已关闭的 run。
+
 #### 只有错误结果需要时才读取 {#start-error-reconciliation}
 
 错误处理由业务契约决定。如果业务接受将 already-started error 直接转换为 **ALREADY_EXISTS**，就直接返回冲突。不要仅因为出现错误就增加 read-only RPC。上面的 helper 保留 typed error，交由应用边界转换。
@@ -423,6 +439,7 @@ pub fn start_example_flow_request(
 | 情况 | 处理方式 |
 | --- | --- |
 | 启动被接受，响应只确认接受请求 | 返回 Flow ID 和约定的接受字段，不读取 snapshot。 |
+| 启动成功或去重成功，响应承诺关键操作已完成 | 等待已提交的 Attribute 条件或指定 Step 完成，再返回该里程碑结果。 |
 | 已启动，业务接受 **ALREADY_EXISTS** | 直接返回冲突，不读取 snapshot。 |
 | 已启动，业务允许接续已有操作 | 仅为判断契约是否允许接续，读取 typed snapshot。 |
 | 响应丢失，是否已接受启动尚不确定 | 使用相同身份和 options 有界重试；或者在权威状态能够确认结果时读取。 |

@@ -414,6 +414,22 @@ pub fn start_example_flow_request(
 
 For example, starting **invoice-42** with input **7** sends RequestID **start-example-flow:7:invoice-42**. Retrying that call returns the same execution, even after it closes, while the backend retains it. Starting the same Flow ID with input **8** sends a different RequestID and returns an already-started error. No snapshot comparison is needed on the successful path.
 
+#### Wait when the response promises a business milestone {#wait-for-required-milestone}
+
+If the API must confirm an important operation, call **WaitForAttributeMatch** or **WaitForStepCompletion** immediately after **StartFlow** succeeds, including matching-request deduplication. Deduplication confirms the same start was accepted; it does not prove the operation has finished. No identity-check read is needed between the start and the wait.
+
+For example, an API may promise that a row has been committed to a database table used as the business source of truth. The owning Flow writes that row in **Execute**, then records a committed Attribute or completes the persistence Step. The API waits for that committed Attribute value or the specific **StepExecutionID** before returning confirmed persistence. Publish the marker only after the database commit succeeds. **WaitForStepCompletion** confirms that Step completed; it does not return its output or wait for the whole Flow to finish.
+
+```text
+API → StartFlow succeeds or deduplicates → wait for the required commit milestone
+Flow Execute → commit business row to database → record committed Attribute / complete Step
+API → milestone wait succeeds → return confirmed persistence
+```
+
+Wait only for the condition that establishes the response's promised outcome. If the response only acknowledges accepted background work, return immediately after the start without a wait. Bound required waits with a caller deadline or request timeout. A wait timeout does not undo the start or prove the database write failed; report completion as pending or unknown according to the API contract and preserve the same start identity for retries.
+
+See [Step completion waits](/primitives/client/advanced#wait-for-a-step) and [Attribute-match waits](/primitives/client/advanced#wait-for-an-attribute-match) for the language APIs. Attribute waits target an active run. If a Flow closes before the wait attaches, reconcile the actual wait error through the authoritative business record or a supported terminal read; do not assume the Attribute wait can query a closed run.
+
 #### Read only when the error outcome needs it {#start-error-reconciliation}
 
 Error handling follows the business contract. If an already-started error can simply become **ALREADY_EXISTS**, return that conflict directly. Do not add a read-only RPC just because the error occurred. The helpers above preserve the typed error for that boundary translation.
@@ -423,6 +439,7 @@ Read existing state only when it changes the response or next business decision.
 | Situation | Action |
 | --- | --- |
 | Start accepted; response only acknowledges acceptance | Return the Flow ID and the agreed acceptance fields. No snapshot read. |
+| Start accepted or deduplicated; response promises a critical operation | Wait for the committed Attribute condition or selected Step completion, then return that milestone outcome. |
 | Already started; business accepts **ALREADY_EXISTS** | Return the conflict. No snapshot read. |
 | Already started; business permits resuming an existing operation | Read its typed snapshot only to decide whether that contract permits resuming it. |
 | Response lost; start acceptance is unknown | Retry within a bounded policy with the same identity and options, or read authoritative state if it can establish the outcome. |
