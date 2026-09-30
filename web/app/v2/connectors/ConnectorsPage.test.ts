@@ -12,6 +12,8 @@ import { describe, expect, it } from 'vitest';
 import { DexAPIError } from '@/lib/http';
 import {
   ConnectionStatusChip,
+  ProjectTriggerForm,
+  parseManifestFieldInput,
   ConnectorForm,
   ConnectorStoreZone,
   ConnectorStudioFrameThemeContext,
@@ -50,10 +52,10 @@ import { connectorStudioStylesheet } from './connectorStudioTheme';
 import { CONNECTORS_COPY } from './copy';
 
 describe('Connections contract', () => {
-  it('distinguishes hosted revision effects from local file effects', () => {
-    expect(connectionDeleteLabel('hosted')).toBe('Delete connection');
-    expect(connectorConfigurationEffectText('hosted')).toContain('require redeployment');
-    expect(connectorConfigurationEffectText('hosted')).toContain('next Connector call');
+  it('distinguishes project revision effects from local file effects', () => {
+    expect(connectionDeleteLabel('project')).toBe('Delete connection');
+    expect(connectorConfigurationEffectText('project')).toContain('require redeployment');
+    expect(connectorConfigurationEffectText('project')).toContain('next Connector call');
     expect(connectionDeleteLabel('local')).toBe('Delete local credentials');
     expect(connectorConfigurationEffectText('local')).toContain('app restart');
   });
@@ -607,7 +609,7 @@ describe('Connectors page presentation', () => {
     expect(renderConnectorForm(llmManifest, connection, llmSession, 'dark')).toMatch(/<iframe [^>]*style="color-scheme:dark"/);
   });
 
-  it('shows the local store with copy buttons and the hosted revisions without local paths', () => {
+  it('shows the local store with copy buttons and the project revisions without local paths', () => {
     const local = renderToStaticMarkup(createElement(ConnectorStoreZone, {catalog: {
       mode: 'local', directory: '/home/dev/.dex/connectors', filePath: '/home/dev/.dex/connectors/connections.json',
       useConfigurationsFilePath: '/home/dev/.dex/connectors/use-configurations.json',
@@ -620,9 +622,9 @@ describe('Connectors page presentation', () => {
       expect(local).toContain(`aria-label="Copy ${label}" class="v2-ghost connector-copy" type="button">Copy</button>`);
     }
     const hosted = renderToStaticMarkup(createElement(ConnectorStoreZone, {catalog: {
-      mode: 'hosted', configurationState: 'Ready to deploy', configurationRevision: 'revision-2',
+      mode: 'project', configurationState: 'Ready to deploy', configurationRevision: 'revision-2',
     }}));
-    expect(hosted).toContain('<h3 class="sc-blockhead">Hosted configuration</h3>');
+    expect(hosted).toContain('<h3 class="sc-blockhead">Project configuration</h3>');
     expect(hosted).toContain('<code>Ready to deploy</code>');
     expect(hosted).toContain('<code>Not deployed</code>');
     expect(hosted).not.toContain('Copy');
@@ -648,3 +650,39 @@ function renderConnectorForm(
     onError: () => undefined,
   })));
 }
+
+
+describe('Project configuration before a Release', () => {
+  const field = {name: 'eventTypes', type: 'stringList', required: false, description: 'Accepted event types', enum: ['completed'], uniqueItems: true};
+  const use = {flowName: '', triggerName: 'updated', bindingName: 'payments', schemaAvailable: true, configurationFields: [field], configurationUI: {units: []}, configuration: {}, configured: false};
+  const connection = {connectorId: 'fixture', connectionName: 'payments', status: 'Ready' as const, credentialRevision: 7, uses: [], triggerUses: [use]};
+  const catalog = {enabled: true, mode: 'project' as const, appManifestRevision: 4, configurationRevision: '9', definitionRevision: '', csrfToken: 'host-csrf', connections: [connection]};
+
+  it('binds writes to explicit AppManifest, ordinary configuration and credential revisions', () => {
+    expect(connectorWriteHeaders(catalog, connection)).toMatchObject({
+      'X-Dex-App-Manifest-Revision': '4', 'X-Dex-Configuration-Revision': '9', 'X-Dex-Credential-Revision': '7', 'X-Dex-CSRF-Token': 'host-csrf',
+    });
+  });
+
+  it('renders a generic trigger form without a Studio archive or fabricated Flow Definition', () => {
+    expect(connectorSetupTabs(connection, false).map((tab) => tab.kind)).toEqual(['authorize', 'trigger']);
+    const html = renderToStaticMarkup(createElement(ProjectTriggerForm, {catalog, connection, use, onConfigured: async () => {}, onError: () => {}}));
+    expect(html).toContain('Save trigger configuration');
+    expect(html).toContain('eventTypes');
+    expect(html).not.toContain('<iframe');
+  });
+
+  it('blocks a pinned connector release that has no published trigger schema', () => {
+    const html = renderToStaticMarkup(createElement(ProjectTriggerForm, {catalog, connection, use: {...use, schemaAvailable: false}, onConfigured: async () => {}, onError: () => {}}));
+    expect(html).toContain('does not publish a trigger configuration schema');
+    expect(html).not.toContain('Save trigger configuration');
+  });
+
+  it('parses typed values and rejects invalid enum items, duplicates, and noninteger numbers', () => {
+    expect(parseManifestFieldInput(field, '["completed"]')).toEqual(['completed']);
+    expect(() => parseManifestFieldInput(field, '["other"]')).toThrow('permitted');
+    expect(() => parseManifestFieldInput(field, '["completed","completed"]')).toThrow('repeat');
+    expect(parseManifestFieldInput({...field, type: 'integer'}, '4096')).toBe(4096);
+    expect(() => parseManifestFieldInput({...field, type: 'integer'}, '1.5')).toThrow('integer');
+  });
+});

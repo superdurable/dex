@@ -40,14 +40,20 @@ web:
   startFlowWorkerTargetHeadless: false
   # Enable only behind a proxy that replaces embedding headers and blocks direct Web access.
   trustForwardedEmbeddingHeaders: false
-  # Local setup is normally enabled by dexcli dev. Hosted setup also requires the trusted settings above.
+  # Local setup is normally enabled by dexcli dev. Project setup requires the trusted settings above.
   connectorSetupEnabled: false
   connectorSetupMode: local
   connectorConfigDirectory: ""
   connectorCacheDirectory: ""
-  connectorHostedBaseURL: ""
-  connectorHostedProjectId: ""
-  connectorHostedEnvironment: ""
+  # projectConfiguration:
+  #   storageId: p0
+  #   prefix: sv2-test
+  #   projectId: a7k2
+  #   scopeKind: live
+  #   sessionId: ""
+  #   kmsKeyId: arn:aws:kms:REGION:ACCOUNT:key/KEY
+  #   allowUnencrypted: false
+  # Supply internal admission credentials through DEX_WEB_PROJECT_CONFIGURATION_ADMIN_TOKEN.
 worker:
   # Refresh individual endpoints behind headless WorkerService DNS.
   headlessAddressRefreshInterval: 60s

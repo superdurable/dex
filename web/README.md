@@ -131,7 +131,7 @@ The page uses the Run and Work Queue layout: a resizable
 sidebar lists the named connections, and the selected one's setup fills the
 main panel. The **Local store** zone at the bottom of the main panel shows the
 store directory, the file names inside it, and the launch command, with
-**Copy** buttons that copy the absolute values. In hosted mode the zone shows the configuration status and
+**Copy** buttons that copy the absolute values. In project mode the zone shows the configuration status and
 revisions instead. The page follows the Dex Web theme.
 
 The page groups Connector Steps by Connector ID and static connection name,
@@ -139,7 +139,7 @@ resolves the exact official Connector release declared by the graph, verifies
 release and Studio UI checksums, and loads UI bundles in opaque-origin sandbox
 iframes. Each connection view in `GET /api/v2/connector-connections` carries
 `displayName`, the release manifest's `metadata.displayName`, from a local
-override or a verified official release in local and hosted mode. Verified
+override or a verified official release in local and project mode. Verified
 release metadata is cached in memory for the process, and the list waits at
 most five seconds for uncached metadata. Without release metadata the field is
 omitted, and the page names the Connector by its ID. The connection name is
@@ -365,56 +365,49 @@ type, and Step type. Writes accept only JSON Pointer paths declared by the
 Flow definition. Applications load both files as a startup snapshot through
 the Connector SDK; changing configuration requires an application restart.
 
-### Hosted Connectors
+### Project Connectors
 
-Hosted mode keeps the release-verified Connectors UI while delegating
-configuration persistence to a trusted Control Plane API. Each Dex Server is
-fixed to one project and environment at startup. Browser requests cannot
-provide or override that scope, and hosted responses omit local paths, object
-storage locations, launch commands, and credential values.
+Project mode owns configuration and OAuth in the project's Dex Server/Web.
+The native Connectors page works from an exact AppManifest before any application
+Release or Flow Definition exists. Runs and Flow operations retain their real
+Flow Definition admission checks. The same precompiled server image interprets
+checksum-verified connector manifests without connector-specific Go imports.
 
 ```yaml
 web:
-  flowRenderingSource: blobstore
   workQueuePermissionMode: trusted-header
   trustForwardedEmbeddingHeaders: true
   connectorSetupEnabled: true
-  connectorSetupMode: hosted
+  connectorSetupMode: project
   connectorCacheDirectory: /var/cache/dex/connectors
-  connectorHostedBaseURL: http://superverse-control-plane
-  connectorHostedProjectId: project-id
-  connectorHostedEnvironment: staging
-  connectorHostedReleaseId: release-id
+  projectConfiguration:
+    storageId: p0
+    prefix: sv2-test
+    projectId: a7k2
+    scopeKind: live
+    sessionId: ""
+    kmsKeyId: arn:aws:kms:REGION:ACCOUNT:key/KEY
+    allowUnencrypted: false
 ```
 
-Supply `DEX_WEB_CONNECTOR_HOSTED_SERVICE_TOKEN` through the workload secret
-environment. The backend URL, project, environment, release, and cache
-directory also have `DEX_WEB_CONNECTOR_HOSTED_BASE_URL`,
-`DEX_WEB_CONNECTOR_HOSTED_PROJECT_ID`,
-`DEX_WEB_CONNECTOR_HOSTED_ENVIRONMENT`, and
-`DEX_WEB_CONNECTOR_HOSTED_RELEASE_ID`, plus
-`DEX_WEB_CONNECTOR_CACHE_DIRECTORY` overrides.
+Supply `DEX_WEB_PROJECT_CONFIGURATION_ADMIN_TOKEN` through the workload secret
+environment. Project and Preview Session identities are immutable startup
+configuration. The trusted proxy supplies the authenticated `X-Dex-Actor-ID`,
+public origin, mount path, and CSRF metadata. It must block the internal
+AppManifest write and validation endpoints from browser routing.
 
-Every mutation sends the last configuration revision in `If-Match`. A stale
-write returns `CONNECTOR_CONFIGURATION_REVISION_CONFLICT`; reload before
-retrying. The UI distinguishes the editable revision from the revision used by
-the running application. Non-secret changes require deployment of a new
-revision. Credential refresh and rotation take effect on the next Connector
-call without changing the application revision.
+Dex and application replicas use the same Go `sdkgo/projectconfig` package for
+conditional, versioned storage. Immutable ordinary configuration contains logical
+connection identities; private credentials remain in separately versioned objects.
+Credential refresh and replacement take effect on the next Connector call.
+Ordinary configuration changes require a new validated snapshot and deployment.
+OAuth dispatch is admitted before the provider call and cannot replay after an
+uncertain response or process restart.
 
-OAuth client credentials, refresh tokens, service-account keys, and webhook
-secrets are write-only. Hosted provider setup commands execute through the
-Control Plane, so Dex Web never reads stored credential material back. Each
-setup-command request carries the release-verified command declaration and the
-current configuration revision; the backend must reject a different release,
-command ID, or stale revision before calling the provider.
-
-Each snapshot connection reports `storedCredentialFields`, the names of its
-stored credential fields, without their values. Dex Web validates
-`keepCredentialFields` against those names. A connection write sends the new
-record, including `authMethodIds`, with `keepCredentialFields`. The backend
-copies each kept value from its stored record. It must treat a kept field that
-is no longer stored as a revision conflict.
+See [Project configuration protocol](./PROJECT_CONFIGURATION.md) for the HTTP
+contract, authority, retention, recovery, and integration commands. The new SDK
+package and trigger schemas require published dependency releases before this
+feature can be shipped as a standalone Dex image.
 
 ## Trusted reverse-proxy mounts
 
@@ -451,6 +444,19 @@ origin and the forwarded prefix for OAuth redirect URIs. The protocol must be
 `X-Dex-Web-Embedded` accepts only `true` or `false`. The CSRF bootstrap token is
 optional to Dex, but hosted deployments should provide a non-empty,
 visible-ASCII value.
+
+Project embedding can supply `X-Dex-Connector-OAuth-Redirect-URI` to use one
+authenticated host callback across Project and Preview mounts. Its only accepted
+value is the canonical forwarded origin plus `/api/connector-oauth/callback`.
+This requires project Connector mode, trusted-header permissions, embedded mode,
+a non-empty CSRF context and authenticated `X-Dex-Actor-ID`. Untrusted or standalone
+requests cannot select an override. The host must strip browser-supplied headers,
+authenticate and bind callback routing to actor, original state and exact project
+scope, then proxy the original callback query to `/api/v2/connector-oauth/callback`.
+Dex stores the exact redirect URI in its durable OAuth seed and verifies it even
+on completed retries. State, PKCE, admission, credentials and uncertain exchange
+recovery remain owned by Dex. Without an override, native redirect construction
+is unchanged. Real-provider browser validation is required before publication.
 
 Dex injects the request-specific base path and presentation mode into the SPA.
 The router, assets, navigation links, API calls, and recovery requests use that
@@ -548,7 +554,9 @@ Set `web.flowServiceTarget` in the mounted server YAML to the API service
 address. Web starts even when that upstream is unavailable. `/healthz` reports
 process liveness. `/readyz` validates the current definition snapshot and a
 FlowService search, returning `definitionRevision`, source, and definition
-count; `/api/*` returns an upstream error until FlowService is available.
+count; `/api/*` returns an upstream error until FlowService is available. In project
+configuration mode, `/readyz` checks versioned configuration storage independently
+of an absent application FDG; Runs still requires its real FDG and FlowService.
 
 To populate Web with a 90-execution Flow containing serial, fan-out, and fan-in
 sections, run the [Large Step Graph demo](./demo/large-step-graph).
@@ -697,3 +705,13 @@ Selected event Context uses the same failure view with the stack collapsed.
 
 [Sustainable Use License 1.0](LICENSE), with legacy portions under their
 original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
+
+### Reviewed local connector artifacts
+
+Project mode normally accepts only checksum-verified official connector releases. An isolated Local Kind process may explicitly set `DEX_LOCAL_KIND=true` and `DEX_LOCAL_CONNECTOR_ARTIFACTS=/absolute/image-owned/authority.json`; server configuration additionally requires project mode and explicitly unencrypted local project storage. This does not enable a provider fixture or change provider endpoints. Never set either variable in hosted deployment manifests.
+
+The descriptor has schema `connectors.dex.dev/local-artifacts/v1` and an `artifacts` array. Each entry contains `connectorId`, `modulePath`, absolute `directory`, the real published `baselineVersion`, `sourceCommit`, `sourceTreeDigest` and `artifactDigest` (`sha256:<hex>`). The existing local artifact loader verifies `connector-release.json`, its checksum file and optional UI bundle. Project admission additionally verifies the descriptor's exact artifact digest, module, baseline and source commit. Official downloads cannot declare local provenance; a descriptor never invents a published version.
+
+Connections display local source and artifact identities. Configuration writes stamp a safe `localArtifact` pin from startup authority, never from browser input. Validation refuses an old configuration if that pin changed. The exact immutable configuration snapshot retains the pin. The application SDK separately requires the same image-owned authority and explicit local storage before accepting it; hosted applications reject it. This lets a reviewed unpublished connector schema be exercised with real providers without silently substituting a published artifact.
+
+Source manifests and artifact generation receipts must accompany every local image. Compilation and artifact checksum validation do not establish real Stripe, Gmail, OAuth or application E2E acceptance.

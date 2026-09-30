@@ -27,8 +27,10 @@ const (
 	forwardedHostHeader             = "X-Forwarded-Host"
 	forwardedEmbeddedHeader         = "X-Dex-Web-Embedded"
 	forwardedCSRFTokenHeader        = "X-Dex-Web-CSRF-Token"
+	forwardedOAuthRedirectHeader    = "X-Dex-Connector-OAuth-Redirect-URI"
+	trustedOAuthCallbackPath        = "/api/connector-oauth/callback"
 	browserCSRFHeader               = "X-CSRF-Token"
-	forwardedEmbeddingVaryHeader    = "X-Forwarded-Prefix, X-Forwarded-Proto, X-Forwarded-Host, X-Dex-Web-Embedded, X-Dex-Web-CSRF-Token"
+	forwardedEmbeddingVaryHeader    = "X-Forwarded-Prefix, X-Forwarded-Proto, X-Forwarded-Host, X-Dex-Web-Embedded, X-Dex-Web-CSRF-Token, X-Dex-Connector-OAuth-Redirect-URI"
 	maximumForwardedPrefixLength    = 2048
 	maximumForwardedCSRFTokenLength = 4096
 	untrustedEmbeddingHeadersCode   = "FORWARDED_EMBEDDING_HEADERS_UNTRUSTED"
@@ -36,10 +38,11 @@ const (
 )
 
 type webRequestConfig struct {
-	basePath     string
-	publicOrigin string
-	isEmbedded   bool
-	csrfToken    string
+	basePath         string
+	publicOrigin     string
+	isEmbedded       bool
+	csrfToken        string
+	oauthRedirectURI string
 }
 
 type webBootstrapConfig struct {
@@ -61,6 +64,12 @@ func forwardedEmbeddingHandler(cfg *Config, next http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		requestConfig, err := webRequestConfigFromHeaders(request.Header, cfg.TrustForwardedEmbeddingHeaders)
+		if err == nil && requestConfig.oauthRedirectURI != "" {
+			actorValues := request.Header.Values(projectActorHeader)
+			if cfg.ConnectorSetupMode != ConnectorSetupModeProject || cfg.ProjectConfiguration == nil || effectivePermissionMode(cfg) != api.V2PermissionModeTrustedHeader || len(actorValues) != 1 || len(actorValues[0]) == 0 || len(actorValues[0]) > 128 || strings.ContainsAny(actorValues[0], "\r\n\x00") {
+				err = fmt.Errorf("forwarded Connector OAuth redirect requires authenticated project embedding")
+			}
+		}
 		if err != nil {
 			statusCode := http.StatusBadRequest
 			code := invalidForwardedEmbeddingCode
@@ -82,7 +91,8 @@ func webRequestConfigFromHeaders(headers http.Header, trustForwardedHeaders bool
 	hostValues, hasHost := headerValues(headers, forwardedHostHeader)
 	embeddedValues, hasEmbedded := headerValues(headers, forwardedEmbeddedHeader)
 	csrfValues, hasCSRF := headerValues(headers, forwardedCSRFTokenHeader)
-	if !hasPrefix && !hasProtocol && !hasHost && !hasEmbedded && !hasCSRF {
+	oauthRedirectValues, hasOAuthRedirect := headerValues(headers, forwardedOAuthRedirectHeader)
+	if !hasPrefix && !hasProtocol && !hasHost && !hasEmbedded && !hasCSRF && !hasOAuthRedirect {
 		return webRequestConfig{basePath: "/"}, nil
 	}
 	if !trustForwardedHeaders {
@@ -110,7 +120,14 @@ func webRequestConfigFromHeaders(headers http.Header, trustForwardedHeaders bool
 			return webRequestConfig{}, err
 		}
 	}
-	return webRequestConfig{basePath: basePath, publicOrigin: publicOrigin, isEmbedded: isEmbedded, csrfToken: csrfToken}, nil
+	oauthRedirectURI := ""
+	if hasOAuthRedirect {
+		if len(oauthRedirectValues) != 1 || !isEmbedded || csrfToken == "" || publicOrigin == "" || oauthRedirectValues[0] != publicOrigin+trustedOAuthCallbackPath {
+			return webRequestConfig{}, fmt.Errorf("forwarded Connector OAuth redirect requires the trusted origin and fixed callback path")
+		}
+		oauthRedirectURI = oauthRedirectValues[0]
+	}
+	return webRequestConfig{basePath: basePath, publicOrigin: publicOrigin, isEmbedded: isEmbedded, csrfToken: csrfToken, oauthRedirectURI: oauthRedirectURI}, nil
 }
 
 func validateForwardedPublicOrigin(protocolValues, hostValues []string, hasProtocol, hasHost bool) (string, error) {

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/superdurable/dex-connectors-library/sdkgo/projectconfig"
 	"io"
 	"io/fs"
 	"mime"
@@ -48,24 +49,26 @@ var exactConnectorReleaseVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.
 var connectorReleaseIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
 
 type connectorReleaseResolver struct {
-	baseURL       string
-	artifactRoot  string
-	httpClient    *http.Client
-	localReleases map[string]resolvedConnectorRelease
+	baseURL                 string
+	artifactRoot            string
+	httpClient              *http.Client
+	localReleases           map[string]resolvedConnectorRelease
+	projectLocalAuthorities map[string]projectconfig.LocalConnectorAuthority
 	// verifiedReleases maps an official release tag to its checksum-verified connectorRelease.
 	verifiedReleases sync.Map
 	mu               sync.Mutex
 }
 
 type connectorRelease struct {
-	ConnectorID    string                   `json:"connectorId"`
-	Manifest       connectorReleaseManifest `json:"manifest"`
-	ModulePath     string                   `json:"modulePath"`
-	Version        string                   `json:"version"`
-	Tag            string                   `json:"tag"`
-	SourceSHA      string                   `json:"sourceSha"`
-	ManifestSHA256 string                   `json:"manifestSha256"`
-	UI             *connectorUIRelease      `json:"ui,omitempty"`
+	LocalArtifact  *projectconfig.LocalConnectorArtifact `json:"localArtifact,omitempty"`
+	ConnectorID    string                                `json:"connectorId"`
+	Manifest       connectorReleaseManifest              `json:"manifest"`
+	ModulePath     string                                `json:"modulePath"`
+	Version        string                                `json:"version"`
+	Tag            string                                `json:"tag"`
+	SourceSHA      string                                `json:"sourceSha"`
+	ManifestSHA256 string                                `json:"manifestSha256"`
+	UI             *connectorUIRelease                   `json:"ui,omitempty"`
 }
 
 type connectorReleaseManifest struct {
@@ -77,7 +80,8 @@ type connectorReleaseManifest struct {
 		Description string `json:"description"`
 	} `json:"metadata"`
 	Spec struct {
-		Provider      string `json:"provider"`
+		Provider      string                     `json:"provider"`
+		Triggers      []connectorManifestTrigger `json:"triggers,omitempty"`
 		Configuration struct {
 			Fields []connectorManifestField `json:"fields"`
 		} `json:"configuration"`
@@ -201,7 +205,14 @@ type connectorManifestStudio struct {
 	Units    []connectorManifestStudioUnit    `json:"units,omitempty"`
 }
 
+type connectorManifestTrigger struct {
+	Name          string                                    `json:"name"`
+	Description   string                                    `json:"description"`
+	Configuration *connectorManifestAuthMethodConfiguration `json:"configuration,omitempty"`
+}
+
 type connectorManifestField struct {
+	UniqueItems bool                              `json:"uniqueItems,omitempty"`
 	Name        string                            `json:"name"`
 	Type        string                            `json:"type"`
 	Description string                            `json:"description"`
@@ -449,6 +460,9 @@ func (resolver *connectorReleaseResolver) resolve(
 	identity connectorDefinitionIdentity,
 ) (resolvedConnectorRelease, error) {
 	if resolved, ok := resolver.localReleases[identity.ConnectorID]; ok {
+		if resolved.release.LocalArtifact != nil && (identity.ModulePath != resolved.release.ModulePath || identity.ModuleVersion != resolved.release.Version) {
+			return resolvedConnectorRelease{}, fmt.Errorf("local Connector baseline identity does not match AppManifest")
+		}
 		return resolved, nil
 	}
 	release, err := resolver.releaseMetadata(ctx, identity)
@@ -484,6 +498,9 @@ func (resolver *connectorReleaseResolver) releaseMetadata(
 	identity connectorDefinitionIdentity,
 ) (connectorRelease, error) {
 	if resolved, ok := resolver.localReleases[identity.ConnectorID]; ok {
+		if resolved.release.LocalArtifact != nil && (identity.ModulePath != resolved.release.ModulePath || identity.ModuleVersion != resolved.release.Version) {
+			return connectorRelease{}, fmt.Errorf("local Connector baseline identity does not match AppManifest")
+		}
 		return resolved.release, nil
 	}
 	if !connectorReleaseIDPattern.MatchString(identity.ConnectorID) ||
@@ -515,7 +532,7 @@ func (resolver *connectorReleaseResolver) releaseMetadata(
 	if err := json.Unmarshal(metadata, &release); err != nil {
 		return connectorRelease{}, fmt.Errorf("decode Connector release metadata: %w", err)
 	}
-	if release.ConnectorID != identity.ConnectorID || release.Manifest.Metadata.Name != identity.ConnectorID ||
+	if release.LocalArtifact != nil || release.ConnectorID != identity.ConnectorID || release.Manifest.Metadata.Name != identity.ConnectorID ||
 		release.ModulePath != identity.ModulePath || release.Version != identity.ModuleVersion || release.Tag != tag {
 		return connectorRelease{}, fmt.Errorf("Connector release identity does not match Flow Definition")
 	}
@@ -719,4 +736,34 @@ func serveConnectorUIAsset(response http.ResponseWriter, request *http.Request, 
 	}
 	response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'none'; base-uri 'none'; form-action 'none'")
 	http.ServeContent(response, request, cleanPath, info.ModTime(), asset)
+}
+
+// loadProjectLocalAuthorities reuses checksum-verified artifact loading without claiming a publication.
+func (resolver *connectorReleaseResolver) loadProjectLocalAuthorities(filename string) error {
+	authorities, err := projectconfig.ReadLocalConnectorAuthorities(filename)
+	if err != nil {
+		return err
+	}
+	for connectorID, authority := range authorities {
+		contents, err := readLocalConnectorArtifact(authority.Directory, connectorReleaseMetadataName, connectorReleaseMetadataLimit)
+		if err != nil {
+			return err
+		}
+		digest := sha256.Sum256(contents)
+		if "sha256:"+hex.EncodeToString(digest[:]) != authority.ArtifactDigest {
+			return fmt.Errorf("reviewed local Connector artifact digest differs from startup authority")
+		}
+		resolved, err := resolver.loadLocalRelease(connectorID, authority.Directory)
+		if err != nil {
+			return err
+		}
+		if resolved.release.ModulePath != authority.ModulePath || resolved.release.Version != authority.BaselineVersion || resolved.release.SourceSHA != authority.SourceCommit {
+			return fmt.Errorf("reviewed local Connector source identity differs from startup authority")
+		}
+		pin := authority.LocalConnectorArtifact
+		resolved.release.LocalArtifact = &pin
+		resolver.localReleases[connectorID] = resolved
+	}
+	resolver.projectLocalAuthorities = authorities
+	return nil
 }

@@ -124,34 +124,40 @@ func NewS3ClientForStorage(ctx context.Context, storage *config.BlobStoreConfigE
 	if storage.StorageType != config.StorageTypeS3 {
 		return nil, fmt.Errorf("unsupported blob storage type %q", storage.StorageType)
 	}
-
-	// Create custom resolver for MinIO endpoint
-	customResolver := aws.EndpointResolverWithOptionsFunc(func(
-		service string,
-		region string,
-		options ...interface{},
-	) (aws.Endpoint, error) {
-		if service == s3.ServiceID {
-			return aws.Endpoint{
-				URL:               storage.S3Endpoint,
-				HostnameImmutable: true,
-				Source:            aws.EndpointSourceCustom,
-			}, nil
-		}
-		return aws.Endpoint{}, fmt.Errorf("unknown endpoint requested")
-	})
-
-	// Load AWS config with custom credentials and endpoint
-	awsCfg, err := awsconfig.LoadDefaultConfig(
-		ctx,
-		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+	hasAccessKey := storage.S3AccessKey != ""
+	hasSecretKey := storage.S3SecretKey != ""
+	if hasAccessKey != hasSecretKey {
+		return nil, fmt.Errorf("S3 access key and secret key must both be configured or both omitted")
+	}
+	loadOptions := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(storage.S3Region)}
+	if hasAccessKey {
+		loadOptions = append(loadOptions, awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			storage.S3AccessKey,
 			storage.S3SecretKey,
 			"",
-		)),
-		awsconfig.WithRegion(storage.S3Region),
-		awsconfig.WithEndpointResolverWithOptions(customResolver),
-	)
+		)))
+	}
+
+	if storage.S3Endpoint != "" {
+		// Create custom resolver for MinIO endpoint
+		customResolver := aws.EndpointResolverWithOptionsFunc(func(
+			service string,
+			region string,
+			options ...interface{},
+		) (aws.Endpoint, error) {
+			if service == s3.ServiceID {
+				return aws.Endpoint{
+					URL:               storage.S3Endpoint,
+					HostnameImmutable: true,
+					Source:            aws.EndpointSourceCustom,
+				}, nil
+			}
+			return aws.Endpoint{}, fmt.Errorf("unknown endpoint requested")
+		})
+		loadOptions = append(loadOptions, awsconfig.WithEndpointResolverWithOptions(customResolver))
+	}
+
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, loadOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("load AWS config: %w", err)
 	}

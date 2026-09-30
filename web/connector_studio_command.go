@@ -32,7 +32,7 @@ var connectorProviderParameterPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
 // RFC 7230 token characters.
 var connectorProviderHeaderNamePattern = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
-// The broker owns content negotiation, credentials, framing, hop-by-hop, routing, origin, and cookie headers.
+// Dex owns credentials, routing, framing, and browser security headers.
 var connectorProviderForbiddenHeaderNames = map[string]bool{
 	"accept": true, "authorization": true, "connection": true, "content-length": true, "cookie": true,
 	"forwarded": true, "host": true, "keep-alive": true, "origin": true, "referer": true,
@@ -44,11 +44,6 @@ var connectorProviderForbiddenHeaderPrefixes = []string{"proxy-", "x-forwarded-"
 
 type connectorStudioCommandRequest struct {
 	Parameters map[string]string `json:"parameters"`
-}
-
-type hostedConnectorStudioCommandRequest struct {
-	Command    connectorManifestStudioCommand `json:"command"`
-	Parameters map[string]string              `json:"parameters"`
 }
 
 func newConnectorProviderHTTPClient() *http.Client {
@@ -87,20 +82,17 @@ func (setup *connectorSetup) handleStudioProviderCommand(response http.ResponseW
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_STUDIO_COMMAND_INVALID", "Connector Studio command parameters are invalid")
 		return
 	}
-	var value map[string]any
-	var err error
-	if executor, hosted := setup.store.(hostedConnectorProviderCommandExecutor); hosted {
-		value, err = executor.executeProviderCommand(
-			session.connectorID, session.connectionName, command, body.Parameters,
-		)
-	} else {
-		connection, found, loadErr := setup.store.get(session.connectorID, session.connectionName)
-		if loadErr != nil || !found {
-			api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONNECTION_NOT_READY", "Connector connection is not configured")
-			return
-		}
-		value, err = setup.executeStudioProviderCommand(request, command, body.Parameters, connection.Credentials)
+	connection, found, loadErr := setup.requestStore(request).get(session.connectorID, session.connectionName)
+	if loadErr != nil || !found {
+		api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONNECTION_NOT_READY", "Connector connection is not configured")
+		return
 	}
+	if setup.project != nil && (connection.CredentialStatus != "READY" || (connection.CredentialExpiresAt != nil && !time.Now().Before(*connection.CredentialExpiresAt))) {
+		api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CREDENTIAL_UNAVAILABLE", "Connector credential is expired or unavailable")
+		return
+	}
+	value, err := setup.executeStudioProviderCommand(request, command, body.Parameters, connection.Credentials)
+
 	if err != nil {
 		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_PROVIDER_COMMAND_FAILED", "Connector provider command failed")
 		return

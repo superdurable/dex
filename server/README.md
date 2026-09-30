@@ -50,6 +50,12 @@ the [server operations guide](../docs/content/production/server-operations.mdx).
 Integration and replay test instructions are available in
 [integ/README.md](integ/README.md) and [replayTests/README.md](replayTests/README.md).
 
+S3 blob storage uses the AWS SDK credential chain when both `s3AccessKey` and
+`s3SecretKey` are omitted, including credentials supplied through EKS Pod Identity.
+For explicit static credentials, configure both fields; a partial pair is rejected
+without logging credential values. An omitted `s3Endpoint` uses AWS endpoint
+resolution. An explicit endpoint and credential pair continue to support MinIO.
+
 The optional `streamStore` configuration enables best-effort resumable Streams.
 `backend` accepts `memory` for one Dex Server process or `redis` for Redis 7+
 Standalone shared by multiple servers. It defaults to `disabled`. The memory
