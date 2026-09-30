@@ -191,6 +191,16 @@ func TestRPCFlow(t *testing.T) {
 	)
 	cancelShortWait()
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+	err = integClient.WaitForAttributeMatch(
+		ctx,
+		flowID,
+		rpcFlowStatus,
+		dex.AttributeMatchEqual("never"),
+		&matchedStatus,
+		dex.WaitForAttributeOptions{RequestID: uuid.NewString(), RequestTimeout: time.Second},
+	)
+	var requestTimeout *dex.RequestTimeoutError
+	require.ErrorAs(t, err, &requestTimeout)
 	waitErrors := make(chan error, 2)
 	go func() {
 		var matched string

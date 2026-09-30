@@ -1343,8 +1343,8 @@ func (b *clientRequestBudget) context(parent context.Context) (context.Context, 
 	return requestCtx, cancelRequest, nil
 }
 
-func (b *clientRequestBudget) hasExpired() bool {
-	return !b.deadline.IsZero() && !time.Now().Before(b.deadline)
+func (b *clientRequestBudget) hasDeadline() bool {
+	return !b.deadline.IsZero()
 }
 
 func newRequestTimeoutError(operation string, flowID string) error {
@@ -1369,8 +1369,15 @@ func translateDurableWaitRPCError(
 	if contextErr := ctx.Err(); contextErr != nil {
 		return contextErr
 	}
-	if status.Code(err) == codes.DeadlineExceeded && requestBudget.hasExpired() {
-		return newRequestTimeoutError(op, flowID)
+	if status.Code(err) == codes.DeadlineExceeded {
+		// Transport deadlines can fire before the matching context timer.
+		contextDeadline, hasContextDeadline := ctx.Deadline()
+		if hasContextDeadline && (!requestBudget.hasDeadline() || !contextDeadline.After(requestBudget.deadline)) {
+			return context.DeadlineExceeded
+		}
+		if requestBudget.hasDeadline() {
+			return newRequestTimeoutError(op, flowID)
+		}
 	}
 	return translateRPCError(err, op, flowID, target)
 }
@@ -1386,8 +1393,8 @@ func translateWaitRPCError(
 		return contextErr
 	}
 	if status.Code(err) == codes.DeadlineExceeded {
-		deadline, hasDeadline := ctx.Deadline()
-		if hasDeadline && !time.Now().Before(deadline) {
+		_, hasDeadline := ctx.Deadline()
+		if hasDeadline {
 			return context.DeadlineExceeded
 		}
 	}
