@@ -994,7 +994,7 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 	}
 	for _, testCase := range activeCalls {
 		t.Run(testCase.name, func(t *testing.T) {
-			var inactive *FlowNotActiveError
+			var inactive *FlowNotActiveOrNotFoundError
 			require.ErrorAs(t, testCase.call(), &inactive)
 			require.Equal(t, "inactive", inactive.FlowID)
 		})
@@ -1031,7 +1031,7 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 		clientTestRPCInput{},
 		&output,
 	)
-	var inactive *FlowNotActiveError
+	var inactive *FlowNotActiveOrNotFoundError
 	require.ErrorAs(t, err, &inactive)
 
 	_, err = client.WaitForFlow(ctx, "timeout", WaitForFlowOptions{})

@@ -2829,7 +2829,7 @@ const (
 ```
 
 Applications use `errors.As` with `FlowAlreadyStartedError`,
-`FlowNotFoundError`, `FlowNotActiveError`, `WorkerInvocationError`,
+`FlowNotFoundError`, `FlowNotActiveOrNotFoundError`, `WorkerInvocationError`,
 `RPCLockConflictError`, or `LongPollTimeoutError`. Each unwraps through
 `ServiceError` to the original gRPC status. `ErrorSubStatus` remains diagnostic
 metadata.

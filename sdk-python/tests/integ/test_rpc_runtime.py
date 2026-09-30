@@ -15,10 +15,18 @@ from typing import cast
 import grpc
 import pytest
 
-from dex import RpcLockConflictError, StopFlowOptions, StopType, WorkerInvocationError
+from dex import (
+    FlowNotActiveOrNotFoundError,
+    FlowNotFoundError,
+    RpcLockConflictError,
+    StopFlowOptions,
+    StopType,
+    WorkerInvocationError,
+)
 
 from .async_environment import AsyncDexDevTestEnvironment
 from .dead_end_flow import DeadEndFlow
+from .environment import DexDevTestEnvironment
 from .no_start_flow import NoStartFlow
 from .no_state_flow import NoStateFlow
 from .rpc_flow import RpcFlow
@@ -186,10 +194,57 @@ async def _rpc_attribute_round_trip_and_read_only_call() -> None:
             await environment.client.invoke_rpc(flow.read_only, flow_id, "rpc-input")
             == RpcFlow.RPC_OUTPUT
         )
+        await environment.client.invoke_rpc(flow.set_data, flow_id, "retained-value")
         await environment.client.stop_flow(
             flow_id,
             StopFlowOptions(StopType.FAIL, RpcFlow.HARDCODED_VALUE),
         )
+        await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        assert (
+            await environment.client.invoke_rpc(flow.get_data, flow_id)
+            == "retained-value"
+        )
+        assert (
+            await environment.client.invoke_rpc(flow.read_only, flow_id, "rpc-input")
+            == RpcFlow.RPC_OUTPUT
+        )
+        with pytest.raises(FlowNotActiveOrNotFoundError):
+            await environment.client.invoke_rpc(flow.set_data, flow_id, "value")
+        missing_flow_id = unique_id("rpc-missing")
+        with pytest.raises(FlowNotActiveOrNotFoundError) as captured:
+            await environment.client.invoke_rpc(flow.get_data, missing_flow_id)
+        assert captured.value.operation == "invoke_rpc"
+        assert captured.value.flow_id == missing_flow_id
+        assert captured.value.__cause__ is not None
+        with pytest.raises(FlowNotActiveOrNotFoundError):
+            await environment.client.invoke_rpc(flow.set_data, missing_flow_id, "value")
+        with pytest.raises(FlowNotFoundError):
+            await environment.client.describe_flow(missing_flow_id)
+
+
+def test_sync_rpc_retained_state_and_missing_targets() -> None:
+    flow = RpcFlow()
+    with DexDevTestEnvironment(flow) as environment:
+        flow_id = unique_id("rpc-sync-retained")
+        environment.client.start_flow(flow, flow_id, 999)
+        environment.client.invoke_rpc(flow.set_data, flow_id, "retained-value")
+        environment.client.stop_flow(
+            flow_id, StopFlowOptions(StopType.FAIL, RpcFlow.HARDCODED_VALUE)
+        )
+        environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        assert environment.client.invoke_rpc(flow.get_data, flow_id) == "retained-value"
+        with pytest.raises(FlowNotActiveOrNotFoundError):
+            environment.client.invoke_rpc(flow.set_data, flow_id, "value")
+        missing_flow_id = unique_id("rpc-sync-missing")
+        with pytest.raises(FlowNotActiveOrNotFoundError) as captured:
+            environment.client.invoke_rpc(flow.get_data, missing_flow_id)
+        assert captured.value.operation == "invoke_rpc"
+        assert captured.value.flow_id == missing_flow_id
+        assert captured.value.__cause__ is not None
+        with pytest.raises(FlowNotActiveOrNotFoundError):
+            environment.client.invoke_rpc(flow.set_data, missing_flow_id, "value")
+        with pytest.raises(FlowNotFoundError):
+            environment.client.describe_flow(missing_flow_id)
 
 
 def test_rpc_user_error_preserves_worker_details() -> None:

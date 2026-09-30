@@ -169,11 +169,60 @@ fn test_rpc_workflow_func1_read_only() {
     );
     environment
         .client
+        .invoke_rpc(
+            &flow_id,
+            RpcWorkflow::SET_DATA,
+            Some("retained-value".to_string()),
+        )
+        .expect("persist retained snapshot");
+    environment
+        .client
         .stop_flow(
             &flow_id,
             StopFlowOptions::fail().reason(RpcWorkflow::HARDCODED_VALUE),
         )
         .expect("stop read-only Flow");
+    environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .expect("establish terminal status");
+    assert_eq!(
+        Some("retained-value".to_string()),
+        environment
+            .client
+            .invoke_rpc_without_input(&flow_id, RpcWorkflow::GET_DATA)
+            .expect("read retained snapshot")
+    );
+    assert!(matches!(
+        environment
+            .client
+            .invoke_rpc(&flow_id, RpcWorkflow::SET_DATA, Some("value".to_string())),
+        Err(SdkError::FlowNotActiveOrNotFound { .. })
+    ));
+    let missing_flow_id = crate::support::flow_id("rpc-missing");
+    let missing_error = environment
+        .client
+        .invoke_rpc_without_input(&missing_flow_id, RpcWorkflow::GET_DATA)
+        .expect_err("missing query target");
+    assert!(matches!(
+        &missing_error,
+        SdkError::FlowNotActiveOrNotFound { .. }
+    ));
+    let service = missing_error.service_error().expect("service metadata");
+    assert_eq!(service.flow_id(), Some(missing_flow_id.as_str()));
+    assert!(std::error::Error::source(service).is_some());
+    assert!(matches!(
+        environment.client.invoke_rpc(
+            &missing_flow_id,
+            RpcWorkflow::SET_DATA,
+            Some("value".to_string())
+        ),
+        Err(SdkError::FlowNotActiveOrNotFound { .. })
+    ));
+    assert!(matches!(
+        environment.client.describe_flow(&missing_flow_id),
+        Err(SdkError::FlowNotFound { .. })
+    ));
 }
 
 #[test]

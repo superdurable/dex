@@ -296,7 +296,8 @@ export class Client {
    * @returns Decoded output, or `undefined` for an output-free RPC.
    * @throws {@link RpcLockConflictError} when locks cannot be acquired.
    * @throws {@link WorkerInvocationError} when the application handler fails.
-   * @throws {@link FlowNotActiveError} when the selected path requires an active execution.
+   * @throws {@link FlowNotActiveOrNotFoundError} when the Flow is missing or the selected path
+   * cannot use its closed execution.
    */
   public async invokeRPC(
     rpcMethod: Function,

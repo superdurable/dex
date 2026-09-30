@@ -58,7 +58,11 @@ Run the integration suite against an isolated `dexcli dev` environment:
 
 Examples catch concrete types from `io.superdurable.dex.exceptions`.
 `FlowNotFoundException` is for read operations with no matching execution;
-`FlowNotActiveException` is for RPC or mutation operations after a Flow closes.
+`FlowNotActiveOrNotFoundException` covers missing RPC targets and mutations that cannot
+use a closed Flow. A query-only RPC can read a retained closed Flow when it has no
+locks, transactionality, durable effects, or Server-forced Update routing. At that
+confirmed read boundary, return the missing-target result directly without lifecycle
+probes, retries, or history decoding. Preserve other service and Worker failures.
 `ErrorSubStatus` remains diagnostic metadata and is not used for control flow.
 
 The Go examples support `./run-e2e-tests.sh --keep-running` to leave Dex running

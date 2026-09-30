@@ -47,6 +47,7 @@ func (flow rpcFlow) GetRPCs() []dex.RPCDef {
 		}),
 		dex.DefineRPC(flow.Fail, nil),
 		dex.DefineRPC(flow.SetWaitTargets, nil),
+		dex.DefineRPC(flow.GetStatus, nil),
 	}
 }
 
@@ -68,6 +69,14 @@ type rpcIncrementOutput struct {
 	SizeBefore  int
 	SizeAfter   int
 	StatusFound bool
+}
+
+func (rpcFlow) GetStatus(ctx dex.Context, _ dex.None) (*dex.RPCResult[string], error) {
+	value, err := rpcFlowStatus.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: value}, nil
 }
 
 func (rpcFlow) Increment(
@@ -287,6 +296,39 @@ func TestRPCFlow(t *testing.T) {
 		1,
 		&output,
 	)
-	var inactive *dex.FlowNotActiveError
+	var inactive *dex.FlowNotActiveOrNotFoundError
 	require.ErrorAs(t, err, &inactive)
+}
+
+func TestRPCFlowUnavailableTargets(t *testing.T) {
+	ctx := integrationContext(t)
+	flow := rpcFlow{}
+	flowID := newFlowID(t, "rpc-retained")
+	_, err := integClient.StartFlow(ctx, flow, flowID, 1, dex.StartFlowOptions{})
+	require.NoError(t, err)
+	var output rpcIncrementOutput
+	require.NoError(t, integClient.InvokeRPC(ctx, flowID, flow.Increment, 1, &output))
+	result := waitForFlow(t, flowID, true)
+	require.Equal(t, dex.FlowCompleted, result.Status)
+	var retainedStatus string
+	require.NoError(t, integClient.InvokeRPC(ctx, flowID, flow.GetStatus, nil, &retainedStatus))
+	require.Equal(t, "invoked", retainedStatus)
+
+	missingFlowID := newFlowID(t, "missing-rpc")
+	var unavailable *dex.FlowNotActiveOrNotFoundError
+	err = integClient.InvokeRPC(ctx, missingFlowID, flow.GetStatus, nil, &retainedStatus)
+	require.ErrorAs(t, err, &unavailable)
+	var serviceError *dex.ServiceError
+	require.ErrorAs(t, err, &serviceError)
+	require.Equal(t, "InvokeRPC", serviceError.Op)
+	require.Equal(t, missingFlowID, serviceError.FlowID)
+	require.NotNil(t, serviceError.Unwrap())
+	err = integClient.InvokeRPC(ctx, missingFlowID, flow.Increment, 1, &output)
+	require.ErrorAs(t, err, &unavailable)
+	_, err = integClient.WaitForFlow(ctx, missingFlowID, dex.WaitForFlowOptions{})
+	var notFound *dex.FlowNotFoundError
+	require.ErrorAs(t, err, &notFound)
+
+	err = integClient.InvokeRPC(ctx, flowID, flow.Increment, 1, &output)
+	require.ErrorAs(t, err, &unavailable)
 }

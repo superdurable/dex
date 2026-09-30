@@ -104,8 +104,25 @@ class FlowNotFoundError(DexServiceError):
     pass
 
 
-class FlowNotActiveError(DexServiceError):
-    """Indicate that an operation requires an active but already closed Flow."""
+class FlowNotActiveOrNotFoundError(DexServiceError):
+    """Report a missing Flow or an operation that cannot use a closed Flow.
+
+    RPC calls use this error for missing targets, including query-only reads.
+    A query-only RPC can read a retained terminal execution when it has no
+    locks, transactionality, durable effects, or Server-forced Update routing.
+    At that confirmed read boundary, handle this error as not found without
+    adding a lifecycle probe. Preserve other service and Worker failures.
+
+    Mutations and active-only RPCs also use this error for closed targets.
+    The error does not distinguish a missing Flow from a closed Flow or prove
+    that the requested action succeeded. The inherited service metadata and
+    chained transport cause remain available. For example::
+
+        try:
+            client.invoke_rpc(orders.update_order, order_id, update)
+        except FlowNotActiveOrNotFoundError:
+            raise OrderUnavailableError(order_id)
+    """
 
     pass
 

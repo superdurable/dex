@@ -13,22 +13,34 @@ package io.superdurable.dex.exceptions;
 import io.grpc.Status;
 
 /**
- * Reports that an operation requiring a running Flow has no active target.
+ * Reports a missing Flow or an operation that cannot use a closed Flow.
  *
  * <p>RPC paths that require Update or Signal, Channel publish, Attribute mutation, stop, timer,
  * configuration, and Step-wait operations use this exception when the Flow never existed or is
- * already closed. A query-only RPC can read a retained terminal execution. Use {@link
+ * already closed. All RPC paths also use this exception for missing targets. A query-only RPC
+ * without locks, transactionality, durable effects, or Server-forced Update routing can read a
+ * retained terminal execution. At that confirmed read boundary, handle this exception as not found
+ * without a lifecycle probe. Preserve other service and Worker failures. The exception does not
+ * distinguish missing from closed targets or prove the requested action succeeded. Use {@link
  * FlowNotFoundException} for other read and history operations that can target closed Flows.
+ *
+ * <pre>{@code
+ * try {
+ *     client.invokeRPC(stub::updateOrder, input);
+ * } catch (FlowNotActiveOrNotFoundException unavailable) {
+ *     throw new OrderUnavailableException(flowId, unavailable);
+ * }
+ * }</pre>
  */
-public final class FlowNotActiveException extends DexServiceException {
+public final class FlowNotActiveOrNotFoundException extends DexServiceException {
     /**
-     * Creates an inactive-Flow exception from a Dex service response.
+     * Creates a missing-or-inactive-Flow exception from a Dex service response.
      *
      * @param code the gRPC status code returned by Dex
      * @param detail the server-provided target detail
      * @param cause the original transport failure
      */
-    public FlowNotActiveException(
+    public FlowNotActiveOrNotFoundException(
             final Status.Code code,
             final String detail,
             final Throwable cause) {

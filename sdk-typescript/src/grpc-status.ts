@@ -18,7 +18,7 @@ import {
   DexServiceError,
   ErrorSubStatus,
   FlowAlreadyStartedError,
-  FlowNotActiveError,
+  FlowNotActiveOrNotFoundError,
   FlowNotFoundError,
   LongPollTimeoutError,
   RequestTimeoutError,
@@ -141,7 +141,7 @@ export function translateServiceError(
         return new FlowNotFoundError(...parameters);
       }
       if (requirement === "active") {
-        return new FlowNotActiveError(...parameters);
+        return new FlowNotActiveOrNotFoundError(...parameters);
       }
       return new DexServiceError(...parameters);
     case ErrorSubStatus.WORKER_API_ERROR:

@@ -45,7 +45,9 @@ Full integration verification:
 | --- | --- |
 | Duplicate start | `FlowAlreadyStartedError` |
 | Missing describe, attribute read, or Flow wait | `FlowNotFoundError` |
-| Missing or closed mutation/RPC | `FlowNotActiveError` |
+| Missing query-only RPC target | `FlowNotActiveOrNotFoundError` |
+| Read-only RPC on retained terminal execution | Retained snapshot |
+| Missing or closed mutation | `FlowNotActiveOrNotFoundError` |
 | Worker handler failure | `WorkerInvocationError` |
 | Locking RPC contention | `RpcLockConflictError` |
 | Long-poll expiry | `LongPollTimeoutError` |

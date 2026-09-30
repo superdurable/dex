@@ -428,12 +428,22 @@ Client calls raise concrete `DexServiceError` subclasses. Existing-Flow reads
 (`describe_flow`, `wait_for_flow`, and `time_travel`) raise
 `FlowNotFoundError` when the Flow does not exist. Mutations, RPCs, timer/Step
 waits, config updates, and continue-as-new triggers raise
-`FlowNotActiveError` when no running Flow can accept the operation.
+`FlowNotActiveOrNotFoundError` when no running Flow can accept the operation.
+
+RPCs also use this error when the target Flow cannot be found, including query-only
+reads. A query-only RPC without locks, transactional execution, durable effects, or
+Server-forced Update routing can read a retained terminal execution. At that confirmed
+read boundary, this error means no readable target was found; return the application's
+missing or unavailable result directly, without a lifecycle probe, a short timeout, a
+retry, or historical Step-output decoding. Preserve other service and Worker failures.
+For mutations and active-only RPCs, the error can mean either missing or closed and does
+not prove that the requested action succeeded. RPC success does not prove that the Flow
+is active.
 
 ```python
 try:
     client.invoke_rpc(orders.update_order, order_id, update)
-except dex.FlowNotActiveError:
+except dex.FlowNotActiveOrNotFoundError:
     # The Flow is missing or already closed.
     pass
 ```

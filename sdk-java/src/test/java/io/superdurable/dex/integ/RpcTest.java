@@ -15,7 +15,8 @@ package io.superdurable.dex.integ;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.StopFlowOptions;
 import io.superdurable.dex.StopType;
-import io.superdurable.dex.exceptions.FlowNotActiveException;
+import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
+import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
@@ -94,7 +95,7 @@ public final class RpcTest {
             environment.client().invokeRPC(stub::publishWithoutAttributeAccess);
             assertEquals(2, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
             assertThrows(
-                    FlowNotActiveException.class,
+                    FlowNotActiveOrNotFoundException.class,
                     () -> environment.client().invokeRPC(stub::publishWithoutAttributeAccess));
         }
     }
@@ -174,9 +175,27 @@ public final class RpcTest {
             assertEquals(
                     RpcWorkflow.RPC_OUTPUT,
                     environment.client().invokeRPC(stub::readOnly, "rpc-input"));
+            environment.client().invokeRPC(stub::setData, "retained-value");
             environment.client().stopFlow(
                     flowId,
                     new StopFlowOptions(StopType.FAIL, RpcWorkflow.HARDCODED_VALUE));
+            environment.client().waitForFlow(flowId, Duration.ofSeconds(30));
+            assertEquals("retained-value", environment.client().invokeRPC(stub::getData));
+            assertThrows(
+                    FlowNotActiveOrNotFoundException.class,
+                    () -> environment.client().invokeRPC(stub::setData, "value"));
+            final String missingFlowId = flowId("rpc-missing");
+            final RpcWorkflow missing = stub(environment, missingFlowId);
+            final FlowNotActiveOrNotFoundException failure = assertThrows(
+                    FlowNotActiveOrNotFoundException.class,
+                    () -> environment.client().invokeRPC(missing::getData));
+            assertTrue(failure.getCause() != null);
+            assertThrows(
+                    FlowNotActiveOrNotFoundException.class,
+                    () -> environment.client().invokeRPC(missing::setData, "value"));
+            assertThrows(
+                    FlowNotFoundException.class,
+                    () -> environment.client().describeFlow(missingFlowId));
         }
     }
 

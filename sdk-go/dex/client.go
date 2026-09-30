@@ -604,7 +604,7 @@ func resolveStartRequestID(override *string) (string, error) {
 //
 // options selects the stop mode and optional reason. The method returns after the
 // server accepts the request; it does not wait for the Flow to close. It returns
-// FlowNotActiveError when no active execution exists, plus validation, context,
+// FlowNotActiveOrNotFoundError when no active execution exists, plus validation, context,
 // transport, or server errors.
 func (client *Client) StopFlow(
 	ctx context.Context,
@@ -1415,7 +1415,8 @@ func isPrimitiveValue(value *dexpb.Value) bool {
 // A non-transactional RPC without Attribute locks starts from a backend query. If its
 // handler returns no durable effects, a retained terminal execution can serve the query.
 // Locks, transactional execution, returned effects, or server policy can require an
-// active execution and cause FlowNotActiveError for a terminal Flow.
+// active execution and cause FlowNotActiveOrNotFoundError for a terminal Flow. A missing
+// execution also returns FlowNotActiveOrNotFoundError, including on the query-only path.
 // InvokeRPC blocks until the handler returns, the timeout expires, or ctx is canceled,
 // then decodes the result into outputPtr when one is provided.
 // It may return validation, serialization, lock-conflict, worker, inactive-Flow,

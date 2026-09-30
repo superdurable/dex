@@ -22,7 +22,7 @@ from typing import Any, TypedDict
 
 from dex import (
     ChannelMessageNotFoundError,
-    FlowNotActiveError,
+    FlowNotActiveOrNotFoundError,
     FlowStatus,
     StartFlowOptions,
 )
@@ -220,7 +220,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
                 app_state.ai_agent.get_snapshot,
                 flow_id,
             )
-        except FlowNotActiveError:
+        except FlowNotActiveOrNotFoundError:
             info = await app_state.client.describe_flow(flow_id)
             if info.status in {FlowStatus.RUNNING, FlowStatus.CONTINUED_AS_NEW}:
                 raise

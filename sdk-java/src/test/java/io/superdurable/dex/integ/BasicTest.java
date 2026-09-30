@@ -30,7 +30,7 @@ import io.superdurable.dex.WorkerTarget;
 import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
-import io.superdurable.dex.exceptions.FlowNotActiveException;
+import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
@@ -408,7 +408,7 @@ public final class BasicTest {
                     stepWaitOptions(flowId, "first", Duration.ofSeconds(30)));
             assertEquals(7, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
             assertThrows(
-                    FlowNotActiveException.class,
+                    FlowNotActiveOrNotFoundException.class,
                     () -> environment.client().waitForStepCompletion(
                             flowId,
                             StepExecutionId.of("BasicSecondStep", 2),

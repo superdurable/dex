@@ -15,7 +15,7 @@ import { Metadata, status, type ServiceError } from "@grpc/grpc-js";
 import {
   DexServiceError,
   FlowAlreadyStartedError,
-  FlowNotActiveError,
+  FlowNotActiveOrNotFoundError,
   FlowNotFoundError,
   LongPollTimeoutError,
   RpcLockConflictError,
@@ -32,7 +32,7 @@ test("missing Flow uses the endpoint lifecycle requirement", () => {
       FlowNotFoundError,
   );
   assert.ok(
-    translateServiceError(error, "publish", "flow-id", "active") instanceof FlowNotActiveError,
+    translateServiceError(error, "publish", "flow-id", "active") instanceof FlowNotActiveOrNotFoundError,
   );
 });
 

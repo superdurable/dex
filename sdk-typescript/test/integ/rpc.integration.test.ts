@@ -14,6 +14,8 @@ import { status } from "@grpc/grpc-js";
 
 import {
   AttributeMatch,
+  FlowNotActiveOrNotFoundError,
+  FlowNotFoundError,
   RpcLockConflictError,
   StopType,
   WorkerInvocationError,
@@ -119,7 +121,22 @@ for (const suite of ["rpc", "rpc-memo"] as const) {
     await withEnvironment([flow], async ({ client }) => {
       const id = await startRpcFlow(client, flow, `${suite}-read-only`);
       assert.equal(await client.invokeRPC(flow.readOnly, id, "rpc-input"), RpcFlow.RPC_OUTPUT);
+      await client.invokeRPC(flow.setData, id, "retained-value");
       await client.stopFlow(id, { type: StopType.FAIL, reason: RpcFlow.HARDCODED_VALUE });
+      await client.waitForFlow(id, 30_000);
+      assert.equal(await client.invokeRPC(flow.getData, id), "retained-value");
+      assert.equal(await client.invokeRPC(flow.readOnly, id, "rpc-input"), RpcFlow.RPC_OUTPUT);
+      const missingId = flowId(`${suite}-missing-read`);
+      const failure = await expectError(
+        client.invokeRPC(flow.getData, missingId),
+        FlowNotActiveOrNotFoundError,
+      );
+      assert.equal(failure.operation, "invokeRPC");
+      assert.equal(failure.flowId, missingId);
+      assert.ok(failure.cause);
+      await expectError(client.invokeRPC(flow.setData, missingId, "value"), FlowNotActiveOrNotFoundError);
+      await expectError(client.invokeRPC(flow.setData, id, "value"), FlowNotActiveOrNotFoundError);
+      await expectError(client.describeFlow(missingId), FlowNotFoundError);
     });
   });
 }

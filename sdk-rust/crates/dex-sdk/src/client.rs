@@ -220,7 +220,8 @@ impl Client {
     /// # Errors
     ///
     /// Returns [`SdkError::RpcLockConflict`] when locks cannot be acquired, WorkerInvocation for a
-    /// handler failure, FlowNotActive when the selected path requires an active execution, or a
+    /// handler failure, FlowNotActiveOrNotFound when the target is missing or the selected path cannot
+    /// use its closed execution, or a
     /// mapping/service error.
     pub fn invoke_rpc<Input: Value, Output: Value>(
         &self,
@@ -559,7 +560,7 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns [`SdkError::FlowNotActive`] when no active run exists or another service error.
+    /// Returns [`SdkError::FlowNotActiveOrNotFound`] when no active run exists or another service error.
     pub fn stop_flow(&self, flow_id: &str, options: StopFlowOptions) -> SdkResult<()> {
         let stop_type = match options.stop_type {
             StopType::Cancel => ProtoStopType::Cancel,
@@ -644,7 +645,7 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns InvalidArgument for an oversized index, FlowNotActive for a terminal Flow, or a
+    /// Returns InvalidArgument for an oversized index, FlowNotActiveOrNotFound for a terminal Flow, or a
     /// service error when the Step execution or timer cannot be targeted.
     pub fn skip_timer(
         &self,
@@ -687,7 +688,7 @@ impl Client {
     /// # Errors
     ///
     /// Returns [`SdkError::RequestTimeout`] when a positive request timeout expires,
-    /// FlowNotActive when appropriate, or another service error. Successful completion returns
+    /// FlowNotActiveOrNotFound when appropriate, or another service error. Successful completion returns
     /// `()` and does not decode Step output.
     pub fn wait_for_step_completion(
         &self,

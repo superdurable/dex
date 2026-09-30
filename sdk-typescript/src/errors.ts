@@ -82,8 +82,31 @@ export class FlowAlreadyStartedError extends DexServiceError {}
 /** Indicates that an operation targeted a Flow ID that does not exist. */
 export class FlowNotFoundError extends DexServiceError {}
 
-/** Indicates that an operation requires an active but already closed Flow. */
-export class FlowNotActiveError extends DexServiceError {}
+/**
+ * Reports a missing Flow or an operation that cannot use a closed Flow.
+ *
+ * RPC calls use this error for missing targets, including query-only reads. A query-only RPC
+ * without locks, transactionality, durable effects, or Server-forced Update routing can read a
+ * retained terminal execution. At that confirmed read boundary, handle this error as not found
+ * without a lifecycle probe. Preserve other service and Worker failures.
+ *
+ * Mutations and active-only RPCs also use this error for closed targets. It does not distinguish
+ * missing from closed Flows or prove the requested action succeeded. Inherited service metadata
+ * and the original transport cause remain available.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await client.invokeRPC(orders.updateOrder, flowId, update);
+ * } catch (error) {
+ *   if (error instanceof FlowNotActiveOrNotFoundError) {
+ *     throw new OrderUnavailableError(flowId);
+ *   }
+ *   throw error;
+ * }
+ * ```
+ */
+export class FlowNotActiveOrNotFoundError extends DexServiceError {}
 
 /** Exposes both outer FlowService and nested WorkerService failure details. */
 export class WorkerInvocationError extends DexServiceError {

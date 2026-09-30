@@ -91,7 +91,7 @@ func enqueueRequest(
 	if err == nil {
 		return accepted, nil
 	}
-	var inactive *dex.FlowNotActiveError
+	var inactive *dex.FlowNotActiveOrNotFoundError
 	if !errors.As(err, &inactive) {
 		return false, err
 	}

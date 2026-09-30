@@ -146,9 +146,30 @@ pub enum SdkError {
         /// Structured lookup failure.
         service: ServiceError,
     },
-    /// An operation requiring an active Flow targeted a terminal or unknown ID.
-    FlowNotActive {
-        /// Structured active-Flow failure.
+    /// A Flow was not found or the operation could not use its closed execution.
+    ///
+    /// RPC calls also use this variant for missing query-only targets. A query-only RPC without
+    /// locks, transactionality, durable effects, or Server-forced Update routing can read a retained
+    /// terminal execution. At that confirmed read boundary, treat this variant as not found without
+    /// a lifecycle probe. Preserve other service and Worker failures.
+    ///
+    /// For mutations and active-only RPCs, this variant does not distinguish missing from closed
+    /// targets or prove that the requested action succeeded. Match it as follows:
+    ///
+    /// ```no_run
+    /// # use dex_sdk::{SdkError, SdkResult};
+    /// fn report_unavailable(result: SdkResult<()>) -> SdkResult<()> {
+    ///     match result {
+    ///         Err(SdkError::FlowNotActiveOrNotFound { service }) => {
+    ///             eprintln!("{} has no usable target", service.operation());
+    ///             Err(SdkError::FlowNotActiveOrNotFound { service })
+    ///         }
+    ///         other => other,
+    ///     }
+    /// }
+    /// ```
+    FlowNotActiveOrNotFound {
+        /// Structured target failure, including the original transport cause.
         service: ServiceError,
     },
     /// A Worker Step or RPC handler failed.
@@ -210,7 +231,7 @@ impl Display for SdkError {
             Self::Service { service }
             | Self::FlowAlreadyStarted { service }
             | Self::FlowNotFound { service }
-            | Self::FlowNotActive { service }
+            | Self::FlowNotActiveOrNotFound { service }
             | Self::RpcLockConflict { service }
             | Self::LongPollTimeout { service }
             | Self::ChannelMessageNotFound { service } => Display::fmt(service, formatter),
@@ -240,7 +261,7 @@ impl SdkError {
             Self::Service { service }
             | Self::FlowAlreadyStarted { service }
             | Self::FlowNotFound { service }
-            | Self::FlowNotActive { service }
+            | Self::FlowNotActiveOrNotFound { service }
             | Self::RpcLockConflict { service }
             | Self::LongPollTimeout { service }
             | Self::ChannelMessageNotFound { service } => Some(service),
@@ -288,7 +309,7 @@ impl SdkError {
         match sub_status {
             ErrorSubStatus::FlowAlreadyStarted => Self::FlowAlreadyStarted { service },
             ErrorSubStatus::FlowNotExists => match requirement {
-                FlowTargetRequirement::Active => Self::FlowNotActive { service },
+                FlowTargetRequirement::Active => Self::FlowNotActiveOrNotFound { service },
                 FlowTargetRequirement::Existing => Self::FlowNotFound { service },
                 FlowTargetRequirement::None => Self::Service { service },
             },
@@ -397,7 +418,7 @@ mod tests {
             Some("flow-id"),
             FlowTargetRequirement::Active,
         );
-        assert!(matches!(active, SdkError::FlowNotActive { .. }));
+        assert!(matches!(active, SdkError::FlowNotActiveOrNotFound { .. }));
     }
 
     #[test]

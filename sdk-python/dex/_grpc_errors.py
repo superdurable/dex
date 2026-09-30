@@ -23,7 +23,7 @@ from dex.runtime_errors import (
     DexServiceError,
     ErrorSubStatus,
     FlowAlreadyStartedError,
-    FlowNotActiveError,
+    FlowNotActiveOrNotFoundError,
     FlowNotFoundError,
     LongPollTimeoutError,
     RequestTimeoutError,
@@ -129,7 +129,7 @@ def translate_rpc_error(
         if requirement == "existing":
             return FlowNotFoundError(*parameters)
         if requirement == "active":
-            return FlowNotActiveError(*parameters)
+            return FlowNotActiveOrNotFoundError(*parameters)
         return DexServiceError(*parameters)
     if sub_status is ErrorSubStatus.WORKER_API_ERROR:
         if code is grpc.StatusCode.ABORTED:

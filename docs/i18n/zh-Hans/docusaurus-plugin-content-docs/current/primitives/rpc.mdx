@@ -173,7 +173,11 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 
 Attribute lock 和显式 transactional execution 都要求 active execution。Query 路径上的 handler 如果返回 Attribute write、Channel operation、event 或 Step movement，Dex 也必须在 handler 返回后通过 signal commit 这些 effect。Terminal Flow 会拒绝这次 commit，即使 Worker handler 可能已经运行。Server 也可以配置为让所有 Temporal RPC 都走 synchronous Update；该路径同样要求 active execution。
 
-响应需要当前 execution status 时，请使用 Flow lifecycle API。Application snapshot RPC 读取的是 Flow 捕获的 durable application state；它不能根据 RPC 是否成功推断 terminal status。应把 **FlowNotActiveError** 视为特定执行路径的失败，而不是只读 query RPC 的正常 terminal 结果。
+响应需要当前 execution status 时，请使用 Flow lifecycle API。Application snapshot RPC 读取的是 Flow 捕获的 durable application state；它不能根据 RPC 是否成功推断 terminal status。**FlowNotActiveOrNotFoundError** 表示目标不存在，或所选操作无法使用已结束的 execution。Java 使用 **FlowNotActiveOrNotFoundException**；Rust 使用 **SdkError::FlowNotActiveOrNotFound**。仅凭这个错误无法区分 Flow 不存在和已结束。
+
+对于已确认没有锁、事务和持久化副作用，且 Server 未强制使用 Update 的 query-only RPC，仍被保留的 terminal execution 可以读取。在这个读取边界，直接把此错误处理为没有可读取的目标，并保留应用契约中“不存在”或“保留期结束后不可用”的结果。不要仅为区分不存在和已结束而增加 lifecycle 查询、带短超时的 **WaitForFlow**、重试或历史 Step 输出解码。其他服务错误和 Worker 错误应保持独立。
+
+对于 mutation 和要求 active execution 的 RPC，同一错误可能表示 Flow 已结束或不存在。按该操作的业务契约处理；此错误不能证明请求的操作已成功。
 
 普通只读 RPC 无需先搜索 Run ID。SDK 暴露可选 Run ID 时，省略它即可让 Server 为本次调用解析并固定当前 execution。只有应用必须在 Flow ID 重用场景下精确指定某次 execution 时，才需要提供 Run ID。
 

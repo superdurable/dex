@@ -25,7 +25,7 @@ import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.ErrorSubStatus;
-import io.superdurable.dex.exceptions.FlowNotActiveException;
+import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RequestTimeoutException;
@@ -106,8 +106,8 @@ final class ClientExceptionIntegrationTest {
         assertEquals(Status.Code.NOT_FOUND, missing.getCode());
         assertEquals(ErrorSubStatus.FLOW_NOT_EXISTS, missing.getSubStatus());
 
-        final FlowNotActiveException inactive = assertThrows(
-                FlowNotActiveException.class,
+        final FlowNotActiveOrNotFoundException inactive = assertThrows(
+                FlowNotActiveOrNotFoundException.class,
                 () -> client.stopFlow("inactive"));
         assertEquals(Status.Code.NOT_FOUND, inactive.getCode());
         assertEquals(ErrorSubStatus.FLOW_NOT_EXISTS, inactive.getSubStatus());

@@ -23,7 +23,7 @@ import io.superdurable.dex.GrpcExceptionTranslator.FlowTargetRequirement;
 import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
-import io.superdurable.dex.exceptions.FlowNotActiveException;
+import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
@@ -356,7 +356,8 @@ public final class Client implements AutoCloseable {
      * @param <I> the RPC input type
      * @param <O> the RPC output type
      * @return the decoded RPC output
-     * @throws FlowNotActiveException if the selected path requires an active execution
+     * @throws FlowNotActiveOrNotFoundException if the Flow is missing or the selected path cannot use
+     *     its closed execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
@@ -378,7 +379,8 @@ public final class Client implements AutoCloseable {
      * @return the decoded RPC output
      * @throws FlowDefinitionException if an option references a definition outside the RPC Flow
      * @throws IllegalArgumentException if {@code invokeOptions} is {@code null}
-     * @throws FlowNotActiveException if the selected path requires an active execution
+     * @throws FlowNotActiveOrNotFoundException if the Flow is missing or the selected path cannot use
+     *     its closed execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
@@ -401,7 +403,8 @@ public final class Client implements AutoCloseable {
      * @param rpcStubMethod a direct method reference from a stub created by this client
      * @param <O> the RPC output type
      * @return the decoded RPC output
-     * @throws FlowNotActiveException if the selected path requires an active execution
+     * @throws FlowNotActiveOrNotFoundException if the Flow is missing or the selected path cannot use
+     *     its closed execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
@@ -419,7 +422,8 @@ public final class Client implements AutoCloseable {
      * @return the decoded RPC output
      * @throws FlowDefinitionException if an option references a definition outside the RPC Flow
      * @throws IllegalArgumentException if {@code invokeOptions} is {@code null}
-     * @throws FlowNotActiveException if the selected path requires an active execution
+     * @throws FlowNotActiveOrNotFoundException if the Flow is missing or the selected path cannot use
+     *     its closed execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
@@ -441,7 +445,8 @@ public final class Client implements AutoCloseable {
      * @param rpcStubMethod a direct method reference from a stub created by this client
      * @param input the typed RPC input
      * @param <I> the RPC input type
-     * @throws FlowNotActiveException if the selected path requires an active execution
+     * @throws FlowNotActiveOrNotFoundException if the Flow is missing or the selected path cannot use
+     *     its closed execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
@@ -461,7 +466,8 @@ public final class Client implements AutoCloseable {
      * @param <I> the RPC input type
      * @throws FlowDefinitionException if an option references a definition outside the RPC Flow
      * @throws IllegalArgumentException if {@code invokeOptions} is {@code null}
-     * @throws FlowNotActiveException if the selected path requires an active execution
+     * @throws FlowNotActiveOrNotFoundException if the Flow is missing or the selected path cannot use
+     *     its closed execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
@@ -483,7 +489,8 @@ public final class Client implements AutoCloseable {
      * execution, returned effects, or server policy can require an active execution.
      *
      * @param rpcStubMethod a direct method reference from a stub created by this client
-     * @throws FlowNotActiveException if the selected path requires an active execution
+     * @throws FlowNotActiveOrNotFoundException if the Flow is missing or the selected path cannot use
+     *     its closed execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
@@ -499,7 +506,8 @@ public final class Client implements AutoCloseable {
      * @param invokeOptions additive Attribute-map locks and exact map-instance loads
      * @throws FlowDefinitionException if an option references a definition outside the RPC Flow
      * @throws IllegalArgumentException if {@code invokeOptions} is {@code null}
-     * @throws FlowNotActiveException if the selected path requires an active execution
+     * @throws FlowNotActiveOrNotFoundException if the Flow is missing or the selected path cannot use
+     *     its closed execution
      * @throws RpcLockConflictException if the RPC cannot acquire its Attribute locks
      * @throws WorkerInvocationException if worker code fails while executing the RPC
      * @throws DexServiceException if Dex otherwise rejects or cannot complete the RPC
@@ -662,7 +670,7 @@ public final class Client implements AutoCloseable {
      * Cancels a running Flow without an explicit reason.
      *
      * @param flowId the target Flow ID
-     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot stop the Flow
      */
     public void stopFlow(final String flowId) {
@@ -674,7 +682,7 @@ public final class Client implements AutoCloseable {
      *
      * @param flowId the target Flow ID
      * @param stopOptions the stop mode and optional reason
-     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot stop the Flow
      */
     public void stopFlow(final String flowId, final StopFlowOptions stopOptions) {
@@ -862,7 +870,7 @@ public final class Client implements AutoCloseable {
      * @param flowId the target Flow ID
      * @param stepExecutionId the Step execution containing the timer
      * @param timerId the timer selected by condition ID or index
-     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot find or skip the timer
      */
     public void skipTimer(
@@ -896,7 +904,7 @@ public final class Client implements AutoCloseable {
      * @param options the Request ID override and request/handler timeout controls
      * @throws IllegalArgumentException if either timeout is unsupported
      * @throws RequestTimeoutException if a positive request timeout expires first
-     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
      */
     public void waitForStepCompletion(
@@ -954,7 +962,7 @@ public final class Client implements AutoCloseable {
      * @return the current Attribute value that satisfied the match
      * @throws IllegalArgumentException if the budget, match operand, or operator is invalid
      * @throws RequestTimeoutException if a positive request timeout expires first
-     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
      */
     public <T> T waitForAttributeMatch(
@@ -978,7 +986,7 @@ public final class Client implements AutoCloseable {
      * @return the current AttributeMap value that satisfied the match
      * @throws IllegalArgumentException if the budget, match operand, or operator is invalid
      * @throws RequestTimeoutException if a positive request timeout expires first
-     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait
      */
     public <T> T waitForAttributeMatch(
@@ -1084,7 +1092,7 @@ public final class Client implements AutoCloseable {
      *
      * @param flowId the target Flow ID
      * @param config the new Flow configuration
-     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot update the Flow
      */
     public void updateFlowConfig(final String flowId, final FlowConfig config) {
@@ -1101,7 +1109,7 @@ public final class Client implements AutoCloseable {
      * Requests that the current Flow run continue as new.
      *
      * @param flowId the target Flow ID
-     * @throws FlowNotActiveException if the target Flow has no active execution
+     * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot apply the request
      */
     public void triggerContinueAsNew(final String flowId) {

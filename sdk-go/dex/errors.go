@@ -221,14 +221,25 @@ func (e *FlowNotFoundError) Unwrap() error {
 	return e.ServiceError
 }
 
-// FlowNotActiveError reports a missing active Flow.
-type FlowNotActiveError struct {
-	// ServiceError contains the failed active-Flow operation metadata.
+// FlowNotActiveOrNotFoundError reports a missing Flow or an operation that cannot use a closed Flow.
+// InvokeRPC also returns this error when a query-only RPC finds no readable execution.
+// A query-only RPC without locks, transactionality, durable effects, or forced Update routing can
+// read a retained terminal execution. At that confirmed read boundary, treat this error as not found.
+// For mutations and active-only RPCs, this error does not distinguish missing from closed Flows
+// or prove that the requested work succeeded. Other service and Worker failures remain distinct.
+// Use errors.As to match the error and access its ServiceError metadata:
+//
+//	var unavailable *dex.FlowNotActiveOrNotFoundError
+//	if errors.As(err, &unavailable) {
+//		return unavailable
+//	}
+type FlowNotActiveOrNotFoundError struct {
+	// ServiceError contains the failed operation's metadata and original transport cause.
 	*ServiceError
 }
 
 // Unwrap returns the shared service failure.
-func (e *FlowNotActiveError) Unwrap() error {
+func (e *FlowNotActiveOrNotFoundError) Unwrap() error {
 	return e.ServiceError
 }
 
@@ -378,7 +389,7 @@ func translateRPCError(
 		case flowTargetExisting:
 			return &FlowNotFoundError{ServiceError: serviceError}
 		case flowTargetActive:
-			return &FlowNotActiveError{ServiceError: serviceError}
+			return &FlowNotActiveOrNotFoundError{ServiceError: serviceError}
 		default:
 			return serviceError
 		}

@@ -15,7 +15,7 @@ from google.rpc import status_pb2
 from dex import (
     DexServiceError,
     FlowAlreadyStartedError,
-    FlowNotActiveError,
+    FlowNotActiveOrNotFoundError,
     FlowNotFoundError,
     LongPollTimeoutError,
     RetryAfterError,
@@ -42,7 +42,7 @@ def test_missing_flow_uses_endpoint_lifecycle_requirement() -> None:
     )
     assert isinstance(
         translate_rpc_error(error, "publish", "flow-id", "active"),
-        FlowNotActiveError,
+        FlowNotActiveOrNotFoundError,
     )
 
 

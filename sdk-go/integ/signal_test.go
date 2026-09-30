@@ -227,6 +227,6 @@ func runChannelFlow(
 		channelPublishInput{Channel: "first", Value: 100},
 		&noOutput,
 	)
-	var inactive *dex.FlowNotActiveError
+	var inactive *dex.FlowNotActiveOrNotFoundError
 	require.ErrorAs(t, err, &inactive)
 }

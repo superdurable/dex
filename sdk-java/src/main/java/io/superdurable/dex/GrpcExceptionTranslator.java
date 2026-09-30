@@ -18,7 +18,7 @@ import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.ChannelMessageNotFoundException;
 import io.superdurable.dex.exceptions.ErrorSubStatus;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
-import io.superdurable.dex.exceptions.FlowNotActiveException;
+import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
@@ -113,7 +113,7 @@ final class GrpcExceptionTranslator {
             return new FlowNotFoundException(code, detail, cause);
         }
         if (requirement == FlowTargetRequirement.ACTIVE) {
-            return new FlowNotActiveException(code, detail, cause);
+            return new FlowNotActiveOrNotFoundException(code, detail, cause);
         }
         return new DexServiceException(
                 code,

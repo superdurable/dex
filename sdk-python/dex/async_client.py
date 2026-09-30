@@ -283,8 +283,9 @@ class AsyncClient:
             RpcLockConflictError: If Attribute locks cannot be acquired.
             WorkerInvocationError: If the application handler fails.
             ValueMappingError: If input or output mapping fails.
-            DexServiceError: If the selected path requires an active execution or the
-                service call otherwise fails.
+            FlowNotActiveOrNotFoundError: If the Flow is missing or the selected path
+                cannot use its closed execution.
+            DexServiceError: If the service call otherwise fails.
         """
         registered_flow, rpc = self.registry._rpc_for_method(rpc_method)
         (
@@ -566,7 +567,7 @@ class AsyncClient:
             options: Stop mode and optional recorded reason.
 
         Raises:
-            FlowNotActiveError: If no active run exists.
+            FlowNotActiveOrNotFoundError: If no active run exists.
             DexServiceError: If FlowService rejects or cannot perform the request.
         """
         await self._call(
@@ -747,7 +748,7 @@ class AsyncClient:
             timer_id: Exactly one Timer condition ID or zero-based index.
 
         Raises:
-            FlowNotActiveError: If the Flow is closed.
+            FlowNotActiveOrNotFoundError: If the Flow is missing or closed.
             ValueError: If an identifier is invalid.
             DexServiceError: If FlowService cannot skip the Timer.
         """
@@ -787,7 +788,7 @@ class AsyncClient:
         Raises:
             ValueError: If the Request ID or request timeout is invalid.
             RequestTimeoutError: If a positive request timeout expires first.
-            FlowNotActiveError: If the Flow closes first.
+            FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
         request_budget = _ClientRequestBudget(options.request_timeout)
@@ -858,7 +859,7 @@ class AsyncClient:
         Raises:
             ValueError: If an identifier, option, or match operand is invalid.
             RequestTimeoutError: If a positive request timeout expires first.
-            FlowNotActiveError: If the Flow closes first.
+            FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
         ...
@@ -890,7 +891,7 @@ class AsyncClient:
         Raises:
             ValueError: If an identifier, option, or match operand is invalid.
             RequestTimeoutError: If a positive request timeout expires first.
-            FlowNotActiveError: If the Flow closes first.
+            FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
         ...
@@ -920,7 +921,7 @@ class AsyncClient:
             TypeError: If arguments do not match the Attribute definition.
             ValueError: If an identifier, option, or expected value is invalid.
             RequestTimeoutError: If a positive request timeout expires first.
-            FlowNotActiveError: If the Flow closes first.
+            FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
         """
         instance, match, options = self._attribute_wait_arguments(
@@ -1000,7 +1001,7 @@ class AsyncClient:
             config: New optional fields applied to later decisions.
 
         Raises:
-            FlowNotActiveError: If the Flow is closed.
+            FlowNotActiveOrNotFoundError: If the Flow is missing or closed.
             ValueError: If a configuration value is invalid.
             DexServiceError: If FlowService cannot apply the update.
         """
@@ -1024,7 +1025,7 @@ class AsyncClient:
             flow_id: The non-empty active Flow ID.
 
         Raises:
-            FlowNotActiveError: If the Flow is closed.
+            FlowNotActiveOrNotFoundError: If the Flow is missing or closed.
             DexServiceError: If FlowService cannot accept the request.
         """
         await self._call(

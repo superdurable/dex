@@ -17,7 +17,7 @@ import io.grpc.Status;
  *
  * <p>Methods such as describe, Attribute read, Flow wait, search-adjacent history access, and time travel
  * can inspect closed Flows, so this exception means no requested execution was found. Operations
- * that specifically require a running target use {@link FlowNotActiveException} instead.
+ * that specifically require a running target use {@link FlowNotActiveOrNotFoundException} instead.
  */
 public final class FlowNotFoundException extends DexServiceException {
     /**
