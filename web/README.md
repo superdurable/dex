@@ -752,3 +752,11 @@ before the first invocation. On an application failure, inspect that Flow with
 dexcli and reconcile external effects before time travel; keep these identities.
 This direct trusted-service scenario does not assert the consuming platform's
 BFF authentication or AWS application deployment acceptance.
+
+The embedding packager requires committed source before writing release provenance.
+It reads dependency versions from the Web and renderer source manifests. Its renderer peer is the exact declared stable version; runtime
+dependencies, including QR scanning packages, remain ordinary package dependencies.
+An embedding host may provide the used `react-router-dom` API through its framework
+adapter. The router peer accepts that adapter's version; installation and compilation
+against the actual host still require verification. Source reproducibility alone
+does not establish consumer compatibility or hosted business acceptance.

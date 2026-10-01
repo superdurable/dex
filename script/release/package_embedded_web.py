@@ -40,17 +40,32 @@ VERSION_PATTERN = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*
 def build_package(component: str, version: str, output: Path) -> Path:
     if not VERSION_PATTERN.fullmatch(version):
         raise ValueError("Version must be a stable semantic version")
+    changed_sources = subprocess.check_output([
+        "git", "status", "--porcelain", "--untracked-files=all", "--",
+        "web", "packages/flow-definition-renderer", "script/release/package_embedded_web.py", "LICENSE",
+    ], cwd=ROOT, text=True)
+    if changed_sources:
+        raise ValueError("Commit package sources before generating provenance-bound release artifacts")
     source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     files: dict[str, bytes] = {}
     if component == "dex-web-v2":
+        dependencies = json.loads((ROOT / "web/package.json").read_text())["dependencies"]
+        renderer = json.loads((ROOT / "packages/flow-definition-renderer/package.json").read_text())
+        renderer_name = "@superdurable/flow-definition-renderer"
+        if renderer["name"] != renderer_name or not VERSION_PATTERN.fullmatch(renderer["version"]):
+            raise ValueError("Renderer source must declare its exact stable release version")
+        peers = {name: dependencies.pop(name) for name in ("@xyflow/react", "dagre", "react", "react-dom")}
+        dependencies.pop(renderer_name)
+        dependencies.pop("react-router-dom")
+        peers[renderer_name] = renderer["version"]
+        # Embedding hosts may supply the same router API through their own framework adapter.
+        peers["react-router-dom"] = "*"
+        if any(value.startswith(("file:", "link:", "workspace:")) for value in dependencies.values()):
+            raise ValueError("Embedded Web runtime dependencies must be published packages")
         manifest = {
             "name": "@superdurable/dex-web-v2", "version": version, "type": "module",
             "license": "SEE LICENSE IN LICENSE", "exports": WEB_EXPORTS,
-            "peerDependencies": {
-                "@superdurable/flow-definition-renderer": "0.2.0",
-                "@xyflow/react": "^12.8.4", "dagre": "^0.8.5", "react": "^19.0.0",
-                "react-dom": "^19.0.0", "react-router-dom": "^7.0.0",
-            },
+            "dependencies": dependencies, "peerDependencies": peers,
         }
         collect_sources(ROOT / "web", [value.removeprefix("./") for value in WEB_EXPORTS.values()], files)
     else:
