@@ -10,6 +10,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -510,6 +511,9 @@ func (h *v2Handler) display(response http.ResponseWriter, request *http.Request)
 }
 
 func (h *v2Handler) editDisplay(response http.ResponseWriter, request *http.Request) {
+	if !h.requireEmbeddedMutationCSRF(response, request) {
+		return
+	}
 	snapshot, ok := h.loadSnapshot(response, request, true)
 	if !ok {
 		return
@@ -623,6 +627,9 @@ func encodeActionPermissionConditionValue(value interface{}) (*dexpb.Value, erro
 }
 
 func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Request) {
+	if !h.requireEmbeddedMutationCSRF(response, request) {
+		return
+	}
 	snapshot, ok := h.loadSnapshot(response, request, true)
 	if !ok {
 		return
@@ -686,6 +693,19 @@ func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Req
 		return
 	}
 	writeJSON(response, http.StatusOK, map[string]bool{"invoked": true})
+}
+
+func (h *v2Handler) requireEmbeddedMutationCSRF(response http.ResponseWriter, request *http.Request) bool {
+	if h.permissionMode != V2PermissionModeTrustedHeader || request.Header.Get("X-Dex-Web-Embedded") != "true" {
+		return true
+	}
+	expected := request.Header.Values("X-Dex-Web-CSRF-Token")
+	supplied := request.Header.Values("X-CSRF-Token")
+	if len(expected) != 1 || expected[0] == "" || len(supplied) != 1 || subtle.ConstantTimeCompare([]byte(expected[0]), []byte(supplied[0])) != 1 {
+		WriteCodedError(response, http.StatusForbidden, "WEB_MUTATION_CSRF_INVALID", "Embedded mutation CSRF token is invalid")
+		return false
+	}
+	return true
 }
 
 func (h *v2Handler) loadSnapshot(

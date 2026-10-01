@@ -461,6 +461,14 @@ origin and the forwarded prefix for OAuth redirect URIs. The protocol must be
 optional to Dex, but hosted deployments should provide a non-empty,
 visible-ASCII value.
 
+Embedded `trusted-header` Action and Display-edit mutations require exactly one
+non-empty trusted `X-Dex-Web-CSRF-Token` and one matching browser `X-CSRF-Token`.
+Missing, duplicated browser tokens or mismatches return
+`403 WEB_MUTATION_CSRF_INVALID` before any Flow read or write. Malformed trusted
+context, including duplicate context headers, is rejected earlier with `400`.
+The trusted proxy must strip the browser's trusted context header and inject its
+own authenticated session token.
+
 Project embedding can supply `X-Dex-Connector-OAuth-Redirect-URI` to use one
 authenticated host callback across Project and Preview mounts. Its only accepted
 value is the canonical forwarded origin plus `/api/connector-oauth/callback`.
@@ -739,11 +747,12 @@ Source manifests and artifact generation receipts must accompany every local ima
 unchanged formal Basic Process template v1.8.0 Worker. It verifies duplicate
 start admission, same-operation recovery, changed operation identity, stale
 Definition/target revisions, missing permissions, CSRF and browser Worker
-selection rejection. Application HTTP reads confirm its durable approval and
-completion states. No Worker or backend API is replaced by a fixture.
+selection rejection. Native Web display reads invoke the actual Worker view RPC;
+its declared approval Action checks permission, CSRF and Definition revision before
+invoking the real Worker. The test waits for durable completion and engine closure.
+No Worker or backend API is replaced by a fixture.
 
-Supply the service URL through `DEX_PROJECT_CONFIG_TEST_URL`, the template HTTP
-URL through `DEX_HOSTED_START_TEST_APPLICATION_URL`, its actual Worker target
+Supply the service URL through `DEX_PROJECT_CONFIG_TEST_URL`, its actual Worker target
 through `DEX_HOSTED_START_TEST_WORKER_TARGET`, and the fixed 64-character target
 revision through `DEX_HOSTED_START_TEST_TARGET_REVISION`. The test operator also
 supplies `DEX_PROJECT_CONFIG_TEST_PROJECT_ID` as the trusted CSRF context.
@@ -752,6 +761,11 @@ before the first invocation. On an application failure, inspect that Flow with
 dexcli and reconcile external effects before time travel; keep these identities.
 This direct trusted-service scenario does not assert the consuming platform's
 BFF authentication or AWS application deployment acceptance.
+
+The formal template's standalone REST API requires `process-<UUID>` identifiers;
+it rejects Web's generated `flow-<UUID>` identifiers before calling its service.
+Hosted Web verifies its own native display and Action path for the original FlowID.
+The unchanged template REST path is not acceptance evidence for that identity.
 
 The embedding packager requires committed source before writing release provenance.
 It reads dependency versions from the Web and renderer source manifests. Its renderer peer is the exact declared stable version; runtime
