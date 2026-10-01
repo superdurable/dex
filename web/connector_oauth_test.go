@@ -473,6 +473,54 @@ func TestConnectorOAuthTokenExchangeAcceptsRFC6749ScopeAndStatusVariants(t *test
 	}
 }
 
+func TestConnectorOAuthOpenIDConnectScopesAreProvenByTheirIssuedTokens(t *testing.T) {
+	tests := []struct {
+		name           string
+		providerBody   string
+		wantStatusCode int
+		wantErrorCode  string
+	}{
+		{
+			name:           "Microsoft scope without offline_access or openid, with both tokens",
+			providerBody:   `{"access_token":"provider-access-token","scope":"Mail.Read","refresh_token":"provider-refresh-token","id_token":"provider-id-token"}`,
+			wantStatusCode: http.StatusSeeOther,
+		},
+		{
+			name:           "listed offline_access and openid need no tokens",
+			providerBody:   `{"access_token":"provider-access-token","scope":"Mail.Read offline_access openid"}`,
+			wantStatusCode: http.StatusSeeOther,
+		},
+		{
+			name:           "unlisted offline_access without a refresh token",
+			providerBody:   `{"access_token":"provider-access-token","scope":"Mail.Read","id_token":"provider-id-token"}`,
+			wantStatusCode: http.StatusBadRequest, wantErrorCode: "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT",
+		},
+		{
+			name:           "unlisted offline_access with a blank refresh token",
+			providerBody:   `{"access_token":"provider-access-token","scope":"Mail.Read","refresh_token":" ","id_token":"provider-id-token"}`,
+			wantStatusCode: http.StatusBadRequest, wantErrorCode: "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT",
+		},
+		{
+			name:           "unlisted openid without an ID token",
+			providerBody:   `{"access_token":"provider-access-token","scope":"Mail.Read","refresh_token":"provider-refresh-token"}`,
+			wantStatusCode: http.StatusBadRequest, wantErrorCode: "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT",
+		},
+		{
+			name:           "issued tokens do not prove other scopes",
+			providerBody:   `{"access_token":"provider-access-token","scope":"User.Read","refresh_token":"provider-refresh-token","id_token":"provider-id-token"}`,
+			wantStatusCode: http.StatusBadRequest, wantErrorCode: "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			authorization := authorizeConnectorOAuthTestRelease(t,
+				connectorManifestOAuth2{Scopes: []string{"offline_access", "openid", "Mail.Read"}},
+				respondWithConnectorOAuthTestToken(t, http.StatusOK, test.providerBody))
+			requireConnectorOAuthTestCallback(t, authorization, test.wantStatusCode, test.wantErrorCode)
+		})
+	}
+}
+
 func TestConnectorOAuthUserScopesRequireASlackUserGrant(t *testing.T) {
 	tests := []struct {
 		name           string

@@ -648,11 +648,26 @@ func hasRequiredConnectorScopes(grant map[string]any, required []string) bool {
 		return true
 	}
 	for _, scope := range required {
-		if !grantedScopes[scope] {
+		if !grantedScopes[scope] && !isConnectorOAuthScopeProvenByIssuedToken(grant, scope) {
 			return false
 		}
 	}
 	return true
+}
+
+// Microsoft omits offline_access and openid from scope; the refresh and ID tokens they request prove them.
+func isConnectorOAuthScopeProvenByIssuedToken(grant map[string]any, scope string) bool {
+	var issuedTokenField string
+	switch scope {
+	case "offline_access":
+		issuedTokenField = "refresh_token"
+	case "openid":
+		issuedTokenField = "id_token"
+	default:
+		return false
+	}
+	_, isIssued := connectorOAuthResponseValue(grant, issuedTokenField)
+	return isIssued
 }
 
 // declaredConnectorOAuthScopes returns the scopes named by a grant's scope string or, when scope

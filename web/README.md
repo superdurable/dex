@@ -379,8 +379,10 @@ accepts any 2xx JSON response without an `error` field. The grant must include
 every requested scope. A `scope` string in the response lists the granted
 scopes, separated by spaces or commas. Without `scope`, Dex Web reads a
 `scopes` string array, which HubSpot returns. A response with neither field
-grants the requested scopes, as RFC 6749 section 5.1 allows. A grant that
-lacks a requested scope fails with `CONNECTOR_OAUTH_SCOPE_INSUFFICIENT`.
+grants the requested scopes, as RFC 6749 section 5.1 allows. A non-empty
+`refresh_token` also proves `offline_access`, and a non-empty `id_token` proves
+`openid`. The Microsoft identity platform leaves both out of `scope`. A grant
+that lacks a requested scope fails with `CONNECTOR_OAUTH_SCOPE_INSUFFICIENT`.
 Requested `userScopes` are checked against Slack's `authed_user` object the
 same way. An `authed_user` without either field must carry an `access_token`.
 
