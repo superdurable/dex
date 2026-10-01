@@ -56,7 +56,23 @@ Go analyzer 从通过 **DefineStartStep** 注册的 Step 输入类型生成 sche
 
 Server 会重新加载当前 definition revision，并在调用 **StartFlow** 前完整验证 input。未知 object field、缺失 required field、非法 null，以及 type、enum、range、datetime、array 或 map 错误都会被拒绝。除非操作员选择 bypass，否则 Server 还会再次检查 Worker port。Server 选择 start Step type 并生成 request ID。浏览器不能选择 headless routing。
 
-通过 **web.startFlowWorkerTargetHeadless** 或 **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** 为整个 Dex Web instance 配置 headless routing。默认值为 false。当操作员填写 Kubernetes headless Service target 时，将它设为 true。**trusted-header** mode 不提供 Start Flow。
+通过 **web.startFlowWorkerTargetHeadless** 或 **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** 为整个 Dex Web instance 配置 headless routing。默认值为 false。当操作员填写 Kubernetes headless Service target 时，将它设为 true。
+
+### Hosted Start Flow
+
+**trusted-header** 模式支持 Start Flow，但要求 **web.trustForwardedEmbeddingHeaders: true**，并将 Web listener 隔离在认证代理后。代理每次重新认证启动和恢复请求、读取当前资源实例、删除浏览器提交的可信头，再注入 **X-Dex-Work-Queue-Permissions: flows.start**、**X-Dex-Actor-ID**、**X-Dex-Start-Worker-Target** 和 **X-Dex-Start-Target-Revision**。目标修订为 64 字符小写 SHA-256，绑定资源 scope 与当前实例或 deployment。代理还提供下文的嵌入路径和 CSRF token。这些头只在私有代理边界具有授权意义。
+
+**GET /api/v2/catalog** 返回授权后的启动能力和目标修订。Hosted 表单只显示生成的业务输入。每次打开时生成新的 **flow-UUIDv4** Flow ID 和操作 UUID；请求包含 **flowType**、**flowId**、**requestId**、**targetRevision** 和 **input**，并携带精确的 **X-Dex-Flow-Definition-Revision** 与 **X-CSRF-Token**。浏览器不能选择 Worker 或跳过健康检查。Server 校验权限、目标、definition、完整输入和 Worker 健康后启动；Hosted 成功只返回 **flowId**。
+
+引擎 RequestID 绑定 actor、目标修订、可信 Worker、definition 修订、Flow type、Flow ID、操作 UUID 和规范化输入。启动显式禁止复用 Flow ID，仅忽略相同请求身份的已启动执行；接受成功后不读取 Snapshot。
+
+响应丢失后，**POST /api/v2/start/recover** 接收原请求及 definition 修订，查询原 Flow ID 并核对引擎请求身份。尚未观察到启动时可以重试原操作；身份不同或目标变更时拒绝恢复。恢复期间表单保留原输入和身份。关闭表单会取消请求，重新打开则创建新的任务身份。
+
+### 正式嵌入包
+
+**dex-web-v2/v0.3.0** 发布包含 RunWorkspace、StartFlowDialog、输入类型、providers 和样式，配套 **flow-definition-renderer/v0.2.0** 中的 FDG Start 类型。两者都是 React 19 的源码包。Host 可通过兼容 React Router 的边界适配路由，挂载 provider 前必须配置已认证的 Dex base path。
+
+发布工作流从精确 tag 构建两次并比较字节。归档含源码 commit 和 license；发布产物附 SHA-256 与 npm SHA-512 integrity 记录。打包阶段将 alias 转为相对 import，消费方不修改已安装的包。使用 **script/release/package_embedded_web.py** 可在本地复现。
 
 ## 搜索与 Summary
 

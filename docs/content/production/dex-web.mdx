@@ -56,7 +56,23 @@ The Go analyzer derives the schema from the input type of the Step registered wi
 
 The Server reloads the current definition revision and validates the complete input before calling **StartFlow**. It rejects unknown object fields, missing required fields, invalid nulls, type, enum, range, datetime, array, and map errors. It also repeats the Worker port check unless the operator selected the bypass. The Server selects the start Step type and creates the request ID. The browser cannot choose headless routing.
 
-Set **web.startFlowWorkerTargetHeadless** or **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** for the whole Dex Web instance. The default is false. Set it to true when operators enter Kubernetes headless Service targets. Start Flow is not available in **trusted-header** mode.
+Set **web.startFlowWorkerTargetHeadless** or **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** for the whole Dex Web instance. The default is false. Set it to true when operators enter Kubernetes headless Service targets.
+
+### Hosted Start Flow
+
+In **trusted-header** mode, Start Flow requires **web.trustForwardedEmbeddingHeaders: true** and a private Web listener behind an authenticated proxy. The proxy re-authenticates every start and recovery request, reads the current resource instance, removes browser-provided trusted headers, and injects **X-Dex-Work-Queue-Permissions: flows.start**, **X-Dex-Actor-ID**, **X-Dex-Start-Worker-Target**, and **X-Dex-Start-Target-Revision**. The target revision is a 64-character lowercase SHA-256 identity binding the resource scope and current instance or deployment. The proxy also provides the embedded prefix and CSRF token described below. These headers are authority only at that private boundary.
+
+**GET /api/v2/catalog** exposes the authorized start capability and target revision. The hosted dialog displays only the generated business input. It creates a new **flow-UUIDv4** Flow ID and operation UUID when opened, and sends **flowType**, **flowId**, **requestId**, **targetRevision**, and **input** with the exact **X-Dex-Flow-Definition-Revision** and **X-CSRF-Token**. The browser cannot select a Worker or bypass health checks. The Server checks permission, target revision, definition, complete input, and Worker health before starting. Hosted success returns only **flowId**.
+
+The Server binds the engine request ID to the actor, target revision, trusted Worker, definition revision, Flow type, Flow ID, operation UUID, and canonical input. Starts explicitly disallow Flow ID reuse and ignore only an already-started execution with that same request identity. Successful acceptance does not read a Snapshot.
+
+After a lost response, **POST /api/v2/start/recover** accepts the original body and definition revision. It reads the original Flow ID and confirms its engine request identity before returning acceptance. A missing start permits retrying the original operation; a different identity or changed target is rejected. The dialog retains the input and identities during recovery. Closing it cancels pending requests, and opening another dialog creates a new task identity.
+
+### Official embedding packages
+
+The **dex-web-v2/v0.3.0** release includes RunWorkspace, StartFlowDialog, input types, providers, and styles. It uses **flow-definition-renderer/v0.2.0**, whose exported Start types match the FDG schema. Both are source packages with React 19 peer dependencies. Hosts may adapt routing through a React Router compatible boundary and must configure the authenticated Dex base path before mounting providers.
+
+The release workflow packages the exact tagged source twice and compares bytes. Archives include the source commit and license, and release assets include SHA-256 and npm SHA-512 integrity receipts. Alias imports are rewritten to relative paths during packaging; consumers do not modify installed package files. Use **script/release/package_embedded_web.py** to reproduce an archive locally.
 
 ## Search and Summary
 

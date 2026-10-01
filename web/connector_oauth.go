@@ -73,7 +73,7 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_REQUEST_INVALID", "Connector OAuth request is invalid")
 		return
 	}
-	resolved, err := setup.releases.resolve(request.Context(), identity)
+	resolved, err := setup.resolveConnectorRelease(request.Context(), identity)
 	if err != nil {
 		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_RELEASE_UNAVAILABLE", "Connector release metadata is unavailable")
 		return
@@ -107,24 +107,15 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 		return
 	}
 	redirectURI := connectorOAuthRedirectURI(request)
-	if executor, hosted := setup.store.(hostedConnectorOAuthExecutor); hosted {
-		result, hostedErr := executor.startOAuth(identity.ConnectorID, identity.ConnectionName, hostedConnectorOAuthStartRequest{
-			DefinitionRevision: snapshot.DefinitionRevision,
-			ModulePath:         identity.ModulePath, ModuleVersion: identity.ModuleVersion,
-			Provider: resolved.release.Manifest.Spec.Provider, AuthMethodID: authMethod.ID,
-			OAuth2: *oauth, ClientID: body.ClientID, ClientSecret: body.ClientSecret,
-			RedirectURI: redirectURI, Configuration: body.Configuration,
-			CredentialValues: body.CredentialValues, CredentialSecrets: body.CredentialSecrets,
-		})
-		if hostedErr != nil {
-			writeConnectorConfigurationStoreError(response, hostedErr, "CONNECTOR_OAUTH_START_FAILED", "Connector OAuth could not start")
-			return
-		}
-		writeWebJSON(response, http.StatusOK, map[string]any{
-			"authorizationUrl": result.AuthorizationURL, "expiresAt": result.ExpiresAt,
-		})
+	if !setup.requireDeclaredProjectAuth(request, identity, authMethod.ID) {
+		api.WriteCodedError(response, 409, "APP_MANIFEST_REVISION_CONFLICT", "Connector authorization differs from the AppManifest")
 		return
 	}
+	if setup.project != nil {
+		setup.startProjectOAuth(response, request, snapshot, identity, resolved.release, authMethod, body)
+		return
+	}
+
 	state, err := randomConnectorToken(32)
 	if err != nil {
 		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_OAUTH_START_FAILED", "Connector OAuth could not start")
@@ -202,18 +193,11 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_CALLBACK_INVALID", "Connector OAuth callback is invalid")
 		return
 	}
-	if executor, hosted := setup.store.(hostedConnectorOAuthExecutor); hosted {
-		result, err := executor.completeOAuth(state, code, providerError)
-		if err != nil {
-			writeConnectorConfigurationStoreError(response, err, "CONNECTOR_OAUTH_CALLBACK_FAILED", "Connector OAuth callback could not be completed")
-			return
-		}
-		location := webPathFromContext(request.Context(), "/v2/connectors") +
-			"?oauth=success&connectorId=" + url.QueryEscape(result.ConnectorID) +
-			"&connectionName=" + url.QueryEscape(result.ConnectionName)
-		http.Redirect(response, request, location, http.StatusSeeOther)
+	if setup.project != nil {
+		setup.completeProjectOAuth(response, request)
 		return
 	}
+
 	if providerError != "" {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_CALLBACK_INVALID", "Connector OAuth callback is invalid")
 		return
@@ -358,7 +342,7 @@ func (setup *connectorSetup) deriveConnectorOAuthCredentials(
 			}
 			request.Header.Set("Accept", "application/json")
 			request.Header.Set("Authorization", "Bearer "+token.AccessToken)
-			response, err := setup.releases.httpClient.Do(request)
+			response, err := setup.connectorOAuthHTTPClient().Do(request)
 			if err != nil {
 				return nil, err
 			}
@@ -423,7 +407,7 @@ func (setup *connectorSetup) exchangeConnectorOAuthToken(
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Accept", "application/json")
-	response, err := setup.releases.httpClient.Do(request)
+	response, err := setup.connectorOAuthHTTPClient().Do(request)
 	if err != nil {
 		return connectorOAuthTokenResponse{}, err
 	}
@@ -605,6 +589,9 @@ func hasRequiredConnectorScopes(granted string, required []string) bool {
 
 func connectorOAuthRedirectURI(request *http.Request) string {
 	requestConfig := webRequestConfigFromContext(request.Context())
+	if requestConfig.oauthRedirectURI != "" {
+		return requestConfig.oauthRedirectURI
+	}
 	if requestConfig.publicOrigin != "" {
 		return requestConfig.publicOrigin + webPathFromContext(
 			request.Context(), "/api/v2/connector-oauth/callback")
@@ -623,4 +610,14 @@ func (setup *connectorSetup) deleteExpiredOAuthSessions(now time.Time) {
 			delete(setup.oauthSessions, state)
 		}
 	}
+}
+
+func (setup *connectorSetup) connectorOAuthHTTPClient() *http.Client {
+	if setup.project != nil {
+		return setup.oauthHTTPClient
+	}
+	return setup.releases.httpClient
+}
+func rejectConnectorOAuthRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
 }

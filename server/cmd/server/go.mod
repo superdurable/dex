@@ -6,6 +6,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.106.0
 	github.com/stretchr/testify v1.11.1
 	github.com/superdurable/dex v0.0.0
+	github.com/superdurable/dex-connectors-library/sdkgo v0.17.0
 	github.com/superdurable/dex/web v0.0.0
 	github.com/urfave/cli v1.22.5
 	google.golang.org/grpc v1.82.1

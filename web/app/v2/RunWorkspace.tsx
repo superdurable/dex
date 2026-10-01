@@ -94,7 +94,7 @@ export function RunWorkspace() {
       navigate(v2RunPath(flowType || undefined), { replace: true });
     }
   }, [definitionUpdateKey, flowType, navigate]);
-  useEffect(() => { setStartOpen(false); setStartNotice(''); }, [flowType]);
+  useEffect(() => { setStartOpen(false); setStartNotice(''); }, [flowType, catalog?.definitionRevision, catalog?.startFlow?.targetRevision]);
 
   if (!ready) return <div className="page-loading">Loading Dex Web…</div>;
   if (!canUseV2) return <Navigate to="/v1/flows" replace />;
@@ -127,7 +127,7 @@ export function RunWorkspace() {
           entry={entry}
           flowTypes={catalog.flows}
           heading={RUN_COPY.runsHeading}
-          headerAction={permissionMode === 'local-selector' && entry.definition.start ? (
+          headerAction={(permissionMode === 'local-selector' || catalog.startFlow?.enabled) && entry.definition.start ? (
             <button className="button primary sq-start" onClick={() => setStartOpen(true)} type="button">
               Start Flow
             </button>
@@ -250,11 +250,14 @@ export function RunWorkspace() {
           definition={entry.definition.start}
           definitionRevision={catalog.definitionRevision}
           flowType={entry.flowType}
+          hostedTarget={permissionMode === 'trusted-header' ? catalog.startFlow : undefined}
           onClose={() => setStartOpen(false)}
           onDefinitionChanged={handleDefinitionError}
-          onStarted={(startedFlowID, runID) => {
+          onStarted={(startedFlowID) => {
             setStartOpen(false);
-            setStartNotice(`Started Flow ${startedFlowID} (run ${runID}).`);
+            setStartNotice(`Started Flow ${startedFlowID}.`);
+            void search.runSearch();
+            navigate(v2RunPath(entry.flowType, startedFlowID));
           }}
         />
       )}

@@ -292,15 +292,15 @@ type (
 		StorageType StorageType `yaml:"storageType"`
 		// LocalDirectory stores blobs on the server filesystem for "local". Default empty; a directory is required.
 		LocalDirectory string `yaml:"localDirectory"`
-		// S3Endpoint is the S3 API base URL (e.g. http://localhost:9000 for MinIO).
+		// S3Endpoint overrides the S3 API base URL (e.g. http://localhost:9000 for MinIO). Default empty uses AWS endpoint resolution. Immutable after startup.
 		S3Endpoint string `yaml:"s3Endpoint"`
 		// S3Bucket is the bucket name for object storage.
 		S3Bucket string `yaml:"s3Bucket"`
 		// S3Region is the AWS/S3 region string.
 		S3Region string `yaml:"s3Region"`
-		// S3AccessKey is the access key id for S3 auth.
+		// S3AccessKey is the optional static S3 access key ID. Default empty with S3SecretKey empty uses the AWS credential chain. Set both or neither. Immutable after startup.
 		S3AccessKey string `yaml:"s3AccessKey"`
-		// S3SecretKey is the secret access key for S3 auth.
+		// S3SecretKey is the optional static S3 secret access key. Default empty with S3AccessKey empty uses the AWS credential chain. Set both or neither. Immutable after startup.
 		S3SecretKey string `yaml:"s3SecretKey"`
 		// CleanupStrategy controls automatic blob cleanup. Default type is afterAllRunsDeleted; zero frequency disables scheduling.
 		CleanupStrategy CleanupStrategy `yaml:"cleanupStrategy"`
@@ -324,6 +324,10 @@ type (
 	}
 
 	WebConfig struct {
+		// LocalKind is an explicit process-only development boundary, never enabled by configuration YAML.
+		LocalKind bool `yaml:"-"`
+		// LocalConnectorAuthority names immutable reviewed artifact metadata inside the local image.
+		LocalConnectorAuthority string `yaml:"-"`
 		// BindAddress is the Dex Web HTTP bind address. Default 0.0.0.0. Immutable after startup.
 		BindAddress string `yaml:"bindAddress"`
 		// Port is the Dex Web HTTP bind port. Default 8802. Immutable after startup.
@@ -344,22 +348,33 @@ type (
 		TrustForwardedEmbeddingHeaders bool `yaml:"trustForwardedEmbeddingHeaders"`
 		// ConnectorSetupEnabled enables the Connections configuration surface. Default false. Immutable after startup.
 		ConnectorSetupEnabled bool `yaml:"connectorSetupEnabled"`
-		// ConnectorSetupMode selects local or hosted persistence. Default local. Immutable after startup.
+		// ConnectorSetupMode selects local or project persistence. Default local. Immutable after startup.
 		ConnectorSetupMode string `yaml:"connectorSetupMode"`
 		// ConnectorConfigDirectory stores local configuration and release artifacts. Required by local setup.
 		ConnectorConfigDirectory string `yaml:"connectorConfigDirectory"`
-		// ConnectorCacheDirectory stores verified release artifacts without configuration. Required by hosted setup.
+		// ConnectorCacheDirectory stores verified release artifacts without configuration. Default empty; required by project setup.
 		ConnectorCacheDirectory string `yaml:"connectorCacheDirectory"`
-		// ConnectorHostedBaseURL is the trusted Control Plane origin. Required by hosted setup.
-		ConnectorHostedBaseURL string `yaml:"connectorHostedBaseURL"`
-		// ConnectorHostedProjectID fixes the project scope. Required by hosted setup.
-		ConnectorHostedProjectID string `yaml:"connectorHostedProjectId"`
-		// ConnectorHostedEnvironment fixes the environment scope. Required by hosted setup.
-		ConnectorHostedEnvironment string `yaml:"connectorHostedEnvironment"`
-		// ConnectorHostedReleaseID fixes the release scope. Default empty; required by hosted setup.
-		ConnectorHostedReleaseID string `yaml:"connectorHostedReleaseId"`
-		// ConnectorHostedServiceToken is read from DEX_WEB_CONNECTOR_HOSTED_SERVICE_TOKEN only.
-		ConnectorHostedServiceToken string `yaml:"-"`
+		// ProjectConfiguration fixes an isolated project configuration store. Default nil; required in project setup mode.
+		ProjectConfiguration *WebProjectConfigurationConfig `yaml:"projectConfiguration"`
+	}
+
+	WebProjectConfigurationConfig struct {
+		// StorageID references an S3 blobStore.supportedStorages entry. Default empty; required and immutable after startup.
+		StorageID string `yaml:"storageId"`
+		// Prefix is the object storage root before project and scope segments. Default empty; immutable after startup.
+		Prefix string `yaml:"prefix"`
+		// ProjectID fixes the project authorized for this Dex instance. Default empty; required and immutable after startup.
+		ProjectID string `yaml:"projectId"`
+		// ScopeKind selects live or preview configuration. Default empty; required and immutable after startup.
+		ScopeKind string `yaml:"scopeKind"`
+		// SessionID isolates a preview session. Default empty; required for preview and forbidden for live.
+		SessionID string `yaml:"sessionId"`
+		// KMSKeyID requires this exact KMS key for project objects. Default empty; required unless AllowUnencrypted is true.
+		KMSKeyID string `yaml:"kmsKeyId"`
+		// AllowUnencrypted permits isolated local fixtures without KMS. Default false; never enable for hosted credentials.
+		AllowUnencrypted bool `yaml:"allowUnencrypted"`
+		// AdminToken admits internal manifest and validation calls. Default empty; read only from DEX_WEB_PROJECT_CONFIGURATION_ADMIN_TOKEN.
+		AdminToken string `yaml:"-"`
 	}
 
 	WebFlowRenderingBlobStoreConfig struct {
@@ -608,20 +623,19 @@ func applyWebEnvironment(cfg *Config) error {
 	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_CACHE_DIRECTORY"); ok {
 		cfg.Web.ConnectorCacheDirectory = value
 	}
-	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_HOSTED_BASE_URL"); ok {
-		cfg.Web.ConnectorHostedBaseURL = value
+	if value, ok := os.LookupEnv("DEX_LOCAL_KIND"); ok {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("DEX_LOCAL_KIND must be a boolean")
+		}
+		cfg.Web.LocalKind = parsed
 	}
-	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_HOSTED_PROJECT_ID"); ok {
-		cfg.Web.ConnectorHostedProjectID = value
-	}
-	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_HOSTED_ENVIRONMENT"); ok {
-		cfg.Web.ConnectorHostedEnvironment = value
-	}
-	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_HOSTED_RELEASE_ID"); ok {
-		cfg.Web.ConnectorHostedReleaseID = value
-	}
-	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_HOSTED_SERVICE_TOKEN"); ok {
-		cfg.Web.ConnectorHostedServiceToken = value
+	cfg.Web.LocalConnectorAuthority = os.Getenv("DEX_LOCAL_CONNECTOR_ARTIFACTS")
+	if value, ok := os.LookupEnv("DEX_WEB_PROJECT_CONFIGURATION_ADMIN_TOKEN"); ok {
+		if cfg.Web.ProjectConfiguration == nil {
+			cfg.Web.ProjectConfiguration = &WebProjectConfigurationConfig{}
+		}
+		cfg.Web.ProjectConfiguration.AdminToken = value
 	}
 	return nil
 }
@@ -653,6 +667,33 @@ func (c Config) validateWeb() error {
 	}
 	if mode != "local-selector" && mode != "trusted-header" {
 		return fmt.Errorf("web.workQueuePermissionMode must be local-selector or trusted-header")
+	}
+	setupMode := strings.TrimSpace(c.Web.ConnectorSetupMode)
+	if c.Web.LocalConnectorAuthority != "" && (!c.Web.LocalKind || setupMode != "project" || c.Web.ProjectConfiguration == nil || !c.Web.ProjectConfiguration.AllowUnencrypted) {
+		return fmt.Errorf("local connector artifacts require explicit Local Kind project storage")
+	}
+
+	if setupMode != "" && setupMode != "local" && setupMode != "project" {
+		return fmt.Errorf("web.connectorSetupMode must be local or project")
+	}
+	if setupMode != "project" {
+		if c.Web.ProjectConfiguration != nil {
+			return fmt.Errorf("web.projectConfiguration requires project setup mode")
+		}
+		return nil
+	}
+	project := c.Web.ProjectConfiguration
+	if !c.Web.ConnectorSetupEnabled || !c.Web.TrustForwardedEmbeddingHeaders || project == nil {
+		return fmt.Errorf("project setup requires enabled configuration, trusted proxy and projectConfiguration")
+	}
+	if project.StorageID == "" || project.ProjectID == "" || len(project.AdminToken) < 32 {
+		return fmt.Errorf("project configuration requires storageId, projectId and an admin token of at least 32 bytes")
+	}
+	if project.ScopeKind != "live" && project.ScopeKind != "preview" || (project.ScopeKind == "preview") != (project.SessionID != "") {
+		return fmt.Errorf("project configuration requires live or preview scope; only preview requires sessionId")
+	}
+	if project.KMSKeyID == "" && !project.AllowUnencrypted {
+		return fmt.Errorf("project configuration requires kmsKeyId unless isolated local storage is explicitly allowed")
 	}
 	return nil
 }
@@ -940,13 +981,18 @@ func (c BlobStoreConfig) EffectiveAsyncStepInputSnapshotsEnabled() bool {
 	return *c.AsyncStepInputSnapshotsEnabled
 }
 
-// Validate checks Blob Store identifier and cache settings.
+// Validate checks Blob Store identifier, credentials and cache settings.
 func (c BlobStoreConfig) Validate() error {
 	if c.EffectiveAsyncStepInputSnapshotsEnabled() && !c.EffectiveEnabled() {
 		return fmt.Errorf("blobStore asyncStepInputSnapshotsEnabled requires blobStore.enabled")
 	}
 	if c.ObjectIDLength < 0 {
 		return fmt.Errorf("blobStore objectIdLength must not be negative")
+	}
+	for _, storage := range c.SupportedStorages {
+		if storage.StorageType == StorageTypeS3 && (storage.S3AccessKey == "") != (storage.S3SecretKey == "") {
+			return fmt.Errorf("blobStore S3 access key and secret key must both be configured or both omitted")
+		}
 	}
 	return c.BlobCache.Validate()
 }

@@ -192,10 +192,48 @@ func validateFlowDefinitionV2(file string, graph []byte, header flowDefinitionHe
 	if err := validateV2Definition(definition); err != nil {
 		return fmt.Errorf("Flow Definition Graph 2.0 %s has invalid v2: %w", file, err)
 	}
+	if definition.Start != nil {
+		if err := loadStartStepPhase(header.Nodes, definition.Start); err != nil {
+			return fmt.Errorf("Flow Definition Graph 2.0 %s has invalid Start Step: %w", file, err)
+		}
+	}
 	if header.V2 == nil {
 		panic("validated v2 must be present")
 	}
 	*header.V2 = definition
+	return nil
+}
+
+func loadStartStepPhase(nodes []json.RawMessage, start *api.V2StartDefinition) error {
+	matched := false
+	for _, raw := range nodes {
+		var node struct {
+			Kind  string `json:"kind"`
+			Name  string `json:"name"`
+			Phase string `json:"phase"`
+		}
+		if err := json.Unmarshal(raw, &node); err != nil {
+			return fmt.Errorf("malformed Step node: %w", err)
+		}
+		if node.Kind != "step" || node.Name != start.StepType {
+			continue
+		}
+		if matched {
+			return fmt.Errorf("repeated Start Step node %q", start.StepType)
+		}
+		matched = true
+		switch node.Phase {
+		case "execute":
+			start.SkipWaitFor = true
+		case "wait_for+execute":
+			start.SkipWaitFor = false
+		default:
+			return fmt.Errorf("Start Step %q has unsupported phase %q", start.StepType, node.Phase)
+		}
+	}
+	if !matched {
+		return fmt.Errorf("Start Step %q is absent from graph nodes", start.StepType)
+	}
 	return nil
 }
 

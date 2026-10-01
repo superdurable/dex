@@ -298,6 +298,17 @@ func validFlowDefinitionV2(flowType string, valid bool) string {
 }
 
 func withV2Start(definition string, start string) string {
+	var declared struct {
+		StepType string `json:"stepType"`
+	}
+	if err := json.Unmarshal([]byte(start), &declared); err != nil {
+		panic(err)
+	}
+	nodes, err := json.Marshal([]map[string]string{{"id": "step:" + declared.StepType, "kind": "step", "name": declared.StepType, "phase": "wait_for+execute"}})
+	if err != nil {
+		panic(err)
+	}
+	definition = strings.Replace(definition, `"nodes":[]`, `"nodes":`+string(nodes), 1)
 	return strings.Replace(definition, `"actions":[]`, `"actions":[],"start":`+start, 1)
 }
 

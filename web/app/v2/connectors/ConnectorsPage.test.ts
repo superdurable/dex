@@ -50,10 +50,10 @@ import { connectorStudioStylesheet } from './connectorStudioTheme';
 import { CONNECTORS_COPY } from './copy';
 
 describe('Connections contract', () => {
-  it('distinguishes hosted revision effects from local file effects', () => {
-    expect(connectionDeleteLabel('hosted')).toBe('Delete connection');
-    expect(connectorConfigurationEffectText('hosted')).toContain('require redeployment');
-    expect(connectorConfigurationEffectText('hosted')).toContain('next Connector call');
+  it('distinguishes project revision effects from local file effects', () => {
+    expect(connectionDeleteLabel('project')).toBe('Delete connection');
+    expect(connectorConfigurationEffectText('project')).toContain('require redeployment');
+    expect(connectorConfigurationEffectText('project')).toContain('next Connector call');
     expect(connectionDeleteLabel('local')).toBe('Delete local credentials');
     expect(connectorConfigurationEffectText('local')).toContain('app restart');
   });
@@ -607,7 +607,7 @@ describe('Connectors page presentation', () => {
     expect(renderConnectorForm(llmManifest, connection, llmSession, 'dark')).toMatch(/<iframe [^>]*style="color-scheme:dark"/);
   });
 
-  it('shows the local store with copy buttons and the hosted revisions without local paths', () => {
+  it('shows the local store with copy buttons and the project revisions without local paths', () => {
     const local = renderToStaticMarkup(createElement(ConnectorStoreZone, {catalog: {
       mode: 'local', directory: '/home/dev/.dex/connectors', filePath: '/home/dev/.dex/connectors/connections.json',
       useConfigurationsFilePath: '/home/dev/.dex/connectors/use-configurations.json',
@@ -620,9 +620,9 @@ describe('Connectors page presentation', () => {
       expect(local).toContain(`aria-label="Copy ${label}" class="v2-ghost connector-copy" type="button">Copy</button>`);
     }
     const hosted = renderToStaticMarkup(createElement(ConnectorStoreZone, {catalog: {
-      mode: 'hosted', configurationState: 'Ready to deploy', configurationRevision: 'revision-2',
+      mode: 'project', configurationState: 'Ready to deploy', configurationRevision: 'revision-2',
     }}));
-    expect(hosted).toContain('<h3 class="sc-blockhead">Hosted configuration</h3>');
+    expect(hosted).toContain('<h3 class="sc-blockhead">Project configuration</h3>');
     expect(hosted).toContain('<code>Ready to deploy</code>');
     expect(hosted).toContain('<code>Not deployed</code>');
     expect(hosted).not.toContain('Copy');

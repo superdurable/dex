@@ -1,6 +1,9 @@
 MAKEFLAGS += --no-builtin-rules
 .SUFFIXES:
 
+# Preserve the example module's published SDK and Connector versions.
+export GOWORK := off
+
 .PHONY: bins clean dealDSLDemo e2eTests fmt tests triggerDealDSLDemo unitTests
 
 default: help

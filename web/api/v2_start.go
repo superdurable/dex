@@ -11,6 +11,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,6 +30,8 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/grpctarget"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -34,6 +39,14 @@ const (
 	maximumV2StartInputDepth      = 32
 	v2WorkerHealthCheckTimeout    = 2 * time.Second
 	v2WorkerUnhealthyResponseCode = "WORKER_UNHEALTHY"
+	// V2StartPermission authorizes hosted Flow starts through a trusted proxy.
+	V2StartPermission = "flows.start"
+	// V2StartWorkerTargetHeader carries the proxy-selected Worker address.
+	V2StartWorkerTargetHeader = "X-Dex-Start-Worker-Target"
+	// V2StartTargetRevisionHeader fences the proxy-selected resource instance.
+	V2StartTargetRevisionHeader = "X-Dex-Start-Target-Revision"
+	// V2StartActorHeader identifies the authenticated actor for request admission.
+	V2StartActorHeader = "X-Dex-Actor-ID"
 )
 
 var integerJSONPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
@@ -44,10 +57,19 @@ type v2StartRequest struct {
 	WorkerTargetAddress     string          `json:"workerTargetAddress"`
 	BypassWorkerHealthCheck bool            `json:"bypassWorkerHealthCheck"`
 	Input                   json.RawMessage `json:"input"`
+	RequestID               string          `json:"requestId"`
+	TargetRevision          string          `json:"targetRevision"`
 }
 
 type v2StartResponse struct {
-	RunID string `json:"runId"`
+	FlowID string `json:"flowId"`
+	RunID  string `json:"runId,omitempty"`
+}
+
+type v2StartCapability struct {
+	Enabled        bool   `json:"enabled"`
+	TargetRevision string `json:"targetRevision,omitempty"`
+	CSRFToken      string `json:"csrfToken,omitempty"`
 }
 
 type v2WorkerHealthRequest struct {
@@ -60,7 +82,8 @@ type v2WorkerHealthResponse struct {
 }
 
 func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Request) {
-	if h.permissionMode != V2PermissionModeLocalSelector {
+	capability := h.startFlowCapability(request)
+	if !capability.Enabled {
 		WriteCodedError(response, http.StatusForbidden, "START_FLOW_DISABLED", "Starting Flows is disabled in this permission mode")
 		return
 	}
@@ -68,6 +91,26 @@ func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Reques
 	if err := decodeJSON(response, request, &body); err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
+	}
+	isHosted := h.permissionMode == V2PermissionModeTrustedHeader
+	if isHosted {
+		if !validateHostedStartCSRF(request, capability) {
+			WriteCodedError(response, http.StatusForbidden, "START_CSRF_INVALID", "Start CSRF token is invalid")
+			return
+		}
+		if body.WorkerTargetAddress != "" || body.BypassWorkerHealthCheck {
+			WriteError(response, http.StatusBadRequest, "Hosted starts cannot select a Worker or bypass health checks", nil)
+			return
+		}
+		if body.TargetRevision != capability.TargetRevision {
+			WriteCodedError(response, http.StatusConflict, "START_TARGET_CHANGED", "The selected start target has changed; reload Runs")
+			return
+		}
+		if _, err := uuid.Parse(body.RequestID); err != nil {
+			WriteError(response, http.StatusBadRequest, "requestId must be a UUID", nil)
+			return
+		}
+		body.WorkerTargetAddress = request.Header.Get(V2StartWorkerTargetHeader)
 	}
 	snapshot, ok := h.loadSnapshot(response, request, true)
 	if !ok {
@@ -98,20 +141,159 @@ func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Reques
 	}
 	if !body.BypassWorkerHealthCheck {
 		if err := h.checkWorkerTargetHealth(request.Context(), workerTarget.GetAddress()); err != nil {
-			WriteCodedError(response, http.StatusPreconditionFailed, v2WorkerUnhealthyResponseCode, workerHealthWarning(workerTarget.GetAddress(), err))
+			warning := workerHealthWarning(workerTarget.GetAddress(), err)
+			if isHosted {
+				warning = "The selected Worker is unavailable; check the deployment status"
+			}
+			WriteCodedError(response, http.StatusPreconditionFailed, v2WorkerUnhealthyResponseCode, warning)
+			return
+		}
+	}
+	requestID := uuid.NewString()
+	if isHosted {
+		requestID, err = hostedStartRequestIdentity(request, body, snapshot.Revision)
+		if err != nil {
+			WriteError(response, http.StatusBadRequest, "Start input is invalid", nil)
 			return
 		}
 	}
 	result, err := h.client.StartFlow(request.Context(), &dexpb.StartFlowRequest{
 		FlowId: body.FlowID, FlowType: body.FlowType, StartStepType: definition.Start.StepType,
-		StepInput: stepInput, RequestId: uuid.NewString(),
-		FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{WorkerTarget: workerTarget}},
+		StepInput: stepInput, RequestId: requestID,
+		StepOptions: &dexpb.StepOptions{SkipWaitFor: definition.Start.SkipWaitFor},
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			IdReusePolicy:             dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE,
+			FlowAlreadyStartedOptions: &dexpb.FlowAlreadyStartedOptions{IgnoreAlreadyStartedError: true},
+			FlowConfigOverride:        &dexpb.FlowConfig{WorkerTarget: workerTarget},
+		},
 	})
 	if err != nil {
 		writeGRPCError(response, err, "StartFlow")
 		return
 	}
-	writeJSON(response, http.StatusOK, v2StartResponse{RunID: result.GetRunId()})
+	accepted := v2StartResponse{FlowID: body.FlowID}
+	if !isHosted {
+		accepted.RunID = result.GetRunId()
+	}
+	writeJSON(response, http.StatusOK, accepted)
+}
+
+func (h *v2Handler) recoverStartFlow(response http.ResponseWriter, request *http.Request) {
+	capability := h.startFlowCapability(request)
+	if h.permissionMode != V2PermissionModeTrustedHeader || !capability.Enabled {
+		WriteCodedError(response, http.StatusForbidden, "START_FLOW_DISABLED", "Hosted start recovery is disabled")
+		return
+	}
+	if !validateHostedStartCSRF(request, capability) {
+		WriteCodedError(response, http.StatusForbidden, "START_CSRF_INVALID", "Start CSRF token is invalid")
+		return
+	}
+	var body v2StartRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if body.TargetRevision != capability.TargetRevision {
+		WriteCodedError(response, http.StatusConflict, "START_TARGET_CHANGED", "The selected start target has changed; reload Runs")
+		return
+	}
+	if body.WorkerTargetAddress != "" || body.BypassWorkerHealthCheck {
+		WriteError(response, http.StatusBadRequest, "Hosted starts cannot select a Worker or bypass health checks", nil)
+		return
+	}
+	if _, err := uuid.Parse(body.RequestID); err != nil {
+		WriteError(response, http.StatusBadRequest, "requestId must be a UUID", nil)
+		return
+	}
+	if err := service.ValidateFlowID(body.FlowID); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	snapshot, ok := h.loadSnapshot(response, request, true)
+	if !ok {
+		return
+	}
+	definition, exists := snapshot.Definitions[body.FlowType]
+	if !exists || definition.Start == nil {
+		WriteError(response, http.StatusBadRequest, "Flow type does not support starting from Dex Web", nil)
+		return
+	}
+	if _, err := v2StartStepInput(definition.Start.Input, body.Input); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	body.WorkerTargetAddress = request.Header.Get(V2StartWorkerTargetHeader)
+	requestID, err := hostedStartRequestIdentity(request, body, snapshot.Revision)
+	if err != nil {
+		WriteError(response, http.StatusBadRequest, "Start input is invalid", nil)
+		return
+	}
+	summary, err := h.client.GetFlowSummary(request.Context(), &dexpb.GetFlowSummaryRequest{FlowId: body.FlowID})
+	if status.Code(err) == codes.NotFound {
+		WriteCodedError(response, http.StatusNotFound, "START_NOT_FOUND", "This start has not been observed; retry the same operation")
+		return
+	}
+	if err != nil {
+		writeGRPCError(response, err, "GetFlowSummary")
+		return
+	}
+	if summary.GetRequestId() != requestID || summary.GetFlowType() != body.FlowType {
+		WriteCodedError(response, http.StatusConflict, "START_IDENTITY_CONFLICT", "The Flow ID belongs to another operation")
+		return
+	}
+	writeJSON(response, http.StatusOK, v2StartResponse{FlowID: body.FlowID})
+}
+
+func (h *v2Handler) startFlowCapability(request *http.Request) v2StartCapability {
+	if h.permissionMode == V2PermissionModeLocalSelector {
+		return v2StartCapability{Enabled: true}
+	}
+	if h.permissionMode != V2PermissionModeTrustedHeader || !h.trustStartFlowHeaders || request.Header.Get("X-Dex-Web-Embedded") != "true" {
+		return v2StartCapability{}
+	}
+	permissions := strings.Split(request.Header.Get(V2WorkQueuePermissionsHeader), ",")
+	revision := request.Header.Get(V2StartTargetRevisionHeader)
+	actor := request.Header.Get(V2StartActorHeader)
+	worker := request.Header.Get(V2StartWorkerTargetHeader)
+	for _, header := range []string{V2StartActorHeader, V2StartTargetRevisionHeader, V2StartWorkerTargetHeader, V2WorkQueuePermissionsHeader, "X-Dex-Web-CSRF-Token"} {
+		if len(request.Header.Values(header)) != 1 {
+			return v2StartCapability{}
+		}
+	}
+	if !containsPermission(permissions, V2StartPermission) || actor == "" || len(actor) > 128 || len(revision) != 64 {
+		return v2StartCapability{}
+	}
+	if _, err := hex.DecodeString(revision); err != nil {
+		return v2StartCapability{}
+	}
+	if _, err := h.validateWorkerTarget(worker); err != nil {
+		return v2StartCapability{}
+	}
+	csrfToken := request.Header.Get("X-Dex-Web-CSRF-Token")
+	if csrfToken == "" {
+		return v2StartCapability{}
+	}
+	return v2StartCapability{Enabled: true, TargetRevision: revision, CSRFToken: csrfToken}
+}
+
+func hostedStartRequestIdentity(request *http.Request, body v2StartRequest, definitionRevision string) (string, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body.Input))
+	decoder.UseNumber()
+	var input interface{}
+	if err := decoder.Decode(&input); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal([]interface{}{"dex-web-hosted-start-v1", request.Header.Get(V2StartActorHeader), body.TargetRevision, body.WorkerTargetAddress, definitionRevision, body.FlowType, body.FlowID, body.RequestID, input})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func validateHostedStartCSRF(request *http.Request, capability v2StartCapability) bool {
+	return len(request.Header.Values("X-CSRF-Token")) == 1 &&
+		subtle.ConstantTimeCompare([]byte(request.Header.Get("X-CSRF-Token")), []byte(capability.CSRFToken)) == 1
 }
 
 func (h *v2Handler) checkWorkerHealth(response http.ResponseWriter, request *http.Request) {

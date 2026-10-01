@@ -31,7 +31,7 @@ const (
 	FlowRenderingSourceLocal     = "local"
 	FlowRenderingSourceBlobStore = "blobstore"
 	ConnectorSetupModeLocal      = "local"
-	ConnectorSetupModeHosted     = "hosted"
+	ConnectorSetupModeProject    = "project"
 )
 
 type Config struct {
@@ -55,26 +55,20 @@ type Config struct {
 	TrustForwardedEmbeddingHeaders bool
 	// ConnectorSetupEnabled defaults false and enables Connector configuration APIs.
 	ConnectorSetupEnabled bool
-	// ConnectorSetupMode defaults to local. Hosted delegates persistence to a trusted backend.
+	// ConnectorSetupMode defaults to local. Project uses shared versioned storage.
 	ConnectorSetupMode string
 	// ConnectorConfigDirectory defaults empty and stores local Connector configuration and verified UI artifacts.
 	ConnectorConfigDirectory string
 	// ConnectorCacheDirectory stores verified Connector release UI artifacts in hosted mode.
 	ConnectorCacheDirectory string
-	// ConnectorHostedBaseURL is the trusted Control Plane origin used only in hosted mode.
-	ConnectorHostedBaseURL string
-	// ConnectorHostedProjectID fixes the hosted configuration project scope for this process.
-	ConnectorHostedProjectID string
-	// ConnectorHostedEnvironment fixes the hosted configuration environment scope for this process.
-	ConnectorHostedEnvironment string
-	// ConnectorHostedReleaseID fixes the hosted configuration release scope for this process.
-	ConnectorHostedReleaseID string
-	// ConnectorHostedServiceToken authenticates this server to the hosted configuration backend.
-	ConnectorHostedServiceToken string
-	// ConnectorHostedHTTPClient overrides the hosted backend client in tests.
-	ConnectorHostedHTTPClient *http.Client
+	// ProjectConfiguration owns versioned project configuration. Required only in project setup mode.
+	ProjectConfiguration *ProjectConfiguration
 	// ConnectorReleaseOverrides maps Connector IDs to local release artifact directories for loopback development.
 	ConnectorReleaseOverrides map[string]string
+	// LocalKind enables explicitly reviewed unpublished artifacts only for isolated local project storage.
+	LocalKind bool
+	// LocalConnectorAuthority is an absolute image-owned source/artifact descriptor, never a request parameter.
+	LocalConnectorAuthority string
 }
 
 type Server struct {
@@ -144,13 +138,18 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 		}), api.V2HandlerConfig{
 			PermissionMode:                  effectivePermissionMode(cfg),
 			IsStartFlowWorkerTargetHeadless: cfg.IsStartFlowWorkerTargetHeadless,
+			TrustStartFlowHeaders:           cfg.TrustForwardedEmbeddingHeaders,
 		})
 	}
 	mux.HandleFunc("GET /api/flow-definitions", serveFlowDefinitions(flowDefinitions))
 	if connectorSetup != nil {
 		connectorSetup.registerHandlers(mux)
 	}
-	mux.HandleFunc("GET /readyz", readinessHandler(client, flowDefinitions))
+	if cfg.ProjectConfiguration != nil {
+		mux.HandleFunc("GET /readyz", cfg.ProjectConfiguration.readinessHandler)
+	} else {
+		mux.HandleFunc("GET /readyz", readinessHandler(client, flowDefinitions))
+	}
 	mux.Handle("/", spaHandler(assetRoot, effectivePermissionMode(cfg)))
 	return &Server{
 		cfg: cfg,

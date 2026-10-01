@@ -90,6 +90,8 @@ type V2ConnectorUIBinding struct {
 type V2StartDefinition struct {
 	StepType string             `json:"stepType"`
 	Input    V2StartInputSchema `json:"input"`
+	// SkipWaitFor is derived from the validated graph's Start Step phase and is never browser input.
+	SkipWaitFor bool `json:"-"`
 }
 
 // V2StartInputSchema describes one recursive JSON input value.
@@ -183,6 +185,7 @@ type v2Handler struct {
 	permissionMode                  string
 	isStartFlowWorkerTargetHeadless bool
 	checkStartFlowWorkerHealth      V2WorkerHealthChecker
+	trustStartFlowHeaders           bool
 }
 
 // V2DefinitionSnapshot is one request's immutable catalog revision.
@@ -202,6 +205,8 @@ type V2HandlerConfig struct {
 	PermissionMode                  string
 	IsStartFlowWorkerTargetHeadless bool
 	WorkerHealthChecker             V2WorkerHealthChecker
+	// TrustStartFlowHeaders defaults false; only authenticated private proxies may enable it.
+	TrustStartFlowHeaders bool
 }
 
 type v2CatalogEntry struct {
@@ -303,6 +308,7 @@ func RegisterDynamicV2Handlers(
 		client: client, loadDefinitions: loader, permissionMode: permissionMode,
 		isStartFlowWorkerTargetHeadless: config.IsStartFlowWorkerTargetHeadless,
 		checkStartFlowWorkerHealth:      config.WorkerHealthChecker,
+		trustStartFlowHeaders:           config.TrustStartFlowHeaders,
 	}
 	if handler.checkStartFlowWorkerHealth == nil {
 		handler.checkStartFlowWorkerHealth = checkV2WorkerPortHealth
@@ -310,6 +316,7 @@ func RegisterDynamicV2Handlers(
 	mux.HandleFunc("GET /api/v2/catalog", handler.catalog)
 	mux.HandleFunc("POST /api/v2/worker-health", handler.checkWorkerHealth)
 	mux.HandleFunc("POST /api/v2/start", handler.startFlow)
+	mux.HandleFunc("POST /api/v2/start/recover", handler.recoverStartFlow)
 	mux.HandleFunc("POST /api/v2/search", handler.search)
 	mux.HandleFunc("GET /api/v2/display", handler.display)
 	mux.HandleFunc("PATCH /api/v2/display", handler.editDisplay)
@@ -337,6 +344,7 @@ func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request)
 		"enabled":            len(entries) > 0,
 		"flows":              entries,
 		"definitionRevision": snapshot.Revision,
+		"startFlow":          h.startFlowCapability(request),
 	})
 }
 

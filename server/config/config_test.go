@@ -25,17 +25,20 @@ func TestWebEnvironmentOverridesYAML(t *testing.T) {
 	t.Setenv("DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS", "true")
 	t.Setenv("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS", "true")
 	t.Setenv("DEX_WEB_CONNECTOR_SETUP_ENABLED", "true")
-	t.Setenv("DEX_WEB_CONNECTOR_SETUP_MODE", "hosted")
+	t.Setenv("DEX_WEB_CONNECTOR_SETUP_MODE", "project")
 	t.Setenv("DEX_WEB_CONNECTOR_CACHE_DIRECTORY", "/var/cache/dex/connectors")
-	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_BASE_URL", "https://control.example.test")
-	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_PROJECT_ID", "project-1")
-	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_ENVIRONMENT", "staging")
-	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_RELEASE_ID", "release-1")
-	t.Setenv("DEX_WEB_CONNECTOR_HOSTED_SERVICE_TOKEN", "service-token")
+	t.Setenv("DEX_WEB_PROJECT_CONFIGURATION_ADMIN_TOKEN", "project-config-admin-test-token-32bytes")
 	path := writeTestConfig(t, `
 web:
   flowRenderingSource: local
   workQueuePermissionMode: local-selector
+  projectConfiguration:
+    storageId: credentials
+    prefix: test
+    projectId: a7k2
+    scopeKind: preview
+    sessionId: session1
+    kmsKeyId: test-kms-key
 `)
 	cfg, err := NewConfig(path)
 	require.NoError(t, err)
@@ -46,13 +49,13 @@ web:
 	require.True(t, cfg.Web.IsStartFlowWorkerTargetHeadless)
 	require.True(t, cfg.Web.TrustForwardedEmbeddingHeaders)
 	require.True(t, cfg.Web.ConnectorSetupEnabled)
-	require.Equal(t, "hosted", cfg.Web.ConnectorSetupMode)
+	require.Equal(t, "project", cfg.Web.ConnectorSetupMode)
 	require.Equal(t, "/var/cache/dex/connectors", cfg.Web.ConnectorCacheDirectory)
-	require.Equal(t, "https://control.example.test", cfg.Web.ConnectorHostedBaseURL)
-	require.Equal(t, "project-1", cfg.Web.ConnectorHostedProjectID)
-	require.Equal(t, "staging", cfg.Web.ConnectorHostedEnvironment)
-	require.Equal(t, "release-1", cfg.Web.ConnectorHostedReleaseID)
-	require.Equal(t, "service-token", cfg.Web.ConnectorHostedServiceToken)
+	require.Equal(t, "credentials", cfg.Web.ProjectConfiguration.StorageID)
+	require.Equal(t, "a7k2", cfg.Web.ProjectConfiguration.ProjectID)
+	require.Equal(t, "preview", cfg.Web.ProjectConfiguration.ScopeKind)
+	require.Equal(t, "session1", cfg.Web.ProjectConfiguration.SessionID)
+	require.Equal(t, "project-config-admin-test-token-32bytes", cfg.Web.ProjectConfiguration.AdminToken)
 }
 
 func TestWebStartFlowWorkerTargetHeadlessDefaultsFalseAndReadsYAML(t *testing.T) {

@@ -1,0 +1,44 @@
+name: Release embedded Web packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published dex-web-v2/vX.Y.Z or flow-definition-renderer/vX.Y.Z release
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    if: >-
+      inputs.tag != '' ||
+      startsWith(github.event.release.tag_name, 'dex-web-v2/v') ||
+      startsWith(github.event.release.tag_name, 'flow-definition-renderer/v')
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
+      - name: Build release artifacts twice and verify reproducibility
+        shell: bash
+        run: |
+          if [[ ! "${RELEASE_TAG}" =~ ^(dex-web-v2|flow-definition-renderer)/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "Invalid embedding release tag" >&2
+            exit 1
+          fi
+          component="${BASH_REMATCH[1]}"
+          version="${BASH_REMATCH[2]}"
+          python3 script/release/package_embedded_web.py "${component}" "${version}" --output /tmp/package-first
+          python3 script/release/package_embedded_web.py "${component}" "${version}" --output /tmp/package-second
+          diff -r /tmp/package-first /tmp/package-second
+      - name: Upload immutable release assets
+        shell: bash
+        run: gh release upload "${RELEASE_TAG}" /tmp/package-first/* --repo "${GITHUB_REPOSITORY}"
