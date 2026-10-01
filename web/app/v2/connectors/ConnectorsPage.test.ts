@@ -36,6 +36,7 @@ import {
   initialConnectorSetupTabKey,
   mergeUnitValue,
   removeConnectionAuthMethod,
+  requestedOAuthScopesText,
   storedCredentialPlaceholder,
   isStudioCommand,
   isStudioFrameResize,
@@ -173,6 +174,29 @@ describe('Connections contract', () => {
     expect(markup.indexOf('app_token *')).toBeLessThan(markup.indexOf('<legend class="sc-blockhead">Optional settings (1)</legend>'));
     expect(markup).not.toContain('access_token');
     expect(markup).not.toContain('primary_email');
+  });
+
+  it('lists requested OAuth scopes and omits the line when a provider defines none', () => {
+    expect(requestedOAuthScopesText({scopes: ['chat:write', 'channels:read'], userScopes: ['channels:history']}))
+      .toBe('Requested bot scopes: chat:write, channels:read; user scopes: channels:history');
+    expect(requestedOAuthScopesText({scopes: ['read']})).toBe('Requested bot scopes: read');
+    expect(requestedOAuthScopesText({scopes: [], userScopes: ['search:read']})).toBe('Requested user scopes: search:read');
+    expect(requestedOAuthScopesText({scopes: []})).toBe('');
+    expect(requestedOAuthScopesText({})).toBe('');
+
+    const markup = renderConnectorForm({
+      metadata: {displayName: 'Scope-free OAuth', description: 'OAuth without scopes'},
+      spec: {
+        provider: 'scope-free', configuration: {fields: []},
+        auth: {
+          type: 'oauth2',
+          fields: [{name: 'access_token', type: 'secretString', description: 'Mapped token.', required: true}],
+          oauth2: {},
+        },
+      },
+    });
+    expect(markup).toContain('Authorize');
+    expect(markup).not.toContain('Requested');
   });
 
   it('omits empty required and optional Connector field groups', () => {

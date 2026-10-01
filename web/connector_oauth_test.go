@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -515,6 +516,114 @@ func TestConnectorOAuthUserScopesRequireASlackUserGrant(t *testing.T) {
 	}
 }
 
+func TestConnectorOAuthTokenRequestFollowsManifestEncodingAndClientAuthentication(t *testing.T) {
+	tests := []struct {
+		name                    string
+		tokenRequestEncoding    string
+		tokenEndpointAuthMethod string
+		wantContentType         string
+		wantClientSecretBasic   bool
+	}{
+		{name: "defaults", wantContentType: "application/x-www-form-urlencoded"},
+		{
+			name: "declared defaults", tokenRequestEncoding: "form", tokenEndpointAuthMethod: "client_secret_post",
+			wantContentType: "application/x-www-form-urlencoded",
+		},
+		{name: "json encoding", tokenRequestEncoding: "json", wantContentType: "application/json"},
+		{
+			name: "client_secret_basic", tokenEndpointAuthMethod: "client_secret_basic",
+			wantContentType: "application/x-www-form-urlencoded", wantClientSecretBasic: true,
+		},
+		{
+			name: "json encoding with client_secret_basic", tokenRequestEncoding: "json", tokenEndpointAuthMethod: "client_secret_basic",
+			wantContentType: "application/json", wantClientSecretBasic: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var sentContentType string
+			var sentParameters map[string]string
+			var sentBasicClientID, sentBasicClientSecret string
+			var hasBasicCredentials bool
+			authorization := authorizeConnectorOAuthTestRelease(t, connectorManifestOAuth2{
+				Scopes: []string{"read"}, PKCE: true,
+				TokenRequestEncoding: test.tokenRequestEncoding, TokenEndpointAuthMethod: test.tokenEndpointAuthMethod,
+			}, func(response http.ResponseWriter, request *http.Request) {
+				sentContentType = request.Header.Get("Content-Type")
+				sentBasicClientID, sentBasicClientSecret, hasBasicCredentials = request.BasicAuth()
+				sentParameters = readConnectorOAuthTestTokenRequest(t, request)
+				respondWithConnectorOAuthTestToken(t, http.StatusOK, `{"access_token":"provider-access-token","scope":"read"}`)(response, request)
+			})
+			requireConnectorOAuthTestCallback(t, authorization, http.StatusSeeOther, "")
+			if sentContentType != test.wantContentType {
+				t.Fatalf("token request Content-Type = %q, want %q", sentContentType, test.wantContentType)
+			}
+			wantParameters := map[string]string{
+				"grant_type": "authorization_code", "code": "authorization-code",
+				"redirect_uri":  "http://127.0.0.1:8802/api/v2/connector-oauth/callback",
+				"code_verifier": sentParameters["code_verifier"],
+			}
+			if test.wantClientSecretBasic {
+				if !hasBasicCredentials || sentBasicClientID != "oauth-client-id" || sentBasicClientSecret != "oauth-client-secret" {
+					t.Fatalf("token request Basic credentials = %q, %q, %v", sentBasicClientID, sentBasicClientSecret, hasBasicCredentials)
+				}
+			} else {
+				if hasBasicCredentials {
+					t.Fatal("client_secret_post token request sent Basic credentials")
+				}
+				wantParameters["client_id"] = "oauth-client-id"
+				wantParameters["client_secret"] = "oauth-client-secret"
+			}
+			if sentParameters["code_verifier"] == "" || !maps.Equal(sentParameters, wantParameters) {
+				t.Fatalf("token request parameters = %v, want %v", sentParameters, wantParameters)
+			}
+		})
+	}
+}
+
+func TestConnectorOAuthRejectsUnsupportedTokenRequestDeclarationsAtStart(t *testing.T) {
+	for _, oauth2 := range []connectorManifestOAuth2{
+		{Scopes: []string{"read"}, TokenRequestEncoding: "multipart"},
+		{Scopes: []string{"read"}, TokenEndpointAuthMethod: "private_key_jwt"},
+	} {
+		_, startRecorder := startConnectorOAuthTestRelease(t, oauth2, func(response http.ResponseWriter, request *http.Request) {
+			t.Error("token endpoint was called for an unsupported declaration")
+		})
+		var errorBody struct {
+			Code string `json:"code"`
+		}
+		if err := json.Unmarshal(startRecorder.Body.Bytes(), &errorBody); err != nil {
+			t.Fatal(err)
+		}
+		if startRecorder.Code != http.StatusBadGateway || errorBody.Code != "CONNECTOR_RELEASE_INVALID" {
+			t.Fatalf("OAuth start for %+v = %d: %s", oauth2, startRecorder.Code, startRecorder.Body.String())
+		}
+	}
+}
+
+func TestConnectorOAuthWithoutScopesOmitsTheScopeParameter(t *testing.T) {
+	for _, testCase := range []struct {
+		scopes       []string
+		providerBody string
+	}{
+		{providerBody: `{"access_token":"provider-access-token","token_type":"bearer"}`},
+		{scopes: []string{}, providerBody: `{"access_token":"provider-access-token","scope":""}`},
+	} {
+		authorization := authorizeConnectorOAuthTestRelease(t, connectorManifestOAuth2{Scopes: testCase.scopes},
+			respondWithConnectorOAuthTestToken(t, http.StatusOK, testCase.providerBody))
+		requireConnectorOAuthTestCallback(t, authorization, http.StatusSeeOther, "")
+		if _, hasScope := authorization.authorizationURL.Query()["scope"]; hasScope {
+			t.Fatalf("authorization URL = %s", authorization.authorizationURL)
+		}
+	}
+	authorization := authorizeConnectorOAuthTestRelease(t, connectorManifestOAuth2{Scopes: []string{"read", "write"}},
+		respondWithConnectorOAuthTestToken(t, http.StatusOK, `{"access_token":"provider-access-token"}`))
+	requireConnectorOAuthTestCallback(t, authorization, http.StatusSeeOther, "")
+	if scope := authorization.authorizationURL.Query().Get("scope"); scope != "read write" {
+		t.Fatalf("authorization scope = %q", scope)
+	}
+}
+
 type connectorOAuthTestAuthorization struct {
 	authorizationURL *url.URL
 	callback         *httptest.ResponseRecorder
@@ -527,6 +636,33 @@ func authorizeConnectorOAuthTestRelease(
 	oauth2 connectorManifestOAuth2,
 	handleToken http.HandlerFunc,
 ) connectorOAuthTestAuthorization {
+	t.Helper()
+	setup, startRecorder := startConnectorOAuthTestRelease(t, oauth2, handleToken)
+	if startRecorder.Code != http.StatusOK {
+		t.Fatalf("OAuth start status = %d: %s", startRecorder.Code, startRecorder.Body.String())
+	}
+	var startResponse struct {
+		AuthorizationURL string `json:"authorizationUrl"`
+	}
+	if err := json.Unmarshal(startRecorder.Body.Bytes(), &startResponse); err != nil {
+		t.Fatal(err)
+	}
+	authorizationURL, err := url.Parse(startResponse.AuthorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	callback := httptest.NewRequest(http.MethodGet, "/api/v2/connector-oauth/callback?state="+
+		url.QueryEscape(authorizationURL.Query().Get("state"))+"&code=authorization-code", nil)
+	callbackRecorder := httptest.NewRecorder()
+	setup.handleOAuthCallback(callbackRecorder, callback)
+	return connectorOAuthTestAuthorization{authorizationURL: authorizationURL, callback: callbackRecorder, setup: setup}
+}
+
+func startConnectorOAuthTestRelease(
+	t *testing.T,
+	oauth2 connectorManifestOAuth2,
+	handleToken http.HandlerFunc,
+) (*connectorSetup, *httptest.ResponseRecorder) {
 	t.Helper()
 	identity := connectorDefinitionIdentity{
 		ConnectorID: "example", OperationID: "createRecord", OperationKind: "mutation", ConnectionName: "workspace",
@@ -584,24 +720,7 @@ func authorizeConnectorOAuthTestRelease(
 	startRequest.Header.Set(api.V2DefinitionRevisionHeader, "sha256:test")
 	startRecorder := httptest.NewRecorder()
 	setup.handleOAuthStart(startRecorder, startRequest)
-	if startRecorder.Code != http.StatusOK {
-		t.Fatalf("OAuth start status = %d: %s", startRecorder.Code, startRecorder.Body.String())
-	}
-	var startResponse struct {
-		AuthorizationURL string `json:"authorizationUrl"`
-	}
-	if err := json.Unmarshal(startRecorder.Body.Bytes(), &startResponse); err != nil {
-		t.Fatal(err)
-	}
-	authorizationURL, err := url.Parse(startResponse.AuthorizationURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	callback := httptest.NewRequest(http.MethodGet, "/api/v2/connector-oauth/callback?state="+
-		url.QueryEscape(authorizationURL.Query().Get("state"))+"&code=authorization-code", nil)
-	callbackRecorder := httptest.NewRecorder()
-	setup.handleOAuthCallback(callbackRecorder, callback)
-	return connectorOAuthTestAuthorization{authorizationURL: authorizationURL, callback: callbackRecorder, setup: setup}
+	return setup, startRecorder
 }
 
 func respondWithConnectorOAuthTestToken(t *testing.T, statusCode int, body string) http.HandlerFunc {
@@ -612,6 +731,25 @@ func respondWithConnectorOAuthTestToken(t *testing.T, statusCode int, body strin
 			t.Error(err)
 		}
 	}
+}
+
+// readConnectorOAuthTestTokenRequest decodes a form or JSON token request body into its parameters.
+func readConnectorOAuthTestTokenRequest(t *testing.T, request *http.Request) map[string]string {
+	t.Helper()
+	parameters := map[string]string{}
+	if request.Header.Get("Content-Type") == "application/json" {
+		if err := json.NewDecoder(request.Body).Decode(&parameters); err != nil {
+			t.Error(err)
+		}
+		return parameters
+	}
+	if err := request.ParseForm(); err != nil {
+		t.Error(err)
+	}
+	for name := range request.PostForm {
+		parameters[name] = request.PostForm.Get(name)
+	}
+	return parameters
 }
 
 // requireConnectorOAuthTestCallback checks the callback outcome. A redirect must have saved the provider access token.

@@ -23,6 +23,14 @@ import (
 	"github.com/superdurable/dex/web/api"
 )
 
+// An empty manifest value selects the form encoding and the client_secret_post RFC 7591 method.
+const (
+	connectorOAuthFormTokenRequestEncoding    = "form"
+	connectorOAuthJSONTokenRequestEncoding    = "json"
+	connectorOAuthClientSecretPostAuthMethod  = "client_secret_post"
+	connectorOAuthClientSecretBasicAuthMethod = "client_secret_basic"
+)
+
 type connectorOAuthStartRequest struct {
 	AuthMethodID      string                     `json:"authMethodId"`
 	ClientID          string                     `json:"clientId"`
@@ -101,6 +109,10 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_RELEASE_INVALID", "Connector OAuth endpoint is invalid")
 		return
 	}
+	if err := validateConnectorOAuthTokenRequestDeclarations(*oauth); err != nil {
+		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_RELEASE_INVALID", "Connector OAuth token request declarations are invalid")
+		return
+	}
 	redirectURI := connectorOAuthRedirectURI(request)
 	if !setup.requireDeclaredProjectAuth(request, identity, authMethod.ID) {
 		api.WriteCodedError(response, 409, "APP_MANIFEST_REVISION_CONFLICT", "Connector authorization differs from the AppManifest")
@@ -143,7 +155,9 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 	query.Set("client_id", body.ClientID)
 	query.Set("redirect_uri", redirectURI)
 	query.Set("response_type", "code")
-	query.Set("scope", strings.Join(oauth.Scopes, " "))
+	if len(oauth.Scopes) > 0 {
+		query.Set("scope", strings.Join(oauth.Scopes, " "))
+	}
 	if len(oauth.UserScopes) > 0 {
 		query.Set("user_scope", strings.Join(oauth.UserScopes, " "))
 	}
@@ -387,22 +401,36 @@ func (setup *connectorSetup) exchangeConnectorOAuthToken(
 	if err != nil || tokenURL.Scheme != "https" || tokenURL.Host == "" {
 		return connectorOAuthTokenResponse{}, fmt.Errorf("Connector OAuth token endpoint is invalid")
 	}
+	if err := validateConnectorOAuthTokenRequestDeclarations(*oauth); err != nil {
+		return connectorOAuthTokenResponse{}, err
+	}
+	usesClientSecretBasic := oauth.TokenEndpointAuthMethod == connectorOAuthClientSecretBasicAuthMethod
 	form := url.Values{
-		"grant_type":    {"authorization_code"},
-		"code":          {code},
-		"redirect_uri":  {session.redirectURI},
-		"client_id":     {session.clientID},
-		"client_secret": {session.clientSecret},
+		"grant_type":   {"authorization_code"},
+		"code":         {code},
+		"redirect_uri": {session.redirectURI},
+	}
+	if !usesClientSecretBasic {
+		form.Set("client_id", session.clientID)
+		form.Set("client_secret", session.clientSecret)
 	}
 	if oauth.PKCE {
 		form.Set("code_verifier", session.codeVerifier)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL.String(), strings.NewReader(form.Encode()))
+	body, contentType, err := encodeConnectorOAuthTokenRequest(form, oauth.TokenRequestEncoding)
 	if err != nil {
 		return connectorOAuthTokenResponse{}, err
 	}
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL.String(), strings.NewReader(body))
+	if err != nil {
+		return connectorOAuthTokenResponse{}, err
+	}
+	request.Header.Set("Content-Type", contentType)
 	request.Header.Set("Accept", "application/json")
+	if usesClientSecretBasic {
+		// Zoom, Calendly, and Notion document base64(id:secret) without RFC 6749 form-encoding.
+		request.SetBasicAuth(session.clientID, session.clientSecret)
+	}
 	response, err := setup.connectorOAuthHTTPClient().Do(request)
 	if err != nil {
 		return connectorOAuthTokenResponse{}, err
@@ -426,6 +454,37 @@ func (setup *connectorSetup) exchangeConnectorOAuthToken(
 		return connectorOAuthTokenResponse{}, fmt.Errorf("Connector OAuth provider rejected token exchange")
 	}
 	return token, nil
+}
+
+func validateConnectorOAuthTokenRequestDeclarations(oauth connectorManifestOAuth2) error {
+	switch oauth.TokenRequestEncoding {
+	case "", connectorOAuthFormTokenRequestEncoding, connectorOAuthJSONTokenRequestEncoding:
+	default:
+		return fmt.Errorf("Connector OAuth token request encoding %q is not supported", oauth.TokenRequestEncoding)
+	}
+	switch oauth.TokenEndpointAuthMethod {
+	case "", connectorOAuthClientSecretPostAuthMethod, connectorOAuthClientSecretBasicAuthMethod:
+	default:
+		return fmt.Errorf("Connector OAuth token endpoint auth method %q is not supported", oauth.TokenEndpointAuthMethod)
+	}
+	return nil
+}
+
+// encodeConnectorOAuthTokenRequest returns the request body and its Content-Type. The json encoding
+// sends one JSON object whose values are the single-valued form parameters.
+func encodeConnectorOAuthTokenRequest(form url.Values, encoding string) (string, string, error) {
+	if encoding != connectorOAuthJSONTokenRequestEncoding {
+		return form.Encode(), "application/x-www-form-urlencoded", nil
+	}
+	parameters := make(map[string]string, len(form))
+	for name := range form {
+		parameters[name] = form.Get(name)
+	}
+	encoded, err := json.Marshal(parameters)
+	if err != nil {
+		return "", "", err
+	}
+	return string(encoded), "application/json", nil
 }
 
 func validateManifestValueMaps(manifest connectorReleaseManifest, authMethod connectorManifestAuthMethod, request connectorOAuthStartRequest) error {

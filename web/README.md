@@ -384,6 +384,22 @@ lacks a requested scope fails with `CONNECTOR_OAUTH_SCOPE_INSUFFICIENT`.
 Requested `userScopes` are checked against Slack's `authed_user` object the
 same way. An `authed_user` without either field must carry an `access_token`.
 
+Two optional `oauth2` fields shape the code exchange request.
+`tokenRequestEncoding` is `form`, the default, or `json`. `form` sends
+`application/x-www-form-urlencoded`. `json` sends one JSON object of string
+parameters, as Atlassian and Zendesk document. `tokenEndpointAuthMethod` uses
+the RFC 7591 names `client_secret_post`, the default, and
+`client_secret_basic`. `client_secret_post` sends `client_id` and
+`client_secret` in the body. `client_secret_basic` sends them only as HTTP
+Basic credentials, as Zoom, Calendly, and Notion document. Dex Web encodes
+`client_id:client_secret` without form-encoding either value first. Any
+other value fails OAuth start with `CONNECTOR_RELEASE_INVALID`, before the
+browser leaves for the provider.
+
+`scopes` may be empty for providers such as Help Scout and Notion that define
+no OAuth scopes. Dex Web then omits the `scope` authorization parameter,
+requires no granted scope, and does not list requested scopes in the form.
+
 Trigger-binding configuration remains in `connections.json`. Connector Step
 operation configuration is stored in the sibling non-secret
 `use-configurations.json`, keyed by connector, connection, operation, Flow

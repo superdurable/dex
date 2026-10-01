@@ -108,7 +108,7 @@ interface ManifestAuthMethod {
   configuration?: { fields: ManifestField[] };
   guide?: { startURL: string; steps: string[] };
   oauth2?: {
-    scopes: string[];
+    scopes?: string[];
     clientIDCredential?: string;
     clientSecretCredential?: string;
     userScopes?: string[];
@@ -127,7 +127,7 @@ interface ReleaseManifest {
       fields: ManifestField[];
       guide?: { startURL: string; steps: string[] };
       oauth2?: {
-        scopes: string[];
+        scopes?: string[];
         clientIDCredential?: string;
         clientSecretCredential?: string;
         userScopes?: string[];
@@ -711,6 +711,7 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
   const [authMethodIds, setAuthMethodIds] = useState(() => initialConnectionAuthMethodIds(manifest, connection));
   const auth = selectedManifestAuth(manifest.spec.auth, authMethodId);
   const oauth = !isMultiple && auth.type === 'oauth2';
+  const requestedScopesText = oauth ? requestedOAuthScopesText(auth.oauth2) : '';
   const storedCredentialFields = new Set(oauth ? [] : connection.storedCredentialFields ?? []);
   const storedValueFields = connectionStoredValueFieldNames(manifest, connection, session);
   const mappedCredentialNames = new Set([
@@ -843,7 +844,7 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
       <legend className="sc-blockhead">Optional settings ({optionalManifestFormFields.length})</legend>
       {optionalManifestFormFields.map(renderFormField)}
     </fieldset>}
-    {oauth && <p className="sc-why">Requested bot scopes: {auth.oauth2?.scopes.join(', ')}{auth.oauth2?.userScopes?.length ? `; user scopes: ${auth.oauth2.userScopes.join(', ')}` : ''}</p>}
+    {requestedScopesText !== '' && <p className="sc-why">{requestedScopesText}</p>}
     <div className="connector-form-actions">
       <button className="v2-primary" disabled={submitting || (isMultiple && authMethodIds.length === 0)} type="submit">{oauth ? 'Authorize' : catalog.mode === 'project' ? 'Save credentials' : 'Save local credentials'}</button>
       {onCancel && <button className="v2-ghost" onClick={onCancel} type="button">Cancel</button>}
@@ -1121,6 +1122,15 @@ export function selectedManifestAuth(auth: ReleaseManifest['spec']['auth'], meth
   return auth.methods.find((method) => method.id === methodId)
     ?? auth.methods.find((method) => method.id === auth.defaultMethod)
     ?? auth.methods[0];
+}
+
+export function requestedOAuthScopesText(oauth2: ManifestAuthMethod['oauth2']): string {
+  const scopes = oauth2?.scopes ?? [];
+  const userScopes = oauth2?.userScopes ?? [];
+  if (scopes.length === 0) {
+    return userScopes.length === 0 ? '' : `Requested user scopes: ${userScopes.join(', ')}`;
+  }
+  return `Requested bot scopes: ${scopes.join(', ')}${userScopes.length ? `; user scopes: ${userScopes.join(', ')}` : ''}`;
 }
 
 export const storedCredentialPlaceholder = 'Stored - leave blank to keep';

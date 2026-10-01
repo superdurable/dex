@@ -230,10 +230,12 @@ type connectorManifestFieldStudioUnit struct {
 type connectorManifestOAuth2 struct {
 	AuthorizationEndpoint   string                               `json:"authorizationEndpoint"`
 	TokenEndpoint           string                               `json:"tokenEndpoint"`
+	TokenRequestEncoding    string                               `json:"tokenRequestEncoding,omitempty"`
+	TokenEndpointAuthMethod string                               `json:"tokenEndpointAuthMethod,omitempty"`
 	AuthorizationParameters map[string]string                    `json:"authorizationParameters,omitempty"`
 	ClientIDCredential      string                               `json:"clientIDCredential,omitempty"`
 	ClientSecretCredential  string                               `json:"clientSecretCredential,omitempty"`
-	Scopes                  []string                             `json:"scopes"`
+	Scopes                  []string                             `json:"scopes,omitempty"`
 	UserScopes              []string                             `json:"userScopes,omitempty"`
 	CredentialMappings      []connectorOAuthCredentialMapping    `json:"credentialMappings,omitempty"`
 	CredentialDerivations   []connectorOAuthCredentialDerivation `json:"credentialDerivations,omitempty"`
