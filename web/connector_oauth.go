@@ -51,14 +51,9 @@ type connectorOAuthSession struct {
 type connectorOAuthTokenResponse struct {
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
-	Scope       string `json:"scope"`
 	ExpiresIn   int64  `json:"expires_in"`
 	Error       string `json:"error"`
-	AuthedUser  struct {
-		AccessToken string `json:"access_token"`
-		Scope       string `json:"scope"`
-	} `json:"authed_user"`
-	raw map[string]any
+	raw         map[string]any
 }
 
 func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, request *http.Request) {
@@ -232,11 +227,12 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_OAUTH_TOKEN_EXCHANGE_FAILED", "Connector OAuth token exchange failed")
 		return
 	}
-	if !hasRequiredConnectorScopes(token.Scope, session.authMethod.OAuth2.Scopes) {
+	if !hasRequiredConnectorScopes(token.raw, session.authMethod.OAuth2.Scopes) {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT", "Connector OAuth grant is missing required scopes")
 		return
 	}
-	if !hasRequiredConnectorScopes(token.AuthedUser.Scope, session.authMethod.OAuth2.UserScopes) {
+	if len(session.authMethod.OAuth2.UserScopes) > 0 &&
+		!hasRequiredConnectorUserScopes(token.raw, session.authMethod.OAuth2.UserScopes) {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT", "Connector OAuth user grant is missing required scopes")
 		return
 	}
@@ -416,7 +412,7 @@ func (setup *connectorSetup) exchangeConnectorOAuthToken(
 	if err != nil {
 		return connectorOAuthTokenResponse{}, err
 	}
-	if response.StatusCode != http.StatusOK || len(contents) > 1<<20 {
+	if response.StatusCode < 200 || response.StatusCode > 299 || len(contents) > 1<<20 {
 		return connectorOAuthTokenResponse{}, fmt.Errorf("Connector OAuth provider returned HTTP %d", response.StatusCode)
 	}
 	var token connectorOAuthTokenResponse
@@ -572,12 +568,25 @@ func validateRawConnectorFields(
 	return nil
 }
 
-func hasRequiredConnectorScopes(granted string, required []string) bool {
-	grantedScopes := make(map[string]bool)
-	for _, scope := range strings.FieldsFunc(granted, func(character rune) bool {
-		return character == ' ' || character == ','
-	}) {
-		grantedScopes[scope] = true
+// Slack reports the user grant in authed_user. Without declared scopes, only a user token proves it.
+func hasRequiredConnectorUserScopes(response map[string]any, required []string) bool {
+	userGrant, isObject := response["authed_user"].(map[string]any)
+	if !isObject {
+		return false
+	}
+	if _, isDeclared := declaredConnectorOAuthScopes(userGrant); !isDeclared {
+		if _, hasUserToken := connectorOAuthResponseValue(userGrant, "access_token"); !hasUserToken {
+			return false
+		}
+	}
+	return hasRequiredConnectorScopes(userGrant, required)
+}
+
+// A grant that declares no scopes grants the requested ones (RFC 6749 section 5.1).
+func hasRequiredConnectorScopes(grant map[string]any, required []string) bool {
+	grantedScopes, isDeclared := declaredConnectorOAuthScopes(grant)
+	if !isDeclared {
+		return true
 	}
 	for _, scope := range required {
 		if !grantedScopes[scope] {
@@ -585,6 +594,35 @@ func hasRequiredConnectorScopes(granted string, required []string) bool {
 		}
 	}
 	return true
+}
+
+// declaredConnectorOAuthScopes returns the scopes named by a grant's scope string or, when scope
+// is absent or null, by its scopes string array (HubSpot). It returns false when the grant
+// declares neither. A declared value of another JSON type names no scopes.
+func declaredConnectorOAuthScopes(grant map[string]any) (map[string]bool, bool) {
+	grantedScopes := make(map[string]bool)
+	if scope := grant["scope"]; scope != nil {
+		if text, isText := scope.(string); isText {
+			for _, name := range strings.FieldsFunc(text, func(character rune) bool {
+				return character == ' ' || character == ','
+			}) {
+				grantedScopes[name] = true
+			}
+		}
+		return grantedScopes, true
+	}
+	scopes := grant["scopes"]
+	if scopes == nil {
+		return nil, false
+	}
+	if names, isArray := scopes.([]any); isArray {
+		for _, name := range names {
+			if text, isText := name.(string); isText {
+				grantedScopes[text] = true
+			}
+		}
+	}
+	return grantedScopes, true
 }
 
 func connectorOAuthRedirectURI(request *http.Request) string {

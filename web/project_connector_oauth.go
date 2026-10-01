@@ -313,7 +313,8 @@ func (setup *connectorSetup) projectOAuthMaterial(ctx context.Context, seed proj
 	}
 	token.raw = result.Token
 	oauth := seed.AuthMethod.OAuth2
-	if !hasRequiredConnectorScopes(token.Scope, oauth.Scopes) || !hasRequiredConnectorScopes(token.AuthedUser.Scope, oauth.UserScopes) {
+	if !hasRequiredConnectorScopes(token.raw, oauth.Scopes) ||
+		(len(oauth.UserScopes) > 0 && !hasRequiredConnectorUserScopes(token.raw, oauth.UserScopes)) {
 		return projectconfig.CredentialMaterial{}, errors.New("OAuth grant scope is insufficient")
 	}
 	credentials := make(map[string]json.RawMessage)

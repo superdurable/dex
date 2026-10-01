@@ -374,6 +374,16 @@ the `DEX_CONNECTOR_CONFIG_FILE=... <your-app-command>` launch command, and
 **Copy** copies each absolute value. It never returns credential values. Deleting a local credential does not revoke the
 provider grant.
 
+Dex Web exchanges the authorization code at the release's `tokenEndpoint`. It
+accepts any 2xx JSON response without an `error` field. The grant must include
+every requested scope. A `scope` string in the response lists the granted
+scopes, separated by spaces or commas. Without `scope`, Dex Web reads a
+`scopes` string array, which HubSpot returns. A response with neither field
+grants the requested scopes, as RFC 6749 section 5.1 allows. A grant that
+lacks a requested scope fails with `CONNECTOR_OAUTH_SCOPE_INSUFFICIENT`.
+Requested `userScopes` are checked against Slack's `authed_user` object the
+same way. An `authed_user` without either field must carry an `access_token`.
+
 Trigger-binding configuration remains in `connections.json`. Connector Step
 operation configuration is stored in the sibling non-secret
 `use-configurations.json`, keyed by connector, connection, operation, Flow

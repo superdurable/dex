@@ -383,3 +383,265 @@ func TestSlackOAuthSavesMappedBotUserAndHostAppTokens(t *testing.T) {
 		t.Fatalf("saved Slack credentials = %+v", connection.Credentials)
 	}
 }
+
+func TestConnectorOAuthTokenExchangeAcceptsRFC6749ScopeAndStatusVariants(t *testing.T) {
+	tests := []struct {
+		name               string
+		providerStatusCode int
+		providerBody       string
+		wantStatusCode     int
+		wantErrorCode      string
+	}{
+		{
+			name: "201 Created grants the listed scopes", providerStatusCode: http.StatusCreated,
+			providerBody:   `{"access_token":"provider-access-token","token_type":"bearer","scope":"read write"}`,
+			wantStatusCode: http.StatusSeeOther,
+		},
+		{
+			name: "omitted scope grants the requested scopes", providerStatusCode: http.StatusOK,
+			providerBody:   `{"access_token":"provider-access-token","token_type":"bearer"}`,
+			wantStatusCode: http.StatusSeeOther,
+		},
+		{
+			name: "null scope grants the requested scopes", providerStatusCode: http.StatusOK,
+			providerBody:   `{"access_token":"provider-access-token","scope":null}`,
+			wantStatusCode: http.StatusSeeOther,
+		},
+		{
+			name: "scopes array grants the listed scopes", providerStatusCode: http.StatusOK,
+			providerBody:   `{"access_token":"provider-access-token","scopes":["oauth","read","write"]}`,
+			wantStatusCode: http.StatusSeeOther,
+		},
+		{
+			name: "scope string takes precedence over a scopes array", providerStatusCode: http.StatusOK,
+			providerBody:   `{"access_token":"provider-access-token","scope":"read,write","scopes":["read"]}`,
+			wantStatusCode: http.StatusSeeOther,
+		},
+		{
+			name: "present scope without a required scope", providerStatusCode: http.StatusOK,
+			providerBody:   `{"access_token":"provider-access-token","scope":"read"}`,
+			wantStatusCode: http.StatusBadRequest, wantErrorCode: "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT",
+		},
+		{
+			name: "present scope without a required scope ignores a scopes array", providerStatusCode: http.StatusOK,
+			providerBody:   `{"access_token":"provider-access-token","scope":"read","scopes":["read","write"]}`,
+			wantStatusCode: http.StatusBadRequest, wantErrorCode: "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT",
+		},
+		{
+			name: "empty scope grants no scopes", providerStatusCode: http.StatusOK,
+			providerBody:   `{"access_token":"provider-access-token","scope":""}`,
+			wantStatusCode: http.StatusBadRequest, wantErrorCode: "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT",
+		},
+		{
+			name: "scopes array without a required scope", providerStatusCode: http.StatusOK,
+			providerBody:   `{"access_token":"provider-access-token","scopes":["read"]}`,
+			wantStatusCode: http.StatusBadRequest, wantErrorCode: "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT",
+		},
+		{
+			name: "scopes that is not a string array grants no scopes", providerStatusCode: http.StatusOK,
+			providerBody:   `{"access_token":"provider-access-token","scopes":"read write"}`,
+			wantStatusCode: http.StatusBadRequest, wantErrorCode: "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT",
+		},
+		{
+			name: "4xx error response", providerStatusCode: http.StatusBadRequest,
+			providerBody:   `{"error":"invalid_grant"}`,
+			wantStatusCode: http.StatusBadGateway, wantErrorCode: "CONNECTOR_OAUTH_TOKEN_EXCHANGE_FAILED",
+		},
+		{
+			name: "3xx response with a token", providerStatusCode: http.StatusMultipleChoices,
+			providerBody:   `{"access_token":"provider-access-token","scope":"read write"}`,
+			wantStatusCode: http.StatusBadGateway, wantErrorCode: "CONNECTOR_OAUTH_TOKEN_EXCHANGE_FAILED",
+		},
+		{
+			name: "5xx response with a token", providerStatusCode: http.StatusInternalServerError,
+			providerBody:   `{"access_token":"provider-access-token","scope":"read write"}`,
+			wantStatusCode: http.StatusBadGateway, wantErrorCode: "CONNECTOR_OAUTH_TOKEN_EXCHANGE_FAILED",
+		},
+		{
+			name: "2xx response with an error", providerStatusCode: http.StatusOK,
+			providerBody:   `{"ok":false,"error":"invalid_code"}`,
+			wantStatusCode: http.StatusBadGateway, wantErrorCode: "CONNECTOR_OAUTH_TOKEN_EXCHANGE_FAILED",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			authorization := authorizeConnectorOAuthTestRelease(t, connectorManifestOAuth2{Scopes: []string{"read", "write"}},
+				respondWithConnectorOAuthTestToken(t, test.providerStatusCode, test.providerBody))
+			requireConnectorOAuthTestCallback(t, authorization, test.wantStatusCode, test.wantErrorCode)
+		})
+	}
+}
+
+func TestConnectorOAuthUserScopesRequireASlackUserGrant(t *testing.T) {
+	tests := []struct {
+		name           string
+		providerBody   string
+		wantStatusCode int
+		wantErrorCode  string
+	}{
+		{
+			name:           "user grant with the required scope",
+			providerBody:   `{"ok":true,"access_token":"provider-access-token","scope":"chat:write","authed_user":{"access_token":"provider-user-access-token","scope":"channels:history"}}`,
+			wantStatusCode: http.StatusSeeOther,
+		},
+		{
+			name:           "user token without scope grants the requested user scopes",
+			providerBody:   `{"ok":true,"access_token":"provider-access-token","scope":"chat:write","authed_user":{"access_token":"provider-user-access-token"}}`,
+			wantStatusCode: http.StatusSeeOther,
+		},
+		{
+			name:           "user grant scope without a required user scope",
+			providerBody:   `{"ok":true,"access_token":"provider-access-token","scope":"chat:write","authed_user":{"access_token":"provider-user-access-token","scope":"users:read"}}`,
+			wantStatusCode: http.StatusBadRequest, wantErrorCode: "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT",
+		},
+		{
+			name:           "user identity without a user token or scope",
+			providerBody:   `{"ok":true,"access_token":"provider-access-token","scope":"chat:write","authed_user":{"id":"U0123"}}`,
+			wantStatusCode: http.StatusBadRequest, wantErrorCode: "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT",
+		},
+		{
+			name:           "missing authed_user",
+			providerBody:   `{"ok":true,"access_token":"provider-access-token","scope":"chat:write"}`,
+			wantStatusCode: http.StatusBadRequest, wantErrorCode: "CONNECTOR_OAUTH_SCOPE_INSUFFICIENT",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			authorization := authorizeConnectorOAuthTestRelease(t,
+				connectorManifestOAuth2{Scopes: []string{"chat:write"}, UserScopes: []string{"channels:history"}},
+				respondWithConnectorOAuthTestToken(t, http.StatusOK, test.providerBody))
+			requireConnectorOAuthTestCallback(t, authorization, test.wantStatusCode, test.wantErrorCode)
+		})
+	}
+}
+
+type connectorOAuthTestAuthorization struct {
+	authorizationURL *url.URL
+	callback         *httptest.ResponseRecorder
+	setup            *connectorSetup
+}
+
+// authorizeConnectorOAuthTestRelease runs OAuth start and callback against a TLS provider whose token endpoint is handleToken.
+func authorizeConnectorOAuthTestRelease(
+	t *testing.T,
+	oauth2 connectorManifestOAuth2,
+	handleToken http.HandlerFunc,
+) connectorOAuthTestAuthorization {
+	t.Helper()
+	identity := connectorDefinitionIdentity{
+		ConnectorID: "example", OperationID: "createRecord", OperationKind: "mutation", ConnectionName: "workspace",
+		ModulePath:    "github.com/superdurable/dex-connectors-library/connectors/example",
+		ModuleVersion: "v0.1.0", ConfigurationEnabled: true,
+	}
+	var metadata []byte
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch filepath.Base(request.URL.Path) {
+		case connectorReleaseDigestName:
+			digest := sha256.Sum256(metadata)
+			if _, err := fmt.Fprintf(response, "%x  %s\n", digest, connectorReleaseMetadataName); err != nil {
+				t.Error(err)
+			}
+		case connectorReleaseMetadataName:
+			if _, err := response.Write(metadata); err != nil {
+				t.Error(err)
+			}
+		case "token":
+			handleToken(response, request)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	release := connectorRelease{
+		ConnectorID: identity.ConnectorID, ModulePath: identity.ModulePath, Version: identity.ModuleVersion,
+		Tag: "connectors/example/v0.1.0", SourceSHA: "source-sha", ManifestSHA256: strings.Repeat("0", sha256.Size*2),
+	}
+	release.Manifest.APIVersion = "connectors.dex.dev/v1alpha1"
+	release.Manifest.Kind = "Connector"
+	release.Manifest.Metadata.Name = identity.ConnectorID
+	release.Manifest.Spec.Provider = "example"
+	release.Manifest.Spec.Auth.Type = "oauth2"
+	release.Manifest.Spec.Auth.Fields = []connectorManifestField{{Name: "access_token", Type: "secretString", Required: true}}
+	oauth2.AuthorizationEndpoint = server.URL + "/authorize"
+	oauth2.TokenEndpoint = server.URL + "/token"
+	release.Manifest.Spec.Auth.OAuth2 = &oauth2
+	var err error
+	metadata, err = json.Marshal(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{identity}))
+	setup.releases.baseURL = server.URL
+	setup.releases.httpClient = server.Client()
+	startRequest := httptest.NewRequest(http.MethodPost, "/api/v2/connector-connections/example/workspace/oauth/start", strings.NewReader(
+		`{"clientId":"oauth-client-id","clientSecret":"oauth-client-secret","configuration":{},"credentialValues":{},"credentialSecrets":{}}`,
+	))
+	startRequest.SetPathValue("connectorId", identity.ConnectorID)
+	startRequest.SetPathValue("connectionName", identity.ConnectionName)
+	startRequest.Host = "127.0.0.1:8802"
+	startRequest.Header.Set("Origin", "http://127.0.0.1:8802")
+	startRequest.Header.Set(connectorCSRFHeader, setup.csrfToken)
+	startRequest.Header.Set(api.V2DefinitionRevisionHeader, "sha256:test")
+	startRecorder := httptest.NewRecorder()
+	setup.handleOAuthStart(startRecorder, startRequest)
+	if startRecorder.Code != http.StatusOK {
+		t.Fatalf("OAuth start status = %d: %s", startRecorder.Code, startRecorder.Body.String())
+	}
+	var startResponse struct {
+		AuthorizationURL string `json:"authorizationUrl"`
+	}
+	if err := json.Unmarshal(startRecorder.Body.Bytes(), &startResponse); err != nil {
+		t.Fatal(err)
+	}
+	authorizationURL, err := url.Parse(startResponse.AuthorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	callback := httptest.NewRequest(http.MethodGet, "/api/v2/connector-oauth/callback?state="+
+		url.QueryEscape(authorizationURL.Query().Get("state"))+"&code=authorization-code", nil)
+	callbackRecorder := httptest.NewRecorder()
+	setup.handleOAuthCallback(callbackRecorder, callback)
+	return connectorOAuthTestAuthorization{authorizationURL: authorizationURL, callback: callbackRecorder, setup: setup}
+}
+
+func respondWithConnectorOAuthTestToken(t *testing.T, statusCode int, body string) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		response.WriteHeader(statusCode)
+		if _, err := response.Write([]byte(body)); err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+// requireConnectorOAuthTestCallback checks the callback outcome. A redirect must have saved the provider access token.
+func requireConnectorOAuthTestCallback(
+	t *testing.T,
+	authorization connectorOAuthTestAuthorization,
+	wantStatusCode int,
+	wantErrorCode string,
+) {
+	t.Helper()
+	if authorization.callback.Code != wantStatusCode {
+		t.Fatalf("OAuth callback status = %d, want %d: %s", authorization.callback.Code, wantStatusCode, authorization.callback.Body.String())
+	}
+	if wantStatusCode != http.StatusSeeOther {
+		var errorBody struct {
+			Code string `json:"code"`
+		}
+		if err := json.Unmarshal(authorization.callback.Body.Bytes(), &errorBody); err != nil {
+			t.Fatal(err)
+		}
+		if errorBody.Code != wantErrorCode {
+			t.Fatalf("OAuth callback error code = %q, want %q", errorBody.Code, wantErrorCode)
+		}
+		return
+	}
+	connection, found, err := authorization.setup.store.get("example", "workspace")
+	if err != nil || !found {
+		t.Fatalf("OAuth connection found = %v, err = %v", found, err)
+	}
+	if string(connection.Credentials["access_token"]) != `"provider-access-token"` {
+		t.Fatalf("saved OAuth credentials = %+v", connection.Credentials)
+	}
+}
