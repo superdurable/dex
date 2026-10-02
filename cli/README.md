@@ -179,7 +179,7 @@ ports automatically. Operators can point Dex at an existing Temporal with
 `--external-temporal-namespace`. Dex does not print those endpoints, and
 application developers do not need them.
 
-## View Temporal Cloud protobuf payloads
+## View Temporal protobuf payloads
 
 Start the local protobuf Codec Server:
 
@@ -193,9 +193,13 @@ loopback address. In Temporal Cloud, choose **Configure Codec Server**, select
 URL. Allow Chrome Local Network Access when prompted. Stop the server with
 Ctrl+C.
 
-The browser connects directly to this local process. The server accepts only
-the `https://cloud.temporal.io` browser origin and must not be exposed beyond
-the local machine.
+For a local Temporal Web UI, configure the same Codec Server URL in its
+settings. Local UI ports may vary; no additional server arguments are needed.
+
+The browser connects directly to this local process. The server accepts
+`https://cloud.temporal.io` and HTTP/HTTPS origins on `localhost` or loopback IP
+addresses, including `127.0.0.1` and `[::1]`, on any port. Other browser origins
+are rejected. The server must not be exposed beyond the local machine.
 
 ## Operate flows
 

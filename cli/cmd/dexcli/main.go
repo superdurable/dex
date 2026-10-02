@@ -78,7 +78,7 @@ func printUsage(output io.Writer) {
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Commands:")
 	fmt.Fprintln(output, "  dev       Start a local Dex development environment")
-	fmt.Fprintln(output, "  codec-server Start a local Temporal Cloud protobuf Codec Server")
+	fmt.Fprintln(output, "  codec-server Start a local Temporal protobuf Codec Server")
 	fmt.Fprintln(output, "  health    Check Dex FlowService health")
 	fmt.Fprintln(output, "  visualize Render a static Flow graph from Go or Python source")
 	fmt.Fprintln(output, "  flow      Search, inspect, watch, stop, or reset Flows")

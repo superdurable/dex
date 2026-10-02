@@ -17,6 +17,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"go.temporal.io/sdk/converter"
@@ -127,7 +128,7 @@ func newCodecServerHTTPHandler() http.Handler {
 	router.Handle("/decode", codecHandler)
 	router.Handle("/encode", codecHandler)
 	router.HandleFunc("GET /healthz", handleCodecServerHealthCheck)
-	return withTemporalCloudCORS(router)
+	return withCodecServerCORS(router)
 }
 
 func handleCodecServerHealthCheck(responseWriter http.ResponseWriter, _ *http.Request) {
@@ -138,16 +139,16 @@ func handleCodecServerHealthCheck(responseWriter http.ResponseWriter, _ *http.Re
 	}
 }
 
-func withTemporalCloudCORS(nextHandler http.Handler) http.Handler {
+func withCodecServerCORS(nextHandler http.Handler) http.Handler {
 	return http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		origin := request.Header.Get("Origin")
-		if origin != "" && origin != temporalCloudWebOrigin {
+		responseWriter.Header().Add("Vary", "Origin")
+		if origin != "" && !isAllowedCodecBrowserOrigin(origin) {
 			http.Error(responseWriter, "origin is not allowed", http.StatusForbidden)
 			return
 		}
-		if origin == temporalCloudWebOrigin {
-			responseWriter.Header().Add("Vary", "Origin")
-			responseWriter.Header().Set(corsAllowedOriginHeader, temporalCloudWebOrigin)
+		if origin != "" {
+			responseWriter.Header().Set(corsAllowedOriginHeader, origin)
 			responseWriter.Header().Set(corsAllowedMethodsHeader, corsAllowedMethods)
 			responseWriter.Header().Set(corsAllowedHeadersHeader, corsAllowedHeaders)
 		}
@@ -162,4 +163,22 @@ func withTemporalCloudCORS(nextHandler http.Handler) http.Handler {
 		}
 		nextHandler.ServeHTTP(responseWriter, request)
 	})
+}
+
+func isAllowedCodecBrowserOrigin(origin string) bool {
+	if origin == temporalCloudWebOrigin {
+		return true
+	}
+	originURL, err := url.Parse(origin)
+	if err != nil || (originURL.Scheme != "http" && originURL.Scheme != "https") {
+		return false
+	}
+	if originURL.User != nil || origin != originURL.Scheme+"://"+originURL.Host {
+		return false
+	}
+	if originURL.Hostname() == "localhost" {
+		return true
+	}
+	ipAddress := net.ParseIP(originURL.Hostname())
+	return ipAddress != nil && ipAddress.IsLoopback()
 }

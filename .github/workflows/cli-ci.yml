@@ -66,6 +66,8 @@ jobs:
         env:
           GOWORK: "off"
         run: go test ./...
+      - name: Test Temporal Codec Server
+        run: make -C protos codec-server-test
       - name: Test Go and Python Flow visualization
         working-directory: cli
         env:
