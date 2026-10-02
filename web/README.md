@@ -711,6 +711,9 @@ The Run page remembers the last selected Overview, Execution graph, Timeline, or
 Streams tab across browser refreshes. It automatically loads the complete semantic
 history for the selected run. A continued-as-new run remains on screen until the
 operator follows **Next run**; Dex Web never combines two runs into one graph or timeline.
+Timeline and Execution graph show an animated loading indicator while waiting
+for history. Empty states appear after loading finishes. Refreshing retains
+events already on screen. The loading indicator respects reduced-motion settings.
 The page also provides Live Flow State beside Selected event, Run input beside Identity,
 attributes, timers, queued
 steps, channels, completed outputs, stop, and time travel. Timeline and Execution graph keep

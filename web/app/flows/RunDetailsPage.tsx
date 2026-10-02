@@ -25,6 +25,7 @@ import type {
   FlowSummary,
 } from '@/lib/types';
 import { StatusBadge } from '../components/StatusBadge';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 import { usePreferences } from '../providers';
 import { FlowOverview } from './details/FlowOverview';
 import { FlowStatePanel } from './details/FlowStatePanel';
@@ -120,6 +121,7 @@ export function RunDetailsPage({
   const [tab, setTab] = useState<RunTab>(storedRunTab);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pendingRunRequestCount, setPendingRunRequestCount] = useState(0);
   const [deletingChannelMessage, setDeletingChannelMessage] = useState('');
   const [error, setError] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -252,28 +254,34 @@ export function RunDetailsPage({
     initialInternalEventId: number,
     append: boolean,
   ) => {
-    const complete = await loadCompleteHistory(async (nextPageToken, startInternalEventId) => {
-      const params = new URLSearchParams({
-        flowId,
-        runId,
-        startInternalEventId: String(startInternalEventId),
-        estimatePageSize: '200',
+    setPendingRunRequestCount((current) => current + 1);
+    try {
+      const complete = await loadCompleteHistory(async (nextPageToken, startInternalEventId) => {
+        const params = new URLSearchParams({
+          flowId,
+          runId,
+          startInternalEventId: String(startInternalEventId),
+          estimatePageSize: '200',
+        });
+        if (nextPageToken) params.set('nextPageToken', nextPageToken);
+        return readResponseJSON(
+          await dexFetch(`/api/flows/history?${params}`, { cache: 'no-store' }),
+        );
+      }, initialPageToken, initialInternalEventId);
+      setHistory((current) => {
+        const combined = append ? [...current, ...complete.events] : complete.events;
+        return [...new Map(combined.map((event) => [event.eventId, event])).values()]
+          .sort((left, right) => left.eventId - right.eventId);
       });
-      if (nextPageToken) params.set('nextPageToken', nextPageToken);
-      return readResponseJSON(
-        await dexFetch(`/api/flows/history?${params}`, { cache: 'no-store' }),
-      );
-    }, initialPageToken, initialInternalEventId);
-    setHistory((current) => {
-      const combined = append ? [...current, ...complete.events] : complete.events;
-      return [...new Map(combined.map((event) => [event.eventId, event])).values()]
-        .sort((left, right) => left.eventId - right.eventId);
-    });
-    setNextInternalEventId(complete.nextInternalEventId);
-    return complete;
+      setNextInternalEventId(complete.nextInternalEventId);
+      return complete;
+    } finally {
+      setPendingRunRequestCount((current) => current - 1);
+    }
   }, [flowId, runId]);
 
   const refresh = useCallback(async () => {
+    setPendingRunRequestCount((current) => current + 1);
     setError('');
     try {
       const latestSummary = await loadSummary();
@@ -283,6 +291,8 @@ export function RunDetailsPage({
       ]);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : 'Run refresh failed');
+    } finally {
+      setPendingRunRequestCount((current) => current - 1);
     }
   }, [loadHistory, loadState, loadSummary]);
 
@@ -457,7 +467,8 @@ export function RunDetailsPage({
     setTimeTravelEvent(null);
   }, []);
 
-  if (loading && !summary) return <div className="page-loading">Loading flow run…</div>;
+  if (loading && !summary) return <LoadingIndicator label="Loading flow run…" />;
+  const isWaitingForHistory = history.length === 0 && (loading || pendingRunRequestCount > 0);
 
   return (
     <div className="run-page">
@@ -554,6 +565,9 @@ export function RunDetailsPage({
           </svg>
         )}
         <section className="run-primary">
+          {isWaitingForHistory && (tab === 'steps' || tab === 'timeline') && (
+            <LoadingIndicator className="card page-loading" label="Loading events…" />
+          )}
           {tab === 'overview' && summary && (
             <FlowOverview
               summary={summary}
@@ -564,7 +578,7 @@ export function RunDetailsPage({
               onDeleteChannelMessage={deleteChannelMessage}
             />
           )}
-          {tab === 'steps' && (
+          {tab === 'steps' && !isWaitingForHistory && (
             <ExecutionGraph
               flowId={flowId}
               events={displayedHistory}
@@ -573,7 +587,7 @@ export function RunDetailsPage({
               onSelectEvent={setSelectedEvent}
             />
           )}
-          {tab === 'timeline' && (
+          {tab === 'timeline' && !isWaitingForHistory && (
             <Timeline
               flowId={flowId}
               events={displayedHistory}

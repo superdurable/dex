@@ -1089,6 +1089,25 @@ pre {
   text-align: center;
 }
 
+.page-loading {
+  gap: 12px;
+}
+
+.loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--line);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: loading-spinner-rotation 0.8s linear infinite;
+}
+
+@keyframes loading-spinner-rotation {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .empty-state > span {
   color: var(--brand);
   font-size: 40px;
@@ -2564,6 +2583,7 @@ pre {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .loading-spinner,
   .timeline-step-link-group:hover .timeline-step-link,
   .timeline-step-link-group:focus .timeline-step-link,
   .timeline-step-link-group.is-active .timeline-step-link {
