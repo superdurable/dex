@@ -428,14 +428,14 @@ func (analyzer *goAnalyzer) isFlowGetSteps(method *ast.FuncDecl) bool {
 func (analyzer *goAnalyzer) registeredFlowTypeName(getSteps *ast.FuncDecl, flowName string) string {
 	receiver := analyzer.flowReceiverType(getSteps)
 	if receiver == nil {
-		return analyzer.parseOnlyTypeName(flowName, "GetFlowType").name
+		return analyzer.parseOnlyTypeName(flowName, "GetFlowType")
 	}
 	flowTypeName, problem := analyzer.typeNames.resolveFlowTypeName(receiver)
 	if problem != nil {
 		analyzer.graph.AddDiagnostic("error", problem.code, problem.message, analyzer.span(getSteps))
-		return analyzer.file.Name.Name + "." + flowName
+		return flowName
 	}
-	return flowTypeName.name
+	return flowTypeName
 }
 
 func (analyzer *goAnalyzer) flowReceiverType(getSteps *ast.FuncDecl) *types.Named {
@@ -518,15 +518,11 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 		nodeID := "step:" + stepType
 		isStart := callName == "DefineStartStep"
 		analyzer.steps[stepType] = nodeID
-		analyzer.recordRegisteredStepType(stepName.name, nodeID, call.Args[0])
+		analyzer.recordRegisteredStepType(stepName, nodeID, call.Args[0])
 		analyzer.registeredSteps = append(analyzer.registeredSteps, stepType)
-		node := Node{ID: nodeID, Kind: "step", Name: stepName.name, Start: isStart, Span: analyzer.span(call)}
-		if stepName.displayName != "" {
-			node.Metadata = map[string]any{"displayName": stepName.displayName}
-		}
-		analyzer.graph.AddNode(node)
+		analyzer.graph.AddNode(Node{ID: nodeID, Kind: "step", Name: stepName, Start: isStart, Span: analyzer.span(call)})
 		if isStart {
-			analyzer.startStepType = stepName.name
+			analyzer.startStepType = stepName
 			analyzer.startInputType = analyzer.registeredStepInputType(call.Args[0])
 			if analyzer.graph.Flow.StartStepID != "" {
 				analyzer.graph.AddDiagnostic("error", "multiple_start_steps", "Flow defines more than one start Step", analyzer.span(call))
@@ -555,7 +551,7 @@ func (analyzer *goAnalyzer) isGenericStepRegistration(argument ast.Expr) bool {
 	return named != nil && named.TypeArgs().Len() > 0
 }
 
-func (analyzer *goAnalyzer) registeredStepTypeName(argument ast.Expr, stepType string) goRegisteredTypeName {
+func (analyzer *goAnalyzer) registeredStepTypeName(argument ast.Expr, stepType string) string {
 	argumentType := analyzer.typeInfo.Types[argument].Type
 	if argumentType == nil || argumentType == types.Typ[types.Invalid] {
 		return analyzer.parseOnlyTypeName(stepType, "GetStepType")
@@ -563,17 +559,16 @@ func (analyzer *goAnalyzer) registeredStepTypeName(argument ast.Expr, stepType s
 	stepTypeName, problem := analyzer.typeNames.resolveStepTypeName(argumentType)
 	if problem != nil {
 		analyzer.graph.AddDiagnostic("error", problem.code, problem.message, analyzer.span(argument))
-		return goRegisteredTypeName{name: analyzer.file.Name.Name + "." + stepType, displayName: stepType}
+		return stepType
 	}
 	return stepTypeName
 }
 
 // Without type information, only literal overrides declared in the Flow file are readable.
-func (analyzer *goAnalyzer) parseOnlyTypeName(typeName string, methodName string) goRegisteredTypeName {
-	defaultName := goRegisteredTypeName{name: analyzer.file.Name.Name + "." + typeName, displayName: typeName}
+func (analyzer *goAnalyzer) parseOnlyTypeName(typeName string, methodName string) string {
 	method := analyzer.methods[typeName][methodName]
 	if method == nil {
-		return defaultName
+		return typeName
 	}
 	override, isConstant := analyzer.typeNames.constantReturnValue(method, analyzer.typeInfo)
 	if !isConstant {
@@ -583,12 +578,12 @@ func (analyzer *goAnalyzer) parseOnlyTypeName(typeName string, methodName string
 			fmt.Sprintf("%s of %s must return one compile-time string", methodName, typeName),
 			analyzer.span(method),
 		)
-		return defaultName
+		return typeName
 	}
 	if override == "" {
-		return defaultName
+		return typeName
 	}
-	return goRegisteredTypeName{name: override}
+	return override
 }
 
 func (analyzer *goAnalyzer) recordRegisteredStepType(registeredStepType string, nodeID string, registration ast.Node) {
@@ -1075,7 +1070,7 @@ func (analyzer *goAnalyzer) subFlowTypeName(argument ast.Expr) string {
 	if problem != nil {
 		return ""
 	}
-	return flowTypeName.name
+	return flowTypeName
 }
 
 func (analyzer *goAnalyzer) goChannelConditionLabel(resourceID string, method string, arguments []ast.Expr) (string, string) {

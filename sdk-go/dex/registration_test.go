@@ -786,19 +786,91 @@ func TestRegistryRejectsWorkQueuePermissionsAttributeConflicts(t *testing.T) {
 	}
 }
 
-func TestRegistryUsesDefaultPackageQualifiedTypes(t *testing.T) {
+func TestRegistryUsesDefaultGoTypeNames(t *testing.T) {
 	flow := automaticRegistrationFlow{}
 	step := automaticRegistrationStep{}
-	require.Equal(t, "dex.automaticRegistrationFlow", GetFinalFlowType(flow))
+	require.Equal(t, "automaticRegistrationFlow", GetFinalFlowType(flow))
 	require.Equal(t, GetFinalFlowType(flow), GetFinalFlowType(&flow))
-	require.Equal(t, "dex.automaticRegistrationStep", GetFinalStepType(step))
+	require.Equal(t, "automaticRegistrationStep", GetFinalStepType(step))
 	require.Equal(t, GetFinalStepType(step), GetFinalStepType(&step))
 
 	registry, err := NewRegistry([]Flow{&flow})
 	require.NoError(t, err)
-	registered, found := registry.lookupFlow("dex.automaticRegistrationFlow")
+	registered, found := registry.lookupFlow("automaticRegistrationFlow")
 	require.True(t, found)
-	require.Equal(t, "dex.automaticRegistrationStep", registered.startingStep.stepType)
+	require.Equal(t, "automaticRegistrationStep", registered.startingStep.stepType)
+}
+
+func TestRegistryRequiresGenericTypesToOverrideTheirNames(t *testing.T) {
+	genericStep := genericRegistrationStep[string]{}
+	require.Empty(t, GetFinalStepType(genericStep))
+	registry, err := NewRegistry([]Flow{&registrationFlow{
+		flowType: "flow",
+		steps:    []StepDef{DefineStartStep(genericStep)},
+	}})
+	require.Nil(t, registry)
+	require.ErrorContains(t, err, "dex.genericRegistrationStep[string] is generic or unnamed; implement GetStepType")
+
+	genericFlow := genericRegistrationFlow[string]{}
+	require.Empty(t, GetFinalFlowType(genericFlow))
+	registry, err = NewRegistry([]Flow{genericFlow})
+	require.Nil(t, registry)
+	require.ErrorContains(t, err, "dex.genericRegistrationFlow[string] has no default Flow type")
+}
+
+func TestRegistryRejectsDifferentGoTypesWithTheSameName(t *testing.T) {
+	registry, err := NewRegistry([]Flow{firstCollidingFlow(), secondCollidingFlow()})
+	require.Nil(t, registry)
+	require.ErrorContains(t, err, `duplicate flow type "collidingFlow"`)
+	require.ErrorContains(t, err, "rename one Go type or implement GetFlowType")
+
+	registry, err = NewRegistry([]Flow{&registrationFlow{
+		flowType: "flow",
+		steps:    []StepDef{DefineStartStep(firstCollidingStep()), DefineStep(secondCollidingStep())},
+	}})
+	require.Nil(t, registry)
+	require.ErrorContains(t, err, `duplicate step type "collidingStep"`)
+	require.ErrorContains(t, err, "rename one Go type or implement GetStepType")
+}
+
+type genericRegistrationStep[T any] struct {
+	StepDefaultsNoWaitFor[registrationInput]
+}
+
+func (genericRegistrationStep[T]) Execute(Context, registrationInput) (*StepDecision, error) {
+	return DeadEnd(), nil
+}
+
+type genericRegistrationFlow[T any] struct {
+	automaticRegistrationFlow
+}
+
+func firstCollidingFlow() Flow {
+	type collidingFlow struct {
+		automaticRegistrationFlow
+	}
+	return collidingFlow{}
+}
+
+func secondCollidingFlow() Flow {
+	type collidingFlow struct {
+		automaticRegistrationFlow
+	}
+	return collidingFlow{}
+}
+
+func firstCollidingStep() Step[registrationInput] {
+	type collidingStep struct {
+		automaticRegistrationStep
+	}
+	return collidingStep{}
+}
+
+func secondCollidingStep() Step[registrationInput] {
+	type collidingStep struct {
+		automaticRegistrationStep
+	}
+	return collidingStep{}
 }
 
 func TestStepDefaultsRequiresWaitFor(t *testing.T) {

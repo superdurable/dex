@@ -107,20 +107,22 @@ Version 2.0 recognizes operation-specific Connector factories such as **openai.N
 
 The graph uses the Flow type and Step type that the SDK registers. Dex Web v2 uses these names to search runs, match run history to Steps, and start Flows. Go Flows therefore work in Dex Web v2 without a **GetFlowType** or **GetStepType** override, unless the analyzer reports one of the diagnostics below.
 
-For Go, the default name is the package-qualified type without a pointer, such as **threadapproval.Flow** or **threadapproval.initializeThread**. Generic type arguments are printed the way Go reflection prints them. Arguments use their full import path. A dot in the last element of that path appears as **%2e**, as in **gopkg.in/yaml%2ev3.Node**. **byte** and **any** appear as **uint8** and **interface \{\}**. Types declared in package **main** use **main** as their package, as they do in a Worker binary. For Python, the default name is the class name.
+For Go, the default name is the Go type name without its package or pointer. A Flow type **ThreadApprovalFlow** and a Step type **initializeThread** keep those exact names. For Python, the default name is the class name.
 
-Dex rejects a Step type that contains **/**, **$**, or **:**. When the default name of a generic Step includes an import path with a slash, declare a **GetStepType** override.
+Name each Flow type after its domain, such as **ApprovalFlow** or **ReplyFlow**. Do not name a Flow type just **Flow**. The package is not part of the name, so every Flow registered with one Worker needs a different type name. Dex Web, run history, and Flow searches show the name as written.
 
-A **GetFlowType** or **GetStepType** override can be declared in any file of the package or promoted from an embedded type, including one from another package. Every return statement in the override must return the same compile-time string. An empty string keeps the default name. A **StepRef** target names the registered Step type, not the Go type.
+A generic Flow or Step type has no default name. Declare a **GetFlowType** or **GetStepType** override that returns a non-empty name.
+
+A **GetFlowType** or **GetStepType** override can be declared in any file of the package or promoted from an embedded type, including one from another package. Every return statement in the override must return the same compile-time string. An empty string keeps the default name. Dex rejects a Step type that contains **/**, **$**, or **:**. A **StepRef** target names the registered Step type, not the Go type.
 
 The analyzer reports a blocking diagnostic when it cannot know the registered name or cannot give each Step its own node:
 
 - **dynamic_type_name**: an override returns different strings, a value that is not a compile-time string, or a name promoted from an embedded interface.
 - **generic_flow_type_name**: a generic Flow type has no non-empty override.
-- **unsupported_generic_type_name**: a default Step name has a type argument without a static reflection name, such as a struct, function, channel, non-empty interface, type parameter, or function-local type.
+- **generic_step_type_name**: a generic Step type has no non-empty override.
 - **duplicate_step_type**: two registrations use one Step type, or one Go type is registered more than once. Step nodes are keyed by Go type, so a generic Step can be registered with only one type argument.
 
-A Step that keeps its default name carries its short Go type in **metadata.displayName**, so the Dex Web v2 canvas labels it **initializeThread**. Node IDs keep the Go type, as in **step:initializeThread**.
+Node IDs use the Go type, as in **step:initializeThread**, even when an override changes the Step type.
 
 ## Unknown nodes and diagnostics
 

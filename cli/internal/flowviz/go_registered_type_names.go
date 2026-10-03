@@ -24,11 +24,6 @@ type goRegisteredTypeNameResolver struct {
 	packagesByTypes map[*types.Package]*packages.Package
 }
 
-type goRegisteredTypeName struct {
-	name        string
-	displayName string
-}
-
 type goTypeNameProblem struct {
 	code    string
 	message string
@@ -53,44 +48,43 @@ func (resolver *goRegisteredTypeNameResolver) indexPackages(currentPackage *pack
 	}
 }
 
-func (resolver *goRegisteredTypeNameResolver) resolveFlowTypeName(receiver *types.Named) (goRegisteredTypeName, *goTypeNameProblem) {
+func (resolver *goRegisteredTypeNameResolver) resolveFlowTypeName(receiver *types.Named) (string, *goTypeNameProblem) {
 	// Registering a Flow by value cannot compile when an identity method needs a pointer receiver.
 	flowValueType := types.NewPointer(receiver)
 	override, problem := resolver.lookupIdentityOverride(flowValueType, "GetFlowType")
 	if problem != nil {
-		return goRegisteredTypeName{}, problem
+		return "", problem
 	}
 	if override != "" {
-		return goRegisteredTypeName{name: override}, nil
+		return override, nil
 	}
 	if receiver.TypeParams().Len() > 0 {
-		return goRegisteredTypeName{}, &goTypeNameProblem{
+		return "", &goTypeNameProblem{
 			code: "generic_flow_type_name",
 			message: fmt.Sprintf("generic Flow %s must declare GetFlowType returning one non-empty compile-time string",
 				goTypeLabel(receiver)),
 		}
 	}
-	name, problem := resolver.sdkDefaultTypeName(flowValueType, "GetFlowType")
+	name, problem := sdkDefaultTypeName(flowValueType, "GetFlowType")
 	if problem != nil {
-		return goRegisteredTypeName{}, problem
+		return "", problem
 	}
-	return goRegisteredTypeName{name: name}, nil
+	return name, nil
 }
 
-// Default-named Steps also return their bare Go type as displayName.
-func (resolver *goRegisteredTypeNameResolver) resolveStepTypeName(argumentType types.Type) (goRegisteredTypeName, *goTypeNameProblem) {
+func (resolver *goRegisteredTypeNameResolver) resolveStepTypeName(argumentType types.Type) (string, *goTypeNameProblem) {
 	override, problem := resolver.lookupIdentityOverride(argumentType, "GetStepType")
 	if problem != nil {
-		return goRegisteredTypeName{}, problem
+		return "", problem
 	}
 	if override != "" {
-		return goRegisteredTypeName{name: override}, nil
+		return override, nil
 	}
-	name, problem := resolver.sdkDefaultTypeName(argumentType, "GetStepType")
+	name, problem := sdkDefaultTypeName(argumentType, "GetStepType")
 	if problem != nil {
-		return goRegisteredTypeName{}, problem
+		return "", problem
 	}
-	return goRegisteredTypeName{name: name, displayName: registeredNamedType(argumentType).Obj().Name()}, nil
+	return name, nil
 }
 
 // An empty override selects the SDK default name.
@@ -198,33 +192,23 @@ func (resolver *goRegisteredTypeNameResolver) constantReturnValue(declaration *a
 	return value, true
 }
 
-// sdkDefaultTypeName mirrors the Go SDK default: reflect.Type.String() without leading pointers.
-func (resolver *goRegisteredTypeNameResolver) sdkDefaultTypeName(valueType types.Type, methodName string) (string, *goTypeNameProblem) {
+// sdkDefaultTypeName mirrors the Go SDK default: the Go type name without its package or pointers.
+func sdkDefaultTypeName(valueType types.Type, methodName string) (string, *goTypeNameProblem) {
 	named := registeredNamedType(valueType)
 	if named == nil {
 		return "", &goTypeNameProblem{
 			code:    "dynamic_type_name",
-			message: fmt.Sprintf("%s has no package-qualified name; declare %s returning one compile-time string", goTypeLabel(valueType), methodName),
+			message: fmt.Sprintf("%s has no Go type name; declare %s returning one compile-time string", goTypeLabel(valueType), methodName),
 		}
 	}
-	name := named.Obj().Pkg().Name() + "." + named.Obj().Name()
-	typeArguments := named.TypeArgs()
-	if typeArguments.Len() == 0 {
-		return name, nil
-	}
-	renderedArguments := make([]string, 0, typeArguments.Len())
-	for index := 0; index < typeArguments.Len(); index++ {
-		rendered, isSupported := reflectTypeArgumentString(typeArguments.At(index))
-		if !isSupported {
-			return "", &goTypeNameProblem{
-				code: "unsupported_generic_type_name",
-				message: fmt.Sprintf("%s type argument %s has no static Go reflection name; declare %s returning one compile-time string",
-					goTypeLabel(valueType), goTypeLabel(typeArguments.At(index)), methodName),
-			}
+	if named.TypeArgs().Len() > 0 {
+		return "", &goTypeNameProblem{
+			code: "generic_step_type_name",
+			message: fmt.Sprintf("generic Step %s must declare %s returning one non-empty compile-time string",
+				goTypeLabel(valueType), methodName),
 		}
-		renderedArguments = append(renderedArguments, rendered)
 	}
-	return name + "[" + strings.Join(renderedArguments, ",") + "]", nil
+	return named.Obj().Name(), nil
 }
 
 func registeredNamedType(value types.Type) *types.Named {
@@ -245,76 +229,4 @@ func registeredNamedType(value types.Type) *types.Named {
 
 func goTypeLabel(value types.Type) string {
 	return strings.TrimLeft(types.TypeString(value, func(typePackage *types.Package) string { return typePackage.Name() }), "*")
-}
-
-// reflectTypeArgumentString renders a type argument as reflect.Type.String() does, where
-// package-main types use the path "main".
-func reflectTypeArgumentString(value types.Type) (string, bool) {
-	switch current := types.Unalias(value).(type) {
-	case *types.Named:
-		object := current.Obj()
-		if object.Pkg() == nil {
-			return object.Name(), true
-		}
-		if object.Parent() != object.Pkg().Scope() {
-			return "", false
-		}
-		packagePath := reflectPackagePath(object.Pkg().Path())
-		if object.Pkg().Name() == "main" {
-			packagePath = "main"
-		}
-		rendered := packagePath + "." + object.Name()
-		typeArguments := current.TypeArgs()
-		if typeArguments.Len() == 0 {
-			return rendered, true
-		}
-		renderedArguments := make([]string, 0, typeArguments.Len())
-		for index := 0; index < typeArguments.Len(); index++ {
-			argument, isSupported := reflectTypeArgumentString(typeArguments.At(index))
-			if !isSupported {
-				return "", false
-			}
-			renderedArguments = append(renderedArguments, argument)
-		}
-		return rendered + "[" + strings.Join(renderedArguments, ",") + "]", true
-	case *types.Basic:
-		if current.Kind() == types.UnsafePointer {
-			return "unsafe.Pointer", true
-		}
-		if current.Kind() == types.Invalid || current.Info()&types.IsUntyped != 0 {
-			return "", false
-		}
-		return types.Typ[current.Kind()].Name(), true
-	case *types.Interface:
-		return "interface {}", current.Empty()
-	case *types.Pointer:
-		element, isSupported := reflectTypeArgumentString(current.Elem())
-		return "*" + element, isSupported
-	case *types.Slice:
-		element, isSupported := reflectTypeArgumentString(current.Elem())
-		return "[]" + element, isSupported
-	case *types.Array:
-		element, isSupported := reflectTypeArgumentString(current.Elem())
-		return "[" + strconv.FormatInt(current.Len(), 10) + "]" + element, isSupported
-	case *types.Map:
-		key, isKeySupported := reflectTypeArgumentString(current.Key())
-		element, isElementSupported := reflectTypeArgumentString(current.Elem())
-		return "map[" + key + "]" + element, isKeySupported && isElementSupported
-	}
-	return "", false
-}
-
-// reflectPackagePath escapes a path as cmd/internal/objabi.PathToPrefix does; instantiated type names inherit it.
-func reflectPackagePath(packagePath string) string {
-	lastSlash := strings.LastIndex(packagePath, "/")
-	var escaped strings.Builder
-	for index := 0; index < len(packagePath); index++ {
-		character := packagePath[index]
-		if character <= ' ' || (character == '.' && index > lastSlash) || character == '%' || character == '"' || character >= 0x7F {
-			fmt.Fprintf(&escaped, "%%%02x", character)
-			continue
-		}
-		escaped.WriteByte(character)
-	}
-	return escaped.String()
 }

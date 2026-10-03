@@ -193,6 +193,15 @@ boundary. Do not use generic names such as `Get`, `Update`, `Manager`, `Data`,
 or `Handler` when a specific domain name is available. Brevity is not a goal;
 remove words only when the remaining name is equally precise and unambiguous.
 
+## Go Flow and Step Type Names
+
+The Go SDK registers a Flow or Step by its Go type name without the package.
+Name every Go Flow type after its domain, such as `ApprovalFlow` or
+`ReplyFlow`; never name it just `Flow`. Flow types must be unique within one
+Registry, and Step types must be unique within one Flow. A generic Flow or Step
+type must implement `GetFlowType` or `GetStepType`. Do not add an override that
+returns the default name.
+
 ## License Headers
 
 - Every new or edited `.go` / `.java` / `.py` file (and hand-written OpenAPI

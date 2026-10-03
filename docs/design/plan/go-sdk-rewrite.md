@@ -243,10 +243,12 @@ names are unique within its channel namespace. An attribute and channel may
 share a name because the server stores them separately.
 
 Flow and step names use a non-empty `GetFlowType` or `GetStepType` override.
-Otherwise the SDK removes leading pointer markers from
-`reflect.TypeOf(value).String()`, producing names such as
-`orders.OrderFlow` and `orders.initializeStep`. Registration,
+Otherwise the SDK uses the Go type name without its package or pointer
+markers, producing names such as `OrderFlow` and `initializeStep`. A generic
+or unnamed type has no default name and must override it. Registration,
 movements, failure targets, Worker dispatch, and StartFlow share this resolver.
+Because the package is not part of the name, a Flow type is named after its
+domain, such as `ApprovalFlow`, never just `Flow`.
 
 All lookup APIs remain private. Phase 4 receives immutable descriptors rather
 than raw maps and is responsible for converting a missing lookup into the
@@ -1652,7 +1654,7 @@ N/A: no in-repo web UI.
 ### Design rules
 
 1. Application code imports `dex`, not `gen/dexpb`.
-2. Flow and step names default to pointer-stripped package-qualified Go types.
+2. Flow and step names default to Go type names without package or pointer.
    Attributes and channels use explicit strings; RPCs use Flow method names.
 3. Typed attributes and channels are immutable and safe as package variables.
 4. Methods that use invocation state take `Context` explicitly. Flow, step, and
@@ -1700,7 +1702,7 @@ type Flow interface {
 ```
 
 Embedding `FlowDefaults` makes `GetFlowType` return empty, selecting the
-pointer-stripped package-qualified Go type such as `orders.OrderFlow`. An
+Go type name without its package or pointer, such as `OrderFlow`. An
 explicit non-empty result overrides that default. Registration of a flow
 together with its heterogeneous steps and RPCs belongs to Phase 3.
 `GetSteps` supplies every step through an opaque `StepDef`. `GetRPCs` supplies
@@ -1781,7 +1783,7 @@ A waiting step embeds `StepDefaults` and implements `WaitFor` and `Execute`.
 `StepDefaults` contains only `DefaultStepOptions`, so it never supplies or
 skips `WaitFor`. A custom-options waiting step embeds `DefaultStepType` and
 implements `GetStepOptions` directly. An explicit non-empty `GetStepType`
-result overrides the default package-qualified step type.
+result overrides the default step type, the Go type name without its package.
 
 `DefineStep` and `DefineStartStep` retain the handler's input type while
 building the heterogeneous `GetSteps` result. Phase 3 validates duplicate step

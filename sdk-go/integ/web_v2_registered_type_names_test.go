@@ -109,8 +109,8 @@ func TestDexWebV2ServesGoFlowsWithoutTypeOverrides(t *testing.T) {
 	thread := newFlowID(t, "thread")
 	flows := []dexWebV2TestFlow{
 		{
-			flow:          &webv2approval.Flow{},
-			flowType:      dex.GetFinalFlowType(&webv2approval.Flow{}),
+			flow:          &webv2approval.ApprovalFlow{},
+			flowType:      dex.GetFinalFlowType(&webv2approval.ApprovalFlow{}),
 			startStepType: webv2approval.StartStepType(),
 			input:         webv2approval.Input{Requester: requester},
 			summaryKey:    "approval-requester",
@@ -119,8 +119,8 @@ func TestDexWebV2ServesGoFlowsWithoutTypeOverrides(t *testing.T) {
 			permission:    webv2approval.DecidePermission,
 		},
 		{
-			flow:          &webv2reply.Flow{},
-			flowType:      dex.GetFinalFlowType(&webv2reply.Flow{}),
+			flow:          &webv2reply.ReplyFlow{},
+			flowType:      dex.GetFinalFlowType(&webv2reply.ReplyFlow{}),
 			startStepType: webv2reply.StartStepType(),
 			input:         webv2reply.Input{Thread: thread},
 			summaryKey:    "reply-thread",
@@ -129,7 +129,9 @@ func TestDexWebV2ServesGoFlowsWithoutTypeOverrides(t *testing.T) {
 			permission:    webv2reply.DecidePermission,
 		},
 	}
-	require.NotEqual(t, flows[0].flowType, flows[1].flowType)
+	require.Equal(t, "ApprovalFlow", flows[0].flowType)
+	require.Equal(t, "ReplyFlow", flows[1].flowType)
+	require.Equal(t, "awaitDecision", flows[0].startStepType)
 
 	var catalog dexWebV2Catalog
 	require.Eventually(t, func() bool {

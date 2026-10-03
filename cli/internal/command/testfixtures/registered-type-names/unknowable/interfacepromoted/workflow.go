@@ -14,11 +14,11 @@ type stepTypeNamer interface {
 	GetStepType() string
 }
 
-type Flow struct {
+type InterfacePromotedFlow struct {
 	dex.FlowDefaults
 }
 
-func (*Flow) GetSteps() []dex.StepDef {
+func (*InterfacePromotedFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(finish{})}
 }
 

@@ -52,8 +52,23 @@ package dex
 //	var Orders = OrderFlow{}
 //	var _ dex.Flow = Orders
 type Flow interface {
-	// GetFlowType overrides the default package-qualified Go type name.
+	// GetFlowType overrides the default Go type name without its package.
 	// Embed FlowDefaults to use the default.
+	//
+	// The Flow type is the durable identity stored on every run. Dex Web, run
+	// history, and FlowType search queries show it as is. The default for
+	// *orders.OrderFlow is "OrderFlow". Name the Go type after its domain, such
+	// as OrderFlow or ApprovalFlow, and never just Flow. Flow types must be
+	// unique within one Registry, and the package does not disambiguate them.
+	//
+	// Prefer the default name. Return a non-empty compile-time string only to
+	// keep an existing durable name after renaming the Go type, or to name a
+	// generic Flow type, which has no default. Returning an empty string selects
+	// the default.
+	//
+	//	func (OrderFlow) GetFlowType() string {
+	//		return "OrderFulfillment"
+	//	}
 	GetFlowType() string
 
 	// GetSteps defines the steps of the flow. A step is one node in the flow
@@ -99,10 +114,10 @@ type FlowTimeoutHandler interface {
 	HandleTimeout(ctx Context) (*StepDecision, error)
 }
 
-// FlowDefaults uses the package-qualified Go type as the durable flow type.
+// FlowDefaults uses the Go type name without its package as the durable flow type.
 type FlowDefaults struct{}
 
-// GetFlowType returns empty so Registry derives the package-qualified Go type name.
+// GetFlowType returns empty so Registry derives the Go type name without its package.
 func (FlowDefaults) GetFlowType() string {
 	return ""
 }

@@ -10,11 +10,11 @@ package genericflow
 
 import "github.com/superdurable/dex/sdk-go/dex"
 
-type Flow[T any] struct {
+type GenericFlow[T any] struct {
 	dex.FlowDefaults
 }
 
-func (*Flow[T]) GetSteps() []dex.StepDef {
+func (*GenericFlow[T]) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(finish{})}
 }
 

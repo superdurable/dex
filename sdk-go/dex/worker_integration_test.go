@@ -1933,7 +1933,7 @@ func invokeBlockingRPC(
 			context.Background(),
 			&dexpb.InvokeWorkerRPCRequest{
 				Context:  workerRPCContext(),
-				FlowType: "dex.workerBlockingFlow",
+				FlowType: "workerBlockingFlow",
 				RpcName:  "Block",
 				Input:    input,
 			},

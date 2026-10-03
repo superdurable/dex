@@ -51,7 +51,7 @@ func TestDexWebServesAndSavesConnectionsWithSeveralAuthMethods(t *testing.T) {
 	writeConnectorIntegFile(t, releaseDirectory, "connector-release.json.sha256", fmt.Sprintf("%x  connector-release.json\n", metadataDigest))
 	definitionDirectory := t.TempDir()
 	writeConnectorIntegFile(t, definitionDirectory, "llm.json", `{"schemaVersion":"1.0","valid":true,"source":{"language":"go","path":"flow.go"},`+
-		`"flow":{"name":"llm.AnswerFlow"},"nodes":[{"id":"step:Answer","name":"Answer","kind":"step","metadata":{"connectorFactory":true,`+
+		`"flow":{"name":"AnswerFlow"},"nodes":[{"id":"step:Answer","name":"Answer","kind":"step","metadata":{"connectorFactory":true,`+
 		`"connector":{"connectorId":"llm","operationId":"generateText","operationKind":"mutation","connectionName":"default",`+
 		`"modulePath":"github.com/superdurable/dex-connectors-library/connectors/llm","moduleVersion":"v0.2.0","configurationEnabled":true}}}],`+
 		`"edges":[],"diagnostics":[]}`)

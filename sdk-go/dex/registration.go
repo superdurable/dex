@@ -76,10 +76,11 @@ type registeredStream struct {
 
 // NewRegistry validates and assembles Flow definitions atomically.
 //
-// flows may be empty, but every Flow must be non-nil and have a unique,
-// package-qualified Flow type. NewRegistry also validates starting Steps, Step
-// options, RPC signatures, persistence definitions, and cross-Flow Attribute index
-// compatibility. It returns FlowDefinitionError for an invalid Flow and publishes no
+// flows may be empty, but every Flow must be non-nil and have a unique Flow type.
+// The default Flow type is the Go type name without its package, so two Flows
+// from different packages that share a Go type name conflict. NewRegistry also
+// validates starting Steps, Step options, RPC signatures, persistence definitions,
+// and cross-Flow Attribute index compatibility. It returns FlowDefinitionError for an invalid Flow and publishes no
 // partially assembled Registry.
 //
 //	registry, err := dex.NewRegistry([]dex.Flow{OrderFlow{}, RefundFlow{}})
@@ -105,11 +106,16 @@ func NewRegistry(flows []Flow) (*Registry, error) {
 		if err != nil {
 			return nil, newFlowDefinitionError(flowType, "", err)
 		}
-		if _, found := assembled.flows[registered.flowType]; found {
+		if existing, found := assembled.flows[registered.flowType]; found {
 			return nil, newFlowDefinitionError(
 				registered.flowType,
 				"",
-				fmt.Errorf("duplicate flow type %q", registered.flowType),
+				fmt.Errorf(
+					"duplicate flow type %q is registered by %s and %s; rename one Go type or implement GetFlowType",
+					registered.flowType,
+					reflect.TypeOf(existing.flow),
+					reflect.TypeOf(flow),
+				),
 			)
 		}
 		for _, stream := range registered.streams {
@@ -141,7 +147,7 @@ func (registry *Registry) registerFlow(
 ) (*registeredFlow, error) {
 	flowType := GetFinalFlowType(flow)
 	if flowType == "" {
-		return nil, fmt.Errorf("dex: flow must use a named package type")
+		return nil, missingFlowTypeError(flow)
 	}
 	registered := &registeredFlow{
 		flow:           flow,
@@ -396,10 +402,19 @@ func (flow *registeredFlow) registerStep(
 	}
 	stepType := definition.stepType()
 	if stepType == "" {
-		return fmt.Errorf("step at index %d has an empty type", index)
+		return fmt.Errorf(
+			"step at index %d has no default Step type because %s is generic or unnamed; implement GetStepType",
+			index,
+			reflect.TypeOf(definition.stepValue()),
+		)
 	}
-	if _, found := flow.steps[stepType]; found {
-		return fmt.Errorf("duplicate step type %q", stepType)
+	if existing, found := flow.steps[stepType]; found {
+		return fmt.Errorf(
+			"duplicate step type %q is registered by %s and %s; rename one Go type or implement GetStepType",
+			stepType,
+			reflect.TypeOf(existing.handler.stepValue()),
+			reflect.TypeOf(definition.stepValue()),
+		)
 	}
 	registered := &registeredStep{
 		handler:     definition,
@@ -631,7 +646,7 @@ func (flow *registeredFlow) resolveStepSelector(
 	}
 	stepType := selector.GetStepType()
 	if stepType == "" {
-		stepType = getSimpleTypeNameFromReflect(selector)
+		stepType = defaultTypeNameFromReflect(selector)
 	}
 	target, found := flow.steps[stepType]
 	if !found {
@@ -691,7 +706,7 @@ func (registry *Registry) resolveFlow(reference Flow) (*registeredFlow, error) {
 	}
 	flowType := GetFinalFlowType(reference)
 	if flowType == "" {
-		return nil, fmt.Errorf("dex: flow must use a named package type")
+		return nil, missingFlowTypeError(reference)
 	}
 	registered, found := registry.lookupFlow(flowType)
 	if !found {
@@ -715,25 +730,72 @@ func (registry *Registry) resolveFlow(reference Flow) (*registeredFlow, error) {
 	return registered, nil
 }
 
-// GetFinalFlowType returns the override or the default package-qualified Go type.
+// GetFinalFlowType returns the Flow type that NewRegistry registers for a Flow.
+//
+// A non-empty GetFlowType override wins. Otherwise the Flow type is the Go type
+// name without its package or pointer, so OrderFlow{} and &OrderFlow{} from
+// package orders both return "OrderFlow". Use it in tests and tools that need
+// the registered name, such as a SearchFlows query on FlowType.
+//
+//	query := "FlowType = '" + dex.GetFinalFlowType(&orders.OrderFlow{}) + "'"
+//
+// A generic or unnamed Go type has no default Flow type. Such a Flow must
+// implement GetFlowType, and NewRegistry rejects it otherwise.
+//
+// flow is the Flow value to name. It is not retained.
+//
+// Returns the override when it is non-empty, otherwise the Go type name without
+// its package or pointer. Returns an empty string when there is no override and
+// the Go type is generic or unnamed.
 func GetFinalFlowType(flow Flow) string {
 	if flowType := flow.GetFlowType(); flowType != "" {
 		return flowType
 	}
-	return getSimpleTypeNameFromReflect(flow)
+	return defaultTypeNameFromReflect(flow)
 }
 
-// GetFinalStepType returns the override or the default package-qualified Go type.
+// GetFinalStepType returns the Step type that NewRegistry registers for a Step.
+//
+// A non-empty GetStepType override wins. Otherwise the Step type is the Go type
+// name without its package or pointer, so shipOrder{} and &shipOrder{} both
+// return "shipOrder". Use it in tests and tools that need the registered name,
+// such as a StepExecutionID passed to SkipTimer or WaitForStepCompletion.
+//
+//	stepType := dex.GetFinalStepType[ShipInput](shipOrder{})
+//	executionID := dex.StepExecutionID{StepType: stepType}
+//
+// A generic or unnamed Go type has no default Step type. Such a Step must
+// implement GetStepType, and NewRegistry rejects it otherwise.
+//
+// IN is the Step input type. step is the Step value to name. It is not retained.
+//
+// Returns the override when it is non-empty, otherwise the Go type name without
+// its package or pointer. Returns an empty string when there is no override and
+// the Go type is generic or unnamed.
 func GetFinalStepType[IN any](step Step[IN]) string {
 	if stepType := step.GetStepType(); stepType != "" {
 		return stepType
 	}
-	return getSimpleTypeNameFromReflect(step)
+	return defaultTypeNameFromReflect(step)
 }
 
-func getSimpleTypeNameFromReflect(value any) string {
+// Generic instantiations have no default name; reflection renders their type arguments with import paths.
+func defaultTypeNameFromReflect(value any) string {
 	valueType := reflect.TypeOf(value)
-	return strings.TrimLeft(valueType.String(), "*")
+	for valueType.Kind() == reflect.Pointer {
+		valueType = valueType.Elem()
+	}
+	if strings.Contains(valueType.Name(), "[") {
+		return ""
+	}
+	return valueType.Name()
+}
+
+func missingFlowTypeError(flow Flow) error {
+	return fmt.Errorf(
+		"dex: flow %s has no default Flow type because it is generic or unnamed; implement GetFlowType",
+		reflect.TypeOf(flow),
+	)
 }
 
 func (registry *Registry) resolveRPC(reference any) (*registeredFlow, *registeredRPC, error) {

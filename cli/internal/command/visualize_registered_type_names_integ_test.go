@@ -29,20 +29,17 @@ func TestVisualizeGoNamesMatchSDKRegistration(t *testing.T) {
 	for _, fixture := range []struct {
 		name         string
 		source       string
-		packageName  string
 		printCommand []string
 	}{
 		{
 			name:         "defaults",
 			source:       "defaults/workflow.go",
-			packageName:  "defaults",
 			printCommand: []string{"test", "-run", "^TestPrintRegisteredTypeNames$", "-count=1", "-v", "./defaults"},
 		},
 		{
 			// A go test build compiles package main under its import path, unlike a Worker binary.
 			name:         "package main",
 			source:       "mainpackage/workflow.go",
-			packageName:  "main",
 			printCommand: []string{"run", "./mainpackage"},
 		},
 	} {
@@ -65,13 +62,9 @@ func TestVisualizeGoNamesMatchSDKRegistration(t *testing.T) {
 						continue
 					}
 					require.True(t, strings.HasPrefix(node.ID, "step:"), node.ID)
-					goType := strings.TrimPrefix(node.ID, "step:")
 					analyzedNames[node.ID] = node.Name
-					defaultName := fixture.packageName + "." + goType
-					if node.Name == defaultName || strings.HasPrefix(node.Name, defaultName+"[") {
+					if node.Name == strings.TrimPrefix(node.ID, "step:") {
 						defaultNamedSteps++
-						require.Equal(t, goType, node.Metadata["displayName"], node.ID)
-						continue
 					}
 					require.NotContains(t, node.Metadata, "displayName", node.ID)
 				}
@@ -93,13 +86,13 @@ func TestVisualizeGoRejectsUnknowableTypeNames(t *testing.T) {
 		code            string
 		messageContains []string
 	}{
-		{name: "differentreturns", code: "dynamic_type_name", messageContains: []string{"differentreturns.Flow", "GetFlowType"}},
-		{name: "nestedonly", code: "dynamic_type_name", messageContains: []string{"nestedonly.Flow", "GetFlowType"}},
+		{name: "differentreturns", code: "dynamic_type_name", messageContains: []string{"differentreturns.DifferentReturnsFlow", "GetFlowType"}},
+		{name: "nestedonly", code: "dynamic_type_name", messageContains: []string{"nestedonly.NestedOnlyFlow", "GetFlowType"}},
 		{name: "variablereturn", code: "dynamic_type_name", messageContains: []string{"variablereturn.finish", "GetStepType"}},
 		{name: "dynamicpromoted", code: "dynamic_type_name", messageContains: []string{"dynamicpromoted.finish", "GetStepType"}},
 		{name: "interfacepromoted", code: "dynamic_type_name", messageContains: []string{"interfacepromoted.finish", "GetStepType"}},
-		{name: "genericflow", code: "generic_flow_type_name", messageContains: []string{"genericflow.Flow", "GetFlowType"}},
-		{name: "structtypeargument", code: "unsupported_generic_type_name", messageContains: []string{"structtypeargument.box", "GetStepType"}},
+		{name: "genericflow", code: "generic_flow_type_name", messageContains: []string{"genericflow.GenericFlow", "GetFlowType"}},
+		{name: "genericstep", code: "generic_step_type_name", messageContains: []string{"genericstep.box[string]", "GetStepType"}},
 		{name: "twoinstantiations", code: "duplicate_step_type", messageContains: []string{"generic Step box"}},
 		{name: "duplicatesteptype", code: "duplicate_step_type", messageContains: []string{`"SharedStepType"`, "first", "second"}},
 	} {
@@ -138,15 +131,15 @@ func TestVisualizeGoStepRefTargetsRegisteredStepTypes(t *testing.T) {
 	require.True(t, registeredTarget.Valid, "%+v", registeredTarget.Diagnostics)
 	require.True(t, hasTransitionFromStepToTarget(registeredTarget, "step:begin", "step:done"))
 
-	goTypeTarget, err := flowviz.Analyze(
+	packageQualifiedTarget, err := flowviz.Analyze(
 		context.Background(),
-		filepath.Join(fixtureDirectory, "steprefbare/workflow.go"),
+		filepath.Join(fixtureDirectory, "steprefqualified/workflow.go"),
 		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV1},
 	)
 	require.NoError(t, err)
-	require.False(t, goTypeTarget.Valid)
-	require.Contains(t, diagnosticCodes(goTypeTarget.Diagnostics), "unknown_step_target")
-	require.True(t, hasTransitionFromStepToTarget(goTypeTarget, "step:begin", "unknown:step:done"))
+	require.False(t, packageQualifiedTarget.Valid)
+	require.Contains(t, diagnosticCodes(packageQualifiedTarget.Diagnostics), "unknown_step_target")
+	require.True(t, hasTransitionFromStepToTarget(packageQualifiedTarget, "step:begin", "unknown:step:steprefqualified.done"))
 }
 
 func registeredTypeNamesFixtureDirectory(t *testing.T) string {

@@ -11,21 +11,20 @@ package defaults
 import (
 	"github.com/superdurable/dex/cli/internal/command/testfixtures/registered-type-names/defaults/helpers"
 	"github.com/superdurable/dex/cli/internal/command/testfixtures/registered-type-names/model"
-	"github.com/superdurable/dex/cli/internal/command/testfixtures/registered-type-names/versioned.v2"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-const concatenatedStepTypePrefix = "fixture."
+const concatenatedStepTypePrefix = "Fixture"
 
 var Decisions = dex.DefineChannel[string]("decisions")
 
 var prefersBranchingStepType = true
 
-type Flow struct {
+type RegisteredTypeNamesFlow struct {
 	dex.FlowDefaults
 }
 
-func (*Flow) GetSteps() []dex.StepDef {
+func (*RegisteredTypeNamesFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(awaitDecision{}),
 		dex.DefineStep(&pointerStep{}),
@@ -37,31 +36,25 @@ func (*Flow) GetSteps() []dex.StepDef {
 		dex.DefineStep(namesFileStep{}),
 		dex.DefineStep(helperPromotedStep{}),
 		dex.DefineStep(box[model.Input]{}),
-		dex.DefineStep(pair[int, []string]{}),
-		dex.DefineStep(byteBox[byte]{}),
-		dex.DefineStep(anyBox[any]{}),
-		dex.DefineStep(mapBox[map[string]*model.Input]{}),
-		dex.DefineStep(nested[box[int]]{}),
-		dex.DefineStep(versionedBox[versioned.Item]{}),
 	}
 }
 
-func (*Flow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*RegisteredTypeNamesFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Channels: []dex.ChannelDef{Decisions}}
 }
 
-func (flow *Flow) GetRPCs() []dex.RPCDef {
+func (flow *RegisteredTypeNamesFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.GetDexSummary, nil),
 		dex.DefineRPC(flow.GetDexDisplay, nil),
 	}
 }
 
-func (*Flow) GetDexSummary(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+func (*RegisteredTypeNamesFlow) GetDexSummary(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
 	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
 }
 
-func (*Flow) GetDexDisplay(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+func (*RegisteredTypeNamesFlow) GetDexDisplay(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
 	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
 }
 
@@ -189,71 +182,15 @@ func (helperPromotedStep) Execute(_ dex.Context, input model.Input) (*dex.StepDe
 }
 
 // dex:group group-id:generics group-label:"Generics"
-// dex:explanation text:"Instantiate a generic Step with an imported type."
+// dex:explanation text:"Name a generic Step through its required override."
 type box[T any] struct {
 	dex.StepDefaultsNoWaitFor[model.Input]
 }
 
-func (box[T]) Execute(_ dex.Context, input model.Input) (*dex.StepDecision, error) {
-	return dex.GoTo(pair[int, []string]{}, input), nil
+func (box[T]) GetStepType() string {
+	return "GenericBoxStep"
 }
 
-// dex:group group-id:generics group-label:"Generics"
-// dex:explanation text:"Instantiate a generic Step with two type arguments."
-type pair[First any, Second any] struct {
-	dex.StepDefaultsNoWaitFor[model.Input]
-}
-
-func (pair[First, Second]) Execute(_ dex.Context, input model.Input) (*dex.StepDecision, error) {
-	return dex.GoTo(byteBox[byte]{}, input), nil
-}
-
-// dex:group group-id:generics group-label:"Generics"
-// dex:explanation text:"Instantiate a generic Step with byte."
-type byteBox[T any] struct {
-	dex.StepDefaultsNoWaitFor[model.Input]
-}
-
-func (byteBox[T]) Execute(_ dex.Context, input model.Input) (*dex.StepDecision, error) {
-	return dex.GoTo(anyBox[any]{}, input), nil
-}
-
-// dex:group group-id:generics group-label:"Generics"
-// dex:explanation text:"Instantiate a generic Step with any."
-type anyBox[T any] struct {
-	dex.StepDefaultsNoWaitFor[model.Input]
-}
-
-func (anyBox[T]) Execute(_ dex.Context, input model.Input) (*dex.StepDecision, error) {
-	return dex.GoTo(mapBox[map[string]*model.Input]{}, input), nil
-}
-
-// dex:group group-id:generics group-label:"Generics"
-// dex:explanation text:"Instantiate a generic Step with a map of pointers."
-type mapBox[T any] struct {
-	dex.StepDefaultsNoWaitFor[model.Input]
-}
-
-func (mapBox[T]) Execute(_ dex.Context, input model.Input) (*dex.StepDecision, error) {
-	return dex.GoTo(nested[box[int]]{}, input), nil
-}
-
-// dex:group group-id:generics group-label:"Generics"
-// dex:explanation text:"Instantiate a generic Step with a generic type argument."
-type nested[T any] struct {
-	dex.StepDefaultsNoWaitFor[model.Input]
-}
-
-func (nested[T]) Execute(_ dex.Context, input model.Input) (*dex.StepDecision, error) {
-	return dex.GoTo(versionedBox[versioned.Item]{}, input), nil
-}
-
-// dex:group group-id:generics group-label:"Generics"
-// dex:explanation text:"Instantiate a generic Step with a type from a dotted package directory."
-type versionedBox[T any] struct {
-	dex.StepDefaultsNoWaitFor[model.Input]
-}
-
-func (versionedBox[T]) Execute(_ dex.Context, _ model.Input) (*dex.StepDecision, error) {
+func (box[T]) Execute(_ dex.Context, _ model.Input) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(nil), nil
 }

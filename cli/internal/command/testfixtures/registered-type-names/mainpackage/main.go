@@ -22,7 +22,7 @@ func main() {
 	}{
 		{nodeID: "flow", name: dex.GetFinalFlowType(&OrderFlow{})},
 		{nodeID: "step:awaitOrder", name: dex.GetFinalStepType[orderInput](awaitOrder{})},
-		{nodeID: "step:shipOrder", name: dex.GetFinalStepType[orderInput](shipOrder[orderInput]{})},
+		{nodeID: "step:shipOrder", name: dex.GetFinalStepType[orderInput](shipOrder{})},
 	} {
 		fmt.Printf("DEX_REGISTERED_TYPE_NAME %s %s\n", registered.nodeID, registered.name)
 	}

@@ -107,20 +107,22 @@ Version 2.0 会通过 config 中 canonical Connector SDK marker 与生成的字�
 
 定义图使用 SDK 注册的 Flow type 和 Step type。Dex Web v2 用这些名称搜索 run、把 run history 对应到 Step，并启动 Flow。因此，除非 analyzer 报告下文列出的诊断，Go Flow 不需要 **GetFlowType** 或 **GetStepType** override 就能在 Dex Web v2 中使用。
 
-对于 Go，默认名称是去掉指针的 package-qualified type，例如 **threadapproval.Flow** 或 **threadapproval.initializeThread**。泛型类型参数按 Go reflection 的格式输出：参数使用完整 import path。该 path 最后一段中的点号显示为 **%2e**，例如 **gopkg.in/yaml%2ev3.Node**。**byte** 和 **any** 分别显示为 **uint8** 和 **interface \{\}**。在 package **main** 中声明的类型使用 **main** 作为 package，与 Worker 二进制中一致。对于 Python，默认名称是 class 名称。
+对于 Go，默认名称是去掉 package 和指针后的 Go type 名称。Flow type **ThreadApprovalFlow** 和 Step type **initializeThread** 都原样作为名称。对于 Python，默认名称是 class 名称。
 
-Dex 会拒绝包含 **/**、**$** 或 **:** 的 Step type。如果泛型 Step 的默认名称包含带斜杠的 import path，请声明 **GetStepType** override。
+请按业务领域命名每个 Flow type，例如 **ApprovalFlow** 或 **ReplyFlow**。不要把 Flow type 只命名为 **Flow**。名称不包含 package，因此同一个 Worker 注册的每个 Flow 都需要不同的 type 名称。Dex Web、run history 和 Flow 搜索都会原样显示这个名称。
 
-**GetFlowType** 或 **GetStepType** override 可以声明在 package 的任意文件中，也可以从嵌入类型提升而来，包括来自其他 package 的类型。Override 中的每条 return 语句都必须返回同一个 compile-time string。空字符串表示保留默认名称。**StepRef** target 指向注册的 Step type，而不是 Go type。
+泛型 Flow 或 Step type 没有默认名称。请声明返回非空名称的 **GetFlowType** 或 **GetStepType** override。
+
+**GetFlowType** 或 **GetStepType** override 可以声明在 package 的任意文件中，也可以从嵌入类型提升而来，包括来自其他 package 的类型。Override 中的每条 return 语句都必须返回同一个 compile-time string。空字符串表示保留默认名称。Dex 会拒绝包含 **/**、**$** 或 **:** 的 Step type。**StepRef** target 指向注册的 Step type，而不是 Go type。
 
 Analyzer 无法确定注册名称，或无法为每个 Step 生成独立节点时，会报告 blocking diagnostic：
 
 - **dynamic_type_name**：override 返回不同的字符串、返回的值不是 compile-time string，或名称来自嵌入的 interface。
 - **generic_flow_type_name**：泛型 Flow type 没有非空 override。
-- **unsupported_generic_type_name**：使用默认名称的 Step 含有无法静态确定 reflection 名称的类型参数，例如 struct、function、channel、非空 interface、type parameter 或函数内声明的类型。
+- **generic_step_type_name**：泛型 Step type 没有非空 override。
 - **duplicate_step_type**：两个注册使用同一个 Step type，或同一个 Go type 注册了多次。Step 节点以 Go type 为键，因此一个泛型 Step 只能用一个类型参数注册。
 
-保留默认名称的 Step 会在 **metadata.displayName** 中携带简短的 Go type，Dex Web v2 画布会显示为 **initializeThread**。节点 ID 仍使用 Go type，例如 **step:initializeThread**。
+节点 ID 使用 Go type，例如 **step:initializeThread**，即使 override 改变了 Step type 也是如此。
 
 ## Unknown 节点和诊断
 

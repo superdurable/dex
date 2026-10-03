@@ -12,18 +12,18 @@ import "github.com/superdurable/dex/sdk-go/dex"
 
 var prefersFirstFlowType = true
 
-type Flow struct {
+type DifferentReturnsFlow struct {
 	dex.FlowDefaults
 }
 
-func (*Flow) GetFlowType() string {
+func (*DifferentReturnsFlow) GetFlowType() string {
 	if prefersFirstFlowType {
 		return "FirstFlowType"
 	}
 	return "SecondFlowType"
 }
 
-func (*Flow) GetSteps() []dex.StepDef {
+func (*DifferentReturnsFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(finish{})}
 }
 

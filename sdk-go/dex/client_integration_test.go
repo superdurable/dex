@@ -353,8 +353,8 @@ func (service *clientTestFlowService) WaitForFlow(
 			ErrorType:    dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 			ErrorMessage: "worker failed",
 			Results: []*dexpb.StepCompletionOutput{{
-				CompletedStepType:        "dex.clientTestStep",
-				CompletedStepExecutionId: "dex.clientTestStep-1",
+				CompletedStepType:        "clientTestStep",
+				CompletedStepExecutionId: "clientTestStep-1",
 				CompletedStepOutput: &dexpb.Value{
 					Kind: &dexpb.Value_StringValue{StringValue: "partial"},
 				},
@@ -389,8 +389,8 @@ func (service *clientTestFlowService) WaitForFlow(
 	return &dexpb.FlowResult{
 		FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
 		Results: []*dexpb.StepCompletionOutput{{
-			CompletedStepType:        "dex.clientTestStep",
-			CompletedStepExecutionId: "dex.clientTestStep-1",
+			CompletedStepType:        "clientTestStep",
+			CompletedStepExecutionId: "clientTestStep-1",
 			CompletedStepOutput: &dexpb.Value{
 				Kind: &dexpb.Value_InternalBlobIdForStringValue{
 					InternalBlobIdForStringValue: "completion-blob",
@@ -422,7 +422,7 @@ func (service *clientTestFlowService) SearchFlows(
 		FlowRuns: []*dexpb.SearchFlowsResponseEntry{{
 			FlowId:     "order-1",
 			RunId:      "run-1",
-			FlowType:   "dex.clientTestFlow",
+			FlowType:   "clientTestFlow",
 			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
 			StartTime:  timestamppb.New(time.Unix(100, 0)),
 			IndexedAttributes: []*dexpb.KV{{
@@ -554,8 +554,8 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	require.Equal(t, "run-1", runID)
 	require.Equal(t, "business-order-1", service.startRequest.RequestId)
 	require.Equal(t, int32(0), service.startRequest.FlowTimeoutSeconds)
-	require.Equal(t, "dex.clientTestFlow", service.startRequest.FlowType)
-	require.Equal(t, "dex.clientTestStep", service.startRequest.StartStepType)
+	require.Equal(t, "clientTestFlow", service.startRequest.FlowType)
+	require.Equal(t, "clientTestStep", service.startRequest.StartStepType)
 	require.Equal(t, "worker.test:8803", service.startRequest.FlowStartOptions.FlowConfigOverride.WorkerTarget.Address)
 	require.True(t, service.startRequest.FlowStartOptions.Attributes[0].GetSyncConfig().GetEnabled())
 
@@ -609,7 +609,7 @@ func TestClientStreamTransportAndMetadata(t *testing.T) {
 	))
 	require.Len(t, service.writeStreamRequests, 3)
 	require.Equal(t, "order-1", service.writeStreamRequests[0].FlowId)
-	require.Equal(t, "dex.clientTestFlow", service.writeStreamRequests[0].FlowType)
+	require.Equal(t, "clientTestFlow", service.writeStreamRequests[0].FlowType)
 	require.Equal(t, "thinking", service.writeStreamRequests[0].StreamName)
 	require.Equal(t, int64(1<<20), service.writeStreamRequests[0].StreamCapacityBytes)
 	require.Equal(t, "client-1", service.writeStreamRequests[0].Source)
@@ -873,12 +873,12 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	require.True(t, service.resetRequest.GetSkipWritesReapply())
 	newRunID, err = client.TimeTravel(ctx, "order-1", TimeTravelOptions{
 		Type:            TimeTravelByStepExecutionID,
-		StepExecutionID: "dex.clientTestStep-1",
+		StepExecutionID: "clientTestStep-1",
 		StepMethod:      TimeTravelStepExecute,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "run-2", newRunID)
-	require.Equal(t, "dex.clientTestStep-1", service.resetRequest.GetStepExecutionId())
+	require.Equal(t, "clientTestStep-1", service.resetRequest.GetStepExecutionId())
 	require.Equal(
 		t,
 		dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE,
@@ -890,7 +890,7 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
 		TimerID{ConditionID: "timeout"},
 	))
-	require.Equal(t, "dex.clientTestStep-1", service.skipTimerRequest.StepExecutionId)
+	require.Equal(t, "clientTestStep-1", service.skipTimerRequest.StepExecutionId)
 
 	require.NoError(t, client.UpdateFlowConfig(ctx, "order-1", FlowConfig{
 		ContinueAsNewThreshold: ptr.Any(int32(100)),

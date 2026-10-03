@@ -10,11 +10,11 @@ package twoinstantiations
 
 import "github.com/superdurable/dex/sdk-go/dex"
 
-type Flow struct {
+type TwoInstantiationsFlow struct {
 	dex.FlowDefaults
 }
 
-func (*Flow) GetSteps() []dex.StepDef {
+func (*TwoInstantiationsFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(box[int]{}),
 		dex.DefineStep(box[string]{}),

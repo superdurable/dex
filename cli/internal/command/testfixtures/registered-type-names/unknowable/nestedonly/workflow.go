@@ -10,18 +10,18 @@ package nestedonly
 
 import "github.com/superdurable/dex/sdk-go/dex"
 
-type Flow struct {
+type NestedOnlyFlow struct {
 	dex.FlowDefaults
 }
 
-func (*Flow) GetFlowType() string {
+func (*NestedOnlyFlow) GetFlowType() string {
 	if true {
 		return "Nested"
 	}
 	return "TopLevel"
 }
 
-func (*Flow) GetSteps() []dex.StepDef {
+func (*NestedOnlyFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(finish{})}
 }
 

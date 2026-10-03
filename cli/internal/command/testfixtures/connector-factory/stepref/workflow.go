@@ -13,11 +13,11 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-type Flow struct {
+type StepRefFlow struct {
 	dex.FlowDefaults
 }
 
-func (*Flow) GetSteps() []dex.StepDef {
+func (*StepRefFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(begin{}),
 		dex.DefineStep(done{}),
@@ -29,7 +29,7 @@ type begin struct {
 }
 
 func (begin) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
-	return dex.GoTo(sdkgo.StepRef[string]("stepref.done"), input), nil
+	return dex.GoTo(sdkgo.StepRef[string]("done"), input), nil
 }
 
 type done struct {

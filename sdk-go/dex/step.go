@@ -25,8 +25,22 @@ type None = *none
 // Every Step implements StepSelector through GetStepType and GetStepOptions. This
 // non-generic view lets one cancellation request select Steps with different input types.
 type StepSelector interface {
-	// GetStepType overrides the default package-qualified Go type name.
+	// GetStepType overrides the default Go type name without its package.
 	// Embed DefaultStepType to use the default.
+	//
+	// The Step type is the durable identity of a Step within its Flow. Run
+	// history, Dex Web, and StepExecutionID use it as is. The default for
+	// *orders.shipOrder is "shipOrder". Step types must be unique within one
+	// Flow, and the package does not disambiguate them.
+	//
+	// Prefer the default name. Return a non-empty compile-time string only to
+	// keep an existing durable name after renaming the Go type, or to name a
+	// generic Step type, which has no default. Returning an empty string selects
+	// the default.
+	//
+	//	func (shipOrder) GetStepType() string {
+	//		return "ShipOrder"
+	//	}
 	GetStepType() string
 
 	// GetStepOptions returns immutable defaults applied whenever this Step is
@@ -161,7 +175,7 @@ type StepDef interface {
 //	}
 type NoWaitFor[IN any] struct{}
 
-// DefaultStepType uses the package-qualified Go type as the durable step type.
+// DefaultStepType uses the Go type name without its package as the durable step type.
 type DefaultStepType struct{}
 
 // DefaultStepOptions embeds GetStepOptions that returns nil (server defaults).
@@ -172,7 +186,7 @@ type DefaultStepType struct{}
 //		dex.DefaultStepOptions
 //	}
 type DefaultStepOptions struct {
-	// DefaultStepType supplies GetStepType using the package-qualified Go type.
+	// DefaultStepType supplies GetStepType using the Go type name without its package.
 	DefaultStepType
 }
 
@@ -214,7 +228,7 @@ func (DefaultStepOptions) GetStepOptions() *StepOptions {
 	return nil
 }
 
-// GetStepType returns empty so Registry derives the package-qualified Go type name.
+// GetStepType returns empty so Registry derives the Go type name without its package.
 func (DefaultStepType) GetStepType() string {
 	return ""
 }

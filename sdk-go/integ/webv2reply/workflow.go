@@ -32,7 +32,7 @@ type Input struct {
 	Thread string `json:"thread"`
 }
 
-type Flow struct {
+type ReplyFlow struct {
 	dex.FlowDefaults
 }
 
@@ -40,7 +40,7 @@ func StartStepType() string {
 	return dex.GetFinalStepType[Input](awaitDecision{})
 }
 
-func (*Flow) GetSteps() []dex.StepDef {
+func (*ReplyFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(awaitDecision{}),
 		dex.DefineStep(sendReply{}),
@@ -48,14 +48,14 @@ func (*Flow) GetSteps() []dex.StepDef {
 	}
 }
 
-func (*Flow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*ReplyFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{replyThread, replyStatus, replyDraft},
 		Channels:   []dex.ChannelDef{ReplyDecisions},
 	}
 }
 
-func (flow *Flow) GetRPCs() []dex.RPCDef {
+func (flow *ReplyFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.GetDexSummary, nil),
 		dex.DefineRPC(flow.GetDexDisplay, nil),
@@ -71,7 +71,7 @@ func (flow *Flow) GetRPCs() []dex.RPCDef {
 
 // dex:field attribute-key:reply-thread value-type:string editable:false description:"Thread" ui-slot:title
 // dex:field attribute-key:reply-status value-type:string editable:false description:"Reply status" ui-slot:status
-func (*Flow) GetDexSummary(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+func (*ReplyFlow) GetDexSummary(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
 	thread, err := optionalAttribute(ctx, replyThread)
 	if err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func (*Flow) GetDexSummary(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[stri
 
 // dex:field attribute-key:reply-thread value-type:string editable:false description:"Thread" ui-slot:title
 // dex:field attribute-key:reply-draft value-type:string editable:true description:"Reply draft"
-func (*Flow) GetDexDisplay(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+func (*ReplyFlow) GetDexDisplay(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
 	thread, err := optionalAttribute(ctx, replyThread)
 	if err != nil {
 		return nil, err
@@ -103,7 +103,7 @@ func (*Flow) GetDexDisplay(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[stri
 	}}, nil
 }
 
-func (*Flow) ApproveDecision(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
+func (*ReplyFlow) ApproveDecision(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
 	if err := ReplyDecisions.Publish(ctx, StatusReplySent); err != nil {
 		return nil, err
 	}

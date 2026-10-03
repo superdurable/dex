@@ -12,11 +12,11 @@ import "github.com/superdurable/dex/sdk-go/dex"
 
 var finishStepType = "VariableFinish"
 
-type Flow struct {
+type VariableReturnFlow struct {
 	dex.FlowDefaults
 }
 
-func (*Flow) GetSteps() []dex.StepDef {
+func (*VariableReturnFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(finish{})}
 }
 

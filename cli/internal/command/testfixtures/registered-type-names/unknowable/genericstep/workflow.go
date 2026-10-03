@@ -6,16 +6,16 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-package structtypeargument
+package genericstep
 
 import "github.com/superdurable/dex/sdk-go/dex"
 
-type Flow struct {
+type GenericStepFlow struct {
 	dex.FlowDefaults
 }
 
-func (*Flow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(box[struct{}]{})}
+func (*GenericStepFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(box[string]{})}
 }
 
 type box[T any] struct {

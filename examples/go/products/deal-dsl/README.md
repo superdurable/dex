@@ -111,7 +111,7 @@ runs it idempotently at startup.
 | `POST` | `/products/deal-dsl/api/executions/:flowID/channels/:conditionName` | Merge external condition data |
 
 The execution flow ID is `<processID>-<UUID>`. The start API initializes the
-buyer as an indexed attribute and waits for `dealdsl.initializeStep` to
+buyer as an indexed attribute and waits for the `InitializeDeal` Step to
 complete.
 
 ## Run and verify

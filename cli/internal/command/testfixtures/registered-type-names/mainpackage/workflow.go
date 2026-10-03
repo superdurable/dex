@@ -23,7 +23,7 @@ type OrderFlow struct {
 func (*OrderFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(awaitOrder{}),
-		dex.DefineStep(shipOrder[orderInput]{}),
+		dex.DefineStep(shipOrder{}),
 	}
 }
 
@@ -57,15 +57,15 @@ func (awaitOrder) WaitFor(_ dex.Context, _ orderInput) (*dex.Wait, error) {
 }
 
 func (awaitOrder) Execute(_ dex.Context, input orderInput) (*dex.StepDecision, error) {
-	return dex.GoTo(shipOrder[orderInput]{}, input), nil
+	return dex.GoTo(shipOrder{}, input), nil
 }
 
 // dex:group group-id:order group-label:"Order"
 // dex:explanation text:"Ship the order."
-type shipOrder[T any] struct {
+type shipOrder struct {
 	dex.StepDefaultsNoWaitFor[orderInput]
 }
 
-func (shipOrder[T]) Execute(_ dex.Context, _ orderInput) (*dex.StepDecision, error) {
+func (shipOrder) Execute(_ dex.Context, _ orderInput) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(nil), nil
 }

@@ -8,7 +8,7 @@
 
 package helpers
 
-const promotedStepTypePrefix = "helpers."
+const promotedStepTypePrefix = "Helpers"
 
 type PromotedStepType struct{}
 

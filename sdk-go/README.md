@@ -465,12 +465,16 @@ unfinished SubFlow.
 
 ## Registration
 
-Registration uses pointer-stripped package-qualified Go types by default:
-`*orders.OrderFlow` becomes `orders.OrderFlow`. Embed `FlowDefaults` in a
-Flow. Waiting steps embed `StepDefaults`; execute-only steps embed
-`StepDefaultsNoWaitFor[IN]`. Both include the default step type and options.
-Override `GetFlowType` or `GetStepType` only when an explicit durable identity
-is required. `dexcli visualize` and Dex Web v2 use these same registered names.
+Registration uses Go type names without package or pointer by default:
+`*orders.OrderFlow` becomes `OrderFlow`. Name each Flow type after its domain,
+such as `ApprovalFlow`, and never just `Flow`: the package does not
+disambiguate Flow types in one Registry, and Dex Web shows the name as is.
+Embed `FlowDefaults` in a Flow. Waiting steps embed `StepDefaults`;
+execute-only steps embed `StepDefaultsNoWaitFor[IN]`. Both include the default
+step type and options. Override `GetFlowType` or `GetStepType` only when an
+explicit durable identity is required. A generic Flow or Step type has no
+default name and must override it. `dexcli visualize` and Dex Web v2 use these
+same registered names.
 
 Registration is assembled once from each Flow's final durable type, steps,
 persistence schema, and exported RPC methods. It rejects empty or duplicate

@@ -10,11 +10,11 @@ package duplicatesteptype
 
 import "github.com/superdurable/dex/sdk-go/dex"
 
-type Flow struct {
+type DuplicateStepTypeFlow struct {
 	dex.FlowDefaults
 }
 
-func (*Flow) GetSteps() []dex.StepDef {
+func (*DuplicateStepTypeFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(first{}),
 		dex.DefineStep(second{}),

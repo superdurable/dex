@@ -16,7 +16,7 @@ describe('Flow Search Indexed Attribute columns', () => {
       {
         flowId: 'registration-1',
         runId: 'run-1',
-        flowType: 'process.RegistrationFlow',
+        flowType: 'RegistrationFlow',
         flowStatus: 'Running',
         flowStatusCode: 1,
         startTime: null,
@@ -28,7 +28,7 @@ describe('Flow Search Indexed Attribute columns', () => {
           { key: 'CadenceChangeVersion', value: ['change-1'] },
           { key: 'DexParentFlowID', value: 'parent-registration' },
           { key: 'DexWorkQueuePermissions', value: ['registration.resend-ticket'] },
-          { key: 'FlowType', value: 'process.RegistrationFlow' },
+          { key: 'FlowType', value: 'RegistrationFlow' },
           { key: 'TemporalChangeVersion', value: [] },
           { key: 'registration-state', value: 'payment_pending' },
           { key: 'customer-email', value: 'customer@example.com' },
@@ -37,7 +37,7 @@ describe('Flow Search Indexed Attribute columns', () => {
       {
         flowId: 'registration-2',
         runId: 'run-2',
-        flowType: 'process.RegistrationFlow',
+        flowType: 'RegistrationFlow',
         flowStatus: 'Completed',
         flowStatusCode: 2,
         startTime: null,

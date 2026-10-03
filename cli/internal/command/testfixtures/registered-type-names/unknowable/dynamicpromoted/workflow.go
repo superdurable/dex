@@ -13,11 +13,11 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-type Flow struct {
+type DynamicPromotedFlow struct {
 	dex.FlowDefaults
 }
 
-func (*Flow) GetSteps() []dex.StepDef {
+func (*DynamicPromotedFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(finish{RuntimeStepType: helper.RuntimeStepType{Name: "RuntimeFinish"}})}
 }
 

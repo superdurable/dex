@@ -463,7 +463,7 @@ export function decodeFlow(
       return {
         id: n.id,
         stepType: n.name,
-        label: typeof n.metadata?.displayName === 'string' ? n.metadata.displayName : n.name,
+        label: n.name,
         isStart: n.start === true || graph.flow.startStepId === n.id,
         actor: actorOf(waitFor),
         /**

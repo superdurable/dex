@@ -32,7 +32,7 @@ type Input struct {
 	Requester string `json:"requester"`
 }
 
-type Flow struct {
+type ApprovalFlow struct {
 	dex.FlowDefaults
 }
 
@@ -40,21 +40,21 @@ func StartStepType() string {
 	return dex.GetFinalStepType[Input](awaitDecision{})
 }
 
-func (*Flow) GetSteps() []dex.StepDef {
+func (*ApprovalFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(awaitDecision{}),
 		dex.DefineStep(recordApproval{}),
 	}
 }
 
-func (*Flow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*ApprovalFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{approvalRequester, approvalStatus, approvalNote},
 		Channels:   []dex.ChannelDef{ApprovalDecisions},
 	}
 }
 
-func (flow *Flow) GetRPCs() []dex.RPCDef {
+func (flow *ApprovalFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.GetDexSummary, nil),
 		dex.DefineRPC(flow.GetDexDisplay, nil),
@@ -70,7 +70,7 @@ func (flow *Flow) GetRPCs() []dex.RPCDef {
 
 // dex:field attribute-key:approval-requester value-type:string editable:false description:"Requester" ui-slot:title
 // dex:field attribute-key:approval-status value-type:string editable:false description:"Approval status" ui-slot:status
-func (*Flow) GetDexSummary(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+func (*ApprovalFlow) GetDexSummary(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
 	requester, err := optionalAttribute(ctx, approvalRequester)
 	if err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func (*Flow) GetDexSummary(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[stri
 // dex:field attribute-key:approval-requester value-type:string editable:false description:"Requester" ui-slot:title
 // dex:field attribute-key:approval-status value-type:string editable:false description:"Approval status" ui-slot:status
 // dex:field attribute-key:approval-note value-type:string editable:true description:"Approval note"
-func (*Flow) GetDexDisplay(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+func (*ApprovalFlow) GetDexDisplay(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
 	requester, err := optionalAttribute(ctx, approvalRequester)
 	if err != nil {
 		return nil, err
@@ -108,7 +108,7 @@ func (*Flow) GetDexDisplay(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[stri
 	}}, nil
 }
 
-func (*Flow) ApproveDecision(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
+func (*ApprovalFlow) ApproveDecision(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
 	if err := ApprovalDecisions.Publish(ctx, StatusApproved); err != nil {
 		return nil, err
 	}
