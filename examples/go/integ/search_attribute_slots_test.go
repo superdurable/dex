@@ -49,8 +49,8 @@ func TestSharedSearchAttributeSlotIsScopedByFlowType(t *testing.T) {
 	// Both Flow types write the same value to keyword1 in the same namespace.
 	// The FlowType predicate must separate their search results.
 	for _, scenario := range []struct{ flowType, flowID string }{
-		{"engagement.EngagementFlow", engagementID},
-		{"clientapis.ClientApisFlow", clientApisID},
+		{"EngagementFlow", engagementID},
+		{"ClientApisFlow", clientApisID},
 	} {
 		query := fmt.Sprintf("FlowType = '%s' AND keyword1 = '%s' AND WorkflowId IN ('%s', '%s')",
 			scenario.flowType, engagement.StatusInitiated, engagementID, clientApisID)

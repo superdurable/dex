@@ -185,10 +185,6 @@ func NewAgenticCustomerRefundFlow(
 	return &AgenticCustomerRefundFlow{service: service, openAIConnection: openAIConnection}
 }
 
-func (*AgenticCustomerRefundFlow) GetFlowType() string {
-	return "AgenticCustomerRefundFlow"
-}
-
 func (flow *AgenticCustomerRefundFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(agenticReceiveRequest{}),

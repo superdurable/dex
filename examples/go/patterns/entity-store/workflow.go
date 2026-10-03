@@ -67,10 +67,6 @@ func NewUserProfileFlow() *UserProfileFlow {
 	return &UserProfileFlow{}
 }
 
-func (*UserProfileFlow) GetFlowType() string {
-	return "UserProfileFlow"
-}
-
 func (*UserProfileFlow) GetSteps() []dex.StepDef {
 	return nil
 }

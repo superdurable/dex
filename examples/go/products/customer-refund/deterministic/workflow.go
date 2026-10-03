@@ -75,10 +75,6 @@ func NewCustomerRefundFlow(service refundmodel.Service) *CustomerRefundFlow {
 	return &CustomerRefundFlow{service: service}
 }
 
-func (*CustomerRefundFlow) GetFlowType() string {
-	return "CustomerRefundFlow"
-}
-
 func (flow *CustomerRefundFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(deterministicReceiveRequest{}),

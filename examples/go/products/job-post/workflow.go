@@ -194,10 +194,6 @@ type Init struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 }
 
-func (Init) GetStepType() string {
-	return "Init"
-}
-
 func (Init) Execute(
 	_ dex.Context,
 	_ dex.None,

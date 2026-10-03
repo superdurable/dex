@@ -77,10 +77,6 @@ func NewChunkedSubscriberFlow() *ChunkedSubscriberFlow {
 	return &ChunkedSubscriberFlow{}
 }
 
-func (*ChunkedSubscriberFlow) GetFlowType() string {
-	return "ChunkedSubscriberFlow"
-}
-
 func (*ChunkedSubscriberFlow) GetSteps() []dex.StepDef {
 	return nil
 }

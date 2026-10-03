@@ -57,10 +57,6 @@ func NewCustomerDirectoryFlow() *CustomerDirectoryFlow {
 	return &CustomerDirectoryFlow{}
 }
 
-func (*CustomerDirectoryFlow) GetFlowType() string {
-	return "CustomerDirectoryFlow"
-}
-
 func (*CustomerDirectoryFlow) GetSteps() []dex.StepDef {
 	return nil
 }

@@ -419,7 +419,7 @@ page = await app_state.client.search_flows(
 ```go
 page, err := controller.client.SearchFlows(
 	request.Request.Context(),
-	"FlowType = 'attribute.AttributeFlow' AND keyword1 = 'completed'",
+	"FlowType = 'AttributeFlow' AND keyword1 = 'completed'",
 	20,
 	"",
 )
