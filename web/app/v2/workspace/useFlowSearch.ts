@@ -8,11 +8,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
-import { readResponseJSON } from '@/lib/http';
+import { definitionRevisionHeaders, readResponseJSON } from '@/lib/http';
 import type { V2Flow, V2SearchResult } from '@/lib/types';
 import { absorb, nothingHeld, readFailureReason, type Liveness } from '../work-queue/liveness';
 import { useWebCatalog } from '../WebCatalogProvider';
-import { definitionRevisionHeaders, dexFetch } from '@/lib/webConfig';
 import { filterValueType, parseFilterValues, type FilterRow } from './filters';
 
 const EMPTY_WORK_QUEUE_PERMISSIONS: readonly string[] = [];
@@ -48,7 +47,7 @@ export function useFlowSearch(
     if (!flowType || !definition) return;
     setLoading(true);
     try {
-      const response = await dexFetch('/api/v2/search', {
+      const response = await fetch('/api/v2/search', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

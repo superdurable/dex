@@ -17,7 +17,6 @@ import {
 } from 'react';
 import { DexAPIError, readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog, V2Catalog } from '@/lib/types';
-import { dexFetch, workQueuePermissionMode, type WorkQueuePermissionMode } from '@/lib/webConfig';
 
 interface WebCatalogValue {
   ready: boolean;
@@ -26,7 +25,6 @@ interface WebCatalogValue {
   definitions: FlowDefinitionCatalog | null;
   error: string;
   definitionUpdateKey: number;
-  permissionMode: WorkQueuePermissionMode;
   handleDefinitionError: (error: unknown) => boolean;
 }
 
@@ -40,14 +38,13 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [definitionUpdateKey, setDefinitionUpdateKey] = useState(0);
   const [notice, setNotice] = useState('');
-  const permissionMode = workQueuePermissionMode();
 
   const loadCatalog = useCallback(async (signal?: AbortSignal) => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const [nextDefinitions, nextCatalog] = await Promise.all([
-        dexFetch('/api/flow-definitions', { signal })
+        fetch('/api/flow-definitions', { signal })
           .then((response) => readResponseJSON<FlowDefinitionCatalog>(response)),
-        dexFetch('/api/v2/catalog', { signal })
+        fetch('/api/v2/catalog', { signal })
           .then((response) => readResponseJSON<V2Catalog>(response))
           .then((value) => ({ ok: true as const, value }))
           .catch(() => ({
@@ -81,10 +78,10 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
   }, [loadCatalog]);
 
   const handleDefinitionError = useCallback((failedRequest: unknown) => {
-    if (!(failedRequest instanceof DexAPIError) || !['FLOW_DEFINITION_CHANGED', 'START_TARGET_CHANGED'].includes(failedRequest.code ?? '')) {
+    if (!(failedRequest instanceof DexAPIError) || failedRequest.code !== 'FLOW_DEFINITION_CHANGED') {
       return false;
     }
-    setNotice('Flow Definition or deployment updated. Review the refreshed target and confirm the operation again.');
+    setNotice('Flow Definition updated. Review the refreshed definition and confirm the operation again.');
     setDefinitionUpdateKey((current) => current + 1);
     void loadCatalog().catch((loadError: unknown) => {
       setError(loadError instanceof Error ? loadError.message : 'Dex Web catalog failed to reload');
@@ -99,7 +96,6 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
     definitions,
     error,
     definitionUpdateKey,
-    permissionMode,
     handleDefinitionError,
   }), [
     catalog,
@@ -108,7 +104,6 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
     error,
     handleDefinitionError,
     operatorAPIAvailable,
-    permissionMode,
     ready,
   ]);
 

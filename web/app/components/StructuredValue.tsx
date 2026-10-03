@@ -22,7 +22,6 @@ import {
 } from '@/lib/semantic';
 import { generatedSubFlowID } from '@/lib/subflows';
 import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
-import { webPath } from '@/lib/webConfig';
 import { usePreferences } from '@/app/providers';
 
 type Data = Record<string, unknown>;
@@ -166,7 +165,7 @@ function WaitingConditionStructured({
       {subFlows.map((subFlow, index) => (
         <a
           className="semantic-record sub-flow-record"
-          href={webPath(`/v1/flows/${encodeURIComponent(generatedSubFlowID(parentFlowId, stepExecutionId, index))}`)}
+          href={`/v1/flows/${encodeURIComponent(generatedSubFlowID(parentFlowId, stepExecutionId, index))}`}
           aria-label={`Open SubFlow ${generatedSubFlowID(parentFlowId, stepExecutionId, index)}`}
           key={`${parentFlowId}-${stepExecutionId}-${index}`}
         >

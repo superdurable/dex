@@ -17,7 +17,6 @@ import {
 } from '@/lib/query';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowExecution, SearchFlowsResult } from '@/lib/types';
-import { dexFetch } from '@/lib/webConfig';
 import { StatusBadge } from '../components/StatusBadge';
 import { usePreferences } from '../providers';
 
@@ -137,7 +136,7 @@ export function FlowSearchPage() {
     setLoading(true);
     setError('');
     try {
-      const response = await dexFetch('/api/flows/search', {
+      const response = await fetch('/api/flows/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

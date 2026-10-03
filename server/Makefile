@@ -214,15 +214,6 @@ temporalIntegTestsAgainstLocalDexDev: prepareIntegrationCoverage
 cadenceIntegTests: prepareIntegrationCoverage
 	$Q go test $(integrationCoverageFlags) -v ./integ -timeout 20m -temporal=false $(integrationCoverageArgs)
 
-# Requires an independently running project-scoped Dex Web and real AWS S3/KMS.
-.PHONY: projectConfigurationAWSIntegTests
-.PHONY: hostedStartIntegTests
-hostedStartIntegTests:
-	@cd ../web && GOWORK=off go test -race -tags=integration . -run '^TestHostedStartRealTemplateWorkerAndRecovery$$' -count=1 -v -timeout 5m
-
-projectConfigurationAWSIntegTests:
-	@cd ../web && GOWORK=off go test -race -tags=integration . -run '^TestProjectConfigurationAWSHTTPAndExactEnvironmentSnapshots$$' -count=1 -v -timeout 5m
-
 ci-web-api-temporal-test: prepareIntegrationCoverage
 	$Q go test $(integrationCoverageFlags) -v ./integ -timeout 5m -run '^TestWebAPITemporal$$' -search=false -cadence=false -dependencyWaitSeconds=60 -temporalHostPort=$(temporalHostPort) $(integrationCoverageArgs)
 
@@ -256,7 +247,7 @@ integTestsNoSearch: prepareIntegrationCoverage
 
 unitTests:
 	@GOWORK=off go test -v ./config $$(GOWORK=off go list ./service/... | grep -v ./service/common/blobstore)
-	@GOWORK=off go test -v ./service/common/blobstore -run '^(TestDeterministicBlobObjectID|TestBlobStoreRejectsReserved)'
+	@GOWORK=off go test -v ./service/common/blobstore -run '^TestDeterministicBlobObjectID'
 
 # Requires MySQL, PostgreSQL, Temporal, and Cadence in label-gated CI.
 attributeSyncIntegTests: prepareIntegrationCoverage

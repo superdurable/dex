@@ -43,8 +43,7 @@ page, provide a directory at startup:
 dexcli dev --flow-rendering-dir ./build/flow-definitions
 ```
 
-Without an `active-manifest`, Dex recursively scans JSON files on every
-definition-dependent request. Generate them with `dexcli visualize SOURCE
+Dex recursively scans JSON files on every definition-dependent request. Generate them with `dexcli visualize SOURCE
 --json --out ./build/flow-definitions/name`; changes become visible without a
 Dex Web restart. Invalid JSON, unsupported schema versions, and source read
 failures return a typed 503 and make `/readyz` fail.
@@ -69,8 +68,7 @@ Rendering but does not appear as a **v2** Flow type.
 ### Start Flow
 
 The v2 Run workspace shows **Start Flow** when the selected definition contains
-a `v2.start` schema and `web.workQueuePermissionMode` is `local-selector`. The
-dialog asks for a Flow ID, a plaintext Worker gRPC address, and the generated
+a `v2.start` schema. The dialog asks for a Flow ID, a plaintext Worker gRPC address, and the generated
 start input. It recursively renders objects, arrays, string-key maps, enums,
 booleans, datetime values, optional fields, and nullable fields. Integer input
 stays as decimal text until the request is serialized, so int64 values do not
@@ -104,11 +102,9 @@ web:
 The equivalent environment variable is
 `DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS`. The default is false and the value
 is immutable after startup. Set it to true when the entered Worker addresses
-are Kubernetes headless Service targets. In `trusted-header` mode, Start Flow requires the authenticated embedding
-metadata described below; browsers cannot select Worker targets.
+are Kubernetes headless Service targets.
 
-The v2 Work Queue is available at `/v2/work-queue`. In the default
-`local-selector` mode, its **Working as** control
+The v2 Work Queue is available at `/v2/work-queue`. Its **Working as** control
 selects one Action permission and filters on the Server-maintained
 `DexWorkQueuePermissions` Search Attribute. The Worker submits the complete
 Action permission mapping only when an invocation writes an Action condition
@@ -118,27 +114,7 @@ and atomically adds newly matching permissions to the projection. Once added,
 a permission remains searchable for that Flow execution. `POST
 /api/v2/search` also accepts several `workQueuePermissions`; they are matched
 with OR, then combined with the Flow type and other filters using AND. This
-selector is a local development boundary. In hosted deployments,
-`trusted-header` hides the selector, ignores request-body permissions, and
-authorizes Search and Actions only from
-`X-Dex-Work-Queue-Permissions`. A trusted reverse proxy must strip any
-client-supplied value before injecting its own. Port 8802 must not be reachable
-around that proxy.
-Dex does not expose an `/api/v2/access` endpoint; hosted identity and role
-resolution stay in the reverse proxy and hosting control plane.
-
-Hosted Start Flow requires the private trusted proxy to inject `flows.start`,
-the authenticated actor, a fixed Worker target and an instance-bound target
-revision. The form shows only FDG business inputs and creates stable Flow and
-operation IDs. A lost response is reconciled against that original identity
-through `/api/v2/start/recover`. See the English and Chinese Dex Web production
-documentation for the complete header, CSRF, schema and recovery contract.
-
-Official embedding releases are reproducible source archives. Run
-`python3 script/release/package_embedded_web.py dex-web-v2 0.3.0 --output /tmp/dex-packages`
-and the corresponding `flow-definition-renderer 0.2.0` command to reproduce
-the tagged artifacts. Start Flow sources, types and CSS are part of the
-import closure; aliases become package-relative imports during packaging.
+selector does not grant authorization.
 
 The local v2 Connectors page is available at `/v2/connectors` when Dex Web
 runs through loopback-bound `dexcli dev` with a local Flow Definition source.
@@ -147,15 +123,14 @@ The page uses the Run and Work Queue layout: a resizable
 sidebar lists the named connections, and the selected one's setup fills the
 main panel. The **Local store** zone at the bottom of the main panel shows the
 store directory, the file names inside it, and the launch command, with
-**Copy** buttons that copy the absolute values. In project mode the zone shows the configuration status and
-revisions instead. The page follows the Dex Web theme.
+**Copy** buttons that copy the absolute values. The page follows the Dex Web theme.
 
 The page groups Connector Steps by Connector ID and static connection name,
 resolves the exact official Connector release declared by the graph, verifies
 release and Studio UI checksums, and loads UI bundles in opaque-origin sandbox
 iframes. Each connection view in `GET /api/v2/connector-connections` carries
 `displayName`, the release manifest's `metadata.displayName`, from a local
-override or a verified official release in local and project mode. Verified
+override or a verified official release. Verified
 release metadata is cached in memory for the process, and the list waits at
 most five seconds for uncached metadata. Without release metadata the field is
 omitted, and the page names the Connector by its ID. The connection name is
@@ -409,178 +384,13 @@ type, and Step type. Writes accept only JSON Pointer paths declared by the
 Flow definition. Applications load both files as a startup snapshot through
 the Connector SDK; changing configuration requires an application restart.
 
-### Project Connectors
+## Definition revisions
 
-Project mode owns configuration and OAuth in the project's Dex Server/Web.
-The native Connectors page works from an exact AppManifest before any application
-Release or Flow Definition exists. Runs and Flow operations retain their real
-Flow Definition admission checks. The same precompiled server image interprets
-checksum-verified connector manifests without connector-specific Go imports.
-
-```yaml
-web:
-  workQueuePermissionMode: trusted-header
-  trustForwardedEmbeddingHeaders: true
-  connectorSetupEnabled: true
-  connectorSetupMode: project
-  connectorCacheDirectory: /var/cache/dex/connectors
-  projectConfiguration:
-    storageId: p0
-    prefix: sv2-test
-    projectId: a7k2
-    scopeKind: live
-    sessionId: ""
-    kmsKeyId: arn:aws:kms:REGION:ACCOUNT:key/KEY
-    allowUnencrypted: false
-```
-
-Supply `DEX_WEB_PROJECT_CONFIGURATION_ADMIN_TOKEN` through the workload secret
-environment. Project and Preview Session identities are immutable startup
-configuration. The trusted proxy supplies the authenticated `X-Dex-Actor-ID`,
-public origin, mount path, and CSRF metadata. It must block the internal
-AppManifest write and validation endpoints from browser routing.
-
-Dex and application replicas use the same Go `sdkgo/projectconfig` package for
-conditional, versioned storage. Immutable ordinary configuration contains logical
-connection identities; private credentials remain in separately versioned objects.
-Credential refresh and replacement take effect on the next Connector call.
-Ordinary configuration changes require a new validated snapshot and deployment.
-OAuth dispatch is admitted before the provider call and cannot replay after an
-uncertain response or process restart.
-
-See [Project configuration protocol](./PROJECT_CONFIGURATION.md) for the HTTP
-contract, authority, retention, recovery, and integration commands. The new SDK
-package and trigger schemas require published dependency releases before this
-feature can be shipped as a standalone Dex image.
-
-## Trusted reverse-proxy mounts
-
-Dex Web can be mounted at a request-specific path below an authenticated host
-application. Enable this only when port 8802 is reachable exclusively from the
-trusted reverse proxy:
-
-```yaml
-web:
-  trustForwardedEmbeddingHeaders: true
-```
-
-The equivalent environment variable is
-`DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS=true`. The default is false. When it
-is false, Dex rejects requests containing any forwarded embedding header.
-
-The proxy strips client-supplied values, removes its public mount prefix before
-forwarding, and injects exactly one value for each required header:
+Environment variables override YAML:
 
 ```text
-X-Forwarded-Prefix: /apps/project-1/dex
-X-Forwarded-Proto: https
-X-Forwarded-Host: studio.example.com
-X-Dex-Web-Embedded: true
-X-Dex-Web-CSRF-Token: host-generated-token
-```
-
-`X-Forwarded-Prefix` is the browser-visible absolute path. It is `/` or a
-canonical path without a trailing slash, query, fragment, authority, dot
-segment, or encoded path separator. `X-Forwarded-Proto` and `X-Forwarded-Host`
-are optional as a pair and identify the browser-visible origin. Dex uses that
-origin and the forwarded prefix for OAuth redirect URIs. The protocol must be
-`http` or `https`, and the host must contain no user information or path.
-`X-Dex-Web-Embedded` accepts only `true` or `false`. The CSRF bootstrap token is
-optional to Dex, but hosted deployments should provide a non-empty,
-visible-ASCII value.
-
-Embedded `trusted-header` Action and Display-edit mutations require exactly one
-non-empty trusted `X-Dex-Web-CSRF-Token` and one matching browser `X-CSRF-Token`.
-Missing, duplicated browser tokens or mismatches return
-`403 WEB_MUTATION_CSRF_INVALID` before any Flow read or write. Malformed trusted
-context, including duplicate context headers, is rejected earlier with `400`.
-The trusted proxy must strip the browser's trusted context header and inject its
-own authenticated session token.
-
-Project embedding can supply `X-Dex-Connector-OAuth-Redirect-URI` to use one
-authenticated host callback across Project and Preview mounts. Its only accepted
-value is the canonical forwarded origin plus `/api/connector-oauth/callback`.
-This requires project Connector mode, trusted-header permissions, embedded mode,
-a non-empty CSRF context and authenticated `X-Dex-Actor-ID`. Untrusted or standalone
-requests cannot select an override. The host must strip browser-supplied headers,
-authenticate and bind callback routing to actor, original state and exact project
-scope, then proxy the original callback query to `/api/v2/connector-oauth/callback`.
-Dex stores the exact redirect URI in its durable OAuth seed and verifies it even
-on completed retries. State, PKCE, admission, credentials and uncertain exchange
-recovery remain owned by Dex. Without an override, native redirect construction
-is unchanged. Real-provider browser validation is required before publication.
-
-Dex injects the request-specific base path and presentation mode into the SPA.
-The router, assets, navigation links, API calls, and recovery requests use that
-path without sharing state between simultaneous mounts. OAuth completion
-returns to that same mount instead of the internal proxy target. Embedded pages remove
-redundant product chrome and allow same-origin framing. Standalone pages deny
-framing. HTML is served with `Cache-Control: no-store` and varies on all three
-presentation headers plus the public-origin pair.
-
-For every browser method other than GET, HEAD, or OPTIONS, the SPA copies the
-bootstrap token to `X-CSRF-Token`. The host proxy must validate that browser
-header against the authenticated session before forwarding the request, then
-strip it. Dex transports the token for the host boundary; it does not implement
-host authentication, session management, or CSRF validation.
-
-## Dynamic definition bundles
-
-Local and blobstore sources support atomic bundles:
-
-```text
-<root>/
-  active-manifest
-  releases/<release-id>/**/*.json
-```
-
-`active-manifest` uses this strict schema:
-
-```json
-{
-  "schemaVersion": "1.0",
-  "releaseId": "550e8400-e29b-41d4-a716-446655440000",
-  "bundlePrefix": "_superverse/dex-web/flow-definitions/releases/550e8400-e29b-41d4-a716-446655440000/",
-  "bundleDigest": "sha256:<64 lowercase hex characters>",
-  "definitionCount": 2
-}
-```
-
-For a local source, `bundlePrefix` is
-`releases/<release-id>/`. For blobstore it includes the configured root prefix as in
-the example. Release directories are immutable: upload and verify every JSON
-object before replacing `active-manifest`. Dex validates the UUID, exact
-prefix, file count, every FDG, and the digest before installing a snapshot.
-
-The digest input is the JSON files sorted by slash-separated relative path.
-Each path and exact payload is framed as an unsigned 64-bit big-endian byte
-length followed by those bytes; SHA-256 is computed over the concatenated
-frames and encoded as lowercase `sha256:<hex>`.
-
-A blobstore source reuses one existing S3 `blobStore.supportedStorages` entry:
-
-```yaml
-web:
-  flowRenderingSource: blobstore
-  flowRenderingBlobStore:
-    storageId: p0
-    prefix: _superverse/dex-web/flow-definitions
-  workQueuePermissionMode: trusted-header
-```
-
-It conditionally reads the manifest by ETag on every definition-dependent
-request and reuses only an unchanged, already validated snapshot. A changed,
-incomplete, or invalid release returns 503 instead of serving the previous
-catalog as current. Environment variables override YAML:
-
-```text
-DEX_WEB_FLOW_RENDERING_SOURCE
 DEX_WEB_FLOW_RENDERING_DIRECTORY
-DEX_WEB_FLOW_RENDERING_STORAGE_ID
-DEX_WEB_FLOW_RENDERING_PREFIX
-DEX_WEB_WORK_QUEUE_PERMISSION_MODE
 DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS
-DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS
 ```
 
 `GET /api/flow-definitions` and `GET /api/v2/catalog` return the active revision
@@ -606,9 +416,7 @@ Set `web.flowServiceTarget` in the mounted server YAML to the API service
 address. Web starts even when that upstream is unavailable. `/healthz` reports
 process liveness. `/readyz` validates the current definition snapshot and a
 FlowService search, returning `definitionRevision`, source, and definition
-count; `/api/*` returns an upstream error until FlowService is available. In project
-configuration mode, `/readyz` checks versioned configuration storage independently
-of an absent application FDG; Runs still requires its real FDG and FlowService.
+count; `/api/*` returns an upstream error until FlowService is available.
 
 To populate Web with a 90-execution Flow containing serial, fan-out, and fan-in
 sections, run the [Large Step Graph demo](./demo/large-step-graph).
@@ -761,47 +569,8 @@ Selected event Context uses the same failure view with the stack collapsed.
 [Sustainable Use License 1.0](LICENSE), with legacy portions under their
 original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
 
-### Reviewed local connector artifacts
+## Cleanup verification
 
-Project mode normally accepts only checksum-verified official connector releases. An isolated Local Kind process may explicitly set `DEX_LOCAL_KIND=true` and `DEX_LOCAL_CONNECTOR_ARTIFACTS=/absolute/image-owned/authority.json`; server configuration additionally requires project mode and explicitly unencrypted local project storage. This does not enable a provider fixture or change provider endpoints. Never set either variable in hosted deployment manifests.
-
-The descriptor has schema `connectors.dex.dev/local-artifacts/v1` and an `artifacts` array. Each entry contains `connectorId`, `modulePath`, absolute `directory`, the real published `baselineVersion`, `sourceCommit`, `sourceTreeDigest` and `artifactDigest` (`sha256:<hex>`). The existing local artifact loader verifies `connector-release.json`, its checksum file and optional UI bundle. Project admission additionally verifies the descriptor's exact artifact digest, module, baseline and source commit. Official downloads cannot declare local provenance; a descriptor never invents a published version.
-
-Connections display local source and artifact identities. Configuration writes stamp a safe `localArtifact` pin from startup authority, never from browser input. Validation refuses an old configuration if that pin changed. The exact immutable configuration snapshot retains the pin. The application SDK separately requires the same image-owned authority and explicit local storage before accepting it; hosted applications reject it. This lets a reviewed unpublished connector schema be exercised with real providers without silently substituting a published artifact.
-
-Source manifests and artifact generation receipts must accompany every local image. Compilation and artifact checksum validation do not establish real Stripe, Gmail, OAuth or application E2E acceptance.
-
-
-### Hosted Start real-dependency validation
-
-`make -C server hostedStartIntegTests` calls a running Dex Server/Web and the
-unchanged formal Basic Process template v1.8.0 Worker. It verifies duplicate
-start admission, same-operation recovery, changed operation identity, stale
-Definition/target revisions, missing permissions, CSRF and browser Worker
-selection rejection. Native Web display reads invoke the actual Worker view RPC;
-its declared approval Action checks permission, CSRF and Definition revision before
-invoking the real Worker. The test waits for durable completion and engine closure.
-No Worker or backend API is replaced by a fixture.
-
-Supply the service URL through `DEX_PROJECT_CONFIG_TEST_URL`, its actual Worker target
-through `DEX_HOSTED_START_TEST_WORKER_TARGET`, and the fixed 64-character target
-revision through `DEX_HOSTED_START_TEST_TARGET_REVISION`. The test operator also
-supplies `DEX_PROJECT_CONFIG_TEST_PROJECT_ID` as the trusted CSRF context.
-Persist `DEX_HOSTED_START_TEST_FLOW_ID` and `DEX_HOSTED_START_TEST_REQUEST_ID`
-before the first invocation. On an application failure, inspect that Flow with
-dexcli and reconcile external effects before time travel; keep these identities.
-This direct trusted-service scenario does not assert the consuming platform's
-BFF authentication or AWS application deployment acceptance.
-
-The formal template's standalone REST API requires `process-<UUID>` identifiers;
-it rejects Web's generated `flow-<UUID>` identifiers before calling its service.
-Hosted Web verifies its own native display and Action path for the original FlowID.
-The unchanged template REST path is not acceptance evidence for that identity.
-
-The embedding packager requires committed source before writing release provenance.
-It reads dependency versions from the Web and renderer source manifests. Its renderer peer is the exact declared stable version; runtime
-dependencies, including QR scanning packages, remain ordinary package dependencies.
-An embedding host may provide the used `react-router-dom` API through its framework
-adapter. The router peer accepts that adapter's version; installation and compilation
-against the actual host still require verification. Source reproducibility alone
-does not establish consumer compatibility or hosted business acceptance.
+See the [2026-10-03 cleanup verification receipt](./CLEANUP_VERIFICATION.md) for
+observed regression, real dependency and isolated Local Kind results and their
+remaining provider validation limits.

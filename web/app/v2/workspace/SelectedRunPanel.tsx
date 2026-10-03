@@ -14,7 +14,7 @@ import type {
   V2ValueType,
 } from '@superdurable/flow-definition-renderer';
 import { displayValue } from '@/lib/format';
-import { readResponseJSON } from '@/lib/http';
+import { definitionRevisionHeaders, readResponseJSON } from '@/lib/http';
 import type { V2Display } from '@/lib/types';
 import { parseTypedValue, v2ActionUserFields, v2ActionUserInput, visibleV2Actions } from '../contract';
 import { WORK_QUEUE_COPY } from '../work-queue/copy';
@@ -22,7 +22,6 @@ import { absorb, classifyReadFailure, nothingHeld, readFailureReason } from '../
 import { RUN_COPY } from '../run/copy';
 import { leadFields } from './uiSlots';
 import { useWebCatalog } from '../WebCatalogProvider';
-import { definitionRevisionHeaders, dexFetch } from '@/lib/webConfig';
 import { QRCodeScannerDialog } from './QRCodeScannerDialog';
 
 interface ActiveQRScanner {
@@ -65,7 +64,7 @@ export function SelectedRunPanel({
   onStranded?: (flowID: string) => void;
   workQueuePermissions?: readonly string[];
 }) {
-  const { catalog, definitionUpdateKey, handleDefinitionError, permissionMode } = useWebCatalog();
+  const { catalog, definitionUpdateKey, handleDefinitionError } = useWebCatalog();
   const [held, setHeld] = useState(() => nothingHeld<V2Display>());
   /** A write that failed is not a stale read, so it does not touch held. */
   const [actionError, setActionError] = useState('');
@@ -79,7 +78,7 @@ export function SelectedRunPanel({
   const loadDisplay = useCallback(async () => {
     try {
       const query = new URLSearchParams({ flowType, flowId });
-      const response = await dexFetch(`/api/v2/display?${query}`, {
+      const response = await fetch(`/api/v2/display?${query}`, {
         headers: definitionRevisionHeaders(catalog?.definitionRevision ?? ''),
       });
       const display = await readResponseJSON<V2Display>(response);
@@ -114,7 +113,7 @@ export function SelectedRunPanel({
     setActionError('');
     setFieldErrors((current) => ({ ...current, [attributeKey]: '' }));
     try {
-      const response = await dexFetch('/api/v2/display', {
+      const response = await fetch('/api/v2/display', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -144,7 +143,7 @@ export function SelectedRunPanel({
     setActionError('');
     try {
       const input = v2ActionUserInput(action, actionValues[action.rpcName] ?? {});
-      const response = await dexFetch('/api/v2/actions', {
+      const response = await fetch('/api/v2/actions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -238,7 +237,7 @@ export function SelectedRunPanel({
           <div className="sc-block">
             <div className="sc-blockhead">{RUN_COPY.actions}</div>
             {visibleV2Actions(definition.actions, result.eligibleActions)
-              .filter((action) => permissionMode === 'trusted-header' || workQueuePermissions.includes(action.requiredPermission))
+              .filter((action) => workQueuePermissions.includes(action.requiredPermission))
               .map((action) => {
               const userFields = v2ActionUserFields(action);
               return (

@@ -488,7 +488,7 @@ func TestConnectorUseConfigurationAPIWritesFlowStepScopedSidecar(t *testing.T) {
 	if err := json.Unmarshal(configurations[0].Configuration["message"], &message); err != nil || message["text"] != "Done" {
 		t.Fatalf("message = %+v, err = %v", message, err)
 	}
-	contents, err := os.ReadFile(setup.store.(*connectorConnectionStore).useConfigurationsPath)
+	contents, err := os.ReadFile(setup.store.useConfigurationsPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +516,7 @@ func TestConnectorUseConfigurationAPIWritesFlowStepScopedSidecar(t *testing.T) {
 	}
 }
 
-func TestConnectorSetupRejectsNonLoopbackAndBlobStore(t *testing.T) {
+func TestConnectorSetupRejectsNonLoopback(t *testing.T) {
 	provider := connectorTestDefinitionProvider(t, nil)
 	_, err := newConnectorSetup(&Config{
 		BindAddress: "0.0.0.0", ConnectorSetupEnabled: true, ConnectorConfigDirectory: t.TempDir(),
@@ -524,13 +524,7 @@ func TestConnectorSetupRejectsNonLoopbackAndBlobStore(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected non-loopback Connector setup to fail")
 	}
-	_, err = newConnectorSetup(&Config{
-		BindAddress: "127.0.0.1", ConnectorSetupEnabled: true,
-		ConnectorConfigDirectory: t.TempDir(), FlowRenderingSource: FlowRenderingSourceBlobStore,
-	}, provider)
-	if err == nil {
-		t.Fatal("expected blobstore Connector setup to fail")
-	}
+
 }
 
 func TestConnectorConnectionViewsUseLocalReleaseOverrideForWorkspaceFlow(t *testing.T) {

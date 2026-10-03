@@ -324,64 +324,16 @@ type (
 	}
 
 	WebConfig struct {
-		// LocalKind is an explicit process-only development boundary, never enabled by configuration YAML.
-		LocalKind bool `yaml:"-"`
-		// LocalConnectorAuthority names immutable reviewed artifact metadata inside the local image.
-		LocalConnectorAuthority string `yaml:"-"`
 		// BindAddress is the Dex Web HTTP bind address. Default 0.0.0.0. Immutable after startup.
 		BindAddress string `yaml:"bindAddress"`
 		// Port is the Dex Web HTTP bind port. Default 8802. Immutable after startup.
 		Port int `yaml:"port"`
 		// FlowServiceTarget is the plaintext FlowService gRPC target. Default localhost:<api.port>. Immutable after startup.
 		FlowServiceTarget string `yaml:"flowServiceTarget"`
-		// FlowRenderingSource selects local or blobstore. Default local. Immutable after startup.
-		FlowRenderingSource string `yaml:"flowRenderingSource"`
 		// FlowRenderingDirectory supplies Flow Definition Graph JSON files. Default empty disables definitions. Immutable after startup.
 		FlowRenderingDirectory string `yaml:"flowRenderingDirectory"`
-		// FlowRenderingBlobStore selects an existing blob storage and immutable-bundle root. Nil unless source is blobstore.
-		FlowRenderingBlobStore *WebFlowRenderingBlobStoreConfig `yaml:"flowRenderingBlobStore"`
-		// WorkQueuePermissionMode selects local-selector or trusted-header. Default local-selector. Immutable after startup.
-		WorkQueuePermissionMode string `yaml:"workQueuePermissionMode"`
 		// StartFlowWorkerTargetHeadless applies headless routing to every Flow started from Dex Web. Default false. Immutable after startup.
 		IsStartFlowWorkerTargetHeadless bool `yaml:"startFlowWorkerTargetHeadless"`
-		// TrustForwardedEmbeddingHeaders accepts trusted proxy embedding metadata. Default false. Immutable after startup.
-		TrustForwardedEmbeddingHeaders bool `yaml:"trustForwardedEmbeddingHeaders"`
-		// ConnectorSetupEnabled enables the Connections configuration surface. Default false. Immutable after startup.
-		ConnectorSetupEnabled bool `yaml:"connectorSetupEnabled"`
-		// ConnectorSetupMode selects local or project persistence. Default local. Immutable after startup.
-		ConnectorSetupMode string `yaml:"connectorSetupMode"`
-		// ConnectorConfigDirectory stores local configuration and release artifacts. Required by local setup.
-		ConnectorConfigDirectory string `yaml:"connectorConfigDirectory"`
-		// ConnectorCacheDirectory stores verified release artifacts without configuration. Default empty; required by project setup.
-		ConnectorCacheDirectory string `yaml:"connectorCacheDirectory"`
-		// ProjectConfiguration fixes an isolated project configuration store. Default nil; required in project setup mode.
-		ProjectConfiguration *WebProjectConfigurationConfig `yaml:"projectConfiguration"`
-	}
-
-	WebProjectConfigurationConfig struct {
-		// StorageID references an S3 blobStore.supportedStorages entry. Default empty; required and immutable after startup.
-		StorageID string `yaml:"storageId"`
-		// Prefix is the object storage root before project and scope segments. Default empty; immutable after startup.
-		Prefix string `yaml:"prefix"`
-		// ProjectID fixes the project authorized for this Dex instance. Default empty; required and immutable after startup.
-		ProjectID string `yaml:"projectId"`
-		// ScopeKind selects live or preview configuration. Default empty; required and immutable after startup.
-		ScopeKind string `yaml:"scopeKind"`
-		// SessionID isolates a preview session. Default empty; required for preview and forbidden for live.
-		SessionID string `yaml:"sessionId"`
-		// KMSKeyID requires this exact KMS key for project objects. Default empty; required unless AllowUnencrypted is true.
-		KMSKeyID string `yaml:"kmsKeyId"`
-		// AllowUnencrypted permits isolated local fixtures without KMS. Default false; never enable for hosted credentials.
-		AllowUnencrypted bool `yaml:"allowUnencrypted"`
-		// AdminToken admits internal manifest and validation calls. Default empty; read only from DEX_WEB_PROJECT_CONFIGURATION_ADMIN_TOKEN.
-		AdminToken string `yaml:"-"`
-	}
-
-	WebFlowRenderingBlobStoreConfig struct {
-		// StorageID references blobStore.supportedStorages. Required for the blobstore source. Immutable after startup.
-		StorageID string `yaml:"storageId"`
-		// Prefix is the fixed object root containing active-manifest and releases. Required for the blobstore source.
-		Prefix string `yaml:"prefix"`
 	}
 
 	WorkerConfig struct {
@@ -539,12 +491,6 @@ func NewConfig(configPath string) (*Config, error) {
 	if err := applyWebEnvironment(cfg); err != nil {
 		return nil, err
 	}
-	if err := cfg.validateWeb(); err != nil {
-		return nil, err
-	}
-	if cfg.Interpreter.Temporal != nil && cfg.Interpreter.Temporal.Namespace == "_superverse" {
-		return nil, fmt.Errorf("Temporal namespace _superverse is reserved for hosted objects")
-	}
 	if cfg.Interpreter.Temporal != nil && cfg.Interpreter.Temporal.CloudOps != nil {
 		cloudOps := cfg.Interpreter.Temporal.CloudOps
 		if strings.TrimSpace(cfg.Interpreter.Temporal.CloudAPIKey) == "" {
@@ -557,9 +503,6 @@ func NewConfig(configPath string) (*Config, error) {
 			return nil, fmt.Errorf("interpreter.temporal.cloudOps.apiVersion must be a version such as v0.19.1")
 		}
 	}
-	if cfg.Interpreter.Cadence != nil && cfg.Interpreter.Cadence.Domain == "_superverse" {
-		return nil, fmt.Errorf("Cadence domain _superverse is reserved for hosted objects")
-	}
 	if err := cfg.validateRetryPolicies(); err != nil {
 		return nil, err
 	}
@@ -571,27 +514,8 @@ func NewConfig(configPath string) (*Config, error) {
 }
 
 func applyWebEnvironment(cfg *Config) error {
-	if value, ok := os.LookupEnv("DEX_WEB_FLOW_RENDERING_SOURCE"); ok {
-		cfg.Web.FlowRenderingSource = value
-	}
 	if value, ok := os.LookupEnv("DEX_WEB_FLOW_RENDERING_DIRECTORY"); ok {
 		cfg.Web.FlowRenderingDirectory = value
-	}
-	storageID, hasStorageID := os.LookupEnv("DEX_WEB_FLOW_RENDERING_STORAGE_ID")
-	prefix, hasPrefix := os.LookupEnv("DEX_WEB_FLOW_RENDERING_PREFIX")
-	if hasStorageID || hasPrefix {
-		if cfg.Web.FlowRenderingBlobStore == nil {
-			cfg.Web.FlowRenderingBlobStore = &WebFlowRenderingBlobStoreConfig{}
-		}
-		if hasStorageID {
-			cfg.Web.FlowRenderingBlobStore.StorageID = storageID
-		}
-		if hasPrefix {
-			cfg.Web.FlowRenderingBlobStore.Prefix = prefix
-		}
-	}
-	if value, ok := os.LookupEnv("DEX_WEB_WORK_QUEUE_PERMISSION_MODE"); ok {
-		cfg.Web.WorkQueuePermissionMode = value
 	}
 	if value, ok := os.LookupEnv("DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS"); ok {
 		parsed, err := strconv.ParseBool(value)
@@ -599,101 +523,6 @@ func applyWebEnvironment(cfg *Config) error {
 			return fmt.Errorf("DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS must be a boolean: %w", err)
 		}
 		cfg.Web.IsStartFlowWorkerTargetHeadless = parsed
-	}
-	if value, ok := os.LookupEnv("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS"); ok {
-		parsed, err := strconv.ParseBool(value)
-		if err != nil {
-			return fmt.Errorf("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS must be a boolean: %w", err)
-		}
-		cfg.Web.TrustForwardedEmbeddingHeaders = parsed
-	}
-	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_SETUP_ENABLED"); ok {
-		parsed, err := strconv.ParseBool(value)
-		if err != nil {
-			return fmt.Errorf("DEX_WEB_CONNECTOR_SETUP_ENABLED must be a boolean: %w", err)
-		}
-		cfg.Web.ConnectorSetupEnabled = parsed
-	}
-	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_SETUP_MODE"); ok {
-		cfg.Web.ConnectorSetupMode = value
-	}
-	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_CONFIG_DIRECTORY"); ok {
-		cfg.Web.ConnectorConfigDirectory = value
-	}
-	if value, ok := os.LookupEnv("DEX_WEB_CONNECTOR_CACHE_DIRECTORY"); ok {
-		cfg.Web.ConnectorCacheDirectory = value
-	}
-	if value, ok := os.LookupEnv("DEX_LOCAL_KIND"); ok {
-		parsed, err := strconv.ParseBool(value)
-		if err != nil {
-			return fmt.Errorf("DEX_LOCAL_KIND must be a boolean")
-		}
-		cfg.Web.LocalKind = parsed
-	}
-	cfg.Web.LocalConnectorAuthority = os.Getenv("DEX_LOCAL_CONNECTOR_ARTIFACTS")
-	if value, ok := os.LookupEnv("DEX_WEB_PROJECT_CONFIGURATION_ADMIN_TOKEN"); ok {
-		if cfg.Web.ProjectConfiguration == nil {
-			cfg.Web.ProjectConfiguration = &WebProjectConfigurationConfig{}
-		}
-		cfg.Web.ProjectConfiguration.AdminToken = value
-	}
-	return nil
-}
-
-func (c Config) validateWeb() error {
-	source := strings.TrimSpace(c.Web.FlowRenderingSource)
-	if source == "" {
-		source = "local"
-	}
-	switch source {
-	case "local":
-		if c.Web.FlowRenderingBlobStore != nil {
-			return fmt.Errorf("web local and blobstore Flow Definition sources are mutually exclusive")
-		}
-	case "blobstore":
-		if strings.TrimSpace(c.Web.FlowRenderingDirectory) != "" {
-			return fmt.Errorf("web local and blobstore Flow Definition sources are mutually exclusive")
-		}
-		if c.Web.FlowRenderingBlobStore == nil || strings.TrimSpace(c.Web.FlowRenderingBlobStore.StorageID) == "" ||
-			strings.TrimSpace(c.Web.FlowRenderingBlobStore.Prefix) == "" {
-			return fmt.Errorf("web blobstore Flow Definition source requires storageId and prefix")
-		}
-	default:
-		return fmt.Errorf("web.flowRenderingSource must be local or blobstore")
-	}
-	mode := strings.TrimSpace(c.Web.WorkQueuePermissionMode)
-	if mode == "" {
-		mode = "local-selector"
-	}
-	if mode != "local-selector" && mode != "trusted-header" {
-		return fmt.Errorf("web.workQueuePermissionMode must be local-selector or trusted-header")
-	}
-	setupMode := strings.TrimSpace(c.Web.ConnectorSetupMode)
-	if c.Web.LocalConnectorAuthority != "" && (!c.Web.LocalKind || setupMode != "project" || c.Web.ProjectConfiguration == nil || !c.Web.ProjectConfiguration.AllowUnencrypted) {
-		return fmt.Errorf("local connector artifacts require explicit Local Kind project storage")
-	}
-
-	if setupMode != "" && setupMode != "local" && setupMode != "project" {
-		return fmt.Errorf("web.connectorSetupMode must be local or project")
-	}
-	if setupMode != "project" {
-		if c.Web.ProjectConfiguration != nil {
-			return fmt.Errorf("web.projectConfiguration requires project setup mode")
-		}
-		return nil
-	}
-	project := c.Web.ProjectConfiguration
-	if !c.Web.ConnectorSetupEnabled || !c.Web.TrustForwardedEmbeddingHeaders || project == nil {
-		return fmt.Errorf("project setup requires enabled configuration, trusted proxy and projectConfiguration")
-	}
-	if project.StorageID == "" || project.ProjectID == "" || len(project.AdminToken) < 32 {
-		return fmt.Errorf("project configuration requires storageId, projectId and an admin token of at least 32 bytes")
-	}
-	if project.ScopeKind != "live" && project.ScopeKind != "preview" || (project.ScopeKind == "preview") != (project.SessionID != "") {
-		return fmt.Errorf("project configuration requires live or preview scope; only preview requires sessionId")
-	}
-	if project.KMSKeyID == "" && !project.AllowUnencrypted {
-		return fmt.Errorf("project configuration requires kmsKeyId unless isolated local storage is explicitly allowed")
 	}
 	return nil
 }

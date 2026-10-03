@@ -8,9 +8,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { FlowV2StartDefinition, FlowV2StartInputSchema } from '@superdurable/flow-definition-renderer';
-import { DexAPIError, readResponseJSON } from '@/lib/http';
-import type { V2StartCapability } from '@/lib/types';
-import { definitionRevisionHeaders, dexFetch } from '@/lib/webConfig';
+import { definitionRevisionHeaders, DexAPIError, readResponseJSON } from '@/lib/http';
 import {
   createMapEntry,
   createStartInputDraft,
@@ -34,7 +32,6 @@ export function StartFlowDialog({
   definition,
   definitionRevision,
   flowType,
-  hostedTarget,
   onClose,
   onDefinitionChanged,
   onStarted,
@@ -42,14 +39,11 @@ export function StartFlowDialog({
   definition: FlowV2StartDefinition;
   definitionRevision: string;
   flowType: string;
-  hostedTarget?: V2StartCapability;
   onClose: () => void;
   onDefinitionChanged: (error: unknown) => boolean;
   onStarted: (flowID: string) => void;
 }) {
-  const isHosted = hostedTarget !== undefined;
-  const [flowID, setFlowID] = useState(() => isHosted ? `flow-${crypto.randomUUID()}` : '');
-  const [requestID] = useState(() => crypto.randomUUID());
+  const [flowID, setFlowID] = useState('');
   const [workerAddress, setWorkerAddress] = useState('');
   const [draft, setDraft] = useState(() => createStartInputDraft(definition.input));
   const [errors, setErrors] = useState<StartInputError[]>([]);
@@ -62,8 +56,6 @@ export function StartFlowDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const workerHealthSequence = useRef(0);
   const requestController = useRef<AbortController | null>(null);
-  const acceptedRequestBody = useRef<string | null>(null);
-  const [isRecoveryPending, setRecoveryPending] = useState(false);
 
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) dialogRef.current.showModal();
@@ -83,7 +75,7 @@ export function StartFlowDialog({
     setWorkerHealth('checking');
     setWorkerHealthWarning('');
     try {
-      const result = await dexFetch('/api/v2/worker-health', {
+      const result = await fetch('/api/v2/worker-health', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workerTargetAddress: trimmedAddress }),
@@ -105,7 +97,7 @@ export function StartFlowDialog({
     event.preventDefault();
     const nextErrors: StartInputError[] = [];
     if (flowID.trim() === '') nextErrors.push({ path: 'flowId', message: 'Flow ID is required.' });
-    if (!isHosted && workerAddress.trim() === '') nextErrors.push({ path: 'workerTargetAddress', message: 'Worker address is required.' });
+    if (workerAddress.trim() === '') nextErrors.push({ path: 'workerTargetAddress', message: 'Worker address is required.' });
     const input = serializeStartInput(definition.input, draft);
     nextErrors.push(...input.errors);
     setErrors(nextErrors);
@@ -121,64 +113,40 @@ export function StartFlowDialog({
     try {
       const trimmedWorkerAddress = workerAddress.trim();
       const hasCurrentHealthyCheck = workerHealth === 'healthy' && workerHealthAddress === trimmedWorkerAddress;
-      if (!isHosted && !bypassWorkerHealthCheck && !hasCurrentHealthyCheck) {
+      if (!bypassWorkerHealthCheck && !hasCurrentHealthyCheck) {
         const isHealthy = await checkWorkerHealth(trimmedWorkerAddress);
         if (!isHealthy) {
           focusPath(dialogRef.current, 'bypassWorkerHealthCheck');
           return;
         }
       }
-      const requestPrefix = JSON.stringify(isHosted ? {
-        flowType, flowId: flowID, requestId: requestID, targetRevision: hostedTarget.targetRevision,
-      } : {
+      const requestPrefix = JSON.stringify({
         flowType,
         flowId: flowID.trim(),
         workerTargetAddress: trimmedWorkerAddress,
         bypassWorkerHealthCheck,
       });
-      const body = acceptedRequestBody.current ?? `${requestPrefix.slice(0, -1)},"input":${input.json}}`;
-      if (isHosted) acceptedRequestBody.current = body;
+      const body = `${requestPrefix.slice(0, -1)},"input":${input.json}}`;
       const headers = {
         'Content-Type': 'application/json', ...definitionRevisionHeaders(definitionRevision),
-        ...(hostedTarget?.csrfToken ? { 'X-CSRF-Token': hostedTarget.csrfToken } : {}),
       };
-      if (isHosted && isRecoveryPending) {
-        try {
-          const recovered = await dexFetch('/api/v2/start/recover', { method: 'POST', headers, body, signal: controller.signal })
-            .then((response) => readResponseJSON<StartFlowResult>(response));
-          if (!controller.signal.aborted) onStarted(recovered.flowId);
-          return;
-        } catch (error) {
-          if (!(error instanceof DexAPIError) || error.code !== 'START_NOT_FOUND') throw error;
-        }
-      }
-      const result = await dexFetch('/api/v2/start', {
+      const result = await fetch('/api/v2/start', {
         method: 'POST',
         headers, body, signal: controller.signal,
       }).then((response) => readResponseJSON<StartFlowResult>(response));
       if (!controller.signal.aborted) onStarted(result.flowId);
     } catch (error) {
       if (controller.signal.aborted) return;
-      if (error instanceof DexAPIError && error.code === 'START_TARGET_CHANGED') {
-        onDefinitionChanged(error);
-        onClose();
-        return;
-      }
       if (onDefinitionChanged(error)) {
         onClose();
         return;
       }
-      if (!isHosted && error instanceof DexAPIError && error.code === 'WORKER_UNHEALTHY') {
+      if (error instanceof DexAPIError && error.code === 'WORKER_UNHEALTHY') {
         setWorkerHealth('unhealthy');
         setWorkerHealthAddress(workerAddress.trim());
         setWorkerHealthWarning(error.message);
         focusPath(dialogRef.current, 'bypassWorkerHealthCheck');
         return;
-      }
-      if (isHosted) {
-        const isUncertain = !(error instanceof DexAPIError) || error.httpStatus >= 500;
-        setRecoveryPending(isUncertain);
-        if (!isUncertain) acceptedRequestBody.current = null;
       }
       setSubmitError(error instanceof DexAPIError || error instanceof Error ? error.message : 'Start Flow failed');
     } finally {
@@ -205,7 +173,6 @@ export function StartFlowDialog({
           <button aria-label="Close Start Flow" disabled={submitting} onClick={onClose} type="button">×</button>
         </header>
         <div className="sfd-scroll">
-          {!isHosted && <>
           <label className="sfd-field">
             <span>Flow ID</span>
             <input
@@ -268,8 +235,7 @@ export function StartFlowDialog({
               </label>
             </div>
           )}
-          </>}
-          <fieldset className="sfd-input" disabled={submitting || isRecoveryPending}>
+          <fieldset className="sfd-input" disabled={submitting}>
             <legend>Start input</legend>
             <SchemaInput
               draft={draft}
@@ -290,7 +256,7 @@ export function StartFlowDialog({
             disabled={submitting || workerHealth === 'checking' || (workerHealth === 'unhealthy' && !bypassWorkerHealthCheck)}
             type="submit"
           >
-            {submitting ? (workerHealth === 'checking' ? 'Checking Worker…' : 'Starting…') : isRecoveryPending ? 'Recover Start' : 'Start Flow'}
+            {submitting ? (workerHealth === 'checking' ? 'Checking Worker…' : 'Starting…') : 'Start Flow'}
           </button>
         </footer>
       </form>

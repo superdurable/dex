@@ -9,7 +9,6 @@
 import { useState } from 'react';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
-import { dexFetch } from '@/lib/webConfig';
 
 const stopTypes = [
   { value: 1, label: 'Cancel', needsReason: false },
@@ -42,7 +41,7 @@ export function StopFlowDialog({
     setSubmitting(true);
     setError('');
     try {
-      const response = await dexFetch('/api/flows/stop', {
+      const response = await fetch('/api/flows/stop', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

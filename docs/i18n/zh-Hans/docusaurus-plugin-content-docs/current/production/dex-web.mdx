@@ -48,7 +48,7 @@ Version 2 directive 使用具名值。同一行内的参数位置没有语义。
 
 ## 启动 Flow
 
-当所选 definition 包含自动生成的 start schema，且 permission mode 为 **local-selector** 时，Run 工作区会显示 **Start Flow**。弹窗要求填写 Flow ID、明文 Worker gRPC address 和 start input。它支持嵌套 object、array、string-key map、enum、boolean、datetime、optional field 和显式 null。固定数组保持声明的长度。Integer 在浏览器中一直保存为十进制文本，到序列化时才写入 JSON，因此 int64 不会损失精度。
+当所选 definition 包含自动生成的 start schema 时，Run 工作区会显示 **Start Flow**。弹窗要求填写 Flow ID、明文 Worker gRPC address 和 start input。它支持嵌套 object、array、string-key map、enum、boolean、datetime、optional field 和显式 null。固定数组保持声明的长度。Integer 在浏览器中一直保存为十进制文本，到序列化时才写入 JSON，因此 int64 不会损失精度。
 
 Worker address 失去焦点以及正式启动前，Dex Web 都会从后端检查 Worker host 和 port。端口不可达时，界面显示 warning 并阻止启动。操作员必须明确选择 **Bypass worker health check** 才能继续。该检查只建立 TCP connection，不会调用 Worker method。
 
@@ -57,22 +57,6 @@ Go analyzer 从通过 **DefineStartStep** 注册的 Step 输入类型生成 sche
 Server 会重新加载当前 definition revision，并在调用 **StartFlow** 前完整验证 input。未知 object field、缺失 required field、非法 null，以及 type、enum、range、datetime、array 或 map 错误都会被拒绝。除非操作员选择 bypass，否则 Server 还会再次检查 Worker port。Server 选择 start Step type 并生成 request ID。浏览器不能选择 headless routing。
 
 通过 **web.startFlowWorkerTargetHeadless** 或 **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** 为整个 Dex Web instance 配置 headless routing。默认值为 false。当操作员填写 Kubernetes headless Service target 时，将它设为 true。
-
-### Hosted Start Flow
-
-**trusted-header** 模式支持 Start Flow，但要求 **web.trustForwardedEmbeddingHeaders: true**，并将 Web listener 隔离在认证代理后。代理每次重新认证启动和恢复请求、读取当前资源实例、删除浏览器提交的可信头，再注入 **X-Dex-Work-Queue-Permissions: flows.start**、**X-Dex-Actor-ID**、**X-Dex-Start-Worker-Target** 和 **X-Dex-Start-Target-Revision**。目标修订为 64 字符小写 SHA-256，绑定资源 scope 与当前实例或 deployment。代理还提供下文的嵌入路径和 CSRF token。这些头只在私有代理边界具有授权意义。
-
-**GET /api/v2/catalog** 返回授权后的启动能力和目标修订。Hosted 表单只显示生成的业务输入。每次打开时生成新的 **flow-UUIDv4** Flow ID 和操作 UUID；请求包含 **flowType**、**flowId**、**requestId**、**targetRevision** 和 **input**，并携带精确的 **X-Dex-Flow-Definition-Revision** 与 **X-CSRF-Token**。浏览器不能选择 Worker 或跳过健康检查。Server 校验权限、目标、definition、完整输入和 Worker 健康后启动；Hosted 成功只返回 **flowId**。
-
-引擎 RequestID 绑定 actor、目标修订、可信 Worker、definition 修订、Flow type、Flow ID、操作 UUID 和规范化输入。启动显式禁止复用 Flow ID，仅忽略相同请求身份的已启动执行；接受成功后不读取 Snapshot。
-
-响应丢失后，**POST /api/v2/start/recover** 接收原请求及 definition 修订，查询原 Flow ID 并核对引擎请求身份。尚未观察到启动时可以重试原操作；身份不同或目标变更时拒绝恢复。恢复期间表单保留原输入和身份。关闭表单会取消请求，重新打开则创建新的任务身份。
-
-### 正式嵌入包
-
-**dex-web-v2/v0.3.0** 发布包含 RunWorkspace、StartFlowDialog、输入类型、providers 和样式，配套 **flow-definition-renderer/v0.2.0** 中的 FDG Start 类型。两者都是 React 19 的源码包。Host 可通过兼容 React Router 的边界适配路由，挂载 provider 前必须配置已认证的 Dex base path。
-
-发布工作流从精确 tag 构建两次并比较字节。归档含源码 commit 和 license；发布产物附 SHA-256 与 npm SHA-512 integrity 记录。打包阶段将 alias 转为相对 import，消费方不修改已安装的包。使用 **script/release/package_embedded_web.py** 可在本地复现。
 
 ## 搜索与 Summary
 
@@ -108,7 +92,7 @@ Action 是通过 **RPCOptions.Action** 注册的 RPC。**DefineAction** 接收 l
 
 来自用户的 string 字段可以声明 **capture:qr-code**。Dex Web 会保留文本框，继续支持扫码枪、粘贴和手工输入，同时增加 **Scan QR code** 按钮。打开扫码器后才会请求摄像头并加载 QR reader。扫描成功只会把解码后的文本回填到字段中，不会提交 Action；用户可以先检查值，再选择 Action。
 
-摄像头采集要求 HTTPS 或 localhost。嵌入 Dex Web 的 host 还必须在 Permissions Policy 中允许摄像头访问。权限被拒绝、没有摄像头、运行环境不支持或 host policy 阻止访问时，仍可手工输入。关闭扫码器、切换 run 或离开页面时会释放摄像头 track。扫码不会授予 permission、绕过 Action condition，也不会改变 RPC protocol。
+摄像头采集要求 HTTPS 或 localhost。权限被拒绝、没有摄像头、运行环境不支持或 host policy 阻止访问时，仍可手工输入。关闭扫码器、切换 run 或离开页面时会释放摄像头 track。扫码不会授予 permission、绕过 Action condition，也不会改变 RPC protocol。
 
 每个 Action 要求一个 permission，例如 **refund.manage**。Permission key 以小写字母开头，只包含小写字母、数字、点或连字符。当一次成功的 Worker invocation 写入 Action condition source 时，Worker 会在 response 中附带完整 mapping。无关写入和 query-only RPC 不会附带 mapping。
 
@@ -116,42 +100,10 @@ Server 会把业务写入覆盖到权威 Attribute state 上，并在同一个 W
 
 permission 历史会跨 Continue-as-New 继承，并在完成后继续可搜索。Server 升级会保留仍然存在的 permission，但不会重建升级前已经删除的 permission。新的独立 Flow execution 会从自己的初始 Attribute 开始。修改后的 Action definition 会在后续 source write 发送 mapping 或新 Flow 启动时首次生效。删除或重命名 Action permission 不会清除已有 permission 历史中的旧值。
 
-Work Queue 会列出所选 Flow type 声明的 permission。在 **Working as** 中选择一个 permission 后，浏览器通过 **POST /api/v2/search** 的 **workQueuePermissions** 发送它。Superverse 等调用方也可以发送从多个用户 role 得到的多个 permission。只要 run 的 permission 历史包含任意一个请求 permission 就会匹配；这组 permission 与 Flow type 和其他 filter 之间使用 AND。
+Work Queue 会列出所选 Flow type 声明的 permission。在 **Working as** 中选择一个 permission 后，浏览器通过 **POST /api/v2/search** 的 **workQueuePermissions** 发送它。调用方也可以发送从多个用户 role 得到的多个 permission。只要 run 的 permission 历史包含任意一个请求 permission 就会匹配；这组 permission 与 Flow type 和其他 filter 之间使用 AND。
 
 permission 匹配表示某个 Action 当前可用或曾经可用，并不表示它现在仍然可用。带 key 的 gate 还需要它当前的 key，而列表读取的是最终一致的索引。当前真正可用的 Action 仍由打开后的该 run 决定。
 
 浏览器中的 condition 只控制展示。每个 Action RPC 都必须在修改持久化状态或发布 Channel message 前再次检查当前状态。当检查与 effect 必须保持原子性时，应使用 lock。
 
-Work Queue 不增加登录，也不执行授权。**Working as** 只是选择工作，不会授予所选 permission。Superverse 等可信应用边界仍负责用户认证、把 role 映射到 permission，并限制它发送哪些 permission。请把 Dex Web 部署在该边界之后。
-
-## 可信 reverse-proxy mount
-
-经过认证的 host application 可以把 Dex Web 暴露在 **/apps/project-1/dex** 这类每个
-request 独立的 URL 下。只有当 8802 端口仅允许可信 reverse proxy 访问时，才启用
-**web.trustForwardedEmbeddingHeaders** 或
-**DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS**。默认值为 false；未启用 trust 时，Dex
-会拒绝所有包含 forwarded embedding metadata 的 request。
-
-Proxy 在转发前移除 public prefix，删除浏览器提供的以下 header，并为每个必需 header
-注入一个 canonical value：
-
-~~~text
-X-Forwarded-Prefix: /apps/project-1/dex
-X-Dex-Web-Embedded: true
-X-Dex-Web-CSRF-Token: host-generated-token
-~~~
-
-Prefix 必须是 **/** 或没有 trailing slash、query、fragment、authority、dot segment 与
-encoded separator 的绝对 canonical path。Embedded value 只能是 **true** 或 **false**。
-Dex 将 CSRF bootstrap token 视为 optional，但 hosted page 应当提供它。
-Token 必须使用不含空格的 visible ASCII。
-
-Response bootstrap 只为当前 request 配置 router、asset、link 和 API request。Embedded
-page 会删除重复的 product chrome，并允许同源 iframe。Standalone page 会拒绝 iframe。
-HTML 不会被 cache，并对可信 metadata 设置 Vary，因此两个 project 可以共用一个 Dex Web
-service，而不会复用对方的 mount path 或 token。
-
-对于 POST、PATCH、PUT、DELETE 和其他 mutation method，浏览器会把 bootstrap token 放在
-**X-CSRF-Token** 中。Host proxy 应先根据已认证 session 验证它，再移除该 header 后继续
-转发。Dex 负责把 token 传给浏览器，但不负责 host user authentication、project
-authorization 或 host CSRF state validation。
+Work Queue 不增加登录，也不执行授权。**Working as** 只是选择工作，不会授予所选 permission。可信应用边界仍负责用户认证、把 role 映射到 permission，并限制它发送哪些 permission。请把 Dex Web 部署在该边界之后。

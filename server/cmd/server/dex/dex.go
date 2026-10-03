@@ -33,11 +33,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
-	"github.com/superdurable/dex-connectors-library/sdkgo/projectconfig"
-
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
@@ -130,7 +126,6 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 		panic("Dex Server config must not be nil")
 	}
 	serverApplication := &application{}
-	sharedS3Clients := make(map[string]*s3.Client)
 	if services.isWebEnabled {
 		connection, err := grpc.NewClient(
 			cfg.GetWebFlowServiceTargetWithDefault(),
@@ -143,48 +138,11 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 		if err != nil {
 			return nil, fmt.Errorf("create Dex Web FlowService client: %w", err)
 		}
-		flowRenderingSource := strings.TrimSpace(cfg.Web.FlowRenderingSource)
 		webConfig := &dexweb.Config{
 			BindAddress:                     cfg.Web.EffectiveBindAddress(),
 			Port:                            cfg.Web.EffectivePort(),
-			FlowRenderingSource:             flowRenderingSource,
 			FlowRenderingDirectory:          cfg.Web.FlowRenderingDirectory,
-			WorkQueuePermissionMode:         strings.TrimSpace(cfg.Web.WorkQueuePermissionMode),
 			IsStartFlowWorkerTargetHeadless: cfg.Web.IsStartFlowWorkerTargetHeadless,
-			TrustForwardedEmbeddingHeaders:  cfg.Web.TrustForwardedEmbeddingHeaders,
-			ConnectorSetupEnabled:           cfg.Web.ConnectorSetupEnabled,
-			ConnectorSetupMode:              strings.TrimSpace(cfg.Web.ConnectorSetupMode),
-			ConnectorConfigDirectory:        cfg.Web.ConnectorConfigDirectory,
-			ConnectorCacheDirectory:         cfg.Web.ConnectorCacheDirectory,
-			LocalKind:                       cfg.Web.LocalKind,
-			LocalConnectorAuthority:         cfg.Web.LocalConnectorAuthority,
-		}
-		if flowRenderingSource == dexweb.FlowRenderingSourceBlobStore {
-			storage, findErr := bootstrap.FindS3Storage(cfg, cfg.Web.FlowRenderingBlobStore.StorageID)
-			if findErr != nil {
-				_ = connection.Close()
-				return nil, findErr
-			}
-			s3Client, clientErr := bootstrap.NewS3ClientForStorage(context.Background(), storage)
-			if clientErr != nil {
-				_ = connection.Close()
-				return nil, clientErr
-			}
-			objectStore, storeErr := dexweb.NewS3FlowDefinitionObjectStore(s3Client, storage.S3Bucket)
-			if storeErr != nil {
-				_ = connection.Close()
-				return nil, storeErr
-			}
-			sharedS3Clients[storage.StorageId] = s3Client
-			webConfig.FlowRenderingObjectStore = objectStore
-			webConfig.FlowRenderingPrefix = cfg.Web.FlowRenderingBlobStore.Prefix
-		}
-		if cfg.Web.ProjectConfiguration != nil {
-			projectConfiguration, projectErr := createProjectConfiguration(cfg, sharedS3Clients)
-			if projectErr != nil {
-				return nil, errors.Join(projectErr, connection.Close())
-			}
-			webConfig.ProjectConfiguration = projectConfiguration
 		}
 		webServer, err := dexweb.NewServer(
 			webConfig,
@@ -207,7 +165,6 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 				API:         services.isAPIEnabled,
 				Interpreter: services.isInterpreterEnabled,
 			},
-			S3Clients: sharedS3Clients,
 		})
 		if err != nil {
 			return nil, errors.Join(err, serverApplication.closeWebConnection())
@@ -216,35 +173,6 @@ func newApplication(cfg *config.Config, services serviceSelection) (*application
 		serverApplication.componentCount++
 	}
 	return serverApplication, nil
-}
-
-func createProjectConfiguration(cfg *config.Config, clients map[string]*s3.Client) (*dexweb.ProjectConfiguration, error) {
-	project := cfg.Web.ProjectConfiguration
-	storage, err := bootstrap.FindS3Storage(cfg, project.StorageID)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	client := clients[storage.StorageId]
-	if client == nil {
-		client, err = bootstrap.NewS3ClientForStorage(ctx, storage)
-		if err != nil {
-			return nil, err
-		}
-		clients[storage.StorageId] = client
-	}
-	objects, err := projectconfig.NewS3ObjectStore(ctx, &projectconfig.S3StoreConfig{
-		Client: client, Bucket: storage.S3Bucket, Prefix: project.Prefix,
-		KMSKeyID: project.KMSKeyID, AllowUnencrypted: project.AllowUnencrypted,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return dexweb.NewProjectConfiguration(&dexweb.ProjectConfigurationConfig{
-		Objects: objects, ProjectID: project.ProjectID, ScopeKind: project.ScopeKind,
-		SessionID: project.SessionID, AdminToken: project.AdminToken,
-	})
 }
 
 func (a *application) Run(ctx context.Context) error {

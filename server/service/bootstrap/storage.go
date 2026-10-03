@@ -28,22 +28,9 @@ func (r *Runtime) createBlobStore(
 	namespace string,
 	metrics client.MetricsHandler,
 ) (blobstore.BlobStore, error) {
-	activeStorage, err := activeBlobStorage(r.cfg)
+	s3Client, err := CreateS3Client(ctx, r.cfg)
 	if err != nil {
 		return nil, err
-	}
-	var s3Client *s3.Client
-	if activeStorage != nil && activeStorage.StorageType == config.StorageTypeS3 {
-		s3Client = r.options.S3Clients[activeStorage.StorageId]
-		if s3Client == nil {
-			s3Client, err = NewS3ClientForStorage(ctx, activeStorage)
-			if err != nil {
-				return nil, err
-			}
-		}
-		if err := createBucketIfNotExists(ctx, s3Client, activeStorage.S3Bucket); err != nil {
-			return nil, err
-		}
 	}
 	return blobstore.NewBlobStore(
 		s3Client,
@@ -75,7 +62,7 @@ func CreateS3Client(ctx context.Context, cfg *config.Config) (*s3.Client, error)
 		}
 		return nil, nil
 	}
-	s3Client, err := NewS3ClientForStorage(ctx, activeStorage)
+	s3Client, err := newS3ClientForStorage(ctx, activeStorage)
 	if err != nil {
 		return nil, err
 	}
@@ -98,26 +85,8 @@ func activeBlobStorage(cfg *config.Config) (*config.BlobStoreConfigEntry, error)
 	return nil, fmt.Errorf("no active storage found")
 }
 
-// FindS3Storage resolves one configured S3 blob storage without exposing credentials to Dex Web.
-func FindS3Storage(cfg *config.Config, storageID string) (*config.BlobStoreConfigEntry, error) {
-	if cfg == nil {
-		panic("S3 config must not be nil")
-	}
-	for index := range cfg.BlobStore.SupportedStorages {
-		storage := &cfg.BlobStore.SupportedStorages[index]
-		if storage.StorageId != storageID {
-			continue
-		}
-		if storage.StorageType != config.StorageTypeS3 {
-			return nil, fmt.Errorf("blob storage %q is not S3", storageID)
-		}
-		return storage, nil
-	}
-	return nil, fmt.Errorf("S3 blob storage %q was not found", storageID)
-}
-
-// NewS3ClientForStorage constructs an S3 client from one existing blob storage entry.
-func NewS3ClientForStorage(ctx context.Context, storage *config.BlobStoreConfigEntry) (*s3.Client, error) {
+// newS3ClientForStorage constructs an S3 client from one existing blob storage entry.
+func newS3ClientForStorage(ctx context.Context, storage *config.BlobStoreConfigEntry) (*s3.Client, error) {
 	if storage == nil {
 		panic("S3 storage config must not be nil")
 	}

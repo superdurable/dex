@@ -27,13 +27,6 @@ import (
 
 const DefaultPort = 8802
 
-const (
-	FlowRenderingSourceLocal     = "local"
-	FlowRenderingSourceBlobStore = "blobstore"
-	ConnectorSetupModeLocal      = "local"
-	ConnectorSetupModeProject    = "project"
-)
-
 type Config struct {
 	// BindAddress defaults to 127.0.0.1 and controls the HTTP bind IP.
 	BindAddress string
@@ -41,34 +34,14 @@ type Config struct {
 	Port int
 	// FlowRenderingDirectory defaults empty and supplies Flow Definition Graph JSON files to Dex Web.
 	FlowRenderingDirectory string
-	// FlowRenderingSource defaults to local and selects local or blobstore.
-	FlowRenderingSource string
-	// FlowRenderingObjectStore is required by the blobstore source and stays server-side.
-	FlowRenderingObjectStore FlowDefinitionObjectStore
-	// FlowRenderingPrefix is the immutable-bundle root used by the blobstore source.
-	FlowRenderingPrefix string
-	// WorkQueuePermissionMode defaults to local-selector.
-	WorkQueuePermissionMode string
 	// StartFlowWorkerTargetHeadless defaults false and applies headless routing to Dex Web starts.
 	IsStartFlowWorkerTargetHeadless bool
-	// TrustForwardedEmbeddingHeaders defaults false and enables trusted proxy-provided Web presentation metadata.
-	TrustForwardedEmbeddingHeaders bool
 	// ConnectorSetupEnabled defaults false and enables Connector configuration APIs.
 	ConnectorSetupEnabled bool
-	// ConnectorSetupMode defaults to local. Project uses shared versioned storage.
-	ConnectorSetupMode string
 	// ConnectorConfigDirectory defaults empty and stores local Connector configuration and verified UI artifacts.
 	ConnectorConfigDirectory string
-	// ConnectorCacheDirectory stores verified Connector release UI artifacts in hosted mode.
-	ConnectorCacheDirectory string
-	// ProjectConfiguration owns versioned project configuration. Required only in project setup mode.
-	ProjectConfiguration *ProjectConfiguration
 	// ConnectorReleaseOverrides maps Connector IDs to local release artifact directories for loopback development.
 	ConnectorReleaseOverrides map[string]string
-	// LocalKind enables explicitly reviewed unpublished artifacts only for isolated local project storage.
-	LocalKind bool
-	// LocalConnectorAuthority is an absolute image-owned source/artifact descriptor, never a request parameter.
-	LocalConnectorAuthority string
 }
 
 type Server struct {
@@ -86,10 +59,7 @@ func NewServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS) (*Serv
 	if assets == nil {
 		panic("Web assets must not be nil")
 	}
-	if err := validatePermissionConfig(cfg); err != nil {
-		return nil, err
-	}
-	flowDefinitions, err := newFlowDefinitionProvider(cfg)
+	flowDefinitions, err := NewDirectoryFlowDefinitionProvider(cfg.FlowRenderingDirectory)
 	if err != nil {
 		return nil, err
 	}
@@ -103,9 +73,6 @@ func NewFlowRenderingServer(cfg *Config, graph []byte, assets fs.FS) (*Server, e
 	}
 	if assets == nil {
 		panic("Web assets must not be nil")
-	}
-	if err := validatePermissionConfig(cfg); err != nil {
-		return nil, err
 	}
 	snapshot, err := snapshotFromGraph(graph)
 	if err != nil {
@@ -136,25 +103,19 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 				Revision:    snapshot.DefinitionRevision,
 			}, nil
 		}), api.V2HandlerConfig{
-			PermissionMode:                  effectivePermissionMode(cfg),
 			IsStartFlowWorkerTargetHeadless: cfg.IsStartFlowWorkerTargetHeadless,
-			TrustStartFlowHeaders:           cfg.TrustForwardedEmbeddingHeaders,
 		})
 	}
 	mux.HandleFunc("GET /api/flow-definitions", serveFlowDefinitions(flowDefinitions))
 	if connectorSetup != nil {
 		connectorSetup.registerHandlers(mux)
 	}
-	if cfg.ProjectConfiguration != nil {
-		mux.HandleFunc("GET /readyz", cfg.ProjectConfiguration.readinessHandler)
-	} else {
-		mux.HandleFunc("GET /readyz", readinessHandler(client, flowDefinitions))
-	}
-	mux.Handle("/", spaHandler(assetRoot, effectivePermissionMode(cfg)))
+	mux.HandleFunc("GET /readyz", readinessHandler(client, flowDefinitions))
+	mux.Handle("/", spaHandler(assetRoot))
 	return &Server{
 		cfg: cfg,
 		httpServer: &http.Server{
-			Handler:           forwardedEmbeddingHandler(cfg, mux),
+			Handler:           mux,
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       90 * time.Second,
 		},
@@ -189,7 +150,7 @@ func (s *Server) Handler() http.Handler {
 	return s.httpServer.Handler
 }
 
-func spaHandler(assets fs.FS, permissionMode string) http.Handler {
+func spaHandler(assets fs.FS) http.Handler {
 	files := http.FileServer(http.FS(assets))
 	index, err := fs.ReadFile(assets, "index.html")
 	if err != nil {
@@ -202,7 +163,7 @@ func spaHandler(assets fs.FS, permissionMode string) http.Handler {
 		}
 		requestPath := strings.TrimPrefix(path.Clean(request.URL.Path), "/")
 		if requestPath == "." || requestPath == "" {
-			serveIndex(response, request, injectWebConfig(index, permissionMode, webRequestConfigFromContext(request.Context())))
+			serveIndex(response, request, index)
 			return
 		}
 		file, err := assets.Open(requestPath)
@@ -218,7 +179,7 @@ func spaHandler(assets fs.FS, permissionMode string) http.Handler {
 			api.WriteError(response, http.StatusNotFound, "API route not found", nil)
 			return
 		}
-		serveIndex(response, request, injectWebConfig(index, permissionMode, webRequestConfigFromContext(request.Context())))
+		serveIndex(response, request, index)
 	})
 }
 
@@ -228,42 +189,6 @@ type staticFlowDefinitionProvider struct {
 
 func (p staticFlowDefinitionProvider) Load(context.Context) (*FlowDefinitionSnapshot, error) {
 	return p.snapshot, nil
-}
-
-func newFlowDefinitionProvider(cfg *Config) (FlowDefinitionProvider, error) {
-	source := strings.TrimSpace(cfg.FlowRenderingSource)
-	if source == "" {
-		source = FlowRenderingSourceLocal
-	}
-	switch source {
-	case FlowRenderingSourceLocal:
-		if cfg.FlowRenderingObjectStore != nil || strings.TrimSpace(cfg.FlowRenderingPrefix) != "" {
-			return nil, fmt.Errorf("local and blobstore Flow Definition sources are mutually exclusive")
-		}
-		return NewDirectoryFlowDefinitionProvider(cfg.FlowRenderingDirectory)
-	case FlowRenderingSourceBlobStore:
-		if strings.TrimSpace(cfg.FlowRenderingDirectory) != "" {
-			return nil, fmt.Errorf("local and blobstore Flow Definition sources are mutually exclusive")
-		}
-		return NewS3FlowDefinitionProvider(cfg.FlowRenderingObjectStore, cfg.FlowRenderingPrefix)
-	default:
-		return nil, fmt.Errorf("unsupported Flow Definition source %q", source)
-	}
-}
-
-func effectivePermissionMode(cfg *Config) string {
-	if cfg.WorkQueuePermissionMode == "" {
-		return api.V2PermissionModeLocalSelector
-	}
-	return cfg.WorkQueuePermissionMode
-}
-
-func validatePermissionConfig(cfg *Config) error {
-	mode := effectivePermissionMode(cfg)
-	if mode != api.V2PermissionModeLocalSelector && mode != api.V2PermissionModeTrustedHeader {
-		return fmt.Errorf("unsupported Work Queue permission mode %q", mode)
-	}
-	return nil
 }
 
 func serveFlowDefinitions(provider FlowDefinitionProvider) http.HandlerFunc {
@@ -330,35 +255,9 @@ func writeWebJSON(response http.ResponseWriter, statusCode int, value interface{
 	}
 }
 
-func injectWebConfig(index []byte, permissionMode string, requestConfig webRequestConfig) []byte {
-	config := webBootstrapConfig{
-		WorkQueuePermissionMode: permissionMode,
-		BasePath:                requestConfig.basePath,
-		Embedded:                requestConfig.isEmbedded,
-	}
-	if requestConfig.csrfToken != "" {
-		config.CSRFHeaderName = browserCSRFHeader
-		config.CSRFToken = requestConfig.csrfToken
-	}
-	configJSON, err := json.Marshal(config)
-	if err != nil {
-		panic(fmt.Sprintf("encode Dex Web bootstrap config: %v", err))
-	}
-	script := []byte("<script>window.__DEX_WEB_CONFIG__=" + string(configJSON) + ";</script>")
-	configuredIndex := bytes.Replace(index, []byte("</head>"), append(script, []byte("</head>")...), 1)
-	return prefixAssetReferences(configuredIndex, requestConfig.basePath)
-}
-
 func serveIndex(response http.ResponseWriter, request *http.Request, index []byte) {
-	requestConfig := webRequestConfigFromContext(request.Context())
 	response.Header().Set("Cache-Control", "no-store")
-	response.Header().Set("Vary", forwardedEmbeddingVaryHeader)
-	if requestConfig.isEmbedded {
-		response.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
-		response.Header().Set("X-Frame-Options", "SAMEORIGIN")
-	} else {
-		response.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
-		response.Header().Set("X-Frame-Options", "DENY")
-	}
+	response.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+	response.Header().Set("X-Frame-Options", "DENY")
 	http.ServeContent(response, request, "index.html", time.Time{}, bytes.NewReader(index))
 }

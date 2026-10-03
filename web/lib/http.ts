@@ -93,3 +93,7 @@ function bodySnippet(body: string): string {
   if (!trimmed || trimmed.startsWith('<')) return '';
   return trimmed.length > 160 ? `${trimmed.slice(0, 157)}...` : trimmed;
 }
+
+export function definitionRevisionHeaders(revision: string): HeadersInit {
+  return revision === '' ? {} : { 'X-Dex-Flow-Definition-Revision': revision };
+}

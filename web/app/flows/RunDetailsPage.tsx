@@ -18,7 +18,6 @@ import { hydrateBlobs } from '@/lib/blobs';
 import { loadCompleteHistory } from '@/lib/history';
 import { isTransientGatewayResponse, readResponseJSON } from '@/lib/http';
 import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
-import { dexFetch } from '@/lib/webConfig';
 import type {
   FlowHistoryEvent,
   FlowState,
@@ -199,7 +198,7 @@ export function RunDetailsPage({
       return;
     }
     try {
-      const rawState = await readResponseJSON<FlowState>(await dexFetch(stateURL, { cache: 'no-store' }));
+      const rawState = await readResponseJSON<FlowState>(await fetch(stateURL, { cache: 'no-store' }));
       setState(rawState);
       const hydrated = await hydrateBlobs(flowId, rawState, blobCache.current);
       setState(hydrated.value);
@@ -214,7 +213,7 @@ export function RunDetailsPage({
     setDeletingChannelMessage(messageId);
     setError('');
     try {
-      await readResponseJSON(await dexFetch('/api/flows/channels/messages', {
+      await readResponseJSON(await fetch('/api/flows/channels/messages', {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ flowId, runId, channelName, messageId }),
@@ -244,7 +243,7 @@ export function RunDetailsPage({
   }, [addDataWarning, flowId]);
 
   const loadSummary = useCallback(async () => {
-    const value = await readResponseJSON<FlowSummary>(await dexFetch(summaryURL, { cache: 'no-store' }));
+    const value = await readResponseJSON<FlowSummary>(await fetch(summaryURL, { cache: 'no-store' }));
     setSummary(value);
     return value;
   }, [summaryURL]);
@@ -265,7 +264,7 @@ export function RunDetailsPage({
         });
         if (nextPageToken) params.set('nextPageToken', nextPageToken);
         return readResponseJSON(
-          await dexFetch(`/api/flows/history?${params}`, { cache: 'no-store' }),
+          await fetch(`/api/flows/history?${params}`, { cache: 'no-store' }),
         );
       }, initialPageToken, initialInternalEventId);
       setHistory((current) => {
@@ -334,7 +333,7 @@ export function RunDetailsPage({
       runId,
       nextInternalEventId: String(nextInternalEventId),
     });
-    void dexFetch(`/api/flows/wait?${params}`, { cache: 'no-store', signal: controller.signal })
+    void fetch(`/api/flows/wait?${params}`, { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         if (generation !== waitGeneration.current) return;
         if (response.status === 408) {

@@ -3,10 +3,8 @@ module github.com/superdurable/dex/cmd/server
 go 1.26.0
 
 require (
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.106.0
 	github.com/stretchr/testify v1.11.1
 	github.com/superdurable/dex v0.0.0
-	github.com/superdurable/dex-connectors-library/sdkgo v0.17.0
 	github.com/superdurable/dex/web v0.0.0
 	github.com/urfave/cli v1.22.5
 	google.golang.org/grpc v1.82.1
@@ -37,6 +35,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.24 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.31 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.32 // indirect
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.106.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.5.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.33.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.38.0 // indirect

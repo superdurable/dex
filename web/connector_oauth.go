@@ -76,7 +76,7 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_REQUEST_INVALID", "Connector OAuth request is invalid")
 		return
 	}
-	resolved, err := setup.resolveConnectorRelease(request.Context(), identity)
+	resolved, err := setup.releases.resolve(request.Context(), identity)
 	if err != nil {
 		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_RELEASE_UNAVAILABLE", "Connector release metadata is unavailable")
 		return
@@ -114,14 +114,6 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 		return
 	}
 	redirectURI := connectorOAuthRedirectURI(request)
-	if !setup.requireDeclaredProjectAuth(request, identity, authMethod.ID) {
-		api.WriteCodedError(response, 409, "APP_MANIFEST_REVISION_CONFLICT", "Connector authorization differs from the AppManifest")
-		return
-	}
-	if setup.project != nil {
-		setup.startProjectOAuth(response, request, snapshot, identity, resolved.release, authMethod, body)
-		return
-	}
 
 	state, err := randomConnectorToken(32)
 	if err != nil {
@@ -200,10 +192,6 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 	providerError := request.URL.Query().Get("error")
 	if state == "" || (code == "" && providerError == "") {
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_CALLBACK_INVALID", "Connector OAuth callback is invalid")
-		return
-	}
-	if setup.project != nil {
-		setup.completeProjectOAuth(response, request)
 		return
 	}
 
@@ -326,7 +314,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
 		return
 	}
-	location := webPathFromContext(request.Context(), "/v2/connectors") +
+	location := "/v2/connectors" +
 		"?oauth=success&connectorId=" + url.QueryEscape(connection.ConnectorID) +
 		"&connectionName=" + url.QueryEscape(connection.ConnectionName)
 	http.Redirect(response, request, location, http.StatusSeeOther)
@@ -352,7 +340,7 @@ func (setup *connectorSetup) deriveConnectorOAuthCredentials(
 			}
 			request.Header.Set("Accept", "application/json")
 			request.Header.Set("Authorization", "Bearer "+token.AccessToken)
-			response, err := setup.connectorOAuthHTTPClient().Do(request)
+			response, err := setup.releases.httpClient.Do(request)
 			if err != nil {
 				return nil, err
 			}
@@ -431,7 +419,7 @@ func (setup *connectorSetup) exchangeConnectorOAuthToken(
 		// Zoom, Calendly, and Notion document base64(id:secret) without RFC 6749 form-encoding.
 		request.SetBasicAuth(session.clientID, session.clientSecret)
 	}
-	response, err := setup.connectorOAuthHTTPClient().Do(request)
+	response, err := setup.releases.httpClient.Do(request)
 	if err != nil {
 		return connectorOAuthTokenResponse{}, err
 	}
@@ -700,20 +688,11 @@ func declaredConnectorOAuthScopes(grant map[string]any) (map[string]bool, bool) 
 }
 
 func connectorOAuthRedirectURI(request *http.Request) string {
-	requestConfig := webRequestConfigFromContext(request.Context())
-	if requestConfig.oauthRedirectURI != "" {
-		return requestConfig.oauthRedirectURI
-	}
-	if requestConfig.publicOrigin != "" {
-		return requestConfig.publicOrigin + webPathFromContext(
-			request.Context(), "/api/v2/connector-oauth/callback")
-	}
 	scheme := "http"
 	if request.TLS != nil {
 		scheme = "https"
 	}
-	return scheme + "://" + request.Host + webPathFromContext(
-		request.Context(), "/api/v2/connector-oauth/callback")
+	return scheme + "://" + request.Host + "/api/v2/connector-oauth/callback"
 }
 
 func (setup *connectorSetup) deleteExpiredOAuthSessions(now time.Time) {
@@ -722,14 +701,4 @@ func (setup *connectorSetup) deleteExpiredOAuthSessions(now time.Time) {
 			delete(setup.oauthSessions, state)
 		}
 	}
-}
-
-func (setup *connectorSetup) connectorOAuthHTTPClient() *http.Client {
-	if setup.project != nil {
-		return setup.oauthHTTPClient
-	}
-	return setup.releases.httpClient
-}
-func rejectConnectorOAuthRedirect(*http.Request, []*http.Request) error {
-	return http.ErrUseLastResponse
 }

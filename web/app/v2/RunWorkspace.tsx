@@ -51,7 +51,7 @@ export function RunWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
   const {
-    ready, canUseV2, catalog, error, definitionUpdateKey, permissionMode, handleDefinitionError,
+    ready, canUseV2, catalog, error, definitionUpdateKey, handleDefinitionError,
   } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   const runQuery = useRunQuery(entry?.definition);
@@ -94,7 +94,7 @@ export function RunWorkspace() {
       navigate(v2RunPath(flowType || undefined), { replace: true });
     }
   }, [definitionUpdateKey, flowType, navigate]);
-  useEffect(() => { setStartOpen(false); setStartNotice(''); }, [flowType, catalog?.definitionRevision, catalog?.startFlow?.targetRevision]);
+  useEffect(() => { setStartOpen(false); setStartNotice(''); }, [flowType, catalog?.definitionRevision]);
 
   if (!ready) return <div className="page-loading">Loading Dex Web…</div>;
   if (!canUseV2) return <Navigate to="/v1/flows" replace />;
@@ -127,13 +127,13 @@ export function RunWorkspace() {
           entry={entry}
           flowTypes={catalog.flows}
           heading={RUN_COPY.runsHeading}
-          headerAction={(permissionMode === 'local-selector' || catalog.startFlow?.enabled) && entry.definition.start ? (
+          headerAction={entry.definition.start ? (
             <button className="button primary sq-start" onClick={() => setStartOpen(true)} type="button">
               Start Flow
             </button>
           ) : undefined}
           onExpand={listPane.expand}
-          permissionControl={permissionMode === 'local-selector' && permissionsOf(entry.definition).length > 0 ? (
+          permissionControl={permissionsOf(entry.definition).length > 0 ? (
             <label className="rsw-permission">
               <span className="rsw-zonehead">{WORK_QUEUE_COPY.permissionLabel}</span>
               <select
@@ -250,7 +250,6 @@ export function RunWorkspace() {
           definition={entry.definition.start}
           definitionRevision={catalog.definitionRevision}
           flowType={entry.flowType}
-          hostedTarget={permissionMode === 'trusted-header' ? catalog.startFlow : undefined}
           onClose={() => setStartOpen(false)}
           onDefinitionChanged={handleDefinitionError}
           onStarted={(startedFlowID) => {

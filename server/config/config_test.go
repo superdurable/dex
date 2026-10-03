@@ -18,44 +18,17 @@ import (
 )
 
 func TestWebEnvironmentOverridesYAML(t *testing.T) {
-	t.Setenv("DEX_WEB_FLOW_RENDERING_SOURCE", "blobstore")
-	t.Setenv("DEX_WEB_FLOW_RENDERING_STORAGE_ID", "p0")
-	t.Setenv("DEX_WEB_FLOW_RENDERING_PREFIX", "_superverse/dex-web/flow-definitions")
-	t.Setenv("DEX_WEB_WORK_QUEUE_PERMISSION_MODE", "trusted-header")
+	t.Setenv("DEX_WEB_FLOW_RENDERING_DIRECTORY", "/tmp/flow-definitions")
 	t.Setenv("DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS", "true")
-	t.Setenv("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS", "true")
-	t.Setenv("DEX_WEB_CONNECTOR_SETUP_ENABLED", "true")
-	t.Setenv("DEX_WEB_CONNECTOR_SETUP_MODE", "project")
-	t.Setenv("DEX_WEB_CONNECTOR_CACHE_DIRECTORY", "/var/cache/dex/connectors")
-	t.Setenv("DEX_WEB_PROJECT_CONFIGURATION_ADMIN_TOKEN", "project-config-admin-test-token-32bytes")
 	path := writeTestConfig(t, `
 web:
-  flowRenderingSource: local
-  workQueuePermissionMode: local-selector
-  projectConfiguration:
-    storageId: credentials
-    prefix: test
-    projectId: a7k2
-    scopeKind: preview
-    sessionId: session1
-    kmsKeyId: test-kms-key
+  flowRenderingDirectory: /tmp/yaml-definitions
+  startFlowWorkerTargetHeadless: false
 `)
 	cfg, err := NewConfig(path)
 	require.NoError(t, err)
-	require.Equal(t, "blobstore", cfg.Web.FlowRenderingSource)
-	require.Equal(t, "p0", cfg.Web.FlowRenderingBlobStore.StorageID)
-	require.Equal(t, "_superverse/dex-web/flow-definitions", cfg.Web.FlowRenderingBlobStore.Prefix)
-	require.Equal(t, "trusted-header", cfg.Web.WorkQueuePermissionMode)
+	require.Equal(t, "/tmp/flow-definitions", cfg.Web.FlowRenderingDirectory)
 	require.True(t, cfg.Web.IsStartFlowWorkerTargetHeadless)
-	require.True(t, cfg.Web.TrustForwardedEmbeddingHeaders)
-	require.True(t, cfg.Web.ConnectorSetupEnabled)
-	require.Equal(t, "project", cfg.Web.ConnectorSetupMode)
-	require.Equal(t, "/var/cache/dex/connectors", cfg.Web.ConnectorCacheDirectory)
-	require.Equal(t, "credentials", cfg.Web.ProjectConfiguration.StorageID)
-	require.Equal(t, "a7k2", cfg.Web.ProjectConfiguration.ProjectID)
-	require.Equal(t, "preview", cfg.Web.ProjectConfiguration.ScopeKind)
-	require.Equal(t, "session1", cfg.Web.ProjectConfiguration.SessionID)
-	require.Equal(t, "project-config-admin-test-token-32bytes", cfg.Web.ProjectConfiguration.AdminToken)
 }
 
 func TestWebStartFlowWorkerTargetHeadlessDefaultsFalseAndReadsYAML(t *testing.T) {
@@ -72,62 +45,6 @@ func TestWebEnvironmentRejectsInvalidStartFlowHeadlessRouting(t *testing.T) {
 	t.Setenv("DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS", "sometimes")
 	_, err := NewConfig(writeTestConfig(t, "web: {}\n"))
 	require.ErrorContains(t, err, "DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS must be a boolean")
-}
-
-func TestWebEnvironmentRejectsInvalidForwardedEmbeddingTrust(t *testing.T) {
-	t.Setenv("DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS", "sometimes")
-	_, err := NewConfig(writeTestConfig(t, "web: {}\n"))
-	require.ErrorContains(t, err, "DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS must be a boolean")
-}
-
-func TestWebEnvironmentRejectsInvalidConnectorSetupEnabled(t *testing.T) {
-	t.Setenv("DEX_WEB_CONNECTOR_SETUP_ENABLED", "sometimes")
-	_, err := NewConfig(writeTestConfig(t, "web: {}\n"))
-	require.ErrorContains(t, err, "DEX_WEB_CONNECTOR_SETUP_ENABLED must be a boolean")
-}
-
-func TestWebConfigRejectsMixedDefinitionSources(t *testing.T) {
-	path := writeTestConfig(t, `
-web:
-  flowRenderingSource: blobstore
-  flowRenderingDirectory: /tmp/definitions
-  flowRenderingBlobStore:
-    storageId: p0
-    prefix: definitions
-`)
-	_, err := NewConfig(path)
-	require.ErrorContains(t, err, "mutually exclusive")
-}
-
-func TestWebConfigAcceptsTrustedHeaderPermissionMode(t *testing.T) {
-	path := writeTestConfig(t, `
-web:
-  workQueuePermissionMode: trusted-header
-  trustForwardedEmbeddingHeaders: true
-`)
-	cfg, err := NewConfig(path)
-	require.NoError(t, err)
-	require.True(t, cfg.Web.TrustForwardedEmbeddingHeaders)
-}
-
-func TestWebConfigRejectsLegacyDefinitionSources(t *testing.T) {
-	for _, source := range []string{"directory", "s3"} {
-		t.Run(source, func(t *testing.T) {
-			path := writeTestConfig(t, "web:\n  flowRenderingSource: "+source+"\n")
-			_, err := NewConfig(path)
-			require.ErrorContains(t, err, "must be local or blobstore")
-		})
-	}
-}
-
-func TestConfigRejectsReservedSuperVerseWorkflowNamespace(t *testing.T) {
-	path := writeTestConfig(t, `
-interpreter:
-  temporal:
-    namespace: _superverse
-`)
-	_, err := NewConfig(path)
-	require.ErrorContains(t, err, "reserved")
 }
 
 func TestTemporalCloudOpsConfig(t *testing.T) {

@@ -165,13 +165,6 @@ export interface V2Catalog {
   enabled: boolean;
   flows: V2CatalogEntry[];
   definitionRevision: string;
-  startFlow?: V2StartCapability;
-}
-
-export interface V2StartCapability {
-  enabled: boolean;
-  targetRevision?: string;
-  csrfToken?: string;
 }
 
 export interface V2Flow {

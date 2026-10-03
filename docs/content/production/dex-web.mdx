@@ -48,7 +48,7 @@ Every registered Step has one group declaration and one explanation declaration.
 
 ## Start Flow
 
-The Run workspace shows **Start Flow** when the selected definition contains a generated start schema and the permission mode is **local-selector**. The dialog asks for a Flow ID, a plaintext Worker gRPC address, and the start input. It renders nested objects, arrays, string-key maps, enums, booleans, datetime values, optional fields, and explicit null values. Fixed arrays keep their declared length. Integer values remain decimal text in the browser until serialization, so int64 values keep their exact precision.
+The Run workspace shows **Start Flow** when the selected definition contains a generated start schema. The dialog asks for a Flow ID, a plaintext Worker gRPC address, and the start input. It renders nested objects, arrays, string-key maps, enums, booleans, datetime values, optional fields, and explicit null values. Fixed arrays keep their declared length. Integer values remain decimal text in the browser until serialization, so int64 values keep their exact precision.
 
 Dex Web checks the Worker host and port from its backend when the address loses focus and again before starting. An unreachable port shows a warning and blocks the start. An operator can explicitly select **Bypass worker health check** to continue. The check opens a TCP connection and does not invoke a Worker method.
 
@@ -57,22 +57,6 @@ The Go analyzer derives the schema from the input type of the Step registered wi
 The Server reloads the current definition revision and validates the complete input before calling **StartFlow**. It rejects unknown object fields, missing required fields, invalid nulls, type, enum, range, datetime, array, and map errors. It also repeats the Worker port check unless the operator selected the bypass. The Server selects the start Step type and creates the request ID. The browser cannot choose headless routing.
 
 Set **web.startFlowWorkerTargetHeadless** or **DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS** for the whole Dex Web instance. The default is false. Set it to true when operators enter Kubernetes headless Service targets.
-
-### Hosted Start Flow
-
-In **trusted-header** mode, Start Flow requires **web.trustForwardedEmbeddingHeaders: true** and a private Web listener behind an authenticated proxy. The proxy re-authenticates every start and recovery request, reads the current resource instance, removes browser-provided trusted headers, and injects **X-Dex-Work-Queue-Permissions: flows.start**, **X-Dex-Actor-ID**, **X-Dex-Start-Worker-Target**, and **X-Dex-Start-Target-Revision**. The target revision is a 64-character lowercase SHA-256 identity binding the resource scope and current instance or deployment. The proxy also provides the embedded prefix and CSRF token described below. These headers are authority only at that private boundary.
-
-**GET /api/v2/catalog** exposes the authorized start capability and target revision. The hosted dialog displays only the generated business input. It creates a new **flow-UUIDv4** Flow ID and operation UUID when opened, and sends **flowType**, **flowId**, **requestId**, **targetRevision**, and **input** with the exact **X-Dex-Flow-Definition-Revision** and **X-CSRF-Token**. The browser cannot select a Worker or bypass health checks. The Server checks permission, target revision, definition, complete input, and Worker health before starting. Hosted success returns only **flowId**.
-
-The Server binds the engine request ID to the actor, target revision, trusted Worker, definition revision, Flow type, Flow ID, operation UUID, and canonical input. Starts explicitly disallow Flow ID reuse and ignore only an already-started execution with that same request identity. Successful acceptance does not read a Snapshot.
-
-After a lost response, **POST /api/v2/start/recover** accepts the original body and definition revision. It reads the original Flow ID and confirms its engine request identity before returning acceptance. A missing start permits retrying the original operation; a different identity or changed target is rejected. The dialog retains the input and identities during recovery. Closing it cancels pending requests, and opening another dialog creates a new task identity.
-
-### Official embedding packages
-
-The **dex-web-v2/v0.3.0** release includes RunWorkspace, StartFlowDialog, input types, providers, and styles. It uses **flow-definition-renderer/v0.2.0**, whose exported Start types match the FDG schema. Both are source packages with React 19 peer dependencies. Hosts may adapt routing through a React Router compatible boundary and must configure the authenticated Dex base path before mounting providers.
-
-The release workflow packages the exact tagged source twice and compares bytes. Archives include the source commit and license, and release assets include SHA-256 and npm SHA-512 integrity receipts. Alias imports are rewritten to relative paths during packaging; consumers do not modify installed package files. Use **script/release/package_embedded_web.py** to reproduce an archive locally.
 
 ## Search and Summary
 
@@ -108,7 +92,7 @@ An Action without input accepts **dex.None** and renders as a direct button. An 
 
 A user-sourced string field can declare **capture:qr-code**. Dex Web keeps the text field for scanners, paste, and manual entry, and adds **Scan QR code**. Opening the scanner requests the camera and loads the QR reader. A successful scan copies the decoded text into the field; it does not submit the Action. The user can review the value before choosing the Action.
 
-Camera capture requires HTTPS or localhost. An embedding host must also allow camera access in its Permissions Policy. A denied permission, missing camera, unsupported environment, or host policy leaves manual entry available. Closing the scanner, changing runs, or leaving the page releases its camera tracks. Scanning does not grant permission, bypass the Action condition, or change the RPC protocol.
+Camera capture requires HTTPS or localhost. A denied permission, missing camera, unsupported environment, or host policy leaves manual entry available. Closing the scanner, changing runs, or leaving the page releases its camera tracks. Scanning does not grant permission, bypass the Action condition, or change the RPC protocol.
 
 Each Action requires one permission such as **refund.manage**. Permission keys begin with a lowercase letter and contain lowercase letters, digits, dots, or hyphens. When a successful Worker invocation writes an Action condition source, the Worker sends the complete mapping with that response. Unrelated writes and query-only RPCs omit it.
 
@@ -116,46 +100,10 @@ The Server overlays the business writes on authoritative Attribute state and eva
 
 The permission history is carried across Continue-as-New and remains searchable after completion. A Server upgrade preserves permissions that are still stored but does not reconstruct permissions removed before the upgrade. A new, independent Flow execution starts from its own initial Attributes. A changed Action definition is first evaluated when a later source write sends its mapping or a new Flow starts. Removing or renaming an Action permission does not clear the old value from existing permission history.
 
-Work Queue offers the permissions declared by the selected Flow type. Choosing **Working as** one permission sends it as **workQueuePermissions** to **POST /api/v2/search**. The API also accepts several permissions for callers such as Superverse that derive them from multiple user roles. A run matches when its permission history contains any requested permission. This permission group is joined with the Flow type and other filters using AND.
+Work Queue offers the permissions declared by the selected Flow type. Choosing **Working as** one permission sends it as **workQueuePermissions** to **POST /api/v2/search**. The API also accepts several permissions for callers that derive them from multiple user roles. A run matches when its permission history contains any requested permission. This permission group is joined with the Flow type and other filters using AND.
 
 A matching permission means an Action is or was available; it does not mean the Action is available now. A keyed gate also needs its current key, and the list reads an eventually consistent index. The run decides which Actions are currently available once it is open.
 
 The browser condition only controls presentation. Every Action RPC must check the current state again before changing durable state or publishing a Channel message. Use locks when that check and the effect must be atomic.
 
-Work Queue does not add login or enforce authorization. **Working as** selects work; it does not grant the chosen permission. The trusted application boundary, such as Superverse, remains responsible for authenticating users, mapping roles to permissions, and limiting which permissions it sends. Deploy Dex Web behind that boundary.
-
-## Trusted reverse-proxy mounts
-
-An authenticated host application can expose Dex Web below a request-specific
-URL such as **/apps/project-1/dex**. Enable
-**web.trustForwardedEmbeddingHeaders** or
-**DEX_WEB_TRUST_FORWARDED_EMBEDDING_HEADERS** only when port 8802 is private to
-the trusted reverse proxy. The default is false, and Dex rejects requests that
-contain forwarded embedding metadata while trust is disabled.
-
-The proxy removes the public prefix before forwarding the path to Dex, strips
-all browser-supplied copies of the following headers, and injects one canonical
-value for each required header:
-
-~~~text
-X-Forwarded-Prefix: /apps/project-1/dex
-X-Dex-Web-Embedded: true
-X-Dex-Web-CSRF-Token: host-generated-token
-~~~
-
-The prefix is **/** or an absolute canonical path without a trailing slash,
-query, fragment, authority, dot segment, or encoded separator. The embedded
-value is exactly **true** or **false**. The CSRF bootstrap token is optional to
-Dex but recommended for hosted pages; it must use visible ASCII without spaces.
-
-The response bootstrap configures routing, assets, links, and API requests for
-that request only. Embedded pages remove redundant product chrome and allow
-same-origin framing. Standalone pages deny framing. HTML is not cached and
-varies on the trusted metadata, so two projects can share one Dex Web service
-without reusing each other's mount path or token.
-
-For POST, PATCH, PUT, DELETE, and other mutating methods, the browser sends the
-bootstrap token as **X-CSRF-Token**. The host proxy validates it against the
-authenticated session before forwarding and then removes it. Dex transports
-the token to the browser but does not authenticate host users, authorize
-projects, or validate host CSRF state.
+Work Queue does not add login or enforce authorization. **Working as** selects work; it does not grant the chosen permission. The trusted application boundary remains responsible for authenticating users, mapping roles to permissions, and limiting which permissions it sends. Deploy Dex Web behind that boundary.

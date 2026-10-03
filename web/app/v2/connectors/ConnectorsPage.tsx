@@ -11,7 +11,6 @@ import {
   type CSSProperties, type FormEvent,
 } from 'react';
 import { readResponseJSON } from '@/lib/http';
-import { dexFetch } from '@/lib/webConfig';
 import { useTheme, type Theme } from '../../theme';
 import '../css/v2.css';
 import {
@@ -26,12 +25,11 @@ import {
 } from './connectorStudioTheme';
 import { CONNECTORS_COPY } from './copy';
 import './connectors.css';
-import { ApplicationEnvironmentEditor } from './ApplicationEnvironmentEditor';
 
 /** The theme every Studio frame paints; the page provides the Dex Web theme. */
 export const ConnectorStudioFrameThemeContext = createContext<Theme>('light');
 
-type ConnectionStatus = 'Missing' | 'Ready' | 'Expired' | 'Conflict' | 'Unsupported' | 'Reauthorization required';
+type ConnectionStatus = 'Missing' | 'Ready' | 'Expired' | 'Conflict' | 'Unsupported';
 
 interface ConnectionUse {
   flowName: string;
@@ -59,29 +57,21 @@ interface ConnectionView {
   modulePath?: string;
   moduleVersion?: string;
   localOverride?: boolean;
-  localArtifact?: { baselineVersion: string; sourceCommit: string; sourceTreeDigest: string; artifactDigest: string };
   provider?: string;
   status: ConnectionStatus;
   configuration?: Record<string, unknown>;
   storedCredentialFields?: string[];
   credentialExpiresAt?: string;
-  credentialStatus?: string;
-  credentialRevision?: number;
   uses: ConnectionUse[];
   triggerUses?: TriggerUse[];
 }
 
 interface ConnectionsResponse {
   enabled: boolean;
-  mode: 'local' | 'project';
   directory?: string;
   filePath?: string;
   useConfigurationsFilePath?: string;
-  configurationRevision?: string;
-  configurationState?: 'Draft' | 'Valid' | 'Ready to deploy' | 'Reauthorization required';
-  applicationRevision?: string;
   definitionRevision: string;
-  appManifestRevision?: number;
   csrfToken: string;
   launchCommand?: string;
   connections: ConnectionView[];
@@ -196,7 +186,7 @@ export function ConnectorsPage() {
   const listPane = useCollapsibleColumn(LIST_WIDTH_KEY, LIST_WIDTH_DEFAULT);
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    const response = await dexFetch('/api/v2/connector-connections', { signal });
+    const response = await fetch('/api/v2/connector-connections', { signal });
     const next = await readResponseJSON<ConnectionsResponse>(response);
     setCatalog(next);
     setSelected((current) => current
@@ -218,10 +208,10 @@ export function ConnectorsPage() {
     if (!catalog || !selected || selected.status === 'Unsupported' || selected.status === 'Conflict') return;
     const controller = new AbortController();
     setBusy(true);
-    void dexFetch('/api/v2/connector-ui-sessions', {
+    void fetch('/api/v2/connector-ui-sessions', {
       method: 'POST',
       signal: controller.signal,
-      headers: connectorWriteHeaders(catalog, selected),
+      headers: connectorWriteHeaders(catalog),
       body: JSON.stringify({ connectorId: selected.connectorId, connectionName: selected.connectionName }),
     }).then((response) => readResponseJSON<UISessionResponse>(response))
       .then((value) => setSession(value))
@@ -253,8 +243,8 @@ export function ConnectorsPage() {
     if (!catalog || !selected) return;
     setBusy(true);
     try {
-      const response = await dexFetch(connectionURL(selected), {
-        method: 'DELETE', headers: connectorWriteHeaders(catalog, selected),
+      const response = await fetch(connectionURL(selected), {
+        method: 'DELETE', headers: connectorWriteHeaders(catalog),
       });
       await readResponseJSON<{ deleted: boolean }>(response);
       await load();
@@ -290,7 +280,7 @@ export function ConnectorsPage() {
               <>
                 <div className="sq-head">
                   <span className="sq-title">{CONNECTORS_COPY.heading}</span>
-                  <span className="sq-live">{catalog.mode === 'project' ? CONNECTORS_COPY.projectNote : CONNECTORS_COPY.localNote}</span>
+                  <span className="sq-live">{CONNECTORS_COPY.localNote}</span>
                 </div>
                 {catalog.connections.length === 0 && <p className="sq-state">{CONNECTORS_COPY.empty}</p>}
                 <div className="rsw-scroll" data-zone="list">
@@ -332,7 +322,6 @@ export function ConnectorsPage() {
             onToggle={listPane.isCollapsed ? listPane.expand : listPane.collapse}
           />
           <section aria-label={selected ? connectorDisplayName(selected) : CONNECTORS_COPY.heading} className="v2-work-queue-case">
-            {catalog.mode === 'project' && <ApplicationEnvironmentEditor onSaved={load} />}
             {selected ? (
               <div className="v2-case sc">
                 <ConnectionHeader connection={selected} />
@@ -348,10 +337,10 @@ export function ConnectorsPage() {
                 <div className="sc-block connector-connection-footer">
                   {selected.status !== 'Missing' && selected.status !== 'Unsupported' && selected.status !== 'Conflict' && (
                     <button className="rhd-stop" disabled={busy} onClick={() => void deleteCredentials()} type="button">
-                      {connectionDeleteLabel(catalog.mode)}
+                      {connectionDeleteLabel()}
                     </button>
                   )}
-                  <p className="sc-why">{connectorConfigurationEffectText(catalog.mode)}</p>
+                  <p className="sc-why">{connectorConfigurationEffectText()}</p>
                 </div>
                 <ConnectorStoreZone catalog={catalog} />
               </div>
@@ -374,8 +363,7 @@ export function connectorDisplayName(connection: Pick<ConnectionView, 'connector
   return connection.displayName?.trim() || connection.connectorId;
 }
 
-export function connectionReleaseText(connection: Pick<ConnectionView, 'localOverride' | 'moduleVersion' | 'localArtifact'>): string {
-  if (connection.localArtifact) return `Local source · baseline ${connection.localArtifact.baselineVersion} · ${connection.localArtifact.sourceTreeDigest} · artifact ${connection.localArtifact.artifactDigest}`;
+export function connectionReleaseText(connection: Pick<ConnectionView, 'localOverride' | 'moduleVersion'>): string {
   if (connection.localOverride) return `Local override · ${connection.moduleVersion}`;
   return connection.moduleVersion || 'No exact release';
 }
@@ -403,22 +391,15 @@ function ConnectionHeader({ connection }: { connection: ConnectionView }) {
 
 type ConnectorStoreSummary = Pick<
   ConnectionsResponse,
-  'mode' | 'directory' | 'filePath' | 'useConfigurationsFilePath' | 'launchCommand'
-  | 'configurationState' | 'configurationRevision' | 'applicationRevision'
+  'directory' | 'filePath' | 'useConfigurationsFilePath' | 'launchCommand'
 >;
 
-/** Where connections are stored: the local files and launch command, or the project revisions. */
+/** Where connections are stored: the local files and launch command. */
 export function ConnectorStoreZone({ catalog }: { catalog: ConnectorStoreSummary }) {
-  const isProject = catalog.mode === 'project';
-  const heading = isProject ? CONNECTORS_COPY.projectStoreHeading : CONNECTORS_COPY.localStoreHeading;
+  const heading = CONNECTORS_COPY.localStoreHeading;
   return <section aria-label={heading} className="sc-block connector-store-zone" data-zone="store">
     <h3 className="sc-blockhead">{heading}</h3>
     <dl className="scx-facts connector-store">
-      {isProject ? <>
-        <ConnectorStoreEntry label="Configuration status" value={catalog.configurationState || 'Draft'} />
-        <ConnectorStoreEntry label="Draft revision" value={catalog.configurationRevision || 'Not created'} />
-        <ConnectorStoreEntry label="Application revision" value={catalog.applicationRevision || 'Not deployed'} />
-      </> : <>
         <ConnectorStoreEntry label="Store directory" value={catalog.directory ?? ''} />
         {[
           {label: 'Connection file', value: catalog.filePath ?? ''},
@@ -427,7 +408,6 @@ export function ConnectorStoreZone({ catalog }: { catalog: ConnectorStoreSummary
         ].map(({label, value}) => <ConnectorStoreEntry
           copyable displayValue={connectorStoreRelativeText(value, catalog.directory)} key={label} label={label} value={value}
         />)}
-      </>}
     </dl>
   </section>;
 }
@@ -449,14 +429,12 @@ function ConnectorStoreEntry({ label, value, displayValue = value, copyable = fa
   </div>;
 }
 
-export function connectionDeleteLabel(mode: ConnectionsResponse['mode']) {
-  return mode === 'project' ? 'Delete connection' : 'Delete local credentials';
+export function connectionDeleteLabel() {
+  return 'Delete local credentials';
 }
 
-export function connectorConfigurationEffectText(mode: ConnectionsResponse['mode']) {
-  return mode === 'project'
-    ? 'Configuration changes create a new revision and require redeployment. Credential refresh and rotation apply on the next Connector call.'
-    : 'Deleting local credentials does not revoke the provider grant. Configuration changes require an app restart; credential changes apply on the next Connector call.';
+export function connectorConfigurationEffectText() {
+  return 'Deleting local credentials does not revoke the provider grant. Configuration changes require an app restart; credential changes apply on the next Connector call.';
 }
 
 function ConnectorSetupNavigation({activeTab, connection, tabs, onSelect}: {
@@ -566,9 +544,6 @@ function ConnectorUsePanel({catalog, connection, session, tab, onConfigured, onE
   onConfigured: () => Promise<void>;
   onError: (message: string) => void;
 }) {
-  if (tab.kind === 'trigger' && !tab.use.flowName) return <ProjectTriggerForm
-    catalog={catalog} connection={connection} use={tab.use} onConfigured={onConfigured} onError={onError}
-  />;
   return <section aria-label={`${tab.label} ${tab.kind}`} className="sc-block connector-use">
     <div className="sc-blockhead">{tab.kind === 'operation' ? 'Operation' : 'Trigger'}</div>
     <h3 className="scx-step t-mono">{tab.label}</h3>
@@ -598,39 +573,6 @@ function ConnectorUsePanel({catalog, connection, session, tab, onConfigured, onE
   </section>;
 }
 
-export function ProjectTriggerForm({catalog, connection, use, onConfigured, onError}: {
-  catalog: ConnectionsResponse;
-  connection: ConnectionView;
-  use: TriggerUse;
-  onConfigured: () => Promise<void>;
-  onError: (message: string) => void;
-}) {
-  const fields = use.configurationFields ?? [];
-  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(fields
-    .filter((field) => use.configuration[field.name] !== undefined)
-    .map((field) => [`trigger:${field.name}`, manifestFormFieldText(field, use.configuration[field.name])])));
-  const [saving, setSaving] = useState(false);
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      const configuration = Object.fromEntries(fields.filter((field) => (values[`trigger:${field.name}`] ?? '') !== '')
-        .map((field) => [field.name, parseManifestFieldInput(field, values[`trigger:${field.name}`]) ]));
-      const target = `/api/v2/connector-trigger-bindings/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}/${encodeURIComponent(use.triggerName)}/${encodeURIComponent(use.bindingName)}`;
-      await readResponseJSON(await dexFetch(target, {method: 'PUT', headers: connectorWriteHeaders(catalog, connection), body: JSON.stringify({configuration})}));
-      await onConfigured();
-    } catch (failure) { onError(errorMessage(failure)); }
-    finally { setSaving(false); }
-  };
-  return <section className="sc-block connector-use" aria-label={`${use.triggerName} trigger`}>
-    <h3>{use.triggerName}</h3><p>Binding: {use.bindingName}</p>
-    {use.schemaAvailable ? <form onSubmit={(event) => void submit(event)}>
-      {fields.map((field) => <ManifestFormField key={field.name} field={field} prefix="trigger" values={values} setValues={setValues} />)}
-      {fields.length === 0 && <p>This trigger has no configurable fields.</p>}
-      <button className="v2-primary" disabled={saving} type="submit">Save trigger configuration</button>
-    </form> : <p role="alert">This pinned connector release does not publish a trigger configuration schema.</p>}
-  </section>;
-}
 
 export function parseManifestFieldInput(field: ManifestField, text: string): unknown {
   if (!['integer', 'boolean', 'stringList', 'stringMap'].includes(field.type)) return text;
@@ -754,19 +696,19 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
         const credentialSecrets = Object.fromEntries(auth.fields
           .filter((field) => field.type === 'secretString' && !mappedCredentialNames.has(field.name))
           .map((field) => [field.name, values[`credential:${field.name}`] ?? '']));
-        const response = await dexFetch(`${connectionURL(connection)}/oauth/start`, {
-          method: 'POST', headers: connectorWriteHeaders(catalog, connection), body: JSON.stringify({
+        const response = await fetch(`${connectionURL(connection)}/oauth/start`, {
+          method: 'POST', headers: connectorWriteHeaders(catalog), body: JSON.stringify({
             authMethodId, clientId: values.clientId ?? '', clientSecret: values.clientSecret ?? '',
             configuration, credentialValues, credentialSecrets,
           }),
         });
         const result = await readResponseJSON<{ authorizationUrl: string }>(response);
-        const destination = catalog.mode === 'project' && window.top ? window.top : window;
+        const destination = window;
         destination.location.assign(result.authorizationUrl);
         return;
       }
-      const response = await dexFetch(connectionURL(connection), {
-        method: 'PUT', headers: connectorWriteHeaders(catalog, connection),
+      const response = await fetch(connectionURL(connection), {
+        method: 'PUT', headers: connectorWriteHeaders(catalog),
         body: JSON.stringify(connectionWriteRequestBody(
           connection, manifest, isMultiple ? authMethodIds : [authMethodId], values, storedValueFields,
         )),
@@ -846,7 +788,7 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
     </fieldset>}
     {requestedScopesText !== '' && <p className="sc-why">{requestedScopesText}</p>}
     <div className="connector-form-actions">
-      <button className="v2-primary" disabled={submitting || (isMultiple && authMethodIds.length === 0)} type="submit">{oauth ? 'Authorize' : catalog.mode === 'project' ? 'Save credentials' : 'Save local credentials'}</button>
+      <button className="v2-primary" disabled={submitting || (isMultiple && authMethodIds.length === 0)} type="submit">{oauth ? 'Authorize' : 'Save local credentials'}</button>
       {onCancel && <button className="v2-ghost" onClick={onCancel} type="button">Cancel</button>}
     </div>
   </form>;
@@ -1452,7 +1394,7 @@ async function executeStudioCommand(
   } else {
     throw new Error('Connector command is not implemented');
   }
-  const response = await dexFetch(target, { method, headers: connectorWriteHeaders(catalog, connection), body });
+  const response = await fetch(target, { method, headers: connectorWriteHeaders(catalog), body });
   return readResponseJSON<Record<string, unknown>>(response);
 }
 
@@ -1550,16 +1492,11 @@ export function studioState(status: ConnectionStatus) {
   return 'error';
 }
 
-export function connectorWriteHeaders(catalog: ConnectionsResponse, connection?: ConnectionView) {
+export function connectorWriteHeaders(catalog: ConnectionsResponse) {
   return {
     'Content-Type': 'application/json',
     'X-Dex-CSRF-Token': catalog.csrfToken,
     'X-Dex-Flow-Definition-Revision': catalog.definitionRevision,
-    ...(catalog.mode === 'project' ? {
-      'X-Dex-App-Manifest-Revision': String(catalog.appManifestRevision ?? 0),
-      'X-Dex-Configuration-Revision': catalog.configurationRevision ?? '0',
-      'X-Dex-Credential-Revision': String(connection?.credentialRevision ?? 0),
-    } : {}),
   };
 }
 

@@ -39,7 +39,7 @@ import { openFlowStatusLabel } from './liveness';
 export function WorkQueueWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
-  const { ready, canUseV2, catalog, error, definitionUpdateKey, permissionMode } = useWebCatalog();
+  const { ready, canUseV2, catalog, error, definitionUpdateKey } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   // A work queue opens on active work; the control widens it.
   const runQuery = useRunQuery(entry?.definition, { ...EMPTY_RUN_QUERY, status: openFlowStatusLabel() });
@@ -90,7 +90,7 @@ export function WorkQueueWorkspace() {
           heading={WORK_QUEUE_COPY.appName}
           headerNote={WORK_QUEUE_COPY.liveNote}
           onExpand={listPane.expand}
-          permissionControl={permissionMode === 'local-selector' && permissionsOf(entry.definition).length > 0 ? (
+          permissionControl={permissionsOf(entry.definition).length > 0 ? (
             <label className="rsw-permission">
               <span className="rsw-zonehead">{WORK_QUEUE_COPY.permissionLabel}</span>
               <select

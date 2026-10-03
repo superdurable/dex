@@ -10,7 +10,6 @@ package api
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,14 +31,11 @@ import (
 )
 
 const (
-	v2DefaultPageSize             = 50
-	v2RPCConcurrency              = 8
-	v2RPCTimeout                  = 5 * time.Second
-	v2WorkQueuePermissionsIndex   = "DexWorkQueuePermissions"
-	V2PermissionModeLocalSelector = "local-selector"
-	V2PermissionModeTrustedHeader = "trusted-header"
-	V2DefinitionRevisionHeader    = "X-Dex-Flow-Definition-Revision"
-	V2WorkQueuePermissionsHeader  = "X-Dex-Work-Queue-Permissions"
+	v2DefaultPageSize           = 50
+	v2RPCConcurrency            = 8
+	v2RPCTimeout                = 5 * time.Second
+	v2WorkQueuePermissionsIndex = "DexWorkQueuePermissions"
+	V2DefinitionRevisionHeader  = "X-Dex-Flow-Definition-Revision"
 )
 
 var v2PermissionPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
@@ -183,10 +179,8 @@ type V2ActionInputField struct {
 type v2Handler struct {
 	client                          dexpb.FlowServiceClient
 	loadDefinitions                 V2DefinitionLoader
-	permissionMode                  string
 	isStartFlowWorkerTargetHeadless bool
 	checkStartFlowWorkerHealth      V2WorkerHealthChecker
-	trustStartFlowHeaders           bool
 }
 
 // V2DefinitionSnapshot is one request's immutable catalog revision.
@@ -203,11 +197,8 @@ type V2WorkerHealthChecker func(context.Context, string) error
 
 // V2HandlerConfig controls server-side v2 behavior.
 type V2HandlerConfig struct {
-	PermissionMode                  string
 	IsStartFlowWorkerTargetHeadless bool
 	WorkerHealthChecker             V2WorkerHealthChecker
-	// TrustStartFlowHeaders defaults false; only authenticated private proxies may enable it.
-	TrustStartFlowHeaders bool
 }
 
 type v2CatalogEntry struct {
@@ -301,15 +292,10 @@ func RegisterDynamicV2Handlers(
 	if client == nil {
 		panic("Dex FlowService client must not be nil")
 	}
-	permissionMode := V2PermissionModeLocalSelector
-	if config.PermissionMode != "" {
-		permissionMode = config.PermissionMode
-	}
 	handler := &v2Handler{
-		client: client, loadDefinitions: loader, permissionMode: permissionMode,
+		client: client, loadDefinitions: loader,
 		isStartFlowWorkerTargetHeadless: config.IsStartFlowWorkerTargetHeadless,
 		checkStartFlowWorkerHealth:      config.WorkerHealthChecker,
-		trustStartFlowHeaders:           config.TrustStartFlowHeaders,
 	}
 	if handler.checkStartFlowWorkerHealth == nil {
 		handler.checkStartFlowWorkerHealth = checkV2WorkerPortHealth
@@ -317,7 +303,6 @@ func RegisterDynamicV2Handlers(
 	mux.HandleFunc("GET /api/v2/catalog", handler.catalog)
 	mux.HandleFunc("POST /api/v2/worker-health", handler.checkWorkerHealth)
 	mux.HandleFunc("POST /api/v2/start", handler.startFlow)
-	mux.HandleFunc("POST /api/v2/start/recover", handler.recoverStartFlow)
 	mux.HandleFunc("POST /api/v2/search", handler.search)
 	mux.HandleFunc("GET /api/v2/display", handler.display)
 	mux.HandleFunc("PATCH /api/v2/display", handler.editDisplay)
@@ -345,7 +330,6 @@ func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request)
 		"enabled":            len(entries) > 0,
 		"flows":              entries,
 		"definitionRevision": snapshot.Revision,
-		"startFlow":          h.startFlowCapability(request),
 	})
 }
 
@@ -359,7 +343,7 @@ func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) 
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	permissions, permitted := h.resolvePermissions(response, request, body.WorkQueuePermissions)
+	permissions, permitted := h.resolvePermissions(response, body.WorkQueuePermissions)
 	if !permitted {
 		return
 	}
@@ -374,10 +358,6 @@ func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) 
 	}
 	if body.PageSize == 0 || body.PageSize > v2DefaultPageSize {
 		body.PageSize = v2DefaultPageSize
-	}
-	if h.permissionMode == V2PermissionModeTrustedHeader && len(permissions) == 0 {
-		writeJSON(response, http.StatusOK, v2SearchResponse{Flows: []v2Flow{}})
-		return
 	}
 	query, err := compileV2Query(body.FlowType, permissions, body.Filters, definition)
 	if err != nil {
@@ -511,9 +491,6 @@ func (h *v2Handler) display(response http.ResponseWriter, request *http.Request)
 }
 
 func (h *v2Handler) editDisplay(response http.ResponseWriter, request *http.Request) {
-	if !h.requireEmbeddedMutationCSRF(response, request) {
-		return
-	}
 	snapshot, ok := h.loadSnapshot(response, request, true)
 	if !ok {
 		return
@@ -627,9 +604,6 @@ func encodeActionPermissionConditionValue(value interface{}) (*dexpb.Value, erro
 }
 
 func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Request) {
-	if !h.requireEmbeddedMutationCSRF(response, request) {
-		return
-	}
 	snapshot, ok := h.loadSnapshot(response, request, true)
 	if !ok {
 		return
@@ -639,7 +613,7 @@ func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Req
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	permissions, permitted := h.resolvePermissions(response, request, body.WorkQueuePermissions)
+	permissions, permitted := h.resolvePermissions(response, body.WorkQueuePermissions)
 	if !permitted {
 		return
 	}
@@ -653,7 +627,7 @@ func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Req
 		WriteError(response, http.StatusBadRequest, "rpcName is not a declared Action", nil)
 		return
 	}
-	if snapshot.Revision != "" || h.permissionMode == V2PermissionModeTrustedHeader {
+	if snapshot.Revision != "" {
 		if !containsPermission(permissions, action.RequiredPermission) {
 			WriteError(response, http.StatusForbidden, "Action permission denied", nil)
 			return
@@ -695,19 +669,6 @@ func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Req
 	writeJSON(response, http.StatusOK, map[string]bool{"invoked": true})
 }
 
-func (h *v2Handler) requireEmbeddedMutationCSRF(response http.ResponseWriter, request *http.Request) bool {
-	if h.permissionMode != V2PermissionModeTrustedHeader || request.Header.Get("X-Dex-Web-Embedded") != "true" {
-		return true
-	}
-	expected := request.Header.Values("X-Dex-Web-CSRF-Token")
-	supplied := request.Header.Values("X-CSRF-Token")
-	if len(expected) != 1 || expected[0] == "" || len(supplied) != 1 || subtle.ConstantTimeCompare([]byte(expected[0]), []byte(supplied[0])) != 1 {
-		WriteCodedError(response, http.StatusForbidden, "WEB_MUTATION_CSRF_INVALID", "Embedded mutation CSRF token is invalid")
-		return false
-	}
-	return true
-}
-
 func (h *v2Handler) loadSnapshot(
 	response http.ResponseWriter,
 	request *http.Request,
@@ -739,36 +700,9 @@ func (h *v2Handler) loadSnapshot(
 	return snapshot, true
 }
 
-func (h *v2Handler) resolvePermissions(
-	response http.ResponseWriter,
-	request *http.Request,
-	localPermissions []string,
-) ([]string, bool) {
-	permissions := localPermissions
-	if h.permissionMode == V2PermissionModeTrustedHeader {
-		values, present := request.Header[http.CanonicalHeaderKey(V2WorkQueuePermissionsHeader)]
-		if !present || len(values) != 1 {
-			WriteError(response, http.StatusForbidden, "Trusted Work Queue permissions are required", nil)
-			return nil, false
-		}
-		permissions = nil
-		if strings.TrimSpace(values[0]) != "" {
-			for _, permission := range strings.Split(values[0], ",") {
-				permission = strings.TrimSpace(permission)
-				if permission == "" {
-					WriteError(response, http.StatusForbidden, "Trusted Work Queue permissions are malformed", nil)
-					return nil, false
-				}
-				permissions = append(permissions, permission)
-			}
-		}
-	}
+func (h *v2Handler) resolvePermissions(response http.ResponseWriter, permissions []string) ([]string, bool) {
 	if _, err := compileWorkQueuePermissions(permissions); err != nil {
-		statusCode := http.StatusBadRequest
-		if h.permissionMode == V2PermissionModeTrustedHeader {
-			statusCode = http.StatusForbidden
-		}
-		WriteError(response, statusCode, err.Error(), nil)
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return nil, false
 	}
 	return permissions, true

@@ -8,7 +8,6 @@
 
 import { readResponseJSON } from './http';
 import { VALUE_BLOB_UNAVAILABLE } from './unavailable';
-import { dexFetch, webPath } from './webConfig';
 
 export type BlobKind = 'string' | 'object';
 
@@ -61,7 +60,7 @@ export async function hydrateBlobs<T>(
   value: T,
   cache: Map<string, unknown>,
   signal?: AbortSignal,
-  fetcher?: typeof fetch,
+  fetcher: typeof fetch = fetch,
 ): Promise<BlobHydrationResult<T>> {
   const references = collectBlobReferences(value);
   const missing = references.filter((reference) => !cache.has(blobCacheKey(flowId, reference)));
@@ -76,9 +75,7 @@ export async function hydrateBlobs<T>(
       cache: 'no-store',
       signal,
     };
-    const response = fetcher
-      ? await fetcher(webPath('/api/blobs/load'), request)
-      : await dexFetch('/api/blobs/load', request);
+    const response = await fetcher('/api/blobs/load', request);
     const result = await readResponseJSON<{ values?: Record<string, unknown> }>(response);
     for (const [key, resolved] of Object.entries(result.values ?? {})) {
       const separator = key.indexOf(':');

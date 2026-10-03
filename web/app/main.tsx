@@ -11,13 +11,12 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import './globals.css';
 import { App } from './App';
-import { webBasePath } from '@/lib/webConfig';
 
 document.title = 'Dex · Super Durable';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter basename={webBasePath()}>
+    <BrowserRouter>
       <App />
     </BrowserRouter>
   </StrictMode>,
