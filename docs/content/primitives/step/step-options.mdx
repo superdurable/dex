@@ -12,6 +12,8 @@ This page covers the advanced **StepOptions** features to deeply customize your 
 
 Use **RetryAfter** if you want to deeply customize the retry behavior. It overrides the retry schedule of the **RetryPolicy**.
 
+Retries recover from failed attempts. Do not use **RetryAfter** to wait for an external system; use the [Polling](/design-patterns/polling) pattern.
+
 <SdkTabs
   examples={{
     go: 'examples/go/primitives/custom-retry/workflow.go',
@@ -169,6 +171,8 @@ During a regular activity attempt, the Worker must send a heartbeat or a [Stream
 **HeartbeatTimeout** defaults to one minute. The default allowed minimum is 10 seconds.
 
 For example, an **Execute** method timeout of 60 seconds and a **HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds instead of waiting for the full 60 seconds.
+
+To wait for an external system in one heartbeating Step, use the [Polling](/design-patterns/polling) pattern.
 
 A heartbeat can persist a checkpoint value. The next regular attempt receives the latest value and can resume from it. An explicit heartbeat without a value clears the previous checkpoint. An implicit heartbeat from a Stream message preserves the latest explicit state, including an explicitly cleared state.
 

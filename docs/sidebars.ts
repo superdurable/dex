@@ -72,16 +72,7 @@ const sidebars: SidebarsConfig = {
             'design-patterns/failure-handling/wait-for-failure-recovery',
           ],
         },
-        {
-          type: 'category',
-          label: 'Polling and Iteration',
-          link: {type: 'doc', id: 'design-patterns/polling'},
-          items: [
-            'design-patterns/polling/backoff',
-            'design-patterns/polling/timer',
-            'design-patterns/polling/iteration',
-          ],
-        },
+        'design-patterns/polling',
         {
           type: 'category',
           label: 'Durable Timer',

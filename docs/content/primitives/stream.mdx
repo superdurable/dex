@@ -225,7 +225,7 @@ A direct Step write has these semantics:
 
 - Dex sends it immediately during **WaitFor** or **Execute**. It is not buffered until the Step completes.
 - A later Step failure does not roll the message back.
-- One method invocation can write any number of messages to the same or different Streams. Each write is an implicit heartbeat and preserves the last explicit heartbeat value.
+- One method invocation can write any number of messages to the same or different Streams. Each write is an implicit heartbeat and preserves the last explicit heartbeat value. The [Polling](/design-patterns/polling) pattern uses these writes to report progress.
 - The SDK only confirms local encoding and delivery to the Worker output stream. A disabled, unavailable, full, or rejecting Stream Store drops the message without failing the Step.
 - Every Step message has source **#StepExecutionID**. Attempts and messages from the same Step execution share that source. Source is informational, not unique, and does not deduplicate retries.
 
