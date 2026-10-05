@@ -15,18 +15,6 @@
  */
 
 export class ServiceDependency {
-  private attemptFailures = 0;
-
-  public attemptExternalApiCall(message: string): string {
-    if (this.attemptFailures < 2) {
-      this.attemptFailures += 1;
-      throw new Error("There is an error when calling external system, retry it");
-    }
-    this.attemptFailures = 0;
-    console.log(`attemptExternalApiCall: ${message}`);
-    return "External data result";
-  }
-
   public externalApiCall(message: string): string {
     console.log(`externalApiCall: ${message}`);
     return "External data result";

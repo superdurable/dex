@@ -33,7 +33,7 @@ dex_examples/
 HTTP routes use category prefixes:
 
 - `/products/<kebab>/...` — e.g. `/products/job-post/create`
-- `/patterns/<kebab>/...` — e.g. `/patterns/polling/start/simple`
+- `/patterns/<kebab>/...` — e.g. `/patterns/polling/start`
 - `/primitives/<kebab>/...` — e.g. `/primitives/channel/approve`
 
 ## Run locally
@@ -83,7 +83,7 @@ after E2E tests for manual HTTP exploration.
 
 Under [`dex_examples/patterns/`](./dex_examples/patterns/), including
 [Cron schedule](./dex_examples/patterns/cron),
-[polling](./dex_examples/patterns/polling),
+[polling an external job in one long-running Step](./dex_examples/patterns/polling),
 [resource-control](./dex_examples/patterns/resource-control) (Python only),
 and others.
 

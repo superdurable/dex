@@ -56,13 +56,9 @@ final class FlowSmokeCatalog {
                                 "description", "Smoke test description"),
                         FlowSmokeFlags.noStartStep()),
                 FlowSmokeEntry.get(
-                        "patterns/polling/timer",
-                        "/patterns/polling/start/timer",
-                        Map.of("workflowId", environment.newFlowId("pattern-polling-simple"))),
-                FlowSmokeEntry.get(
-                        "patterns/polling/backoff",
-                        "/patterns/polling/start/backoff",
-                        Map.of("workflowId", environment.newFlowId("pattern-polling-backoff"))),
+                        "patterns/polling",
+                        "/patterns/polling/start",
+                        Map.of("workflowId", environment.newFlowId("pattern-polling"))),
                 FlowSmokeEntry.get(
                         "patterns/interruptible",
                         "/patterns/interruptible/start",

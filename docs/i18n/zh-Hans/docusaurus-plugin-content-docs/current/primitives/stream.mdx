@@ -169,7 +169,7 @@ Step 直接写入 Stream 时：
 
 - Dex 在 **WaitFor** 或 **Execute** 期间立即发送，不会缓存到 Step 完成。
 - Step 随后失败不会回滚已经写入的消息。
-- 一次 method invocation 可以向同一个或不同 Stream 写入任意数量的消息。每次写入都是 implicit heartbeat，并保留最近一次 explicit heartbeat value。
+- 一次 method invocation 可以向同一个或不同 Stream 写入任意数量的消息。每次写入都是 implicit heartbeat，并保留最近一次 explicit heartbeat value。[Polling](/design-patterns/polling) 模式用这些写入报告进度。
 - SDK 只确认本地编码并把消息交给 Worker output stream。Stream Store 被禁用、不可用、已满或拒绝写入时，消息会被丢弃，但 Step 不会失败。
 - 每条 Step message 的 source 都是 **#StepExecutionID**。同一个 Step execution 的不同 attempt 与 message 共用 source。Source 只表示来源，不要求唯一，也不会 deduplicate retry。
 

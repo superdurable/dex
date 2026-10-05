@@ -4,7 +4,7 @@ title: Failure Handling
 
 # Failure Handling
 
-Failure handling 是 Durable Execution 平台的核心。默认情况下，Dex 会对失败的 Step 方法——**WaitFor** 或 **Execute**——执行指数退避重试。可以通过 **StepOptions** 配置这种重试行为。
+Failure handling 是 Durable Execution 平台的核心。默认情况下，Dex 会对失败的 Step 方法——**WaitFor** 或 **Execute**——执行指数退避重试。可以通过 **StepOptions** 配置这种重试行为。重试用于从失败中恢复；如果要等待外部系统就绪，请改用 [Polling](/design-patterns/polling)。
 
 当只靠重试无法满足需求时，选择以下模式之一。它们分别为补偿、人工介入、整个 Flow 的截止时间，以及 **WaitFor** 重试耗尽后的处理定义明确的恢复路径。
 

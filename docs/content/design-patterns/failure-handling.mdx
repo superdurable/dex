@@ -4,7 +4,7 @@ title: Failure Handling
 
 # Failure Handling
 
-Failure handling is the core of a durable execution platform. By default, Dex retries a failed Step method—**WaitFor** or **Execute**—with exponential backoff. Configure that retry behavior through **StepOptions**.
+Failure handling is the core of a durable execution platform. By default, Dex retries a failed Step method—**WaitFor** or **Execute**—with exponential backoff. Configure that retry behavior through **StepOptions**. Retries recover from failures; to wait for an external system to become ready, use [Polling](/design-patterns/polling) instead.
 
 When retries alone do not meet the requirement, choose one of these patterns. They add an explicit recovery path for compensation, operator intervention, an overall Flow deadline, or an exhausted **WaitFor** failure.
 

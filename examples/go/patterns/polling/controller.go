@@ -21,6 +21,7 @@
 package polling
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -29,24 +30,16 @@ import (
 )
 
 type controller struct {
-	client    *sdk.Client
-	timer     *PollingWithTimerFlow
-	backoff   *BackoffPollingFlow
-	iteration *IterationFlow
+	client *sdk.Client
+	flow   *PollingFlow
+	jobs   *FakeJobService
 }
 
-func RegisterRoutes(
-	router gin.IRouter,
-	client *sdk.Client,
-	timer *PollingWithTimerFlow,
-	backoff *BackoffPollingFlow,
-	iteration *IterationFlow,
-) {
-	controller := &controller{client: client, timer: timer, backoff: backoff, iteration: iteration}
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *PollingFlow, jobs *FakeJobService) {
+	controller := &controller{client: client, flow: flow, jobs: jobs}
 	group := router.Group("/patterns/polling")
-	group.GET("/start/timer", controller.startTimer)
-	group.GET("/start/backoff", controller.startBackoff)
-	group.GET("/start/iteration", controller.startIteration)
+	group.GET("/start", controller.start)
+	group.GET("/complete-job", controller.completeJob)
 }
 
 func patternStartOptions() sdk.StartFlowOptions {
@@ -54,14 +47,14 @@ func patternStartOptions() sdk.StartFlowOptions {
 	return sdk.StartFlowOptions{Timeout: &timeout}
 }
 
-func (controller *controller) startTimer(request *gin.Context) {
+func (controller *controller) start(request *gin.Context) {
 	flowID, found := httputil.RequiredQuery(request, "workflowId")
 	if !found {
 		return
 	}
 	runID, err := controller.client.StartFlow(
 		request.Request.Context(),
-		controller.timer,
+		controller.flow,
 		flowID,
 		nil,
 		patternStartOptions(),
@@ -69,26 +62,14 @@ func (controller *controller) startTimer(request *gin.Context) {
 	httputil.RespondString(request, runID, err)
 }
 
-func (controller *controller) startIteration(request *gin.Context) {
-	flowID, found := httputil.RequiredQuery(request, "workflowId")
+func (controller *controller) completeJob(request *gin.Context) {
+	jobID, found := httputil.RequiredQuery(request, "workflowId")
 	if !found {
 		return
 	}
-	runID, err := controller.client.StartFlow(request.Request.Context(), controller.iteration, flowID, "", patternStartOptions())
-	httputil.RespondString(request, runID, err)
-}
-
-func (controller *controller) startBackoff(request *gin.Context) {
-	flowID, found := httputil.RequiredQuery(request, "workflowId")
-	if !found {
+	if err := controller.jobs.CompleteJob(jobID); err != nil {
+		request.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
-	runID, err := controller.client.StartFlow(
-		request.Request.Context(),
-		controller.backoff,
-		flowID,
-		nil,
-		patternStartOptions(),
-	)
-	httputil.RespondString(request, runID, err)
+	request.String(http.StatusOK, "done")
 }

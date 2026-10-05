@@ -26,5 +26,29 @@
   {
     "from": "/zh-Hans/production/supervision",
     "to": "/zh-Hans/production/dex-web"
+  },
+  {
+    "from": "/design-patterns/polling/backoff",
+    "to": "/design-patterns/polling"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/polling/backoff",
+    "to": "/zh-Hans/design-patterns/polling"
+  },
+  {
+    "from": "/design-patterns/polling/timer",
+    "to": "/design-patterns/polling"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/polling/timer",
+    "to": "/zh-Hans/design-patterns/polling"
+  },
+  {
+    "from": "/design-patterns/polling/iteration",
+    "to": "/design-patterns/polling"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/polling/iteration",
+    "to": "/zh-Hans/design-patterns/polling"
   }
 ]

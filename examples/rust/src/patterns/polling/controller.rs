@@ -12,81 +12,76 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use axum::{
-    Router,
+    Json, Router,
     extract::{Query, State},
+    http::StatusCode,
     response::IntoResponse,
     routing::get,
 };
 use serde::Deserialize;
 
-use crate::patterns::polling::flow::{BackoffPollingFlow, IterationFlow, PollingWithTimerFlow};
-use crate::server::helpers::{SharedClient, map_sdk_error, new_flow_id, ok_text, run_blocking};
+use crate::patterns::polling::flow::PollingFlow;
+use crate::patterns::polling::job_service::FakeJobService;
+use crate::server::helpers::{
+    ErrorBody, SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text,
+    run_blocking,
+};
+
+#[derive(Clone)]
+struct PollingState {
+    client: SharedClient,
+    jobs: Arc<FakeJobService>,
+}
 
 #[derive(Deserialize)]
-struct StartQuery {
+struct WorkflowQuery {
     #[serde(default, rename = "workflowId")]
     workflow_id: String,
 }
 
-pub fn mount(client: SharedClient) -> Router {
+pub fn mount(client: SharedClient, jobs: Arc<FakeJobService>) -> Router {
     Router::new()
-        .route("/patterns/polling/start/timer", get(start_timer))
-        .route("/patterns/polling/start/backoff", get(start_backoff))
-        .route("/patterns/polling/start/iteration", get(start_iteration))
-        .with_state(client)
+        .route("/patterns/polling/start", get(start))
+        .route("/patterns/polling/complete-job", get(complete_job))
+        .with_state(PollingState { client, jobs })
 }
 
-async fn start_timer(
-    State(client): State<SharedClient>,
-    Query(query): Query<StartQuery>,
+async fn start(
+    State(state): State<PollingState>,
+    Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = if query.workflow_id.is_empty() {
-        new_flow_id("dp-timer")
+        new_flow_id("polling")
     } else {
         query.workflow_id
     };
+    let PollingState { client, jobs } = state;
     match run_blocking(move || {
-        let flow = PollingWithTimerFlow::default();
-        client.start_flow(&flow, &flow_id, 0_u32)
+        let flow = PollingFlow::new(jobs);
+        client
+            .start_flow(&flow, &flow_id, ())
+            .map(|run_id| StartResponse { flow_id, run_id })
     }) {
-        Ok(run_id) => ok_text(run_id),
+        Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
 
-async fn start_iteration(
-    State(client): State<SharedClient>,
-    Query(query): Query<StartQuery>,
+async fn complete_job(
+    State(state): State<PollingState>,
+    Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
-    let flow_id = if query.workflow_id.is_empty() {
-        new_flow_id("dp-iteration")
-    } else {
-        query.workflow_id
-    };
-    match run_blocking(move || {
-        let flow = IterationFlow::default();
-        client.start_flow(&flow, &flow_id, String::new())
-    }) {
-        Ok(run_id) => ok_text(run_id),
-        Err(error) => map_sdk_error(error).into_response(),
-    }
-}
-
-async fn start_backoff(
-    State(client): State<SharedClient>,
-    Query(query): Query<StartQuery>,
-) -> impl IntoResponse {
-    let flow_id = if query.workflow_id.is_empty() {
-        new_flow_id("dp-backoff")
-    } else {
-        query.workflow_id
-    };
-    match run_blocking(move || {
-        let flow = BackoffPollingFlow::default();
-        client.start_flow(&flow, &flow_id, 0_u32)
-    }) {
-        Ok(run_id) => ok_text(run_id),
-        Err(error) => map_sdk_error(error).into_response(),
+    match state.jobs.complete_job(&query.workflow_id) {
+        Ok(()) => ok_text("done"),
+        Err(error) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorBody {
+                error: error.to_string(),
+            }),
+        )
+            .into_response(),
     }
 }

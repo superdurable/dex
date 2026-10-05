@@ -29,6 +29,8 @@ from dex_examples.patterns.parallel_subflows.advanced_long_live_parent_flow impo
     AdvancedLongLiveParentFlow,
 )
 from dex_examples.patterns.parallel_subflows.models import ParentInput
+from dex_examples.patterns.polling.job_service import JobState
+from dex_examples.patterns.polling.polling_flow import JOB_PROGRESS
 from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
     FailureRecoveryWorkflowInput,
 )
@@ -162,22 +164,25 @@ async def test_parallel_step_variants(
         await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
 
-async def test_pattern_polling_timer_backoff_and_iteration(
+async def test_polling_streams_job_progress_and_completes_with_job_result(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    timer_id = new_flow_id("pattern-poll-timer")
-    await client.start_flow(app.polling_with_timer, timer_id, None, start_options())
-    await client.wait_for_flow(timer_id, WAIT_TIMEOUT)
+    flow_id = new_flow_id("pattern-polling")
+    await client.start_flow(app.polling, flow_id, None, start_options())
 
-    backoff_id = new_flow_id("pattern-poll-backoff")
-    await client.start_flow(app.backoff_polling, backoff_id, None, start_options())
-    await client.wait_for_flow(backoff_id, WAIT_TIMEOUT)
+    queued = await client.read_stream(flow_id, JOB_PROGRESS, "", WAIT_TIMEOUT)
+    assert queued.value.state is JobState.QUEUED
+    running = await client.read_stream(
+        flow_id, JOB_PROGRESS, queued.resume_token, WAIT_TIMEOUT
+    )
+    assert running.value.state is JobState.RUNNING
 
-    iteration_id = new_flow_id("pattern-iteration")
-    await client.start_flow(app.iteration, iteration_id, "", start_options())
-    await client.wait_for_flow(iteration_id, WAIT_TIMEOUT)
+    app.polling_jobs.complete_job(flow_id)
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status is FlowStatus.COMPLETED
+    assert result.single_output(str) == f"artifact for {flow_id}"
 
 
 async def test_failure_recovery(

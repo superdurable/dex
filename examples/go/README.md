@@ -24,7 +24,7 @@ cmd/deal-dsl/    # Deal DSL Worker and HTTP entrypoint (`dex-deal-dsl`)
 HTTP routes use category prefixes:
 
 - `/products/<kebab>/...` — e.g. `/products/job-post/create`
-- `/patterns/<kebab>/...` — e.g. `/patterns/polling/start/simple`
+- `/patterns/<kebab>/...` — e.g. `/patterns/polling/start`
 - `/primitives/<kebab>/...` — e.g. `/primitives/channel/approve`
 
 ## Run locally
@@ -172,7 +172,7 @@ Under [`patterns/`](./patterns):
 - [Manual recovery](./patterns/intervention)
 - [Parallel Steps: static, dynamic, await, and first win](./patterns/parallel)
 - [Parallel SubFlows: basic, long-lived parent, short-lived parent, partitioning, and back pressure](./patterns/parallel-subflows)
-- [Polling (simple / backoff)](./patterns/polling)
+- [Polling an external job in one long-running Step](./patterns/polling)
 - [Failure recovery](./patterns/recovery)
 - [Reminders](./patterns/reminders)
 - [Inactiveness Tracker Timer](./patterns/inactiveness-tracker-timer)

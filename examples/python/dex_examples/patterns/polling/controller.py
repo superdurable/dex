@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from quart import Blueprint
+from quart import Blueprint, abort
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -24,31 +24,21 @@ from dex_examples.shared.query import required_query
 def create_polling_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("pattern_polling", __name__, url_prefix="/patterns/polling")
 
-    @blueprint.get("/start/timer")
-    async def start_timer_polling() -> str:
+    @blueprint.get("/start")
+    async def start_polling() -> str:
         return await app_state.client.start_flow(
-            app_state.polling_with_timer,
+            app_state.polling,
             required_query("workflowId"),
             None,
             start_options(),
         )
 
-    @blueprint.get("/start/backoff")
-    async def start_backoff_polling() -> str:
-        return await app_state.client.start_flow(
-            app_state.backoff_polling,
-            required_query("workflowId"),
-            None,
-            start_options(),
-        )
-
-    @blueprint.get("/start/iteration")
-    async def start_iteration() -> str:
-        return await app_state.client.start_flow(
-            app_state.iteration,
-            required_query("workflowId"),
-            "",
-            start_options(),
-        )
+    @blueprint.get("/complete-job")
+    async def complete_job() -> str:
+        try:
+            app_state.polling_jobs.complete_job(required_query("workflowId"))
+        except LookupError as error:
+            abort(404, description=str(error))
+        return "done"
 
     return blueprint

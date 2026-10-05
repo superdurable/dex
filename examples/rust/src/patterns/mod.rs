@@ -32,15 +32,25 @@ use std::sync::Arc;
 
 use dex_sdk::{Client, Registry, SdkResult};
 
-pub fn register(registry: Registry) -> SdkResult<Registry> {
-    register_with_client(registry, None)
+use crate::patterns::polling::FakeJobService;
+
+pub fn register(registry: Registry, polling_jobs: Arc<FakeJobService>) -> SdkResult<Registry> {
+    register_with_client(registry, None, polling_jobs)
 }
 
-pub fn register_worker(registry: Registry, client: Arc<Client>) -> SdkResult<Registry> {
-    register_with_client(registry, Some(client))
+pub fn register_worker(
+    registry: Registry,
+    client: Arc<Client>,
+    polling_jobs: Arc<FakeJobService>,
+) -> SdkResult<Registry> {
+    register_with_client(registry, Some(client), polling_jobs)
 }
 
-fn register_with_client(registry: Registry, client: Option<Arc<Client>>) -> SdkResult<Registry> {
+fn register_with_client(
+    registry: Registry,
+    client: Option<Arc<Client>>,
+    polling_jobs: Arc<FakeJobService>,
+) -> SdkResult<Registry> {
     let wait_for_half_parent = client
         .as_ref()
         .map_or_else(parallel_subflows::WaitForHalfParentFlow::default, |value| {
@@ -66,9 +76,7 @@ fn register_with_client(registry: Registry, client: Option<Arc<Client>>) -> SdkR
         .register(parallel_subflows::AdvancedLongLiveParentFlow::default())?
         .register(parallel_subflows::AdvancedShortLiveParentFlow::default())?
         .register(submit_request)?
-        .register(polling::PollingWithTimerFlow::default())?
-        .register(polling::BackoffPollingFlow::default())?
-        .register(polling::IterationFlow::default())?
+        .register(polling::PollingFlow::new(polling_jobs))?
         .register(recovery::FailureRecoveryFlow::default())?
         .register(reminders::ReminderFlow::default())?
         .register(inactiveness_tracker::InactivenessTrackerFlow::default())?

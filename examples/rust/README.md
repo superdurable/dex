@@ -25,7 +25,7 @@ src/
 HTTP routes use category prefixes:
 
 - `/products/<kebab>/...` — e.g. `/products/job-post/create`
-- `/patterns/<kebab>/...` — e.g. `/patterns/polling/start/simple`
+- `/patterns/<kebab>/...` — e.g. `/patterns/polling/start`
 - `/primitives/<kebab>/...` — e.g. `/primitives/channel/approve`
 
 ## Run
@@ -87,8 +87,7 @@ remain split so their orchestration boundaries are visible.
 | Long-lived SubFlow parent | [`AdvancedLongLiveParentFlow`](src/patterns/parallel_subflows/flow.rs) | Bounded workers, request Channel, stop Attribute, and SubFlow loop |
 | Short-lived SubFlow parent | [`AdvancedShortLiveParentFlow`](src/patterns/parallel_subflows/flow.rs) | Locked active count and atomic completion when the Channel is empty |
 | Partitioning and back pressure | [`SubmitRequestFlow`](src/patterns/parallel_subflows/flow.rs) | Stable parent partitioning and durable retries after admission rejection |
-| Simple polling | [`SimplePollingFlow`](src/patterns/polling.rs) | Durable timer loop |
-| Backoff polling | [`BackoffPollingFlow`](src/patterns/polling.rs) | Execute retry with exponential backoff |
+| Polling | [`PollingFlow`](src/patterns/polling/flow.rs) | One long-running Execute loop with heartbeats, a progress Stream, and an engine-enforced maximum wait |
 | Failure recovery | [`FailureRecoveryFlow`](src/patterns/recovery.rs) | Retry exhaustion and compensation Step |
 | Reminders | [`ReminderFlow`](src/patterns/reminders.rs) | Reminder loop, accept/opt-out Channels, global timeout |
 | Inactiveness Tracker Timer | [`InactivenessTrackerFlow`](src/patterns/inactiveness_tracker/flow.rs) | Activity resets a timer; expiry processes inactiveness |

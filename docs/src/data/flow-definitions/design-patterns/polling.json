@@ -1,0 +1,201 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/polling/polling_flow.py"
+  },
+  "flow": {
+    "name": "PollingFlow",
+    "startStepId": "step:StartJob",
+    "span": {
+      "startLine": 105,
+      "startColumn": 1,
+      "endLine": 117,
+      "endColumn": 50
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:AwaitJob",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:AwaitJob",
+      "phase": "execute",
+      "span": {
+        "startLine": 72,
+        "startColumn": 5,
+        "endLine": 85,
+        "endColumn": 63
+      }
+    },
+    {
+      "id": "decision:step:AwaitJob:77:24",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:AwaitJob",
+      "condition": "status.state is JobState.SUCCEEDED",
+      "phase": "execute",
+      "span": {
+        "startLine": 77,
+        "startColumn": 24,
+        "endLine": 77,
+        "endColumn": 56
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:AwaitJob:79:24",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:AwaitJob",
+      "condition": "not (status.state is JobState.SUCCEEDED) and status.state is JobState.FAILED",
+      "phase": "execute",
+      "span": {
+        "startLine": 79,
+        "startColumn": 24,
+        "endLine": 79,
+        "endColumn": 58
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:RecordJobWaitFailure:51:16",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:RecordJobWaitFailure",
+      "phase": "execute",
+      "span": {
+        "startLine": 51,
+        "startColumn": 16,
+        "endLine": 53,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:StartJob:102:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:StartJob",
+      "phase": "execute",
+      "span": {
+        "startLine": 102,
+        "startColumn": 16,
+        "endLine": 102,
+        "endColumn": 39
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:stream:JOB_PROGRESS",
+      "kind": "stream",
+      "name": "JobProgress",
+      "span": {
+        "startLine": 44,
+        "startColumn": 1,
+        "endLine": 44,
+        "endColumn": 57
+      },
+      "resource": {
+        "valueType": "JobStatus"
+      }
+    },
+    {
+      "id": "step:AwaitJob",
+      "kind": "step",
+      "name": "AwaitJob",
+      "phase": "execute",
+      "span": {
+        "startLine": 113,
+        "startColumn": 13,
+        "endLine": 113,
+        "endColumn": 27
+      }
+    },
+    {
+      "id": "step:RecordJobWaitFailure",
+      "kind": "step",
+      "name": "RecordJobWaitFailure",
+      "phase": "execute",
+      "span": {
+        "startLine": 113,
+        "startColumn": 29,
+        "endLine": 113,
+        "endColumn": 57
+      }
+    },
+    {
+      "id": "step:StartJob",
+      "kind": "step",
+      "name": "StartJob",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 112,
+        "startColumn": 36,
+        "endLine": 112,
+        "endColumn": 50
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:StartJob:102:16",
+      "to": "step:AwaitJob",
+      "label": "go_to",
+      "span": {
+        "startLine": 102,
+        "startColumn": 16,
+        "endLine": 102,
+        "endColumn": 39
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "resource_write",
+      "from": "step:AwaitJob",
+      "to": "resource:stream:JOB_PROGRESS",
+      "label": "write",
+      "span": {
+        "startLine": 81,
+        "startColumn": 17,
+        "endLine": 81,
+        "endColumn": 52
+      },
+      "metadata": {
+        "bestEffort": true,
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "failure_transition",
+      "from": "step:AwaitJob",
+      "to": "step:RecordJobWaitFailure",
+      "label": "Execute failure",
+      "span": {
+        "startLine": 61,
+        "startColumn": 16,
+        "endLine": 70,
+        "endColumn": 62
+      },
+      "metadata": {
+        "skipWaitFor": true
+      }
+    }
+  ],
+  "diagnostics": []
+}
