@@ -9,9 +9,9 @@
     "name": "PollingFlow",
     "startStepId": "step:StartJob",
     "span": {
-      "startLine": 97,
+      "startLine": 105,
       "startColumn": 1,
-      "endLine": 106,
+      "endLine": 117,
       "endColumn": 50
     }
   },
@@ -23,23 +23,23 @@
       "parentId": "step:AwaitJob",
       "phase": "execute",
       "span": {
-        "startLine": 61,
+        "startLine": 72,
         "startColumn": 5,
-        "endLine": 77,
+        "endLine": 85,
         "endColumn": 63
       }
     },
     {
-      "id": "decision:step:AwaitJob:67:24",
+      "id": "decision:step:AwaitJob:77:24",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:AwaitJob",
       "condition": "status.state is JobState.SUCCEEDED",
       "phase": "execute",
       "span": {
-        "startLine": 67,
+        "startLine": 77,
         "startColumn": 24,
-        "endLine": 67,
+        "endLine": 77,
         "endColumn": 56
       },
       "decision": {
@@ -47,16 +47,16 @@
       }
     },
     {
-      "id": "decision:step:AwaitJob:69:24",
+      "id": "decision:step:AwaitJob:79:24",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:AwaitJob",
       "condition": "not (status.state is JobState.SUCCEEDED) and status.state is JobState.FAILED",
       "phase": "execute",
       "span": {
-        "startLine": 69,
+        "startLine": 79,
         "startColumn": 24,
-        "endLine": 69,
+        "endLine": 79,
         "endColumn": 58
       },
       "decision": {
@@ -64,32 +64,31 @@
       }
     },
     {
-      "id": "decision:step:AwaitJob:71:24",
+      "id": "decision:step:RecordJobWaitFailure:51:16",
       "kind": "decision",
       "name": "forceFail",
-      "parentId": "step:AwaitJob",
-      "condition": "not (status.state is JobState.SUCCEEDED) and not (status.state is JobState.FAILED) and datetime.now(UTC) \u003e deadline",
+      "parentId": "step:RecordJobWaitFailure",
       "phase": "execute",
       "span": {
-        "startLine": 71,
-        "startColumn": 24,
-        "endLine": 71,
-        "endColumn": 91
+        "startLine": 51,
+        "startColumn": 16,
+        "endLine": 53,
+        "endColumn": 10
       },
       "decision": {
         "type": "forceFail"
       }
     },
     {
-      "id": "decision:step:StartJob:94:16",
+      "id": "decision:step:StartJob:102:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:StartJob",
       "phase": "execute",
       "span": {
-        "startLine": 94,
+        "startLine": 102,
         "startColumn": 16,
-        "endLine": 94,
+        "endLine": 102,
         "endColumn": 39
       },
       "decision": {
@@ -101,9 +100,9 @@
       "kind": "stream",
       "name": "JobProgress",
       "span": {
-        "startLine": 42,
+        "startLine": 44,
         "startColumn": 1,
-        "endLine": 42,
+        "endLine": 44,
         "endColumn": 57
       },
       "resource": {
@@ -116,10 +115,22 @@
       "name": "AwaitJob",
       "phase": "execute",
       "span": {
-        "startLine": 103,
-        "startColumn": 64,
-        "endLine": 103,
-        "endColumn": 78
+        "startLine": 113,
+        "startColumn": 13,
+        "endLine": 113,
+        "endColumn": 27
+      }
+    },
+    {
+      "id": "step:RecordJobWaitFailure",
+      "kind": "step",
+      "name": "RecordJobWaitFailure",
+      "phase": "execute",
+      "span": {
+        "startLine": 113,
+        "startColumn": 29,
+        "endLine": 113,
+        "endColumn": 57
       }
     },
     {
@@ -129,9 +140,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 103,
+        "startLine": 112,
         "startColumn": 36,
-        "endLine": 103,
+        "endLine": 112,
         "endColumn": 50
       }
     }
@@ -140,13 +151,13 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:StartJob:94:16",
+      "from": "decision:step:StartJob:102:16",
       "to": "step:AwaitJob",
       "label": "go_to",
       "span": {
-        "startLine": 94,
+        "startLine": 102,
         "startColumn": 16,
-        "endLine": 94,
+        "endLine": 102,
         "endColumn": 39
       }
     },
@@ -157,9 +168,9 @@
       "to": "resource:stream:JOB_PROGRESS",
       "label": "write",
       "span": {
-        "startLine": 73,
+        "startLine": 81,
         "startColumn": 17,
-        "endLine": 73,
+        "endLine": 81,
         "endColumn": 52
       },
       "metadata": {
@@ -167,6 +178,22 @@
         "phase": "execute",
         "repeatable": true,
         "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "failure_transition",
+      "from": "step:AwaitJob",
+      "to": "step:RecordJobWaitFailure",
+      "label": "Execute failure",
+      "span": {
+        "startLine": 61,
+        "startColumn": 16,
+        "endLine": 70,
+        "endColumn": 62
+      },
+      "metadata": {
+        "skipWaitFor": true
       }
     }
   ],
