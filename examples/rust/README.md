@@ -87,7 +87,7 @@ remain split so their orchestration boundaries are visible.
 | Long-lived SubFlow parent | [`AdvancedLongLiveParentFlow`](src/patterns/parallel_subflows/flow.rs) | Bounded workers, request Channel, stop Attribute, and SubFlow loop |
 | Short-lived SubFlow parent | [`AdvancedShortLiveParentFlow`](src/patterns/parallel_subflows/flow.rs) | Locked active count and atomic completion when the Channel is empty |
 | Partitioning and back pressure | [`SubmitRequestFlow`](src/patterns/parallel_subflows/flow.rs) | Stable parent partitioning and durable retries after admission rejection |
-| Polling | [`PollingFlow`](src/patterns/polling/flow.rs) | One long-running Execute loop with heartbeats, a progress Stream, and a `first_attempt_at` deadline |
+| Polling | [`PollingFlow`](src/patterns/polling/flow.rs) | One long-running Execute loop with heartbeats, a progress Stream, and an engine-enforced maximum wait |
 | Failure recovery | [`FailureRecoveryFlow`](src/patterns/recovery.rs) | Retry exhaustion and compensation Step |
 | Reminders | [`ReminderFlow`](src/patterns/reminders.rs) | Reminder loop, accept/opt-out Channels, global timeout |
 | Inactiveness Tracker Timer | [`InactivenessTrackerFlow`](src/patterns/inactiveness_tracker/flow.rs) | Activity resets a timer; expiry processes inactiveness |

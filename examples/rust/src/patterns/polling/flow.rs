@@ -14,7 +14,7 @@
 
 use std::sync::{Arc, LazyLock};
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use dex_sdk::{
     Context, Flow, HandlerError, HandlerResult, PersistenceSchema, RetryPolicy, Step, StepDecision,
@@ -24,9 +24,10 @@ use dex_sdk::{
 use crate::patterns::polling::job_service::{FakeJobService, JobState, JobStatus};
 
 // Keep POLL_INTERVAL + JOB_CALL_TIMEOUT <= heartbeat_timeout - 10s.
+// MAX_JOB_WAIT bounds one attempt and all retries; Dex enforces it.
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const JOB_CALL_TIMEOUT: Duration = Duration::from_secs(10);
-const JOB_WAIT_BUDGET: Duration = Duration::from_secs(5 * 60);
+const MAX_JOB_WAIT: Duration = Duration::from_secs(10 * 60);
 
 pub static JOB_PROGRESS: LazyLock<Stream<JobStatus>> =
     LazyLock::new(|| Stream::new("JobProgress", 1 << 20));
@@ -40,19 +41,19 @@ impl Step for AwaitJob {
 
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new()
-            .execute_method_timeout(Duration::from_secs(10 * 60))
+            .execute_method_timeout(MAX_JOB_WAIT)
             .heartbeat_timeout(Duration::from_secs(60))
             .execute_retry(
                 RetryPolicy::new()
                     .initial_interval(Duration::from_secs(1))
                     .backoff_coefficient(2.0)
                     .maximum_attempts(3)
-                    .total_duration(Duration::from_secs(10 * 60)),
+                    .total_duration(MAX_JOB_WAIT),
             )
+            .on_execute_failure_proceed_to(&RecordJobWaitFailure)
     }
 
     fn execute(&self, context: &mut Context, job_id: Self::Input) -> HandlerResult<StepDecision> {
-        let deadline = context.first_attempt_at() + JOB_WAIT_BUDGET;
         let mut reported_state = context.last_heartbeat_value::<JobState>()?;
         loop {
             let status = self
@@ -66,11 +67,6 @@ impl Step for AwaitJob {
                 }
                 JobState::Queued | JobState::Running => {}
             }
-            if SystemTime::now() > deadline {
-                return Ok(StepDecision::force_fail(format!(
-                    "job {job_id} did not finish within {JOB_WAIT_BUDGET:?}"
-                )));
-            }
             if reported_state != Some(status.state) {
                 reported_state = Some(status.state);
                 JOB_PROGRESS.write(context, status)?;
@@ -82,9 +78,27 @@ impl Step for AwaitJob {
     }
 }
 
+struct RecordJobWaitFailure;
+
+impl Step for RecordJobWaitFailure {
+    type Input = String;
+
+    fn execute(&self, context: &mut Context, job_id: Self::Input) -> HandlerResult<StepDecision> {
+        let failure = context
+            .recovery_error()
+            .expect("an execute failure route provides the recovery error");
+        Ok(StepDecision::force_fail(format!(
+            "waiting for job {job_id} failed: {}: {}",
+            failure.error_type(),
+            failure.detail()
+        )))
+    }
+}
+
 pub struct PollingFlow {
     start_job: StartJob,
     await_job: AwaitJob,
+    record_job_wait_failure: RecordJobWaitFailure,
 }
 
 impl PollingFlow {
@@ -94,6 +108,7 @@ impl PollingFlow {
                 jobs: Arc::clone(&jobs),
             },
             await_job: AwaitJob { jobs },
+            record_job_wait_failure: RecordJobWaitFailure,
         }
     }
 }
@@ -102,7 +117,9 @@ impl Flow for PollingFlow {
     type StartInput = ();
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.start_job).and(&self.await_job)
+        StepList::start(&self.start_job)
+            .and(&self.await_job)
+            .and(&self.record_job_wait_failure)
     }
 
     fn persistence(&self) -> PersistenceSchema {
