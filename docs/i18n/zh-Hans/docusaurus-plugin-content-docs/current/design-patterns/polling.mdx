@@ -59,8 +59,6 @@ interval + call timeout <= HeartbeatTimeout - 10s
 
 新的 attempt 从上一个 checkpoint 继续。用 **GetLastHeartbeatValue** 读取它。示例中的 checkpoint 是上一次报告的 job 状态，所以 retry 不会重复发送进度消息。
 
-Python SDK 没有提供第一次 attempt 的时间。Python 示例改为把截止时间放进 heartbeat checkpoint：第一次 attempt 设置它，之后的 attempt 再把它读回来。
-
 ## 进度
 
 Stream message 是 implicit heartbeat。只在观察到的状态变化时写入一条，其余轮次记录 heartbeat。同一 Flow type 的所有 execution 共享该 Stream 的 **streamCapacityBytes**，状态没变的轮次不应占用它。
@@ -96,13 +94,6 @@ JOB_WAIT_BUDGET = timedelta(minutes=5)
 JOB_PROGRESS = Stream("JobProgress", JobStatus, 1 << 20)
 
 
-# The checkpoint carries the deadline so it stays stable across retries.
-@dataclass(frozen=True)
-class AwaitJobCheckpoint:
-    reported_state: JobState
-    deadline: datetime
-
-
 class AwaitJob(Step[str]):
     def __init__(self, jobs: FakeJobService) -> None:
         self.jobs = jobs
@@ -120,9 +111,8 @@ class AwaitJob(Step[str]):
         )
 
     async def execute(self, context: AsyncContext, job_id: str) -> StepDecision:
-        checkpoint = context.get_last_heartbeat_value(AwaitJobCheckpoint)
-        deadline = checkpoint.deadline if checkpoint else datetime.now(UTC) + JOB_WAIT_BUDGET
-        reported_state = checkpoint.reported_state if checkpoint else None
+        deadline = context.first_attempt_at + JOB_WAIT_BUDGET
+        reported_state = context.get_last_heartbeat_value(JobState)
         while True:
             status = await self.get_job_status(job_id)
             if status.state is JobState.SUCCEEDED:
@@ -135,7 +125,7 @@ class AwaitJob(Step[str]):
                 JOB_PROGRESS.write(context, status)
                 reported_state = status.state
             else:
-                await context.heartbeat(AwaitJobCheckpoint(status.state, deadline))
+                await context.heartbeat(reported_state)
             await asyncio.sleep(POLL_INTERVAL.total_seconds())
 
     async def get_job_status(self, job_id: str) -> JobStatus:

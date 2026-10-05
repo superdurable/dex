@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from dex import (
@@ -43,13 +42,6 @@ JOB_WAIT_BUDGET = timedelta(minutes=5)
 JOB_PROGRESS = Stream("JobProgress", JobStatus, 1 << 20)
 
 
-# The checkpoint carries the deadline so it stays stable across retries.
-@dataclass(frozen=True)
-class AwaitJobCheckpoint:
-    reported_state: JobState
-    deadline: datetime
-
-
 class AwaitJob(Step[str]):
     def __init__(self, jobs: FakeJobService) -> None:
         self.jobs = jobs
@@ -67,9 +59,8 @@ class AwaitJob(Step[str]):
         )
 
     async def execute(self, context: AsyncContext, job_id: str) -> StepDecision:
-        checkpoint = context.get_last_heartbeat_value(AwaitJobCheckpoint)
-        deadline = checkpoint.deadline if checkpoint else datetime.now(UTC) + JOB_WAIT_BUDGET
-        reported_state = checkpoint.reported_state if checkpoint else None
+        deadline = context.first_attempt_at + JOB_WAIT_BUDGET
+        reported_state = context.get_last_heartbeat_value(JobState)
         while True:
             status = await self.get_job_status(job_id)
             if status.state is JobState.SUCCEEDED:
@@ -82,7 +73,7 @@ class AwaitJob(Step[str]):
                 JOB_PROGRESS.write(context, status)
                 reported_state = status.state
             else:
-                await context.heartbeat(AwaitJobCheckpoint(status.state, deadline))
+                await context.heartbeat(reported_state)
             await asyncio.sleep(POLL_INTERVAL.total_seconds())
 
     async def get_job_status(self, job_id: str) -> JobStatus:

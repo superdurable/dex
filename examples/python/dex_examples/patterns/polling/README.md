@@ -11,10 +11,9 @@ then `RUNNING`, and succeeds six seconds after it starts or as soon as
 `complete-job` is called.
 
 **AwaitJob** keeps `POLL_INTERVAL + JOB_CALL_TIMEOUT <= heartbeat_timeout - 10s`.
-The Python SDK has no first-attempt time, so the first attempt computes the
-business deadline from `JOB_WAIT_BUDGET`. The heartbeat checkpoint carries that
-deadline and the last reported status, so a retry keeps the deadline and resumes
-through `get_last_heartbeat_value`.
+Its business deadline is `context.first_attempt_at + JOB_WAIT_BUDGET`, so a retry
+keeps the same deadline. The heartbeat checkpoint is the last reported status,
+which a retry reads back with `get_last_heartbeat_value`.
 
 ## Endpoints
 
