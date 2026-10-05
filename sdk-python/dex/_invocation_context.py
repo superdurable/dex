@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Callable, Protocol, Sequence, TypeVar, cast
 from urllib.parse import unquote
@@ -125,6 +126,10 @@ class InvocationContext:
             detail=self._metadata.recovery_error.detail,
             error_type=self._metadata.recovery_error.error_type,
         )
+
+    @property
+    def first_attempt_at(self) -> datetime:
+        return datetime.fromtimestamp(self._metadata.first_attempt_timestamp, UTC)
 
     @property
     def attempt(self) -> int:
