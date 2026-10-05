@@ -69,9 +69,8 @@ from dex_examples.patterns.parallel_subflows.submit_request_flow import (
 from dex_examples.patterns.parallel_subflows.wait_for_half_parent_flow import (
     WaitForHalfParentFlow,
 )
-from dex_examples.patterns.polling.backoff_polling_flow import BackoffPollingFlow
-from dex_examples.patterns.polling.simple_polling_flow import PollingWithTimerFlow
-from dex_examples.patterns.polling.iteration_flow import IterationFlow
+from dex_examples.patterns.polling.job_service import FakeJobService
+from dex_examples.patterns.polling.polling_flow import PollingFlow
 from dex_examples.patterns.recovery.failure_recovery_flow import FailureRecoveryFlow
 from dex_examples.patterns.reminders.reminder_flow import ReminderFlow
 from dex_examples.patterns.sequentially_chunked_attribute_map.chunked_subscriber_flow import (
@@ -170,9 +169,8 @@ class ExampleApp:
         self.submit_subflow_request = SubmitRequestFlow(
             client_provider, self.short_live_subflows
         )
-        self.polling_with_timer = PollingWithTimerFlow()
-        self.backoff_polling = BackoffPollingFlow(pattern_service)
-        self.iteration = IterationFlow()
+        self.polling_jobs = FakeJobService()
+        self.polling = PollingFlow(self.polling_jobs)
         self.failure_recovery = FailureRecoveryFlow()
         self.reminder = ReminderFlow(pattern_service)
         self.inactiveness_tracker = InactivenessTrackerFlow()
@@ -235,9 +233,7 @@ class ExampleApp:
             self.long_live_subflows,
             self.short_live_subflows,
             self.submit_subflow_request,
-            self.polling_with_timer,
-            self.backoff_polling,
-            self.iteration,
+            self.polling,
             self.failure_recovery,
             self.reminder,
             self.inactiveness_tracker,

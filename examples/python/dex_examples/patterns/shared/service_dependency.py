@@ -21,21 +21,6 @@ from dataclasses import asdict, is_dataclass
 class ServiceDependency:
     """Stand-in for the external systems the design-pattern flows talk to."""
 
-    def __init__(self) -> None:
-        self._read_external_counter = 0
-
-    def attempt_external_api_call(self, message: str) -> str:
-        print(f"Try external system call: ({self._read_external_counter})")
-        if self._read_external_counter < 2:
-            self._read_external_counter += 1
-            raise RuntimeError(
-                "There is an error when calling external system, retry it"
-            )
-
-        self._read_external_counter = 0
-        print(f"Data read from external system: ({message})")
-        return "External data result"
-
     def external_api_call(self, message: str) -> str:
         print(f"Data read from external system: ({message})")
         return "External data result"
