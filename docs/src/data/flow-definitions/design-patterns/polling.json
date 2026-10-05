@@ -1,0 +1,174 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/polling/polling_flow.py"
+  },
+  "flow": {
+    "name": "PollingFlow",
+    "startStepId": "step:StartJob",
+    "span": {
+      "startLine": 106,
+      "startColumn": 1,
+      "endLine": 115,
+      "endColumn": 50
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:AwaitJob",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:AwaitJob",
+      "phase": "execute",
+      "span": {
+        "startLine": 69,
+        "startColumn": 5,
+        "endLine": 86,
+        "endColumn": 63
+      }
+    },
+    {
+      "id": "decision:step:AwaitJob:76:24",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:AwaitJob",
+      "condition": "status.state is JobState.SUCCEEDED",
+      "phase": "execute",
+      "span": {
+        "startLine": 76,
+        "startColumn": 24,
+        "endLine": 76,
+        "endColumn": 56
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:AwaitJob:78:24",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:AwaitJob",
+      "condition": "not (status.state is JobState.SUCCEEDED) and status.state is JobState.FAILED",
+      "phase": "execute",
+      "span": {
+        "startLine": 78,
+        "startColumn": 24,
+        "endLine": 78,
+        "endColumn": 58
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:AwaitJob:80:24",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:AwaitJob",
+      "condition": "not (status.state is JobState.SUCCEEDED) and not (status.state is JobState.FAILED) and datetime.now(UTC) \u003e deadline",
+      "phase": "execute",
+      "span": {
+        "startLine": 80,
+        "startColumn": 24,
+        "endLine": 80,
+        "endColumn": 91
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:StartJob:103:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:StartJob",
+      "phase": "execute",
+      "span": {
+        "startLine": 103,
+        "startColumn": 16,
+        "endLine": 103,
+        "endColumn": 39
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:stream:JOB_PROGRESS",
+      "kind": "stream",
+      "name": "JobProgress",
+      "span": {
+        "startLine": 43,
+        "startColumn": 1,
+        "endLine": 43,
+        "endColumn": 57
+      },
+      "resource": {
+        "valueType": "JobStatus"
+      }
+    },
+    {
+      "id": "step:AwaitJob",
+      "kind": "step",
+      "name": "AwaitJob",
+      "phase": "execute",
+      "span": {
+        "startLine": 112,
+        "startColumn": 64,
+        "endLine": 112,
+        "endColumn": 78
+      }
+    },
+    {
+      "id": "step:StartJob",
+      "kind": "step",
+      "name": "StartJob",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 112,
+        "startColumn": 36,
+        "endLine": 112,
+        "endColumn": 50
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:StartJob:103:16",
+      "to": "step:AwaitJob",
+      "label": "go_to",
+      "span": {
+        "startLine": 103,
+        "startColumn": 16,
+        "endLine": 103,
+        "endColumn": 39
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "resource_write",
+      "from": "step:AwaitJob",
+      "to": "resource:stream:JOB_PROGRESS",
+      "label": "write",
+      "span": {
+        "startLine": 82,
+        "startColumn": 17,
+        "endLine": 82,
+        "endColumn": 52
+      },
+      "metadata": {
+        "bestEffort": true,
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    }
+  ],
+  "diagnostics": []
+}

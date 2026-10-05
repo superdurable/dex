@@ -56,6 +56,4 @@ generate_flow_definition examples/python/dex_examples/patterns/parallel/await_pa
 generate_flow_definition examples/python/dex_examples/patterns/parallel/dynamic_parallel_steps_flow.py design-patterns/parallel-dynamic
 generate_flow_definition examples/python/dex_examples/patterns/parallel/first_win_parallel_steps_flow.py design-patterns/parallel-first-win
 generate_flow_definition examples/python/dex_examples/patterns/parallel/static_parallel_steps_flow.py design-patterns/parallel-static
-generate_flow_definition examples/python/dex_examples/patterns/polling/backoff_polling_flow.py design-patterns/polling-backoff
-generate_flow_definition examples/python/dex_examples/patterns/polling/iteration_flow.py design-patterns/polling-iteration
-generate_flow_definition examples/python/dex_examples/patterns/polling/simple_polling_flow.py design-patterns/polling-timer
+generate_flow_definition examples/python/dex_examples/patterns/polling/polling_flow.py design-patterns/polling
