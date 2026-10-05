@@ -59,3 +59,10 @@ def test_execute_retry_after_stack_trace_and_delay() -> None:
         elapsed = time.monotonic() - started_at
         assert elapsed >= RETRY_AFTER_SECONDS
         assert elapsed < RETRY_POLICY_INTERVAL_SECONDS
+        # first_attempt_at has one-second precision and spans the retry delay.
+        since_first_attempt = result.single_output(float)
+        assert (
+            RETRY_AFTER_SECONDS - 1
+            <= since_first_attempt
+            < RETRY_POLICY_INTERVAL_SECONDS + 1
+        )
