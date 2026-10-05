@@ -17,6 +17,7 @@
 import { setTimeout } from "node:timers/promises";
 
 import {
+  ExecuteFailure,
   StepList,
   Stream,
   forceFail,
@@ -36,11 +37,25 @@ import {
 import type { FakeJobService, JobState, JobStatus } from "./fake-job-service.js";
 
 // Keep POLL_INTERVAL_MS + JOB_CALL_TIMEOUT_MS <= heartbeatTimeoutMs - 10s.
+// MAX_JOB_WAIT_MS bounds one attempt and all retries; Dex enforces it.
 const POLL_INTERVAL_MS = 2_000;
 const JOB_CALL_TIMEOUT_MS = 10_000;
-const JOB_WAIT_BUDGET_MS = 5 * 60_000;
+const MAX_JOB_WAIT_MS = 10 * 60_000;
 
 export const jobProgress = new Stream("JobProgress", jsonCodec<JobStatus>(), 1 << 20);
+
+class RecordJobWaitFailure implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "RecordJobWaitFailure";
+  }
+
+  public execute(context: Context, jobId: string): StepDecision {
+    const failure = context.recoveryError!;
+    return forceFail(`waiting for job ${jobId} failed: ${failure.errorType}: ${failure.detail}`);
+  }
+}
 
 class AwaitJob implements Step<string> {
   public readonly inputCodec = stringCodec;
@@ -53,19 +68,19 @@ class AwaitJob implements Step<string> {
 
   public getStepOptions(): StepOptions {
     return {
-      executeMethodTimeoutMs: 10 * 60_000,
+      executeMethodTimeoutMs: MAX_JOB_WAIT_MS,
       heartbeatTimeoutMs: 60_000,
       executeRetry: {
         initialIntervalMs: 1_000,
         backoffCoefficient: 2,
         maximumAttempts: 3,
-        totalDurationMs: 10 * 60_000,
+        totalDurationMs: MAX_JOB_WAIT_MS,
       },
+      executeFailure: ExecuteFailure.proceedTo(RecordJobWaitFailure),
     };
   }
 
   public async execute(context: AsyncContext, jobId: string): Promise<StepDecision> {
-    const deadline = context.firstAttemptAt.getTime() + JOB_WAIT_BUDGET_MS;
     let reportedState = context.getLastHeartbeatValue<JobState>();
     while (true) {
       const status = await this.jobs.getJobStatus(jobId, AbortSignal.timeout(JOB_CALL_TIMEOUT_MS));
@@ -74,9 +89,6 @@ class AwaitJob implements Step<string> {
           return gracefulComplete(status.result);
         case "FAILED":
           return forceFail(`job ${jobId} failed`);
-      }
-      if (Date.now() > deadline) {
-        return forceFail(`job ${jobId} did not finish within ${JOB_WAIT_BUDGET_MS} ms`);
       }
       if (status.state !== reportedState) {
         jobProgress.write(context, status);
@@ -106,6 +118,7 @@ class StartJob implements Step<void> {
 export class PollingFlow implements Flow<void> {
   private readonly startJob: StartJob;
   private readonly awaitJob: AwaitJob;
+  private readonly recordJobWaitFailure = new RecordJobWaitFailure();
 
   public constructor(jobs: FakeJobService) {
     this.startJob = new StartJob(jobs);
@@ -117,7 +130,7 @@ export class PollingFlow implements Flow<void> {
   }
 
   public getSteps(): StepList<void> {
-    return StepList.startStep(this.startJob).otherSteps(this.awaitJob);
+    return StepList.startStep(this.startJob).otherSteps(this.awaitJob, this.recordJobWaitFailure);
   }
 
   public getPersistenceSchema(): PersistenceSchema {

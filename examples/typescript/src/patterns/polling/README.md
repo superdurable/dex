@@ -11,10 +11,14 @@ then `RUNNING`, and succeeds six seconds after it starts or as soon as
 `complete-job` is called.
 
 **AwaitJob** keeps `POLL_INTERVAL_MS + JOB_CALL_TIMEOUT_MS <= heartbeatTimeoutMs - 10s`.
-Each status call has its own `AbortSignal.timeout`. Its business deadline is
-`context.firstAttemptAt + JOB_WAIT_BUDGET_MS`, so it stays stable across
-retries. A retry resumes from the last reported status through
-`getLastHeartbeatValue`.
+Each status call has its own `AbortSignal.timeout`. `MAX_JOB_WAIT_MS` sets both
+`executeMethodTimeoutMs` and the retry policy's `totalDurationMs`. Dex enforces
+the maximum wait, so the Step code has no deadline. A retry resumes from the
+last reported status through `getLastHeartbeatValue`.
+
+When the wait expires or the retries are exhausted, `ExecuteFailure.proceedTo`
+moves to **RecordJobWaitFailure**. That Step reads `context.recoveryError` and
+fails the Flow with the error type and detail.
 
 ## Endpoints
 
