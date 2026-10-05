@@ -87,9 +87,8 @@ var (
 	AgenticRefund   *agentic.AgenticCustomerRefundFlow
 
 	CronSchedule          *cron.CronScheduleFlow
-	PollingWithTimer      *patternspolling.PollingWithTimerFlow
-	BackoffPolling        *patternspolling.BackoffPollingFlow
-	Iteration             *patternspolling.IterationFlow
+	Polling               *patternspolling.PollingFlow
+	PollingJobs           *patternspolling.FakeJobService
 	Interruptible         *interruptible.InterruptibleFlow
 	Reminder              *reminders.ReminderFlow
 	UserProfile           *entitystore.UserProfileFlow
@@ -157,9 +156,8 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	AgenticRefund = agentic.NewAgenticCustomerRefundFlow(refundService, newDemoOpenAIConnection())
 
 	CronSchedule = cron.NewCronScheduleFlow()
-	PollingWithTimer = patternspolling.NewPollingWithTimerFlow()
-	BackoffPolling = patternspolling.NewBackoffPollingFlow(patternService)
-	Iteration = patternspolling.NewIterationFlow()
+	PollingJobs = patternspolling.NewFakeJobService()
+	Polling = patternspolling.NewPollingFlow(PollingJobs)
 	Interruptible = interruptible.NewInterruptibleFlow()
 	Reminder = reminders.NewReminderFlow(patternService)
 	UserProfile = entitystore.NewUserProfileFlow()
@@ -218,9 +216,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		CustomerRefund,
 		AgenticRefund,
 		CronSchedule,
-		PollingWithTimer,
-		BackoffPolling,
-		Iteration,
+		Polling,
 		Interruptible,
 		Reminder,
 		UserProfile,

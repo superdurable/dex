@@ -211,8 +211,7 @@ func runPatternScenarios(
 		run  func() result
 	}
 	cases := []caseFn{
-		{"pattern/timer-polling", func() result { return verifyTimerPolling(ctx, client, stamp) }},
-		{"pattern/backoff-polling", func() result { return verifyBackoffPolling(ctx, client, stamp) }},
+		{"pattern/polling", func() result { return verifyPolling(ctx, client, stamp) }},
 		{"pattern/interruptible", func() result { return verifyInterruptible(ctx, client, stamp) }},
 		{"pattern/reminder", func() result { return verifyReminder(ctx, client, stamp) }},
 		{"pattern/entity-store", func() result { return verifyEntityStore(ctx, client, stamp) }},
@@ -619,31 +618,16 @@ func waitInactivenessTracker(ctx context.Context, client *dex.Client, flowID str
 	return pass(name, "completed after reset + 5m timer fire")
 }
 
-func verifyTimerPolling(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "pattern/simple-polling"
-	flowID := "dv-simple-poll-" + stamp
+func verifyPolling(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/polling"
+	flowID := "dv-polling-" + stamp
 	_, err := client.StartFlow(
-		ctx, registry.PollingWithTimer, flowID, nil, hourStartOptions(),
+		ctx, registry.Polling, flowID, nil, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
 	}
-	if _, err := waitCompleted(ctx, client, flowID, 45*time.Second); err != nil {
-		return fail(name, "", err)
-	}
-	return pass(name, "completed after 10s poll timer")
-}
-
-func verifyBackoffPolling(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "pattern/backoff-polling"
-	flowID := "dv-backoff-poll-" + stamp
-	_, err := client.StartFlow(
-		ctx, registry.BackoffPolling, flowID, nil, hourStartOptions(),
-	)
-	if err != nil {
-		return fail(name, "", err)
-	}
-	wait, err := waitCompleted(ctx, client, flowID, 90*time.Second)
+	wait, err := waitCompleted(ctx, client, flowID, 45*time.Second)
 	if err != nil {
 		return fail(name, "", err)
 	}
@@ -651,10 +635,10 @@ func verifyBackoffPolling(ctx context.Context, client *dex.Client, stamp string)
 	if err != nil {
 		return fail(name, "", err)
 	}
-	if output != "External data result" {
+	if output != "artifact for "+flowID {
 		return fail(name, "output="+output, nil)
 	}
-	return pass(name, "retries then completed with External data result")
+	return pass(name, "AwaitJob polled the job until it succeeded")
 }
 
 func verifyInterruptible(ctx context.Context, client *dex.Client, stamp string) result {

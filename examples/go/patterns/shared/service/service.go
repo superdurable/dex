@@ -26,33 +26,19 @@ import (
 )
 
 type ServiceDependency interface {
-	AttemptExternalAPICall(message string) (string, error)
 	ExternalAPICall(message string) string
 	UpdateExternalSystem(message string)
 	SendEmail(subject, content string)
 	Upsert(document any) error
 }
 
-type serviceDependencyImpl struct {
-	readExternalCounter int
-}
+type serviceDependencyImpl struct{}
 
 func NewServiceDependency() ServiceDependency {
 	return &serviceDependencyImpl{}
 }
 
-func (service *serviceDependencyImpl) AttemptExternalAPICall(message string) (string, error) {
-	fmt.Printf("Try external system call: (%d)\n", service.readExternalCounter)
-	if service.readExternalCounter < 2 {
-		service.readExternalCounter++
-		return "", fmt.Errorf("there is an error when calling external system, retry it")
-	}
-	service.readExternalCounter = 0
-	fmt.Printf("Data read from external system: (%s)\n", message)
-	return "External data result", nil
-}
-
-func (service *serviceDependencyImpl) ExternalAPICall(message string) string {
+func (*serviceDependencyImpl) ExternalAPICall(message string) string {
 	fmt.Printf("Data read from external system: (%s)\n", message)
 	return "External data result"
 }

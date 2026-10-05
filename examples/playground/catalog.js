@@ -348,9 +348,8 @@ window.PLAYGROUND_CATALOG = [
     title: "Polling",
     flowIdPrefix: "pattern-polling",
     endpoints: [
-      endpoint("GET", "/patterns/polling/start/timer", "Start timer", [flowId()]),
-      endpoint("GET", "/patterns/polling/start/backoff", "Start backoff", [flowId()]),
-      endpoint("GET", "/patterns/polling/start/iteration", "Start iteration", [flowId()]),
+      endpoint("GET", "/patterns/polling/start", "Start", [flowId()]),
+      endpoint("GET", "/patterns/polling/complete-job", "Complete job", [flowId()]),
     ],
   },
   {
