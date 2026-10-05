@@ -28,10 +28,11 @@ import (
 )
 
 // Keep pollInterval + jobCallTimeout <= HeartbeatTimeout - 10s.
+// maxJobWait bounds one attempt and all retries; Dex enforces it.
 const (
 	pollInterval   = 2 * time.Second
 	jobCallTimeout = 10 * time.Second
-	jobWaitBudget  = 5 * time.Minute
+	maxJobWait     = 10 * time.Minute
 )
 
 var JobProgress = dex.DefineStream[JobStatus]("JobProgress", 1<<20)
@@ -49,6 +50,7 @@ func (flow *PollingFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(StartJob{jobs: flow.jobs}),
 		dex.DefineStep(AwaitJob{jobs: flow.jobs}),
+		dex.DefineStep(RecordJobWaitFailure{}),
 	}
 }
 
@@ -78,19 +80,19 @@ type AwaitJob struct {
 
 func (AwaitJob) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
-		ExecuteMethodTimeout: 10 * time.Minute,
+		ExecuteMethodTimeout: maxJobWait,
 		HeartbeatTimeout:     time.Minute,
 		ExecuteRetry: &dex.RetryPolicy{
 			InitialInterval:    time.Second,
 			BackoffCoefficient: 2,
 			MaximumAttempts:    3,
-			TotalDuration:      10 * time.Minute,
+			TotalDuration:      maxJobWait,
 		},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(RecordJobWaitFailure{}, nil),
 	}
 }
 
 func (step AwaitJob) Execute(ctx dex.Context, jobID string) (*dex.StepDecision, error) {
-	deadline := ctx.FirstAttemptAt().Add(jobWaitBudget)
 	var reportedState JobState
 	if _, err := ctx.GetLastHeartbeatValue(&reportedState); err != nil {
 		return nil, err
@@ -105,9 +107,6 @@ func (step AwaitJob) Execute(ctx dex.Context, jobID string) (*dex.StepDecision, 
 			return dex.GracefulComplete(status.Result), nil
 		case JobFailed:
 			return dex.ForceFail("job " + jobID + " failed"), nil
-		}
-		if time.Now().After(deadline) {
-			return dex.ForceFail("job " + jobID + " did not finish within " + jobWaitBudget.String()), nil
 		}
 		if status.State != reportedState {
 			if err := JobProgress.Write(ctx, status); err != nil {
@@ -125,6 +124,15 @@ func (step AwaitJob) getJobStatus(ctx context.Context, jobID string) (JobStatus,
 	callCtx, cancel := context.WithTimeout(ctx, jobCallTimeout)
 	defer cancel()
 	return step.jobs.GetJobStatus(callCtx, jobID)
+}
+
+type RecordJobWaitFailure struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (RecordJobWaitFailure) Execute(ctx dex.Context, jobID string) (*dex.StepDecision, error) {
+	failure := ctx.RecoveryError()
+	return dex.ForceFail("waiting for job " + jobID + " failed: " + failure.ErrorType + ": " + failure.Detail), nil
 }
 
 var _ dex.Flow = (*PollingFlow)(nil)

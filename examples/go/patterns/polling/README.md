@@ -11,9 +11,13 @@ then `RUNNING`, and succeeds six seconds after it starts or as soon as
 `complete-job` is called.
 
 **AwaitJob** keeps `pollInterval + jobCallTimeout <= HeartbeatTimeout - 10s`.
-Its business deadline is `FirstAttemptAt() + jobWaitBudget`, so it stays stable
-across retries. A retry resumes from the last reported status through
-`GetLastHeartbeatValue`.
+`maxJobWait` sets both `ExecuteMethodTimeout` and `ExecuteRetry.TotalDuration`.
+Dex enforces the maximum wait, so the Step code has no deadline. A retry resumes
+from the last reported status through `GetLastHeartbeatValue`.
+
+When the wait expires or the retries are exhausted, `ExecuteFailure` moves to
+**RecordJobWaitFailure**. That Step reads `RecoveryError` and fails the Flow
+with the error type and detail.
 
 ## Endpoints
 
