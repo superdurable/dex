@@ -18,53 +18,48 @@ package io.superdurable.dex.patterns.polling;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.shared.ExampleFlows;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.NoSuchElementException;
+
 @RestController
 @RequestMapping("/patterns/polling")
 public class PollingPatternController {
     private final Client client;
-    private final PollingWithTimerFlow pollingWithTimerFlow;
-    private final BackoffPollingFlow backoffPollingFlow;
-    private final IterationFlow iterationFlow;
+    private final PollingFlow pollingFlow;
+    private final FakeJobService jobs;
 
     public PollingPatternController(
             final Client client,
-            final PollingWithTimerFlow pollingWithTimerFlow,
-            final BackoffPollingFlow backoffPollingFlow,
-            final IterationFlow iterationFlow) {
+            final PollingFlow pollingFlow,
+            final FakeJobService jobs) {
         this.client = client;
-        this.pollingWithTimerFlow = pollingWithTimerFlow;
-        this.backoffPollingFlow = backoffPollingFlow;
-        this.iterationFlow = iterationFlow;
+        this.pollingFlow = pollingFlow;
+        this.jobs = jobs;
     }
 
-    @GetMapping("/start/timer")
-    ResponseEntity<String> startTimer(@RequestParam final String workflowId) {
+    @GetMapping("/start")
+    ResponseEntity<String> startPolling(@RequestParam final String workflowId) {
         final String runId = client.startFlow(
-                pollingWithTimerFlow,
+                pollingFlow,
                 workflowId,
                 null,
                 ExampleFlows.startOptions());
         return ResponseEntity.ok(runId);
     }
 
-    @GetMapping("/start/iteration")
-    ResponseEntity<String> startIteration(@RequestParam final String workflowId) {
-        return ResponseEntity.ok(client.startFlow(iterationFlow, workflowId, "", ExampleFlows.startOptions()));
-    }
-
-    @GetMapping("/start/backoff")
-    ResponseEntity<String> startBackoffPolling(@RequestParam final String workflowId) {
-        final String runId = client.startFlow(
-                backoffPollingFlow,
-                workflowId,
-                null,
-                ExampleFlows.startOptions());
-        return ResponseEntity.ok(runId);
+    @GetMapping("/complete-job")
+    ResponseEntity<String> completeJob(@RequestParam final String workflowId) {
+        try {
+            jobs.completeJob(workflowId);
+        } catch (final NoSuchElementException jobNotFound) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(jobNotFound.getMessage());
+        }
+        return ResponseEntity.ok("done");
     }
 }

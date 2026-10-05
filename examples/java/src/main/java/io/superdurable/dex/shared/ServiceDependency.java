@@ -22,19 +22,6 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class ServiceDependency {
-    private int readExternalCounter = 0;
-
-    public String attemptExternalApiCall(final String message) throws RuntimeException {
-        System.out.printf("Try external system call: (%s)%n", readExternalCounter);
-        if (readExternalCounter++ < 2) {
-            throw new RuntimeException("There is an error when calling external system, retry it");
-        }
-
-        readExternalCounter = 0;
-        System.out.printf("Data read from external system: (%s)%n", message);
-        return "External data result";
-    }
-
     public String externalApiCall(final String message) throws RuntimeException {
         System.out.printf("Data read from external system: (%s)%n", message);
         return "External data result";

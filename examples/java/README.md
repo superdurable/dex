@@ -19,7 +19,7 @@ src/main/java/io/superdurable/dex/
 HTTP routes use category prefixes:
 
 - `/products/<kebab>/...` — e.g. `/products/job-post/create`
-- `/patterns/<kebab>/...` — e.g. `/patterns/polling/start/simple`
+- `/patterns/<kebab>/...` — e.g. `/patterns/polling/start`
 - `/primitives/<kebab>/...` — e.g. `/primitives/step/start`
 
 ## Run locally
@@ -89,7 +89,7 @@ Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 - Manual recovery
 - Parallel Steps (static / dynamic / await / first win)
 - Parallel SubFlows (basic / long-lived parent / short-lived parent / partitioning / back pressure)
-- Polling (simple / backoff)
+- [Polling an external job in one long-running Step](./src/main/java/io/superdurable/dex/patterns/polling)
 - Failure recovery (saga)
 - Reminders
 - Inactiveness Tracker Timer
