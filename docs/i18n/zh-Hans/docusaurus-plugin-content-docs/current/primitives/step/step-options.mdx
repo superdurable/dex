@@ -12,6 +12,8 @@ slug: /primitives/step/step-options
 
 如果要深度定制 retry behavior，使用 **RetryAfter**。它覆盖 **RetryPolicy** 的 retry schedule。
 
+Retry 用于从失败的 attempt 中恢复。不要用 **RetryAfter** 等待外部系统；请使用 [Polling](/design-patterns/polling) 模式。
+
 <SdkTabs
   examples={{
     go: 'examples/go/primitives/custom-retry/workflow.go',
@@ -169,6 +171,8 @@ fn options(&self) -> StepOptions<Self::Input> {
 **HeartbeatTimeout** 默认是一分钟。默认允许的最小值是 10 秒。
 
 例如，**Execute** method timeout 为 60 秒、**HeartbeatTimeout** 为 10 秒时，Dex 大约 10 秒后就能 retry 这个 Step，而不必等满 60 秒。
+
+如果要在一个持续发送 heartbeat 的 Step 中等待外部系统，使用 [Polling](/design-patterns/polling) 模式。
 
 Heartbeat 可以持久化 checkpoint value。下一次 regular attempt 会收到最新值，并从那里继续。显式发送不带 value 的 heartbeat 会清除之前的 checkpoint。Stream message 产生的 implicit heartbeat 会保留最新的显式状态，包括已经显式清空的状态。
 
