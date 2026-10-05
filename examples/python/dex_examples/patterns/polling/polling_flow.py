@@ -15,10 +15,11 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from dex import (
     AsyncContext,
+    Context,
     Flow,
     PersistenceSchema,
     RetryPolicy,
@@ -35,11 +36,21 @@ from dex import (
 from dex_examples.patterns.polling.job_service import FakeJobService, JobState, JobStatus
 
 # Keep POLL_INTERVAL + JOB_CALL_TIMEOUT <= heartbeat_timeout - 10s.
+# MAX_JOB_WAIT bounds one attempt and all retries; Dex enforces it.
 POLL_INTERVAL = timedelta(seconds=2)
 JOB_CALL_TIMEOUT = timedelta(seconds=10)
-JOB_WAIT_BUDGET = timedelta(minutes=5)
+MAX_JOB_WAIT = timedelta(minutes=10)
 
 JOB_PROGRESS = Stream("JobProgress", JobStatus, 1 << 20)
+
+
+class RecordJobWaitFailure(Step[str]):
+    def execute(self, context: Context, job_id: str) -> StepDecision:
+        failure = context.recovery_error
+        assert failure is not None
+        return force_fail(
+            f"waiting for job {job_id} failed: {failure.error_type}: {failure.detail}"
+        )
 
 
 class AwaitJob(Step[str]):
@@ -48,18 +59,17 @@ class AwaitJob(Step[str]):
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
-            execute_method_timeout=timedelta(minutes=10),
+            execute_method_timeout=MAX_JOB_WAIT,
             heartbeat_timeout=timedelta(minutes=1),
             execute_retry=RetryPolicy(
                 initial_interval=timedelta(seconds=1),
                 backoff_coefficient=2.0,
                 maximum_attempts=3,
-                total_duration=timedelta(minutes=10),
+                total_duration=MAX_JOB_WAIT,
             ),
-        )
+        ).on_execute_failure_proceed_to(RecordJobWaitFailure)
 
     async def execute(self, context: AsyncContext, job_id: str) -> StepDecision:
-        deadline = context.first_attempt_at + JOB_WAIT_BUDGET
         reported_state = context.get_last_heartbeat_value(JobState)
         while True:
             status = await self.get_job_status(job_id)
@@ -67,8 +77,6 @@ class AwaitJob(Step[str]):
                 return graceful_complete(status.result)
             if status.state is JobState.FAILED:
                 return force_fail(f"job {job_id} failed")
-            if datetime.now(UTC) > deadline:
-                return force_fail(f"job {job_id} did not finish within {JOB_WAIT_BUDGET}")
             if status.state != reported_state:
                 JOB_PROGRESS.write(context, status)
                 reported_state = status.state
@@ -98,9 +106,12 @@ class PollingFlow(Flow[None]):
     def __init__(self, jobs: FakeJobService) -> None:
         self.start_job = StartJob(jobs)
         self.await_job = AwaitJob(jobs)
+        self.record_job_wait_failure = RecordJobWaitFailure()
 
     def get_steps(self) -> StepList[None]:
-        return StepList.start_step(self.start_job).other_steps(self.await_job)
+        return StepList.start_step(self.start_job).other_steps(
+            self.await_job, self.record_job_wait_failure
+        )
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(JOB_PROGRESS)
