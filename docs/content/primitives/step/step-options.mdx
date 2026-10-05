@@ -86,9 +86,9 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 **SYNC** is the default. Dex resolves durability in this order: a method override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**.
 
-**SYNC** runs only as a regular Temporal activity. Its default method attempt timeout is two hours, and its default heartbeat timeout is one minute.
+**SYNC** runs every attempt as a regular attempt. Its default method attempt timeout is two hours, and its default heartbeat timeout is one minute.
 
-**ASYNC** first runs as a Temporal local activity for at most seven seconds and three attempts, then falls back to a regular activity if it still fails. A smaller user retry duration or attempt limit still applies. The local activity phase ignores the method timeout and heartbeat settings. If it falls back to a regular activity, Dex applies the remaining retry budget and the same two-hour method attempt and one-minute heartbeat defaults.
+**ASYNC** first runs a short local phase of at most seven seconds and three attempts, then falls back to regular attempts if the Step still fails. A smaller user retry duration or attempt limit still applies. The local phase ignores the method timeout and heartbeat settings. After the fallback, Dex applies the remaining retry budget and the same two-hour method attempt and one-minute heartbeat defaults.
 
 The default total retry duration is four hours for both durability modes. An explicit retry duration may be shorter or longer.
 
@@ -166,7 +166,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ## Heartbeat {#heartbeat}
 
-During a regular activity attempt, the Worker must send a heartbeat or a [Stream message](/primitives/stream) before the **HeartbeatTimeout** expires. In other words, sending a Stream message is an implicit heartbeat.
+During a regular attempt, the Worker must send a heartbeat or a [Stream message](/primitives/stream) before the **HeartbeatTimeout** expires. In other words, sending a Stream message is an implicit heartbeat.
 
 **HeartbeatTimeout** defaults to one minute. The default allowed minimum is 10 seconds.
 
@@ -176,7 +176,7 @@ To wait for an external system in one heartbeating Step, use the [Polling](/desi
 
 A heartbeat can persist a checkpoint value. The next regular attempt receives the latest value and can resume from it. An explicit heartbeat without a value clears the previous checkpoint. An implicit heartbeat from a Stream message preserves the latest explicit state, including an explicitly cleared state.
 
-The local phase of **ASYNC** durability ignores heartbeat output and does not pass a checkpoint to the fallback regular activity. Stream messages are still emitted during the local phase.
+The local phase of **ASYNC** durability ignores heartbeat output and does not pass a checkpoint to the fallback regular attempts. Stream messages are still emitted during the local phase.
 
 <SdkTabs
   examples={{

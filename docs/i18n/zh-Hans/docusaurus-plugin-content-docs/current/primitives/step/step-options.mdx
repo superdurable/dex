@@ -86,9 +86,9 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 **SYNC** 是默认值。Dex 按这个顺序确定 durability：**StepOptions** 中的 method override、Flow 的 **FlowConfig**，最后是 **SYNC**。
 
-**SYNC** 只使用 regular Temporal activity。默认 method attempt timeout 是两小时，默认 heartbeat timeout 是一分钟。
+**SYNC** 的每次 attempt 都是 regular attempt。默认 method attempt timeout 是两小时，默认 heartbeat timeout 是一分钟。
 
-**ASYNC** 先作为 Temporal local activity 执行，最多七秒和三次 attempt；如果仍然失败，再 fallback 到 regular activity。用户设置的更短 retry duration 或更少 attempt 仍然生效。Local activity 阶段忽略 method timeout 和 heartbeat 设置。Fallback 到 regular activity 后，Dex 使用剩余 retry budget，并采用同样的两小时 method attempt 和一分钟 heartbeat 默认值。
+**ASYNC** 先执行一个短暂的 local 阶段，最多七秒和三次 attempt；如果 Step 仍然失败，再 fallback 到 regular attempt。用户设置的更短 retry duration 或更少 attempt 仍然生效。Local 阶段忽略 method timeout 和 heartbeat 设置。Fallback 之后，Dex 使用剩余 retry budget，并采用同样的两小时 method attempt 和一分钟 heartbeat 默认值。
 
 两种 durability mode 的默认 retry total duration 都是四小时。显式设置的 retry duration 可以更短或更长。
 
@@ -166,7 +166,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ## Heartbeat {#heartbeat}
 
-在 regular activity attempt 中，Worker 必须在 **HeartbeatTimeout** 到期前发送 heartbeat 或 [Stream message](/primitives/stream)。换句话说，发送 Stream message 就是 implicit heartbeat。
+在 regular attempt 中，Worker 必须在 **HeartbeatTimeout** 到期前发送 heartbeat 或 [Stream message](/primitives/stream)。换句话说，发送 Stream message 就是 implicit heartbeat。
 
 **HeartbeatTimeout** 默认是一分钟。默认允许的最小值是 10 秒。
 
@@ -176,7 +176,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 Heartbeat 可以持久化 checkpoint value。下一次 regular attempt 会收到最新值，并从那里继续。显式发送不带 value 的 heartbeat 会清除之前的 checkpoint。Stream message 产生的 implicit heartbeat 会保留最新的显式状态，包括已经显式清空的状态。
 
-**ASYNC** durability 的 local 阶段忽略 heartbeat output，也不会把 checkpoint 传给 fallback regular activity。Local 阶段仍会发送 Stream message。
+**ASYNC** durability 的 local 阶段忽略 heartbeat output，也不会把 checkpoint 传给 fallback 后的 regular attempt。Local 阶段仍会发送 Stream message。
 
 <SdkTabs
   examples={{

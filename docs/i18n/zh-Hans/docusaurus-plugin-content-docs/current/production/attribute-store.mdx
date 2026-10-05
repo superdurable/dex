@@ -106,7 +106,7 @@ SDK datetime 可以使用 RFC3339 string 或 JSON epoch seconds。Dex 会拒绝�
 或 binary、越界 integer、超过 decimal precision 的值、非有限浮点值和非法 JSON。
 
 缺失列、类型不匹配、覆盖 Flow ID 的写入和对必填列写入 null 都会逐字段记录并过滤。
-同一 batch 中的有效字段仍会写入。如果所有字段都被过滤，Activity 成功结束且不执行
+同一 batch 中的有效字段仍会写入。如果所有字段都被过滤，sync batch 成功结束且不执行
 SQL。
 
 ## MongoDB document 契约
@@ -131,7 +131,7 @@ String、64-bit integer、有限 double、boolean 和 null 使用原生 BSON val
 整数。其他 encoded object 保存为 BSON binary。
 
 Attribute name **_id**、包含句点或 NUL 的 name，以及以美元符号开头的 name 会被
-记录并跳过。batch 中其他有效字段仍会写入。如果所有字段都无效，Activity 成功结束且
+记录并跳过。batch 中其他有效字段仍会写入。如果所有字段都无效，sync batch 成功结束且
 不会访问 collection。
 
 ## 交付与关闭
@@ -139,17 +139,17 @@ Attribute name **_id**、包含句点或 NUL 的 name，以及以美元符号开
 Attribute Sync 保存最新状态，而不是 event history。发生不确定失败后，后续写入可能
 重复。因此 SQL upsert、warehouse merge 和 MongoDB upsert 都使用 Flow ID 作为幂等 key。
 
-Local Activity 优化最多运行七秒。它使用配置的 backoff interval 和 coefficient，但
-attempt 只受七秒总窗口限制。Regular Activity 的单次 attempt 默认最多 30 秒，总重试
+Sync batch 先执行一个最多七秒的短暂 local 阶段。它使用配置的 backoff interval 和
+coefficient，但 attempt 只受七秒总窗口限制。Regular attempt 的单次 attempt 默认最多 30 秒，总重试
 预算默认一小时。预算耗尽后会跳过该 batch。Dex 不会自动重放旧 Attribute，也不会为
 新配置的 store 自动 backfill。
 
 过滤写入、目标缺失和重试耗尽都会输出 error log。
 
-CancelFlow 和 FailFlow 是 cooperative 操作，可能等待 active Step、已接受的 Temporal
-RPC Update，以及多个一小时 batch budget。Cancel 返回原生 canceled error，因此
-Temporal 和 Cadence 都保留 Canceled execution state。terminal finalization 开始后，
-Temporal 会拒绝新的 RPC Update。Cadence 在 cleanup 期间已经接受的 SetAttributes 和
-RPC result signal 会完成对应的 Attribute 写入，但 terminal processing 不会启动它们的
+CancelFlow 和 FailFlow 是 cooperative 操作，可能等待 active Step、已接受的带锁或
+transactional RPC，以及多个一小时 batch budget。被取消的 Flow 在所有后端上都以
+Canceled 状态关闭。在 Temporal 后端上，terminal finalization 开始后，新的带锁或
+transactional RPC 会被拒绝。在 Cadence 后端上，cleanup 期间已经接受的 SetAttributes
+调用和 RPC result 会完成对应的 Attribute 写入，但 terminal processing 不会启动它们的
 next Step。Terminate 和 engine timeout 是 hard stop，可能使 external storage 落后于
-workflow state。
+Flow state。
