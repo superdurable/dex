@@ -11,7 +11,7 @@
 import asyncio
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Generator, cast
 
 import pytest
@@ -1458,6 +1458,22 @@ def test_context_exposes_recovery_error() -> None:
     assert context.recovery_error is not None
     assert context.recovery_error.detail == "handler exhausted retries"
     assert context.recovery_error.error_type == "TimeoutError"
+
+
+def test_context_exposes_first_attempt_at() -> None:
+    class AttemptFlow(Flow[None]):
+        pass
+
+    registry = Registry((AttemptFlow(),))
+    context = InvocationContext(
+        InvocationMethod.EXECUTE,
+        registry._flow_by_type("AttemptFlow"),
+        pb.Context(attempt=3, first_attempt_timestamp=1_791_000_000),
+        ValueMapper(registry.codec_registry),
+        (),
+    )
+    assert context.first_attempt_at == datetime.fromtimestamp(1_791_000_000, UTC)
+    assert context.first_attempt_at.tzinfo is UTC
 
 
 def test_async_step_outputs_preserve_call_order() -> None:

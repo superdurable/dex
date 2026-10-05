@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from dex import (
     Context,
@@ -77,7 +77,11 @@ class WorkerRetryAfterExecuteStep(Step[None]):
                 RETRY_AFTER_SECONDS,
                 RuntimeError(EXECUTE_RETRY_AFTER_DETAIL),
             )
-        return graceful_complete("execute-retry-after")
+        # The retry still reports the first attempt's start, so a deadline
+        # derived from it is not reset by the retry.
+        return graceful_complete(
+            (datetime.now(UTC) - context.first_attempt_at).total_seconds()
+        )
 
 
 class WorkerRetryAfterWaitForFlow(Flow[None]):
