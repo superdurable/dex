@@ -37,9 +37,8 @@ import {
   submitRequestFlow,
   waitForHalfParentFlow,
 } from "./patterns/parallel-subflows/parallel-subflows.js";
-import { backoffPollingFlow } from "./patterns/polling/backoff-polling-flow.js";
-import { pollingWithTimerFlow } from "./patterns/polling/simple-polling-flow.js";
-import { iterationFlow } from "./patterns/polling/iteration-flow.js";
+import { FakeJobService } from "./patterns/polling/fake-job-service.js";
+import { PollingFlow } from "./patterns/polling/polling-flow.js";
 import { failureRecoveryFlow } from "./patterns/recovery/failure-recovery-flow.js";
 import { reminderFlow } from "./patterns/reminders/reminder-flow.js";
 import { chunkedSubscriberFlow } from "./patterns/sequentially-chunked-attribute-map/chunked-subscriber-flow.js";
@@ -75,6 +74,8 @@ import { subscriptionFlow } from "./products/subscription/subscription-flow.js";
 import { MyDependencyService } from "./shared/my-dependency-service.js";
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
+const pollingJobs = new FakeJobService();
+const pollingFlow = new PollingFlow(pollingJobs);
 
 export const allExampleFlows: readonly Flow<any>[] = [
   moneyTransferFlow,
@@ -100,9 +101,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   advancedLongLiveParentFlow,
   advancedShortLiveParentFlow,
   submitRequestFlow,
-  pollingWithTimerFlow,
-  backoffPollingFlow,
-  iterationFlow,
+  pollingFlow,
   failureRecoveryFlow,
   reminderFlow,
   inactivenessTrackerFlow,
@@ -160,9 +159,8 @@ export {
   advancedLongLiveParentFlow,
   advancedShortLiveParentFlow,
   submitRequestFlow,
-  pollingWithTimerFlow,
-  backoffPollingFlow,
-  iterationFlow,
+  pollingFlow,
+  pollingJobs,
   failureRecoveryFlow,
   reminderFlow,
   inactivenessTrackerFlow,

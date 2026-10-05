@@ -18,10 +18,11 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 
-import { AttributeMatch } from "@superdurable/dex";
+import { AttributeMatch, stringCodec } from "@superdurable/dex";
 
 import { loadEnv } from "../../src/config/env.js";
 import { startSampleServer, type SampleServer } from "../../src/main.js";
+import { jobProgress } from "../../src/patterns/polling/polling-flow.js";
 import { userOnboardingFlow } from "../../src/products/signup/user-signup-flow.js";
 
 let server: SampleServer;
@@ -258,15 +259,28 @@ test("design-pattern timeout start", async () => {
   );
 });
 
-test("design-pattern polling simple and backoff", async () => {
-  requireOk(
-    await get("/patterns/polling/start/timer", { workflowId: id("dp-timer") }),
-    "dp simple polling",
+test("design-pattern polling streams job progress and completes with the job result", async () => {
+  const workflowId = id("pattern-polling");
+  requireOk(await get("/patterns/polling/start", { workflowId }), "polling start");
+
+  const queued = await server.client.readStream(workflowId, jobProgress, "", 20_000);
+  assert.equal(queued.value.state, "QUEUED");
+  const running = await server.client.readStream(
+    workflowId,
+    jobProgress,
+    queued.resumeToken,
+    20_000,
   );
+  assert.equal(running.value.state, "RUNNING");
+
   requireOk(
-    await get("/patterns/polling/start/backoff", { workflowId: id("dp-backoff") }),
-    "dp backoff polling",
+    await get("/patterns/polling/complete-job", { workflowId }),
+    "polling complete-job",
   );
+
+  const result = await server.client.waitForFlow(workflowId, 30_000);
+  assert.equal(result.status, "completed");
+  assert.equal(result.singleOutput(stringCodec), `artifact for ${workflowId}`);
 });
 
 test("design-pattern interruptible start cancel", async () => {

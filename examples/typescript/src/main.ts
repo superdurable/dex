@@ -60,7 +60,12 @@ import { createMoneyTransferRouter } from "./products/money-transfer/controller.
 import { createOrderProcessingRouter } from "./products/order-processing/controller.js";
 import { createSignupRouter } from "./products/signup/controller.js";
 import { createSubscriptionRouter } from "./products/subscription/controller.js";
-import { createExampleRegistry, orderProcessingFlow } from "./registry.js";
+import {
+  createExampleRegistry,
+  orderProcessingFlow,
+  pollingFlow,
+  pollingJobs,
+} from "./registry.js";
 
 export interface SampleServer {
   readonly client: Client;
@@ -100,7 +105,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/products/subscription", createSubscriptionRouter(client));
   app.use("/products/signup", createSignupRouter(client));
   app.use("/products/job-post", createJobPostingRouter(client));
-  app.use("/patterns/polling", createPatternPollingRouter(client));
+  app.use("/patterns/polling", createPatternPollingRouter(client, pollingFlow, pollingJobs));
   app.use("/patterns/interruptible", createInterruptibleRouter(client));
   app.use("/patterns/reminders", createRemindersRouter(client));
   app.use("/patterns/entity-store", createEntityStoreRouter(client));

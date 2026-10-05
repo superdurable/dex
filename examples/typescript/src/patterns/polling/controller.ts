@@ -19,38 +19,34 @@ import { Router } from "express";
 import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { backoffPollingFlow } from "./backoff-polling-flow.js";
-import { pollingWithTimerFlow } from "./simple-polling-flow.js";
-import { iterationFlow } from "./iteration-flow.js";
+import { JobNotFoundError, type FakeJobService } from "./fake-job-service.js";
+import type { PollingFlow } from "./polling-flow.js";
 
-export function createPatternPollingRouter(client: Client): Router {
+export function createPatternPollingRouter(
+  client: Client,
+  flow: PollingFlow,
+  jobs: FakeJobService,
+): Router {
   const router = Router();
 
-  router.get("/start/timer", async (request, response) => {
+  router.get("/start", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
-    const runId = await client.startFlow(
-      pollingWithTimerFlow,
-      workflowId,
-      undefined,
-      startOptions(),
-    );
+    const runId = await client.startFlow(flow, workflowId, undefined, startOptions());
     response.send(runId);
   });
 
-  router.get("/start/iteration", async (request, response) => {
-    const runId = await client.startFlow(iterationFlow, String(request.query.workflowId ?? ""), "", startOptions());
-    response.send(runId);
-  });
-
-  router.get("/start/backoff", async (request, response) => {
+  router.get("/complete-job", (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
-    const runId = await client.startFlow(
-      backoffPollingFlow,
-      workflowId,
-      undefined,
-      startOptions(),
-    );
-    response.send(runId);
+    try {
+      jobs.completeJob(workflowId);
+    } catch (error) {
+      if (error instanceof JobNotFoundError) {
+        response.status(404).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+    response.send("done");
   });
 
   return router;

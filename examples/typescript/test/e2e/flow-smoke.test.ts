@@ -110,18 +110,10 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: noStartStepFlags(),
     },
     {
-      name: "patterns/polling/timer",
+      name: "patterns/polling",
       trigger: () =>
-        triggerGet(context, "/patterns/polling/start/timer", {
-          workflowId: newFlowId("pattern-polling-simple"),
-        }),
-      flags: defaultFlags(),
-    },
-    {
-      name: "patterns/polling/backoff",
-      trigger: () =>
-        triggerGet(context, "/patterns/polling/start/backoff", {
-          workflowId: newFlowId("pattern-polling-backoff"),
+        triggerGet(context, "/patterns/polling/start", {
+          workflowId: newFlowId("pattern-polling"),
         }),
       flags: defaultFlags(),
     },
