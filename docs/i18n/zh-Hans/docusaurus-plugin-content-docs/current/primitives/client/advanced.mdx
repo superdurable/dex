@@ -190,7 +190,7 @@ let info = client.describe_flow("order-123")?;
 
 **SearchFlows** 返回匹配 visibility query 的一页 Flow runs。search 用来寻找 Flow instance；**DescribeFlow** 用于查看一个已知 Flow ID。要继续搜索，传回 page token。
 
-Dex Server 默认排除 ContinuedAsNew runs。查看旧 runs 时显式设置 **includeContinuedAsNew** 为 true。该选项不会取消查询中的状态限制；翻页时保持查询和选项不变。
+翻页时保持查询不变。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
 <SdkSnippet lang="python">
@@ -270,31 +270,54 @@ client.skip_timer("order-123", StepExecutionId::of(&charge_order), TimerId::by_c
 <SdkSnippet lang="python">
 
 ```python
-await client.update_flow_config("order-123", FlowConfig(continue_as_new_threshold=1_000))
+async def reroute_active_flow(client: AsyncClient, flow_id: str) -> None:
+    await client.update_flow_config(
+        flow_id,
+        FlowConfig(worker_target=WorkerTarget("worker-canary:8803")),
+    )
 ```
 
 </SdkSnippet><SdkSnippet lang="go">
 
 ```go
-err := client.UpdateFlowConfig(ctx, "order-123", sdk.FlowConfig{ContinueAsNewThreshold: ptr.Any(int64(1_000))})
+func rerouteActiveFlow(ctx context.Context, client *sdk.Client, flowID string) error {
+	return client.UpdateFlowConfig(ctx, flowID, sdk.FlowConfig{
+		WorkerTarget: &sdk.WorkerTarget{Address: "worker-canary:8803"},
+	})
+}
 ```
 
 </SdkSnippet><SdkSnippet lang="java">
 
 ```java
-client.updateFlowConfig("order-123", FlowConfig.newBuilder().continueAsNewThreshold(1_000).build());
+private static void rerouteActiveFlow(final Client client, final String flowId) {
+    client.updateFlowConfig(
+            flowId,
+            FlowConfig.newBuilder()
+                    .workerTarget(new WorkerTarget("worker-canary:8803", false))
+                    .build());
+}
 ```
 
 </SdkSnippet><SdkSnippet lang="typescript">
 
 ```typescript
-await client.updateFlowConfig("order-123", { continueAsNewThreshold: 1_000 });
+export async function rerouteActiveFlow(client: Client, flowId: string): Promise<void> {
+  await client.updateFlowConfig(flowId, {
+    workerTarget: { address: "worker-canary:8803" },
+  });
+}
 ```
 
 </SdkSnippet><SdkSnippet lang="rust">
 
 ```rust
-client.update_flow_config("order-123", FlowConfig::new().continue_as_new_threshold(1_000))?;
+pub fn reroute_active_flow(client: &Client, flow_id: &str) -> SdkResult<()> {
+    client.update_flow_config(
+        flow_id,
+        FlowConfig::new().worker_target(WorkerTarget::new("worker-canary:8803")),
+    )
+}
 ```
 
 </SdkSnippet></SdkTabs>

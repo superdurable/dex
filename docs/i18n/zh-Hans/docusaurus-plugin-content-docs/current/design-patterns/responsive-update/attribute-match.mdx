@@ -264,7 +264,7 @@ let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, GET_JOB_POST)?
 
 String 和 Boolean Attribute 支持 equal 与 not-equal。整数和浮点 Attribute 支持全部六种比较。缺失的 Attribute 永远不命中。object、bytes、null、blob-backed、非有限浮点、跨类型比较和无效的 ordering 比较会被拒绝。
 
-该等待只支持 Temporal，并且只适用于 active Flow。它会自动跟随 Continue-As-New。Cadence 返回 Unimplemented。
+该等待只支持 Temporal 后端，并且只适用于 active Flow。Cadence 后端返回 Unimplemented。
 
 ## 相关内容
 

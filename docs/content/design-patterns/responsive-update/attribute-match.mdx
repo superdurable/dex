@@ -264,7 +264,7 @@ let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, GET_JOB_POST)?
 
 String and Boolean Attributes support equal and not-equal matches. Integer and floating-point Attributes support all six comparison operators. Missing Attributes never match. Object, bytes, null, blob-backed, non-finite floating-point, cross-type, and invalid ordering comparisons are rejected.
 
-The wait works only with Temporal and only while the Flow is active. Continue-As-New is followed automatically. Cadence returns Unimplemented.
+The wait works only on the Temporal backend and only while the Flow is active. The Cadence backend returns Unimplemented.
 
 ## Related
 

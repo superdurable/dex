@@ -11,7 +11,7 @@ Dex allows you to customize the behavior of a Flow execution.
 - **StartFlowOptions** apply when a client starts a Flow (or SubFlow). They are immutable after start.
   - They control timeout, ID reuse, initial Attributes, request idempotency, and optional config overrides for that execution.
 - **FlowConfig** provide runtime behavior. They are mutable after start.
-  - Step durability defaults, Worker routing, active-Step search indexing, continue-as-new thresholds, and Attribute Store projection targets.
+  - Step durability defaults, Worker routing, active-Step search indexing, and Attribute Store projection targets.
 
 ## StartFlowOptions {#start-flow-options}
 
@@ -188,7 +188,7 @@ With a positive **Timeout**, a Dex SDK uses **FAIL** by default. If the Flow has
 
 The handler's attempt and retry clocks begin when the soft Flow timeout fires. They may extend past the original Flow deadline. If no failure target is configured, an exhausted handler fails the Flow.
 
-Ordinary Attributes and all Channel size metadata load automatically. AttributeMap values and pending Channel messages require explicit selections in **TimeoutHandlerOptions**. The handler may stage Attribute writes, Channel deletions, and Channel publications before returning its decision. Continue-as-new and Flow retries preserve the options; a Flow retry starts a new soft-timeout budget.
+Ordinary Attributes and all Channel size metadata load automatically. AttributeMap values and pending Channel messages require explicit selections in **TimeoutHandlerOptions**. The handler may stage Attribute writes, Channel deletions, and Channel publications before returning its decision. Flow retries preserve the options and start a new soft-timeout budget.
 
 Set **TimeoutPolicy** to **HANDLER** to run this code when the timeout fires. This handler records why the Flow ended, then fails it with an application reason.
 

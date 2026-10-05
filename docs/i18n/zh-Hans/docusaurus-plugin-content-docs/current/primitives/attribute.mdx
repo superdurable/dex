@@ -340,7 +340,7 @@ SDK 默认使用普通 Attribute 的名称作为 index key。应用索引必须�
 
 编号不会增加 namespace 的容量，仍须按目标 Temporal visibility store 的可用槽位分配。修改索引名不会删除旧的 Search Attribute 注册，也不会为已有 Flow execution 回填新索引。示例 schema 的验证使用新建本地 namespace；已有部署的迁移需单独安排。
 
-同一个通用 key 在不同 Flow type 中可以有不同业务含义。应用搜索必须限定 **FlowType**。Dex Server 默认在查询 visibility 前排除 ContinuedAsNew runs。仅在查看旧 runs 时将 **includeContinuedAsNew** 设为 true；该参数只取消默认排除，仍保留所有显式查询条件。翻页时保持查询和包含选项不变。Dex Web 已按所选 Flow type 限定搜索范围。将调用方条件放在括号内再与应用范围组合，避免 OR 绕过限制。不要索引敏感数据或 PII。Customer Refund 示例中的 customer-email 是合成数据。
+同一个通用 key 在不同 Flow type 中可以有不同业务含义。应用搜索必须限定 **FlowType**。翻页时保持查询不变。Dex Web 已按所选 Flow type 限定搜索范围。将调用方条件放在括号内再与应用范围组合，避免 OR 绕过限制。不要索引敏感数据或 PII。Customer Refund 示例中的 customer-email 是合成数据。
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">

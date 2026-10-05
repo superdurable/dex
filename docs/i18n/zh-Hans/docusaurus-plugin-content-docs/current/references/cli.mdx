@@ -35,8 +35,8 @@ stored string 和 object 默认会被 hydrate。只需要结构和 Blob identity
 payload。
 
 **flow watch** 会先输出已有的 semantic history event，再 long-poll 新 event。每行是一个
-JSON object。Flow 到达 terminal status 后 command 会停止；**--follow-runs** 会在
-Continue-As-New 后跟随 current run。
+JSON object。Flow 到达 terminal status 后 command 会停止；**--follow-runs** 会持续
+跟随该 Flow ID 的 current run。
 
 stop 和 time travel 必须同时提供准确的 **--run-id** 和显式 **--yes**。这样可以防止在解析
 旧 run 后误改较新的 run。

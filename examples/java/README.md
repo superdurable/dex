@@ -37,9 +37,7 @@ The examples share namespace-level slots by index type: `keyword1`,
 Use a fresh local store and a new port after changing an example's index schema.
 
 Application searches must constrain `FlowType` and parenthesize caller filters.
-The sample search endpoints enforce their Flow type. Dex Server excludes
-ContinuedAsNew runs by default; explicit history searches can opt in with
-`includeContinuedAsNew=true` through a supporting SDK or the Web search API.
+The sample search endpoints enforce their Flow type.
 
 Use JDK 17+ to run Gradle; the examples build and run on the newest Java
 release by default (the toolchain downloads automatically), and

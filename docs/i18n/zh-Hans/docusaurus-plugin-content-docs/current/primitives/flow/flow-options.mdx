@@ -11,7 +11,7 @@ Dex 允许你自定义 Flow execution 的行为。
 - **StartFlowOptions** 在客户端启动 Flow（或 SubFlow）时生效，启动后不可变。
   - 它们控制 timeout、ID reuse、初始 Attribute、request 幂等，以及该次 execution 的可选 config override。
 - **FlowConfig** 提供运行时行为，启动后可变。
-  - 包括 Step durability 默认值、Worker 路由、active-Step 搜索索引、continue-as-new 阈值与 Attribute Store projection target。
+  - 包括 Step durability 默认值、Worker 路由、active-Step 搜索索引与 Attribute Store projection target。
 
 ## StartFlowOptions {#start-flow-options}
 
@@ -188,7 +188,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 
 Handler 的 attempt 与 retry 计时从 soft Flow timeout 触发时开始，因此可以超过原始 Flow deadline。未配置 failure target 时，handler retry 耗尽会使 Flow 失败。
 
-普通 Attribute 和所有 Channel size metadata 会自动加载。AttributeMap value 与 pending Channel message 必须通过 **TimeoutHandlerOptions** 显式选择。Handler 可以先暂存 Attribute write、Channel deletion 与 Channel publication，再返回 decision。Continue-as-new 和 Flow retry 都会保留这些 options；Flow retry 会开始新的 soft-timeout budget。
+普通 Attribute 和所有 Channel size metadata 会自动加载。AttributeMap value 与 pending Channel message 必须通过 **TimeoutHandlerOptions** 显式选择。Handler 可以先暂存 Attribute write、Channel deletion 与 Channel publication，再返回 decision。Flow retry 会保留这些 options，并开始新的 soft-timeout budget。
 
 把 **TimeoutPolicy** 设为 **HANDLER**，timeout 触发时就会运行下面的代码。这个 handler 记录 Flow 结束的原因，再用应用自己的原因失败该 Flow。
 

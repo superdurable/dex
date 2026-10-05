@@ -169,7 +169,7 @@ First, when mentioning **Flow**, depending on the context, it usually means a Fl
 |----------|-------------|---------|
 | **FlowType** | Application (via Flow implementation) | Stable type name Dex uses to route Worker calls and search results. |
 | **Flow ID** | Application client on start           | Business identity for one Flow execution. ID reuse policy controls whether another Flow execution may start with the same Flow ID. |
-| **Run ID** | Dex Server | Identity of one backend run attempt. Time travel and continue-as-new assign a fresh Run ID while keeping the same Flow execution. |
+| **Run ID** | Dex Server | Identity of one backend run attempt. It can change while the Flow runs, for example after time travel. Address a Flow by its Flow ID; the Run ID is diagnostic. |
 | **StepType** | Application (via Step implementation) | Stable name for a Step definition inside the Flow. |
 | **StepExecutionID** | Dex Server | One execution instance of a Step type, formatted as **StepType-Number**. |
 
