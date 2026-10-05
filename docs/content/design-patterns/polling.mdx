@@ -21,8 +21,8 @@ loop:
     status = call the external API with its own short timeout (for example 10s)
     transient error   -> return the error; the retry policy runs the Step again
     terminal status   -> return the next decision (success or a business failure)
-    deadline passed   -> return a failure decision
-    report progress   -> write a Stream message, or record a heartbeat with the checkpoint
+    report progress   -> write a Stream message when the status changes,
+                         otherwise record a heartbeat with the checkpoint
     sleep(interval)
 ```
 
@@ -42,21 +42,33 @@ With the default one-minute **HeartbeatTimeout** and a 10-second call timeout, t
 
 Choose the interval for the wait. Use a few seconds when a user is watching, such as the readiness of something they just started. Use tens of seconds for long jobs such as builds.
 
-## Step options
+## Limits
 
-| Option | Value |
-| --- | --- |
-| **ExecuteMethodTimeout** | The maximum wait plus a margin. The default is two hours, and the server has no hard cap. |
-| **HeartbeatTimeout** | One minute, the default. Dex detects a stalled Worker within a minute instead of after the whole attempt timeout. |
-| **ExecuteRetry** | A few attempts with backoff for Worker crashes and transient errors. Set **TotalDuration** to at least the maximum wait. |
+Step options set every limit on the wait, and Dex enforces them.
+
+| Limit | Option | Enforcement |
+| --- | --- | --- |
+| Longest single attempt | **ExecuteMethodTimeout**, set to the maximum wait | Dex times out the attempt. Another attempt starts only while **TotalDuration** has time left. |
+| Longest total wait, including every retry | **TotalDuration** in **ExecuteRetry**, set to the maximum wait | On the Temporal backend, this is the activity **ScheduleToClose** timeout. It starts when the first attempt is scheduled and covers every retry. It also stops the attempt in progress. |
+| Stalled Worker | **HeartbeatTimeout**, one minute by default | Dex times out an attempt that sends no heartbeat or Stream message within this window. The retry policy then starts another attempt. |
+
+Do not duplicate these limits in code. The Step does not compute a deadline. Neither the checkpoint nor the Step input carries one.
+
+Use one maximum-wait value for both **ExecuteMethodTimeout** and **TotalDuration**. **ExecuteMethodTimeout** defaults to two hours, and the server has no hard cap. Give **ExecuteRetry** a few attempts with backoff for transient errors and Worker crashes.
 
 The local phase of **ASYNC** durability ignores heartbeats. When the Flow default is **ASYNC**, set the polling Step's **ExecuteDurability** to **SYNC**. See [Step options](/primitives/step/step-options#durability).
 
-## Deadline and checkpoint
+## When the wait expires
 
-Compute the business deadline from the first attempt: **FirstAttemptAt** plus the wait budget. The deadline then stays the same across retries.
+When **ExecuteMethodTimeout** or **TotalDuration** expires, Dex fails the Step with a timeout. Route that failure with the **ExecuteFailure** option to a short Step that records the business failure. That Step reads **RecoveryError**, which holds the failure detail and error type. Without a recovery route, the Flow fails. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
 
-A new attempt resumes from the last checkpoint. Read it with **GetLastHeartbeatValue**. In the example, the checkpoint is the last reported job status, so a retry does not repeat a progress message.
+The failure record does not include the last observed status. The progress Stream and the logs show it.
+
+A business condition that is not a fixed duration still belongs in the loop. An example is a lease that the Flow does not own and that can expire. That check is a business rule, not a polling timeout.
+
+## Checkpoint
+
+A new attempt resumes from the last checkpoint. Read it with **GetLastHeartbeatValue**. The checkpoint is only resume state. In the example, it is the last reported job status, so a retry does not repeat a progress message.
 
 ## Progress
 
@@ -70,7 +82,7 @@ Do not hold **ExecuteLockAttributes** for the whole wait. Return the result from
 
 ## Example
 
-**PollingFlow** waits for a fake external job. **StartJob** starts the job with the Flow ID as an idempotent job ID. **AwaitJob** polls the job status every two seconds. It writes a **JobProgress** Stream message when the status changes and completes with the job result.
+**PollingFlow** waits for a fake external job. **StartJob** starts the job with the Flow ID as an idempotent job ID. **AwaitJob** polls the job status every two seconds. It writes a **JobProgress** Stream message when the status changes and completes with the job result. When the ten-minute maximum wait expires, **AwaitJob** moves to **RecordJobWaitFailure**. That Step fails the Flow with the recovery error.
 
 The fake job reports QUEUED, then RUNNING, and succeeds six seconds after it starts. Call the complete-job endpoint to finish it early. Run the HTTP example from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground).
 
@@ -86,11 +98,21 @@ The fake job reports QUEUED, then RUNNING, and succeeds six seconds after it sta
 
 ```python
 # Keep POLL_INTERVAL + JOB_CALL_TIMEOUT <= heartbeat_timeout - 10s.
+# MAX_JOB_WAIT bounds one attempt and all retries; Dex enforces it.
 POLL_INTERVAL = timedelta(seconds=2)
 JOB_CALL_TIMEOUT = timedelta(seconds=10)
-JOB_WAIT_BUDGET = timedelta(minutes=5)
+MAX_JOB_WAIT = timedelta(minutes=10)
 
 JOB_PROGRESS = Stream("JobProgress", JobStatus, 1 << 20)
+
+
+class RecordJobWaitFailure(Step[str]):
+    def execute(self, context: Context, job_id: str) -> StepDecision:
+        failure = context.recovery_error
+        assert failure is not None
+        return force_fail(
+            f"waiting for job {job_id} failed: {failure.error_type}: {failure.detail}"
+        )
 
 
 class AwaitJob(Step[str]):
@@ -99,18 +121,17 @@ class AwaitJob(Step[str]):
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
-            execute_method_timeout=timedelta(minutes=10),
+            execute_method_timeout=MAX_JOB_WAIT,
             heartbeat_timeout=timedelta(minutes=1),
             execute_retry=RetryPolicy(
                 initial_interval=timedelta(seconds=1),
                 backoff_coefficient=2.0,
                 maximum_attempts=3,
-                total_duration=timedelta(minutes=10),
+                total_duration=MAX_JOB_WAIT,
             ),
-        )
+        ).on_execute_failure_proceed_to(RecordJobWaitFailure)
 
     async def execute(self, context: AsyncContext, job_id: str) -> StepDecision:
-        deadline = context.first_attempt_at + JOB_WAIT_BUDGET
         reported_state = context.get_last_heartbeat_value(JobState)
         while True:
             status = await self.get_job_status(job_id)
@@ -118,8 +139,6 @@ class AwaitJob(Step[str]):
                 return graceful_complete(status.result)
             if status.state is JobState.FAILED:
                 return force_fail(f"job {job_id} failed")
-            if datetime.now(UTC) > deadline:
-                return force_fail(f"job {job_id} did not finish within {JOB_WAIT_BUDGET}")
             if status.state != reported_state:
                 JOB_PROGRESS.write(context, status)
                 reported_state = status.state
@@ -138,10 +157,11 @@ class AwaitJob(Step[str]):
 
 ```go
 // Keep pollInterval + jobCallTimeout <= HeartbeatTimeout - 10s.
+// maxJobWait bounds one attempt and all retries; Dex enforces it.
 const (
 	pollInterval   = 2 * time.Second
 	jobCallTimeout = 10 * time.Second
-	jobWaitBudget  = 5 * time.Minute
+	maxJobWait     = 10 * time.Minute
 )
 
 var JobProgress = dex.DefineStream[JobStatus]("JobProgress", 1<<20)
@@ -153,19 +173,19 @@ type AwaitJob struct {
 
 func (AwaitJob) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
-		ExecuteMethodTimeout: 10 * time.Minute,
+		ExecuteMethodTimeout: maxJobWait,
 		HeartbeatTimeout:     time.Minute,
 		ExecuteRetry: &dex.RetryPolicy{
 			InitialInterval:    time.Second,
 			BackoffCoefficient: 2,
 			MaximumAttempts:    3,
-			TotalDuration:      10 * time.Minute,
+			TotalDuration:      maxJobWait,
 		},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(RecordJobWaitFailure{}, nil),
 	}
 }
 
 func (step AwaitJob) Execute(ctx dex.Context, jobID string) (*dex.StepDecision, error) {
-	deadline := ctx.FirstAttemptAt().Add(jobWaitBudget)
 	var reportedState JobState
 	if _, err := ctx.GetLastHeartbeatValue(&reportedState); err != nil {
 		return nil, err
@@ -180,9 +200,6 @@ func (step AwaitJob) Execute(ctx dex.Context, jobID string) (*dex.StepDecision, 
 			return dex.GracefulComplete(status.Result), nil
 		case JobFailed:
 			return dex.ForceFail("job " + jobID + " failed"), nil
-		}
-		if time.Now().After(deadline) {
-			return dex.ForceFail("job " + jobID + " did not finish within " + jobWaitBudget.String()), nil
 		}
 		if status.State != reportedState {
 			if err := JobProgress.Write(ctx, status); err != nil {
@@ -201,6 +218,15 @@ func (step AwaitJob) getJobStatus(ctx context.Context, jobID string) (JobStatus,
 	defer cancel()
 	return step.jobs.GetJobStatus(callCtx, jobID)
 }
+
+type RecordJobWaitFailure struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (RecordJobWaitFailure) Execute(ctx dex.Context, jobID string) (*dex.StepDecision, error) {
+	failure := ctx.RecoveryError()
+	return dex.ForceFail("waiting for job " + jobID + " failed: " + failure.ErrorType + ": " + failure.Detail), nil
+}
 ```
 
 </SdkSnippet>
@@ -208,9 +234,10 @@ func (step AwaitJob) getJobStatus(ctx context.Context, jobID string) (JobStatus,
 
 ```java
 // Keep POLL_INTERVAL + JOB_CALL_TIMEOUT <= HeartbeatTimeout - 10s.
+// MAX_JOB_WAIT bounds one attempt and all retries; Dex enforces it.
 private static final Duration POLL_INTERVAL = Duration.ofSeconds(2);
 private static final Duration JOB_CALL_TIMEOUT = Duration.ofSeconds(10);
-private static final Duration JOB_WAIT_BUDGET = Duration.ofMinutes(5);
+private static final Duration MAX_JOB_WAIT = Duration.ofMinutes(10);
 
 public static final Stream<JobStatus> jobProgress =
         Stream.define("JobProgress", JobStatus.class, 1L << 20);
@@ -224,20 +251,20 @@ final class AwaitJob implements Step<String> {
     @Override
     public StepOptions getStepOptions() {
         return StepOptions.newBuilder()
-                .executeMethodTimeout(Duration.ofMinutes(10))
+                .executeMethodTimeout(MAX_JOB_WAIT)
                 .heartbeatTimeout(Duration.ofMinutes(1))
                 .executeRetry(RetryPolicy.newBuilder()
                         .initialInterval(Duration.ofSeconds(1))
                         .backoffCoefficient(2.0)
                         .maximumAttempts(3)
-                        .totalDuration(Duration.ofMinutes(10))
+                        .totalDuration(MAX_JOB_WAIT)
                         .build())
+                .onExecuteFailureProceedTo(RecordJobWaitFailure.class)
                 .build();
     }
 
     @Override
     public StepDecision execute(final Context context, final String jobId) {
-        final Instant deadline = context.getFirstAttemptAt().plus(JOB_WAIT_BUDGET);
         JobState reportedState = context.getLastHeartbeatValue(JobState.class);
         while (true) {
             final JobStatus status = jobs.getJobStatus(jobId, JOB_CALL_TIMEOUT);
@@ -246,10 +273,6 @@ final class AwaitJob implements Step<String> {
             }
             if (status.state() == JobState.FAILED) {
                 return StepDecision.forceFail("job " + jobId + " failed");
-            }
-            if (Instant.now().isAfter(deadline)) {
-                return StepDecision.forceFail(
-                        "job " + jobId + " did not finish within " + JOB_WAIT_BUDGET);
             }
             if (status.state() != reportedState) {
                 jobProgress.write(context, status);
@@ -265,6 +288,21 @@ final class AwaitJob implements Step<String> {
             }
         }
     }
+}
+
+final class RecordJobWaitFailure implements Step<String> {
+    @Override
+    public Class<String> getInputType() {
+        return String.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final String jobId) {
+        final RecoveryErrorInfo failure = context.getRecoveryError();
+        return StepDecision.forceFail("waiting for job " + jobId + " failed: "
+                + failure.getErrorType() + ": " + failure.getDetail());
+    }
+}
 ```
 
 </SdkSnippet>
@@ -272,11 +310,25 @@ final class AwaitJob implements Step<String> {
 
 ```typescript
 // Keep POLL_INTERVAL_MS + JOB_CALL_TIMEOUT_MS <= heartbeatTimeoutMs - 10s.
+// MAX_JOB_WAIT_MS bounds one attempt and all retries; Dex enforces it.
 const POLL_INTERVAL_MS = 2_000;
 const JOB_CALL_TIMEOUT_MS = 10_000;
-const JOB_WAIT_BUDGET_MS = 5 * 60_000;
+const MAX_JOB_WAIT_MS = 10 * 60_000;
 
 export const jobProgress = new Stream("JobProgress", jsonCodec<JobStatus>(), 1 << 20);
+
+class RecordJobWaitFailure implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "RecordJobWaitFailure";
+  }
+
+  public execute(context: Context, jobId: string): StepDecision {
+    const failure = context.recoveryError!;
+    return forceFail(`waiting for job ${jobId} failed: ${failure.errorType}: ${failure.detail}`);
+  }
+}
 
 class AwaitJob implements Step<string> {
   public readonly inputCodec = stringCodec;
@@ -289,19 +341,19 @@ class AwaitJob implements Step<string> {
 
   public getStepOptions(): StepOptions {
     return {
-      executeMethodTimeoutMs: 10 * 60_000,
+      executeMethodTimeoutMs: MAX_JOB_WAIT_MS,
       heartbeatTimeoutMs: 60_000,
       executeRetry: {
         initialIntervalMs: 1_000,
         backoffCoefficient: 2,
         maximumAttempts: 3,
-        totalDurationMs: 10 * 60_000,
+        totalDurationMs: MAX_JOB_WAIT_MS,
       },
+      executeFailure: ExecuteFailure.proceedTo(RecordJobWaitFailure),
     };
   }
 
   public async execute(context: AsyncContext, jobId: string): Promise<StepDecision> {
-    const deadline = context.firstAttemptAt.getTime() + JOB_WAIT_BUDGET_MS;
     let reportedState = context.getLastHeartbeatValue<JobState>();
     while (true) {
       const status = await this.jobs.getJobStatus(jobId, AbortSignal.timeout(JOB_CALL_TIMEOUT_MS));
@@ -310,9 +362,6 @@ class AwaitJob implements Step<string> {
           return gracefulComplete(status.result);
         case "FAILED":
           return forceFail(`job ${jobId} failed`);
-      }
-      if (Date.now() > deadline) {
-        return forceFail(`job ${jobId} did not finish within ${JOB_WAIT_BUDGET_MS} ms`);
       }
       if (status.state !== reportedState) {
         jobProgress.write(context, status);
@@ -331,9 +380,10 @@ class AwaitJob implements Step<string> {
 
 ```rust
 // Keep POLL_INTERVAL + JOB_CALL_TIMEOUT <= heartbeat_timeout - 10s.
+// MAX_JOB_WAIT bounds one attempt and all retries; Dex enforces it.
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const JOB_CALL_TIMEOUT: Duration = Duration::from_secs(10);
-const JOB_WAIT_BUDGET: Duration = Duration::from_secs(5 * 60);
+const MAX_JOB_WAIT: Duration = Duration::from_secs(10 * 60);
 
 pub static JOB_PROGRESS: LazyLock<Stream<JobStatus>> =
     LazyLock::new(|| Stream::new("JobProgress", 1 << 20));
@@ -347,19 +397,19 @@ impl Step for AwaitJob {
 
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new()
-            .execute_method_timeout(Duration::from_secs(10 * 60))
+            .execute_method_timeout(MAX_JOB_WAIT)
             .heartbeat_timeout(Duration::from_secs(60))
             .execute_retry(
                 RetryPolicy::new()
                     .initial_interval(Duration::from_secs(1))
                     .backoff_coefficient(2.0)
                     .maximum_attempts(3)
-                    .total_duration(Duration::from_secs(10 * 60)),
+                    .total_duration(MAX_JOB_WAIT),
             )
+            .on_execute_failure_proceed_to(&RecordJobWaitFailure)
     }
 
     fn execute(&self, context: &mut Context, job_id: Self::Input) -> HandlerResult<StepDecision> {
-        let deadline = context.first_attempt_at() + JOB_WAIT_BUDGET;
         let mut reported_state = context.last_heartbeat_value::<JobState>()?;
         loop {
             let status = self
@@ -373,11 +423,6 @@ impl Step for AwaitJob {
                 }
                 JobState::Queued | JobState::Running => {}
             }
-            if SystemTime::now() > deadline {
-                return Ok(StepDecision::force_fail(format!(
-                    "job {job_id} did not finish within {JOB_WAIT_BUDGET:?}"
-                )));
-            }
             if reported_state != Some(status.state) {
                 reported_state = Some(status.state);
                 JOB_PROGRESS.write(context, status)?;
@@ -386,6 +431,23 @@ impl Step for AwaitJob {
             }
             thread::sleep(POLL_INTERVAL);
         }
+    }
+}
+
+struct RecordJobWaitFailure;
+
+impl Step for RecordJobWaitFailure {
+    type Input = String;
+
+    fn execute(&self, context: &mut Context, job_id: Self::Input) -> HandlerResult<StepDecision> {
+        let failure = context
+            .recovery_error()
+            .expect("an execute failure route provides the recovery error");
+        Ok(StepDecision::force_fail(format!(
+            "waiting for job {job_id} failed: {}: {}",
+            failure.error_type(),
+            failure.detail()
+        )))
     }
 }
 ```
@@ -399,6 +461,7 @@ impl Step for AwaitJob {
 - Using the retry policy, backoff, or **RetryAfter** as the polling loop, where "not ready" is returned as an error.
 - A long loop that never records a heartbeat or writes progress.
 - An external call without its own timeout.
+- A hand-written deadline that duplicates **ExecuteMethodTimeout** or **TotalDuration**.
 - Iterating over pages by passing a page token to a new run.
 
 ## Related
@@ -406,4 +469,5 @@ impl Step for AwaitJob {
 - [Step options](/primitives/step/step-options#heartbeat)
 - [Stream](/primitives/stream)
 - [Failure Handling](/design-patterns/failure-handling)
+- [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)
 - [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)
