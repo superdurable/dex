@@ -14,4 +14,6 @@
 
 pub mod controller;
 pub mod flow;
+pub mod job_service;
 pub use flow::*;
+pub use job_service::*;

@@ -19,6 +19,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dex_examples_rust::create_example_registry;
+use dex_examples_rust::patterns::polling::{FakeJobService, JOB_PROGRESS, JobState, PollingFlow};
 use dex_examples_rust::patterns::recovery::FailureRecoveryFlow;
 use dex_examples_rust::primitives::channel::flow::{
     ChannelFlow, DELETE_QUEUED_MESSAGE, ENQUEUE_CHANNEL_MESSAGE, GET_PRIORITIZED_MESSAGES,
@@ -62,6 +63,7 @@ use tempfile::TempDir;
 
 struct DexEnvironment {
     client: Client,
+    polling_jobs: Arc<FakeJobService>,
     worker: Arc<Worker>,
     worker_thread: Option<JoinHandle<SdkResult<()>>>,
     cache: Arc<BlobCache>,
@@ -70,7 +72,9 @@ struct DexEnvironment {
 
 impl DexEnvironment {
     fn start() -> Self {
-        let registry = create_example_registry().expect("register Rust examples");
+        let polling_jobs = Arc::new(FakeJobService::default());
+        let registry =
+            create_example_registry(Arc::clone(&polling_jobs)).expect("register Rust examples");
         let server_address =
             std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
         let worker_port = available_worker_port();
@@ -110,6 +114,7 @@ impl DexEnvironment {
         client.health_check().expect("Dex health check");
         Self {
             client,
+            polling_jobs,
             worker,
             worker_thread: Some(worker_thread),
             cache,
@@ -828,6 +833,46 @@ fn failure_recovery_retries_and_compensates() {
             .status,
         FlowStatus::Completed
     );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn polling_streams_job_progress_and_completes_with_job_result() {
+    let environment = DexEnvironment::start();
+    let flow = PollingFlow::new(Arc::clone(&environment.polling_jobs));
+    let flow_id = unique_flow_id("pattern-polling");
+    environment
+        .client
+        .start_flow(&flow, &flow_id, ())
+        .expect("start Rust Polling Flow");
+
+    let queued = environment
+        .client
+        .read_stream_with_timeout(&flow_id, &JOB_PROGRESS, "", Duration::from_secs(20))
+        .expect("read QUEUED JobProgress message");
+    assert_eq!(queued.value.state, JobState::Queued);
+    let running = environment
+        .client
+        .read_stream_with_timeout(
+            &flow_id,
+            &JOB_PROGRESS,
+            &queued.resume_token,
+            Duration::from_secs(20),
+        )
+        .expect("read RUNNING JobProgress message");
+    assert_eq!(running.value.state, JobState::Running);
+
+    environment
+        .polling_jobs
+        .complete_job(&flow_id)
+        .expect("complete the fake job");
+    let result = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .expect("complete Rust Polling Flow");
+    assert_eq!(result.status(), FlowStatus::Completed);
+    let output: String = result.single_output().expect("decode Rust Polling output");
+    assert_eq!(output, format!("artifact for {flow_id}"));
 }
 
 fn attribute_wait_options(seconds: u64) -> WaitForAttributeOptions {

@@ -24,6 +24,7 @@ use common::{
     FlowSmokeEntry, FlowSmokeFlags, FlowSmokeHttpClient, assert_flow_smoke_no_unexpected_failures,
     assert_flow_smoke_start_step, query, query_with,
 };
+use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::server::build_router;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
 use dex_sdk::{
@@ -56,10 +57,12 @@ impl FlowSmokeEnvironment {
             )
             .expect("open Rust flow smoke cache"),
         );
+        let polling_jobs = Arc::new(FakeJobService::default());
         let worker_target = WorkerTarget::new(worker_address.clone());
         let client = Arc::new(
             Client::try_new(
-                create_example_registry().expect("register Rust client examples"),
+                create_example_registry(Arc::clone(&polling_jobs))
+                    .expect("register Rust client examples"),
                 Arc::clone(&cache),
                 ClientOptions::new()
                     .server_address(&server_address)
@@ -69,7 +72,8 @@ impl FlowSmokeEnvironment {
         );
         let worker = Arc::new(
             Worker::try_new(
-                create_worker_registry(Arc::clone(&client)).expect("register Rust Worker examples"),
+                create_worker_registry(Arc::clone(&client), Arc::clone(&polling_jobs))
+                    .expect("register Rust Worker examples"),
                 Arc::clone(&cache),
                 WorkerOptions::new()
                     .server_address(&server_address)
@@ -87,7 +91,7 @@ impl FlowSmokeEnvironment {
         client.health_check().expect("Dex health check");
 
         let http_port = available_worker_port();
-        let router = build_router(Arc::clone(&client));
+        let router = build_router(Arc::clone(&client), polling_jobs);
         let server_thread = thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -166,15 +170,9 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
-            name: "patterns/polling/timer",
-            path: "/patterns/polling/start/timer",
-            query: query(&client.new_flow_id("pattern-polling-timer")),
-            flags: FlowSmokeFlags::NONE,
-        },
-        FlowSmokeEntry {
-            name: "patterns/polling/backoff",
-            path: "/patterns/polling/start/backoff",
-            query: query(&client.new_flow_id("pattern-polling-backoff")),
+            name: "patterns/polling",
+            path: "/patterns/polling/start",
+            query: query(&client.new_flow_id("pattern-polling")),
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {

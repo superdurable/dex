@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use dex_examples_rust::patterns::{
     cron::CronScheduleFlow,
@@ -30,7 +31,7 @@ use dex_examples_rust::patterns::{
         AdvancedLongLiveParentFlow, AdvancedShortLiveParentFlow, BasicParentFlow, ExampleSubFlow,
         SubmitRequestFlow,
     },
-    polling::{BackoffPollingFlow, IterationFlow, PollingWithTimerFlow},
+    polling::{FakeJobService, PollingFlow},
     recovery::FailureRecoveryFlow,
     reminders::ReminderFlow,
     sequentially_chunked_attribute_map::ChunkedSubscriberFlow,
@@ -73,9 +74,7 @@ fn catalog_matches_every_cross_language_example() {
         AdvancedLongLiveParentFlow::default().flow_type(),
         AdvancedShortLiveParentFlow::default().flow_type(),
         SubmitRequestFlow::default().flow_type(),
-        PollingWithTimerFlow::default().flow_type(),
-        BackoffPollingFlow::default().flow_type(),
-        IterationFlow::default().flow_type(),
+        PollingFlow::new(Arc::new(FakeJobService::default())).flow_type(),
         FailureRecoveryFlow::default().flow_type(),
         ReminderFlow::default().flow_type(),
         InactivenessTrackerFlow::default().flow_type(),
@@ -88,16 +87,17 @@ fn catalog_matches_every_cross_language_example() {
 
     assert_eq!(product_flows, PRODUCT_FLOW_TYPES);
     assert_eq!(pattern_flows, PATTERN_FLOW_TYPES);
-    assert_eq!(product_flows.len() + pattern_flows.len(), 33);
+    assert_eq!(product_flows.len() + pattern_flows.len(), 31);
     assert_eq!(
         product_flows
             .into_iter()
             .chain(pattern_flows)
             .collect::<HashSet<_>>()
             .len(),
-        33
+        31
     );
-    create_example_registry().expect("all 33 example Flow definitions must register together");
+    create_example_registry(Arc::new(FakeJobService::default()))
+        .expect("all 31 example Flow definitions must register together");
 }
 
 #[test]

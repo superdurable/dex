@@ -22,6 +22,8 @@ use std::sync::Arc;
 
 use dex_sdk::{Client, Registry, SdkResult};
 
+use crate::patterns::polling::FakeJobService;
+
 pub const PRODUCT_FLOW_TYPES: [&str; 8] = [
     "MoneyTransferFlow",
     "OrderProcessingFlow",
@@ -33,7 +35,7 @@ pub const PRODUCT_FLOW_TYPES: [&str; 8] = [
     "JobPostingFlow",
 ];
 
-pub const PATTERN_FLOW_TYPES: [&str; 25] = [
+pub const PATTERN_FLOW_TYPES: [&str; 23] = [
     "CronScheduleFlow",
     "DrainInternalChannelFlow",
     "DrainingExternalChannelFlow",
@@ -48,9 +50,7 @@ pub const PATTERN_FLOW_TYPES: [&str; 25] = [
     "AdvancedLongLiveParentFlow",
     "AdvancedShortLiveParentFlow",
     "SubmitRequestFlow",
-    "PollingWithTimerFlow",
-    "BackoffPollingFlow",
-    "IterationFlow",
+    "PollingFlow",
     "FailureRecoveryFlow",
     "ReminderFlow",
     "InactivenessTrackerFlow",
@@ -61,14 +61,17 @@ pub const PATTERN_FLOW_TYPES: [&str; 25] = [
     "WaitForStepCompletionFlow",
 ];
 
-pub fn create_example_registry() -> SdkResult<Registry> {
+pub fn create_example_registry(polling_jobs: Arc<FakeJobService>) -> SdkResult<Registry> {
     products::register(Registry::new())
-        .and_then(patterns::register)
+        .and_then(|registry| patterns::register(registry, polling_jobs))
         .and_then(primitives::register)
 }
 
-pub fn create_worker_registry(client: Arc<Client>) -> SdkResult<Registry> {
+pub fn create_worker_registry(
+    client: Arc<Client>,
+    polling_jobs: Arc<FakeJobService>,
+) -> SdkResult<Registry> {
     products::register(Registry::new())
-        .and_then(|registry| patterns::register_worker(registry, client))
+        .and_then(|registry| patterns::register_worker(registry, client, polling_jobs))
         .and_then(primitives::register)
 }

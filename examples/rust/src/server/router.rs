@@ -12,15 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::patterns;
+use crate::patterns::polling::FakeJobService;
 use crate::primitives;
 use crate::products;
 use crate::server::helpers::SharedClient;
 
-pub fn build_router(client: SharedClient) -> axum::Router {
+pub fn build_router(client: SharedClient, polling_jobs: Arc<FakeJobService>) -> axum::Router {
     axum::Router::new()
         .merge(products::engagement::controller::mount(client.clone()))
         .merge(products::job_post::controller::mount(client.clone()))
@@ -34,7 +37,10 @@ pub fn build_router(client: SharedClient) -> axum::Router {
         ))
         .merge(products::signup::controller::mount(client.clone()))
         .merge(products::subscription::controller::mount(client.clone()))
-        .merge(patterns::polling::controller::mount(client.clone()))
+        .merge(patterns::polling::controller::mount(
+            client.clone(),
+            polling_jobs,
+        ))
         .merge(patterns::interruptible::controller::mount(client.clone()))
         .merge(patterns::reminders::controller::mount(client.clone()))
         .merge(patterns::entity_store::controller::mount(client.clone()))

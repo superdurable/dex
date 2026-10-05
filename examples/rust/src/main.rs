@@ -15,6 +15,7 @@
 use std::sync::Arc;
 use std::thread;
 
+use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::server::build_router;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
 use dex_sdk::{
@@ -37,16 +38,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         64 * 1024 * 1024,
         10_000,
     )?)?);
+    let polling_jobs = Arc::new(FakeJobService::default());
     let worker_target = WorkerTarget::new(worker_bind_address.clone());
     let client = Arc::new(Client::try_new(
-        create_example_registry()?,
+        create_example_registry(Arc::clone(&polling_jobs))?,
         Arc::clone(&cache),
         ClientOptions::new()
             .server_address(server_address.clone())
             .worker_target(worker_target.clone()),
     )?);
     let worker = Worker::try_new(
-        create_worker_registry(Arc::clone(&client))?,
+        create_worker_registry(Arc::clone(&client), Arc::clone(&polling_jobs))?,
         Arc::clone(&cache),
         WorkerOptions::new()
             .server_address(server_address.clone())
@@ -55,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let worker_handle = thread::spawn(move || worker.start());
 
-    let router = build_router(client);
+    let router = build_router(client, polling_jobs);
     let listener = tokio::net::TcpListener::bind(&http_address).await?;
     println!("Dex Rust examples listening on http://{http_address} (worker {worker_bind_address})");
     axum::serve(listener, router).await?;
