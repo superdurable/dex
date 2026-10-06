@@ -97,16 +97,15 @@ func (step AwaitJob) Execute(ctx dex.Context, jobID string) (*dex.StepDecision, 
 	if _, err := ctx.GetLastHeartbeatValue(&reportedState); err != nil {
 		return nil, err
 	}
+	var status JobStatus
 	for {
-		status, err := step.getJobStatus(ctx, jobID)
+		var err error
+		status, err = step.getJobStatus(ctx, jobID)
 		if err != nil {
 			return nil, dex.ErrorWithStack(err)
 		}
-		switch status.State {
-		case JobSucceeded:
-			return dex.GracefulComplete(status.Result), nil
-		case JobFailed:
-			return dex.ForceFail("job " + jobID + " failed"), nil
+		if status.State == JobSucceeded || status.State == JobFailed {
+			break
 		}
 		if status.State != reportedState {
 			if err := JobProgress.Write(ctx, status); err != nil {
@@ -118,6 +117,10 @@ func (step AwaitJob) Execute(ctx dex.Context, jobID string) (*dex.StepDecision, 
 		}
 		time.Sleep(pollInterval)
 	}
+	if status.State == JobFailed {
+		return dex.ForceFail("job " + jobID + " failed"), nil
+	}
+	return dex.GracefulComplete(status.Result), nil
 }
 
 func (step AwaitJob) getJobStatus(ctx context.Context, jobID string) (JobStatus, error) {
