@@ -41,6 +41,14 @@ blocker. Do not update the skill from an unreleased commit.
 If the skill repository is unavailable or contains work that cannot be safely
 merged, do not mark the feature complete. Report the blocker explicitly.
 
+## No Downstream Product Information
+
+Dex is an open-source product. Repository files, docs, examples, receipts,
+comments, and commit messages contain no information about products built on
+Dex: no product names, deployments, environments, dependency pins, or platform
+concepts. Describe a requirement in Dex terms, as any Dex application would
+need it.
+
 ## Temporal Skill Routing
 
 - In this repository, use the `temporal-developer` skill only when changing or
