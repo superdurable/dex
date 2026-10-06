@@ -36,7 +36,7 @@ only structure and blob identities are needed. The output then contains stable
 
 **flow watch** first emits available semantic history events and then long-polls
 for new events. Each line is one JSON object. It stops at a terminal status;
-**--follow-runs** follows Continue-As-New into the current run.
+**--follow-runs** keeps following the Flow ID's current run.
 
 Stop and time travel always require an exact **--run-id** and explicit **--yes**. This
 prevents an agent from mutating a newer run after resolving an older one.

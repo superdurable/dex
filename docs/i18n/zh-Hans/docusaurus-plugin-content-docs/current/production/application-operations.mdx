@@ -38,7 +38,7 @@ Flow 可能因为 Worker handler 返回失败、Worker 重试耗尽，或达到�
 
 Flow 超时是 Flow 启动时配置的持久化 Dex timer；零会禁用它。请选择 **FAIL**、
 **CANCEL** 或 Flow timeout handler。检查启动事件中的配置时长和解析后的策略。
-continue-as-new run 会保留原始绝对截止时间；重试会得到新的超时预算。
+截止时间是绝对时间；Flow 重试会得到新的超时预算。
 
 每个正值超时都有一个内部 **sys:timeout_handler** timer。它会显示在活动 Step 诊断中，
 并且 **SkipTimer** 可以通过 timer index 提前触发它。恢复超时失败前，先修复根本原因。
@@ -139,8 +139,8 @@ payload 或 output 契约，请引入新的 Step type 或 RPC name，而不是�
 ### 在旧 Flow 结束前保留旧定义
 
 当打开的 Flow 仍可能调用一个 Flow type、Step type 或 RPC implementation 时，不要删除或
-重命名它。将新定义与旧定义一起部署，只将新版本 Flow 路由到新定义，并通过重试、
-continue-as-new run 和任何已批准的 Time Travel 恢复保留旧 implementation。
+重命名它。将新定义与旧定义一起部署，只将新版本 Flow 路由到新定义，并通过重试和
+任何已批准的 Time Travel 恢复保留旧 implementation。
 
 移除旧定义前，搜索旧 Flow type，并确认没有正在运行、等待、重试或可恢复的终止 Flow
 需要它。将搜索结果保存在变更记录中。确切查询取决于 visibility store 的字段；可以从

@@ -50,7 +50,7 @@ interval + call timeout <= HeartbeatTimeout - 10s
 | 限制 | 选项 | 执行方式 |
 | --- | --- | --- |
 | 单次 attempt 的最长时间 | **ExecuteMethodTimeout**，设为最长等待时间 | Dex 让该 attempt 超时。只有 **TotalDuration** 还有剩余时间时，才会开始新的 attempt。 |
-| 包含所有 retry 的最长总等待时间 | **ExecuteRetry** 中的 **TotalDuration**，设为最长等待时间 | 在 Temporal 后端上，它就是 activity 的 **ScheduleToClose** timeout。它从第一次 attempt 被调度时开始计算，覆盖所有 retry，也会终止正在运行的 attempt。 |
+| 包含所有 retry 的最长总等待时间 | **ExecuteRetry** 中的 **TotalDuration**，设为最长等待时间 | 它从第一次 attempt 被调度时开始计算，覆盖所有 retry，也会终止正在运行的 attempt。 |
 | Worker 卡住 | **HeartbeatTimeout**，默认一分钟 | 如果一次 attempt 在这个窗口内没有发送 heartbeat 或 Stream message，Dex 让它超时。随后 retry policy 会开始新的 attempt。 |
 
 不要在代码里重复这些限制。Step 不计算截止时间，checkpoint 和 Step input 也都不携带截止时间。

@@ -120,7 +120,7 @@ precision, non-finite floating-point values, and invalid JSON.
 
 Missing columns, type mismatches, Flow ID writes, and nulls for required columns
 are logged and filtered one field at a time. Valid fields in the same batch still
-write. If every field is filtered, the Activity succeeds without executing SQL.
+write. If every field is filtered, the sync batch succeeds without executing SQL.
 
 ## MongoDB document contract
 
@@ -147,7 +147,7 @@ binary values.
 
 The Attribute name **_id**, names containing a period or NUL, and names beginning
 with a dollar sign are logged and skipped. Other valid fields in the batch still
-write. If every field is invalid, the Activity succeeds without contacting the
+write. If every field is invalid, the sync batch succeeds without contacting the
 collection.
 
 ## Delivery and shutdown
@@ -156,19 +156,19 @@ Attribute Sync stores latest state, not an event history. A later write may
 repeat after an ambiguous failure. SQL upserts, warehouse merges, and MongoDB
 upserts therefore use the Flow ID as their idempotency key.
 
-Local Activity optimization is limited to seven seconds. It uses the configured
-backoff intervals and coefficient, but its attempts are bounded only by that
-seven-second window. Regular Activity attempts default to 30 seconds and a
+A sync batch first runs a short local phase limited to seven seconds. It uses
+the configured backoff intervals and coefficient, but its attempts are bounded
+only by that seven-second window. Regular attempts default to 30 seconds and a
 one-hour total retry budget. Exhaustion skips that batch. Dex does not
 automatically replay old Attributes or backfill a newly configured store.
 
 Filtered writes, missing targets, and retry exhaustion emit error logs.
 
 CancelFlow and FailFlow are cooperative and may wait for active Steps, accepted
-Temporal RPC Updates, and multiple one-hour batch budgets. Cancel returns a
-native canceled error, so Temporal and Cadence retain the Canceled execution
-state. Temporal rejects new RPC Updates after terminal finalization begins.
-Cadence SetAttributes and RPC result signals accepted during cleanup are drained
-for their Attribute writes; terminal processing does not start their next Steps.
-Terminate and engine timeouts are hard stops and may leave external storage
-behind workflow state.
+locked or transactional RPCs, and multiple one-hour batch budgets. A canceled
+Flow closes with Canceled status on every backend. On the Temporal backend, new
+locked or transactional RPCs are rejected after terminal finalization begins.
+On the Cadence backend, SetAttributes calls and RPC results accepted during
+cleanup are drained for their Attribute writes; terminal processing does not
+start their next Steps. Terminate and engine timeouts are hard stops and may
+leave external storage behind the Flow's state.

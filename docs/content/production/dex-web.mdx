@@ -14,7 +14,7 @@ dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refu
 dexcli dev --flow-rendering-dir ./build
 ```
 
-**v2** searches current runs for one Flow type. Run lists exclude executions closed by continue-as-new because they belong to the same logical Flow. Their events remain available in that Flow's history. The canvas uses that Flow type's generated definition, so you do not pick a JSON file again. Historical runs stay on **v1**.
+**v2** searches current runs for one Flow type. The canvas uses that Flow type's generated definition, so you do not pick a JSON file again. Historical runs stay on **v1**.
 
 Each definition uses the Flow type and Step types that your Workers register, as described in [Flow and Step names](/references/flow-visualization#flow-and-step-names). Go Flows need no **GetFlowType** or **GetStepType** override unless the analyzer reports one of the name diagnostics listed there. Generate definitions with the **dexcli** release that matches your Dex Web, and regenerate them after upgrading.
 
@@ -62,7 +62,7 @@ Set **web.startFlowWorkerTargetHeadless** or **DEX_WEB_START_FLOW_WORKER_TARGET_
 
 An indexed Attribute declaration binds the Dex Attribute key, physical search index key, index type, application value type, and description. The analyzer compares every value with the Go definition and the SDK's effective index configuration.
 
-The physical key can be a generic namespace slot such as **keyword2**. The selected Flow type scopes its meaning in this workspace, so the UI behavior does not change when different Flow types reuse that slot. Dex Server excludes ContinuedAsNew runs by default. The search HTTP API accepts **includeContinuedAsNew: true** for explicit history searches; the UI keeps the default.
+The physical key can be a generic namespace slot such as **keyword2**. The selected Flow type scopes its meaning in this workspace, so the UI behavior does not change when different Flow types reuse that slot.
 
 The **v2** list searches one Flow type at a time. Filters include Flow ID, execution status, start and close time, and the declared indexed Attributes. Dex Web compiles these controls into a visibility query. It does not accept a raw query from the browser. Different fields use AND; multiple values for one field use OR.
 
@@ -70,9 +70,9 @@ Each row calls **GetDexSummary** for the logical Flow ID's current run. The RPC 
 
 ## Display and edits
 
-Selecting a row keeps the Flow ID in the URL, not a run ID. **GetDexDisplay**, Attribute reads, edits, and Actions omit the run ID, so Dex resolves the current run. After Continue-as-New, refreshing the same URL automatically addresses the new run.
+Selecting a row keeps the Flow ID in the URL, not a run ID. **GetDexDisplay**, Attribute reads, edits, and Actions omit the run ID, so Dex resolves the current run. Refreshing the same URL always addresses the Flow's current run.
 
-On **v2**, selecting a Step opens a panel split into **Definition** and **Execution**. Definition shows the Step **explanation**, WaitFor, and Execute branches from the Flow Definition Graph. Long Definition content scrolls so Execution stays visible. When a Step has more than three Execute branches, the branch list starts collapsed. Execution has a dropdown when the Step ran more than once, then **Input**, **Output**, and **Context** for the selected WaitFor or Execute history event in the same structured form as **v1** Selected event. The execution payload defaults to Details and can switch to Raw JSON of the hydrated payload. AttributeMap and ChannelMap instances that are decimal numbers sort by numeric value, matching **v1**. Execute shows the live next Steps from that run's decision, not every FDG exit. When Continue-as-New moved a Step into a previous run, use Load more from previous run.
+On **v2**, selecting a Step opens a panel split into **Definition** and **Execution**. Definition shows the Step **explanation**, WaitFor, and Execute branches from the Flow Definition Graph. Long Definition content scrolls so Execution stays visible. When a Step has more than three Execute branches, the branch list starts collapsed. Execution has a dropdown when the Step ran more than once, then **Input**, **Output**, and **Context** for the selected WaitFor or Execute history event in the same structured form as **v1** Selected event. The execution payload defaults to Details and can switch to Raw JSON of the hydrated payload. AttributeMap and ChannelMap instances that are decimal numbers sort by numeric value, matching **v1**. Execute shows the live next Steps from that run's decision, not every FDG exit. Use **Load more from previous run** to see earlier executions of a Step.
 
 A field can also name the UI slot it fills: **title**, **subtitle**, **status**, **recommendation**, or **reason**. A UI slot says what part the field plays, so one template serves every Flow while each Flow maps its own Attributes onto it. UI slots are optional and most fields fill none.
 
@@ -96,9 +96,9 @@ Camera capture requires HTTPS or localhost. A denied permission, missing camera,
 
 Each Action requires one permission such as **refund.manage**. Permission keys begin with a lowercase letter and contain lowercase letters, digits, dots, or hyphens. When a successful Worker invocation writes an Action condition source, the Worker sends the complete mapping with that response. Unrelated writes and query-only RPCs omit it.
 
-The Server overlays the business writes on authoritative Attribute state and evaluates the mapping in the same Workflow Task. It sorts and deduplicates the permissions of currently available Actions, then adds newly matching permissions to the internal **DexWorkQueuePermissions** KeywordList Search Attribute. Once added, a permission remains for that Flow execution even when no Action currently matches it. Projection maintenance does not require application Steps to lock every Action source.
+The Server overlays the business writes on authoritative Attribute state and evaluates the mapping atomically with those writes. It sorts and deduplicates the permissions of currently available Actions, then adds newly matching permissions to the internal **DexWorkQueuePermissions** KeywordList Search Attribute. Once added, a permission remains for that Flow execution even when no Action currently matches it. Projection maintenance does not require application Steps to lock every Action source.
 
-The permission history is carried across Continue-as-New and remains searchable after completion. A Server upgrade preserves permissions that are still stored but does not reconstruct permissions removed before the upgrade. A new, independent Flow execution starts from its own initial Attributes. A changed Action definition is first evaluated when a later source write sends its mapping or a new Flow starts. Removing or renaming an Action permission does not clear the old value from existing permission history.
+The permission history lasts for the Flow execution and remains searchable after completion. A Server upgrade preserves permissions that are still stored but does not reconstruct permissions removed before the upgrade. A new, independent Flow execution starts from its own initial Attributes. A changed Action definition is first evaluated when a later source write sends its mapping or a new Flow starts. Removing or renaming an Action permission does not clear the old value from existing permission history.
 
 Work Queue offers the permissions declared by the selected Flow type. Choosing **Working as** one permission sends it as **workQueuePermissions** to **POST /api/v2/search**. The API also accepts several permissions for callers that derive them from multiple user roles. A run matches when its permission history contains any requested permission. This permission group is joined with the Flow type and other filters using AND.
 

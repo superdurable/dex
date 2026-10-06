@@ -74,6 +74,16 @@ need it.
   change and provide the installation instructions at
   https://docs.superdurable.io/build-with-ai/dex-developer-skill.
 
+## User-Facing Concept Boundary
+
+User-facing docs, examples and skills describe Dex concepts and guarantees only.
+Do not mention Continue-As-New except in the Flow options reference for the
+Continue-As-New threshold and the TriggerContinueAsNew Client API reference. Do
+not describe Temporal or Cadence internals (activity timeout names, Signals,
+Queries, Updates, workflow history mechanics) as part of the application model;
+state the Dex behavior instead. Deployment and operations guidance may name the
+backend and its configuration.
+
 ## Compatibility
 
 - The project has not launched. Remove dead config fields immediately.

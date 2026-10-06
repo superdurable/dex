@@ -49,7 +49,7 @@ Step options set every limit on the wait, and Dex enforces them.
 | Limit | Option | Enforcement |
 | --- | --- | --- |
 | Longest single attempt | **ExecuteMethodTimeout**, set to the maximum wait | Dex times out the attempt. Another attempt starts only while **TotalDuration** has time left. |
-| Longest total wait, including every retry | **TotalDuration** in **ExecuteRetry**, set to the maximum wait | On the Temporal backend, this is the activity **ScheduleToClose** timeout. It starts when the first attempt is scheduled and covers every retry. It also stops the attempt in progress. |
+| Longest total wait, including every retry | **TotalDuration** in **ExecuteRetry**, set to the maximum wait | The budget starts when the first attempt is scheduled and covers every retry. It also stops the attempt in progress. |
 | Stalled Worker | **HeartbeatTimeout**, one minute by default | Dex times out an attempt that sends no heartbeat or Stream message within this window. The retry policy then starts another attempt. |
 
 Do not duplicate these limits in code. The Step does not compute a deadline. Neither the checkpoint nor the Step input carries one.

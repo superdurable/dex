@@ -14,7 +14,7 @@ dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refu
 dexcli dev --flow-rendering-dir ./build
 ```
 
-**v2** 按一个 Flow type 搜索 current run。Run 列表会排除因 continue-as-new 关闭的 execution，因为它们属于同一个逻辑 Flow；相关 event 仍可在该 Flow 的 history 中查看。画布使用该 Flow type 已生成的 definition，因此不必再选 JSON 文件。历史 run 仍在 **v1**。
+**v2** 按一个 Flow type 搜索 current run。画布使用该 Flow type 已生成的 definition，因此不必再选 JSON 文件。历史 run 仍在 **v1**。
 
 每个 definition 都使用 Worker 注册的 Flow type 和 Step type，规则见 [Flow 与 Step 名称](/references/flow-visualization#flow-and-step-names)。除非 analyzer 报告该页列出的名称诊断，Go Flow 不需要 **GetFlowType** 或 **GetStepType** override。请使用与 Dex Web 版本一致的 **dexcli** 生成 definition，并在升级后重新生成。
 
@@ -62,7 +62,7 @@ Server 会重新加载当前 definition revision，并在调用 **StartFlow** �
 
 Indexed Attribute 声明绑定 Dex Attribute key、物理搜索 index key、index type、应用 value type 和 description。Analyzer 会把每个值与 Go 定义和 SDK 计算出的有效 index 配置比较。
 
-物理 key 可以是 **keyword2** 这样的通用 namespace 槽位。所选 Flow type 限定了它在当前 workspace 中的含义，因此不同 Flow type 复用同一个槽位时，UI 行为不变。Dex Server 默认排除 ContinuedAsNew runs。搜索 HTTP API 接受 **includeContinuedAsNew: true** 来显式查看历史 runs；UI 保持默认行为。
+物理 key 可以是 **keyword2** 这样的通用 namespace 槽位。所选 Flow type 限定了它在当前 workspace 中的含义，因此不同 Flow type 复用同一个槽位时，UI 行为不变。
 
 **v2** 列表每次搜索一个 Flow type。过滤条件包括 Flow ID、execution status、开始和结束时间，以及声明的 indexed Attribute。Dex Web 会把这些控件编译成 visibility query，不接收浏览器提供的原始 query。不同字段使用 AND，同一字段的多个值使用 OR。
 
@@ -70,9 +70,9 @@ Indexed Attribute 声明绑定 Dex Attribute key、物理搜索 index key、inde
 
 ## Display 与编辑
 
-点击一行会把 Flow ID 留在 URL 中，而不是 run ID。**GetDexDisplay**、Attribute 读取、编辑和 Action 都省略 run ID，因此 Dex 会定位 current run。Continue-as-New 后，刷新同一个 URL 会自动指向新 run。
+点击一行会把 Flow ID 留在 URL 中，而不是 run ID。**GetDexDisplay**、Attribute 读取、编辑和 Action 都省略 run ID，因此 Dex 会定位 current run。刷新同一个 URL 总是指向该 Flow 的 current run。
 
-在 **v2** 中，选中 Step 会打开分为 **Definition** 与 **Execution** 的面板。Definition 展示 Step 的 **explanation**、WaitFor 与 Execute 分支；过长内容可滚动，以便 Execution 仍可见。Execute 分支超过三条时默认折叠。若该 Step 执行过多次，Execution 提供下拉框选择某次执行，再以与 **v1** Selected event 相同的结构化方式展示所选 WaitFor 或 Execute history 事件的 **Input**、**Output** 和 **Context**。执行 payload 默认 Details，可切换为已水合 payload 的 Raw JSON。十进制数字形式的 AttributeMap / ChannelMap instance 按数值排序，行为与 **v1** 一致。Execute 显示该次 run 决策里的 live next Steps，而不是 FDG 上的全部出口。若 Continue-as-New 把该 Step 留在上一 hop，使用 Load more from previous run。
+在 **v2** 中，选中 Step 会打开分为 **Definition** 与 **Execution** 的面板。Definition 展示 Step 的 **explanation**、WaitFor 与 Execute 分支；过长内容可滚动，以便 Execution 仍可见。Execute 分支超过三条时默认折叠。若该 Step 执行过多次，Execution 提供下拉框选择某次执行，再以与 **v1** Selected event 相同的结构化方式展示所选 WaitFor 或 Execute history 事件的 **Input**、**Output** 和 **Context**。执行 payload 默认 Details，可切换为已水合 payload 的 Raw JSON。十进制数字形式的 AttributeMap / ChannelMap instance 按数值排序，行为与 **v1** 一致。Execute 显示该次 run 决策里的 live next Steps，而不是 FDG 上的全部出口。使用 **Load more from previous run** 查看该 Step 更早的执行。
 
 字段还可以声明它所填充的 UI slot：**title**、**subtitle**、**status**、**recommendation** 或 **reason**。UI slot 说明该字段承担什么角色，因此一套模板可以服务所有 Flow，而每个 Flow 把自己的 Attribute 映射进去。UI slot 是可选的，多数字段不填任何 UI slot。
 
@@ -96,9 +96,9 @@ Action 是通过 **RPCOptions.Action** 注册的 RPC。**DefineAction** 接收 l
 
 每个 Action 要求一个 permission，例如 **refund.manage**。Permission key 以小写字母开头，只包含小写字母、数字、点或连字符。当一次成功的 Worker invocation 写入 Action condition source 时，Worker 会在 response 中附带完整 mapping。无关写入和 query-only RPC 不会附带 mapping。
 
-Server 会把业务写入覆盖到权威 Attribute state 上，并在同一个 Workflow Task 中计算 mapping。它对当前可用 Action 的 permission 排序、去重，再把新匹配的 permission 加入内部 KeywordList Search Attribute **DexWorkQueuePermissions**。permission 一旦加入，就会在该 Flow execution 中一直保留，即使当前已没有匹配的 Action。维护投影不要求应用 Step 锁住每个 Action source。
+Server 会把业务写入覆盖到权威 Attribute state 上，并与这些写入原子地计算 mapping。它对当前可用 Action 的 permission 排序、去重，再把新匹配的 permission 加入内部 KeywordList Search Attribute **DexWorkQueuePermissions**。permission 一旦加入，就会在该 Flow execution 中一直保留，即使当前已没有匹配的 Action。维护投影不要求应用 Step 锁住每个 Action source。
 
-permission 历史会跨 Continue-as-New 继承，并在完成后继续可搜索。Server 升级会保留仍然存在的 permission，但不会重建升级前已经删除的 permission。新的独立 Flow execution 会从自己的初始 Attribute 开始。修改后的 Action definition 会在后续 source write 发送 mapping 或新 Flow 启动时首次生效。删除或重命名 Action permission 不会清除已有 permission 历史中的旧值。
+permission 历史在该 Flow execution 内一直保留，并在完成后继续可搜索。Server 升级会保留仍然存在的 permission，但不会重建升级前已经删除的 permission。新的独立 Flow execution 会从自己的初始 Attribute 开始。修改后的 Action definition 会在后续 source write 发送 mapping 或新 Flow 启动时首次生效。删除或重命名 Action permission 不会清除已有 permission 历史中的旧值。
 
 Work Queue 会列出所选 Flow type 声明的 permission。在 **Working as** 中选择一个 permission 后，浏览器通过 **POST /api/v2/search** 的 **workQueuePermissions** 发送它。调用方也可以发送从多个用户 role 得到的多个 permission。只要 run 的 permission 历史包含任意一个请求 permission 就会匹配；这组 permission 与 Flow type 和其他 filter 之间使用 AND。
 

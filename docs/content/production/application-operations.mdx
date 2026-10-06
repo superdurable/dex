@@ -43,9 +43,8 @@ exhausted, or the Flow reaches its configured timeout.
 
 Flow timeouts are durable Dex timers configured when a Flow starts; zero
 disables them. Choose **FAIL**, **CANCEL**, or a Flow timeout handler. Inspect
-the start event for the configured duration and resolved policy. A
-continue-as-new run keeps the original absolute deadline; a retry starts with a
-fresh timeout budget.
+the start event for the configured duration and resolved policy. The deadline
+is absolute; a Flow retry starts with a fresh timeout budget.
 
 Every positive timeout has one internal **sys:timeout_handler** timer. It is
 visible in active-Step diagnostics and **SkipTimer** can fire it early by timer
@@ -163,7 +162,7 @@ instead of silently changing the old one.
 Do not delete or rename a Flow type, Step type, or RPC implementation while an
 open Flow can still call it. Deploy the new definition alongside the old one,
 route only new-version Flows to it, and keep the old implementation available
-through retries, continue-as-new runs, and any approved Time Travel recovery.
+through retries and any approved Time Travel recovery.
 
 Before removing the old definition, search for the legacy Flow type and confirm
 that no running, waiting, retrying, or recoverable terminal Flow needs it. Keep
