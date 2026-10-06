@@ -22,7 +22,7 @@ concurrency:
 jobs:
   unit:
     name: SDK build
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: examples/go
@@ -69,7 +69,7 @@ jobs:
 
   e2e:
     name: End-to-end tests
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: examples/go

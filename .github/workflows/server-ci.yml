@@ -21,7 +21,7 @@ on:
 jobs:
   unit:
     name: Unit tests
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: server
@@ -38,7 +38,7 @@ jobs:
 
   blob-store-integ:
     name: Blob Store integration
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
       run:
@@ -69,7 +69,7 @@ jobs:
 
   web-api-integ:
     name: Web API integration (${{ matrix.backend }})
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -110,7 +110,7 @@ jobs:
 
   temporal-integ:
     name: Temporal integration (partition ${{ matrix.partition }})
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -145,7 +145,7 @@ jobs:
 
   cadence-integ:
     name: Cadence integration (partition ${{ matrix.partition }})
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -185,7 +185,7 @@ jobs:
       - web-api-integ
       - temporal-integ
       - cadence-integ
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write

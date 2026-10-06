@@ -22,7 +22,7 @@ concurrency:
 jobs:
   integ:
     name: Install + integ tests
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: examples/python
