@@ -27,7 +27,7 @@ env:
 jobs:
   quality:
     name: Published SDK, format, Clippy, and tests
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
@@ -54,7 +54,7 @@ jobs:
 
   integ:
     name: Integration tests with dexcli dev
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
       run:

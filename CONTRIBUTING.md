@@ -156,7 +156,7 @@ check until the record is updated.
 
 Root workflows under [`.github/workflows/`](.github/workflows/) run path-filtered jobs for server and each SDK/samples tree, plus the copyright check. Prefer fixing those over re-adding nested `*/.github/workflows` duplicates.
 
-CI jobs use role-specific self-hosted runners for pushes and manual runs on `main`, while pull requests retain GitHub-hosted runners. Jobs that start service stacks use `linux-dind-heavy`; other jobs use `linux-dind-light`. Use `${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}` (with the appropriate role and hosted fallback), and run `make ci-runner-check` before submitting workflow changes. Control-plane jobs such as CLA and Check Gate remain GitHub-hosted.
+CI jobs use GitHub-hosted runners for pushes, pull requests, and manual runs. Linux jobs use `ubuntu-latest`; the Rust SDK test matrix also covers `macos-latest` and `windows-latest`. Run `make ci-runner-check` before submitting workflow changes.
 
 To run every CI workflow against the latest `main` commit, dispatch **Main CI (all)** in GitHub Actions or run `gh workflow run main-ci-all.yml --ref main`. The dispatcher starts every non-release CI workflow, then starts Check Gate to report their aggregate result.
 

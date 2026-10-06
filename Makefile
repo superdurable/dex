@@ -25,7 +25,7 @@ docs-prose-check: ## Fail when product-doc MDX prose uses inline backticks
 docs-prose-fix: ## Replace inline backticks with **bold** in product-doc MDX prose
 	python3 script/docs_no_inline_backticks.py --fix
 
-ci-runner-check: ## Verify CI workflows route main pushes to self-hosted runners
+ci-runner-check: ## Verify CI workflows use GitHub-hosted runners
 	bash .github/scripts/check-ci-runners.sh
 
 copyright: ## Add or upgrade license headers using the legacy manifest

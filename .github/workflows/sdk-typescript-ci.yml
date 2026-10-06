@@ -40,7 +40,7 @@ concurrency:
 jobs:
   contracts:
     name: User contracts (Node ${{ matrix.node-version }})
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -70,7 +70,7 @@ jobs:
 
   integration:
     name: Integration tests
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read

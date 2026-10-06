@@ -14,7 +14,7 @@ jobs:
   attribute-sync-integ:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:attribute-sync')
     name: Attribute Sync integration
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
       run:
@@ -48,7 +48,7 @@ jobs:
   mongodb-attribute-sync-integ:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:attribute-sync')
     name: MongoDB Attribute Sync integration
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
       run:

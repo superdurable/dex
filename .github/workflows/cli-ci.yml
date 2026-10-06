@@ -32,7 +32,7 @@ concurrency:
 jobs:
   check:
     name: Build and local-stack integration
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7

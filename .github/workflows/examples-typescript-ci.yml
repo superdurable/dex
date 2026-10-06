@@ -22,7 +22,7 @@ concurrency:
 jobs:
   quality:
     name: Published SDK, typecheck, and unit tests
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
@@ -62,7 +62,7 @@ jobs:
 
   integ:
     name: Integration tests with dexcli dev
-    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
       run:
