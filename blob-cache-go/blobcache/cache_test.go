@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -116,6 +117,43 @@ func TestCacheEnforcesLogicalByteBudget(t *testing.T) {
 		require.Empty(t, regularFiles(t, filepath.Join(rootDir, "tmp")))
 	}
 	require.Positive(t, admitted)
+}
+
+func TestCacheAdmitsBlobThatEvictsEveryResident(t *testing.T) {
+	// Ristretto refills its eviction sample without excluding keys it already
+	// holds, so one admission that needs many victims can report a victim twice.
+	// Each Put reads the policy twice. 24 Puts stay below the 64 reads
+	// (defaultBufferItems) that fill a Ristretto read buffer, so no read reaches
+	// the admission policy: every blob keeps the same frequency, and the large
+	// blob is always admitted rather than rejected.
+	smallPayload := make([]byte, 1000)
+	smallBlobIDs := make([]string, 24)
+	var maxBytes int64
+	for index := range smallBlobIDs {
+		smallBlobIDs[index] = "small-" + strconv.Itoa(index)
+		maxBytes += fixedHeaderSize + int64(len(smallBlobIDs[index])+len(smallPayload))
+	}
+	largeBlobID := "large"
+	largePayload := make([]byte, maxBytes-fixedHeaderSize-int64(len(largeBlobID)))
+
+	for range 8 {
+		cache, rootDir := newTestCache(t, maxBytes)
+		for _, blobID := range smallBlobIDs {
+			require.True(t, putForTest(t, cache, blobID, smallPayload))
+		}
+
+		require.True(t, putForTest(t, cache, largeBlobID, largePayload))
+		for _, blobID := range smallBlobIDs {
+			_, found, err := cache.Get(blobID)
+			require.NoError(t, err)
+			require.False(t, found)
+		}
+		payload, found, err := cache.Get(largeBlobID)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, largePayload, payload)
+		require.Equal(t, maxBytes, cacheOwnedBytes(t, rootDir))
+	}
 }
 
 func TestCacheValidatesInputsAndClosedState(t *testing.T) {
