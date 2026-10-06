@@ -98,6 +98,12 @@ func (cache *Cache) initializePolicy() error {
 }
 
 func (cache *Cache) handlePolicyEviction(item *ristretto.Item[*diskEntry]) {
+	// One Ristretto admission can report the same victim twice, because its
+	// eviction sample is refilled without excluding keys it already holds. The
+	// repeated report carries no entry: the first report already removed it.
+	if item.Value == nil {
+		return
+	}
 	cache.handlePolicyRemoval(item.Value)
 }
 
