@@ -15,6 +15,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -636,4 +638,97 @@ func connectorTriggerTestDefinitionProvider(t *testing.T) FlowDefinitionProvider
 	return staticFlowDefinitionProvider{snapshot: &FlowDefinitionSnapshot{
 		Response: catalog, DefinitionRevision: "sha256:test", Source: "local", DefinitionCount: 1,
 	}}
+}
+
+func TestStudioProviderCommandListsWithTypedCredentialBeforeSave(t *testing.T) {
+	setup, session := connectorConnectionWriteTestSetup(t, true)
+	var sentCredentials []string
+	setup.providerHTTPClient = &http.Client{Transport: connectorRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		sentCredentials = append(sentCredentials, request.Header.Get("Authorization"))
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"claude-opus-5-5"}]}`)), Header: make(http.Header)}, nil
+	})}
+	recorder := invokeConnectorConnectionWriteTestCommand(t, setup, session, `{"parameters":{},"credentials":{"api_key":"sk-ant-typed"}}`)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "claude-opus-5-5") {
+		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if _, found, err := setup.store.get("llm", "gtm-llm"); err != nil || found {
+		t.Fatalf("a typed credential was stored: found = %v, err = %v", found, err)
+	}
+	connection := testLocalConnectorConnection("llm", "gtm-llm", "unused", nil)
+	connection.Credentials = map[string]json.RawMessage{"api_key": json.RawMessage(`"sk-ant-saved"`)}
+	if err := setup.store.put(connection, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{`{"parameters":{},"credentials":{"api_key":"sk-ant-retyped"}}`, `{"parameters":{}}`} {
+		if recorder := invokeConnectorConnectionWriteTestCommand(t, setup, session, body); recorder.Code != http.StatusOK {
+			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+		}
+	}
+	if want := []string{"Bearer sk-ant-typed", "Bearer sk-ant-retyped", "Bearer sk-ant-saved"}; strings.Join(sentCredentials, ",") != strings.Join(want, ",") {
+		t.Fatalf("sent credentials = %v, want %v", sentCredentials, want)
+	}
+}
+
+func TestStudioProviderCommandRefusesTypedCredentialWithoutConnectionWrite(t *testing.T) {
+	setup, session := connectorConnectionWriteTestSetup(t, false)
+	setup.providerHTTPClient = &http.Client{Transport: connectorRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Error("the provider was called")
+		return nil, io.EOF
+	})}
+	recorder := invokeConnectorConnectionWriteTestCommand(t, setup, session, `{"parameters":{},"credentials":{"api_key":"sk-ant-typed"}}`)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestConnectorUIBlocksRemoteImagesOnlyForCredentialSetups(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<!doctype html>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, canWriteConnection := range []bool{true, false} {
+		setup, _ := connectorConnectionWriteTestSetup(t, canWriteConnection)
+		setup.uiSessions["asset-session"] = connectorUISession{root: root, connectorID: "llm", connectionName: "gtm-llm",
+			canWriteConnection: canWriteConnection, expiresAt: time.Now().Add(time.Minute)}
+		request := httptest.NewRequest(http.MethodGet, "/api/v2/connector-ui-sessions/asset-session/index.html", nil)
+		request.SetPathValue("sessionNonce", "asset-session")
+		request.SetPathValue("assetPath", "index.html")
+		recorder := httptest.NewRecorder()
+		setup.handleUIAsset(recorder, request)
+		policy := recorder.Header().Get("Content-Security-Policy")
+		if !strings.Contains(policy, "connect-src 'none'") || strings.Contains(policy, "data: https:") == canWriteConnection {
+			t.Fatalf("canWriteConnection = %v, CSP = %q", canWriteConnection, policy)
+		}
+	}
+}
+
+func connectorConnectionWriteTestSetup(t *testing.T, canWriteConnection bool) (*connectorSetup, string) {
+	t.Helper()
+	provider := connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{{
+		ConnectorID: "llm", OperationID: "generateText", OperationKind: "query",
+		ConnectionName: "gtm-llm", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/superdurable/llm",
+		ModuleVersion: "v0.21.0", ConfigurationEnabled: true,
+	}})
+	setup := connectorTestSetup(t, t.TempDir(), provider)
+	setup.uiSessions["setup-session"] = connectorUISession{
+		connectorID: "llm", connectionName: "gtm-llm", canWriteConnection: canWriteConnection, expiresAt: time.Now().Add(time.Minute),
+		commands: map[string]connectorManifestStudioCommand{"listAnthropicModels": {
+			ID: "listAnthropicModels", Capability: "llm.models-list",
+			Request: connectorManifestStudioHTTPRequest{
+				Method: http.MethodGet, URL: "https://api.anthropic.example/v1/models",
+				Credential: connectorManifestStudioCredential{Field: "api_key", Scheme: "bearer"},
+			},
+		}},
+	}
+	return setup, "setup-session"
+}
+
+func invokeConnectorConnectionWriteTestCommand(t *testing.T, setup *connectorSetup, session string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	request := authorizedConnectorRequest(t, setup, http.MethodPost, "/api/v2/connector-ui-sessions/"+session+"/commands/listAnthropicModels", strings.NewReader(body))
+	request.SetPathValue("sessionNonce", session)
+	request.SetPathValue("commandId", "listAnthropicModels")
+	recorder := httptest.NewRecorder()
+	setup.handleStudioProviderCommand(recorder, request)
+	return recorder
 }

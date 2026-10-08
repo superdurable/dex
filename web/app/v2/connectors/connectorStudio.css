@@ -134,6 +134,7 @@ body {
 
 .studio-surface input[type='text'],
 .studio-surface input[type='search'],
+.studio-surface input[type='password'],
 .studio-surface input:not([type]),
 .studio-surface select {
   font: inherit;

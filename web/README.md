@@ -296,6 +296,24 @@ single-selection connection reports its one method, or an empty list when the
 release declares no methods. `configuration` is the stored non-secret
 configuration. The protocol version stays 0.2.0.
 
+A release whose `studio.setup.backendCapabilities` declares
+`connection.write` renders its whole connection setup in the Connector UI.
+Dex Web shows that bundle's `{kind: "connection"}` frame in place of the
+manifest form, grants `connection.write`, and lists the stored credential
+field names, never values, as `connection.storedCredentialFields` in the ready
+message. The bundle's `connection.save` command carries `configuration`,
+`credentials`, `keepCredentialFields`, and an optional `authMethodId`; Dex Web
+sends them in the same connection write as the form, so the server validates
+them identically, then reloads and confirms **Connection saved** above the
+frame. Such a bundle may also add `credentials` to `provider.command.execute`:
+values the user typed but has not saved. The broker overlays them on the stored
+credentials for that one call and stores nothing, so a model list loads before
+the first save. A session without `connection.write` that sends `credentials`
+is refused with 403. Dex Web serves a `connection.write` bundle with
+`img-src 'self' data:` instead of also allowing `https:` images, so a typed
+credential cannot leave through an image request; every bundle already gets
+`connect-src 'none'` and `form-action 'none'`.
+
 Provider resource reads use release-declared Studio commands. The manifest
 pins an HTTPS GET URL, a credential field and scheme, fixed query values,
 optional fixed headers, and the only path or query parameters the iframe may
