@@ -17,10 +17,14 @@ import (
 	"strings"
 )
 
+// LintApplication selects the application lints that applications opt into with --lint app.
+const LintApplication = "app"
+
 type AnalyzeOptions struct {
 	Language      string
 	PythonPath    string
 	SchemaVersion string
+	Lint          string
 }
 
 func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*Graph, error) {
@@ -43,10 +47,17 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 	if schemaVersion == SchemaVersionV2 && language != "go" {
 		return nil, fmt.Errorf("schema version 2.0 supports Go source only")
 	}
+	isApplicationLint, err := resolveLint(options.Lint)
+	if err != nil {
+		return nil, err
+	}
+	if isApplicationLint && language != "go" {
+		return nil, fmt.Errorf("--lint app supports Go source only")
+	}
 	var graph *Graph
 	switch language {
 	case "go":
-		graph, err = analyzeGo(ctx, absolutePath, data, schemaVersion)
+		graph, err = analyzeGo(ctx, absolutePath, data, schemaVersion, isApplicationLint)
 	case "python":
 		graph, err = analyzePython(ctx, absolutePath, data, options.PythonPath)
 	default:
@@ -81,6 +92,17 @@ func resolveSchemaVersion(requested string) (string, error) {
 		return SchemaVersionV2, nil
 	default:
 		return "", fmt.Errorf("schema version must be 1.0 or 2.0")
+	}
+}
+
+func resolveLint(requested string) (bool, error) {
+	switch strings.TrimSpace(requested) {
+	case "":
+		return false, nil
+	case LintApplication:
+		return true, nil
+	default:
+		return false, fmt.Errorf("lint must be %s", LintApplication)
 	}
 }
 

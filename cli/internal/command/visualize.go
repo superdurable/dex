@@ -31,6 +31,7 @@ import (
 type visualizeOptions struct {
 	language      string
 	schemaVersion string
+	lint          string
 	json          bool
 	openBrowser   bool
 	output        string
@@ -42,6 +43,7 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	options := visualizeOptions{openBrowser: true}
 	flags.StringVar(&options.language, "language", "auto", "auto, go, or python")
 	flags.StringVar(&options.schemaVersion, "schema-version", flowviz.SchemaVersionV1, "Flow Definition Graph schema version: 1.0 or 2.0")
+	flags.StringVar(&options.lint, "lint", "", "also report the application lints: app")
 	flags.BoolVar(&options.json, "json", false, "write Flow Definition Graph JSON instead of opening Flow Rendering")
 	flags.BoolVar(&options.openBrowser, "open", true, "open Flow Rendering in the default browser")
 	flags.StringVar(&options.output, "out", "", "JSON output prefix, or - for stdout (requires --json)")
@@ -61,6 +63,7 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 		Language:      options.language,
 		PythonPath:    options.pythonPath,
 		SchemaVersion: options.schemaVersion,
+		Lint:          options.lint,
 	})
 	if err != nil {
 		return newOperationError("visualize", err)
@@ -117,6 +120,9 @@ func validateVisualizeOptions(options visualizeOptions) error {
 	}
 	if options.schemaVersion != flowviz.SchemaVersionV1 && options.schemaVersion != flowviz.SchemaVersionV2 {
 		return fmt.Errorf("schema-version must be 1.0 or 2.0")
+	}
+	if options.lint != "" && options.lint != flowviz.LintApplication {
+		return fmt.Errorf("lint must be %s", flowviz.LintApplication)
 	}
 	if !options.json && options.output != "" {
 		return fmt.Errorf("--out requires --json")
@@ -226,6 +232,7 @@ func printVisualizeUsage(output io.Writer) {
 	fmt.Fprintln(output, "Flags:")
 	fmt.Fprintln(output, "  --language auto|go|python           source language (default auto)")
 	fmt.Fprintln(output, "  --schema-version 1.0|2.0           Flow Definition Graph schema version (default 1.0)")
+	fmt.Fprintln(output, "  --lint app                          also report the application lints (Go only)")
 	fmt.Fprintln(output, "  --json                              write Flow Definition Graph JSON instead of rendering")
 	fmt.Fprintln(output, "  --open                              open Flow Rendering in the default browser (default true)")
 	fmt.Fprintln(output, "  --out path-prefix|-                 JSON output prefix, or - for stdout (requires --json)")

@@ -26,21 +26,44 @@ type goFunctionWalker struct {
 	summaries    map[string]*goFunctionSummary
 }
 
+// goHandlerSummary is the walked summary of one Step method, RPC, or timeout handler.
+type goHandlerSummary struct {
+	ownerID string
+	phase   string
+	method  *ast.FuncDecl
+	summary *goFunctionSummary
+}
+
 type goFunctionSummary struct {
-	accesses []goResourceAccess
+	accesses            []goResourceAccess
+	startFlowCalls      []goReachedCall
+	invokeRPCCalls      []goReachedCall
+	hasMissingFlowCheck bool
 }
 
 type goResourceAccess struct {
-	resourceID string
-	methodName string
-	call       *ast.CallExpr
-	reach      goCallReach
+	resourceID  string
+	methodName  string
+	call        *ast.CallExpr
+	instanceKey goInstanceKey
+	reach       goCallReach
+}
+
+type goReachedCall struct {
+	call                 *ast.CallExpr
+	reach                goCallReach
+	isMissingFlowHandled bool
 }
 
 // goCallReach names the helper that contains a call and the walked-body call that leads to it.
 type goCallReach struct {
 	helper    *types.Func
 	entryCall *ast.CallExpr
+}
+
+type goInstanceKey struct {
+	value      string
+	isConstant bool
 }
 
 type goFunctionScope struct {
@@ -112,6 +135,7 @@ func (walker *goFunctionWalker) summarizeBody(body *ast.BlockStmt, scope *goFunc
 	}
 	ast.Inspect(body, collector.bindLocalAlias)
 	ast.Inspect(body, collector.visit)
+	collector.markMissingFlowHandling()
 	return collector.summary
 }
 
@@ -161,6 +185,10 @@ func (collector *goFunctionBodyCollector) visit(node ast.Node) bool {
 		return true
 	}
 	collector.collectResourceAccess(call)
+	collector.collectClientCall(call)
+	if collector.walker.isMissingFlowCheck(call) {
+		collector.summary.hasMissingFlowCheck = true
+	}
 	collector.followHelper(call)
 	return true
 }
@@ -175,11 +203,22 @@ func (collector *goFunctionBodyCollector) collectResourceAccess(call *ast.CallEx
 		return
 	}
 	collector.summary.accesses = append(collector.summary.accesses, goResourceAccess{
-		resourceID: resourceID,
-		methodName: selector.Sel.Name,
-		call:       call,
-		reach:      goCallReach{helper: collector.scope.function},
+		resourceID:  resourceID,
+		methodName:  selector.Sel.Name,
+		call:        call,
+		instanceKey: collector.walker.instanceKey(resourceID, call),
+		reach:       goCallReach{helper: collector.scope.function},
 	})
+}
+
+func (collector *goFunctionBodyCollector) collectClientCall(call *ast.CallExpr) {
+	reached := goReachedCall{call: call, reach: goCallReach{helper: collector.scope.function}}
+	switch collector.walker.clientMethodName(call) {
+	case "StartFlow":
+		collector.summary.startFlowCalls = append(collector.summary.startFlowCalls, reached)
+	case "InvokeRPC", "InvokeRPCWithOptions":
+		collector.summary.invokeRPCCalls = append(collector.summary.invokeRPCCalls, reached)
+	}
 }
 
 func (collector *goFunctionBodyCollector) followHelper(call *ast.CallExpr) {
@@ -201,6 +240,25 @@ func (collector *goFunctionBodyCollector) mergeHelperSummary(entryCall *ast.Call
 	for _, access := range helper.accesses {
 		access.reach.entryCall = entryCall
 		collector.summary.accesses = append(collector.summary.accesses, access)
+	}
+	for _, reached := range helper.startFlowCalls {
+		reached.reach.entryCall = entryCall
+		collector.summary.startFlowCalls = append(collector.summary.startFlowCalls, reached)
+	}
+	for _, reached := range helper.invokeRPCCalls {
+		reached.reach.entryCall = entryCall
+		collector.summary.invokeRPCCalls = append(collector.summary.invokeRPCCalls, reached)
+	}
+	collector.summary.hasMissingFlowCheck = collector.summary.hasMissingFlowCheck || helper.hasMissingFlowCheck
+}
+
+// A missing-Flow check anywhere on the call path handles the call; the analysis is path-insensitive.
+func (collector *goFunctionBodyCollector) markMissingFlowHandling() {
+	if !collector.summary.hasMissingFlowCheck {
+		return
+	}
+	for index := range collector.summary.invokeRPCCalls {
+		collector.summary.invokeRPCCalls[index].isMissingFlowHandled = true
 	}
 }
 
@@ -259,6 +317,34 @@ func (walker *goFunctionWalker) parameterResources(declaration *ast.FuncDecl, ar
 	return resources
 }
 
+func (walker *goFunctionWalker) clientMethodName(call *ast.CallExpr) string {
+	function := walker.calledFunction(call)
+	if function == nil || function.Pkg() == nil || function.Pkg().Path() != goSDKPackage {
+		return ""
+	}
+	receiver := function.Signature().Recv()
+	if receiver == nil {
+		return ""
+	}
+	named := registeredNamedType(receiver.Type())
+	if named == nil || named.Obj().Name() != "Client" {
+		return ""
+	}
+	return function.Name()
+}
+
+func (walker *goFunctionWalker) isMissingFlowCheck(call *ast.CallExpr) bool {
+	function := walker.calledFunction(call)
+	if function == nil || function.Pkg() == nil || function.Pkg().Path() != "errors" || function.Name() != "As" || len(call.Args) != 2 {
+		return false
+	}
+	target := registeredNamedType(walker.analyzer.typeInfo.TypeOf(call.Args[1]))
+	if target == nil || target.Obj().Pkg().Path() != goSDKPackage {
+		return false
+	}
+	return target.Obj().Name() == "FlowNotActiveOrNotFoundError" || target.Obj().Name() == "FlowNotFoundError"
+}
+
 func (walker *goFunctionWalker) aliasedResource(value ast.Expr, scope *goFunctionScope) string {
 	call, isCall := ast.Unparen(value).(*ast.CallExpr)
 	if isCall && walker.analyzer.callName(call) == "NewBufferedTextStream" && len(call.Args) >= 2 {
@@ -299,12 +385,32 @@ func (walker *goFunctionWalker) typedResourceOf(expression ast.Expr, scope *goFu
 	return ""
 }
 
+func (walker *goFunctionWalker) instanceKey(resourceID string, call *ast.CallExpr) goInstanceKey {
+	resource := walker.analyzer.node(resourceID).Resource
+	if resource == nil || !resource.Map || len(call.Args) < 2 {
+		return goInstanceKey{}
+	}
+	value, isConstant := walker.analyzer.staticString(call.Args[1])
+	return goInstanceKey{value: value, isConstant: isConstant}
+}
+
 // Diagnostic spans stay in the Flow file, so a call in another file is located by its handler call.
 func (walker *goFunctionWalker) reachedSpan(call *ast.CallExpr, reach goCallReach) *Span {
 	if walker.isInFlowFile(call) || reach.entryCall == nil {
 		return walker.analyzer.span(call)
 	}
 	return walker.analyzer.span(reach.entryCall)
+}
+
+func (walker *goFunctionWalker) reachedLocation(call *ast.CallExpr, reach goCallReach) string {
+	if reach.helper == nil {
+		return ""
+	}
+	if walker.isInFlowFile(call) {
+		return " in " + goHelperName(reach.helper)
+	}
+	position := walker.analyzer.fileSet.Position(call.Pos())
+	return fmt.Sprintf(" in %s at %s:%d", goHelperName(reach.helper), walker.analyzer.displayFilename(position.Filename), position.Line)
 }
 
 func (walker *goFunctionWalker) isInFlowFile(node ast.Node) bool {

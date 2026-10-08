@@ -55,11 +55,14 @@ type goAnalyzer struct {
 	resourceVars          map[string]string
 	connectorFactories    map[string]goConnectorFactoryStep
 	schemaVersion         string
+	isApplicationLint     bool
 	registeredSteps       []string
+	stepValueTypes        map[string]types.Type
 	startInputType        types.Type
 	startStepType         string
 	typeSizes             types.Sizes
 	functions             *goFunctionWalker
+	handlerSummaries      []goHandlerSummary
 }
 
 type goExternalMethod struct {
@@ -98,7 +101,7 @@ type goDecisionOutcome struct {
 	span            *Span
 }
 
-func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVersion string) (*Graph, error) {
+func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVersion string, isApplicationLint bool) (*Graph, error) {
 	graph := NewGraph("go", sourcePath)
 	graph.SchemaVersion = schemaVersion
 	config := &packages.Config{
@@ -150,6 +153,7 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVers
 		modules,
 		sourcePath,
 		schemaVersion,
+		isApplicationLint,
 	)
 	analyzer.Analyze()
 	return graph, nil
@@ -166,6 +170,7 @@ func newGoAnalyzer(
 	modules map[string]goModule,
 	sourcePath string,
 	schemaVersion string,
+	isApplicationLint bool,
 ) *goAnalyzer {
 	if typeInfo == nil {
 		typeInfo = &types.Info{}
@@ -198,7 +203,9 @@ func newGoAnalyzer(
 		resourceVars:          make(map[string]string),
 		connectorFactories:    make(map[string]goConnectorFactoryStep),
 		schemaVersion:         schemaVersion,
+		isApplicationLint:     isApplicationLint,
 		registeredSteps:       make([]string, 0),
+		stepValueTypes:        make(map[string]types.Type),
 		typeSizes:             typeSizes,
 	}
 	analyzer.functions = newGoFunctionWalker(analyzer)
@@ -247,6 +254,21 @@ func (analyzer *goAnalyzer) Analyze() {
 	analyzer.analyzeFlowHandlers(flowName)
 	if analyzer.schemaVersion == SchemaVersionV2 {
 		analyzer.analyzeVisualizationV2(flowName)
+	}
+	analyzer.analyzeStateLoadsAndApplicationLints(getSteps)
+}
+
+// State-load errors are always reported; application lints only with --lint app.
+func (analyzer *goAnalyzer) analyzeStateLoadsAndApplicationLints(getSteps *ast.FuncDecl) {
+	evaluator := newGoOptionsEvaluator(analyzer, analyzer.functions)
+	var flowObject *types.TypeName
+	if receiver := analyzer.flowReceiverType(getSteps); receiver != nil {
+		flowObject = receiver.Origin().Obj()
+	}
+	checker := newGoStateLoadChecker(analyzer, evaluator, flowObject, analyzer.isApplicationLint)
+	checker.report()
+	if analyzer.isApplicationLint {
+		newGoApplicationLinter(analyzer, evaluator, checker.sources).report()
 	}
 }
 
@@ -521,6 +543,7 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 		nodeID := "step:" + stepType
 		isStart := callName == "DefineStartStep"
 		analyzer.steps[stepType] = nodeID
+		analyzer.stepValueTypes[stepType] = analyzer.typeInfo.Types[call.Args[0]].Type
 		analyzer.recordRegisteredStepType(stepName, nodeID, call.Args[0])
 		analyzer.registeredSteps = append(analyzer.registeredSteps, stepType)
 		analyzer.graph.AddNode(Node{ID: nodeID, Kind: "step", Name: stepName, Start: isStart, Span: analyzer.span(call)})
@@ -880,6 +903,9 @@ func (analyzer *goAnalyzer) analyzeFailurePolicy(ownerID string, method *ast.Fun
 
 func (analyzer *goAnalyzer) analyzeResourceAccess(ownerID string, method *ast.FuncDecl, phase string) {
 	summary := analyzer.functions.summarizeHandler(method)
+	analyzer.handlerSummaries = append(analyzer.handlerSummaries, goHandlerSummary{
+		ownerID: ownerID, phase: phase, method: method, summary: summary,
+	})
 	seen := make(map[string]bool)
 	for _, isHelperAccess := range []bool{false, true} {
 		for _, access := range summary.accesses {
