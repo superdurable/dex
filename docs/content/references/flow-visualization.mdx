@@ -73,7 +73,7 @@ Resource and SubFlow relations are dashed, so they remain visually weaker than s
 
 The renderer fits the complete Flow into the viewport by default. Channel and Attribute arrows stay hidden until you select that resource or a related Step, WaitFor, Execute decision, RPC, or timeout handler. This keeps the default graph focused on control flow while preserving resource access on demand.
 
-Attribute relations include reads, writes, and locks. The Python analyzer follows static resource aliases on the Flow class, and records Attribute locks declared by RPC or Step options.
+Attribute relations include reads, writes, and locks. The Python analyzer follows static resource aliases on the Flow class, and records Attribute locks declared by RPC or Step options. The Go analyzer attributes a read or write made by a same-package helper to the handler that calls it. The edge records the helper in its metadata.
 
 Stream relations describe observable application output, not control flow. They are hidden by default in Flow Rendering and can be enabled from the legend. The JSON marks Step Stream writes as repeatable and best effort. Heartbeat calls and checkpoint reads are runtime reliability details, so they are not included in the definition graph.
 
@@ -86,10 +86,12 @@ Version 1 supports one Flow per source file. The file must directly contain:
 - Dex transitions and WaitFor definitions
 - RPC next Steps
 - execute-failure recovery targets
-- persistence resource definitions and access
+- persistence resource definitions
 - Step Stream progress operations
 
 Ordinary business helpers and imported models are allowed. A helper must not hide a Dex transition, WaitFor definition, resource definition, or recovery target. Resource names must be statically known. Flow types and Step types follow the rules in [Flow and Step names](#flow-and-step-names).
+
+Go resource access may also be in functions and methods of the same package that a handler calls. The analyzer follows those calls up to six levels deep, including calls inside loops and function literals. A resource passed as an argument is bound to the matching parameter, so access through that parameter counts for the resource.
 
 Go analysis requires a local Go toolchain. The input must belong to a module and package that can be type checked. Python analysis requires Python 3.11 or newer. The Python analyzer uses the standard-library AST in isolated mode. It never imports or executes the application module.
 
@@ -123,6 +125,45 @@ The analyzer reports a blocking diagnostic when it cannot know the registered na
 - **duplicate_step_type**: two registrations use one Step type, or one Go type is registered more than once. Step nodes are keyed by Go type, so a generic Step can be registered with only one type argument.
 
 Node IDs use the Go type, as in **step:initializeThread**, even when an override changes the Step type.
+
+## State loads {#state-loads}
+
+A Step method, RPC, or Flow timeout handler receives ordinary Attributes and Channel sizes. It does not receive AttributeMap values or pending Channel messages unless it selects them. See [Selective state loading](/primitives/step/step-options#selective-state-loading) and [Selective RPC state loading](/primitives/rpc#load-collection-state). A read of unselected state fails at run time, and a failing Step method is retried until its retry policy ends. For Go sources, **dexcli visualize** reports these reads as blocking diagnostics in every schema version:
+
+- **attribute_map_read_not_loaded**: **AttributeMap.Get** reads a map that no whole-map or instance load selects for this method.
+- **attribute_map_enumeration_not_loaded**: **AllInstanceKeys** or **MapSize** runs without a whole-map load. Exact-instance loads cannot enumerate, and the SDK panics.
+- **attribute_map_instance_not_loaded**: **Get** reads a constant instance key, while every load of that map names other constant keys.
+- **channel_messages_not_loaded**: **PendingMessages** or **FindPendingMessage** reads a Channel or ChannelMap that no load selects.
+
+Writes never need a load. **Set**, **Delete**, **Publish**, Channel message deletion, **Size**, ChannelMap keys and sizes, WaitFor conditions, and **GetConditionResults** are not reported.
+
+The analyzer reads loads from the declarations in the Flow's package. For a Step, they are **GetStepOptions**, every **GoTo** or **MovementOf** that moves to the Step with **WithStepOptions**, and every **ProceedToOnExecuteFailure** that names it. **Execute** uses the **ExecuteLoad** fields and **WaitFor** uses the **WaitForLoad** fields. For an RPC, they are the **RPCOptions** passed to **DefineRPC**, and the exact instances selected by a call in the package that passes the RPC method value with **Load** or **LoadMessages**, such as **InvokeRPCWithOptions**. For **HandleTimeout**, they are the **FlowTimeoutHandlerOptions** values in the package.
+
+Options may be literals, package variables, local variables with field assignments, or the results of same-package functions whose parameters come from the call site. A read in a same-package helper is attributed to the handler that calls it. Its diagnostic points at the call in the Flow file and names the helper's file and line.
+
+When another package chooses an RPC's map instance at invocation, declare that on the RPC method:
+
+```text
+// dex:invocation-load attribute-map:customer-profiles
+```
+
+Use **channel-map** to name a ChannelMap. The directive satisfies instance reads of the named map, but not enumeration. A name that is not an AttributeMap or ChannelMap of the Flow produces **invocation_load_directive**.
+
+The analysis is path-insensitive: a load on one movement into a Step counts for every movement. Calls through interfaces, function values, and reflection are not followed. When load options cannot be evaluated, such as options returned by another package, the default mode reports nothing for that read.
+
+## Application lints {#application-lints}
+
+**--lint app** adds checks for application mistakes that compile and pass the default analysis. The mode is opt-in and supports Go only. The state-load diagnostics above are reported in every mode.
+
+```bash
+dexcli visualize ./order_flow.go --schema-version 2.0 --json --lint app
+```
+
+- **state_load_unresolved**: a read needs a load, but the load options of its handler cannot be evaluated. Declare the loads in **GetStepOptions**, **RPCOptions**, or a variable of the Flow's package.
+- **connector_branches_merged_unread**: a Step receives two or more branches of one Connector Step, one of them **defect** or **uncertain**. It uses the result but never reads **result.Branch** or **result.Failure**, so a failure would be handled as a success.
+- **action_state_not_rechecked**: an Action RPC never reads the Attribute of its **WhenAttributeMatches** condition or an Attribute it locks. The condition selects candidate runs; it does not authorize the write. Read the state under the lock and reject a stale or repeated decision.
+- **start_flow_request_id_missing**: a **StartFlow** call in the Flow file, or in a helper that a handler calls, has options without **RequestID**. A retried start cannot be recognized. Derive the RequestID from the business identity and set **AlreadyStarted** with **IgnoreError**.
+- **cross_flow_read_not_found_unhandled**: a Step calls **InvokeRPC** or **InvokeRPCWithOptions** without an **errors.As** check for **FlowNotActiveOrNotFoundError** or **FlowNotFoundError** on its call path. A missing Flow then makes the Step retry until its retry policy ends.
 
 ## Unknown nodes and diagnostics
 
