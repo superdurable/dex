@@ -571,6 +571,24 @@
     {
       "id": "edge:0009",
       "kind": "resource_read",
+      "from": "resource:attribute:deterministicBillingOutcome",
+      "to": "rpc:GetDexDisplay",
+      "label": "Get",
+      "span": {
+        "startLine": 414,
+        "startColumn": 16,
+        "endLine": 414,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "deterministicOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_read",
       "from": "resource:attribute:deterministicCaseStatus",
       "to": "step:deterministicCloseCase",
       "label": "Get",
@@ -585,7 +603,7 @@
       }
     },
     {
-      "id": "edge:0010",
+      "id": "edge:0011",
       "kind": "resource_read",
       "from": "resource:attribute:deterministicCaseStatus",
       "to": "step:deterministicNotifyCustomer",
@@ -601,7 +619,79 @@
       }
     },
     {
-      "id": "edge:0011",
+      "id": "edge:0012",
+      "kind": "resource_read",
+      "from": "resource:attribute:deterministicChargeReference",
+      "to": "rpc:GetDexDisplay",
+      "label": "Get",
+      "span": {
+        "startLine": 414,
+        "startColumn": 16,
+        "endLine": 414,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "deterministicOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "resource_read",
+      "from": "resource:attribute:deterministicChargeReference",
+      "to": "rpc:GetDexSummary",
+      "label": "Get",
+      "span": {
+        "startLine": 414,
+        "startColumn": 16,
+        "endLine": 414,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "deterministicOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "resource_read",
+      "from": "resource:attribute:deterministicOperatorNote",
+      "to": "rpc:GetDexDisplay",
+      "label": "Get",
+      "span": {
+        "startLine": 414,
+        "startColumn": 16,
+        "endLine": 414,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "deterministicOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "resource_read",
+      "from": "resource:attribute:deterministicOrderAgeDays",
+      "to": "rpc:GetDexDisplay",
+      "label": "Get",
+      "span": {
+        "startLine": 414,
+        "startColumn": 16,
+        "endLine": 414,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "deterministicOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0016",
       "kind": "resource_read",
       "from": "resource:attribute:deterministicOrderAgeDays",
       "to": "step:deterministicCheckPolicy",
@@ -617,7 +707,25 @@
       }
     },
     {
-      "id": "edge:0012",
+      "id": "edge:0017",
+      "kind": "resource_read",
+      "from": "resource:attribute:deterministicOrderLookup",
+      "to": "rpc:GetDexDisplay",
+      "label": "Get",
+      "span": {
+        "startLine": 414,
+        "startColumn": 16,
+        "endLine": 414,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "deterministicOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0018",
       "kind": "resource_read",
       "from": "resource:attribute:deterministicOrderLookup",
       "to": "step:deterministicCheckPolicy",
@@ -633,7 +741,79 @@
       }
     },
     {
-      "id": "edge:0013",
+      "id": "edge:0019",
+      "kind": "resource_read",
+      "from": "resource:attribute:deterministicRecommendation",
+      "to": "rpc:GetDexDisplay",
+      "label": "Get",
+      "span": {
+        "startLine": 414,
+        "startColumn": 16,
+        "endLine": 414,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "deterministicOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0020",
+      "kind": "resource_read",
+      "from": "resource:attribute:deterministicRecommendation",
+      "to": "rpc:GetDexSummary",
+      "label": "Get",
+      "span": {
+        "startLine": 414,
+        "startColumn": 16,
+        "endLine": 414,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "deterministicOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0021",
+      "kind": "resource_read",
+      "from": "resource:attribute:deterministicRefundAmount",
+      "to": "rpc:GetDexDisplay",
+      "label": "Get",
+      "span": {
+        "startLine": 414,
+        "startColumn": 16,
+        "endLine": 414,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "deterministicOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0022",
+      "kind": "resource_read",
+      "from": "resource:attribute:deterministicRefundAmount",
+      "to": "rpc:GetDexSummary",
+      "label": "Get",
+      "span": {
+        "startLine": 414,
+        "startColumn": 16,
+        "endLine": 414,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "deterministicOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0023",
       "kind": "resource_write",
       "from": "step:deterministicCheckOrder",
       "to": "resource:attribute:deterministicCaseStatus",
@@ -649,7 +829,7 @@
       }
     },
     {
-      "id": "edge:0014",
+      "id": "edge:0024",
       "kind": "resource_write",
       "from": "step:deterministicCheckOrder",
       "to": "resource:attribute:deterministicOrderAgeDays",
@@ -665,7 +845,7 @@
       }
     },
     {
-      "id": "edge:0015",
+      "id": "edge:0025",
       "kind": "resource_write",
       "from": "step:deterministicCheckOrder",
       "to": "resource:attribute:deterministicOrderLookup",
@@ -681,7 +861,7 @@
       }
     },
     {
-      "id": "edge:0016",
+      "id": "edge:0026",
       "kind": "resource_write",
       "from": "step:deterministicCheckPolicy",
       "to": "resource:attribute:deterministicCaseStatus",
@@ -697,7 +877,7 @@
       }
     },
     {
-      "id": "edge:0017",
+      "id": "edge:0027",
       "kind": "resource_write",
       "from": "step:deterministicCheckPolicy",
       "to": "resource:attribute:deterministicRecommendation",
@@ -713,7 +893,7 @@
       }
     },
     {
-      "id": "edge:0018",
+      "id": "edge:0028",
       "kind": "resource_write",
       "from": "step:deterministicCloseCase",
       "to": "resource:attribute:deterministicCaseStatus",
@@ -729,7 +909,7 @@
       }
     },
     {
-      "id": "edge:0019",
+      "id": "edge:0029",
       "kind": "resource_write",
       "from": "step:deterministicDenyRefund",
       "to": "resource:attribute:deterministicCaseStatus",
@@ -745,7 +925,7 @@
       }
     },
     {
-      "id": "edge:0020",
+      "id": "edge:0030",
       "kind": "resource_write",
       "from": "step:deterministicIssueRefund",
       "to": "resource:attribute:deterministicBillingOutcome",
@@ -761,7 +941,7 @@
       }
     },
     {
-      "id": "edge:0021",
+      "id": "edge:0031",
       "kind": "resource_write",
       "from": "step:deterministicIssueRefund",
       "to": "resource:attribute:deterministicCaseStatus",
@@ -777,7 +957,7 @@
       }
     },
     {
-      "id": "edge:0022",
+      "id": "edge:0032",
       "kind": "resource_write",
       "from": "step:deterministicIssueRefund",
       "to": "resource:attribute:deterministicRefundKey",
@@ -793,41 +973,7 @@
       }
     }
   ],
-  "diagnostics": [
-    {
-      "severity": "warning",
-      "code": "unused_resource",
-      "message": "attribute charge-reference has no direct access in the source file",
-      "span": {
-        "startLine": 44,
-        "startColumn": 5,
-        "endLine": 44,
-        "endColumn": 83
-      }
-    },
-    {
-      "severity": "warning",
-      "code": "unused_resource",
-      "message": "attribute operator-note has no direct access in the source file",
-      "span": {
-        "startLine": 58,
-        "startColumn": 5,
-        "endLine": 58,
-        "endColumn": 77
-      }
-    },
-    {
-      "severity": "warning",
-      "code": "unused_resource",
-      "message": "attribute refund-amount has no direct access in the source file",
-      "span": {
-        "startLine": 46,
-        "startColumn": 5,
-        "endLine": 46,
-        "endColumn": 77
-      }
-    }
-  ],
+  "diagnostics": [],
   "groups": [
     {
       "id": "intake",
