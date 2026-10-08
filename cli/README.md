@@ -364,6 +364,20 @@ Version 2 catalog. Unknown capture modes, non-string fields, and
 Attribute-sourced fields are blocking diagnostics. Omitting `capture` preserves
 the existing text input contract.
 
+Go `StartFlow` calls with a statically known starting Step input produce
+`start_flow_input_type_mismatch` when their payload is not assignable to that
+input. This is always an error, under both schemas and with or without
+`--lint app`: the SDK rejects it locally before sending the start request.
+Pass the actual typed value, or declare `dex.None` and pass `nil` when the
+starting Step needs no input. Pointer/value mismatches remain distinct;
+legal `nil` pointer, map, slice, or interface inputs are accepted.
+
+The check covers calls in the Flow file and same-package helpers reached by
+handlers. It reads one `DefineStartStep` from a directly returned Step slice
+literal in the target Flow's `GetSteps`, including target Flows in other
+files or imported packages. Dynamically selected Flows, generic Flow types,
+interface-valued payloads, and unresolved registrations remain unchecked.
+
 Go Step methods, RPCs, and timeout handlers receive AttributeMap values and
 pending Channel messages only when their options select them. A read of
 unselected state fails at run time, so visualize reports it as a blocking
@@ -394,7 +408,7 @@ directive satisfies instance reads, not enumeration. An unknown name produces
 `invocation_load_directive`. Options that cannot be evaluated, such as values
 returned by another package, keep the default mode silent for that read.
 
-`--lint app` (Go only) adds checks that applications opt into. The state-load
+`--lint app` (Go only) adds checks that applications opt into. The state-load and start-input
 errors above are reported in every mode.
 
 | Code | Check |

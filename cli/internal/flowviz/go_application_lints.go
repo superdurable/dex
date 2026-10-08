@@ -41,7 +41,7 @@ type goStartFlowSite struct {
 }
 
 type goFlowFileStartFlowCollector struct {
-	linter   *goApplicationLinter
+	analyzer *goAnalyzer
 	function *ast.FuncDecl
 	sites    []goStartFlowSite
 }
@@ -218,7 +218,7 @@ func (linter *goApplicationLinter) definingCall(value goScopedExpression) *ast.C
 
 func (linter *goApplicationLinter) reportStartFlowsWithoutRequestID() {
 	reportedCalls := make(map[*ast.CallExpr]bool)
-	for _, site := range linter.startFlowSites() {
+	for _, site := range collectGoStartFlowSites(linter.analyzer) {
 		if reportedCalls[site.call] || !linter.isRequestIDMissing(site) {
 			continue
 		}
@@ -230,21 +230,21 @@ func (linter *goApplicationLinter) reportStartFlowsWithoutRequestID() {
 	}
 }
 
-// startFlowSites lists StartFlow calls in the Flow file and in helpers its handlers reach.
-func (linter *goApplicationLinter) startFlowSites() []goStartFlowSite {
-	collector := &goFlowFileStartFlowCollector{linter: linter}
-	for _, declaration := range linter.analyzer.file.Decls {
+// collectGoStartFlowSites lists StartFlow calls in the Flow file and in helpers its handlers reach.
+func collectGoStartFlowSites(analyzer *goAnalyzer) []goStartFlowSite {
+	collector := &goFlowFileStartFlowCollector{analyzer: analyzer}
+	for _, declaration := range analyzer.file.Decls {
 		if function, isFunction := declaration.(*ast.FuncDecl); isFunction && function.Body != nil {
 			collector.function = function
 			ast.Inspect(function.Body, collector.visit)
 		}
 	}
-	for _, handler := range linter.analyzer.handlerSummaries {
+	for _, handler := range analyzer.handlerSummaries {
 		for _, reached := range handler.summary.startFlowCalls {
-			if reached.reach.helper == nil || linter.functions.isInFlowFile(reached.call) {
+			if reached.reach.helper == nil || analyzer.functions.isInFlowFile(reached.call) {
 				continue
 			}
-			function := linter.functions.declarations[reached.reach.helper]
+			function := analyzer.functions.declarations[reached.reach.helper]
 			collector.sites = append(collector.sites, goStartFlowSite{call: reached.call, reach: reached.reach, function: function})
 		}
 	}
@@ -332,7 +332,7 @@ func (linter *goApplicationLinter) addDiagnostic(code string, message string, sp
 
 func (collector *goFlowFileStartFlowCollector) visit(node ast.Node) bool {
 	call, isCall := node.(*ast.CallExpr)
-	if isCall && collector.linter.functions.clientMethodName(call) == "StartFlow" {
+	if isCall && collector.analyzer.functions.clientMethodName(call) == "StartFlow" {
 		collector.sites = append(collector.sites, goStartFlowSite{call: call, function: collector.function})
 	}
 	return true

@@ -258,7 +258,7 @@ func (analyzer *goAnalyzer) Analyze() {
 	analyzer.analyzeStateLoadsAndApplicationLints(getSteps)
 }
 
-// State-load errors are always reported; application lints only with --lint app.
+// State-load and start-input errors are always reported; application lints only with --lint app.
 func (analyzer *goAnalyzer) analyzeStateLoadsAndApplicationLints(getSteps *ast.FuncDecl) {
 	evaluator := newGoOptionsEvaluator(analyzer, analyzer.functions)
 	var flowObject *types.TypeName
@@ -267,6 +267,7 @@ func (analyzer *goAnalyzer) analyzeStateLoadsAndApplicationLints(getSteps *ast.F
 	}
 	checker := newGoStateLoadChecker(analyzer, evaluator, flowObject, analyzer.isApplicationLint)
 	checker.report()
+	newGoStartFlowInputChecker(analyzer).report()
 	if analyzer.isApplicationLint {
 		newGoApplicationLinter(analyzer, evaluator, checker.sources).report()
 	}

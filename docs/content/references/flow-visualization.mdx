@@ -128,6 +128,14 @@ The analyzer reports a blocking diagnostic when it cannot know the registered na
 
 Node IDs use the Go type, as in **step:initializeThread**, even when an override changes the Step type.
 
+## Start inputs {#start-inputs}
+
+Go **StartFlow** validates its payload against the registered starting Step before sending a request. **dexcli visualize** reports **start_flow_input_type_mismatch** when a known payload type does not match that Step's input. This is a blocking error in both schemas, with or without **--lint app**.
+
+Pass a value of the required input type. When the starting Step needs no input, declare **dex.None** and pass **nil**. An empty struct is a different type. A pointer and its value type are also different; **nil** remains valid for an input type that permits it.
+
+The check covers calls in the Flow file and same-package helpers reached by handlers. The target Flow's **GetSteps** must directly return a Step slice literal with one **DefineStartStep**. Target declarations may be in another file or imported package. Dynamically chosen Flows, generic Flow types, interface-valued payloads, and unresolved registrations are not checked.
+
 ## State loads {#state-loads}
 
 A Step method, RPC, or Flow timeout handler receives ordinary Attributes and Channel sizes. It does not receive AttributeMap values or pending Channel messages unless it selects them. See [Selective state loading](/primitives/step/step-options#selective-state-loading) and [Selective RPC state loading](/primitives/rpc#load-collection-state). A read of unselected state fails at run time, and a failing Step method is retried until its retry policy ends. For Go sources, **dexcli visualize** reports these reads as blocking diagnostics in every schema version:

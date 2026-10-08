@@ -128,6 +128,14 @@ Analyzer 无法确定注册名称，或无法为每个 Step 生成独立节点�
 
 节点 ID 使用 Go type，例如 **step:initializeThread**，即使 override 改变了 Step type 也是如此。
 
+## 启动输入 {#start-inputs}
+
+Go **StartFlow** 会在发送请求前检查输入是否符合已注册起始 Step 的类型。已知输入类型不匹配时，**dexcli visualize** 会报 **start_flow_input_type_mismatch**。两个 schema 都将其视为阻断错误，无论是否启用 **--lint app**。
+
+传入起始 Step 所需类型的值。没有输入时，将起始 Step 的输入声明为 **dex.None**，调用时传 **nil**。空 struct 是另一种类型；指针与对应的值类型也不同。允许空值的输入类型仍然可以接收 **nil**。
+
+检查覆盖 Flow 文件中的调用，以及处理方法调用的同一 package 辅助函数。目标 Flow 的 **GetSteps** 必须直接返回含一个 **DefineStartStep** 的 Step slice 字面量。目标声明可以位于另一个文件或导入的 package 中。动态选择的 Flow、泛型 Flow、interface 类型的输入和无法解析的注册不会被检查。
+
 ## 状态加载 {#state-loads}
 
 Step 方法、RPC 和 Flow timeout handler 会收到普通 Attribute 和 Channel size，但除非显式选择，否则不会收到 AttributeMap value 或 pending Channel message。见[选择性状态加载](/primitives/step/step-options#selective-state-loading)和[选择性 RPC 状态加载](/primitives/rpc#load-collection-state)。读取未选择的状态会在运行时失败，失败的 Step 方法会一直重试，直到 retry policy 结束。对于 Go 源码，**dexcli visualize** 在所有 schema version 中都会把这类读取报告为阻断诊断：
