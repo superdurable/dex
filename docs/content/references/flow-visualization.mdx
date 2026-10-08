@@ -77,6 +77,8 @@ Attribute relations include reads, writes, and locks. The Python analyzer follow
 
 Stream relations describe observable application output, not control flow. They are hidden by default in Flow Rendering and can be enabled from the legend. The JSON marks Step Stream writes as repeatable and best effort. Heartbeat calls and checkpoint reads are runtime reliability details, so they are not included in the definition graph.
 
+Go reports **step_progress_outside_step** when an RPC or Flow timeout handler calls **Stream.Write** or creates a writer with **NewBufferedTextStream**. The check also follows same-package helpers and buffered writer aliases. The error names the handler, Stream, and helper location. Move the output to a Step. An RPC can publish a Channel message or return **NextSteps** to schedule that Step.
+
 ## Supported source profile
 
 Version 1 supports one Flow per source file. The file must directly contain:

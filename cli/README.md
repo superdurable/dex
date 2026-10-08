@@ -292,7 +292,12 @@ cancellation remain inside their Execute card. The graph also records repeatable
 best-effort Step Stream writes. Python synchronous Step generators and
 asynchronous Step handlers are both recognized. Heartbeat checkpoints are
 runtime details and are omitted. Step Stream progress from an RPC or Flow
-timeout handler produces a blocking diagnostic. Business helpers may remain in
+timeout handler produces the blocking `step_progress_outside_step` diagnostic,
+including access through same-package helpers or buffered writer aliases. Creating
+a `NewBufferedTextStream` in either handler also fails, even before its first
+`Write`. The diagnostic names the handler, Stream, and helper location. Move the
+output to a Step; an RPC can publish a Channel message or return `NextSteps`.
+Business helpers may remain in
 other files, but they must not hide Dex control flow. Dynamic targets produce an
 Unknown node and a blocking diagnostic. The default renderer still shows the
 partial graph. With **--json**, a partial JSON artifact is written, and the

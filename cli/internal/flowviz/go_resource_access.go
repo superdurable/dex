@@ -36,6 +36,7 @@ type goHandlerSummary struct {
 
 type goFunctionSummary struct {
 	accesses            []goResourceAccess
+	streamWriterCalls   []goResourceAccess
 	startFlowCalls      []goReachedCall
 	invokeRPCCalls      []goReachedCall
 	hasMissingFlowCheck bool
@@ -185,6 +186,7 @@ func (collector *goFunctionBodyCollector) visit(node ast.Node) bool {
 		return true
 	}
 	collector.collectResourceAccess(call)
+	collector.collectStreamWriterCall(call)
 	collector.collectClientCall(call)
 	if collector.walker.isMissingFlowCheck(call) {
 		collector.summary.hasMissingFlowCheck = true
@@ -208,6 +210,22 @@ func (collector *goFunctionBodyCollector) collectResourceAccess(call *ast.CallEx
 		call:        call,
 		instanceKey: collector.walker.instanceKey(resourceID, call),
 		reach:       goCallReach{helper: collector.scope.function},
+	})
+}
+
+func (collector *goFunctionBodyCollector) collectStreamWriterCall(call *ast.CallExpr) {
+	if !collector.walker.isBufferedTextStreamConstructor(call) {
+		return
+	}
+	resourceID := collector.walker.typedResourceOf(call.Args[1], collector.scope)
+	if resourceID == "" {
+		return
+	}
+	collector.summary.streamWriterCalls = append(collector.summary.streamWriterCalls, goResourceAccess{
+		resourceID: resourceID,
+		methodName: "NewBufferedTextStream",
+		call:       call,
+		reach:      goCallReach{helper: collector.scope.function},
 	})
 }
 
@@ -240,6 +258,10 @@ func (collector *goFunctionBodyCollector) mergeHelperSummary(entryCall *ast.Call
 	for _, access := range helper.accesses {
 		access.reach.entryCall = entryCall
 		collector.summary.accesses = append(collector.summary.accesses, access)
+	}
+	for _, access := range helper.streamWriterCalls {
+		access.reach.entryCall = entryCall
+		collector.summary.streamWriterCalls = append(collector.summary.streamWriterCalls, access)
 	}
 	for _, reached := range helper.startFlowCalls {
 		reached.reach.entryCall = entryCall
@@ -347,10 +369,16 @@ func (walker *goFunctionWalker) isMissingFlowCheck(call *ast.CallExpr) bool {
 
 func (walker *goFunctionWalker) aliasedResource(value ast.Expr, scope *goFunctionScope) string {
 	call, isCall := ast.Unparen(value).(*ast.CallExpr)
-	if isCall && walker.analyzer.callName(call) == "NewBufferedTextStream" && len(call.Args) >= 2 {
+	if isCall && walker.isBufferedTextStreamConstructor(call) {
 		return walker.resourceOf(call.Args[1], scope)
 	}
 	return walker.typedResourceOf(value, scope)
+}
+
+func (walker *goFunctionWalker) isBufferedTextStreamConstructor(call *ast.CallExpr) bool {
+	function := walker.calledFunction(call)
+	return function != nil && function.Pkg() != nil && function.Pkg().Path() == goSDKPackage &&
+		function.Name() == "NewBufferedTextStream" && len(call.Args) >= 2
 }
 
 // Direct handler accesses keep the name-based matches the analyzer has always accepted.

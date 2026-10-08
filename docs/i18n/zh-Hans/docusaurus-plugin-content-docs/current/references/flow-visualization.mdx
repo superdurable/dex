@@ -77,6 +77,8 @@ Attribute 关系包括读取、写入和加锁。Python analyzer 会追踪 Flow 
 
 Stream 关系描述的是应用可观察输出，而不是控制流。Flow Rendering 默认隐藏 Stream，用户可以通过图例开启。JSON 会标记 Step Stream 写入可重复且为 best effort。Heartbeat 调用和 checkpoint 读取属于运行时可靠性细节，因此不会进入定义图。
 
+当 RPC 或 Flow timeout handler 调用 **Stream.Write** 或通过 **NewBufferedTextStream** 创建 writer 时，Go analyzer 会报 **step_progress_outside_step** 错误。检查也会追踪同一 package 的辅助函数和 buffered writer alias。错误会指出处理方法、Stream 和辅助函数位置。将输出移到 Step 中；RPC 可以发布 Channel 消息或返回 **NextSteps** 来调度该 Step。
+
 ## 支持的源码约束
 
 首版要求每个源文件只包含一个 Flow。以下内容必须直接出现在该文件中：

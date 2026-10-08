@@ -903,15 +903,45 @@ func (analyzer *goAnalyzer) analyzeFailurePolicy(ownerID string, method *ast.Fun
 
 func (analyzer *goAnalyzer) analyzeResourceAccess(ownerID string, method *ast.FuncDecl, phase string) {
 	summary := analyzer.functions.summarizeHandler(method)
-	analyzer.handlerSummaries = append(analyzer.handlerSummaries, goHandlerSummary{
+	handler := goHandlerSummary{
 		ownerID: ownerID, phase: phase, method: method, summary: summary,
-	})
+	}
+	analyzer.handlerSummaries = append(analyzer.handlerSummaries, handler)
+	analyzer.diagnoseStreamInvocation(handler)
 	seen := make(map[string]bool)
 	for _, isHelperAccess := range []bool{false, true} {
 		for _, access := range summary.accesses {
 			if (access.reach.helper != nil) == isHelperAccess {
 				analyzer.addResourceAccessEdge(ownerID, phase, access, seen)
 			}
+		}
+	}
+}
+
+func (analyzer *goAnalyzer) diagnoseStreamInvocation(handler goHandlerSummary) {
+	if handler.phase != "rpc" && handler.phase != "timeout" {
+		return
+	}
+	seen := make(map[string]bool)
+	for _, accesses := range [][]goResourceAccess{handler.summary.accesses, handler.summary.streamWriterCalls} {
+		for _, access := range accesses {
+			resource := analyzer.node(access.resourceID)
+			if resource.Kind != "stream" ||
+				(access.methodName != "Write" && access.methodName != "NewBufferedTextStream") {
+				continue
+			}
+			span := analyzer.functions.reachedSpan(access.call, access.reach)
+			key := fmt.Sprintf("%s:%s:%d:%d", access.resourceID, access.methodName, span.StartLine, span.StartColumn)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			message := fmt.Sprintf(
+				"%s uses Stream %q (%s%s). Stream.Write and NewBufferedTextStream are only available in Step WaitFor and Execute. Move this Stream output to a Step; an RPC can publish a Channel message or return NextSteps to schedule it.",
+				goHandlerLabel(analyzer, handler), resource.Name, access.methodName,
+				analyzer.functions.reachedLocation(access.call, access.reach),
+			)
+			analyzer.graph.AddDiagnostic("error", "step_progress_outside_step", message, span)
 		}
 	}
 }
@@ -937,9 +967,6 @@ func (analyzer *goAnalyzer) addResourceAccessEdge(ownerID string, phase string, 
 		metadata["bestEffort"] = true
 		metadata["repeatable"] = true
 		metadata["role"] = "progress"
-		if phase == "rpc" || phase == "timeout" {
-			analyzer.graph.AddDiagnostic("error", "step_progress_outside_step", "Stream.Write is only available in WaitFor and Execute", span)
-		}
 	}
 	from := ownerID
 	to := access.resourceID
