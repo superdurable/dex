@@ -12,6 +12,7 @@ export const CONNECTORS_COPY = {
   localNote: 'local',
   loading: 'Loading Connectors…',
   loadingRelease: 'Loading Connector release…',
+  setupSaved: 'Restart the application to use new settings. A new key applies on the next Connector call.',
   empty: 'No configurable connections were found.',
   listLabel: 'Connections',
   selectPrompt: 'Select a connection to set it up.',

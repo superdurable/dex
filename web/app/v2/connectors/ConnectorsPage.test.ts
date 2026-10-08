@@ -19,6 +19,7 @@ import {
   addableAuthMethods,
   connectionAuthMethodIds,
   connectionConfigurationSaveRequestBody,
+  connectionSetupSaveRequestBody,
   connectionFieldPresentation,
   connectionFieldStudioTarget,
   connectionFormInitialValues,
@@ -38,7 +39,9 @@ import {
   removeConnectionAuthMethod,
   requestedOAuthScopesText,
   storedCredentialPlaceholder,
+  isConnectionSetupStudio,
   isStudioCommand,
+  providerCommandRequestBody,
   isStudioFrameResize,
   descriptionParts,
   manifestFieldDefaultText,
@@ -281,7 +284,7 @@ describe('Connections contract', () => {
     expect(ready).toEqual({
       type: 'connector.host.ready', protocolVersion: '0.2.0', sessionNonce: 'nonce', connectorId: 'slack',
       capabilities: ['use.configuration.write'],
-      connection: { state: 'connected', grantedScopes: [], detail: 'Ready', authMethodIds: [], configuration: {} },
+      connection: { state: 'connected', grantedScopes: [], detail: 'Ready', authMethodIds: [], configuration: {}, storedCredentialFields: [] },
       target: { kind: 'connection' },
       theme: 'dark',
       themeTokens: { '--studio-cta': '#70eea9' },
@@ -298,6 +301,50 @@ describe('Connections contract', () => {
         commands: [{id: 'listResources', capability: 'provider.resources-list'}],
       } } },
     } as never)).toEqual(['oauth.connection.manage', 'use.configuration.write', 'provider.resources-list']);
+  });
+
+  it('lets a release that declares connection.write own the whole connection setup', () => {
+    const setupManifest = {spec: {provider: 'llm', studio: {
+      setup: {backendCapabilities: ['use.configuration.write', 'llm.models-list', 'connection.write']},
+      commands: [{id: 'listAnthropicModels', capability: 'llm.models-list'}],
+    }}};
+    const setupSession = {connectorId: 'llm', sessionNonce: 'nonce', entrypointUrl: '/ui/index.html', manifest: setupManifest} as never;
+    expect(isConnectionSetupStudio(setupSession)).toBe(true);
+    expect(studioHostCapabilities(setupSession)).toContain('connection.write');
+    expect(isConnectionSetupStudio({...(setupSession as object), entrypointUrl: undefined} as never), 'no UI artifact').toBe(false);
+    expect(isConnectionSetupStudio(llmSession as never), 'a release without connection.write keeps the host form').toBe(false);
+    expect(isStudioCommand({
+      type: 'connector.command', protocolVersion: '0.2.0', sessionNonce: 'nonce', connectorId: 'llm', requestId: 'request',
+      command: 'connection.save', input: {configuration: {provider: 'anthropic'}, credentials: {api_key: 'typed'}},
+    }, setupSession)).toBe(true);
+  });
+
+  it('forwards typed credentials only for a connection.write setup', () => {
+    const setupSession = {manifest: {spec: {studio: {setup: {backendCapabilities: ['llm.models-list', 'connection.write']},
+      commands: [{id: 'listAnthropicModels', capability: 'llm.models-list'}]}}}} as never;
+    expect(providerCommandRequestBody(setupSession, {commandId: 'listAnthropicModels', parameters: {limit: '1000'}, credentials: {api_key: 'typed'}}))
+      .toEqual({parameters: {limit: '1000'}, credentials: {api_key: 'typed'}});
+    expect(providerCommandRequestBody(llmSession as never, {commandId: 'listAnthropicModels', parameters: {}})).toEqual({parameters: {}});
+    expect(() => providerCommandRequestBody(llmSession as never, {commandId: 'listAnthropicModels', parameters: {}, credentials: {api_key: 'typed'}}))
+      .toThrow('cannot send credentials');
+  });
+
+  it('saves the setup configuration, typed credentials, and kept credentials in one request', () => {
+    const connection = {
+      connectorId: 'llm', connectionName: 'gtm-llm', status: 'Ready', modulePath: 'example.com/llm', moduleVersion: 'v0.21.0',
+      storedCredentialFields: ['api_key'],
+    } as never;
+    expect(connectionSetupSaveRequestBody(connection, {spec: {provider: 'llm'}} as never, {
+      configuration: {provider: 'anthropic', model: 'claude-opus-5-5'}, credentials: {}, keepCredentialFields: ['api_key'],
+    })).toEqual({
+      modulePath: 'example.com/llm', moduleVersion: 'v0.21.0', provider: 'llm', authMethodId: '',
+      configuration: {provider: 'anthropic', model: 'claude-opus-5-5'}, credentials: {}, keepCredentialFields: ['api_key'],
+      credentialExpiresAt: null,
+    });
+    expect(() => connectionSetupSaveRequestBody(connection, {spec: {provider: 'llm'}} as never, {configuration: {}, credentials: {api_key: 7}}))
+      .toThrow('credentials must contain string values');
+    expect(() => connectionSetupSaveRequestBody(connection, {spec: {provider: 'llm'}} as never, {credentials: {}}))
+      .toThrow('configuration is required');
   });
 
   it('reports provider command failures only to the Studio frame and save failures to both', () => {
@@ -595,7 +642,7 @@ describe('Connections with several authentication methods', () => {
     for (const target of [stepTarget, connectionFieldStudioTarget(modelField as never, connection)]) {
       expect(connectorHostReadyMessage(llmSession as never, connection, target, appearance).connection).toEqual({
         state: 'connected', grantedScopes: [], detail: 'Ready',
-        authMethodIds: ['anthropic', 'openai'], configuration: {model: 'anthropic/claude-sonnet-5'},
+        authMethodIds: ['anthropic', 'openai'], configuration: {model: 'anthropic/claude-sonnet-5'}, storedCredentialFields: [],
       });
     }
   });

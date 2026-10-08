@@ -186,7 +186,7 @@ func TestServeConnectorUIAssetUsesSandboxHeadersAndRequest(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "http://localhost/connector-ui/index.html", nil)
 	response := httptest.NewRecorder()
 
-	serveConnectorUIAsset(response, request, "index.html", root)
+	serveConnectorUIAsset(response, request, "index.html", root, false)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d", response.Code)

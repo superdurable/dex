@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -49,7 +50,9 @@ type connectorUISession struct {
 	connectorID    string
 	connectionName string
 	commands       map[string]connectorManifestStudioCommand
-	expiresAt      time.Time
+	// canWriteConnection marks a setup that collects typed credentials, so it gets draft commands and a stricter CSP.
+	canWriteConnection bool
+	expiresAt          time.Time
 }
 
 type connectorCatalogDocument struct {
@@ -402,15 +405,17 @@ func (setup *connectorSetup) handleCreateUISession(response http.ResponseWriter,
 		setup.uiSessionsMu.Lock()
 		setup.deleteExpiredUISessions(time.Now())
 		commands := map[string]connectorManifestStudioCommand{}
+		canWriteConnection := false
 		if resolved.release.Manifest.Spec.Studio != nil {
 			for _, command := range resolved.release.Manifest.Spec.Studio.Commands {
 				commands[command.ID] = command
 			}
+			canWriteConnection = slices.Contains(resolved.release.Manifest.Spec.Studio.Setup.BackendCapabilities, connectorConnectionWriteCapability)
 		}
 		setup.uiSessions[nonce] = connectorUISession{
 			root: resolved.uiRoot, entrypoint: resolved.release.UI.Entrypoint,
 			connectorID: body.ConnectorID, connectionName: body.ConnectionName, commands: commands,
-			expiresAt: time.Now().Add(10 * time.Minute),
+			canWriteConnection: canWriteConnection, expiresAt: time.Now().Add(10 * time.Minute),
 		}
 		setup.uiSessionsMu.Unlock()
 		result.SessionNonce = nonce
@@ -510,7 +515,7 @@ func (setup *connectorSetup) handleUIAsset(response http.ResponseWriter, request
 		api.WriteCodedError(response, http.StatusNotFound, "CONNECTOR_UI_SESSION_NOT_FOUND", "Connector UI session is missing or expired")
 		return
 	}
-	serveConnectorUIAsset(response, request, request.PathValue("assetPath"), session.root)
+	serveConnectorUIAsset(response, request, request.PathValue("assetPath"), session.root, session.canWriteConnection)
 }
 
 func (setup *connectorSetup) deleteExpiredUISessions(now time.Time) {

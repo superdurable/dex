@@ -44,7 +44,12 @@ var connectorProviderForbiddenHeaderPrefixes = []string{"proxy-", "x-forwarded-"
 
 type connectorStudioCommandRequest struct {
 	Parameters map[string]string `json:"parameters"`
+	// Credentials holds values a connection.write setup collected but has not saved; they override stored values.
+	Credentials map[string]string `json:"credentials,omitempty"`
 }
+
+// connectorConnectionWriteCapability lets a setup bundle collect credentials and save the whole connection.
+const connectorConnectionWriteCapability = "connection.write"
 
 func newConnectorProviderHTTPClient() *http.Client {
 	return &http.Client{
@@ -82,18 +87,46 @@ func (setup *connectorSetup) handleStudioProviderCommand(response http.ResponseW
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_STUDIO_COMMAND_INVALID", "Connector Studio command parameters are invalid")
 		return
 	}
+	if len(body.Credentials) > 0 && !session.canWriteConnection {
+		api.WriteCodedError(response, http.StatusForbidden, "CONNECTOR_STUDIO_COMMAND_INVALID", "This Connector UI cannot send credentials")
+		return
+	}
 	connection, found, loadErr := setup.store.get(session.connectorID, session.connectionName)
-	if loadErr != nil || !found {
+	if loadErr != nil || (!found && len(body.Credentials) == 0) {
 		api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONNECTION_NOT_READY", "Connector connection is not configured")
 		return
 	}
-	value, err := setup.executeStudioProviderCommand(request, command, body.Parameters, connection.Credentials)
+	credentials, err := connectorStudioCommandCredentials(connection.Credentials, body.Credentials)
+	if err != nil {
+		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_STUDIO_COMMAND_INVALID", "Connector Studio command credentials are invalid")
+		return
+	}
+	value, err := setup.executeStudioProviderCommand(request, command, body.Parameters, credentials)
 
 	if err != nil {
 		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_PROVIDER_COMMAND_FAILED", "Connector provider command failed")
 		return
 	}
 	writeWebJSON(response, http.StatusOK, value)
+}
+
+// connectorStudioCommandCredentials overlays typed draft values on the stored credentials without changing the store.
+func connectorStudioCommandCredentials(stored map[string]json.RawMessage, drafts map[string]string) (map[string]json.RawMessage, error) {
+	if len(drafts) == 0 {
+		return stored, nil
+	}
+	credentials := make(map[string]json.RawMessage, len(stored)+len(drafts))
+	for name, value := range stored {
+		credentials[name] = value
+	}
+	for name, value := range drafts {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		credentials[name] = encoded
+	}
+	return credentials, nil
 }
 
 func (setup *connectorSetup) connectorUISession(nonce string) (connectorUISession, bool) {

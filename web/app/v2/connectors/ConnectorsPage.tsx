@@ -178,6 +178,8 @@ export function ConnectorsPage() {
   const [selected, setSelected] = useState<ConnectionView | null>(null);
   const [session, setSession] = useState<UISessionResponse | null>(null);
   const [selectedSetupTabKey, setSelectedSetupTabKey] = useState('authorize');
+  // The setup panel unmounts while a reload replaces the UI session, so the page remembers a setup save.
+  const [savedSetupConnectionKey, setSavedSetupConnectionKey] = useState<string>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const initializedSetupConnection = useRef('');
@@ -332,7 +334,10 @@ export function ConnectorsPage() {
                 {busy && <p className="sc-state" role="status">{CONNECTORS_COPY.loadingRelease}</p>}
                 {session && activeSetupTab && <ConnectorSetupPanel
                   activeTab={activeSetupTab} catalog={catalog} connection={selected} session={session}
-                  onConfigured={load} onError={setError} onSelect={setSelectedSetupTabKey} setupTabs={setupTabs}
+                  hasSavedSetup={savedSetupConnectionKey === connectionKey(selected)}
+                  onConfigured={load} onError={setError} onSelect={setSelectedSetupTabKey}
+                  onSetupSaved={async () => { await load(); setSavedSetupConnectionKey(connectionKey(selected)); }}
+                  setupTabs={setupTabs}
                 />}
                 <div className="sc-block connector-connection-footer">
                   {selected.status !== 'Missing' && selected.status !== 'Unsupported' && selected.status !== 'Conflict' && (
@@ -466,15 +471,19 @@ function ConnectorSetupNavigation({activeTab, connection, tabs, onSelect}: {
   </div>;
 }
 
-function ConnectorSetupPanel({activeTab, catalog, connection, session, setupTabs, onConfigured, onError, onSelect}: {
+function ConnectorSetupPanel({
+  activeTab, catalog, connection, hasSavedSetup, session, setupTabs, onConfigured, onError, onSelect, onSetupSaved,
+}: {
   activeTab: ConnectorSetupTab;
   catalog: ConnectionsResponse;
   connection: ConnectionView;
+  hasSavedSetup: boolean;
   session: UISessionResponse;
   setupTabs: ConnectorSetupTab[];
   onConfigured: () => Promise<void>;
   onError: (message: string) => void;
   onSelect: (key: string) => void;
+  onSetupSaved: () => Promise<void>;
 }) {
   const completeAuthorization = async () => {
     await onConfigured();
@@ -484,8 +493,8 @@ function ConnectorSetupPanel({activeTab, catalog, connection, session, setupTabs
   return <div aria-labelledby={`connector-setup-tab-${activeTab.key}`} className="connector-setup-panel" id="connector-setup-panel" role="tabpanel">
     {activeTab.kind === 'authorize'
       ? <AuthorizationPanel
-        catalog={catalog} connection={connection} key={connectionKey(connection)} session={session}
-        onConfigured={completeAuthorization} onError={onError} onReload={onConfigured}
+        catalog={catalog} connection={connection} hasSavedSetup={hasSavedSetup} key={connectionKey(connection)} session={session}
+        onConfigured={completeAuthorization} onError={onError} onReload={onConfigured} onSetupSaved={onSetupSaved}
       />
       : <ConnectorUsePanel
         catalog={catalog} connection={connection} onConfigured={onConfigured} onError={onError}
@@ -494,16 +503,30 @@ function ConnectorSetupPanel({activeTab, catalog, connection, session, setupTabs
   </div>;
 }
 
-function AuthorizationPanel({catalog, connection, session, onConfigured, onError, onReload}: {
+function AuthorizationPanel({catalog, connection, hasSavedSetup, session, onConfigured, onError, onReload, onSetupSaved}: {
   catalog: ConnectionsResponse;
   connection: ConnectionView;
+  hasSavedSetup: boolean;
   session: UISessionResponse;
   onConfigured: () => Promise<void>;
   onError: (message: string) => void;
   onReload: () => Promise<void>;
+  onSetupSaved: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const manifest = session.manifest;
+  if (isConnectionSetupStudio(session)) {
+    return <div className="connector-authorization-summary">
+      {hasSavedSetup && <div className="connector-notice connector-authorization-complete" data-tone="done" role="status">
+        <span aria-hidden="true" className="apg-mark">✓</span>
+        <div><h3>Connection saved</h3><p>{CONNECTORS_COPY.setupSaved}</p></div>
+      </div>}
+      <StudioFrame
+        catalog={catalog} configuration={connection.configuration ?? {}} connection={connection} session={session}
+        target={{kind: 'connection'}} onConfigured={onSetupSaved} onError={onError}
+      />
+    </div>;
+  }
   const isOAuthConnection = !isMultipleAuthMethodSelection(manifest)
     && selectedManifestAuth(manifest.spec.auth, connection.authMethodId ?? '').type === 'oauth2';
   if (connection.status === 'Ready' && !editing) {
@@ -880,6 +903,11 @@ export function isMultipleAuthMethodSelection(manifest: ReleaseManifest): boolea
   return manifest.spec.auth.selection === 'multiple';
 }
 
+// A release whose setup declares connection.write renders the whole connection form in its Connector UI.
+export function isConnectionSetupStudio(session: UISessionResponse): boolean {
+  return Boolean(session.entrypointUrl) && studioHostCapabilities(session).includes(connectionWriteCapability);
+}
+
 export function isStudioConnectionField(field: ManifestField, session: UISessionResponse): boolean {
   const studioUnit = field.studioUnit;
   return studioUnit !== undefined && Boolean(session.entrypointUrl)
@@ -1200,7 +1228,7 @@ function StudioFrame({ catalog, connection, configuration, session, target, onCo
             type: 'connector.command.result', protocolVersion: '0.2.0', sessionNonce: session.sessionNonce,
             connectorId: connection.connectorId, requestId: commandMessage.requestId, ok: true, value,
           }, '*');
-          if (commandMessage.command === 'use.configuration.save') await onConfigured();
+          if (commandMessage.command === 'use.configuration.save' || commandMessage.command === 'connection.save') await onConfigured();
         }).catch((commandError: unknown) => {
           const failure = studioCommandFailureOutcome(connection, session, commandMessage, commandError);
           if (failure.pageBannerMessage !== undefined) onError(failure.pageBannerMessage);
@@ -1285,6 +1313,7 @@ export function connectorHostReadyMessage(
       detail: connection.status,
       authMethodIds: connectionAuthMethodIds(connection),
       configuration: connection.configuration ?? {},
+      storedCredentialFields: connection.storedCredentialFields ?? [],
     },
     target,
     theme: appearance.theme,
@@ -1298,7 +1327,9 @@ export function connectionAuthMethodIds(connection: ConnectionView): string[] {
   return connection.authMethodId ? [connection.authMethodId] : [];
 }
 
-type StudioCommand = 'oauth.connect' | 'oauth.reconnect' | 'provider.command.execute' | 'use.configuration.save';
+type StudioCommand = 'oauth.connect' | 'oauth.reconnect' | 'provider.command.execute' | 'use.configuration.save' | 'connection.save';
+
+const connectionWriteCapability = 'connection.write';
 
 export function isStudioCommand(value: unknown, session: UISessionResponse): value is { requestId: string; command: StudioCommand; input?: Record<string, unknown> } {
   if (typeof value !== 'object' || value === null) return false;
@@ -1308,7 +1339,8 @@ export function isStudioCommand(value: unknown, session: UISessionResponse): val
     && typeof message.requestId === 'string'
     && (message.input === undefined || isRecord(message.input))
     && (message.command === 'oauth.connect' || message.command === 'oauth.reconnect'
-      || message.command === 'provider.command.execute' || message.command === 'use.configuration.save');
+      || message.command === 'provider.command.execute' || message.command === 'use.configuration.save'
+      || message.command === 'connection.save');
 }
 
 export function isStudioFrameResize(value: unknown, session: UISessionResponse): value is {height: number} {
@@ -1323,6 +1355,7 @@ export function isStudioFrameResize(value: unknown, session: UISessionResponse):
 function studioCommandCapability(command: StudioCommand, input: Record<string, unknown> | undefined, session: UISessionResponse) {
   if (command === 'oauth.connect' || command === 'oauth.reconnect') return 'oauth.connection.manage';
   if (command === 'use.configuration.save') return 'use.configuration.write';
+  if (command === 'connection.save') return connectionWriteCapability;
   if (command === 'provider.command.execute') {
     const commandId = input?.commandId;
     if (typeof commandId !== 'string') return null;
@@ -1333,7 +1366,7 @@ function studioCommandCapability(command: StudioCommand, input: Record<string, u
 
 export function studioHostCapabilities(session: UISessionResponse): string[] {
   const declared = session.manifest.spec.studio?.setup.backendCapabilities ?? [];
-  const supported = new Set(['oauth.connection.manage', 'use.configuration.write']);
+  const supported = new Set(['oauth.connection.manage', 'use.configuration.write', connectionWriteCapability]);
   for (const command of session.manifest.spec.studio?.commands ?? []) supported.add(command.capability);
   return declared.filter((capability) => supported.has(capability));
 }
@@ -1375,7 +1408,10 @@ async function executeStudioCommand(
     }
     target = `/api/v2/connector-ui-sessions/${encodeURIComponent(session.sessionNonce ?? '')}/commands/${encodeURIComponent(commandId)}`;
     method = 'POST';
-    body = JSON.stringify({parameters: stringRecordInput(input, 'parameters')});
+    body = JSON.stringify(providerCommandRequestBody(session, input));
+  } else if (command === 'connection.save') {
+    method = 'PUT';
+    body = JSON.stringify(connectionSetupSaveRequestBody(connection, session.manifest, input));
   } else if (command === 'use.configuration.save' && targetScope.kind === 'configurationUnit') {
     const value = recordInput(input, 'value');
     const unit = targetScope;
@@ -1396,6 +1432,38 @@ async function executeStudioCommand(
   }
   const response = await fetch(target, { method, headers: connectorWriteHeaders(catalog), body });
   return readResponseJSON<Record<string, unknown>>(response);
+}
+
+// Only a setup granted connection.write may list with credentials the user typed but has not saved.
+export function providerCommandRequestBody(session: UISessionResponse, input: Record<string, unknown> | undefined) {
+  const parameters = stringRecordInput(input, 'parameters');
+  if (input?.credentials === undefined) return {parameters};
+  if (!studioHostCapabilities(session).includes(connectionWriteCapability)) throw new Error('This Connector UI cannot send credentials');
+  return {parameters, credentials: stringRecordInput(input, 'credentials')};
+}
+
+// connection.save writes the setup's whole configuration and credentials in one request, like the host form.
+export function connectionSetupSaveRequestBody(
+  connection: ConnectionView,
+  manifest: ReleaseManifest,
+  input: Record<string, unknown> | undefined,
+) {
+  const keepCredentialFields = input?.keepCredentialFields ?? [];
+  if (!Array.isArray(keepCredentialFields) || keepCredentialFields.some((name) => typeof name !== 'string')) {
+    throw new Error('keepCredentialFields must contain field names');
+  }
+  const authMethodId = input?.authMethodId ?? connection.authMethodId ?? '';
+  if (typeof authMethodId !== 'string') throw new Error('authMethodId must be a string');
+  return {
+    modulePath: connection.modulePath,
+    moduleVersion: connection.moduleVersion,
+    provider: manifest.spec.provider,
+    authMethodId,
+    configuration: recordInput(input, 'configuration'),
+    credentials: stringRecordInput(input, 'credentials'),
+    keepCredentialFields,
+    credentialExpiresAt: null,
+  };
 }
 
 function stringRecordInput(input: Record<string, unknown> | undefined, name: string): Record<string, string> {
