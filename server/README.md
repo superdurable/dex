@@ -22,20 +22,6 @@ envelopes. A trailing-slash map name loads every instance. The suffix names one
 instance. Empty loads
 are echoed separately from their loaded data.
 
-Nontransactional RPC inputs and outputs travel directly between the caller,
-Dex, and the Worker. They are not persisted or offloaded. Transactional RPC
-inputs and outputs are persisted and use the durable Blob Store threshold.
-State changes returned by any RPC use the same threshold. Nontransactional
-read-only RPCs do not write Blob objects or record RPC calls in Flow history;
-loading existing state may read existing Blob objects.
-
-A complete nontransactional Worker request above `api.grpcMaxMessageBytes`
-fails with `ResourceExhausted` before calling the Worker. SDK Workers default
-to a 4 MiB receive limit, independently of the server's
-`api.grpcMaxMessageBytes` limit (16 MiB by default). Transactional
-requests rejected by the server's Worker-request size check retain
-`WORKER_API_ERROR` with `OriginalWorkerErrorStatus=8` and are not retried.
-
 State loading controls only the Worker request projection. Transactional
 execution controls atomic commit and Channel deletion validation. Attribute
 locking additionally isolates cooperating Steps and RPCs that use the same
