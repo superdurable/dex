@@ -285,7 +285,14 @@ analyzer follows those calls up to six levels deep, including calls inside loops
 and function literals, and binds a resource argument to the matching parameter.
 Such an edge records the helper as `metadata.via: helper` and
 `metadata.function`. Wait conditions and Execute decisions are structured node
-details rather than labels inferred from edges. Channel edges run from
+details rather than labels inferred from edges. Go SubFlow conditions include the
+registered child Flow type and zero-based argument index within Until, AnyOf,
+or AllOf. Condition helpers in the same package are followed up to six levels
+when they have one return expression. Recursive or dynamic helpers remain
+unknown. A SubFlow node's metadata.flowType and metadata.sourcePath reference
+the child's registered type and source file, with the path relative to the
+parent source file. When both definitions are loaded, the child name links to
+its graph. Pending child waits survive parent run switches. Channel edges run from
 publishers through the Channel to consuming WaitFor paths. Attribute edges run
 from writers through the Attribute group to readers. Terminal decisions and
 cancellation remain inside their Execute card. The graph also records repeatable
@@ -531,6 +538,7 @@ the local supervisor.
 make -C cli build
 make -C cli test
 make -C cli integration-test
+make -C cli integration-test TEST_ARGS='-run TestVisualizeSubFlow'
 ```
 
 The Web build is embedded into the resulting `cli/dexcli` binary. Running that

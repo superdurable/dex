@@ -13,7 +13,7 @@ import type { FlowDefinitionCatalog } from '@/lib/types';
 
 export function FlowRenderingPage() {
   const [catalog, setCatalog] = useState<FlowDefinitionCatalog | null>(null);
-  const [selectedID, setSelectedID] = useState('');
+  const [selectedID, setSelectedID] = useState(() => new URLSearchParams(window.location.search).get('definition') ?? '');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -33,6 +33,16 @@ export function FlowRenderingPage() {
     () => catalog?.definitions.find((definition) => definition.id === selectedID),
     [catalog, selectedID],
   );
+
+  const subFlowLinks = useMemo(() => {
+    const links: Record<string, string> = {};
+    for (const node of selected?.graph.nodes ?? []) {
+      if (node.kind !== 'subflow' || typeof node.metadata?.flowType !== 'string') continue;
+      const children = catalog?.definitions.filter((definition) => definition.valid && definition.flowName === node.metadata?.flowType) ?? [];
+      if (children.length === 1) links[node.id] = `?definition=${encodeURIComponent(children[0].id)}`;
+    }
+    return links;
+  }, [catalog, selected]);
 
   return (
     <div className="page-shell flow-rendering-page">
@@ -100,12 +110,13 @@ export function FlowRenderingPage() {
           <div className="flow-rendering-graph">
             {selected && (
               selected.graph.schemaVersion === '2.0' ? (
-                <ProcessCanvasView key={selected.id} graph={selected.graph} />
+                <ProcessCanvasView key={selected.id} graph={selected.graph} subFlowLinks={subFlowLinks} />
               ) : (
                 <FlowDefinitionGraphView
                   key={selected.id}
                   displayName={selected.flowName}
                   graph={selected.graph}
+                  subFlowLinks={subFlowLinks}
                 />
               )
             )}

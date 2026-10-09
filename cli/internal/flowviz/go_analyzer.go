@@ -1040,53 +1040,11 @@ func (analyzer *goAnalyzer) checkedChannels(expression ast.Expr) []string {
 }
 
 func (analyzer *goAnalyzer) goWaitConditions(waitID string, waitCall *ast.CallExpr) []WaitCondition {
-	conditions := make([]WaitCondition, 0)
-	ast.Inspect(waitCall, func(current ast.Node) bool {
-		call, ok := current.(*ast.CallExpr)
-		if !ok || call == waitCall {
-			return true
-		}
-		name := analyzer.callName(call)
-		switch name {
-		case "Timer":
-			expression := "duration"
-			if len(call.Args) > 0 {
-				expression = analyzer.expressionString(call.Args[0])
-			}
-			conditions = append(conditions, WaitCondition{
-				Kind: "timer", Label: humanizeGoDuration(expression) + " timer", Expression: expression, Span: analyzer.span(call),
-			})
-			return false
-		case "SubFlow":
-			goTypeName := "SubFlow"
-			flowTypeName := ""
-			if len(call.Args) > 0 {
-				goTypeName = valueOr(analyzer.expressionTypeName(call.Args[0]), goTypeName)
-				flowTypeName = analyzer.subFlowTypeName(call.Args[0])
-			}
-			name := valueOr(flowTypeName, goTypeName)
-			subFlowID := fmt.Sprintf("subflow:%s:%d", goTypeName, analyzer.fileSet.Position(call.Pos()).Line)
-			analyzer.graph.AddNode(Node{ID: subFlowID, Kind: "subflow", Name: name, External: true, Span: analyzer.span(call)})
-			analyzer.graph.AddEdge(Edge{Kind: "subflow", From: waitID, To: subFlowID, Label: "start", Span: analyzer.span(call)})
-			conditions = append(conditions, WaitCondition{Kind: "subflow", Label: name, SubFlowID: subFlowID, Span: analyzer.span(call)})
-			return false
-		}
-		selector, selectorOK := unwrapCallFun(call.Fun).(*ast.SelectorExpr)
-		if !selectorOK || !isGoChannelCondition(name) {
-			return true
-		}
-		resourceID := analyzer.resourceForExpression(selector.X)
-		if !strings.HasPrefix(resourceID, "resource:channel:") {
-			return true
-		}
-		label, expression := analyzer.goChannelConditionLabel(resourceID, name, call.Args)
-		conditions = append(conditions, WaitCondition{
-			Kind: "channel", Label: label, ResourceID: resourceID, Expression: expression, Span: analyzer.span(call),
-		})
-		analyzer.graph.AddEdge(Edge{Kind: "wait_condition", From: resourceID, To: waitID, Label: label, Span: analyzer.span(call)})
-		return false
-	})
-	return conditions
+	collector := &goWaitConditionCollector{analyzer: analyzer, waitID: waitID, conditions: make([]WaitCondition, 0)}
+	for index, argument := range waitCall.Args {
+		collector.collect(argument, index, nil, goMaximumHelperDepth, goCallReach{})
+	}
+	return collector.conditions
 }
 
 // The SubFlow node is display-only, so an unknowable child name falls back to its Go type.

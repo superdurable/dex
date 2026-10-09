@@ -1,0 +1,466 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "go",
+    "path": "examples/go/primitives/subflow/selection_flow.go"
+  },
+  "flow": {
+    "name": "SubFlowSelectionFlow",
+    "startStepId": "step:awaitChildAlone",
+    "span": {
+      "startLine": 31,
+      "startColumn": 1,
+      "endLine": 37,
+      "endColumn": 2
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:rpc:GetDexDisplay:55:9",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:GetDexDisplay",
+      "phase": "rpc",
+      "span": {
+        "startLine": 55,
+        "startColumn": 9,
+        "endLine": 55,
+        "endColumn": 65
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:GetDexSummary:51:9",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:GetDexSummary",
+      "phase": "rpc",
+      "span": {
+        "startLine": 51,
+        "startColumn": 9,
+        "endLine": 51,
+        "endColumn": 65
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:awaitChildAlone:67:9",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:awaitChildAlone",
+      "phase": "execute",
+      "span": {
+        "startLine": 67,
+        "startColumn": 9,
+        "endLine": 67,
+        "endColumn": 47
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:awaitChildOrMessage:79:9",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:awaitChildOrMessage",
+      "phase": "execute",
+      "span": {
+        "startLine": 79,
+        "startColumn": 9,
+        "endLine": 79,
+        "endColumn": 49
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:awaitChildrenTogether:91:9",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:awaitChildrenTogether",
+      "phase": "execute",
+      "span": {
+        "startLine": 91,
+        "startColumn": 9,
+        "endLine": 91,
+        "endColumn": 36
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "resource:channel:SelectionMessages",
+      "kind": "channel",
+      "name": "selection-messages",
+      "span": {
+        "startLine": 25,
+        "startColumn": 5,
+        "endLine": 25,
+        "endColumn": 72
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "rpc:GetDexDisplay",
+      "kind": "rpc",
+      "name": "GetDexDisplay",
+      "span": {
+        "startLine": 54,
+        "startColumn": 1,
+        "endLine": 56,
+        "endColumn": 2
+      }
+    },
+    {
+      "id": "rpc:GetDexSummary",
+      "kind": "rpc",
+      "name": "GetDexSummary",
+      "span": {
+        "startLine": 50,
+        "startColumn": 1,
+        "endLine": 52,
+        "endColumn": 2
+      }
+    },
+    {
+      "id": "step:awaitChildAlone",
+      "kind": "step",
+      "name": "awaitChildAlone",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 33,
+        "startColumn": 3,
+        "endLine": 33,
+        "endColumn": 41
+      }
+    },
+    {
+      "id": "step:awaitChildOrMessage",
+      "kind": "step",
+      "name": "awaitChildOrMessage",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 34,
+        "startColumn": 3,
+        "endLine": 34,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "step:awaitChildrenTogether",
+      "kind": "step",
+      "name": "awaitChildrenTogether",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 35,
+        "startColumn": 3,
+        "endLine": 35,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "subflow:wait:awaitChildAlone:63:9:0:SubFlowChildFlow:63:19",
+      "kind": "subflow",
+      "name": "SubFlowChildFlow",
+      "external": true,
+      "span": {
+        "startLine": 63,
+        "startColumn": 19,
+        "endLine": 63,
+        "endColumn": 58
+      },
+      "metadata": {
+        "flowType": "SubFlowChildFlow",
+        "sourcePath": "child_flow.go"
+      }
+    },
+    {
+      "id": "subflow:wait:awaitChildOrMessage:75:9:0:SubFlowChildFlow:95:9",
+      "kind": "subflow",
+      "name": "SubFlowChildFlow",
+      "external": true,
+      "span": {
+        "startLine": 95,
+        "startColumn": 9,
+        "endLine": 95,
+        "endColumn": 34
+      },
+      "metadata": {
+        "flowType": "SubFlowChildFlow",
+        "sourcePath": "child_flow.go"
+      }
+    },
+    {
+      "id": "subflow:wait:awaitChildrenTogether:87:9:0:SubFlowChildFlow:95:9",
+      "kind": "subflow",
+      "name": "SubFlowChildFlow",
+      "external": true,
+      "span": {
+        "startLine": 95,
+        "startColumn": 9,
+        "endLine": 95,
+        "endColumn": 34
+      },
+      "metadata": {
+        "flowType": "SubFlowChildFlow",
+        "sourcePath": "child_flow.go"
+      }
+    },
+    {
+      "id": "subflow:wait:awaitChildrenTogether:87:9:1:SubFlowChildFlow:95:9",
+      "kind": "subflow",
+      "name": "SubFlowChildFlow",
+      "external": true,
+      "span": {
+        "startLine": 95,
+        "startColumn": 9,
+        "endLine": 95,
+        "endColumn": 34
+      },
+      "metadata": {
+        "flowType": "SubFlowChildFlow",
+        "sourcePath": "child_flow.go"
+      }
+    },
+    {
+      "id": "wait:awaitChildAlone:63:9",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:awaitChildAlone",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 63,
+        "startColumn": 9,
+        "endLine": 63,
+        "endColumn": 59
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "subflow",
+            "label": "SubFlowChildFlow",
+            "subFlowId": "subflow:wait:awaitChildAlone:63:9:0:SubFlowChildFlow:63:19",
+            "span": {
+              "startLine": 63,
+              "startColumn": 19,
+              "endLine": 63,
+              "endColumn": 58
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:awaitChildOrMessage:75:9",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:awaitChildOrMessage",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 75,
+        "startColumn": 9,
+        "endLine": 75,
+        "endColumn": 100
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "subflow",
+            "label": "SubFlowChildFlow",
+            "subFlowId": "subflow:wait:awaitChildOrMessage:75:9:0:SubFlowChildFlow:95:9",
+            "span": {
+              "startLine": 95,
+              "startColumn": 9,
+              "endLine": 95,
+              "endColumn": 34
+            }
+          },
+          {
+            "index": 1,
+            "kind": "channel",
+            "label": "selection-messages.for 1",
+            "resourceId": "resource:channel:SelectionMessages",
+            "span": {
+              "startLine": 75,
+              "startColumn": 73,
+              "endLine": 75,
+              "endColumn": 99
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:awaitChildrenTogether:87:9",
+      "kind": "wait",
+      "name": "allOf",
+      "parentId": "step:awaitChildrenTogether",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 87,
+        "startColumn": 9,
+        "endLine": 87,
+        "endColumn": 128
+      },
+      "wait": {
+        "type": "allOf",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "subflow",
+            "label": "SubFlowChildFlow",
+            "subFlowId": "subflow:wait:awaitChildrenTogether:87:9:0:SubFlowChildFlow:95:9",
+            "span": {
+              "startLine": 95,
+              "startColumn": 9,
+              "endLine": 95,
+              "endColumn": 34
+            }
+          },
+          {
+            "index": 1,
+            "kind": "subflow",
+            "label": "SubFlowChildFlow",
+            "subFlowId": "subflow:wait:awaitChildrenTogether:87:9:1:SubFlowChildFlow:95:9",
+            "span": {
+              "startLine": 95,
+              "startColumn": 9,
+              "endLine": 95,
+              "endColumn": 34
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:awaitChildAlone:67:9",
+      "to": "step:awaitChildOrMessage",
+      "label": "GoTo",
+      "span": {
+        "startLine": 67,
+        "startColumn": 9,
+        "endLine": 67,
+        "endColumn": 47
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:awaitChildOrMessage:79:9",
+      "to": "step:awaitChildrenTogether",
+      "label": "GoTo",
+      "span": {
+        "startLine": 79,
+        "startColumn": 9,
+        "endLine": 79,
+        "endColumn": 49
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "wait_condition",
+      "from": "resource:channel:SelectionMessages",
+      "to": "wait:awaitChildOrMessage:75:9",
+      "label": "selection-messages.for 1",
+      "span": {
+        "startLine": 75,
+        "startColumn": 73,
+        "endLine": 75,
+        "endColumn": 99
+      },
+      "metadata": {
+        "conditionIndex": 1
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "subflow",
+      "from": "wait:awaitChildAlone:63:9",
+      "to": "subflow:wait:awaitChildAlone:63:9:0:SubFlowChildFlow:63:19",
+      "label": "start",
+      "span": {
+        "startLine": 63,
+        "startColumn": 19,
+        "endLine": 63,
+        "endColumn": 58
+      },
+      "metadata": {
+        "conditionIndex": 0
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "subflow",
+      "from": "wait:awaitChildOrMessage:75:9",
+      "to": "subflow:wait:awaitChildOrMessage:75:9:0:SubFlowChildFlow:95:9",
+      "label": "start",
+      "span": {
+        "startLine": 95,
+        "startColumn": 9,
+        "endLine": 95,
+        "endColumn": 34
+      },
+      "metadata": {
+        "conditionIndex": 0,
+        "function": "childCompletionCondition",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "subflow",
+      "from": "wait:awaitChildrenTogether:87:9",
+      "to": "subflow:wait:awaitChildrenTogether:87:9:0:SubFlowChildFlow:95:9",
+      "label": "start",
+      "span": {
+        "startLine": 95,
+        "startColumn": 9,
+        "endLine": 95,
+        "endColumn": 34
+      },
+      "metadata": {
+        "conditionIndex": 0,
+        "function": "childCompletionCondition",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "subflow",
+      "from": "wait:awaitChildrenTogether:87:9",
+      "to": "subflow:wait:awaitChildrenTogether:87:9:1:SubFlowChildFlow:95:9",
+      "label": "start",
+      "span": {
+        "startLine": 95,
+        "startColumn": 9,
+        "endLine": 95,
+        "endColumn": 34
+      },
+      "metadata": {
+        "conditionIndex": 1,
+        "function": "childCompletionCondition",
+        "via": "helper"
+      }
+    }
+  ],
+  "diagnostics": []
+}

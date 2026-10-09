@@ -27,3 +27,7 @@ Attribute, and Stream relations remain hidden until their resource or a related
 Step, WaitFor, Execute decision, RPC, or timeout handler is selected. The RPC
 legend control affects only RPC nodes; Flow timeout handlers always remain
 visible as part of the Flow.
+
+Both renderers accept optional `subFlowLinks`, mapping a SubFlow node ID to its
+child definition URL. Without a matching URL the child name remains plain text.
+Wait descriptions show each SubFlow's zero-based source argument index.

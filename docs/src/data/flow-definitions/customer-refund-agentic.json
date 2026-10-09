@@ -2024,6 +2024,7 @@
         "type": "until",
         "conditions": [
           {
+            "index": 0,
             "kind": "channel",
             "label": "message-approval[gateRequestKey].for 1",
             "resourceId": "resource:channel:agenticMessageApproval",
@@ -2054,6 +2055,7 @@
         "type": "until",
         "conditions": [
           {
+            "index": 0,
             "kind": "channel",
             "label": "manager-approval[gateRequestKey].for 1",
             "resourceId": "resource:channel:agenticManagerApproval",
@@ -3301,6 +3303,9 @@
         "startColumn": 19,
         "endLine": 917,
         "endColumn": 64
+      },
+      "metadata": {
+        "conditionIndex": 0
       }
     },
     {
@@ -3330,6 +3335,9 @@
         "startColumn": 19,
         "endLine": 1260,
         "endColumn": 64
+      },
+      "metadata": {
+        "conditionIndex": 0
       }
     },
     {

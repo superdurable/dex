@@ -193,6 +193,7 @@ type WaitDetails struct {
 }
 
 type WaitCondition struct {
+	Index      *int   `json:"index,omitempty"`
 	Kind       string `json:"kind"`
 	Label      string `json:"label"`
 	ResourceID string `json:"resourceId,omitempty"`

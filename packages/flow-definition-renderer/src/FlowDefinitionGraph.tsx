@@ -25,6 +25,7 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import type { FlowDefinitionGraph, FlowDefinitionNode, SourceSpan } from './types';
+import { SubFlowDefinitionLink } from './SubFlowDefinitionLink';
 import {
   buildDefinitionScene,
   filterDefinitionEdgesForSelection,
@@ -78,9 +79,11 @@ const edgeTypes: EdgeTypes = { definitionEdge: DefinitionEdge };
 export function FlowDefinitionGraphView({
   displayName,
   graph,
+  subFlowLinks,
 }: {
   displayName: string;
   graph: FlowDefinitionGraph;
+  subFlowLinks?: Record<string, string>;
 }) {
   const [visibility, setVisibility] = useState(defaultVisibility);
   const [selectedNodeID, setSelectedNodeID] = useState('');
@@ -88,8 +91,17 @@ export function FlowDefinitionGraphView({
   const [isMiniMapExpanded, setIsMiniMapExpanded] = useState(false);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
   const scene = useMemo(
-    () => buildDefinitionScene(graph, visibility),
-    [graph, visibility],
+    () => {
+      const definitionScene = buildDefinitionScene(graph, visibility);
+      return {
+        ...definitionScene,
+        nodes: definitionScene.nodes.map((node) => ({
+          ...node,
+          data: { ...node.data, subFlowHref: subFlowLinks?.[node.id] },
+        })),
+      };
+    },
+    [graph, visibility, subFlowLinks],
   );
   const selectedNode = scene.nodes.find((node) => node.id === selectedNodeID);
   const visibleEdges = useMemo(
@@ -288,7 +300,7 @@ function WaitNode({ data }: NodeProps) {
         <div className="definition-shape-rows">
           {definition.wait?.conditions.map((condition, index) => (
             <span key={`${condition.kind}-${condition.label}-${index}`}>
-              {waitIcon(condition.kind)} {condition.label}
+              {waitIcon(condition.kind)} {condition.kind === 'subflow' ? `SubFlow [${condition.index ?? index}]: ` : ''}{condition.label}
             </span>
           ))}
         </div>
@@ -415,7 +427,7 @@ function SubFlowNode({ data }: NodeProps) {
   return (
     <div aria-label={sourceTitle(definition)} className="definition-subflow-frame">
       <Handle position={Position.Left} type="target" />
-      <strong>{definition.name}</strong>
+      <SubFlowDefinitionLink definition={definition} href={(data as DefinitionNodeData).subFlowHref} />
     </div>
   );
 }
