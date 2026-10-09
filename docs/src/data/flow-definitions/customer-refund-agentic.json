@@ -2651,6 +2651,96 @@
     {
       "id": "edge:0045",
       "kind": "resource_read",
+      "from": "resource:attribute:agenticCancellationPending",
+      "to": "step:agenticDecision",
+      "label": "Get",
+      "span": {
+        "startLine": 1466,
+        "startColumn": 30,
+        "endLine": 1466,
+        "endColumn": 65
+      },
+      "metadata": {
+        "function": "agenticChooseAction",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0046",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticCaseStatus",
+      "to": "rpc:ApproveRefund",
+      "label": "Get",
+      "span": {
+        "startLine": 1514,
+        "startColumn": 17,
+        "endLine": 1514,
+        "endColumn": 43
+      },
+      "metadata": {
+        "function": "agenticValidateOpenGate",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0047",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticCaseStatus",
+      "to": "rpc:ConfirmCustomerMessage",
+      "label": "Get",
+      "span": {
+        "startLine": 1496,
+        "startColumn": 17,
+        "endLine": 1496,
+        "endColumn": 43
+      },
+      "metadata": {
+        "function": "agenticValidateOpenMessageGate",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0048",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticCaseStatus",
+      "to": "rpc:EditCustomerMessage",
+      "label": "Get",
+      "span": {
+        "startLine": 1496,
+        "startColumn": 17,
+        "endLine": 1496,
+        "endColumn": 43
+      },
+      "metadata": {
+        "function": "agenticValidateOpenMessageGate",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0049",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticCaseStatus",
+      "to": "rpc:RejectRefund",
+      "label": "Get",
+      "span": {
+        "startLine": 1514,
+        "startColumn": 17,
+        "endLine": 1514,
+        "endColumn": 43
+      },
+      "metadata": {
+        "function": "agenticValidateOpenGate",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0050",
+      "kind": "resource_read",
       "from": "resource:attribute:agenticCaseStatus",
       "to": "step:agenticPrepareCustomerMessage",
       "label": "Get",
@@ -2665,7 +2755,7 @@
       }
     },
     {
-      "id": "edge:0046",
+      "id": "edge:0051",
       "kind": "resource_read",
       "from": "resource:attribute:agenticCaseStatus",
       "to": "step:agenticSendCustomerMessage",
@@ -2681,7 +2771,25 @@
       }
     },
     {
-      "id": "edge:0047",
+      "id": "edge:0052",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticChargeReference",
+      "to": "rpc:GetDexSummary",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0053",
       "kind": "resource_read",
       "from": "resource:attribute:agenticCustomerMessageContext",
       "to": "step:agenticStoreGeneratedCustomerMessage",
@@ -2697,7 +2805,7 @@
       }
     },
     {
-      "id": "edge:0048",
+      "id": "edge:0054",
       "kind": "resource_read",
       "from": "resource:attribute:agenticCustomerMessageContext",
       "to": "step:agenticUseFallbackCustomerMessage",
@@ -2713,7 +2821,7 @@
       }
     },
     {
-      "id": "edge:0049",
+      "id": "edge:0055",
       "kind": "resource_read",
       "from": "resource:attribute:agenticCustomerMessageDraft",
       "to": "step:agenticSendCustomerMessage",
@@ -2729,7 +2837,151 @@
       }
     },
     {
-      "id": "edge:0050",
+      "id": "edge:0056",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticDecisionRounds",
+      "to": "step:agenticDecision",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0057",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticGateEntries",
+      "to": "step:agenticGuardrail",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0058",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticGateEntries",
+      "to": "step:agenticStoreGeneratedCustomerMessage",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0059",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticGateEntries",
+      "to": "step:agenticUseFallbackCustomerMessage",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0060",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticGateRequestKey",
+      "to": "rpc:ApproveRefund",
+      "label": "Get",
+      "span": {
+        "startLine": 1521,
+        "startColumn": 25,
+        "endLine": 1521,
+        "endColumn": 55
+      },
+      "metadata": {
+        "function": "agenticValidateOpenGate",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0061",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticGateRequestKey",
+      "to": "rpc:ConfirmCustomerMessage",
+      "label": "Get",
+      "span": {
+        "startLine": 1503,
+        "startColumn": 25,
+        "endLine": 1503,
+        "endColumn": 55
+      },
+      "metadata": {
+        "function": "agenticValidateOpenMessageGate",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0062",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticGateRequestKey",
+      "to": "rpc:EditCustomerMessage",
+      "label": "Get",
+      "span": {
+        "startLine": 1503,
+        "startColumn": 25,
+        "endLine": 1503,
+        "endColumn": 55
+      },
+      "metadata": {
+        "function": "agenticValidateOpenMessageGate",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0063",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticGateRequestKey",
+      "to": "rpc:RejectRefund",
+      "label": "Get",
+      "span": {
+        "startLine": 1521,
+        "startColumn": 25,
+        "endLine": 1521,
+        "endColumn": 55
+      },
+      "metadata": {
+        "function": "agenticValidateOpenGate",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0064",
       "kind": "resource_read",
       "from": "resource:attribute:agenticGateRequestKey",
       "to": "step:agenticConfirmCustomerMessage",
@@ -2745,7 +2997,7 @@
       }
     },
     {
-      "id": "edge:0051",
+      "id": "edge:0065",
       "kind": "resource_read",
       "from": "resource:attribute:agenticGateRequestKey",
       "to": "step:agenticConfirmCustomerMessage",
@@ -2761,7 +3013,7 @@
       }
     },
     {
-      "id": "edge:0052",
+      "id": "edge:0066",
       "kind": "resource_read",
       "from": "resource:attribute:agenticGateRequestKey",
       "to": "step:agenticRequestHumanApproval",
@@ -2777,7 +3029,7 @@
       }
     },
     {
-      "id": "edge:0053",
+      "id": "edge:0067",
       "kind": "resource_read",
       "from": "resource:attribute:agenticGateRequestKey",
       "to": "step:agenticRequestHumanApproval",
@@ -2793,7 +3045,79 @@
       }
     },
     {
-      "id": "edge:0054",
+      "id": "edge:0068",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticGuardrailRule",
+      "to": "rpc:GetDexSummary",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0069",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticHistoryStatus",
+      "to": "step:agenticDecision",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0070",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticIdentityStatus",
+      "to": "step:agenticDecision",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0071",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticIncidentStatus",
+      "to": "step:agenticDecision",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0072",
       "kind": "resource_read",
       "from": "resource:attribute:agenticManagerVerdict",
       "to": "step:agenticReCheck",
@@ -2809,7 +3133,79 @@
       }
     },
     {
-      "id": "edge:0055",
+      "id": "edge:0073",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticPaymentAmount",
+      "to": "rpc:GetDexSummary",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0074",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticPaymentStatus",
+      "to": "step:agenticDecision",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0075",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticPriorRefunds",
+      "to": "step:agenticDecision",
+      "label": "Get",
+      "span": {
+        "startLine": 1462,
+        "startColumn": 23,
+        "endLine": 1462,
+        "endColumn": 51
+      },
+      "metadata": {
+        "function": "agenticChooseAction",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0076",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticRecommendedAction",
+      "to": "rpc:GetDexSummary",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0077",
       "kind": "resource_read",
       "from": "resource:attribute:agenticRecommendedAction",
       "to": "step:agenticGuardrail",
@@ -2825,7 +3221,61 @@
       }
     },
     {
-      "id": "edge:0056",
+      "id": "edge:0078",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticSubscriptionStatus",
+      "to": "step:agenticDecision",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0079",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticUsagePercent",
+      "to": "step:agenticDecision",
+      "label": "Get",
+      "span": {
+        "startLine": 1458,
+        "startColumn": 23,
+        "endLine": 1458,
+        "endColumn": 51
+      },
+      "metadata": {
+        "function": "agenticChooseAction",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0080",
+      "kind": "resource_read",
+      "from": "resource:attribute:agenticUsageStatus",
+      "to": "step:agenticDecision",
+      "label": "Get",
+      "span": {
+        "startLine": 1535,
+        "startColumn": 16,
+        "endLine": 1535,
+        "endColumn": 34
+      },
+      "metadata": {
+        "function": "agenticOptionalAttribute",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0081",
       "kind": "resource_read",
       "from": "resource:channel:agenticManagerApproval",
       "to": "step:agenticRequestHumanApproval",
@@ -2841,7 +3291,7 @@
       }
     },
     {
-      "id": "edge:0057",
+      "id": "edge:0082",
       "kind": "wait_condition",
       "from": "resource:channel:agenticManagerApproval",
       "to": "wait:agenticRequestHumanApproval:917:9",
@@ -2854,7 +3304,7 @@
       }
     },
     {
-      "id": "edge:0058",
+      "id": "edge:0083",
       "kind": "resource_read",
       "from": "resource:channel:agenticMessageApproval",
       "to": "step:agenticConfirmCustomerMessage",
@@ -2870,7 +3320,7 @@
       }
     },
     {
-      "id": "edge:0059",
+      "id": "edge:0084",
       "kind": "wait_condition",
       "from": "resource:channel:agenticMessageApproval",
       "to": "wait:agenticConfirmCustomerMessage:1260:9",
@@ -2883,7 +3333,7 @@
       }
     },
     {
-      "id": "edge:0060",
+      "id": "edge:0085",
       "kind": "resource_publish",
       "from": "rpc:ApproveRefund",
       "to": "resource:channel:agenticManagerApproval",
@@ -2899,7 +3349,7 @@
       }
     },
     {
-      "id": "edge:0061",
+      "id": "edge:0086",
       "kind": "resource_publish",
       "from": "rpc:ConfirmCustomerMessage",
       "to": "resource:channel:agenticMessageApproval",
@@ -2915,7 +3365,7 @@
       }
     },
     {
-      "id": "edge:0062",
+      "id": "edge:0087",
       "kind": "resource_write",
       "from": "rpc:EditCustomerMessage",
       "to": "resource:attribute:agenticCustomerMessageDraft",
@@ -2931,7 +3381,7 @@
       }
     },
     {
-      "id": "edge:0063",
+      "id": "edge:0088",
       "kind": "resource_publish",
       "from": "rpc:EditCustomerMessage",
       "to": "resource:channel:agenticMessageApproval",
@@ -2947,7 +3397,7 @@
       }
     },
     {
-      "id": "edge:0064",
+      "id": "edge:0089",
       "kind": "resource_write",
       "from": "rpc:RejectRefund",
       "to": "resource:attribute:agenticManagerRejectionReason",
@@ -2963,7 +3413,7 @@
       }
     },
     {
-      "id": "edge:0065",
+      "id": "edge:0090",
       "kind": "resource_publish",
       "from": "rpc:RejectRefund",
       "to": "resource:channel:agenticManagerApproval",
@@ -2979,7 +3429,7 @@
       }
     },
     {
-      "id": "edge:0066",
+      "id": "edge:0091",
       "kind": "resource_write",
       "from": "step:GenerateCustomerMessageStep",
       "to": "resource:attribute:agenticGeneratedCustomerMessage",
@@ -2989,7 +3439,7 @@
       }
     },
     {
-      "id": "edge:0067",
+      "id": "edge:0092",
       "kind": "transition",
       "from": "step:GenerateCustomerMessageStep",
       "to": "step:agenticStoreGeneratedCustomerMessage",
@@ -3005,7 +3455,7 @@
       }
     },
     {
-      "id": "edge:0068",
+      "id": "edge:0093",
       "kind": "transition",
       "from": "step:GenerateCustomerMessageStep",
       "to": "step:agenticUseFallbackCustomerMessage",
@@ -3021,7 +3471,7 @@
       }
     },
     {
-      "id": "edge:0069",
+      "id": "edge:0094",
       "kind": "transition",
       "from": "step:GenerateCustomerMessageStep",
       "to": "step:agenticUseFallbackCustomerMessage",
@@ -3037,7 +3487,7 @@
       }
     },
     {
-      "id": "edge:0070",
+      "id": "edge:0095",
       "kind": "transition",
       "from": "step:GenerateCustomerMessageStep",
       "to": "step:agenticUseFallbackCustomerMessage",
@@ -3053,7 +3503,7 @@
       }
     },
     {
-      "id": "edge:0071",
+      "id": "edge:0096",
       "kind": "resource_write",
       "from": "step:agenticApplySubscription",
       "to": "resource:attribute:agenticSubscriptionApplied",
@@ -3069,7 +3519,7 @@
       }
     },
     {
-      "id": "edge:0072",
+      "id": "edge:0097",
       "kind": "failure_transition",
       "from": "step:agenticApplySubscription",
       "to": "step:agenticSubscriptionFailed",
@@ -3085,7 +3535,7 @@
       }
     },
     {
-      "id": "edge:0073",
+      "id": "edge:0098",
       "kind": "resource_write",
       "from": "step:agenticBillingFailed",
       "to": "resource:attribute:agenticBillingOutcome",
@@ -3101,7 +3551,7 @@
       }
     },
     {
-      "id": "edge:0074",
+      "id": "edge:0099",
       "kind": "resource_write",
       "from": "step:agenticBillingFailed",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3117,7 +3567,7 @@
       }
     },
     {
-      "id": "edge:0075",
+      "id": "edge:0100",
       "kind": "resource_write",
       "from": "step:agenticCheckIdentity",
       "to": "resource:attribute:agenticIdentityStatus",
@@ -3133,7 +3583,7 @@
       }
     },
     {
-      "id": "edge:0076",
+      "id": "edge:0101",
       "kind": "resource_write",
       "from": "step:agenticCheckIncidents",
       "to": "resource:attribute:agenticEvidenceState",
@@ -3149,7 +3599,7 @@
       }
     },
     {
-      "id": "edge:0077",
+      "id": "edge:0102",
       "kind": "resource_write",
       "from": "step:agenticCheckIncidents",
       "to": "resource:attribute:agenticIncidentDays",
@@ -3165,7 +3615,7 @@
       }
     },
     {
-      "id": "edge:0078",
+      "id": "edge:0103",
       "kind": "resource_write",
       "from": "step:agenticCheckIncidents",
       "to": "resource:attribute:agenticIncidentStatus",
@@ -3181,7 +3631,7 @@
       }
     },
     {
-      "id": "edge:0079",
+      "id": "edge:0104",
       "kind": "resource_write",
       "from": "step:agenticDecision",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3197,7 +3647,7 @@
       }
     },
     {
-      "id": "edge:0080",
+      "id": "edge:0105",
       "kind": "resource_write",
       "from": "step:agenticDecision",
       "to": "resource:attribute:agenticDecisionRounds",
@@ -3213,7 +3663,7 @@
       }
     },
     {
-      "id": "edge:0081",
+      "id": "edge:0106",
       "kind": "resource_write",
       "from": "step:agenticDecision",
       "to": "resource:attribute:agenticRationale",
@@ -3229,7 +3679,7 @@
       }
     },
     {
-      "id": "edge:0082",
+      "id": "edge:0107",
       "kind": "resource_write",
       "from": "step:agenticDecision",
       "to": "resource:attribute:agenticRecommendedAction",
@@ -3245,7 +3695,7 @@
       }
     },
     {
-      "id": "edge:0083",
+      "id": "edge:0108",
       "kind": "resource_write",
       "from": "step:agenticEmailFailed",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3261,7 +3711,7 @@
       }
     },
     {
-      "id": "edge:0084",
+      "id": "edge:0109",
       "kind": "resource_write",
       "from": "step:agenticEmailFailed",
       "to": "resource:attribute:agenticEmailSent",
@@ -3277,7 +3727,7 @@
       }
     },
     {
-      "id": "edge:0085",
+      "id": "edge:0110",
       "kind": "resource_write",
       "from": "step:agenticGetPayment",
       "to": "resource:attribute:agenticPaymentAgeDays",
@@ -3293,7 +3743,7 @@
       }
     },
     {
-      "id": "edge:0086",
+      "id": "edge:0111",
       "kind": "resource_write",
       "from": "step:agenticGetPayment",
       "to": "resource:attribute:agenticPaymentAmount",
@@ -3309,7 +3759,7 @@
       }
     },
     {
-      "id": "edge:0087",
+      "id": "edge:0112",
       "kind": "resource_write",
       "from": "step:agenticGetPayment",
       "to": "resource:attribute:agenticPaymentStatus",
@@ -3325,7 +3775,7 @@
       }
     },
     {
-      "id": "edge:0088",
+      "id": "edge:0113",
       "kind": "resource_write",
       "from": "step:agenticGetPayment",
       "to": "resource:attribute:agenticRefundAmount",
@@ -3341,7 +3791,7 @@
       }
     },
     {
-      "id": "edge:0089",
+      "id": "edge:0114",
       "kind": "resource_write",
       "from": "step:agenticGetSubscription",
       "to": "resource:attribute:agenticSubscriptionStatus",
@@ -3357,7 +3807,7 @@
       }
     },
     {
-      "id": "edge:0090",
+      "id": "edge:0115",
       "kind": "resource_write",
       "from": "step:agenticGetSupportHistory",
       "to": "resource:attribute:agenticCancellationPending",
@@ -3373,7 +3823,7 @@
       }
     },
     {
-      "id": "edge:0091",
+      "id": "edge:0116",
       "kind": "resource_write",
       "from": "step:agenticGetSupportHistory",
       "to": "resource:attribute:agenticHistoryStatus",
@@ -3389,7 +3839,7 @@
       }
     },
     {
-      "id": "edge:0092",
+      "id": "edge:0117",
       "kind": "resource_write",
       "from": "step:agenticGetSupportHistory",
       "to": "resource:attribute:agenticPriorRefunds",
@@ -3405,7 +3855,7 @@
       }
     },
     {
-      "id": "edge:0093",
+      "id": "edge:0118",
       "kind": "resource_write",
       "from": "step:agenticGetSupportHistory",
       "to": "resource:attribute:agenticTenureYears",
@@ -3421,7 +3871,7 @@
       }
     },
     {
-      "id": "edge:0094",
+      "id": "edge:0119",
       "kind": "resource_write",
       "from": "step:agenticGetUsage",
       "to": "resource:attribute:agenticUsagePercent",
@@ -3437,7 +3887,7 @@
       }
     },
     {
-      "id": "edge:0095",
+      "id": "edge:0120",
       "kind": "resource_write",
       "from": "step:agenticGetUsage",
       "to": "resource:attribute:agenticUsageStatus",
@@ -3453,7 +3903,7 @@
       }
     },
     {
-      "id": "edge:0096",
+      "id": "edge:0121",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
       "to": "resource:attribute:agenticBoundAction",
@@ -3469,7 +3919,7 @@
       }
     },
     {
-      "id": "edge:0097",
+      "id": "edge:0122",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3485,7 +3935,7 @@
       }
     },
     {
-      "id": "edge:0098",
+      "id": "edge:0123",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
       "to": "resource:attribute:agenticGateEntries",
@@ -3501,7 +3951,7 @@
       }
     },
     {
-      "id": "edge:0099",
+      "id": "edge:0124",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
       "to": "resource:attribute:agenticGateRequestKey",
@@ -3517,7 +3967,7 @@
       }
     },
     {
-      "id": "edge:0100",
+      "id": "edge:0125",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
       "to": "resource:attribute:agenticGuardrailRule",
@@ -3533,7 +3983,7 @@
       }
     },
     {
-      "id": "edge:0101",
+      "id": "edge:0126",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
       "to": "resource:attribute:agenticGuardrailVerdict",
@@ -3549,7 +3999,7 @@
       }
     },
     {
-      "id": "edge:0102",
+      "id": "edge:0127",
       "kind": "resource_write",
       "from": "step:agenticIssueRefund",
       "to": "resource:attribute:agenticBillingKey",
@@ -3565,7 +4015,7 @@
       }
     },
     {
-      "id": "edge:0103",
+      "id": "edge:0128",
       "kind": "resource_write",
       "from": "step:agenticIssueRefund",
       "to": "resource:attribute:agenticBillingOutcome",
@@ -3581,7 +4031,7 @@
       }
     },
     {
-      "id": "edge:0104",
+      "id": "edge:0129",
       "kind": "resource_write",
       "from": "step:agenticIssueRefund",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3597,7 +4047,7 @@
       }
     },
     {
-      "id": "edge:0105",
+      "id": "edge:0130",
       "kind": "failure_transition",
       "from": "step:agenticIssueRefund",
       "to": "step:agenticBillingFailed",
@@ -3613,7 +4063,7 @@
       }
     },
     {
-      "id": "edge:0106",
+      "id": "edge:0131",
       "kind": "resource_write",
       "from": "step:agenticNonConvergence",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3629,7 +4079,7 @@
       }
     },
     {
-      "id": "edge:0107",
+      "id": "edge:0132",
       "kind": "resource_write",
       "from": "step:agenticOfferAccountCredit",
       "to": "resource:attribute:agenticBillingKey",
@@ -3645,7 +4095,7 @@
       }
     },
     {
-      "id": "edge:0108",
+      "id": "edge:0133",
       "kind": "resource_write",
       "from": "step:agenticOfferAccountCredit",
       "to": "resource:attribute:agenticBillingOutcome",
@@ -3661,7 +4111,7 @@
       }
     },
     {
-      "id": "edge:0109",
+      "id": "edge:0134",
       "kind": "resource_write",
       "from": "step:agenticOfferAccountCredit",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3677,7 +4127,7 @@
       }
     },
     {
-      "id": "edge:0110",
+      "id": "edge:0135",
       "kind": "resource_write",
       "from": "step:agenticPrepareCustomerMessage",
       "to": "resource:attribute:agenticCustomerMessageContext",
@@ -3693,7 +4143,7 @@
       }
     },
     {
-      "id": "edge:0111",
+      "id": "edge:0136",
       "kind": "resource_write",
       "from": "step:agenticReCheck",
       "to": "resource:attribute:agenticBoundAction",
@@ -3709,7 +4159,7 @@
       }
     },
     {
-      "id": "edge:0112",
+      "id": "edge:0137",
       "kind": "resource_write",
       "from": "step:agenticReCheck",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3725,7 +4175,7 @@
       }
     },
     {
-      "id": "edge:0113",
+      "id": "edge:0138",
       "kind": "resource_write",
       "from": "step:agenticReceiveRequest",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3741,7 +4191,7 @@
       }
     },
     {
-      "id": "edge:0114",
+      "id": "edge:0139",
       "kind": "resource_write",
       "from": "step:agenticReceiveRequest",
       "to": "resource:attribute:agenticChargeReference",
@@ -3757,7 +4207,7 @@
       }
     },
     {
-      "id": "edge:0115",
+      "id": "edge:0140",
       "kind": "resource_write",
       "from": "step:agenticReceiveRequest",
       "to": "resource:attribute:agenticCustomerEmail",
@@ -3773,7 +4223,7 @@
       }
     },
     {
-      "id": "edge:0116",
+      "id": "edge:0141",
       "kind": "resource_write",
       "from": "step:agenticReceiveRequest",
       "to": "resource:attribute:agenticInputEmail",
@@ -3789,7 +4239,7 @@
       }
     },
     {
-      "id": "edge:0117",
+      "id": "edge:0142",
       "kind": "resource_write",
       "from": "step:agenticReceiveRequest",
       "to": "resource:attribute:agenticOperatorNote",
@@ -3805,7 +4255,7 @@
       }
     },
     {
-      "id": "edge:0118",
+      "id": "edge:0143",
       "kind": "resource_write",
       "from": "step:agenticRequestHumanApproval",
       "to": "resource:attribute:agenticManagerVerdict",
@@ -3821,7 +4271,7 @@
       }
     },
     {
-      "id": "edge:0119",
+      "id": "edge:0144",
       "kind": "resource_write",
       "from": "step:agenticSendCustomerMessage",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3837,7 +4287,7 @@
       }
     },
     {
-      "id": "edge:0120",
+      "id": "edge:0145",
       "kind": "resource_write",
       "from": "step:agenticSendCustomerMessage",
       "to": "resource:attribute:agenticEmailSent",
@@ -3853,7 +4303,7 @@
       }
     },
     {
-      "id": "edge:0121",
+      "id": "edge:0146",
       "kind": "failure_transition",
       "from": "step:agenticSendCustomerMessage",
       "to": "step:agenticEmailFailed",
@@ -3869,7 +4319,79 @@
       }
     },
     {
-      "id": "edge:0122",
+      "id": "edge:0147",
+      "kind": "resource_write",
+      "from": "step:agenticStoreGeneratedCustomerMessage",
+      "to": "resource:attribute:agenticCaseStatus",
+      "label": "Set",
+      "span": {
+        "startLine": 1239,
+        "startColumn": 9,
+        "endLine": 1239,
+        "endColumn": 60
+      },
+      "metadata": {
+        "function": "agenticOpenCustomerMessageGate",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0148",
+      "kind": "resource_write",
+      "from": "step:agenticStoreGeneratedCustomerMessage",
+      "to": "resource:attribute:agenticCustomerMessageDraft",
+      "label": "Set",
+      "span": {
+        "startLine": 1224,
+        "startColumn": 12,
+        "endLine": 1224,
+        "endColumn": 57
+      },
+      "metadata": {
+        "function": "agenticOpenCustomerMessageGate",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0149",
+      "kind": "resource_write",
+      "from": "step:agenticStoreGeneratedCustomerMessage",
+      "to": "resource:attribute:agenticGateEntries",
+      "label": "Set",
+      "span": {
+        "startLine": 1233,
+        "startColumn": 12,
+        "endLine": 1233,
+        "endColumn": 52
+      },
+      "metadata": {
+        "function": "agenticOpenCustomerMessageGate",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0150",
+      "kind": "resource_write",
+      "from": "step:agenticStoreGeneratedCustomerMessage",
+      "to": "resource:attribute:agenticGateRequestKey",
+      "label": "Set",
+      "span": {
+        "startLine": 1236,
+        "startColumn": 12,
+        "endLine": 1236,
+        "endColumn": 101
+      },
+      "metadata": {
+        "function": "agenticOpenCustomerMessageGate",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0151",
       "kind": "resource_write",
       "from": "step:agenticSubscriptionFailed",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3885,7 +4407,7 @@
       }
     },
     {
-      "id": "edge:0123",
+      "id": "edge:0152",
       "kind": "resource_write",
       "from": "step:agenticSubscriptionFailed",
       "to": "resource:attribute:agenticSubscriptionApplied",
@@ -3901,7 +4423,79 @@
       }
     },
     {
-      "id": "edge:0124",
+      "id": "edge:0153",
+      "kind": "resource_write",
+      "from": "step:agenticUseFallbackCustomerMessage",
+      "to": "resource:attribute:agenticCaseStatus",
+      "label": "Set",
+      "span": {
+        "startLine": 1239,
+        "startColumn": 9,
+        "endLine": 1239,
+        "endColumn": 60
+      },
+      "metadata": {
+        "function": "agenticOpenCustomerMessageGate",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0154",
+      "kind": "resource_write",
+      "from": "step:agenticUseFallbackCustomerMessage",
+      "to": "resource:attribute:agenticCustomerMessageDraft",
+      "label": "Set",
+      "span": {
+        "startLine": 1224,
+        "startColumn": 12,
+        "endLine": 1224,
+        "endColumn": 57
+      },
+      "metadata": {
+        "function": "agenticOpenCustomerMessageGate",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0155",
+      "kind": "resource_write",
+      "from": "step:agenticUseFallbackCustomerMessage",
+      "to": "resource:attribute:agenticGateEntries",
+      "label": "Set",
+      "span": {
+        "startLine": 1233,
+        "startColumn": 12,
+        "endLine": 1233,
+        "endColumn": 52
+      },
+      "metadata": {
+        "function": "agenticOpenCustomerMessageGate",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0156",
+      "kind": "resource_write",
+      "from": "step:agenticUseFallbackCustomerMessage",
+      "to": "resource:attribute:agenticGateRequestKey",
+      "label": "Set",
+      "span": {
+        "startLine": 1236,
+        "startColumn": 12,
+        "endLine": 1236,
+        "endColumn": 101
+      },
+      "metadata": {
+        "function": "agenticOpenCustomerMessageGate",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0157",
       "kind": "resource_write",
       "from": "step:agenticVerifyBilling",
       "to": "resource:attribute:agenticBillingOutcome",
@@ -3917,7 +4511,7 @@
       }
     },
     {
-      "id": "edge:0125",
+      "id": "edge:0158",
       "kind": "resource_write",
       "from": "step:agenticVerifyBilling",
       "to": "resource:attribute:agenticCaseStatus",

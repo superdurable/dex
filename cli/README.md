@@ -277,21 +277,31 @@ Flow resource aliases and records RPC and Step Attribute locks as
 Go analysis requires a local Go toolchain and a module/package that passes type
 checking. Version 1 accepts one Flow per file. Step registration, transitions,
 waits, RPC next Steps, execute-failure recovery targets, and persistence
-resource access must be directly visible in that file. A resource, registered
-Step, Step handler, Flow method, or RPC declared in another file in the package
-produces a blocking diagnostic naming that file. Wait conditions and
-Execute decisions are structured node details rather than labels inferred from
-edges. Channel edges run from publishers through the Channel to consuming
-WaitFor paths. Attribute edges run from writers through the Attribute group to
-readers. Terminal decisions and cancellation remain inside their Execute card.
-The graph also records repeatable best-effort Step Stream writes. Python
-synchronous Step generators and asynchronous Step handlers are both recognized.
-Heartbeat checkpoints are runtime details and are omitted. Step Stream progress
-from an RPC or Flow timeout handler produces a blocking diagnostic. Business
-helpers may remain in other files, but they must not hide Dex control flow.
-Dynamic targets produce an Unknown node and a blocking diagnostic. The default
-renderer still shows the partial graph. With **--json**, a partial JSON artifact
-is written, and the command exits with status 1.
+resource definitions must be directly visible in that file. A resource,
+registered Step, Step handler, Flow method, or RPC declared in another file in
+the package produces a blocking diagnostic naming that file. Resource access may
+also be in functions and methods of the same package that a handler calls. The
+analyzer follows those calls up to six levels deep, including calls inside loops
+and function literals, and binds a resource argument to the matching parameter.
+Such an edge records the helper as `metadata.via: helper` and
+`metadata.function`. Wait conditions and Execute decisions are structured node
+details rather than labels inferred from edges. Channel edges run from
+publishers through the Channel to consuming WaitFor paths. Attribute edges run
+from writers through the Attribute group to readers. Terminal decisions and
+cancellation remain inside their Execute card. The graph also records repeatable
+best-effort Step Stream writes. Python synchronous Step generators and
+asynchronous Step handlers are both recognized. Heartbeat checkpoints are
+runtime details and are omitted. Step Stream progress from an RPC or Flow
+timeout handler produces the blocking `step_progress_outside_step` diagnostic,
+including access through same-package helpers or buffered writer aliases. Creating
+a `NewBufferedTextStream` in either handler also fails, even before its first
+`Write`. The diagnostic names the handler, Stream, and helper location. Move the
+output to a Step; an RPC can publish a Channel message or return `NextSteps`.
+Business helpers may remain in
+other files, but they must not hide Dex control flow. Dynamic targets produce an
+Unknown node and a blocking diagnostic. The default renderer still shows the
+partial graph. With **--json**, a partial JSON artifact is written, and the
+command exits with status 1.
 
 Graph Flow and Step names are the names the Go SDK registers. Without an
 override, a Flow or Step is named by its Go type without package or pointer,
@@ -354,8 +364,64 @@ Version 2 catalog. Unknown capture modes, non-string fields, and
 Attribute-sourced fields are blocking diagnostics. Omitting `capture` preserves
 the existing text input contract.
 
+Go `StartFlow` calls with a statically known starting Step input produce
+`start_flow_input_type_mismatch` when their payload is not assignable to that
+input. This is always an error, under both schemas and with or without
+`--lint app`: the SDK rejects it locally before sending the start request.
+Pass the actual typed value, or declare `dex.None` and pass `nil` when the
+starting Step needs no input. Pointer/value mismatches remain distinct;
+legal `nil` pointer, map, slice, or interface inputs are accepted.
+
+The check covers calls in the Flow file and same-package helpers reached by
+handlers. It reads one `DefineStartStep` from a directly returned Step slice
+literal in the target Flow's `GetSteps`, including target Flows in other
+files or imported packages. Dynamically selected Flows, generic Flow types,
+interface-valued payloads, and unresolved registrations remain unchecked.
+
+Go Step methods, RPCs, and timeout handlers receive AttributeMap values and
+pending Channel messages only when their options select them. A read of
+unselected state fails at run time, so visualize reports it as a blocking
+diagnostic in every schema version:
+
+| Code | Read |
+|---|---|
+| `attribute_map_read_not_loaded` | `AttributeMap.Get` with no whole-map or instance load of the map |
+| `attribute_map_enumeration_not_loaded` | `AllInstanceKeys` or `MapSize` without a whole-map load |
+| `attribute_map_instance_not_loaded` | `Get` of a constant key that no constant instance load names |
+| `channel_messages_not_loaded` | `PendingMessages` or `FindPendingMessage` with no Channel or ChannelMap load |
+
+Writes, `Size`, ChannelMap keys and sizes, wait conditions, and
+`GetConditionResults` need no load. Loads come from the Flow's package:
+`GetStepOptions`, `WithStepOptions` on every `GoTo` or `MovementOf` into the
+Step, and `ProceedToOnExecuteFailure` targets for Steps; `RPCOptions` in
+`DefineRPC`, and `Load`/`LoadMessages` selections in any call that passes the
+RPC method value (such as `InvokeRPCWithOptions`) for RPCs; and
+`FlowTimeoutHandlerOptions` values for `HandleTimeout`. Option values may be
+literals, package variables, local variables with field assignments, or
+same-package function results. A read in a helper is reported at the handler's
+call in the Flow file, and the message names the helper's file and line.
+
+When another package selects an RPC's map instance at invocation, declare it
+on the RPC method with `// dex:invocation-load attribute-map:<name>` or
+`// dex:invocation-load channel-map:<name>`, using the map's Dex name. The
+directive satisfies instance reads, not enumeration. An unknown name produces
+`invocation_load_directive`. Options that cannot be evaluated, such as values
+returned by another package, keep the default mode silent for that read.
+
+`--lint app` (Go only) adds checks that applications opt into. The state-load and start-input
+errors above are reported in every mode.
+
+| Code | Check |
+|---|---|
+| `state_load_unresolved` | a read needs a load, but the handler's load options cannot be evaluated |
+| `connector_branches_merged_unread` | a Step receives two or more branches of one Connector Step, including `defect` or `uncertain`, uses the result, and never reads `result.Branch` or `result.Failure` |
+| `action_state_not_rechecked` | an Action RPC never reads its `WhenAttributeMatches` Attribute or an Attribute it locks |
+| `start_flow_request_id_missing` | `StartFlow` in the Flow file or a reached helper has literal options without `RequestID` |
+| `cross_flow_read_not_found_unhandled` | a Step calls `InvokeRPC*` with no `errors.As` for `FlowNotActiveOrNotFoundError` or `FlowNotFoundError` on its call path |
+
 ```text
 dexcli visualize SOURCE [--language auto|go|python] [--schema-version 1.0|2.0]
+                         [--lint app]
                          [--open=true|false]
                          [--json [--out PATH_PREFIX|-]]
                          [--python PYTHON_PATH]

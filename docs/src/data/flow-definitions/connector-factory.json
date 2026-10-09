@@ -540,6 +540,60 @@
     },
     {
       "id": "edge:0005",
+      "kind": "resource_read",
+      "from": "resource:attribute:generatedCustomerSummary",
+      "to": "rpc:GetDexDisplay",
+      "label": "Get",
+      "span": {
+        "startLine": 219,
+        "startColumn": 17,
+        "endLine": 219,
+        "endColumn": 50
+      },
+      "metadata": {
+        "function": "optionalGeneratedCustomerSummary",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "resource_read",
+      "from": "resource:attribute:generatedCustomerSummary",
+      "to": "rpc:GetDexSummary",
+      "label": "Get",
+      "span": {
+        "startLine": 219,
+        "startColumn": 17,
+        "endLine": 219,
+        "endColumn": 50
+      },
+      "metadata": {
+        "function": "optionalGeneratedCustomerSummary",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_read",
+      "from": "resource:attribute:reconciledCustomerSummary",
+      "to": "rpc:GetDexDisplay",
+      "label": "Get",
+      "span": {
+        "startLine": 228,
+        "startColumn": 17,
+        "endLine": 228,
+        "endColumn": 51
+      },
+      "metadata": {
+        "function": "optionalReconciledCustomerSummary",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0008",
       "kind": "resource_write",
       "from": "step:GenerateCustomerSummary",
       "to": "resource:attribute:generatedCustomerSummary",
@@ -549,7 +603,7 @@
       }
     },
     {
-      "id": "edge:0006",
+      "id": "edge:0009",
       "kind": "resource_write",
       "from": "step:GenerateCustomerSummary",
       "to": "resource:stream:customerSummaryProgress",
@@ -563,7 +617,7 @@
       }
     },
     {
-      "id": "edge:0007",
+      "id": "edge:0010",
       "kind": "resource_write",
       "from": "step:GenerateCustomerSummary",
       "to": "resource:stream:customerSummaryText",
@@ -577,7 +631,7 @@
       }
     },
     {
-      "id": "edge:0008",
+      "id": "edge:0011",
       "kind": "transition",
       "from": "step:GenerateCustomerSummary",
       "to": "step:CustomerSummaryCompleted",
@@ -593,7 +647,7 @@
       }
     },
     {
-      "id": "edge:0009",
+      "id": "edge:0012",
       "kind": "failure_transition",
       "from": "step:GenerateCustomerSummary",
       "to": "step:CustomerSummaryExecuteFailed",
@@ -603,7 +657,7 @@
       }
     },
     {
-      "id": "edge:0010",
+      "id": "edge:0013",
       "kind": "transition",
       "from": "step:GenerateCustomerSummary",
       "to": "step:CustomerSummaryFailed",
@@ -619,7 +673,7 @@
       }
     },
     {
-      "id": "edge:0011",
+      "id": "edge:0014",
       "kind": "transition",
       "from": "step:GenerateCustomerSummary",
       "to": "step:CustomerSummaryFailed",
@@ -635,7 +689,7 @@
       }
     },
     {
-      "id": "edge:0012",
+      "id": "edge:0015",
       "kind": "transition",
       "from": "step:GenerateCustomerSummary",
       "to": "step:ValidateCustomerSummaryReconciliation",
@@ -651,7 +705,7 @@
       }
     },
     {
-      "id": "edge:0013",
+      "id": "edge:0016",
       "kind": "resource_write",
       "from": "step:InitializeCustomerSummary",
       "to": "resource:attribute:customerSummaryContext",
@@ -667,7 +721,7 @@
       }
     },
     {
-      "id": "edge:0014",
+      "id": "edge:0017",
       "kind": "resource_write",
       "from": "step:ReconcileCustomerSummary",
       "to": "resource:attribute:reconciledCustomerSummary",
@@ -677,7 +731,7 @@
       }
     },
     {
-      "id": "edge:0015",
+      "id": "edge:0018",
       "kind": "transition",
       "from": "step:ReconcileCustomerSummary",
       "to": "step:CustomerSummaryReconcileFailed",
@@ -693,7 +747,7 @@
       }
     },
     {
-      "id": "edge:0016",
+      "id": "edge:0019",
       "kind": "transition",
       "from": "step:ReconcileCustomerSummary",
       "to": "step:CustomerSummaryReconcileFailed",
@@ -709,7 +763,7 @@
       }
     },
     {
-      "id": "edge:0017",
+      "id": "edge:0020",
       "kind": "transition",
       "from": "step:ReconcileCustomerSummary",
       "to": "step:CustomerSummaryReconciled",

@@ -188,7 +188,7 @@ Load a whole AttributeMap or ChannelMap when the handler needs all current insta
 
 Every SDK declares loads with the RPC. Go places them in **RPCOptions** passed to **DefineRPC** from **GetRPCs**. Dex Server validates each requested definition against the Flow persistence schema and returns the loaded scope with the RPC snapshot. The SDK checks that scope when the handler reads a selectively loaded collection.
 
-For an **AttributeMap** entry or instance enumeration outside that scope, the SDK raises **AttributeMapNotLoadedError**. For pending messages outside that scope, it raises **ChannelMessagesNotLoadedError**. Java uses **AttributeMapNotLoadedException** and **ChannelMessagesNotLoadedException**.
+For an **AttributeMap** entry or instance enumeration outside that scope, the SDK raises **AttributeMapNotLoadedError**. For pending messages outside that scope, it raises **ChannelMessagesNotLoadedError**. Java uses **AttributeMapNotLoadedException** and **ChannelMessagesNotLoadedException**. For Go, **dexcli visualize** reports an RPC that reads unselected state. See [State loads](/references/flow-visualization#state-loads).
 
 An explicitly loaded collection can be empty. That is not an error. An empty pending-message snapshot returns an empty list. An absent **AttributeMap** entry uses the SDK's normal absent-value behavior. Loading creates one input snapshot. It does not consume messages, make the RPC transactional, or isolate the handler from concurrent work.
 

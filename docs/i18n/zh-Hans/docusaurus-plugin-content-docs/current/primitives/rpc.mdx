@@ -189,7 +189,7 @@ Handler 需要所有当前 instance 时，加载整个 AttributeMap 或 ChannelM
 
 所有 SDK 都在 RPC definition 上声明 load。Go 在 **GetRPCs** 中将 **RPCOptions** 传给 **DefineRPC**。Dex Server 会根据 Flow persistence schema 验证 requested definition，并随 RPC snapshot 返回已加载范围。Handler 读取选择性加载的 collection 时，SDK 会检查这个范围。
 
-如果 **AttributeMap** entry 或 instance 不在该范围内，SDK 会抛出 **AttributeMapNotLoadedError**。如果 pending message 不在该范围内，SDK 会抛出 **ChannelMessagesNotLoadedError**。Java 使用 **AttributeMapNotLoadedException** 和 **ChannelMessagesNotLoadedException**。
+如果 **AttributeMap** entry 或 instance 不在该范围内，SDK 会抛出 **AttributeMapNotLoadedError**。如果 pending message 不在该范围内，SDK 会抛出 **ChannelMessagesNotLoadedError**。Java 使用 **AttributeMapNotLoadedException** 和 **ChannelMessagesNotLoadedException**。对于 Go，**dexcli visualize** 会报告读取未选择状态的 RPC。见[状态加载](/references/flow-visualization#state-loads)。
 
 显式加载的 collection 可以为空，这不是错误。空的 pending-message snapshot 会返回空列表。不存在的 **AttributeMap** entry 会使用 SDK 正常的缺失值语义。Load 会建立一份 input snapshot。它不会消费 message，也不会使 RPC 具备 transactional 语义或阻止并发 operation。
 

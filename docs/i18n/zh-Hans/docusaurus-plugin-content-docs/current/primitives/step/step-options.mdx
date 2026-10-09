@@ -399,7 +399,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 </SdkSnippet>
 </SdkTabs>
 
-读取未选择的 AttributeMap value 或 pending Channel message 时，SDK 会返回已有的 not-loaded error。已选择但为空的 Channel 会返回空消息列表。不加载消息 body 也仍然可以读取 size 和 map key。
+读取未选择的 AttributeMap value 或 pending Channel message 时，SDK 会返回已有的 not-loaded error。已选择但为空的 Channel 会返回空消息列表。不加载消息 body 也仍然可以读取 size 和 map key。对于 Go，**dexcli visualize** 会报告读取未选择状态的 Step 方法。见[状态加载](/references/flow-visualization#state-loads)。
 
 ## Attribute locks
 

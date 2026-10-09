@@ -73,9 +73,11 @@ Dex 会递归扫描 JSON 文件，并在启动时创建一次快照。文件改�
 
 Renderer 默认会把完整 Flow 缩放到当前 viewport。Channel 和 Attribute 箭头默认隐藏；选择对应资源，或相关的 Step、WaitFor、Execute decision、RPC、timeout handler 后才会显示。默认视图因此优先呈现 control flow，同时仍能按需查看资源访问关系。
 
-Attribute 关系包括读取、写入和加锁。Python analyzer 会追踪 Flow class 上的静态资源 alias，并记录 RPC 或 Step options 声明的 Attribute lock。
+Attribute 关系包括读取、写入和加锁。Python analyzer 会追踪 Flow class 上的静态资源 alias，并记录 RPC 或 Step options 声明的 Attribute lock。Go analyzer 会把同一 package 中辅助函数的读写归到调用它的处理方法上，对应的边会在 metadata 中记录该辅助函数。
 
 Stream 关系描述的是应用可观察输出，而不是控制流。Flow Rendering 默认隐藏 Stream，用户可以通过图例开启。JSON 会标记 Step Stream 写入可重复且为 best effort。Heartbeat 调用和 checkpoint 读取属于运行时可靠性细节，因此不会进入定义图。
+
+当 RPC 或 Flow timeout handler 调用 **Stream.Write** 或通过 **NewBufferedTextStream** 创建 writer 时，Go analyzer 会报 **step_progress_outside_step** 错误。检查也会追踪同一 package 的辅助函数和 buffered writer alias。错误会指出处理方法、Stream 和辅助函数位置。将输出移到 Step 中；RPC 可以发布 Channel 消息或返回 **NextSteps** 来调度该 Step。
 
 ## 支持的源码约束
 
@@ -86,10 +88,12 @@ Stream 关系描述的是应用可观察输出，而不是控制流。Flow Rende
 - Dex 跳转和 WaitFor 定义
 - RPC 的后续 Step
 - Execute 失败后的恢复目标
-- 持久化资源定义及其访问
+- 持久化资源定义
 - Step Stream progress 操作
 
 可以使用普通业务辅助函数和导入的数据模型，但辅助函数不能隐藏 Dex 跳转、WaitFor 定义、资源定义或恢复目标。资源名称必须能够静态确定。Flow type 和 Step type 遵循 [Flow 与 Step 名称](#flow-and-step-names) 中的规则。
+
+Go 的资源访问也可以位于处理方法调用的同一 package 函数和方法中。Analyzer 最多沿调用追踪六层，包括循环和函数字面量中的调用。作为参数传入的资源会绑定到对应形参，因此通过该形参的访问也算作对该资源的访问。
 
 Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查的 module 和 package。Python 分析要求 Python 3.11 或更高版本。Python analyzer 在隔离模式下使用标准库 AST，绝不会导入或执行应用模块。
 
@@ -123,6 +127,53 @@ Analyzer 无法确定注册名称，或无法为每个 Step 生成独立节点�
 - **duplicate_step_type**：两个注册使用同一个 Step type，或同一个 Go type 注册了多次。Step 节点以 Go type 为键，因此一个泛型 Step 只能用一个类型参数注册。
 
 节点 ID 使用 Go type，例如 **step:initializeThread**，即使 override 改变了 Step type 也是如此。
+
+## 启动输入 {#start-inputs}
+
+Go **StartFlow** 会在发送请求前检查输入是否符合已注册起始 Step 的类型。已知输入类型不匹配时，**dexcli visualize** 会报 **start_flow_input_type_mismatch**。两个 schema 都将其视为阻断错误，无论是否启用 **--lint app**。
+
+传入起始 Step 所需类型的值。没有输入时，将起始 Step 的输入声明为 **dex.None**，调用时传 **nil**。空 struct 是另一种类型；指针与对应的值类型也不同。允许空值的输入类型仍然可以接收 **nil**。
+
+检查覆盖 Flow 文件中的调用，以及处理方法调用的同一 package 辅助函数。目标 Flow 的 **GetSteps** 必须直接返回含一个 **DefineStartStep** 的 Step slice 字面量。目标声明可以位于另一个文件或导入的 package 中。动态选择的 Flow、泛型 Flow、interface 类型的输入和无法解析的注册不会被检查。
+
+## 状态加载 {#state-loads}
+
+Step 方法、RPC 和 Flow timeout handler 会收到普通 Attribute 和 Channel size，但除非显式选择，否则不会收到 AttributeMap value 或 pending Channel message。见[选择性状态加载](/primitives/step/step-options#selective-state-loading)和[选择性 RPC 状态加载](/primitives/rpc#load-collection-state)。读取未选择的状态会在运行时失败，失败的 Step 方法会一直重试，直到 retry policy 结束。对于 Go 源码，**dexcli visualize** 在所有 schema version 中都会把这类读取报告为阻断诊断：
+
+- **attribute_map_read_not_loaded**：**AttributeMap.Get** 读取的 map 没有被该方法的整表或实例加载选择。
+- **attribute_map_enumeration_not_loaded**：**AllInstanceKeys** 或 **MapSize** 在没有整表加载时运行。精确实例加载无法枚举，SDK 会 panic。
+- **attribute_map_instance_not_loaded**：**Get** 读取一个常量实例 key，而该 map 的所有加载都指定了其他常量 key。
+- **channel_messages_not_loaded**：**PendingMessages** 或 **FindPendingMessage** 读取的 Channel 或 ChannelMap 没有被任何加载选择。
+
+写入永远不需要加载。**Set**、**Delete**、**Publish**、删除 Channel message、**Size**、ChannelMap 的 key 和 size、WaitFor 条件以及 **GetConditionResults** 都不会被报告。
+
+Analyzer 从 Flow 所在 package 的声明中读取加载。对于 Step，来源是 **GetStepOptions**、每个带 **WithStepOptions** 并移动到该 Step 的 **GoTo** 或 **MovementOf**，以及每个指向它的 **ProceedToOnExecuteFailure**。**Execute** 使用 **ExecuteLoad** 字段，**WaitFor** 使用 **WaitForLoad** 字段。对于 RPC，来源是传给 **DefineRPC** 的 **RPCOptions**，以及 package 中传入该 RPC method value 并带有 **Load** 或 **LoadMessages** 的调用（例如 **InvokeRPCWithOptions**）所选择的精确实例。对于 **HandleTimeout**，来源是 package 中的 **FlowTimeoutHandlerOptions** 值。
+
+Options 可以是字面量、package 变量、带字段赋值的局部变量，或参数来自调用点的同一 package 函数的返回值。同一 package 辅助函数中的读取会归到调用它的处理方法上。诊断会指向 Flow 文件中的调用，并给出辅助函数所在的文件和行号。
+
+当另一个 package 在调用时选择 RPC 的 map 实例时，请在 RPC 方法上声明：
+
+```text
+// dex:invocation-load attribute-map:customer-profiles
+```
+
+使用 **channel-map** 可以指定 ChannelMap。该 directive 满足对该 map 的实例读取，但不满足枚举。名称不是该 Flow 的 AttributeMap 或 ChannelMap 时，会产生 **invocation_load_directive**。
+
+该分析不区分路径：进入某个 Step 的任一 movement 上的加载，对所有 movement 都有效。通过 interface、函数值和反射的调用不会被追踪。加载选项无法求值时（例如由其他 package 返回的 options），默认模式不会为该读取报告任何诊断。
+
+## 应用 lint {#application-lints}
+
+**--lint app** 会增加检查，用于发现能够编译并通过默认分析的应用错误。该模式需要显式开启，只支持 Go。上文的状态加载诊断在所有模式下都会报告。
+
+```bash
+dexcli visualize ./order_flow.go --schema-version 2.0 --json --lint app
+```
+
+- **state_load_unresolved**：某个读取需要加载，但无法求值其处理方法的加载选项。请在 **GetStepOptions**、**RPCOptions** 或 Flow 所在 package 的变量中声明加载。
+- **connector_branches_merged_unread**：某个 Step 接收同一 Connector Step 的两个或更多 branch，其中包括 **defect** 或 **uncertain**。它使用了结果，却从不读取 **result.Branch** 或 **result.Failure**，因此失败会被当作成功处理。
+- **action_state_not_rechecked**：Action RPC 从不读取其 **WhenAttributeMatches** 条件中的 Attribute，也不读取它加锁的 Attribute。条件只用于选出候选 run，并不授权写入。请在锁内读取状态，拒绝过期或重复的决定。
+- **start_flow_request_id_missing**：Flow 文件中，或处理方法调用的辅助函数中的 **StartFlow** 调用，其 options 没有 **RequestID**。重试的启动将无法被识别。请从业务标识派生 RequestID，并设置带 **IgnoreError** 的 **AlreadyStarted**。
+- **cross_flow_read_not_found_unhandled**：Step 调用 **InvokeRPC** 或 **InvokeRPCWithOptions**，但其调用路径上没有针对 **FlowNotActiveOrNotFoundError** 或 **FlowNotFoundError** 的 **errors.As** 检查。Flow 不存在时，该 Step 会一直重试，直到 retry policy 结束。
 
 ## Unknown 节点和诊断
 

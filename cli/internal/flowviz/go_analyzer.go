@@ -55,10 +55,14 @@ type goAnalyzer struct {
 	resourceVars          map[string]string
 	connectorFactories    map[string]goConnectorFactoryStep
 	schemaVersion         string
+	isApplicationLint     bool
 	registeredSteps       []string
+	stepValueTypes        map[string]types.Type
 	startInputType        types.Type
 	startStepType         string
 	typeSizes             types.Sizes
+	functions             *goFunctionWalker
+	handlerSummaries      []goHandlerSummary
 }
 
 type goExternalMethod struct {
@@ -97,7 +101,7 @@ type goDecisionOutcome struct {
 	span            *Span
 }
 
-func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVersion string) (*Graph, error) {
+func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVersion string, isApplicationLint bool) (*Graph, error) {
 	graph := NewGraph("go", sourcePath)
 	graph.SchemaVersion = schemaVersion
 	config := &packages.Config{
@@ -149,6 +153,7 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVers
 		modules,
 		sourcePath,
 		schemaVersion,
+		isApplicationLint,
 	)
 	analyzer.Analyze()
 	return graph, nil
@@ -165,6 +170,7 @@ func newGoAnalyzer(
 	modules map[string]goModule,
 	sourcePath string,
 	schemaVersion string,
+	isApplicationLint bool,
 ) *goAnalyzer {
 	if typeInfo == nil {
 		typeInfo = &types.Info{}
@@ -175,7 +181,7 @@ func newGoAnalyzer(
 	if typeSizes == nil {
 		typeSizes = types.SizesFor("gc", runtime.GOARCH)
 	}
-	return &goAnalyzer{
+	analyzer := &goAnalyzer{
 		graph:                 graph,
 		file:                  file,
 		packageFiles:          packageFiles,
@@ -197,9 +203,13 @@ func newGoAnalyzer(
 		resourceVars:          make(map[string]string),
 		connectorFactories:    make(map[string]goConnectorFactoryStep),
 		schemaVersion:         schemaVersion,
+		isApplicationLint:     isApplicationLint,
 		registeredSteps:       make([]string, 0),
+		stepValueTypes:        make(map[string]types.Type),
 		typeSizes:             typeSizes,
 	}
+	analyzer.functions = newGoFunctionWalker(analyzer)
+	return analyzer
 }
 
 func indexGoModules(currentPackage *packages.Package, modules map[string]goModule, visited map[string]bool) {
@@ -244,6 +254,22 @@ func (analyzer *goAnalyzer) Analyze() {
 	analyzer.analyzeFlowHandlers(flowName)
 	if analyzer.schemaVersion == SchemaVersionV2 {
 		analyzer.analyzeVisualizationV2(flowName)
+	}
+	analyzer.analyzeStateLoadsAndApplicationLints(getSteps)
+}
+
+// State-load and start-input errors are always reported; application lints only with --lint app.
+func (analyzer *goAnalyzer) analyzeStateLoadsAndApplicationLints(getSteps *ast.FuncDecl) {
+	evaluator := newGoOptionsEvaluator(analyzer, analyzer.functions)
+	var flowObject *types.TypeName
+	if receiver := analyzer.flowReceiverType(getSteps); receiver != nil {
+		flowObject = receiver.Origin().Obj()
+	}
+	checker := newGoStateLoadChecker(analyzer, evaluator, flowObject, analyzer.isApplicationLint)
+	checker.report()
+	newGoStartFlowInputChecker(analyzer).report()
+	if analyzer.isApplicationLint {
+		newGoApplicationLinter(analyzer, evaluator, checker.sources).report()
 	}
 }
 
@@ -518,6 +544,7 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 		nodeID := "step:" + stepType
 		isStart := callName == "DefineStartStep"
 		analyzer.steps[stepType] = nodeID
+		analyzer.stepValueTypes[stepType] = analyzer.typeInfo.Types[call.Args[0]].Type
 		analyzer.recordRegisteredStepType(stepName, nodeID, call.Args[0])
 		analyzer.registeredSteps = append(analyzer.registeredSteps, stepType)
 		analyzer.graph.AddNode(Node{ID: nodeID, Kind: "step", Name: stepName, Start: isStart, Span: analyzer.span(call)})
@@ -876,76 +903,78 @@ func (analyzer *goAnalyzer) analyzeFailurePolicy(ownerID string, method *ast.Fun
 }
 
 func (analyzer *goAnalyzer) analyzeResourceAccess(ownerID string, method *ast.FuncDecl, phase string) {
+	summary := analyzer.functions.summarizeHandler(method)
+	handler := goHandlerSummary{
+		ownerID: ownerID, phase: phase, method: method, summary: summary,
+	}
+	analyzer.handlerSummaries = append(analyzer.handlerSummaries, handler)
+	analyzer.diagnoseStreamInvocation(handler)
 	seen := make(map[string]bool)
-	localResources := analyzer.collectLocalResourceAliases(method.Body)
-	ast.Inspect(method.Body, func(current ast.Node) bool {
-		call, ok := current.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		selector, selectorOK := unwrapCallFun(call.Fun).(*ast.SelectorExpr)
-		if !selectorOK {
-			return true
-		}
-		resourceID := analyzer.resourceForExpression(selector.X)
-		if resourceID == "" {
-			if identifier, ok := selector.X.(*ast.Ident); ok {
-				resourceID = localResources[analyzer.typeInfo.Uses[identifier]]
+	for _, isHelperAccess := range []bool{false, true} {
+		for _, access := range summary.accesses {
+			if (access.reach.helper != nil) == isHelperAccess {
+				analyzer.addResourceAccessEdge(ownerID, phase, access, seen)
 			}
 		}
-		if resourceID == "" {
-			return true
-		}
-		kind := goResourceEdgeKind(selector.Sel.Name, phase)
-		if kind == "" || kind == "wait_condition" {
-			return true
-		}
-		key := kind + ":" + resourceID + ":" + selector.Sel.Name
-		if seen[key] {
-			return true
-		}
-		seen[key] = true
-		metadata := map[string]any{"phase": phase}
-		if strings.HasPrefix(resourceID, "resource:stream:") && selector.Sel.Name == "Write" {
-			metadata["bestEffort"] = true
-			metadata["repeatable"] = true
-			metadata["role"] = "progress"
-			if phase == "rpc" || phase == "timeout" {
-				analyzer.graph.AddDiagnostic("error", "step_progress_outside_step", "Stream.Write is only available in WaitFor and Execute", analyzer.span(call))
-			}
-		}
-		from := ownerID
-		to := resourceID
-		if kind == "resource_read" {
-			from, to = resourceID, ownerID
-		}
-		analyzer.graph.AddEdge(Edge{Kind: kind, From: from, To: to, Label: selector.Sel.Name, Span: analyzer.span(call), Metadata: metadata})
-		return true
-	})
+	}
 }
 
-func (analyzer *goAnalyzer) collectLocalResourceAliases(body *ast.BlockStmt) map[types.Object]string {
-	aliases := make(map[types.Object]string)
-	ast.Inspect(body, func(current ast.Node) bool {
-		assignment, ok := current.(*ast.AssignStmt)
-		if !ok || len(assignment.Rhs) != 1 || len(assignment.Lhs) == 0 {
-			return true
+func (analyzer *goAnalyzer) diagnoseStreamInvocation(handler goHandlerSummary) {
+	if handler.phase != "rpc" && handler.phase != "timeout" {
+		return
+	}
+	seen := make(map[string]bool)
+	for _, accesses := range [][]goResourceAccess{handler.summary.accesses, handler.summary.streamWriterCalls} {
+		for _, access := range accesses {
+			resource := analyzer.node(access.resourceID)
+			if resource.Kind != "stream" ||
+				(access.methodName != "Write" && access.methodName != "NewBufferedTextStream") {
+				continue
+			}
+			span := analyzer.functions.reachedSpan(access.call, access.reach)
+			key := fmt.Sprintf("%s:%s:%d:%d", access.resourceID, access.methodName, span.StartLine, span.StartColumn)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			message := fmt.Sprintf(
+				"%s uses Stream %q (%s%s). Stream.Write and NewBufferedTextStream are only available in Step WaitFor and Execute. Move this Stream output to a Step; an RPC can publish a Channel message or return NextSteps to schedule it.",
+				goHandlerLabel(analyzer, handler), resource.Name, access.methodName,
+				analyzer.functions.reachedLocation(access.call, access.reach),
+			)
+			analyzer.graph.AddDiagnostic("error", "step_progress_outside_step", message, span)
 		}
-		call, ok := assignment.Rhs[0].(*ast.CallExpr)
-		if !ok || analyzer.callName(call) != "NewBufferedTextStream" || len(call.Args) < 2 {
-			return true
-		}
-		resourceID := analyzer.resourceForExpression(call.Args[1])
-		identifier, ok := assignment.Lhs[0].(*ast.Ident)
-		if !ok || resourceID == "" {
-			return true
-		}
-		if object := analyzer.typeInfo.Defs[identifier]; object != nil {
-			aliases[object] = resourceID
-		}
-		return true
-	})
-	return aliases
+	}
+}
+
+// Direct accesses are added first, so an edge found both ways keeps its direct span.
+func (analyzer *goAnalyzer) addResourceAccessEdge(ownerID string, phase string, access goResourceAccess, seen map[string]bool) {
+	kind := goResourceEdgeKind(access.methodName, phase)
+	if kind == "" || kind == "wait_condition" {
+		return
+	}
+	key := kind + ":" + access.resourceID + ":" + access.methodName
+	if seen[key] {
+		return
+	}
+	seen[key] = true
+	span := analyzer.functions.reachedSpan(access.call, access.reach)
+	metadata := map[string]any{"phase": phase}
+	if access.reach.helper != nil {
+		metadata["via"] = "helper"
+		metadata["function"] = goHelperName(access.reach.helper)
+	}
+	if strings.HasPrefix(access.resourceID, "resource:stream:") && access.methodName == "Write" {
+		metadata["bestEffort"] = true
+		metadata["repeatable"] = true
+		metadata["role"] = "progress"
+	}
+	from := ownerID
+	to := access.resourceID
+	if kind == "resource_read" {
+		from, to = access.resourceID, ownerID
+	}
+	analyzer.graph.AddEdge(Edge{Kind: kind, From: from, To: to, Label: access.methodName, Span: span, Metadata: metadata})
 }
 
 func (analyzer *goAnalyzer) decisionType(expression ast.Expr, allowRPC bool) string {
@@ -1286,6 +1315,12 @@ func (analyzer *goAnalyzer) walkStatements(statements []ast.Stmt, condition stri
 			}
 		case *ast.BlockStmt:
 			hasOutcome = analyzer.walkStatements(current.List, condition, visit) || hasOutcome
+		case *ast.ForStmt:
+			hasOutcome = analyzer.walkStatements(current.Body.List, condition, visit) || hasOutcome
+		case *ast.RangeStmt:
+			hasOutcome = analyzer.walkStatements(current.Body.List, condition, visit) || hasOutcome
+		case *ast.LabeledStmt:
+			hasOutcome = analyzer.walkStatements([]ast.Stmt{current.Stmt}, condition, visit) || hasOutcome
 		}
 	}
 	return hasOutcome
@@ -1670,7 +1705,7 @@ func goResourceEdgeKind(method string, phase string) string {
 		}
 	}
 	switch method {
-	case "Get", "Size", "MapSize", "AllInstanceKeys", "GetConditionResults":
+	case "Get", "Size", "MapSize", "AllInstanceKeys", "GetConditionResults", "PendingMessages", "FindPendingMessage":
 		return "resource_read"
 	case "Set", "Delete":
 		return "resource_write"
