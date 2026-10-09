@@ -1424,7 +1424,10 @@ func (analyzer *goAnalyzer) callName(call *ast.CallExpr) string {
 		if object := analyzer.typeInfo.Uses[current]; object != nil && object.Pkg() != nil && object.Pkg().Path() == goSDKPackage {
 			return object.Name()
 		}
-		return current.Name
+		if builtin, isBuiltin := analyzer.typeInfo.Uses[current].(*types.Builtin); isBuiltin {
+			return builtin.Name()
+		}
+		return ""
 	case *ast.SelectorExpr:
 		if object := analyzer.typeInfo.Uses[current.Sel]; object != nil && object.Pkg() != nil && object.Pkg().Path() == goSDKPackage {
 			return object.Name()
