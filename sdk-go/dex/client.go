@@ -122,7 +122,7 @@ func newClient(
 		registry:     registry,
 		cache:        cache,
 		service:      service,
-		hydrator:     newValueHydrator(service, cache, logger),
+		hydrator:     newValueHydrator(service, cache, logger, connection.Target()),
 		connection:   connection,
 		workerTarget: workerTarget,
 		logger:       logger,

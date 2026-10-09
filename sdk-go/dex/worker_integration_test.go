@@ -20,6 +20,7 @@ import (
 	"net"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1516,7 +1517,7 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, cache.Close()) }()
-	hydrator := newValueHydrator(client, cache, nil)
+	hydrator := newValueHydrator(client, cache, nil, "flow-test")
 	request := &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForStringValue{
 		InternalBlobIdForStringValue: "blob-1",
 	}}
@@ -1547,7 +1548,7 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	flowService.setValue("input-blob", encodedInput)
 	workerClient, closeWorker := newWorkerTestClient(
 		t,
-		newValueHydrator(client, cache, nil),
+		newValueHydrator(client, cache, nil, "flow-test"),
 	)
 	defer closeWorker()
 	rpcRequest := workerRPCRequest(t, workerTestInput{})
@@ -1605,7 +1606,7 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, closedCache.Close())
-	uncachedHydrator := newValueHydrator(client, closedCache, nil)
+	uncachedHydrator := newValueHydrator(client, closedCache, nil, "flow-test")
 	uncached := request
 	err = uncachedHydrator.HydrateValuesInPlace(
 		context.Background(),
@@ -1617,8 +1618,169 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	require.Contains(t, logOutput.String(), "write blob cache")
 }
 
+func TestWorkerHydrationReportsEveryOmittedBlobAndValue(t *testing.T) {
+	var logOutput bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logOutput, nil))
+	flowService := &workerBlobFlowService{}
+	for _, blobID := range []string{"input", "live", "selected", "mapped", "heartbeat", "local", "condition", "completion"} {
+		flowService.omitValue(blobID)
+	}
+	flowServiceAddress := startWorkerFlowService(t, flowService)
+	address := unusedWorkerAddress(t)
+	worker, err := newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{
+		BindAddress: address, FlowServiceAddress: "  " + flowServiceAddress + "  ", Logger: logger,
+	})
+	require.NoError(t, err)
+	startResult := make(chan error, 1)
+	go func() { startResult <- worker.Start() }()
+	t.Cleanup(func() {
+		require.NoError(t, worker.Stop(context.Background()))
+		require.NoError(t, <-startResult)
+	})
+	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, connection.Close()) }()
+	client := dexpb.NewWorkerServiceClient(connection)
+	require.Eventually(t, func() bool {
+		worker.lifecycleMu.Lock()
+		defer worker.lifecycleMu.Unlock()
+		return worker.state == workerRunning
+	}, 5*time.Second, 10*time.Millisecond)
+
+	for _, method := range []string{"WaitFor", "Execute", "RPC", "Timeout"} {
+		t.Run(method, func(t *testing.T) {
+			flowID := "flow-" + t.Name()
+			attributes := []*dexpb.KV{
+				{Key: "LiveExecution", Value: workerTestStringBlob("live")},
+				{Key: "SelectedExecution", Value: workerTestStringBlob("selected")},
+				{Key: "items/order-1", Value: workerTestStringBlob("mapped")},
+				{Key: "present", Value: workerTestStringBlob("available")},
+			}
+			loadedMessages := map[string]*dexpb.ChannelValues{
+				"commands":                  {Messages: []*dexpb.ChannelMessage{{MessageId: "message-1", Value: workerTestStringBlob("live")}}},
+				"commands-by-order/order-1": {Messages: []*dexpb.ChannelMessage{{MessageId: "message-2", Value: workerTestStringBlob("selected")}}},
+			}
+			expected := []string{
+				`blob "live"`, `Attribute "LiveExecution"`, `blob "selected"`, `Attribute "SelectedExecution"`,
+				`blob "mapped"`, `Attribute "items/order-1"`, `Channel "commands" message "message-1"`,
+				`Channel "commands-by-order/order-1" message "message-2"`,
+				fmt.Sprintf("Flow ID %q", flowID), fmt.Sprintf("FlowServiceAddress %q", flowServiceAddress),
+				"Worker's Flow service may differ from the dispatching Server",
+			}
+			var invocationError error
+			switch method {
+			case "RPC":
+				request := workerRPCRequest(t, workerTestInput{})
+				request.Context.FlowId = flowID
+				request.Input = &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: "input"}}
+				request.Attributes = attributes
+				request.LoadedChannelMessages = loadedMessages
+				_, invocationError = client.InvokeWorkerRPC(context.Background(), request)
+				expected = append(expected, `blob "input"`, "RPC input")
+			case "WaitFor":
+				request := &dexpb.InvokeWaitForMethodRequest{
+					Context: workerStepContext(), FlowType: GetFinalFlowType(workerFlow),
+					StepType: GetFinalStepType(workerTestWait), StepInput: &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: "input"}},
+					Attributes: attributes, LoadedChannelMessages: loadedMessages,
+				}
+				request.Context.FlowId = flowID
+				request.Context.LastHeartbeatValue = workerTestStringBlob("heartbeat")
+				_, invocationError = collectWaitForOutputs(client, request)
+				expected = append(expected, `blob "input"`, "Step input", `blob "heartbeat"`, "last heartbeat")
+			case "Execute", "Timeout":
+				request := workerExecuteRequest(t, workerTestInput{})
+				request.Context.FlowId = flowID
+				request.StepInput = &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: "input"}}
+				request.Context.LastHeartbeatValue = workerTestStringBlob("heartbeat")
+				request.Attributes = attributes
+				request.StepExeLocals = []*dexpb.KV{{Key: "execution", Value: workerTestStringBlob("local")}}
+				request.LoadedChannelMessages = loadedMessages
+				request.ConditionResults.ChannelResults[0].Values = []*dexpb.Value{workerTestStringBlob("condition")}
+				request.ConditionResults.SubFlowResults = []*dexpb.FlowResult{{Results: []*dexpb.StepCompletionOutput{{
+					CompletedStepOutput: workerTestStringBlob("completion"),
+				}}}}
+				if method == "Timeout" {
+					request.StepType = timeoutHandlerStepType
+					request.StepInput = nil
+				} else {
+					expected = append(expected, `blob "input"`, "Step input")
+				}
+				_, invocationError = collectExecuteOutputs(client, request)
+				expected = append(expected, `blob "heartbeat"`, "last heartbeat", `blob "local"`, `Step-execution local "execution"`,
+					`blob "condition"`, `Channel "commands" condition "command-1" value at index 0`,
+					`blob "completion"`, "SubFlow result at index 0 completion at index 0 Step output")
+			}
+			require.Equal(t, codes.Internal, status.Code(invocationError))
+			for _, description := range expected {
+				require.ErrorContains(t, invocationError, description)
+			}
+			require.Equal(t, 1, strings.Count(invocationError.Error(), `blob "live"`))
+			require.Equal(t, 1, strings.Count(invocationError.Error(), `blob "selected"`))
+			require.NotContains(t, invocationError.Error(), `blob "available"`)
+			details := requireWorkerErrorDetail(t, status.Convert(invocationError))
+			require.Equal(t, status.Convert(invocationError).Message(), details.Detail)
+			require.NotContains(t, details.Detail, string(errorDetailTruncationMarker))
+		})
+	}
+	t.Run("large diagnostic logs every missing value", func(t *testing.T) {
+		request := workerRPCRequest(t, workerTestInput{})
+		request.Context.FlowId = "flow-" + t.Name()
+		for index := range 30 {
+			blobID := fmt.Sprintf("omitted-%d", index)
+			flowService.omitValue(blobID)
+			request.Attributes = append(request.Attributes, &dexpb.KV{
+				Key: "attribute-" + blobID, Value: workerTestStringBlob(blobID),
+			})
+		}
+		_, invocationError := client.InvokeWorkerRPC(context.Background(), request)
+		require.Equal(t, codes.Internal, status.Code(invocationError))
+		require.ErrorContains(t, invocationError, fmt.Sprintf("FlowServiceAddress %q", flowServiceAddress))
+		require.ErrorContains(t, invocationError, "Worker's Flow service may differ from the dispatching Server")
+		require.ErrorContains(t, invocationError, string(errorDetailTruncationMarker))
+		require.Contains(t, logOutput.String(), request.Context.FlowId)
+		for _, attribute := range request.Attributes {
+			require.Contains(t, logOutput.String(), attribute.Key)
+			require.Contains(t, logOutput.String(), attribute.Value.GetInternalBlobIdForStringValue())
+		}
+	})
+}
+
+func TestWorkerHydrationReportsMissingBlobsAcrossFlows(t *testing.T) {
+	flowService := &workerBlobFlowService{}
+	client, closeFlowService := newFlowServiceTestClient(t, flowService)
+	defer closeFlowService()
+	hydrator := newValueHydrator(client, newHydrationCache(t), nil, "flow-test")
+	cached := workerTestStringBlob("shared")
+	require.NoError(t, hydrator.HydrateValuesInPlace(context.Background(), []flowValuePointer{
+		{flowID: "cached-flow", valuePointer: &cached},
+	}))
+	flowService.omitValue("shared")
+	flowService.omitValue("missing")
+	values := []*dexpb.Value{
+		workerTestStringBlob("shared"), workerTestStringBlob("shared"),
+		workerTestStringBlob("shared"), workerTestStringBlob("missing"),
+	}
+	originalValues := append([]*dexpb.Value(nil), values...)
+	err := hydrator.HydrateValuesInPlace(context.Background(), []flowValuePointer{
+		{flowID: "cached-flow", valueDescription: `Attribute "cached"`, valuePointer: &values[0]},
+		{flowID: "first-flow", valueDescription: `Attribute "first"`, valuePointer: &values[1]},
+		{flowID: "second-flow", valueDescription: `Attribute "second"`, valuePointer: &values[2]},
+		{flowID: "first-flow", valueDescription: `Attribute "other"`, valuePointer: &values[3]},
+	})
+	require.ErrorContains(t, err, `Flow ID "first-flow": blob "shared" (Attribute "first"); blob "missing" (Attribute "other")`)
+	require.ErrorContains(t, err, `Flow ID "second-flow": blob "shared" (Attribute "second")`)
+	require.NotContains(t, err.Error(), "cached-flow")
+	for index, originalValue := range originalValues {
+		require.Same(t, originalValue, values[index])
+	}
+}
+
+func workerTestStringBlob(blobID string) *dexpb.Value {
+	return &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForStringValue{InternalBlobIdForStringValue: blobID}}
+}
+
 type workerBlobFlowService struct {
-	dexpb.UnimplementedFlowServiceServer
+	workerSyncFlowService
 	mu      sync.Mutex
 	calls   int
 	values  map[string]*dexpb.Value

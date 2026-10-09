@@ -64,7 +64,7 @@ func TestHydrateValuesDeduplicatesAndPreservesOrder(t *testing.T) {
 			}}},
 		},
 	}
-	hydrator := newValueHydrator(client, newHydrationCache(t), nil)
+	hydrator := newValueHydrator(client, newHydrationCache(t), nil, "flow-test")
 	values := []*dexpb.Value{stringBlob, concrete, stringBlob, objectBlob}
 
 	err := hydrator.HydrateValuesInPlace(
@@ -86,9 +86,9 @@ func TestHydrateValuesValidatesResponses(t *testing.T) {
 		},
 	}
 	cache := newHydrationCache(t)
-	require.Panics(t, func() { newValueHydrator(nil, cache, nil) })
+	require.Panics(t, func() { newValueHydrator(nil, cache, nil, "flow-test") })
 	require.Panics(t, func() {
-		newValueHydrator(&fakeHydrationFlowServiceClient{}, nil, nil)
+		newValueHydrator(&fakeHydrationFlowServiceClient{}, nil, nil, "flow-test")
 	})
 
 	values := []*dexpb.Value{stringBlob}
@@ -96,6 +96,7 @@ func TestHydrateValuesValidatesResponses(t *testing.T) {
 		&fakeHydrationFlowServiceClient{},
 		cache,
 		nil,
+		"flow-test",
 	).HydrateValuesInPlace(
 		context.Background(), valuePointers("flow-1", values),
 	)
@@ -109,6 +110,7 @@ func TestHydrateValuesValidatesResponses(t *testing.T) {
 		}},
 		cache,
 		nil,
+		"flow-test",
 	).HydrateValuesInPlace(
 		context.Background(), valuePointers("flow-1", values),
 	)
@@ -120,6 +122,7 @@ func TestHydrateValuesValidatesResponses(t *testing.T) {
 		&fakeHydrationFlowServiceClient{err: errors.New("load failed")},
 		cache,
 		nil,
+		"flow-test",
 	).HydrateValuesInPlace(
 		context.Background(), valuePointers("flow-1", values),
 	)
