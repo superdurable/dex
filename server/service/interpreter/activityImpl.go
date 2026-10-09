@@ -777,6 +777,7 @@ func (a *Activities) IWRPC(
 		a.blobStore,
 		input.GetRequest().GetRequestId(),
 		&a.cfg.BlobStore,
+		true,
 	)
 	if err != nil {
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, nil)

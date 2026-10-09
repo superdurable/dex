@@ -104,9 +104,14 @@ network path 内。
 least-privilege policy。监控 write 和 read failure，并测试 credential rotation 后仍能读取
 现有 object 的恢复流程。
 
-Dex 默认将不超过 100 bytes 的 payload 保留在 history 中。101 bytes 的 string 或 encoded
+Dex 默认将不超过 100 bytes 的持久化 payload 保留在 history 中。101 bytes 的 string 或 encoded
 object 会被 offload。可通过 **blobStore.thresholdInBytes** 覆盖默认值。
 比较时只计算 payload size，不计算最终 reference size。
+
+非事务 RPC 的输入和输出在完整 Worker 消息不超过 **api.grpcMaxMessageBytes** 时保持 inline。
+Dex 仅在需要满足该传输限制时 offload 输入。事务 RPC 的 payload 使用 Blob Store threshold。
+对于产生副作用的非事务 RPC，启用 **api.includeRPCInputOutputIntoHistory** 后，输入和输出
+history 也使用该 threshold。只读 RPC 不会仅因输入或输出超过 threshold 就将其写入 Blob Store。
 
 ~~~yaml
 blobStore:

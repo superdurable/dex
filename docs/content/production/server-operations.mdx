@@ -118,10 +118,18 @@ Use separate credentials and least-privilege policies for each environment.
 Monitor write and read failures, then test a recovery procedure that can still
 read existing objects after a credential rotation.
 
-Dex keeps payloads through 100 bytes inline by default. A 101-byte string or
+Dex keeps persisted payloads through 100 bytes inline by default. A 101-byte string or
 encoded object is offloaded. Set
 **blobStore.thresholdInBytes** to override the default. The comparison uses only
 the payload size, not the resulting reference size.
+
+Nontransactional RPC inputs and outputs stay inline when the complete Worker
+message fits **api.grpcMaxMessageBytes**. Dex offloads the input when necessary
+to fit that transport limit. Transactional RPC payloads use the Blob Store
+threshold. Nontransactional RPCs with side effects also use the threshold when
+**api.includeRPCInputOutputIntoHistory** enables input/output history. A pure
+read does not write its input or output to Blob Store solely because it exceeds
+the threshold.
 
 ~~~yaml
 blobStore:

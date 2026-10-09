@@ -65,6 +65,13 @@ collections, all-instance and exact-instance selectors, FIFO envelopes, message 
 blob loading, and the independence of loading, transactions, and Attribute
 locks.
 
+RPC Blob Store coverage rejects writes while pure reads exchange inputs and
+outputs larger than the durable threshold. It covers string and encoded-object
+values, eager and lazy loading, and input/output history configuration. Transport
+tests include Worker state and metadata in the message-size limit, offload an
+oversized input once, and reject oversized requests when Blob Store is disabled.
+External-storage tests retain transactional and side-effect history coverage.
+
 Resumable Stream integration covers per-message size limits, Flow-type scope
 isolation, global FIFO trim, resume, repeated sources, and multi-server trim
 coordination. It requires Redis 7 on `127.0.0.1:6379`. The standard dependency

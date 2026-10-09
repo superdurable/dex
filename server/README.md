@@ -22,6 +22,13 @@ envelopes. A trailing-slash map name loads every instance. The suffix names one
 instance. Empty loads
 are echoed separately from their loaded data.
 
+Nontransactional RPC inputs and outputs stay inline when the complete Worker
+message fits `api.grpcMaxMessageBytes`. An oversized Worker request can offload
+its input to fit the transport limit. Transactional RPC payloads and optional
+input/output history for RPCs with side effects use the durable Blob Store
+threshold. A pure read does not write its input or output to Blob Store merely
+because it exceeds that threshold.
+
 State loading controls only the Worker request projection. Transactional
 execution controls atomic commit and Channel deletion validation. Attribute
 locking additionally isolates cooperating Steps and RPCs that use the same

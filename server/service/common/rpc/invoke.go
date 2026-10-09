@@ -22,7 +22,13 @@ import (
 	"github.com/superdurable/dex/service/common/channelmessage"
 	"github.com/superdurable/dex/service/common/utils"
 	"github.com/superdurable/dex/service/common/workerclient"
+	"google.golang.org/protobuf/proto"
 )
+
+// WorkerRequestTooLargeError reports an RPC request that cannot fit the Worker transport limit.
+type WorkerRequestTooLargeError struct {
+	MaxMessageBytes int
+}
 
 // InvokeWorkerRpc calls WorkerService.InvokeWorkerRPC using the shared worker pool.
 func InvokeWorkerRpc(
@@ -36,6 +42,7 @@ func InvokeWorkerRpc(
 	blobStore blobstore.BlobStore,
 	invocationId string,
 	blobStoreCfg *config.BlobStoreConfig,
+	isOutputPersisted bool,
 ) (*dexpb.InvokeWorkerRPCResponse, error) {
 	if apiCfg == nil || interpreterActivityCfg == nil {
 		panic("InvokeWorkerRpc requires non-nil config sections")
@@ -109,6 +116,19 @@ func InvokeWorkerRpc(
 		LoadedChannelNames:          rpcPrep.GetLoadedChannelNames(),
 		LoadedChannelMapInstances:   rpcPrep.GetLoadedChannelMapInstances(),
 	}
+	if proto.Size(workerReq) > apiCfg.EffectiveGrpcMaxMessageBytes() {
+		// Transport offload must work even when the persistence threshold exceeds the message limit.
+		if err := blobstore.OffloadLargeValue(
+			ctx, req.GetInput(), req.GetFlowId(), invocationId,
+			1, blobStore, blobStoreCfg.EffectiveEnabled(),
+		); err != nil {
+			return nil, err
+		}
+		workerReq.Input = req.GetInput()
+		if proto.Size(workerReq) > apiCfg.EffectiveGrpcMaxMessageBytes() {
+			return nil, &WorkerRequestTooLargeError{MaxMessageBytes: apiCfg.EffectiveGrpcMaxMessageBytes()}
+		}
+	}
 
 	resp, err := client.InvokeWorkerRPC(callCtx, workerReq)
 	if err != nil {
@@ -136,11 +156,13 @@ func InvokeWorkerRpc(
 	); err != nil {
 		return nil, err
 	}
-	if err := blobstore.OffloadLargeValue(
-		ctx, resp.GetOutput(), req.GetFlowId(), invocationId,
-		blobStoreCfg.EffectiveThresholdInBytes(), blobStore, blobStoreCfg.EffectiveEnabled(),
-	); err != nil {
-		return nil, err
+	if isOutputPersisted {
+		if err := blobstore.OffloadLargeValue(
+			ctx, resp.GetOutput(), req.GetFlowId(), invocationId,
+			blobStoreCfg.EffectiveThresholdInBytes(), blobStore, blobStoreCfg.EffectiveEnabled(),
+		); err != nil {
+			return nil, err
+		}
 	}
 	if err := offloadRPCSideEffects(
 		ctx,
@@ -154,6 +176,10 @@ func InvokeWorkerRpc(
 	}
 
 	return resp, nil
+}
+
+func (err *WorkerRequestTooLargeError) Error() string {
+	return fmt.Sprintf("RPC Worker request exceeds the %d-byte gRPC message limit", err.MaxMessageBytes)
 }
 
 func offloadRPCSideEffects(
