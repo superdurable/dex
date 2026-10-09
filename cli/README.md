@@ -399,7 +399,12 @@ RPC method value (such as `InvokeRPCWithOptions`) for RPCs; and
 `FlowTimeoutHandlerOptions` values for `HandleTimeout`. Option values may be
 literals, package variables, local variables with field assignments, or
 same-package function results. Self-appending option slices and cyclic local
-aliases are evaluated as a union of their known contributions. A read in a
+aliases are evaluated as a union of their known contributions. This includes
+appends to option fields, assignments to helper parameters, pointer copies,
+and empty slices created with `make`. Dependencies are expanded iteratively;
+each traversal deduplicates references to the same variable and scope.
+Recursive helpers, helper calls deeper than six levels, and expansions
+exceeding 10,000 expressions are treated as unresolved options. A read in a
 helper is reported at the handler's call in the Flow file, and the message
 names the helper's file and line.
 

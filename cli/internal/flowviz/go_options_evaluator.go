@@ -10,12 +10,15 @@ package flowviz
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 )
 
 // Longer construct text is truncated in diagnostics.
 const goMaximumConstructLength = 80
+
+const goMaximumOptionExpressions = 10000
 
 // goOptionsEvaluator reads the statically declared fields of Dex option values in the analyzed package.
 type goOptionsEvaluator struct {
@@ -36,6 +39,7 @@ type goEvaluationScope struct {
 	function  *ast.FuncDecl
 	arguments map[types.Object]goScopedExpression
 	depth     int
+	parent    *goEvaluationScope
 }
 
 // goStructValue is the may-be union of every field contribution an options value can receive.
@@ -66,10 +70,25 @@ type goStateLoad struct {
 	instanceKey goInstanceKey
 }
 
-// goEvaluation evaluates one value and stops an expression from expanding inside its own definition.
+// goEvaluation expands options iteratively with a shared expression budget.
 type goEvaluation struct {
-	evaluator *goOptionsEvaluator
-	visiting  map[goScopedExpression]bool
+	evaluator            *goOptionsEvaluator
+	remainingExpressions int
+}
+
+type goEvaluationKey struct {
+	expression  ast.Expr
+	object      types.Object
+	scope       *goEvaluationScope
+	resultIndex int
+}
+
+type goEvaluationQueue struct {
+	evaluation *goEvaluation
+	pending    []goScopedExpression
+	seen       map[goEvaluationKey]bool
+	unresolved []goUnresolvedConstruct
+	isLimited  bool
 }
 
 type goLocalAssignments struct {
@@ -217,7 +236,7 @@ func (evaluator *goOptionsEvaluator) stepOptionsValue(stepValueType types.Type, 
 }
 
 func (evaluator *goOptionsEvaluator) newEvaluation() *goEvaluation {
-	return &goEvaluation{evaluator: evaluator, visiting: make(map[goScopedExpression]bool)}
+	return &goEvaluation{evaluator: evaluator, remainingExpressions: goMaximumOptionExpressions}
 }
 
 func (evaluator *goOptionsEvaluator) unresolved(value goScopedExpression) goUnresolvedConstruct {
@@ -247,40 +266,57 @@ func (evaluator *goOptionsEvaluator) localAssignments(object types.Object, scope
 
 func (evaluation *goEvaluation) structValue(value goScopedExpression) goStructValue {
 	result := goStructValue{fields: make(map[string][]goScopedExpression)}
-	if !evaluation.enter(value) {
-		return result
-	}
-	defer evaluation.leave(value)
-	switch current := ast.Unparen(value.expression).(type) {
-	case *ast.Ident:
-		if evaluation.isNil(current) {
-			return result
-		}
-		for _, definition := range evaluation.variableValues(current, value, &result.unresolved, &result.fields) {
-			result.merge(evaluation.structValue(definition))
-		}
-		return result
-	case *ast.UnaryExpr:
-		if current.Op == token.AND {
-			return evaluation.structValue(value.with(current.X))
-		}
-	case *ast.CompositeLit:
-		for _, element := range current.Elts {
-			fieldName, fieldValue, isKeyed := goKeyedField(element)
-			if !isKeyed {
-				result.unresolved = append(result.unresolved, evaluation.evaluator.unresolved(value.with(element)))
+	queue := newGoEvaluationQueue(evaluation, value)
+	for currentValue, hasValue := queue.next(); hasValue; currentValue, hasValue = queue.next() {
+		switch current := ast.Unparen(currentValue.expression).(type) {
+		case *ast.Ident:
+			if !evaluation.isNil(current) {
+				for _, definition := range evaluation.variableValues(current, currentValue, &result.unresolved, &result.fields) {
+					queue.add(definition)
+				}
+			}
+			continue
+		case *ast.UnaryExpr:
+			if current.Op == token.AND {
+				queue.add(currentValue.with(current.X))
 				continue
 			}
-			result.fields[fieldName] = append(result.fields[fieldName], value.with(fieldValue))
+		case *ast.StarExpr:
+			queue.add(currentValue.with(current.X))
+			continue
+		case *ast.CompositeLit:
+			for _, element := range current.Elts {
+				fieldName, fieldValue, isKeyed := goKeyedField(element)
+				if !isKeyed {
+					result.unresolved = append(result.unresolved, evaluation.evaluator.unresolved(currentValue.with(element)))
+					continue
+				}
+				result.fields[fieldName] = append(result.fields[fieldName], currentValue.with(fieldValue))
+			}
+			continue
+		case *ast.CallExpr:
+			if evaluation.isBuiltin(current, "new") && len(current.Args) == 1 {
+				if pointer, isPointer := evaluation.evaluator.analyzer.typeInfo.TypeOf(current).Underlying().(*types.Pointer); isPointer {
+					if _, isStruct := pointer.Elem().Underlying().(*types.Struct); isStruct {
+						continue
+					}
+				}
+			}
+			declaration, calleeScope := evaluation.callee(current, currentValue)
+			if declaration != nil {
+				returned, isComplete := goReturnedValues(declaration, calleeScope, currentValue.resultIndex)
+				if !isComplete {
+					result.unresolved = append(result.unresolved, evaluation.evaluator.unresolvedAt(declaration.Name.Name, declaration.Pos()))
+				}
+				for _, returnedValue := range returned {
+					queue.add(returnedValue)
+				}
+				continue
+			}
 		}
-		return result
-	case *ast.CallExpr:
-		declaration, calleeScope := evaluation.callee(current, value)
-		if declaration != nil {
-			return evaluation.functionResultStruct(declaration, calleeScope, value.resultIndex)
-		}
+		result.unresolved = append(result.unresolved, evaluation.evaluator.unresolved(currentValue))
 	}
-	result.unresolved = append(result.unresolved, evaluation.evaluator.unresolved(value))
+	result.unresolved = append(result.unresolved, queue.unresolved...)
 	return result
 }
 
@@ -298,57 +334,70 @@ func (evaluation *goEvaluation) functionResultStruct(declaration *ast.FuncDecl, 
 
 func (evaluation *goEvaluation) listValue(value goScopedExpression) goListValue {
 	result := goListValue{}
-	if !evaluation.enter(value) {
-		return result
-	}
-	defer evaluation.leave(value)
-	switch current := ast.Unparen(value.expression).(type) {
-	case *ast.Ident:
-		if evaluation.isNil(current) {
-			return result
-		}
-		var assignedFields map[string][]goScopedExpression
-		for _, definition := range evaluation.variableValues(current, value, &result.unresolved, &assignedFields) {
-			result.merge(evaluation.listValue(definition))
-		}
-		if len(assignedFields) > 0 {
-			result.unresolved = append(result.unresolved, evaluation.evaluator.unresolved(value))
-		}
-		return result
-	case *ast.CompositeLit:
-		for _, element := range current.Elts {
-			if _, isKeyValue := element.(*ast.KeyValueExpr); isKeyValue {
-				result.unresolved = append(result.unresolved, evaluation.evaluator.unresolved(value.with(element)))
+	queue := newGoEvaluationQueue(evaluation, value)
+	for currentValue, hasValue := queue.next(); hasValue; currentValue, hasValue = queue.next() {
+		switch current := ast.Unparen(currentValue.expression).(type) {
+		case *ast.Ident:
+			if evaluation.isNil(current) {
 				continue
 			}
-			result.elements = append(result.elements, value.with(element))
-		}
-		return result
-	case *ast.CallExpr:
-		if evaluation.isBuiltin(current, "append") && len(current.Args) > 0 {
-			result.merge(evaluation.listValue(value.with(current.Args[0])))
-			for index, argument := range current.Args[1:] {
-				if current.Ellipsis.IsValid() && index == len(current.Args)-2 {
-					result.merge(evaluation.listValue(value.with(argument)))
+			var assignedFields map[string][]goScopedExpression
+			for _, definition := range evaluation.variableValues(current, currentValue, &result.unresolved, &assignedFields) {
+				queue.add(definition)
+			}
+			if len(assignedFields) > 0 {
+				result.unresolved = append(result.unresolved, evaluation.evaluator.unresolved(currentValue))
+			}
+			continue
+		case *ast.SelectorExpr:
+			structure := evaluation.structValue(currentValue.with(current.X))
+			result.unresolved = append(result.unresolved, structure.unresolved...)
+			for _, contribution := range structure.fields[current.Sel.Name] {
+				queue.add(contribution)
+			}
+			continue
+		case *ast.CompositeLit:
+			for _, element := range current.Elts {
+				if _, isKeyValue := element.(*ast.KeyValueExpr); isKeyValue {
+					result.unresolved = append(result.unresolved, evaluation.evaluator.unresolved(currentValue.with(element)))
 					continue
 				}
-				result.elements = append(result.elements, value.with(argument))
+				result.elements = append(result.elements, currentValue.with(element))
 			}
-			return result
+			continue
+		case *ast.CallExpr:
+			if evaluation.isBuiltin(current, "make") && len(current.Args) >= 2 {
+				length := evaluation.evaluator.analyzer.typeInfo.Types[current.Args[1]].Value
+				if _, isSlice := evaluation.evaluator.analyzer.typeInfo.TypeOf(current).Underlying().(*types.Slice); isSlice && length != nil && constant.Sign(length) == 0 {
+					continue
+				}
+			}
+			if evaluation.isBuiltin(current, "append") && len(current.Args) > 0 {
+				queue.add(currentValue.with(current.Args[0]))
+				for index, argument := range current.Args[1:] {
+					if current.Ellipsis.IsValid() && index == len(current.Args)-2 {
+						queue.add(currentValue.with(argument))
+						continue
+					}
+					result.elements = append(result.elements, currentValue.with(argument))
+				}
+				continue
+			}
+			declaration, calleeScope := evaluation.callee(current, currentValue)
+			if declaration != nil {
+				returned, isComplete := goReturnedValues(declaration, calleeScope, currentValue.resultIndex)
+				if !isComplete {
+					result.unresolved = append(result.unresolved, evaluation.evaluator.unresolvedAt(declaration.Name.Name, declaration.Pos()))
+				}
+				for _, returnedValue := range returned {
+					queue.add(returnedValue)
+				}
+				continue
+			}
 		}
-		declaration, calleeScope := evaluation.callee(current, value)
-		if declaration != nil {
-			returned, isComplete := goReturnedValues(declaration, calleeScope, value.resultIndex)
-			if !isComplete {
-				result.unresolved = append(result.unresolved, evaluation.evaluator.unresolvedAt(declaration.Name.Name, declaration.Pos()))
-			}
-			for _, returnedValue := range returned {
-				result.merge(evaluation.listValue(returnedValue))
-			}
-			return result
-		}
+		result.unresolved = append(result.unresolved, evaluation.evaluator.unresolved(currentValue))
 	}
-	result.unresolved = append(result.unresolved, evaluation.evaluator.unresolved(value))
+	result.unresolved = append(result.unresolved, queue.unresolved...)
 	return result
 }
 
@@ -364,9 +413,7 @@ func (evaluation *goEvaluation) variableValues(
 		*unresolved = append(*unresolved, evaluation.evaluator.unresolved(value))
 		return nil
 	}
-	if argument, isArgument := value.scope.arguments[object]; isArgument {
-		return []goScopedExpression{argument}
-	}
+	argument, isArgument := value.scope.arguments[object]
 	if initializer, isPackageVar := evaluation.evaluator.packageInitializers[object]; isPackageVar {
 		if evaluation.evaluator.mutatedPackageVars[object] {
 			*unresolved = append(*unresolved, evaluation.evaluator.unresolved(value))
@@ -374,7 +421,7 @@ func (evaluation *goEvaluation) variableValues(
 		}
 		return []goScopedExpression{initializer}
 	}
-	if !evaluation.isLocalVariable(object, value.scope) || goIsSignatureVariable(value.scope.function, object) {
+	if !evaluation.isLocalVariable(object, value.scope) || (!isArgument && goIsSignatureVariable(value.scope.function, object)) {
 		*unresolved = append(*unresolved, evaluation.evaluator.unresolved(value))
 		return nil
 	}
@@ -390,6 +437,9 @@ func (evaluation *goEvaluation) variableValues(
 		for fieldName, contributions := range assignments.fields {
 			(*assignedFields)[fieldName] = append((*assignedFields)[fieldName], contributions...)
 		}
+	}
+	if isArgument {
+		return append([]goScopedExpression{argument}, assignments.values...)
 	}
 	return assignments.values
 }
@@ -420,22 +470,21 @@ func (evaluation *goEvaluation) loadElement(value goScopedExpression, isInstance
 }
 
 func (evaluation *goEvaluation) resource(value goScopedExpression) string {
-	if !evaluation.enter(value) {
-		return ""
-	}
-	defer evaluation.leave(value)
-	switch current := ast.Unparen(value.expression).(type) {
-	case *ast.UnaryExpr:
-		return evaluation.resource(value.with(current.X))
-	case *ast.StarExpr:
-		return evaluation.resource(value.with(current.X))
-	case *ast.Ident:
-		object := evaluation.evaluator.analyzer.typeInfo.Uses[current]
-		if resourceID := evaluation.evaluator.analyzer.resources[object]; object != nil && resourceID != "" {
-			return resourceID
-		}
-		if definition, isDefined := evaluation.definingValue(value); isDefined {
-			return evaluation.resource(definition)
+	queue := newGoEvaluationQueue(evaluation, value)
+	for currentValue, hasValue := queue.next(); hasValue; currentValue, hasValue = queue.next() {
+		switch current := ast.Unparen(currentValue.expression).(type) {
+		case *ast.UnaryExpr:
+			queue.add(currentValue.with(current.X))
+		case *ast.StarExpr:
+			queue.add(currentValue.with(current.X))
+		case *ast.Ident:
+			object := evaluation.evaluator.analyzer.typeInfo.Uses[current]
+			if resourceID := evaluation.evaluator.analyzer.resources[object]; object != nil && resourceID != "" {
+				return resourceID
+			}
+			if definition, isDefined := evaluation.definingValue(currentValue); isDefined {
+				queue.add(definition)
+			}
 		}
 	}
 	return ""
@@ -466,7 +515,13 @@ func (evaluation *goEvaluation) callee(call *ast.CallExpr, value goScopedExpress
 	if declaration == nil {
 		return nil, nil
 	}
+	for caller := value.scope; caller != nil; caller = caller.parent {
+		if caller.function == declaration {
+			return nil, nil
+		}
+	}
 	scope := &goEvaluationScope{
+		parent:    value.scope,
 		function:  declaration,
 		arguments: make(map[types.Object]goScopedExpression),
 		depth:     value.scope.depth + 1,
@@ -509,16 +564,43 @@ func (evaluation *goEvaluation) isLocalVariable(object types.Object, scope *goEv
 	return variable.Parent() != variable.Pkg().Scope()
 }
 
-func (evaluation *goEvaluation) enter(value goScopedExpression) bool {
-	if evaluation.visiting[value] {
-		return false
-	}
-	evaluation.visiting[value] = true
-	return true
+func newGoEvaluationQueue(evaluation *goEvaluation, value goScopedExpression) *goEvaluationQueue {
+	queue := &goEvaluationQueue{evaluation: evaluation, seen: make(map[goEvaluationKey]bool)}
+	queue.add(value)
+	return queue
 }
 
-func (evaluation *goEvaluation) leave(value goScopedExpression) {
-	delete(evaluation.visiting, value)
+func (queue *goEvaluationQueue) next() (goScopedExpression, bool) {
+	if len(queue.pending) == 0 {
+		return goScopedExpression{}, false
+	}
+	index := len(queue.pending) - 1
+	value := queue.pending[index]
+	queue.pending = queue.pending[:index]
+	return value, true
+}
+
+func (queue *goEvaluationQueue) add(value goScopedExpression) {
+	key := goEvaluationKey{expression: ast.Unparen(value.expression), scope: value.scope, resultIndex: value.resultIndex}
+	if identifier, isIdentifier := key.expression.(*ast.Ident); isIdentifier {
+		if object := queue.evaluation.evaluator.analyzer.typeInfo.Uses[identifier]; object != nil {
+			key.object = object
+			key.expression = nil
+		}
+	}
+	if queue.seen[key] {
+		return
+	}
+	queue.seen[key] = true
+	if queue.evaluation.remainingExpressions == 0 {
+		if !queue.isLimited {
+			queue.isLimited = true
+			queue.unresolved = append(queue.unresolved, queue.evaluation.evaluator.unresolvedAt("option expansion exceeds 10000 expressions", value.expression.Pos()))
+		}
+		return
+	}
+	queue.evaluation.remainingExpressions--
+	queue.pending = append(queue.pending, value)
 }
 
 func (collector *goLocalAssignmentCollector) visit(node ast.Node) bool {
@@ -636,11 +718,6 @@ func (value *goStructValue) merge(other goStructValue) {
 	for fieldName, contributions := range other.fields {
 		value.fields[fieldName] = append(value.fields[fieldName], contributions...)
 	}
-	value.unresolved = append(value.unresolved, other.unresolved...)
-}
-
-func (value *goListValue) merge(other goListValue) {
-	value.elements = append(value.elements, other.elements...)
 	value.unresolved = append(value.unresolved, other.unresolved...)
 }
 
