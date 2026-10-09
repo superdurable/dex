@@ -110,7 +110,7 @@ func TestTemporalMetrics(t *testing.T) {
 			"flow_type": rpc.WorkflowType,
 			"rpc_name":  rpc.RPCName,
 		}},
-		{name: "dex_sync_start_sub_flow_execution_latency", labels: map[string]string{
+		{name: "dex_async_start_sub_flow_execution_latency", labels: map[string]string{
 			"flow_type":     subFlowParentType,
 			"sub_flow_type": subFlowChildType,
 		}},
