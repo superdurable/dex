@@ -67,14 +67,15 @@ locks.
 
 RPC Blob Store coverage rejects writes while pure reads exchange inputs and
 outputs larger than the durable threshold. It covers string and encoded-object
-values, eager and lazy loading, and input/output history configuration. Transport
-tests include Worker state and metadata in the message-size limit and reject
+values and eager and lazy loading. Transport tests include Worker state and
+metadata in the message-size limit and reject
 oversized requests with Blob Store enabled or disabled without calling the
 Worker or creating objects. Pure-read tests check that semantic history contains
 no RPC completion event and Temporal history contains no Signal or Update event.
-External-storage tests retain transactional and side-effect history coverage,
-with inline nontransactional outputs and inputs in eager and lazy
-loading. Transactional size-limit tests cover explicit transactions, Attribute
+External-storage tests verify persisted transactional payloads and RPC state
+changes, with direct nontransactional input/output transport in both loading
+modes. Nontransactional effect history excludes RPC inputs and outputs.
+Transactional size-limit tests cover explicit transactions, Attribute
 locks, and synchronous-update configuration in both loading modes. They verify
 the client error code and Worker status, a single non-retryable local activity
 attempt in Temporal history, and successful subsequent calls after failure.

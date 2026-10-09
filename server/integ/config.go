@@ -37,7 +37,6 @@ type DexServiceTestConfig struct {
 	BlobCacheDirectory                     string
 	BlobStoreEnabled                       *bool
 	AsyncStepInputSnapshotsEnabled         *bool
-	IncludeRPCInputOutputIntoHistory       bool
 	UseTemporalSynchronousUpdateForAllRPCs bool
 	TemporalMetricsHandler                 client.MetricsHandler
 	MaxWaitSeconds                         int64
@@ -67,7 +66,6 @@ func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config 
 		Api: config.ApiConfig{
 			MaxWaitSeconds:                         maxWaitSeconds,
 			GrpcMaxMessageBytes:                    testCfg.GrpcMaxMessageBytes,
-			IncludeRPCInputOutputIntoHistory:       testCfg.IncludeRPCInputOutputIntoHistory,
 			UseTemporalSynchronousUpdateForAllRPCs: testCfg.UseTemporalSynchronousUpdateForAllRPCs,
 			QueryWorkflowFailedRetryPolicy: &config.RetryPolicy{
 				InitialInterval: 100 * time.Millisecond,

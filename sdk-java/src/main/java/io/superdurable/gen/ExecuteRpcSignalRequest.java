@@ -53,70 +53,18 @@ private static final long serialVersionUID = 0L;
   }
 
   private int bitField0_;
-  public static final int RPC_INPUT_FIELD_NUMBER = 1;
-  private io.superdurable.gen.Value rpcInput_;
-  /**
-   * <code>.dex.Value rpc_input = 1;</code>
-   * @return Whether the rpcInput field is set.
-   */
-  @java.lang.Override
-  public boolean hasRpcInput() {
-    return ((bitField0_ & 0x00000001) != 0);
-  }
-  /**
-   * <code>.dex.Value rpc_input = 1;</code>
-   * @return The rpcInput.
-   */
-  @java.lang.Override
-  public io.superdurable.gen.Value getRpcInput() {
-    return rpcInput_ == null ? io.superdurable.gen.Value.getDefaultInstance() : rpcInput_;
-  }
-  /**
-   * <code>.dex.Value rpc_input = 1;</code>
-   */
-  @java.lang.Override
-  public io.superdurable.gen.ValueOrBuilder getRpcInputOrBuilder() {
-    return rpcInput_ == null ? io.superdurable.gen.Value.getDefaultInstance() : rpcInput_;
-  }
-
-  public static final int RPC_OUTPUT_FIELD_NUMBER = 2;
-  private io.superdurable.gen.Value rpcOutput_;
-  /**
-   * <code>.dex.Value rpc_output = 2;</code>
-   * @return Whether the rpcOutput field is set.
-   */
-  @java.lang.Override
-  public boolean hasRpcOutput() {
-    return ((bitField0_ & 0x00000002) != 0);
-  }
-  /**
-   * <code>.dex.Value rpc_output = 2;</code>
-   * @return The rpcOutput.
-   */
-  @java.lang.Override
-  public io.superdurable.gen.Value getRpcOutput() {
-    return rpcOutput_ == null ? io.superdurable.gen.Value.getDefaultInstance() : rpcOutput_;
-  }
-  /**
-   * <code>.dex.Value rpc_output = 2;</code>
-   */
-  @java.lang.Override
-  public io.superdurable.gen.ValueOrBuilder getRpcOutputOrBuilder() {
-    return rpcOutput_ == null ? io.superdurable.gen.Value.getDefaultInstance() : rpcOutput_;
-  }
-
-  public static final int UPSERT_ATTRIBUTES_FIELD_NUMBER = 3;
+  public static final int UPSERT_ATTRIBUTES_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
   private java.util.List<io.superdurable.gen.AttributeWrite> upsertAttributes_;
   /**
-   * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+   * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
    */
   @java.lang.Override
   public java.util.List<io.superdurable.gen.AttributeWrite> getUpsertAttributesList() {
     return upsertAttributes_;
   }
   /**
-   * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+   * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
    */
   @java.lang.Override
   public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
@@ -124,21 +72,21 @@ private static final long serialVersionUID = 0L;
     return upsertAttributes_;
   }
   /**
-   * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+   * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
    */
   @java.lang.Override
   public int getUpsertAttributesCount() {
     return upsertAttributes_.size();
   }
   /**
-   * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+   * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.AttributeWrite getUpsertAttributes(int index) {
     return upsertAttributes_.get(index);
   }
   /**
-   * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+   * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.AttributeWriteOrBuilder getUpsertAttributesOrBuilder(
@@ -146,18 +94,18 @@ private static final long serialVersionUID = 0L;
     return upsertAttributes_.get(index);
   }
 
-  public static final int STEP_DECISION_FIELD_NUMBER = 4;
+  public static final int STEP_DECISION_FIELD_NUMBER = 2;
   private io.superdurable.gen.StepDecision stepDecision_;
   /**
-   * <code>.dex.StepDecision step_decision = 4;</code>
+   * <code>.dex.StepDecision step_decision = 2;</code>
    * @return Whether the stepDecision field is set.
    */
   @java.lang.Override
   public boolean hasStepDecision() {
-    return ((bitField0_ & 0x00000004) != 0);
+    return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.StepDecision step_decision = 4;</code>
+   * <code>.dex.StepDecision step_decision = 2;</code>
    * @return The stepDecision.
    */
   @java.lang.Override
@@ -165,25 +113,25 @@ private static final long serialVersionUID = 0L;
     return stepDecision_ == null ? io.superdurable.gen.StepDecision.getDefaultInstance() : stepDecision_;
   }
   /**
-   * <code>.dex.StepDecision step_decision = 4;</code>
+   * <code>.dex.StepDecision step_decision = 2;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.StepDecisionOrBuilder getStepDecisionOrBuilder() {
     return stepDecision_ == null ? io.superdurable.gen.StepDecision.getDefaultInstance() : stepDecision_;
   }
 
-  public static final int RECORD_EVENTS_FIELD_NUMBER = 5;
+  public static final int RECORD_EVENTS_FIELD_NUMBER = 3;
   @SuppressWarnings("serial")
   private java.util.List<io.superdurable.gen.KV> recordEvents_;
   /**
-   * <code>repeated .dex.KV record_events = 5;</code>
+   * <code>repeated .dex.KV record_events = 3;</code>
    */
   @java.lang.Override
   public java.util.List<io.superdurable.gen.KV> getRecordEventsList() {
     return recordEvents_;
   }
   /**
-   * <code>repeated .dex.KV record_events = 5;</code>
+   * <code>repeated .dex.KV record_events = 3;</code>
    */
   @java.lang.Override
   public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
@@ -191,21 +139,21 @@ private static final long serialVersionUID = 0L;
     return recordEvents_;
   }
   /**
-   * <code>repeated .dex.KV record_events = 5;</code>
+   * <code>repeated .dex.KV record_events = 3;</code>
    */
   @java.lang.Override
   public int getRecordEventsCount() {
     return recordEvents_.size();
   }
   /**
-   * <code>repeated .dex.KV record_events = 5;</code>
+   * <code>repeated .dex.KV record_events = 3;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.KV getRecordEvents(int index) {
     return recordEvents_.get(index);
   }
   /**
-   * <code>repeated .dex.KV record_events = 5;</code>
+   * <code>repeated .dex.KV record_events = 3;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.KVOrBuilder getRecordEventsOrBuilder(
@@ -213,18 +161,18 @@ private static final long serialVersionUID = 0L;
     return recordEvents_.get(index);
   }
 
-  public static final int PUBLISH_TO_CHANNEL_FIELD_NUMBER = 6;
+  public static final int PUBLISH_TO_CHANNEL_FIELD_NUMBER = 4;
   @SuppressWarnings("serial")
   private java.util.List<io.superdurable.gen.ChannelMessage> publishToChannel_;
   /**
-   * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+   * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
    */
   @java.lang.Override
   public java.util.List<io.superdurable.gen.ChannelMessage> getPublishToChannelList() {
     return publishToChannel_;
   }
   /**
-   * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+   * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
    */
   @java.lang.Override
   public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
@@ -232,21 +180,21 @@ private static final long serialVersionUID = 0L;
     return publishToChannel_;
   }
   /**
-   * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+   * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
    */
   @java.lang.Override
   public int getPublishToChannelCount() {
     return publishToChannel_.size();
   }
   /**
-   * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+   * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.ChannelMessage getPublishToChannel(int index) {
     return publishToChannel_.get(index);
   }
   /**
-   * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+   * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.ChannelMessageOrBuilder getPublishToChannelOrBuilder(
@@ -254,10 +202,10 @@ private static final long serialVersionUID = 0L;
     return publishToChannel_.get(index);
   }
 
-  public static final int IS_SET_ATTRIBUTE_API_FIELD_NUMBER = 7;
+  public static final int IS_SET_ATTRIBUTE_API_FIELD_NUMBER = 5;
   private boolean isSetAttributeApi_ = false;
   /**
-   * <code>bool is_set_attribute_api = 7;</code>
+   * <code>bool is_set_attribute_api = 5;</code>
    * @return The isSetAttributeApi.
    */
   @java.lang.Override
@@ -265,18 +213,18 @@ private static final long serialVersionUID = 0L;
     return isSetAttributeApi_;
   }
 
-  public static final int DELETE_FROM_CHANNEL_FIELD_NUMBER = 8;
+  public static final int DELETE_FROM_CHANNEL_FIELD_NUMBER = 6;
   @SuppressWarnings("serial")
   private java.util.List<io.superdurable.gen.ChannelMessageDeletion> deleteFromChannel_;
   /**
-   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
    */
   @java.lang.Override
   public java.util.List<io.superdurable.gen.ChannelMessageDeletion> getDeleteFromChannelList() {
     return deleteFromChannel_;
   }
   /**
-   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
    */
   @java.lang.Override
   public java.util.List<? extends io.superdurable.gen.ChannelMessageDeletionOrBuilder> 
@@ -284,21 +232,21 @@ private static final long serialVersionUID = 0L;
     return deleteFromChannel_;
   }
   /**
-   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
    */
   @java.lang.Override
   public int getDeleteFromChannelCount() {
     return deleteFromChannel_.size();
   }
   /**
-   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.ChannelMessageDeletion getDeleteFromChannel(int index) {
     return deleteFromChannel_.get(index);
   }
   /**
-   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.ChannelMessageDeletionOrBuilder getDeleteFromChannelOrBuilder(
@@ -306,10 +254,10 @@ private static final long serialVersionUID = 0L;
     return deleteFromChannel_.get(index);
   }
 
-  public static final int IS_DELETE_CHANNEL_MESSAGE_API_FIELD_NUMBER = 9;
+  public static final int IS_DELETE_CHANNEL_MESSAGE_API_FIELD_NUMBER = 7;
   private boolean isDeleteChannelMessageApi_ = false;
   /**
-   * <code>bool is_delete_channel_message_api = 9;</code>
+   * <code>bool is_delete_channel_message_api = 7;</code>
    * @return The isDeleteChannelMessageApi.
    */
   @java.lang.Override
@@ -317,18 +265,18 @@ private static final long serialVersionUID = 0L;
     return isDeleteChannelMessageApi_;
   }
 
-  public static final int ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER = 10;
+  public static final int ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER = 8;
   private io.superdurable.gen.ActionPermissionMappings actionPermissionMappings_;
   /**
-   * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
    * @return Whether the actionPermissionMappings field is set.
    */
   @java.lang.Override
   public boolean hasActionPermissionMappings() {
-    return ((bitField0_ & 0x00000008) != 0);
+    return ((bitField0_ & 0x00000002) != 0);
   }
   /**
-   * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
    * @return The actionPermissionMappings.
    */
   @java.lang.Override
@@ -336,7 +284,7 @@ private static final long serialVersionUID = 0L;
     return actionPermissionMappings_ == null ? io.superdurable.gen.ActionPermissionMappings.getDefaultInstance() : actionPermissionMappings_;
   }
   /**
-   * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.ActionPermissionMappingsOrBuilder getActionPermissionMappingsOrBuilder() {
@@ -357,48 +305,34 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(1, getRpcInput());
-    }
-    if (((bitField0_ & 0x00000002) != 0)) {
-      output.writeMessage(2, getRpcOutput());
-    }
     for (int i = 0; i < upsertAttributes_.size(); i++) {
-      output.writeMessage(3, upsertAttributes_.get(i));
+      output.writeMessage(1, upsertAttributes_.get(i));
     }
-    if (((bitField0_ & 0x00000004) != 0)) {
-      output.writeMessage(4, getStepDecision());
+    if (((bitField0_ & 0x00000001) != 0)) {
+      output.writeMessage(2, getStepDecision());
     }
     for (int i = 0; i < recordEvents_.size(); i++) {
-      output.writeMessage(5, recordEvents_.get(i));
+      output.writeMessage(3, recordEvents_.get(i));
     }
     for (int i = 0; i < publishToChannel_.size(); i++) {
-      output.writeMessage(6, publishToChannel_.get(i));
+      output.writeMessage(4, publishToChannel_.get(i));
     }
     if (isSetAttributeApi_ != false) {
-      output.writeBool(7, isSetAttributeApi_);
+      output.writeBool(5, isSetAttributeApi_);
     }
     for (int i = 0; i < deleteFromChannel_.size(); i++) {
-      output.writeMessage(8, deleteFromChannel_.get(i));
+      output.writeMessage(6, deleteFromChannel_.get(i));
     }
     if (isDeleteChannelMessageApi_ != false) {
-      output.writeBool(9, isDeleteChannelMessageApi_);
+      output.writeBool(7, isDeleteChannelMessageApi_);
     }
-    if (((bitField0_ & 0x00000008) != 0)) {
-      output.writeMessage(10, getActionPermissionMappings());
+    if (((bitField0_ & 0x00000002) != 0)) {
+      output.writeMessage(8, getActionPermissionMappings());
     }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
-    if (((bitField0_ & 0x00000001) != 0)) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(1, getRpcInput());
-    }
-    if (((bitField0_ & 0x00000002) != 0)) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(2, getRpcOutput());
-    }
 
         {
           final int count = upsertAttributes_.size();
@@ -408,9 +342,9 @@ private static final long serialVersionUID = 0L;
           }
           size += 1 * count;
         }
-    if (((bitField0_ & 0x00000004) != 0)) {
+    if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(4, getStepDecision());
+        .computeMessageSize(2, getStepDecision());
     }
 
         {
@@ -432,7 +366,7 @@ private static final long serialVersionUID = 0L;
         }
     if (isSetAttributeApi_ != false) {
       size += com.google.protobuf.CodedOutputStream
-        .computeBoolSize(7, isSetAttributeApi_);
+        .computeBoolSize(5, isSetAttributeApi_);
     }
 
         {
@@ -445,11 +379,11 @@ private static final long serialVersionUID = 0L;
         }
     if (isDeleteChannelMessageApi_ != false) {
       size += com.google.protobuf.CodedOutputStream
-        .computeBoolSize(9, isDeleteChannelMessageApi_);
+        .computeBoolSize(7, isDeleteChannelMessageApi_);
     }
-    if (((bitField0_ & 0x00000008) != 0)) {
+    if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(10, getActionPermissionMappings());
+        .computeMessageSize(8, getActionPermissionMappings());
     }
     return size;
   }
@@ -475,16 +409,6 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.ExecuteRpcSignalRequest other = (io.superdurable.gen.ExecuteRpcSignalRequest) obj;
 
-    if (hasRpcInput() != other.hasRpcInput()) return false;
-    if (hasRpcInput()) {
-      if (!getRpcInput()
-          .equals(other.getRpcInput())) return false;
-    }
-    if (hasRpcOutput() != other.hasRpcOutput()) return false;
-    if (hasRpcOutput()) {
-      if (!getRpcOutput()
-          .equals(other.getRpcOutput())) return false;
-    }
     if (!getUpsertAttributesList()
         .equals(other.getUpsertAttributesList())) return false;
     if (hasStepDecision() != other.hasStepDecision()) return false;
@@ -518,14 +442,6 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    if (hasRpcInput()) {
-      hash = (37 * hash) + RPC_INPUT_FIELD_NUMBER;
-      hash = (53 * hash) + getRpcInput().hashCode();
-    }
-    if (hasRpcOutput()) {
-      hash = (37 * hash) + RPC_OUTPUT_FIELD_NUMBER;
-      hash = (53 * hash) + getRpcOutput().hashCode();
-    }
     if (getUpsertAttributesCount() > 0) {
       hash = (37 * hash) + UPSERT_ATTRIBUTES_FIELD_NUMBER;
       hash = (53 * hash) + getUpsertAttributesList().hashCode();
@@ -686,8 +602,6 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetRpcInputFieldBuilder();
-        internalGetRpcOutputFieldBuilder();
         internalGetUpsertAttributesFieldBuilder();
         internalGetStepDecisionFieldBuilder();
         internalGetRecordEventsFieldBuilder();
@@ -700,23 +614,13 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      rpcInput_ = null;
-      if (rpcInputBuilder_ != null) {
-        rpcInputBuilder_.dispose();
-        rpcInputBuilder_ = null;
-      }
-      rpcOutput_ = null;
-      if (rpcOutputBuilder_ != null) {
-        rpcOutputBuilder_.dispose();
-        rpcOutputBuilder_ = null;
-      }
       if (upsertAttributesBuilder_ == null) {
         upsertAttributes_ = java.util.Collections.emptyList();
       } else {
         upsertAttributes_ = null;
         upsertAttributesBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000004);
+      bitField0_ = (bitField0_ & ~0x00000001);
       stepDecision_ = null;
       if (stepDecisionBuilder_ != null) {
         stepDecisionBuilder_.dispose();
@@ -728,14 +632,14 @@ private static final long serialVersionUID = 0L;
         recordEvents_ = null;
         recordEventsBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000004);
       if (publishToChannelBuilder_ == null) {
         publishToChannel_ = java.util.Collections.emptyList();
       } else {
         publishToChannel_ = null;
         publishToChannelBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000020);
+      bitField0_ = (bitField0_ & ~0x00000008);
       isSetAttributeApi_ = false;
       if (deleteFromChannelBuilder_ == null) {
         deleteFromChannel_ = java.util.Collections.emptyList();
@@ -743,7 +647,7 @@ private static final long serialVersionUID = 0L;
         deleteFromChannel_ = null;
         deleteFromChannelBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000080);
+      bitField0_ = (bitField0_ & ~0x00000020);
       isDeleteChannelMessageApi_ = false;
       actionPermissionMappings_ = null;
       if (actionPermissionMappingsBuilder_ != null) {
@@ -784,36 +688,36 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartialRepeatedFields(io.superdurable.gen.ExecuteRpcSignalRequest result) {
       if (upsertAttributesBuilder_ == null) {
-        if (((bitField0_ & 0x00000004) != 0)) {
+        if (((bitField0_ & 0x00000001) != 0)) {
           upsertAttributes_ = java.util.Collections.unmodifiableList(upsertAttributes_);
-          bitField0_ = (bitField0_ & ~0x00000004);
+          bitField0_ = (bitField0_ & ~0x00000001);
         }
         result.upsertAttributes_ = upsertAttributes_;
       } else {
         result.upsertAttributes_ = upsertAttributesBuilder_.build();
       }
       if (recordEventsBuilder_ == null) {
-        if (((bitField0_ & 0x00000010) != 0)) {
+        if (((bitField0_ & 0x00000004) != 0)) {
           recordEvents_ = java.util.Collections.unmodifiableList(recordEvents_);
-          bitField0_ = (bitField0_ & ~0x00000010);
+          bitField0_ = (bitField0_ & ~0x00000004);
         }
         result.recordEvents_ = recordEvents_;
       } else {
         result.recordEvents_ = recordEventsBuilder_.build();
       }
       if (publishToChannelBuilder_ == null) {
-        if (((bitField0_ & 0x00000020) != 0)) {
+        if (((bitField0_ & 0x00000008) != 0)) {
           publishToChannel_ = java.util.Collections.unmodifiableList(publishToChannel_);
-          bitField0_ = (bitField0_ & ~0x00000020);
+          bitField0_ = (bitField0_ & ~0x00000008);
         }
         result.publishToChannel_ = publishToChannel_;
       } else {
         result.publishToChannel_ = publishToChannelBuilder_.build();
       }
       if (deleteFromChannelBuilder_ == null) {
-        if (((bitField0_ & 0x00000080) != 0)) {
+        if (((bitField0_ & 0x00000020) != 0)) {
           deleteFromChannel_ = java.util.Collections.unmodifiableList(deleteFromChannel_);
-          bitField0_ = (bitField0_ & ~0x00000080);
+          bitField0_ = (bitField0_ & ~0x00000020);
         }
         result.deleteFromChannel_ = deleteFromChannel_;
       } else {
@@ -824,35 +728,23 @@ private static final long serialVersionUID = 0L;
     private void buildPartial0(io.superdurable.gen.ExecuteRpcSignalRequest result) {
       int from_bitField0_ = bitField0_;
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.rpcInput_ = rpcInputBuilder_ == null
-            ? rpcInput_
-            : rpcInputBuilder_.build();
-        to_bitField0_ |= 0x00000001;
-      }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.rpcOutput_ = rpcOutputBuilder_ == null
-            ? rpcOutput_
-            : rpcOutputBuilder_.build();
-        to_bitField0_ |= 0x00000002;
-      }
-      if (((from_bitField0_ & 0x00000008) != 0)) {
         result.stepDecision_ = stepDecisionBuilder_ == null
             ? stepDecision_
             : stepDecisionBuilder_.build();
-        to_bitField0_ |= 0x00000004;
+        to_bitField0_ |= 0x00000001;
       }
-      if (((from_bitField0_ & 0x00000040) != 0)) {
+      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.isSetAttributeApi_ = isSetAttributeApi_;
       }
-      if (((from_bitField0_ & 0x00000100) != 0)) {
+      if (((from_bitField0_ & 0x00000040) != 0)) {
         result.isDeleteChannelMessageApi_ = isDeleteChannelMessageApi_;
       }
-      if (((from_bitField0_ & 0x00000200) != 0)) {
+      if (((from_bitField0_ & 0x00000080) != 0)) {
         result.actionPermissionMappings_ = actionPermissionMappingsBuilder_ == null
             ? actionPermissionMappings_
             : actionPermissionMappingsBuilder_.build();
-        to_bitField0_ |= 0x00000008;
+        to_bitField0_ |= 0x00000002;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -869,17 +761,11 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.ExecuteRpcSignalRequest other) {
       if (other == io.superdurable.gen.ExecuteRpcSignalRequest.getDefaultInstance()) return this;
-      if (other.hasRpcInput()) {
-        mergeRpcInput(other.getRpcInput());
-      }
-      if (other.hasRpcOutput()) {
-        mergeRpcOutput(other.getRpcOutput());
-      }
       if (upsertAttributesBuilder_ == null) {
         if (!other.upsertAttributes_.isEmpty()) {
           if (upsertAttributes_.isEmpty()) {
             upsertAttributes_ = other.upsertAttributes_;
-            bitField0_ = (bitField0_ & ~0x00000004);
+            bitField0_ = (bitField0_ & ~0x00000001);
           } else {
             ensureUpsertAttributesIsMutable();
             upsertAttributes_.addAll(other.upsertAttributes_);
@@ -892,7 +778,7 @@ private static final long serialVersionUID = 0L;
             upsertAttributesBuilder_.dispose();
             upsertAttributesBuilder_ = null;
             upsertAttributes_ = other.upsertAttributes_;
-            bitField0_ = (bitField0_ & ~0x00000004);
+            bitField0_ = (bitField0_ & ~0x00000001);
             upsertAttributesBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetUpsertAttributesFieldBuilder() : null;
@@ -908,7 +794,7 @@ private static final long serialVersionUID = 0L;
         if (!other.recordEvents_.isEmpty()) {
           if (recordEvents_.isEmpty()) {
             recordEvents_ = other.recordEvents_;
-            bitField0_ = (bitField0_ & ~0x00000010);
+            bitField0_ = (bitField0_ & ~0x00000004);
           } else {
             ensureRecordEventsIsMutable();
             recordEvents_.addAll(other.recordEvents_);
@@ -921,7 +807,7 @@ private static final long serialVersionUID = 0L;
             recordEventsBuilder_.dispose();
             recordEventsBuilder_ = null;
             recordEvents_ = other.recordEvents_;
-            bitField0_ = (bitField0_ & ~0x00000010);
+            bitField0_ = (bitField0_ & ~0x00000004);
             recordEventsBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetRecordEventsFieldBuilder() : null;
@@ -934,7 +820,7 @@ private static final long serialVersionUID = 0L;
         if (!other.publishToChannel_.isEmpty()) {
           if (publishToChannel_.isEmpty()) {
             publishToChannel_ = other.publishToChannel_;
-            bitField0_ = (bitField0_ & ~0x00000020);
+            bitField0_ = (bitField0_ & ~0x00000008);
           } else {
             ensurePublishToChannelIsMutable();
             publishToChannel_.addAll(other.publishToChannel_);
@@ -947,7 +833,7 @@ private static final long serialVersionUID = 0L;
             publishToChannelBuilder_.dispose();
             publishToChannelBuilder_ = null;
             publishToChannel_ = other.publishToChannel_;
-            bitField0_ = (bitField0_ & ~0x00000020);
+            bitField0_ = (bitField0_ & ~0x00000008);
             publishToChannelBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetPublishToChannelFieldBuilder() : null;
@@ -963,7 +849,7 @@ private static final long serialVersionUID = 0L;
         if (!other.deleteFromChannel_.isEmpty()) {
           if (deleteFromChannel_.isEmpty()) {
             deleteFromChannel_ = other.deleteFromChannel_;
-            bitField0_ = (bitField0_ & ~0x00000080);
+            bitField0_ = (bitField0_ & ~0x00000020);
           } else {
             ensureDeleteFromChannelIsMutable();
             deleteFromChannel_.addAll(other.deleteFromChannel_);
@@ -976,7 +862,7 @@ private static final long serialVersionUID = 0L;
             deleteFromChannelBuilder_.dispose();
             deleteFromChannelBuilder_ = null;
             deleteFromChannel_ = other.deleteFromChannel_;
-            bitField0_ = (bitField0_ & ~0x00000080);
+            bitField0_ = (bitField0_ & ~0x00000020);
             deleteFromChannelBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetDeleteFromChannelFieldBuilder() : null;
@@ -1018,20 +904,6 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              input.readMessage(
-                  internalGetRpcInputFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              bitField0_ |= 0x00000001;
-              break;
-            } // case 10
-            case 18: {
-              input.readMessage(
-                  internalGetRpcOutputFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              bitField0_ |= 0x00000002;
-              break;
-            } // case 18
-            case 26: {
               io.superdurable.gen.AttributeWrite m =
                   input.readMessage(
                       io.superdurable.gen.AttributeWrite.parser(),
@@ -1043,15 +915,15 @@ private static final long serialVersionUID = 0L;
                 upsertAttributesBuilder_.addMessage(m);
               }
               break;
-            } // case 26
-            case 34: {
+            } // case 10
+            case 18: {
               input.readMessage(
                   internalGetStepDecisionFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000008;
+              bitField0_ |= 0x00000002;
               break;
-            } // case 34
-            case 42: {
+            } // case 18
+            case 26: {
               io.superdurable.gen.KV m =
                   input.readMessage(
                       io.superdurable.gen.KV.parser(),
@@ -1063,8 +935,8 @@ private static final long serialVersionUID = 0L;
                 recordEventsBuilder_.addMessage(m);
               }
               break;
-            } // case 42
-            case 50: {
+            } // case 26
+            case 34: {
               io.superdurable.gen.ChannelMessage m =
                   input.readMessage(
                       io.superdurable.gen.ChannelMessage.parser(),
@@ -1076,13 +948,13 @@ private static final long serialVersionUID = 0L;
                 publishToChannelBuilder_.addMessage(m);
               }
               break;
-            } // case 50
-            case 56: {
+            } // case 34
+            case 40: {
               isSetAttributeApi_ = input.readBool();
-              bitField0_ |= 0x00000040;
+              bitField0_ |= 0x00000010;
               break;
-            } // case 56
-            case 66: {
+            } // case 40
+            case 50: {
               io.superdurable.gen.ChannelMessageDeletion m =
                   input.readMessage(
                       io.superdurable.gen.ChannelMessageDeletion.parser(),
@@ -1094,19 +966,19 @@ private static final long serialVersionUID = 0L;
                 deleteFromChannelBuilder_.addMessage(m);
               }
               break;
-            } // case 66
-            case 72: {
+            } // case 50
+            case 56: {
               isDeleteChannelMessageApi_ = input.readBool();
-              bitField0_ |= 0x00000100;
+              bitField0_ |= 0x00000040;
               break;
-            } // case 72
-            case 82: {
+            } // case 56
+            case 66: {
               input.readMessage(
                   internalGetActionPermissionMappingsFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000200;
+              bitField0_ |= 0x00000080;
               break;
-            } // case 82
+            } // case 66
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1124,254 +996,12 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private io.superdurable.gen.Value rpcInput_;
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> rpcInputBuilder_;
-    /**
-     * <code>.dex.Value rpc_input = 1;</code>
-     * @return Whether the rpcInput field is set.
-     */
-    public boolean hasRpcInput() {
-      return ((bitField0_ & 0x00000001) != 0);
-    }
-    /**
-     * <code>.dex.Value rpc_input = 1;</code>
-     * @return The rpcInput.
-     */
-    public io.superdurable.gen.Value getRpcInput() {
-      if (rpcInputBuilder_ == null) {
-        return rpcInput_ == null ? io.superdurable.gen.Value.getDefaultInstance() : rpcInput_;
-      } else {
-        return rpcInputBuilder_.getMessage();
-      }
-    }
-    /**
-     * <code>.dex.Value rpc_input = 1;</code>
-     */
-    public Builder setRpcInput(io.superdurable.gen.Value value) {
-      if (rpcInputBuilder_ == null) {
-        if (value == null) {
-          throw new NullPointerException();
-        }
-        rpcInput_ = value;
-      } else {
-        rpcInputBuilder_.setMessage(value);
-      }
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.Value rpc_input = 1;</code>
-     */
-    public Builder setRpcInput(
-        io.superdurable.gen.Value.Builder builderForValue) {
-      if (rpcInputBuilder_ == null) {
-        rpcInput_ = builderForValue.build();
-      } else {
-        rpcInputBuilder_.setMessage(builderForValue.build());
-      }
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.Value rpc_input = 1;</code>
-     */
-    public Builder mergeRpcInput(io.superdurable.gen.Value value) {
-      if (rpcInputBuilder_ == null) {
-        if (((bitField0_ & 0x00000001) != 0) &&
-          rpcInput_ != null &&
-          rpcInput_ != io.superdurable.gen.Value.getDefaultInstance()) {
-          getRpcInputBuilder().mergeFrom(value);
-        } else {
-          rpcInput_ = value;
-        }
-      } else {
-        rpcInputBuilder_.mergeFrom(value);
-      }
-      if (rpcInput_ != null) {
-        bitField0_ |= 0x00000001;
-        onChanged();
-      }
-      return this;
-    }
-    /**
-     * <code>.dex.Value rpc_input = 1;</code>
-     */
-    public Builder clearRpcInput() {
-      bitField0_ = (bitField0_ & ~0x00000001);
-      rpcInput_ = null;
-      if (rpcInputBuilder_ != null) {
-        rpcInputBuilder_.dispose();
-        rpcInputBuilder_ = null;
-      }
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.Value rpc_input = 1;</code>
-     */
-    public io.superdurable.gen.Value.Builder getRpcInputBuilder() {
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return internalGetRpcInputFieldBuilder().getBuilder();
-    }
-    /**
-     * <code>.dex.Value rpc_input = 1;</code>
-     */
-    public io.superdurable.gen.ValueOrBuilder getRpcInputOrBuilder() {
-      if (rpcInputBuilder_ != null) {
-        return rpcInputBuilder_.getMessageOrBuilder();
-      } else {
-        return rpcInput_ == null ?
-            io.superdurable.gen.Value.getDefaultInstance() : rpcInput_;
-      }
-    }
-    /**
-     * <code>.dex.Value rpc_input = 1;</code>
-     */
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
-        internalGetRpcInputFieldBuilder() {
-      if (rpcInputBuilder_ == null) {
-        rpcInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>(
-                getRpcInput(),
-                getParentForChildren(),
-                isClean());
-        rpcInput_ = null;
-      }
-      return rpcInputBuilder_;
-    }
-
-    private io.superdurable.gen.Value rpcOutput_;
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> rpcOutputBuilder_;
-    /**
-     * <code>.dex.Value rpc_output = 2;</code>
-     * @return Whether the rpcOutput field is set.
-     */
-    public boolean hasRpcOutput() {
-      return ((bitField0_ & 0x00000002) != 0);
-    }
-    /**
-     * <code>.dex.Value rpc_output = 2;</code>
-     * @return The rpcOutput.
-     */
-    public io.superdurable.gen.Value getRpcOutput() {
-      if (rpcOutputBuilder_ == null) {
-        return rpcOutput_ == null ? io.superdurable.gen.Value.getDefaultInstance() : rpcOutput_;
-      } else {
-        return rpcOutputBuilder_.getMessage();
-      }
-    }
-    /**
-     * <code>.dex.Value rpc_output = 2;</code>
-     */
-    public Builder setRpcOutput(io.superdurable.gen.Value value) {
-      if (rpcOutputBuilder_ == null) {
-        if (value == null) {
-          throw new NullPointerException();
-        }
-        rpcOutput_ = value;
-      } else {
-        rpcOutputBuilder_.setMessage(value);
-      }
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.Value rpc_output = 2;</code>
-     */
-    public Builder setRpcOutput(
-        io.superdurable.gen.Value.Builder builderForValue) {
-      if (rpcOutputBuilder_ == null) {
-        rpcOutput_ = builderForValue.build();
-      } else {
-        rpcOutputBuilder_.setMessage(builderForValue.build());
-      }
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.Value rpc_output = 2;</code>
-     */
-    public Builder mergeRpcOutput(io.superdurable.gen.Value value) {
-      if (rpcOutputBuilder_ == null) {
-        if (((bitField0_ & 0x00000002) != 0) &&
-          rpcOutput_ != null &&
-          rpcOutput_ != io.superdurable.gen.Value.getDefaultInstance()) {
-          getRpcOutputBuilder().mergeFrom(value);
-        } else {
-          rpcOutput_ = value;
-        }
-      } else {
-        rpcOutputBuilder_.mergeFrom(value);
-      }
-      if (rpcOutput_ != null) {
-        bitField0_ |= 0x00000002;
-        onChanged();
-      }
-      return this;
-    }
-    /**
-     * <code>.dex.Value rpc_output = 2;</code>
-     */
-    public Builder clearRpcOutput() {
-      bitField0_ = (bitField0_ & ~0x00000002);
-      rpcOutput_ = null;
-      if (rpcOutputBuilder_ != null) {
-        rpcOutputBuilder_.dispose();
-        rpcOutputBuilder_ = null;
-      }
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.Value rpc_output = 2;</code>
-     */
-    public io.superdurable.gen.Value.Builder getRpcOutputBuilder() {
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return internalGetRpcOutputFieldBuilder().getBuilder();
-    }
-    /**
-     * <code>.dex.Value rpc_output = 2;</code>
-     */
-    public io.superdurable.gen.ValueOrBuilder getRpcOutputOrBuilder() {
-      if (rpcOutputBuilder_ != null) {
-        return rpcOutputBuilder_.getMessageOrBuilder();
-      } else {
-        return rpcOutput_ == null ?
-            io.superdurable.gen.Value.getDefaultInstance() : rpcOutput_;
-      }
-    }
-    /**
-     * <code>.dex.Value rpc_output = 2;</code>
-     */
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
-        internalGetRpcOutputFieldBuilder() {
-      if (rpcOutputBuilder_ == null) {
-        rpcOutputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>(
-                getRpcOutput(),
-                getParentForChildren(),
-                isClean());
-        rpcOutput_ = null;
-      }
-      return rpcOutputBuilder_;
-    }
-
     private java.util.List<io.superdurable.gen.AttributeWrite> upsertAttributes_ =
       java.util.Collections.emptyList();
     private void ensureUpsertAttributesIsMutable() {
-      if (!((bitField0_ & 0x00000004) != 0)) {
+      if (!((bitField0_ & 0x00000001) != 0)) {
         upsertAttributes_ = new java.util.ArrayList<io.superdurable.gen.AttributeWrite>(upsertAttributes_);
-        bitField0_ |= 0x00000004;
+        bitField0_ |= 0x00000001;
        }
     }
 
@@ -1379,7 +1009,7 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder> upsertAttributesBuilder_;
 
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public java.util.List<io.superdurable.gen.AttributeWrite> getUpsertAttributesList() {
       if (upsertAttributesBuilder_ == null) {
@@ -1389,7 +1019,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public int getUpsertAttributesCount() {
       if (upsertAttributesBuilder_ == null) {
@@ -1399,7 +1029,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public io.superdurable.gen.AttributeWrite getUpsertAttributes(int index) {
       if (upsertAttributesBuilder_ == null) {
@@ -1409,7 +1039,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public Builder setUpsertAttributes(
         int index, io.superdurable.gen.AttributeWrite value) {
@@ -1426,7 +1056,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public Builder setUpsertAttributes(
         int index, io.superdurable.gen.AttributeWrite.Builder builderForValue) {
@@ -1440,7 +1070,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public Builder addUpsertAttributes(io.superdurable.gen.AttributeWrite value) {
       if (upsertAttributesBuilder_ == null) {
@@ -1456,7 +1086,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public Builder addUpsertAttributes(
         int index, io.superdurable.gen.AttributeWrite value) {
@@ -1473,7 +1103,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public Builder addUpsertAttributes(
         io.superdurable.gen.AttributeWrite.Builder builderForValue) {
@@ -1487,7 +1117,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public Builder addUpsertAttributes(
         int index, io.superdurable.gen.AttributeWrite.Builder builderForValue) {
@@ -1501,7 +1131,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public Builder addAllUpsertAttributes(
         java.lang.Iterable<? extends io.superdurable.gen.AttributeWrite> values) {
@@ -1516,12 +1146,12 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public Builder clearUpsertAttributes() {
       if (upsertAttributesBuilder_ == null) {
         upsertAttributes_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000004);
+        bitField0_ = (bitField0_ & ~0x00000001);
         onChanged();
       } else {
         upsertAttributesBuilder_.clear();
@@ -1529,7 +1159,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public Builder removeUpsertAttributes(int index) {
       if (upsertAttributesBuilder_ == null) {
@@ -1542,14 +1172,14 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public io.superdurable.gen.AttributeWrite.Builder getUpsertAttributesBuilder(
         int index) {
       return internalGetUpsertAttributesFieldBuilder().getBuilder(index);
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public io.superdurable.gen.AttributeWriteOrBuilder getUpsertAttributesOrBuilder(
         int index) {
@@ -1559,7 +1189,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
          getUpsertAttributesOrBuilderList() {
@@ -1570,14 +1200,14 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public io.superdurable.gen.AttributeWrite.Builder addUpsertAttributesBuilder() {
       return internalGetUpsertAttributesFieldBuilder().addBuilder(
           io.superdurable.gen.AttributeWrite.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public io.superdurable.gen.AttributeWrite.Builder addUpsertAttributesBuilder(
         int index) {
@@ -1585,7 +1215,7 @@ private static final long serialVersionUID = 0L;
           index, io.superdurable.gen.AttributeWrite.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+     * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
      */
     public java.util.List<io.superdurable.gen.AttributeWrite.Builder> 
          getUpsertAttributesBuilderList() {
@@ -1598,7 +1228,7 @@ private static final long serialVersionUID = 0L;
         upsertAttributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder>(
                 upsertAttributes_,
-                ((bitField0_ & 0x00000004) != 0),
+                ((bitField0_ & 0x00000001) != 0),
                 getParentForChildren(),
                 isClean());
         upsertAttributes_ = null;
@@ -1610,14 +1240,14 @@ private static final long serialVersionUID = 0L;
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.StepDecision, io.superdurable.gen.StepDecision.Builder, io.superdurable.gen.StepDecisionOrBuilder> stepDecisionBuilder_;
     /**
-     * <code>.dex.StepDecision step_decision = 4;</code>
+     * <code>.dex.StepDecision step_decision = 2;</code>
      * @return Whether the stepDecision field is set.
      */
     public boolean hasStepDecision() {
-      return ((bitField0_ & 0x00000008) != 0);
+      return ((bitField0_ & 0x00000002) != 0);
     }
     /**
-     * <code>.dex.StepDecision step_decision = 4;</code>
+     * <code>.dex.StepDecision step_decision = 2;</code>
      * @return The stepDecision.
      */
     public io.superdurable.gen.StepDecision getStepDecision() {
@@ -1628,7 +1258,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.StepDecision step_decision = 4;</code>
+     * <code>.dex.StepDecision step_decision = 2;</code>
      */
     public Builder setStepDecision(io.superdurable.gen.StepDecision value) {
       if (stepDecisionBuilder_ == null) {
@@ -1639,12 +1269,12 @@ private static final long serialVersionUID = 0L;
       } else {
         stepDecisionBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.StepDecision step_decision = 4;</code>
+     * <code>.dex.StepDecision step_decision = 2;</code>
      */
     public Builder setStepDecision(
         io.superdurable.gen.StepDecision.Builder builderForValue) {
@@ -1653,16 +1283,16 @@ private static final long serialVersionUID = 0L;
       } else {
         stepDecisionBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.StepDecision step_decision = 4;</code>
+     * <code>.dex.StepDecision step_decision = 2;</code>
      */
     public Builder mergeStepDecision(io.superdurable.gen.StepDecision value) {
       if (stepDecisionBuilder_ == null) {
-        if (((bitField0_ & 0x00000008) != 0) &&
+        if (((bitField0_ & 0x00000002) != 0) &&
           stepDecision_ != null &&
           stepDecision_ != io.superdurable.gen.StepDecision.getDefaultInstance()) {
           getStepDecisionBuilder().mergeFrom(value);
@@ -1673,16 +1303,16 @@ private static final long serialVersionUID = 0L;
         stepDecisionBuilder_.mergeFrom(value);
       }
       if (stepDecision_ != null) {
-        bitField0_ |= 0x00000008;
+        bitField0_ |= 0x00000002;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.StepDecision step_decision = 4;</code>
+     * <code>.dex.StepDecision step_decision = 2;</code>
      */
     public Builder clearStepDecision() {
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000002);
       stepDecision_ = null;
       if (stepDecisionBuilder_ != null) {
         stepDecisionBuilder_.dispose();
@@ -1692,15 +1322,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.StepDecision step_decision = 4;</code>
+     * <code>.dex.StepDecision step_decision = 2;</code>
      */
     public io.superdurable.gen.StepDecision.Builder getStepDecisionBuilder() {
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000002;
       onChanged();
       return internalGetStepDecisionFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.StepDecision step_decision = 4;</code>
+     * <code>.dex.StepDecision step_decision = 2;</code>
      */
     public io.superdurable.gen.StepDecisionOrBuilder getStepDecisionOrBuilder() {
       if (stepDecisionBuilder_ != null) {
@@ -1711,7 +1341,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.StepDecision step_decision = 4;</code>
+     * <code>.dex.StepDecision step_decision = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.StepDecision, io.superdurable.gen.StepDecision.Builder, io.superdurable.gen.StepDecisionOrBuilder> 
@@ -1730,9 +1360,9 @@ private static final long serialVersionUID = 0L;
     private java.util.List<io.superdurable.gen.KV> recordEvents_ =
       java.util.Collections.emptyList();
     private void ensureRecordEventsIsMutable() {
-      if (!((bitField0_ & 0x00000010) != 0)) {
+      if (!((bitField0_ & 0x00000004) != 0)) {
         recordEvents_ = new java.util.ArrayList<io.superdurable.gen.KV>(recordEvents_);
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000004;
        }
     }
 
@@ -1740,7 +1370,7 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder> recordEventsBuilder_;
 
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public java.util.List<io.superdurable.gen.KV> getRecordEventsList() {
       if (recordEventsBuilder_ == null) {
@@ -1750,7 +1380,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public int getRecordEventsCount() {
       if (recordEventsBuilder_ == null) {
@@ -1760,7 +1390,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public io.superdurable.gen.KV getRecordEvents(int index) {
       if (recordEventsBuilder_ == null) {
@@ -1770,7 +1400,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public Builder setRecordEvents(
         int index, io.superdurable.gen.KV value) {
@@ -1787,7 +1417,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public Builder setRecordEvents(
         int index, io.superdurable.gen.KV.Builder builderForValue) {
@@ -1801,7 +1431,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public Builder addRecordEvents(io.superdurable.gen.KV value) {
       if (recordEventsBuilder_ == null) {
@@ -1817,7 +1447,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public Builder addRecordEvents(
         int index, io.superdurable.gen.KV value) {
@@ -1834,7 +1464,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public Builder addRecordEvents(
         io.superdurable.gen.KV.Builder builderForValue) {
@@ -1848,7 +1478,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public Builder addRecordEvents(
         int index, io.superdurable.gen.KV.Builder builderForValue) {
@@ -1862,7 +1492,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public Builder addAllRecordEvents(
         java.lang.Iterable<? extends io.superdurable.gen.KV> values) {
@@ -1877,12 +1507,12 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public Builder clearRecordEvents() {
       if (recordEventsBuilder_ == null) {
         recordEvents_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000010);
+        bitField0_ = (bitField0_ & ~0x00000004);
         onChanged();
       } else {
         recordEventsBuilder_.clear();
@@ -1890,7 +1520,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public Builder removeRecordEvents(int index) {
       if (recordEventsBuilder_ == null) {
@@ -1903,14 +1533,14 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public io.superdurable.gen.KV.Builder getRecordEventsBuilder(
         int index) {
       return internalGetRecordEventsFieldBuilder().getBuilder(index);
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public io.superdurable.gen.KVOrBuilder getRecordEventsOrBuilder(
         int index) {
@@ -1920,7 +1550,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
          getRecordEventsOrBuilderList() {
@@ -1931,14 +1561,14 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public io.superdurable.gen.KV.Builder addRecordEventsBuilder() {
       return internalGetRecordEventsFieldBuilder().addBuilder(
           io.superdurable.gen.KV.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public io.superdurable.gen.KV.Builder addRecordEventsBuilder(
         int index) {
@@ -1946,7 +1576,7 @@ private static final long serialVersionUID = 0L;
           index, io.superdurable.gen.KV.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.KV record_events = 5;</code>
+     * <code>repeated .dex.KV record_events = 3;</code>
      */
     public java.util.List<io.superdurable.gen.KV.Builder> 
          getRecordEventsBuilderList() {
@@ -1959,7 +1589,7 @@ private static final long serialVersionUID = 0L;
         recordEventsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.KV, io.superdurable.gen.KV.Builder, io.superdurable.gen.KVOrBuilder>(
                 recordEvents_,
-                ((bitField0_ & 0x00000010) != 0),
+                ((bitField0_ & 0x00000004) != 0),
                 getParentForChildren(),
                 isClean());
         recordEvents_ = null;
@@ -1970,9 +1600,9 @@ private static final long serialVersionUID = 0L;
     private java.util.List<io.superdurable.gen.ChannelMessage> publishToChannel_ =
       java.util.Collections.emptyList();
     private void ensurePublishToChannelIsMutable() {
-      if (!((bitField0_ & 0x00000020) != 0)) {
+      if (!((bitField0_ & 0x00000008) != 0)) {
         publishToChannel_ = new java.util.ArrayList<io.superdurable.gen.ChannelMessage>(publishToChannel_);
-        bitField0_ |= 0x00000020;
+        bitField0_ |= 0x00000008;
        }
     }
 
@@ -1980,7 +1610,7 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.ChannelMessage, io.superdurable.gen.ChannelMessage.Builder, io.superdurable.gen.ChannelMessageOrBuilder> publishToChannelBuilder_;
 
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public java.util.List<io.superdurable.gen.ChannelMessage> getPublishToChannelList() {
       if (publishToChannelBuilder_ == null) {
@@ -1990,7 +1620,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public int getPublishToChannelCount() {
       if (publishToChannelBuilder_ == null) {
@@ -2000,7 +1630,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public io.superdurable.gen.ChannelMessage getPublishToChannel(int index) {
       if (publishToChannelBuilder_ == null) {
@@ -2010,7 +1640,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public Builder setPublishToChannel(
         int index, io.superdurable.gen.ChannelMessage value) {
@@ -2027,7 +1657,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public Builder setPublishToChannel(
         int index, io.superdurable.gen.ChannelMessage.Builder builderForValue) {
@@ -2041,7 +1671,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public Builder addPublishToChannel(io.superdurable.gen.ChannelMessage value) {
       if (publishToChannelBuilder_ == null) {
@@ -2057,7 +1687,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public Builder addPublishToChannel(
         int index, io.superdurable.gen.ChannelMessage value) {
@@ -2074,7 +1704,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public Builder addPublishToChannel(
         io.superdurable.gen.ChannelMessage.Builder builderForValue) {
@@ -2088,7 +1718,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public Builder addPublishToChannel(
         int index, io.superdurable.gen.ChannelMessage.Builder builderForValue) {
@@ -2102,7 +1732,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public Builder addAllPublishToChannel(
         java.lang.Iterable<? extends io.superdurable.gen.ChannelMessage> values) {
@@ -2117,12 +1747,12 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public Builder clearPublishToChannel() {
       if (publishToChannelBuilder_ == null) {
         publishToChannel_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000020);
+        bitField0_ = (bitField0_ & ~0x00000008);
         onChanged();
       } else {
         publishToChannelBuilder_.clear();
@@ -2130,7 +1760,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public Builder removePublishToChannel(int index) {
       if (publishToChannelBuilder_ == null) {
@@ -2143,14 +1773,14 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public io.superdurable.gen.ChannelMessage.Builder getPublishToChannelBuilder(
         int index) {
       return internalGetPublishToChannelFieldBuilder().getBuilder(index);
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public io.superdurable.gen.ChannelMessageOrBuilder getPublishToChannelOrBuilder(
         int index) {
@@ -2160,7 +1790,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
          getPublishToChannelOrBuilderList() {
@@ -2171,14 +1801,14 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public io.superdurable.gen.ChannelMessage.Builder addPublishToChannelBuilder() {
       return internalGetPublishToChannelFieldBuilder().addBuilder(
           io.superdurable.gen.ChannelMessage.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public io.superdurable.gen.ChannelMessage.Builder addPublishToChannelBuilder(
         int index) {
@@ -2186,7 +1816,7 @@ private static final long serialVersionUID = 0L;
           index, io.superdurable.gen.ChannelMessage.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+     * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
      */
     public java.util.List<io.superdurable.gen.ChannelMessage.Builder> 
          getPublishToChannelBuilderList() {
@@ -2199,7 +1829,7 @@ private static final long serialVersionUID = 0L;
         publishToChannelBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.ChannelMessage, io.superdurable.gen.ChannelMessage.Builder, io.superdurable.gen.ChannelMessageOrBuilder>(
                 publishToChannel_,
-                ((bitField0_ & 0x00000020) != 0),
+                ((bitField0_ & 0x00000008) != 0),
                 getParentForChildren(),
                 isClean());
         publishToChannel_ = null;
@@ -2209,7 +1839,7 @@ private static final long serialVersionUID = 0L;
 
     private boolean isSetAttributeApi_ ;
     /**
-     * <code>bool is_set_attribute_api = 7;</code>
+     * <code>bool is_set_attribute_api = 5;</code>
      * @return The isSetAttributeApi.
      */
     @java.lang.Override
@@ -2217,23 +1847,23 @@ private static final long serialVersionUID = 0L;
       return isSetAttributeApi_;
     }
     /**
-     * <code>bool is_set_attribute_api = 7;</code>
+     * <code>bool is_set_attribute_api = 5;</code>
      * @param value The isSetAttributeApi to set.
      * @return This builder for chaining.
      */
     public Builder setIsSetAttributeApi(boolean value) {
 
       isSetAttributeApi_ = value;
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
     /**
-     * <code>bool is_set_attribute_api = 7;</code>
+     * <code>bool is_set_attribute_api = 5;</code>
      * @return This builder for chaining.
      */
     public Builder clearIsSetAttributeApi() {
-      bitField0_ = (bitField0_ & ~0x00000040);
+      bitField0_ = (bitField0_ & ~0x00000010);
       isSetAttributeApi_ = false;
       onChanged();
       return this;
@@ -2242,9 +1872,9 @@ private static final long serialVersionUID = 0L;
     private java.util.List<io.superdurable.gen.ChannelMessageDeletion> deleteFromChannel_ =
       java.util.Collections.emptyList();
     private void ensureDeleteFromChannelIsMutable() {
-      if (!((bitField0_ & 0x00000080) != 0)) {
+      if (!((bitField0_ & 0x00000020) != 0)) {
         deleteFromChannel_ = new java.util.ArrayList<io.superdurable.gen.ChannelMessageDeletion>(deleteFromChannel_);
-        bitField0_ |= 0x00000080;
+        bitField0_ |= 0x00000020;
        }
     }
 
@@ -2252,7 +1882,7 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.ChannelMessageDeletion, io.superdurable.gen.ChannelMessageDeletion.Builder, io.superdurable.gen.ChannelMessageDeletionOrBuilder> deleteFromChannelBuilder_;
 
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public java.util.List<io.superdurable.gen.ChannelMessageDeletion> getDeleteFromChannelList() {
       if (deleteFromChannelBuilder_ == null) {
@@ -2262,7 +1892,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public int getDeleteFromChannelCount() {
       if (deleteFromChannelBuilder_ == null) {
@@ -2272,7 +1902,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public io.superdurable.gen.ChannelMessageDeletion getDeleteFromChannel(int index) {
       if (deleteFromChannelBuilder_ == null) {
@@ -2282,7 +1912,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public Builder setDeleteFromChannel(
         int index, io.superdurable.gen.ChannelMessageDeletion value) {
@@ -2299,7 +1929,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public Builder setDeleteFromChannel(
         int index, io.superdurable.gen.ChannelMessageDeletion.Builder builderForValue) {
@@ -2313,7 +1943,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public Builder addDeleteFromChannel(io.superdurable.gen.ChannelMessageDeletion value) {
       if (deleteFromChannelBuilder_ == null) {
@@ -2329,7 +1959,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public Builder addDeleteFromChannel(
         int index, io.superdurable.gen.ChannelMessageDeletion value) {
@@ -2346,7 +1976,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public Builder addDeleteFromChannel(
         io.superdurable.gen.ChannelMessageDeletion.Builder builderForValue) {
@@ -2360,7 +1990,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public Builder addDeleteFromChannel(
         int index, io.superdurable.gen.ChannelMessageDeletion.Builder builderForValue) {
@@ -2374,7 +2004,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public Builder addAllDeleteFromChannel(
         java.lang.Iterable<? extends io.superdurable.gen.ChannelMessageDeletion> values) {
@@ -2389,12 +2019,12 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public Builder clearDeleteFromChannel() {
       if (deleteFromChannelBuilder_ == null) {
         deleteFromChannel_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000080);
+        bitField0_ = (bitField0_ & ~0x00000020);
         onChanged();
       } else {
         deleteFromChannelBuilder_.clear();
@@ -2402,7 +2032,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public Builder removeDeleteFromChannel(int index) {
       if (deleteFromChannelBuilder_ == null) {
@@ -2415,14 +2045,14 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public io.superdurable.gen.ChannelMessageDeletion.Builder getDeleteFromChannelBuilder(
         int index) {
       return internalGetDeleteFromChannelFieldBuilder().getBuilder(index);
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public io.superdurable.gen.ChannelMessageDeletionOrBuilder getDeleteFromChannelOrBuilder(
         int index) {
@@ -2432,7 +2062,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public java.util.List<? extends io.superdurable.gen.ChannelMessageDeletionOrBuilder> 
          getDeleteFromChannelOrBuilderList() {
@@ -2443,14 +2073,14 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public io.superdurable.gen.ChannelMessageDeletion.Builder addDeleteFromChannelBuilder() {
       return internalGetDeleteFromChannelFieldBuilder().addBuilder(
           io.superdurable.gen.ChannelMessageDeletion.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public io.superdurable.gen.ChannelMessageDeletion.Builder addDeleteFromChannelBuilder(
         int index) {
@@ -2458,7 +2088,7 @@ private static final long serialVersionUID = 0L;
           index, io.superdurable.gen.ChannelMessageDeletion.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+     * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
      */
     public java.util.List<io.superdurable.gen.ChannelMessageDeletion.Builder> 
          getDeleteFromChannelBuilderList() {
@@ -2471,7 +2101,7 @@ private static final long serialVersionUID = 0L;
         deleteFromChannelBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.ChannelMessageDeletion, io.superdurable.gen.ChannelMessageDeletion.Builder, io.superdurable.gen.ChannelMessageDeletionOrBuilder>(
                 deleteFromChannel_,
-                ((bitField0_ & 0x00000080) != 0),
+                ((bitField0_ & 0x00000020) != 0),
                 getParentForChildren(),
                 isClean());
         deleteFromChannel_ = null;
@@ -2481,7 +2111,7 @@ private static final long serialVersionUID = 0L;
 
     private boolean isDeleteChannelMessageApi_ ;
     /**
-     * <code>bool is_delete_channel_message_api = 9;</code>
+     * <code>bool is_delete_channel_message_api = 7;</code>
      * @return The isDeleteChannelMessageApi.
      */
     @java.lang.Override
@@ -2489,23 +2119,23 @@ private static final long serialVersionUID = 0L;
       return isDeleteChannelMessageApi_;
     }
     /**
-     * <code>bool is_delete_channel_message_api = 9;</code>
+     * <code>bool is_delete_channel_message_api = 7;</code>
      * @param value The isDeleteChannelMessageApi to set.
      * @return This builder for chaining.
      */
     public Builder setIsDeleteChannelMessageApi(boolean value) {
 
       isDeleteChannelMessageApi_ = value;
-      bitField0_ |= 0x00000100;
+      bitField0_ |= 0x00000040;
       onChanged();
       return this;
     }
     /**
-     * <code>bool is_delete_channel_message_api = 9;</code>
+     * <code>bool is_delete_channel_message_api = 7;</code>
      * @return This builder for chaining.
      */
     public Builder clearIsDeleteChannelMessageApi() {
-      bitField0_ = (bitField0_ & ~0x00000100);
+      bitField0_ = (bitField0_ & ~0x00000040);
       isDeleteChannelMessageApi_ = false;
       onChanged();
       return this;
@@ -2515,14 +2145,14 @@ private static final long serialVersionUID = 0L;
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.ActionPermissionMappings, io.superdurable.gen.ActionPermissionMappings.Builder, io.superdurable.gen.ActionPermissionMappingsOrBuilder> actionPermissionMappingsBuilder_;
     /**
-     * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
      * @return Whether the actionPermissionMappings field is set.
      */
     public boolean hasActionPermissionMappings() {
-      return ((bitField0_ & 0x00000200) != 0);
+      return ((bitField0_ & 0x00000080) != 0);
     }
     /**
-     * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
      * @return The actionPermissionMappings.
      */
     public io.superdurable.gen.ActionPermissionMappings getActionPermissionMappings() {
@@ -2533,7 +2163,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
      */
     public Builder setActionPermissionMappings(io.superdurable.gen.ActionPermissionMappings value) {
       if (actionPermissionMappingsBuilder_ == null) {
@@ -2544,12 +2174,12 @@ private static final long serialVersionUID = 0L;
       } else {
         actionPermissionMappingsBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000200;
+      bitField0_ |= 0x00000080;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
      */
     public Builder setActionPermissionMappings(
         io.superdurable.gen.ActionPermissionMappings.Builder builderForValue) {
@@ -2558,16 +2188,16 @@ private static final long serialVersionUID = 0L;
       } else {
         actionPermissionMappingsBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000200;
+      bitField0_ |= 0x00000080;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
      */
     public Builder mergeActionPermissionMappings(io.superdurable.gen.ActionPermissionMappings value) {
       if (actionPermissionMappingsBuilder_ == null) {
-        if (((bitField0_ & 0x00000200) != 0) &&
+        if (((bitField0_ & 0x00000080) != 0) &&
           actionPermissionMappings_ != null &&
           actionPermissionMappings_ != io.superdurable.gen.ActionPermissionMappings.getDefaultInstance()) {
           getActionPermissionMappingsBuilder().mergeFrom(value);
@@ -2578,16 +2208,16 @@ private static final long serialVersionUID = 0L;
         actionPermissionMappingsBuilder_.mergeFrom(value);
       }
       if (actionPermissionMappings_ != null) {
-        bitField0_ |= 0x00000200;
+        bitField0_ |= 0x00000080;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
      */
     public Builder clearActionPermissionMappings() {
-      bitField0_ = (bitField0_ & ~0x00000200);
+      bitField0_ = (bitField0_ & ~0x00000080);
       actionPermissionMappings_ = null;
       if (actionPermissionMappingsBuilder_ != null) {
         actionPermissionMappingsBuilder_.dispose();
@@ -2597,15 +2227,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
      */
     public io.superdurable.gen.ActionPermissionMappings.Builder getActionPermissionMappingsBuilder() {
-      bitField0_ |= 0x00000200;
+      bitField0_ |= 0x00000080;
       onChanged();
       return internalGetActionPermissionMappingsFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
      */
     public io.superdurable.gen.ActionPermissionMappingsOrBuilder getActionPermissionMappingsOrBuilder() {
       if (actionPermissionMappingsBuilder_ != null) {
@@ -2616,7 +2246,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+     * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.ActionPermissionMappings, io.superdurable.gen.ActionPermissionMappings.Builder, io.superdurable.gen.ActionPermissionMappingsOrBuilder> 

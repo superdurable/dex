@@ -11,170 +11,140 @@ public interface ExecuteRpcSignalRequestOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>.dex.Value rpc_input = 1;</code>
-   * @return Whether the rpcInput field is set.
-   */
-  boolean hasRpcInput();
-  /**
-   * <code>.dex.Value rpc_input = 1;</code>
-   * @return The rpcInput.
-   */
-  io.superdurable.gen.Value getRpcInput();
-  /**
-   * <code>.dex.Value rpc_input = 1;</code>
-   */
-  io.superdurable.gen.ValueOrBuilder getRpcInputOrBuilder();
-
-  /**
-   * <code>.dex.Value rpc_output = 2;</code>
-   * @return Whether the rpcOutput field is set.
-   */
-  boolean hasRpcOutput();
-  /**
-   * <code>.dex.Value rpc_output = 2;</code>
-   * @return The rpcOutput.
-   */
-  io.superdurable.gen.Value getRpcOutput();
-  /**
-   * <code>.dex.Value rpc_output = 2;</code>
-   */
-  io.superdurable.gen.ValueOrBuilder getRpcOutputOrBuilder();
-
-  /**
-   * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+   * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
    */
   java.util.List<io.superdurable.gen.AttributeWrite> 
       getUpsertAttributesList();
   /**
-   * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+   * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
    */
   io.superdurable.gen.AttributeWrite getUpsertAttributes(int index);
   /**
-   * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+   * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
    */
   int getUpsertAttributesCount();
   /**
-   * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+   * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
    */
   java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
       getUpsertAttributesOrBuilderList();
   /**
-   * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
+   * <code>repeated .dex.AttributeWrite upsert_attributes = 1;</code>
    */
   io.superdurable.gen.AttributeWriteOrBuilder getUpsertAttributesOrBuilder(
       int index);
 
   /**
-   * <code>.dex.StepDecision step_decision = 4;</code>
+   * <code>.dex.StepDecision step_decision = 2;</code>
    * @return Whether the stepDecision field is set.
    */
   boolean hasStepDecision();
   /**
-   * <code>.dex.StepDecision step_decision = 4;</code>
+   * <code>.dex.StepDecision step_decision = 2;</code>
    * @return The stepDecision.
    */
   io.superdurable.gen.StepDecision getStepDecision();
   /**
-   * <code>.dex.StepDecision step_decision = 4;</code>
+   * <code>.dex.StepDecision step_decision = 2;</code>
    */
   io.superdurable.gen.StepDecisionOrBuilder getStepDecisionOrBuilder();
 
   /**
-   * <code>repeated .dex.KV record_events = 5;</code>
+   * <code>repeated .dex.KV record_events = 3;</code>
    */
   java.util.List<io.superdurable.gen.KV> 
       getRecordEventsList();
   /**
-   * <code>repeated .dex.KV record_events = 5;</code>
+   * <code>repeated .dex.KV record_events = 3;</code>
    */
   io.superdurable.gen.KV getRecordEvents(int index);
   /**
-   * <code>repeated .dex.KV record_events = 5;</code>
+   * <code>repeated .dex.KV record_events = 3;</code>
    */
   int getRecordEventsCount();
   /**
-   * <code>repeated .dex.KV record_events = 5;</code>
+   * <code>repeated .dex.KV record_events = 3;</code>
    */
   java.util.List<? extends io.superdurable.gen.KVOrBuilder> 
       getRecordEventsOrBuilderList();
   /**
-   * <code>repeated .dex.KV record_events = 5;</code>
+   * <code>repeated .dex.KV record_events = 3;</code>
    */
   io.superdurable.gen.KVOrBuilder getRecordEventsOrBuilder(
       int index);
 
   /**
-   * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+   * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
    */
   java.util.List<io.superdurable.gen.ChannelMessage> 
       getPublishToChannelList();
   /**
-   * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+   * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
    */
   io.superdurable.gen.ChannelMessage getPublishToChannel(int index);
   /**
-   * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+   * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
    */
   int getPublishToChannelCount();
   /**
-   * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+   * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
    */
   java.util.List<? extends io.superdurable.gen.ChannelMessageOrBuilder> 
       getPublishToChannelOrBuilderList();
   /**
-   * <code>repeated .dex.ChannelMessage publish_to_channel = 6;</code>
+   * <code>repeated .dex.ChannelMessage publish_to_channel = 4;</code>
    */
   io.superdurable.gen.ChannelMessageOrBuilder getPublishToChannelOrBuilder(
       int index);
 
   /**
-   * <code>bool is_set_attribute_api = 7;</code>
+   * <code>bool is_set_attribute_api = 5;</code>
    * @return The isSetAttributeApi.
    */
   boolean getIsSetAttributeApi();
 
   /**
-   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
    */
   java.util.List<io.superdurable.gen.ChannelMessageDeletion> 
       getDeleteFromChannelList();
   /**
-   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
    */
   io.superdurable.gen.ChannelMessageDeletion getDeleteFromChannel(int index);
   /**
-   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
    */
   int getDeleteFromChannelCount();
   /**
-   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
    */
   java.util.List<? extends io.superdurable.gen.ChannelMessageDeletionOrBuilder> 
       getDeleteFromChannelOrBuilderList();
   /**
-   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 8;</code>
+   * <code>repeated .dex.ChannelMessageDeletion delete_from_channel = 6;</code>
    */
   io.superdurable.gen.ChannelMessageDeletionOrBuilder getDeleteFromChannelOrBuilder(
       int index);
 
   /**
-   * <code>bool is_delete_channel_message_api = 9;</code>
+   * <code>bool is_delete_channel_message_api = 7;</code>
    * @return The isDeleteChannelMessageApi.
    */
   boolean getIsDeleteChannelMessageApi();
 
   /**
-   * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
    * @return Whether the actionPermissionMappings field is set.
    */
   boolean hasActionPermissionMappings();
   /**
-   * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
    * @return The actionPermissionMappings.
    */
   io.superdurable.gen.ActionPermissionMappings getActionPermissionMappings();
   /**
-   * <code>.dex.ActionPermissionMappings action_permission_mappings = 10;</code>
+   * <code>.dex.ActionPermissionMappings action_permission_mappings = 8;</code>
    */
   io.superdurable.gen.ActionPermissionMappingsOrBuilder getActionPermissionMappingsOrBuilder();
 }

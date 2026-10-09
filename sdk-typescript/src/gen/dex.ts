@@ -1511,8 +1511,6 @@ export interface ReportSubFlowCompletionActivityOutput {
 }
 
 export interface ExecuteRpcSignalRequest {
-  rpcInput: Value | undefined;
-  rpcOutput: Value | undefined;
   upsertAttributes: AttributeWrite[];
   stepDecision: StepDecision | undefined;
   recordEvents: KV[];
@@ -16502,8 +16500,6 @@ export const ReportSubFlowCompletionActivityOutput: MessageFns<ReportSubFlowComp
 
 function createBaseExecuteRpcSignalRequest(): ExecuteRpcSignalRequest {
   return {
-    rpcInput: undefined,
-    rpcOutput: undefined,
     upsertAttributes: [],
     stepDecision: undefined,
     recordEvents: [],
@@ -16517,35 +16513,29 @@ function createBaseExecuteRpcSignalRequest(): ExecuteRpcSignalRequest {
 
 export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
   encode(message: ExecuteRpcSignalRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.rpcInput !== undefined) {
-      Value.encode(message.rpcInput, writer.uint32(10).fork()).join();
-    }
-    if (message.rpcOutput !== undefined) {
-      Value.encode(message.rpcOutput, writer.uint32(18).fork()).join();
-    }
     for (const v of message.upsertAttributes) {
-      AttributeWrite.encode(v!, writer.uint32(26).fork()).join();
+      AttributeWrite.encode(v!, writer.uint32(10).fork()).join();
     }
     if (message.stepDecision !== undefined) {
-      StepDecision.encode(message.stepDecision, writer.uint32(34).fork()).join();
+      StepDecision.encode(message.stepDecision, writer.uint32(18).fork()).join();
     }
     for (const v of message.recordEvents) {
-      KV.encode(v!, writer.uint32(42).fork()).join();
+      KV.encode(v!, writer.uint32(26).fork()).join();
     }
     for (const v of message.publishToChannel) {
-      ChannelMessage.encode(v!, writer.uint32(50).fork()).join();
+      ChannelMessage.encode(v!, writer.uint32(34).fork()).join();
     }
     if (message.isSetAttributeApi !== false) {
-      writer.uint32(56).bool(message.isSetAttributeApi);
+      writer.uint32(40).bool(message.isSetAttributeApi);
     }
     for (const v of message.deleteFromChannel) {
-      ChannelMessageDeletion.encode(v!, writer.uint32(66).fork()).join();
+      ChannelMessageDeletion.encode(v!, writer.uint32(50).fork()).join();
     }
     if (message.isDeleteChannelMessageApi !== false) {
-      writer.uint32(72).bool(message.isDeleteChannelMessageApi);
+      writer.uint32(56).bool(message.isDeleteChannelMessageApi);
     }
     if (message.actionPermissionMappings !== undefined) {
-      ActionPermissionMappings.encode(message.actionPermissionMappings, writer.uint32(82).fork()).join();
+      ActionPermissionMappings.encode(message.actionPermissionMappings, writer.uint32(66).fork()).join();
     }
     return writer;
   },
@@ -16562,7 +16552,7 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
             break;
           }
 
-          message.rpcInput = Value.decode(reader, reader.uint32());
+          message.upsertAttributes.push(AttributeWrite.decode(reader, reader.uint32()));
           continue;
         }
         case 2: {
@@ -16570,7 +16560,7 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
             break;
           }
 
-          message.rpcOutput = Value.decode(reader, reader.uint32());
+          message.stepDecision = StepDecision.decode(reader, reader.uint32());
           continue;
         }
         case 3: {
@@ -16578,7 +16568,7 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
             break;
           }
 
-          message.upsertAttributes.push(AttributeWrite.decode(reader, reader.uint32()));
+          message.recordEvents.push(KV.decode(reader, reader.uint32()));
           continue;
         }
         case 4: {
@@ -16586,15 +16576,15 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
             break;
           }
 
-          message.stepDecision = StepDecision.decode(reader, reader.uint32());
+          message.publishToChannel.push(ChannelMessage.decode(reader, reader.uint32()));
           continue;
         }
         case 5: {
-          if (tag !== 42) {
+          if (tag !== 40) {
             break;
           }
 
-          message.recordEvents.push(KV.decode(reader, reader.uint32()));
+          message.isSetAttributeApi = reader.bool();
           continue;
         }
         case 6: {
@@ -16602,7 +16592,7 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
             break;
           }
 
-          message.publishToChannel.push(ChannelMessage.decode(reader, reader.uint32()));
+          message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
           continue;
         }
         case 7: {
@@ -16610,27 +16600,11 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
             break;
           }
 
-          message.isSetAttributeApi = reader.bool();
+          message.isDeleteChannelMessageApi = reader.bool();
           continue;
         }
         case 8: {
           if (tag !== 66) {
-            break;
-          }
-
-          message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 9: {
-          if (tag !== 72) {
-            break;
-          }
-
-          message.isDeleteChannelMessageApi = reader.bool();
-          continue;
-        }
-        case 10: {
-          if (tag !== 82) {
             break;
           }
 
@@ -16651,12 +16625,6 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
   },
   fromPartial<I extends Exact<DeepPartial<ExecuteRpcSignalRequest>, I>>(object: I): ExecuteRpcSignalRequest {
     const message = createBaseExecuteRpcSignalRequest();
-    message.rpcInput = (object.rpcInput !== undefined && object.rpcInput !== null)
-      ? Value.fromPartial(object.rpcInput)
-      : undefined;
-    message.rpcOutput = (object.rpcOutput !== undefined && object.rpcOutput !== null)
-      ? Value.fromPartial(object.rpcOutput)
-      : undefined;
     message.upsertAttributes = object.upsertAttributes?.map((e) => AttributeWrite.fromPartial(e)) || [];
     message.stepDecision = (object.stepDecision !== undefined && object.stepDecision !== null)
       ? StepDecision.fromPartial(object.stepDecision)

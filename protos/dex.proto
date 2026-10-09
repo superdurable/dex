@@ -1469,16 +1469,14 @@ message ReportSubFlowCompletionActivityOutput {
 }
 
 message ExecuteRpcSignalRequest {
-  Value rpc_input = 1;
-  Value rpc_output = 2;
-  repeated AttributeWrite upsert_attributes = 3;
-  StepDecision step_decision = 4;
-  repeated KV record_events = 5;
-  repeated ChannelMessage publish_to_channel = 6;
-  bool is_set_attribute_api = 7;
-  repeated ChannelMessageDeletion delete_from_channel = 8;
-  bool is_delete_channel_message_api = 9;
-  ActionPermissionMappings action_permission_mappings = 10;
+  repeated AttributeWrite upsert_attributes = 1;
+  StepDecision step_decision = 2;
+  repeated KV record_events = 3;
+  repeated ChannelMessage publish_to_channel = 4;
+  bool is_set_attribute_api = 5;
+  repeated ChannelMessageDeletion delete_from_channel = 6;
+  bool is_delete_channel_message_api = 7;
+  ActionPermissionMappings action_permission_mappings = 8;
 }
 
 message SkipTimerSignalRequest {

@@ -80,6 +80,11 @@ a missing deletion as a no-op. Cadence does not provide the same atomicity.
 
 ## RPC state loading
 
+Nontransactional RPC inputs and outputs travel directly between the API and
+Worker and are not persisted. `ExecuteRpcSignalRequest` carries only the RPC's
+state changes. Transactional RPC inputs and outputs are persisted. Persisted
+payloads and state changes use the configured Blob Store threshold.
+
 Worker RPC requests always contain ordinary Attribute values and size metadata
 for every known Channel and ChannelMap instance. AttributeMap entries and
 pending Channel message envelopes are loaded only when the caller requests them

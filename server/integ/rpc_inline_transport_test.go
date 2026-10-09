@@ -35,15 +35,14 @@ import (
 )
 
 type rpcBlobReadScenario struct {
-	isLazyLoading        bool
-	shouldIncludeHistory bool
-	isObjectInput        bool
+	isLazyLoading bool
+	isObjectInput bool
 }
 
 type rpcBlobTransportScenario struct {
-	isLazyLoading        bool
-	isBlobStoreEnabled   bool
-	shouldIncludeHistory bool
+	isLazyLoading      bool
+	isBlobStoreEnabled bool
+	blobThreshold      int
 }
 
 type rpcBlobTransportFixture struct {
@@ -81,22 +80,19 @@ func TestRpcReadBlobStoreUnavailableCadence(t *testing.T) {
 
 func testRPCReadBlobStoreUnavailable(t *testing.T, backendType service.BackendType) {
 	for _, isLazyLoading := range []bool{true, false} {
-		for _, shouldIncludeHistory := range []bool{false, true} {
-			for _, isObjectInput := range []bool{false, true} {
-				scenario := rpcBlobReadScenario{isLazyLoading, shouldIncludeHistory, isObjectInput}
-				t.Run(fmt.Sprintf("lazy=%v/history=%v/object=%v", isLazyLoading, shouldIncludeHistory, isObjectInput), func(t *testing.T) {
-					testRPCReadWithRejectedBlobWrites(t, backendType, scenario)
-				})
-			}
+		for _, isObjectInput := range []bool{false, true} {
+			scenario := rpcBlobReadScenario{isLazyLoading, isObjectInput}
+			t.Run(fmt.Sprintf("lazy=%v/object=%v", isLazyLoading, isObjectInput), func(t *testing.T) {
+				testRPCReadWithRejectedBlobWrites(t, backendType, scenario)
+			})
 		}
 	}
 }
 
 func testRPCReadWithRejectedBlobWrites(t *testing.T, backendType service.BackendType, scenario rpcBlobReadScenario) {
 	fixture := newRPCBlobTransportFixture(t, DexServiceTestConfig{
-		BackendType:                      backendType,
-		LazyLoading:                      ptr.Any(scenario.isLazyLoading),
-		IncludeRPCInputOutputIntoHistory: scenario.shouldIncludeHistory,
+		BackendType: backendType,
+		LazyLoading: ptr.Any(scenario.isLazyLoading),
 	})
 	count, err := fixture.runtime.BlobStore.CountWorkflowObjectsForTesting(fixture.ctx, fixture.flowID)
 	require.NoError(t, err)
@@ -153,19 +149,17 @@ func TestRpcInlineTransportCadence(t *testing.T) {
 
 func testRPCInlineTransport(t *testing.T, backendType service.BackendType) {
 	for _, isLazyLoading := range []bool{true, false} {
-		for _, configuration := range []struct{ isBlobStoreEnabled, shouldIncludeHistory bool }{
-			{true, false}, {false, false}, {true, true},
+		for _, configuration := range []struct {
+			isBlobStoreEnabled bool
+			blobThreshold      int
+		}{
+			{true, 100}, {true, 4096}, {false, 100}, {false, 4096},
 		} {
-			scenario := rpcBlobTransportScenario{isLazyLoading, configuration.isBlobStoreEnabled, configuration.shouldIncludeHistory}
-			t.Run(fmt.Sprintf("lazy=%v/blob=%v/history=%v", isLazyLoading, scenario.isBlobStoreEnabled, scenario.shouldIncludeHistory), func(t *testing.T) {
-				threshold := 4096
-				if scenario.shouldIncludeHistory {
-					threshold = 100
-				}
+			scenario := rpcBlobTransportScenario{isLazyLoading, configuration.isBlobStoreEnabled, configuration.blobThreshold}
+			t.Run(fmt.Sprintf("lazy=%v/blob=%v/threshold=%d", isLazyLoading, scenario.isBlobStoreEnabled, scenario.blobThreshold), func(t *testing.T) {
 				fixture := newRPCBlobTransportFixture(t, DexServiceTestConfig{
-					BackendType: backendType, GrpcMaxMessageBytes: 2048, LocalBlobThreshold: threshold,
+					BackendType: backendType, GrpcMaxMessageBytes: 2048, LocalBlobThreshold: scenario.blobThreshold,
 					LazyLoading: ptr.Any(scenario.isLazyLoading), BlobStoreEnabled: ptr.Any(scenario.isBlobStoreEnabled),
-					IncludeRPCInputOutputIntoHistory: scenario.shouldIncludeHistory,
 				})
 				_, err := fixture.runtime.FlowClient.InvokeRPC(fixture.ctx, &dexpb.InvokeRPCRequest{
 					FlowId: fixture.flowID, RequestId: newRequestID(), RpcName: "getLargePayload", Input: stringValue("probe"),

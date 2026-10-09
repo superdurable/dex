@@ -2253,9 +2253,7 @@ class ReportSubFlowCompletionActivityOutput(_message.Message):
     def __init__(self, status: _Optional[_Union[SubFlowCompletionDeliveryStatus, str]] = ...) -> None: ...
 
 class ExecuteRpcSignalRequest(_message.Message):
-    __slots__ = ("rpc_input", "rpc_output", "upsert_attributes", "step_decision", "record_events", "publish_to_channel", "is_set_attribute_api", "delete_from_channel", "is_delete_channel_message_api", "action_permission_mappings")
-    RPC_INPUT_FIELD_NUMBER: _ClassVar[int]
-    RPC_OUTPUT_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("upsert_attributes", "step_decision", "record_events", "publish_to_channel", "is_set_attribute_api", "delete_from_channel", "is_delete_channel_message_api", "action_permission_mappings")
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     STEP_DECISION_FIELD_NUMBER: _ClassVar[int]
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
@@ -2264,8 +2262,6 @@ class ExecuteRpcSignalRequest(_message.Message):
     DELETE_FROM_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     IS_DELETE_CHANNEL_MESSAGE_API_FIELD_NUMBER: _ClassVar[int]
     ACTION_PERMISSION_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
-    rpc_input: Value
-    rpc_output: Value
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     step_decision: StepDecision
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
@@ -2274,7 +2270,7 @@ class ExecuteRpcSignalRequest(_message.Message):
     delete_from_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessageDeletion]
     is_delete_channel_message_api: bool
     action_permission_mappings: ActionPermissionMappings
-    def __init__(self, rpc_input: _Optional[_Union[Value, _Mapping]] = ..., rpc_output: _Optional[_Union[Value, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., is_set_attribute_api: _Optional[bool] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., is_delete_channel_message_api: _Optional[bool] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ...) -> None: ...
+    def __init__(self, upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., is_set_attribute_api: _Optional[bool] = ..., delete_from_channel: _Optional[_Iterable[_Union[ChannelMessageDeletion, _Mapping]]] = ..., is_delete_channel_message_api: _Optional[bool] = ..., action_permission_mappings: _Optional[_Union[ActionPermissionMappings, _Mapping]] = ...) -> None: ...
 
 class SkipTimerSignalRequest(_message.Message):
     __slots__ = ("step_execution_id", "timer_condition_id", "timer_condition_index")

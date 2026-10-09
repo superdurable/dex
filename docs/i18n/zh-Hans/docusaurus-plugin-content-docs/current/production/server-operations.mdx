@@ -108,11 +108,19 @@ Dex 默认将不超过 100 bytes 的持久化 payload 保留在 history 中。10
 object 会被 offload。可通过 **blobStore.thresholdInBytes** 覆盖默认值。
 比较时只计算 payload size，不计算最终 reference size。
 
-非事务 RPC 的输入和输出使用 inline 传输。完整 Worker 请求超过 **api.grpcMaxMessageBytes** 时，
-Dex 会在调用 Worker 前返回 **ResourceExhausted**。只读 RPC 不会写入 Blob object，也不会将
-RPC 调用记入 Flow history。事务 RPC 的 payload 使用 Blob Store threshold。对于产生副作用的
-非事务 RPC，启用 **api.includeRPCInputOutputIntoHistory** 后，输入和输出 history 也使用该 threshold。
-history 中的 value 会单独 offload；发送给 Worker 的输入和返回给 client 的输出仍使用 inline 传输。
+当 RPC option 或 server 配置要求事务执行时，只读 handler 也会按事务执行。handler 是否
+写入状态，与 RPC 是否使用事务，是两个独立的选择。
+
+是否 offload 到 Blob Store，取决于这个 value 是否需要持久化。非事务 RPC 将输入直接发送给
+Worker，将输出直接返回给调用者。Dex 不会持久化这些输入和输出。事务 RPC 的输入和输出
+需要持久化，使用 Blob Store threshold。
+
+任何 RPC 返回的状态变更，例如 Attribute 写入、Channel 消息和后续 Step 输入，都需要
+持久化，使用相同的 threshold。非事务只读 RPC 不会写入 Blob object，也不会将 RPC 调用记入
+Flow history。加载已有状态时，可能需要读取已有的 Blob object。
+
+非事务 RPC 的完整 Worker 请求超过 **api.grpcMaxMessageBytes** 时，Dex 会在调用 Worker 前
+返回 **ResourceExhausted**。
 
 SDK Worker 的 gRPC 接收上限默认为 4 MiB。**api.grpcMaxMessageBytes** 控制 Dex server 的上限，
 默认值为 16 MiB；增大此配置不会提高 Worker 的接收上限。包含已加载状态和 metadata 的完整

@@ -313,8 +313,6 @@ type (
 		MaxWaitSeconds int64 `yaml:"maxWaitSeconds"`
 		// GrpcMaxMessageBytes is MaxRecv/MaxSend for FlowService, InternalService, and WorkerService clients. Default 16 MiB. Must be positive and larger than continue-as-new page size plus overhead.
 		GrpcMaxMessageBytes int `yaml:"grpcMaxMessageBytes"`
-		// IncludeRPCInputOutputIntoHistory stores RPC input/output in signal history for debugging. Default false. Synchronous Updates always store both.
-		IncludeRPCInputOutputIntoHistory bool `yaml:"includeRPCInputOutputIntoHistory"`
 		// UseTemporalSynchronousUpdateForAllRPCs routes non-locking Temporal RPCs through synchronous Updates. Default false because Temporal limits concurrent Updates. Enabling trades that capacity for validator rejection and atomic effect commits. Locking Temporal RPCs always use Updates.
 		UseTemporalSynchronousUpdateForAllRPCs bool `yaml:"useTemporalSynchronousUpdateForAllRPCs"`
 		// QueryWorkflowFailedRetryPolicy retries failed backend queries. Nil or zero fields default to 100ms fixed intervals and 5 attempts.
