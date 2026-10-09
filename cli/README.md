@@ -398,8 +398,10 @@ Step, and `ProceedToOnExecuteFailure` targets for Steps; `RPCOptions` in
 RPC method value (such as `InvokeRPCWithOptions`) for RPCs; and
 `FlowTimeoutHandlerOptions` values for `HandleTimeout`. Option values may be
 literals, package variables, local variables with field assignments, or
-same-package function results. A read in a helper is reported at the handler's
-call in the Flow file, and the message names the helper's file and line.
+same-package function results. Self-appending option slices and cyclic local
+aliases are evaluated as a union of their known contributions. A read in a
+helper is reported at the handler's call in the Flow file, and the message
+names the helper's file and line.
 
 When another package selects an RPC's map instance at invocation, declare it
 on the RPC method with `// dex:invocation-load attribute-map:<name>` or
