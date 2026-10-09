@@ -112,6 +112,13 @@ object 会被 offload。可通过 **blobStore.thresholdInBytes** 覆盖默认值
 Dex 会在调用 Worker 前返回 **ResourceExhausted**。只读 RPC 不会写入 Blob object，也不会将
 RPC 调用记入 Flow history。事务 RPC 的 payload 使用 Blob Store threshold。对于产生副作用的
 非事务 RPC，启用 **api.includeRPCInputOutputIntoHistory** 后，输入和输出 history 也使用该 threshold。
+history 中的 value 会单独 offload；发送给 Worker 的输入和返回给 client 的输出仍使用 inline 传输。
+
+SDK Worker 的 gRPC 接收上限默认为 4 MiB。**api.grpcMaxMessageBytes** 控制 Dex server 的上限，
+默认值为 16 MiB；增大此配置不会提高 Worker 的接收上限。包含已加载状态和 metadata 的完整
+Worker 请求必须同时满足这两个上限。Worker 拒绝超限请求时，会返回 **WORKER_API_ERROR**，
+其中 **OriginalWorkerErrorStatus** 为 **ResourceExhausted**。事务请求被 Dex 的大小检查拒绝时，
+也使用相同错误，且不会重试。
 
 ~~~yaml
 blobStore:

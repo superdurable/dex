@@ -39,6 +39,7 @@ import (
 	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/temporal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -780,6 +781,16 @@ func (a *Activities) IWRPC(
 		true,
 	)
 	if err != nil {
+		var oversizedRequest *rpc.WorkerRequestTooLargeError
+		if errors.As(err, &oversizedRequest) {
+			// Transactional RPCs use Temporal; oversized requests cannot succeed on retry.
+			return nil, temporal.NewNonRetryableApplicationError(
+				"", dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(), nil,
+				&dexpb.InternalActivityError{
+					WorkerGrpcStatus: int32(codes.ResourceExhausted), ServerDetail: err.Error(),
+				},
+			)
+		}
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, nil)
 	}
 	out := &dexpb.InvokeWorkerRPCActivityOutput{

@@ -41,9 +41,11 @@ func TestRpcExternalStorageNonLockingTemporal(t *testing.T) {
 			)
 		})
 	}
-	t.Run("history-input-output", func(t *testing.T) {
-		doTestRpcExternalStorage(t, service.BackendTypeTemporal, false, false, true, true)
-	})
+	for _, isLazyLoading := range []bool{true, false} {
+		t.Run(fmt.Sprintf("history-input-output/lazy=%v", isLazyLoading), func(t *testing.T) {
+			doTestRpcExternalStorage(t, service.BackendTypeTemporal, false, false, isLazyLoading, true)
+		})
+	}
 }
 
 func TestRpcExternalStorageSynchronousUpdateTemporal(t *testing.T) {
@@ -83,9 +85,11 @@ func TestRpcExternalStorageNonLockingCadence(t *testing.T) {
 			)
 		})
 	}
-	t.Run("history-input-output", func(t *testing.T) {
-		doTestRpcExternalStorage(t, service.BackendTypeCadence, false, false, true, true)
-	})
+	for _, isLazyLoading := range []bool{true, false} {
+		t.Run(fmt.Sprintf("history-input-output/lazy=%v", isLazyLoading), func(t *testing.T) {
+			doTestRpcExternalStorage(t, service.BackendTypeCadence, false, false, isLazyLoading, true)
+		})
+	}
 }
 
 func TestRpcSelectedChannelExternalStorageTemporal(t *testing.T) {
@@ -231,7 +235,7 @@ func doTestRpcExternalStorage(
 	rpcResp, err := flowClient.InvokeRPC(ctx, rpcRequest)
 	require.NoError(t, err)
 	rpcOutput := rpcResp.GetOutput()
-	require.Equal(t, lazyLoading && (useLocking || useSynchronousUpdate || includeSignalHistory), integcommon.BlobIdFromValue(rpcOutput) != "")
+	require.Equal(t, lazyLoading && (useLocking || useSynchronousUpdate), integcommon.BlobIdFromValue(rpcOutput) != "")
 	rpcOutput, err = integcommon.LoadBlobsValue(ctx, flowClient, flowId, rpcOutput)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(rpcStorage.TestOutput, rpcOutput))

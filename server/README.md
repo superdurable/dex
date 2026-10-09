@@ -27,6 +27,11 @@ request above `api.grpcMaxMessageBytes` fails with `ResourceExhausted` before
 calling the Worker. Pure reads do not write Blob objects or record RPC calls in
 Flow history. Transactional RPC payloads and optional input/output history for
 RPCs with side effects use the durable Blob Store threshold.
+Side-effect history uses separate Values so Worker inputs and client outputs
+remain inline. SDK Workers default to a 4 MiB receive limit, independently of
+the server's `api.grpcMaxMessageBytes` limit (16 MiB by default). Transactional
+requests rejected by the server's Worker-request size check retain
+`WORKER_API_ERROR` with `OriginalWorkerErrorStatus=8` and are not retried.
 
 State loading controls only the Worker request projection. Transactional
 execution controls atomic commit and Channel deletion validation. Attribute

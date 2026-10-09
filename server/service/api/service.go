@@ -1654,14 +1654,14 @@ func (s *serviceImpl) doInvokeRPC(
 			ActionPermissionMappings: workerResponse.GetActionPermissionMappings(),
 		}
 		if s.apiCfg.IncludeRPCInputOutputIntoHistory {
-			if err := s.offloadRPCValue(ctx, req, req.GetInput()); err != nil {
+			signalRequest.RpcInput, err = s.offloadRPCHistoryValue(ctx, req, req.GetInput())
+			if err != nil {
 				return nil, err
 			}
-			if err := s.offloadRPCValue(ctx, req, workerResponse.GetOutput()); err != nil {
+			signalRequest.RpcOutput, err = s.offloadRPCHistoryValue(ctx, req, workerResponse.GetOutput())
+			if err != nil {
 				return nil, err
 			}
-			signalRequest.RpcInput = req.GetInput()
-			signalRequest.RpcOutput = workerResponse.GetOutput()
 		}
 		if err := s.client.SignalWorkflow(
 			ctx,
@@ -1716,6 +1716,17 @@ func (s *serviceImpl) doInvokeRpcUpdate(
 		return nil, fmt.Errorf("InvokeRpc Update returned no response")
 	}
 	return result.GetResponse(), nil
+}
+
+func (s *serviceImpl) offloadRPCHistoryValue(ctx context.Context, req *dexpb.InvokeRPCRequest, value *dexpb.Value) (*dexpb.Value, error) {
+	if value == nil {
+		return nil, nil
+	}
+	historyValue := &dexpb.Value{Kind: value.GetKind()}
+	if err := s.offloadRPCValue(ctx, req, historyValue); err != nil {
+		return nil, err
+	}
+	return historyValue, nil
 }
 
 func (s *serviceImpl) offloadRPCValue(ctx context.Context, req *dexpb.InvokeRPCRequest, value *dexpb.Value) error {

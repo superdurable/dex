@@ -72,7 +72,12 @@ tests include Worker state and metadata in the message-size limit and reject
 oversized requests with Blob Store enabled or disabled without calling the
 Worker or creating objects. Pure-read tests check that semantic history contains
 no RPC completion event and Temporal history contains no Signal or Update event.
-External-storage tests retain transactional and side-effect history coverage.
+External-storage tests retain transactional and side-effect history coverage,
+with inline nontransactional outputs and inputs in eager and lazy
+loading. Transactional size-limit tests cover explicit transactions, Attribute
+locks, and synchronous-update configuration in both loading modes. They verify
+the client error code and Worker status, a single non-retryable local activity
+attempt in Temporal history, and successful subsequent calls after failure.
 
 Resumable Stream integration covers per-message size limits, Flow-type scope
 isolation, global FIFO trim, resume, repeated sources, and multi-server trim

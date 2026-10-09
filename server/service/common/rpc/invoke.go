@@ -116,6 +116,7 @@ func InvokeWorkerRpc(
 		LoadedChannelNames:          rpcPrep.GetLoadedChannelNames(),
 		LoadedChannelMapInstances:   rpcPrep.GetLoadedChannelMapInstances(),
 	}
+	// Classify oversized requests before gRPC wraps the error, without offloading transient payloads.
 	if proto.Size(workerReq) > apiCfg.EffectiveGrpcMaxMessageBytes() {
 		return nil, &WorkerRequestTooLargeError{MaxMessageBytes: apiCfg.EffectiveGrpcMaxMessageBytes()}
 	}

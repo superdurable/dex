@@ -24,6 +24,7 @@ import (
 	"github.com/superdurable/dex/integ/workflow/common"
 	"github.com/superdurable/dex/integ/workflow/rpc"
 	"github.com/superdurable/dex/service"
+	dexconverter "github.com/superdurable/dex/service/common/converter"
 	"github.com/superdurable/dex/service/common/ptr"
 	temporalcommon "go.temporal.io/api/common/v1"
 	temporalenums "go.temporal.io/api/enums/v1"
@@ -192,6 +193,54 @@ func testRPCInlineTransport(t *testing.T, backendType service.BackendType) {
 	}
 }
 
+func TestRpcTransactionalRequestTooLargeTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	for _, isLazyLoading := range []bool{true, false} {
+		for _, transactionMode := range []string{"explicit", "locking", "synchronous-update"} {
+			t.Run(fmt.Sprintf("lazy=%v/transaction=%s", isLazyLoading, transactionMode), func(t *testing.T) {
+				fixture := newRPCBlobTransportFixture(t, DexServiceTestConfig{
+					BackendType: service.BackendTypeTemporal, GrpcMaxMessageBytes: 2048, LocalBlobThreshold: 4096,
+					LazyLoading:                            ptr.Any(isLazyLoading),
+					UseTemporalSynchronousUpdateForAllRPCs: transactionMode == "synchronous-update",
+				})
+				_, err := fixture.runtime.FlowClient.InvokeRPC(fixture.ctx, &dexpb.InvokeRPCRequest{
+					FlowId: fixture.flowID, RequestId: newRequestID(), RpcName: "getLargePayload", Input: stringValue("probe"),
+				})
+				require.NoError(t, err)
+				workerRequest, callCount := fixture.worker.lastRequest()
+				inputSize := 2048 - proto.Size(workerRequest) + proto.Size(workerRequest.GetInput()) + 32
+				request := &dexpb.InvokeRPCRequest{
+					FlowId: fixture.flowID, RequestId: newRequestID(), RpcName: "getLargePayload",
+					Input: stringValue(strings.Repeat("x", inputSize)), IsTransactional: transactionMode == "explicit",
+				}
+				if transactionMode == "locking" {
+					request.LockAttributeKeys = []string{rpc.TestDataAttributeKey}
+				}
+				require.Less(t, proto.Size(request), 2048)
+				_, err = fixture.runtime.FlowClient.InvokeRPC(fixture.ctx, request)
+				t.Logf("transactional oversized request: %v", err)
+				fixture.assertSingleNonRetryableWorkerRequestFailure()
+				require.Equal(t, codes.FailedPrecondition, status.Code(err))
+				errorResponse := grpcServiceErrorResponse(t, err)
+				require.Equal(t, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR, errorResponse.GetSubStatus())
+				require.Equal(t, int32(codes.ResourceExhausted), errorResponse.GetOriginalWorkerErrorStatus())
+				_, afterCallCount := fixture.worker.lastRequest()
+				require.Equal(t, callCount, afterCallCount)
+				count, err := fixture.runtime.BlobStore.CountWorkflowObjectsForTesting(fixture.ctx, fixture.flowID)
+				require.NoError(t, err)
+				require.Zero(t, count)
+				request.Input = stringValue("after-failure")
+				request.RequestId = newRequestID()
+				response, err := fixture.runtime.FlowClient.InvokeRPC(fixture.ctx, request)
+				require.NoError(t, err)
+				require.True(t, proto.Equal(request.GetInput(), response.GetOutput()))
+			})
+		}
+	}
+}
+
 func newRPCBlobTransportFixture(t *testing.T, cfg DexServiceTestConfig) *rpcBlobTransportFixture {
 	t.Helper()
 	cfg.LocalBlobDirectory = filepath.Join(t.TempDir(), "objects")
@@ -251,6 +300,47 @@ func (fixture *rpcBlobTransportFixture) assertNoRPCHistory() {
 			return
 		}
 	}
+}
+
+func (fixture *rpcBlobTransportFixture) assertSingleNonRetryableWorkerRequestFailure() {
+	t := fixture.test
+	t.Helper()
+	api := fixture.runtime.UnifiedClient.GetApiService().(workflowservice.WorkflowServiceClient)
+	request := &workflowservice.GetWorkflowExecutionHistoryRequest{
+		Namespace: testNamespace,
+		Execution: &temporalcommon.WorkflowExecution{WorkflowId: fixture.flowID, RunId: fixture.runID},
+	}
+	dataConverter := dexconverter.NewTemporalDataConverter()
+	failureCount := 0
+	for {
+		response, err := api.GetWorkflowExecutionHistory(fixture.ctx, request)
+		require.NoError(t, err)
+		for _, event := range response.GetHistory().GetEvents() {
+			attributes := event.GetMarkerRecordedEventAttributes()
+			if attributes.GetMarkerName() != "LocalActivity" || attributes.GetFailure() == nil {
+				continue
+			}
+			var marker struct {
+				ActivityType string
+				Attempt      int32
+			}
+			require.NoError(t, dataConverter.FromPayloads(attributes.GetDetails()["data"], &marker))
+			if marker.ActivityType != "IWRPC" {
+				continue
+			}
+			failureCount++
+			failure := attributes.GetFailure().GetApplicationFailureInfo()
+			t.Logf("IWRPC failure: attempt=%d, failure=%v", marker.Attempt, failure)
+			require.Equal(t, int32(1), marker.Attempt)
+			require.True(t, failure.GetNonRetryable())
+			require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(), failure.GetType())
+		}
+		request.NextPageToken = response.GetNextPageToken()
+		if len(request.GetNextPageToken()) == 0 {
+			break
+		}
+	}
+	require.Equal(t, 1, failureCount)
 }
 
 func (fixture *rpcBlobTransportFixture) terminateFlow() {

@@ -129,7 +129,16 @@ Worker request exceeds **api.grpcMaxMessageBytes**, Dex returns
 objects or record RPC calls in Flow history. Transactional RPC payloads use the
 Blob Store threshold. Nontransactional RPCs with side effects also use the
 threshold when **api.includeRPCInputOutputIntoHistory** enables input/output
-history.
+history. History values are offloaded separately; the Worker input and client
+output remain inline.
+
+SDK Workers default to a 4 MiB gRPC receive limit. **api.grpcMaxMessageBytes**
+controls the Dex server limit, which defaults to 16 MiB; increasing it does not
+raise the Worker limit. The complete Worker request must fit both limits,
+including loaded state and metadata. A request rejected by the Worker returns
+**WORKER_API_ERROR** with **OriginalWorkerErrorStatus** set to
+**ResourceExhausted**. A transactional request rejected by Dex's size check uses
+the same error and is not retried.
 
 ~~~yaml
 blobStore:
