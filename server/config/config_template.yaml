@@ -49,16 +49,17 @@ interpreter:
   interpreterActivityConfig:
     # Minimum explicit Step heartbeat timeout. Zero uses 10s.
     minimumStepHeartbeatTimeout: 10s
-    # Retains ownership of SubFlow-start recovery inside the engine.
+    # Retains SubFlow-start retries inside the engine's local activity.
     subFlowStartActivityConfig:
-      startToCloseTimeout: 30s
+      # Bounds the whole local retry window.
+      scheduleToCloseTimeout: 2m
       retryPolicy:
         initialInterval: 100ms
         backoffCoefficient: 2
         maximumInterval: 60s
-        # Zero leaves attempts unbounded.
+        # Zero leaves attempts unbounded within the retry window.
         maximumAttempts: 0
-        # Zero leaves retry duration unbounded.
+        # Zero uses the retry window above.
         totalDuration: 0s
   temporal:
     hostPort: "temporal:7233"

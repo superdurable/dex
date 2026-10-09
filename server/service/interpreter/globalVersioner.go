@@ -28,9 +28,7 @@ const TimerlessWaitUpdatesVersion = 3
 
 const SplitWaitForAttributeTimeoutSemanticsVersion = 4
 
-const DurableSubFlowStartActivityVersion = 5
-
-const MaxOfAllVersions = DurableSubFlowStartActivityVersion
+const MaxOfAllVersions = SplitWaitForAttributeTimeoutSemanticsVersion
 
 // GlobalVersioner is the forward hook for determinism-safe interpreter changes.
 // See https://stackoverflow.com/questions/73941723 for the pattern.
@@ -55,8 +53,4 @@ func (v *GlobalVersioner) UsesTimerlessWaitUpdates() bool {
 
 func (v *GlobalVersioner) UsesSplitWaitForAttributeTimeoutSemantics() bool {
 	return v.version >= SplitWaitForAttributeTimeoutSemanticsVersion
-}
-
-func (v *GlobalVersioner) UsesDurableSubFlowStartActivity() bool {
-	return v.version >= DurableSubFlowStartActivityVersion
 }

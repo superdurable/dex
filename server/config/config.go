@@ -88,8 +88,8 @@ const (
 	DefaultAttributeIndexSyncTimeout = 2 * time.Minute
 	// DefaultMinimumStepHeartbeatTimeout is the minimum explicit Step heartbeat timeout.
 	DefaultMinimumStepHeartbeatTimeout = 10 * time.Second
-	// DefaultSubFlowStartActivityStartToCloseTimeout bounds one SubFlow start attempt.
-	DefaultSubFlowStartActivityStartToCloseTimeout = 30 * time.Second
+	// DefaultSubFlowStartActivityScheduleToCloseTimeout bounds all local SubFlow start attempts.
+	DefaultSubFlowStartActivityScheduleToCloseTimeout = 2 * time.Minute
 	// DefaultStreamMaxMessageBytes limits each serialized Stream Value to 100 KiB.
 	DefaultStreamMaxMessageBytes int64 = 100 * 1024
 	// DefaultStreamMaxListMessagesPageSize caps one reverse Stream page at 1000 messages.
@@ -420,7 +420,7 @@ type (
 		MinimumStepHeartbeatTimeout time.Duration `yaml:"minimumStepHeartbeatTimeout"`
 		// DumpWorkflowInternalActivityConfig tunes the CAN dump activity timeouts/retries. Nil uses activity defaults.
 		DumpWorkflowInternalActivityConfig *DumpWorkflowInternalActivityConfig `yaml:"dumpWorkflowInternalActivityConfig"`
-		// SubFlowStartActivityConfig tunes engine-owned SubFlow start retries. Nil retries indefinitely with 100ms initial, 2x backoff, 60s maximum interval, and 30s start-to-close timeout.
+		// SubFlowStartActivityConfig tunes engine-owned local SubFlow start retries. Nil uses a two-minute retry window.
 		SubFlowStartActivityConfig *SubFlowStartActivityConfig `yaml:"subFlowStartActivityConfig"`
 		// LogLocalActivityThresholdBytes logs local-activity I/O at warn when serialized size >= this. Zero disables. Default 0.
 		LogLocalActivityThresholdBytes int `yaml:"logLocalActivityThresholdBytes"`
@@ -434,9 +434,9 @@ type (
 	}
 
 	SubFlowStartActivityConfig struct {
-		// StartToCloseTimeout bounds one engine attempt to start a SubFlow. Zero uses 30s; negative values are invalid.
-		StartToCloseTimeout time.Duration `yaml:"startToCloseTimeout"`
-		// RetryPolicy controls engine-owned SubFlow start retries. Nil or zero fields default to 100ms/60s/2x/unlimited attempts and no total-duration bound.
+		// ScheduleToCloseTimeout bounds all local attempts to start a SubFlow. Zero uses 2m; negative values are invalid.
+		ScheduleToCloseTimeout time.Duration `yaml:"scheduleToCloseTimeout"`
+		// RetryPolicy controls engine-owned SubFlow start retries within ScheduleToCloseTimeout. Nil or zero fields default to 100ms/60s/2x/unlimited attempts and no total-duration bound.
 		RetryPolicy *RetryPolicy `yaml:"retryPolicy"`
 	}
 
@@ -581,8 +581,8 @@ func (c Config) validateRetryPolicies() error {
 		}
 	}
 	subFlowStartActivityConfig := c.Interpreter.InterpreterActivityConfig.SubFlowStartActivityConfig
-	if subFlowStartActivityConfig != nil && subFlowStartActivityConfig.StartToCloseTimeout < 0 {
-		return fmt.Errorf("interpreter.interpreterActivityConfig.subFlowStartActivityConfig.startToCloseTimeout must be non-negative")
+	if subFlowStartActivityConfig != nil && subFlowStartActivityConfig.ScheduleToCloseTimeout < 0 {
+		return fmt.Errorf("interpreter.interpreterActivityConfig.subFlowStartActivityConfig.scheduleToCloseTimeout must be non-negative")
 	}
 	if subFlowStartActivityConfig != nil && subFlowStartActivityConfig.RetryPolicy != nil {
 		subFlowStartRetryPolicy := RetryPolicyWithDefaults(
@@ -1096,8 +1096,8 @@ func (c InterpreterActivityConfig) EffectiveSubFlowStartActivityConfig() SubFlow
 	if c.SubFlowStartActivityConfig != nil {
 		effective = *c.SubFlowStartActivityConfig
 	}
-	if effective.StartToCloseTimeout == 0 {
-		effective.StartToCloseTimeout = DefaultSubFlowStartActivityStartToCloseTimeout
+	if effective.ScheduleToCloseTimeout == 0 {
+		effective.ScheduleToCloseTimeout = DefaultSubFlowStartActivityScheduleToCloseTimeout
 	}
 	retryPolicy := RetryPolicyWithDefaults(effective.RetryPolicy, DefaultInternalActivityRetryPolicy)
 	effective.RetryPolicy = &retryPolicy

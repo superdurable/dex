@@ -10,7 +10,6 @@ package interpreter
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
@@ -25,7 +24,6 @@ type SubFlowStarter struct {
 	parentFlowConfig *dexpb.FlowConfig
 	condition        *dexpb.WaitingCondition
 	activityConfig   *config.InterpreterActivityConfig
-	useDurableStart  bool
 	doneByIdx        []bool
 	startErr         error
 }
@@ -38,10 +36,9 @@ func NewSubFlowStarter(
 	parentFlowConfig *dexpb.FlowConfig,
 	condition *dexpb.WaitingCondition,
 	activityConfig *config.InterpreterActivityConfig,
-	globalVersioner *GlobalVersioner,
 ) *SubFlowStarter {
-	if activityConfig == nil || globalVersioner == nil {
-		panic("SubFlow starter requires non-nil configuration and versioner")
+	if activityConfig == nil {
+		panic("SubFlow starter requires non-nil configuration")
 	}
 	return &SubFlowStarter{
 		provider:         provider,
@@ -51,7 +48,6 @@ func NewSubFlowStarter(
 		parentFlowConfig: parentFlowConfig,
 		condition:        condition,
 		activityConfig:   activityConfig,
-		useDurableStart:  globalVersioner.UsesDurableSubFlowStartActivity(),
 		doneByIdx:        make([]bool, len(condition.GetSubFlowConditions())),
 	}
 }
@@ -80,19 +76,7 @@ func (s *SubFlowStarter) startOne(ctx interfaces.UnifiedContext) {
 		ParentFlowConfig:      s.parentFlowConfig,
 		ParentStepExecutionId: s.stepExecutionID,
 	}
-	var err error
-	if s.useDurableStart {
-		err = s.provider.ExecuteActivity(
-			&output,
-			dexpb.StepDurability_STEP_DURABILITY_SYNC,
-			ctx,
-			s.activities.StartSubFlow,
-			startInput,
-			nil,
-		)
-	} else {
-		err = s.provider.ExecuteLocalActivity(&output, ctx, s.activities.StartSubFlow, startInput)
-	}
+	err := s.provider.ExecuteLocalActivity(&output, ctx, s.activities.StartSubFlow, startInput)
 	if err != nil {
 		if s.startErr == nil {
 			s.startErr = err
@@ -105,16 +89,10 @@ func (s *SubFlowStarter) startOne(ctx interfaces.UnifiedContext) {
 }
 
 func (s *SubFlowStarter) activityOptions() interfaces.ActivityOptions {
-	if !s.useDurableStart {
-		return interfaces.ActivityOptions{
-			StartToCloseTimeout:                 30 * time.Second,
-			LocalActivityScheduleToCloseTimeout: 2 * time.Minute,
-		}
-	}
 	activityConfig := s.activityConfig.EffectiveSubFlowStartActivityConfig()
 	return interfaces.ActivityOptions{
-		StartToCloseTimeout: activityConfig.StartToCloseTimeout,
-		RetryPolicy:         activityConfig.RetryPolicy,
+		LocalActivityScheduleToCloseTimeout: activityConfig.ScheduleToCloseTimeout,
+		RetryPolicy:                         activityConfig.RetryPolicy,
 	}
 }
 

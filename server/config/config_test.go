@@ -139,7 +139,7 @@ interpreter:
         maximumAttempts: 4
         totalDuration: 10s
     subFlowStartActivityConfig:
-      startToCloseTimeout: 15s
+      scheduleToCloseTimeout: 15s
       retryPolicy:
         initialInterval: 350ms
         backoffCoefficient: 1.25
@@ -157,16 +157,16 @@ interpreter:
 	require.Equal(t, 250*time.Millisecond, activityPolicy.InitialInterval)
 	require.Equal(t, 10*time.Second, activityPolicy.TotalDuration)
 	subFlowStartConfig := cfg.Interpreter.InterpreterActivityConfig.EffectiveSubFlowStartActivityConfig()
-	require.Equal(t, 15*time.Second, subFlowStartConfig.StartToCloseTimeout)
+	require.Equal(t, 15*time.Second, subFlowStartConfig.ScheduleToCloseTimeout)
 	require.Equal(t, 350*time.Millisecond, subFlowStartConfig.RetryPolicy.InitialInterval)
 	require.Equal(t, int32(9), subFlowStartConfig.RetryPolicy.MaximumAttempts)
 	require.Equal(t, 2*time.Minute, subFlowStartConfig.RetryPolicy.TotalDuration)
 }
 
-func TestSubFlowStartActivityConfigDefaultsToUnboundedRetries(t *testing.T) {
+func TestSubFlowStartActivityConfigDefaultsToLocalRetryWindow(t *testing.T) {
 	activityConfig := (InterpreterActivityConfig{}).EffectiveSubFlowStartActivityConfig()
 
-	require.Equal(t, 30*time.Second, activityConfig.StartToCloseTimeout)
+	require.Equal(t, 2*time.Minute, activityConfig.ScheduleToCloseTimeout)
 	require.Equal(t, 100*time.Millisecond, activityConfig.RetryPolicy.InitialInterval)
 	require.Equal(t, 2.0, activityConfig.RetryPolicy.BackoffCoefficient)
 	require.Equal(t, time.Minute, activityConfig.RetryPolicy.MaximumInterval)
@@ -200,17 +200,17 @@ interpreter:
 	require.ErrorContains(t, err, "maximumInterval must not be less than initialInterval")
 }
 
-func TestSubFlowStartActivityConfigRejectsNegativeAttemptTimeout(t *testing.T) {
+func TestSubFlowStartActivityConfigRejectsNegativeRetryWindow(t *testing.T) {
 	path := writeTestConfig(t, `
 interpreter:
   interpreterActivityConfig:
     subFlowStartActivityConfig:
-      startToCloseTimeout: -1s
+      scheduleToCloseTimeout: -1s
 `)
 
 	_, err := NewConfig(path)
 
-	require.ErrorContains(t, err, "startToCloseTimeout must be non-negative")
+	require.ErrorContains(t, err, "scheduleToCloseTimeout must be non-negative")
 }
 
 func TestMinimumStepHeartbeatTimeoutConfig(t *testing.T) {

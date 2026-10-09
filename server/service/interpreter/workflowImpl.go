@@ -983,7 +983,6 @@ func (i *Interpreter) processStepExecution(
 				flowConfiger.Get(),
 				returnedWaitingCondition,
 				&i.sharedConfig.Interpreter.InterpreterActivityConfig,
-				globalVersioner,
 			)
 			if err := starter.StartAll(ctx); err != nil {
 				return nil, service.StepExecutionStatusInternalError, err
