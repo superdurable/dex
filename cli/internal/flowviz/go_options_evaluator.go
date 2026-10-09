@@ -66,10 +66,10 @@ type goStateLoad struct {
 	instanceKey goInstanceKey
 }
 
-// goEvaluation evaluates one value and stops a variable from expanding inside its own definition.
+// goEvaluation evaluates one value and stops an expression from expanding inside its own definition.
 type goEvaluation struct {
 	evaluator *goOptionsEvaluator
-	visiting  map[types.Object]bool
+	visiting  map[goScopedExpression]bool
 }
 
 type goLocalAssignments struct {
@@ -217,7 +217,7 @@ func (evaluator *goOptionsEvaluator) stepOptionsValue(stepValueType types.Type, 
 }
 
 func (evaluator *goOptionsEvaluator) newEvaluation() *goEvaluation {
-	return &goEvaluation{evaluator: evaluator, visiting: make(map[types.Object]bool)}
+	return &goEvaluation{evaluator: evaluator, visiting: make(map[goScopedExpression]bool)}
 }
 
 func (evaluator *goOptionsEvaluator) unresolved(value goScopedExpression) goUnresolvedConstruct {
@@ -247,6 +247,10 @@ func (evaluator *goOptionsEvaluator) localAssignments(object types.Object, scope
 
 func (evaluation *goEvaluation) structValue(value goScopedExpression) goStructValue {
 	result := goStructValue{fields: make(map[string][]goScopedExpression)}
+	if !evaluation.enter(value) {
+		return result
+	}
+	defer evaluation.leave(value)
 	switch current := ast.Unparen(value.expression).(type) {
 	case *ast.Ident:
 		if evaluation.isNil(current) {
@@ -294,6 +298,10 @@ func (evaluation *goEvaluation) functionResultStruct(declaration *ast.FuncDecl, 
 
 func (evaluation *goEvaluation) listValue(value goScopedExpression) goListValue {
 	result := goListValue{}
+	if !evaluation.enter(value) {
+		return result
+	}
+	defer evaluation.leave(value)
 	switch current := ast.Unparen(value.expression).(type) {
 	case *ast.Ident:
 		if evaluation.isNil(current) {
@@ -359,10 +367,6 @@ func (evaluation *goEvaluation) variableValues(
 	if argument, isArgument := value.scope.arguments[object]; isArgument {
 		return []goScopedExpression{argument}
 	}
-	if !evaluation.enter(object) {
-		return nil
-	}
-	defer evaluation.leave(object)
 	if initializer, isPackageVar := evaluation.evaluator.packageInitializers[object]; isPackageVar {
 		if evaluation.evaluator.mutatedPackageVars[object] {
 			*unresolved = append(*unresolved, evaluation.evaluator.unresolved(value))
@@ -416,6 +420,10 @@ func (evaluation *goEvaluation) loadElement(value goScopedExpression, isInstance
 }
 
 func (evaluation *goEvaluation) resource(value goScopedExpression) string {
+	if !evaluation.enter(value) {
+		return ""
+	}
+	defer evaluation.leave(value)
 	switch current := ast.Unparen(value.expression).(type) {
 	case *ast.UnaryExpr:
 		return evaluation.resource(value.with(current.X))
@@ -501,16 +509,16 @@ func (evaluation *goEvaluation) isLocalVariable(object types.Object, scope *goEv
 	return variable.Parent() != variable.Pkg().Scope()
 }
 
-func (evaluation *goEvaluation) enter(object types.Object) bool {
-	if evaluation.visiting[object] {
+func (evaluation *goEvaluation) enter(value goScopedExpression) bool {
+	if evaluation.visiting[value] {
 		return false
 	}
-	evaluation.visiting[object] = true
+	evaluation.visiting[value] = true
 	return true
 }
 
-func (evaluation *goEvaluation) leave(object types.Object) {
-	delete(evaluation.visiting, object)
+func (evaluation *goEvaluation) leave(value goScopedExpression) {
+	delete(evaluation.visiting, value)
 }
 
 func (collector *goLocalAssignmentCollector) visit(node ast.Node) bool {
