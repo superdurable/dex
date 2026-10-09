@@ -41,6 +41,13 @@ func (a *activityProvider) NewActivityError(
 	)
 }
 
+func (a *activityProvider) NewNonRetryableActivityError(
+	errType dexpb.FlowErrorType,
+	activityError *dexpb.InternalActivityError,
+) error {
+	return temporal.NewNonRetryableApplicationError("", errType.String(), nil, activityError)
+}
+
 func (a *activityProvider) NewLocalActivityError(
 	errType dexpb.FlowErrorType,
 	failure *dexpb.InternalLocalStepActivityFailure,

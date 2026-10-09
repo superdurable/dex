@@ -1673,12 +1673,6 @@ func (s *serviceImpl) shouldInvokeRPCTransactionally(req *dexpb.InvokeRPCRequest
 }
 
 func (s *serviceImpl) handleInvokeRPCError(err error) error {
-	var oversizedRequest *rpc.WorkerRequestTooLargeError
-	if errors.As(err, &oversizedRequest) {
-		return serviceerrors.NewErrorAndStatus(
-			codes.ResourceExhausted, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED, err.Error(),
-		).ToGRPCError()
-	}
 	if mapped, ok := serviceerrors.WorkerAPIFailure(err); ok {
 		return mapped.ToGRPCError()
 	}

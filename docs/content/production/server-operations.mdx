@@ -137,16 +137,17 @@ and next Step inputs, are persisted and use the same threshold. Nontransactional
 read-only RPCs do not write Blob objects or record RPC calls in Flow history.
 Loading existing state may read existing Blob objects.
 
-If the complete Worker request exceeds **api.grpcMaxMessageBytes**, Dex returns
-**ResourceExhausted** before calling the Worker for a nontransactional RPC.
+If the complete Worker request exceeds **api.grpcMaxMessageBytes**, Dex rejects
+it before calling the Worker.
 
 SDK Workers default to a 4 MiB gRPC receive limit. **api.grpcMaxMessageBytes**
 controls the Dex server limit, which defaults to 16 MiB; increasing it does not
 raise the Worker limit. The complete Worker request must fit both limits,
-including loaded state and metadata. A request rejected by the Worker returns
-**WORKER_API_ERROR** with **OriginalWorkerErrorStatus** set to
-**ResourceExhausted**. A transactional request rejected by Dex's size check uses
-the same error and is not retried.
+including loaded state and metadata. A request exceeding either limit returns
+**FailedPrecondition** with **WORKER_API_ERROR** and **OriginalWorkerErrorStatus**
+set to **ResourceExhausted** (8). This error applies to both transactional and
+nontransactional RPCs. A transactional request rejected by Dex's size check is
+not retried.
 
 ~~~yaml
 blobStore:

@@ -190,6 +190,7 @@ func startWorker(t *testing.T, handler any) *dexpb.WorkerTarget {
 func startStreamingWorker(
 	t *testing.T,
 	handler dexpb.WorkerServiceServer,
+	options ...grpc.ServerOption,
 ) *dexpb.WorkerTarget {
 	t.Helper()
 
@@ -197,10 +198,11 @@ func startStreamingWorker(
 	require.NoError(t, err)
 
 	// Match Api.EffectiveGrpcMaxMessageBytes; bare grpc.NewServer defaults to 4MiB.
-	server := grpc.NewServer(
+	workerOptions := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(config.DefaultGrpcMaxMessageBytes),
 		grpc.MaxSendMsgSize(config.DefaultGrpcMaxMessageBytes),
-	)
+	}
+	server := grpc.NewServer(append(workerOptions, options...)...)
 	dexpb.RegisterWorkerServiceServer(server, handler)
 	serveError := make(chan error, 1)
 	go func() {

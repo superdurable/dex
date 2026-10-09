@@ -70,7 +70,8 @@ outputs larger than the durable threshold. It covers string and encoded-object
 values and eager and lazy loading. Transport tests include Worker state and
 metadata in the message-size limit and reject
 oversized requests with Blob Store enabled or disabled without calling the
-Worker or creating objects. Pure-read tests check that semantic history contains
+Worker or creating objects. Server and Worker size-limit failures expose the same
+client error code, substatus, and original Worker status. Pure-read tests check that semantic history contains
 no RPC completion event and Temporal history contains no Signal or Update event.
 External-storage tests verify persisted transactional payloads and RPC state
 changes, with direct nontransactional input/output transport in both loading

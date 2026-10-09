@@ -119,14 +119,14 @@ Worker，将输出直接返回给调用者。Dex 不会持久化这些输入和�
 持久化，使用相同的 threshold。非事务只读 RPC 不会写入 Blob object，也不会将 RPC 调用记入
 Flow history。加载已有状态时，可能需要读取已有的 Blob object。
 
-非事务 RPC 的完整 Worker 请求超过 **api.grpcMaxMessageBytes** 时，Dex 会在调用 Worker 前
-返回 **ResourceExhausted**。
+完整 Worker 请求超过 **api.grpcMaxMessageBytes** 时，Dex 会在调用 Worker 前拒绝该请求。
 
 SDK Worker 的 gRPC 接收上限默认为 4 MiB。**api.grpcMaxMessageBytes** 控制 Dex server 的上限，
 默认值为 16 MiB；增大此配置不会提高 Worker 的接收上限。包含已加载状态和 metadata 的完整
-Worker 请求必须同时满足这两个上限。Worker 拒绝超限请求时，会返回 **WORKER_API_ERROR**，
-其中 **OriginalWorkerErrorStatus** 为 **ResourceExhausted**。事务请求被 Dex 的大小检查拒绝时，
-也使用相同错误，且不会重试。
+Worker 请求必须同时满足这两个上限。超过任一上限时，都会返回 **FailedPrecondition**，
+其中 **SubStatus** 为 **WORKER_API_ERROR**，**OriginalWorkerErrorStatus** 为
+**ResourceExhausted**（8）。事务和非事务 RPC 使用相同错误。事务请求被 Dex 的大小检查
+拒绝时，不会重试。
 
 ~~~yaml
 blobStore:

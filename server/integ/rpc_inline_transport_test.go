@@ -29,6 +29,7 @@ import (
 	temporalcommon "go.temporal.io/api/common/v1"
 	temporalenums "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/workflowservice/v1"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -43,6 +44,11 @@ type rpcBlobTransportScenario struct {
 	isLazyLoading      bool
 	isBlobStoreEnabled bool
 	blobThreshold      int
+}
+
+type rpcWorkerRequestLimitScenario struct {
+	isLazyLoading   bool
+	isTransactional bool
 }
 
 type rpcBlobTransportFixture struct {
@@ -173,7 +179,10 @@ func testRPCInlineTransport(t *testing.T, backendType service.BackendType) {
 				}
 				require.Less(t, proto.Size(request), 2048)
 				_, err = fixture.runtime.FlowClient.InvokeRPC(fixture.ctx, request)
-				require.Equal(t, codes.ResourceExhausted, status.Code(err))
+				require.Equal(t, codes.FailedPrecondition, status.Code(err))
+				errorResponse := grpcServiceErrorResponse(t, err)
+				require.Equal(t, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR, errorResponse.GetSubStatus())
+				require.Equal(t, int32(codes.ResourceExhausted), errorResponse.GetOriginalWorkerErrorStatus())
 				_, afterCallCount := fixture.worker.lastRequest()
 				require.Equal(t, callCount, afterCallCount)
 				if scenario.isBlobStoreEnabled {
@@ -235,7 +244,70 @@ func TestRpcTransactionalRequestTooLargeTemporal(t *testing.T) {
 	}
 }
 
-func newRPCBlobTransportFixture(t *testing.T, cfg DexServiceTestConfig) *rpcBlobTransportFixture {
+func TestRpcWorkerRequestTooLargeTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	testRPCWorkerRequestTooLarge(t, service.BackendTypeTemporal)
+}
+
+func TestRpcWorkerRequestTooLargeCadence(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	testRPCWorkerRequestTooLarge(t, service.BackendTypeCadence)
+}
+
+func testRPCWorkerRequestTooLarge(t *testing.T, backendType service.BackendType) {
+	transactionModes := []bool{false}
+	if backendType == service.BackendTypeTemporal {
+		transactionModes = append(transactionModes, true)
+	}
+	for _, isLazyLoading := range []bool{true, false} {
+		for _, isTransactional := range transactionModes {
+			scenario := rpcWorkerRequestLimitScenario{isLazyLoading, isTransactional}
+			t.Run(fmt.Sprintf("lazy=%v/transaction=%v", isLazyLoading, isTransactional), func(t *testing.T) {
+				testRPCWorkerRequestWithReceiveLimit(t, backendType, scenario)
+			})
+		}
+	}
+}
+
+func testRPCWorkerRequestWithReceiveLimit(t *testing.T, backendType service.BackendType, scenario rpcWorkerRequestLimitScenario) {
+	t.Helper()
+	fixture := newRPCBlobTransportFixture(t, DexServiceTestConfig{
+		BackendType: backendType, GrpcMaxMessageBytes: 4096, LocalBlobThreshold: 4096,
+		LazyLoading: ptr.Any(scenario.isLazyLoading),
+	}, grpc.MaxRecvMsgSize(2048))
+	request := &dexpb.InvokeRPCRequest{
+		FlowId: fixture.flowID, RequestId: newRequestID(), RpcName: "getLargePayload",
+		Input: stringValue("probe"), IsTransactional: scenario.isTransactional,
+	}
+	_, err := fixture.runtime.FlowClient.InvokeRPC(fixture.ctx, request)
+	require.NoError(t, err)
+	workerRequest, callCount := fixture.worker.lastRequest()
+	inputSize := 2048 - proto.Size(workerRequest) + proto.Size(workerRequest.GetInput()) + 32
+	request.Input = stringValue(strings.Repeat("x", inputSize))
+	request.RequestId = newRequestID()
+	workerRequest.Input = request.GetInput()
+	require.Greater(t, proto.Size(workerRequest), 2048)
+	require.Less(t, proto.Size(workerRequest), 4096)
+	_, err = fixture.runtime.FlowClient.InvokeRPC(fixture.ctx, request)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	errorResponse := grpcServiceErrorResponse(t, err)
+	require.Equal(t, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR, errorResponse.GetSubStatus())
+	require.Equal(t, int32(codes.ResourceExhausted), errorResponse.GetOriginalWorkerErrorStatus())
+	_, afterCallCount := fixture.worker.lastRequest()
+	require.Equal(t, callCount, afterCallCount)
+	count, err := fixture.runtime.BlobStore.CountWorkflowObjectsForTesting(fixture.ctx, fixture.flowID)
+	require.NoError(t, err)
+	require.Zero(t, count)
+	if !scenario.isTransactional {
+		fixture.assertNoRPCHistory()
+	}
+}
+
+func newRPCBlobTransportFixture(t *testing.T, cfg DexServiceTestConfig, workerOptions ...grpc.ServerOption) *rpcBlobTransportFixture {
 	t.Helper()
 	cfg.LocalBlobDirectory = filepath.Join(t.TempDir(), "objects")
 	if cfg.LocalBlobThreshold == 0 {
@@ -249,7 +321,7 @@ func newRPCBlobTransportFixture(t *testing.T, cfg DexServiceTestConfig) *rpcBlob
 		resultOnlyWaitForWorker: baseWorker, resultOnlyExecuteWorker: baseWorker,
 		flowClient: fixture.runtime.FlowClient,
 	}
-	workerTarget := startWorker(t, fixture.worker)
+	workerTarget := startStreamingWorker(t, &resultOnlyWorkerAdapter{handler: fixture.worker}, workerOptions...)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 	fixture.ctx = ctx

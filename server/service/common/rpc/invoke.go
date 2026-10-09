@@ -22,6 +22,8 @@ import (
 	"github.com/superdurable/dex/service/common/channelmessage"
 	"github.com/superdurable/dex/service/common/utils"
 	"github.com/superdurable/dex/service/common/workerclient"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -167,6 +169,11 @@ func InvokeWorkerRpc(
 	}
 
 	return resp, nil
+}
+
+// GRPCStatus preserves the Worker transport error contract for server-side size checks.
+func (err *WorkerRequestTooLargeError) GRPCStatus() *status.Status {
+	return status.New(codes.ResourceExhausted, err.Error())
 }
 
 func (err *WorkerRequestTooLargeError) Error() string {

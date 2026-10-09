@@ -26,6 +26,11 @@ type ActivityProvider interface {
 		activityError *dexpb.InternalActivityError,
 		retryAfterSeconds int32,
 	) error
+	// NewNonRetryableActivityError returns a failure without retries; backends lacking per-error retry control panic.
+	NewNonRetryableActivityError(
+		errType dexpb.FlowErrorType,
+		activityError *dexpb.InternalActivityError,
+	) error
 	NewLocalActivityError(
 		errType dexpb.FlowErrorType,
 		failure *dexpb.InternalLocalStepActivityFailure,

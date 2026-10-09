@@ -255,6 +255,10 @@ func (i *Interpreter) StartEngineFlow(
 	}
 
 	defer func() {
+		// Cache eviction exits suspended workflow goroutines without a result; it must not finalize the Flow.
+		if out == nil && retErr == nil {
+			return
+		}
 		retErr = terminalCoordinator.CoordinateAndFinalizeError(ctx, retErr)
 		if shouldReportSubFlowCompletion(provider, ctx, subFlowParentFlowID, retErr) {
 			if reportErr := i.reportSubFlowCompletion(
