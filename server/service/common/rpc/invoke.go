@@ -117,17 +117,7 @@ func InvokeWorkerRpc(
 		LoadedChannelMapInstances:   rpcPrep.GetLoadedChannelMapInstances(),
 	}
 	if proto.Size(workerReq) > apiCfg.EffectiveGrpcMaxMessageBytes() {
-		// Transport offload must work even when the persistence threshold exceeds the message limit.
-		if err := blobstore.OffloadLargeValue(
-			ctx, req.GetInput(), req.GetFlowId(), invocationId,
-			1, blobStore, blobStoreCfg.EffectiveEnabled(),
-		); err != nil {
-			return nil, err
-		}
-		workerReq.Input = req.GetInput()
-		if proto.Size(workerReq) > apiCfg.EffectiveGrpcMaxMessageBytes() {
-			return nil, &WorkerRequestTooLargeError{MaxMessageBytes: apiCfg.EffectiveGrpcMaxMessageBytes()}
-		}
+		return nil, &WorkerRequestTooLargeError{MaxMessageBytes: apiCfg.EffectiveGrpcMaxMessageBytes()}
 	}
 
 	resp, err := client.InvokeWorkerRPC(callCtx, workerReq)

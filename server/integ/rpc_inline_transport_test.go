@@ -25,6 +25,9 @@ import (
 	"github.com/superdurable/dex/integ/workflow/rpc"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
+	temporalcommon "go.temporal.io/api/common/v1"
+	temporalenums "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/workflowservice/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -48,17 +51,17 @@ type rpcBlobTransportFixture struct {
 	worker         *rpcBlobTransportWorker
 	ctx            context.Context
 	flowID         string
+	runID          string
 	storeDirectory string
 }
 
 type rpcBlobTransportWorker struct {
 	resultOnlyWaitForWorker
 	resultOnlyExecuteWorker
-	flowClient            dexpb.FlowServiceClient
-	shouldUpsertAttribute bool
-	mu                    sync.Mutex
-	request               *dexpb.InvokeWorkerRPCRequest
-	callCount             int
+	flowClient dexpb.FlowServiceClient
+	mu         sync.Mutex
+	request    *dexpb.InvokeWorkerRPCRequest
+	callCount  int
 }
 
 func TestRpcReadBlobStoreUnavailableTemporal(t *testing.T) {
@@ -121,6 +124,7 @@ func testRPCReadWithRejectedBlobWrites(t *testing.T, backendType service.Backend
 	entries, err := os.ReadDir(availableDirectory)
 	require.NoError(t, err)
 	require.Empty(t, entries)
+	fixture.assertNoRPCHistory()
 	if backendType == service.BackendTypeTemporal {
 		_, err = fixture.runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 			FlowId: fixture.flowID, RequestId: newRequestID(), RpcName: "getLargePayload", Input: input,
@@ -162,7 +166,6 @@ func testRPCInlineTransport(t *testing.T, backendType service.BackendType) {
 					LazyLoading: ptr.Any(scenario.isLazyLoading), BlobStoreEnabled: ptr.Any(scenario.isBlobStoreEnabled),
 					IncludeRPCInputOutputIntoHistory: scenario.shouldIncludeHistory,
 				})
-				fixture.worker.shouldUpsertAttribute = scenario.shouldIncludeHistory
 				_, err := fixture.runtime.FlowClient.InvokeRPC(fixture.ctx, &dexpb.InvokeRPCRequest{
 					FlowId: fixture.flowID, RequestId: newRequestID(), RpcName: "getLargePayload", Input: stringValue("probe"),
 				})
@@ -174,31 +177,16 @@ func testRPCInlineTransport(t *testing.T, backendType service.BackendType) {
 					FlowId: fixture.flowID, RequestId: newRequestID(), RpcName: "getLargePayload", Input: input,
 				}
 				require.Less(t, proto.Size(request), 2048)
-				response, err := fixture.runtime.FlowClient.InvokeRPC(fixture.ctx, request)
-				if !scenario.isBlobStoreEnabled {
-					require.Equal(t, codes.ResourceExhausted, status.Code(err))
-					_, afterCallCount := fixture.worker.lastRequest()
-					require.Equal(t, callCount, afterCallCount)
-					return
+				_, err = fixture.runtime.FlowClient.InvokeRPC(fixture.ctx, request)
+				require.Equal(t, codes.ResourceExhausted, status.Code(err))
+				_, afterCallCount := fixture.worker.lastRequest()
+				require.Equal(t, callCount, afterCallCount)
+				if scenario.isBlobStoreEnabled {
+					count, err := fixture.runtime.BlobStore.CountWorkflowObjectsForTesting(fixture.ctx, fixture.flowID)
+					require.NoError(t, err)
+					require.Zero(t, count)
 				}
-				require.NoError(t, err)
-				require.Equal(t, scenario.isLazyLoading && scenario.shouldIncludeHistory, common.BlobIdFromValue(response.GetOutput()) != "")
-				output, err := common.LoadBlobsValue(fixture.ctx, fixture.runtime.FlowClient, fixture.flowID, response.GetOutput())
-				require.NoError(t, err)
-				expectedOutput := input
-				if scenario.shouldIncludeHistory {
-					expectedOutput = stringValue("output-" + input.GetStringValue())
-				}
-				require.True(t, proto.Equal(expectedOutput, output))
-				workerRequest, _ = fixture.worker.lastRequest()
-				require.NotEmpty(t, common.BlobIdFromValue(workerRequest.GetInput()))
-				count, err := fixture.runtime.BlobStore.CountWorkflowObjectsForTesting(fixture.ctx, fixture.flowID)
-				require.NoError(t, err)
-				expectedCount := int64(1)
-				if scenario.shouldIncludeHistory {
-					expectedCount++
-				}
-				require.Equal(t, expectedCount, count)
+				fixture.assertNoRPCHistory()
 			})
 		}
 	}
@@ -223,15 +211,46 @@ func newRPCBlobTransportFixture(t *testing.T, cfg DexServiceTestConfig) *rpcBlob
 	t.Cleanup(cancel)
 	fixture.ctx = ctx
 	fixture.flowID = "rpc-inline-" + uuid.NewString()
-	_, err := fixture.runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+	response, err := fixture.runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		FlowId: fixture.flowID, RequestId: newRequestID(), FlowType: rpc.WorkflowType,
 		StartStepType: rpc.State1, FlowTimeoutSeconds: 60,
 		FlowStartOptions: withWorkerTarget(nil, workerTarget),
 	})
 	require.NoError(t, err)
+	fixture.runID = response.GetRunId()
 	t.Cleanup(fixture.terminateFlow)
 	require.Eventually(t, fixture.isReady, 15*time.Second, 50*time.Millisecond)
 	return fixture
+}
+
+func (fixture *rpcBlobTransportFixture) assertNoRPCHistory() {
+	t := fixture.test
+	t.Helper()
+	events, _ := getAllWebHistoryEvents(t, fixture.ctx, fixture.runtime.FlowClient, fixture.flowID, fixture.runID)
+	for _, event := range events {
+		require.Nil(t, event.GetRpcExecutionCompleted())
+	}
+	if fixture.runtime.UnifiedClient.GetBackendType() != service.BackendTypeTemporal {
+		return
+	}
+	api := fixture.runtime.UnifiedClient.GetApiService().(workflowservice.WorkflowServiceClient)
+	request := &workflowservice.GetWorkflowExecutionHistoryRequest{
+		Namespace: testNamespace,
+		Execution: &temporalcommon.WorkflowExecution{WorkflowId: fixture.flowID, RunId: fixture.runID},
+	}
+	for {
+		response, err := api.GetWorkflowExecutionHistory(fixture.ctx, request)
+		require.NoError(t, err)
+		for _, event := range response.GetHistory().GetEvents() {
+			require.NotEqual(t, temporalenums.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED, event.GetEventType())
+			require.NotEqual(t, temporalenums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED, event.GetEventType())
+			require.NotEqual(t, temporalenums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED, event.GetEventType())
+		}
+		request.NextPageToken = response.GetNextPageToken()
+		if len(request.GetNextPageToken()) == 0 {
+			return
+		}
+	}
 }
 
 func (fixture *rpcBlobTransportFixture) terminateFlow() {
@@ -258,14 +277,7 @@ func (worker *rpcBlobTransportWorker) InvokeWorkerRPC(ctx context.Context, reque
 	if err != nil {
 		return nil, err
 	}
-	response := &dexpb.InvokeWorkerRPCResponse{Output: input}
-	if worker.shouldUpsertAttribute {
-		response.Output = stringValue("output-" + input.GetStringValue())
-		response.UpsertAttributes = []*dexpb.AttributeWrite{{
-			Key: "rpc-transport-result", Value: stringValue("written"),
-		}}
-	}
-	return response, nil
+	return &dexpb.InvokeWorkerRPCResponse{Output: input}, nil
 }
 
 func (worker *rpcBlobTransportWorker) lastRequest() (*dexpb.InvokeWorkerRPCRequest, int) {

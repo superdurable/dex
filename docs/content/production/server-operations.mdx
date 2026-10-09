@@ -123,13 +123,13 @@ encoded object is offloaded. Set
 **blobStore.thresholdInBytes** to override the default. The comparison uses only
 the payload size, not the resulting reference size.
 
-Nontransactional RPC inputs and outputs stay inline when the complete Worker
-message fits **api.grpcMaxMessageBytes**. Dex offloads the input when necessary
-to fit that transport limit. Transactional RPC payloads use the Blob Store
-threshold. Nontransactional RPCs with side effects also use the threshold when
-**api.includeRPCInputOutputIntoHistory** enables input/output history. A pure
-read does not write its input or output to Blob Store solely because it exceeds
-the threshold.
+Nontransactional RPC inputs and outputs use inline transport. If the complete
+Worker request exceeds **api.grpcMaxMessageBytes**, Dex returns
+**ResourceExhausted** before calling the Worker. Pure reads do not write Blob
+objects or record RPC calls in Flow history. Transactional RPC payloads use the
+Blob Store threshold. Nontransactional RPCs with side effects also use the
+threshold when **api.includeRPCInputOutputIntoHistory** enables input/output
+history.
 
 ~~~yaml
 blobStore:

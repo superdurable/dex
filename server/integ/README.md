@@ -68,8 +68,10 @@ locks.
 RPC Blob Store coverage rejects writes while pure reads exchange inputs and
 outputs larger than the durable threshold. It covers string and encoded-object
 values, eager and lazy loading, and input/output history configuration. Transport
-tests include Worker state and metadata in the message-size limit, offload an
-oversized input once, and reject oversized requests when Blob Store is disabled.
+tests include Worker state and metadata in the message-size limit and reject
+oversized requests with Blob Store enabled or disabled without calling the
+Worker or creating objects. Pure-read tests check that semantic history contains
+no RPC completion event and Temporal history contains no Signal or Update event.
 External-storage tests retain transactional and side-effect history coverage.
 
 Resumable Stream integration covers per-message size limits, Flow-type scope

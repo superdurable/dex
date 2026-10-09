@@ -108,10 +108,10 @@ Dex 默认将不超过 100 bytes 的持久化 payload 保留在 history 中。10
 object 会被 offload。可通过 **blobStore.thresholdInBytes** 覆盖默认值。
 比较时只计算 payload size，不计算最终 reference size。
 
-非事务 RPC 的输入和输出在完整 Worker 消息不超过 **api.grpcMaxMessageBytes** 时保持 inline。
-Dex 仅在需要满足该传输限制时 offload 输入。事务 RPC 的 payload 使用 Blob Store threshold。
-对于产生副作用的非事务 RPC，启用 **api.includeRPCInputOutputIntoHistory** 后，输入和输出
-history 也使用该 threshold。只读 RPC 不会仅因输入或输出超过 threshold 就将其写入 Blob Store。
+非事务 RPC 的输入和输出使用 inline 传输。完整 Worker 请求超过 **api.grpcMaxMessageBytes** 时，
+Dex 会在调用 Worker 前返回 **ResourceExhausted**。只读 RPC 不会写入 Blob object，也不会将
+RPC 调用记入 Flow history。事务 RPC 的 payload 使用 Blob Store threshold。对于产生副作用的
+非事务 RPC，启用 **api.includeRPCInputOutputIntoHistory** 后，输入和输出 history 也使用该 threshold。
 
 ~~~yaml
 blobStore:
