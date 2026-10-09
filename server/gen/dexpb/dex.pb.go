@@ -12209,14 +12209,14 @@ func (x *ReportSubFlowCompletionActivityOutput) GetStatus() SubFlowCompletionDel
 
 type ExecuteRpcSignalRequest struct {
 	state                     protoimpl.MessageState    `protogen:"open.v1"`
-	UpsertAttributes          []*AttributeWrite         `protobuf:"bytes,1,rep,name=upsert_attributes,json=upsertAttributes,proto3" json:"upsert_attributes,omitempty"`
-	StepDecision              *StepDecision             `protobuf:"bytes,2,opt,name=step_decision,json=stepDecision,proto3" json:"step_decision,omitempty"`
-	RecordEvents              []*KV                     `protobuf:"bytes,3,rep,name=record_events,json=recordEvents,proto3" json:"record_events,omitempty"`
-	PublishToChannel          []*ChannelMessage         `protobuf:"bytes,4,rep,name=publish_to_channel,json=publishToChannel,proto3" json:"publish_to_channel,omitempty"`
-	IsSetAttributeApi         bool                      `protobuf:"varint,5,opt,name=is_set_attribute_api,json=isSetAttributeApi,proto3" json:"is_set_attribute_api,omitempty"`
-	DeleteFromChannel         []*ChannelMessageDeletion `protobuf:"bytes,6,rep,name=delete_from_channel,json=deleteFromChannel,proto3" json:"delete_from_channel,omitempty"`
-	IsDeleteChannelMessageApi bool                      `protobuf:"varint,7,opt,name=is_delete_channel_message_api,json=isDeleteChannelMessageApi,proto3" json:"is_delete_channel_message_api,omitempty"`
-	ActionPermissionMappings  *ActionPermissionMappings `protobuf:"bytes,8,opt,name=action_permission_mappings,json=actionPermissionMappings,proto3" json:"action_permission_mappings,omitempty"`
+	UpsertAttributes          []*AttributeWrite         `protobuf:"bytes,3,rep,name=upsert_attributes,json=upsertAttributes,proto3" json:"upsert_attributes,omitempty"`
+	StepDecision              *StepDecision             `protobuf:"bytes,4,opt,name=step_decision,json=stepDecision,proto3" json:"step_decision,omitempty"`
+	RecordEvents              []*KV                     `protobuf:"bytes,5,rep,name=record_events,json=recordEvents,proto3" json:"record_events,omitempty"`
+	PublishToChannel          []*ChannelMessage         `protobuf:"bytes,6,rep,name=publish_to_channel,json=publishToChannel,proto3" json:"publish_to_channel,omitempty"`
+	IsSetAttributeApi         bool                      `protobuf:"varint,7,opt,name=is_set_attribute_api,json=isSetAttributeApi,proto3" json:"is_set_attribute_api,omitempty"`
+	DeleteFromChannel         []*ChannelMessageDeletion `protobuf:"bytes,8,rep,name=delete_from_channel,json=deleteFromChannel,proto3" json:"delete_from_channel,omitempty"`
+	IsDeleteChannelMessageApi bool                      `protobuf:"varint,9,opt,name=is_delete_channel_message_api,json=isDeleteChannelMessageApi,proto3" json:"is_delete_channel_message_api,omitempty"`
+	ActionPermissionMappings  *ActionPermissionMappings `protobuf:"bytes,10,opt,name=action_permission_mappings,json=actionPermissionMappings,proto3" json:"action_permission_mappings,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -13999,16 +13999,18 @@ const file_dex_proto_rawDesc = "" +
 	"\x0eparent_flow_id\x18\x01 \x01(\tR\fparentFlowId\x12=\n" +
 	"\arequest\x18\x02 \x01(\v2#.dex.SubFlowCompletionSignalRequestR\arequest\"e\n" +
 	"%ReportSubFlowCompletionActivityOutput\x12<\n" +
-	"\x06status\x18\x01 \x01(\x0e2$.dex.SubFlowCompletionDeliveryStatusR\x06status\"\xa1\x04\n" +
+	"\x06status\x18\x01 \x01(\x0e2$.dex.SubFlowCompletionDeliveryStatusR\x06status\"\xc4\x04\n" +
 	"\x17ExecuteRpcSignalRequest\x12@\n" +
-	"\x11upsert_attributes\x18\x01 \x03(\v2\x13.dex.AttributeWriteR\x10upsertAttributes\x126\n" +
-	"\rstep_decision\x18\x02 \x01(\v2\x11.dex.StepDecisionR\fstepDecision\x12,\n" +
-	"\rrecord_events\x18\x03 \x03(\v2\a.dex.KVR\frecordEvents\x12A\n" +
-	"\x12publish_to_channel\x18\x04 \x03(\v2\x13.dex.ChannelMessageR\x10publishToChannel\x12/\n" +
-	"\x14is_set_attribute_api\x18\x05 \x01(\bR\x11isSetAttributeApi\x12K\n" +
-	"\x13delete_from_channel\x18\x06 \x03(\v2\x1b.dex.ChannelMessageDeletionR\x11deleteFromChannel\x12@\n" +
-	"\x1dis_delete_channel_message_api\x18\a \x01(\bR\x19isDeleteChannelMessageApi\x12[\n" +
-	"\x1aaction_permission_mappings\x18\b \x01(\v2\x1d.dex.ActionPermissionMappingsR\x18actionPermissionMappings\"\xa6\x01\n" +
+	"\x11upsert_attributes\x18\x03 \x03(\v2\x13.dex.AttributeWriteR\x10upsertAttributes\x126\n" +
+	"\rstep_decision\x18\x04 \x01(\v2\x11.dex.StepDecisionR\fstepDecision\x12,\n" +
+	"\rrecord_events\x18\x05 \x03(\v2\a.dex.KVR\frecordEvents\x12A\n" +
+	"\x12publish_to_channel\x18\x06 \x03(\v2\x13.dex.ChannelMessageR\x10publishToChannel\x12/\n" +
+	"\x14is_set_attribute_api\x18\a \x01(\bR\x11isSetAttributeApi\x12K\n" +
+	"\x13delete_from_channel\x18\b \x03(\v2\x1b.dex.ChannelMessageDeletionR\x11deleteFromChannel\x12@\n" +
+	"\x1dis_delete_channel_message_api\x18\t \x01(\bR\x19isDeleteChannelMessageApi\x12[\n" +
+	"\x1aaction_permission_mappings\x18\n" +
+	" \x01(\v2\x1d.dex.ActionPermissionMappingsR\x18actionPermissionMappingsJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\trpc_inputR\n" +
+	"rpc_output\"\xa6\x01\n" +
 	"\x16SkipTimerSignalRequest\x12*\n" +
 	"\x11step_execution_id\x18\x01 \x01(\tR\x0fstepExecutionId\x12,\n" +
 	"\x12timer_condition_id\x18\x02 \x01(\tR\x10timerConditionId\x122\n" +

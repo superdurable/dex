@@ -80,6 +80,8 @@ Transactional size-limit tests cover explicit transactions, Attribute
 locks, and synchronous-update configuration in both loading modes. They verify
 the client error code and Worker status, a single non-retryable local activity
 attempt in Temporal history, and successful subsequent calls after failure.
+Wire-compatibility tests decode Signal payloads with the published field numbers
+and removed RPC input/output fields, then verify Attribute writes on both backends.
 
 Resumable Stream integration covers per-message size limits, Flow-type scope
 isolation, global FIFO trim, resume, repeated sources, and multi-server trim

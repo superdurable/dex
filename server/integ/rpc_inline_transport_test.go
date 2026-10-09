@@ -32,6 +32,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -305,6 +306,50 @@ func testRPCWorkerRequestWithReceiveLimit(t *testing.T, backendType service.Back
 	if !scenario.isTransactional {
 		fixture.assertNoRPCHistory()
 	}
+}
+
+func TestRpcSignalWireCompatibilityTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	testRPCSignalWireCompatibility(t, service.BackendTypeTemporal)
+}
+
+func TestRpcSignalWireCompatibilityCadence(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	testRPCSignalWireCompatibility(t, service.BackendTypeCadence)
+}
+
+func testRPCSignalWireCompatibility(t *testing.T, backendType service.BackendType) {
+	t.Helper()
+	fixture := newRPCBlobTransportFixture(t, DexServiceTestConfig{BackendType: backendType})
+	value := stringValue("legacy-signal-value")
+	attributeBytes, err := proto.Marshal(&dexpb.AttributeWrite{Key: "legacySignalAttribute", Value: value})
+	require.NoError(t, err)
+	rpcPayloadBytes, err := proto.Marshal(stringValue("legacy-rpc-payload"))
+	require.NoError(t, err)
+	// Use the published wire numbers independently of the generated message descriptor.
+	legacySignalBytes := protowire.AppendTag(nil, 1, protowire.BytesType)
+	legacySignalBytes = protowire.AppendBytes(legacySignalBytes, rpcPayloadBytes)
+	legacySignalBytes = protowire.AppendTag(legacySignalBytes, 2, protowire.BytesType)
+	legacySignalBytes = protowire.AppendBytes(legacySignalBytes, rpcPayloadBytes)
+	legacySignalBytes = protowire.AppendTag(legacySignalBytes, 3, protowire.BytesType)
+	legacySignalBytes = protowire.AppendBytes(legacySignalBytes, attributeBytes)
+	signalRequest := &dexpb.ExecuteRpcSignalRequest{}
+	require.NoError(t, proto.Unmarshal(legacySignalBytes, signalRequest))
+	require.Len(t, signalRequest.GetUpsertAttributes(), 1)
+	require.Equal(t, "legacySignalAttribute", signalRequest.GetUpsertAttributes()[0].GetKey())
+	require.NoError(t, fixture.runtime.UnifiedClient.SignalWorkflow(
+		fixture.ctx, fixture.flowID, fixture.runID, service.ExecuteRpcSignalChannelName, signalRequest,
+	))
+	require.Eventually(t, func() bool {
+		response, err := fixture.runtime.FlowClient.GetAttributes(fixture.ctx, &dexpb.GetAttributesRequest{
+			FlowId: fixture.flowID, Keys: []string{"legacySignalAttribute"},
+		})
+		return err == nil && len(response.GetAttributes()) == 1 && proto.Equal(value, response.GetAttributes()[0].GetValue())
+	}, 5*time.Second, 50*time.Millisecond)
 }
 
 func newRPCBlobTransportFixture(t *testing.T, cfg DexServiceTestConfig, workerOptions ...grpc.ServerOption) *rpcBlobTransportFixture {

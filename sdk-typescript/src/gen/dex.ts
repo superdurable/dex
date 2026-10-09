@@ -16514,28 +16514,28 @@ function createBaseExecuteRpcSignalRequest(): ExecuteRpcSignalRequest {
 export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
   encode(message: ExecuteRpcSignalRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     for (const v of message.upsertAttributes) {
-      AttributeWrite.encode(v!, writer.uint32(10).fork()).join();
+      AttributeWrite.encode(v!, writer.uint32(26).fork()).join();
     }
     if (message.stepDecision !== undefined) {
-      StepDecision.encode(message.stepDecision, writer.uint32(18).fork()).join();
+      StepDecision.encode(message.stepDecision, writer.uint32(34).fork()).join();
     }
     for (const v of message.recordEvents) {
-      KV.encode(v!, writer.uint32(26).fork()).join();
+      KV.encode(v!, writer.uint32(42).fork()).join();
     }
     for (const v of message.publishToChannel) {
-      ChannelMessage.encode(v!, writer.uint32(34).fork()).join();
+      ChannelMessage.encode(v!, writer.uint32(50).fork()).join();
     }
     if (message.isSetAttributeApi !== false) {
-      writer.uint32(40).bool(message.isSetAttributeApi);
+      writer.uint32(56).bool(message.isSetAttributeApi);
     }
     for (const v of message.deleteFromChannel) {
-      ChannelMessageDeletion.encode(v!, writer.uint32(50).fork()).join();
+      ChannelMessageDeletion.encode(v!, writer.uint32(66).fork()).join();
     }
     if (message.isDeleteChannelMessageApi !== false) {
-      writer.uint32(56).bool(message.isDeleteChannelMessageApi);
+      writer.uint32(72).bool(message.isDeleteChannelMessageApi);
     }
     if (message.actionPermissionMappings !== undefined) {
-      ActionPermissionMappings.encode(message.actionPermissionMappings, writer.uint32(66).fork()).join();
+      ActionPermissionMappings.encode(message.actionPermissionMappings, writer.uint32(82).fork()).join();
     }
     return writer;
   },
@@ -16547,28 +16547,12 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.upsertAttributes.push(AttributeWrite.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.stepDecision = StepDecision.decode(reader, reader.uint32());
-          continue;
-        }
         case 3: {
           if (tag !== 26) {
             break;
           }
 
-          message.recordEvents.push(KV.decode(reader, reader.uint32()));
+          message.upsertAttributes.push(AttributeWrite.decode(reader, reader.uint32()));
           continue;
         }
         case 4: {
@@ -16576,15 +16560,15 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
             break;
           }
 
-          message.publishToChannel.push(ChannelMessage.decode(reader, reader.uint32()));
+          message.stepDecision = StepDecision.decode(reader, reader.uint32());
           continue;
         }
         case 5: {
-          if (tag !== 40) {
+          if (tag !== 42) {
             break;
           }
 
-          message.isSetAttributeApi = reader.bool();
+          message.recordEvents.push(KV.decode(reader, reader.uint32()));
           continue;
         }
         case 6: {
@@ -16592,7 +16576,7 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
             break;
           }
 
-          message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
+          message.publishToChannel.push(ChannelMessage.decode(reader, reader.uint32()));
           continue;
         }
         case 7: {
@@ -16600,11 +16584,27 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
             break;
           }
 
-          message.isDeleteChannelMessageApi = reader.bool();
+          message.isSetAttributeApi = reader.bool();
           continue;
         }
         case 8: {
           if (tag !== 66) {
+            break;
+          }
+
+          message.deleteFromChannel.push(ChannelMessageDeletion.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.isDeleteChannelMessageApi = reader.bool();
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
             break;
           }
 
