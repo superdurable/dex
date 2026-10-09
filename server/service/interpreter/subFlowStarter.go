@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
@@ -23,6 +24,8 @@ type SubFlowStarter struct {
 	stepExecutionID  string
 	parentFlowConfig *dexpb.FlowConfig
 	condition        *dexpb.WaitingCondition
+	activityConfig   *config.InterpreterActivityConfig
+	useDurableStart  bool
 	doneByIdx        []bool
 	startErr         error
 }
@@ -34,7 +37,12 @@ func NewSubFlowStarter(
 	stepExecutionID string,
 	parentFlowConfig *dexpb.FlowConfig,
 	condition *dexpb.WaitingCondition,
+	activityConfig *config.InterpreterActivityConfig,
+	globalVersioner *GlobalVersioner,
 ) *SubFlowStarter {
+	if activityConfig == nil || globalVersioner == nil {
+		panic("SubFlow starter requires non-nil configuration and versioner")
+	}
 	return &SubFlowStarter{
 		provider:         provider,
 		activities:       activities,
@@ -42,15 +50,14 @@ func NewSubFlowStarter(
 		stepExecutionID:  stepExecutionID,
 		parentFlowConfig: parentFlowConfig,
 		condition:        condition,
+		activityConfig:   activityConfig,
+		useDurableStart:  globalVersioner.UsesDurableSubFlowStartActivity(),
 		doneByIdx:        make([]bool, len(condition.GetSubFlowConditions())),
 	}
 }
 
 func (s *SubFlowStarter) StartAll(ctx interfaces.UnifiedContext) error {
-	ctx = s.provider.WithActivityOptions(ctx, interfaces.ActivityOptions{
-		StartToCloseTimeout:                 30 * time.Second,
-		LocalActivityScheduleToCloseTimeout: 2 * time.Minute,
-	})
+	ctx = s.provider.WithActivityOptions(ctx, s.activityOptions())
 	for index := range s.condition.GetSubFlowConditions() {
 		startCtx := s.provider.ExtendContextWithValue(ctx, "subFlowIndex", index)
 		s.provider.GoNamed(startCtx, fmt.Sprintf("start-sub-flow-%d", index), s.startOne)
@@ -68,23 +75,47 @@ func (s *SubFlowStarter) startOne(ctx interfaces.UnifiedContext) {
 	}
 	condition := s.condition.GetSubFlowConditions()[index]
 	var output dexpb.StartSubFlowActivityOutput
-	err := s.provider.ExecuteLocalActivity(
-		&output,
-		ctx,
-		s.activities.StartSubFlow,
-		&dexpb.StartSubFlowActivityInput{
-			Condition:             condition,
-			ParentFlowConfig:      s.parentFlowConfig,
-			ParentStepExecutionId: s.stepExecutionID,
-		},
-	)
-	if err != nil && s.startErr == nil {
-		s.startErr = err
+	startInput := &dexpb.StartSubFlowActivityInput{
+		Condition:             condition,
+		ParentFlowConfig:      s.parentFlowConfig,
+		ParentStepExecutionId: s.stepExecutionID,
+	}
+	var err error
+	if s.useDurableStart {
+		err = s.provider.ExecuteActivity(
+			&output,
+			dexpb.StepDurability_STEP_DURABILITY_SYNC,
+			ctx,
+			s.activities.StartSubFlow,
+			startInput,
+			nil,
+		)
+	} else {
+		err = s.provider.ExecuteLocalActivity(&output, ctx, s.activities.StartSubFlow, startInput)
+	}
+	if err != nil {
+		if s.startErr == nil {
+			s.startErr = err
+		}
 	}
 	if err == nil {
 		s.tracker.ApplyImmediateFlowResultFromStart(s.stepExecutionID, int32(index), &output)
 	}
 	s.doneByIdx[index] = true
+}
+
+func (s *SubFlowStarter) activityOptions() interfaces.ActivityOptions {
+	if !s.useDurableStart {
+		return interfaces.ActivityOptions{
+			StartToCloseTimeout:                 30 * time.Second,
+			LocalActivityScheduleToCloseTimeout: 2 * time.Minute,
+		}
+	}
+	activityConfig := s.activityConfig.EffectiveSubFlowStartActivityConfig()
+	return interfaces.ActivityOptions{
+		StartToCloseTimeout: activityConfig.StartToCloseTimeout,
+		RetryPolicy:         activityConfig.RetryPolicy,
+	}
 }
 
 func (s *SubFlowStarter) isAllDone() bool {
