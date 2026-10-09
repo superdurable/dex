@@ -1892,6 +1892,9 @@ func waitForCANRetry(
 }
 
 func (s *serviceImpl) handleError(err error) error {
+	if errors.Is(err, uclient.ErrQueryRequestTimeout) {
+		return serviceerrors.DeadlineExceededRequest(err.Error()).ToGRPCError()
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return waitContextStatus(err)
 	}

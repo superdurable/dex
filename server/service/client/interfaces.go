@@ -12,11 +12,15 @@ package uclient
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 )
+
+// ErrQueryRequestTimeout reports a QueryWorkflow read that did not complete within its request budget.
+var ErrQueryRequestTimeout = errors.New("flow read did not complete in time and can be retried")
 
 type AttributeIndexClient interface {
 	ListAttributeIndexes(context.Context) (map[string]dexpb.IndexType, error)

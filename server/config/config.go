@@ -318,6 +318,10 @@ type (
 		// UseTemporalSynchronousUpdateForAllRPCs routes non-locking Temporal RPCs through synchronous Updates. Default false because Temporal limits concurrent Updates. Enabling trades that capacity for validator rejection and atomic effect commits. Locking Temporal RPCs always use Updates.
 		UseTemporalSynchronousUpdateForAllRPCs bool `yaml:"useTemporalSynchronousUpdateForAllRPCs"`
 		// QueryWorkflowFailedRetryPolicy retries failed backend queries. Nil or zero fields default to 100ms fixed intervals and 5 attempts.
+		// Its intervals also pace retries of a Temporal query attempt that reached its own deadline before the caller's deadline.
+		// Such an attempt waits for the Flow's unfinished workflow task, and the Temporal SDK gives one attempt at most
+		// 10 seconds or half of the remaining caller deadline. These retries ignore MaximumAttempts and TotalDuration and
+		// stop at the caller's deadline. A caller without a deadline gets one 10-second attempt.
 		QueryWorkflowFailedRetryPolicy *RetryPolicy `yaml:"queryWorkflowFailedRetryPolicy"`
 		// InvokeRPCContinuedAsNewErrorRetryPolicy retries transient InvokeRPC failures across current-run changes. Nil or zero fields default to 100ms initial, 2x backoff, 1s maximum, and 5s total duration.
 		InvokeRPCContinuedAsNewErrorRetryPolicy *RetryPolicy `yaml:"invokeRPCContinuedAsNewErrorRetryPolicy"`
