@@ -27,6 +27,7 @@ export type DefinitionLayer =
 export type DefinitionVisibility = Record<DefinitionLayer, boolean>;
 
 export interface DefinitionNodeData extends Record<string, unknown> {
+  subFlowHref?: string;
   kind: 'flow' | 'step' | 'wait' | 'dispatch' | 'decision' | 'channel' | 'attributes' | 'rpc' | 'timeout' | 'subflow' | 'stream' | 'unknown';
   definition?: FlowDefinitionNode;
   definitions?: FlowDefinitionNode[];
