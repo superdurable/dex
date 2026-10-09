@@ -13,6 +13,7 @@ package dex
 import (
 	"context"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
@@ -26,14 +27,16 @@ type valueHydrator interface {
 }
 
 type flowValuePointer struct {
-	flowID       string
-	valuePointer **dexpb.Value
+	flowID           string
+	valueDescription string
+	valuePointer     **dexpb.Value
 }
 
 type valueHydratorImpl struct {
-	client dexpb.FlowServiceClient
-	cache  *blobcache.Cache
-	logger Logger
+	client             dexpb.FlowServiceClient
+	cache              *blobcache.Cache
+	logger             Logger
+	flowServiceAddress string
 }
 
 type blobIDDef struct {
@@ -42,17 +45,19 @@ type blobIDDef struct {
 }
 
 type pendingBlob struct {
-	flowID        string
-	blobID        blobIDDef
-	blobIDValue   *dexpb.Value
-	hydratedValue *dexpb.Value
-	valuePointers []**dexpb.Value
+	flowID            string
+	blobID            blobIDDef
+	blobIDValue       *dexpb.Value
+	hydratedValue     *dexpb.Value
+	valuePointers     []**dexpb.Value
+	valueDescriptions []string
 }
 
 func newValueHydrator(
 	client dexpb.FlowServiceClient,
 	cache *blobcache.Cache,
 	logger Logger,
+	flowServiceAddress string,
 ) valueHydrator {
 	if client == nil {
 		panic("dex: value hydrator requires FlowService client")
@@ -61,9 +66,10 @@ func newValueHydrator(
 		panic("dex: value hydrator requires BlobCache")
 	}
 	return &valueHydratorImpl{
-		client: client,
-		cache:  cache,
-		logger: resolveLogger(logger, cache.Logger()),
+		client:             client,
+		cache:              cache,
+		logger:             resolveLogger(logger, cache.Logger()),
+		flowServiceAddress: flowServiceAddress,
 	}
 }
 
@@ -110,6 +116,11 @@ func (hydrator *valueHydratorImpl) HydrateValuesInPlace(
 			pendingBlobs = append(pendingBlobs, pending)
 		}
 		pending.valuePointers = append(pending.valuePointers, valuePointer)
+		valueDescription := target.valueDescription
+		if valueDescription == "" {
+			valueDescription = fmt.Sprintf("value at index %d", index)
+		}
+		pending.valueDescriptions = append(pending.valueDescriptions, valueDescription)
 	}
 	if len(pendingBlobs) == 0 {
 		return nil
@@ -170,14 +181,36 @@ func (hydrator *valueHydratorImpl) hydrateBlobValues(
 			fmt.Errorf("dex: LoadBlobs returned a nil response"),
 		)
 	}
+	omittedFlowIDs := make([]string, 0)
+	omittedBlobsByFlow := make(map[string][]string)
 	for _, miss := range misses {
-		concrete, found := response.Values[miss.blobID.value]
-		if !found {
-			return newWorkerFailure(
-				codes.Internal,
-				fmt.Errorf("dex: LoadBlobs omitted blob %q", miss.blobID.value),
-			)
+		if _, found := response.Values[miss.blobID.value]; !found {
+			if _, found := omittedBlobsByFlow[miss.flowID]; !found {
+				omittedFlowIDs = append(omittedFlowIDs, miss.flowID)
+			}
+			omittedBlobsByFlow[miss.flowID] = append(omittedBlobsByFlow[miss.flowID], fmt.Sprintf(
+				"blob %q (%s)", miss.blobID.value, strings.Join(miss.valueDescriptions, ", "),
+			))
 		}
+	}
+	if len(omittedFlowIDs) > 0 {
+		omittedFlows := make([]string, 0, len(omittedFlowIDs))
+		for _, flowID := range omittedFlowIDs {
+			omittedFlows = append(omittedFlows, fmt.Sprintf(
+				"Flow ID %q: %s", flowID, strings.Join(omittedBlobsByFlow[flowID], "; "),
+			))
+		}
+		omissionError := fmt.Errorf(
+			"dex: LoadBlobs omitted blobs; FlowServiceAddress %q; for Worker calls, the Worker's Flow service may differ from the dispatching Server; verify that they match; %s",
+			hydrator.flowServiceAddress, strings.Join(omittedFlows, "; "),
+		)
+		if len(omissionError.Error()) > maxWorkerErrorDetailBytes {
+			hydrator.logger.Error("LoadBlobs omitted blobs", "error", omissionError)
+		}
+		return newWorkerFailure(codes.Internal, omissionError)
+	}
+	for _, miss := range misses {
+		concrete := response.Values[miss.blobID.value]
 		if err := validateHydratedValue(miss.blobID, concrete); err != nil {
 			return newWorkerFailure(codes.Internal, err)
 		}

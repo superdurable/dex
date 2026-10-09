@@ -133,6 +133,7 @@ func NewWorker(
 			flowService,
 			cache,
 			logger,
+			flowServiceAddress,
 		),
 		logger,
 	)

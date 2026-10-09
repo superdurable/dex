@@ -614,6 +614,13 @@ values may be called concurrently and must be concurrency-safe.
 Blob-backed values hydrate through private FlowService calls.
 `FlowServiceAddress` defaults to `localhost:8801`. Registry and BlobCache are
 required; the caller closes the cache after Client and Worker stop using it.
+When `LoadBlobs` omits requested blobs, the error lists every missing blob ID,
+its Flow ID, and each affected Worker value: Step or RPC input, Attribute key,
+Channel name and message ID, Step-execution local key, heartbeat, or condition
+result. It also shows the resolved `FlowServiceAddress`. Check that the Worker's
+Flow service matches the Server dispatching the call. Worker error details are
+bounded to 1 KiB; when the complete diagnostic exceeds that limit, the SDK also
+logs every missing blob and value through its logger.
 
 `dex.Logger` supports structured debug, info, warning, and error messages.
 `blobcache.Config.Logger` defaults to `slog.Default` and is inherited by Client

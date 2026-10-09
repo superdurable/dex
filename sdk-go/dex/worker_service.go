@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc/codes"
@@ -92,7 +93,7 @@ func (service *workerService) invokeWaitForMethod(
 	}
 	if err := service.hydrator.HydrateValuesInPlace(
 		output.stream.Context(),
-		valuePointersForFlow(request.GetContext().GetFlowId(), waitForRequestValuePointers(request)),
+		waitForRequestValuePointers(request),
 	); err != nil {
 		return err
 	}
@@ -192,7 +193,7 @@ func (service *workerService) invokeExecuteMethod(
 		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	if err := service.hydrator.HydrateValuesInPlace(
-		output.stream.Context(), valuePointersForFlow(request.GetContext().GetFlowId(), valuePointers),
+		output.stream.Context(), valuePointers,
 	); err != nil {
 		return err
 	}
@@ -280,7 +281,7 @@ func (service *workerService) invokeTimeoutHandler(
 		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	if err := service.hydrator.HydrateValuesInPlace(
-		output.stream.Context(), valuePointersForFlow(request.GetContext().GetFlowId(), valuePointers),
+		output.stream.Context(), valuePointers,
 	); err != nil {
 		return err
 	}
@@ -367,7 +368,7 @@ func (service *workerService) invokeWorkerRPC(
 	}
 	if err := service.hydrator.HydrateValuesInPlace(
 		ctx,
-		valuePointersForFlow(request.GetContext().GetFlowId(), rpcRequestValuePointers(request)),
+		rpcRequestValuePointers(request),
 	); err != nil {
 		return nil, err
 	}
@@ -536,53 +537,41 @@ func validateKVEnvelopes(kind string, values []*dexpb.KV) error {
 	return nil
 }
 
-func stepRequestValuePointers(
-	input **dexpb.Value,
-	attributes []*dexpb.KV,
-) []**dexpb.Value {
-	valuePointers := make([]**dexpb.Value, 0, 1+len(attributes))
-	valuePointers = append(valuePointers, input)
-	for _, attribute := range attributes {
-		valuePointers = append(valuePointers, &attribute.Value)
-	}
-	return valuePointers
-}
-
-func rpcRequestValuePointers(request *dexpb.InvokeWorkerRPCRequest) []**dexpb.Value {
-	valuePointers := stepRequestValuePointers(&request.Input, request.Attributes)
-	return appendLoadedChannelMessageValuePointers(valuePointers, request.LoadedChannelMessages)
+func rpcRequestValuePointers(request *dexpb.InvokeWorkerRPCRequest) []flowValuePointer {
+	flowID := request.GetContext().GetFlowId()
+	valuePointers := stepRequestValuePointers(flowID, "RPC input", &request.Input, request.Attributes)
+	return appendLoadedChannelMessageValuePointers(flowID, valuePointers, request.LoadedChannelMessages)
 }
 
 func waitForRequestValuePointers(
 	request *dexpb.InvokeWaitForMethodRequest,
-) []**dexpb.Value {
-	valuePointers := stepRequestValuePointers(&request.StepInput, request.Attributes)
+) []flowValuePointer {
+	flowID := request.GetContext().GetFlowId()
+	valuePointers := stepRequestValuePointers(flowID, "Step input", &request.StepInput, request.Attributes)
 	if request.Context.LastHeartbeatValue != nil {
-		valuePointers = append(valuePointers, &request.Context.LastHeartbeatValue)
+		valuePointers = append(valuePointers, flowValuePointer{
+			flowID: flowID, valueDescription: "last heartbeat", valuePointer: &request.Context.LastHeartbeatValue,
+		})
 	}
-	return appendLoadedChannelMessageValuePointers(valuePointers, request.LoadedChannelMessages)
+	return appendLoadedChannelMessageValuePointers(flowID, valuePointers, request.LoadedChannelMessages)
 }
 
 func executeRequestValuePointers(
 	request *dexpb.InvokeExecuteMethodRequest,
-) ([]**dexpb.Value, error) {
-	valuePointers := make([]**dexpb.Value, 0, 1+len(request.Attributes)+len(request.StepExeLocals))
-	if request.StepInput != nil {
-		valuePointers = append(valuePointers, &request.StepInput)
-	}
+) ([]flowValuePointer, error) {
+	flowID := request.GetContext().GetFlowId()
+	valuePointers := stepRequestValuePointers(flowID, "Step input", &request.StepInput, request.Attributes)
 	if request.Context.LastHeartbeatValue != nil {
-		valuePointers = append(valuePointers, &request.Context.LastHeartbeatValue)
-	}
-	for _, attribute := range request.Attributes {
-		valuePointers = append(valuePointers, &attribute.Value)
+		valuePointers = append(valuePointers, flowValuePointer{
+			flowID: flowID, valueDescription: "last heartbeat", valuePointer: &request.Context.LastHeartbeatValue,
+		})
 	}
 	for _, local := range request.StepExeLocals {
-		valuePointers = append(valuePointers, &local.Value)
+		valuePointers = append(valuePointers, flowValuePointer{
+			flowID: flowID, valueDescription: fmt.Sprintf("Step-execution local %q", local.Key), valuePointer: &local.Value,
+		})
 	}
-	valuePointers = appendLoadedChannelMessageValuePointers(
-		valuePointers,
-		request.LoadedChannelMessages,
-	)
+	valuePointers = appendLoadedChannelMessageValuePointers(flowID, valuePointers, request.LoadedChannelMessages)
 	if request.ConditionResults == nil {
 		return valuePointers, nil
 	}
@@ -591,7 +580,11 @@ func executeRequestValuePointers(
 			return nil, fmt.Errorf("dex: channel result at index %d is nil", index)
 		}
 		for valueIndex := range result.Values {
-			valuePointers = append(valuePointers, &result.Values[valueIndex])
+			valuePointers = append(valuePointers, flowValuePointer{
+				flowID:           flowID,
+				valueDescription: fmt.Sprintf("Channel %q condition %q value at index %d", result.ChannelName, result.ConditionId, valueIndex),
+				valuePointer:     &result.Values[valueIndex],
+			})
 		}
 	}
 	for resultIndex, result := range request.ConditionResults.SubFlowResults {
@@ -606,19 +599,53 @@ func executeRequestValuePointers(
 					completionIndex,
 				)
 			}
-			valuePointers = append(valuePointers, &completion.CompletedStepOutput)
+			valuePointers = append(valuePointers, flowValuePointer{
+				flowID:           flowID,
+				valueDescription: fmt.Sprintf("SubFlow result at index %d completion at index %d Step output", resultIndex, completionIndex),
+				valuePointer:     &completion.CompletedStepOutput,
+			})
 		}
 	}
 	return valuePointers, nil
 }
 
+func stepRequestValuePointers(
+	flowID string,
+	inputDescription string,
+	input **dexpb.Value,
+	attributes []*dexpb.KV,
+) []flowValuePointer {
+	valuePointers := make([]flowValuePointer, 0, 1+len(attributes))
+	if *input != nil {
+		valuePointers = append(valuePointers, flowValuePointer{
+			flowID: flowID, valueDescription: inputDescription, valuePointer: input,
+		})
+	}
+	for _, attribute := range attributes {
+		valuePointers = append(valuePointers, flowValuePointer{
+			flowID: flowID, valueDescription: fmt.Sprintf("Attribute %q", attribute.Key), valuePointer: &attribute.Value,
+		})
+	}
+	return valuePointers
+}
+
 func appendLoadedChannelMessageValuePointers(
-	valuePointers []**dexpb.Value,
+	flowID string,
+	valuePointers []flowValuePointer,
 	loadedMessages map[string]*dexpb.ChannelValues,
-) []**dexpb.Value {
-	for _, values := range loadedMessages {
-		for _, message := range values.Messages {
-			valuePointers = append(valuePointers, &message.Value)
+) []flowValuePointer {
+	channelNames := make([]string, 0, len(loadedMessages))
+	for channelName := range loadedMessages {
+		channelNames = append(channelNames, channelName)
+	}
+	sort.Strings(channelNames)
+	for _, channelName := range channelNames {
+		for messageIndex, message := range loadedMessages[channelName].Messages {
+			valuePointers = append(valuePointers, flowValuePointer{
+				flowID:           flowID,
+				valueDescription: fmt.Sprintf("Channel %q message %q at index %d", channelName, message.MessageId, messageIndex),
+				valuePointer:     &message.Value,
+			})
 		}
 	}
 	return valuePointers
