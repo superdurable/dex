@@ -80,6 +80,15 @@ fields inherit the owning setting's defaults. Query retries default to five fixe
 backoff, capped at one second and five seconds total. Attribute Store and
 internal Activity retries also start at 100ms.
 
+A Temporal query waits while the workflow has an unfinished workflow task, but
+the Temporal SDK gives one query attempt at most 10 seconds or half of the
+remaining caller deadline. The API client therefore retries an attempt that
+reaches its own deadline, at the query retry interval, until the caller's
+deadline. These retries ignore the query policy's attempt and duration limits. A
+caller without a deadline keeps the single 10-second attempt. A read that runs
+out of time returns `DEADLINE_EXCEEDED` with `ERROR_SUB_STATUS_REQUEST_TIMEOUT`;
+a caller cancellation returns `CANCELLED`.
+
 # How to run server or integration tests
 
 ## Run the local Dex environment

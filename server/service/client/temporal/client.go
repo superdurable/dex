@@ -408,24 +408,48 @@ func (t *temporalClient) QueryWorkflow(
 	var err error
 
 	retryBackoff := retry.NewQueryWorkflowBackoff(t.queryWorkflowFailedRetryPolicy)
-	// Only QueryFailed error causes retry; all other errors make the loop to finish immediately
+	deadlineRetryBackoff := retry.NewQueryWorkflowDeadlineBackoff(t.queryWorkflowFailedRetryPolicy)
+	// Only QueryFailed and attempt deadline errors cause retry; all other errors make the loop to finish immediately
 	for {
 		qres, err = t.tClient.QueryWorkflow(ctx, workflowID, runID, queryType, args...)
 		if err == nil {
 			break
+		}
+		if t.IsRequestTimeoutError(err) || ctx.Err() != nil {
+			// A consistent Query waits for an unfinished workflow task, but one SDK attempt gets at most half the deadline.
+			if !waitToRetryQueryWithinDeadline(ctx, deadlineRetryBackoff) {
+				return queryDeadlineOrCancellationError(ctx, err)
+			}
+			continue
 		}
 		if !t.isQueryFailedError(err) {
 			return err
 		}
 		shouldRetry, retryErr := retryBackoff.WaitForNextAttempt(ctx)
 		if retryErr != nil {
-			return retryErr
+			return queryDeadlineOrCancellationError(ctx, err)
 		}
 		if !shouldRetry {
 			return err
 		}
 	}
 	return qres.Get(valuePtr)
+}
+
+// waitToRetryQueryWithinDeadline pauses before a retry; without a caller deadline, the SDK's single-call budget stays the bound.
+func waitToRetryQueryWithinDeadline(ctx context.Context, deadlineRetryBackoff *retry.Backoff) bool {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline || ctx.Err() != nil {
+		return false
+	}
+	shouldRetry, err := deadlineRetryBackoff.WaitForNextAttempt(ctx)
+	return shouldRetry && err == nil
+}
+
+func queryDeadlineOrCancellationError(ctx context.Context, attemptErr error) error {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return ctx.Err()
+	}
+	return fmt.Errorf("%w: %w", uclient.ErrQueryRequestTimeout, attemptErr)
 }
 
 func (t *temporalClient) DescribeWorkflowExecution(

@@ -47,6 +47,17 @@ func NewQueryWorkflowBackoff(policy *config.RetryPolicy) *Backoff {
 	))
 }
 
+// NewQueryWorkflowDeadlineBackoff paces Query retries after an attempt deadline; only the caller's deadline bounds them.
+func NewQueryWorkflowDeadlineBackoff(policy *config.RetryPolicy) *Backoff {
+	deadlinePolicy := config.RetryPolicyWithDefaults(
+		policy,
+		config.DefaultQueryWorkflowFailedRetryPolicy,
+	)
+	deadlinePolicy.MaximumAttempts = 0
+	deadlinePolicy.TotalDuration = 0
+	return newBackoff(deadlinePolicy)
+}
+
 func NewInvokeRPCBackoff(policy *config.RetryPolicy) *Backoff {
 	return newBackoff(config.RetryPolicyWithDefaults(
 		policy,

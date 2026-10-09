@@ -210,7 +210,8 @@ func DeadlineExceededLongPoll(details string) *ErrorAndStatus {
 	return NewErrorAndStatus(codes.DeadlineExceeded, dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT, details)
 }
 
-// DeadlineExceededRequest is returned when a durable wait reaches its caller-supplied request deadline.
+// DeadlineExceededRequest is returned when a durable wait reaches its caller-supplied request deadline,
+// or when a Flow read does not complete within its request budget.
 func DeadlineExceededRequest(details string) *ErrorAndStatus {
 	return NewErrorAndStatus(
 		codes.DeadlineExceeded,
