@@ -40,6 +40,39 @@ func TestConnectorIdentityUsesExactModuleAndStaticConnectionName(t *testing.T) {
 	}
 }
 
+func TestConnectorIdentityAcceptsReleaseCandidatesButNotOtherPrereleases(t *testing.T) {
+	const packagePath = "github.com/superdurable/dex-connectors-library/connectors/newsapi"
+	for version, enabled := range map[string]bool{
+		"v0.2.0":                             true,
+		"v0.2.0-rc.1":                        true,
+		"v1.10.0-rc.12":                      true,
+		"v0.2.0-beta.1":                      false,
+		"v0.2.0-rc1":                         false,
+		"v0.0.0-20261010120000-abcdef123456": false,
+	} {
+		analyzer := connectorIdentityTestAnalyzer(packagePath, goModule{path: packagePath, version: version})
+		identity := analyzer.parseConnectorIdentity(
+			goConnectorFactoryConfig{
+				connectorID: "newsapi", operationID: "searchArticles", packagePath: packagePath,
+				fieldNames: map[string]string{"connectionName": "ConnectionName"},
+			},
+			map[string]ast.Expr{"ConnectionName": &ast.BasicLit{Kind: token.STRING, Value: `"news"`}},
+			&ast.CallExpr{Fun: &ast.Ident{Name: "NewSearchArticlesStep"}},
+			connectorQueryFactory,
+			true,
+		)
+		if identity == nil || identity.configurationEnabled != enabled {
+			t.Fatalf("%s: identity = %+v", version, identity)
+		}
+		if enabled && (identity.moduleVersion != version || len(analyzer.graph.Diagnostics) != 0) {
+			t.Fatalf("%s: identity = %+v, diagnostics = %+v", version, identity, analyzer.graph.Diagnostics)
+		}
+		if !enabled && (len(analyzer.graph.Diagnostics) != 1 || analyzer.graph.Diagnostics[0].Code != "connector_release_required") {
+			t.Fatalf("%s: diagnostics = %+v", version, analyzer.graph.Diagnostics)
+		}
+	}
+}
+
 func TestConnectorIdentityWarnsAndDisablesLocalReplacementOrMissingName(t *testing.T) {
 	const packagePath = "github.com/superdurable/dex-connectors-library/connectors/github"
 	analyzer := connectorIdentityTestAnalyzer(packagePath, goModule{

@@ -44,7 +44,9 @@ const (
 )
 
 var officialConnectorModulePattern = regexp.MustCompile(`^github\.com/superdurable/dex-connectors-library/connectors/[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)*$`)
-var exactConnectorReleaseVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
+
+// exactConnectorReleaseVersionPattern matches a published Connector release or release candidate.
+var exactConnectorReleaseVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?$`)
 var connectorReleaseIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
 
 type connectorReleaseResolver struct {

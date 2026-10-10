@@ -22,7 +22,8 @@ const (
 	connectorMutationFactory = "mutation"
 )
 
-var connectorReleaseVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
+// connectorReleaseVersionPattern matches a published Connector release or release candidate.
+var connectorReleaseVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?$`)
 var officialConnectorModulePattern = regexp.MustCompile(`^github\.com/superdurable/dex-connectors-library/connectors/[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)*$`)
 
 type goConnectorFactoryStep struct {
@@ -199,7 +200,7 @@ func (analyzer *goAnalyzer) parseConnectorIdentity(
 		!connectorReleaseVersionPattern.MatchString(module.version) || module.replaced {
 		analyzer.addConnectorConfigurationDiagnostic(
 			"connector_release_required",
-			"Connector Step requires an exact official published module version without a local replacement for automatic configuration",
+			"Connector Step requires an exact official published module version or release candidate without a local replacement for automatic configuration",
 			call,
 		)
 	} else {
