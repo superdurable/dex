@@ -138,6 +138,14 @@ interpreter:
         maximumInterval: 2s
         maximumAttempts: 4
         totalDuration: 10s
+    subFlowStartActivityConfig:
+      scheduleToCloseTimeout: 15s
+      retryPolicy:
+        initialInterval: 350ms
+        backoffCoefficient: 1.25
+        maximumInterval: 3s
+        maximumAttempts: 9
+        totalDuration: 2m
 `)
 	cfg, err := NewConfig(path)
 	require.NoError(t, err)
@@ -148,6 +156,22 @@ interpreter:
 	activityPolicy := cfg.Interpreter.InterpreterActivityConfig.DumpWorkflowInternalActivityConfig.RetryPolicy
 	require.Equal(t, 250*time.Millisecond, activityPolicy.InitialInterval)
 	require.Equal(t, 10*time.Second, activityPolicy.TotalDuration)
+	subFlowStartConfig := cfg.Interpreter.InterpreterActivityConfig.EffectiveSubFlowStartActivityConfig()
+	require.Equal(t, 15*time.Second, subFlowStartConfig.ScheduleToCloseTimeout)
+	require.Equal(t, 350*time.Millisecond, subFlowStartConfig.RetryPolicy.InitialInterval)
+	require.Equal(t, int32(9), subFlowStartConfig.RetryPolicy.MaximumAttempts)
+	require.Equal(t, 2*time.Minute, subFlowStartConfig.RetryPolicy.TotalDuration)
+}
+
+func TestSubFlowStartActivityConfigDefaultsToLocalRetryWindow(t *testing.T) {
+	activityConfig := (InterpreterActivityConfig{}).EffectiveSubFlowStartActivityConfig()
+
+	require.Equal(t, 2*time.Minute, activityConfig.ScheduleToCloseTimeout)
+	require.Equal(t, 100*time.Millisecond, activityConfig.RetryPolicy.InitialInterval)
+	require.Equal(t, 2.0, activityConfig.RetryPolicy.BackoffCoefficient)
+	require.Equal(t, time.Minute, activityConfig.RetryPolicy.MaximumInterval)
+	require.Zero(t, activityConfig.RetryPolicy.MaximumAttempts)
+	require.Zero(t, activityConfig.RetryPolicy.TotalDuration)
 }
 
 func TestRetryPolicyConfigRejectsInvalidDuration(t *testing.T) {
@@ -159,6 +183,34 @@ api:
 `)
 	_, err := NewConfig(path)
 	require.ErrorContains(t, err, "maximumInterval must not be less than initialInterval")
+}
+
+func TestSubFlowStartActivityConfigRejectsInvalidRetryPolicy(t *testing.T) {
+	path := writeTestConfig(t, `
+interpreter:
+  interpreterActivityConfig:
+    subFlowStartActivityConfig:
+      retryPolicy:
+        initialInterval: 2s
+        maximumInterval: 100ms
+`)
+
+	_, err := NewConfig(path)
+
+	require.ErrorContains(t, err, "maximumInterval must not be less than initialInterval")
+}
+
+func TestSubFlowStartActivityConfigRejectsNegativeRetryWindow(t *testing.T) {
+	path := writeTestConfig(t, `
+interpreter:
+  interpreterActivityConfig:
+    subFlowStartActivityConfig:
+      scheduleToCloseTimeout: -1s
+`)
+
+	_, err := NewConfig(path)
+
+	require.ErrorContains(t, err, "scheduleToCloseTimeout must be non-negative")
 }
 
 func TestMinimumStepHeartbeatTimeoutConfig(t *testing.T) {
