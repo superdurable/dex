@@ -987,6 +987,7 @@ func (i *Interpreter) processStepExecution(
 				stepExeId,
 				flowConfiger.Get(),
 				returnedWaitingCondition,
+				&i.sharedConfig.Interpreter.InterpreterActivityConfig,
 			)
 			if err := starter.StartAll(ctx); err != nil {
 				return nil, service.StepExecutionStatusInternalError, err

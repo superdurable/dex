@@ -27,6 +27,8 @@ import type {
   FlowDefinitionNode,
 } from './types';
 
+import { SubFlowDefinitionLink } from './SubFlowDefinitionLink';
+
 type ProcessCanvasDirection = 'tb' | 'lr';
 type ProcessCanvasDetail = 'collapsed' | 'expanded';
 
@@ -53,7 +55,7 @@ const processNodeTypes: NodeTypes = {
   processGroup: ProcessGroupNode,
 };
 
-export function ProcessCanvasView({ graph }: { graph: FlowDefinitionGraph }) {
+export function ProcessCanvasView({ graph, subFlowLinks = {} }: { graph: FlowDefinitionGraph; subFlowLinks?: Record<string, string> }) {
   const [detail, setDetail] = useState<ProcessCanvasDetail>('collapsed');
   const [direction, setDirection] = useState<ProcessCanvasDirection>('tb');
   const [selectedID, setSelectedID] = useState('');
@@ -128,7 +130,7 @@ export function ProcessCanvasView({ graph }: { graph: FlowDefinitionGraph }) {
       </div>
       {(selectedStep || selectedGroup) && (
         <div className="process-canvas-selection">
-          {selectedStep && <ProcessStepDetails graph={graph} step={selectedStep} />}
+          {selectedStep && <ProcessStepDetails graph={graph} step={selectedStep} subFlowLinks={subFlowLinks} />}
           {selectedGroup && (
             <>
               <span>Group</span>
@@ -296,7 +298,7 @@ function stepWaitDescriptions(step: FlowDefinitionNode, definitions: FlowDefinit
     .flatMap((definition) => {
       const conditions = Array.isArray(definition.wait?.conditions) ? definition.wait.conditions : [];
       if (conditions.length === 0) return ['Unresolved wait condition'];
-      return conditions.map((condition) => `${condition.kind}: ${safeText(condition.label)}`);
+      return conditions.map((condition, index) => `${condition.kind}[${condition.index ?? index}]: ${safeText(condition.label)}`);
     });
 }
 
@@ -329,7 +331,7 @@ function ProcessStepNode({ data }: NodeProps) {
       <code>{safeText(step.definition.id).replace(/^step:/, '')}</code>
       {step.detail === 'expanded' && (
         <div className="process-step-sections">
-          <span><b>Waits for</b>{step.waitDescriptions[0] ?? 'Nothing'}</span>
+          <span><b>Waits for</b>{step.waitDescriptions.join('; ') || 'Nothing'}</span>
           <span><b>Then goes to</b>{step.destinationNames.join(', ') || 'Flow completion'}</span>
         </div>
       )}
@@ -349,9 +351,16 @@ function ProcessGroupNode({ data }: NodeProps) {
   );
 }
 
-function ProcessStepDetails({ graph, step }: { graph: FlowDefinitionGraph; step: FlowDefinitionNode }) {
+function ProcessStepDetails({ graph, step, subFlowLinks }: {
+  graph: FlowDefinitionGraph;
+  step: FlowDefinitionNode;
+  subFlowLinks: Record<string, string>;
+}) {
   const waits = stepWaitDescriptions(step, graph.nodes);
   const destinations = stepDestinations(step, graph.edges, new Map(graph.nodes.map((node) => [node.id, node])));
+  const childNodeIDs = new Set(graph.nodes.filter((node) => node.kind === 'wait' && node.parentId === step.id)
+    .flatMap((node) => node.wait?.conditions.map((condition) => condition.subFlowId) ?? []));
+  const children = graph.nodes.filter((node) => childNodeIDs.has(node.id));
   return (
     <>
       <span>Selected Step</span>
@@ -359,6 +368,7 @@ function ProcessStepDetails({ graph, step }: { graph: FlowDefinitionGraph; step:
       <code>{safeText(step.id)}</code>
       <p>{waits.length > 0 ? `Waits for ${waits.join(', ')}` : 'No WaitFor phase'}</p>
       <p>{destinations.length > 0 ? `Can proceed to ${destinations.join(', ')}` : 'No outgoing Step transition'}</p>
+      {children.map((child) => <p key={child.id}>SubFlow: <SubFlowDefinitionLink definition={child} href={subFlowLinks[child.id]} /></p>)}
     </>
   );
 }

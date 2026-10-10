@@ -41,6 +41,16 @@ describe('Flow Definition Graph renderer', () => {
     expect(markup).not.toContain('title="lines ');
   });
 
+  it('links loaded child definitions and displays the SubFlow argument index', () => {
+    const markup = renderToStaticMarkup(<FlowDefinitionGraphView
+      displayName="Example" graph={graph} subFlowLinks={{ 'subflow:ChildFlow:12': '?definition=child.json' }}
+    />);
+    expect(markup).toContain('href="?definition=child.json"');
+    expect(markup).toContain('SubFlow [2]: ChildFlow');
+    const withoutChild = renderToStaticMarkup(<FlowDefinitionGraphView displayName="Example" graph={graph} />);
+    expect(withoutChild).not.toContain('href="?definition=');
+  });
+
   it('keeps Streams hidden by default while resources remain visible', () => {
     const markup = renderToStaticMarkup(<FlowDefinitionGraphView displayName="Example" graph={graph} />);
 

@@ -34,6 +34,7 @@ export interface FlowDefinitionNode {
       label: string;
       resourceId?: string;
       subFlowId?: string;
+      index?: number;
       expression?: string;
       span?: SourceSpan;
     }>;

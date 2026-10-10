@@ -130,6 +130,7 @@ var (
 	Rpc                  *rpc.RpcFlow
 	SubFlowChild         *subflow.SubFlowChildFlow
 	SubFlowParent        *subflow.SubFlowParentFlow
+	SubFlowSelection     *subflow.SubFlowSelectionFlow
 	ClientApis           *clientapis.ClientApisFlow
 )
 
@@ -199,6 +200,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	Rpc = rpc.NewRpcFlow()
 	SubFlowChild = subflow.NewSubFlowChildFlow()
 	SubFlowParent = subflow.NewSubFlowParentFlow(SubFlowChild)
+	SubFlowSelection = &subflow.SubFlowSelectionFlow{}
 	ClientApis = clientapis.NewClientApisFlow()
 
 	return Flows()
@@ -257,6 +259,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		Rpc,
 		SubFlowChild,
 		SubFlowParent,
+		SubFlowSelection,
 		ClientApis,
 	}
 	return append(flows, additional...)

@@ -83,6 +83,7 @@
               "label": {"type": "string"},
               "resourceId": {"type": "string"},
               "subFlowId": {"type": "string"},
+              "index": {"type": "integer", "minimum": 0},
               "expression": {"type": "string"},
               "span": {"$ref": "#/$defs/span"}
             }
