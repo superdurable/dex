@@ -167,12 +167,15 @@ root and commit every resulting change. Proto-changing PRs must refresh all
 checked-in generated code across the server and SDKs. Do not use component-only
 codegen targets for these PRs; they leave stale outputs for the next PR.
 
-### Do Not Reserve Proto Fields Before Launch
+### Preserve Protobuf Compatibility
 
-Do not add `reserved` field numbers or names to `.proto` files. The project has
-not launched, so removed fields do not need compatibility protection. Delete the
-field and renumber the remaining fields in that message into contiguous order,
-then regenerate the entire repository.
+Dex is in Beta. Preserve wire compatibility and decoding of persisted payloads.
+Never renumber existing fields or reuse any previously used field number or name.
+When deleting a field, reserve both its original number and name. Preserve the
+numbers and names of remaining fields; gaps are intentional. Apply the same rule
+to deleted enum values. Do not change existing field types, cardinality, or
+oneof membership incompatibly. Add new fields with unused numbers, then
+regenerate the entire repository.
 
 ### License Headers
 
@@ -194,11 +197,18 @@ add it. From the repo root:
 Do not replace legacy headers. Editing a `legacy-only` file upgrades it to
 `mixed`; files first created after the cutoff use the `new` header.
 
-### No Backward Compatibility
+### Beta Compatibility
 
-The project has **not launched**. Remove dead config fields immediately. Break
-APIs freely. Ask before adding any compat shim. Do not leave docs/comments that
-explain former behavior.
+Dex is in Beta. Preserve published APIs, SDK source compatibility, configuration
+files, wire formats, and persisted data. Do not remove or rename published
+interfaces, change defaults or behavior incompatibly, or reject previously valid
+configuration without explicit user authorization for that specific breaking
+change. Prefer additive changes and deprecation with a migration path. Keep
+compatibility code while supported releases or persisted data require it.
+Before an authorized breaking change, explain its scope and migration, and add
+compatibility tests. General permission to refactor or fix a bug does not
+authorize a breaking change. Protobuf field numbers and names must still never
+be reused.
 
 ### Rust Workflow Schema Definitions
 

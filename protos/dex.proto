@@ -1469,8 +1469,8 @@ message ReportSubFlowCompletionActivityOutput {
 }
 
 message ExecuteRpcSignalRequest {
-  Value rpc_input = 1;
-  Value rpc_output = 2;
+  reserved 1, 2;
+  reserved "rpc_input", "rpc_output";
   repeated AttributeWrite upsert_attributes = 3;
   StepDecision step_decision = 4;
   repeated KV record_events = 5;

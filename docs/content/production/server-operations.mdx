@@ -118,10 +118,36 @@ Use separate credentials and least-privilege policies for each environment.
 Monitor write and read failures, then test a recovery procedure that can still
 read existing objects after a credential rotation.
 
-Dex keeps payloads through 100 bytes inline by default. A 101-byte string or
+Dex keeps persisted payloads through 100 bytes inline by default. A 101-byte string or
 encoded object is offloaded. Set
 **blobStore.thresholdInBytes** to override the default. The comparison uses only
 the payload size, not the resulting reference size.
+
+Read-only handlers can still run transactionally when their RPC options or
+server configuration require it. Whether the handler writes state and whether
+the RPC is transactional are separate choices.
+
+Blob offloading follows whether a value must be persisted. Nontransactional
+RPCs send their input directly to the Worker and return their output directly
+to the caller. Dex does not persist these inputs or outputs. Transactional RPC
+inputs and outputs are persisted and use the Blob Store threshold.
+
+State changes returned by any RPC, such as Attribute writes, Channel messages,
+and next Step inputs, are persisted and use the same threshold. Nontransactional
+read-only RPCs do not write Blob objects or record RPC calls in Flow history.
+Loading existing state may read existing Blob objects.
+
+If the complete Worker request exceeds **api.grpcMaxMessageBytes**, Dex rejects
+it before calling the Worker.
+
+SDK Workers default to a 4 MiB gRPC receive limit. **api.grpcMaxMessageBytes**
+controls the Dex server limit, which defaults to 16 MiB; increasing it does not
+raise the Worker limit. The complete Worker request must fit both limits,
+including loaded state and metadata. A request exceeding either limit returns
+**FailedPrecondition** with **WORKER_API_ERROR** and **OriginalWorkerErrorStatus**
+set to **ResourceExhausted** (8). This error applies to both transactional and
+nontransactional RPCs. A transactional request rejected by Dex's size check is
+not retried.
 
 ~~~yaml
 blobStore:

@@ -463,8 +463,7 @@ func (b *Builder) RecordSignal(
 		return
 	}
 	rpcName := rpcNameFromDecision(request.GetStepDecision())
-	if !request.GetIsSetAttributeApi() && rpcName == "" && request.GetRpcInput() == nil &&
-		request.GetRpcOutput() == nil && len(request.GetDeleteFromChannel()) == 0 {
+	if !request.GetIsSetAttributeApi() && rpcName == "" && len(request.GetDeleteFromChannel()) == 0 {
 		return
 	}
 	b.events = append(b.events, newEvent(
@@ -473,8 +472,6 @@ func (b *Builder) RecordSignal(
 		&dexpb.FlowHistoryEvent_RpcExecutionCompleted{
 			RpcExecutionCompleted: &dexpb.RpcExecutionCompletedEvent{
 				RpcName:           rpcName,
-				Input:             request.GetRpcInput(),
-				Output:            request.GetRpcOutput(),
 				StepDecision:      request.GetStepDecision(),
 				UpsertAttributes:  request.GetUpsertAttributes(),
 				RecordEvents:      request.GetRecordEvents(),
@@ -906,9 +903,7 @@ func isExternalPublish(request *dexpb.ExecuteRpcSignalRequest) bool {
 		len(request.GetDeleteFromChannel()) == 0 &&
 		request.GetStepDecision() == nil &&
 		len(request.GetUpsertAttributes()) == 0 &&
-		len(request.GetRecordEvents()) == 0 &&
-		request.GetRpcInput() == nil &&
-		request.GetRpcOutput() == nil
+		len(request.GetRecordEvents()) == 0
 }
 
 func rpcNameFromDecision(decision *dexpb.StepDecision) string {

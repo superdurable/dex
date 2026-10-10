@@ -104,9 +104,29 @@ network path 内。
 least-privilege policy。监控 write 和 read failure，并测试 credential rotation 后仍能读取
 现有 object 的恢复流程。
 
-Dex 默认将不超过 100 bytes 的 payload 保留在 history 中。101 bytes 的 string 或 encoded
+Dex 默认将不超过 100 bytes 的持久化 payload 保留在 history 中。101 bytes 的 string 或 encoded
 object 会被 offload。可通过 **blobStore.thresholdInBytes** 覆盖默认值。
 比较时只计算 payload size，不计算最终 reference size。
+
+当 RPC option 或 server 配置要求事务执行时，只读 handler 也会按事务执行。handler 是否
+写入状态，与 RPC 是否使用事务，是两个独立的选择。
+
+是否 offload 到 Blob Store，取决于这个 value 是否需要持久化。非事务 RPC 将输入直接发送给
+Worker，将输出直接返回给调用者。Dex 不会持久化这些输入和输出。事务 RPC 的输入和输出
+需要持久化，使用 Blob Store threshold。
+
+任何 RPC 返回的状态变更，例如 Attribute 写入、Channel 消息和后续 Step 输入，都需要
+持久化，使用相同的 threshold。非事务只读 RPC 不会写入 Blob object，也不会将 RPC 调用记入
+Flow history。加载已有状态时，可能需要读取已有的 Blob object。
+
+完整 Worker 请求超过 **api.grpcMaxMessageBytes** 时，Dex 会在调用 Worker 前拒绝该请求。
+
+SDK Worker 的 gRPC 接收上限默认为 4 MiB。**api.grpcMaxMessageBytes** 控制 Dex server 的上限，
+默认值为 16 MiB；增大此配置不会提高 Worker 的接收上限。包含已加载状态和 metadata 的完整
+Worker 请求必须同时满足这两个上限。超过任一上限时，都会返回 **FailedPrecondition**，
+其中 **SubStatus** 为 **WORKER_API_ERROR**，**OriginalWorkerErrorStatus** 为
+**ResourceExhausted**（8）。事务和非事务 RPC 使用相同错误。事务请求被 Dex 的大小检查
+拒绝时，不会重试。
 
 ~~~yaml
 blobStore:

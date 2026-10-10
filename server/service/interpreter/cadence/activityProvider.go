@@ -37,6 +37,14 @@ func (a *activityProvider) NewActivityError(
 	return cadence.NewCustomError(errType.String(), activityError)
 }
 
+func (a *activityProvider) NewNonRetryableActivityError(
+	_ dexpb.FlowErrorType,
+	_ *dexpb.InternalActivityError,
+) error {
+	// Cadence requires reason-based retry policies; transactional RPC activities never run on this backend.
+	panic("Cadence does not support per-error non-retryable activity failures")
+}
+
 func (a *activityProvider) NewLocalActivityError(
 	errType dexpb.FlowErrorType,
 	failure *dexpb.InternalLocalStepActivityFailure,

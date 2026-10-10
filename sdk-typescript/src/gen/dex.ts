@@ -1511,8 +1511,6 @@ export interface ReportSubFlowCompletionActivityOutput {
 }
 
 export interface ExecuteRpcSignalRequest {
-  rpcInput: Value | undefined;
-  rpcOutput: Value | undefined;
   upsertAttributes: AttributeWrite[];
   stepDecision: StepDecision | undefined;
   recordEvents: KV[];
@@ -16502,8 +16500,6 @@ export const ReportSubFlowCompletionActivityOutput: MessageFns<ReportSubFlowComp
 
 function createBaseExecuteRpcSignalRequest(): ExecuteRpcSignalRequest {
   return {
-    rpcInput: undefined,
-    rpcOutput: undefined,
     upsertAttributes: [],
     stepDecision: undefined,
     recordEvents: [],
@@ -16517,12 +16513,6 @@ function createBaseExecuteRpcSignalRequest(): ExecuteRpcSignalRequest {
 
 export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
   encode(message: ExecuteRpcSignalRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.rpcInput !== undefined) {
-      Value.encode(message.rpcInput, writer.uint32(10).fork()).join();
-    }
-    if (message.rpcOutput !== undefined) {
-      Value.encode(message.rpcOutput, writer.uint32(18).fork()).join();
-    }
     for (const v of message.upsertAttributes) {
       AttributeWrite.encode(v!, writer.uint32(26).fork()).join();
     }
@@ -16557,22 +16547,6 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.rpcInput = Value.decode(reader, reader.uint32());
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.rpcOutput = Value.decode(reader, reader.uint32());
-          continue;
-        }
         case 3: {
           if (tag !== 26) {
             break;
@@ -16651,12 +16625,6 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
   },
   fromPartial<I extends Exact<DeepPartial<ExecuteRpcSignalRequest>, I>>(object: I): ExecuteRpcSignalRequest {
     const message = createBaseExecuteRpcSignalRequest();
-    message.rpcInput = (object.rpcInput !== undefined && object.rpcInput !== null)
-      ? Value.fromPartial(object.rpcInput)
-      : undefined;
-    message.rpcOutput = (object.rpcOutput !== undefined && object.rpcOutput !== null)
-      ? Value.fromPartial(object.rpcOutput)
-      : undefined;
     message.upsertAttributes = object.upsertAttributes?.map((e) => AttributeWrite.fromPartial(e)) || [];
     message.stepDecision = (object.stepDecision !== undefined && object.stepDecision !== null)
       ? StepDecision.fromPartial(object.stepDecision)

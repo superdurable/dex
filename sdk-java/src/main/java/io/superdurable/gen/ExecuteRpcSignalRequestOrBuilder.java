@@ -11,36 +11,6 @@ public interface ExecuteRpcSignalRequestOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>.dex.Value rpc_input = 1;</code>
-   * @return Whether the rpcInput field is set.
-   */
-  boolean hasRpcInput();
-  /**
-   * <code>.dex.Value rpc_input = 1;</code>
-   * @return The rpcInput.
-   */
-  io.superdurable.gen.Value getRpcInput();
-  /**
-   * <code>.dex.Value rpc_input = 1;</code>
-   */
-  io.superdurable.gen.ValueOrBuilder getRpcInputOrBuilder();
-
-  /**
-   * <code>.dex.Value rpc_output = 2;</code>
-   * @return Whether the rpcOutput field is set.
-   */
-  boolean hasRpcOutput();
-  /**
-   * <code>.dex.Value rpc_output = 2;</code>
-   * @return The rpcOutput.
-   */
-  io.superdurable.gen.Value getRpcOutput();
-  /**
-   * <code>.dex.Value rpc_output = 2;</code>
-   */
-  io.superdurable.gen.ValueOrBuilder getRpcOutputOrBuilder();
-
-  /**
    * <code>repeated .dex.AttributeWrite upsert_attributes = 3;</code>
    */
   java.util.List<io.superdurable.gen.AttributeWrite> 

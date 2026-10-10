@@ -84,13 +84,27 @@ Queries, Updates, workflow history mechanics) as part of the application model;
 state the Dex behavior instead. Deployment and operations guidance may name the
 backend and its configuration.
 
-## Compatibility
+## Beta Compatibility
 
-- The project has not launched. Remove dead config fields immediately.
-- Break APIs, interfaces, and data formats freely. Prefer the cleanest design.
-- Do not keep shims, dual-path logic, deprecated aliases, or migration adapters.
-- Do not add docs or comments that explain former behavior.
-- Ask before adding any backward-compatibility shim.
+- Dex is in Beta. Preserve published APIs, SDK source compatibility,
+  configuration files, wire formats, and persisted data.
+- Do not remove or rename published interfaces, change defaults or behavior
+  incompatibly, or reject previously valid configuration without explicit user
+  authorization for that specific breaking change. General permission to
+  refactor or fix a bug does not authorize a breaking change.
+- Prefer additive changes and deprecation with a migration path. Keep
+  compatibility code while supported releases or persisted data require it.
+- Before an authorized breaking change, explain its scope and migration, and
+  add compatibility tests.
+- Preserve protobuf wire compatibility and decoding of persisted payloads.
+  Never renumber existing fields or reuse previously used field numbers or names.
+  Reserve both the original number and name when deleting a field; preserve
+  remaining fields, including intentional gaps. Apply the same rule to deleted
+  enum values. Do not change field types, cardinality, or oneof membership
+  incompatibly. Field numbers and names must never be reused, even when a
+  breaking change is authorized.
+- After any proto change, run `make generated-code` from the repository root
+  and commit every resulting change across the server and SDKs.
 
 ## Dependency Injection
 

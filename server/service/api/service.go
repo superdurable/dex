@@ -1525,17 +1525,6 @@ func (s *serviceImpl) InvokeRPC(
 		return nil, status.Errorf(codes.Unimplemented, "locking RPC requires Temporal synchronous update")
 	}
 	isTransactional := s.shouldInvokeRPCTransactionally(req)
-	if err := blobstore.OffloadLargeValue(
-		ctx,
-		req.GetInput(),
-		req.GetFlowId(),
-		req.GetRequestId(),
-		s.blobStoreCfg.EffectiveThresholdInBytes(),
-		s.store,
-		s.blobStoreCfg.EffectiveEnabled(),
-	); err != nil {
-		return nil, s.handleError(err)
-	}
 
 	// Pin each attempt to one run so its query, signal, or Update cannot cross Continue-as-New.
 	runID := req.GetRunId()
@@ -1545,6 +1534,11 @@ func (s *serviceImpl) InvokeRPC(
 			return nil, s.handleError(err)
 		}
 		runID = description.RunId
+	}
+	if isTransactional {
+		if err := s.offloadRPCValue(ctx, req, req.GetInput()); err != nil {
+			return nil, s.handleError(err)
+		}
 	}
 
 	retryBackoff := retry.NewInvokeRPCBackoff(
@@ -1638,6 +1632,7 @@ func (s *serviceImpl) doInvokeRPC(
 		s.store,
 		req.GetRequestId(),
 		s.blobStoreCfg,
+		false,
 	)
 	if err != nil {
 		return nil, err
@@ -1657,10 +1652,6 @@ func (s *serviceImpl) doInvokeRPC(
 			DeleteFromChannel:        workerResponse.GetDeleteFromChannel(),
 			PublishToChannel:         workerResponse.GetPublishToChannel(),
 			ActionPermissionMappings: workerResponse.GetActionPermissionMappings(),
-		}
-		if s.apiCfg.IncludeRPCInputOutputIntoHistory {
-			signalRequest.RpcInput = req.GetInput()
-			signalRequest.RpcOutput = workerResponse.GetOutput()
 		}
 		if err := s.client.SignalWorkflow(
 			ctx,
@@ -1709,6 +1700,13 @@ func (s *serviceImpl) doInvokeRpcUpdate(
 		return nil, fmt.Errorf("InvokeRpc Update returned no response")
 	}
 	return result.GetResponse(), nil
+}
+
+func (s *serviceImpl) offloadRPCValue(ctx context.Context, req *dexpb.InvokeRPCRequest, value *dexpb.Value) error {
+	return blobstore.OffloadLargeValue(
+		ctx, value, req.GetFlowId(), req.GetRequestId(),
+		s.blobStoreCfg.EffectiveThresholdInBytes(), s.store, s.blobStoreCfg.EffectiveEnabled(),
+	)
 }
 
 func (s *serviceImpl) ResetFlow(

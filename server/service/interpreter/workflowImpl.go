@@ -255,6 +255,11 @@ func (i *Interpreter) StartEngineFlow(
 	}
 
 	defer func() {
+		// Every normal return must provide a non-nil output or a non-nil error.
+		// Cadence cache eviction exits suspended workflow goroutines without a result; it must not finalize the Flow.
+		if i.activities.unifiedClient.GetBackendType() == service.BackendTypeCadence && out == nil && retErr == nil {
+			return
+		}
 		retErr = terminalCoordinator.CoordinateAndFinalizeError(ctx, retErr)
 		if shouldReportSubFlowCompletion(provider, ctx, subFlowParentFlowID, retErr) {
 			if reportErr := i.reportSubFlowCompletion(

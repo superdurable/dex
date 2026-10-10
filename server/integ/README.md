@@ -65,6 +65,24 @@ collections, all-instance and exact-instance selectors, FIFO envelopes, message 
 blob loading, and the independence of loading, transactions, and Attribute
 locks.
 
+RPC Blob Store coverage rejects writes while pure reads exchange inputs and
+outputs larger than the durable threshold. It covers string and encoded-object
+values and eager and lazy loading. Transport tests include Worker state and
+metadata in the message-size limit and reject
+oversized requests with Blob Store enabled or disabled without calling the
+Worker or creating objects. Server and Worker size-limit failures expose the same
+client error code, substatus, and original Worker status. Pure-read tests check that semantic history contains
+no RPC completion event and Temporal history contains no Signal or Update event.
+External-storage tests verify persisted transactional payloads and RPC state
+changes, with direct nontransactional input/output transport in both loading
+modes. Nontransactional effect history excludes RPC inputs and outputs.
+Transactional size-limit tests cover explicit transactions, Attribute
+locks, and synchronous-update configuration in both loading modes. They verify
+the client error code and Worker status, a single non-retryable local activity
+attempt in Temporal history, and successful subsequent calls after failure.
+Wire-compatibility tests decode Signal payloads with the published field numbers
+and removed RPC input/output fields, then verify Attribute writes on both backends.
+
 Resumable Stream integration covers per-message size limits, Flow-type scope
 isolation, global FIFO trim, resume, repeated sources, and multi-server trim
 coordination. It requires Redis 7 on `127.0.0.1:6379`. The standard dependency
