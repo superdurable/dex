@@ -94,7 +94,7 @@ func (analyzer *goAnalyzer) parseConnectorTriggerBinding(expression ast.Expr) (C
 	module, found := analyzer.modules[config.packagePath]
 	if !found || !officialConnectorModulePattern.MatchString(module.path) ||
 		!connectorReleaseVersionPattern.MatchString(module.version) || module.replaced {
-		analyzer.addConnectorConfigurationDiagnostic("connector_trigger_release_required", "Connector Trigger binding requires an exact official published module version", call)
+		analyzer.addConnectorConfigurationDiagnostic("connector_trigger_release_required", "Connector Trigger binding requires an exact official published module version or release candidate", call)
 	} else {
 		binding.ModulePath = module.path
 		binding.ModuleVersion = module.version

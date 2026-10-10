@@ -103,6 +103,48 @@ func TestConnectorReleaseResolverDownloadsVerifiedMetadataOnce(t *testing.T) {
 	}
 }
 
+func TestConnectorReleaseResolverResolvesReleaseCandidateTags(t *testing.T) {
+	identity := connectorDefinitionIdentity{
+		ConnectorID: "gmail", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/google/gmail",
+		ModuleVersion: "v0.2.0-rc.1", ConnectionName: "sender", ConfigurationEnabled: true,
+	}
+	archive := connectorUITestArchive(t, "index.html", []byte("<main>Gmail</main>"))
+	metadata, err := json.Marshal(connectorTestRelease(identity, archive, connectorUIHostAPIRange))
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseServer := connectorReleaseTestServer(t, metadata, archive)
+	defer releaseServer.Close()
+	var pathsMu sync.Mutex
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		pathsMu.Lock()
+		paths = append(paths, request.URL.Path)
+		pathsMu.Unlock()
+		releaseServer.Config.Handler.ServeHTTP(response, request)
+	}))
+	defer server.Close()
+	resolver := &connectorReleaseResolver{
+		baseURL: server.URL, artifactRoot: filepath.Join(t.TempDir(), "artifacts"), httpClient: server.Client(),
+	}
+	release, err := resolver.releaseMetadata(context.Background(), identity)
+	if err != nil || release.Version != "v0.2.0-rc.1" {
+		t.Fatalf("release metadata = %+v, err = %v", release, err)
+	}
+	pathsMu.Lock()
+	for _, path := range paths {
+		if !strings.Contains(path, "/connectors/google/gmail/v0.2.0-rc.1/") {
+			t.Errorf("download path %s does not name the release candidate tag", path)
+		}
+	}
+	pathsMu.Unlock()
+	pseudoVersion := identity
+	pseudoVersion.ModuleVersion = "v0.0.0-20261010120000-abcdef123456"
+	if _, err := resolver.releaseMetadata(context.Background(), pseudoVersion); err == nil {
+		t.Fatal("a pseudo-version resolved as a Connector release")
+	}
+}
+
 func TestConnectorReleaseResolverLoadsLocalOverride(t *testing.T) {
 	identity := connectorDefinitionIdentity{
 		ConnectorID: "slack", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/slack",

@@ -126,7 +126,7 @@ store directory, the file names inside it, and the launch command, with
 **Copy** buttons that copy the absolute values. The page follows the Dex Web theme.
 
 The page groups Connector Steps by Connector ID and static connection name,
-resolves the exact official Connector release declared by the graph, verifies
+resolves the exact official Connector release or release candidate declared by the graph, verifies
 release and Studio UI checksums, and loads UI bundles in opaque-origin sandbox
 iframes. Each connection view in `GET /api/v2/connector-connections` carries
 `displayName`, the release manifest's `metadata.displayName`, from a local
