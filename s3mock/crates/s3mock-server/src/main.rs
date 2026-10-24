@@ -56,8 +56,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
     let orphan_collection = tokio::task::spawn_blocking(move || store.collect_orphan_data_files());
-    tokio::signal::ctrl_c().await?;
-    tracing::info!("shutting down");
+    let signal = wait_for_shutdown_signal().await?;
+    tracing::info!(signal, "shutting down");
     server.shutdown().await;
     if let Some(scanner) = lifecycle_scanner {
         scanner.abort();
@@ -71,6 +71,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(error) => tracing::warn!(%error, "orphan data file collection failed"),
     }
     Ok(())
+}
+
+/// Waits for SIGTERM, which container runtimes send to stop a process, or for SIGINT.
+#[cfg(unix)]
+async fn wait_for_shutdown_signal() -> std::io::Result<&'static str> {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut terminate = signal(SignalKind::terminate())?;
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => result.map(|()| "SIGINT"),
+        _ = terminate.recv() => Ok("SIGTERM"),
+    }
+}
+
+/// Waits for Ctrl-C where Unix signals do not exist.
+#[cfg(not(unix))]
+async fn wait_for_shutdown_signal() -> std::io::Result<&'static str> {
+    tokio::signal::ctrl_c().await.map(|()| "ctrl-c")
 }
 
 /// Applies lifecycle rules every `interval` until the task is aborted at shutdown.
