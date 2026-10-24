@@ -53,11 +53,13 @@ pub(crate) fn apply_flow_start(
     command: &FlowStartCommand,
 ) -> Result<HandlerResult, ApplyError> {
     let request = command.request.clone().unwrap_or_default();
-    let mut flow_config = request
-        .flow_start_options
-        .as_ref()
-        .and_then(|options| options.flow_config_override.clone())
-        .unwrap_or_default();
+    let mut flow_config = command.effective_flow_config.clone().unwrap_or_else(|| {
+        request
+            .flow_start_options
+            .as_ref()
+            .and_then(|options| options.flow_config_override.clone())
+            .unwrap_or_default()
+    });
     flow_config.worker_target = command.worker_target.clone();
     let start = RunStart {
         new_run_id: &command.new_run_id,
