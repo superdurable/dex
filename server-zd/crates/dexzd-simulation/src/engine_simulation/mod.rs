@@ -12,6 +12,7 @@
 mod committed_log;
 mod engine_invariants;
 mod event_trace;
+mod seed_summary;
 mod simulated_clients;
 mod simulated_clock;
 mod simulated_node;
@@ -37,6 +38,8 @@ pub struct EngineSimulationConfig {
     pub active_seconds: u64,
     /// Seconds of calm after the active phase: no clients, faults, or crashes.
     pub calm_tail_seconds: u64,
+    /// Recovery paths the seed exercises; each profile has its own seed trajectories.
+    pub profile: EngineSimulationProfile,
 }
 
 impl Default for EngineSimulationConfig {
@@ -44,6 +47,29 @@ impl Default for EngineSimulationConfig {
         Self {
             active_seconds: 120,
             calm_tail_seconds: 60,
+            profile: EngineSimulationProfile::Standard,
+        }
+    }
+}
+
+/// Recovery paths a seed exercises beyond faults, crashes, and takeovers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineSimulationProfile {
+    /// The fixed set: the default history window, one node incarnation, and snapshots.
+    Standard,
+    /// A four-event history window, restarts that may start a new node incarnation, and no
+    /// snapshots.
+    RedeploysWithShortHistoryWindow,
+}
+
+impl EngineSimulationProfile {
+    /// The test that runs this profile's seeds.
+    fn test_name(self) -> &'static str {
+        match self {
+            Self::Standard => "the_engine_keeps_every_invariant_through_faults_and_crashes",
+            Self::RedeploysWithShortHistoryWindow => {
+                "redeploys_with_a_short_history_window_keep_every_invariant"
+            }
         }
     }
 }
@@ -122,8 +148,19 @@ pub struct EngineSimulationSummary {
     /// Of the store comparisons, those made right after a crash recovery.
     pub recovered_state_comparisons: u64,
     /// Recovered-store checks that used the window points of a position behind the shadow, as
-    /// after an old-epoch process applied frames the successor had not.
+    /// on an old-epoch process's store after its successor applied frames it had not.
     pub recovered_checks_with_older_window_points: u64,
+    /// Recovered-store checks made while an old-epoch process still ran, as right after a
+    /// takeover.
+    pub recovered_checks_during_old_epoch_overlap: u64,
+    /// Checks of an old-epoch process's store during its overlap with a successor.
+    pub old_epoch_store_checks: u64,
+    /// Restarts that started a new node incarnation, which closes the previous log stream.
+    pub incarnation_changes: u64,
+    /// Starts whose replay of a closed log stream covered a batch that an EpochStart voided.
+    pub closed_stream_replays_over_voided_batches: u64,
+    /// Semantic history events that run windows pruned, summed over the runs in the final state.
+    pub final_pruned_semantic_events: u64,
     /// Comparisons of in-flight dispatches with committed running attempts.
     pub dispatch_comparisons: u64,
     /// Runs in the final state.
@@ -190,6 +227,13 @@ impl EngineSimulationSummary {
         self.recovered_state_comparisons += other.recovered_state_comparisons;
         self.recovered_checks_with_older_window_points +=
             other.recovered_checks_with_older_window_points;
+        self.recovered_checks_during_old_epoch_overlap +=
+            other.recovered_checks_during_old_epoch_overlap;
+        self.old_epoch_store_checks += other.old_epoch_store_checks;
+        self.incarnation_changes += other.incarnation_changes;
+        self.closed_stream_replays_over_voided_batches +=
+            other.closed_stream_replays_over_voided_batches;
+        self.final_pruned_semantic_events += other.final_pruned_semantic_events;
         self.dispatch_comparisons += other.dispatch_comparisons;
         self.final_runs += other.final_runs;
         self.recent_events.clone_from(&other.recent_events);
@@ -227,8 +271,10 @@ impl fmt::Display for EngineSimulationFailure {
         writeln!(
             formatter,
             "reproduce with: DEXZD_SIMULATION_SEED={} DEXZD_SIMULATION_SECONDS={} cargo test -p \
-             dexzd-simulation --test engine_simulation -- --nocapture",
-            self.seed, self.config.active_seconds
+             dexzd-simulation --test engine_simulation {} -- --exact --nocapture",
+            self.seed,
+            self.config.active_seconds,
+            self.config.profile.test_name()
         )?;
         writeln!(formatter, "last {} events:", self.recent_events.len())?;
         for event in &self.recent_events {

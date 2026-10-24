@@ -33,6 +33,50 @@ pub(crate) struct StorageObservations {
     pub(crate) epoch_starts_below_landed_batches: u64,
     /// Bodies of hard-delete objects processes sent, by key; each key is written once.
     pub(crate) hard_delete_bodies: BTreeMap<String, Bytes>,
+    pub(crate) log_batches: LandedLogBatches,
+}
+
+/// Epochs of the log batches that landed, by stream incarnation and seq.
+#[derive(Debug, Default)]
+pub(crate) struct LandedLogBatches {
+    /// Epochs of batches that carry records.
+    record_batches: BTreeMap<(u32, u64), u64>,
+    epoch_starts: BTreeMap<(u32, u64), u64>,
+}
+
+impl LandedLogBatches {
+    pub(super) fn record(&mut self, incarnation: u32, seq: u64, epoch: u64, is_epoch_start: bool) {
+        let batches = if is_epoch_start {
+            &mut self.epoch_starts
+        } else {
+            &mut self.record_batches
+        };
+        batches.insert((incarnation, seq), epoch);
+    }
+
+    /// Returns how many log batches landed, EpochStarts included.
+    pub(crate) fn landed_batch_count(&self) -> usize {
+        self.record_batches.len() + self.epoch_starts.len()
+    }
+
+    /// Whether an EpochStart below `seq` in stream `incarnation` started an epoch newer than
+    /// `epoch`.
+    pub(crate) fn is_voided(&self, incarnation: u32, seq: u64, epoch: u64) -> bool {
+        self.epoch_starts
+            .range((incarnation, 0)..(incarnation, seq))
+            .any(|(_, start_epoch)| *start_epoch > epoch)
+    }
+
+    /// Whether stream `incarnation` holds a voided batch with records in `seqs`.
+    pub(crate) fn has_voided_batch(
+        &self,
+        incarnation: u32,
+        seqs: std::ops::RangeInclusive<u64>,
+    ) -> bool {
+        self.record_batches
+            .range((incarnation, *seqs.start())..=(incarnation, *seqs.end()))
+            .any(|((_, seq), epoch)| self.is_voided(incarnation, *seq, *epoch))
+    }
 }
 
 /// Old-epoch processes before and after a successor's lease write took effect.

@@ -410,11 +410,22 @@ impl CommittedLog {
             position.incarnation,
             position.seq,
         );
-        self.storage_observations
-            .lock()
-            .expect("storage observation lock is not poisoned")
-            .old_epoch
-            .record_frame(process_label);
+        let voided_epoch = {
+            let mut observations = self
+                .storage_observations
+                .lock()
+                .expect("storage observation lock is not poisoned");
+            observations.old_epoch.record_frame(process_label);
+            frame
+                .commands
+                .iter()
+                .map(|committed| committed.command.epoch)
+                .find(|epoch| {
+                    observations
+                        .log_batches
+                        .is_voided(position.incarnation, position.seq, *epoch)
+                })
+        };
         self.trace.record(&format!(
             "{process_label} applied frame p{} {}:{} with {} commands",
             partition.0,
@@ -422,6 +433,18 @@ impl CommittedLog {
             position.seq,
             frame.commands.len()
         ));
+        if let Some(epoch) = voided_epoch {
+            let violation = InvariantViolation::new(
+                "voided-batch-applied",
+                format!(
+                    "{process_label} applied frame p{} {}:{} of epoch {epoch}, after an \
+                     EpochStart of a newer epoch at a lower seq voided it",
+                    partition.0, position.incarnation, position.seq
+                ),
+            );
+            state.record_violation(violation, &self.trace);
+            return;
+        }
         let result = if state.frames.contains_key(&key) {
             state.replayed_frames += 1;
             state.compare_with_canonical(&key, &frame.commands)

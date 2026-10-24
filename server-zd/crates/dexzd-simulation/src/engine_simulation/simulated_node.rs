@@ -31,6 +31,7 @@ use dexzd_stream_store::{StreamStore, StreamStoreConfig};
 use prost::Message;
 use tokio::task::JoinHandle;
 
+use crate::engine_simulation::EngineSimulationProfile;
 use crate::engine_simulation::committed_log::CommittedLog;
 use crate::engine_simulation::event_trace::EventTrace;
 use crate::engine_simulation::simulated_clock::{
@@ -60,6 +61,7 @@ pub(crate) struct ClusterEnvironment {
     pub(crate) id_source: Arc<dyn EngineIdSource>,
     /// How long closed runs stay before their purge; some seeds keep them past the end.
     pub(crate) retention_after_close: Duration,
+    pub(crate) profile: EngineSimulationProfile,
     pub(crate) origin: tokio::time::Instant,
 }
 
@@ -121,6 +123,7 @@ pub(crate) enum LocalStoreStart {
 pub(crate) struct ProcessStart {
     pub(crate) process_label: String,
     pub(crate) local_store: LocalStoreStart,
+    pub(crate) incarnation: u32,
     pub(crate) clock_offset_micros: i64,
     pub(crate) object_store: Arc<NodeObjectStore>,
 }
@@ -152,6 +155,7 @@ impl NodeProcess {
         let ProcessStart {
             process_label,
             local_store,
+            incarnation,
             clock_offset_micros,
             object_store,
         } = start;
@@ -163,7 +167,7 @@ impl NodeProcess {
             LocalStoreStart::Lost => LocalStoreConfig::InMemory,
             LocalStoreStart::Existing(store) => LocalStoreConfig::ExistingForTest(store),
         };
-        let settings = run_settings(environment.retention_after_close);
+        let settings = run_settings(environment.retention_after_close, environment.profile);
         let applier: Arc<dyn CommandApplier> = Arc::new(DeterministicCommandApplier);
         let stream_store = Arc::new(
             StreamStore::new(&StreamStoreConfig::default())
@@ -180,7 +184,7 @@ impl NodeProcess {
         let factory_store = Arc::clone(&object_store_port);
         let factory_applier = Arc::clone(&applier);
         let started = EngineNode::start(
-            &engine_node_config(local_store_config),
+            &engine_node_config(local_store_config, incarnation, environment.profile),
             EngineNodeDependencies {
                 metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                 object_store: object_store_port,
@@ -325,11 +329,27 @@ pub(crate) fn copy_local_store(store: &EngineLocalStore) -> Arc<EngineLocalStore
     Arc::new(EngineLocalStore::Memory(copy))
 }
 
-fn engine_node_config(local_store: LocalStoreConfig) -> EngineNodeConfig {
+fn engine_node_config(
+    local_store: LocalStoreConfig,
+    incarnation: u32,
+    profile: EngineSimulationProfile,
+) -> EngineNodeConfig {
+    let mut snapshots = SnapshotConfig {
+        log_threshold_bytes: 64 * 1024,
+        interval: Duration::from_secs(20),
+        retry_delay: Duration::from_secs(5),
+        deletion_delay: Duration::from_secs(30),
+        ..SnapshotConfig::default()
+    };
+    if profile == EngineSimulationProfile::RedeploysWithShortHistoryWindow {
+        // Without snapshots, a start with a lost store replays every closed stream from seq 1.
+        snapshots.log_threshold_bytes = u64::MAX;
+        snapshots.interval = Duration::MAX;
+    }
     EngineNodeConfig {
         node: NodeConfig {
             node_id: NODE_ID.to_owned(),
-            incarnation: 1,
+            incarnation,
             internal_address: String::new(),
         },
         cluster: ClusterConfig {
@@ -347,13 +367,7 @@ fn engine_node_config(local_store: LocalStoreConfig) -> EngineNodeConfig {
             debug_replay_checks: true,
             ..CommitConfig::default()
         },
-        snapshots: SnapshotConfig {
-            log_threshold_bytes: 64 * 1024,
-            interval: Duration::from_secs(20),
-            retry_delay: Duration::from_secs(5),
-            deletion_delay: Duration::from_secs(30),
-            ..SnapshotConfig::default()
-        },
+        snapshots,
         recovery: RecoveryConfig::default(),
         blocking_work: BlockingWorkPlacement::CallingTaskForTest,
     }
@@ -383,10 +397,15 @@ fn runtime_config(settings: RunSettings) -> RuntimeConfig {
     }
 }
 
-fn run_settings(retention_after_close: Duration) -> RunSettings {
-    RunSettings {
+fn run_settings(retention_after_close: Duration, profile: EngineSimulationProfile) -> RunSettings {
+    let mut settings = RunSettings {
         retention_after_close_micros: duration_micros(retention_after_close),
         request_dedup_capacity: 64,
         ..default_run_settings()
+    };
+    if profile == EngineSimulationProfile::RedeploysWithShortHistoryWindow {
+        settings.history_window_semantic_events = 4;
+        settings.history_prune_chunk_semantic_events = 1;
     }
+    settings
 }

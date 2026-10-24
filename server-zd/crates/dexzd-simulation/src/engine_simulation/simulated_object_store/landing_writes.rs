@@ -8,8 +8,8 @@
 
 //! Writes on their way to storage, owned apart from their callers so they can land after a crash.
 
+use std::collections::BTreeSet;
 use std::future::Future;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -100,6 +100,40 @@ pub(super) enum CrashLanding {
     AfterSuccessorServes(Duration),
 }
 
+/// Log writes of one process that have not landed yet.
+#[derive(Debug, Default)]
+pub(super) struct UnlandedLogWrites {
+    keys: BTreeSet<String>,
+    is_stalling_next: bool,
+    /// Writes held until their process dies; they never land.
+    stalled: BTreeSet<String>,
+    /// Log writes that landed above a stalled write while it was held.
+    landed_above_stalled: u64,
+}
+
+impl UnlandedLogWrites {
+    pub(super) fn count(&self) -> usize {
+        self.keys.len()
+    }
+
+    pub(super) fn stall_next(&mut self) {
+        self.is_stalling_next = true;
+    }
+
+    /// Returns whether the write of `key` is the stalled one, which then never lands.
+    pub(super) fn take_stall(&mut self, key: &str) -> bool {
+        if !std::mem::take(&mut self.is_stalling_next) {
+            return false;
+        }
+        self.stalled.insert(key.to_owned());
+        true
+    }
+
+    pub(super) fn has_landed_above_stalled(&self) -> bool {
+        self.landed_above_stalled > 0
+    }
+}
+
 /// One write between its caller and storage.
 pub(super) struct WriteLanding {
     pub(super) storage: Arc<SharedObjectStorage>,
@@ -110,8 +144,8 @@ pub(super) struct WriteLanding {
     pub(super) crash_landing: CrashLanding,
     /// Turns true, or closes, when the process dies.
     pub(super) cut_off: watch::Receiver<bool>,
-    /// The process's count of log writes that have not landed, for log writes.
-    pub(super) unlanded_log_writes: Option<Arc<AtomicUsize>>,
+    /// The process's log writes that have not landed, for log writes.
+    pub(super) unlanded_log_writes: Option<Arc<Mutex<UnlandedLogWrites>>>,
 }
 
 impl WriteLanding {
@@ -128,7 +162,7 @@ impl WriteLanding {
     {
         let (sender, receiver) = oneshot::channel();
         if let Some(unlanded) = &self.unlanded_log_writes {
-            unlanded.fetch_add(1, Ordering::SeqCst);
+            lock_unlanded(unlanded).keys.insert(self.key.clone());
         }
         let storage = Arc::clone(&self.storage);
         storage.spawn_landing(self.land(effect, is_written, sender));
@@ -150,18 +184,47 @@ impl WriteLanding {
             // A closed channel means the process is gone too.
             _ = self.cut_off.wait_for(|is_cut_off| *is_cut_off) => true,
         };
+        if has_died && self.is_stalled() {
+            self.storage.trace.record(&format!(
+                "{} write {} never reached storage",
+                self.process_label, self.key
+            ));
+            return;
+        }
         if has_died {
             self.wait_after_crash().await;
         }
         let outcome = effect().await;
         if let Some(unlanded) = &self.unlanded_log_writes {
-            unlanded.fetch_sub(1, Ordering::SeqCst);
+            let mut unlanded = lock_unlanded(unlanded);
+            unlanded.keys.remove(&self.key);
+            // Log keys zero-pad the seq, so a key above the lowest stalled one sits above a hole.
+            let is_above_stalled = unlanded
+                .stalled
+                .first()
+                .is_some_and(|lowest_stalled| self.key > *lowest_stalled);
+            if is_above_stalled && is_written(&outcome) {
+                unlanded.landed_above_stalled += 1;
+            }
         }
         if is_written(&outcome) {
             self.record_landed(has_died).await;
         }
         // The caller is gone when its process died; the write landed anyway.
         let _caller_gone = sender.send(outcome);
+    }
+
+    /// Whether this is a stalled write, which is no longer unlanded once its process died.
+    fn is_stalled(&self) -> bool {
+        let Some(unlanded) = &self.unlanded_log_writes else {
+            return false;
+        };
+        let mut unlanded = lock_unlanded(unlanded);
+        let is_stalled = unlanded.stalled.remove(&self.key);
+        if is_stalled {
+            unlanded.keys.remove(&self.key);
+        }
+        is_stalled
     }
 
     async fn wait_after_crash(&self) {
@@ -225,7 +288,8 @@ impl WriteLanding {
             .send_replace(Some(self.process_label.clone()));
     }
 
-    /// Counts an EpochStart that landed below a batch already in its stream.
+    /// Records the epoch of a landed batch, and counts an EpochStart that landed below a batch
+    /// already in its stream.
     async fn record_log_batch_landed(&self) {
         let store = &self.storage.store;
         let Ok(Some(object)) = store.get(&self.key).await else {
@@ -234,6 +298,15 @@ impl WriteLanding {
         let Ok(batch) = dexzd_log::decode_batch(&object.bytes) else {
             return;
         };
+        let header = &batch.header;
+        self.storage.observe(|observations| {
+            observations.log_batches.record(
+                header.incarnation,
+                header.seq,
+                header.epoch,
+                header.epoch_start.is_some(),
+            );
+        });
         if batch.header.epoch_start.is_none() {
             return;
         }
@@ -253,4 +326,12 @@ impl WriteLanding {
             ));
         }
     }
+}
+
+pub(super) fn lock_unlanded(
+    unlanded: &Mutex<UnlandedLogWrites>,
+) -> std::sync::MutexGuard<'_, UnlandedLogWrites> {
+    unlanded
+        .lock()
+        .expect("unlanded log write lock is not poisoned")
 }

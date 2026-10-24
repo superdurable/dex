@@ -8,12 +8,13 @@
 
 //! One shared in-memory object store with S3 semantics, seen by each node through a fault layer.
 
+mod closed_stream_replays;
 mod landing_writes;
 mod storage_observations;
 
 use std::future::Future;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -29,9 +30,13 @@ use rand_chacha::ChaCha8Rng;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
+pub(crate) use closed_stream_replays::replays_voided_closed_batch;
 pub(crate) use landing_writes::SharedObjectStorage;
-use landing_writes::{CrashLanding, WriteLanding};
+use landing_writes::{CrashLanding, UnlandedLogWrites, WriteLanding, lock_unlanded};
 pub(crate) use storage_observations::StorageObservations;
+
+/// Outlasts the process of a stalled write, whose crash then discards the write.
+const STALLED_WRITE_DELAY: Duration = Duration::from_secs(60 * 60);
 
 /// A fault the layer injects into one call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -102,7 +107,7 @@ pub(crate) struct NodeObjectStore {
     faults: Mutex<FaultState>,
     cut_off: watch::Sender<bool>,
     is_serving: AtomicBool,
-    unlanded_log_writes: Arc<AtomicUsize>,
+    unlanded_log_writes: Arc<Mutex<UnlandedLogWrites>>,
 }
 
 impl NodeObjectStore {
@@ -122,7 +127,7 @@ impl NodeObjectStore {
             }),
             cut_off: watch::Sender::new(false),
             is_serving: AtomicBool::new(false),
-            unlanded_log_writes: Arc::new(AtomicUsize::new(0)),
+            unlanded_log_writes: Arc::new(Mutex::new(UnlandedLogWrites::default())),
         }
     }
 
@@ -134,7 +139,17 @@ impl NodeObjectStore {
 
     /// Log writes of this process that have not reached storage yet.
     pub(crate) fn unlanded_log_writes(&self) -> usize {
-        self.unlanded_log_writes.load(Ordering::SeqCst)
+        lock_unlanded(&self.unlanded_log_writes).count()
+    }
+
+    /// Holds the next log write until the process dies, so it never lands, as a lost request.
+    pub(crate) fn stall_next_log_write(&self) {
+        lock_unlanded(&self.unlanded_log_writes).stall_next();
+    }
+
+    /// Whether a log write landed above the stalled one while it was held, leaving a hole below it.
+    pub(crate) fn has_landed_log_write_above_stalled_one(&self) -> bool {
+        lock_unlanded(&self.unlanded_log_writes).has_landed_above_stalled()
     }
 
     fn observe(&self, record: impl FnOnce(&mut StorageObservations)) {
@@ -297,7 +312,15 @@ impl NodeObjectStore {
             Some(InjectedFault::ServerError | InjectedFault::Timeout) => plan.is_effect_applied,
             Some(InjectedFault::Throttled | InjectedFault::ConditionalRequestConflict) => false,
         };
-        let deadline = Instant::now() + plan.delay;
+        let is_stalled = reaches_storage
+            && key_class(key) == "log"
+            && lock_unlanded(&self.unlanded_log_writes).take_stall(key);
+        let deadline = Instant::now()
+            + if is_stalled {
+                STALLED_WRITE_DELAY
+            } else {
+                plan.delay
+            };
         let landing = reaches_storage.then(|| {
             WriteLanding {
                 storage: Arc::clone(&self.storage),

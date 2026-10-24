@@ -12,14 +12,17 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use dexzd_simulation::{
-    EngineSimulationConfig, EngineSimulationFailure, EngineSimulationSummary, run_engine_seed,
-    run_engine_seed_with_final_state,
+    EngineSimulationConfig, EngineSimulationFailure, EngineSimulationProfile,
+    EngineSimulationSummary, run_engine_seed, run_engine_seed_with_final_state,
 };
 
 const DEFAULT_SEED_COUNT: u64 = 64;
 const DEFAULT_ACTIVE_SECONDS: u64 = 120;
 /// First seed of the fixed set; any constant keeps the set reproducible.
 const FIRST_SEED: u64 = 0xe5e5_0000;
+const DEFAULT_REDEPLOY_SEED_COUNT: u64 = 16;
+/// The redeploy profile changes every trajectory, so its seeds form their own group.
+const FIRST_REDEPLOY_SEED: u64 = 0x4ede_0000;
 const REGRESSION_SEEDS: &str = include_str!("../engine-regression-seeds.txt");
 
 fn environment_number(name: &str) -> Option<u64> {
@@ -31,14 +34,19 @@ fn environment_number(name: &str) -> Option<u64> {
 }
 
 /// Returns the active seconds of each seed to run, and whether one seed was requested.
-fn configured() -> (BTreeMap<u64, u64>, bool) {
+fn configured(
+    default_seed_count: u64,
+    default_first_seed: u64,
+    regression_cases: &[(u64, u64)],
+) -> (BTreeMap<u64, u64>, bool) {
     let active_seconds =
         environment_number("DEXZD_SIMULATION_SECONDS").unwrap_or(DEFAULT_ACTIVE_SECONDS);
     match environment_number("DEXZD_SIMULATION_SEED") {
         Some(seed) => (BTreeMap::from([(seed, active_seconds)]), true),
         None => {
-            let count = environment_number("DEXZD_SIMULATION_SEEDS").unwrap_or(DEFAULT_SEED_COUNT);
-            let first_seed = environment_number("DEXZD_SIMULATION_BASE_SEED").unwrap_or(FIRST_SEED);
+            let count = environment_number("DEXZD_SIMULATION_SEEDS").unwrap_or(default_seed_count);
+            let first_seed =
+                environment_number("DEXZD_SIMULATION_BASE_SEED").unwrap_or(default_first_seed);
             let end_seed = first_seed
                 .checked_add(count)
                 .expect("simulation seed range overflow");
@@ -46,7 +54,7 @@ fn configured() -> (BTreeMap<u64, u64>, bool) {
                 .map(|seed| (seed, active_seconds))
                 .collect();
             // A longer active phase replays the same trajectory up to the regression's failure.
-            for (seed, regression_seconds) in regression_seed_cases() {
+            for &(seed, regression_seconds) in regression_cases {
                 seeds
                     .entry(seed)
                     .and_modify(|seconds| *seconds = (*seconds).max(regression_seconds))
@@ -81,22 +89,9 @@ fn regression_seed_cases() -> Vec<(u64, u64)> {
 
 #[test]
 fn the_engine_keeps_every_invariant_through_faults_and_crashes() {
-    let (seeds, is_single_seed) = configured();
-    let failure_directory = std::env::var_os("DEXZD_SIMULATION_FAILURE_DIR").map(PathBuf::from);
-    let mut total = EngineSimulationSummary::default();
-    for (seed, active_seconds) in seeds {
-        let config = EngineSimulationConfig {
-            active_seconds,
-            ..EngineSimulationConfig::default()
-        };
-        match run_engine_seed(seed, &config) {
-            Ok(summary) => total.merge(&summary),
-            Err(failure) => {
-                write_failure_report(failure_directory.as_ref(), &failure);
-                panic!("{failure}");
-            }
-        }
-    }
+    let (seeds, is_single_seed) =
+        configured(DEFAULT_SEED_COUNT, FIRST_SEED, &regression_seed_cases());
+    let mut total = run_seeds(&seeds, EngineSimulationProfile::Standard);
     if std::env::var_os("DEXZD_SIMULATION_PRINT_EVENTS").is_some() {
         for event in &total.recent_events {
             println!("{event}");
@@ -112,6 +107,67 @@ fn the_engine_keeps_every_invariant_through_faults_and_crashes() {
         return;
     }
     assert_covered(&total);
+}
+
+#[test]
+fn redeploys_with_a_short_history_window_keep_every_invariant() {
+    let (seeds, is_single_seed) = configured(DEFAULT_REDEPLOY_SEED_COUNT, FIRST_REDEPLOY_SEED, &[]);
+    let mut total = run_seeds(
+        &seeds,
+        EngineSimulationProfile::RedeploysWithShortHistoryWindow,
+    );
+    total.recent_events.clear();
+    println!("redeploy profile coverage: {total:#?}");
+    if is_single_seed {
+        return;
+    }
+    let checks = [
+        ("incarnation changes", total.incarnation_changes),
+        (
+            "closed-stream replays over voided batches",
+            total.closed_stream_replays_over_voided_batches,
+        ),
+        (
+            "pruned semantic history events",
+            total.final_pruned_semantic_events,
+        ),
+        (
+            "recovered-store checks during an old-epoch overlap",
+            total.recovered_checks_during_old_epoch_overlap,
+        ),
+        ("old-epoch store checks", total.old_epoch_store_checks),
+        (
+            "recovered-store checks with older window points",
+            total.recovered_checks_with_older_window_points,
+        ),
+    ];
+    for (name, value) in checks {
+        assert!(value > 0, "the redeploy profile had no {name}: {total:#?}");
+    }
+}
+
+/// Runs each seed for its active seconds; a failing seed writes its report and panics.
+fn run_seeds(
+    seeds: &BTreeMap<u64, u64>,
+    profile: EngineSimulationProfile,
+) -> EngineSimulationSummary {
+    let failure_directory = std::env::var_os("DEXZD_SIMULATION_FAILURE_DIR").map(PathBuf::from);
+    let mut total = EngineSimulationSummary::default();
+    for (&seed, &active_seconds) in seeds {
+        let config = EngineSimulationConfig {
+            active_seconds,
+            profile,
+            ..EngineSimulationConfig::default()
+        };
+        match run_engine_seed(seed, &config) {
+            Ok(summary) => total.merge(&summary),
+            Err(failure) => {
+                write_failure_report(failure_directory.as_ref(), &failure);
+                panic!("{failure}");
+            }
+        }
+    }
+    total
 }
 
 /// Publishes `<seed>.txt` by renaming, so a collector never reads a partial report.
@@ -248,6 +304,11 @@ fn assert_covered(total: &EngineSimulationSummary) {
             total.recovered_state_comparisons,
         ),
         ("dispatch comparisons", total.dispatch_comparisons),
+        (
+            "recovered-store checks during an old-epoch overlap",
+            total.recovered_checks_during_old_epoch_overlap,
+        ),
+        ("old-epoch store checks", total.old_epoch_store_checks),
     ];
     for (name, value) in checks {
         assert!(value > 0, "the seed set had no {name}: {total:#?}");
@@ -256,11 +317,20 @@ fn assert_covered(total: &EngineSimulationSummary) {
 
 #[test]
 fn one_seed_produces_the_same_trace_and_final_state_twice() {
-    let config = EngineSimulationConfig {
-        active_seconds: 60,
-        ..EngineSimulationConfig::default()
-    };
-    for seed in [FIRST_SEED, FIRST_SEED + 1, FIRST_SEED + 2] {
+    for (seed, profile) in [
+        (FIRST_SEED, EngineSimulationProfile::Standard),
+        (FIRST_SEED + 1, EngineSimulationProfile::Standard),
+        (FIRST_SEED + 2, EngineSimulationProfile::Standard),
+        (
+            FIRST_REDEPLOY_SEED,
+            EngineSimulationProfile::RedeploysWithShortHistoryWindow,
+        ),
+    ] {
+        let config = EngineSimulationConfig {
+            active_seconds: 60,
+            profile,
+            ..EngineSimulationConfig::default()
+        };
         let run = || {
             run_engine_seed_with_final_state(seed, &config)
                 .unwrap_or_else(|failure| panic!("{failure}"))

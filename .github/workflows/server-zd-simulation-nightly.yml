@@ -25,6 +25,16 @@ on:
         required: true
         default: 300
         type: number
+      redeploy_seed_count:
+        description: Number of consecutive engine simulation seeds in the redeploy profile
+        required: true
+        default: 48
+        type: number
+      redeploy_active_seconds:
+        description: Simulated seconds of activity per redeploy-profile seed
+        required: true
+        default: 300
+        type: number
 
 permissions:
   contents: read
@@ -41,8 +51,43 @@ env:
   RUSTUP_TOOLCHAIN: "1.97.1"
 
 jobs:
+  simulation-refs:
+    name: Resolve simulation refs
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # Each job runs on the workflow's commit (main when scheduled) and the latest stable server-zd release.
+      - name: Find the latest server-zd release tag
+        id: targets
+        shell: bash
+        run: |
+          # Artifact names reject slashes, and the label names each job's artifacts.
+          head_target=$(jq -cn --arg label "${GITHUB_REF_NAME//\//-}" --arg ref "$GITHUB_SHA" \
+            '{label: $label, ref: $ref}')
+          # Pre-release tags never count, as with the image release's latest tag.
+          release_tag=$(git tag --list 'server-zd/v*' --sort=v:refname |
+            sed -nE '/^server-zd\/v[0-9]+\.[0-9]+\.[0-9]+$/p' | tail -n 1)
+          if [[ -z "$release_tag" ]]; then
+            echo "No stable server-zd/vX.Y.Z release tag exists yet; skipping the latest-release runs."
+            targets="[$head_target]"
+          else
+            echo "Latest stable server-zd release tag: $release_tag"
+            targets=$(jq -cn --argjson head "$head_target" --arg ref "$release_tag" \
+              '[$head, {label: "latest-release", ref: $ref}]')
+          fi
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+
   apply-simulation:
-    name: Apply simulation
+    name: Apply simulation (${{ matrix.target.label }})
+    needs: simulation-refs
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.simulation-refs.outputs.targets) }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     defaults:
@@ -53,6 +98,8 @@ jobs:
       DEXZD_SIMULATION_COMMANDS: ${{ inputs.command_count || 1000 }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.target.ref }}
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
@@ -91,7 +138,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Apply simulation"
+            echo "## Apply simulation (${{ matrix.target.label }}: ${{ matrix.target.ref }})"
             echo "Base seed: ${DEXZD_SIMULATION_BASE_SEED:-not selected}"
             echo "Seed count: $DEXZD_SIMULATION_SEEDS; commands per seed: $DEXZD_SIMULATION_COMMANDS"
             echo "Result: ${{ steps.apply.outcome }}"
@@ -115,7 +162,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dexzd-apply-simulation-failures
+          name: dexzd-apply-simulation-failures-${{ matrix.target.label }}
           path: |
             ${{ runner.temp }}/dexzd-simulation-failures/
             ${{ runner.temp }}/dexzd-simulation.log
@@ -123,20 +170,35 @@ jobs:
           retention-days: 30
 
   seeded-bug-acceptance:
-    name: Seeded bug acceptance
+    name: Seeded bug acceptance (${{ matrix.target.label }})
+    needs: simulation-refs
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.simulation-refs.outputs.targets) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
+    # A tag's own runner may predate its color override and greps cargo's status lines.
+    env:
+      CARGO_TERM_COLOR: never
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.target.ref }}
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
         run: sudo apt-get update && sudo apt-get install -y libclang-dev
-      - name: Detect seeded apply bugs
+      - name: Detect seeded apply and engine bugs
         run: script/server-zd-seeded-bugs.sh
 
   engine-simulation:
-    name: Engine simulation
+    name: Engine simulation (${{ matrix.target.label }})
+    needs: simulation-refs
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.simulation-refs.outputs.targets) }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     defaults:
@@ -147,6 +209,8 @@ jobs:
       DEXZD_SIMULATION_SECONDS: ${{ inputs.engine_active_seconds || 300 }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.target.ref }}
       - name: Install Rust
         run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install libclang for the RocksDB bindings
@@ -186,7 +250,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Engine simulation"
+            echo "## Engine simulation (${{ matrix.target.label }}: ${{ matrix.target.ref }})"
             echo "Base seed: ${DEXZD_SIMULATION_BASE_SEED:-not selected}"
             echo "Seed count: $DEXZD_SIMULATION_SEEDS; simulated seconds per seed: $DEXZD_SIMULATION_SECONDS"
             echo "Result: ${{ steps.engine.outcome }}"
@@ -211,9 +275,109 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dexzd-engine-simulation-failures
+          name: dexzd-engine-simulation-failures-${{ matrix.target.label }}
           path: |
             ${{ runner.temp }}/dexzd-engine-simulation-failures/
             ${{ runner.temp }}/dexzd-engine-simulation.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  engine-simulation-redeploy-profile:
+    name: Engine simulation redeploy profile (${{ matrix.target.label }})
+    needs: simulation-refs
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.simulation-refs.outputs.targets) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: server-zd
+    env:
+      DEXZD_SIMULATION_SEEDS: ${{ inputs.redeploy_seed_count || 48 }}
+      DEXZD_SIMULATION_SECONDS: ${{ inputs.redeploy_active_seconds || 300 }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.target.ref }}
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for the RocksDB bindings
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-test
+          save-if: false
+      - name: Validate redeploy profile budget
+        shell: bash
+        run: |
+          if ! [[ "$DEXZD_SIMULATION_SEEDS" =~ ^[1-9][0-9]*$ ]] ||
+             ! [[ "$DEXZD_SIMULATION_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
+             (( ${#DEXZD_SIMULATION_SEEDS} > 4 || ${#DEXZD_SIMULATION_SECONDS} > 4 )) ||
+             (( DEXZD_SIMULATION_SEEDS < 16 || DEXZD_SIMULATION_SEEDS > 1000 )) ||
+             (( DEXZD_SIMULATION_SECONDS < 60 || DEXZD_SIMULATION_SECONDS > 600 )) ||
+             (( DEXZD_SIMULATION_SEEDS * DEXZD_SIMULATION_SECONDS > 20000 )); then
+            echo 'Use 16–1000 seeds, 60–600 simulated seconds per seed, and at most 20000 simulated seconds.' >&2
+            exit 1
+          fi
+      - name: Choose random base seed
+        run: |
+          base_seed=$(od -An -N4 -tu4 /dev/urandom | tr -d '[:space:]')
+          echo "DEXZD_SIMULATION_BASE_SEED=$base_seed" >> "$GITHUB_ENV"
+          echo "Base seed: $base_seed"
+      - name: Check for the redeploy profile
+        id: profile
+        shell: bash
+        run: |
+          if grep -q 'fn redeploys_with_a_short_history_window_keep_every_invariant' crates/dexzd-simulation/tests/engine_simulation.rs; then
+            echo "is_present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "${{ matrix.target.ref }} predates the redeploy profile; skipping it."
+            echo "is_present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run redeploy profile
+        id: redeploy
+        if: steps.profile.outputs.is_present == 'true'
+        shell: bash
+        env:
+          DEXZD_SIMULATION_FAILURE_DIR: ${{ runner.temp }}/dexzd-redeploy-simulation-failures
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=1m 55m cargo test -p dexzd-simulation --test engine_simulation redeploys_with_a_short_history_window_keep_every_invariant -- --exact --nocapture 2>&1 | tee "$RUNNER_TEMP/dexzd-redeploy-simulation.log"
+      - name: Summarize redeploy profile
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Engine simulation redeploy profile (${{ matrix.target.label }}: ${{ matrix.target.ref }})"
+            echo "Base seed: ${DEXZD_SIMULATION_BASE_SEED:-not selected}"
+            echo "Seed count: $DEXZD_SIMULATION_SEEDS; simulated seconds per seed: $DEXZD_SIMULATION_SECONDS"
+            echo "Result: ${{ steps.redeploy.outcome }}"
+            echo
+            if compgen -G "$RUNNER_TEMP/dexzd-redeploy-simulation-failures/*.txt" > /dev/null; then
+              echo "### Failing seeds"
+              echo "Run reproduction commands from \`server-zd/\`."
+              for report in "$RUNNER_TEMP"/dexzd-redeploy-simulation-failures/*.txt; do
+                seed=${report##*/}
+                seed=${seed%.txt}
+                reproduction=$(grep -m1 '^reproduce with:' "$report")
+                echo "- Seed $seed: \`${reproduction#reproduce with: }\`"
+              done
+              echo
+              echo "Download the failure artifact for each violation and its last trace events."
+            else
+              echo "No invariant failures were recorded."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload redeploy profile failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dexzd-redeploy-simulation-failures-${{ matrix.target.label }}
+          path: |
+            ${{ runner.temp }}/dexzd-redeploy-simulation-failures/
+            ${{ runner.temp }}/dexzd-redeploy-simulation.log
           if-no-files-found: warn
           retention-days: 30
