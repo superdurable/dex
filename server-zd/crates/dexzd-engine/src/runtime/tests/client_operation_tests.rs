@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering;
 use dexzd_apply::{ApplyOutcome, read_model::get_search_document};
 use dexzd_protocol::dex::{
     ActiveStepSearchMode, AttributeWrite, ChannelMessage, ChannelMessageDeletion, ErrorSubStatus,
-    FlowConfig, GetAttributesRequest, GetFlowStateRequest, InvokeRpcRequest,
+    FlowConfig, FlowResetType, GetAttributesRequest, GetFlowStateRequest, InvokeRpcRequest,
     InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, StepDurability,
     StopFlowRequest, WorkerErrorResponse, WorkerTarget,
 };
@@ -352,6 +352,101 @@ async fn reset_returns_the_unchanged_run_id() {
         .unwrap();
     assert_eq!(response.run_id, run_id.to_string());
     assert_eq!(response.run_attempt, 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn reset_replays_a_request_id_reused_after_rpcs_evicted_it() {
+    let mut config = RuntimeConfig::default();
+    config.run_settings.request_dedup_capacity = 2;
+    let harness = RuntimeHarness::with_config(&config);
+    harness
+        .applier
+        .uses_real_apply
+        .store(true, Ordering::SeqCst);
+    start_flow(&harness, "order-1").await.unwrap();
+    let set_status = |status: &str| {
+        let mut request = set_attribute_request("order-1", "status", string_value(status));
+        request.request_id = "set-status".to_owned();
+        request
+    };
+    harness
+        .drive(harness.registry.set_attributes(TENANT, set_status("paid")))
+        .await
+        .unwrap();
+    harness
+        .rpc_invoker
+        .results
+        .lock()
+        .unwrap()
+        .push_back(Ok(WorkerRpcResult {
+            response: InvokeWorkerRpcResponse {
+                upsert_attributes: vec![AttributeWrite {
+                    key: "approved".to_owned(),
+                    value: Some(string_value("yes")),
+                    ..AttributeWrite::default()
+                }],
+                ..InvokeWorkerRpcResponse::default()
+            },
+            app_worker_id: "worker-1".to_owned(),
+            pull_routing: None,
+        }));
+    let mut rpc = rpc_request("order-1");
+    rpc.is_transactional = true;
+    harness
+        .drive(harness.registry.invoke_rpc(TENANT, rpc))
+        .await
+        .unwrap();
+    // With the RPC's entry, this third request ID evicts set-status from the capacity of two.
+    harness
+        .drive(harness.registry.set_attributes(
+            TENANT,
+            set_attribute_request("order-1", "note", string_value("fragile")),
+        ))
+        .await
+        .unwrap();
+    harness
+        .drive(
+            harness
+                .registry
+                .set_attributes(TENANT, set_status("shipped")),
+        )
+        .await
+        .unwrap();
+    let reused_request_time = harness.submitted().last().unwrap().proposed_at_micros;
+
+    let response = harness
+        .drive(harness.registry.reset_flow(
+            TENANT,
+            ResetFlowRequest {
+                flow_id: "order-1".to_owned(),
+                reset_type: FlowResetType::HistoryEventTime as i32,
+                history_event_time: (i128::from(reused_request_time) * 1000).to_string(),
+                ..ResetFlowRequest::default()
+            },
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.run_attempt, 2);
+    let attributes = harness
+        .registry
+        .get_attributes(
+            TENANT,
+            GetAttributesRequest {
+                flow_id: "order-1".to_owned(),
+                all_keys: true,
+                ..GetAttributesRequest::default()
+            },
+        )
+        .await
+        .unwrap()
+        .attributes;
+    let status = attributes
+        .iter()
+        .find(|attribute| attribute.key == "status")
+        .unwrap();
+    assert_eq!(status.value, Some(string_value("shipped")));
+    assert_eq!(attributes.len(), 3, "{attributes:?}");
 }
 
 fn rpc_request(flow_id: &str) -> InvokeRpcRequest {
