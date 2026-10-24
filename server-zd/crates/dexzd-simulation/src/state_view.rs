@@ -9,16 +9,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_keyspace::row_keys::{
-    HARD_DELETE_CURRENT_OBJECT, TimerIndexEntry, decode_timer_index_key, partition_index_range,
+    AttributeSyncPendingIndexEntry, HARD_DELETE_CURRENT_OBJECT, TimerIndexEntry,
+    decode_attribute_sync_pending_index_key, decode_timer_index_key, partition_index_range,
 };
 use dexzd_keyspace::{
     ColumnFamily, FLOW_DIRECTORY_KEY_TAG, FlowHash, IndexKind, PartitionId, RunId, RunTable,
     ValueId, parse_run_key,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttemptRecord, AttributeRecord, ChannelMessageRecord, ChannelMetaRecord, FlowDirectoryRecord,
-    HardDeleteObjectRecord, HistoryRecord, LockRecord, RequestDedupRecord, RunRecord,
-    StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord, ValueGarbageRecord,
+    AttemptRecord, AttributeRecord, AttributeSyncOutboxRecord, ChannelMessageRecord,
+    ChannelMetaRecord, FlowDirectoryRecord, HardDeleteObjectRecord, HistoryRecord, LockRecord,
+    RequestDedupRecord, RunRecord, StepExecutionRecord, SubFlowResultRecord, TimerRecord,
+    ValueBirthRecord, ValueGarbageRecord,
 };
 use prost::Message;
 
@@ -34,6 +36,8 @@ pub struct FlowView {
     pub runs: BTreeMap<RunId, RunView>,
     /// Timer index entries of this Flow in its partition.
     pub timer_index: Vec<TimerIndexEntry>,
+    /// Attribute Sync pending index entries of this Flow in its partition.
+    pub attribute_sync_pending_index: Vec<AttributeSyncPendingIndexEntry>,
 }
 
 /// Which runs a [`FlowView`] decodes completely; other runs get only their run record.
@@ -91,6 +95,8 @@ pub struct RunView {
     pub history: Vec<(u64, HistoryRecord)>,
     /// Current hard-delete objects by Attribute key.
     pub hard_delete_current: BTreeMap<String, HardDeleteObjectRecord>,
+    /// Attribute Sync outbox entries by store name and Attribute key.
+    pub attribute_sync_entries: BTreeMap<(String, String), AttributeSyncOutboxRecord>,
 }
 
 /// A row the view could not decode; redecoding normally rejects these first.
@@ -165,6 +171,31 @@ impl FlowView {
             .filter_map(|(key, _)| decode_timer_index_key(key))
             .filter(|entry| entry.flow_hash == flow_hash)
             .collect();
+        let (start, end) = partition_index_range(partition, IndexKind::AttributeSyncPending);
+        let pending_rows = dexzd_apply::FlowStateReader::scan(
+            state,
+            ColumnFamily::PartitionIndex,
+            &start,
+            &end,
+            usize::MAX,
+        )
+        .map_err(|error| StateViewError {
+            what: "Attribute Sync pending index",
+            key_hex: hex(&start),
+            detail: error.to_string(),
+        })?;
+        view.attribute_sync_pending_index = pending_rows
+            .iter()
+            .map(|(key, _)| {
+                decode_attribute_sync_pending_index_key(key)
+                    .ok_or_else(|| view_error(key, "Attribute Sync pending index", "malformed key"))
+            })
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .map_or(true, |entry| entry.flow_hash == flow_hash)
+            })
+            .collect::<Result<_, _>>()?;
         Ok(view)
     }
 
@@ -263,6 +294,14 @@ impl FlowView {
                         decode(key, value, "hard-delete object")?,
                     );
                 }
+            }
+            RunTable::AttributeSyncOutbox => {
+                let record: AttributeSyncOutboxRecord =
+                    decode(key, value, "Attribute Sync outbox")?;
+                run.attribute_sync_entries.insert(
+                    (record.store_name.clone(), record.attribute_key.clone()),
+                    record,
+                );
             }
             RunTable::StepCounter
             | RunTable::Waiter
