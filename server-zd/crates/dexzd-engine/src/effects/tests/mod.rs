@@ -194,6 +194,8 @@ pub(super) struct ApplyRuntime {
     pub(super) state_read_gate: Arc<StateReadGate>,
     /// Counts `committed_state_reader` calls.
     pub(super) committed_reads: AtomicUsize,
+    /// Delays each `propose_committed`, like a group commit window plus an object store write.
+    pub(super) proposal_delay: Mutex<Duration>,
     overrides: Mutex<Vec<CommandOverride>>,
 }
 
@@ -291,7 +293,13 @@ impl EffectRuntime for ApplyRuntime {
         command: FlowCommand,
         urgency: CommitUrgency,
     ) -> BoxFuture<'a, Result<CommandReply, EffectRuntimeError>> {
-        Box::pin(async move { self.commit(flow, command, urgency) })
+        Box::pin(async move {
+            let delay = *self.proposal_delay.lock().expect("lock");
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            self.commit(flow, command, urgency)
+        })
     }
 
     fn propose_speculative<'a>(
@@ -884,6 +892,7 @@ impl EffectHarness {
             is_flow_state_unreadable_after_start: AtomicBool::new(false),
             state_read_gate: Arc::new(StateReadGate::new()),
             committed_reads: AtomicUsize::new(0),
+            proposal_delay: Mutex::new(Duration::ZERO),
             overrides: Mutex::new(Vec::new()),
         });
         let tasks = tasks.start(Arc::clone(&runtime) as _);

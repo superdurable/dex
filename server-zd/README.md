@@ -236,6 +236,11 @@ store's PostgreSQL tables. These differences from the Go Server apply:
   While a store is unavailable, Flows keep running and the backlog is written with the latest
   values once it recovers. Entries still pending `syncRetryPolicy.totalDuration` after they were
   first marked are dropped and counted in `dexzd_attribute_sync_dropped_entries_total`.
+- Failed writes are retried with the `syncRetryPolicy` backoff until `totalDuration`, like the Go
+  Server. A connection failure, timeout, or other failure of the whole store backs off every run of
+  that store. A failure caused by the written values, such as a constraint violation or a value
+  too long for its column, backs off only that run, and other Flows keep syncing. A newer run of
+  the same Flow ID waits for the older run so rows keep run order.
 - After time travel, every row the run synced is rewritten with the state after the time travel.
 - Each database needs a Dex fencing table, named by `fencingTableName`
   (default `dexzd_attribute_sync_fencing`). One table serves every store and cluster in the

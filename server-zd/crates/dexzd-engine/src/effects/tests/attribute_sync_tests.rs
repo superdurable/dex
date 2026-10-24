@@ -9,21 +9,26 @@
 //! Attribute Sync projector tests: the real apply marks and acknowledges entries, and a fake
 //! Attribute Store records writes.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dexzd_apply::ApplyEffect;
+use dexzd_apply::{ApplyEffect, FlowStateReader};
 use dexzd_cluster_metadata::LeaseStatus;
-use dexzd_keyspace::{ColumnFamily, IndexKind, RunId};
+use dexzd_keyspace::row_keys::attribute_sync_outbox_key;
+use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionId, RunId};
 use dexzd_metrics::{AttributeSyncFailureKind, NodeMetrics};
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeSyncConfig as WriteSyncConfig, AttributeWrite, FlowConfig,
     FlowStartOptions, IdReusePolicy, SetAttributesRequest, Value,
 };
-use dexzd_protocol::dexzd::v1::{AttributesSetCommand, FlowCommand, flow_command};
+use dexzd_protocol::dexzd::v1::{
+    AttributeSyncAckCommand, AttributeSyncOutboxRecord, AttributesSetCommand, FlowCommand,
+    flow_command,
+};
 use futures::future::BoxFuture;
+use prost::Message;
 use tokio::sync::{Notify, watch};
 use tokio::time::Instant;
 
@@ -31,7 +36,7 @@ use super::{EffectHarness, is_error_reply, settings, start_request, string_value
 use crate::attribute_sync::{
     AttributeSyncConfig, AttributeSyncDependencies, AttributeSyncFence, AttributeSyncItem,
     AttributeSyncProjector, AttributeSyncProjectorHandle, AttributeSyncRetryPolicy,
-    AttributeSyncWriteError, AttributeSyncWriter,
+    AttributeSyncWaker, AttributeSyncWriteError, AttributeSyncWriter,
 };
 use crate::effects::EffectRuntime;
 use crate::runtime::CommitUrgency;
@@ -46,6 +51,7 @@ struct RecordedWrite {
     items: Vec<AttributeSyncItem>,
     fence: AttributeSyncFence,
     is_committed: bool,
+    finished_at: Instant,
 }
 
 /// An Attribute Store that records writes, fails on request, and can hold writes open.
@@ -56,7 +62,10 @@ struct FakeAttributeStore {
     persistent_failure: Mutex<Option<AttributeSyncWriteError>>,
     queued_store_failures: Mutex<BTreeMap<String, VecDeque<AttributeSyncWriteError>>>,
     persistent_store_failures: Mutex<BTreeMap<String, AttributeSyncWriteError>>,
+    persistent_flow_failures: Mutex<BTreeMap<String, AttributeSyncWriteError>>,
     is_holding_writes: AtomicBool,
+    /// Held writes allowed to finish while `is_holding_writes` stays set.
+    released_write_permits: AtomicUsize,
     released: Notify,
     write_started: Notify,
     abandoned_writes: AtomicUsize,
@@ -91,6 +100,38 @@ impl FakeAttributeStore {
         self.writes.lock().expect("lock").len()
     }
 
+    fn attempts_of_store(&self, store_name: &str) -> Vec<RecordedWrite> {
+        self.writes
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|write| write.store_name == store_name)
+            .cloned()
+            .collect()
+    }
+
+    fn attempt_count_of_flow(&self, flow_id: &str) -> usize {
+        self.writes
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|write| write.flow_id == flow_id)
+            .count()
+    }
+
+    fn committed_writes_of_flow(&self, flow_id: &str) -> Vec<RecordedWrite> {
+        self.committed_writes()
+            .into_iter()
+            .filter(|write| write.flow_id == flow_id)
+            .collect()
+    }
+
+    /// Lets one held write finish while later writes stay held.
+    fn release_one_write(&self) {
+        self.released_write_permits.fetch_add(1, Ordering::SeqCst);
+        self.released.notify_waiters();
+    }
+
     fn fail_until_cleared(&self, error: AttributeSyncWriteError) {
         *self.persistent_failure.lock().expect("lock") = Some(error);
     }
@@ -121,7 +162,14 @@ impl AttributeSyncWriter for FakeAttributeStore {
             self.write_started.notify_waiters();
             loop {
                 let released = self.released.notified();
-                if !self.is_holding_writes.load(Ordering::SeqCst) {
+                if !self.is_holding_writes.load(Ordering::SeqCst)
+                    || self
+                        .released_write_permits
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |permits| {
+                            permits.checked_sub(1)
+                        })
+                        .is_ok()
+                {
                     break;
                 }
                 released.await;
@@ -145,6 +193,13 @@ impl AttributeSyncWriter for FakeAttributeStore {
                         .expect("lock")
                         .get(store_name)
                         .cloned()
+                })
+                .or_else(|| {
+                    self.persistent_flow_failures
+                        .lock()
+                        .expect("lock")
+                        .get(flow_id)
+                        .cloned()
                 });
             self.writes.lock().expect("lock").push(RecordedWrite {
                 store_name: store_name.to_owned(),
@@ -152,6 +207,7 @@ impl AttributeSyncWriter for FakeAttributeStore {
                 items: items.to_vec(),
                 fence: fence.clone(),
                 is_committed: failure.is_none(),
+                finished_at: Instant::now(),
             });
             in_flight.is_finished = true;
             failure.map_or(Ok(()), Err)
@@ -175,6 +231,17 @@ impl ProjectorFixture {
 
     fn start_with_lease(config: AttributeSyncConfig, lease_validity: Duration) -> Self {
         let harness = EffectHarness::new();
+        let waker = harness.attribute_sync_waker.clone();
+        Self::start_on(harness, config, lease_validity, waker)
+    }
+
+    /// Starts a projector on `harness` that hears wake-ups only through `waker`.
+    fn start_on(
+        harness: EffectHarness,
+        config: AttributeSyncConfig,
+        lease_validity: Duration,
+        waker: AttributeSyncWaker,
+    ) -> Self {
         let store = Arc::new(FakeAttributeStore::default());
         let (lease, lease_status) =
             watch::channel(LeaseStatus::ValidUntil(Instant::now() + lease_validity));
@@ -189,7 +256,7 @@ impl ProjectorFixture {
                 metrics: Arc::clone(&metrics),
                 fence: AttributeSyncFence::for_node_owner([1; 16], "node-a", 7),
                 lease_status,
-                waker: harness.attribute_sync_waker.clone(),
+                waker,
             },
             std::future::pending(),
         );
@@ -212,19 +279,29 @@ impl ProjectorFixture {
         store_names: &[&str],
         writes: Vec<AttributeWrite>,
     ) -> RunId {
-        let mut request = start_request(flow_id);
-        request.flow_start_options = Some(FlowStartOptions {
-            id_reuse_policy: IdReusePolicy::AllowTerminateIfRunning as i32,
-            attributes: writes,
-            flow_config_override: Some(FlowConfig {
-                attribute_store_names: Some(AttributeStoreNames {
-                    names: store_names.iter().map(|name| (*name).to_owned()).collect(),
-                }),
-                ..FlowConfig::default()
-            }),
-            ..FlowStartOptions::default()
-        });
-        self.harness.start_flow(request, settings())
+        start_synced_flow(&self.harness, flow_id, store_names, writes)
+    }
+
+    /// Returns the committed seq of a pending entry, or `None` once it was acknowledged.
+    fn pending_written_seq(
+        &self,
+        flow_id: &str,
+        run_id: RunId,
+        attribute_key: &str,
+    ) -> Option<u64> {
+        let run = self.harness.run_location(flow_id, run_id);
+        let key = attribute_sync_outbox_key(run.flow_hash, run.run_id, STORE, attribute_key);
+        let bytes = self
+            .harness
+            .runtime
+            .snapshot()
+            .get(ColumnFamily::Flow, &key)
+            .expect("memory reads never fail")?;
+        Some(
+            AttributeSyncOutboxRecord::decode(bytes.as_slice())
+                .expect("the outbox record decodes")
+                .written_seq,
+        )
     }
 
     fn set_attributes(&self, flow_id: &str, run_id: RunId, writes: Vec<AttributeWrite>) {
@@ -268,7 +345,22 @@ impl ProjectorFixture {
             .count()
     }
 
-    fn acks(&self) -> Vec<dexzd_protocol::dexzd::v1::AttributeSyncAckCommand> {
+    fn acks(&self) -> Vec<AttributeSyncAckCommand> {
+        self.acks_with_flow_ids()
+            .into_iter()
+            .map(|(_, ack)| ack)
+            .collect()
+    }
+
+    fn acks_of_flow(&self, flow_id: &str) -> Vec<AttributeSyncAckCommand> {
+        self.acks_with_flow_ids()
+            .into_iter()
+            .filter(|(ack_flow_id, _)| ack_flow_id == flow_id)
+            .map(|(_, ack)| ack)
+            .collect()
+    }
+
+    fn acks_with_flow_ids(&self) -> Vec<(String, AttributeSyncAckCommand)> {
         self.harness
             .runtime
             .commands_matching(|command| {
@@ -276,7 +368,9 @@ impl ProjectorFixture {
             })
             .into_iter()
             .filter_map(|recorded| match recorded.command.command {
-                Some(flow_command::Command::AttributeSyncAck(ack)) => Some(ack),
+                Some(flow_command::Command::AttributeSyncAck(ack)) => {
+                    Some((recorded.command.flow_id, ack))
+                }
                 _ => None,
             })
             .collect()
@@ -351,6 +445,39 @@ fn item(key: &str, value: Option<Value>) -> AttributeSyncItem {
         key: key.to_owned(),
         value,
     }
+}
+
+fn start_synced_flow(
+    harness: &EffectHarness,
+    flow_id: &str,
+    store_names: &[&str],
+    writes: Vec<AttributeWrite>,
+) -> RunId {
+    let mut request = start_request(flow_id);
+    request.flow_start_options = Some(FlowStartOptions {
+        id_reuse_policy: IdReusePolicy::AllowTerminateIfRunning as i32,
+        attributes: writes,
+        flow_config_override: Some(FlowConfig {
+            attribute_store_names: Some(AttributeStoreNames {
+                names: store_names.iter().map(|name| (*name).to_owned()).collect(),
+            }),
+            ..FlowConfig::default()
+        }),
+        ..FlowStartOptions::default()
+    });
+    harness.start_flow(request, settings())
+}
+
+/// Returns the first `{prefix}{n}` Flow ID whose partition satisfies `is_wanted`.
+fn flow_id_in_partition(
+    harness: &EffectHarness,
+    prefix: &str,
+    is_wanted: impl Fn(PartitionId) -> bool,
+) -> String {
+    (0..10_000)
+        .map(|n| format!("{prefix}{n}"))
+        .find(|flow_id| is_wanted(harness.partition_of(flow_id)))
+        .expect("some Flow ID hashes to the wanted partition")
 }
 
 #[tokio::test(start_paused = true)]
@@ -554,12 +681,23 @@ async fn maximum_attempts_drops_the_entries_of_a_failing_run() {
 
 #[tokio::test(start_paused = true)]
 async fn a_reused_flow_id_writes_the_older_run_first_and_skips_keys_the_newer_run_wrote() {
+    assert_a_reused_flow_id_keeps_run_order(AttributeSyncWriteError::Retryable {
+        detail: "database is down".to_owned(),
+    })
+    .await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_run_scoped_failure_still_holds_back_newer_runs_of_the_same_flow_id() {
+    assert_a_reused_flow_id_keeps_run_order(AttributeSyncWriteError::RetryableForRun {
+        detail: "value too long for type character varying(8)".to_owned(),
+    })
+    .await;
+}
+
+async fn assert_a_reused_flow_id_keeps_run_order(failure: AttributeSyncWriteError) {
     let fixture = ProjectorFixture::start(sync_config());
-    fixture
-        .store
-        .fail_until_cleared(AttributeSyncWriteError::Retryable {
-            detail: "database is down".to_owned(),
-        });
+    fixture.store.fail_until_cleared(failure);
     fixture.start_flow(
         "order-6",
         vec![
@@ -773,5 +911,405 @@ async fn an_elapsed_backoff_of_one_store_does_not_spin_another_stores_retries() 
         "beta retries follow its backoff instead of alpha's elapsed one: {reads} reads"
     );
     assert!(fixture.acks().iter().all(|ack| ack.store_name == "alpha"));
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_due_store_retry_does_not_wait_for_another_stores_longer_backoff() {
+    let mut config = sync_config();
+    config.store_names = vec!["alpha".to_owned(), "beta".to_owned()];
+    config.retry_policy.maximum_interval = Duration::from_secs(10);
+    let fixture = ProjectorFixture::start(config);
+    fixture
+        .store
+        .persistent_store_failures
+        .lock()
+        .expect("lock")
+        .insert(
+            "beta".to_owned(),
+            AttributeSyncWriteError::Retryable {
+                detail: "database is down".to_owned(),
+            },
+        );
+    fixture.start_flow_with_stores(
+        "beta-order",
+        &["beta"],
+        vec![synced("Status", Some(string_value("new")))],
+    );
+    fixture
+        .wait_until("beta's backoff grows past a second", |fixture| {
+            fixture.store.attempts_of_store("beta").len() >= 5
+        })
+        .await;
+    fixture
+        .store
+        .queued_store_failures
+        .lock()
+        .expect("lock")
+        .insert(
+            "alpha".to_owned(),
+            VecDeque::from([AttributeSyncWriteError::Retryable {
+                detail: "connection reset".to_owned(),
+            }]),
+        );
+    let started_at = Instant::now();
+    fixture.start_flow_with_stores(
+        "alpha-order",
+        &["alpha"],
+        vec![synced("Status", Some(string_value("new")))],
+    );
+    fixture
+        .wait_until("alpha's retry commits", |fixture| {
+            !fixture
+                .store
+                .committed_writes_of_flow("alpha-order")
+                .is_empty()
+        })
+        .await;
+    assert!(
+        started_at.elapsed() < Duration::from_millis(500),
+        "alpha retries after its own 100 ms backoff, not beta's: {:?}",
+        started_at.elapsed()
+    );
+    assert_eq!(fixture.store.attempts_of_store("alpha").len(), 2);
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_poisoned_run_backs_off_alone_and_is_dropped_after_the_total_duration() {
+    let mut config = sync_config();
+    config.retry_policy.total_duration = Duration::from_secs(5);
+    let fixture = ProjectorFixture::start(config);
+    let poisoned = flow_id_in_partition(&fixture.harness, "poisoned-", |partition| partition.0 < 8);
+    let poisoned_partition = fixture.harness.partition_of(&poisoned);
+    // Flows of one partition are written in Flow ID order, so this one comes after the poisoned run.
+    let same_partition = flow_id_in_partition(&fixture.harness, "zz-healthy-", |partition| {
+        partition == poisoned_partition
+    });
+    let higher_partition = flow_id_in_partition(&fixture.harness, "healthy-", |partition| {
+        partition > poisoned_partition
+    });
+    fixture
+        .store
+        .persistent_flow_failures
+        .lock()
+        .expect("lock")
+        .insert(
+            poisoned.clone(),
+            AttributeSyncWriteError::RetryableForRun {
+                detail: "value too long for type character varying(8)".to_owned(),
+            },
+        );
+    fixture.start_flow(
+        &poisoned,
+        vec![synced("Status", Some(string_value("much too long")))],
+    );
+    fixture
+        .wait_until(
+            "the poisoned run's backoff reaches maximumInterval",
+            |fixture| fixture.store.attempt_count_of_flow(&poisoned) >= 5,
+        )
+        .await;
+
+    let started_at = Instant::now();
+    let same_partition_run = fixture.start_flow(
+        &same_partition,
+        vec![synced("Status", Some(string_value("new")))],
+    );
+    let higher_partition_run = fixture.start_flow(
+        &higher_partition,
+        vec![synced("Status", Some(string_value("new")))],
+    );
+    fixture
+        .wait_until("both healthy runs are acknowledged", |fixture| {
+            !fixture.acks_of_flow(&same_partition).is_empty()
+                && !fixture.acks_of_flow(&higher_partition).is_empty()
+        })
+        .await;
+    assert!(
+        started_at.elapsed() < Duration::from_millis(100),
+        "healthy runs wait for no backoff: {:?}",
+        started_at.elapsed()
+    );
+
+    let changed_at = Instant::now();
+    fixture.set_attributes(
+        &same_partition,
+        same_partition_run,
+        vec![synced("Status", Some(string_value("paid")))],
+    );
+    fixture.set_attributes(
+        &higher_partition,
+        higher_partition_run,
+        vec![synced("Status", Some(string_value("paid")))],
+    );
+    fixture
+        .wait_until("the healthy changes are written", |fixture| {
+            fixture
+                .store
+                .committed_writes_of_flow(&same_partition)
+                .len()
+                == 2
+                && fixture
+                    .store
+                    .committed_writes_of_flow(&higher_partition)
+                    .len()
+                    == 2
+        })
+        .await;
+    assert!(
+        changed_at.elapsed() < Duration::from_millis(100),
+        "later changes wait for no backoff either: {:?}",
+        changed_at.elapsed()
+    );
+    assert!(fixture.acks_of_flow(&poisoned).is_empty());
+
+    fixture
+        .wait_until(
+            "the poisoned entry is dropped after totalDuration",
+            |fixture| {
+                fixture
+                    .acks_of_flow(&poisoned)
+                    .iter()
+                    .any(|ack| ack.is_dropped)
+                    && fixture.pending_run_count() == 0
+            },
+        )
+        .await;
+    assert_eq!(fixture.dropped_effect_count(), 1);
+    assert!(fixture.store.committed_writes_of_flow(&poisoned).is_empty());
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_store_scoped_failure_backs_off_every_run_of_that_store_but_not_another_store() {
+    let mut config = sync_config();
+    config.store_names = vec!["alpha".to_owned(), "beta".to_owned()];
+    let fixture = ProjectorFixture::start(config);
+    let first_alpha = flow_id_in_partition(&fixture.harness, "alpha-order-", |partition| {
+        partition.0 < 8
+    });
+    let first_alpha_partition = fixture.harness.partition_of(&first_alpha);
+    let second_alpha = flow_id_in_partition(&fixture.harness, "alpha-order-", |partition| {
+        partition > first_alpha_partition
+    });
+    let beta = flow_id_in_partition(&fixture.harness, "beta-order-", |partition| {
+        partition > first_alpha_partition
+    });
+    fixture
+        .store
+        .persistent_store_failures
+        .lock()
+        .expect("lock")
+        .insert(
+            "alpha".to_owned(),
+            AttributeSyncWriteError::Retryable {
+                detail: "connection refused".to_owned(),
+            },
+        );
+    let started_at = Instant::now();
+    for flow_id in [&first_alpha, &second_alpha] {
+        fixture.start_flow_with_stores(
+            flow_id,
+            &["alpha"],
+            vec![synced("Status", Some(string_value("new")))],
+        );
+    }
+    fixture.start_flow_with_stores(
+        &beta,
+        &["beta"],
+        vec![synced("Status", Some(string_value("new")))],
+    );
+    fixture
+        .wait_until("the beta run is acknowledged", |fixture| {
+            !fixture.acks_of_flow(&beta).is_empty()
+        })
+        .await;
+    assert!(
+        started_at.elapsed() < Duration::from_millis(100),
+        "another store waits for no backoff: {:?}",
+        started_at.elapsed()
+    );
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    fixture.harness.settle().await;
+    let alpha_attempts = fixture.store.attempts_of_store("alpha");
+    assert!(alpha_attempts.len() >= 4, "{alpha_attempts:?}");
+    for attempts in alpha_attempts.windows(2) {
+        assert!(
+            attempts[1].finished_at - attempts[0].finished_at >= Duration::from_millis(100),
+            "every alpha run waits for the one store backoff: {alpha_attempts:?}"
+        );
+    }
+
+    fixture
+        .store
+        .persistent_store_failures
+        .lock()
+        .expect("lock")
+        .clear();
+    fixture
+        .wait_until("both alpha runs sync once the store recovers", |fixture| {
+            !fixture.acks_of_flow(&first_alpha).is_empty()
+                && !fixture.acks_of_flow(&second_alpha).is_empty()
+                && fixture.pending_run_count() == 0
+        })
+        .await;
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn entries_committed_before_the_projector_starts_are_synced_by_the_startup_scan() {
+    let harness = EffectHarness::new();
+    let flow_ids: BTreeSet<String> = (0..4).map(|n| format!("order-before-start-{n}")).collect();
+    for flow_id in &flow_ids {
+        start_synced_flow(
+            &harness,
+            flow_id,
+            &[STORE],
+            vec![synced("Status", Some(string_value("new")))],
+        );
+    }
+    harness.settle().await;
+    // A fresh waker never heard these marks, so only the startup scan can find them.
+    let fixture = ProjectorFixture::start_on(
+        harness,
+        sync_config(),
+        Duration::from_secs(365 * 24 * 3600),
+        AttributeSyncWaker::new(),
+    );
+    fixture
+        .wait_until("every entry is written and acknowledged", |fixture| {
+            fixture.pending_run_count() == 0
+        })
+        .await;
+    let written_flow_ids: BTreeSet<String> = fixture
+        .store
+        .committed_writes()
+        .into_iter()
+        .map(|write| write.flow_id)
+        .collect();
+    assert_eq!(written_flow_ids, flow_ids);
+    assert_eq!(fixture.acks().len(), flow_ids.len());
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_change_committed_during_an_in_flight_write_stays_pending_and_is_written_next() {
+    let fixture = ProjectorFixture::start(sync_config());
+    fixture
+        .store
+        .is_holding_writes
+        .store(true, Ordering::SeqCst);
+    let first_write_started = fixture.store.write_started.notified();
+    let run_id = fixture.start_flow(
+        "order-12",
+        vec![synced("Status", Some(string_value("new")))],
+    );
+    first_write_started.await;
+    fixture.set_attributes(
+        "order-12",
+        run_id,
+        vec![synced("Status", Some(string_value("paid")))],
+    );
+    let changed_seq = fixture
+        .pending_written_seq("order-12", run_id, "Status")
+        .expect("the change is pending");
+    let second_write_started = fixture.store.write_started.notified();
+    fixture.store.release_one_write();
+    second_write_started.await;
+    let acks = fixture.acks();
+    assert_eq!(acks.len(), 1, "the first write is acknowledged: {acks:?}");
+    assert!(
+        acks[0].acked_seq < changed_seq,
+        "the ack covers only the value read before the change: {acks:?}"
+    );
+    assert_eq!(
+        fixture.pending_written_seq("order-12", run_id, "Status"),
+        Some(changed_seq),
+        "the ack leaves the newer change pending"
+    );
+
+    fixture.store.release_writes();
+    fixture
+        .wait_until("the newer value is written and acknowledged", |fixture| {
+            fixture.pending_run_count() == 0
+        })
+        .await;
+    assert_eq!(
+        fixture
+            .store
+            .committed_writes()
+            .into_iter()
+            .map(|write| write.items)
+            .collect::<Vec<_>>(),
+        vec![
+            vec![item("Status", Some(string_value("new")))],
+            vec![item("Status", Some(string_value("paid")))],
+        ]
+    );
+    assert_eq!(fixture.acks().len(), 2);
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn acknowledgements_across_every_partition_commit_well_under_two_seconds() {
+    let fixture = ProjectorFixture::start(sync_config());
+    // Each commit waits like a group commit window plus a slow object store write.
+    let commit_latency = Duration::from_millis(150);
+    *fixture.harness.runtime.proposal_delay.lock().expect("lock") = commit_latency;
+    let partition_count =
+        usize::try_from(fixture.harness.hasher.partition_count()).expect("fits usize");
+    let mut flows_per_partition: BTreeMap<PartitionId, usize> = BTreeMap::new();
+    let flow_ids: Vec<String> = (0..10_000)
+        .map(|n| format!("latency-order-{n}"))
+        .filter(|flow_id| {
+            let count = flows_per_partition
+                .entry(fixture.harness.partition_of(flow_id))
+                .or_default();
+            *count += 1;
+            *count <= 4
+        })
+        .take(4 * partition_count)
+        .collect();
+    assert_eq!(flows_per_partition.len(), partition_count);
+    assert_eq!(flow_ids.len(), 4 * partition_count);
+
+    let marked_at = Instant::now();
+    let run_ids: Vec<RunId> = flow_ids
+        .iter()
+        .map(|flow_id| {
+            fixture.start_flow(flow_id, vec![synced("Status", Some(string_value("new")))])
+        })
+        .collect();
+    fixture
+        .wait_until("every start is acknowledged", |fixture| {
+            fixture.pending_run_count() == 0
+        })
+        .await;
+    let startup_scan_latency = marked_at.elapsed();
+
+    let changed_at = Instant::now();
+    for (flow_id, run_id) in flow_ids.iter().zip(&run_ids) {
+        fixture.set_attributes(
+            flow_id,
+            *run_id,
+            vec![synced("Status", Some(string_value("paid")))],
+        );
+    }
+    fixture
+        .wait_until("every change is acknowledged", |fixture| {
+            fixture.pending_run_count() == 0
+        })
+        .await;
+    let wake_up_latency = changed_at.elapsed();
+
+    assert_eq!(fixture.acks().len(), 2 * flow_ids.len());
+    // Committing one partition's acks at a time would take 16 × 150 ms = 2.4 s per round.
+    for latency in [startup_scan_latency, wake_up_latency] {
+        assert!(
+            latency < Duration::from_secs(1),
+            "mark-to-ack latency stays well under the 2 s target: {latency:?}"
+        );
+    }
     fixture.shutdown().await;
 }

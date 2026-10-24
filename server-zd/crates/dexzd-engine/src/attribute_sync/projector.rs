@@ -20,7 +20,7 @@ use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, FlowCommand, command_reply, flow_command,
 };
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
@@ -47,11 +47,12 @@ pub struct AttributeSyncProjector {
     lease_status: watch::Receiver<LeaseStatus>,
     waker: AttributeSyncWaker,
     stop: CancellationToken,
-    store_backoffs: BTreeMap<String, StoreBackoff>,
-    /// Consecutive retryable failures of one run's entries, for `maximumAttempts`.
-    failed_attempts: BTreeMap<(String, RunLocation), u32>,
-    /// Stores with pending work per partition, left by a failure; they run once a backoff ends.
-    deferred_work: BTreeMap<PartitionId, BTreeSet<String>>,
+    /// Backoffs after store-scoped failures; every run of the store waits.
+    store_backoffs: BTreeMap<String, Backoff>,
+    /// Failure counts and run-scoped backoffs; other runs of the store keep syncing.
+    run_retries: BTreeMap<(String, RunLocation), RunRetryState>,
+    /// When each deferred (partition, store) pair is read again; each pair is due on its own.
+    deferred_work: BTreeMap<(PartitionId, String), Instant>,
     backlog: BTreeMap<(PartitionId, String), BacklogSnapshot>,
 }
 
@@ -61,9 +62,18 @@ pub struct AttributeSyncProjectorHandle {
     task: JoinHandle<()>,
 }
 
-struct StoreBackoff {
+#[derive(Clone, Copy)]
+struct Backoff {
     retry_at: Instant,
     next_delay: Duration,
+}
+
+#[derive(Default)]
+struct RunRetryState {
+    /// Consecutive failed writes of either scope, for `maximumAttempts`.
+    failed_attempts: u32,
+    /// Set by a run-scoped write failure or a rejected ack.
+    backoff: Option<Backoff>,
 }
 
 #[derive(Clone, Copy)]
@@ -81,9 +91,17 @@ struct RunOutcome {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RunNext {
     Continue,
-    /// A retryable failure; later runs of this store wait for the store backoff.
-    RetryStore,
+    /// The run waits until this instant; later runs of its Flow ID wait with it.
+    RetryRunAt(Instant),
+    /// Every run of the store waits until this instant.
+    RetryStoreAt(Instant),
     Stop,
+}
+
+#[derive(Clone, Copy)]
+enum RetryScope {
+    Store,
+    Run,
 }
 
 enum WriteResult {
@@ -96,6 +114,30 @@ struct PendingAck {
     flow: FlowAddress,
     run: RunLocation,
     ack: AttributeSyncAckCommand,
+}
+
+/// One (partition, store) pair's acks, proposed once their writes committed.
+struct AckBatch {
+    partition: PartitionId,
+    store_name: String,
+    acks: Vec<PendingAck>,
+}
+
+/// How an ack batch ended.
+struct AckBatchResult {
+    partition: PartitionId,
+    store_name: String,
+    /// Runs whose ack apply rejected; their entries stay pending.
+    rejected_runs: Vec<RunLocation>,
+    has_stopped: bool,
+}
+
+/// Proposes acks from a background task, so writes of later partitions need not wait for commits.
+#[derive(Clone)]
+struct AckProposer {
+    runtime: Arc<dyn EffectRuntime>,
+    stop: CancellationToken,
+    retry_policy: AttributeSyncRetryPolicy,
 }
 
 impl AttributeSyncProjector {
@@ -120,7 +162,7 @@ impl AttributeSyncProjector {
             waker: dependencies.waker,
             stop: stop.clone(),
             store_backoffs: BTreeMap::new(),
-            failed_attempts: BTreeMap::new(),
+            run_retries: BTreeMap::new(),
             deferred_work: BTreeMap::new(),
             backlog: BTreeMap::new(),
         };
@@ -146,17 +188,16 @@ impl AttributeSyncProjector {
                 })
                 .collect();
         loop {
-            for (partition, stores) in std::mem::take(&mut work) {
-                if self.project_partition(partition, stores).await.is_break() {
-                    return;
-                }
+            if self.project_cycle(work).await.is_break() {
+                return;
             }
             self.publish_backlog_metrics();
             work = self.next_work();
             if !work.is_empty() {
                 continue;
             }
-            let retry_at = self.deferred_retry_at();
+            // `next_work` took every due pair, so this instant is in the future and the wait never spins.
+            let retry_at = self.deferred_work.values().min().copied();
             let mut lease_status = self.lease_status.clone();
             // Biased for reproducible simulation; stop and lease loss fire once.
             tokio::select! {
@@ -173,53 +214,53 @@ impl AttributeSyncProjector {
         }
     }
 
-    /// Returns every store of woken partitions plus deferred stores whose backoff ended.
-    fn next_work(&mut self) -> BTreeMap<PartitionId, StoreSelection> {
+    /// Returns every store of woken partitions plus each deferred pair that is due.
+    fn next_work(&self) -> BTreeMap<PartitionId, StoreSelection> {
         let mut work: BTreeMap<PartitionId, StoreSelection> = self
             .waker
             .take_woken_partitions()
             .into_iter()
             .map(|partition| (partition, StoreSelection::Every))
             .collect();
-        if self
-            .deferred_retry_at()
-            .is_some_and(|retry_at| retry_at <= Instant::now())
-        {
-            for (partition, stores) in std::mem::take(&mut self.deferred_work) {
-                work.entry(partition)
-                    .or_insert(StoreSelection::Only(stores));
+        let now = Instant::now();
+        for ((partition, store_name), retry_at) in &self.deferred_work {
+            if *retry_at > now {
+                continue;
+            }
+            match work
+                .entry(*partition)
+                .or_insert_with(|| StoreSelection::Only(BTreeSet::new()))
+            {
+                StoreSelection::Every => {}
+                StoreSelection::Only(stores) => {
+                    stores.insert(store_name.clone());
+                }
             }
         }
         work
     }
 
-    fn defer(&mut self, partition: PartitionId, store_name: &str) {
-        self.deferred_work
-            .entry(partition)
-            .or_default()
-            .insert(store_name.to_owned());
-    }
-
-    /// Returns when deferred stores run again; elapsed backoffs are ignored so the wait never spins.
-    fn deferred_retry_at(&self) -> Option<Instant> {
-        if self.deferred_work.is_empty() {
-            return None;
+    /// Projects `work`, committing each pair's acks in the background while later pairs write.
+    ///
+    /// Returns `Break` when the projector stops.
+    async fn project_cycle(
+        &mut self,
+        work: BTreeMap<PartitionId, StoreSelection>,
+    ) -> ControlFlow<()> {
+        // Dropping the set on a stop aborts proposals; the next owner rewrites unacknowledged rows.
+        let mut ack_batches = JoinSet::new();
+        for (partition, stores) in work {
+            self.project_partition(partition, stores, &mut ack_batches)
+                .await?;
         }
-        let now = Instant::now();
-        Some(
-            self.store_backoffs
-                .values()
-                .map(|backoff| backoff.retry_at)
-                .filter(|retry_at| *retry_at > now)
-                .min()
-                .unwrap_or(now),
-        )
+        self.finish_ack_batches(ack_batches).await
     }
 
     async fn project_partition(
         &mut self,
         partition: PartitionId,
         stores: StoreSelection,
+        ack_batches: &mut JoinSet<AckBatchResult>,
     ) -> ControlFlow<()> {
         for store_name in self.config.store_names.clone() {
             if let StoreSelection::Only(selected) = &stores
@@ -227,6 +268,8 @@ impl AttributeSyncProjector {
             {
                 continue;
             }
+            // This pass defers again whatever still has to wait.
+            self.deferred_work.remove(&(partition, store_name.clone()));
             let work = match self.read_pending_store_work(partition, &store_name).await {
                 Ok(work) => work,
                 Err(detail) => {
@@ -236,11 +279,12 @@ impl AttributeSyncProjector {
                         detail,
                         "reading pending Attribute Sync entries failed; retrying"
                     );
-                    self.fail_store(&store_name);
-                    self.defer(partition, &store_name);
+                    let retry_at = self.fail_store(&store_name);
+                    self.defer(partition, &store_name, retry_at);
                     continue;
                 }
             };
+            self.forget_settled_runs(partition, &store_name, &work);
             self.backlog.insert(
                 (partition, store_name.clone()),
                 BacklogSnapshot {
@@ -253,28 +297,24 @@ impl AttributeSyncProjector {
             if work.entry_count == 0 {
                 continue;
             }
-            if self
-                .store_backoffs
-                .get(&store_name)
-                .is_some_and(|backoff| Instant::now() < backoff.retry_at)
-            {
-                self.defer(partition, &store_name);
+            if let Some(retry_at) = self.store_retry_at(&store_name) {
+                self.defer(partition, &store_name, retry_at);
                 continue;
             }
-            match self.project_store_work(&store_name, work).await {
-                StoreWorkOutcome::Stop => return ControlFlow::Break(()),
-                StoreWorkOutcome::Done {
-                    has_proposed_acks,
-                    needs_retry,
-                } => {
-                    if has_proposed_acks {
-                        // Rescanning confirms the acks and refreshes the backlog metrics.
-                        self.waker.wake_partition(partition);
-                    }
-                    if needs_retry {
-                        self.defer(partition, &store_name);
-                    }
-                }
+            let acks = self
+                .project_store_work(partition, &store_name, work)
+                .await?;
+            if !acks.is_empty() {
+                let proposer = AckProposer {
+                    runtime: Arc::clone(&self.runtime),
+                    stop: self.stop.clone(),
+                    retry_policy: self.config.retry_policy.clone(),
+                };
+                ack_batches.spawn(proposer.propose_batch(AckBatch {
+                    partition,
+                    store_name,
+                    acks,
+                }));
             }
         }
         ControlFlow::Continue(())
@@ -299,50 +339,40 @@ impl AttributeSyncProjector {
         .and_then(|read| read)
     }
 
-    /// Writes runs of each Flow ID in run order, then proposes the acks together.
+    /// Writes runs of each Flow ID in run order.
+    ///
+    /// Returns the acks of the runs that finished, or `Break` when the projector stops.
     async fn project_store_work(
         &mut self,
+        partition: PartitionId,
         store_name: &str,
         work: PendingStoreWork,
-    ) -> StoreWorkOutcome {
+    ) -> ControlFlow<(), Vec<PendingAck>> {
         let mut acks = Vec::new();
-        let mut needs_retry = false;
         'flows: for flow_runs in work.flows {
             for run_entries in flow_runs {
                 let flow = run_entries.flow.clone();
                 let run = run_entries.run;
                 let outcome = self.process_run(store_name, run_entries).await;
                 if let Some(ack) = outcome.ack {
-                    acks.push(PendingAck {
-                        flow: flow.clone(),
-                        run,
-                        ack,
-                    });
+                    acks.push(PendingAck { flow, run, ack });
                 }
                 match outcome.next {
                     RunNext::Continue => {}
-                    RunNext::RetryStore => {
-                        needs_retry = true;
+                    RunNext::RetryRunAt(retry_at) => {
+                        // Newer runs of a reused Flow ID must not land before this run.
+                        self.defer(partition, store_name, retry_at);
+                        continue 'flows;
+                    }
+                    RunNext::RetryStoreAt(retry_at) => {
+                        self.defer(partition, store_name, retry_at);
                         break 'flows;
                     }
-                    RunNext::Stop => return StoreWorkOutcome::Stop,
+                    RunNext::Stop => return ControlFlow::Break(()),
                 }
             }
         }
-        let has_proposed_acks = !acks.is_empty();
-        match self.propose_acks(store_name, acks).await {
-            AckOutcome::Committed => {}
-            AckOutcome::Rejected => {
-                // A rejected ack leaves its entries pending; the backoff keeps them from looping hot.
-                self.fail_store(store_name);
-                needs_retry = true;
-            }
-            AckOutcome::Stopped => return StoreWorkOutcome::Stop,
-        }
-        StoreWorkOutcome::Done {
-            has_proposed_acks,
-            needs_retry,
-        }
+        ControlFlow::Continue(acks)
     }
 
     async fn process_run(
@@ -357,6 +387,7 @@ impl AttributeSyncProjector {
             items,
             unreadable_value_detail,
         } = run_entries;
+        let retry_key = (store_name.to_owned(), run);
         let now_micros = self.clock.now_unix_micros();
         let total_duration_micros =
             i64::try_from(self.config.retry_policy.total_duration.as_micros()).unwrap_or(i64::MAX);
@@ -368,7 +399,7 @@ impl AttributeSyncProjector {
             })
             .collect();
         if !expired.is_empty() {
-            self.failed_attempts.remove(&(store_name.to_owned(), run));
+            self.run_retries.remove(&retry_key);
             tracing::error!(
                 store_name,
                 flow_id = %flow.flow_id,
@@ -381,15 +412,14 @@ impl AttributeSyncProjector {
                 next: RunNext::Continue,
             };
         }
-        let attempt_key = (store_name.to_owned(), run);
         let maximum_attempts = self.config.retry_policy.maximum_attempts;
         if maximum_attempts > 0
             && self
-                .failed_attempts
-                .get(&attempt_key)
-                .is_some_and(|attempts| *attempts >= maximum_attempts)
+                .run_retries
+                .get(&retry_key)
+                .is_some_and(|state| state.failed_attempts >= maximum_attempts)
         {
-            self.failed_attempts.remove(&attempt_key);
+            self.run_retries.remove(&retry_key);
             tracing::error!(
                 store_name,
                 flow_id = %flow.flow_id,
@@ -400,6 +430,7 @@ impl AttributeSyncProjector {
             return drop_every_entry(store_name, &entries);
         }
         if let Some(detail) = unreadable_value_detail {
+            self.run_retries.remove(&retry_key);
             tracing::error!(
                 store_name,
                 flow_id = %flow.flow_id,
@@ -409,12 +440,19 @@ impl AttributeSyncProjector {
             );
             return drop_every_entry(store_name, &entries);
         }
+        if let Some(retry_at) = self.run_retry_at(&retry_key) {
+            return RunOutcome {
+                ack: None,
+                next: RunNext::RetryRunAt(retry_at),
+            };
+        }
         let batch_size = self.config.batch_size.max(1);
         let mut written_keys = BTreeSet::new();
         for batch in items.chunks(batch_size) {
-            match self.write_batch(store_name, &flow.flow_id, batch).await {
+            let (scope, detail) = match self.write_batch(store_name, &flow.flow_id, batch).await {
                 WriteResult::Committed => {
                     written_keys.extend(batch.iter().map(|item| item.key.as_str()));
+                    continue;
                 }
                 WriteResult::Stopped => {
                     return RunOutcome {
@@ -438,7 +476,7 @@ impl AttributeSyncProjector {
                     self.metrics
                         .attribute_sync_write_failures
                         .record(AttributeSyncFailureKind::NonRetryable);
-                    self.failed_attempts.remove(&attempt_key);
+                    self.run_retries.remove(&retry_key);
                     tracing::error!(
                         store_name,
                         flow_id = %flow.flow_id,
@@ -449,32 +487,45 @@ impl AttributeSyncProjector {
                     return drop_every_entry(store_name, &entries);
                 }
                 WriteResult::Failed(AttributeSyncWriteError::Retryable { detail }) => {
-                    self.metrics
-                        .attribute_sync_write_failures
-                        .record(AttributeSyncFailureKind::Retryable);
-                    *self.failed_attempts.entry(attempt_key).or_insert(0) += 1;
-                    self.fail_store(store_name);
-                    tracing::warn!(
-                        store_name,
-                        flow_id = %flow.flow_id,
-                        run_id = %run.run_id,
-                        detail,
-                        "an Attribute Store write failed; retrying with backoff"
-                    );
-                    let written_entries: Vec<&PendingEntry> = entries
-                        .iter()
-                        .filter(|entry| written_keys.contains(entry.attribute_key.as_str()))
-                        .collect();
-                    return RunOutcome {
-                        ack: (!written_entries.is_empty())
-                            .then(|| ack_command(store_name, &written_entries, false)),
-                        next: RunNext::RetryStore,
-                    };
+                    (RetryScope::Store, detail)
                 }
-            }
+                WriteResult::Failed(AttributeSyncWriteError::RetryableForRun { detail }) => {
+                    (RetryScope::Run, detail)
+                }
+            };
+            self.metrics
+                .attribute_sync_write_failures
+                .record(AttributeSyncFailureKind::Retryable);
+            self.run_retries
+                .entry(retry_key.clone())
+                .or_default()
+                .failed_attempts += 1;
+            let next = match scope {
+                RetryScope::Store => RunNext::RetryStoreAt(self.fail_store(store_name)),
+                RetryScope::Run => RunNext::RetryRunAt(self.fail_run(&retry_key)),
+            };
+            tracing::warn!(
+                store_name,
+                flow_id = %flow.flow_id,
+                run_id = %run.run_id,
+                failure_scope = scope.as_str(),
+                detail,
+                "an Attribute Store write failed; retrying with backoff"
+            );
+            let written_entries: Vec<&PendingEntry> = entries
+                .iter()
+                .filter(|entry| written_keys.contains(entry.attribute_key.as_str()))
+                .collect();
+            return RunOutcome {
+                ack: (!written_entries.is_empty())
+                    .then(|| ack_command(store_name, &written_entries, false)),
+                next,
+            };
         }
-        self.failed_attempts.remove(&attempt_key);
-        self.store_backoffs.remove(store_name);
+        self.run_retries.remove(&retry_key);
+        if !written_keys.is_empty() {
+            self.store_backoffs.remove(store_name);
+        }
         let every_entry: Vec<&PendingEntry> = entries.iter().collect();
         let mut ack = ack_command(store_name, &every_entry, false);
         // Unwritten entries are superseded or hold hard-delete values, so the ack covers all.
@@ -552,91 +603,102 @@ impl AttributeSyncProjector {
         }
     }
 
-    /// Proposes every ack concurrently, so one group commit batch carries them.
-    async fn propose_acks(&self, store_name: &str, acks: Vec<PendingAck>) -> AckOutcome {
-        if acks.is_empty() {
-            return AckOutcome::Committed;
-        }
-        let proposals = acks.into_iter().map(|pending| async move {
-            let command = FlowCommand {
-                flow_id: pending.flow.flow_id.clone(),
-                run_id: pending.run.run_id.as_bytes().to_vec(),
-                tenant_id: pending.flow.tenant_id.0,
-                command: Some(flow_command::Command::AttributeSyncAck(pending.ack)),
-                ..FlowCommand::default()
-            };
-            (
-                pending.flow.clone(),
-                self.propose_until_committed(&pending.flow, command).await,
-            )
-        });
-        let mut outcome = AckOutcome::Committed;
-        for (flow, reply) in futures::future::join_all(proposals).await {
-            match reply {
-                None => return AckOutcome::Stopped,
-                Some(command_reply::Reply::Error(error)) => {
-                    tracing::warn!(
-                        store_name,
-                        flow_id = %flow.flow_id,
-                        message = %error.message,
-                        "an Attribute Sync ack was rejected"
-                    );
-                    outcome = AckOutcome::Rejected;
-                }
-                Some(_) => {}
-            }
-        }
-        outcome
-    }
-
-    /// Retries while the runtime is unavailable; returns `None` when the projector or node stops.
-    async fn propose_until_committed(
-        &self,
-        flow: &FlowAddress,
-        command: FlowCommand,
-    ) -> Option<command_reply::Reply> {
-        let mut delay = self.config.retry_policy.initial_interval;
-        loop {
-            let proposal =
-                self.runtime
-                    .propose_committed(flow, command.clone(), CommitUrgency::Batched);
-            let outcome = tokio::select! {
-                biased;
-                () = self.stop.cancelled() => return None,
-                outcome = proposal => outcome,
-            };
-            match outcome {
-                Ok(reply) => {
-                    return Some(reply.reply.unwrap_or(command_reply::Reply::Ok(
-                        dexzd_protocol::dexzd::v1::EmptyReply::default(),
-                    )));
-                }
-                Err(EffectRuntimeError::NodeStopping { .. }) => return None,
-                Err(error @ EffectRuntimeError::Unavailable { .. }) => {
-                    tracing::debug!(%error, flow_id = %flow.flow_id, "retrying an Attribute Sync ack");
-                    tokio::select! {
-                        biased;
-                        () = self.stop.cancelled() => return None,
-                        () = tokio::time::sleep(delay) => {}
+    /// Waits for the cycle's ack batches, then wakes their partitions to confirm the acks.
+    ///
+    /// Returns `Break` when the projector or node stopped during a proposal.
+    async fn finish_ack_batches(
+        &mut self,
+        mut ack_batches: JoinSet<AckBatchResult>,
+    ) -> ControlFlow<()> {
+        while let Some(joined) = ack_batches.join_next().await {
+            let result = match joined {
+                Ok(result) => result,
+                Err(error) => {
+                    // The batch's partition is unknown, so rescan everything; rewrites are idempotent.
+                    tracing::error!(%error, "an Attribute Sync ack task failed; rescanning every partition");
+                    for partition in 0..self.partition_hasher.partition_count() {
+                        self.waker.wake_partition(PartitionId(
+                            u16::try_from(partition)
+                                .expect("the manifest limits partitions to u16"),
+                        ));
                     }
-                    delay = next_retry_delay(&self.config.retry_policy, delay);
+                    continue;
                 }
+            };
+            if result.has_stopped {
+                return ControlFlow::Break(());
             }
+            for run in result.rejected_runs {
+                // A rejected ack leaves its entries pending; the backoff keeps them from looping hot.
+                let retry_at = self.fail_run(&(result.store_name.clone(), run));
+                self.defer(result.partition, &result.store_name, retry_at);
+            }
+            self.waker.wake_partition(result.partition);
         }
+        ControlFlow::Continue(())
     }
 
-    fn fail_store(&mut self, store_name: &str) {
-        let initial_interval = self.config.retry_policy.initial_interval;
-        let backoff = self
-            .store_backoffs
-            .entry(store_name.to_owned())
-            .or_insert(StoreBackoff {
-                retry_at: Instant::now(),
-                next_delay: initial_interval,
-            });
-        let delay = backoff.next_delay;
-        backoff.retry_at = Instant::now() + delay;
-        backoff.next_delay = next_retry_delay(&self.config.retry_policy, delay);
+    fn defer(&mut self, partition: PartitionId, store_name: &str, retry_at: Instant) {
+        self.deferred_work
+            .entry((partition, store_name.to_owned()))
+            .and_modify(|due| *due = (*due).min(retry_at))
+            .or_insert(retry_at);
+    }
+
+    /// Returns when the store's backoff ends, or `None` when the store may write now.
+    fn store_retry_at(&self, store_name: &str) -> Option<Instant> {
+        self.store_backoffs
+            .get(store_name)
+            .map(|backoff| backoff.retry_at)
+            .filter(|retry_at| Instant::now() < *retry_at)
+    }
+
+    /// Returns when the run's backoff ends, or `None` when the run may write now.
+    fn run_retry_at(&self, retry_key: &(String, RunLocation)) -> Option<Instant> {
+        self.run_retries
+            .get(retry_key)
+            .and_then(|state| state.backoff)
+            .map(|backoff| backoff.retry_at)
+            .filter(|retry_at| Instant::now() < *retry_at)
+    }
+
+    /// Backs off every run of the store and returns when the store retries.
+    fn fail_store(&mut self, store_name: &str) -> Instant {
+        let backoff = Backoff::after_failure(
+            self.store_backoffs.get(store_name).copied(),
+            &self.config.retry_policy,
+        );
+        self.store_backoffs.insert(store_name.to_owned(), backoff);
+        backoff.retry_at
+    }
+
+    /// Backs off one run and returns when it retries.
+    fn fail_run(&mut self, retry_key: &(String, RunLocation)) -> Instant {
+        let state = self.run_retries.entry(retry_key.clone()).or_default();
+        let backoff = Backoff::after_failure(state.backoff, &self.config.retry_policy);
+        state.backoff = Some(backoff);
+        backoff.retry_at
+    }
+
+    /// Drops retry state of runs in `partition` that no longer have pending entries of `store_name`.
+    fn forget_settled_runs(
+        &mut self,
+        partition: PartitionId,
+        store_name: &str,
+        work: &PendingStoreWork,
+    ) {
+        let pending_runs: BTreeSet<RunLocation> = work
+            .flows
+            .iter()
+            .flatten()
+            .map(|run_entries| run_entries.run)
+            .collect();
+        let partition_hasher = &self.partition_hasher;
+        self.run_retries.retain(|(retry_store_name, run), _| {
+            retry_store_name != store_name
+                || pending_runs.contains(run)
+                || partition_hasher.partition_of(run.flow_hash) != partition
+        });
     }
 
     fn publish_backlog_metrics(&mut self) {
@@ -664,27 +726,115 @@ impl AttributeSyncProjector {
     }
 }
 
+impl AckProposer {
+    /// Proposes every ack of `batch` concurrently, so one group commit batch carries them.
+    async fn propose_batch(self, batch: AckBatch) -> AckBatchResult {
+        let AckBatch {
+            partition,
+            store_name,
+            acks,
+        } = batch;
+        let proposer = &self;
+        let proposals = acks.into_iter().map(|pending| async move {
+            let command = FlowCommand {
+                flow_id: pending.flow.flow_id.clone(),
+                run_id: pending.run.run_id.as_bytes().to_vec(),
+                tenant_id: pending.flow.tenant_id.0,
+                command: Some(flow_command::Command::AttributeSyncAck(pending.ack)),
+                ..FlowCommand::default()
+            };
+            let reply = proposer
+                .propose_until_committed(&pending.flow, command)
+                .await;
+            (pending.flow, pending.run, reply)
+        });
+        let mut result = AckBatchResult {
+            partition,
+            store_name,
+            rejected_runs: Vec::new(),
+            has_stopped: false,
+        };
+        for (flow, run, reply) in futures::future::join_all(proposals).await {
+            match reply {
+                None => result.has_stopped = true,
+                Some(command_reply::Reply::Error(error)) => {
+                    tracing::warn!(
+                        store_name = %result.store_name,
+                        flow_id = %flow.flow_id,
+                        message = %error.message,
+                        "an Attribute Sync ack was rejected"
+                    );
+                    result.rejected_runs.push(run);
+                }
+                Some(_) => {}
+            }
+        }
+        result
+    }
+
+    /// Retries while the runtime is unavailable; returns `None` when the projector or node stops.
+    async fn propose_until_committed(
+        &self,
+        flow: &FlowAddress,
+        command: FlowCommand,
+    ) -> Option<command_reply::Reply> {
+        let mut delay = self.retry_policy.initial_interval;
+        loop {
+            let proposal =
+                self.runtime
+                    .propose_committed(flow, command.clone(), CommitUrgency::Batched);
+            let outcome = tokio::select! {
+                biased;
+                () = self.stop.cancelled() => return None,
+                outcome = proposal => outcome,
+            };
+            match outcome {
+                Ok(reply) => {
+                    return Some(reply.reply.unwrap_or(command_reply::Reply::Ok(
+                        dexzd_protocol::dexzd::v1::EmptyReply::default(),
+                    )));
+                }
+                Err(EffectRuntimeError::NodeStopping { .. }) => return None,
+                Err(error @ EffectRuntimeError::Unavailable { .. }) => {
+                    tracing::debug!(%error, flow_id = %flow.flow_id, "retrying an Attribute Sync ack");
+                    tokio::select! {
+                        biased;
+                        () = self.stop.cancelled() => return None,
+                        () = tokio::time::sleep(delay) => {}
+                    }
+                    delay = next_retry_delay(&self.retry_policy, delay);
+                }
+            }
+        }
+    }
+}
+
+impl Backoff {
+    /// Returns the backoff after one more consecutive failure, starting at `initialInterval`.
+    fn after_failure(previous: Option<Backoff>, policy: &AttributeSyncRetryPolicy) -> Self {
+        let delay = previous.map_or(policy.initial_interval, |backoff| backoff.next_delay);
+        Self {
+            retry_at: Instant::now() + delay,
+            next_delay: next_retry_delay(policy, delay),
+        }
+    }
+}
+
+impl RetryScope {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Store => "store",
+            Self::Run => "run",
+        }
+    }
+}
+
 /// Which stores of a partition a cycle reads.
 enum StoreSelection {
     /// Every configured store, after a wake-up or at start.
     Every,
     /// Only stores whose deferred work is due.
     Only(BTreeSet<String>),
-}
-
-enum StoreWorkOutcome {
-    Done {
-        has_proposed_acks: bool,
-        needs_retry: bool,
-    },
-    Stop,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum AckOutcome {
-    Committed,
-    Rejected,
-    Stopped,
 }
 
 impl AttributeSyncProjectorHandle {

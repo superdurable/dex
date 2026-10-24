@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dexzd_attribute_store::{
-    AttributeMapTableSettings, AttributeStore, AttributeStoreError, AttributeStoreSettings,
-    ColumnNaming, FencingToken,
+    AttributeMapTableSettings, AttributeStore, AttributeStoreError, AttributeStoreFailureScope,
+    AttributeStoreSettings, ColumnNaming, FencingToken,
 };
 use dexzd_clock::WallClock;
 use dexzd_engine::{
@@ -210,9 +210,14 @@ fn write_error(error: AttributeStoreError) -> AttributeSyncWriteError {
     let detail = error.to_string();
     if matches!(error, AttributeStoreError::Fenced { .. }) {
         AttributeSyncWriteError::Fenced { detail }
-    } else if error.is_retryable() {
-        AttributeSyncWriteError::Retryable { detail }
-    } else {
+    } else if !error.is_retryable() {
         AttributeSyncWriteError::Rejected { detail }
+    } else {
+        match error.failure_scope() {
+            AttributeStoreFailureScope::Store => AttributeSyncWriteError::Retryable { detail },
+            AttributeStoreFailureScope::Batch => {
+                AttributeSyncWriteError::RetryableForRun { detail }
+            }
+        }
     }
 }

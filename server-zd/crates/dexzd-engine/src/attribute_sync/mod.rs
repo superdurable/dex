@@ -61,9 +61,15 @@ impl AttributeSyncFence {
 /// Why an Attribute Store write did not commit.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum AttributeSyncWriteError {
-    /// A connection or transient database failure; the write is retried with backoff.
+    /// The store cannot serve writes, such as a lost connection or a timeout; every run of the store backs off.
     #[error("Attribute Store write failed and will be retried: {detail}")]
     Retryable {
+        /// Failure description without credentials.
+        detail: String,
+    },
+    /// The store refused this batch's content, such as a constraint violation; only this run backs off.
+    #[error("Attribute Store refused a batch, which will be retried: {detail}")]
+    RetryableForRun {
         /// Failure description without credentials.
         detail: String,
     },
@@ -101,7 +107,7 @@ pub trait AttributeSyncWriter: Send + Sync + 'static {
 /// Backoff between failed writes and the deadline after which entries are dropped.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttributeSyncRetryPolicy {
-    /// Delay after the first failed write of a store; `syncRetryPolicy.initialInterval`.
+    /// Delay after the first failed write of a store or run; `syncRetryPolicy.initialInterval`.
     pub initial_interval: Duration,
     /// Longest delay between attempts; `syncRetryPolicy.maximumInterval`.
     pub maximum_interval: Duration,
