@@ -186,6 +186,11 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         "dexzd_flow_end_to_end_latency_seconds",
         "dexzd_step_schedule_to_start_latency_seconds",
         "dexzd_worker_stream_events_total",
+        "dexzd_attribute_sync_backlog_entries",
+        "dexzd_attribute_sync_oldest_pending_age_seconds",
+        "dexzd_attribute_sync_write_failures_total",
+        "dexzd_attribute_sync_dropped_entries_total",
+        "dexzd_attribute_sync_fenced_writes_total",
     ] {
         let family = name.strip_suffix("_total").unwrap_or(name);
         assert!(

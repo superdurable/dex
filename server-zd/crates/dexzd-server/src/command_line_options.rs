@@ -48,6 +48,11 @@ pub struct DevCommandOptions {
     /// Optional YAML file with configuration overrides.
     #[arg(long)]
     pub config: Option<PathBuf>,
+    /// Optional Go Dex Server YAML file whose `attributeStore` section configures Attribute
+    /// synchronization; its other sections are ignored. The section must define at least one store,
+    /// and `--config` must not also set `attributeStore`.
+    #[arg(long)]
+    pub attribute_store_config: Option<PathBuf>,
 }
 
 /// Options of `dex-server-zd serve`.
@@ -77,6 +82,8 @@ mod tests {
             "/tmp/zd-logs",
             "--config",
             "/tmp/zd.yaml",
+            "--attribute-store-config",
+            "/tmp/dex.yaml",
         ])
         .unwrap();
         let ServerCommand::Dev(dev) = options.command else {
@@ -86,6 +93,10 @@ mod tests {
         assert_eq!(dev.listen.to_string(), "127.0.0.1:9901");
         assert_eq!(dev.log_dir.unwrap().to_str(), Some("/tmp/zd-logs"));
         assert_eq!(dev.config.unwrap().to_str(), Some("/tmp/zd.yaml"));
+        assert_eq!(
+            dev.attribute_store_config.unwrap().to_str(),
+            Some("/tmp/dex.yaml")
+        );
     }
 
     #[test]

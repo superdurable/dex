@@ -61,6 +61,7 @@ impl DevServer {
             listen: free_loopback_address(),
             log_dir: None,
             config,
+            attribute_store_config: None,
         })
         .await
         .expect("the dev server starts");

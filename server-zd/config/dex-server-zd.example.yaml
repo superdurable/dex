@@ -107,6 +107,28 @@ limits:
   maxLongPollWaitersPerFlow: 1000
   maxRequestIdsPerRun: 1000
   maxFlowIdBytes: 1000
+attributeStore:
+  # Empty disables Attribute synchronization. Keys match the Go Dex Server; only type postgres is supported:
+  #   orders:
+  #     type: postgres
+  #     dsn: ""                       # empty reads DEX_ZD_ATTRIBUTE_STORE_DSN_ORDERS
+  #     tableName: public.orders      # primary key: the Flow ID, or the rowKey columns
+  #     rowKey: ""                    # such as order-{order_id}
+  #     columnNaming: ""              # "" uses Attribute names exactly; snake_case converts them
+  #     attributeMaps:
+  #       Items: {tableName: public.order_items, instanceKeyColumn: item_key}
+  #     fencingTableName: dexzd_attribute_sync_fencing  # create it before startup; see the docs
+  stores: {}
+  schemaSyncInterval: 1m
+  syncBatchSize: 100
+  # The effective transaction timeout is also capped at one eighth of lease.duration.
+  syncAttemptTimeout: 30s
+  syncRetryPolicy:
+    initialInterval: 100ms
+    backoffCoefficient: 2.0
+    maximumInterval: 30s
+    maximumAttempts: 0
+    totalDuration: 1h
 dev:
   dataDirectory: ""
   s3DataDirectory: ""

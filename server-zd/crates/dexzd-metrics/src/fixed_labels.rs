@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use prometheus_client::encoding::{EncodeMetric, MetricEncoder, NoLabelSet};
+use prometheus_client::encoding::{EncodeLabelSet, EncodeMetric, MetricEncoder, NoLabelSet};
 use prometheus_client::metrics::MetricType;
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::gauge::Gauge;
@@ -122,6 +122,75 @@ impl EncodeMetric for ObjectErrorCounters {
         for (index, operation) in ObjectOperation::ALL.into_iter().enumerate() {
             encoder
                 .encode_family(&ObjectOperationLabel { operation })?
+                .encode_counter::<NoLabelSet, _, u64>(&self.values[index].get(), None)?;
+        }
+        Ok(())
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Counter
+    }
+}
+
+/// Whether retrying an Attribute Store write can succeed.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum AttributeSyncFailureKind {
+    /// A connection or transient database failure; the write is retried with backoff.
+    Retryable,
+    /// The store rejected the write, such as a Flow ID that does not match rowKey; it is dropped.
+    NonRetryable,
+}
+
+label_value!(AttributeSyncFailureKind { Retryable => "retryable", NonRetryable => "non_retryable" });
+
+impl AttributeSyncFailureKind {
+    const ALL: [Self; 2] = [Self::Retryable, Self::NonRetryable];
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct AttributeSyncFailureLabel {
+    failure_kind: AttributeSyncFailureKind,
+}
+
+/// Fixed counters of failed Attribute Store write transactions.
+#[derive(Clone, Debug)]
+pub struct AttributeSyncWriteFailures {
+    values: Arc<[Counter; 2]>,
+}
+
+impl Default for AttributeSyncWriteFailures {
+    fn default() -> Self {
+        Self {
+            values: Arc::new(std::array::from_fn(|_| Counter::default())),
+        }
+    }
+}
+
+impl AttributeSyncWriteFailures {
+    /// Records one failed write transaction.
+    pub fn record(&self, failure_kind: AttributeSyncFailureKind) {
+        self.values[match failure_kind {
+            AttributeSyncFailureKind::Retryable => 0,
+            AttributeSyncFailureKind::NonRetryable => 1,
+        }]
+        .inc();
+    }
+
+    /// Returns the failures recorded for `failure_kind`.
+    pub fn count(&self, failure_kind: AttributeSyncFailureKind) -> u64 {
+        self.values[match failure_kind {
+            AttributeSyncFailureKind::Retryable => 0,
+            AttributeSyncFailureKind::NonRetryable => 1,
+        }]
+        .get()
+    }
+}
+
+impl EncodeMetric for AttributeSyncWriteFailures {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        for (index, failure_kind) in AttributeSyncFailureKind::ALL.into_iter().enumerate() {
+            encoder
+                .encode_family(&AttributeSyncFailureLabel { failure_kind })?
                 .encode_counter::<NoLabelSet, _, u64>(&self.values[index].get(), None)?;
         }
         Ok(())

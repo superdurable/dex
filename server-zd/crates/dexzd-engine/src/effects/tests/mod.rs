@@ -9,6 +9,7 @@
 //! Effect runner tests on paused tokio time. A fake runtime applies commands with the real
 //! apply on an in-memory state and feeds the committed effects back to the runner.
 
+mod attribute_sync_tests;
 mod deadline_tests;
 mod dispatch_tests;
 mod hard_delete_tests;
@@ -52,6 +53,7 @@ use prost::Message;
 use tokio::sync::mpsc;
 
 use crate::SystemEngineIdSource;
+use crate::attribute_sync::AttributeSyncWaker;
 use crate::effects::effect_runtime::{EffectRuntime, EffectRuntimeError, InvocationStartOutcome};
 use crate::effects::state_reads::{RunLocation, read_step_execution};
 use crate::effects::{
@@ -190,6 +192,8 @@ pub(super) struct ApplyRuntime {
     pub(super) is_flow_state_unreadable_after_start: AtomicBool,
     /// Holds `flow_state_reader` calls from blocking threads while closed.
     pub(super) state_read_gate: Arc<StateReadGate>,
+    /// Counts `committed_state_reader` calls.
+    pub(super) committed_reads: AtomicUsize,
     overrides: Mutex<Vec<CommandOverride>>,
 }
 
@@ -383,6 +387,7 @@ impl EffectRuntime for ApplyRuntime {
     fn committed_state_reader(
         &self,
     ) -> Result<Box<dyn FlowStateReader + Send>, EffectRuntimeError> {
+        self.committed_reads.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(self.snapshot()))
     }
 }
@@ -808,6 +813,7 @@ pub(super) struct EffectHarness {
     pub(super) hasher: PartitionHasher,
     pub(super) clock: Arc<TokioWallClock>,
     pub(super) stream_store: Arc<StreamStore>,
+    pub(super) attribute_sync_waker: AttributeSyncWaker,
     tasks: EffectTasksHandle,
 }
 
@@ -839,6 +845,7 @@ impl EffectHarness {
             Arc::new(SystemEngineIdSource),
         );
         let dispatcher = Arc::new(FakeDispatcher::new());
+        let attribute_sync_waker = AttributeSyncWaker::new();
         let stream_store = Arc::new(
             StreamStore::new(&StreamStoreConfig {
                 enabled: true,
@@ -860,6 +867,7 @@ impl EffectHarness {
                 },
                 stream_store: Arc::clone(&stream_store),
                 id_source: Arc::new(SystemEngineIdSource),
+                attribute_sync_waker: attribute_sync_waker.clone(),
             },
         );
         let runtime = Arc::new(ApplyRuntime {
@@ -875,6 +883,7 @@ impl EffectHarness {
             is_flow_state_unreadable: AtomicBool::new(false),
             is_flow_state_unreadable_after_start: AtomicBool::new(false),
             state_read_gate: Arc::new(StateReadGate::new()),
+            committed_reads: AtomicUsize::new(0),
             overrides: Mutex::new(Vec::new()),
         });
         let tasks = tasks.start(Arc::clone(&runtime) as _);
@@ -887,6 +896,7 @@ impl EffectHarness {
             hasher,
             clock,
             stream_store,
+            attribute_sync_waker,
             tasks,
         }
     }
