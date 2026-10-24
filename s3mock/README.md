@@ -18,9 +18,30 @@ An S3-compatible object store on local disk, so Dex development and tests need n
 make run ARGS="--data-directory /tmp/s3mock-data --listen-address 127.0.0.1:9000"
 ```
 
-Every flag also reads an environment variable: `S3MOCK_LISTEN_ADDRESS`, `S3MOCK_DATA_DIRECTORY`,
-and `S3MOCK_DURABILITY`. Point an S3 client at `http://127.0.0.1:9000` with path-style addressing
+Every flag also reads an `S3MOCK_*` environment variable; the control flags are listed below.
+Point an S3 client at `http://127.0.0.1:9000` with path-style addressing
 and any access key. Request signatures are not verified by default.
+
+## Releases
+
+The manual `S3mock release` workflow runs from `main` with a semantic `version` matching
+the workspace version in `s3mock/Cargo.toml`. It creates a
+new `s3mock/v<version>` tag and GitHub release only after native Linux amd64 and arm64 binaries
+and images pass smoke tests. The workflow rejects an existing versioned tag. The release contains binary
+archives and SHA-256 checksums; its notes give the digest of the multi-architecture
+`docker.io/superdurable/s3mock:<version>` image. The workflow has no automatic trigger.
+Enable GitHub release immutability for the repository before dispatching to lock the published
+tag and assets.
+
+The image runs as user 10001. It listens on `0.0.0.0:9000` and stores data in the
+`/var/lib/s3mock` volume. Every command-line flag can be set through its `S3MOCK_*` environment
+variable, including `S3MOCK_LIFECYCLE_SCAN_INTERVAL_SECONDS`. For example:
+
+```bash
+docker run --rm -p 9000:9000 -v s3mock-data:/var/lib/s3mock \
+  -e S3MOCK_SIGNATURE_VERIFICATION=strict \
+  docker.io/superdurable/s3mock:<version>
+```
 
 Lifecycle rules run every `--lifecycle-scan-interval-seconds` (default 60; `0` disables).
 A pass removes everything due at the lifecycle clock, so expiration happens within one interval
