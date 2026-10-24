@@ -322,23 +322,6 @@ pub(crate) fn validate_timeout_handler(
             "Flow timeout handler method timeout must be non-negative",
         ));
     }
-    if options.failure_policy == ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
-        && options.failure_proceed_step_type.is_empty()
-    {
-        return Err(invalid(
-            format!("{path}.failure_proceed_step_type"),
-            "Flow timeout handler proceed policy requires a failure target",
-        ));
-    }
-    if options.failure_policy != ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
-        && (!options.failure_proceed_step_type.is_empty()
-            || options.failure_proceed_step_options.is_some())
-    {
-        return Err(invalid(
-            format!("{path}.failure_proceed_step_type"),
-            "Flow timeout handler failure target requires the proceed policy",
-        ));
-    }
     let mapped = StepOptions {
         execute_timeout_seconds: options.method_timeout_seconds,
         execute_retry_policy: options.retry_policy,
@@ -357,13 +340,33 @@ pub(crate) fn validate_timeout_handler(
         ..StepOptions::default()
     };
     validate_step_options(path, Some(&mapped), config)?;
-    if ExecuteMethodFailurePolicy::try_from(options.failure_policy).is_err() {
-        return Err(invalid(
+    // The same order as the Go Server: an unknown policy fails before its failure target.
+    match ExecuteMethodFailurePolicy::try_from(options.failure_policy) {
+        Ok(
+            ExecuteMethodFailurePolicy::Unspecified
+            | ExecuteMethodFailurePolicy::FailFlowOnExecuteMethodFailure,
+        ) if !options.failure_proceed_step_type.is_empty()
+            || options.failure_proceed_step_options.is_some() =>
+        {
+            Err(invalid(
+                format!("{path}.failure_proceed_step_type"),
+                "Flow timeout handler failure target requires the proceed policy",
+            ))
+        }
+        Ok(ExecuteMethodFailurePolicy::ProceedToConfiguredStep)
+            if options.failure_proceed_step_type.is_empty() =>
+        {
+            Err(invalid(
+                format!("{path}.failure_proceed_step_type"),
+                "Flow timeout handler proceed policy requires a failure target",
+            ))
+        }
+        Ok(_) => Ok(()),
+        Err(_) => Err(invalid(
             format!("{path}.failure_policy"),
             "unknown Flow timeout handler failure policy",
-        ));
+        )),
     }
-    Ok(())
 }
 
 pub(crate) fn validate_step_options(

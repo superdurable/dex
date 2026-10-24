@@ -260,6 +260,30 @@ fn start_flow_rejects_inconsistent_timeout_handler_failure_target() {
     }
 }
 
+#[test]
+fn start_flow_rejects_an_unknown_timeout_handler_failure_policy_before_its_target() {
+    let config = config();
+    let mut request = start_request();
+    request.flow_timeout_seconds = 10;
+    request.flow_timeout_policy = dex::FlowTimeoutPolicy::Handler as i32;
+    request.flow_start_options = Some(FlowStartOptions {
+        timeout_handler_options: Some(FlowTimeoutHandlerOptions {
+            failure_policy: 99,
+            failure_proceed_step_type: "recovery".into(),
+            ..FlowTimeoutHandlerOptions::default()
+        }),
+        ..FlowStartOptions::default()
+    });
+    let error = validate_client_request(ClientRequest::StartFlow(&request), &config)
+        .expect_err("unknown timeout handler failure policy");
+    assert_eq!(error.category, ValidationCategory::InvalidArgument);
+    assert_eq!(error.message, "unknown Flow timeout handler failure policy");
+    assert_eq!(
+        error.field_path,
+        "flow_start_options.timeout_handler_options.failure_policy"
+    );
+}
+
 /// Step failure targets that the Go Server accepts without a consistency check.
 fn step_options_with_unchecked_failure_targets() -> Vec<StepOptions> {
     vec![
