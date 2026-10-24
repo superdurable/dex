@@ -95,7 +95,8 @@ Strict mode verifies SigV4 header and presigned query authentication, SHA256 pay
 `STREAMING-UNSIGNED-PAYLOAD-TRAILER`, and chained signatures for
 `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` and `STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER`.
 The latter also requires a valid trailer signature covering the declared trailers. Invalid signatures
-return `403 SignatureDoesNotMatch`; absent or invalid header credentials return `403 AccessDenied`.
+return `403 SignatureDoesNotMatch`; an unknown access key returns `403 InvalidAccessKeyId`,
+and requests without a valid authorization header return `403 AccessDenied`.
 Presigned URLs must include `X-Amz-Algorithm`, `X-Amz-Credential`, `X-Amz-Date`,
 `X-Amz-Expires`, `X-Amz-SignedHeaders`, and `X-Amz-Signature`. Their signature uses
 `UNSIGNED-PAYLOAD`, and expiry must be between 1 and 604800 seconds. An expired URL returns
