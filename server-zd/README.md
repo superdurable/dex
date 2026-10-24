@@ -201,12 +201,13 @@ no docker, MinIO, or Temporal.
 
 `testdata/v<N>` holds a recorded log, snapshot, cluster metadata, and committed state.
 `cargo test -p dexzd-engine --test format_compat` checks that the current code decodes every
-version and replays it to the recorded state. Recorded versions are immutable; a pinned digest
-of every file fails the test when a byte changes. The scripted workload must also reproduce the
-newest version byte for byte, so a change to the bytes the engine writes for it needs a new
-version.
+version and replays it to the recorded state. A pinned digest of every file fails the test when
+a byte changes. Before server-zd 1.0, regenerate `v1` with its generator when apply results
+change and update its pin. From 1.0 on, recorded versions are immutable. The scripted workload
+must also reproduce the newest version byte for byte, so a later change to the bytes the engine
+writes for it needs a new version.
 
-Add the next version in the change that does any of the following:
+From server-zd 1.0 on, add the next version in the change that does any of the following:
 
 - changes `proto/dexzd/`, the key layout, the object storage layout, or the snapshot format;
 - adds a command kind, a state table, an index kind, or an object kind;
@@ -220,7 +221,7 @@ Add the next version in the change that does any of the following:
 - `dexzd-apply` must be deterministic. It never reads clocks, random numbers, configuration, the
   environment, files, or the network, and it never iterates a hash map. Its `clippy.toml` bans the
   common offenders.
-- A change to the result of applying an already committed command needs a new behavior version
-  with a named predicate.
+- After 1.0, a change to the result of applying an already committed command needs a new behavior
+  version with a named predicate. Before 1.0, regenerate `v1` instead.
 - Persistent formats (`proto/dexzd/`, key layout, object storage layout, snapshots) change only
   additively, following the same rules as `protos/dex.proto`.

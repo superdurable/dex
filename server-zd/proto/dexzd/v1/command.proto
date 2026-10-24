@@ -117,6 +117,8 @@ message FlowStartCommand {
   repeated HardDeleteObjectReference hard_delete_objects = 6;
   // xxh3-128 of the canonical request encoding, for request ID deduplication.
   bytes request_fingerprint = 7;
+  // Flow configuration after applying server defaults and request overrides.
+  dex.FlowConfig effective_flow_config = 8;
 }
 
 message FlowStopCommand {
