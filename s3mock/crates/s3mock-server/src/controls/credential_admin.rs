@@ -110,13 +110,16 @@ async fn create_credential(
         status,
     };
     if credential.access_key_id.is_empty()
-        || credential.access_key_id.contains('/')
+        || !credential
+            .access_key_id
+            .bytes()
+            .all(|character| character.is_ascii_alphanumeric() || b"._-".contains(&character))
         || credential.secret_access_key.is_empty()
         || credential.parent.is_empty()
     {
         return Err((
             StatusCode::BAD_REQUEST,
-            "credential fields must be nonempty".into(),
+            "invalid access_key_id, secret, or parent".into(),
         ));
     }
     if credential.access_key_id == root_access_key_id {

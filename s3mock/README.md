@@ -83,6 +83,7 @@ binary; `start` uses explicit defaults and ignores `S3MOCK_*` environment variab
 | `--request-log-capacity` | `S3MOCK_REQUEST_LOG_CAPACITY` | `1024` | Recent completed requests retained; `0` disables retention. |
 | `--etag-mode` | `S3MOCK_ETAG_MODE` | `md5` | `md5` or `opaque`. |
 | `--signature-verification` | `S3MOCK_SIGNATURE_VERIFICATION` | `off` | `off` or `strict`. |
+| `--control-authentication` | `S3MOCK_CONTROL_AUTHENTICATION` | `off` | `root` requires root SigV4 signatures on every test control when signature verification is strict. |
 | `--access-key-id` | `S3MOCK_ACCESS_KEY_ID` | `s3mock` | Root access key; the only identity that can manage credentials. |
 | `--secret-access-key` | `S3MOCK_SECRET_ACCESS_KEY` | `s3mock` | Root signing secret. |
 
@@ -113,10 +114,11 @@ Each scoped credential has an IAM policy and can be enabled or disabled. An unkn
 key patterns. `arn:aws:s3:::*` matches all buckets and objects. A `Condition` is supported only for
 `s3:ListBucket` or `s3:ListBucketVersions`: `StringEquals` or `StringLike` on `s3:prefix`.
 Every other condition key or operator, principals, negated actions or resources, and unknown
-fields are rejected when the credential is created. An absent prefix does not satisfy a prefix
-condition, even one that matches an empty prefix. HeadBucket has no prefix. A prefix-conditioned `s3:ListBucket` grant
-does not reveal whether an unlisted key exists. GET and HEAD for a missing key return 404 only
-with an unconditioned `s3:ListBucket` grant; otherwise they return `403 AccessDenied`.
+fields and unsupported S3 actions are rejected when the credential is created. A statement may
+have an optional `Sid`. Access key IDs contain only letters, digits, `.`, `_`, and `-`. An absent
+prefix does not satisfy a prefix condition, even one that matches an empty prefix. HeadBucket has
+no prefix. GET and HEAD for a missing key return 404 when `s3:ListBucket` permits listing with
+`s3:prefix` equal to that key; otherwise they return `403 AccessDenied`.
 
 ### Strict-mode IAM actions
 
@@ -151,8 +153,10 @@ defines these action names.
 ### Admin HTTP API
 
 The same listener serves JSON endpoints under `/_s3mock/`. Bucket names cannot start with `_`.
-Admin requests must carry a root-key SigV4 header signature in strict mode. Scoped keys cannot call
-them. Off mode keeps unauthenticated admin requests. Admin requests
+Credential requests must carry a root-key SigV4 header signature in strict mode; off mode rejects
+them. Other test controls remain unauthenticated by default in both modes. Set
+`--control-authentication root` to require a root signature on all test controls in strict mode.
+Admin requests
 bypass fault injection and do not affect S3 counters or logs.
 Keep the listener on loopback when using these test controls. Successful calls return HTTP 200;
 invalid rule documents return HTTP 400 with `{"error":"..."}` and preserve existing rules.

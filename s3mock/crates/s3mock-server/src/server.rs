@@ -158,6 +158,24 @@ async fn handle_request(
 ) -> Result<S3Response, io::Error> {
     let request = request.map(|body| body.map_err(io::Error::other).boxed());
     if request.uri().path().starts_with("/_s3mock/") {
+        let path = request.uri().path();
+        let is_credential_request =
+            path == "/_s3mock/credentials" || path.starts_with("/_s3mock/credentials/");
+        if controls.config.signature_verification == crate::config::SignatureVerification::Off
+            && path.starts_with("/_s3mock/credentials")
+        {
+            return Ok(crate::controls::admin_error(
+                StatusCode::FORBIDDEN,
+                "AccessDenied",
+            ));
+        }
+        let needs_root = is_credential_request
+            || controls.config.control_authentication == crate::config::ControlAuthentication::Root
+                && controls.config.signature_verification
+                    == crate::config::SignatureVerification::Strict;
+        if !needs_root {
+            return Ok(controls.admin(store, request).await);
+        }
         let verified = crate::signature::verify_request(
             request,
             &controls.config,
@@ -195,11 +213,11 @@ async fn handle_request(
     )
     .await
     .and_then(|(request, identity)| {
-        let operation = routing::route(request.method(), request.uri())?;
         if let Some(policy) = identity.policy() {
+            let operation = routing::route(request.method(), request.uri())?;
             policy::authorize_operation(policy, &operation, request.headers())?;
         }
-        Ok((request, identity, operation))
+        Ok((request, identity))
     });
     let mut fault_reset = controls.fault_reset.subscribe();
     observation.has_existing_bucket = match run_store_operation(&store, {
@@ -229,9 +247,12 @@ async fn handle_request(
     }
     let result = match verified {
         Err(error) => Err(error),
-        Ok((request, identity, operation)) => match fault.as_ref().and_then(FaultAction::error) {
+        Ok((request, identity)) => match fault.as_ref().and_then(FaultAction::error) {
             Some(error) => Err(error),
-            None => dispatch(store, request, operation, identity).await,
+            None => match routing::route(request.method(), request.uri()) {
+                Ok(operation) => dispatch(store, request, operation, identity).await,
+                Err(error) => Err(error),
+            },
         },
     };
     if matches!(fault, Some(FaultAction::CommitThenDrop {}))
@@ -280,9 +301,10 @@ async fn dispatch(
 ) -> Result<S3Response, S3Error> {
     let should_hide_missing_key = match (&operation, identity.policy()) {
         (
-            S3Operation::GetObject { bucket, .. } | S3Operation::HeadObject { bucket, .. },
+            S3Operation::GetObject { bucket, key, .. }
+            | S3Operation::HeadObject { bucket, key, .. },
             Some(policy),
-        ) => !policy.can_list_bucket_unconditionally(bucket),
+        ) => !policy.can_list_key_prefix(bucket, key),
         _ => false,
     };
     let (parts, body) = request.into_parts();

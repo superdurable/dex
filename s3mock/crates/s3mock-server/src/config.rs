@@ -48,6 +48,9 @@ pub struct ServerConfig {
     /// Default off; strict validates SigV4 headers, payloads, signed chunks, and signed trailers before dispatch.
     #[arg(long, env = "S3MOCK_SIGNATURE_VERIFICATION", value_enum, default_value_t = SignatureVerification::Off)]
     pub signature_verification: SignatureVerification,
+    /// Default off; root requires a root SigV4 signature on test controls when signature verification is strict.
+    #[arg(long, env = "S3MOCK_CONTROL_AUTHENTICATION", value_enum, default_value_t = ControlAuthentication::Off)]
+    pub control_authentication: ControlAuthentication,
     /// Default s3mock; root access key in strict mode. Only this key can manage credentials.
     #[arg(long, env = "S3MOCK_ACCESS_KEY_ID", default_value = "s3mock")]
     pub access_key_id: String,
@@ -88,6 +91,13 @@ pub enum SignatureVerification {
     Strict,
 }
 
+/// Authentication policy for test-control endpoints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum ControlAuthentication {
+    Off,
+    Root,
+}
+
 /// Command-line ETag representation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum EtagModeFlag {
@@ -125,6 +135,7 @@ impl std::fmt::Debug for ServerConfig {
             .field("request_log_capacity", &self.request_log_capacity)
             .field("etag_mode", &self.etag_mode)
             .field("signature_verification", &self.signature_verification)
+            .field("control_authentication", &self.control_authentication)
             .field("access_key_id", &self.access_key_id)
             .field("secret_access_key", &"<redacted>")
             .field(

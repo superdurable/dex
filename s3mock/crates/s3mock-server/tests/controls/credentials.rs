@@ -109,7 +109,25 @@ async fn credentials_are_root_managed_durable_and_never_return_secrets() {
             b"",
         )
         .await;
-    assert_eq!(status(&scoped_admin), 403);
+    assert_eq!(status(&scoped_admin), 200);
+    assert_eq!(
+        status(&server.raw("GET", "/_s3mock/counters", "", b"").await),
+        200
+    );
+    assert_eq!(
+        status(
+            &server
+                .raw_signed(
+                    "GET",
+                    "/_s3mock/credentials/owned-key",
+                    "owned-key",
+                    "private-signing-secret",
+                    b"",
+                )
+                .await
+        ),
+        403
+    );
     let scoped = client(&server.server, "owned-key", "private-signing-secret");
     let missing = scoped
         .get_object()
@@ -180,6 +198,56 @@ async fn credentials_are_root_managed_durable_and_never_return_secrets() {
         store.credential("owned-key"),
         Err(s3mock::StoreError::NoSuchCredential)
     ));
+}
+
+#[tokio::test]
+async fn test_controls_remain_unsigned_unless_root_authentication_is_enabled() {
+    let default_controls = RunningServer::start(&["--signature-verification", "strict"]).await;
+    assert_eq!(
+        status(
+            &default_controls
+                .raw("GET", "/_s3mock/counters", "", b"")
+                .await
+        ),
+        200
+    );
+    default_controls.server.shutdown().await;
+
+    let protected = RunningServer::start(&[
+        "--signature-verification",
+        "strict",
+        "--control-authentication",
+        "root",
+    ])
+    .await;
+    assert_eq!(
+        status(&protected.raw("GET", "/_s3mock/counters", "", b"").await),
+        403
+    );
+    assert_eq!(protected.admin("GET", "counters", Value::Null).await.0, 200);
+    create(
+        &protected,
+        "scoped",
+        allow(&["s3:GetObject"], &["arn:aws:s3:::testing/*"]),
+    )
+    .await;
+    assert_eq!(
+        status(
+            &protected
+                .raw_signed("GET", "/_s3mock/counters", "scoped", "secret", b"")
+                .await
+        ),
+        403
+    );
+    protected.server.shutdown().await;
+
+    let off = RunningServer::start(&[]).await;
+    assert_eq!(
+        status(&off.raw("GET", "/_s3mock/counters", "", b"").await),
+        200
+    );
+    assert_eq!(off.admin("POST", "credentials", json!({})).await.0, 403);
+    off.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -372,6 +440,7 @@ async fn policy_examples_and_rejection_rules_match_the_contract() {
         json!({"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::bucket-example","Condition":{"NumericEquals":{"s3:prefix":"p/"}}}}),
         json!({"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::bucket-example","Condition":{"StringLike":{"s3:other":"p/*"}}}}),
         json!({"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::bucket-example/*","Condition":{"StringLike":{"s3:prefix":"p/*"}}}}),
+        json!({"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"s3:GetObjekt","Resource":"arn:aws:s3:::bucket-example/*"}}),
     ] {
         assert_eq!(
             server
@@ -388,11 +457,28 @@ async fn policy_examples_and_rejection_rules_match_the_contract() {
             400
         );
     }
+    create(
+        &server,
+        "policy-with-sid",
+        json!({"Version":"2012-10-17","Statement":{
+            "Sid":"read-config","Effect":"Allow","Action":"s3:GetObject",
+            "Resource":"arn:aws:s3:::bucket-example/p/config.json"
+        }}),
+    )
+    .await;
+    assert_eq!(
+        server.admin("POST", "credentials", json!({
+            "access_key_id":"bad,key", "secret":"secret", "parent":"owner",
+            "description":"invalid", "policy":allow(&["s3:GetObject"], &["arn:aws:s3:::bucket-example/*"]),
+            "status":"enabled"
+        })).await.0,
+        400
+    );
     server.server.shutdown().await;
 }
 
 #[tokio::test]
-async fn prefix_conditions_limit_listing_and_do_not_reveal_missing_keys() {
+async fn prefix_conditions_cover_listing_versions_and_empty_prefix() {
     let server = RunningServer::start(&["--signature-verification", "strict"]).await;
     server.put("p/existing", "stored").await;
     create(
@@ -480,10 +566,10 @@ async fn prefix_conditions_limit_listing_and_do_not_reveal_missing_keys() {
         .key("p/missing")
         .send()
         .await
-        .expect_err("conditioned listing does not disclose missing keys");
+        .expect_err("matching prefix discloses a missing key");
     assert_eq!(
         missing.as_service_error().expect("S3 error").code(),
-        Some("AccessDenied")
+        Some("NoSuchKey")
     );
     let missing_head = confined
         .head_object()
@@ -491,14 +577,14 @@ async fn prefix_conditions_limit_listing_and_do_not_reveal_missing_keys() {
         .key("p/missing")
         .send()
         .await
-        .expect_err("conditioned listing does not disclose missing HEAD");
+        .expect_err("matching prefix discloses missing HEAD");
     assert_eq!(
         missing_head
             .raw_response()
             .expect("HTTP response")
             .status()
             .as_u16(),
-        403
+        404
     );
     create(
         &server,
@@ -595,6 +681,137 @@ async fn prefix_conditions_limit_listing_and_do_not_reveal_missing_keys() {
             .as_ref(),
         b"stored"
     );
+    server.server.shutdown().await;
+}
+
+#[tokio::test]
+async fn missing_key_disclosure_matches_list_permission_for_the_key_prefix() {
+    struct Case {
+        access_key_id: &'static str,
+        key: &'static str,
+        condition: Option<Value>,
+        is_list_allowed: bool,
+        is_missing_disclosed: bool,
+    }
+    let cases = [
+        Case {
+            access_key_id: "like-prefix",
+            key: "p/missing",
+            condition: Some(json!({"StringLike":{"s3:prefix":"p/*"}})),
+            is_list_allowed: true,
+            is_missing_disclosed: true,
+        },
+        Case {
+            access_key_id: "equals-prefix",
+            key: "p/missing",
+            condition: Some(json!({"StringEquals":{"s3:prefix":"p/"}})),
+            is_list_allowed: false,
+            is_missing_disclosed: false,
+        },
+        Case {
+            access_key_id: "without-list",
+            key: "p/missing",
+            condition: None,
+            is_list_allowed: false,
+            is_missing_disclosed: false,
+        },
+        Case {
+            access_key_id: "outside-prefix",
+            key: "q/missing",
+            condition: Some(json!({"StringLike":{"s3:prefix":"p/*"}})),
+            is_list_allowed: false,
+            is_missing_disclosed: false,
+        },
+    ];
+    let server = RunningServer::start(&["--signature-verification", "strict"]).await;
+    for case in cases {
+        let mut statements = vec![json!({
+            "Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::testing/p/*"
+        })];
+        if let Some(condition) = case.condition {
+            statements.push(json!({
+                "Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::testing",
+                "Condition":condition
+            }));
+        }
+        create(
+            &server,
+            case.access_key_id,
+            json!({"Version":"2012-10-17","Statement":statements}),
+        )
+        .await;
+        let scoped = client(&server.server, case.access_key_id, "secret");
+        let get_error = scoped
+            .get_object()
+            .bucket("testing")
+            .key(case.key)
+            .send()
+            .await
+            .expect_err("the key is absent or outside the grant");
+        assert_eq!(
+            get_error.as_service_error().expect("S3 error").code(),
+            Some(if case.is_missing_disclosed {
+                "NoSuchKey"
+            } else {
+                "AccessDenied"
+            }),
+            "{} GET",
+            case.access_key_id
+        );
+        let head_error = scoped
+            .head_object()
+            .bucket("testing")
+            .key(case.key)
+            .send()
+            .await
+            .expect_err("the key is absent or outside the grant");
+        assert_eq!(
+            head_error
+                .raw_response()
+                .expect("HTTP response")
+                .status()
+                .as_u16(),
+            if case.is_missing_disclosed { 404 } else { 403 },
+            "{} HEAD",
+            case.access_key_id
+        );
+        let listing = scoped
+            .list_objects_v2()
+            .bucket("testing")
+            .prefix(case.key)
+            .send()
+            .await;
+        assert_eq!(
+            listing.is_ok(),
+            case.is_list_allowed,
+            "{} LIST",
+            case.access_key_id
+        );
+        let head_bucket = scoped
+            .head_bucket()
+            .bucket("testing")
+            .send()
+            .await
+            .expect_err("a conditioned ListBucket grant cannot HeadBucket");
+        assert_eq!(
+            head_bucket
+                .raw_response()
+                .expect("HTTP response")
+                .status()
+                .as_u16(),
+            403
+        );
+        let uploads = scoped
+            .list_multipart_uploads()
+            .bucket("testing")
+            .send()
+            .await
+            .expect_err("ListMultipartUploads needs its own action");
+        assert_eq!(
+            uploads.as_service_error().expect("S3 error").code(),
+            Some("AccessDenied")
+        );
+    }
     server.server.shutdown().await;
 }
 

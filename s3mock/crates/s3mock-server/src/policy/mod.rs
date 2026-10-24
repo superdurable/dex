@@ -14,6 +14,29 @@ use serde::Deserialize;
 use crate::routing::S3Operation;
 use crate::s3_error::S3Error;
 
+const SUPPORTED_ACTIONS: &[&str] = &[
+    "s3:AbortMultipartUpload",
+    "s3:CreateBucket",
+    "s3:DeleteBucket",
+    "s3:DeleteObject",
+    "s3:DeleteObjectVersion",
+    "s3:GetBucketLocation",
+    "s3:GetBucketObjectLockConfiguration",
+    "s3:GetBucketVersioning",
+    "s3:GetLifecycleConfiguration",
+    "s3:GetObject",
+    "s3:GetObjectVersion",
+    "s3:ListAllMyBuckets",
+    "s3:ListBucket",
+    "s3:ListBucketMultipartUploads",
+    "s3:ListBucketVersions",
+    "s3:ListMultipartUploadParts",
+    "s3:PutBucketObjectLockConfiguration",
+    "s3:PutBucketVersioning",
+    "s3:PutLifecycleConfiguration",
+    "s3:PutObject",
+];
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CredentialPolicy {
@@ -48,6 +71,8 @@ enum PolicyEffect {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PolicyStatement {
+    #[serde(rename = "Sid")]
+    _sid: Option<String>,
     #[serde(rename = "Effect")]
     effect: PolicyEffect,
     #[serde(rename = "Action")]
@@ -90,14 +115,10 @@ impl CredentialPolicy {
             }
             if statement.actions.values().is_empty()
                 || statement.actions.values().iter().any(|action| {
-                    !action
-                        .get(..3)
-                        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("s3:"))
-                        || action.len() <= 3
-                        || (!action.eq_ignore_ascii_case("s3:*")
-                            && !action[3..]
-                                .chars()
-                                .all(|character| character.is_ascii_alphanumeric()))
+                    !action.eq_ignore_ascii_case("s3:*")
+                        && !SUPPORTED_ACTIONS
+                            .iter()
+                            .any(|supported| action.eq_ignore_ascii_case(supported))
                 })
             {
                 return Err("Action must contain exact s3 actions or s3:*".into());
@@ -171,8 +192,9 @@ impl CredentialPolicy {
         }
     }
 
-    pub(crate) fn can_list_bucket_unconditionally(&self, bucket: &str) -> bool {
-        self.authorize("s3:ListBucket", &bucket_arn(bucket)).is_ok()
+    pub(crate) fn can_list_key_prefix(&self, bucket: &str, key: &str) -> bool {
+        self.authorize_with_prefix("s3:ListBucket", &bucket_arn(bucket), Some(key))
+            .is_ok()
     }
 }
 

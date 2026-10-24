@@ -20,5 +20,7 @@ mod server;
 mod signature;
 mod xml;
 
-pub use config::{DurabilityFlag, EtagModeFlag, ServerConfig, SignatureVerification};
+pub use config::{
+    ControlAuthentication, DurabilityFlag, EtagModeFlag, ServerConfig, SignatureVerification,
+};
 pub use server::{ServerHandle, start, start_with_config};
