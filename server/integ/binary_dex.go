@@ -10,6 +10,7 @@ package integ
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -20,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
@@ -58,6 +60,7 @@ func startBinaryDexService(t *testing.T, testConfig DexServiceTestConfig) *integ
 	if unsupportedSetting != "" {
 		t.Skipf("server-zd does not support %s", unsupportedSetting)
 	}
+	createAttributeSyncFencingTables(t, testConfig.AttributeStore.Stores)
 	dataDirectory := t.TempDir()
 	address, err := reserveBinaryDexAddress()
 	require.NoError(t, err)
@@ -82,16 +85,16 @@ func startBinaryDexService(t *testing.T, testConfig DexServiceTestConfig) *integ
 	t.Cleanup(func() {
 		process.stop(t)
 		require.NoError(t, outputFile.Close())
-	})
-	if readinessErr := waitForBinaryDex(address, process, 15*time.Second); readinessErr != nil {
-		output, readErr := os.ReadFile(outputPath)
-		if readErr != nil {
-			t.Logf("read Dex Server log: %v", readErr)
-		} else {
-			t.Logf("Dex Server log:\n%s", output)
+		if t.Failed() {
+			output, readErr := os.ReadFile(outputPath)
+			if readErr != nil {
+				t.Logf("read Dex Server log: %v", readErr)
+			} else {
+				t.Logf("Dex Server log:\n%s", output)
+			}
 		}
-		require.NoError(t, readinessErr)
-	}
+	})
+	require.NoError(t, waitForBinaryDex(address, process, 15*time.Second))
 	var connection *grpc.ClientConn
 	if testConfig.Credential != "" {
 		connection = newDexClientConnectionWithCredential(t, address, testConfig.Credential, config.DefaultGrpcMaxMessageBytes)
@@ -128,6 +131,12 @@ func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
 	if testConfig.CadenceDomain != "" || testConfig.BackendType == service.BackendTypeCadence {
 		return nil, "Cadence"
 	}
+	for _, store := range testConfig.AttributeStore.Stores {
+		// C26: server-zd supports only PostgreSQL Attribute Stores.
+		if store.Type != config.AttributeStoreTypePostgres {
+			return nil, fmt.Sprintf("%s Attribute Store", store.Type)
+		}
+	}
 	if testConfig.MemoEncryption {
 		return nil, "memo encryption"
 	}
@@ -154,11 +163,6 @@ func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
 	}
 	if testConfig.TemporalMetricsHandler != nil {
 		return nil, "Temporal metrics handler"
-	}
-	if len(testConfig.AttributeStore.Stores) > 0 || testConfig.AttributeStore.SchemaSyncInterval != 0 ||
-		testConfig.AttributeStore.SyncBatchSize != 0 || testConfig.AttributeStore.SyncAttemptTimeout != 0 ||
-		testConfig.AttributeStore.SyncRetryPolicy != nil {
-		return nil, "Attribute Store"
 	}
 	if streamStoreBackend := testConfig.StreamStore.EffectiveBackend(); streamStoreBackend != config.StreamStoreBackendMemory &&
 		streamStoreBackend != config.StreamStoreBackendDisabled {
@@ -208,7 +212,94 @@ func binaryDexConfig(testConfig DexServiceTestConfig) (map[string]any, string) {
 	if testConfig.Auth != nil {
 		configuration["auth"] = binaryAuthConfig(testConfig.Auth)
 	}
+	if len(testConfig.AttributeStore.Stores) > 0 {
+		configuration["attributeStore"] = binaryAttributeStoreConfig(testConfig.AttributeStore)
+	}
 	return configuration, ""
+}
+
+// binaryAttributeStoreConfig writes the Go Server's attributeStore keys, which server-zd reads unchanged.
+func binaryAttributeStoreConfig(settings config.AttributeStoreConfig) map[string]any {
+	stores := make(map[string]any, len(settings.Stores))
+	for name, store := range settings.Stores {
+		entry := map[string]any{"type": string(store.Type), "dsn": store.DSN, "tableName": store.TableName}
+		for key, value := range map[string]string{
+			"flowIdColumn": store.FlowIDColumn, "databaseName": store.DatabaseName,
+			"collectionName": store.CollectionName, "rowKey": store.RowKey,
+			"columnNaming": string(store.ColumnNaming),
+		} {
+			if value != "" {
+				entry[key] = value
+			}
+		}
+		if len(store.AttributeMaps) > 0 {
+			attributeMaps := make(map[string]any, len(store.AttributeMaps))
+			for mapName, mapTable := range store.AttributeMaps {
+				attributeMaps[mapName] = map[string]any{
+					"tableName": mapTable.TableName, "instanceKeyColumn": mapTable.InstanceKeyColumn,
+				}
+			}
+			entry["attributeMaps"] = attributeMaps
+		}
+		stores[name] = entry
+	}
+	configuration := map[string]any{"stores": stores}
+	for name, duration := range map[string]time.Duration{
+		"schemaSyncInterval": settings.SchemaSyncInterval, "syncAttemptTimeout": settings.SyncAttemptTimeout,
+	} {
+		if duration != 0 {
+			configuration[name] = duration.String()
+		}
+	}
+	if settings.SyncBatchSize != 0 {
+		configuration["syncBatchSize"] = settings.SyncBatchSize
+	}
+	if settings.SyncRetryPolicy != nil {
+		configuration["syncRetryPolicy"] = binaryRetryPolicyConfig(settings.SyncRetryPolicy)
+	}
+	return configuration
+}
+
+func binaryRetryPolicyConfig(policy *config.RetryPolicy) map[string]any {
+	configuration := make(map[string]any)
+	for name, duration := range map[string]time.Duration{
+		"initialInterval": policy.InitialInterval, "maximumInterval": policy.MaximumInterval,
+		"totalDuration": policy.TotalDuration,
+	} {
+		if duration != 0 {
+			configuration[name] = duration.String()
+		}
+	}
+	if policy.BackoffCoefficient != 0 {
+		configuration["backoffCoefficient"] = policy.BackoffCoefficient
+	}
+	if policy.MaximumAttempts != 0 {
+		configuration["maximumAttempts"] = policy.MaximumAttempts
+	}
+	return configuration
+}
+
+// serverZDFencingTableDDL creates server-zd's default fencing table (C29); the Go Server needs none.
+const serverZDFencingTableDDL = `CREATE TABLE IF NOT EXISTS dexzd_attribute_sync_fencing (
+store_name text NOT NULL, cluster_id text NOT NULL, scope text NOT NULL, fencing_token bigint NOT NULL,
+updated_at timestamptz NOT NULL, PRIMARY KEY (store_name, cluster_id, scope))`
+
+// createAttributeSyncFencingTables needs no cleanup: each dev process is a new cluster, so rows never collide.
+func createAttributeSyncFencingTables(t *testing.T, stores map[string]config.AttributeStoreConfigEntry) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	preparedDSNs := make(map[string]struct{}, len(stores))
+	for _, store := range stores {
+		if _, isPrepared := preparedDSNs[store.DSN]; isPrepared {
+			continue
+		}
+		preparedDSNs[store.DSN] = struct{}{}
+		database, err := sql.Open("pgx", store.DSN)
+		require.NoError(t, err)
+		_, err = database.ExecContext(ctx, serverZDFencingTableDDL)
+		require.NoError(t, errors.Join(err, database.Close()))
+	}
 }
 
 // binaryAuthConfig writes the Go Server's auth section with its own YAML keys, which server-zd reads unchanged.

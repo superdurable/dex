@@ -82,6 +82,53 @@ func TestBinaryDexConfigMapping(t *testing.T) {
 	require.Equal(t, map[string]any{"backend": config.StreamStoreBackendMemory, "maxReadMessages": int32(25)}, configuration["streamStore"])
 }
 
+func TestBinaryDexConfigAttributeStoreMapping(t *testing.T) {
+	configuration, unsupportedSetting := binaryDexConfig(DexServiceTestConfig{
+		BackendType: service.BackendTypeTemporal,
+		AttributeStore: config.AttributeStoreConfig{
+			Stores: map[string]config.AttributeStoreConfigEntry{
+				"groups": {
+					Type: config.AttributeStoreTypePostgres, DSN: "postgres://dex@localhost/dex", TableName: "public.groups",
+					RowKey: "group-{group_id}", ColumnNaming: config.AttributeStoreColumnNamingSnakeCase,
+					AttributeMaps: map[string]config.AttributeStoreMapTableConfig{
+						"Members": {TableName: "public.members", InstanceKeyColumn: "account_id"},
+					},
+				},
+			},
+			SyncBatchSize:      2,
+			SyncAttemptTimeout: time.Second,
+			SyncRetryPolicy: &config.RetryPolicy{
+				InitialInterval: 100 * time.Millisecond, BackoffCoefficient: 1.5, TotalDuration: 168 * time.Hour,
+			},
+		},
+	})
+	require.Empty(t, unsupportedSetting)
+	require.Equal(t, map[string]any{
+		"stores": map[string]any{
+			"groups": map[string]any{
+				"type": "postgres", "dsn": "postgres://dex@localhost/dex", "tableName": "public.groups",
+				"rowKey": "group-{group_id}", "columnNaming": "snake_case",
+				"attributeMaps": map[string]any{
+					"Members": map[string]any{"tableName": "public.members", "instanceKeyColumn": "account_id"},
+				},
+			},
+		},
+		"syncBatchSize":      2,
+		"syncAttemptTimeout": "1s",
+		"syncRetryPolicy": map[string]any{
+			"initialInterval": "100ms", "backoffCoefficient": 1.5, "totalDuration": "168h0m0s",
+		},
+	}, configuration["attributeStore"])
+
+	_, unsupportedSetting = binaryDexConfig(DexServiceTestConfig{
+		BackendType: service.BackendTypeTemporal,
+		AttributeStore: config.AttributeStoreConfig{
+			Stores: map[string]config.AttributeStoreConfigEntry{"documents": {Type: config.AttributeStoreTypeMongoDB}},
+		},
+	})
+	require.Equal(t, "mongodb Attribute Store", unsupportedSetting)
+}
+
 func TestBinaryDexLauncherEarlyExit(t *testing.T) {
 	address, process := startFakeBinaryDexProcess(t, "exit")
 	err := waitForBinaryDex(address, process, time.Second)

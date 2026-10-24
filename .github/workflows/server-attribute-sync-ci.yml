@@ -5,6 +5,8 @@ on:
     types: [opened, synchronize, reopened, labeled]
     paths:
       - "server/**"
+      - "server-zd/**"
+      - "s3mock/**"
       - "protos/**"
       - ".github/scripts/dump-docker-logs.sh"
       - ".github/workflows/server-attribute-sync-ci.yml"
@@ -78,3 +80,53 @@ jobs:
       - name: Dump docker logs
         if: always()
         run: bash "$GITHUB_WORKSPACE/.github/scripts/dump-docker-logs.sh"
+
+  zd-attribute-sync-integ:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:attribute-sync')
+    name: Attribute Sync integration against server-zd
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: dex
+          POSTGRES_USER: dex
+          POSTGRES_PASSWORD: dex
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U dex -d dex"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    # Matches the Server ZD CI ParadeDB job, so its main cache restores here.
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+      RUSTUP_TOOLCHAIN: "1.97.1"
+      CARGO_BUILD_JOBS: "4"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for the RocksDB bindings
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-paradedb
+          save-if: false
+      - name: Build dex-server-zd
+        working-directory: server-zd
+        run: cargo build -p dexzd-server --bin dex-server-zd
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Attribute Sync integration tests against server-zd
+        working-directory: server
+        env:
+          GOWORK: "off"
+        run: make zdAttributeSyncIntegTests dexServerZDBinary=../server-zd/target/debug/dex-server-zd

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
@@ -205,10 +206,8 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 		}
 	})
 
-	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType:        backendType,
-		S3TestThreshold:    1,
-		BlobCacheDirectory: t.TempDir(),
+	runtime := startDexService(t, withAttributeSyncBlobCache(t, DexServiceTestConfig{
+		BackendType: backendType,
 		AttributeStore: config.AttributeStoreConfig{
 			Stores: map[string]config.AttributeStoreConfigEntry{
 				"reporting": {
@@ -224,7 +223,7 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 			},
 			SyncBatchSize: 2,
 		},
-	})
+	}))
 	workerTarget := startWorker(t, signal.NewHandler())
 	for _, invalidStoreNames := range [][]string{{"reporting", "reporting"}, {"unknown"}, {""}} {
 		_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
@@ -271,37 +270,47 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 	})
 	require.NoError(t, err)
 
-	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
-		FlowId:   flowID,
-		StopType: dexpb.StopType_STOP_TYPE_CANCEL,
-	})
-	require.NoError(t, err)
-	_, err = runtime.FlowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
+	terminalWrite := &dexpb.SetAttributesRequest{
 		RequestId: newRequestID(),
 		FlowId:    flowID,
 		Attributes: []*dexpb.AttributeWrite{
 			syncedStringAttribute("message", "terminal-signal"),
 		},
+	}
+	if isServerZDBinaryMode() {
+		// server-zd closes the run when StopFlow commits, so it rejects later writes.
+		_, err = runtime.FlowClient.SetAttributes(ctx, terminalWrite)
+		require.NoError(t, err)
+	}
+	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+		FlowId:   flowID,
+		StopType: dexpb.StopType_STOP_TYPE_CANCEL,
 	})
 	require.NoError(t, err)
+	if !isServerZDBinaryMode() {
+		_, err = runtime.FlowClient.SetAttributes(ctx, terminalWrite)
+		require.NoError(t, err)
+	}
 	require.NoError(t, lockTransaction.Commit())
 	lockReleased = true
 	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
 
-	for _, tableName := range tableNames {
-		var message string
-		var document string
-		err = database.QueryRowContext(
-			ctx,
-			"SELECT message, document::text FROM public."+tableName+" WHERE flow_id = $1",
-			flowID,
-		).Scan(&message, &document)
-		require.NoError(t, err)
-		require.Equal(t, "terminal-signal", message)
-		require.JSONEq(t, `{"source":"blob-cache"}`, document)
-	}
+	requireAttributeStoreRows(t, func(collect require.TestingT) {
+		for _, tableName := range tableNames {
+			var message string
+			var document string
+			queryErr := database.QueryRowContext(
+				ctx,
+				"SELECT message, document::text FROM public."+tableName+" WHERE flow_id = $1",
+				flowID,
+			).Scan(&message, &document)
+			require.NoError(collect, queryErr)
+			require.Equal(collect, "terminal-signal", message)
+			require.JSONEq(collect, `{"source":"blob-cache"}`, document)
+		}
+	})
 }
 
 func doTestAttributeSyncMongoDB(t *testing.T, backendType service.BackendType) {
@@ -394,7 +403,7 @@ func doTestAttributeSyncMongoDB(t *testing.T, backendType service.BackendType) {
 }
 
 func doTestAttributeSyncFlowTimeout(t *testing.T, backendType service.BackendType) {
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
 	defer cancel()
 
 	postgresDSN := os.Getenv("DEX_ATTRIBUTE_STORE_POSTGRES_DSN")
@@ -472,14 +481,16 @@ func doTestAttributeSyncFlowTimeout(t *testing.T, backendType service.BackendTyp
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, response.GetFlowStatus())
 	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT, response.GetErrorType())
-	var message string
-	err = database.QueryRowContext(
-		ctx,
-		"SELECT message FROM public."+tableName+" WHERE flow_id = $1",
-		flowID,
-	).Scan(&message)
-	require.NoError(t, err)
-	require.Equal(t, "persisted-after-timeout", message)
+	requireAttributeStoreRows(t, func(collect require.TestingT) {
+		var message string
+		queryErr := database.QueryRowContext(
+			ctx,
+			"SELECT message FROM public."+tableName+" WHERE flow_id = $1",
+			flowID,
+		).Scan(&message)
+		require.NoError(collect, queryErr)
+		require.Equal(collect, "persisted-after-timeout", message)
+	})
 }
 
 type timeoutAttributeSyncHandler struct {
@@ -513,6 +524,19 @@ type timeoutAttributeSyncProbe struct {
 }
 
 func (p timeoutAttributeSyncProbe) isStepCanceled() bool {
+	if isServerZDBinaryMode() {
+		// DebugDump is a Temporal query; GetFlowState reports server-zd's active Steps.
+		state, err := p.runtime.FlowClient.GetFlowState(p.ctx, &dexpb.GetFlowStateRequest{FlowId: p.flowID})
+		if err != nil {
+			return false
+		}
+		for _, execution := range state.GetActiveStepExecutions() {
+			if execution.GetStepType() == signal.State1 {
+				return false
+			}
+		}
+		return true
+	}
 	var dump dexpb.DebugDumpResponse
 	if err := p.runtime.UnifiedClient.QueryWorkflow(
 		p.ctx,
@@ -622,10 +646,8 @@ func doTestAttributeSyncRetryExhaustion(t *testing.T, backendType service.Backen
 	})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		var dump dexpb.DebugDumpResponse
-		queryErr := runtime.UnifiedClient.QueryWorkflow(ctx, &dump, flowID, "", service.DebugDumpQueryType)
-		return queryErr == nil && len(dump.GetConfig().GetAttributeStoreNames().GetNames()) == 1 &&
-			dump.GetConfig().GetAttributeStoreNames().GetNames()[0] == "healthy"
+		storeNames, queryErr := currentAttributeStoreNames(ctx, runtime, flowID)
+		return queryErr == nil && len(storeNames) == 1 && storeNames[0] == "healthy"
 	}, 20*time.Second, 50*time.Millisecond)
 
 	_, err = runtime.FlowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
@@ -663,6 +685,43 @@ func doTestAttributeSyncRetryExhaustion(t *testing.T, backendType service.Backen
 	).Scan(&message)
 	require.NoError(t, err)
 	require.Equal(t, "persisted", message)
+}
+
+func currentAttributeStoreNames(ctx context.Context, runtime *integRuntime, flowID string) ([]string, error) {
+	if isServerZDBinaryMode() {
+		// DebugDump is a Temporal query; GetFlowState returns server-zd's FlowConfig.
+		state, err := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{FlowId: flowID})
+		return state.GetFlowConfig().GetAttributeStoreNames().GetNames(), err
+	}
+	var dump dexpb.DebugDumpResponse
+	err := runtime.UnifiedClient.QueryWorkflow(ctx, &dump, flowID, "", service.DebugDumpQueryType)
+	return dump.GetConfig().GetAttributeStoreNames().GetNames(), err
+}
+
+// attributeStoreRowWait covers server-zd's write retries while a test holds a table lock.
+const attributeStoreRowWait = 30 * time.Second
+
+// requireAttributeStoreRows checks once on the Go Server, which syncs before closing.
+// C24: server-zd syncs after commit, so binary mode polls.
+func requireAttributeStoreRows(t *testing.T, assertRows func(collect require.TestingT)) {
+	t.Helper()
+	if !isServerZDBinaryMode() {
+		assertRows(t)
+		return
+	}
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		assertRows(collect)
+	}, attributeStoreRowWait, 50*time.Millisecond)
+}
+
+// withAttributeSyncBlobCache offloads every Value to S3 through the blob cache.
+// C5: server-zd keeps Values in its log, without an S3 Blob Store or blob cache.
+func withAttributeSyncBlobCache(t *testing.T, testConfig DexServiceTestConfig) DexServiceTestConfig {
+	if !isServerZDBinaryMode() {
+		testConfig.S3TestThreshold = 1
+		testConfig.BlobCacheDirectory = t.TempDir()
+	}
+	return testConfig
 }
 
 func syncedStringAttribute(key, value string) *dexpb.AttributeWrite {
