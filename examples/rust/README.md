@@ -124,8 +124,8 @@ Deal DSL, and Failure Recovery Flows through the published Rust SDK.
 
 Set `DEX_EXAMPLES_WORKER_MODE=pull` to run the same tests with pull Workers.
 Set `DEX_INTEG_ENGINE=zd` to run them against server-zd. That mode defaults to
-pull Workers, does not start the entity store, and skips samples that use
-failure policies or Attribute Store sync. `make integTests` and
+pull Workers, does not start the entity store, and skips the sample that uses
+Attribute Store sync. `make integTests` and
 `make flowSmokeTests` filter those tests out by exact name, so `cargo test`
 reports them as filtered out, and print each one with the reason
 `server-zd does not support <feature>`. Flow smoke entries that server-zd

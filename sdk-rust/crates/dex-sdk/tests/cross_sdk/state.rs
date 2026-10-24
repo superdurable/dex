@@ -13,7 +13,7 @@ use dex_sdk::{
     Step, StepDecision, StepList, StepOptions, Wait,
 };
 
-use crate::support::{DexDevTestEnvironment, flow_id, skip_if_server_zd};
+use crate::support::{DexDevTestEnvironment, flow_id};
 
 struct ExecuteRecoveryWorkflow {
     start: ExecuteRecoveryFailStep,
@@ -125,10 +125,6 @@ impl Step for WaitForTimeoutStep {
 #[test]
 #[ignore = "requires dexcli dev"]
 fn execute_recovery_contract_preserves_input_type_and_completes() {
-    // C21: server-zd does not support Step failure policies.
-    if skip_if_server_zd("Step failure policies") {
-        return;
-    }
     let environment =
         DexDevTestEnvironment::start(Registry::new().register(ExecuteRecoveryWorkflow {
             start: ExecuteRecoveryFailStep,

@@ -19,6 +19,7 @@ use dexzd_protocol::dexzd::v1::{
 
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::state_access::FlowTransaction;
+use crate::steps::retry_deadline_micros;
 use crate::values::{ValueHolder, release_stored_value};
 use crate::{ApplyEffect, ApplyError};
 
@@ -205,6 +206,15 @@ pub(crate) fn start_attempt(
     let attempt = invocation.attempt;
     let method_timeout_seconds =
         configured_method_timeout_seconds(step.options.as_ref(), invocation.method);
+    let retry_policy = step.options.as_ref().and_then(|options| {
+        if invocation.method == StepMethod::WaitFor as i32 {
+            options.wait_for_retry_policy.as_ref()
+        } else {
+            options.execute_retry_policy.as_ref()
+        }
+    });
+    let retry_deadline_micros =
+        retry_deadline_micros(retry_policy, invocation.first_attempt_at_micros);
     cursor.add_effect(ApplyEffect::InvocationStarted {
         run_id,
         run_attempt,
@@ -212,6 +222,7 @@ pub(crate) fn start_attempt(
         attempt,
         task_id: task_id.to_vec(),
         method_timeout_seconds,
+        retry_deadline_micros,
     });
     Ok(())
 }

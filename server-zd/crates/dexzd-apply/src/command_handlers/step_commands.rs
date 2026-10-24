@@ -219,6 +219,11 @@ pub(crate) fn apply_flow_timeout(
                 execute_timeout_seconds: handler_options.method_timeout_seconds,
                 heartbeat_timeout_seconds: handler_options.heartbeat_timeout_seconds,
                 execute_retry_policy: handler_options.retry_policy,
+                execute_failure_policy: handler_options.failure_policy,
+                execute_failure_proceed_step_type: handler_options.failure_proceed_step_type,
+                execute_failure_proceed_step_options: handler_options
+                    .failure_proceed_step_options
+                    .map(Box::new),
                 execute_durability_override: handler_options.durability_override,
                 execute_lock_attribute_keys: handler_options.lock_attribute_keys.clone(),
                 execute_load_attribute_map_instances: handler_options

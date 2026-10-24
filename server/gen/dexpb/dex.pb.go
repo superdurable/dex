@@ -275,8 +275,7 @@ type WaitForMethodFailurePolicy int32
 const (
 	WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED          WaitForMethodFailurePolicy = 0
 	WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE WaitForMethodFailurePolicy = 1
-	// server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-	// A Step decision that uses it fails the attempt without retry.
+	// Execute runs after the final WaitFor failure.
 	WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE WaitForMethodFailurePolicy = 2
 )
 
@@ -326,8 +325,7 @@ type ExecuteMethodFailurePolicy int32
 const (
 	ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED                         ExecuteMethodFailurePolicy = 0
 	ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE ExecuteMethodFailurePolicy = 1
-	// server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-	// A Step decision that uses it fails the attempt without retry.
+	// The configured recovery Step starts after the final Execute failure.
 	ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP ExecuteMethodFailurePolicy = 2
 )
 
@@ -3797,11 +3795,9 @@ type StepOptions struct {
 	ExecuteRetryPolicy    *RetryPolicy               `protobuf:"bytes,4,opt,name=execute_retry_policy,json=executeRetryPolicy,proto3" json:"execute_retry_policy,omitempty"`
 	WaitForFailurePolicy  WaitForMethodFailurePolicy `protobuf:"varint,5,opt,name=wait_for_failure_policy,json=waitForFailurePolicy,proto3,enum=dex.WaitForMethodFailurePolicy" json:"wait_for_failure_policy,omitempty"`
 	ExecuteFailurePolicy  ExecuteMethodFailurePolicy `protobuf:"varint,6,opt,name=execute_failure_policy,json=executeFailurePolicy,proto3,enum=dex.ExecuteMethodFailurePolicy" json:"execute_failure_policy,omitempty"`
-	// server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-	// A Step decision that uses it fails the attempt without retry.
+	// Step type started after the final Execute failure.
 	ExecuteFailureProceedStepType string `protobuf:"bytes,7,opt,name=execute_failure_proceed_step_type,json=executeFailureProceedStepType,proto3" json:"execute_failure_proceed_step_type,omitempty"`
-	// server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-	// A Step decision that uses it fails the attempt without retry.
+	// Options of the recovery Step.
 	ExecuteFailureProceedStepOptions *StepOptions   `protobuf:"bytes,8,opt,name=execute_failure_proceed_step_options,json=executeFailureProceedStepOptions,proto3" json:"execute_failure_proceed_step_options,omitempty"`
 	SkipWaitFor                      bool           `protobuf:"varint,9,opt,name=skip_wait_for,json=skipWaitFor,proto3" json:"skip_wait_for,omitempty"`
 	WaitForDurabilityOverride        StepDurability `protobuf:"varint,10,opt,name=wait_for_durability_override,json=waitForDurabilityOverride,proto3,enum=dex.StepDurability" json:"wait_for_durability_override,omitempty"`
@@ -3995,8 +3991,7 @@ type FlowTimeoutHandlerOptions struct {
 	HeartbeatTimeoutSeconds int32                      `protobuf:"varint,2,opt,name=heartbeat_timeout_seconds,json=heartbeatTimeoutSeconds,proto3" json:"heartbeat_timeout_seconds,omitempty"`
 	RetryPolicy             *RetryPolicy               `protobuf:"bytes,3,opt,name=retry_policy,json=retryPolicy,proto3" json:"retry_policy,omitempty"`
 	FailurePolicy           ExecuteMethodFailurePolicy `protobuf:"varint,4,opt,name=failure_policy,json=failurePolicy,proto3,enum=dex.ExecuteMethodFailurePolicy" json:"failure_policy,omitempty"`
-	// server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-	// A Step decision that uses it fails the attempt without retry.
+	// Step type started after the final timeout handler failure.
 	FailureProceedStepType string `protobuf:"bytes,5,opt,name=failure_proceed_step_type,json=failureProceedStepType,proto3" json:"failure_proceed_step_type,omitempty"`
 	// server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
 	// A Step decision that uses it fails the attempt without retry.

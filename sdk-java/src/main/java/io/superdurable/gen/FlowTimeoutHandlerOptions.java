@@ -131,8 +131,7 @@ private static final long serialVersionUID = 0L;
   private volatile java.lang.Object failureProceedStepType_ = "";
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Step type started after the final timeout handler failure.
    * </pre>
    *
    * <code>string failure_proceed_step_type = 5;</code>
@@ -153,8 +152,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Step type started after the final timeout handler failure.
    * </pre>
    *
    * <code>string failure_proceed_step_type = 5;</code>
@@ -1245,8 +1243,7 @@ private static final long serialVersionUID = 0L;
     private java.lang.Object failureProceedStepType_ = "";
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Step type started after the final timeout handler failure.
      * </pre>
      *
      * <code>string failure_proceed_step_type = 5;</code>
@@ -1266,8 +1263,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Step type started after the final timeout handler failure.
      * </pre>
      *
      * <code>string failure_proceed_step_type = 5;</code>
@@ -1288,8 +1284,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Step type started after the final timeout handler failure.
      * </pre>
      *
      * <code>string failure_proceed_step_type = 5;</code>
@@ -1306,8 +1301,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Step type started after the final timeout handler failure.
      * </pre>
      *
      * <code>string failure_proceed_step_type = 5;</code>
@@ -1321,8 +1315,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-     * A Step decision that uses it fails the attempt without retry.
+     * Step type started after the final timeout handler failure.
      * </pre>
      *
      * <code>string failure_proceed_step_type = 5;</code>

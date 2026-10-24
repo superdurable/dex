@@ -39,8 +39,6 @@ public final class StepCancellationTest {
 
     @Test
     void testHeartbeatCancelsRegularExecuteAndInterruptsHandler() throws Exception {
-        // C21: server-zd rejects Step failure policies.
-        IntegrationTestWaits.skipIfServerZD("Step failure policies");
         assertCooperativeCancellation(
                 StepCancellationWorkflow.Scenario.HEARTBEAT_EXECUTE,
                 CANCELLATION_TIMEOUT);
@@ -48,8 +46,6 @@ public final class StepCancellationTest {
 
     @Test
     void testHeartbeatCancelsRegularWaitForAndInterruptsHandler() throws Exception {
-        // C21: server-zd rejects Step failure policies.
-        IntegrationTestWaits.skipIfServerZD("Step failure policies");
         assertCooperativeCancellation(
                 StepCancellationWorkflow.Scenario.HEARTBEAT_WAIT_FOR,
                 CANCELLATION_TIMEOUT);
@@ -57,8 +53,6 @@ public final class StepCancellationTest {
 
     @Test
     void testLocalHeartbeatIsIgnoredUntilRegularFallback() throws Exception {
-        // C21: server-zd rejects Step failure policies.
-        IntegrationTestWaits.skipIfServerZD("Step failure policies");
         final StepCancellationWorkflow workflow = new StepCancellationWorkflow(
                 StepCancellationWorkflow.Scenario.LOCAL_EXECUTE);
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
@@ -81,8 +75,6 @@ public final class StepCancellationTest {
 
     @Test
     void testTimerCancelsAfterLocalTimeoutFallbackWithoutWorkerProgress() throws Exception {
-        // C21: server-zd rejects Step failure policies.
-        IntegrationTestWaits.skipIfServerZD("Step failure policies");
         final StepCancellationWorkflow workflow = new StepCancellationWorkflow(
                 StepCancellationWorkflow.Scenario.LOCAL_TIMEOUT_FALLBACK);
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
@@ -107,8 +99,6 @@ public final class StepCancellationTest {
 
     @Test
     void testCancellationWithoutHeartbeatContinuesBeforeLateHandlerReturn() throws Exception {
-        // C21: server-zd rejects Step failure policies.
-        IntegrationTestWaits.skipIfServerZD("Step failure policies");
         final StepCancellationWorkflow workflow = new StepCancellationWorkflow(
                 StepCancellationWorkflow.Scenario.NO_HEARTBEAT);
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(

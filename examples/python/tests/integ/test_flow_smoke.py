@@ -94,12 +94,10 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
                     "notes": "smoke",
                 },
             ),
-            server_zd_unsupported_feature="failure policies",
         ),
         FlowSmokeEntry(
             "products/order-processing",
             lambda c: trigger_get("/products/order-processing/start", {}),
-            server_zd_unsupported_feature="failure policies",
         ),
         FlowSmokeEntry(
             "products/subscription",
@@ -130,7 +128,6 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
                 "/patterns/polling/start",
                 {"workflowId": new_id("pattern-polling")},
             ),
-            server_zd_unsupported_feature="failure policies",
         ),
         FlowSmokeEntry(
             "patterns/interruptible",
@@ -171,7 +168,6 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
                 "/patterns/manual-recovery/start",
                 {"workflowId": new_id("manual-recovery")},
             ),
-            server_zd_unsupported_feature="failure policies",
         ),
         FlowSmokeEntry(
             "patterns/inactiveness-tracker-timer",
@@ -219,7 +215,6 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
                 },
             ),
             flags=FlowSmokeFlags(step_start_may_fail=True),
-            server_zd_unsupported_feature="failure policies",
         ),
         parallel_subflows_entry("basic"),
         parallel_subflows_entry("wait-for-half"),
@@ -322,7 +317,6 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             flags=FlowSmokeFlags(
                 allowed_failure_event_types=frozenset({"StepWaitForFailed"})
             ),
-            server_zd_unsupported_feature="failure policies",
         ),
         FlowSmokeEntry(
             "primitives/step/step-decision",

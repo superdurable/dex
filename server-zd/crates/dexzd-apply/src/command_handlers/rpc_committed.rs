@@ -12,9 +12,8 @@ use std::collections::BTreeMap;
 
 use dexzd_keyspace::row_keys::RequestKind;
 use dexzd_protocol::dex::{
-    ChannelMessageDeletion, ErrorSubStatus, ExecuteMethodFailurePolicy, FlowStatus,
-    InvokeWorkerRpcResponse, RpcExecutionCompletedEvent, WaitForMethodFailurePolicy,
-    flow_history_event,
+    ChannelMessageDeletion, ErrorSubStatus, FlowStatus, InvokeWorkerRpcResponse,
+    RpcExecutionCompletedEvent, flow_history_event,
 };
 use dexzd_protocol::dexzd::v1::{
     CommandReply, RequestDedupRecord, RpcCommittedCommand, RpcReply, command_reply,
@@ -77,22 +76,6 @@ pub(crate) fn apply_rpc_committed(
     {
         return Ok(reject_invalid(
             "RPC Step decision has unsupported operations",
-        ));
-    }
-    if response.step_decision.as_ref().is_some_and(|decision| {
-        decision.next_steps.iter().any(|movement| {
-            movement.step_options.as_ref().is_some_and(|options| {
-                options.wait_for_failure_policy
-                    == WaitForMethodFailurePolicy::ProceedOnFailure as i32
-                    || options.execute_failure_policy
-                        == ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
-                    || !options.execute_failure_proceed_step_type.is_empty()
-                    || options.execute_failure_proceed_step_options.is_some()
-            })
-        })
-    }) {
-        return Ok(reject_invalid(
-            "RPC Step decision uses an unsupported failure policy",
         ));
     }
     if is_transactional

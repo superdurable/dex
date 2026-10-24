@@ -10,10 +10,10 @@
 
 use dexzd_protocol::dex::{
     AttributeWrite, ChannelCondition, ChannelMessage, ChannelMessageDeletion, ChannelValues,
-    CloseDecision, CloseDecisionType, InvokeExecuteMethodResponse, InvokeWaitForMethodResponse,
-    InvokeWorkerRpcResponse, Kv, RetryPolicy, StepDecision, StepDurability, StepMovement,
-    StepOptions, SubFlowCondition, TimerCondition, Value, WaitingCondition, WaitingConditionType,
-    WorkerErrorResponse, value,
+    CloseDecision, CloseDecisionType, ExecuteMethodFailurePolicy, InvokeExecuteMethodResponse,
+    InvokeWaitForMethodResponse, InvokeWorkerRpcResponse, Kv, RetryPolicy, StepDecision,
+    StepDurability, StepMovement, StepOptions, SubFlowCondition, TimerCondition, Value,
+    WaitForMethodFailurePolicy, WaitingCondition, WaitingConditionType, WorkerErrorResponse, value,
 };
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
@@ -30,6 +30,7 @@ pub(crate) const COUNTER_STEP_TYPE: &str = "ChargeStep";
 
 /// Random valid Step options, except locks fixed by Step type so a Worker knows its locks.
 pub(crate) fn engine_step_options(rng: &mut ChaCha8Rng, step_type: &str) -> StepOptions {
+    let should_proceed_on_execute_failure = rng.random_bool(0.1);
     StepOptions {
         skip_wait_for: rng.random_bool(0.4),
         wait_for_lock_attribute_keys: match step_type {
@@ -57,6 +58,27 @@ pub(crate) fn engine_step_options(rng: &mut ChaCha8Rng, step_type: &str) -> Step
         } else {
             0
         },
+        wait_for_failure_policy: if rng.random_bool(0.1) {
+            WaitForMethodFailurePolicy::ProceedOnFailure as i32
+        } else {
+            WaitForMethodFailurePolicy::Unspecified as i32
+        },
+        execute_failure_policy: if should_proceed_on_execute_failure {
+            ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
+        } else {
+            ExecuteMethodFailurePolicy::Unspecified as i32
+        },
+        execute_failure_proceed_step_type: if should_proceed_on_execute_failure {
+            "RecoverStep".to_owned()
+        } else {
+            String::new()
+        },
+        execute_failure_proceed_step_options: should_proceed_on_execute_failure.then(|| {
+            Box::new(StepOptions {
+                skip_wait_for: true,
+                ..StepOptions::default()
+            })
+        }),
         ..StepOptions::default()
     }
 }

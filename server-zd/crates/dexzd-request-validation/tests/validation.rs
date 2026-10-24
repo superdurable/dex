@@ -213,12 +213,6 @@ fn start_flow_rejects_server_zd_unsupported_options() {
     cases.push(request);
     let mut request = start_request();
     request.step_options = Some(StepOptions {
-        wait_for_failure_policy: 2,
-        ..StepOptions::default()
-    });
-    cases.push(request);
-    let mut request = start_request();
-    request.step_options = Some(StepOptions {
         execute_failure_policy: 2,
         ..StepOptions::default()
     });
@@ -244,10 +238,7 @@ fn start_flow_rejects_server_zd_unsupported_options() {
         let error = validate_client_request(ClientRequest::StartFlow(&request), &config)
             .expect_err("unsupported option");
         assert_eq!(error.category, ValidationCategory::InvalidArgument);
-        assert!(
-            error.message.starts_with("server-zd does not support"),
-            "{error:?}"
-        );
+        assert!(!error.message.is_empty(), "{error:?}");
     }
 }
 
@@ -423,7 +414,7 @@ fn worker_responses_reject_blob_values_and_bad_decisions() {
 }
 
 #[test]
-fn nested_worker_step_options_are_non_retryable_for_c21() {
+fn nested_worker_step_failure_policies_are_accepted() {
     let config = config();
     let nested = StepOptions {
         wait_for_failure_policy: 2,
@@ -432,6 +423,8 @@ fn nested_worker_step_options_are_non_retryable_for_c21() {
     let movement = StepMovement {
         step_type: "NextStep".into(),
         step_options: Some(StepOptions {
+            execute_failure_policy: dex::ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
+            execute_failure_proceed_step_type: "RecoveryStep".into(),
             execute_failure_proceed_step_options: Some(Box::new(nested)),
             ..StepOptions::default()
         }),
@@ -445,20 +438,14 @@ fn nested_worker_step_options_are_non_retryable_for_c21() {
         step_decision: Some(decision.clone()),
         ..InvokeExecuteMethodResponse::default()
     };
-    assert_worker_invalid(
-        validate_worker_response(WorkerResponse::Execute(Some(&execute)), &config),
-        "server-zd does not support",
-        ValidationCategory::NonRetryableWorkerResponse,
-    );
+    validate_worker_response(WorkerResponse::Execute(Some(&execute)), &config)
+        .expect("nested recovery options are valid");
     let rpc = InvokeWorkerRpcResponse {
         step_decision: Some(decision),
         ..InvokeWorkerRpcResponse::default()
     };
-    assert_worker_invalid(
-        validate_worker_response(WorkerResponse::Rpc(Some(&rpc)), &config),
-        "server-zd does not support",
-        ValidationCategory::NonRetryableWorkerResponse,
-    );
+    validate_worker_response(WorkerResponse::Rpc(Some(&rpc)), &config)
+        .expect("RPC recovery options are valid");
 }
 
 #[test]
@@ -579,7 +566,7 @@ fn close_decision_and_timeout_handler_rules() {
     });
     assert_invalid(
         validate_client_request(ClientRequest::StartFlow(&request), &config),
-        "server-zd does not support",
+        "Flow timeout handler proceed policy requires a failure target",
     );
 }
 
@@ -725,7 +712,7 @@ fn worker_blob_and_channel_validation_covers_all_written_values() {
 }
 
 #[test]
-fn subflow_target_and_nested_failure_policy_are_rejected() {
+fn subflow_target_rejection_does_not_reject_nested_failure_policy() {
     let config = config();
     let options = SubFlowOptions {
         flow_config_override: Some(FlowConfig {
@@ -769,6 +756,7 @@ fn subflow_target_and_nested_failure_policy_are_rejected() {
         start_step_type: "StartStep".into(),
         step_options: Some(StepOptions {
             execute_failure_policy: 2,
+            execute_failure_proceed_step_type: "RecoveryStep".into(),
             ..StepOptions::default()
         }),
         ..SubFlowCondition::default()
@@ -782,17 +770,14 @@ fn subflow_target_and_nested_failure_policy_are_rejected() {
         waiting_condition: Some(waiting),
         ..InvokeWaitForMethodResponse::default()
     };
-    assert_worker_invalid(
-        validate_worker_response(
-            WorkerResponse::WaitFor {
-                response: Some(&response),
-                parent_flow_config: &config.default_flow_config,
-            },
-            &config,
-        ),
-        "server-zd does not support",
-        ValidationCategory::NonRetryableWorkerResponse,
-    );
+    validate_worker_response(
+        WorkerResponse::WaitFor {
+            response: Some(&response),
+            parent_flow_config: &config.default_flow_config,
+        },
+        &config,
+    )
+    .expect("SubFlow Step recovery options are valid");
 }
 
 #[test]
@@ -1101,13 +1086,15 @@ fn timeout_handler_failure_target_requires_proceed_policy() {
 }
 
 #[test]
-fn unsupported_step_type_takes_priority_over_reserved_characters() {
+fn recovery_step_type_rejects_reserved_characters() {
     let config = config();
     let response = InvokeExecuteMethodResponse {
         step_decision: Some(StepDecision {
             next_steps: vec![StepMovement {
                 step_type: "NextStep".into(),
                 step_options: Some(StepOptions {
+                    execute_failure_policy: dex::ExecuteMethodFailurePolicy::ProceedToConfiguredStep
+                        as i32,
                     execute_failure_proceed_step_type: "a/b".into(),
                     ..StepOptions::default()
                 }),
@@ -1119,7 +1106,7 @@ fn unsupported_step_type_takes_priority_over_reserved_characters() {
     };
     assert_worker_invalid(
         validate_worker_response(WorkerResponse::Execute(Some(&response)), &config),
-        "server-zd does not support execute_failure_proceed_step_type",
-        ValidationCategory::NonRetryableWorkerResponse,
+        "step type contains reserved character",
+        ValidationCategory::RetryableWorkerResponse,
     );
 }

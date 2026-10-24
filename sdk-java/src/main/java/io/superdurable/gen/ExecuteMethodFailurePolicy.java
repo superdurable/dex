@@ -21,8 +21,7 @@ public enum ExecuteMethodFailurePolicy
   EXECUTE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE(1),
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * The configured recovery Step starts after the final Execute failure.
    * </pre>
    *
    * <code>EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP = 2;</code>
@@ -50,8 +49,7 @@ public enum ExecuteMethodFailurePolicy
   public static final int EXECUTE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE_VALUE = 1;
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * The configured recovery Step starts after the final Execute failure.
    * </pre>
    *
    * <code>EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP = 2;</code>

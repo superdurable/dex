@@ -27,13 +27,14 @@ use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, 
 use dexzd_protocol::dex::{
     ActionPermissionMapping, ActionPermissionMappings, ActiveStepPhase, AttributeMatch,
     AttributeMatchOperator, AttributeWrite, ChannelMessage, CloseDecision, CloseDecisionType,
-    ConditionStatus, FlowConfig, FlowStartOptions, FlowStatus, FlowTimeoutPolicy, IndexConfig,
-    IndexType, InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, LoadBlobRequestEntry,
-    PublishToChannelRequest, PullRouting, PullRoutingSource, RetryPolicy, SetAttributesRequest,
-    StartFlowRequest, StepDecision, StepDurability, StepMethodEventContext, StepMethodOptions,
-    StepMovement, StepOptions, StopFlowRequest, StopType, TimerCondition, TimerResult,
-    UpdateFlowConfigRequest, Value, WaitingCondition, WaitingConditionType, WorkerErrorResponse,
-    WorkerTarget, flow_history_event, value,
+    ConditionStatus, ExecuteMethodFailurePolicy, FlowConfig, FlowStartOptions, FlowStatus,
+    FlowTimeoutPolicy, IndexConfig, IndexType, InvokeExecuteMethodResponse,
+    InvokeWaitForMethodResponse, LoadBlobRequestEntry, PublishToChannelRequest, PullRouting,
+    PullRoutingSource, RetryPolicy, SetAttributesRequest, StartFlowRequest, StepDecision,
+    StepDurability, StepMethodEventContext, StepMethodOptions, StepMovement, StepOptions,
+    StopFlowRequest, StopType, TimerCondition, TimerResult, UpdateFlowConfigRequest, Value,
+    WaitingCondition, WaitingConditionType, WorkerErrorResponse, WorkerTarget, flow_history_event,
+    value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributesSetCommand, ChannelPublishCommand, ConditionResultsRecord, FlowCommand,
@@ -1904,6 +1905,95 @@ fn a_failed_step_ends_without_completion() {
         .unwrap(),
         StepCompletionState::EndedWithoutCompletion
     );
+}
+
+#[test]
+fn exhausted_attempt_recovery_error_type_matches_failure_kind() {
+    let cases = [
+        (
+            StepAttemptFailureKind::WorkerError,
+            "UserError",
+            "UserError",
+        ),
+        (
+            StepAttemptFailureKind::WorkerError,
+            "",
+            "FLOW_ERROR_TYPE_WORKER_API_FAIL",
+        ),
+        (StepAttemptFailureKind::MethodTimeout, "", "StartToClose"),
+        (StepAttemptFailureKind::HeartbeatTimeout, "", "Heartbeat"),
+        (StepAttemptFailureKind::RetryDeadline, "", "ScheduleToClose"),
+        (
+            StepAttemptFailureKind::DispatchError,
+            "",
+            "FLOW_ERROR_TYPE_INTERNAL",
+        ),
+        (
+            StepAttemptFailureKind::InvalidResponse,
+            "",
+            "FLOW_ERROR_TYPE_WORKER_API_FAIL",
+        ),
+        (
+            StepAttemptFailureKind::UnsupportedFeature,
+            "",
+            "UnsupportedFeature",
+        ),
+        (StepAttemptFailureKind::ValueTooLarge, "", "ValueTooLarge"),
+        (
+            StepAttemptFailureKind::RequestTooLarge,
+            "",
+            "RequestTooLarge",
+        ),
+    ];
+    for (kind, worker_error_type, expected_error_type) in cases {
+        let mut harness = Harness::new();
+        harness.start(
+            FlowStartOptions::default(),
+            Some(StepOptions {
+                skip_wait_for: true,
+                execute_failure_policy: ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
+                execute_failure_proceed_step_type: "RecoverStep".to_owned(),
+                execute_failure_proceed_step_options: Some(Box::new(StepOptions {
+                    skip_wait_for: true,
+                    ..StepOptions::default()
+                })),
+                ..StepOptions::default()
+            }),
+        );
+        harness.start_attempt(StepMethod::Execute);
+        harness.apply(Command::StepAttemptFailed(StepAttemptFailedCommand {
+            invocation: Some(StepInvocationKey {
+                step_execution_id: "ChargeStep-1".to_owned(),
+                method: StepMethod::Execute as i32,
+            }),
+            attempt: 1,
+            kind: kind as i32,
+            worker_error: Some(WorkerErrorResponse {
+                error_type: worker_error_type.to_owned(),
+                detail: "failed".to_owned(),
+                ..WorkerErrorResponse::default()
+            }),
+            is_non_retryable: true,
+            ..StepAttemptFailedCommand::default()
+        }));
+        let step_key = run_named_key(
+            harness.context.flow_hash,
+            harness.run_id,
+            RunTable::StepExecution,
+            "RecoverStep-1",
+        );
+        let step_row = harness
+            .state
+            .get(ColumnFamily::Flow, &step_key)
+            .unwrap()
+            .expect("recovery Step row exists");
+        let recovery_step = StepExecutionRecord::decode(step_row.as_slice()).unwrap();
+        assert_eq!(
+            recovery_step.recovery_error.as_ref().unwrap().error_type,
+            expected_error_type,
+            "{kind:?}"
+        );
+    }
 }
 
 #[test]

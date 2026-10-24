@@ -21,7 +21,6 @@ import {
   acquireIntegEnvironment,
   releaseIntegEnvironment,
 } from "./environment.js";
-import { skipWhenServerZd } from "../server-zd.js";
 
 test.before(async () => {
   await acquireIntegEnvironment();
@@ -31,7 +30,7 @@ test.after(async () => {
   await releaseIntegEnvironment();
 });
 
-test("failureRecoveryRetriesCompensatesAndFails", { skip: skipWhenServerZd("failure policies") }, async () => {
+test("failureRecoveryRetriesCompensatesAndFails", async () => {
   const environment = await acquireIntegEnvironment();
   const flowId = environment.newFlowId("failure-recovery");
   const runId = await environment.client.startFlow(

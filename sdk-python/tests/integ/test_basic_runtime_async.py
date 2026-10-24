@@ -30,7 +30,6 @@ from dex import (
 
 from .abnormal_exit_flow import AbnormalExitFlow
 from .async_environment import AsyncDexDevTestEnvironment
-from .flow_service_client import skip_if_server_zd
 from .basic_flow import BasicFlow
 from .empty_input_flow import EmptyInputFlow
 from .immutable_step_options_flow import ImmutableStepOptionsFlow
@@ -207,8 +206,6 @@ async def _wait_for_step_completion() -> None:
 
 
 def test_proceed_on_wait_failure() -> None:
-    # C21: server-zd rejects Step failure policies.
-    skip_if_server_zd("Step failure policies")
     asyncio.run(_proceed_on_wait_failure())
 
 
@@ -237,8 +234,6 @@ async def _mixed_wait_styles() -> None:
 
 
 def test_movement_options_do_not_mutate_step_defaults() -> None:
-    # C21: server-zd rejects Step failure policies.
-    skip_if_server_zd("Step failure policies")
     asyncio.run(_movement_options_do_not_mutate_step_defaults())
 
 

@@ -47,7 +47,6 @@ func flowSmokeCatalog() []flowSmokeEntry {
 		},
 		{
 			name:                       "products/money-transfer",
-			serverZDUnsupportedFeature: "failure policies",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{
 					"amount":      {"100"},
@@ -67,7 +66,6 @@ func flowSmokeCatalog() []flowSmokeEntry {
 		},
 		{
 			name:                       "products/order-processing",
-			serverZDUnsupportedFeature: "failure policies",
 			trigger: func(t *testing.T) (string, string) {
 				flowID, runID := triggerFlowSmokeHTTP(t, http.MethodGet, "/products/order-processing/start", nil, nil)
 				return flowID, runID
@@ -124,7 +122,6 @@ func flowSmokeCatalog() []flowSmokeEntry {
 		},
 		{
 			name:                       "patterns/polling",
-			serverZDUnsupportedFeature: "failure policies",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "pattern-polling")}}
 				return triggerFlowSmokeHTTP(
@@ -225,7 +222,6 @@ func flowSmokeCatalog() []flowSmokeEntry {
 		},
 		{
 			name:                       "patterns/manual-recovery",
-			serverZDUnsupportedFeature: "failure policies",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "manual-recovery")}}
 				return triggerFlowSmokeHTTP(
@@ -280,7 +276,6 @@ func flowSmokeCatalog() []flowSmokeEntry {
 		parallelSmokeEntry("first-win"),
 		{
 			name:                       "patterns/recovery",
-			serverZDUnsupportedFeature: "failure policies",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{
 					"workflowId": {smokeWorkflowID(t, "recovery")},
@@ -396,7 +391,6 @@ func flowSmokeCatalog() []flowSmokeEntry {
 		},
 		{
 			name:                       "primitives/step/options-override",
-			serverZDUnsupportedFeature: "failure policies",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{
 					"workflowId": {smokeWorkflowID(t, "primitive-step-options-override")},

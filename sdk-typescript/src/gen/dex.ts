@@ -91,10 +91,7 @@ export enum IndexType {
 export enum WaitForMethodFailurePolicy {
   WAIT_FOR_METHOD_FAILURE_POLICY_UNSPECIFIED = 0,
   WAIT_FOR_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE = 1,
-  /**
-   * WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE - server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
-   */
+  /** WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE - Execute runs after the final WaitFor failure. */
   WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE = 2,
   UNRECOGNIZED = -1,
 }
@@ -102,10 +99,7 @@ export enum WaitForMethodFailurePolicy {
 export enum ExecuteMethodFailurePolicy {
   EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED = 0,
   EXECUTE_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE = 1,
-  /**
-   * EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP - server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
-   */
+  /** EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP - The configured recovery Step starts after the final Execute failure. */
   EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP = 2,
   UNRECOGNIZED = -1,
 }
@@ -653,15 +647,9 @@ export interface StepOptions {
   executeRetryPolicy: RetryPolicy | undefined;
   waitForFailurePolicy: WaitForMethodFailurePolicy;
   executeFailurePolicy: ExecuteMethodFailurePolicy;
-  /**
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
-   */
+  /** Step type started after the final Execute failure. */
   executeFailureProceedStepType: string;
-  /**
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
-   */
+  /** Options of the recovery Step. */
   executeFailureProceedStepOptions: StepOptions | undefined;
   skipWaitFor: boolean;
   waitForDurabilityOverride: StepDurability;
@@ -682,10 +670,7 @@ export interface FlowTimeoutHandlerOptions {
   heartbeatTimeoutSeconds: number;
   retryPolicy: RetryPolicy | undefined;
   failurePolicy: ExecuteMethodFailurePolicy;
-  /**
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
-   */
+  /** Step type started after the final timeout handler failure. */
   failureProceedStepType: string;
   /**
    * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.

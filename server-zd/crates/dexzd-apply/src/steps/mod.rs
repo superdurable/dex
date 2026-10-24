@@ -23,6 +23,7 @@ pub(crate) use invocations::{
 pub(crate) use retry_backoff::{
     DEFAULT_BACKOFF_COEFFICIENT, DEFAULT_INITIAL_INTERVAL_SECONDS,
     DEFAULT_MAXIMUM_INTERVAL_SECONDS, DEFAULT_TOTAL_DURATION_SECONDS, RetryDecision, decide_retry,
+    retry_deadline_micros,
 };
 pub(crate) use step_creation::{NewStepExecution, create_step_execution};
 pub(crate) use step_decisions::{

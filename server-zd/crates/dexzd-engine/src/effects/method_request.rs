@@ -469,7 +469,7 @@ pub(crate) fn build_method_request(
         attempt: i32::try_from(invocation.attempt)
             .map_err(|_| corrupt_step(step_execution, "attempt exceeds i32"))?,
         from_step_execution_id: step_execution.from_step_execution_id.clone(),
-        recovery_error: None,
+        recovery_error: step_execution.recovery_error.clone(),
         last_heartbeat_value: values.optional(invocation.heartbeat_checkpoint.as_ref())?,
         run_attempt: i32::try_from(run_record.current_attempt)
             .map_err(|_| corrupt_step(step_execution, "run attempt exceeds i32"))?,
@@ -723,6 +723,27 @@ pub(crate) fn configured_method_timeout_seconds(
             options.execute_timeout_seconds
         }
     })
+}
+
+pub(crate) fn configured_retry_deadline_micros(
+    options: Option<&dex::StepOptions>,
+    method: i32,
+    first_attempt_at_micros: i64,
+) -> i64 {
+    let policy = options.and_then(|options| {
+        if method == StepMethod::WaitFor as i32 {
+            options.wait_for_retry_policy.as_ref()
+        } else {
+            options.execute_retry_policy.as_ref()
+        }
+    });
+    let total_seconds = policy.map_or(0, |policy| i64::from(policy.total_duration_seconds));
+    let total_seconds = if total_seconds > 0 {
+        total_seconds
+    } else {
+        4 * 60 * 60
+    };
+    first_attempt_at_micros.saturating_add(total_seconds.saturating_mul(1_000_000))
 }
 
 #[cfg(test)]

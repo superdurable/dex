@@ -50,8 +50,7 @@ public interface FlowTimeoutHandlerOptionsOrBuilder extends
 
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Step type started after the final timeout handler failure.
    * </pre>
    *
    * <code>string failure_proceed_step_type = 5;</code>
@@ -60,8 +59,7 @@ public interface FlowTimeoutHandlerOptionsOrBuilder extends
   java.lang.String getFailureProceedStepType();
   /**
    * <pre>
-   * server-zd does not support this yet. StartFlow and SubFlow reject it with INVALID_ARGUMENT.
-   * A Step decision that uses it fails the attempt without retry.
+   * Step type started after the final timeout handler failure.
    * </pre>
    *
    * <code>string failure_proceed_step_type = 5;</code>

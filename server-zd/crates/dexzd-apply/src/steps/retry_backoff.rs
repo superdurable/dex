@@ -23,6 +23,17 @@ pub(crate) enum RetryDecision {
     Exhausted,
 }
 
+pub(crate) fn retry_deadline_micros(
+    policy: Option<&RetryPolicy>,
+    first_attempt_at_micros: i64,
+) -> i64 {
+    let total_seconds = policy.map_or(0, |policy| i64::from(policy.total_duration_seconds));
+    first_attempt_at_micros.saturating_add(
+        positive_or(total_seconds, DEFAULT_TOTAL_DURATION_SECONDS)
+            .saturating_mul(MICROS_PER_SECOND),
+    )
+}
+
 /// Decides the retry of a failed attempt with the Go Server's defaults: initial interval 1 s,
 /// coefficient 2, maximum interval 100 s, unlimited attempts, and 4 hours of total duration.
 ///
@@ -74,13 +85,8 @@ pub(crate) fn decide_retry(
             (interval_seconds.min(maximum_seconds as f64) * 1000.0).round() as i64;
         interval_millis * 1000
     };
-    let total_seconds = positive_or(
-        i64::from(policy.total_duration_seconds),
-        DEFAULT_TOTAL_DURATION_SECONDS,
-    );
     let fires_at_micros = now_micros.saturating_add(interval_micros);
-    let deadline_micros =
-        first_attempt_at_micros.saturating_add(total_seconds.saturating_mul(MICROS_PER_SECOND));
+    let deadline_micros = retry_deadline_micros(Some(policy), first_attempt_at_micros);
     if fires_at_micros > deadline_micros {
         return RetryDecision::Exhausted;
     }

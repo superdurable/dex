@@ -61,7 +61,7 @@ Run the integration suite against an isolated `dexcli dev` environment:
 Set `DEX_EXAMPLES_WORKER_MODE=pull` to run the same tests with pull Workers.
 Set `DEX_INTEG_ENGINE=zd` to run them against server-zd. That mode defaults to
 pull Workers, does not start the entity store, and skips samples that use
-failure policies, start delay, Flow retry, or Attribute Store sync. Set
+start delay, Flow retry, or Attribute Store sync. Set
 `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
 Examples catch concrete types from `io.superdurable.dex.exceptions`.

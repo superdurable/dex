@@ -57,8 +57,6 @@ func (executeRecoveryFinishStep) Execute(
 }
 
 func TestStepRecovery(t *testing.T) {
-	// C21: server-zd rejects Step failure policies.
-	skipIfServerZD(t, "Step failure policies")
 	flowID := newFlowID(t, "execute-recovery")
 	_, err := integClient.StartFlow(
 		integrationContext(t),

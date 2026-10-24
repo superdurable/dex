@@ -60,6 +60,7 @@ pub(crate) struct MethodAttempt {
     /// The method's configured timeout in seconds from the start effect; 0 means the default.
     pub(crate) method_timeout_seconds: i32,
     pub(crate) scheduled_at: Option<std::time::Instant>,
+    pub(crate) retry_deadline_micros: i64,
     /// Canceled by `InvocationCanceled` or node shutdown.
     pub(crate) cancel: CancellationToken,
 }
@@ -111,7 +112,11 @@ impl MethodAttempt {
 
     async fn run_attempt(&self) -> Result<(), EffectError> {
         // The owner-memory method timeout covers preparation, so slow state or object reads count.
-        let method_deadline = MethodDeadline::start(self.method_timeout_seconds);
+        let method_deadline = MethodDeadline::start(
+            self.method_timeout_seconds,
+            self.retry_deadline_micros,
+            self.context.clock.now_unix_micros(),
+        );
         let read = self.retry_transient(|| self.read_attempt_state());
         let state = match self.before_method_deadline(&method_deadline, read).await {
             BeforeDeadline::Canceled => return Ok(()),
@@ -443,11 +448,13 @@ impl MethodAttempt {
                 biased;
                 () = sleep_until(method_deadline) => {
                     session.cancel();
-                    return AttemptEnd::Failure(timeouts.method.timeout_failure());
+                    return AttemptEnd::Failure(timeouts.expired_failure(heartbeat_deadline)
+                        .unwrap_or_else(|| timeouts.method.timeout_failure()));
                 }
                 () = sleep_until_optional(heartbeat_deadline) => {
                     session.cancel();
-                    return AttemptEnd::Failure(timeouts.heartbeat_timeout_failure());
+                    return AttemptEnd::Failure(timeouts.expired_failure(heartbeat_deadline)
+                        .unwrap_or_else(|| timeouts.heartbeat_timeout_failure()));
                 }
                 () = self.cancel.cancelled() => {
                     session.cancel();
@@ -491,7 +498,7 @@ impl MethodAttempt {
                             if let Some(checkpoint) = checkpoints.take_pending() {
                                 self.propose_heartbeat(checkpoint).await;
                             }
-                            return attempt_end(outcome);
+                            return attempt_end(outcome, &timeouts.method);
                         }
                     }
                 }
@@ -756,15 +763,19 @@ impl AttemptTimeouts {
         }
     }
 
-    /// Returns the failure of an expired method or heartbeat deadline, checked against the clock
-    /// rather than the timers; the method timeout comes first.
+    /// Returns the first expired deadline's failure, checked against the clock rather than the timers.
     fn expired_failure(&self, heartbeat_deadline: Option<Instant>) -> Option<AttemptFailure> {
-        if self.method.has_expired() {
+        if self.method.has_expired()
+            && heartbeat_deadline.is_none_or(|deadline| self.method.expires_at <= deadline)
+        {
             return Some(self.method.timeout_failure());
         }
-        heartbeat_deadline
-            .is_some_and(|deadline| Instant::now() >= deadline)
-            .then(|| self.heartbeat_timeout_failure())
+        if heartbeat_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Some(self.heartbeat_timeout_failure());
+        }
+        self.method
+            .has_expired()
+            .then(|| self.method.timeout_failure())
     }
 
     fn heartbeat_timeout_failure(&self) -> AttemptFailure {
@@ -780,16 +791,21 @@ struct MethodDeadline {
     method_timeout: Duration,
     /// When the method timeout expires, counted from the attempt's start.
     expires_at: Instant,
+    is_retry_deadline: bool,
 }
 
 impl MethodDeadline {
     /// Starts the configured method timeout now, or the Go Server default when it is not positive.
-    fn start(method_timeout_seconds: i32) -> Self {
+    fn start(method_timeout_seconds: i32, retry_deadline_micros: i64, now_micros: i64) -> Self {
         let method_timeout =
             positive_seconds(method_timeout_seconds).unwrap_or(DEFAULT_METHOD_TIMEOUT);
+        let retry_remaining_micros = retry_deadline_micros.saturating_sub(now_micros).max(0) as u64;
+        let retry_remaining = Duration::from_micros(retry_remaining_micros);
+        let is_retry_deadline = retry_remaining < method_timeout;
         Self {
             method_timeout,
-            expires_at: Instant::now() + method_timeout,
+            expires_at: Instant::now() + method_timeout.min(retry_remaining),
+            is_retry_deadline,
         }
     }
 
@@ -799,6 +815,14 @@ impl MethodDeadline {
     }
 
     fn timeout_failure(&self) -> AttemptFailure {
+        if self.is_retry_deadline {
+            let mut failure = AttemptFailure::server(
+                StepAttemptFailureKind::RetryDeadline,
+                "retry policy total duration expired",
+            );
+            failure.is_non_retryable = true;
+            return failure;
+        }
         AttemptFailure::server(
             StepAttemptFailureKind::MethodTimeout,
             format!(
@@ -817,7 +841,7 @@ fn positive_seconds(seconds: i32) -> Option<Duration> {
 }
 
 /// Converts a dispatch outcome into the attempt's end.
-fn attempt_end(outcome: DispatchOutcome) -> AttemptEnd {
+fn attempt_end(outcome: DispatchOutcome, deadline: &MethodDeadline) -> AttemptEnd {
     match outcome {
         DispatchOutcome::WorkerResult {
             frame,
@@ -855,10 +879,7 @@ fn attempt_end(outcome: DispatchOutcome) -> AttemptEnd {
             StepAttemptFailureKind::DispatchError,
             "matching server is closing",
         )),
-        DispatchOutcome::DeadlineExceeded => AttemptEnd::Failure(AttemptFailure::server(
-            StepAttemptFailureKind::MethodTimeout,
-            "method deadline elapsed before the Worker result",
-        )),
+        DispatchOutcome::DeadlineExceeded => AttemptEnd::Failure(deadline.timeout_failure()),
     }
 }
 

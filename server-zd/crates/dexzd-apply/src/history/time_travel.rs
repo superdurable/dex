@@ -35,7 +35,9 @@ use crate::history::reset_target::resolve_target;
 use crate::history::state_rebuild::rebuild_attempt_state;
 use crate::projections::attribute_sync::mark_attribute_sync_entries;
 use crate::state_access::{FlowTransaction, read_flow_directory};
-use crate::steps::{arm_timer, configured_method_timeout_seconds, disarm_timer};
+use crate::steps::{
+    arm_timer, configured_method_timeout_seconds, disarm_timer, retry_deadline_micros,
+};
 use crate::values::ValueIdAllocator;
 use crate::{ApplyEffect, ApplyError, BehaviorVersion, WaitableChange};
 
@@ -441,6 +443,18 @@ fn dispatch_restored_invocations(
                 method_timeout_seconds: configured_method_timeout_seconds(
                     step.options.as_ref(),
                     invocation.method,
+                ),
+                retry_deadline_micros: retry_deadline_micros(
+                    step.options.as_ref().and_then(|options| {
+                        if invocation.method
+                            == dexzd_protocol::dexzd::v1::StepMethod::WaitFor as i32
+                        {
+                            options.wait_for_retry_policy.as_ref()
+                        } else {
+                            options.execute_retry_policy.as_ref()
+                        }
+                    }),
+                    invocation.first_attempt_at_micros,
                 ),
             }),
             StepInvocationPhase::Backoff | StepInvocationPhase::Unspecified => {}
