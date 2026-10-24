@@ -151,6 +151,9 @@ retry, durability, Attribute locks, and the same state selections. Set it on
 `StartFlowOptions` or `SubFlowOptions` only for a positive timeout using the
 handler policy. Exhausted retries may proceed to a registered `Step[None]`; read
 the final failure with `Context.RecoveryError`.
+Compare its `ErrorType` with `RecoveryErrorTypeMethodTimeout`,
+`RecoveryErrorTypeHeartbeatTimeout`, or
+`RecoveryErrorTypeRetryTotalDurationExceeded` when handling Dex time limits.
 
 ```go
 type timeoutRecoveryStep struct {

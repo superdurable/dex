@@ -17,12 +17,48 @@ import (
 
 // RecoveryErrorInfo describes the final failure that selected a recovery path.
 // Worker failures preserve their detail and error type. Backend failures use the backend failure type.
+// A recovery Step can distinguish Dex timeout conditions from Worker error types:
+//
+//	package recovery
+//
+//	import "github.com/superdurable/dex/sdk-go/dex"
+//
+//	func recoveryCondition(ctx dex.Context) string {
+//		failure := ctx.RecoveryError()
+//		if failure == nil {
+//			return ""
+//		}
+//		switch failure.ErrorType {
+//		case dex.RecoveryErrorTypeMethodTimeout:
+//			return "method timeout"
+//		case dex.RecoveryErrorTypeHeartbeatTimeout:
+//			return "heartbeat timeout"
+//		case dex.RecoveryErrorTypeRetryTotalDurationExceeded:
+//			return "retry duration exceeded"
+//		default:
+//			return failure.ErrorType
+//		}
+//	}
 type RecoveryErrorInfo struct {
 	// Detail is the failure message supplied by the Worker or backend.
 	Detail string
 	// ErrorType is the original Worker error type or backend failure type.
 	ErrorType string
 }
+
+const (
+	// RecoveryErrorTypeMethodTimeout reports that a Step method exceeded its execution timeout.
+	// Compare it with RecoveryErrorInfo.ErrorType in a recovery Step; see the RecoveryErrorInfo example.
+	RecoveryErrorTypeMethodTimeout = "StartToClose"
+
+	// RecoveryErrorTypeHeartbeatTimeout reports that a Step method missed its heartbeat deadline.
+	// Compare it with RecoveryErrorInfo.ErrorType in a recovery Step; see the RecoveryErrorInfo example.
+	RecoveryErrorTypeHeartbeatTimeout = "Heartbeat"
+
+	// RecoveryErrorTypeRetryTotalDurationExceeded reports that the Step method's retry duration expired.
+	// Compare it with RecoveryErrorInfo.ErrorType in a recovery Step; see the RecoveryErrorInfo example.
+	RecoveryErrorTypeRetryTotalDurationExceeded = "ScheduleToClose"
+)
 
 // Context provides invocation metadata and stages durable mutations for Step and RPC handlers.
 //
