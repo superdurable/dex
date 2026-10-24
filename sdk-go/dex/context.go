@@ -12,31 +12,46 @@ package dex
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
 // RecoveryErrorInfo describes the final failure that selected a recovery path.
 // Worker failures preserve their detail and error type. Backend failures use the backend failure type.
-// A recovery Step can distinguish Dex timeout conditions from Worker error types:
 //
-//	package recovery
+// A handler reads this value with Context.RecoveryError. It is present in an Execute that follows
+// exhausted WaitFor retries under ProceedOnWaitForFailure. It is also present in a recovery Step
+// selected by StepOptions.ExecuteFailure or FlowTimeoutHandlerOptions.Failure.
+//
+// Use IsMethodTimeout, IsHeartbeatTimeout, and IsRetryTotalDurationExceeded to recognize the Dex
+// time limits. Do not compare ErrorType with a fixed string for these conditions. Each Dex backend
+// spells these error types differently, and the methods accept every spelling. The methods return
+// false for a nil receiver, so the result of Context.RecoveryError needs no nil check before the
+// call. Other failures keep the error type that the Worker reported, such as an application error
+// type.
+//
+//	package billing
 //
 //	import "github.com/superdurable/dex/sdk-go/dex"
 //
-//	func recoveryCondition(ctx dex.Context) string {
+//	// ChargeRecoveryStep runs after the charge Step exhausts its Execute retries.
+//	type ChargeRecoveryStep struct {
+//		dex.StepDefaultsNoWaitFor[string]
+//	}
+//
+//	func (ChargeRecoveryStep) Execute(ctx dex.Context, orderID string) (*dex.StepDecision, error) {
 //		failure := ctx.RecoveryError()
-//		if failure == nil {
-//			return ""
-//		}
-//		switch failure.ErrorType {
-//		case dex.RecoveryErrorTypeMethodTimeout:
-//			return "method timeout"
-//		case dex.RecoveryErrorTypeHeartbeatTimeout:
-//			return "heartbeat timeout"
-//		case dex.RecoveryErrorTypeRetryTotalDurationExceeded:
-//			return "retry duration exceeded"
+//		switch {
+//		case failure.IsMethodTimeout():
+//			return dex.ForceFail("charging order " + orderID + " exceeded its method timeout"), nil
+//		case failure.IsHeartbeatTimeout():
+//			return dex.ForceFail("charging order " + orderID + " stopped sending heartbeats"), nil
+//		case failure.IsRetryTotalDurationExceeded():
+//			return dex.ForceFail("charging order " + orderID + " used its whole retry duration"), nil
+//		case failure != nil:
+//			return dex.ForceFail("charging order " + orderID + " failed: " + failure.ErrorType), nil
 //		default:
-//			return failure.ErrorType
+//			return dex.ForceFail("charging order " + orderID + " has no recorded failure"), nil
 //		}
 //	}
 type RecoveryErrorInfo struct {
@@ -46,19 +61,68 @@ type RecoveryErrorInfo struct {
 	ErrorType string
 }
 
-const (
-	// RecoveryErrorTypeMethodTimeout reports that a Step method exceeded its execution timeout.
-	// Compare it with RecoveryErrorInfo.ErrorType in a recovery Step; see the RecoveryErrorInfo example.
-	RecoveryErrorTypeMethodTimeout = "StartToClose"
+// IsMethodTimeout reports whether the final attempt ran longer than its Step method timeout.
+//
+// Use it in a recovery path to handle an attempt that exceeded StepOptions.WaitForMethodTimeout,
+// StepOptions.ExecuteMethodTimeout, or FlowTimeoutHandlerOptions.MethodTimeout. See the
+// RecoveryErrorInfo example.
+//
+// If the call to the Worker fails before Dex records the method timeout, Dex reports a Worker API
+// failure instead. ErrorType is then "FLOW_ERROR_TYPE_WORKER_API_FAIL", and this method returns
+// false. To handle both outcomes the same way, also compare ErrorType with that value:
+//
+//	failure := ctx.RecoveryError()
+//	if failure.IsMethodTimeout() ||
+//		(failure != nil && failure.ErrorType == "FLOW_ERROR_TYPE_WORKER_API_FAIL") {
+//		return dex.ForceFail("the charge did not finish in time"), nil
+//	}
+//
+// A Worker error type that reuses the backend's method timeout name also matches. Give application
+// error types distinct names.
+//
+// IsMethodTimeout returns true when ErrorType names a method timeout, ignoring letter case and
+// underscores. It returns false for every other ErrorType and for a nil receiver.
+func (info *RecoveryErrorInfo) IsMethodTimeout() bool {
+	return info.hasCanonicalErrorType("STARTTOCLOSE")
+}
 
-	// RecoveryErrorTypeHeartbeatTimeout reports that a Step method missed its heartbeat deadline.
-	// Compare it with RecoveryErrorInfo.ErrorType in a recovery Step; see the RecoveryErrorInfo example.
-	RecoveryErrorTypeHeartbeatTimeout = "Heartbeat"
+// IsHeartbeatTimeout reports whether the final attempt stopped recording heartbeats in time.
+//
+// Use it in a recovery path to handle an attempt that did not call Context.RecordHeartbeat within
+// StepOptions.HeartbeatTimeout or FlowTimeoutHandlerOptions.HeartbeatTimeout. See the
+// RecoveryErrorInfo example. A Worker error type that reuses the backend's heartbeat timeout name
+// also matches. Give application error types distinct names.
+//
+// IsHeartbeatTimeout returns true when ErrorType names a heartbeat timeout, ignoring letter case
+// and underscores. It returns false for every other ErrorType and for a nil receiver.
+func (info *RecoveryErrorInfo) IsHeartbeatTimeout() bool {
+	return info.hasCanonicalErrorType("HEARTBEAT")
+}
 
-	// RecoveryErrorTypeRetryTotalDurationExceeded reports that the Step method's retry duration expired.
-	// Compare it with RecoveryErrorInfo.ErrorType in a recovery Step; see the RecoveryErrorInfo example.
-	RecoveryErrorTypeRetryTotalDurationExceeded = "ScheduleToClose"
-)
+// IsRetryTotalDurationExceeded reports whether RetryPolicy.TotalDuration ended a running attempt.
+//
+// Use it in a recovery path to handle a Step method whose retry policy ran out of total duration
+// while its final attempt was still running. See the RecoveryErrorInfo example.
+//
+// When the total duration ends between attempts, Dex starts no further attempt. It reports the
+// error type of the final attempt instead, so this method returns false. Check the other methods
+// and ErrorType to handle that case. A Worker error type that reuses the backend's retry deadline
+// name also matches. Give application error types distinct names.
+//
+// IsRetryTotalDurationExceeded returns true when ErrorType names the retry total duration limit,
+// ignoring letter case and underscores. It returns false for every other ErrorType and for a nil
+// receiver.
+func (info *RecoveryErrorInfo) IsRetryTotalDurationExceeded() bool {
+	return info.hasCanonicalErrorType("SCHEDULETOCLOSE")
+}
+
+// hasCanonicalErrorType compares ErrorType after uppercasing it and dropping underscores.
+func (info *RecoveryErrorInfo) hasCanonicalErrorType(canonicalErrorType string) bool {
+	if info == nil {
+		return false
+	}
+	return strings.ReplaceAll(strings.ToUpper(info.ErrorType), "_", "") == canonicalErrorType
+}
 
 // Context provides invocation metadata and stages durable mutations for Step and RPC handlers.
 //

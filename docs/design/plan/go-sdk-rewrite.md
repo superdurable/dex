@@ -1991,6 +1991,13 @@ Semantics:
   WaitFor.
 - `WaitForMethodFailed` is true only when Execute follows a failed WaitFor under
   `ProceedOnFailure`.
+- `RecoveryError` is nil outside a recovery path. `RecoveryErrorInfo` offers
+  `IsMethodTimeout`, `IsHeartbeatTimeout`, and `IsRetryTotalDurationExceeded`.
+  They compare `ErrorType` without letter case or underscores, so every backend
+  spelling matches, and they return false for a nil receiver. A Worker call that
+  fails before the method timeout is recorded reports a Worker API failure. A
+  retry total duration that ends between attempts reports the final attempt's
+  error type.
 - `RecordHeartbeat` is available in WaitFor and Execute. Flow timeout and RPC
   invocation contexts reject it. `GetLastHeartbeatValue` is also available to
   Flow timeout handlers; RPC invocation contexts reject it.

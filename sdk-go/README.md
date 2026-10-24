@@ -151,9 +151,13 @@ retry, durability, Attribute locks, and the same state selections. Set it on
 `StartFlowOptions` or `SubFlowOptions` only for a positive timeout using the
 handler policy. Exhausted retries may proceed to a registered `Step[None]`; read
 the final failure with `Context.RecoveryError`.
-Compare its `ErrorType` with `RecoveryErrorTypeMethodTimeout`,
-`RecoveryErrorTypeHeartbeatTimeout`, or
-`RecoveryErrorTypeRetryTotalDurationExceeded` when handling Dex time limits.
+Recognize Dex time limits with `RecoveryErrorInfo.IsMethodTimeout`,
+`IsHeartbeatTimeout`, and `IsRetryTotalDurationExceeded`. Do not compare
+`ErrorType` with a fixed string, because each Dex backend spells these error
+types differently. The methods return false for a nil `RecoveryErrorInfo`. When
+the call to the Worker fails before Dex records a method timeout, the failure is
+a Worker API failure instead. When the retry total duration ends between
+attempts, the final attempt's error type is reported instead.
 
 ```go
 type timeoutRecoveryStep struct {
@@ -165,6 +169,9 @@ func (timeoutRecoveryStep) Execute(
 	_ dex.None,
 ) (*dex.StepDecision, error) {
 	failure := ctx.RecoveryError()
+	if failure.IsMethodTimeout() || failure.IsHeartbeatTimeout() {
+		return dex.ForceFail("timeout handler did not finish in time"), nil
+	}
 	if failure == nil {
 		return dex.ForceFail("timeout recovery has no failure"), nil
 	}
