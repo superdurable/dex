@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import copy
+import http.client
 import ipaddress
 import json
 import math
@@ -158,6 +159,7 @@ class ApiKeyExchangeError(Exception):
     The message identifies the token URL and HTTP status when available. It
     includes the endpoint's error and error_description fields, each limited to
     200 characters. It never includes the response body, API key, or access token.
+    Client calls raise this error unchanged. Pull Workers log it and retry.
     """
 
 
@@ -175,9 +177,11 @@ class _NoTokenRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class _TokenExchange:
-    def __init__(self) -> None:
+    def __init__(self, deadline: float) -> None:
+        self.deadline = deadline
         self.event = threading.Event()
         self.error: ApiKeyExchangeError | None = None
+        self.timer: threading.Timer | None = None
 
 
 class ApiKeyCredential:
@@ -196,10 +200,11 @@ class ApiKeyCredential:
     UNAUTHENTICATED; a second rejection uses the normal backoff.
 
     The token URL must use HTTPS. HTTP is allowed only on localhost, 127.0.0.0/8,
-    or ::1. The instance is thread-safe. Call close() when it is no longer used
-    to wait for any background refresh; a credential shared by a Client and
-    Worker should be closed after both are closed. Formatting this credential
-    or an exchange error does not reveal the API key or access token.
+    or ::1. Loopback HTTP bypasses environment proxies; HTTPS honors them.
+    Redirects are refused. The instance is thread-safe. close() is optional
+    and can be called after all Clients and Workers sharing the credential are
+    closed. It waits only through the current exchange deadline. Formatting
+    this credential or an exchange error does not reveal secrets.
 
     Example:
         >>> credential = ApiKeyCredential(
@@ -275,7 +280,12 @@ class ApiKeyCredential:
         self._server_id = server_id
         self._api_key = api_key
         self._exchange_timeout = float(exchange_timeout)
-        self._http_client = urllib.request.build_opener(_NoTokenRedirect)
+        if parsed.scheme == "http":
+            self._http_client = urllib.request.build_opener(
+                urllib.request.ProxyHandler({}), _NoTokenRedirect
+            )
+        else:
+            self._http_client = urllib.request.build_opener(_NoTokenRedirect)
         self._clock = time.monotonic
         self._lock = threading.Lock()
         self._token = ""
@@ -301,6 +311,10 @@ class ApiKeyCredential:
             ApiKeyExchangeError: The endpoint, response, or transport failed.
             RuntimeError: The credential is closed.
         """
+        return self._token_with_timeout(None)
+
+    def _token_with_timeout(self, timeout: float | None) -> str:
+        wait_deadline = time.monotonic() + timeout if timeout is not None else math.inf
         with self._lock:
             if self._closed:
                 raise RuntimeError("API key credential is closed")
@@ -313,8 +327,13 @@ class ApiKeyCredential:
                 exchange = self._start_exchange()
             else:
                 exchange = self._in_flight
-        if not exchange.event.wait(self._exchange_timeout):
-            raise self._error(None, "exchange timed out")
+        if not exchange.event.wait(
+            max(0.0, min(exchange.deadline, wait_deadline) - time.monotonic())
+        ):
+            if time.monotonic() >= exchange.deadline:
+                self._expire_exchange(exchange)
+            else:
+                raise TimeoutError("credential lookup exceeded RPC deadline")
         with self._lock:
             if self._closed:
                 raise RuntimeError("API key credential is closed")
@@ -325,20 +344,26 @@ class ApiKeyCredential:
         raise self._error(None, "exchange produced no valid token")
 
     def close(self) -> None:
-        """Stop using this credential and wait for its bounded background exchange.
+        """Stop using this credential and wait up to its current exchange deadline.
 
-        Close a shared credential after all Clients and Workers using it have
-        closed. Subsequent token() calls raise RuntimeError. A running exchange
-        may take up to exchange_timeout to finish.
+        Closing is optional. Close a shared credential after all Clients and
+        Workers using it have closed. Subsequent token() calls raise
+        RuntimeError. A network operation may continue in a daemon thread after
+        the deadline when the operating system cannot interrupt it.
         """
         with self._lock:
             self._closed = True
             exchange_thread = self._exchange_thread
+            exchange = self._in_flight
         if (
             exchange_thread is not None
             and exchange_thread is not threading.current_thread()
         ):
-            exchange_thread.join()
+            exchange_thread.join(
+                max(0.0, exchange.deadline - time.monotonic())
+                if exchange is not None
+                else 0.0
+            )
 
     def _reject_token(self, rejected_token: str) -> None:
         with self._lock:
@@ -360,44 +385,73 @@ class ApiKeyCredential:
     def _start_exchange(self) -> _TokenExchange:
         if self._in_flight is not None:
             return self._in_flight
-        exchange = _TokenExchange()
-        self._in_flight = exchange
+        exchange = _TokenExchange(time.monotonic() + self._exchange_timeout)
         exchange_thread = threading.Thread(
             target=self._run_exchange,
             args=(exchange,),
             name="dex-python-api-key-exchange",
             daemon=True,
         )
+        timer = threading.Timer(
+            self._exchange_timeout, self._expire_exchange, args=(exchange,)
+        )
+        timer.daemon = True
+        exchange.timer = timer
+        try:
+            timer.start()
+            exchange_thread.start()
+        except Exception as error:
+            timer.cancel()
+            exchange.error = self._error(None, type(error).__name__)
+            exchange.event.set()
+            self._retry_at = self._clock() + 5.0
+            return exchange
+        self._in_flight = exchange
         self._exchange_thread = exchange_thread
-        exchange_thread.start()
         return exchange
 
     def _run_exchange(self, exchange: _TokenExchange) -> None:
         started_at = self._clock()
+        token = ""
+        lifetime = 0
+        failure: ApiKeyExchangeError | None = None
         try:
-            token, lifetime = self._exchange()
-            failure = None
+            token, lifetime = self._exchange(exchange.deadline)
+            if time.monotonic() >= exchange.deadline:
+                failure = self._error(None, "exchange timed out")
         except ApiKeyExchangeError as error:
-            token = ""
-            lifetime = 0
             failure = error
-        with self._lock:
-            if not self._closed and failure is None:
-                self._token = token
-                try:
-                    self._refresh_at = started_at + lifetime * 0.8
-                    self._expires_at = started_at + lifetime
-                except OverflowError:
-                    self._refresh_at = math.inf
-                    self._expires_at = math.inf
-                self._retry_at = 0.0
-            elif failure is not None:
-                self._retry_at = self._clock() + 5.0
-            exchange.error = failure
-            self._in_flight = None
-            exchange.event.set()
+        except Exception as error:
+            failure = self._error(None, type(error).__name__)
+        finally:
+            if exchange.timer is not None:
+                exchange.timer.cancel()
+            with self._lock:
+                if self._in_flight is exchange:
+                    if not self._closed and failure is None:
+                        self._token = token
+                        try:
+                            self._refresh_at = started_at + lifetime * 0.8
+                            self._expires_at = started_at + lifetime
+                        except OverflowError:
+                            self._refresh_at = math.inf
+                            self._expires_at = math.inf
+                        self._retry_at = 0.0
+                    elif failure is not None:
+                        self._retry_at = self._clock() + 5.0
+                    exchange.error = failure
+                    self._in_flight = None
+                    exchange.event.set()
 
-    def _exchange(self) -> tuple[str, int]:
+    def _expire_exchange(self, exchange: _TokenExchange) -> None:
+        with self._lock:
+            if self._in_flight is exchange:
+                exchange.error = self._error(None, "exchange timed out")
+                self._retry_at = self._clock() + 5.0
+                self._in_flight = None
+                exchange.event.set()
+
+    def _exchange(self, deadline: float) -> tuple[str, int]:
         request_body = json.dumps(
             {"server_id": self._server_id, "api_key": self._api_key},
             separators=(",", ":"),
@@ -409,19 +463,25 @@ class ApiKeyCredential:
             method="POST",
         )
         try:
-            with self._http_client.open(
-                request, timeout=self._exchange_timeout
-            ) as response:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise self._error(None, "exchange timed out")
+            with self._http_client.open(request, timeout=remaining) as response:
                 status = response.status
-                body = response.read()
+                body = self._read_response(response, deadline, status)
         except urllib.error.HTTPError as error:
             status = error.code
+            if 300 <= status < 400:
+                raise self._error(status, "redirect refused") from None
             try:
-                body = error.read()
-            except OSError as failure:
+                body = self._read_response(error, deadline, status)
+            except (OSError, http.client.HTTPException) as failure:
                 raise self._error(status, type(failure).__name__) from None
-        except (OSError, ValueError) as error:
-            raise self._error(None, type(error).__name__) from None
+        except (OSError, ValueError, http.client.HTTPException) as error:
+            reason = type(error).__name__
+            if isinstance(error, urllib.error.URLError):
+                reason += f"({type(error.reason).__name__})"
+            raise self._error(None, reason) from None
         try:
             payload = json.loads(body)
         except (ValueError, UnicodeError):
@@ -440,6 +500,18 @@ class ApiKeyCredential:
         if type(lifetime) is not int or lifetime <= 0:
             raise self._error(status, "invalid expires_in", payload)
         return token, lifetime
+
+    def _read_response(self, response: object, deadline: float, status: int) -> bytes:
+        body = bytearray()
+        while True:
+            if time.monotonic() >= deadline:
+                raise self._error(status, "exchange timed out")
+            chunk = response.read(1)  # type: ignore[attr-defined]
+            if not chunk:
+                return bytes(body)
+            body.extend(chunk)
+            if len(body) > 1024 * 1024:
+                raise self._error(status, "response exceeds 1 MiB")
 
     def _error(
         self, status: int | None, reason: str, payload: dict[str, object] | None = None

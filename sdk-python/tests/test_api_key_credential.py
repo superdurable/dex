@@ -9,9 +9,12 @@
 from __future__ import annotations
 
 import asyncio
+import http.client
 import json
 import queue
+import socketserver
 import threading
+import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -31,7 +34,11 @@ from dex import (
     ClientOptions,
     DexServiceError,
 )
-from dex._credential_transport import AsyncCredentialRunner
+from dex._credential_transport import (
+    AsyncCredentialRunner,
+    _AsyncCredentialInterceptor,
+    _SyncCredentialInterceptor,
+)
 from dex._pull_worker import PullStream, PullWorkerRuntime
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
@@ -55,6 +62,7 @@ class TokenEndpoint:
         self.request_received = threading.Event()
         self.response_allowed = threading.Event()
         self.response_allowed.set()
+        self.drip_interval = 0.0
         endpoint = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -69,14 +77,23 @@ class TokenEndpoint:
                 status, payload = endpoint.responses.get(timeout=3)
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
+                if isinstance(payload, dict) and "redirect_to" in payload:
+                    self.send_header("Location", str(payload["redirect_to"]))
                 self.end_headers()
                 try:
-                    self.wfile.write(
+                    response_body = (
                         payload
                         if isinstance(payload, bytes)
                         else json.dumps(payload).encode()
                     )
-                except BrokenPipeError:
+                    if endpoint.drip_interval:
+                        for byte in response_body:
+                            self.wfile.write(bytes((byte,)))
+                            self.wfile.flush()
+                            time.sleep(endpoint.drip_interval)
+                    else:
+                        self.wfile.write(response_body)
+                except (BrokenPipeError, ConnectionResetError):
                     pass
 
             def log_message(self, format: str, *args: object) -> None:
@@ -128,6 +145,8 @@ def test_api_key_request_and_validation(token_endpoint: TokenEndpoint) -> None:
         "ftp://example.com/token",
         "http://example.com/token",
         "http://192.168.1.2/token",
+        "http://localhost.example.com/token",
+        "http://127.0.0.1.nip.io/token",
     ):
         with pytest.raises(ValueError):
             ApiKeyCredential(url, "server-id", API_KEY)
@@ -293,6 +312,164 @@ def test_api_key_transport_failure_and_timeout(token_endpoint: TokenEndpoint) ->
         credential.close()
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [
+        http.client.BadStatusLine("invalid"),
+        http.client.IncompleteRead(b"part"),
+        RecursionError("nested"),
+        RuntimeError(API_KEY),
+    ],
+)
+def test_api_key_unexpected_exchange_failure_allows_retry(
+    token_endpoint: TokenEndpoint, failure: Exception
+) -> None:
+    token_endpoint.responses.put((200, token_response(TOKEN_A)))
+    credential = ApiKeyCredential(token_endpoint.url, "server-id", API_KEY)
+    try:
+        with patch.object(credential, "_exchange", side_effect=failure):
+            with pytest.raises(ApiKeyExchangeError) as failed:
+                credential.token()
+            assert type(failure).__name__ in str(failed.value)
+            assert API_KEY not in str(failed.value)
+            assert credential._in_flight is None
+        assert credential.token() == TOKEN_A
+        assert len(token_endpoint.requests) == 1
+    finally:
+        credential.close()
+
+
+def test_api_key_loopback_bypasses_http_proxy(
+    token_endpoint: TokenEndpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proxy = TokenEndpoint()
+    monkeypatch.setenv("http_proxy", proxy.url)
+    monkeypatch.setenv("HTTP_PROXY", proxy.url)
+    monkeypatch.setenv("no_proxy", "")
+    monkeypatch.setenv("NO_PROXY", "")
+    token_endpoint.responses.put((200, token_response(TOKEN_A)))
+    credential = ApiKeyCredential(token_endpoint.url, "server-id", API_KEY)
+    try:
+        assert credential.token() == TOKEN_A
+        assert len(token_endpoint.requests) == 1
+        assert proxy.requests == []
+    finally:
+        credential.close()
+        proxy.close()
+
+
+def test_api_key_https_uses_proxy_without_sending_key_in_connect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[bytes] = []
+
+    class ProxyHandler(socketserver.BaseRequestHandler):
+        def handle(self) -> None:
+            requests.append(self.request.recv(4096))
+            self.request.sendall(
+                b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n"
+            )
+
+    proxy = socketserver.TCPServer(("127.0.0.1", 0), ProxyHandler)
+    server_thread = threading.Thread(target=proxy.serve_forever)
+    server_thread.start()
+    monkeypatch.setenv("https_proxy", f"http://127.0.0.1:{proxy.server_address[1]}")
+    monkeypatch.setenv("HTTPS_PROXY", f"http://127.0.0.1:{proxy.server_address[1]}")
+    monkeypatch.setenv("no_proxy", "")
+    monkeypatch.setenv("NO_PROXY", "")
+    credential = ApiKeyCredential("https://example.test/token", "server-id", API_KEY)
+    try:
+        with pytest.raises(ApiKeyExchangeError):
+            credential.token()
+        assert requests and requests[0].startswith(b"CONNECT example.test:443 HTTP/1.")
+        assert API_KEY.encode() not in requests[0]
+    finally:
+        credential.close()
+        proxy.shutdown()
+        server_thread.join()
+        proxy.server_close()
+
+
+@pytest.mark.parametrize("status", [307, 308])
+def test_api_key_redirect_never_reposts_key(
+    token_endpoint: TokenEndpoint, status: int
+) -> None:
+    target = TokenEndpoint()
+    token_endpoint.responses.put((status, {"redirect_to": target.url}))
+    credential = ApiKeyCredential(token_endpoint.url, "server-id", API_KEY)
+    try:
+        with pytest.raises(ApiKeyExchangeError, match=f"HTTP status {status}"):
+            credential.token()
+        assert len(token_endpoint.requests) == 1
+        assert target.requests == []
+    finally:
+        credential.close()
+        target.close()
+
+
+def test_api_key_slow_response_has_one_deadline(token_endpoint: TokenEndpoint) -> None:
+    token_endpoint.drip_interval = 0.07
+    token_endpoint.responses.put((200, token_response(TOKEN_A)))
+    credential = ApiKeyCredential(
+        token_endpoint.url, "server-id", API_KEY, exchange_timeout=0.2
+    )
+    started_at = time.monotonic()
+    try:
+        with pytest.raises(ApiKeyExchangeError, match="exchange timed out"):
+            credential.token()
+        assert time.monotonic() - started_at < 0.35
+        assert credential._in_flight is None
+        token_endpoint.drip_interval = 0.0
+        token_endpoint.responses.put((200, token_response(TOKEN_B)))
+        assert credential.token() == TOKEN_B
+        credential.close()
+    finally:
+        credential.close()
+
+
+def test_api_key_delayed_response_cannot_publish_expired_token(
+    token_endpoint: TokenEndpoint,
+) -> None:
+    token_endpoint.responses.put((200, token_response(TOKEN_A, 1)))
+    token_endpoint.response_allowed.clear()
+    credential = ApiKeyCredential(
+        token_endpoint.url, "server-id", API_KEY, exchange_timeout=2
+    )
+    release_response = threading.Timer(1.1, token_endpoint.response_allowed.set)
+    release_response.start()
+    try:
+        with pytest.raises(ApiKeyExchangeError, match="no valid token"):
+            credential.token()
+        assert credential._token == TOKEN_A
+        assert credential._clock() >= credential._expires_at
+    finally:
+        release_response.join()
+        credential.close()
+
+
+def test_api_key_cached_token_returns_during_slow_refresh(
+    token_endpoint: TokenEndpoint,
+) -> None:
+    token_endpoint.responses.put((200, token_response(TOKEN_A, 2)))
+    token_endpoint.responses.put((200, token_response(TOKEN_B, 2)))
+    credential = ApiKeyCredential(token_endpoint.url, "server-id", API_KEY)
+    try:
+        assert credential.token() == TOKEN_A
+        issued_at = credential._expires_at - 2
+        credential._clock = lambda: issued_at + 1.61
+        token_endpoint.response_allowed.clear()
+        token_endpoint.request_received.clear()
+        assert credential.token() == TOKEN_A
+        assert token_endpoint.request_received.wait(2)
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            calls = [executor.submit(credential.token) for _ in range(8)]
+            assert [call.result(timeout=0.5) for call in calls] == [TOKEN_A] * 8
+        assert len(token_endpoint.requests) == 2
+    finally:
+        token_endpoint.response_allowed.set()
+        credential.close()
+
+
 def test_api_key_single_flight_and_rejected_token(
     token_endpoint: TokenEndpoint,
 ) -> None:
@@ -396,6 +573,118 @@ def test_api_key_async_client_retries_once(
         assert service.attempts == [f"Bearer {TOKEN_A}", f"Bearer {TOKEN_B}"]
         assert len(token_endpoint.requests) == 2
     finally:
+        credential.close()
+
+
+def test_api_key_sync_retry_lookup_honors_rpc_deadline(
+    token_endpoint: TokenEndpoint,
+    rejecting_service: tuple[str, RejectingFlowService],
+) -> None:
+    token_endpoint.responses.put((200, token_response(TOKEN_A)))
+    token_endpoint.responses.put((200, token_response(TOKEN_B)))
+    credential = ApiKeyCredential(
+        token_endpoint.url, "server-id", API_KEY, exchange_timeout=2
+    )
+    assert credential.token() == TOKEN_A
+    token_endpoint.response_allowed.clear()
+    address, service = rejecting_service
+    channel = grpc.intercept_channel(
+        grpc.insecure_channel(address), _SyncCredentialInterceptor(credential)
+    )
+    stub = dex_pb2_grpc.FlowServiceStub(channel)  # type: ignore[no-untyped-call]
+    started_at = time.monotonic()
+    try:
+        with pytest.raises(grpc.RpcError) as failure:
+            stub.HealthCheck(empty_pb2.Empty(), timeout=0.2)
+        assert failure.value.code() == grpc.StatusCode.DEADLINE_EXCEEDED
+        assert time.monotonic() - started_at < 0.6
+        assert service.attempts == [f"Bearer {TOKEN_A}"]
+    finally:
+        token_endpoint.response_allowed.set()
+        channel.close()
+        credential.close()
+
+
+def test_api_key_async_retry_lookup_honors_rpc_deadline(
+    token_endpoint: TokenEndpoint,
+    rejecting_service: tuple[str, RejectingFlowService],
+) -> None:
+    token_endpoint.responses.put((200, token_response(TOKEN_A)))
+    token_endpoint.responses.put((200, token_response(TOKEN_B)))
+    credential = ApiKeyCredential(
+        token_endpoint.url, "server-id", API_KEY, exchange_timeout=2
+    )
+    assert credential.token() == TOKEN_A
+    token_endpoint.response_allowed.clear()
+    token_endpoint.request_received.clear()
+    address, service = rejecting_service
+
+    async def run() -> None:
+        runner = AsyncCredentialRunner(credential)
+        channel = grpc.aio.insecure_channel(
+            address, interceptors=[_AsyncCredentialInterceptor(runner)]
+        )
+        stub = dex_pb2_grpc.FlowServiceStub(channel)  # type: ignore[no-untyped-call]
+        try:
+            started_at = time.monotonic()
+            with pytest.raises(grpc.aio.AioRpcError) as failure:
+                await stub.HealthCheck(empty_pb2.Empty(), timeout=0.2)
+            assert failure.value.code() == grpc.StatusCode.DEADLINE_EXCEEDED
+            assert time.monotonic() - started_at < 0.6
+            assert service.attempts == [f"Bearer {TOKEN_A}"]
+
+        finally:
+            await channel.close()
+            runner.close()
+
+    try:
+        asyncio.run(run())
+    finally:
+        token_endpoint.response_allowed.set()
+        credential.close()
+
+
+def test_api_key_async_retry_lookup_can_be_cancelled(
+    token_endpoint: TokenEndpoint,
+    rejecting_service: tuple[str, RejectingFlowService],
+) -> None:
+    token_endpoint.responses.put((200, token_response(TOKEN_A)))
+    token_endpoint.responses.put((200, token_response(TOKEN_B)))
+    credential = ApiKeyCredential(
+        token_endpoint.url, "server-id", API_KEY, exchange_timeout=2
+    )
+    assert credential.token() == TOKEN_A
+    token_endpoint.response_allowed.clear()
+    token_endpoint.request_received.clear()
+    address, service = rejecting_service
+
+    async def run() -> None:
+        runner = AsyncCredentialRunner(credential)
+        channel = grpc.aio.insecure_channel(
+            address, interceptors=[_AsyncCredentialInterceptor(runner)]
+        )
+        stub = dex_pb2_grpc.FlowServiceStub(channel)  # type: ignore[no-untyped-call]
+
+        async def make_call() -> None:
+            await stub.HealthCheck(empty_pb2.Empty(), timeout=5)
+
+        try:
+            call = asyncio.create_task(make_call())
+            assert await asyncio.to_thread(token_endpoint.request_received.wait, 2)
+            started_at = time.monotonic()
+            call.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await call
+            assert time.monotonic() - started_at < 0.3
+            assert service.attempts == [f"Bearer {TOKEN_A}"]
+        finally:
+            await channel.close()
+            runner.close()
+
+    try:
+        asyncio.run(run())
+    finally:
+        token_endpoint.response_allowed.set()
         credential.close()
 
 
