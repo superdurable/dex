@@ -11,11 +11,11 @@
 use dexzd_keyspace::RunId;
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeWrite, ChannelMessage, DeleteChannelMessageRequest,
-    ExecuteMethodFailurePolicy,
-    FlowAlreadyStartedOptions, FlowConfig, FlowResetType, FlowStartOptions,
-    FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy, InvokeRpcRequest,
-    InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, SetAttributesRequest,
-    SkipTimerRequest, StartFlowRequest, StopFlowRequest, UpdateFlowConfigRequest, WorkerTarget,
+    ExecuteMethodFailurePolicy, FlowAlreadyStartedOptions, FlowConfig, FlowResetType,
+    FlowStartOptions, FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy,
+    InvokeRpcRequest, InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest,
+    SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StopFlowRequest,
+    UpdateFlowConfigRequest, WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
@@ -60,7 +60,12 @@ pub(crate) fn run_settings() -> RunSettings {
     }
 }
 
-pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str, is_synced: bool) -> Command {
+pub(crate) fn start_flow(
+    rng: &mut ChaCha8Rng,
+    flow_id: &str,
+    is_synced: bool,
+    is_step_failure_stream: bool,
+) -> Command {
     let policy = match rng.random_range(0..5) {
         0 => FlowTimeoutPolicy::Fail,
         1 => FlowTimeoutPolicy::Cancel,
@@ -102,7 +107,7 @@ pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str, is_synced: bool) -
         flow_timeout_policy: policy as i32,
         start_step_type: pick(rng, STEP_TYPES).to_owned(),
         step_input: rng.random_bool(0.8).then(|| random_value(rng)),
-        step_options: step_options(rng),
+        step_options: step_options(rng, is_step_failure_stream),
         flow_start_options: Some(FlowStartOptions {
             id_reuse_policy: id_reuse_policy as i32,
             attributes: initial_attributes,
@@ -119,7 +124,7 @@ pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str, is_synced: bool) -
                 ignore_already_started_error: rng.random_bool(0.3),
             }),
             timeout_handler_options: (policy == FlowTimeoutPolicy::Handler)
-                .then(|| timeout_handler_options(rng)),
+                .then(|| timeout_handler_options(rng, is_step_failure_stream)),
             ..FlowStartOptions::default()
         }),
         request_id: format!("start-{}", rng.random_range(0..4)),
@@ -143,16 +148,26 @@ pub(crate) fn start_flow(rng: &mut ChaCha8Rng, flow_id: &str, is_synced: bool) -
     })
 }
 
-/// Timeout handler options; validation allows a failure target only with the proceed policy.
-fn timeout_handler_options(rng: &mut ChaCha8Rng) -> FlowTimeoutHandlerOptions {
+/// Timeout handler options; the Step failure stream adds retry and failure policies.
+fn timeout_handler_options(
+    rng: &mut ChaCha8Rng,
+    is_step_failure_stream: bool,
+) -> FlowTimeoutHandlerOptions {
+    let lock_attribute_keys = if rng.random_bool(0.5) {
+        vec!["status".to_owned()]
+    } else {
+        Vec::new()
+    };
+    if !is_step_failure_stream {
+        return FlowTimeoutHandlerOptions {
+            lock_attribute_keys,
+            ..FlowTimeoutHandlerOptions::default()
+        };
+    }
     let should_proceed_on_failure = rng.random_bool(0.4);
     FlowTimeoutHandlerOptions {
-        lock_attribute_keys: if rng.random_bool(0.5) {
-            vec!["status".to_owned()]
-        } else {
-            Vec::new()
-        },
-        retry_policy: retry_policy(rng),
+        lock_attribute_keys,
+        retry_policy: retry_policy(rng, true),
         failure_policy: if should_proceed_on_failure {
             ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32
         } else if rng.random_bool(0.5) {
@@ -166,7 +181,7 @@ fn timeout_handler_options(rng: &mut ChaCha8Rng) -> FlowTimeoutHandlerOptions {
             String::new()
         },
         failure_proceed_step_options: if should_proceed_on_failure {
-            step_options(rng)
+            step_options(rng, true)
         } else {
             None
         },

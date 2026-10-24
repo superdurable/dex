@@ -387,19 +387,8 @@ fn table_value_id(stored: &StoredValue) -> Option<ValueId> {
 
 #[test]
 fn pinned_snapshot_value_survives_window_advance_and_final_holder_release() {
-    // The scenario depends on the generated workload, so search seeds for it.
-    let checked_seed =
-        (FIRST_SEED..FIRST_SEED + 16).find(|seed| check_pinned_snapshot_value_survival(*seed));
-    assert!(
-        checked_seed.is_some(),
-        "no pinned snapshot value outlived its slot and reached final holder release"
-    );
-}
-
-/// Returns whether the seed produced the pinned snapshot scenario; panics if the scenario fails.
-fn check_pinned_snapshot_value_survival(seed: u64) -> bool {
     let mut checker = ApplyChecker::new();
-    let mut generator = CommandGenerator::new(seed);
+    let mut generator = CommandGenerator::new(FIRST_SEED + 3);
     let mut pinned_value: Option<(RunId, ValueId, Vec<u8>)> = None;
     for _ in 0..DEFAULT_COMMANDS_PER_SEED {
         let command = generator.next_command(&checker).expect("state decodes");
@@ -489,7 +478,7 @@ fn check_pinned_snapshot_value_survival(seed: u64) -> bool {
                     Some(expected_bytes.as_slice()),
                     "traveled snapshot value bytes changed"
                 );
-                return true;
+                return;
             }
             let window_start = run
                 .record
@@ -531,7 +520,7 @@ fn check_pinned_snapshot_value_survival(seed: u64) -> bool {
             }
         }
     }
-    false
+    panic!("no pinned snapshot value outlived its slot and reached final holder release");
 }
 
 #[test]

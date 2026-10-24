@@ -16,7 +16,10 @@ Attribute Sync outbox checks cover unacknowledged changes keeping their entries 
 deleting only the entries they cover (AS2), and the pending index matching the entries (AS3).
 A second stream with its own seeded draws drives one Flow, `account-sync`, that syncs to two
 Attribute Stores and receives acks. It never changes the main stream, whose per-seed digests
-`regression_seeds_keep_their_main_command_trajectories` pins. SearchOrder rows must match the
+`regression_seeds_keep_their_main_command_trajectories` pins. A third stream, also with its own
+draws, drives `order-recovery-1` and `order-recovery-2`. Their Steps and timeout handlers carry
+WaitFor and Execute failure policies, recovery targets, and retry total durations of 1 to 5
+seconds. Workers there also report `RETRY_DEADLINE` failures. SearchOrder rows must match the
 search documents (SO1).
 
 ```bash

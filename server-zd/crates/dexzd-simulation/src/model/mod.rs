@@ -41,6 +41,12 @@ pub const ATTRIBUTE_SYNC_FLOW_ID: &str = "account-sync";
 const ATTRIBUTE_SYNC_STREAM_SEED: u64 = 0xa77e_5c00_0000_0000;
 /// Chance that the Attribute Sync stream proposes a command after each main command.
 const ATTRIBUTE_SYNC_COMMAND_PROBABILITY: f64 = 0.3;
+/// Flows of the Step failure stream; their Steps carry failure policies and short total durations.
+pub const STEP_FAILURE_FLOW_IDS: &[&str] = &["order-recovery-1", "order-recovery-2"];
+/// Mixed into the seed so the Step failure stream never shares draws with the main stream.
+const STEP_FAILURE_STREAM_SEED: u64 = 0x5fa1_7e00_0000_0000;
+/// Chance that the Step failure stream proposes a command after each main command.
+const STEP_FAILURE_COMMAND_PROBABILITY: f64 = 0.8;
 /// Proposal time of the first command: 2027-01-15 in microseconds.
 const START_MICROS: i64 = 1_800_000_000_000_000;
 /// Result commands remembered for redelivery.
@@ -52,7 +58,18 @@ pub struct CommandGenerator {
     now_micros: i64,
     sent_results: Vec<FlowCommand>,
     flow_ids: &'static [&'static str],
-    is_attribute_sync_stream: bool,
+    stream: CommandStream,
+}
+
+/// The command stream a generator proposes for; each draws from its own seeded source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommandStream {
+    /// The stream over [`FLOW_IDS`] whose per-seed digests the regression seeds pin.
+    Main,
+    /// Synced Attribute writes and their acks on [`ATTRIBUTE_SYNC_FLOW_ID`].
+    AttributeSync,
+    /// Step failure policies and retry total durations on [`STEP_FAILURE_FLOW_IDS`].
+    StepFailure,
 }
 
 /// One possible next command and its weight.
@@ -93,7 +110,7 @@ impl CommandGenerator {
             now_micros: START_MICROS,
             sent_results: Vec::new(),
             flow_ids: FLOW_IDS,
-            is_attribute_sync_stream: false,
+            stream: CommandStream::Main,
         }
     }
 
@@ -103,14 +120,30 @@ impl CommandGenerator {
         Self {
             rng: ChaCha8Rng::seed_from_u64(seed ^ ATTRIBUTE_SYNC_STREAM_SEED),
             flow_ids: &[ATTRIBUTE_SYNC_FLOW_ID],
-            is_attribute_sync_stream: true,
+            stream: CommandStream::AttributeSync,
+            ..Self::new(seed)
+        }
+    }
+
+    /// Creates `seed`'s Step failure stream; its own draws leave the main stream unchanged.
+    pub fn step_failure_stream(seed: u64) -> Self {
+        Self {
+            rng: ChaCha8Rng::seed_from_u64(seed ^ STEP_FAILURE_STREAM_SEED),
+            flow_ids: STEP_FAILURE_FLOW_IDS,
+            stream: CommandStream::StepFailure,
             ..Self::new(seed)
         }
     }
 
     /// Draws whether this stream proposes a command now.
     pub fn should_propose(&mut self) -> bool {
-        self.rng.random_bool(ATTRIBUTE_SYNC_COMMAND_PROBABILITY)
+        let probability = match self.stream {
+            CommandStream::StepFailure => STEP_FAILURE_COMMAND_PROBABILITY,
+            CommandStream::Main | CommandStream::AttributeSync => {
+                ATTRIBUTE_SYNC_COMMAND_PROBABILITY
+            }
+        };
+        self.rng.random_bool(probability)
     }
 
     /// Moves this stream's clock up to `other`'s without changing `other`.
@@ -197,7 +230,8 @@ impl CommandGenerator {
                     },
                 ));
             }
-            if self.is_attribute_sync_stream && !run.attribute_sync_entries.is_empty() {
+            if self.stream == CommandStream::AttributeSync && !run.attribute_sync_entries.is_empty()
+            {
                 proposals.push((
                     3,
                     Proposal::AttributeSyncAck {
@@ -256,11 +290,13 @@ impl CommandGenerator {
     }
 
     fn realize(&mut self, flow_id: &str, proposal: Proposal<'_>) -> FlowCommand {
-        let is_synced = self.is_attribute_sync_stream;
+        let is_synced = self.stream == CommandStream::AttributeSync;
+        let is_step_failure_stream = self.stream == CommandStream::StepFailure;
         let rng = &mut self.rng;
         match proposal {
             Proposal::StartFlow => {
-                let body = client_model::start_flow(rng, flow_id, is_synced);
+                let body =
+                    client_model::start_flow(rng, flow_id, is_synced, is_step_failure_stream);
                 self.envelope(flow_id, Vec::new(), body)
             }
             Proposal::ClientWrite { run_id, run } => {
@@ -270,7 +306,7 @@ impl CommandGenerator {
                     28..=33 => client_model::delete_message(rng, run),
                     34..=35 => client_model::stop(rng),
                     36 => client_model::config_update(),
-                    _ => client_model::start_flow(rng, flow_id, is_synced),
+                    _ => client_model::start_flow(rng, flow_id, is_synced, is_step_failure_stream),
                 };
                 let run_id = match body {
                     Command::FlowStart(_) => Vec::new(),
@@ -299,8 +335,8 @@ impl CommandGenerator {
             }
             Proposal::WorkerOutcome(call) => {
                 let body = match rng.random_range(0..10) {
-                    0..=5 => worker_model::complete(rng, &call, is_synced),
-                    6..=7 => worker_model::fail(rng, &call),
+                    0..=5 => worker_model::complete(rng, &call, is_synced, is_step_failure_stream),
+                    6..=7 => worker_model::fail(rng, &call, is_step_failure_stream),
                     _ => worker_model::heartbeat(rng, &call),
                 };
                 let command = self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body);
@@ -308,7 +344,7 @@ impl CommandGenerator {
                 command
             }
             Proposal::StaleAttempt(call) => {
-                let body = worker_model::stale_attempt_command(rng, &call);
+                let body = worker_model::stale_attempt_command(rng, &call, is_step_failure_stream);
                 self.envelope(flow_id, call.run_id.as_bytes().to_vec(), body)
             }
             Proposal::FireTimer {
