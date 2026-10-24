@@ -33,6 +33,21 @@ example, it supports only pull Workers).
 Crate layers are registered in `script/rust-crate-layers.json`; a crate may depend only on crates
 in the same or a lower layer.
 
+## Release binaries
+
+Each published `server-zd/vX.Y.Z` GitHub Release includes native `dex-server-zd` archives for
+Linux amd64, Linux arm64, and macOS arm64:
+
+| Platform | Archive |
+| --- | --- |
+| Linux amd64 | `dex-server-zd_vX.Y.Z_linux_amd64.tar.gz` |
+| Linux arm64 | `dex-server-zd_vX.Y.Z_linux_arm64.tar.gz` |
+| macOS arm64 | `dex-server-zd_vX.Y.Z_darwin_arm64.tar.gz` |
+
+Each archive contains `dex-server-zd`, `LICENSE.md`, `LEGACY_NOTICES.md`, and `LICENSES/`.
+The Release also includes `checksums.txt` with the SHA-256 hash of each archive. Verify the
+downloaded archive against that file before extracting it.
+
 ## Running
 
 `dex-server-zd` has two commands: `serve` for a Server node on external object storage and `dev`
@@ -156,6 +171,19 @@ state under `<data-dir>/store`. `dexcli dev -engine zd` starts it with these fla
 node ID to `dev`, anonymous credentials, the embedded endpoint, and the `--listen` address, and it
 rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
 `<log-dir>/dex-server-zd.log`. A `search.backend: paradedb` override uses ParadeDB as `serve` does.
+
+## Stable command-line interface
+
+These commands and flags are part of the Beta compatibility interface. Applications can invoke
+them without depending on the implementation of the server:
+
+| Command | Flag | Meaning |
+| --- | --- | --- |
+| `serve` | `--config <file>` | Required YAML configuration file for a node using external object storage. |
+| `dev` | `--data-dir <dir>` | Required directory for embedded object storage and local state. |
+| `dev` | `--listen <address>` | Plaintext gRPC listen address; defaults to `127.0.0.1:8801`. |
+| `dev` | `--config <file>` | Optional YAML configuration overrides. |
+| `dev` | `--log-dir <dir>` | Optional directory that also receives `dex-server-zd.log`. |
 
 ## Development
 

@@ -1,0 +1,317 @@
+name: Server ZD binary release
+
+on:
+  release:
+    types: [published]
+  workflow_call:
+    inputs:
+      version:
+        description: Server ZD semantic version without the v prefix
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - .github/workflows/server-zd-binary-release.yml
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and smoke test binaries without publishing
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-zd-binary-release-${{ github.event.release.tag_name || (inputs.version && format('server-zd/v{0}', inputs.version)) || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  metadata:
+    name: Resolve binary version
+    if: inputs.version != '' || github.event_name != 'release' || startsWith(github.event.release.tag_name, 'server-zd/v')
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Resolve version and publishing mode
+        id: version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${INPUT_VERSION}" ]]; then
+            base_version="${INPUT_VERSION#v}"
+            publish=true
+          elif [[ "${EVENT_NAME}" == "release" ]]; then
+            base_version="${RELEASE_TAG#server-zd/v}"
+            publish=true
+          else
+            if [[ "${GITHUB_REF}" == refs/tags/server-zd/v* ]]; then
+              base_version="${GITHUB_REF#refs/tags/server-zd/v}"
+            else
+              base_version="$(python3 -c 'import tomllib; print(tomllib.load(open("server-zd/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+            fi
+            publish=false
+            if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${DRY_RUN}" == "false" ]]; then
+              if [[ "${GITHUB_REF}" != refs/tags/server-zd/v* ]]; then
+                echo 'Publishing requires selecting a server-zd/vX.Y.Z tag' >&2
+                exit 1
+              fi
+              publish=true
+            fi
+          fi
+          if [[ ! "${base_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid server-zd binary version: ${base_version}" >&2
+            exit 1
+          fi
+          version="${base_version}"
+          if [[ "${publish}" != true ]]; then
+            version="${base_version}-smoke.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "publish=${publish}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Build and smoke ${{ matrix.os }} ${{ matrix.arch }}
+    needs: metadata
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-24.04
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+    env:
+      CARGO_BUILD_JOBS: "4"
+      RUSTUP_TOOLCHAIN: "1.97.1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify native architecture
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          case "${TARGET_ARCH}" in
+            amd64) expected_arch=X64 ;;
+            arm64) expected_arch=ARM64 ;;
+          esac
+          [[ "${RUNNER_ARCH}" == "${expected_arch}" ]]
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "${GITHUB_ENV}"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-binary-${{ matrix.os }}-${{ matrix.arch }}
+      - name: Stamp release version
+        working-directory: server-zd
+        env:
+          SERVER_ZD_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          manifest_path = Path('Cargo.toml')
+          lock_path = Path('Cargo.lock')
+          manifest = tomllib.loads(manifest_path.read_text())
+          original_version = manifest['workspace']['package']['version']
+          release_version = os.environ['SERVER_ZD_VERSION']
+          package_names = {
+              tomllib.loads((Path(member) / 'Cargo.toml').read_text())['package']['name']
+              for member in manifest['workspace']['members']
+          }
+          manifest_text, replacements = re.subn(
+              rf'(?m)^(version = "){re.escape(original_version)}("$)',
+              rf'\g<1>{release_version}\g<2>',
+              manifest_path.read_text(),
+              count=1,
+          )
+          if replacements != 1:
+              raise SystemExit('failed to stamp workspace version')
+          manifest_path.write_text(manifest_text)
+          lock_text = lock_path.read_text()
+          for package_name in package_names:
+              lock_text, replacements = re.subn(
+                  rf'(?m)(^name = "{re.escape(package_name)}"\nversion = "){re.escape(original_version)}("$)',
+                  rf'\g<1>{release_version}\g<2>',
+                  lock_text,
+                  count=1,
+              )
+              if replacements != 1:
+                  raise SystemExit(f'failed to stamp {package_name} lock version')
+          lock_path.write_text(lock_text)
+          PY
+      - name: Build native binary
+        working-directory: server-zd
+        run: cargo build --release --locked -p dexzd-server
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Build grpcurl
+        env:
+          GOBIN: ${{ runner.temp }}/go-bin
+        run: go install github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.3
+      - name: Smoke version, gRPC health, and shutdown
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          binary="${GITHUB_WORKSPACE}/server-zd/target/release/dex-server-zd"
+          version_output="$("${binary}" --version)"
+          [[ "${version_output}" == "dex-server-zd ${EXPECTED_VERSION}" ]] || {
+            echo "Unexpected version: ${version_output}" >&2
+            exit 1
+          }
+          cat > "${RUNNER_TEMP}/health.proto" <<'PROTO'
+          syntax = "proto3";
+          package grpc.health.v1;
+          service Health {
+            rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+          }
+          message HealthCheckRequest { string service = 1; }
+          message HealthCheckResponse {
+            enum ServingStatus {
+              UNKNOWN = 0;
+              SERVING = 1;
+              NOT_SERVING = 2;
+              SERVICE_UNKNOWN = 3;
+            }
+            ServingStatus status = 1;
+          }
+          PROTO
+          port="$(python3 -c 'import socket; sock = socket.socket(); sock.bind(("127.0.0.1", 0)); print(sock.getsockname()[1]); sock.close()')"
+          data_dir="${RUNNER_TEMP}/zd-smoke-data"
+          server_pid=''
+          cleanup() {
+            if [[ -n "${server_pid}" ]] && kill -0 "${server_pid}" 2>/dev/null; then
+              kill "${server_pid}"
+              wait "${server_pid}" || true
+            fi
+          }
+          trap cleanup EXIT
+          "${binary}" dev --data-dir "${data_dir}" --listen "127.0.0.1:${port}" > "${RUNNER_TEMP}/zd-smoke.log" 2>&1 &
+          server_pid=$!
+          health_check() {
+            "${RUNNER_TEMP}/go-bin/grpcurl" -plaintext -max-time 2 \
+              -import-path "${RUNNER_TEMP}" -proto health.proto \
+              -d '{}' "127.0.0.1:${port}" grpc.health.v1.Health/Check
+          }
+          serving=false
+          deadline=$((SECONDS + 120))
+          while (( SECONDS < deadline )); do
+            if health_check 2>/dev/null | grep -q '"status": "SERVING"'; then
+              serving=true
+              break
+            fi
+            if ! kill -0 "${server_pid}" 2>/dev/null; then
+              cat "${RUNNER_TEMP}/zd-smoke.log" >&2
+              echo 'dev exited before becoming SERVING' >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          [[ "${serving}" == true ]] || {
+            cat "${RUNNER_TEMP}/zd-smoke.log" >&2
+            echo 'dev did not become SERVING' >&2
+            exit 1
+          }
+          kill -TERM "${server_pid}"
+          deadline=$((SECONDS + 30))
+          while kill -0 "${server_pid}" 2>/dev/null && (( SECONDS < deadline )); do
+            sleep 1
+          done
+          if kill -0 "${server_pid}" 2>/dev/null; then
+            cat "${RUNNER_TEMP}/zd-smoke.log" >&2
+            echo 'dev did not stop after SIGTERM' >&2
+            exit 1
+          fi
+          exit_status=0
+          wait "${server_pid}" || exit_status=$?
+          server_pid=''
+          [[ "${exit_status}" -eq 0 ]] || {
+            cat "${RUNNER_TEMP}/zd-smoke.log" >&2
+            echo "dev exited ${exit_status} after SIGTERM" >&2
+            exit 1
+          }
+      - name: Package native binary
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          package_dir="${RUNNER_TEMP}/package"
+          mkdir -p "${package_dir}" "${RUNNER_TEMP}/dist"
+          cp server-zd/target/release/dex-server-zd "${package_dir}/"
+          cp server/LICENSE.md server/LEGACY_NOTICES.md "${package_dir}/"
+          cp -R server/LICENSES "${package_dir}/"
+          tar -C "${package_dir}" -czf "${RUNNER_TEMP}/dist/dex-server-zd_v${VERSION}_${TARGET_OS}_${TARGET_ARCH}.tar.gz" \
+            dex-server-zd LICENSE.md LEGACY_NOTICES.md LICENSES
+      - uses: actions/upload-artifact@v7
+        with:
+          name: server-zd-binary-${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/dist/*.tar.gz
+          if-no-files-found: error
+
+  upload:
+    name: Publish binaries and checksums
+    needs: [metadata, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: server-zd-binary-*
+          path: dist
+          merge-multiple: true
+      - name: Write SHA-256 checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          archives=(./*.tar.gz)
+          [[ "${#archives[@]}" -eq 3 ]] || {
+            echo "Expected three binary archives, found ${#archives[@]}" >&2
+            exit 1
+          }
+          sha256sum -- "${archives[@]}" > checksums.txt
+          cat checksums.txt
+      - name: Upload Release assets
+        if: needs.metadata.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: server-zd/v${{ needs.metadata.outputs.version }}
+        run: gh release upload "${RELEASE_TAG}" dist/* --clobber
+      - uses: actions/upload-artifact@v7
+        if: needs.metadata.outputs.publish != 'true'
+        with:
+          name: server-zd-binaries-v${{ needs.metadata.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
