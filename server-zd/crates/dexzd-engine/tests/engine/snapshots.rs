@@ -601,6 +601,64 @@ async fn retention_reclaims_the_lineage_that_a_restore_replaced() {
     restarted.node.shutdown().await.expect("lease released");
 }
 
+/// Each restart uploads a new lineage; no process outlives the deletion delay after old manifests go.
+#[tokio::test(start_paused = true)]
+async fn retention_deletes_displaced_lineage_files_when_every_process_is_short_lived() {
+    const DELETION_DELAY: Duration = Duration::from_secs(60 * 60);
+    let mut cluster = TestCluster::new();
+    let mut config = cluster.config(LocalStoreConfig::InMemory);
+    config.snapshots.deletion_delay = DELETION_DELAY;
+    let retained_count = config.snapshots.retained_count;
+    let incarnations = retained_count + 4;
+    for _ in 0..incarnations {
+        let test = cluster.start_with(&config).await.expect("node starts");
+        test.commit_prompt("short-lived-flow", 1).await;
+        test.node.take_snapshot().await.expect("snapshot succeeds");
+        drop(test);
+        cluster
+            .clock
+            .shift(i64::try_from(2 * DELETION_DELAY.as_micros()).expect("delay fits i64"));
+    }
+
+    let manifest_keys = snapshot_manifest_keys(&cluster).await;
+    assert!(manifest_keys.len() < incarnations, "{manifest_keys:?}");
+    let live_lineages: Vec<String> = manifest_keys.iter().map(|key| lineage_of(key)).collect();
+    let objects = snapshot_object_keys(&cluster).await;
+    let displaced_objects: Vec<&String> = objects
+        .iter()
+        .filter(|key| !live_lineages.contains(&lineage_of(key)))
+        .collect();
+    assert!(
+        displaced_objects.is_empty(),
+        "files of deleted snapshots remain: {displaced_objects:?}"
+    );
+    for key in &manifest_keys {
+        let content = cluster
+            .object_store
+            .get(key)
+            .await
+            .expect("read manifest")
+            .expect("manifest exists");
+        let manifest = SnapshotManifest::decode(content.bytes).expect("decode manifest");
+        for file in &manifest.files {
+            assert!(
+                objects.contains(&file.object_key),
+                "{} is missing",
+                file.object_key
+            );
+        }
+    }
+    let restarted = cluster
+        .start_with(&config)
+        .await
+        .expect("node restores the newest snapshot");
+    assert_eq!(
+        restarted.committed_count("short-lived-flow").await,
+        incarnations as u64
+    );
+    restarted.node.shutdown().await.expect("lease released");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_snapshot_reads_each_stored_snapshot_manifest_at_most_once() {
     let mut cluster = TestCluster::new();
