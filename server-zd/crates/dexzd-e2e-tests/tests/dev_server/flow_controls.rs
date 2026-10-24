@@ -13,16 +13,18 @@ use std::time::Duration;
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::{
     ActiveStepSearchMode, ConditionStatus, ErrorSubStatus, FlowConfig, FlowErrorType, FlowResult,
-    FlowStatus, GetFlowStateRequest, GetFlowSummaryRequest, GetHistoryEventsRequest,
-    InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, SkipTimerRequest, StepDurability,
-    StepOptions, StopFlowRequest, StopType, TimerCondition, TimerResult, UpdateFlowConfigRequest,
+    FlowStartOptions, FlowStatus, GetFlowStateRequest, GetFlowSummaryRequest,
+    GetHistoryEventsRequest, IdReusePolicy, InvokeExecuteMethodResponse,
+    InvokeWaitForMethodResponse, SkipTimerRequest, StartFlowRequest, StepDurability, StepOptions,
+    StopFlowRequest, StopType, TimerCondition, TimerResult, UpdateFlowConfigRequest,
     WaitForFlowRequest, WaitingCondition, WaitingConditionType, WorkerTarget, flow_history_event,
 };
 use tonic::transport::Channel;
 
 use crate::harness::{
-    DevServer, ScriptedWorker, execute_request, execute_result, force_complete, service_error,
-    start_pull_flow, wait_for_request, wait_for_result, wait_until_step_waits,
+    DevServer, ScriptedWorker, execute_request, execute_result, force_complete,
+    pull_mode_start_options, service_error, start_pull_flow, wait_for_request, wait_for_result,
+    wait_until_step_waits,
 };
 use crate::string_value;
 
@@ -216,14 +218,13 @@ async fn assert_stop_history(
     assert!(closed.results.is_empty());
 }
 
-/// Like the Go Server, StopFlow on a run that has already closed reports that the run is not found.
-#[ignore = "server-zd returns OK: https://github.com/superdurable/dex/issues/888"]
+/// Like the Go Server, StopFlow on a closed run is NotFound, also when a newer run exists.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stop_flow_on_a_closed_run_is_not_found() {
     let server = DevServer::start().await;
     let mut flow_client = server.flow_client();
     let flow_id = "stop-closed-run";
-    start_pull_flow(
+    let first_run = start_pull_flow(
         &mut flow_client,
         flow_id,
         IDLE_FLOW_TYPE,
@@ -241,24 +242,88 @@ async fn stop_flow_on_a_closed_run_is_not_found() {
         .await
         .expect("StopFlow succeeds");
     assert_summary_status(&mut flow_client, flow_id, FlowStatus::Terminated).await;
-    for stop_type in [StopType::Terminate, StopType::Cancel] {
-        let repeated = flow_client
-            .stop_flow(StopFlowRequest {
-                flow_id: flow_id.to_owned(),
-                stop_type: stop_type.into(),
-                ..StopFlowRequest::default()
-            })
-            .await
-            .expect_err("a closed run cannot be stopped again");
-        assert_eq!(repeated.code(), tonic::Code::NotFound, "{stop_type:?}");
-        assert_eq!(
-            service_error(&repeated).sub_status,
-            ErrorSubStatus::FlowNotExists as i32,
-            "{stop_type:?}"
-        );
+    for stop_type in [StopType::Terminate, StopType::Cancel, StopType::Fail] {
+        assert_closed_run_stop_is_not_found(&mut flow_client, flow_id, "", stop_type).await;
     }
     assert_summary_status(&mut flow_client, flow_id, FlowStatus::Terminated).await;
+
+    let second_run = flow_client
+        .start_flow(StartFlowRequest {
+            flow_id: flow_id.to_owned(),
+            flow_type: IDLE_FLOW_TYPE.to_owned(),
+            start_step_type: IDLE_STEP_TYPE.to_owned(),
+            flow_start_options: Some(FlowStartOptions {
+                id_reuse_policy: IdReusePolicy::AllowIfNoRunning.into(),
+                ..pull_mode_start_options()
+            }),
+            request_id: format!("{flow_id}-second-start"),
+            ..StartFlowRequest::default()
+        })
+        .await
+        .expect("StartFlow reuses the Flow ID of the closed run")
+        .into_inner();
+    assert_ne!(second_run.run_id, first_run.run_id);
+    for stop_type in [StopType::Terminate, StopType::Cancel] {
+        assert_closed_run_stop_is_not_found(
+            &mut flow_client,
+            flow_id,
+            &first_run.run_id,
+            stop_type,
+        )
+        .await;
+    }
+    flow_client
+        .stop_flow(StopFlowRequest {
+            flow_id: flow_id.to_owned(),
+            stop_type: StopType::Cancel.into(),
+            ..StopFlowRequest::default()
+        })
+        .await
+        .expect("StopFlow without a run ID stops the newer run");
+    let summary = flow_client
+        .get_flow_summary(GetFlowSummaryRequest {
+            flow_id: flow_id.to_owned(),
+            run_id: String::new(),
+        })
+        .await
+        .expect("GetFlowSummary succeeds")
+        .into_inner();
+    assert_eq!(
+        summary
+            .flow_execution_id
+            .map(|execution| (execution.run_id, summary.flow_status)),
+        Some((second_run.run_id, FlowStatus::Canceled as i32))
+    );
     server.shutdown().await;
+}
+
+/// Asserts the Go Server's answer to stopping a closed run: NotFound with the backend's text.
+async fn assert_closed_run_stop_is_not_found(
+    flow_client: &mut FlowServiceClient<Channel>,
+    flow_id: &str,
+    run_id: &str,
+    stop_type: StopType,
+) {
+    let rejection = flow_client
+        .stop_flow(StopFlowRequest {
+            flow_id: flow_id.to_owned(),
+            run_id: run_id.to_owned(),
+            stop_type: stop_type.into(),
+            ..StopFlowRequest::default()
+        })
+        .await
+        .expect_err("a closed run cannot be stopped");
+    assert_eq!(rejection.code(), tonic::Code::NotFound, "{stop_type:?}");
+    assert_eq!(
+        rejection.message(),
+        "workflow execution already completed",
+        "{stop_type:?}"
+    );
+    assert_eq!(
+        service_error(&rejection).sub_status,
+        ErrorSubStatus::FlowNotExists as i32,
+        "{stop_type:?}"
+    );
 }
 
 /// SkipTimer selects a pending timer by condition ID or index; the Step proceeds once both fire.
