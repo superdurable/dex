@@ -1942,7 +1942,7 @@ fn exhausted_attempt_recovery_error_type_matches_failure_kind() {
         (
             StepAttemptFailureKind::RequestTooLarge,
             "",
-            "RequestTooLarge",
+            "FLOW_ERROR_TYPE_WORKER_API_FAIL",
         ),
     ];
     for (kind, worker_error_type, expected_error_type) in cases {

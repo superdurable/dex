@@ -383,7 +383,9 @@ fn recovery_error(
             "UnsupportedFeature"
         }
         dexzd_protocol::dexzd::v1::StepAttemptFailureKind::ValueTooLarge => "ValueTooLarge",
-        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::RequestTooLarge => "RequestTooLarge",
+        dexzd_protocol::dexzd::v1::StepAttemptFailureKind::RequestTooLarge => {
+            "FLOW_ERROR_TYPE_WORKER_API_FAIL"
+        }
         dexzd_protocol::dexzd::v1::StepAttemptFailureKind::Unspecified => "UnknownStepFailure",
     };
     RecoveryErrorInfo {
