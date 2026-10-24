@@ -38,8 +38,8 @@ impl PartitionRuntimeRebuilder for PassiveRuntime {
     fn rebuild_partition(
         &self,
         _partition: PartitionId,
-    ) -> BoxFuture<'_, Result<(), RuntimeRebuildError>> {
-        Box::pin(async { Ok(()) })
+    ) -> BoxFuture<'_, Result<usize, RuntimeRebuildError>> {
+        Box::pin(async { Ok(0) })
     }
 }
 

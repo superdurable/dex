@@ -430,6 +430,19 @@ async fn s3_conformance(durability: Durability) {
         .await
         .expect("the conformance operation succeeds");
     check_store(&object_store).await;
+    let request_log = s3mock_request_log(server.local_address()).await;
+    assert!(
+        request_log.contains("\"operation\":\"ListObjectsV2\""),
+        "{request_log}"
+    );
+    assert!(
+        !request_log.contains("\"operation\":\"HeadBucket\""),
+        "{request_log}"
+    );
+    assert!(
+        request_log.contains("\"key\":\"dexzd/conformance/probe/"),
+        "{request_log}"
+    );
     let uploads = store
         .list_multipart_uploads(
             "object-store-conformance",
@@ -1005,21 +1018,28 @@ async fn s3_missing_bucket_and_access_denied_are_permanent() {
     let missing = S3ObjectStore::new(missing)
         .await
         .expect("the conformance operation succeeds");
-    assert_eq!(
-        missing
-            .get("object")
-            .await
-            .expect_err("the conformance operation fails")
-            .kind,
-        ObjectStoreErrorKind::Permanent
-    );
-    assert_eq!(
-        missing
-            .head("object")
-            .await
-            .expect_err("the conformance operation fails")
-            .kind,
-        ObjectStoreErrorKind::Permanent
+    let missing_get_error = missing
+        .get("object")
+        .await
+        .expect_err("a missing bucket fails the read request");
+    assert_eq!(missing_get_error.kind, ObjectStoreErrorKind::Permanent);
+    assert!(missing_get_error.detail.contains("NoSuchBucket"));
+    let missing_head_error = missing
+        .head("object")
+        .await
+        .expect_err("a missing bucket fails the head request");
+    assert_eq!(missing_head_error.kind, ObjectStoreErrorKind::Permanent);
+    assert!(missing_head_error.detail.contains("NoSuchBucket"));
+    let startup_error = startup_self_check(&missing)
+        .await
+        .expect_err("startup fails for a missing bucket");
+    assert!(startup_error.to_string().contains("InitialCreate"));
+    assert!(
+        startup_error
+            .source
+            .expect("the startup error retains its S3 cause")
+            .detail
+            .contains("NoSuchBucket")
     );
     assert_eq!(
         missing
@@ -1040,6 +1060,11 @@ async fn s3_missing_bucket_and_access_denied_are_permanent() {
             .expect_err("the conformance operation fails")
             .kind,
         ObjectStoreErrorKind::Permanent
+    );
+    let request_log = s3mock_request_log(server.local_address()).await;
+    assert!(
+        !request_log.contains("\"operation\":\"HeadBucket\""),
+        "{request_log}"
     );
 
     let mut session = S3ObjectStoreConfig::new("us-east-1", "present-bucket");
@@ -1111,6 +1136,148 @@ async fn s3_missing_bucket_and_access_denied_are_permanent() {
             .expect_err("the conformance operation fails")
             .kind,
         ObjectStoreErrorKind::Permanent
+    );
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn s3_prefix_confined_reads_disambiguate_access_denied() {
+    use s3mock_server::{ServerConfig, SignatureVerification};
+
+    let directory = TempDir::new().expect("the test directory opens");
+    let store = Store::open(&StoreConfig {
+        root_directory: directory.path().join("s3"),
+        durability: Durability::Relaxed,
+        etag_mode: EtagMode::Opaque,
+    })
+    .expect("the S3 store opens");
+    store
+        .create_bucket("confined-bucket", false)
+        .expect("the bucket is created");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("the listener binds");
+    let server = s3mock_server::start_with_config(
+        Arc::new(store),
+        listener,
+        ServerConfig {
+            signature_verification: SignatureVerification::Strict,
+            ..ServerConfig::default()
+        },
+    )
+    .expect("the S3 server starts");
+    let mut config = S3ObjectStoreConfig::new("us-east-1", "confined-bucket");
+    config.endpoint = Some(format!("http://{}", server.local_address()));
+    config.key_prefix = "confined".to_owned();
+    config.force_path_style = true;
+    config.credentials = S3Credentials::Static {
+        access_key_id: "s3mock".to_owned(),
+        secret_access_key: "s3mock".to_owned(),
+        session_token: None,
+    };
+    let object_store = S3ObjectStore::new(config)
+        .await
+        .expect("the S3 client opens");
+    startup_self_check(&object_store)
+        .await
+        .expect("startup works on an empty configured prefix");
+    object_store
+        .put(
+            "existing",
+            Bytes::from_static(b"existing"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("the existing key is written");
+    object_store
+        .put(
+            "missing-sibling",
+            Bytes::from_static(b"sibling"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("the sibling key is written");
+    startup_self_check(&object_store)
+        .await
+        .expect("startup works with existing keys under the configured prefix");
+    set_s3mock_fault(
+        server.local_address(),
+        r#"{"operation":"GetObject","key_prefix":"confined/missing","action":{"type":"error","status":403}},{"operation":"HeadObject","key_prefix":"confined/missing","action":{"type":"error","status":403}},{"operation":"GetObject","key_prefix":"confined/existing","action":{"type":"error","status":403}},{"operation":"HeadObject","key_prefix":"confined/existing","action":{"type":"error","status":403}}"#,
+    )
+    .await;
+    assert!(
+        object_store
+            .get("missing")
+            .await
+            .expect("missing GET is resolved")
+            .is_none()
+    );
+    assert!(
+        object_store
+            .head("missing")
+            .await
+            .expect("missing HEAD is resolved")
+            .is_none()
+    );
+    assert!(
+        object_store
+            .get_range(
+                "missing",
+                ByteRange {
+                    start: 0,
+                    end_inclusive: 0
+                }
+            )
+            .await
+            .expect("missing range GET is resolved")
+            .is_none()
+    );
+    let download_path = directory.path().join("missing-download");
+    assert!(
+        object_store
+            .get_to_file("missing", &download_path)
+            .await
+            .expect("missing file GET is resolved")
+            .is_none()
+    );
+    assert!(!download_path.exists());
+    assert!(
+        object_store
+            .get("existing")
+            .await
+            .expect_err("a denied existing key remains an error")
+            .detail
+            .contains("AccessDenied")
+    );
+    assert!(
+        object_store
+            .head("existing")
+            .await
+            .expect_err("a denied existing key remains an error")
+            .detail
+            .contains("status=Some(403)")
+    );
+    let request_log = s3mock_request_log(server.local_address()).await;
+    assert!(
+        !request_log.contains("\"operation\":\"HeadBucket\""),
+        "{request_log}"
+    );
+    assert!(
+        request_log.contains("\"operation\":\"ListObjectsV2\""),
+        "{request_log}"
+    );
+    set_s3mock_fault(
+        server.local_address(),
+        r#"{"operation":"HeadObject","key_prefix":"confined/missing","action":{"type":"error","status":403}},{"operation":"ListObjectsV2","bucket":"confined-bucket","action":{"type":"error","status":403}}"#,
+    )
+    .await;
+    assert!(
+        object_store
+            .head("missing")
+            .await
+            .expect_err("a denied listing remains an error")
+            .detail
+            .contains("AccessDenied")
     );
     server.shutdown().await;
 }

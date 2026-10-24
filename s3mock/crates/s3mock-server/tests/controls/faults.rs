@@ -60,6 +60,7 @@ async fn errors_and_fail_before_commit_leave_no_object() {
     let server = RunningServer::start(&[]).await;
     for (action, expected_status, expected_code) in [
         (json!({"type":"fail_before_commit"}), 500, "InternalError"),
+        (json!({"type":"error","status":403}), 403, "AccessDenied"),
         (json!({"type":"error","status":500}), 500, "InternalError"),
         (json!({"type":"error","status":503}), 503, "SlowDown"),
         (

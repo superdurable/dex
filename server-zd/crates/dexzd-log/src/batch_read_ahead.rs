@@ -61,7 +61,7 @@ pub struct OrderedBatchReader<'a> {
     reserved_bytes: usize,
 }
 
-/// One GET: the object bytes, or `None` when the seq is empty.
+/// One listed seq: the object bytes, or `None` when the seq is empty.
 type ObjectRead = Result<Option<Bytes>, LogError>;
 
 enum ReadEvent {
@@ -212,12 +212,17 @@ impl<'a> OrderedBatchReader<'a> {
             self.listing.forget_through(seq);
             self.reservations.push_back(reservation);
             self.reserved_bytes += reservation;
-            self.in_flight.push(Box::pin(read_object(
-                self.store,
-                self.stream,
-                seq,
-                listed_bytes,
-            )));
+            if let Some(listed_bytes) = listed_bytes {
+                self.in_flight.push(Box::pin(read_object(
+                    self.store,
+                    self.stream,
+                    seq,
+                    listed_bytes,
+                )));
+            } else {
+                self.in_flight
+                    .push(Box::pin(async move { ReadEvent::Object(seq, Ok(None)) }));
+            }
             self.next_seq_to_read = seq.checked_add(1).filter(|next| *next <= self.last_seq);
         }
         self.start_listing();
@@ -313,15 +318,13 @@ async fn read_object(
     store: &dyn ObjectStore,
     stream: &StreamIdentity,
     seq: u64,
-    listed_bytes: Option<usize>,
+    listed_bytes: usize,
 ) -> ReadEvent {
     let read = async {
         let Some(object) = store.get(&stream.batch_key(seq)).await? else {
             return Ok(None);
         };
-        if let Some(listed_bytes) = listed_bytes
-            && object.bytes.len() != listed_bytes
-        {
+        if object.bytes.len() != listed_bytes {
             return Err(LogError::Corrupt(format!(
                 "batch at seq {seq} has {} bytes, but its listing showed {listed_bytes}",
                 object.bytes.len()

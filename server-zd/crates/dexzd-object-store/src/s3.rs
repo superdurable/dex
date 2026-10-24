@@ -15,7 +15,7 @@ use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{
     BehaviorVersion, Credentials, Region, retry::RetryConfig, timeout::TimeoutConfig,
 };
-use aws_sdk_s3::error::ProvideErrorMetadata;
+use aws_sdk_s3::error::{ProvideErrorMetadata, SdkError};
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{
     ChecksumAlgorithm, CompletedMultipartUpload, CompletedPart, Delete, ObjectIdentifier,
@@ -203,6 +203,52 @@ impl S3ObjectStore {
 
     fn full_key(&self, key: &str) -> String {
         format!("{}{}", self.key_prefix, key)
+    }
+
+    async fn key_is_absent(
+        &self,
+        key: &str,
+        operation: ObjectStoreOperation,
+    ) -> ObjectStoreResult<bool> {
+        let full_key = self.full_key(key);
+        let response = self
+            .read_client
+            .list_objects_v2()
+            .bucket(&self.bucket)
+            .prefix(&full_key)
+            .max_keys(1)
+            .send()
+            .await
+            .map_err(|error| map_sdk_error(operation, key, false, error))?;
+        Ok(response.contents().first().and_then(|object| object.key()) != Some(full_key.as_str()))
+    }
+
+    async fn classify_optional_read_error<E>(
+        &self,
+        key: &str,
+        operation: ObjectStoreOperation,
+        error: SdkError<E>,
+    ) -> ObjectStoreResult<Option<ObjectStoreError>>
+    where
+        E: ProvideErrorMetadata + std::fmt::Display,
+    {
+        let status = error
+            .raw_response()
+            .map(|response| response.status().as_u16());
+        let is_no_such_key = error
+            .as_service_error()
+            .and_then(ProvideErrorMetadata::code)
+            == Some("NoSuchKey");
+        let mapped = map_sdk_error(operation, key, false, error);
+        let is_absent = match (operation, status, is_no_such_key) {
+            (ObjectStoreOperation::Get, Some(404), true) => true,
+            (ObjectStoreOperation::Get | ObjectStoreOperation::Head, Some(403), _)
+            | (ObjectStoreOperation::Head, Some(404), _) => {
+                self.key_is_absent(key, operation).await?
+            }
+            _ => false,
+        };
+        Ok((!is_absent).then_some(mapped))
     }
 
     async fn put_single(
@@ -597,16 +643,12 @@ impl S3ObjectStore {
                         object_size: metadata.size,
                     }));
                 }
-                let is_missing_key = status == Some(404)
-                    && error
-                        .as_service_error()
-                        .and_then(ProvideErrorMetadata::code)
-                        != Some("NoSuchBucket");
-                let mapped = map_sdk_error(ObjectStoreOperation::Get, key, false, error);
-                return if is_missing_key {
-                    Ok(None)
-                } else {
-                    Err(mapped)
+                return match self
+                    .classify_optional_read_error(key, ObjectStoreOperation::Get, error)
+                    .await?
+                {
+                    None => Ok(None),
+                    Some(mapped) => Err(mapped),
                 };
             }
         };
@@ -740,22 +782,13 @@ impl ObjectStore for S3ObjectStore {
             .await
         {
             Ok(response) => response,
-            Err(error) => {
-                let status = error
-                    .raw_response()
-                    .map(|response| response.status().as_u16());
-                let is_missing_key = status == Some(404)
-                    && error
-                        .as_service_error()
-                        .and_then(ProvideErrorMetadata::code)
-                        != Some("NoSuchBucket");
-                let mapped = map_sdk_error(ObjectStoreOperation::Get, key, false, error);
-                return if is_missing_key {
-                    Ok(None)
-                } else {
-                    Err(mapped)
-                };
-            }
+            Err(error) => match self
+                .classify_optional_read_error(key, ObjectStoreOperation::Get, error)
+                .await?
+            {
+                None => return Ok(None),
+                Some(mapped) => return Err(mapped),
+            },
         };
         let size = u64::try_from(response.content_length().unwrap_or(-1)).map_err(|error| {
             ObjectStoreError::new(
@@ -802,24 +835,13 @@ impl ObjectStore for S3ObjectStore {
                         .saturating_add(i64::from(modified.subsec_nanos() / 1_000))
                 }),
             })),
-            Err(error) => {
-                let status = error
-                    .raw_response()
-                    .map(|response| response.status().as_u16());
-                let mapped = map_sdk_error(ObjectStoreOperation::Head, key, false, error);
-                if status != Some(404) {
-                    return Err(mapped);
-                }
-                self.read_client
-                    .head_bucket()
-                    .bucket(&self.bucket)
-                    .send()
-                    .await
-                    .map_err(|bucket_error| {
-                        map_sdk_error(ObjectStoreOperation::Head, key, false, bucket_error)
-                    })?;
-                Ok(None)
-            }
+            Err(error) => match self
+                .classify_optional_read_error(key, ObjectStoreOperation::Head, error)
+                .await?
+            {
+                None => Ok(None),
+                Some(mapped) => Err(mapped),
+            },
         }
     }
 

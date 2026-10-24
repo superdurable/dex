@@ -64,6 +64,37 @@ to a separate destination with the same keys; without it they use the primary bu
 | `environment` | `DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID`, `DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY`, and the optional `DEX_ZD_OBJECT_STORE_SESSION_TOKEN`; the hard-delete store reads the `DEX_ZD_HARD_DELETE_STORE_*` variables with the same suffixes |
 | `anonymous` | Unsigned requests, for a local emulator or a bucket that allows anonymous access |
 
+For a shared AWS S3 bucket, set a nonempty `objectStore.prefix` and grant the Server role only
+these S3 actions. Replace `BUCKET` and `PREFIX/` with the bucket and configured prefix; include the
+trailing slash in the policy. Apply the same policy to `objectStore.hardDeleteStore` when configured.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": { "StringLike": { "s3:prefix": "PREFIX/*" } }
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+      "Resource": "arn:aws:s3:::BUCKET/PREFIX/*"
+    }
+  ]
+}
+```
+
+The Server lists only under its configured prefix, including when checking a missing object.
+The startup conditional-write probe also creates and deletes a key under that prefix. No
+unconditioned bucket access or bucket administration action is required. The bucket may be
+unversioned: create-only and replacement writes use `If-None-Match` and `If-Match` with opaque
+ETags, not object versions or MD5 digests. The S3 client sends no server-side encryption headers,
+so the bucket's default SSE-KMS configuration applies. For a customer-managed KMS key, grant the
+role `kms:GenerateDataKey` and `kms:Decrypt` on that key, and allow those actions in its key policy.
+
 Startup proceeds in this order:
 
 1. The node binds `api.listen`. gRPC health Check and Watch report NOT_SERVING for `""`,

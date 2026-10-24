@@ -62,11 +62,11 @@ impl Controls {
                             "probability must be between zero and one".into(),
                         ));
                     }
-                    if matches!(rule.action, FaultAction::Error { status } if ![409, 500, 503].contains(&status))
+                    if matches!(rule.action, FaultAction::Error { status } if ![403, 409, 500, 503].contains(&status))
                     {
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            "error status must be 409, 500, or 503".into(),
+                            "error status must be 403, 409, 500, or 503".into(),
                         ));
                     }
                     if matches!(rule.action, FaultAction::CorruptBody {})
