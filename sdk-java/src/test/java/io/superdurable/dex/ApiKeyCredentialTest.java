@@ -217,6 +217,46 @@ final class ApiKeyCredentialTest {
     }
 
     @Test
+    void redactsAnOlderJwtFromEndpointFieldsAndTransportFailures() throws Exception {
+        final String oldestToken = "headersegmentA.payloadsegmentA.signaturesegmentA";
+        final String middleToken = "middle-access-token-B";
+        final String newestToken = "newest-access-token-C";
+        final String responseToken = "response-access-token-D";
+        final AtomicLong clock = new AtomicLong(TimeUnit.SECONDS.toNanos(10));
+        final TokenEchoingHttpConnectionFactory connectionFactory =
+                new TokenEchoingHttpConnectionFactory(oldestToken);
+        try (TokenEndpoint endpoint = new TokenEndpoint();
+                ApiKeyCredential credential = ApiKeyCredential.builder(endpoint.url(), "server", API_KEY)
+                        .clock(clock::get)
+                        .httpConnectionFactory(connectionFactory).build()) {
+            for (String token : new String[] {oldestToken, middleToken, newestToken}) {
+                endpoint.reply(200, success(token, 1));
+                assertEquals(token, credential.token());
+                clock.addAndGet(TimeUnit.SECONDS.toNanos(1));
+            }
+            endpoint.reply(503, "{\"access_token\":\"" + responseToken
+                    + "\",\"error\":\"revoked " + oldestToken
+                    + "\",\"error_description\":\"expired " + oldestToken
+                    + ", " + middleToken + ", " + newestToken + ", and " + responseToken + "\"}");
+            final ApiKeyCredential.ExchangeException endpointFailure = assertThrows(
+                    ApiKeyCredential.ExchangeException.class, credential::token);
+            assertTrue(endpointFailure.getMessage().contains("revoked <redacted>"), endpointFailure.getMessage());
+            assertTrue(endpointFailure.getMessage().contains("expired <redacted>"));
+            assertFalse(endpointFailure.getMessage().contains(oldestToken));
+            assertFalse(endpointFailure.getMessage().contains(middleToken));
+            assertFalse(endpointFailure.getMessage().contains(newestToken));
+            assertFalse(endpointFailure.getMessage().contains(responseToken));
+            assertFalse(endpointFailure.toString().contains(oldestToken));
+
+            connectionFactory.shouldFailTransport = true;
+            final ApiKeyCredential.ExchangeException transportFailure = assertThrows(
+                    ApiKeyCredential.ExchangeException.class, credential::token);
+            assertFalse(transportFailure.getMessage().contains(oldestToken));
+            assertFalse(transportFailure.toString().contains(oldestToken));
+        }
+    }
+
+    @Test
     void rejectsRedirectsWithoutSendingTheKeyToTheDestination() throws Exception {
         for (int status : new int[] {307, 308}) {
             try (TokenEndpoint endpoint = new TokenEndpoint();
@@ -634,6 +674,24 @@ final class ApiKeyCredentialTest {
             result.append(value);
         }
         return result.toString();
+    }
+
+    private static final class TokenEchoingHttpConnectionFactory
+            implements ApiKeyCredential.HttpConnectionFactory {
+        private final String echoedToken;
+        private volatile boolean shouldFailTransport;
+
+        private TokenEchoingHttpConnectionFactory(final String echoedToken) {
+            this.echoedToken = echoedToken;
+        }
+
+        @Override
+        public HttpURLConnection openConnection(final URI tokenUrl) throws IOException {
+            if (shouldFailTransport) {
+                throw new IOException("transport cause echoed " + echoedToken);
+            }
+            return (HttpURLConnection) tokenUrl.toURL().openConnection();
+        }
     }
 
     private static void awaitToken(final ApiKeyCredential credential, final String expected)

@@ -132,6 +132,8 @@ interface ApiKeyCredentialState {
   exchangeTimeoutMs: number;
   fetch: typeof globalThis.fetch;
   cachedToken: string | undefined;
+  lastAccessToken: string | undefined;
+  previousAccessToken: string | undefined;
   expiresAtMs: number;
   refreshAtMs: number;
   nextRefreshAtMs: number;
@@ -153,7 +155,10 @@ const apiKeyCredentialStates = new WeakMap<ApiKeyCredential, ApiKeyCredentialSta
  *
  * The token URL must use HTTPS, except loopback HTTP is accepted for local endpoints.
  * Token endpoint redirects are never followed.
- * Neither the API key nor access token appears in formatted credentials or errors.
+ * Credential inspection contains no secrets. Exchange errors redact the API key,
+ * cached and two most recently issued access tokens, and JWT-shaped substrings before
+ * truncating each endpoint error field to 200 characters. A JWT-shaped substring has
+ * three base64url segments of at least 10 characters each. Raw transport causes are omitted.
  * Concurrent calls are safe. The credential owns no persistent HTTP client or timer;
  * an in-flight exchange ends within the configured timeout. An injected fetch is owned
  * by the application. The application owns this credential when sharing it among
@@ -209,6 +214,8 @@ export class ApiKeyCredential implements Credential {
       exchangeTimeoutMs,
       fetch: options.fetch ?? globalThis.fetch,
       cachedToken: undefined,
+      lastAccessToken: undefined,
+      previousAccessToken: undefined,
       expiresAtMs: 0,
       refreshAtMs: 0,
       nextRefreshAtMs: 0,
@@ -260,6 +267,8 @@ export class ApiKeyCredential implements Credential {
   private startExchange(): Promise<string> {
     const exchange = this.exchange().then(({ token, startedAtMs, lifetimeMs }) => {
       this.apiKeyState.cachedToken = token;
+      this.apiKeyState.previousAccessToken = this.apiKeyState.lastAccessToken;
+      this.apiKeyState.lastAccessToken = token;
       this.apiKeyState.expiresAtMs = startedAtMs + lifetimeMs;
       this.apiKeyState.refreshAtMs = startedAtMs + lifetimeMs * 0.8;
       this.apiKeyState.nextRefreshAtMs = 0;
@@ -340,14 +349,17 @@ export class ApiKeyCredential implements Credential {
   }
 
   private redact(value: string, responseToken?: string): string {
-    let redacted = value.replaceAll(this.apiKeyState.apiKey, "[REDACTED]");
-    if (this.apiKeyState.cachedToken !== undefined) redacted = redacted.replaceAll(this.apiKeyState.cachedToken, "[REDACTED]");
-    if (responseToken !== undefined && responseToken !== "") redacted = redacted.replaceAll(responseToken, "[REDACTED]");
-    return redacted;
+    const secrets = [this.apiKeyState.apiKey, this.apiKeyState.cachedToken, this.apiKeyState.lastAccessToken,
+      this.apiKeyState.previousAccessToken, responseToken]
+      .filter((secret): secret is string => secret !== undefined && secret !== "")
+      .sort((first, second) => second.length - first.length);
+    let redacted = value;
+    for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]");
+    return redacted.replace(/[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, "[REDACTED]");
   }
 
   private exchangeError(statusCode: number | undefined, detail: string): ApiKeyExchangeError {
-    return new ApiKeyExchangeError(`dex: token exchange ${this.redact(this.apiKeyState.tokenUrl)} HTTP status ${statusCode ?? "unavailable"}: ${detail}`);
+    return new ApiKeyExchangeError(`dex: token exchange ${this.redact(this.apiKeyState.tokenUrl)} HTTP status ${statusCode ?? "unavailable"}: ${this.redact(detail)}`);
   }
 
   private get apiKeyState(): ApiKeyCredentialState {

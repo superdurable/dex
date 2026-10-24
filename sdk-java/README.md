@@ -488,8 +488,10 @@ Worker sharing it has closed. No timer runs between token calls. A custom
 proxy; the credential disconnects each connection after use.
 Redirect responses fail without forwarding the API key. A call deadline or
 cancellation bounds a token wait during a unary retry.
-The API key and access tokens are omitted from credential descriptions and
-exchange errors.
+Credential descriptions contain no secrets. Exchange errors redact the API key,
+cached and two most recently issued access tokens, and JWT-shaped substrings before
+truncating each endpoint error field to 200 characters. A JWT-shaped substring has
+three base64url segments of at least 10 characters each. Raw transport causes are omitted.
 
 Custom `Credential` implementations must support concurrent calls and should
 avoid unbounded blocking. An exception fails the call before it reaches Dex. A configured gRPC

@@ -614,8 +614,11 @@ for a proxy or a test endpoint. The application owns an injected fetch client.
 If Dex rejects a token with `UNAUTHENTICATED`, the credential discards it only
 when it is still current. Unary Client and Worker calls then retry once with a
 fresh token. Rejected pull streams reconnect immediately once with a fresh token;
-a second rejection uses the Worker's 60–90 second backoff. The API key and access
-token are absent from credential inspection and exchange error messages. A single
+a second rejection uses the Worker's 60–90 second backoff. Credential inspection
+contains no secrets. Exchange errors redact the API key, cached and two most
+recently issued access tokens, and JWT-shaped substrings before truncating each endpoint
+error field to 200 characters. A JWT-shaped substring has three base64url
+segments of at least 10 characters each. Raw transport causes are omitted. A single
 credential is safe to share among concurrent Clients and Workers. The application
 owns it; closing a Client or Worker does not close the credential. It holds no
 persistent HTTP client or idle background task; an active exchange ends within
